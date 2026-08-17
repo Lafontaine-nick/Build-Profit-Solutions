@@ -4,7 +4,10 @@
  */
 
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
-import { formatUnitLabel, type SuggestedPricingBlock } from '@/utils/scopeItemQuantities';
+import {
+  formatUnitLabel,
+  type SuggestedPricingBlock,
+} from '@/utils/scopeItemQuantities';
 import { BATHROOM_VANITY_COUNTERTOP_VIEW_DETAILS } from '@/utils/bathroomVanityCountertopPricing';
 import {
   buildToiletRelocatePricingDetails,
@@ -61,7 +64,9 @@ export function suggestedPricingFooterCountsAmperageConfirm(
   return Boolean(block.needsServiceAmperage);
 }
 
-export function minimumProjectNoteForSuggestedBlock(block: SuggestedPricingBlock): string | null {
+export function minimumProjectNoteForSuggestedBlock(
+  block: SuggestedPricingBlock
+): string | null {
   if (/small-project minimum applied/i.test(String(block.helper || ''))) {
     return 'Small-project minimum may apply';
   }
@@ -84,15 +89,22 @@ export const LIVING_AREA_FALLBACK_SCOPE_IDS = new Set([
 export type SuggestedQuantitySource =
   | 'notes'
   | 'plan'
+  | 'plan_verified'
   | 'ai_verified'
   | 'plan_conflict'
+  | 'needs_confirmation'
+  | 'contractor_confirmed_from_plan_review'
   | 'user'
   | 'calculated'
   | 'assumption'
   | 'fallback'
   | 'unknown';
 
-export type SuggestedPricingStatus = 'ready' | 'planning' | 'allowance' | 'review_required';
+export type SuggestedPricingStatus =
+  | 'ready'
+  | 'planning'
+  | 'allowance'
+  | 'review_required';
 
 export type SuggestedPricingActionType =
   | 'apply_price'
@@ -143,7 +155,9 @@ export function shouldUseCompactSuggestedAlternative(params: {
   return Math.abs(current - suggested) >= 0.01;
 }
 
-export function formatCompactSuggestedLine(total: number | null | undefined): string | null {
+export function formatCompactSuggestedLine(
+  total: number | null | undefined
+): string | null {
   const formatted = formatAppliedDisplayMoney(total);
   if (formatted === '—') return null;
   return formatted;
@@ -205,13 +219,20 @@ const FALLBACK_MEASUREMENT_COPY: Record<
 };
 
 /** Visible source chip — short; full rateSourceLabel stays in underlying data. */
-export function displayPriceSourceLabel(rateSourceLabel: string | null | undefined): string {
+export function displayPriceSourceLabel(
+  rateSourceLabel: string | null | undefined
+): string {
   const raw = String(rateSourceLabel || '').trim();
-  const stripped = raw.replace(/^Suggested · /, '').replace(/^Adjusted · /, '').trim();
+  const stripped = raw
+    .replace(/^Suggested · /, '')
+    .replace(/^Adjusted · /, '')
+    .trim();
   if (!stripped) return 'National planning rate';
   // Keep full blended barometer labels (e.g. "Blended national + barometer · Plan 41 · CA").
   if (/blended\s*national\s*\+\s*barometer/i.test(stripped)) {
-    return stripped.length > 52 ? `${stripped.slice(0, 49).trimEnd()}…` : stripped;
+    return stripped.length > 52
+      ? `${stripped.slice(0, 49).trimEnd()}…`
+      : stripped;
   }
   if (/national\s*average\s*comparison/i.test(stripped)) {
     return 'National planning rate';
@@ -221,7 +242,9 @@ export function displayPriceSourceLabel(rateSourceLabel: string | null | undefin
   }
   // Keep full Southern Utah comparable labels (e.g. "Southern Utah comparable · Plan 41").
   if (/southern\s*utah\s*comparable/i.test(stripped)) {
-    return stripped.length > 48 ? `${stripped.slice(0, 45).trimEnd()}…` : stripped;
+    return stripped.length > 48
+      ? `${stripped.slice(0, 45).trimEnd()}…`
+      : stripped;
   }
   if (/southern\s*utah|local\s*benchmark/i.test(stripped)) {
     return 'Local benchmark';
@@ -238,23 +261,34 @@ export function displayPriceSourceLabel(rateSourceLabel: string | null | undefin
   if (/notes|parsed/i.test(stripped)) {
     return 'From notes';
   }
-  return stripped.length > 28 ? `${stripped.slice(0, 25).trimEnd()}…` : stripped;
+  return stripped.length > 28
+    ? `${stripped.slice(0, 25).trimEnd()}…`
+    : stripped;
 }
 
 /** True when suggested fill uses national average rates (not saved/local pricing). */
 export function isNationalAverageSuggestedBlock(
   block: Pick<
     SuggestedPricingBlock,
-    'materialSource' | 'laborSource' | 'rateSourceLabel' | 'costBuckets' | 'pricingRecordId'
+    | 'materialSource'
+    | 'laborSource'
+    | 'rateSourceLabel'
+    | 'costBuckets'
+    | 'pricingRecordId'
   >,
   pricingSourceLabel?: string | null
 ): boolean {
-  if (block.materialSource === 'national_average' || block.laborSource === 'national_average') {
+  if (
+    block.materialSource === 'national_average' ||
+    block.laborSource === 'national_average'
+  ) {
     return true;
   }
-  if (block.costBuckets?.some((b) => b.source === 'national_average')) return true;
+  if (block.costBuckets?.some(b => b.source === 'national_average'))
+    return true;
   if (/national/i.test(String(block.rateSourceLabel || ''))) return true;
-  if (String(block.pricingRecordId || '').startsWith('bps_national:')) return true;
+  if (String(block.pricingRecordId || '').startsWith('bps_national:'))
+    return true;
   const chip = String(pricingSourceLabel || '').trim();
   return chip === 'BPS national benchmark' || chip === 'National average';
 }
@@ -263,7 +297,9 @@ export function isNationalAverageSuggestedBlock(
  * Display-only rounding for suggested / planning totals.
  * Under $1k → nearest $10; $1k–$10k → nearest $10; over $10k → nearest $50.
  */
-export function roundSuggestedDisplayTotal(total: number | null | undefined): number | null {
+export function roundSuggestedDisplayTotal(
+  total: number | null | undefined
+): number | null {
   const n = Number(total);
   if (!Number.isFinite(n) || n <= 0) return null;
   if (n < 1000) return Math.round(n / 10) * 10;
@@ -272,34 +308,44 @@ export function roundSuggestedDisplayTotal(total: number | null | undefined): nu
 }
 
 /** Whole-dollar component display (nearest $10) — totals use roundSuggestedDisplayTotal. */
-export function roundSuggestedDisplayComponent(amount: number | null | undefined): number | null {
+export function roundSuggestedDisplayComponent(
+  amount: number | null | undefined
+): number | null {
   const n = Number(amount);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.round(n / 10) * 10;
 }
 
 /** Per-SF rate with cents — used for blended floor-prep display. */
-export function formatSuggestedBlendedRateMoney(rate: number | null | undefined): string {
+export function formatSuggestedBlendedRateMoney(
+  rate: number | null | undefined
+): string {
   const value = Number(rate);
   if (!Number.isFinite(value)) return '—';
   return `$${value.toFixed(2)}`;
 }
 
 /** Exact apply amount — matches stored totals after Apply, including cents. */
-export function formatSuggestedDisplayMoney(total: number | null | undefined): string {
+export function formatSuggestedDisplayMoney(
+  total: number | null | undefined
+): string {
   const value = Number(total);
   if (!Number.isFinite(value)) return '—';
   return formatDraftMoney(value);
 }
 
-export function formatSuggestedComponentMoney(amount: number | null | undefined): string {
+export function formatSuggestedComponentMoney(
+  amount: number | null | undefined
+): string {
   const value = Number(amount);
   if (!Number.isFinite(value)) return '—';
   return `$${Math.round(value).toLocaleString()}`;
 }
 
 /** Keep applied pricing readable as whole-dollar display values. */
-export function formatAppliedDisplayMoney(total: number | null | undefined): string {
+export function formatAppliedDisplayMoney(
+  total: number | null | undefined
+): string {
   const value = Number(total);
   if (!Number.isFinite(value)) return '—';
   return `$${Math.round(value).toLocaleString()}`;
@@ -318,6 +364,13 @@ export function normalizeQuantitySource(
     return 'plan_conflict';
   }
   if (
+    key === 'contractor_confirmed_from_plan_review' ||
+    key === 'plan_review_confirmed'
+  ) {
+    return 'contractor_confirmed_from_plan_review';
+  }
+  if (key === 'plan_verified') return 'plan_verified';
+  if (
     key === 'plan_vision' ||
     key === 'plan_explicit' ||
     key === 'plan_derived' ||
@@ -328,19 +381,44 @@ export function normalizeQuantitySource(
   if (key === 'ai_verified' || key === 'ai_verified_symbols') {
     return 'ai_verified';
   }
-  if (key === 'user_entered' || key === 'manual_override' || /user|manual/.test(key)) return 'user';
-  if (key === 'calculated_confirmed' || key === 'inferred' || /calculat|formula|derived/.test(key)) {
+  if (
+    key === 'user_entered' ||
+    key === 'manual_override' ||
+    /user|manual/.test(key)
+  )
+    return 'user';
+  if (
+    key === 'calculated_confirmed' ||
+    key === 'inferred' ||
+    /calculat|formula|derived/.test(key)
+  ) {
     return 'calculated';
   }
-  if (key === 'default_assumption' || /assumption/.test(key)) return 'assumption';
+  if (key === 'default_assumption' || /assumption/.test(key))
+    return 'assumption';
   if (/fallback|planning|benchmark_estimate/.test(key)) return 'fallback';
   return 'unknown';
 }
 
-export function quantityProvenanceLabel(source: SuggestedQuantitySource | string | null | undefined): string {
+export function quantityProvenanceLabel(
+  source: SuggestedQuantitySource | string | null | undefined
+): string {
   const normalized =
     typeof source === 'string' &&
-    !['notes', 'plan', 'ai_verified', 'plan_conflict', 'user', 'calculated', 'assumption', 'fallback', 'unknown'].includes(source)
+    ![
+      'notes',
+      'plan',
+      'plan_verified',
+      'ai_verified',
+      'plan_conflict',
+      'needs_confirmation',
+      'contractor_confirmed_from_plan_review',
+      'user',
+      'calculated',
+      'assumption',
+      'fallback',
+      'unknown',
+    ].includes(source)
       ? normalizeQuantitySource(source)
       : (source as SuggestedQuantitySource | null | undefined);
   switch (normalized) {
@@ -348,10 +426,16 @@ export function quantityProvenanceLabel(source: SuggestedQuantitySource | string
       return 'From notes';
     case 'plan':
       return 'From plan';
+    case 'plan_verified':
+      return 'Plan verified';
     case 'ai_verified':
       return 'AI verified · full sheet coverage checked';
     case 'plan_conflict':
       return 'Plan conflict — confirm';
+    case 'needs_confirmation':
+      return 'Needs confirmation';
+    case 'contractor_confirmed_from_plan_review':
+      return 'Contractor confirmed from plan review';
     case 'user':
       return 'User entered';
     case 'calculated':
@@ -386,11 +470,18 @@ export function isLivingAreaFallbackPricing(input: {
   if (qs === 'notes' || qs === 'plan' || qs === 'user' || qs === 'calculated') {
     // Primary measurement present — not a living-area fallback.
     if (id === 'hvac' && input.block.basis?.unit === 'each') return false;
-    if (input.block.basis?.unit && input.block.basis.unit !== 'sqft' && input.block.basis.unit !== 'living_sqft') {
+    if (
+      input.block.basis?.unit &&
+      input.block.basis.unit !== 'sqft' &&
+      input.block.basis.unit !== 'living_sqft'
+    ) {
       return false;
     }
     // Count-based trades with a real count source are ready.
-    if (id !== 'insulation' && (input.block.basis?.unit === 'each' || input.block.basis?.unit === 'lf')) {
+    if (
+      id !== 'insulation' &&
+      (input.block.basis?.unit === 'each' || input.block.basis?.unit === 'lf')
+    ) {
       return false;
     }
   }
@@ -410,25 +501,36 @@ export function suggestedCardTitle(input: {
   materialSource?: string | null;
   laborSource?: string | null;
 }): string {
-  const adjusted = String(input.rateSourceLabel || '').startsWith('Adjusted · ');
+  const adjusted = String(input.rateSourceLabel || '').startsWith(
+    'Adjusted · '
+  );
   const usesSavedPricing =
     input.materialSource === 'template' ||
     input.laborSource === 'template' ||
-    /saved\s*pricing|pricing\s*library|saved\s*rate/i.test(String(input.rateSourceLabel || ''));
+    /saved\s*pricing|pricing\s*library|saved\s*rate/i.test(
+      String(input.rateSourceLabel || '')
+    );
   // Installed local paint budgets display as pricing (not a soft-cost allowance).
   if (input.installedBudgetBenchmark) {
     return adjusted ? 'Adjusted pricing' : 'Suggested pricing';
   }
-  if (input.lumpSumOnly) return adjusted ? 'Adjusted allowance' : 'Suggested allowance';
-  if (input.isFallbackPricing) return adjusted ? 'Adjusted planning price' : 'Suggested planning price';
+  if (input.lumpSumOnly)
+    return adjusted ? 'Adjusted allowance' : 'Suggested allowance';
+  if (input.isFallbackPricing)
+    return adjusted ? 'Adjusted planning price' : 'Suggested planning price';
   if (input.mode === 'note_total_split' && !adjusted) return 'Budget split';
   if (input.isComparison) {
-    if (/national\s*average\s*comparison/i.test(String(input.rateSourceLabel || ''))) {
-    return 'National planning rate';
+    if (
+      /national\s*average\s*comparison/i.test(
+        String(input.rateSourceLabel || '')
+      )
+    ) {
+      return 'National planning rate';
     }
     return 'Suggested comparison';
   }
-  if (usesSavedPricing) return adjusted ? 'Adjusted saved pricing' : 'Saved pricing';
+  if (usesSavedPricing)
+    return adjusted ? 'Adjusted saved pricing' : 'Saved pricing';
   return adjusted ? 'Adjusted pricing' : 'Suggested pricing';
 }
 
@@ -438,17 +540,23 @@ export function resolveSuggestedActionType(input: {
   benchmarkAction?: string | null;
   hasCurrentPricing?: boolean;
 }): SuggestedPricingActionType {
-  if (input.benchmarkAction === 'comparison_only' || input.benchmarkAction === 'included_in_stage') {
+  if (
+    input.benchmarkAction === 'comparison_only' ||
+    input.benchmarkAction === 'included_in_stage'
+  ) {
     return 'apply_price';
   }
   if (input.hasCurrentPricing) return 'use_suggested';
-  if (input.lumpSumOnly || input.benchmarkAction === 'benchmark_only') return 'apply_allowance';
+  if (input.lumpSumOnly || input.benchmarkAction === 'benchmark_only')
+    return 'apply_allowance';
   if (input.isFallbackPricing) return 'use_planning_price';
   return 'apply_price';
 }
 
 /** One CTA verb across ready / planning / allowance — status lives in the title/chip. */
-export function suggestedActionLabel(actionType: SuggestedPricingActionType): string {
+export function suggestedActionLabel(
+  actionType: SuggestedPricingActionType
+): string {
   switch (actionType) {
     case 'apply_allowance':
     case 'use_planning_price':
@@ -483,7 +591,10 @@ export function formatQuantityProvenanceLine(input: {
   if (!Number.isFinite(qty) || qty <= 0) return null;
   const rawUnit = String(input.unit || 'sqft').toLowerCase();
   const unit =
-    rawUnit === 'floor_sqft' || rawUnit === 'living_sqft' || rawUnit === 'sf' || rawUnit === 'sq.ft'
+    rawUnit === 'floor_sqft' ||
+    rawUnit === 'living_sqft' ||
+    rawUnit === 'sf' ||
+    rawUnit === 'sq.ft'
       ? 'sqft'
       : formatUnitLabel(input.unit || 'sqft');
   const qtyLabel =
@@ -501,25 +612,37 @@ export function formatFallbackBasisLine(input: {
   return `Fallback basis: ${Math.round(living).toLocaleString()} sqft living area`;
 }
 
-export function formatSuggestedSplitLine(block: SuggestedPricingBlock): string | null {
+export function formatSuggestedSplitLine(
+  block: SuggestedPricingBlock
+): string | null {
   if (block.installedBudgetBenchmark || block.splitSource === 'none') {
     return 'Installed source budget · material/labor not separated';
   }
   if (block.lumpSumOnly) return null;
   const buckets = block.costBuckets?.length
-    ? block.costBuckets.filter((b) => b.amount > 0)
+    ? block.costBuckets.filter(b => b.amount > 0)
     : [
         ...(block.material > 0
-          ? [{ key: 'material' as const, label: 'Material', amount: block.material }]
+          ? [
+              {
+                key: 'material' as const,
+                label: 'Material',
+                amount: block.material,
+              },
+            ]
           : []),
-        ...(block.labor > 0 ? [{ key: 'labor' as const, label: 'Labor', amount: block.labor }] : []),
+        ...(block.labor > 0
+          ? [{ key: 'labor' as const, label: 'Labor', amount: block.labor }]
+          : []),
       ];
   if (!buckets.length) return null;
-  const line = buckets.map((b) => `${b.label} ${formatSuggestedComponentMoney(b.amount)}`).join(' · ');
+  const line = buckets
+    .map(b => `${b.label} ${formatSuggestedComponentMoney(b.amount)}`)
+    .join(' · ');
   const isEstimatedPlanningSplit =
     block.materialSource === 'national_average' ||
     block.laborSource === 'national_average' ||
-    buckets.some((bucket) => bucket.source === 'national_average');
+    buckets.some(bucket => bucket.source === 'national_average');
   const prefix = isEstimatedPlanningSplit ? 'Estimated planning split · ' : '';
   if (block.splitSource === 'estimated') {
     return `Estimated planning split · ${line}`;
@@ -527,7 +650,9 @@ export function formatSuggestedSplitLine(block: SuggestedPricingBlock): string |
   return `${prefix}${line}`;
 }
 
-export function formatInstalledBudgetQuantityLine(block: SuggestedPricingBlock): string | null {
+export function formatInstalledBudgetQuantityLine(
+  block: SuggestedPricingBlock
+): string | null {
   const living = Number(block.benchmarkLivingSf);
   if (Number.isFinite(living) && living > 0) {
     return `${Math.round(living).toLocaleString()} living SF · house match`;
@@ -535,7 +660,9 @@ export function formatInstalledBudgetQuantityLine(block: SuggestedPricingBlock):
   return null;
 }
 
-export function formatSuggestedUnitRateLine(block: SuggestedPricingBlock): string | null {
+export function formatSuggestedUnitRateLine(
+  block: SuggestedPricingBlock
+): string | null {
   if (block.installedBudgetBenchmark) {
     // Implied $/living SF is display-only — price is the installed house budget.
     if (block.impliedUnitRateLabel) {
@@ -587,7 +714,11 @@ function formatShowerRoughQuantityProvenanceLine(
   if (ctx.fixtureType === 'unsure') {
     return `${label} · Planning assumption`;
   }
-  if (quantitySource === 'assumption' || quantitySource === 'fallback' || quantitySource === 'unknown') {
+  if (
+    quantitySource === 'assumption' ||
+    quantitySource === 'fallback' ||
+    quantitySource === 'unknown'
+  ) {
     return `${label} · Planning assumption`;
   }
   return `${label} · Price based on selected conditions`;
@@ -598,7 +729,9 @@ function formatInteriorPaintQuantityProvenanceLine(
   quantitySource: SuggestedQuantitySource
 ): string {
   const provenance =
-    quantitySource === 'user' || quantitySource === 'notes' || quantitySource === 'plan'
+    quantitySource === 'user' ||
+    quantitySource === 'notes' ||
+    quantitySource === 'plan'
       ? 'User-entered wall/ceiling surface area'
       : quantitySource === 'calculated'
         ? 'Calculated wall/ceiling surface area'
@@ -628,7 +761,9 @@ export function buildSuggestedPricingCardDisplay(input: {
     ? toiletRelocateFloorTypeFromPricingRecord(block.pricingRecordId)
     : null;
   const showerRough = isShowerRoughSuggestedBlock(block.pricingRecordId);
-  const showerCtx = showerRough ? showerRoughContextFromPricingRecord(block.pricingRecordId) : null;
+  const showerCtx = showerRough
+    ? showerRoughContextFromPricingRecord(block.pricingRecordId)
+    : null;
   const interiorPaint = isInteriorPaintSuggestedBlock(block.pricingRecordId);
   const interiorPaintCtx = interiorPaint
     ? interiorPaintContextFromPricingRecord(block.pricingRecordId)
@@ -641,12 +776,16 @@ export function buildSuggestedPricingCardDisplay(input: {
         })
       : null;
   const glassDoor = isGlassDoorSuggestedBlock(block.pricingRecordId);
-  const glassDoorCtx = glassDoor ? glassDoorContextFromPricingRecord(block.pricingRecordId) : null;
+  const glassDoorCtx = glassDoor
+    ? glassDoorContextFromPricingRecord(block.pricingRecordId)
+    : null;
   const glassDoorDetails =
     glassDoor && glassDoorCtx
       ? buildGlassDoorPricingDetails(glassDoorCtx)
       : null;
-  const isAdjusted = Boolean(input.adjusted || block.rateSourceLabel.startsWith('Adjusted · '));
+  const isAdjusted = Boolean(
+    input.adjusted || block.rateSourceLabel.startsWith('Adjusted · ')
+  );
   const quantitySource = normalizeQuantitySource(input.quantitySource);
   const isFallbackPricing = isLivingAreaFallbackPricing({
     itemId,
@@ -683,15 +822,25 @@ export function buildSuggestedPricingCardDisplay(input: {
   let pricingStatus: SuggestedPricingStatus = 'ready';
   if (lumpSumOnly) pricingStatus = 'allowance';
   else if (isFallbackPricing) pricingStatus = 'planning';
-  else if (/planning estimate|assumptions to review|review before bid|low|review|measurement/i.test(String(input.confidenceLabel || ''))) {
+  else if (
+    /planning estimate|assumptions to review|review before bid|low|review|measurement/i.test(
+      String(input.confidenceLabel || '')
+    )
+  ) {
     pricingStatus = 'review_required';
   }
 
-  const confidenceLevel = /planning estimate|(?:^|\s)low/i.test(String(input.confidenceLabel || ''))
+  const confidenceLevel = /planning estimate|(?:^|\s)low/i.test(
+    String(input.confidenceLabel || '')
+  )
     ? 'low'
-    : /review before bid|(?:^|\s)medium/i.test(String(input.confidenceLabel || ''))
+    : /review before bid|(?:^|\s)medium/i.test(
+          String(input.confidenceLabel || '')
+        )
       ? 'medium'
-      : /high confidence|(?:^|\s)high/i.test(String(input.confidenceLabel || ''))
+      : /high confidence|(?:^|\s)high/i.test(
+            String(input.confidenceLabel || '')
+          )
         ? 'high'
         : null;
 
@@ -734,7 +883,8 @@ export function buildSuggestedPricingCardDisplay(input: {
     statusTone = 'amber';
     if (itemId === 'permits') {
       statusLine = 'Confirm local permit fees';
-      allowanceExtraNote = 'Water, sewer, fire, or utility fees may be separate.';
+      allowanceExtraNote =
+        'Water, sewer, fire, or utility fees may be separate.';
     } else if (itemId === 'plans_engineering') {
       statusLine = 'Planning allowance · Engineering/soils may be separate';
     } else if (itemId === 'cleanup') {
@@ -756,7 +906,10 @@ export function buildSuggestedPricingCardDisplay(input: {
   } else if (showerRough && showerCtx) {
     if (block.splitConfidence === 'low') {
       statusTone = 'amber';
-      if (showerCtx.slabWorkRequired === 'unsure' && showerCtx.workType === 'in_place') {
+      if (
+        showerCtx.slabWorkRequired === 'unsure' &&
+        showerCtx.workType === 'in_place'
+      ) {
         statusLine = SHOWER_ROUGH_SLAB_UNSURE_STATUS;
       } else {
         statusLine =
@@ -766,12 +919,16 @@ export function buildSuggestedPricingCardDisplay(input: {
     } else if (showerCtx.plumbingExposedSource === 'demo_detected') {
       statusTone = 'neutral';
       statusLine = SHOWER_ROUGH_DEMO_DETECTED_LABEL;
-    } else if (showerRoughConditionsUserSelected(showerCtx) || showerRoughConditionsConfirmed(showerCtx)) {
+    } else if (
+      showerRoughConditionsUserSelected(showerCtx) ||
+      showerRoughConditionsConfirmed(showerCtx)
+    ) {
       statusTone = 'neutral';
       statusLine = SHOWER_ROUGH_QUANTITY_SOURCE_SELECTED;
     }
   } else if (interiorPaint && interiorPaintDetails) {
-    statusTone = interiorPaintDetails.confidence === 'low' ? 'amber' : 'neutral';
+    statusTone =
+      interiorPaintDetails.confidence === 'low' ? 'amber' : 'neutral';
     statusLine = interiorPaintDetails.statusLine;
     if (interiorPaintDetails.confidence === 'low') {
       pricingStatus = 'review_required';
@@ -791,7 +948,8 @@ export function buildSuggestedPricingCardDisplay(input: {
     statusTone = 'amber';
     // One amber ask — title/hint stacks were duplicating this on Windows etc.
     statusLine =
-      fallbackCopy?.hint || 'Add the correct measurement for more accurate pricing.';
+      fallbackCopy?.hint ||
+      'Add the correct measurement for more accurate pricing.';
   } else if (confidenceLevel === 'low') {
     if (isNationalAverageSuggestedBlock(block, pricingSource)) {
       statusTone = 'neutral';
@@ -833,49 +991,63 @@ export function buildSuggestedPricingCardDisplay(input: {
     : showerRough && showerCtx
       ? formatShowerRoughQuantityProvenanceLine(showerCtx, quantitySource)
       : interiorPaint && interiorPaintCtx
-        ? formatInteriorPaintQuantityProvenanceLine(interiorPaintCtx, quantitySource)
+        ? formatInteriorPaintQuantityProvenanceLine(
+            interiorPaintCtx,
+            quantitySource
+          )
         : glassDoor && glassDoorCtx
-          ? formatGlassDoorQuantityLine(glassDoorCtx.doorCount, glassDoorCtx.style)
+          ? formatGlassDoorQuantityLine(
+              glassDoorCtx.doorCount,
+              glassDoorCtx.style
+            )
           : isFallbackPricing || lumpSumOnly
-          ? null
-          : formatQuantityProvenanceLine({
-              quantity: block.basis?.quantity,
-              unit: block.basis?.unit,
-              provenance: quantitySource === 'unknown' ? 'assumption' : quantitySource,
-            });
+            ? null
+            : formatQuantityProvenanceLine({
+                quantity: block.basis?.quantity,
+                unit: block.basis?.unit,
+                provenance:
+                  quantitySource === 'unknown' ? 'assumption' : quantitySource,
+              });
 
-  const fallbackBasisLine = isFallbackPricing ? formatFallbackBasisLine({ livingSf }) : null;
+  const fallbackBasisLine = isFallbackPricing
+    ? formatFallbackBasisLine({ livingSf })
+    : null;
   const compactLine = needsServiceAmperage
     ? ELECTRICAL_SERVICE_AMPERAGE_REQUIRED_STATUS
     : formatCompactSuggestedLine(block.total);
   const isFlooringLineCard = isFlooringConfirmScopePricingCard(itemId);
-  const isFlooringLinearFootCard = itemId === 'trim' || itemId === 'quarter_round';
-  const flooringQuantityUnit = isFlooringLinearFootCard ? 'LF' : itemId === 'transitions' ? 'each' : 'SF';
+  const isFlooringLinearFootCard =
+    itemId === 'trim' || itemId === 'quarter_round';
+  const flooringQuantityUnit = isFlooringLinearFootCard
+    ? 'LF'
+    : itemId === 'transitions'
+      ? 'each'
+      : 'SF';
   const floorTransitionQuantityLine =
     isFlooringLineCard && Number(block.basis?.quantity || 0) > 0
       ? `${Number(block.basis?.quantity).toLocaleString()} ${flooringQuantityUnit} total · ${formatSuggestedBlendedRateMoney(
           block.total / Number(block.basis?.quantity)
         )}/${flooringQuantityUnit}`
       : null;
-  const unitRateLine =
-    needsServiceAmperage
-      ? null
-      : isFlooringLineCard
+  const unitRateLine = needsServiceAmperage
+    ? null
+    : isFlooringLineCard
       ? null
       : showerRough && showerCtx
-      ? `${formatSuggestedDisplayMoney(block.total)}/each`
-      : interiorPaint && interiorPaintDetails
-        ? interiorPaintDetails.effectiveRateLabel
-        : glassDoor && glassDoorDetails
-          ? `$${glassDoorDetails.perDoor.toLocaleString()}/door installed`
-          : isFallbackPricing
-          ? null
-          : formatSuggestedUnitRateLine(block);
+        ? `${formatSuggestedDisplayMoney(block.total)}/each`
+        : interiorPaint && interiorPaintDetails
+          ? interiorPaintDetails.effectiveRateLabel
+          : glassDoor && glassDoorDetails
+            ? `$${glassDoorDetails.perDoor.toLocaleString()}/door installed`
+            : isFallbackPricing
+              ? null
+              : formatSuggestedUnitRateLine(block);
 
   if (fallbackBasisLine) whyThisPriceLines.push(fallbackBasisLine);
   if (pricingSource) whyThisPriceLines.push(pricingSource);
   if (allowanceExtraNote) whyThisPriceLines.push(allowanceExtraNote);
-  if (toiletRelocate) whyThisPriceLines.push(TOILET_RELOCATE_PRICING_DISCLAIMER);
+  if (toiletRelocate)
+    whyThisPriceLines.push(TOILET_RELOCATE_PRICING_DISCLAIMER);
   if (interiorPaint && interiorPaintDetails) {
     if (interiorPaintDetails.includesScopeLine) {
       whyThisPriceLines.push(interiorPaintDetails.includesScopeLine);
@@ -897,7 +1069,8 @@ export function buildSuggestedPricingCardDisplay(input: {
   }
   if (
     itemId === 'countertops' &&
-    block.benchmarkScopeProfile?.audit?.rootCause === BATHROOM_VANITY_COUNTERTOP_VIEW_DETAILS
+    block.benchmarkScopeProfile?.audit?.rootCause ===
+      BATHROOM_VANITY_COUNTERTOP_VIEW_DETAILS
   ) {
     whyThisPriceLines.push(BATHROOM_VANITY_COUNTERTOP_VIEW_DETAILS);
   }
@@ -910,26 +1083,28 @@ export function buildSuggestedPricingCardDisplay(input: {
     pricingSource,
     pricingStatus: block.installedBudgetBenchmark ? 'ready' : pricingStatus,
     confidenceLevel,
-    missingMeasurementKey: isFallbackPricing && !hasCurrentPricing ? itemId : null,
+    missingMeasurementKey:
+      isFallbackPricing && !hasCurrentPricing ? itemId : null,
     isFallbackPricing,
     pricingBasisLabel: fallbackBasisLine,
     actionType,
-    title: showerRough && showerCtx
-      ? formatShowerRoughSuggestedTitle(showerCtx.fixtureType)
-      : interiorPaint
-        ? formatInteriorPaintSuggestedTitle()
-        : glassDoor && glassDoorCtx
-          ? formatGlassDoorSuggestedTitle(glassDoorCtx.style)
-          : suggestedCardTitle({
-          lumpSumOnly,
-          isComparison: block.isComparison,
-          mode: block.mode,
-          rateSourceLabel: block.rateSourceLabel,
-          isFallbackPricing,
-          installedBudgetBenchmark: block.installedBudgetBenchmark,
-          materialSource: block.materialSource,
-          laborSource: block.laborSource,
-        }),
+    title:
+      showerRough && showerCtx
+        ? formatShowerRoughSuggestedTitle(showerCtx.fixtureType)
+        : interiorPaint
+          ? formatInteriorPaintSuggestedTitle()
+          : glassDoor && glassDoorCtx
+            ? formatGlassDoorSuggestedTitle(glassDoorCtx.style)
+            : suggestedCardTitle({
+                lumpSumOnly,
+                isComparison: block.isComparison,
+                mode: block.mode,
+                rateSourceLabel: block.rateSourceLabel,
+                isFallbackPricing,
+                installedBudgetBenchmark: block.installedBudgetBenchmark,
+                materialSource: block.materialSource,
+                laborSource: block.laborSource,
+              }),
     quantityLine: floorTransitionQuantityLine || quantityLine,
     fallbackBasisLine,
     missingMeasurementTitle: null,
@@ -945,7 +1120,9 @@ export function buildSuggestedPricingCardDisplay(input: {
             ? 'Allowance · Flat amount'
             : `${formatSuggestedSplitLine(block)}${block.pricingDetail ? ` · ${block.pricingDetail}` : ''}`,
     unitRateLine:
-      unitRateLine && /reference only/i.test(unitRateLine) ? null : unitRateLine,
+      unitRateLine && /reference only/i.test(unitRateLine)
+        ? null
+        : unitRateLine,
     sourceLine: pricingSource,
     statusLine,
     statusTone,

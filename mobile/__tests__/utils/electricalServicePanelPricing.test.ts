@@ -28,10 +28,16 @@ describe('electrical Phase 2A service/panel pricing', () => {
   it('snaps amperage onto the service/panel tiers', () => {
     expect(snapElectricalAmperageTier(200, 'electrical_main_panel')).toBe(200);
     expect(snapElectricalAmperageTier(90, 'electrical_subpanel')).toBe(100);
-    expect(snapElectricalAmperageTier(400, 'electrical_service_upgrade')).toBe(400);
-    expect(snapElectricalAmperageTier(null, 'electrical_main_panel')).toBeNull();
+    expect(snapElectricalAmperageTier(400, 'electrical_service_upgrade')).toBe(
+      400
+    );
+    expect(
+      snapElectricalAmperageTier(null, 'electrical_main_panel')
+    ).toBeNull();
     expect(snapElectricalAmperageTier(0, 'electrical_subpanel')).toBeNull();
-    expect(snapElectricalAmperageTier(undefined, 'electrical_service_upgrade')).toBeNull();
+    expect(
+      snapElectricalAmperageTier(undefined, 'electrical_service_upgrade')
+    ).toBeNull();
   });
 
   it('quotes a new indoor 200A main panel at the proposed split', () => {
@@ -48,6 +54,36 @@ describe('electrical Phase 2A service/panel pricing', () => {
       amperageTier: 200,
       specialty: false,
     });
+  });
+
+  it('keeps the locked 125A split and applies outdoor modifiers to material and labor', () => {
+    const indoor = quoteElectricalServicePanel({
+      itemId: 'electrical_main_panel',
+      quantity: 1,
+      serviceAmperage: 125,
+      electricalProjectCondition: 'new_construction',
+      electricalPanelLocation: 'indoor',
+    });
+    const outdoor = quoteElectricalServicePanel({
+      itemId: 'electrical_main_panel',
+      quantity: 1,
+      serviceAmperage: 125,
+      electricalProjectCondition: 'new_construction',
+      electricalPanelLocation: 'outdoor',
+    });
+    expect(indoor).toMatchObject({
+      material: 525,
+      labor: 825,
+      total: 1350,
+    });
+    expect(outdoor).toMatchObject({
+      material: 577.5,
+      labor: 948.75,
+      total: 1526.25,
+    });
+    expect(outdoor?.pricingDetail).toMatch(
+      /Outdoor: material × 1\.10, labor × 1\.15/
+    );
   });
 
   it('applies job condition to labor only', () => {
@@ -162,6 +198,7 @@ describe('electrical Phase 2A service/panel pricing', () => {
       electricalMeterMainCombo: false,
     });
     expect(withCombo?.total).toBe(withoutCombo?.total);
+    expect(withCombo?.pricingDetail).not.toMatch(/Meter\/main/);
   });
 
   it('marks 400A as a specialty review tier', () => {
@@ -172,11 +209,13 @@ describe('electrical Phase 2A service/panel pricing', () => {
     });
     expect(quote?.specialty).toBe(true);
     expect(quote?.helper).toMatch(/specialty/i);
-    expect(resolveElectricalServicePanelSuggestedPricing({
-      itemId: 'electrical_main_panel',
-      quantity: 1,
-      serviceAmperage: 400,
-    }).fill?.productionStatus).toBe('review_required');
+    expect(
+      resolveElectricalServicePanelSuggestedPricing({
+        itemId: 'electrical_main_panel',
+        quantity: 1,
+        serviceAmperage: 400,
+      }).fill?.productionStatus
+    ).toBe('review_required');
   });
 
   it('wires Confirm Scope proposed pricing for service/panel only', () => {
@@ -216,9 +255,9 @@ describe('electrical Phase 2A service/panel pricing', () => {
     expect(servicePricing.fill?.total).toBe(5250);
     expect(servicePricing.fill?.rateSourceLabel).toMatch(/100–200A approved/i);
     expect(servicePricing.fill?.productionStatus).toBe('production_ready');
-    expect(resolveStep2PricingTier('electrical_service_upgrade', 'electrical').tier).toBe(
-      'auto_planning'
-    );
+    expect(
+      resolveStep2PricingTier('electrical_service_upgrade', 'electrical').tier
+    ).toBe('auto_planning');
   });
 
   it('does not put rates on electrical_rough', () => {

@@ -5,12 +5,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ConfirmScopeChip } from '@/components/estimate/ConfirmScopeChip';
 import { QmSqftMeasurementRow } from '@/components/estimate/QmTradeScopePanels';
 import { getColors } from '@/theme/getColors';
@@ -28,7 +23,10 @@ import {
   type ElectricalQmGroup,
   type ElectricalQmField,
 } from '@/utils/electricalQuickMeasurementUi';
-import type { ElectricalProjectCondition } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import {
+  hasDetailedElectricalQuantities,
+  type ElectricalProjectCondition,
+} from '@/utils/subcontractorTrade/electricalPlanConvergence';
 
 type Colors = ReturnType<typeof getColors>;
 
@@ -61,11 +59,12 @@ const METER_MAIN_COMBO_OPTION = {
 
 function useElectricalAttributeLocal(
   values: ElectricalConfirmScopeAttributes,
-  onPatch: (patch: Partial<ElectricalConfirmScopeAttributes>) => void,
+  onPatch: (patch: Partial<ElectricalConfirmScopeAttributes>) => void
 ) {
   const [local, setLocal] = useState(values);
   const localRef = useRef(values);
   const pendingRef = useRef<ElectricalConfirmScopeAttributes | null>(null);
+  const pendingPatchRef = useRef<Partial<ElectricalConfirmScopeAttributes>>({});
   const onPatchRef = useRef(onPatch);
   onPatchRef.current = onPatch;
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
@@ -104,20 +103,29 @@ function useElectricalAttributeLocal(
     () => () => {
       if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
     },
-    [],
+    []
   );
 
-  const apply = useCallback((patch: Partial<ElectricalConfirmScopeAttributes>) => {
-    const next = { ...localRef.current, ...patch };
-    pendingRef.current = next;
-    localRef.current = next;
-    setLocal(next);
-    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-    commitTimerRef.current = setTimeout(() => {
-      commitTimerRef.current = null;
-      onPatchRef.current(patch);
-    }, 0);
-  }, []);
+  const apply = useCallback(
+    (patch: Partial<ElectricalConfirmScopeAttributes>) => {
+      const next = { ...localRef.current, ...patch };
+      pendingRef.current = next;
+      localRef.current = next;
+      setLocal(next);
+      pendingPatchRef.current = {
+        ...pendingPatchRef.current,
+        ...patch,
+      };
+      if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = setTimeout(() => {
+        commitTimerRef.current = null;
+        const pendingPatch = pendingPatchRef.current;
+        pendingPatchRef.current = {};
+        onPatchRef.current(pendingPatch);
+      }, 0);
+    },
+    []
+  );
 
   const toggle = useCallback(
     (id: string) =>
@@ -125,7 +133,7 @@ function useElectricalAttributeLocal(
         ...previous,
         [id]: !(previous[id] ?? false),
       })),
-    [],
+    []
   );
 
   return { local, localRef, apply, collapsed, toggle, setCollapsed };
@@ -134,50 +142,56 @@ function useElectricalAttributeLocal(
 function useElectricalAttributeHandlers(
   apply: ReturnType<typeof useElectricalAttributeLocal>['apply'],
   localRef: ReturnType<typeof useElectricalAttributeLocal>['localRef'],
-  toggle: ReturnType<typeof useElectricalAttributeLocal>['toggle'],
+  toggle: ReturnType<typeof useElectricalAttributeLocal>['toggle']
 ) {
   const selectJobCondition = useCallback(
     (electricalProjectCondition: ElectricalProjectCondition | null) =>
       apply({ electricalProjectCondition }),
-    [apply],
+    [apply]
   );
   const selectServiceAmperage = useCallback(
     (serviceAmperage: number | null) => apply({ serviceAmperage }),
-    [apply],
+    [apply]
   );
   const selectExistingServiceAmperage = useCallback(
     (existingServiceAmperage: number | null) =>
       apply({ existingServiceAmperage }),
-    [apply],
+    [apply]
   );
   const selectPanelLocation = useCallback(
     (electricalPanelLocation: 'indoor' | 'outdoor' | null) =>
       apply({ electricalPanelLocation }),
-    [apply],
+    [apply]
   );
   const toggleMeterMainCombo = useCallback(
     () =>
       apply({
         electricalMeterMainCombo: !localRef.current.electricalMeterMainCombo,
       }),
-    [apply, localRef],
+    [apply, localRef]
   );
   const togglePackageOption = useCallback(
     (key: 'electricalIncludeRough' | 'electricalIncludeTrim') =>
       apply({ [key]: !localRef.current[key] }),
-    [apply, localRef],
+    [apply, localRef]
   );
   const toggleRacewayOption = useCallback(
     (key: 'electricalConduit' | 'electricalTrenching') =>
       apply({ [key]: !localRef.current[key] }),
-    [apply, localRef],
+    [apply, localRef]
   );
-  const toggleJobCondition = useCallback(() => toggle('job_condition'), [toggle]);
+  const toggleJobCondition = useCallback(
+    () => toggle('job_condition'),
+    [toggle]
+  );
   const toggleServiceAmperage = useCallback(
     () => toggle('service_amperage'),
-    [toggle],
+    [toggle]
   );
-  const togglePanelLocation = useCallback(() => toggle('panel_location'), [toggle]);
+  const togglePanelLocation = useCallback(
+    () => toggle('panel_location'),
+    [toggle]
+  );
   const togglePackages = useCallback(() => toggle('packages'), [toggle]);
   const toggleRaceway = useCallback(() => toggle('raceway'), [toggle]);
 
@@ -197,67 +211,68 @@ function useElectricalAttributeHandlers(
   };
 }
 
-const ElectricalAttributeChoiceChips = React.memo(function ElectricalAttributeChoiceChips<
-  T extends string | number,
->({
-  value,
-  options,
-  darkMode,
-  onChange,
-}: {
-  value: T | null;
-  options: [T, string][];
-  darkMode: boolean;
-  onChange: (value: T | null) => void;
-}) {
-  const valueRef = useRef<T | null>(value);
-  valueRef.current = value;
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
-  const [optimisticValue, setOptimisticValue] = useState<T | null | undefined>(
-    undefined,
-  );
-  const displayedValue =
-    optimisticValue !== undefined ? optimisticValue : value;
+const ElectricalAttributeChoiceChips = React.memo(
+  function ElectricalAttributeChoiceChips<T extends string | number>({
+    value,
+    options,
+    darkMode,
+    onChange,
+  }: {
+    value: T | null;
+    options: [T, string][];
+    darkMode: boolean;
+    onChange: (value: T | null) => void;
+  }) {
+    const valueRef = useRef<T | null>(value);
+    valueRef.current = value;
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
+    const [optimisticValue, setOptimisticValue] = useState<
+      T | null | undefined
+    >(undefined);
+    const displayedValue =
+      optimisticValue !== undefined ? optimisticValue : value;
 
-  useEffect(() => {
-    if (optimisticValue !== undefined && value === optimisticValue) {
-      setOptimisticValue(undefined);
+    useEffect(() => {
+      if (optimisticValue !== undefined && value === optimisticValue) {
+        setOptimisticValue(undefined);
+      }
+    }, [optimisticValue, value]);
+    valueRef.current = displayedValue;
+
+    return (
+      <View style={styles.chipStack}>
+        {options.map(([option, label]) => (
+          <ConfirmScopeChip
+            key={String(option)}
+            selected={displayedValue === option}
+            label={label}
+            darkMode={darkMode}
+            onPress={() => {
+              const current = valueRef.current;
+              const next = current === option ? null : option;
+              setOptimisticValue(next);
+              onChangeRef.current(next);
+            }}
+          />
+        ))}
+      </View>
+    );
+  },
+  (previous, next) => {
+    if (
+      previous.value !== next.value ||
+      previous.darkMode !== next.darkMode ||
+      previous.options.length !== next.options.length
+    ) {
+      return false;
     }
-  }, [optimisticValue, value]);
-  valueRef.current = displayedValue;
-
-  return (
-    <View style={styles.chipStack}>
-      {options.map(([option, label]) => (
-        <ConfirmScopeChip
-          key={String(option)}
-          selected={displayedValue === option}
-          label={label}
-          darkMode={darkMode}
-          onPress={() => {
-            const current = valueRef.current;
-            const next = current === option ? null : option;
-            setOptimisticValue(next);
-            onChangeRef.current(next);
-          }}
-        />
-      ))}
-    </View>
-  );
-}, (previous, next) => {
-  if (
-    previous.value !== next.value ||
-    previous.darkMode !== next.darkMode ||
-    previous.options.length !== next.options.length
-  ) {
-    return false;
+    return previous.options.every(
+      ([option, label], index) =>
+        option === next.options[index][0] && label === next.options[index][1]
+    );
   }
-  return previous.options.every(
-    ([option, label], index) =>
-      option === next.options[index][0] && label === next.options[index][1],
-  );
-}) as <T extends string | number>(props: {
+) as <T extends string | number>(props: {
   value: T | null;
   options: [T, string][];
   darkMode: boolean;
@@ -270,7 +285,12 @@ const ElectricalAttributeToggleChips = React.memo(
     darkMode,
     onToggle,
   }: {
-    options: { key: string; label: string; selected: boolean }[];
+    options: {
+      key: string;
+      label: string;
+      selected: boolean;
+      disabled?: boolean;
+    }[];
     darkMode: boolean;
     onToggle: (key: string) => void;
   }) {
@@ -284,7 +304,8 @@ const ElectricalAttributeToggleChips = React.memo(
         let next: Record<string, boolean> | null = null;
         for (const option of options) {
           const optimistic = previous[option.key];
-          if (optimistic === undefined || optimistic !== option.selected) continue;
+          if (optimistic === undefined || optimistic !== option.selected)
+            continue;
           next ||= { ...previous };
           delete next[option.key];
         }
@@ -299,10 +320,10 @@ const ElectricalAttributeToggleChips = React.memo(
             selected={optimisticSelected[option.key] ?? option.selected}
             label={option.label}
             darkMode={darkMode}
+            disabled={option.disabled}
             onPress={() => {
-              const next = !(
-                optimisticSelected[option.key] ?? option.selected
-              );
+              if (option.disabled) return;
+              const next = !(optimisticSelected[option.key] ?? option.selected);
               setOptimisticSelected(previous => ({
                 ...previous,
                 [option.key]: next,
@@ -316,13 +337,15 @@ const ElectricalAttributeToggleChips = React.memo(
   },
   (previous, next) =>
     previous.darkMode === next.darkMode &&
+    previous.onToggle === next.onToggle &&
     previous.options.length === next.options.length &&
     previous.options.every(
       (option, index) =>
         option.key === next.options[index].key &&
         option.label === next.options[index].label &&
-        option.selected === next.options[index].selected,
-    ),
+        option.selected === next.options[index].selected &&
+        option.disabled === next.options[index].disabled
+    )
 );
 
 export function ElectricalQmCollapsibleCard({
@@ -397,61 +420,81 @@ export function ElectricalQmCollapsibleCard({
             </Text>
           ) : null}
           {children}
+          <TouchableOpacity
+            onPress={onToggle}
+            activeOpacity={0.75}
+            accessibilityRole='button'
+            accessibilityLabel={`Collapse ${title} card`}
+            accessibilityState={{ expanded: true }}
+            style={styles.qmCollapseFooter}
+          >
+            <Text
+              style={[
+                styles.qmCollapseFooterText,
+                { color: darkMode ? '#94a3b8' : '#64748b' },
+              ]}
+            >
+              Collapse card ⌃
+            </Text>
+          </TouchableOpacity>
         </>
       )}
     </View>
   );
 }
 
-const ElectricalJobConditionCard = React.memo(function ElectricalJobConditionCard({
-  condition,
-  collapsed,
-  darkMode,
-  onToggle,
-  onSelect,
-}: {
-  condition: ElectricalProjectCondition | null;
-  collapsed: boolean;
-  darkMode: boolean;
-  onToggle: () => void;
-  onSelect: (value: ElectricalProjectCondition | null) => void;
-}) {
-  const conditionLabel =
-    condition === 'new_construction'
-      ? 'New construction / full rough'
-      : condition === 'remodel_open_wall'
-        ? 'Remodel / open wall'
-        : condition === 'finished_wall_service'
-          ? 'Finished-wall service'
-          : null;
+const ElectricalJobConditionCard = React.memo(
+  function ElectricalJobConditionCard({
+    condition,
+    collapsed,
+    darkMode,
+    onToggle,
+    onSelect,
+  }: {
+    condition: ElectricalProjectCondition | null;
+    collapsed: boolean;
+    darkMode: boolean;
+    onToggle: () => void;
+    onSelect: (value: ElectricalProjectCondition | null) => void;
+  }) {
+    const conditionLabel =
+      condition === 'new_construction'
+        ? 'New construction / full rough'
+        : condition === 'remodel_open_wall'
+          ? 'Remodel / open wall'
+          : condition === 'finished_wall_service'
+            ? 'Finished-wall service'
+            : null;
 
-  return (
-    <ElectricalQmCollapsibleCard
-      title='Job condition'
-      collapsed={collapsed}
-      onToggle={onToggle}
-      collapsedHint={
-        conditionLabel
-          ? `${conditionLabel} · tap to expand card`
-          : 'Tap to expand card'
-      }
-      expandedCaption='Job condition adjusts labor only. Do not auto-select a condition from device counts.'
-      darkMode={darkMode}
-    >
-      <ElectricalAttributeChoiceChips
-        value={condition}
-        options={JOB_CONDITION_OPTIONS}
+    return (
+      <ElectricalQmCollapsibleCard
+        title='Job condition'
+        collapsed={collapsed}
+        onToggle={onToggle}
+        collapsedHint={
+          conditionLabel
+            ? `${conditionLabel} · tap to expand card`
+            : 'Tap to expand card'
+        }
+        expandedCaption='Job condition adjusts labor only. Materials stay unchanged. Do not auto-select a condition from device counts.'
         darkMode={darkMode}
-        onChange={onSelect}
-      />
-    </ElectricalQmCollapsibleCard>
-  );
-}, (previous, next) =>
-  previous.condition === next.condition &&
-  previous.collapsed === next.collapsed &&
-  previous.darkMode === next.darkMode &&
-  previous.onToggle === next.onToggle &&
-  previous.onSelect === next.onSelect);
+      >
+        <ElectricalAttributeChoiceChips
+          value={condition}
+          options={JOB_CONDITION_OPTIONS}
+          darkMode={darkMode}
+          onChange={onSelect}
+        />
+      </ElectricalQmCollapsibleCard>
+    );
+  },
+  (previous, next) =>
+    previous.condition === next.condition &&
+    previous.collapsed === next.collapsed &&
+    previous.darkMode === next.darkMode &&
+    previous.onToggle === next.onToggle &&
+    previous.onSelect === next.onSelect
+);
 
 const ElectricalServiceAmperageCard = React.memo(
   function ElectricalServiceAmperageCard({
@@ -483,7 +526,7 @@ const ElectricalServiceAmperageCard = React.memo(
             ? `${serviceAmperage}A · tap to expand card`
             : 'Leave blank unless printed or you select it'
         }
-        expandedCaption='Leave service size blank unless it is printed on the plan or you select it. Never infer 200A from house size or a panel box.'
+        expandedCaption='Select the service size used by the applicable panel or service item. This does not add a separate charge. Leave service size blank unless it is printed on the plan or you select it. Never infer 200A from house size or a panel box.'
         darkMode={darkMode}
       >
         <ElectricalAttributeChoiceChips
@@ -522,7 +565,7 @@ const ElectricalServiceAmperageCard = React.memo(
     previous.darkMode === next.darkMode &&
     previous.onToggle === next.onToggle &&
     previous.onSelectService === next.onSelectService &&
-    previous.onSelectExisting === next.onSelectExisting,
+    previous.onSelectExisting === next.onSelectExisting
 );
 
 const ElectricalPanelLocationCard = React.memo(
@@ -553,7 +596,7 @@ const ElectricalPanelLocationCard = React.memo(
             ? 'Selected · tap to expand card'
             : 'Tap to expand card'
         }
-        expandedCaption='Indoor / outdoor and meter-main affect panel labor. Leave unselected unless this job needs them.'
+        expandedCaption='Panel location affects applicable panel material and labor. Meter/main adds the applicable service-equipment cost. Leave unselected unless this job needs them.'
         darkMode={darkMode}
       >
         <ElectricalAttributeChoiceChips
@@ -584,13 +627,15 @@ const ElectricalPanelLocationCard = React.memo(
     previous.darkMode === next.darkMode &&
     previous.onToggle === next.onToggle &&
     previous.onSelectLocation === next.onSelectLocation &&
-    previous.onToggleMeterMain === next.onToggleMeterMain,
+    previous.onToggleMeterMain === next.onToggleMeterMain
 );
 
 const ElectricalPackagesCard = React.memo(
   function ElectricalPackagesCard({
     includeRough,
     includeTrim,
+    roughDisabled,
+    showPackages,
     collapsed,
     darkMode,
     onToggle,
@@ -598,10 +643,14 @@ const ElectricalPackagesCard = React.memo(
   }: {
     includeRough: boolean;
     includeTrim: boolean;
+    roughDisabled: boolean;
+    showPackages: boolean;
     collapsed: boolean;
     darkMode: boolean;
     onToggle: () => void;
-    onToggleOption: (key: 'electricalIncludeRough' | 'electricalIncludeTrim') => void;
+    onToggleOption: (
+      key: 'electricalIncludeRough' | 'electricalIncludeTrim'
+    ) => void;
   }) {
     return (
       <ElectricalQmCollapsibleCard
@@ -613,7 +662,11 @@ const ElectricalPackagesCard = React.memo(
             ? 'Selected · tap to expand card'
             : 'Tap to expand card'
         }
-        expandedCaption='Include rough-in / trim only for whole-project packages — detailed counts already own those cards.'
+        expandedCaption={
+          roughDisabled
+            ? 'Detailed device or circuit quantities are selected, so rough-in package pricing is disabled to prevent double counting.'
+            : 'Include rough-in / trim only for whole-project packages — detailed counts already own those cards.'
+        }
         darkMode={darkMode}
       >
         <ElectricalAttributeToggleChips
@@ -622,6 +675,7 @@ const ElectricalPackagesCard = React.memo(
               key: 'electricalIncludeRough',
               label: 'Include rough-in',
               selected: includeRough,
+              disabled: roughDisabled,
             },
             {
               key: 'electricalIncludeTrim',
@@ -631,7 +685,9 @@ const ElectricalPackagesCard = React.memo(
           ]}
           darkMode={darkMode}
           onToggle={key =>
-            onToggleOption(key as 'electricalIncludeRough' | 'electricalIncludeTrim')
+            onToggleOption(
+              key as 'electricalIncludeRough' | 'electricalIncludeTrim'
+            )
           }
         />
       </ElectricalQmCollapsibleCard>
@@ -640,10 +696,11 @@ const ElectricalPackagesCard = React.memo(
   (previous, next) =>
     previous.includeRough === next.includeRough &&
     previous.includeTrim === next.includeTrim &&
+    previous.roughDisabled === next.roughDisabled &&
     previous.collapsed === next.collapsed &&
     previous.darkMode === next.darkMode &&
     previous.onToggle === next.onToggle &&
-    previous.onToggleOption === next.onToggleOption,
+    previous.onToggleOption === next.onToggleOption
 );
 
 const ElectricalRacewayCard = React.memo(
@@ -672,7 +729,9 @@ const ElectricalRacewayCard = React.memo(
             ? 'Selected · tap to expand card'
             : 'Tap to expand card'
         }
-        expandedCaption='A conduit or trenching flag does not invent a length or a price. Enter LF on the Modifications card to price raceway.'
+        expandedCaption={
+          'Selecting Conduit or Trenching marks it as included. Enter LF before pricing. No length is inferred. Building wall condition does not change trenching labor.'
+        }
         darkMode={darkMode}
       >
         <ElectricalAttributeToggleChips
@@ -702,7 +761,7 @@ const ElectricalRacewayCard = React.memo(
     previous.collapsed === next.collapsed &&
     previous.darkMode === next.darkMode &&
     previous.onToggle === next.onToggle &&
-    previous.onToggleOption === next.onToggleOption,
+    previous.onToggleOption === next.onToggleOption
 );
 
 const ElectricalAttributeJobServiceCards = React.memo(
@@ -768,13 +827,15 @@ const ElectricalAttributeJobServiceCards = React.memo(
     previous.onSelectJobCondition === next.onSelectJobCondition &&
     previous.onSelectServiceAmperage === next.onSelectServiceAmperage &&
     previous.onSelectExistingServiceAmperage ===
-      next.onSelectExistingServiceAmperage,
+      next.onSelectExistingServiceAmperage
 );
 
 const ElectricalAttributeBottomCards = React.memo(
   function ElectricalAttributeBottomCards({
     includeRough,
     includeTrim,
+    roughDisabled,
+    showPackages,
     includeConduit,
     includeTrenching,
     packagesCollapsed,
@@ -787,6 +848,8 @@ const ElectricalAttributeBottomCards = React.memo(
   }: {
     includeRough: boolean;
     includeTrim: boolean;
+    roughDisabled: boolean;
+    showPackages: boolean;
     includeConduit: boolean;
     includeTrenching: boolean;
     packagesCollapsed: boolean;
@@ -795,22 +858,25 @@ const ElectricalAttributeBottomCards = React.memo(
     onTogglePackages: () => void;
     onToggleRaceway: () => void;
     onTogglePackageOption: (
-      key: 'electricalIncludeRough' | 'electricalIncludeTrim',
+      key: 'electricalIncludeRough' | 'electricalIncludeTrim'
     ) => void;
     onToggleRacewayOption: (
-      key: 'electricalConduit' | 'electricalTrenching',
+      key: 'electricalConduit' | 'electricalTrenching'
     ) => void;
   }) {
     return (
       <View>
-        <ElectricalPackagesCard
-          includeRough={includeRough}
-          includeTrim={includeTrim}
-          collapsed={packagesCollapsed}
-          darkMode={darkMode}
-          onToggle={onTogglePackages}
-          onToggleOption={onTogglePackageOption}
-        />
+        {showPackages ? (
+          <ElectricalPackagesCard
+            includeRough={includeRough}
+            includeTrim={includeTrim}
+            roughDisabled={roughDisabled}
+            collapsed={packagesCollapsed}
+            darkMode={darkMode}
+            onToggle={onTogglePackages}
+            onToggleOption={onTogglePackageOption}
+          />
+        ) : null}
         <ElectricalRacewayCard
           includeConduit={includeConduit}
           includeTrenching={includeTrenching}
@@ -826,6 +892,8 @@ const ElectricalAttributeBottomCards = React.memo(
     previous.darkMode === next.darkMode &&
     previous.includeRough === next.includeRough &&
     previous.includeTrim === next.includeTrim &&
+    previous.roughDisabled === next.roughDisabled &&
+    previous.showPackages === next.showPackages &&
     previous.includeConduit === next.includeConduit &&
     previous.includeTrenching === next.includeTrenching &&
     previous.packagesCollapsed === next.packagesCollapsed &&
@@ -833,7 +901,7 @@ const ElectricalAttributeBottomCards = React.memo(
     previous.onTogglePackages === next.onTogglePackages &&
     previous.onToggleRaceway === next.onToggleRaceway &&
     previous.onTogglePackageOption === next.onTogglePackageOption &&
-    previous.onToggleRacewayOption === next.onToggleRacewayOption,
+    previous.onToggleRacewayOption === next.onToggleRacewayOption
 );
 
 export function ElectricalJobConditionControls({
@@ -891,31 +959,31 @@ export function ElectricalServiceAmperageControls({
 
 export const ElectricalConfirmScopeJobServiceCards = React.memo(
   function ElectricalConfirmScopeJobServiceCards({
-  values,
-  onPatch,
-  darkMode,
-  showExistingService,
-}: {
-  values: ElectricalConfirmScopeAttributes;
-  onPatch: (patch: Partial<ElectricalConfirmScopeAttributes>) => void;
-  darkMode: boolean;
-  showExistingService: boolean;
-}) {
-  return (
-    <>
-      <ElectricalJobConditionControls
-        values={values}
-        onPatch={onPatch}
-        darkMode={darkMode}
-      />
-      <ElectricalServiceAmperageControls
-        values={values}
-        onPatch={onPatch}
-        darkMode={darkMode}
-        showExistingService={showExistingService}
-      />
-    </>
-  );
+    values,
+    onPatch,
+    darkMode,
+    showExistingService,
+  }: {
+    values: ElectricalConfirmScopeAttributes;
+    onPatch: (patch: Partial<ElectricalConfirmScopeAttributes>) => void;
+    darkMode: boolean;
+    showExistingService: boolean;
+  }) {
+    return (
+      <>
+        <ElectricalJobConditionControls
+          values={values}
+          onPatch={onPatch}
+          darkMode={darkMode}
+        />
+        <ElectricalServiceAmperageControls
+          values={values}
+          onPatch={onPatch}
+          darkMode={darkMode}
+          showExistingService={showExistingService}
+        />
+      </>
+    );
   },
   (previous, next) =>
     previous.darkMode === next.darkMode &&
@@ -924,7 +992,8 @@ export const ElectricalConfirmScopeJobServiceCards = React.memo(
     previous.values.electricalProjectCondition ===
       next.values.electricalProjectCondition &&
     previous.values.serviceAmperage === next.values.serviceAmperage &&
-    previous.values.existingServiceAmperage === next.values.existingServiceAmperage,
+    previous.values.existingServiceAmperage ===
+      next.values.existingServiceAmperage
 );
 
 export const ElectricalPanelLocationControls = React.memo(
@@ -938,10 +1007,10 @@ export const ElectricalPanelLocationControls = React.memo(
     darkMode: boolean;
   }) {
     const [panelLocation, setPanelLocation] = useState(
-      values.electricalPanelLocation,
+      values.electricalPanelLocation
     );
     const [meterMainCombo, setMeterMainCombo] = useState(
-      values.electricalMeterMainCombo,
+      values.electricalMeterMainCombo
     );
     const [collapsed, setCollapsed] = useState(false);
     const pendingRef = useRef<{
@@ -974,7 +1043,7 @@ export const ElectricalPanelLocationControls = React.memo(
       () => () => {
         if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
       },
-      [],
+      []
     );
 
     const schedulePatch = useCallback(
@@ -985,7 +1054,7 @@ export const ElectricalPanelLocationControls = React.memo(
           onPatchRef.current(patch);
         }, 180);
       },
-      [],
+      []
     );
 
     const selectPanelLocation = useCallback(
@@ -997,7 +1066,7 @@ export const ElectricalPanelLocationControls = React.memo(
         };
         schedulePatch({ electricalPanelLocation });
       },
-      [schedulePatch],
+      [schedulePatch]
     );
 
     const toggleMeterMainCombo = useCallback(() => {
@@ -1012,7 +1081,7 @@ export const ElectricalPanelLocationControls = React.memo(
 
     const togglePanelLocation = useCallback(
       () => setCollapsed(current => !current),
-      [],
+      []
     );
 
     return (
@@ -1033,46 +1102,50 @@ export const ElectricalPanelLocationControls = React.memo(
     previous.values.electricalPanelLocation ===
       next.values.electricalPanelLocation &&
     previous.values.electricalMeterMainCombo ===
-      next.values.electricalMeterMainCombo,
+      next.values.electricalMeterMainCombo
 );
 
 export const ElectricalConfirmScopePackagesRacewayCards = React.memo(
   function ElectricalConfirmScopePackagesRacewayCards({
-  values,
-  onPatch,
-  darkMode,
-}: {
-  values: ElectricalConfirmScopeAttributes;
-  onPatch: (patch: Partial<ElectricalConfirmScopeAttributes>) => void;
-  darkMode: boolean;
-}) {
-  const { local, localRef, apply, collapsed, toggle } =
-    useElectricalAttributeLocal(values, onPatch);
-  const handlers = useElectricalAttributeHandlers(apply, localRef, toggle);
+    values,
+    onPatch,
+    darkMode,
+  }: {
+    values: ElectricalConfirmScopeAttributes;
+    onPatch: (patch: Partial<ElectricalConfirmScopeAttributes>) => void;
+    darkMode: boolean;
+  }) {
+    const { local, localRef, apply, collapsed, toggle } =
+      useElectricalAttributeLocal(values, onPatch);
+    const handlers = useElectricalAttributeHandlers(apply, localRef, toggle);
 
-  return (
-    <ElectricalAttributeBottomCards
-      includeRough={Boolean(local.electricalIncludeRough)}
-      includeTrim={Boolean(local.electricalIncludeTrim)}
-      includeConduit={Boolean(local.electricalConduit)}
-      includeTrenching={Boolean(local.electricalTrenching)}
-      packagesCollapsed={Boolean(collapsed.packages)}
-      racewayCollapsed={Boolean(collapsed.raceway)}
-      darkMode={darkMode}
-      onTogglePackages={handlers.togglePackages}
-      onToggleRaceway={handlers.toggleRaceway}
-      onTogglePackageOption={handlers.togglePackageOption}
-      onToggleRacewayOption={handlers.toggleRacewayOption}
-    />
-  );
+    return (
+      <ElectricalAttributeBottomCards
+        includeRough={Boolean(local.electricalIncludeRough)}
+        includeTrim={Boolean(local.electricalIncludeTrim)}
+        roughDisabled={false}
+        showPackages={true}
+        includeConduit={Boolean(local.electricalConduit)}
+        includeTrenching={Boolean(local.electricalTrenching)}
+        packagesCollapsed={Boolean(collapsed.packages)}
+        racewayCollapsed={Boolean(collapsed.raceway)}
+        darkMode={darkMode}
+        onTogglePackages={handlers.togglePackages}
+        onToggleRaceway={handlers.toggleRaceway}
+        onTogglePackageOption={handlers.togglePackageOption}
+        onToggleRacewayOption={handlers.toggleRacewayOption}
+      />
+    );
   },
   (previous, next) =>
     previous.darkMode === next.darkMode &&
     previous.onPatch === next.onPatch &&
-    previous.values.electricalIncludeRough === next.values.electricalIncludeRough &&
-    previous.values.electricalIncludeTrim === next.values.electricalIncludeTrim &&
+    previous.values.electricalIncludeRough ===
+      next.values.electricalIncludeRough &&
+    previous.values.electricalIncludeTrim ===
+      next.values.electricalIncludeTrim &&
     previous.values.electricalConduit === next.values.electricalConduit &&
-    previous.values.electricalTrenching === next.values.electricalTrenching,
+    previous.values.electricalTrenching === next.values.electricalTrenching
 );
 
 export const ElectricalConfirmScopeAttributesPanel = React.memo(
@@ -1082,12 +1155,14 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     commitRef,
     darkMode,
     showExistingService,
+    hasDetailedQuantities,
   }: {
     values: ElectricalConfirmScopeAttributes;
     onCommit: (attributes: ElectricalConfirmScopeAttributes) => void;
     commitRef?: React.MutableRefObject<(() => void) | null>;
     darkMode: boolean;
     showExistingService: boolean;
+    hasDetailedQuantities: boolean;
   }) {
     const [local, setLocal] = useState(values);
     const localRef = useRef(values);
@@ -1111,6 +1186,17 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
       setLocal(values);
     }, [values]);
 
+    useEffect(() => {
+      if (!hasDetailedQuantities || !localRef.current.electricalIncludeRough) {
+        return;
+      }
+      const next = { ...localRef.current, electricalIncludeRough: false };
+      localRef.current = next;
+      setLocal(next);
+      dirtyRef.current = false;
+      onCommitRef.current(next);
+    }, [hasDetailedQuantities]);
+
     const commit = useCallback(() => {
       if (!dirtyRef.current) return;
       dirtyRef.current = false;
@@ -1133,7 +1219,7 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
         dirtyRef.current = true;
         setLocal(next);
       },
-      [],
+      []
     );
 
     const toggle = useCallback(
@@ -1142,12 +1228,21 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
           ...previous,
           [id]: !(previous[id] ?? false),
         })),
-      [],
+      []
     );
-    const handlers = useElectricalAttributeHandlers(
-      apply,
-      localRef,
-      toggle,
+    const handlers = useElectricalAttributeHandlers(apply, localRef, toggle);
+    const togglePackageOption = useCallback(
+      (key: 'electricalIncludeRough' | 'electricalIncludeTrim') => {
+        if (
+          key === 'electricalIncludeRough' &&
+          hasDetailedQuantities &&
+          !localRef.current.electricalIncludeRough
+        ) {
+          return;
+        }
+        apply({ [key]: !localRef.current[key] });
+      },
+      [apply, hasDetailedQuantities, localRef]
     );
 
     return (
@@ -1181,6 +1276,10 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
         <ElectricalAttributeBottomCards
           includeRough={Boolean(local.electricalIncludeRough)}
           includeTrim={Boolean(local.electricalIncludeTrim)}
+          roughDisabled={
+            hasDetailedQuantities && !Boolean(local.electricalIncludeRough)
+          }
+          showPackages={!hasDetailedQuantities}
           includeConduit={Boolean(local.electricalConduit)}
           includeTrenching={Boolean(local.electricalTrenching)}
           packagesCollapsed={Boolean(collapsed.packages)}
@@ -1188,7 +1287,7 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
           darkMode={darkMode}
           onTogglePackages={handlers.togglePackages}
           onToggleRaceway={handlers.toggleRaceway}
-          onTogglePackageOption={handlers.togglePackageOption}
+          onTogglePackageOption={togglePackageOption}
           onToggleRacewayOption={handlers.toggleRacewayOption}
         />
       </>
@@ -1197,9 +1296,10 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
   (previous, next) =>
     previous.darkMode === next.darkMode &&
     previous.showExistingService === next.showExistingService &&
+    previous.hasDetailedQuantities === next.hasDetailedQuantities &&
     previous.onCommit === next.onCommit &&
     previous.commitRef === next.commitRef &&
-    electricalConfirmScopeAttributesEqual(previous.values, next.values),
+    electricalConfirmScopeAttributesEqual(previous.values, next.values)
 );
 
 /** Backward-compatible name for callers that only render the attribute panel. */
@@ -1251,6 +1351,24 @@ function ElectricalQuickMeasurementTakeoffView({
     () => ({ ...measurements, ...optimisticQuantities }),
     [measurements, optimisticQuantities]
   );
+  const effectiveUserOverrides = useMemo(
+    () => ({
+      ...(userOverrides || {}),
+      ...Object.fromEntries(
+        Object.keys(optimisticQuantities).map(key => [key, true])
+      ),
+    }),
+    [optimisticQuantities, userOverrides]
+  );
+  const effectiveSources = useMemo(
+    () => ({
+      ...(sources || {}),
+      ...Object.fromEntries(
+        Object.keys(optimisticQuantities).map(key => [key, 'user_entered'])
+      ),
+    }),
+    [optimisticQuantities, sources]
+  );
 
   const commitQuantity = useCallback((field: string, value: string) => {
     setOptimisticQuantities(previous => ({ ...previous, [field]: value }));
@@ -1262,10 +1380,15 @@ function ElectricalQuickMeasurementTakeoffView({
       buildElectricalQuickMeasurementGroups({
         measurements: effectiveMeasurements,
         conflictFields,
-        sources,
-        userOverrides,
+        sources: effectiveSources,
+        userOverrides: effectiveUserOverrides,
       }),
-    [effectiveMeasurements, conflictFields, sources, userOverrides]
+    [
+      effectiveMeasurements,
+      conflictFields,
+      effectiveSources,
+      effectiveUserOverrides,
+    ]
   );
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({});
@@ -1275,24 +1398,26 @@ function ElectricalQuickMeasurementTakeoffView({
       [fieldKey]: !previous[fieldKey],
     }));
   }, []);
-  const commitFieldQuantity = useCallback((fieldKey: string, value: string) => {
-    commitQuantity(fieldKey, value);
-    if (!String(value || '').trim()) {
-      setExpandedKeys(previous => {
-        if (!previous[fieldKey]) return previous;
-        const next = { ...previous };
-        delete next[fieldKey];
-        return next;
-      });
-    }
-  }, [commitQuantity]);
+  const commitFieldQuantity = useCallback(
+    (fieldKey: string, value: string) => {
+      commitQuantity(fieldKey, value);
+      if (!String(value || '').trim()) {
+        setExpandedKeys(previous => {
+          if (!previous[fieldKey]) return previous;
+          const next = { ...previous };
+          delete next[fieldKey];
+          return next;
+        });
+      }
+    },
+    [commitQuantity]
+  );
   const toggleGroup = useCallback((groupId: string) => {
     setCollapsed(previous => ({
       ...previous,
       [groupId]: !(previous[groupId] ?? electricalQmGroupDefaultCollapsed()),
     }));
   }, []);
-
   return (
     <View>
       {groups.map(group => {
@@ -1329,7 +1454,7 @@ export const ElectricalQuickMeasurementTakeoff = React.memo(
     previous.Colors === next.Colors &&
     previous.applying === next.applying &&
     previous.quantityEditingRef === next.quantityEditingRef &&
-    previous.onChangeQuantity === next.onChangeQuantity,
+    previous.onChangeQuantity === next.onChangeQuantity
 );
 
 function ElectricalQmGroupCardView({
@@ -1418,179 +1543,194 @@ const ElectricalQmGroupCard = React.memo(
           Boolean(next.expandedKeys[nextField.key])
       );
     });
-  },
+  }
 );
 
-const ElectricalQmScopeOption = React.memo(function ElectricalQmScopeOption({
-  field,
-  fieldKey,
-  expanded,
-  quantityEditingRef,
-  onToggleExpand,
-  onCommitQuantity,
-  applying,
-  darkMode,
-  Colors,
-}: {
-  field: ElectricalQmField;
-  fieldKey: string;
-  expanded: boolean;
-  quantityEditingRef?: React.RefObject<boolean>;
-  onToggleExpand: (fieldKey: string) => void;
-  onCommitQuantity: (fieldKey: string, value: string) => void;
-  applying: boolean;
-  darkMode: boolean;
-  Colors: Colors;
-}) {
-  const active = electricalQmOptionActive(field);
-  // EA chips own their quantity selection. Once deselected, do not let the
-  // previous expanded state keep the quantity editor mounted for one more
-  // parent render.
-  const visibleExpanded =
-    field.unit === 'EA' && !field.conflicted && !field.selected
-      ? false
-      : expanded;
-  const chipSelected = electricalQmChipSelected(field, visibleExpanded);
-  const showQuantity = electricalQmShowsQuantity(field, visibleExpanded);
-  const committedValue = electricalQmQuantityInputValue(field);
-  const [isEditingQuantity, setIsEditingQuantity] = useState(false);
-  const [quantityDraft, setQuantityDraft] = useState(committedValue);
-  const isEditingQuantityRef = useRef(false);
-  const quantityDraftRef = useRef(quantityDraft);
-  quantityDraftRef.current = quantityDraft;
-  const onCommitQuantityRef = useRef(onCommitQuantity);
-  onCommitQuantityRef.current = onCommitQuantity;
+const ElectricalQmScopeOption = React.memo(
+  function ElectricalQmScopeOption({
+    field,
+    fieldKey,
+    expanded,
+    quantityEditingRef,
+    onToggleExpand,
+    onCommitQuantity,
+    applying,
+    darkMode,
+    Colors,
+  }: {
+    field: ElectricalQmField;
+    fieldKey: string;
+    expanded: boolean;
+    quantityEditingRef?: React.RefObject<boolean>;
+    onToggleExpand: (fieldKey: string) => void;
+    onCommitQuantity: (fieldKey: string, value: string) => void;
+    applying: boolean;
+    darkMode: boolean;
+    Colors: Colors;
+  }) {
+    const active = electricalQmOptionActive(field);
+    // EA chips own their quantity selection. Once deselected, do not let the
+    // previous expanded state keep the quantity editor mounted for one more
+    // parent render.
+    const visibleExpanded =
+      field.unit === 'EA' && !field.conflicted && !field.selected
+        ? false
+        : expanded;
+    const chipSelected = electricalQmChipSelected(field, visibleExpanded);
+    const showQuantity = electricalQmShowsQuantity(field, visibleExpanded);
+    const committedValue = electricalQmQuantityInputValue(field);
+    const [isEditingQuantity, setIsEditingQuantity] = useState(false);
+    const [quantityDraft, setQuantityDraft] = useState(committedValue);
+    const isEditingQuantityRef = useRef(false);
+    const quantityDraftRef = useRef(quantityDraft);
+    quantityDraftRef.current = quantityDraft;
+    const onCommitQuantityRef = useRef(onCommitQuantity);
+    onCommitQuantityRef.current = onCommitQuantity;
 
-  const setQuantityEditing = useCallback(
-    (editing: boolean) => {
-      isEditingQuantityRef.current = editing;
-      if (quantityEditingRef) quantityEditingRef.current = editing;
-      setIsEditingQuantity(editing);
-    },
-    [quantityEditingRef]
-  );
+    const setQuantityEditing = useCallback(
+      (editing: boolean) => {
+        isEditingQuantityRef.current = editing;
+        if (quantityEditingRef) quantityEditingRef.current = editing;
+        setIsEditingQuantity(editing);
+      },
+      [quantityEditingRef]
+    );
 
-  useEffect(() => {
-    if (isEditingQuantityRef.current) return;
-    setQuantityDraft(committedValue);
-  }, [committedValue]);
+    useEffect(() => {
+      if (isEditingQuantityRef.current) return;
+      setQuantityDraft(committedValue);
+    }, [committedValue]);
 
-  const beginQuantityEdit = useCallback(() => {
-    setQuantityDraft(committedValue);
-    setQuantityEditing(true);
-  }, [committedValue, setQuantityEditing]);
+    const beginQuantityEdit = useCallback(() => {
+      setQuantityDraft(committedValue);
+      setQuantityEditing(true);
+    }, [committedValue, setQuantityEditing]);
 
-  const finishQuantityEdit = useCallback(() => {
-    if (!isEditingQuantityRef.current) return;
-    const value = quantityDraftRef.current;
-    setQuantityEditing(false);
-    onCommitQuantityRef.current(fieldKey, value);
-  }, [fieldKey, setQuantityEditing]);
-
-  const handleQuantityChange = useCallback(
-    (text: string) => {
-      if (!isEditingQuantityRef.current) {
-        setQuantityDraft(committedValue);
-        setQuantityEditing(true);
-      }
-      setQuantityDraft(text);
-    },
-    [committedValue, setQuantityEditing]
-  );
-
-  const handleToggle = () => {
-    if (applying) return;
-    const tapQuantity = electricalQmTapQuantity(field);
-    if (tapQuantity != null) {
+    const finishQuantityEdit = useCallback(() => {
+      if (!isEditingQuantityRef.current) return;
+      const value = quantityDraftRef.current;
       setQuantityEditing(false);
-      onCommitQuantityRef.current(fieldKey, tapQuantity);
-      if (!tapQuantity && expanded) onToggleExpand(fieldKey);
-      if (tapQuantity && !expanded) onToggleExpand(fieldKey);
-      return;
-    }
-    onToggleExpand(fieldKey);
-  };
+      onCommitQuantityRef.current(fieldKey, value);
+    }, [fieldKey, setQuantityEditing]);
 
-  const inputValue = isEditingQuantity ? quantityDraft : committedValue;
-  const showStatusBelowInput = !isEditingQuantity;
-
-  return (
-    <View>
-      <ConfirmScopeChip
-        selected={chipSelected}
-        label={field.label}
-        darkMode={darkMode}
-        disabled={applying}
-        accessibilityLabel={
-          active
-            ? `Remove ${field.label} from scope`
-            : chipSelected
-              ? `Collapse ${field.label} quantity`
-              : `Include ${field.label} in scope`
+    const handleQuantityChange = useCallback(
+      (text: string) => {
+        if (!isEditingQuantityRef.current) {
+          setQuantityDraft(committedValue);
+          setQuantityEditing(true);
         }
-        onPress={handleToggle}
-      />
-      {showQuantity ? (
-        <>
-          <QmSqftMeasurementRow
-            label={`${field.label} quantity`}
-            helperText={
-              field.conflicted
-                ? 'Confirm the orange conflict above, or enter only the quantity for this component.'
-                : 'Enter only the quantity for this selected component.'
-            }
-            value={inputValue}
-            placeholder='Enter'
-            unitLabel={field.unit}
-            keyboardType={field.unit === 'LF' ? 'decimal-pad' : 'number-pad'}
-            onChangeText={handleQuantityChange}
-            onFocus={beginQuantityEdit}
-            onBlur={finishQuantityEdit}
-            applying={applying}
-            darkMode={darkMode}
-            Colors={Colors}
-            highlighted
-          />
-          {showStatusBelowInput && active && field.provenanceLabel ? (
-            <Text
-              style={{
-                color: darkMode ? '#94a3b8' : '#64748b',
-                fontSize: 11,
-                marginTop: 4,
-              }}
-            >
-              {field.value?.toLocaleString()} {field.unit} · {field.provenanceLabel}
-            </Text>
-          ) : null}
-          {showStatusBelowInput && !active ? (
-            <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 5 }}>
-              {field.conflicted
-                ? 'Unresolved plan conflict — this stays unpriced until you choose or enter a count.'
-                : 'Quantity needed before this scope can be priced.'}
-            </Text>
-          ) : null}
-        </>
-      ) : null}
-    </View>
-  );
-}, (previous, next) =>
-  previous.field.key === next.field.key &&
-  previous.field.value === next.field.value &&
-  previous.field.selected === next.field.selected &&
-  previous.field.conflicted === next.field.conflicted &&
-  previous.field.provenanceLabel === next.field.provenanceLabel &&
-  previous.expanded === next.expanded &&
-  previous.applying === next.applying &&
-  previous.darkMode === next.darkMode &&
-  previous.Colors === next.Colors &&
-  previous.quantityEditingRef === next.quantityEditingRef &&
-  previous.onToggleExpand === next.onToggleExpand &&
-  previous.onCommitQuantity === next.onCommitQuantity);
+        setQuantityDraft(text);
+      },
+      [committedValue, setQuantityEditing]
+    );
+
+    const handleToggle = () => {
+      if (applying) return;
+      const tapQuantity = electricalQmTapQuantity(field);
+      if (tapQuantity != null) {
+        setQuantityEditing(false);
+        onCommitQuantityRef.current(fieldKey, tapQuantity);
+        if (!tapQuantity && expanded) onToggleExpand(fieldKey);
+        if (tapQuantity && !expanded) onToggleExpand(fieldKey);
+        return;
+      }
+      onToggleExpand(fieldKey);
+    };
+
+    const inputValue = isEditingQuantity ? quantityDraft : committedValue;
+    const showStatusBelowInput = !isEditingQuantity;
+
+    return (
+      <View>
+        <ConfirmScopeChip
+          selected={chipSelected}
+          label={field.label}
+          darkMode={darkMode}
+          disabled={applying}
+          accessibilityLabel={
+            active
+              ? `Remove ${field.label} from scope`
+              : chipSelected
+                ? `Collapse ${field.label} quantity`
+                : `Include ${field.label} in scope`
+          }
+          onPress={handleToggle}
+        />
+        {showQuantity ? (
+          <>
+            <QmSqftMeasurementRow
+              label={`${field.label} quantity`}
+              helperText={
+                field.conflicted
+                  ? 'Confirm the orange conflict above, or enter only the quantity for this component.'
+                  : 'Enter only the quantity for this selected component.'
+              }
+              value={inputValue}
+              placeholder='Enter'
+              unitLabel={field.unit}
+              keyboardType={field.unit === 'LF' ? 'decimal-pad' : 'number-pad'}
+              onChangeText={handleQuantityChange}
+              onFocus={beginQuantityEdit}
+              onBlur={finishQuantityEdit}
+              applying={applying}
+              darkMode={darkMode}
+              Colors={Colors}
+              highlighted
+            />
+            {showStatusBelowInput && active && field.provenanceLabel ? (
+              <Text
+                style={{
+                  color: darkMode ? '#94a3b8' : '#64748b',
+                  fontSize: 11,
+                  marginTop: 4,
+                }}
+              >
+                {field.value?.toLocaleString()} {field.unit} ·{' '}
+                {field.provenanceLabel}
+              </Text>
+            ) : null}
+            {showStatusBelowInput && !active ? (
+              <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 5 }}>
+                {field.conflicted
+                  ? 'Unresolved plan conflict — this stays unpriced until you choose or enter a count.'
+                  : 'Quantity needed before this scope can be priced.'}
+              </Text>
+            ) : null}
+          </>
+        ) : null}
+      </View>
+    );
+  },
+  (previous, next) =>
+    previous.field.key === next.field.key &&
+    previous.field.value === next.field.value &&
+    previous.field.selected === next.field.selected &&
+    previous.field.conflicted === next.field.conflicted &&
+    previous.field.provenanceLabel === next.field.provenanceLabel &&
+    previous.expanded === next.expanded &&
+    previous.applying === next.applying &&
+    previous.darkMode === next.darkMode &&
+    previous.Colors === next.Colors &&
+    previous.quantityEditingRef === next.quantityEditingRef &&
+    previous.onToggleExpand === next.onToggleExpand &&
+    previous.onCommitQuantity === next.onCommitQuantity
+);
 
 const styles = StyleSheet.create({
   qmPanel: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 12 },
   qmPanelTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
   qmPanelCaption: { fontSize: 12, lineHeight: 17, marginBottom: 12 },
+  qmCollapseFooter: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(148,163,184,0.24)',
+  },
+  qmCollapseFooterText: {
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   qmOptionWrap: {
     flexDirection: 'column',
     gap: 8,

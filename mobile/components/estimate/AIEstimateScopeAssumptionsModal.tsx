@@ -53,6 +53,8 @@ import {
 } from '@/utils/estimateAiDraft';
 import { applyPaintPricingMethodChoice } from '@/utils/subcontractorTrade/paintingPlanConvergence';
 import {
+  ELECTRICAL_CARDS,
+  hasDetailedElectricalQuantities,
   syncElectricalScopeItems,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import {
@@ -650,11 +652,11 @@ function ScopeItemTitleRow({
         ? SCOPE_DETECTED_FROM_PHOTOS_LABEL
         : noteBadge === 'from_plan'
           ? 'Detected from plan'
-        : noteBadge === 'mentioned'
-          ? SCOPE_MENTIONED_IN_NOTES_LABEL
-          : noteBadge === 'review'
-            ? 'Review'
-            : null;
+          : noteBadge === 'mentioned'
+            ? SCOPE_MENTIONED_IN_NOTES_LABEL
+            : noteBadge === 'review'
+              ? 'Review'
+              : null;
   const badgeColor = noteBadge === 'review' ? '#f59e0b' : '#22c55e';
 
   return (
@@ -6808,9 +6810,13 @@ function WetAreaInstallLineCard({
         originalNotes={originalNotes}
         hideInlineTakeoff={
           isWholeHomeQuickMeasurementTemplate(templateKey) ||
-          (['flooring', 'landscaping', 'concrete', 'stucco', 'roofing'].includes(
-            String(templateKey || '').toLowerCase()
-          ) &&
+          ([
+            'flooring',
+            'landscaping',
+            'concrete',
+            'stucco',
+            'roofing',
+          ].includes(String(templateKey || '').toLowerCase()) &&
             !(item.id === 'stucco' && item.choiceId === 'repair_restucco'))
         }
         measurementsInput={measurementsInput}
@@ -6872,6 +6878,7 @@ function YesNoRow({
   onBathroomInteriorPaintConditionChange,
   onBathroomGlassDoorStyleChange,
   scopeChecklistItems,
+  suppressSuggestedPricing = false,
   visualCtx,
   Colors,
   darkMode,
@@ -6972,6 +6979,7 @@ function YesNoRow({
     style: BathroomGlassDoorStyle | null
   ) => void;
   scopeChecklistItems?: ScopeChecklistItem[];
+  suppressSuggestedPricing?: boolean;
   visualCtx: ScopeItemVisualContext;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
@@ -8545,7 +8553,9 @@ function YesNoRow({
           onRevertCalculatedQuantity={onRevertCalculatedQuantity}
           pricingEditorRequest={pricingEditorRequest}
           onPricingEditorRequestHandled={onPricingEditorRequestHandled}
-          suppressSuggestedPricing={paintRepairBundledPricing}
+          suppressSuggestedPricing={
+            paintRepairBundledPricing || suppressSuggestedPricing
+          }
           scopeItemLabel={checklistDisplayLabel(item, templateKey)}
           Colors={Colors}
           darkMode={darkMode}
@@ -9177,12 +9187,15 @@ function ChoiceRow({
       setOptimisticChoiceId(undefined);
     }
   }, [item.choiceId]);
-  const handleLocalChoice = useCallback((choiceId: string) => {
-    const nextChoiceId = item.choiceId === choiceId ? null : choiceId;
-    optimisticChoiceRef.current = nextChoiceId;
-    setOptimisticChoiceId(nextChoiceId);
-    setTimeout(() => onSelectRef.current(choiceId), 0);
-  }, [item.choiceId]);
+  const handleLocalChoice = useCallback(
+    (choiceId: string) => {
+      const nextChoiceId = item.choiceId === choiceId ? null : choiceId;
+      optimisticChoiceRef.current = nextChoiceId;
+      setOptimisticChoiceId(nextChoiceId);
+      setTimeout(() => onSelectRef.current(choiceId), 0);
+    },
+    [item.choiceId]
+  );
   const inScope = Boolean(
     displayedChoiceId &&
       displayedChoiceId !== 'not_in_scope' &&
@@ -9267,9 +9280,12 @@ function ChoiceRow({
               style={[
                 styles.choiceChipWide,
                 item.id === 'tear_off'
-                  ? ['one_layer', 'two_layers', 'tile_removal', 'metal_removal'].includes(
-                      opt.id
-                    )
+                  ? [
+                      'one_layer',
+                      'two_layers',
+                      'tile_removal',
+                      'metal_removal',
+                    ].includes(opt.id)
                     ? styles.roofingChoiceChipHalf
                     : styles.roofingChoiceChipFull
                   : null,
@@ -9859,8 +9875,10 @@ function CollapsibleQuickMeasurements({
   const lastPaintSplitRef = useRef({ wall: '', ceiling: '' });
   const isElectricalQmTemplate =
     String(templateKey || '').toLowerCase() === 'electrical';
-  const [electricalQuantityTakeoffMounted, setElectricalQuantityTakeoffMounted] =
-    useState(!isElectricalQmTemplate);
+  const [
+    electricalQuantityTakeoffMounted,
+    setElectricalQuantityTakeoffMounted,
+  ] = useState(!isElectricalQmTemplate);
   useEffect(() => {
     if (!isElectricalQmTemplate) {
       setElectricalQuantityTakeoffMounted(true);
@@ -9876,11 +9894,7 @@ function CollapsibleQuickMeasurements({
       cancelled = true;
       handle.cancel();
     };
-  }, [
-    isElectricalQmTemplate,
-    expanded,
-    electricalQuantityTakeoffMounted,
-  ]);
+  }, [isElectricalQmTemplate, expanded, electricalQuantityTakeoffMounted]);
   useEffect(() => {
     if (!isElectricalQmTemplate) return;
     setElectricalQuantityTakeoffMounted(false);
@@ -9934,7 +9948,11 @@ function CollapsibleQuickMeasurements({
       if (!stillBoth || prev.paintPricingMethod) return prev;
       return { ...prev, paintPricingMethod: 'combined' };
     });
-  }, [measurements.paintScope, measurements.paintPricingMethod, setMeasurements]);
+  }, [
+    measurements.paintScope,
+    measurements.paintPricingMethod,
+    setMeasurements,
+  ]);
   useEffect(() => {
     if (measurements.cabinetMeasurementMethod !== 'linear_feet') return;
     const upper = Number(measurements.cabinetUpperLf || 0);
@@ -10295,7 +10313,8 @@ function CollapsibleQuickMeasurements({
     String(effectiveTemplateKey || '').toLowerCase() === 'roofing';
   const stuccoQmJob =
     !wholeHomeLayout &&
-    (String(effectiveTemplateKey || '').toLowerCase() === 'stucco' || stuccoTradeFlow);
+    (String(effectiveTemplateKey || '').toLowerCase() === 'stucco' ||
+      stuccoTradeFlow);
   const paintingQmJob =
     !wholeHomeLayout &&
     String(effectiveTemplateKey || '').toLowerCase() === 'painting';
@@ -10355,15 +10374,15 @@ function CollapsibleQuickMeasurements({
         confirmed: [...grouped.confirmed],
         more: [...grouped.more],
       };
-      (['fromPlan', 'suggestions', 'needsConfirmation', 'confirmed'] as const).forEach(
-        groupId => {
-          next[groupId] = next[groupId].filter(result => {
-            if (!keepInMore.has(result.key)) return true;
-            movedToMore.push(result);
-            return false;
-          });
-        }
-      );
+      (
+        ['fromPlan', 'suggestions', 'needsConfirmation', 'confirmed'] as const
+      ).forEach(groupId => {
+        next[groupId] = next[groupId].filter(result => {
+          if (!keepInMore.has(result.key)) return true;
+          movedToMore.push(result);
+          return false;
+        });
+      });
       next.more.push(...movedToMore);
       next.more.sort((a, b) => {
         const aPosition = typedMoreMeasurementPositions[a.key];
@@ -10413,7 +10432,8 @@ function CollapsibleQuickMeasurements({
   const measurementConflicts = useMemo(
     () =>
       (measurements.measurementConflicts || []).filter(
-        conflict => !measurements.quickMeasurementUserOverrides?.[conflict.field]
+        conflict =>
+          !measurements.quickMeasurementUserOverrides?.[conflict.field]
       ),
     [
       measurements.measurementConflicts,
@@ -11884,7 +11904,9 @@ function CollapsibleQuickMeasurements({
               !String(value || '').trim()
             ) {
               const otherKey =
-                key === 'cabinetPaintSqft' ? 'cabinetRunLf' : 'cabinetPaintSqft';
+                key === 'cabinetPaintSqft'
+                  ? 'cabinetRunLf'
+                  : 'cabinetPaintSqft';
               const otherValue = String(prev[otherKey] || '').trim();
               if (otherValue) {
                 nextItemQuantities.cabinet_paint = {
@@ -11922,10 +11944,7 @@ function CollapsibleQuickMeasurements({
             0
           );
         const nextMeasurements = { ...prev, [key]: value };
-        if (
-          key === 'paintAreaSqft' &&
-          prev.paintPricingMethod === 'combined'
-        ) {
+        if (key === 'paintAreaSqft' && prev.paintPricingMethod === 'combined') {
           nextMeasurements.combinedPaintableAreaSqft = value;
         }
         if (
@@ -12483,11 +12502,7 @@ function CollapsibleQuickMeasurements({
     justifyContent: 'center' as const,
   });
   const paintChipTextColor = (selected: boolean) =>
-    selected
-      ? paintChipSelectedColor
-      : darkMode
-        ? '#e4e4e7'
-        : Colors.text;
+    selected ? paintChipSelectedColor : darkMode ? '#e4e4e7' : Colors.text;
   const electricalAttributeValues = useMemo(
     () =>
       electricalConfirmScopeAttributesFromMeasurements(
@@ -12525,7 +12540,7 @@ function CollapsibleQuickMeasurements({
   );
   const electricalConflictFields = useMemo(
     () => [...unresolvedElectricalConflictFields(measurementConflicts)],
-    [measurementConflicts],
+    [measurementConflicts]
   );
   const electricalQuantityTakeoff = useMemo(
     () => (
@@ -12553,7 +12568,7 @@ function CollapsibleQuickMeasurements({
       darkMode,
       Colors,
       applying,
-    ],
+    ]
   );
   const choosePaintAreaBasis = (
     basis: 'walls' | 'combined' | 'floor_area' | 'unknown'
@@ -12632,38 +12647,38 @@ function CollapsibleQuickMeasurements({
       </TouchableOpacity>
       {expanded ? (
         <View style={styles.quickMeasurementsBody}>
-            <PlanTakeoffConflictChooser
-              conflicts={measurementConflicts}
-              choices={conflictChoices}
-              manualValues={conflictManualValues}
-              keepResolvedCards
-              onChoose={(field, choice) => {
-                if (choice == null) {
-                  setConflictChoices(prev => {
-                    const next = { ...prev };
-                    delete next[field];
-                    return next;
-                  });
-                  clearConflictQuantity(field);
-                  return;
-                }
-                setConflictChoices(prev => ({ ...prev, [field]: choice }));
-                if (typeof choice === 'number') {
-                  commitConflictQuantity(field, choice);
-                }
-              }}
-              onManualChange={(field, value) => {
-                setConflictManualValues(prev => ({ ...prev, [field]: value }));
-              }}
-              onManualSubmit={(field, value) => {
-                const n = parseManualConflictValue(value);
-                if (n != null) {
-                  commitConflictQuantity(field, n, true);
-                }
-              }}
-              darkMode={darkMode}
-              captionColor={captionColor(darkMode, Colors)}
-            />
+          <PlanTakeoffConflictChooser
+            conflicts={measurementConflicts}
+            choices={conflictChoices}
+            manualValues={conflictManualValues}
+            keepResolvedCards
+            onChoose={(field, choice) => {
+              if (choice == null) {
+                setConflictChoices(prev => {
+                  const next = { ...prev };
+                  delete next[field];
+                  return next;
+                });
+                clearConflictQuantity(field);
+                return;
+              }
+              setConflictChoices(prev => ({ ...prev, [field]: choice }));
+              if (typeof choice === 'number') {
+                commitConflictQuantity(field, choice);
+              }
+            }}
+            onManualChange={(field, value) => {
+              setConflictManualValues(prev => ({ ...prev, [field]: value }));
+            }}
+            onManualSubmit={(field, value) => {
+              const n = parseManualConflictValue(value);
+              if (n != null) {
+                commitConflictQuantity(field, n, true);
+              }
+            }}
+            darkMode={darkMode}
+            captionColor={captionColor(darkMode, Colors)}
+          />
           {ambiguousPaintArea ? (
             <View
               style={{
@@ -12740,8 +12755,13 @@ function CollapsibleQuickMeasurements({
                   Number(measurements.serviceUpgradeCount) > 0 ||
                   Number(measurements.existingServiceAmperage) > 0
                 }
+                hasDetailedQuantities={hasDetailedElectricalQuantities(
+                  measurements as Record<string, unknown>
+                )}
               />
-              {electricalQuantityTakeoffMounted ? electricalQuantityTakeoff : null}
+              {electricalQuantityTakeoffMounted
+                ? electricalQuantityTakeoff
+                : null}
             </>
           ) : null}
           {String(templateKey || '').toLowerCase() === 'painting' ? (
@@ -13627,7 +13647,6 @@ function ScopeGroupSection({
   );
 }
 
-
 export default function AIEstimateScopeAssumptionsModal({
   visible,
   draft,
@@ -13657,6 +13676,8 @@ export default function AIEstimateScopeAssumptionsModal({
       ...emptyQuickMeasurementInput(),
       itemQuantities: {},
     });
+  const [electricalPreviewMeasurements, setElectricalPreviewMeasurements] =
+    useState<ScopeMeasurementsInputExtended | null>(null);
   const deferredMeasurements = useDeferredValue(measurements);
   const [quickMeasurementsOpen, setQuickMeasurementsOpen] = useState(true);
   // Confirm Scope reuses this modal instance — reopening must restore QM expanded
@@ -13687,6 +13708,17 @@ export default function AIEstimateScopeAssumptionsModal({
   const electricalQmQuantityEditingRef = useRef(false);
   const electricalAttributesCommitRef = useRef<(() => void) | null>(null);
   const selectedPricingRef = useRef<Record<string, SuggestedPricingBlock>>({});
+  useEffect(() => {
+    if (!electricalPreviewMeasurements) return;
+    // Keep the preview through the commit render, then release it so later
+    // edits made directly on scope cards cannot read an older QM snapshot.
+    if (
+      measurements === electricalPreviewMeasurements ||
+      !electricalMeasurementsStagedRef.current
+    ) {
+      setElectricalPreviewMeasurements(null);
+    }
+  }, [measurements, electricalPreviewMeasurements]);
   const scrollRef = useRef<ScrollView>(null);
   const scrollContentRef = useRef<View>(null);
   const scrollOffsetYRef = useRef(0);
@@ -14213,6 +14245,29 @@ export default function AIEstimateScopeAssumptionsModal({
       if (next === previous) return;
       measurementsRef.current = next;
       electricalMeasurementsStagedRef.current = true;
+      const previousItemQuantities = previous.itemQuantities || {};
+      const nextItemQuantities = next.itemQuantities || {};
+      const quantityChanged =
+        ELECTRICAL_CARDS.some(
+          card => previous[card.measurementKey] !== next[card.measurementKey]
+        ) ||
+        Object.keys({
+          ...previousItemQuantities,
+          ...nextItemQuantities,
+        }).some(key => {
+          const before = previousItemQuantities[key];
+          const after = nextItemQuantities[key];
+          return (
+            before?.quantity !== after?.quantity ||
+            before?.unit !== after?.unit ||
+            before?.quantitySource !== after?.quantitySource
+          );
+        });
+      if (quantityChanged) {
+        // Keep the lightweight pricing-card preview responsive while the full
+        // electrical measurements state remains staged for the QM interaction.
+        setElectricalPreviewMeasurements(next);
+      }
     },
     [setMeasurementsSynced]
   );
@@ -14220,7 +14275,11 @@ export default function AIEstimateScopeAssumptionsModal({
   const flushStagedElectricalMeasurements = useCallback(() => {
     if (!electricalMeasurementsStagedRef.current) return;
     electricalMeasurementsStagedRef.current = false;
-    setMeasurementsSynced({ ...measurementsRef.current });
+    const committed = { ...measurementsRef.current };
+    setMeasurementsSynced(committed);
+    // Keep the same snapshot available to scope-card pricing while the
+    // committed measurements state catches up in the same render cycle.
+    setElectricalPreviewMeasurements(committed);
   }, [setMeasurementsSynced]);
 
   const commitElectricalAttributes = useCallback(() => {
@@ -14339,6 +14398,7 @@ export default function AIEstimateScopeAssumptionsModal({
             quickMeasurementSources: planImport.quickMeasurementSources,
             measurementProvenance: planImport.measurementProvenance,
             measurementConflicts: planImport.measurementConflicts,
+            planImportFingerprint: planImport.planImportFingerprint,
             estimatingMode: planImport.estimatingMode,
             selectedTrade: planImport.selectedTrade,
             tradeProvenance: planImport.tradeProvenance,
@@ -14612,12 +14672,7 @@ export default function AIEstimateScopeAssumptionsModal({
         return applied.appliedCount ? applied.items : prev;
       });
     }
-  }, [
-    visible,
-    livePlanImportHandoffKey,
-    planImport,
-    setMeasurementsSynced,
-  ]);
+  }, [visible, livePlanImportHandoffKey, planImport, setMeasurementsSynced]);
 
   useEffect(() => {
     if (visible) return;
@@ -14630,6 +14685,7 @@ export default function AIEstimateScopeAssumptionsModal({
       );
     }
     electricalMeasurementsStagedRef.current = false;
+    setElectricalPreviewMeasurements(null);
     livePlanImportHandoffKeyRef.current = '';
     hydratedVisibleSessionRef.current = false;
     setItems([]);
@@ -14744,9 +14800,19 @@ export default function AIEstimateScopeAssumptionsModal({
     [normMeasurementInput, scopeNotes, checklist?.templateKey]
   );
   const deferredNormMeasurements = useDeferredValue(normMeasurements);
+  const sharedRowMeasurements =
+    String(checklist?.templateKey || '').toLowerCase() === 'electrical' &&
+    electricalPreviewMeasurements
+      ? electricalPreviewMeasurements
+      : measurements;
   const sharedRowNorm = useMemo(
-    () => buildNormFromInput(measurements, scopeNotes, checklist?.templateKey),
-    [measurements, scopeNotes, checklist?.templateKey]
+    () =>
+      buildNormFromInput(
+        sharedRowMeasurements,
+        scopeNotes,
+        checklist?.templateKey
+      ),
+    [sharedRowMeasurements, scopeNotes, checklist?.templateKey]
   );
   const sharedParsedNotes = useMemo(
     () => ({
@@ -15349,6 +15415,107 @@ export default function AIEstimateScopeAssumptionsModal({
     hideDuplicateRoofingBaseCard,
   ]);
 
+  const electricalPreviewScopeGroups = useMemo(() => {
+    if (String(checklist?.templateKey || '').toLowerCase() !== 'electrical') {
+      return [];
+    }
+    const previewMeasurements = electricalPreviewMeasurements || measurements;
+    // Keep the preview in lockstep with Quick Measurements. The persisted
+    // checklist can still contain a stale/excluded row (or no row at all)
+    // when a contractor selects a quantity, so derive the preview from the
+    // same convergence rules instead of waiting for the items effect to run.
+    const previewItems = syncElectricalScopeItems(displayItems, {
+      electricalScope: previewMeasurements.electricalScope,
+      quantities: {
+        ...(previewMeasurements as Partial<Record<string, unknown>>),
+        ...Object.fromEntries(
+          ELECTRICAL_CARDS.map(card => {
+            const scalar = Number(previewMeasurements[card.measurementKey]);
+            const itemQuantity = Number(
+              previewMeasurements.itemQuantities?.[card.itemId]?.quantity
+            );
+            return [
+              card.measurementKey,
+              scalar > 0
+                ? previewMeasurements[card.measurementKey]
+                : itemQuantity,
+            ];
+          })
+        ),
+      },
+    });
+    const previewGroups = groupScopeChecklistItems(
+      previewItems,
+      checklist?.templateKey
+    );
+    const previewReadyItemIds = new Set(
+      previewItems
+        .filter(item => item.state === 'included')
+        .filter(
+          item =>
+            resolveChecklistItemQuantity(item.id, normMeasurements, {
+              templateKey: checklist?.templateKey,
+              choiceId: item.choiceId,
+            }).pricingReady
+        )
+        .map(item => item.id)
+    );
+    const unresolved = new Set(
+      unresolvedElectricalConflictFields(
+        previewMeasurements.measurementConflicts || []
+      )
+    );
+    const blocked = new Set(
+      previewMeasurements.electricalValidation?.blockedFields || []
+    );
+    const needsConfirmation = new Set(
+      Object.entries(previewMeasurements.quickMeasurementSources || {})
+        .filter(([, source]) => source === 'needs_confirmation')
+        .map(([key]) => key)
+    );
+    const contractorConfirmed = new Set(
+      Object.entries(previewMeasurements.quickMeasurementSources || {})
+        .filter(
+          ([, source]) =>
+            source === 'user_entered' ||
+            source === 'contractor_confirmed_from_plan_review'
+        )
+        .map(([key]) => key)
+    );
+    const selectedItemIds = new Set(
+      ELECTRICAL_CARDS.filter(card => {
+        const scalar = Number(previewMeasurements[card.measurementKey]);
+        const itemQuantity = Number(
+          previewMeasurements.itemQuantities?.[card.itemId]?.quantity
+        );
+        return (
+          !unresolved.has(card.measurementKey) &&
+          (!blocked.has(card.measurementKey) ||
+            contractorConfirmed.has(card.measurementKey) ||
+            needsConfirmation.has(card.measurementKey)) &&
+          (!needsConfirmation.has(card.measurementKey) ||
+            scalar > 0 ||
+            itemQuantity > 0) &&
+          (scalar > 0 ||
+            itemQuantity > 0 ||
+            previewReadyItemIds.has(card.itemId))
+        );
+      }).map(card => card.itemId)
+    );
+    return previewGroups
+      .map(group => ({
+        ...group,
+        items: group.items.filter(item => selectedItemIds.has(item.id)),
+      }))
+      .filter(group => group.items.length > 0);
+  }, [
+    measurements,
+    electricalPreviewMeasurements,
+    displayItems,
+    checklist?.templateKey,
+    normMeasurements,
+  ]);
+
   // QM steppers / shower SF → auto-include shower wall & floor tile scope cards.
   useEffect(() => {
     const templateKey = String(
@@ -15636,11 +15803,7 @@ export default function AIEstimateScopeAssumptionsModal({
       cancelled = true;
       handle.cancel();
     };
-  }, [
-    isElectricalConfirmScope,
-    visible,
-    quickMeasurementsOpen,
-  ]);
+  }, [isElectricalConfirmScope, visible, quickMeasurementsOpen]);
 
   const pricingFooterComputeKey = useMemo(
     () =>
@@ -15684,7 +15847,9 @@ export default function AIEstimateScopeAssumptionsModal({
   });
   const pricingInteractionGenerationRef = useRef(0);
   const pricingReadyRef = useRef(false);
-  computeUnconfirmedSuggestedPricingRef.current = async (generation: number) => {
+  computeUnconfirmedSuggestedPricingRef.current = async (
+    generation: number
+  ) => {
     const measurements = deferredMeasurements;
     const normMeasurements = deferredNormMeasurements;
     const rows: UnconfirmedSuggestedPricing[] = [];
@@ -15711,7 +15876,8 @@ export default function AIEstimateScopeAssumptionsModal({
       });
     const blockedItemIds = conflictedSuggestedItemIds(
       (measurements.measurementConflicts || []).filter(
-        conflict => !measurements.quickMeasurementUserOverrides?.[conflict.field]
+        conflict =>
+          !measurements.quickMeasurementUserOverrides?.[conflict.field]
       )
     );
     for (let index = 0; index < displayItems.length; index += 1) {
@@ -15719,7 +15885,9 @@ export default function AIEstimateScopeAssumptionsModal({
       // Each resolver is synchronous and runs on React Native's JS thread.
       // Yield before every item so a tap never waits behind several pricing
       // resolvers in one batch.
-      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      await new Promise<void>(resolve =>
+        requestAnimationFrame(() => resolve())
+      );
       if (isStale()) return [];
       const item = displayItems[index];
       if (!checklistItemInScope(item)) continue;
@@ -15889,18 +16057,12 @@ export default function AIEstimateScopeAssumptionsModal({
     let interactionHandle: { cancel: () => void } | null = null;
     const generation = ++pricingInteractionGenerationRef.current;
     const run = async () => {
-      if (
-        cancelled ||
-        generation !== pricingInteractionGenerationRef.current
-      ) {
+      if (cancelled || generation !== pricingInteractionGenerationRef.current) {
         return;
       }
       const next =
         await computeUnconfirmedSuggestedPricingRef.current(generation);
-      if (
-        cancelled ||
-        generation !== pricingInteractionGenerationRef.current
-      ) {
+      if (cancelled || generation !== pricingInteractionGenerationRef.current) {
         return;
       }
       pricingReadyRef.current = true;
@@ -16101,7 +16263,8 @@ export default function AIEstimateScopeAssumptionsModal({
   const suggestedPricingFooterSummary = footerSuggestedPricingSummary({
     readyCount: suggestedPricingFooterBreakdown.readyCount,
     benchmarkOnlyCount: suggestedPricingFooterBreakdown.benchmarkOnlyCount,
-    needsMeasurementCount: suggestedPricingFooterBreakdown.needsMeasurementCount,
+    needsMeasurementCount:
+      suggestedPricingFooterBreakdown.needsMeasurementCount,
   });
 
   const applySuggestedPricingBlocks = useCallback(
@@ -16128,11 +16291,7 @@ export default function AIEstimateScopeAssumptionsModal({
       });
       setTimeout(() => persistScopeProgressNow(), 0);
     },
-    [
-      checklist?.templateKey,
-      persistScopeProgressNow,
-      setMeasurementsSynced,
-    ]
+    [checklist?.templateKey, persistScopeProgressNow, setMeasurementsSynced]
   );
 
   const handleItemQuantityChange = (
@@ -17529,6 +17688,11 @@ export default function AIEstimateScopeAssumptionsModal({
     [setMeasurementsSynced]
   );
 
+  const measurementsForScopeRender =
+    isElectricalConfirmScope && electricalPreviewMeasurements
+      ? electricalPreviewMeasurements
+      : measurements;
+
   const renderItem = (item: ScopeChecklistItem) => {
     if (hideDeselectedRoofingQmCard(item.id)) {
       return null;
@@ -17649,7 +17813,7 @@ export default function AIEstimateScopeAssumptionsModal({
           item={item}
           templateKey={checklist?.templateKey}
           originalNotes={scopeNotes}
-          measurementsInput={measurements}
+          measurementsInput={measurementsForScopeRender}
           onItemQuantityChange={handleItemQuantityChange}
           onBatchItemQuantityChange={handleBatchItemQuantityChange}
           onClearSuggestedPrefill={handleClearSuggestedPrefill}
@@ -17762,7 +17926,7 @@ export default function AIEstimateScopeAssumptionsModal({
               });
             }
           }}
-          measurementsInput={measurements}
+          measurementsInput={measurementsForScopeRender}
           onItemQuantityChange={handleItemQuantityChange}
           onBatchItemQuantityChange={handleBatchItemQuantityChange}
           onClearSuggestedPrefill={handleClearSuggestedPrefill}
@@ -17906,7 +18070,7 @@ export default function AIEstimateScopeAssumptionsModal({
           }
           onBathroomGlassDoorStyleChange={handleBathroomGlassDoorStyleChange}
           scopeChecklistItems={displayItems}
-          measurementsInput={measurements}
+          measurementsInput={measurementsForScopeRender}
           onItemQuantityChange={handleItemQuantityChange}
           onBatchItemQuantityChange={handleBatchItemQuantityChange}
           onClearSuggestedPrefill={handleClearSuggestedPrefill}
@@ -18020,7 +18184,7 @@ export default function AIEstimateScopeAssumptionsModal({
           }
           onBathroomGlassDoorStyleChange={handleBathroomGlassDoorStyleChange}
           scopeChecklistItems={displayItems}
-          measurementsInput={measurements}
+          measurementsInput={measurementsForScopeRender}
           onItemQuantityChange={handleItemQuantityChange}
           onBatchItemQuantityChange={handleBatchItemQuantityChange}
           onClearSuggestedPrefill={handleClearSuggestedPrefill}
@@ -18123,6 +18287,15 @@ export default function AIEstimateScopeAssumptionsModal({
 
   if (!visible || !draft || !checklist) return null;
 
+  const scopeGroupsToRender =
+    isElectricalConfirmScope && quickMeasurementsOpen
+      ? electricalPreviewScopeGroups
+      : scopeGroupedItems;
+  const electricalPreviewPricingCount = electricalPreviewScopeGroups.reduce(
+    (total, group) => total + group.items.length,
+    0
+  );
+
   const body = (
     <View style={[styles.shell, { backgroundColor: Colors.bg }]}>
       <AIEstimateFlowHeader
@@ -18205,7 +18378,8 @@ export default function AIEstimateScopeAssumptionsModal({
             containerRef={quickMeasurementsRef}
             measurements={measurements}
             setMeasurements={
-              String(checklist?.templateKey || '').toLowerCase() === 'electrical'
+              String(checklist?.templateKey || '').toLowerCase() ===
+              'electrical'
                 ? setElectricalMeasurementsStaged
                 : setMeasurementsSynced
             }
@@ -18361,8 +18535,10 @@ export default function AIEstimateScopeAssumptionsModal({
             applying={applying}
           />
 
-          {!isElectricalConfirmScope || electricalScopeRowsMounted
-            ? scopeGroupedItems.map(group => (
+          {!isElectricalConfirmScope ||
+          electricalScopeRowsMounted ||
+          (quickMeasurementsOpen && electricalPreviewScopeGroups.length > 0)
+            ? scopeGroupsToRender.map(group => (
                 <ScopeGroupSection
                   key={group.title || 'all'}
                   title={group.title}
@@ -18379,7 +18555,10 @@ export default function AIEstimateScopeAssumptionsModal({
                     }));
                   }}
                   renderItem={renderItem}
-                  noteSummary={scopeChecklistNoteSummary(group.items, visualCtx)}
+                  noteSummary={scopeChecklistNoteSummary(
+                    group.items,
+                    visualCtx
+                  )}
                   Colors={Colors}
                   darkMode={darkMode}
                 />
@@ -18554,16 +18733,15 @@ export default function AIEstimateScopeAssumptionsModal({
         {isElectricalConfirmScope && quickMeasurementsOpen ? (
           <View style={styles.bulkSuggestedPricingLink}>
             <Text
-              style={[
-                styles.bulkSuggestedPricingBtnText,
-                { color: '#22c55e' },
-              ]}
+              style={[styles.bulkSuggestedPricingBtnText, { color: '#22c55e' }]}
             >
-              {pricingCounts.ready > 0
-                ? `${pricingCounts.ready} price${
-                    pricingCounts.ready === 1 ? '' : 's'
-                  } identified · checks start after Quick measurements`
-                : 'Pricing checks start after Quick measurements'}
+              {electricalPreviewPricingCount > 0
+                ? `${electricalPreviewPricingCount} price${
+                    electricalPreviewPricingCount === 1 ? '' : 's'
+                  } identified · selected scope pricing is shown below`
+                : electricalPreviewScopeGroups.length > 0
+                  ? 'Selected scope pricing is shown below · remaining checks finish after Quick measurements'
+                  : 'Select a measured scope item to show its pricing card below'}
             </Text>
           </View>
         ) : null}
@@ -18737,7 +18915,9 @@ export default function AIEstimateScopeAssumptionsModal({
               <StatusBar
                 barStyle={darkMode ? 'light-content' : 'dark-content'}
               />
-              <View style={{ flex: 1, backgroundColor: Colors.bg }}>{body}</View>
+              <View style={{ flex: 1, backgroundColor: Colors.bg }}>
+                {body}
+              </View>
             </Modal>
           </ScopeParsedNotesContext.Provider>
         </ScopeNormalizedMeasurementsContext.Provider>

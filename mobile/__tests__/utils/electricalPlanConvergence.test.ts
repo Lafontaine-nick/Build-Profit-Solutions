@@ -55,9 +55,9 @@ describe('electrical canonical architecture', () => {
       expect(electricalCardForMeasurementKey(card.measurementKey)?.itemId).toBe(
         card.itemId
       );
-      expect(card.unit === 'each' || card.unit === 'amp' || card.unit === 'lf').toBe(
-        true
-      );
+      expect(
+        card.unit === 'each' || card.unit === 'amp' || card.unit === 'lf'
+      ).toBe(true);
     }
   });
 
@@ -111,9 +111,21 @@ describe('electrical canonical architecture', () => {
       rangeHookupCount: 1,
       ceilingFanCount: 3,
     };
-    const notesNorm = normalizeTradeMeasurements('electrical', fromNotes, 'notes');
-    const voiceNorm = normalizeTradeMeasurements('electrical', fromVoice, 'notes');
-    const manualNorm = normalizeTradeMeasurements('electrical', manual, 'manual');
+    const notesNorm = normalizeTradeMeasurements(
+      'electrical',
+      fromNotes,
+      'notes'
+    );
+    const voiceNorm = normalizeTradeMeasurements(
+      'electrical',
+      fromVoice,
+      'notes'
+    );
+    const manualNorm = normalizeTradeMeasurements(
+      'electrical',
+      manual,
+      'manual'
+    );
 
     expect(notesNorm.measurements).toEqual(voiceNorm.measurements);
     expect(notesNorm.measurements.recessedLightCount).toBe(18);
@@ -121,9 +133,10 @@ describe('electrical canonical architecture', () => {
     expect(manualNorm.quickMeasurementSources?.recessedLightCount).toBe(
       'user_entered'
     );
-    expect(notesNorm.structuredMeasurements?.itemQuantities?.electrical_recessed_light).toMatchObject(
-      { quantity: 18, unit: 'each' }
-    );
+    expect(
+      notesNorm.structuredMeasurements?.itemQuantities
+        ?.electrical_recessed_light
+    ).toMatchObject({ quantity: 18, unit: 'each' });
     const structured = buildElectricalStructuredMeasurements(manual);
     const scalar = normalizeElectricalScalarMeasurements(manual, structured);
     expect(scalar.rangeHookupCount).toBe(1);
@@ -201,14 +214,16 @@ describe('electrical canonical architecture', () => {
       'Packages',
       'Closeout',
     ]);
-    expect(SCOPE_CHECKLIST_GROUPS.electrical?.map(group => group.title)).toEqual(
-      groups.map(group => group.title)
-    );
+    expect(
+      SCOPE_CHECKLIST_GROUPS.electrical?.map(group => group.title)
+    ).toEqual(groups.map(group => group.title));
     for (const group of groups) {
       expect(group.itemIds.length).toBeGreaterThan(0);
     }
     const templateIds = electricalTemplateItems().map(item => item.id);
-    expect(templateIds).toEqual(expect.arrayContaining(groups.flatMap(g => g.itemIds)));
+    expect(templateIds).toEqual(
+      expect.arrayContaining(groups.flatMap(g => g.itemIds))
+    );
     expect(groups.find(group => group.title === 'Packages')?.itemIds).toEqual([
       'electrical_rough',
       'electrical_trim',
@@ -256,7 +271,11 @@ describe('electrical canonical architecture', () => {
       'electrical_rough',
       normalizeScopeMeasurements({
         itemQuantities: {
-          electrical_rough: { quantity: 4, unit: 'each', quantitySource: 'user_entered' },
+          electrical_rough: {
+            quantity: 4,
+            unit: 'each',
+            quantitySource: 'user_entered',
+          },
         },
       }),
       { templateKey: 'bathroom' }
@@ -265,7 +284,11 @@ describe('electrical canonical architecture', () => {
       'electrical_rough',
       inputWith({
         itemQuantities: {
-          electrical_rough: { quantity: '4', unit: 'each', quantitySource: 'user_entered' },
+          electrical_rough: {
+            quantity: '4',
+            unit: 'each',
+            quantitySource: 'user_entered',
+          },
         },
       }),
       'bathroom',
@@ -289,20 +312,30 @@ describe('electrical canonical architecture', () => {
   });
 
   it('does not invent scope from vague electrical notes', () => {
-    expect(inferItemStateFromNotes('electrical_rough', 'Need some electrical work')).toBe(
-      'unsure'
+    expect(
+      inferItemStateFromNotes('electrical_rough', 'Need some electrical work')
+    ).toBe('unsure');
+    expect(
+      inferItemStateFromNotes('electrical_rough', 'Need electrical work')
+    ).toBe('unsure');
+    expect(
+      inferItemStateFromNotes(
+        'electrical_gfci_receptacle',
+        'Add 4 GFCI outlets'
+      )
+    ).toBe('included');
+    expect(
+      inferItemStateFromNotes('electrical_rough', 'Add 4 GFCI outlets')
+    ).toBe('unsure');
+    expect(
+      inferItemStateFromNotes(
+        'electrical_rough',
+        'New circuits and electrical rough-in'
+      )
+    ).toBe('included');
+    const vague = parseElectricalMeasurementsFromNotes(
+      'Need some electrical work'
     );
-    expect(inferItemStateFromNotes('electrical_rough', 'Need electrical work')).toBe(
-      'unsure'
-    );
-    expect(inferItemStateFromNotes('electrical_gfci_receptacle', 'Add 4 GFCI outlets')).toBe(
-      'included'
-    );
-    expect(inferItemStateFromNotes('electrical_rough', 'Add 4 GFCI outlets')).toBe('unsure');
-    expect(inferItemStateFromNotes('electrical_rough', 'New circuits and electrical rough-in')).toBe(
-      'included'
-    );
-    const vague = parseElectricalMeasurementsFromNotes('Need some electrical work');
     expect(vague.standardReceptacleCount).toBeUndefined();
     expect(vague.electricalScope).toBeUndefined();
   });
@@ -313,9 +346,9 @@ describe('electrical canonical architecture', () => {
       recessedLightCount: '18',
       standardReceptacleCount: '12',
     });
-    expect(electricalPricingMode(detailed as unknown as Record<string, unknown>)).toBe(
-      'detailed'
-    );
+    expect(
+      electricalPricingMode(detailed as unknown as Record<string, unknown>)
+    ).toBe('detailed');
     expect(
       shouldAutoPriceElectricalRoughPackage(
         detailed as unknown as Record<string, unknown>,
@@ -324,7 +357,10 @@ describe('electrical canonical architecture', () => {
     ).toBe(false);
     expect(
       shouldAutoPriceElectricalTrimPackage(
-        { ...detailed, electricalIncludeTrim: true } as unknown as Record<string, unknown>,
+        { ...detailed, electricalIncludeTrim: true } as unknown as Record<
+          string,
+          unknown
+        >,
         'electrical'
       )
     ).toBe(false);
@@ -374,7 +410,9 @@ describe('electrical canonical architecture', () => {
       floorAreaSqft: 1879,
     };
     expect(hasDetailedElectricalQuantities(detailed)).toBe(true);
-    expect(shouldAutoPriceElectricalRoughPackage(detailed, 'ground_up')).toBe(false);
+    expect(shouldAutoPriceElectricalRoughPackage(detailed, 'ground_up')).toBe(
+      false
+    );
     const pricing = resolveScopeItemSuggestedPricing(
       'electrical_rough',
       inputWith({
@@ -489,7 +527,9 @@ describe('electrical canonical architecture', () => {
       row => row.itemId === 'electrical_afci_receptacle'
     );
     expect(card?.label).toBe('AFCI / dual-function receptacle');
-    expect(card?.helper).toMatch(/does not include AFCI\/dual-function breaker/i);
+    expect(card?.helper).toMatch(
+      /does not include AFCI\/dual-function breaker/i
+    );
   });
 
   it('keeps switch types distinct and does not invent a homerun', () => {
@@ -544,9 +584,13 @@ describe('electrical canonical architecture', () => {
       ELECTRICAL_CARDS.map(card => [card.itemId, card])
     );
     expect(byId.electrical_device_removal.helper).toMatch(/not a new device/i);
-    expect(byId.electrical_fixture_removal.helper).toMatch(/not a new fixture/i);
+    expect(byId.electrical_fixture_removal.helper).toMatch(
+      /not a new fixture/i
+    );
     expect(byId.electrical_relocate.helper).toMatch(/not a new device card/i);
-    expect(byId.electrical_abandoned_circuit.helper).toMatch(/not a new homerun/i);
+    expect(byId.electrical_abandoned_circuit.helper).toMatch(
+      /not a new homerun/i
+    );
   });
 
   it('names conduit and trenching as LF raceway cards', () => {
@@ -695,7 +739,9 @@ describe('electrical canonical architecture', () => {
     expect(byId.electrical_camera_prewire.label).toBe(
       'Camera prewire / low-voltage drop'
     );
-    expect(byId.electrical_camera_prewire.helper).toMatch(/not include cameras/i);
+    expect(byId.electrical_camera_prewire.helper).toMatch(
+      /not include cameras/i
+    );
     expect(byId.electrical_security_prewire.helper).toMatch(
       /camera drops are a separate card/i
     );
@@ -708,21 +754,29 @@ describe('electrical canonical architecture', () => {
     const byId = Object.fromEntries(
       ELECTRICAL_CARDS.map(card => [card.itemId, card])
     );
-    expect(byId.electrical_undercabinet_light.label).toBe('Under-cabinet fixture');
+    expect(byId.electrical_undercabinet_light.label).toBe(
+      'Under-cabinet fixture'
+    );
     expect(byId.electrical_undercabinet_light.helper).toMatch(
       /fixture install only/i
     );
     expect(byId.electrical_bath_exhaust_fan.label).toBe(
       'Bathroom exhaust fan electrical install'
     );
-    expect(byId.electrical_bath_exhaust_fan.helper).toMatch(/not include ducting/i);
+    expect(byId.electrical_bath_exhaust_fan.helper).toMatch(
+      /not include ducting/i
+    );
     expect(byId.electrical_ceiling_fan.helper).toMatch(/fan-rated box/i);
   });
 
   it('keeps panel, upgrade, and service cards distinct', () => {
-    const main = parseElectricalMeasurementsFromNotes('Install a 200 amp panel');
+    const main = parseElectricalMeasurementsFromNotes(
+      'Install a 200 amp panel'
+    );
     const upgrade = parseElectricalMeasurementsFromNotes('Upgrade the panel');
-    const service = parseElectricalMeasurementsFromNotes('Service upgrade to 200 amp');
+    const service = parseElectricalMeasurementsFromNotes(
+      'Service upgrade to 200 amp'
+    );
     expect(main.mainPanelCount).toBe(1);
     expect(main.panelUpgradeCount).toBeUndefined();
     expect(upgrade.panelUpgradeCount).toBe(1);
@@ -765,8 +819,12 @@ describe('electrical canonical architecture', () => {
   });
 
   it('does not map a bare Electrical package name onto electrical_rough', () => {
-    expect(lookupRuleKeyForPackage('Electrical fixtures')).toBe('electrical_trim');
-    expect(lookupRuleKeyForPackage('Electrical rough-in')).toBe('electrical_rough');
+    expect(lookupRuleKeyForPackage('Electrical fixtures')).toBe(
+      'electrical_trim'
+    );
+    expect(lookupRuleKeyForPackage('Electrical rough-in')).toBe(
+      'electrical_rough'
+    );
     expect(lookupRuleKeyForPackage('Electrical')).not.toBe('electrical_rough');
   });
 
@@ -778,18 +836,24 @@ describe('electrical canonical architecture', () => {
       { id: 'electrical_rough', state: 'unsure' },
     ];
     const selected = syncElectricalScopeItems(items, {
-      electricalScope: ['electrical_main_panel', 'electrical_standard_receptacle'],
+      electricalScope: [
+        'electrical_main_panel',
+        'electrical_standard_receptacle',
+      ],
       quantities: { mainPanelCount: 1, standardReceptacleCount: 50 },
     });
-    expect(selected.find(row => row.id === 'electrical_main_panel')?.state).toBe(
-      'included'
-    );
+    expect(
+      selected.find(row => row.id === 'electrical_main_panel')?.state
+    ).toBe('included');
     expect(
       selected.find(row => row.id === 'electrical_standard_receptacle')?.state
     ).toBe('included');
 
     const afterDeselect = syncElectricalScopeItems(selected, {
-      electricalScope: ['electrical_main_panel', 'electrical_standard_receptacle'],
+      electricalScope: [
+        'electrical_main_panel',
+        'electrical_standard_receptacle',
+      ],
       quantities: { mainPanelCount: '', standardReceptacleCount: 50 },
     });
     expect(
@@ -804,12 +868,88 @@ describe('electrical canonical architecture', () => {
     ).toBe('unsure');
   });
 
-  it('does not force-exclude a card the contractor already marked No', () => {
+  it('materializes every selected electrical quantity into the pricing scope list', () => {
+    const selected = syncElectricalScopeItems([], {
+      quantities: {
+        bathExhaustFanCount: 2,
+        floorReceptacleCount: 10,
+        rangeHookupCount: 1,
+        dryerHookupCount: 1,
+        dishwasherHookupCount: 1,
+        disposalHookupCount: 1,
+        doorbellCount: 1,
+      },
+    });
+
+    expect(selected).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'electrical_bath_exhaust_fan',
+          state: 'included',
+        }),
+        expect.objectContaining({
+          id: 'electrical_floor_receptacle',
+          state: 'included',
+        }),
+        expect.objectContaining({
+          id: 'electrical_range_hookup',
+          state: 'included',
+        }),
+        expect.objectContaining({
+          id: 'electrical_dryer_hookup',
+          state: 'included',
+        }),
+        expect.objectContaining({
+          id: 'electrical_dishwasher_hookup',
+          state: 'included',
+        }),
+        expect.objectContaining({
+          id: 'electrical_disposal_hookup',
+          state: 'included',
+        }),
+        expect.objectContaining({
+          id: 'electrical_doorbell',
+          state: 'included',
+        }),
+      ])
+    );
+  });
+
+  it('provides pricing for every measurable electrical quantity card', () => {
+    for (const card of ELECTRICAL_CARDS) {
+      const input = inputWith({
+        electricalProjectCondition: 'new_construction',
+        [card.measurementKey]: '1',
+        itemQuantities: {
+          [card.itemId]: {
+            quantity: '1',
+            unit: card.unit,
+            quantitySource: 'user_entered',
+          },
+        },
+      });
+      const normalized = normalizeScopeMeasurements(input);
+      const resolved = resolveChecklistItemQuantity(card.itemId, normalized, {
+        templateKey: 'electrical',
+      });
+      const pricing = resolveScopeItemSuggestedPricing(
+        card.itemId,
+        input,
+        'electrical',
+        resolved
+      );
+
+      expect(resolved.pricingReady).toBe(true);
+      expect(pricing.fill).not.toBeNull();
+    }
+  });
+
+  it('promotes a previously excluded card when a positive quantity is entered', () => {
     const next = syncElectricalScopeItems(
       [{ id: 'electrical_main_panel', state: 'excluded' }],
       { quantities: { mainPanelCount: 1 } }
     );
-    expect(next[0].state).toBe('excluded');
+    expect(next[0].state).toBe('included');
   });
 
   it('keeps a Notes-inferred Yes when no quantity was entered or cleared', () => {

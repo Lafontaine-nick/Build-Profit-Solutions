@@ -114,7 +114,8 @@ describe('electrical Phase 2C receptacle pricing', () => {
     expect(gfci.fill?.rateSourceLabel).toMatch(/approved device/i);
     expect(gfci.fill?.productionStatus).toBe('production_ready');
     expect(
-      resolveStep2PricingTier('electrical_standard_receptacle', 'electrical').tier
+      resolveStep2PricingTier('electrical_standard_receptacle', 'electrical')
+        .tier
     ).toBe('auto_planning');
   });
 
@@ -138,5 +139,40 @@ describe('electrical Phase 2C receptacle pricing', () => {
       )
     );
     expect(pricing.fill).toBeNull();
+  });
+
+  it('prices a manually entered floor receptacle quantity', () => {
+    const input = inputWith({
+      itemQuantities: {
+        electrical_floor_receptacle: {
+          quantity: '10',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+      },
+    });
+    const normalized = normalizeScopeMeasurements(input);
+    const resolved = resolveChecklistItemQuantity(
+      'electrical_floor_receptacle',
+      normalized,
+      { templateKey: 'electrical' }
+    );
+    const pricing = resolveScopeItemSuggestedPricing(
+      'electrical_floor_receptacle',
+      input,
+      'electrical',
+      resolved
+    );
+
+    expect(resolved).toMatchObject({
+      quantity: '10',
+      unit: 'each',
+      pricingReady: true,
+    });
+    expect(pricing.fill).toMatchObject({
+      material: 900,
+      labor: 2200,
+      total: 3100,
+    });
   });
 });

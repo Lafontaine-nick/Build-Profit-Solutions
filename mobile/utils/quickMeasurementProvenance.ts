@@ -31,6 +31,8 @@ import type {
 export type QuickMeasurementSourceTag =
   | PlanMeasurementSourceType
   | 'plan_detected'
+  | 'plan_verified'
+  | 'contractor_confirmed_from_plan_review'
   | 'user_confirmed_suggestion'
   | 'calculated_from_deductions';
 
@@ -118,6 +120,10 @@ export function quickMeasurementSourceLabel(
     case 'plan_detected':
     case 'detected_from_plan':
       return 'From plan';
+    case 'plan_verified':
+      return 'Plan verified';
+    case 'contractor_confirmed_from_plan_review':
+      return 'Contractor confirmed from plan review';
     case 'ai_verified':
       return 'AI verified · full sheet coverage checked';
     case 'measured_from_geometry':
@@ -170,9 +176,13 @@ function resolveFieldState(params: {
     if (
       params.sourceTag === 'plan_detected' ||
       params.sourceTag === 'detected_from_plan' ||
+      params.sourceTag === 'plan_verified' ||
       params.sourceTag === 'measured_from_geometry'
     ) {
       return 'detected';
+    }
+    if (params.sourceTag === 'contractor_confirmed_from_plan_review') {
+      return 'confirmed';
     }
     if (params.sourceTag === 'ai_verified') {
       return 'ai_verified';

@@ -78,7 +78,10 @@ const PANEL_UPGRADE_RATES: Record<100 | 125 | 150 | 200 | 400, Split> = {
 };
 
 /** Service upgrade includes meter/main, grounding/bonding, and utility coordination. */
-const SERVICE_UPGRADE_RATES: Record<'replace_200' | 'increase_200' | 'specialty_400', Split> = {
+const SERVICE_UPGRADE_RATES: Record<
+  'replace_200' | 'increase_200' | 'specialty_400',
+  Split
+> = {
   replace_200: { material: 1600, labor: 2400 },
   increase_200: { material: 2000, labor: 3250 },
   specialty_400: { material: 3800, labor: 5200 },
@@ -89,7 +92,7 @@ export function isElectricalServicePanelItemId(
 ): itemId is ElectricalServicePanelItemId {
   return Boolean(
     itemId &&
-      (ELECTRICAL_SERVICE_PANEL_ITEM_IDS as readonly string[]).includes(itemId)
+    (ELECTRICAL_SERVICE_PANEL_ITEM_IDS as readonly string[]).includes(itemId)
   );
 }
 
@@ -129,6 +132,13 @@ function roundMoney(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+function formatPricingMoney(value: number): string {
+  return `$${value.toLocaleString('en-US', {
+    minimumFractionDigits: value % 1 ? 2 : 0,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 export type ElectricalServicePanelPricingInput = {
   itemId: string;
   quantity?: number | null;
@@ -165,7 +175,8 @@ export function electricalServicePanelCardShouldPrice(
 
   if (
     serviceCount &&
-    (itemId === 'electrical_main_panel' || itemId === 'electrical_panel_upgrade')
+    (itemId === 'electrical_main_panel' ||
+      itemId === 'electrical_panel_upgrade')
   ) {
     return explicitIndependent;
   }
@@ -234,7 +245,8 @@ function baseSplitFor(
   fromAmps: number | null
 ): Split | null {
   if (itemId === 'electrical_subpanel') {
-    const key = (tier === 400 ? 200 : tier === 150 ? 125 : tier) as 60 | 100 | 125 | 200;
+    const key = (tier === 400 ? 200 : tier === 150 ? 125 : tier) as
+      60 | 100 | 125 | 200;
     return SUBPANEL_RATES[key];
   }
   if (itemId === 'electrical_main_panel') {
@@ -266,6 +278,7 @@ export type ElectricalServicePanelQuote = {
   laborMultiplier: number;
   specialty: boolean;
   helper: string;
+  pricingDetail: string;
   rateSourceLabel: string;
   ratesStatus: typeof ELECTRICAL_SERVICE_PANEL_RATES_STATUS;
 };
@@ -281,7 +294,11 @@ export function quoteElectricalServicePanel(
 
   const tier = snapElectricalAmperageTier(input.serviceAmperage, input.itemId);
   if (tier == null) return null;
-  const split = baseSplitFor(input.itemId, tier, input.existingServiceAmperage ?? null);
+  const split = baseSplitFor(
+    input.itemId,
+    tier,
+    input.existingServiceAmperage ?? null
+  );
   if (!split) return null;
 
   const applyMeterMainAdders =
@@ -308,6 +325,20 @@ export function quoteElectricalServicePanel(
   ]
     .filter(Boolean)
     .join(' · ');
+  const pricingDetail = [
+    `Base: ${formatPricingMoney(split.material)} material + ${formatPricingMoney(split.labor)} labor`,
+    outdoor
+      ? 'Outdoor: material × 1.10, labor × 1.15'
+      : 'Indoor: no location modifier',
+    condition
+      ? `Job condition: labor × ${ELECTRICAL_CONDITION_LABOR_MULTIPLIERS[condition].toFixed(2)}`
+      : null,
+    applyMeterMainAdders && input.electricalMeterMainCombo
+      ? 'Meter/main: +$275 material + $225 labor'
+      : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return {
     material: priced.material,
@@ -319,6 +350,7 @@ export function quoteElectricalServicePanel(
     laborMultiplier: priced.laborMultiplier,
     specialty,
     helper,
+    pricingDetail,
     rateSourceLabel: ELECTRICAL_SERVICE_PANEL_RATE_SOURCE_LABEL,
     ratesStatus: ELECTRICAL_SERVICE_PANEL_RATES_STATUS,
   };
@@ -376,10 +408,9 @@ export function parseServiceAmperageRange(text: string): {
 /**
  * One owner for a service-size change. Subpanels stay independent.
  */
-export function applyElectricalServicePanelOwnership<T extends Record<string, unknown>>(
-  parsed: T,
-  notes: string
-): T {
+export function applyElectricalServicePanelOwnership<
+  T extends Record<string, unknown>,
+>(parsed: T, notes: string): T {
   const text = String(notes || '');
   const next = { ...parsed };
   const range = parseServiceAmperageRange(text);
@@ -424,6 +455,7 @@ export type ElectricalServicePanelSuggestedPricing = {
     laborSource: 'national_average';
     rateSourceLabel: string;
     helper: string;
+    pricingDetail?: string;
     mode: 'suggested_price';
     splitSource: 'estimated';
     splitConfidence: 'medium';
@@ -489,11 +521,14 @@ export function resolveElectricalServicePanelSuggestedPricing(
       laborSource: 'national_average',
       rateSourceLabel: quote.rateSourceLabel,
       helper: quote.helper,
+      pricingDetail: quote.pricingDetail,
       mode: 'suggested_price',
       splitSource: 'estimated',
       splitConfidence: 'medium',
       basis: { quantity: quote.quantity, unit: 'each' },
-      productionStatus: quote.specialty ? 'review_required' : 'production_ready',
+      productionStatus: quote.specialty
+        ? 'review_required'
+        : 'production_ready',
       benchmarkLevel: 'component',
       benchmarkScopeKey: input.itemId,
       benchmarkAction: 'price_ready',

@@ -58,19 +58,29 @@ describe('planMeasurementConflictUi', () => {
     expect(conflictFieldLabel('recessedLightCount')).toBe(
       'Recessed / canless / wafer light'
     );
-    expect(conflictFieldLabel('singlePoleSwitchCount')).toBe('Single-pole switch');
+    expect(conflictFieldLabel('singlePoleSwitchCount')).toBe(
+      'Single-pole switch'
+    );
   });
 
   it('dedupes candidate chips and keeps distinct pass values', () => {
     expect(
-      uniqueConflictCandidateValues(conflict('recessedLightCount', [40, 20, 40]))
+      uniqueConflictCandidateValues(
+        conflict('recessedLightCount', [40, 20, 40])
+      )
     ).toEqual([20, 40]);
   });
 
   it('keeps internal provenance tokens while rendering contractor-facing labels', () => {
-    expect(normalizePlanEvidenceSource('general_plan_takeoff')).toBe('VISION_GENERAL');
-    expect(normalizePlanEvidenceSource('focused_trade_takeoff')).toBe('VISION_FOCUSED');
-    expect(normalizePlanEvidenceSource('pdf_text_instance_tags')).toBe('PLAN_TAGS');
+    expect(normalizePlanEvidenceSource('general_plan_takeoff')).toBe(
+      'VISION_GENERAL'
+    );
+    expect(normalizePlanEvidenceSource('focused_trade_takeoff')).toBe(
+      'VISION_FOCUSED'
+    );
+    expect(normalizePlanEvidenceSource('pdf_text_instance_tags')).toBe(
+      'PLAN_TAGS'
+    );
     expect(conflictCandidateSourceLabel('general_plan_takeoff')).toBe(
       'AI symbol count (first review)'
     );
@@ -81,13 +91,25 @@ describe('planMeasurementConflictUi', () => {
       'Counted from fixture tags on plan'
     );
     expect(
-      formatConflictCandidateChip('singlePoleSwitchCount', 25, 'general_plan_takeoff')
+      formatConflictCandidateChip(
+        'singlePoleSwitchCount',
+        25,
+        'general_plan_takeoff'
+      )
     ).toBe('25 EA · AI symbol count (first review)');
     expect(
-      formatConflictCandidateChip('singlePoleSwitchCount', 15, 'focused_trade_takeoff')
+      formatConflictCandidateChip(
+        'singlePoleSwitchCount',
+        15,
+        'focused_trade_takeoff'
+      )
     ).toBe('15 EA · AI symbol count (second review)');
     expect(
-      formatConflictCandidateChip('recessedLightCount', 46, 'pdf_text_instance_tags')
+      formatConflictCandidateChip(
+        'recessedLightCount',
+        46,
+        'pdf_text_instance_tags'
+      )
     ).toBe('46 EA · Counted from fixture tags on plan');
     const labeled = labeledConflictCandidates(
       conflict('singlePoleSwitchCount', [25, 15], {
@@ -136,9 +158,9 @@ describe('planMeasurementConflictUi', () => {
   });
 
   it('maps unresolved electrical conflicts onto suggested-pricing cards', () => {
-    expect(
-      [...conflictedSuggestedItemIds([conflict('recessedLightCount', [40, 20])])]
-    ).toEqual(['electrical_recessed_light']);
+    expect([
+      ...conflictedSuggestedItemIds([conflict('recessedLightCount', [40, 20])]),
+    ]).toEqual(['electrical_recessed_light']);
   });
 
   it('keeps tag + vision candidates and does not auto-resolve', () => {
@@ -149,13 +171,30 @@ describe('planMeasurementConflictUi', () => {
       threshold: 1,
       requiresConfirmation: true,
       candidates: [
-        { value: 46, source: 'pdf_text_instance_tags', confidence: 1, directEvidence: true },
-        { value: 32, source: 'general_plan_takeoff', confidence: 0.8, directEvidence: false },
-        { value: 20, source: 'focused_trade_takeoff', confidence: 0.85, directEvidence: false },
+        {
+          value: 46,
+          source: 'pdf_text_instance_tags',
+          confidence: 1,
+          directEvidence: true,
+        },
+        {
+          value: 32,
+          source: 'general_plan_takeoff',
+          confidence: 0.8,
+          directEvidence: false,
+        },
+        {
+          value: 20,
+          source: 'focused_trade_takeoff',
+          confidence: 0.85,
+          directEvidence: false,
+        },
       ],
     };
     const labeled = labeledConflictCandidates(recessed);
-    expect(labeled.map(item => [item.value, item.sourceToken, item.sourceLabel])).toEqual([
+    expect(
+      labeled.map(item => [item.value, item.sourceToken, item.sourceLabel])
+    ).toEqual([
       [46, 'PLAN_TAGS', 'Counted from fixture tags on plan'],
       [32, 'VISION_GENERAL', 'AI symbol count (first review)'],
       [20, 'VISION_FOCUSED', 'AI symbol count (second review)'],
@@ -164,7 +203,9 @@ describe('planMeasurementConflictUi', () => {
       'Plan tag and AI readings disagree — choose one'
     );
     expect(applyPlanConflictChoices([recessed], {}, {}).resolved).toEqual({});
-    expect(normalizePlanEvidenceSource('pdf_text_instance_tags')).toBe('PLAN_TAGS');
+    expect(normalizePlanEvidenceSource('pdf_text_instance_tags')).toBe(
+      'PLAN_TAGS'
+    );
   });
 
   it('explains vision-vs-vision conflicts in contractor language', () => {
@@ -187,9 +228,9 @@ describe('planMeasurementConflictUi', () => {
     expect(conflictEvidenceSubtitle(receptacles)).toBe(
       'Two AI counts disagree — choose one'
     );
-    expect(applyPlanConflictChoices([receptacles], {}, {}).unresolved).toHaveLength(
-      1
-    );
+    expect(
+      applyPlanConflictChoices([receptacles], {}, {}).unresolved
+    ).toHaveLength(1);
   });
 
   it('stores USER_CONFIRMED provenance when a candidate chip is chosen', () => {
@@ -200,9 +241,24 @@ describe('planMeasurementConflictUi', () => {
       threshold: 1,
       requiresConfirmation: true,
       candidates: [
-        { value: 46, source: 'pdf_text_instance_tags', confidence: 1, directEvidence: true },
-        { value: 32, source: 'general_plan_takeoff', confidence: 0.8, directEvidence: false },
-        { value: 20, source: 'focused_trade_takeoff', confidence: 0.85, directEvidence: false },
+        {
+          value: 46,
+          source: 'pdf_text_instance_tags',
+          confidence: 1,
+          directEvidence: true,
+        },
+        {
+          value: 32,
+          source: 'general_plan_takeoff',
+          confidence: 0.8,
+          directEvidence: false,
+        },
+        {
+          value: 20,
+          source: 'focused_trade_takeoff',
+          confidence: 0.85,
+          directEvidence: false,
+        },
       ],
     };
     const chosen = applyPlanConflictChoices(
@@ -219,8 +275,9 @@ describe('planMeasurementConflictUi', () => {
     expect(
       conflictResolutionProvenanceEntry(chosen.resolutions.recessedLightCount)
     ).toMatchObject({
-      normalizedSource: 'USER_CONFIRMED',
-      confirmedFrom: 'PLAN_TAGS',
+      normalizedSource: 'CONTRACTOR_CONFIRMED_FROM_PLAN_REVIEW',
+      confirmedFrom: 'PLAN_REVIEW',
+      note: 'Contractor confirmed from plan review',
     });
     const typed = buildConflictResolution(recessed, 'manual', '44');
     expect(typed).toMatchObject({
@@ -242,7 +299,10 @@ describe('planMeasurementConflictUi', () => {
     const fans = conflict('ceilingFanCount', [8, 6]);
     const lights = conflict('recessedLightCount', [40, 20]);
     expect(retainPlanTakeoffConflicts([], [fans])).toEqual([fans]);
-    expect(retainPlanTakeoffConflicts([lights], [fans])).toEqual([fans, lights]);
+    expect(retainPlanTakeoffConflicts([lights], [fans])).toEqual([
+      fans,
+      lights,
+    ]);
     expect(retainPlanTakeoffConflicts([fans], [fans])).toEqual([fans]);
     expect(conflictChooserConfirmedLine('ceilingFanCount', 8)).toBe(
       'Confirmed · 8 EA'
@@ -257,8 +317,18 @@ describe('planMeasurementConflictUi', () => {
       threshold: 1,
       requiresConfirmation: true,
       candidates: [
-        { value: 46, source: 'pdf_text_instance_tags', confidence: 1, directEvidence: true },
-        { value: 32, source: 'general_plan_takeoff', confidence: 0.8, directEvidence: false },
+        {
+          value: 46,
+          source: 'pdf_text_instance_tags',
+          confidence: 1,
+          directEvidence: true,
+        },
+        {
+          value: 32,
+          source: 'general_plan_takeoff',
+          confidence: 0.8,
+          directEvidence: false,
+        },
       ],
     };
     expect(
@@ -280,11 +350,8 @@ describe('planMeasurementConflictUi', () => {
     expect(parseManualConflictValue('')).toBeNull();
     expect(parseManualConflictValue('44')).toBe(44);
     expect(
-      applyPlanConflictChoices(
-        [recessed],
-        { recessedLightCount: 'manual' },
-        {}
-      ).resolved
+      applyPlanConflictChoices([recessed], { recessedLightCount: 'manual' }, {})
+        .resolved
     ).toEqual({});
     expect(
       applyPlanConflictChoices(
@@ -330,10 +397,12 @@ describe('planMeasurementConflictUi', () => {
       'gfciReceptacleCount',
       'threeWaySwitchCount',
     ]);
-    expect(uniqueUnreadablePlanFields([
-      { field: 'serviceAmperage', reason: 'No printed amperage callout' },
-      { field: 'serviceAmperage', reason: 'No printed amperage callout' },
-    ])).toEqual([
+    expect(
+      uniqueUnreadablePlanFields([
+        { field: 'serviceAmperage', reason: 'No printed amperage callout' },
+        { field: 'serviceAmperage', reason: 'No printed amperage callout' },
+      ])
+    ).toEqual([
       { field: 'serviceAmperage', reason: 'No printed amperage callout' },
     ]);
   });

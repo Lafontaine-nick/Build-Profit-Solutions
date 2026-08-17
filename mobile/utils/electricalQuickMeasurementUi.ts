@@ -20,6 +20,58 @@ export type ElectricalQmField = {
   provenanceLabel: string | null;
 };
 
+export type ElectricalQuickMeasurementSource =
+  | 'plan_verified'
+  | 'ai_verified'
+  | 'plan_detected'
+  | 'needs_confirmation'
+  | 'contractor_confirmed_from_plan_review'
+  | 'user_entered';
+
+/**
+ * Keep Confirm Scope's compact source badge derived from the same rich
+ * provenance record used by Plan Review. Do not let a stale flattened source
+ * promote blocked or explicit plan evidence.
+ */
+export function electricalQuickMeasurementSourceFromProvenance(
+  entry: unknown
+): ElectricalQuickMeasurementSource {
+  if (!entry || typeof entry !== 'object') return 'needs_confirmation';
+  const record = entry as {
+    status?: unknown;
+    normalizedSource?: unknown;
+    pricingEligible?: unknown;
+    confirmedFrom?: unknown;
+  };
+  const status = String(record.status || '').toLowerCase();
+  const normalized = String(record.normalizedSource || '').toUpperCase();
+  const confirmedFrom = String(record.confirmedFrom || '').toUpperCase();
+  if (
+    confirmedFrom === 'MANUAL' ||
+    normalized === 'USER_ENTERED' ||
+    status === 'user_entered'
+  ) {
+    return 'user_entered';
+  }
+  if (
+    confirmedFrom === 'USER_CONFIRMED' ||
+    confirmedFrom === 'PLAN_REVIEW' ||
+    normalized === 'CONTRACTOR_CONFIRMED_FROM_PLAN_REVIEW'
+  ) {
+    return 'contractor_confirmed_from_plan_review';
+  }
+  if (record.pricingEligible === false || status === 'conflict') {
+    return 'needs_confirmation';
+  }
+  if (normalized === 'FROM_PLAN' || status === 'plan_verified') {
+    return 'plan_verified';
+  }
+  if (normalized === 'AI_VERIFIED' || status === 'ai_verified') {
+    return 'ai_verified';
+  }
+  return 'plan_detected';
+}
+
 export type ElectricalQmGroup = {
   id: ElectricalCardGroupId;
   title: string;
@@ -61,18 +113,27 @@ export function electricalConfirmScopeCardTitles(
 }
 
 const QM_GROUP_CAPTIONS: Record<ElectricalCardGroupId, string> = {
-  service_panels: 'Select every service component included in this bid. Measurements feed the corresponding pricing cards.',
-  circuits: 'Homeruns and dedicated circuits are explicit-only. Leave blank unless printed or you enter them.',
-  receptacles: 'Select every receptacle type included in this bid. Measurements feed the corresponding pricing cards.',
-  switches: 'Switch devices own the location. Do not also count a dimmer, occupancy, or smart switch as a single-pole.',
-  lighting: 'Fixtures and fans. Recessed lights use R4 instance tags when those tags represent one fixture.',
+  service_panels:
+    'Select every service component included in this bid. Measurements feed the corresponding pricing cards.',
+  circuits:
+    'Homeruns and dedicated circuits are explicit-only. Leave blank unless printed or you enter them.',
+  receptacles:
+    'Select every receptacle type included in this bid. Measurements feed the corresponding pricing cards.',
+  switches:
+    'Switch devices own the location. Do not also count a dimmer, occupancy, or smart switch as a single-pole.',
+  lighting:
+    'Fixtures and fans. Recessed lights use R4 instance tags when those tags represent one fixture.',
   fans: 'Fixtures and fans. Recessed lights use R4 instance tags when those tags represent one fixture.',
-  appliances: 'Each card is the dedicated circuit plus the connection — not a plug-in only. Counts feed the corresponding pricing cards.',
+  appliances:
+    'Each card is the dedicated circuit plus the connection — not a plug-in only. Counts feed the corresponding pricing cards.',
   life_safety: 'Smoke, CO, and low-voltage devices included in this bid.',
-  rough_modifications: 'Relocate, extend, and extra devices beyond the counted layout.',
+  rough_modifications:
+    'Relocate, extend, and extra devices beyond the counted layout.',
 };
 
-export function electricalQmGroupCaption(groupId: ElectricalCardGroupId): string {
+export function electricalQmGroupCaption(
+  groupId: ElectricalCardGroupId
+): string {
   return QM_GROUP_CAPTIONS[groupId];
 }
 
@@ -110,7 +171,9 @@ export function electricalScopeGroupDefaultCollapsed(
   return false;
 }
 
-export function electricalQmOptionActive(field: Pick<ElectricalQmField, 'selected' | 'conflicted'>): boolean {
+export function electricalQmOptionActive(
+  field: Pick<ElectricalQmField, 'selected' | 'conflicted'>
+): boolean {
   return Boolean(field.selected) && !field.conflicted;
 }
 
@@ -130,7 +193,7 @@ export function electricalQmTapQuantity(
 ): string | null {
   if (field.conflicted) return null;
   if (field.selected) return '';
-  if (field.unit === 'EA') return '1';
+  if (field.unit === 'EA') return '0';
   return null;
 }
 
@@ -178,12 +241,24 @@ function positiveQuantity(value: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-export function electricalQmUnit(unit: 'each' | 'amp' | 'lf' | string): 'EA' | 'LF' {
+function explicitZeroQuantity(value: unknown): boolean {
+  if (value == null || value === '') return false;
+  if (typeof value === 'object' && value && 'quantity' in (value as object)) {
+    return explicitZeroQuantity((value as { quantity?: unknown }).quantity);
+  }
+  return Number(String(value).replace(/,/g, '')) === 0;
+}
+
+export function electricalQmUnit(
+  unit: 'each' | 'amp' | 'lf' | string
+): 'EA' | 'LF' {
   return unit === 'lf' ? 'LF' : 'EA';
 }
 
 export function unresolvedElectricalConflictFields(
-  conflicts: Array<{ field?: string | null; requiresConfirmation?: boolean } | null | undefined>
+  conflicts: Array<
+    { field?: string | null; requiresConfirmation?: boolean } | null | undefined
+  >
 ): Set<string> {
   const out = new Set<string>();
   for (const conflict of conflicts) {
@@ -209,15 +284,22 @@ export function buildElectricalQuickMeasurementGroups(input: {
   for (const card of ELECTRICAL_CARDS) {
     if (card.measurementKey === 'serviceAmperage') continue;
     const userResolved = Boolean(input.userOverrides?.[card.measurementKey]);
+    const source = input.sources?.[card.measurementKey] || null;
+    const retainedForConfirmation =
+      source === 'needs_confirmation' &&
+      positiveQuantity(measurements[card.measurementKey]) != null;
     const conflictedField =
-      conflicted.has(card.measurementKey) && !userResolved;
+      conflicted.has(card.measurementKey) &&
+      !userResolved &&
+      !retainedForConfirmation;
     const value = conflictedField
       ? null
-      : positiveQuantity(measurements[card.measurementKey]);
+      : (positiveQuantity(measurements[card.measurementKey]) ??
+        (input.userOverrides?.[card.measurementKey] &&
+        explicitZeroQuantity(measurements[card.measurementKey])
+          ? 0
+          : null));
     const selected = value != null;
-    const source = input.userOverrides?.[card.measurementKey]
-      ? 'user'
-      : input.sources?.[card.measurementKey] || null;
     const field: ElectricalQmField = {
       key: card.measurementKey,
       itemId: card.itemId,
@@ -240,8 +322,7 @@ export function buildElectricalQuickMeasurementGroups(input: {
   const merged = new Map<string, ElectricalQmGroup>();
   for (const groupId of QM_GROUP_ORDER) {
     const title = QM_GROUP_TITLES[groupId];
-    const extra =
-      groupId === 'lighting' ? byGroup.get('fans') || [] : [];
+    const extra = groupId === 'lighting' ? byGroup.get('fans') || [] : [];
     const fields = [...(byGroup.get(groupId) || []), ...extra];
     if (!fields.length) continue;
     const existing = merged.get(title);
@@ -271,23 +352,108 @@ export function applyElectricalQuickMeasurementPatch<
     quickMeasurementSources?: Record<string, string>;
     electricalScope?: string[] | null;
     pricingAcceptance?: Record<string, unknown>;
+    measurementConflicts?: Array<{ field?: string | null }>;
+    electricalValidation?: {
+      fields?: Record<
+        string,
+        {
+          status?: string;
+          pricingEligible?: boolean;
+          reason?: string;
+          deterministicRepeatedImportStable?: boolean;
+        }
+      >;
+      priceableFields?: string[];
+      blockedFields?: string[];
+    } | null;
   },
 >(prev: T, field: string, rawValue: string | number | null): T {
   const card = electricalCardForMeasurementKey(field);
   const parsed = positiveQuantity(rawValue);
+  const zeroQuantity = explicitZeroQuantity(rawValue);
   const itemQuantities = { ...(prev.itemQuantities || {}) };
+  const preservedPlanReviewConfirmation =
+    prev.quickMeasurementSources?.[field] ===
+      'contractor_confirmed_from_plan_review' &&
+    Number((prev as Record<string, unknown>)[field]) === parsed;
   const next: T = {
     ...prev,
-    [field]: parsed == null ? '' : String(parsed),
+    [field]: parsed == null ? (zeroQuantity ? '0' : '') : String(parsed),
+    quickMeasurementSources: {
+      ...(prev.quickMeasurementSources || {}),
+      [field]:
+        parsed == null && !zeroQuantity
+          ? 'needs_confirmation'
+          : preservedPlanReviewConfirmation
+            ? 'contractor_confirmed_from_plan_review'
+            : 'user_entered',
+    },
     quickMeasurementUserOverrides: {
       ...(prev.quickMeasurementUserOverrides || {}),
       [field]: true,
     },
     itemQuantities,
   };
+  if (parsed != null && parsed > 0 && prev.measurementConflicts) {
+    next.measurementConflicts = prev.measurementConflicts.filter(
+      conflict => String(conflict?.field || '') !== field
+    );
+  }
+  if (prev.electricalValidation && card) {
+    const fields = { ...(prev.electricalValidation.fields || {}) };
+    const priceableFields = new Set(
+      prev.electricalValidation.priceableFields || []
+    );
+    const blockedFields = new Set(
+      prev.electricalValidation.blockedFields || []
+    );
+    if (parsed != null && parsed > 0) {
+      fields[field] = {
+        ...(fields[field] || {}),
+        status: 'user_confirmed',
+        pricingEligible: true,
+        deterministicRepeatedImportStable: true,
+        reason: 'Contractor entered this quantity.',
+      };
+      priceableFields.add(field);
+      blockedFields.delete(field);
+    } else {
+      fields[field] = {
+        ...(fields[field] || {}),
+        status: 'needs_review',
+        pricingEligible: false,
+        reason: 'Enter a positive quantity before pricing.',
+      };
+      priceableFields.delete(field);
+      blockedFields.add(field);
+    }
+    next.electricalValidation = {
+      ...prev.electricalValidation,
+      fields,
+      priceableFields: [...priceableFields],
+      blockedFields: [...blockedFields],
+    };
+  }
   if (!card) return next;
-  if (parsed == null) {
+  if (parsed == null && !zeroQuantity) {
     delete itemQuantities[card.itemId];
+    const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+    delete pricingAcceptance[card.itemId];
+    return {
+      ...next,
+      itemQuantities,
+      electricalScope: Array.isArray(prev.electricalScope)
+        ? prev.electricalScope.filter(id => id !== card.itemId)
+        : prev.electricalScope,
+      pricingAcceptance,
+    };
+  }
+  if (zeroQuantity) {
+    itemQuantities[card.itemId] = {
+      quantity: '0',
+      unit: card.unit,
+      quantitySource: 'user_entered',
+    };
     const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
     delete pricingAcceptance[card.itemId];
     return {
@@ -302,7 +468,9 @@ export function applyElectricalQuickMeasurementPatch<
   itemQuantities[card.itemId] = {
     quantity: String(parsed),
     unit: card.unit,
-    quantitySource: 'user_entered',
+    quantitySource: preservedPlanReviewConfirmation
+      ? 'contractor_confirmed_from_plan_review'
+      : 'user_entered',
   };
   return next;
 }
@@ -318,11 +486,7 @@ export function restorePlanMeasurementConflict<
     pricingAcceptance?: Record<string, unknown>;
     measurementConflicts?: Array<{ field?: string }>;
   },
->(
-  prev: T,
-  field: string,
-  originalConflict?: { field?: string } | null
-): T {
+>(prev: T, field: string, originalConflict?: { field?: string } | null): T {
   const next = applyElectricalQuickMeasurementPatch(prev, field, '');
   const overrides = { ...(next.quickMeasurementUserOverrides || {}) };
   delete overrides[field];

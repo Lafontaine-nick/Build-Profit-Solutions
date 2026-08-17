@@ -125,7 +125,8 @@ const C = (
   unit: extra.unit || 'each',
   groupId,
   groupTitle:
-    ELECTRICAL_CARD_GROUPS.find(group => group.id === groupId)?.title || groupId,
+    ELECTRICAL_CARD_GROUPS.find(group => group.id === groupId)?.title ||
+    groupId,
   ...(extra.voltage ? { voltage: extra.voltage } : {}),
 });
 
@@ -568,6 +569,8 @@ export const ELECTRICAL_PLAN_ALIASES: Record<string, ElectricalQuantityKey> = {
   weatherResistantReceptacleCount: 'exteriorReceptacleCount',
   exteriorGfciCount: 'exteriorReceptacleCount',
   exteriorWrReceptacleCount: 'exteriorReceptacleCount',
+  singlePoleCount: 'singlePoleSwitchCount',
+  singlePoleSwitches: 'singlePoleSwitchCount',
   threeWayCount: 'threeWaySwitchCount',
   '3waySwitchCount': 'threeWaySwitchCount',
   fourWayCount: 'fourWaySwitchCount',
@@ -655,7 +658,9 @@ function applyElectricalPlanHookupOwnership(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { ...input };
   for (const rule of GENERIC_CIRCUIT_OWNED_BY_HOOKUP) {
-    const hasHookup = rule.hookupKeys.some(key => positiveNumber(out[key]) != null);
+    const hasHookup = rule.hookupKeys.some(
+      key => positiveNumber(out[key]) != null
+    );
     if (hasHookup) {
       delete out[rule.circuitKey];
     }
@@ -671,7 +676,9 @@ function applyElectricalPlanHookupOwnership(
 export function normalizeElectricalPlanMeasurements(
   input: Record<string, unknown>
 ): Record<string, unknown> {
-  return applyElectricalPlanHookupOwnership(readAliasedElectricalPlanInput(input));
+  return applyElectricalPlanHookupOwnership(
+    readAliasedElectricalPlanInput(input)
+  );
 }
 
 const CARD_BY_ITEM_ID = new Map(
@@ -681,7 +688,9 @@ const CARD_BY_KEY = new Map(
   ELECTRICAL_CARDS.map(card => [card.measurementKey, card])
 );
 
-export function isCanonicalElectricalItemId(itemId: string | null | undefined): boolean {
+export function isCanonicalElectricalItemId(
+  itemId: string | null | undefined
+): boolean {
   return Boolean(itemId && CARD_BY_ITEM_ID.has(itemId));
 }
 
@@ -741,13 +750,16 @@ function positiveNumber(value: unknown): number | null {
 }
 
 function readBooleanFlag(value: unknown): boolean | null {
-  if (value === true || value === 'true' || value === 1 || value === '1') return true;
+  if (value === true || value === 'true' || value === 1 || value === '1')
+    return true;
   if (value === false || value === 'false' || value === 0 || value === '0')
     return false;
   return null;
 }
 
-function readProjectCondition(value: unknown): ElectricalProjectCondition | null {
+function readProjectCondition(
+  value: unknown
+): ElectricalProjectCondition | null {
   const raw = String(value || '').trim();
   return PROJECT_CONDITION_VALUES.has(raw as ElectricalProjectCondition)
     ? (raw as ElectricalProjectCondition)
@@ -755,7 +767,9 @@ function readProjectCondition(value: unknown): ElectricalProjectCondition | null
 }
 
 function readPanelLocation(value: unknown): ElectricalPanelLocation | null {
-  const raw = String(value || '').trim().toLowerCase();
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase();
   return raw === 'indoor' || raw === 'outdoor' ? raw : null;
 }
 
@@ -764,18 +778,16 @@ function readTrenchCondition(value: unknown): ElectricalTrenchCondition | null {
   return raw === 'normal_soil' || raw === 'rocky' ? raw : null;
 }
 
-function readExplicitElectricalScope(input: Record<string, unknown>): string[] | null {
+function readExplicitElectricalScope(
+  input: Record<string, unknown>
+): string[] | null {
   if (!Array.isArray(input.electricalScope)) return null;
   const allowed = new Set(ELECTRICAL_ITEM_IDS);
-  const scope = input.electricalScope
-    .map(String)
-    .filter(id => allowed.has(id));
+  const scope = input.electricalScope.map(String).filter(id => allowed.has(id));
   return scope.length ? [...new Set(scope)] : null;
 }
 
-function inferredScopeFromQuantities(
-  input: Record<string, unknown>
-): string[] {
+function inferredScopeFromQuantities(input: Record<string, unknown>): string[] {
   const scope: string[] = [];
   for (const card of ELECTRICAL_CARDS) {
     if (card.measurementKey === 'serviceAmperage') continue;
@@ -832,8 +844,12 @@ export function buildElectricalStructuredMeasurements(
     electricalIncludeTrim: readBooleanFlag(input.electricalIncludeTrim),
     electricalConduit: readBooleanFlag(input.electricalConduit),
     electricalTrenching: readBooleanFlag(input.electricalTrenching),
-    electricalConduitSpecialty: readBooleanFlag(input.electricalConduitSpecialty),
-    electricalTrenchCondition: readTrenchCondition(input.electricalTrenchCondition),
+    electricalConduitSpecialty: readBooleanFlag(
+      input.electricalConduitSpecialty
+    ),
+    electricalTrenchCondition: readTrenchCondition(
+      input.electricalTrenchCondition
+    ),
     existingServiceAmperage: positiveNumber(input.existingServiceAmperage),
     electricalPanelLocation: readPanelLocation(input.electricalPanelLocation),
     electricalMeterMainCombo: readBooleanFlag(input.electricalMeterMainCombo),
@@ -866,7 +882,9 @@ export function copyElectricalQuantityFields(
   return out;
 }
 
-export function copyElectricalConditionFields(source: Record<string, unknown> | null | undefined): {
+export function copyElectricalConditionFields(
+  source: Record<string, unknown> | null | undefined
+): {
   electricalScope: string[] | null;
   electricalProjectCondition: ElectricalProjectCondition | null;
   electricalIncludeRough: boolean | null;
@@ -888,8 +906,12 @@ export function copyElectricalConditionFields(source: Record<string, unknown> | 
     electricalIncludeTrim: readBooleanFlag(source?.electricalIncludeTrim),
     electricalConduit: readBooleanFlag(source?.electricalConduit),
     electricalTrenching: readBooleanFlag(source?.electricalTrenching),
-    electricalConduitSpecialty: readBooleanFlag(source?.electricalConduitSpecialty),
-    electricalTrenchCondition: readTrenchCondition(source?.electricalTrenchCondition),
+    electricalConduitSpecialty: readBooleanFlag(
+      source?.electricalConduitSpecialty
+    ),
+    electricalTrenchCondition: readTrenchCondition(
+      source?.electricalTrenchCondition
+    ),
     existingServiceAmperage: positiveNumber(source?.existingServiceAmperage),
     electricalPanelLocation: readPanelLocation(source?.electricalPanelLocation),
     electricalMeterMainCombo: readBooleanFlag(source?.electricalMeterMainCombo),
@@ -928,15 +950,15 @@ export function electricalTemplateItems(): Array<{
   category: string;
 }> {
   return [
-    ...ELECTRICAL_CARDS.filter(card => card.measurementKey !== 'serviceAmperage').map(
-      card => ({
-        id: card.itemId,
-        inputType: 'yes_no' as const,
-        label: card.label,
-        helperText: card.helper,
-        category: card.groupId,
-      })
-    ),
+    ...ELECTRICAL_CARDS.filter(
+      card => card.measurementKey !== 'serviceAmperage'
+    ).map(card => ({
+      id: card.itemId,
+      inputType: 'yes_no' as const,
+      label: card.label,
+      helperText: card.helper,
+      category: card.groupId,
+    })),
     {
       id: 'electrical_rough',
       inputType: 'yes_no',
@@ -962,9 +984,9 @@ export function electricalTemplateItems(): Array<{
 }
 
 const QUANTITY_OWNED_ITEM_IDS = new Set(
-  ELECTRICAL_CARDS.filter(card => card.measurementKey !== 'serviceAmperage').map(
-    card => card.itemId
-  )
+  ELECTRICAL_CARDS.filter(
+    card => card.measurementKey !== 'serviceAmperage'
+  ).map(card => card.itemId)
 );
 
 function isExplicitlyClearedQuantity(value: unknown): boolean {
@@ -973,7 +995,9 @@ function isExplicitlyClearedQuantity(value: unknown): boolean {
   return value === 0 || value === '0';
 }
 
-export function syncElectricalScopeItems<T extends { id: string; state?: string }>(
+export function syncElectricalScopeItems<
+  T extends { id: string; state?: string },
+>(
   items: T[],
   params: {
     electricalScope?: string[] | null;
@@ -1013,11 +1037,25 @@ export function syncElectricalScopeItems<T extends { id: string; state?: string 
   ) {
     included.add('electrical_trim');
   }
-  return items.map(item => {
-    if (item.state === 'excluded') return item;
+  const materializedItems = [...items];
+  const existingIds = new Set(materializedItems.map(item => item.id));
+  for (const card of ELECTRICAL_CARDS) {
+    if (!included.has(card.itemId) || existingIds.has(card.itemId)) continue;
+    materializedItems.push({
+      id: card.itemId,
+      label: card.label,
+      helperText: card.helper,
+      category: card.groupId,
+      inputType: 'yes_no',
+      state: 'included',
+    } as T);
+    existingIds.add(card.itemId);
+  }
+  return materializedItems.map(item => {
     if (fromQuantity.has(item.id)) {
       return item.state === 'included' ? item : { ...item, state: 'included' };
     }
+    if (item.state === 'excluded') return item;
     if (clearedQuantity.has(item.id)) {
       return item.state === 'included' ? { ...item, state: 'unsure' } : item;
     }
@@ -1096,7 +1134,10 @@ function parseTrenchingLf(text: string): number | null {
     ) ||
     parseLengthLf(
       text,
-      new RegExp(String.raw`${LENGTH_TOKEN}\s*'\s*(?:of\s+)?trench(?:ing)?\b`, 'i')
+      new RegExp(
+        String.raw`${LENGTH_TOKEN}\s*'\s*(?:of\s+)?trench(?:ing)?\b`,
+        'i'
+      )
     )
   );
 }
@@ -1480,7 +1521,9 @@ function matchRuleCount(text: string, rule: ParseRule): number | null {
   return rule.defaultCount ?? 1;
 }
 
-function parseProjectCondition(text: string): ElectricalProjectCondition | null {
+function parseProjectCondition(
+  text: string
+): ElectricalProjectCondition | null {
   const n = text.toLowerCase();
   if (
     /\bnew\s+construction\b|\bnew\s+build\b|\bfull\s+rough(?:[\s-]?in)?\b|\bopen[\s-]?frame\b/.test(
@@ -1634,7 +1677,9 @@ export function parseElectricalMeasurementsFromNotes(
   if (!text || !looksLikeElectricalNotes(text)) return {};
 
   const clauses = text
-    .split(/(?<=[.;\n])\s+|\s*(?:,|and)\s+(?=\d|a\b|an\b|one|two|three|four|five|six|seven|eight|nine|ten)/i)
+    .split(
+      /(?<=[.;\n])\s+|\s*(?:,|and)\s+(?=\d|a\b|an\b|one|two|three|four|five|six|seven|eight|nine|ten)/i
+    )
     .map(part => part.trim())
     .filter(Boolean);
   const searchClauses = clauses.length ? clauses : [text];
@@ -1652,7 +1697,9 @@ export function parseElectricalMeasurementsFromNotes(
     const amps = Number(panelMatch[1] || panelMatch[2]);
     if (Number.isFinite(amps) && amps > 0) out.serviceAmperage = amps;
   } else {
-    const ampOnly = text.match(/\b(\d+)\s*(?:amp(?:ere)?s?|a)\s+(?:service|panel)\b/i);
+    const ampOnly = text.match(
+      /\b(\d+)\s*(?:amp(?:ere)?s?|a)\s+(?:service|panel)\b/i
+    );
     if (ampOnly) {
       const amps = Number(ampOnly[1]);
       if (Number.isFinite(amps) && amps > 0) out.serviceAmperage = amps;
@@ -1661,16 +1708,13 @@ export function parseElectricalMeasurementsFromNotes(
 
   if (/\bsub[\s-]?panels?\b/i.test(text)) {
     const count =
-      matchRuleCount(
-        text,
-        {
-          key: 'subpanelCount',
-          pattern: new RegExp(
-            String.raw`${COUNT_TOKEN}\s*sub[\s-]?panels?\b|\bsub[\s-]?panels?\b`,
-            'i'
-          ),
-        }
-      ) || 1;
+      matchRuleCount(text, {
+        key: 'subpanelCount',
+        pattern: new RegExp(
+          String.raw`${COUNT_TOKEN}\s*sub[\s-]?panels?\b|\bsub[\s-]?panels?\b`,
+          'i'
+        ),
+      }) || 1;
     assign('subpanelCount', count);
   }
   if (/\bpanel\s+upgrade|\bupgrade\s+(?:the\s+)?panel\b/i.test(text)) {
@@ -1684,7 +1728,9 @@ export function parseElectricalMeasurementsFromNotes(
         ),
       }) || 1
     );
-  } else if (/\bservice\s+upgrade|\bupgrade\s+(?:the\s+)?service\b/i.test(text)) {
+  } else if (
+    /\bservice\s+upgrade|\bupgrade\s+(?:the\s+)?service\b/i.test(text)
+  ) {
     assign(
       'serviceUpgradeCount',
       matchRuleCount(text, {
@@ -1745,10 +1791,7 @@ export function parseElectricalMeasurementsFromNotes(
       ) {
         continue;
       }
-      if (
-        rule.key === 'circuit50aCount' &&
-        /\brange\b/i.test(clause)
-      ) {
+      if (rule.key === 'circuit50aCount' && /\brange\b/i.test(clause)) {
         continue;
       }
       if (
@@ -1795,10 +1838,7 @@ export function parseElectricalMeasurementsFromNotes(
       ) {
         continue;
       }
-      if (
-        isInstallFixtureRule(rule.key) &&
-        isFixtureRemovalClause(clause)
-      ) {
+      if (isInstallFixtureRule(rule.key) && isFixtureRemovalClause(clause)) {
         continue;
       }
       if (
@@ -1855,7 +1895,8 @@ export function parseElectricalMeasurementsFromNotes(
   ) {
     out.electricalIncludeTrim = true;
   }
-  if (/\bconduit\b|\bemt\b|\bpvc\s+conduit\b/i.test(text)) out.electricalConduit = true;
+  if (/\bconduit\b|\bemt\b|\bpvc\s+conduit\b/i.test(text))
+    out.electricalConduit = true;
   if (/\btrench(?:ing)?\b/i.test(text)) out.electricalTrenching = true;
   const conduitLf = parseConduitLf(text);
   if (conduitLf != null) {
@@ -1871,7 +1912,8 @@ export function parseElectricalMeasurementsFromNotes(
     out.electricalConduitSpecialty = true;
   }
   if (out.electricalTrenching) {
-    out.electricalTrenchCondition = parseElectricalTrenchConditionFromNotes(text);
+    out.electricalTrenchCondition =
+      parseElectricalTrenchConditionFromNotes(text);
   }
 
   const structured = buildElectricalStructuredMeasurements(
@@ -1901,19 +1943,19 @@ export function electricalQuantityRules(): Record<
   }
 > {
   return Object.fromEntries(
-    ELECTRICAL_CARDS.filter(card => card.measurementKey !== 'serviceAmperage').map(
-      card => [
-        card.itemId,
-        {
-          defaultUnit: card.unit,
-          allowedUnits: [card.unit, 'allowance', 'lump_sum'],
-          measurementKey: card.measurementKey,
-          requiresUserQuantity: true,
-          quantityHelper: card.helper,
-          missingMessage: ELECTRICAL_NEEDS_PRICING_LABEL,
-        },
-      ]
-    )
+    ELECTRICAL_CARDS.filter(
+      card => card.measurementKey !== 'serviceAmperage'
+    ).map(card => [
+      card.itemId,
+      {
+        defaultUnit: card.unit,
+        allowedUnits: [card.unit, 'allowance', 'lump_sum'],
+        measurementKey: card.measurementKey,
+        requiresUserQuantity: true,
+        quantityHelper: card.helper,
+        missingMessage: ELECTRICAL_NEEDS_PRICING_LABEL,
+      },
+    ])
   );
 }
 
@@ -1957,7 +1999,9 @@ export function hasDetailedElectricalQuantities(
       return true;
     }
   }
-  const scope = Array.isArray(input.electricalScope) ? input.electricalScope : [];
+  const scope = Array.isArray(input.electricalScope)
+    ? input.electricalScope
+    : [];
   return scope.some(id => isCanonicalElectricalItemId(String(id)));
 }
 
@@ -1999,10 +2043,15 @@ function electricalTrimPackageRequestedFromInput(
   input: Record<string, unknown> | null | undefined
 ): boolean {
   if (!input) return false;
-  if (input.electricalIncludeTrim === true || input.electricalIncludeTrim === 'true') {
+  if (
+    input.electricalIncludeTrim === true ||
+    input.electricalIncludeTrim === 'true'
+  ) {
     return true;
   }
-  const scope = Array.isArray(input.electricalScope) ? input.electricalScope : [];
+  const scope = Array.isArray(input.electricalScope)
+    ? input.electricalScope
+    : [];
   if (scope.some(id => String(id) === 'electrical_trim')) return true;
   const itemQuantities = (input.itemQuantities || {}) as Record<
     string,
@@ -2039,10 +2088,15 @@ function electricalRoughPackageRequestedFromInput(
   input: Record<string, unknown> | null | undefined
 ): boolean {
   if (!input) return false;
-  if (input.electricalIncludeRough === true || input.electricalIncludeRough === 'true') {
+  if (
+    input.electricalIncludeRough === true ||
+    input.electricalIncludeRough === 'true'
+  ) {
     return true;
   }
-  const scope = Array.isArray(input.electricalScope) ? input.electricalScope : [];
+  const scope = Array.isArray(input.electricalScope)
+    ? input.electricalScope
+    : [];
   if (scope.some(id => String(id) === 'electrical_rough')) return true;
   const itemQuantities = (input.itemQuantities || {}) as Record<
     string,

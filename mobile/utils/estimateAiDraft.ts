@@ -54,6 +54,7 @@ import type {
   ElectricalTrenchCondition,
   ElectricalQuantityKey,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import { ELECTRICAL_CARDS } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import type { NormalizedTradeMeasurements } from '@/utils/subcontractorTrade/types';
 import type {
   MeasurementSuggestion,
@@ -239,6 +240,8 @@ export type ScopeMeasurements = {
   planImportTradeKey?:
     | import('@/utils/planImportTradeConfig').PlanTradeKey
     | null;
+  /** Stable client fingerprint for recognizing a repeat import of the same plan. */
+  planImportFingerprint?: string | null;
   planImportProvenance?: PlanImportPayload['tradeProvenance'];
   planImportMissingInfo?: string[];
   paintScope?: Array<
@@ -628,6 +631,7 @@ export type ScopeMeasurements = {
         status?: string;
         pricingEligible?: boolean;
         reason?: string;
+        deterministicRepeatedImportStable?: boolean;
       }
     >;
     priceableFields?: string[];
@@ -1442,6 +1446,7 @@ export type PlanToMeasurementsResult = {
         status?: string;
         pricingEligible?: boolean;
         reason?: string;
+        deterministicRepeatedImportStable?: boolean;
       }
     >;
     priceableFields?: string[];
@@ -1753,6 +1758,8 @@ export type PlanImportPayload = {
   scopeDetections?: PhotoScopeDetection[];
   estimatingMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode;
   selectedTrade?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
+  /** Stable client fingerprint for recognizing a repeat import of the same plan. */
+  planImportFingerprint?: string | null;
   tradeProvenance?: {
     source: 'plan_import';
     mode: import('@/utils/planImportTradeConfig').PlanEstimatingMode;
@@ -1781,6 +1788,7 @@ type LivePlanImportMeasurementMetadata = {
   measurementProvenance?: Record<string, unknown>;
   measurementConflicts?: PlanMeasurementConflict[];
   electricalValidation?: ScopeMeasurements['electricalValidation'];
+  planImportFingerprint?: PlanImportPayload['planImportFingerprint'];
   planImportMode?: PlanImportPayload['estimatingMode'];
   planImportTradeKey?: PlanImportPayload['selectedTrade'];
   planImportProvenance?: PlanImportPayload['tradeProvenance'];
@@ -1801,12 +1809,27 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
     LivePlanImportMeasurementMetadata &
     Record<string, unknown>;
   let changed = false;
-  const next: T &
-    LivePlanImportMeasurementMetadata &
-    Record<string, unknown> = { ...current };
+  const next: T & LivePlanImportMeasurementMetadata & Record<string, unknown> =
+    { ...current };
+  const samePlan =
+    Boolean(current.planImportFingerprint) &&
+    Boolean(payload.planImportFingerprint) &&
+    current.planImportFingerprint === payload.planImportFingerprint;
+  const previousPlan =
+    Boolean(current.planImportFingerprint) &&
+    Boolean(payload.planImportFingerprint) &&
+    current.planImportFingerprint !== payload.planImportFingerprint;
+  const confirmedFields = new Set(
+    Object.entries(current.quickMeasurementSources || {})
+      .filter(
+        ([, source]) => source === 'contractor_confirmed_from_plan_review'
+      )
+      .map(([key]) => key)
+  );
 
   for (const [key, value] of Object.entries(payload.measurements || {})) {
     if (value == null || value === '') continue;
+    if (samePlan && confirmedFields.has(key)) continue;
     (next as Record<string, unknown>)[key] = String(value);
     changed = true;
   }
@@ -1819,6 +1842,12 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
       ...(current.quickMeasurementSources || {}),
       ...payload.quickMeasurementSources,
     };
+    if (samePlan) {
+      for (const key of confirmedFields) {
+        next.quickMeasurementSources[key] =
+          'contractor_confirmed_from_plan_review';
+      }
+    }
     changed = true;
   }
   if (payload.fieldConfidence && Object.keys(payload.fieldConfidence).length) {
@@ -1836,10 +1865,19 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
       ...(current.measurementProvenance || {}),
       ...payload.measurementProvenance,
     };
+    if (samePlan) {
+      for (const key of confirmedFields) {
+        const previous = current.measurementProvenance?.[key];
+        if (previous !== undefined) next.measurementProvenance[key] = previous;
+      }
+    }
     changed = true;
   }
   if (payload.measurementConflicts !== undefined) {
-    next.measurementConflicts = [...payload.measurementConflicts];
+    next.measurementConflicts = payload.measurementConflicts.filter(
+      conflict =>
+        !samePlan || !confirmedFields.has(String(conflict?.field || ''))
+    );
     changed = true;
   }
   if (payload.electricalValidation !== undefined) {
@@ -1860,6 +1898,48 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
   }
   if (payload.missingInfo !== undefined) {
     next.planImportMissingInfo = [...payload.missingInfo];
+    changed = true;
+  }
+  if (payload.planImportFingerprint !== undefined) {
+    next.planImportFingerprint = payload.planImportFingerprint;
+    changed = true;
+  }
+  if (previousPlan && confirmedFields.size) {
+    const overrides = { ...(current.quickMeasurementUserOverrides || {}) };
+    const sources = { ...(next.quickMeasurementSources || {}) };
+    const provenance = { ...(next.measurementProvenance || {}) };
+    const itemQuantities = { ...(next.itemQuantities || {}) };
+    const staleItemIds = new Set<string>();
+
+    for (const [itemId, entry] of Object.entries(itemQuantities)) {
+      if (
+        entry &&
+        typeof entry === 'object' &&
+        entry.quantitySource === 'contractor_confirmed_from_plan_review'
+      ) {
+        staleItemIds.add(itemId);
+        delete itemQuantities[itemId];
+      }
+    }
+    for (const key of confirmedFields) {
+      if (
+        !Object.prototype.hasOwnProperty.call(payload.measurements || {}, key)
+      ) {
+        delete (next as Record<string, unknown>)[key];
+      }
+      delete overrides[key];
+      delete sources[key];
+      delete provenance[key];
+    }
+    next.quickMeasurementUserOverrides = overrides;
+    next.quickMeasurementSources = sources;
+    next.measurementProvenance = provenance;
+    next.itemQuantities = itemQuantities;
+    if (Array.isArray(next.electricalScope) && staleItemIds.size) {
+      next.electricalScope = next.electricalScope.filter(
+        itemId => !staleItemIds.has(itemId)
+      );
+    }
     changed = true;
   }
 
@@ -2475,6 +2555,7 @@ export function planImportPayloadFromDraft(
     measurementProvenance: sm.measurementProvenance,
     measurementConflicts: sm.measurementConflicts,
     electricalValidation: sm.electricalValidation,
+    planImportFingerprint: sm.planImportFingerprint,
     estimatingMode: sm.planImportMode,
     selectedTrade: sm.planImportTradeKey,
     tradeProvenance: sm.planImportProvenance,
@@ -2499,25 +2580,37 @@ function mergeTradeNormalizationIntoScopeMeasurements(
   }
   const structured = normalization.structuredMeasurements || {};
   if (structured.concreteAreaByType) {
-    next.concreteAreaByType = structured.concreteAreaByType as ScopeMeasurements['concreteAreaByType'];
+    next.concreteAreaByType =
+      structured.concreteAreaByType as ScopeMeasurements['concreteAreaByType'];
   }
   if (structured.concreteThicknessByType) {
     next.concreteThicknessByType =
       structured.concreteThicknessByType as ScopeMeasurements['concreteThicknessByType'];
   }
-  if (Array.isArray(structured.concreteScope) && structured.concreteScope.length) {
+  if (
+    Array.isArray(structured.concreteScope) &&
+    structured.concreteScope.length
+  ) {
     next.concreteScope = structured.concreteScope.map(String);
   }
-  if (Array.isArray(structured.flooringProductScope) && structured.flooringProductScope.length) {
+  if (
+    Array.isArray(structured.flooringProductScope) &&
+    structured.flooringProductScope.length
+  ) {
     next.flooringProductScope =
       structured.flooringProductScope as ScopeMeasurements['flooringProductScope'];
   }
-  if (Array.isArray(structured.flooringExistingTypes) && structured.flooringExistingTypes.length) {
+  if (
+    Array.isArray(structured.flooringExistingTypes) &&
+    structured.flooringExistingTypes.length
+  ) {
     next.flooringExistingTypes =
       structured.flooringExistingTypes as ScopeMeasurements['flooringExistingTypes'];
   }
   if (structured.flooringInstallScopeCount != null) {
-    next.flooringInstallScopeCount = Number(structured.flooringInstallScopeCount);
+    next.flooringInstallScopeCount = Number(
+      structured.flooringInstallScopeCount
+    );
   }
   if (structured.flooringDemoScopeCount != null) {
     next.flooringDemoScopeCount = Number(structured.flooringDemoScopeCount);
@@ -2573,7 +2666,10 @@ function mergeTradeNormalizationIntoScopeMeasurements(
   if (typeof structured.paintAreaNeedsConfirmation === 'boolean') {
     next.paintAreaNeedsConfirmation = structured.paintAreaNeedsConfirmation;
   }
-  if (Array.isArray(structured.electricalScope) && structured.electricalScope.length) {
+  if (
+    Array.isArray(structured.electricalScope) &&
+    structured.electricalScope.length
+  ) {
     next.electricalScope = structured.electricalScope.map(String);
   }
   if (
@@ -2650,7 +2746,13 @@ function normalizeImportedTradeMeasurements(
   extras: Record<string, unknown> = {},
   source: 'plan' | 'notes' = 'plan'
 ): NormalizedTradeMeasurements | null {
-  if (tradeKey !== 'roofing' && tradeKey !== 'concrete' && tradeKey !== 'flooring' && tradeKey !== 'painting' && tradeKey !== 'electrical')
+  if (
+    tradeKey !== 'roofing' &&
+    tradeKey !== 'concrete' &&
+    tradeKey !== 'flooring' &&
+    tradeKey !== 'painting' &&
+    tradeKey !== 'electrical'
+  )
     return null;
   return normalizeTradeMeasurements(
     tradeKey,
@@ -2853,8 +2955,14 @@ export function buildStuccoTradeChecklistItems(
         { id: 'no_repair', label: 'No repair work' },
         { id: 'light_repair', label: 'Light patch / crack repair · $5.00/SF' },
         { id: 'moderate_repair', label: 'Moderate stucco repair · $8.50/SF' },
-        { id: 'full_depth_repair', label: 'Full-depth / re-stucco repair · $12.00/SF' },
-        { id: 'severe_damage', label: 'Severe / substrate damage · Custom price' },
+        {
+          id: 'full_depth_repair',
+          label: 'Full-depth / re-stucco repair · $12.00/SF',
+        },
+        {
+          id: 'severe_damage',
+          label: 'Severe / substrate damage · Custom price',
+        },
       ]
     ),
     yesNo(
@@ -2875,10 +2983,54 @@ export function applyPlanImportToDraft(
 
   const planImportMode = payload.estimatingMode || 'whole_project';
   const planImportTradeKey = payload.selectedTrade || null;
-  const rawMeasurements = normalizeTradePlanMeasurements(
+  let rawMeasurements = normalizeTradePlanMeasurements(
     (payload.measurements || {}) as Record<string, number | string>,
     planImportTradeKey
   );
+  const samePlanImport =
+    Boolean(draft.scopeMeasurements?.planImportFingerprint) &&
+    Boolean(payload.planImportFingerprint) &&
+    draft.scopeMeasurements?.planImportFingerprint ===
+      payload.planImportFingerprint;
+  const retainedSamePlanElectricalFields = new Set<string>();
+  const repeatReviewElectricalFields = new Set<string>();
+  if (samePlanImport) {
+    const previousMeasurements = (draft.scopeMeasurements || {}) as Record<
+      string,
+      unknown
+    >;
+    const previousSources =
+      draft.scopeMeasurements?.quickMeasurementSources || {};
+    const electricalKeys = new Set([
+      ...ELECTRICAL_CARDS.map(card => card.measurementKey),
+      'serviceAmperage',
+    ]);
+    for (const key of electricalKeys) {
+      const incoming = rawMeasurements[key];
+      const previous = previousMeasurements[key];
+      const incomingNumber = Number(incoming);
+      const previousNumber = Number(previous);
+      const previousWasContractorConfirmed =
+        previousSources[key] === 'contractor_confirmed_from_plan_review';
+      if (
+        !previousWasContractorConfirmed &&
+        Number.isFinite(previousNumber) &&
+        previousNumber > 0 &&
+        (incoming == null ||
+          incoming === '' ||
+          !Number.isFinite(incomingNumber) ||
+          incomingNumber !== previousNumber)
+      ) {
+        // A repeat read of the same document must not make a previously
+        // visible electrical count disappear or silently switch quantities.
+        // Keep the old count visible, but downgrade it until the contractor
+        // confirms the value again.
+        rawMeasurements[key] = previous as number | string;
+        retainedSamePlanElectricalFields.add(key);
+        repeatReviewElectricalFields.add(key);
+      }
+    }
+  }
   const filteredPlanMeasurements = filterPlanMeasurementsForTrade(
     rawMeasurements as Record<string, number>,
     planImportMode,
@@ -2914,6 +3066,8 @@ export function applyPlanImportToDraft(
   );
   scopeMeasurements.planImportMode = planImportMode;
   scopeMeasurements.planImportTradeKey = planImportTradeKey;
+  scopeMeasurements.planImportFingerprint =
+    payload.planImportFingerprint ?? null;
   scopeMeasurements.planImportProvenance = payload.tradeProvenance || {
     source: 'plan_import',
     mode: planImportMode,
@@ -2944,7 +3098,7 @@ export function applyPlanImportToDraft(
                 ? 'flooring'
                 : planImportTradeKey === 'painting'
                   ? 'painting'
-                : next.scopeChecklist?.templateKey,
+                  : next.scopeChecklist?.templateKey,
         title:
           planImportTradeKey === 'stucco'
             ? 'Stucco / exterior finish — confirm trade scope'
@@ -2954,7 +3108,7 @@ export function applyPlanImportToDraft(
                 ? 'Flooring — confirm project scope'
                 : planImportTradeKey === 'painting'
                   ? 'Painting — confirm project scope'
-                : next.scopeChecklist?.title,
+                  : next.scopeChecklist?.title,
         intro:
           planImportTradeKey === 'stucco'
             ? 'Confirm the stucco system, quantities, accessories, and access included in this bid.'
@@ -2964,7 +3118,7 @@ export function applyPlanImportToDraft(
                 ? 'Confirm flooring scope before pricing.'
                 : planImportTradeKey === 'painting'
                   ? 'Confirm painting scope before pricing.'
-                : next.scopeChecklist?.intro,
+                  : next.scopeChecklist?.intro,
       },
     };
   }
@@ -3001,11 +3155,76 @@ export function applyPlanImportToDraft(
   if (payload.measurementProvenance) {
     scopeMeasurements.measurementProvenance = payload.measurementProvenance;
   }
-  if (payload.measurementConflicts?.length) {
-    scopeMeasurements.measurementConflicts = payload.measurementConflicts;
+  if (samePlanImport && retainedSamePlanElectricalFields.size) {
+    const previous = draft.scopeMeasurements || {};
+    const previousSources = previous.quickMeasurementSources || {};
+    const previousProvenance = previous.measurementProvenance || {};
+    scopeMeasurements.quickMeasurementSources = {
+      ...(scopeMeasurements.quickMeasurementSources || {}),
+    };
+    scopeMeasurements.measurementProvenance = {
+      ...(scopeMeasurements.measurementProvenance || {}),
+    };
+    for (const key of retainedSamePlanElectricalFields) {
+      if (repeatReviewElectricalFields.has(key)) {
+        scopeMeasurements.quickMeasurementSources[key] = 'needs_confirmation';
+        const previousEntry = previousProvenance[key];
+        scopeMeasurements.measurementProvenance[key] = {
+          ...(previousEntry && typeof previousEntry === 'object'
+            ? previousEntry
+            : {}),
+          value: Number(scopeMeasurements[key]),
+          status: 'needs_review',
+          normalizedSource: 'NEEDS_REVIEW',
+          pricingEligible: false,
+          deterministicRepeatedImportStable: false,
+          reason:
+            'The same imported plan produced a different quantity on repeat import; confirm this field before pricing.',
+        };
+      } else if (previousSources[key]) {
+        scopeMeasurements.quickMeasurementSources[key] = previousSources[key];
+      }
+      if (
+        !repeatReviewElectricalFields.has(key) &&
+        previousProvenance[key] !== undefined
+      ) {
+        scopeMeasurements.measurementProvenance[key] = previousProvenance[key];
+      }
+    }
+  }
+  if (payload.measurementConflicts !== undefined) {
+    scopeMeasurements.measurementConflicts =
+      payload.measurementConflicts.filter(
+        conflict =>
+          !repeatReviewElectricalFields.has(String(conflict?.field || ''))
+      );
   }
   if (payload.electricalValidation !== undefined) {
     scopeMeasurements.electricalValidation = payload.electricalValidation;
+  }
+  if (repeatReviewElectricalFields.size) {
+    const validation = scopeMeasurements.electricalValidation || {};
+    const fields = { ...(validation.fields || {}) };
+    const priceableFields = new Set(validation.priceableFields || []);
+    const blockedFields = new Set(validation.blockedFields || []);
+    for (const key of repeatReviewElectricalFields) {
+      fields[key] = {
+        ...(fields[key] || {}),
+        status: 'needs_review',
+        pricingEligible: false,
+        deterministicRepeatedImportStable: false,
+        reason:
+          'The same imported plan produced a different quantity on repeat import; confirm this field before pricing.',
+      };
+      priceableFields.delete(key);
+      blockedFields.add(key);
+    }
+    scopeMeasurements.electricalValidation = {
+      ...validation,
+      fields,
+      priceableFields: [...priceableFields],
+      blockedFields: [...blockedFields],
+    };
   }
   if (planImportMode !== 'selected_trade' && payload.areaReconciliation) {
     scopeMeasurements.areaReconciliation = payload.areaReconciliation;
@@ -3925,9 +4144,10 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
   );
   if (measurementLines.length > 0) {
     parts.push(
-      ['Confirmed measurements', ...measurementLines.map(line => `• ${line}`)].join(
-        '\n'
-      )
+      [
+        'Confirmed measurements',
+        ...measurementLines.map(line => `• ${line}`),
+      ].join('\n')
     );
   }
 
@@ -4512,7 +4732,9 @@ function laborLineItemsFromDraft(
     const costCode = resolvePackageCostCode(pkg);
     const physical = physicalQuantityFromPackage(pkg);
     const hours = physical ? physical.quantity : 1;
-    const lineUnit = physical ? catalogUnitToLineItemUnit(physical.unit) : undefined;
+    const lineUnit = physical
+      ? catalogUnitToLineItemUnit(physical.unit)
+      : undefined;
     lines.push({
       id: newLineItemId(),
       name: pkg.name,

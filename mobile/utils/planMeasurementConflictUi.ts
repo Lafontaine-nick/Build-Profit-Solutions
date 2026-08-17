@@ -47,7 +47,10 @@ export function conflictFieldLabel(field: string): string {
   );
 }
 
-export function formatPlanTakeoffQuantity(field: string, value: number): string {
+export function formatPlanTakeoffQuantity(
+  field: string,
+  value: number
+): string {
   const unit = planTakeoffUnit(field);
   const n = unit === 'EA' || unit === 'A' ? Math.round(value) : value;
   if (unit === 'A') return `${n}A`;
@@ -129,7 +132,9 @@ export function planEvidenceSourceLabel(source?: string | null): string | null {
 }
 
 /** @deprecated use planEvidenceSourceLabel */
-export function conflictCandidateSourceLabel(source?: string | null): string | null {
+export function conflictCandidateSourceLabel(
+  source?: string | null
+): string | null {
   return planEvidenceSourceLabel(source);
 }
 
@@ -198,10 +203,16 @@ export function labeledConflictCandidates(
   return out.sort((a, b) => {
     const rankDiff = planEvidenceRank(a.source) - planEvidenceRank(b.source);
     if (rankDiff !== 0) return rankDiff;
-    if (a.sourceToken === 'VISION_GENERAL' && b.sourceToken === 'VISION_FOCUSED') {
+    if (
+      a.sourceToken === 'VISION_GENERAL' &&
+      b.sourceToken === 'VISION_FOCUSED'
+    ) {
       return -1;
     }
-    if (a.sourceToken === 'VISION_FOCUSED' && b.sourceToken === 'VISION_GENERAL') {
+    if (
+      a.sourceToken === 'VISION_FOCUSED' &&
+      b.sourceToken === 'VISION_GENERAL'
+    ) {
       return 1;
     }
     return b.value - a.value;
@@ -239,7 +250,9 @@ export function buildConflictResolution(
       value: Number(candidate?.value),
       source: String(candidate?.source || ''),
     }))
-    .filter(candidate => Number.isFinite(candidate.value) && candidate.value > 0);
+    .filter(
+      candidate => Number.isFinite(candidate.value) && candidate.value > 0
+    );
   if (choice === 'manual') {
     const n = Number(String(manualValue || '').replace(/,/g, ''));
     if (!Number.isFinite(n) || n <= 0) return null;
@@ -258,7 +271,8 @@ export function buildConflictResolution(
   return {
     value,
     provenance: 'USER_CONFIRMED',
-    confirmedFrom: normalizePlanEvidenceSource(match?.source) || 'USER_CONFIRMED',
+    confirmedFrom:
+      normalizePlanEvidenceSource(match?.source) || 'USER_CONFIRMED',
     candidates,
   };
 }
@@ -271,15 +285,19 @@ export function conflictResolutionProvenanceEntry(
     source:
       resolution.provenance === 'USER_ENTERED'
         ? 'user_entered'
-        : 'user_confirmed',
-    normalizedSource: resolution.provenance,
+        : 'contractor_confirmed_from_plan_review',
+    normalizedSource:
+      resolution.provenance === 'USER_ENTERED'
+        ? 'USER_ENTERED'
+        : 'CONTRACTOR_CONFIRMED_FROM_PLAN_REVIEW',
     evidenceKind: 'user_confirmed',
-    confirmedFrom: resolution.confirmedFrom,
+    confirmedFrom:
+      resolution.provenance === 'USER_ENTERED' ? 'MANUAL' : 'PLAN_REVIEW',
     candidates: resolution.candidates,
     note:
       resolution.provenance === 'USER_ENTERED'
         ? 'User entered'
-        : 'User confirmed',
+        : 'Contractor confirmed from plan review',
   };
 }
 
@@ -340,14 +358,16 @@ export function reviewablePlanMeasurementConflicts(input: {
             },
           ]
         : []),
-      ...((record.alternatives || [])
+      ...(record.alternatives || [])
         .map(candidate => ({
           value: Number(candidate?.value),
           source: String(candidate?.source || ''),
           confidence: 0,
           directEvidence: false,
         }))
-        .filter(candidate => Number.isFinite(candidate.value) && candidate.value > 0)),
+        .filter(
+          candidate => Number.isFinite(candidate.value) && candidate.value > 0
+        ),
     ];
     const synthetic: PlanMeasurementConflict = {
       field,
@@ -369,7 +389,10 @@ export function reviewablePlanMeasurementConflicts(input: {
 }
 
 export function uniqueUnreadablePlanFields(
-  fields: Array<{ field?: string | null; reason?: string | null } | null> | null | undefined
+  fields:
+    | Array<{ field?: string | null; reason?: string | null } | null>
+    | null
+    | undefined
 ): Array<{ field: string; reason: string }> {
   const seen = new Set<string>();
   const out: Array<{ field: string; reason: string }> = [];
@@ -457,7 +480,9 @@ export function pendingManualConflictFields(
     });
 }
 
-export function parseManualConflictValue(raw: string | null | undefined): number | null {
+export function parseManualConflictValue(
+  raw: string | null | undefined
+): number | null {
   const n = Number(String(raw || '').replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
 }

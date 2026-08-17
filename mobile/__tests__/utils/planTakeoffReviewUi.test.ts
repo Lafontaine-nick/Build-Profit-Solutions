@@ -45,10 +45,12 @@ const LOT_41_ROOMS = [
 ];
 
 describe('plan takeoff review UI polish', () => {
-  const originalSemantics = process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1;
+  const originalSemantics =
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1;
 
   afterEach(() => {
-    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = originalSemantics;
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 =
+      originalSemantics;
   });
 
   it('replaces Rooms (x of x) with spaces detected when semantics enabled', () => {
@@ -82,7 +84,9 @@ describe('plan takeoff review UI polish', () => {
       rooms: LOT_41_ROOMS,
     });
     const livingStatus = livingReconciliationStatusLabel(recon);
-    expect(livingStatus).toMatch(/Room detection incomplete|Partial room coverage/i);
+    expect(livingStatus).toMatch(
+      /Room detection incomplete|Partial room coverage/i
+    );
     expect(livingStatus).toMatch(/596\.8/);
     expect(livingStatus).not.toMatch(/material variance/i);
 
@@ -100,7 +104,11 @@ describe('plan takeoff review UI polish', () => {
     );
     // No second source/explanation line for flooring derived from living SF.
     expect(
-      measurementSourceLabel({ key: 'flooringSqft', value: 1879, livingSf: 1879 })
+      measurementSourceLabel({
+        key: 'flooringSqft',
+        value: 1879,
+        livingSf: 1879,
+      })
     ).toBeNull();
   });
 
@@ -108,7 +116,9 @@ describe('plan takeoff review UI polish', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     const living = measurementSourceLabel({
       key: 'floorAreaSqft',
-      assumptions: ['Total living from Building Areas table on cover sheet page 1'],
+      assumptions: [
+        'Total living from Building Areas table on cover sheet page 1',
+      ],
     });
     expect(living).toMatch(/Explicitly stated on cover sheet/i);
     expect(living).toMatch(/page 1/i);
@@ -129,8 +139,12 @@ describe('plan takeoff review UI polish', () => {
     });
     expect(mep[0]).toMatch(/Electrical detected on page 10/i);
     expect(mep[0]).toMatch(/plumbing and HVAC require trade review/i);
-    expect(mep.some((l) => /Needs trade counts \/ installed-package pricing/i.test(l))).toBe(true);
-    expect(mep.join(' ')).not.toMatch(/^Detected from electrical plan — page 10$/i);
+    expect(
+      mep.some(l => /Needs trade counts \/ installed-package pricing/i.test(l))
+    ).toBe(true);
+    expect(mep.join(' ')).not.toMatch(
+      /^Detected from electrical plan — page 10$/i
+    );
   });
 
   it('keeps tile & flooring page-4 source when plan floor areas exist', () => {
@@ -141,11 +155,17 @@ describe('plan takeoff review UI polish', () => {
       hasPlanFloorAreas: true,
       assumptions: ['Room dimensions from floor plan page 4'],
     });
-    expect(tile.some((l) => /Floor areas detected from page 4/i.test(l))).toBe(true);
-    expect(tile.some((l) => /Needs finish allocation and material-specific takeoff/i.test(l))).toBe(
+    expect(tile.some(l => /Floor areas detected from page 4/i.test(l))).toBe(
       true
     );
-    expect(tile.join(' ').toLowerCase()).not.toBe('standard for ground-up new construction');
+    expect(
+      tile.some(l =>
+        /Needs finish allocation and material-specific takeoff/i.test(l)
+      )
+    ).toBe(true);
+    expect(tile.join(' ').toLowerCase()).not.toBe(
+      'standard for ground-up new construction'
+    );
   });
 
   it('shows missing-takeoff statuses for foundation, framing, insulation and drywall', () => {
@@ -154,28 +174,28 @@ describe('plan takeoff review UI polish', () => {
       scopeTakeoffStatusLines({
         itemId: 'foundation',
         evidence: 'foundation plan on page 3',
-      }).some((l) => /Needs structural takeoff/i.test(l))
+      }).some(l => /Needs structural takeoff/i.test(l))
     ).toBe(true);
 
     expect(
       scopeTakeoffStatusLines({
         itemId: 'framing',
         evidence: 'framing plan on page 5',
-      }).some((l) => /Benchmark pricing available/i.test(l))
+      }).some(l => /Benchmark pricing available/i.test(l))
     ).toBe(true);
 
     expect(
       scopeTakeoffStatusLines({
         itemId: 'insulation',
         evidence: 'Standard ground-up scope for a full residential plan set',
-      }).some((l) => /Needs envelope surface takeoff/i.test(l))
+      }).some(l => /Needs envelope surface takeoff/i.test(l))
     ).toBe(true);
 
     expect(
       scopeTakeoffStatusLines({
         itemId: 'drywall',
         evidence: 'Standard ground-up scope for a full residential plan set',
-      }).some((l) => /Needs wall and ceiling takeoff/i.test(l))
+      }).some(l => /Needs wall and ceiling takeoff/i.test(l))
     ).toBe(true);
   });
 
@@ -212,7 +232,9 @@ describe('plan takeoff review UI polish', () => {
       spaceCount: 9,
       scopeCount: 18,
     });
-    expect(prompt).toMatch(/Ground-up new construction plan imported and ready to generate/i);
+    expect(prompt).toMatch(
+      /Ground-up new construction plan imported and ready to generate/i
+    );
     expect(prompt).toMatch(/3,098 SF/);
     expect(prompt).toMatch(/Generate Estimate Draft/i);
     expect(prompt).not.toMatch(/Plan takeoff/i);
@@ -222,14 +244,19 @@ describe('plan takeoff review UI polish', () => {
     expect(
       planImportLooksLikeGroundUp({
         measurements: { floorAreaSqft: 3098, garageSqft: 972 },
-        rooms: Array.from({ length: 9 }, (_, i) => ({ name: `Room ${i}`, areaSqft: 100 })),
+        rooms: Array.from({ length: 9 }, (_, i) => ({
+          name: `Room ${i}`,
+          areaSqft: 100,
+        })),
         scopeDetections: [{ itemId: 'foundation' }, { itemId: 'framing' }],
       })
     ).toBe(true);
-    expect(ensureGroundUpPlanNotes('3,098 SF · 9 detected spaces', true)).toMatch(
-      /Ground-up new construction/i
+    expect(
+      ensureGroundUpPlanNotes('3,098 SF · 9 detected spaces', true)
+    ).toMatch(/Ground-up new construction/i);
+    expect(ensureGroundUpPlanNotes('Kitchen remodel only', true)).toMatch(
+      /Kitchen remodel only/i
     );
-    expect(ensureGroundUpPlanNotes('Kitchen remodel only', true)).toMatch(/Kitchen remodel only/i);
   });
 
   it('uses Apply plan takeoff when semantics enabled', () => {
@@ -247,16 +274,20 @@ describe('plan takeoff review UI polish', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     expect(
       readyStateSummary({ measurementCount: 5, spaceCount: 12, scopeCount: 13 })
-    ).toBe('Ready · 5 project measurements · 12 detected spaces · 13 scope items');
+    ).toBe(
+      'Ready · 5 project measurements · 12 detected spaces · 13 scope items'
+    );
   });
 
   it('preserves legacy UI wording when feature flag disabled', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'false';
-    expect(measurementDisplayLabel('flooringSqft', 1879, 1879).label).toBe('flooringSqft');
+    expect(measurementDisplayLabel('flooringSqft', 1879, 1879).label).toBe(
+      'flooringSqft'
+    );
     expect(measurementSourceLabel({ key: 'floorAreaSqft' })).toBeNull();
-    expect(scopeTakeoffStatusLines({ itemId: 'foundation', evidence: 'page 3' })).toEqual([
-      'page 3',
-    ]);
+    expect(
+      scopeTakeoffStatusLines({ itemId: 'foundation', evidence: 'page 3' })
+    ).toEqual(['page 3']);
     expect(
       applyPlanTakeoffButtonLabel({
         includedMeasurementCount: 5,
@@ -581,7 +612,10 @@ describe('plan takeoff review UI polish', () => {
     expect(
       planReviewProvenanceFlags({
         key: 'wallPaintSqft',
-        provenanceEntry: { source: 'measured_from_geometry', coverage: 'incomplete' },
+        provenanceEntry: {
+          source: 'measured_from_geometry',
+          coverage: 'incomplete',
+        },
       })
     ).toMatchObject({
       hasReliableDimensions: false,
@@ -590,9 +624,15 @@ describe('plan takeoff review UI polish', () => {
     const summary = buildPaintingPlanReviewSummary(
       { wallPaintSqft: 4918.2, ceilingPaintSqft: 3660, baseboardLf: 482.2 },
       {
-        wallPaintSqft: { source: 'measured_from_geometry', coverage: 'incomplete' },
+        wallPaintSqft: {
+          source: 'measured_from_geometry',
+          coverage: 'incomplete',
+        },
         ceilingPaintSqft: { source: 'measured_from_geometry' },
-        baseboardLf: { source: 'measured_from_geometry', coverage: 'incomplete' },
+        baseboardLf: {
+          source: 'measured_from_geometry',
+          coverage: 'incomplete',
+        },
       }
     );
     expect(summary).toEqual(
@@ -673,7 +713,9 @@ describe('plan takeoff review UI polish', () => {
     expect(detected.some(line => line.label === 'Standard receptacles')).toBe(
       false
     );
-    expect(detected.some(line => line.label === 'GFCI receptacles')).toBe(false);
+    expect(detected.some(line => line.label === 'GFCI receptacles')).toBe(
+      false
+    );
     expect(
       detected.some(line => line.label === 'Recessed / canless / wafer light')
     ).toBe(false);
@@ -803,7 +845,10 @@ describe('plan takeoff review UI polish', () => {
         threeWaySwitchCount: 4,
       },
       {
-        mainPanelCount: { note: 'From panel callout', source: 'detected_from_plan' },
+        mainPanelCount: {
+          note: 'From panel callout',
+          source: 'detected_from_plan',
+        },
         recessedLightCount: {
           note: 'Counted from instance tags',
           source: 'pdf_text_instance_tags',
@@ -877,7 +922,26 @@ describe('plan takeoff review UI polish', () => {
       status: 'from_plan_symbols',
       label: 'From plan — confirm',
     });
-    expect(row.includeDefault).toBe(false);
+    expect(row.includeDefault).toBe(true);
+  });
+
+  it('keeps a prior same-plan count visible while leaving pricing gated', () => {
+    const row = buildPlanReviewMeasurementRowState({
+      key: 'singlePoleSwitchCount',
+      tradeKey: 'electrical',
+      provenanceEntry: {
+        status: 'needs_review',
+        normalizedSource: 'NEEDS_REVIEW',
+      },
+      validationField: {
+        pricingEligible: false,
+        status: 'needs_review',
+        deterministicRepeatedImportStable: false,
+      },
+    });
+
+    expect(row.pricingEligible).toBe(false);
+    expect(row.includeDefault).toBe(true);
   });
 
   it('uses symbol confirmation copy instead of AI count messaging', () => {
@@ -887,7 +951,8 @@ describe('plan takeoff review UI polish', () => {
           status: 'from_plan_symbols',
           label: 'From plan — confirm',
           confidence: 'medium',
-          reason: 'Counted from plan symbols without an explicit printed quantity.',
+          reason:
+            'Counted from plan symbols without an explicit printed quantity.',
         },
         { label: '3-way switch', value: '4', unit: 'EA' }
       )

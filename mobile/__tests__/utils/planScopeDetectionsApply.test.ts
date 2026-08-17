@@ -8,10 +8,19 @@ import {
   applyPlanImportToDraft,
   mergeLivePlanImportIntoScopeMeasurements,
 } from '../../utils/estimateAiDraft';
-import type { PhotoScopeDetection, ScopeChecklistItem } from '../../utils/estimateAiDraft';
+import type {
+  PhotoScopeDetection,
+  ScopeChecklistItem,
+} from '../../utils/estimateAiDraft';
 
-const item = (overrides: Partial<ScopeChecklistItem> & { id: string }): ScopeChecklistItem =>
-  ({ label: overrides.id, state: 'unsure', ...overrides }) as ScopeChecklistItem;
+const item = (
+  overrides: Partial<ScopeChecklistItem> & { id: string }
+): ScopeChecklistItem =>
+  ({
+    label: overrides.id,
+    state: 'unsure',
+    ...overrides,
+  }) as ScopeChecklistItem;
 
 describe('applyScopeDetectionsToChecklistItems (plan → scope)', () => {
   test('fills unsure items, skips low confidence, and reports applied labels', () => {
@@ -27,7 +36,7 @@ describe('applyScopeDetectionsToChecklistItems (plan → scope)', () => {
     ];
 
     const result = applyScopeDetectionsToChecklistItems(items, detections);
-    const byId = Object.fromEntries(result.items.map((i) => [i.id, i]));
+    const byId = Object.fromEntries(result.items.map(i => [i.id, i]));
 
     expect(byId.flooring.state).toBe('included');
     expect(byId.flooring.noteBacked).toBe(true);
@@ -46,7 +55,7 @@ describe('applyScopeDetectionsToChecklistItems (plan → scope)', () => {
       { itemId: 'flooring', state: 'included', confidence: 0.95 },
       { itemId: 'paint', state: 'excluded', confidence: 0.95 },
     ]);
-    const byId = Object.fromEntries(result.items.map((i) => [i.id, i]));
+    const byId = Object.fromEntries(result.items.map(i => [i.id, i]));
 
     expect(byId.flooring.state).toBe('excluded');
     expect(byId.paint.state).toBe('included');
@@ -74,7 +83,7 @@ describe('applyScopeDetectionsToChecklistItems (plan → scope)', () => {
       { itemId: 'flooring', state: 'included', confidence: 0.8 },
       { itemId: 'site_prep', state: 'included', confidence: 0.8 },
     ]);
-    const byId = Object.fromEntries(result.items.map((i) => [i.id, i]));
+    const byId = Object.fromEntries(result.items.map(i => [i.id, i]));
 
     expect(byId.foundation.state).toBe('included');
     expect(byId.framing.state).toBe('included');
@@ -102,13 +111,23 @@ describe('applyScopeDetectionsToChecklistItems (plan → scope)', () => {
     ];
 
     const valid = applyScopeDetectionsToChecklistItems(items, [
-      { itemId: 'wet_area_install', state: 'included', choiceId: 'tile_shower', confidence: 0.8 },
+      {
+        itemId: 'wet_area_install',
+        state: 'included',
+        choiceId: 'tile_shower',
+        confidence: 0.8,
+      },
     ]);
     expect(valid.items[0].choiceId).toBe('tile_shower');
     expect(valid.items[0].state).toBe('included');
 
     const invalid = applyScopeDetectionsToChecklistItems(items, [
-      { itemId: 'wet_area_install', state: 'included', choiceId: 'nope', confidence: 0.8 },
+      {
+        itemId: 'wet_area_install',
+        state: 'included',
+        choiceId: 'nope',
+        confidence: 0.8,
+      },
     ]);
     expect(invalid.items[0].choiceId).toBeNull();
     expect(invalid.appliedCount).toBe(0);
@@ -118,7 +137,12 @@ describe('applyScopeDetectionsToChecklistItems (plan → scope)', () => {
     const items = [item({ id: 'flooring', label: 'New flooring' })];
     expect(applyScopeDetectionsToChecklistItems(items, []).items).toBe(items);
     expect(applyScopeDetectionsToChecklistItems(items, null).items).toBe(items);
-    expect(applyScopeDetectionsToChecklistItems([], [{ itemId: 'x', state: 'included', confidence: 1 }]).items).toEqual([]);
+    expect(
+      applyScopeDetectionsToChecklistItems(
+        [],
+        [{ itemId: 'x', state: 'included', confidence: 1 }]
+      ).items
+    ).toEqual([]);
   });
 });
 
@@ -158,7 +182,7 @@ describe('applyPlanImportToDraft', () => {
     expect(next.scopeMeasurements?.garageSqft).toBe(994);
     expect(next.scopeMeasurements?.flooringSqft).toBe(1879);
     expect(next.scopeMeasurements?.kitchenFloorSqft).toBe(194);
-    expect(next.scopeMeasurements?.planRooms?.map((r) => r.name)).toEqual([
+    expect(next.scopeMeasurements?.planRooms?.map(r => r.name)).toEqual([
       'Kitchen',
       'Primary Suite',
       'Garage',
@@ -176,15 +200,111 @@ describe('applyPlanImportToDraft', () => {
       quantity: 1879,
       unit: 'sqft',
     });
-    expect(next.scopeMeasurements?.itemQuantities?.tile_flooring).toMatchObject({
-      quantity: 1879,
-      unit: 'sqft',
-    });
+    expect(next.scopeMeasurements?.itemQuantities?.tile_flooring).toMatchObject(
+      {
+        quantity: 1879,
+        unit: 'sqft',
+      }
+    );
     expect(next.scopeMeasurements?.itemQuantities?.paint_trim).toBeUndefined();
-    const byId = Object.fromEntries(next.scopeChecklist!.items.map((i) => [i.id, i]));
+    const byId = Object.fromEntries(
+      next.scopeChecklist!.items.map(i => [i.id, i])
+    );
     expect(byId.foundation.state).toBe('included');
     expect(byId.exterior.state).toBe('included');
     expect(byId.mep_rough.state).toBe('included');
+  });
+
+  test('retains silent electrical fields when the same plan is imported again', () => {
+    const draft = {
+      scopeChecklist: {
+        estimateTier: 'standard',
+        templateKey: 'electrical',
+        title: 'Confirm electrical scope',
+        intro: '',
+        items: [],
+      },
+      scopeMeasurements: {
+        planImportFingerprint: 'same-plan',
+        singlePoleSwitchCount: '12',
+        threeWaySwitchCount: '4',
+        quickMeasurementSources: {
+          singlePoleSwitchCount: 'plan_detected',
+          threeWaySwitchCount: 'plan_verified',
+        },
+        measurementProvenance: {
+          singlePoleSwitchCount: { source: 'detected_from_plan', value: 12 },
+          threeWaySwitchCount: { source: 'detected_from_plan', value: 4 },
+        },
+      },
+    } as any;
+
+    const next = applyPlanImportToDraft(draft, {
+      planImportFingerprint: 'same-plan',
+      measurements: { smokeDetectorCount: 7 },
+    });
+
+    expect(next.scopeMeasurements?.singlePoleSwitchCount).toBe(12);
+    expect(next.scopeMeasurements?.threeWaySwitchCount).toBe(4);
+    expect(
+      next.scopeMeasurements?.quickMeasurementSources?.singlePoleSwitchCount
+    ).toBe('needs_confirmation');
+    expect(
+      next.scopeMeasurements?.quickMeasurementSources?.threeWaySwitchCount
+    ).toBe('needs_confirmation');
+    expect(
+      next.scopeMeasurements?.measurementProvenance?.threeWaySwitchCount
+    ).toMatchObject({
+      source: 'detected_from_plan',
+      value: 4,
+      status: 'needs_review',
+      pricingEligible: false,
+    });
+  });
+
+  test('keeps a prior same-plan switch count visible when the repeat count changes', () => {
+    const draft = {
+      scopeChecklist: {
+        estimateTier: 'standard',
+        templateKey: 'electrical',
+        title: 'Confirm electrical scope',
+        intro: '',
+        items: [],
+      },
+      scopeMeasurements: {
+        planImportFingerprint: 'same-plan',
+        singlePoleSwitchCount: '12',
+        quickMeasurementSources: {
+          singlePoleSwitchCount: 'plan_detected',
+        },
+        measurementProvenance: {
+          singlePoleSwitchCount: {
+            source: 'detected_from_plan',
+            value: 12,
+          },
+        },
+      },
+    } as any;
+
+    const next = applyPlanImportToDraft(draft, {
+      planImportFingerprint: 'same-plan',
+      measurements: { singlePoleSwitchCount: 9 },
+      measurementConflicts: [
+        {
+          field: 'singlePoleSwitchCount',
+          requiresConfirmation: true,
+        },
+      ],
+    });
+
+    expect(next.scopeMeasurements?.singlePoleSwitchCount).toBe(12);
+    expect(
+      next.scopeMeasurements?.quickMeasurementSources?.singlePoleSwitchCount
+    ).toBe('needs_confirmation');
+    expect(
+      next.scopeMeasurements?.electricalValidation?.blockedFields
+    ).toContain('singlePoleSwitchCount');
+    expect(next.scopeMeasurements?.measurementConflicts).toEqual([]);
   });
 });
 
@@ -254,5 +374,78 @@ describe('live plan-review handoff to Confirm Scope', () => {
     );
 
     expect(next.measurementConflicts).toEqual([]);
+  });
+
+  test('preserves contractor confirmations when the plan fingerprint matches', () => {
+    const next = mergeLivePlanImportIntoScopeMeasurements(
+      {
+        singlePoleSwitchCount: '20',
+        planImportFingerprint: 'same-plan',
+        quickMeasurementSources: {
+          singlePoleSwitchCount: 'contractor_confirmed_from_plan_review',
+        },
+        quickMeasurementUserOverrides: { singlePoleSwitchCount: true },
+        itemQuantities: {
+          electrical_single_pole_switch: {
+            quantity: 20,
+            unit: 'each',
+            quantitySource: 'contractor_confirmed_from_plan_review',
+          },
+        },
+      },
+      {
+        planImportFingerprint: 'same-plan',
+        measurements: { singlePoleSwitchCount: '18' },
+        quickMeasurementSources: { singlePoleSwitchCount: 'plan_detected' },
+        measurementProvenance: {
+          singlePoleSwitchCount: { status: 'needs_review' },
+        },
+        measurementConflicts: [
+          { field: 'singlePoleSwitchCount', requiresConfirmation: true },
+        ],
+      }
+    );
+
+    expect(next.singlePoleSwitchCount).toBe('20');
+    expect(next.quickMeasurementSources?.singlePoleSwitchCount).toBe(
+      'contractor_confirmed_from_plan_review'
+    );
+    expect(next.quickMeasurementUserOverrides?.singlePoleSwitchCount).toBe(
+      true
+    );
+    expect(next.measurementConflicts).toEqual([]);
+  });
+
+  test('clears old plan confirmations when a different plan is imported', () => {
+    const next = mergeLivePlanImportIntoScopeMeasurements(
+      {
+        singlePoleSwitchCount: '20',
+        planImportFingerprint: 'old-plan',
+        quickMeasurementSources: {
+          singlePoleSwitchCount: 'contractor_confirmed_from_plan_review',
+        },
+        quickMeasurementUserOverrides: { singlePoleSwitchCount: true },
+        itemQuantities: {
+          electrical_single_pole_switch: {
+            quantity: 20,
+            unit: 'each',
+            quantitySource: 'contractor_confirmed_from_plan_review',
+          },
+        },
+        electricalScope: ['electrical_single_pole_switch'],
+      },
+      {
+        planImportFingerprint: 'new-plan',
+        measurements: {},
+      }
+    );
+
+    expect(next.singlePoleSwitchCount).toBeUndefined();
+    expect(next.quickMeasurementSources?.singlePoleSwitchCount).toBeUndefined();
+    expect(
+      next.quickMeasurementUserOverrides?.singlePoleSwitchCount
+    ).toBeUndefined();
+    expect(next.itemQuantities?.electrical_single_pole_switch).toBeUndefined();
+    expect(next.electricalScope).toEqual([]);
   });
 });

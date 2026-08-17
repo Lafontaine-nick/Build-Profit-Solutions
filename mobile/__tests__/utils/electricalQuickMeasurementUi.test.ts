@@ -1,6 +1,7 @@
 import {
   applyElectricalQuickMeasurementPatch,
   buildElectricalQuickMeasurementGroups,
+  electricalQuickMeasurementSourceFromProvenance,
   electricalConfirmScopeAttributesEqual,
   electricalConfirmScopeAttributesFromMeasurements,
   electricalLivePricingAttributesChanged,
@@ -38,6 +39,41 @@ describe('electricalQuickMeasurementUi', () => {
     dishwasherHookupCount: 1,
     recessedLightCount: 40,
   };
+
+  it('keeps explicit panel evidence as Plan verified across the compact badge path', () => {
+    expect(
+      electricalQuickMeasurementSourceFromProvenance({
+        status: 'plan_verified',
+        normalizedSource: 'FROM_PLAN',
+        pricingEligible: true,
+      })
+    ).toBe('plan_verified');
+    const groups = buildElectricalQuickMeasurementGroups({
+      measurements: { mainPanelCount: 1 },
+      sources: { mainPanelCount: 'plan_verified' },
+    });
+    expect(
+      groups
+        .flatMap(group => group.fields)
+        .find(field => field.key === 'mainPanelCount')?.provenanceLabel
+    ).toBe('Plan verified');
+  });
+
+  it('does not let stale AI verification override a blocked or contractor-confirmed record', () => {
+    expect(
+      electricalQuickMeasurementSourceFromProvenance({
+        status: 'needs_review',
+        normalizedSource: 'NEEDS_REVIEW',
+        pricingEligible: false,
+      })
+    ).toBe('needs_confirmation');
+    expect(
+      electricalQuickMeasurementSourceFromProvenance({
+        normalizedSource: 'CONTRACTOR_CONFIRMED_FROM_PLAN_REVIEW',
+        confirmedFrom: 'PLAN_REVIEW',
+      })
+    ).toBe('contractor_confirmed_from_plan_review');
+  });
 
   it('hydrates Quick Measurements from canonical Electrical keys', () => {
     const groups = buildElectricalQuickMeasurementGroups({
@@ -112,11 +148,15 @@ describe('electricalQuickMeasurementUi', () => {
     });
     expect(byKey.standardReceptacleCount?.selected).toBe(true);
     expect(electricalQmOptionActive(byKey.recessedLightCount)).toBe(false);
-    expect(electricalQmShowsQuantity(byKey.recessedLightCount, false)).toBe(false);
-    expect(electricalQmShowsQuantity(byKey.recessedLightCount, true)).toBe(true);
-    expect(electricalQmShowsQuantity(byKey.standardReceptacleCount, false)).toBe(
+    expect(electricalQmShowsQuantity(byKey.recessedLightCount, false)).toBe(
+      false
+    );
+    expect(electricalQmShowsQuantity(byKey.recessedLightCount, true)).toBe(
       true
     );
+    expect(
+      electricalQmShowsQuantity(byKey.standardReceptacleCount, false)
+    ).toBe(true);
   });
 
   it('lets a contractor type a count on an unresolved conflict row', () => {
@@ -163,6 +203,23 @@ describe('electricalQuickMeasurementUi', () => {
     });
   });
 
+  it('shows a retained repeat-plan count while keeping it marked for confirmation', () => {
+    const groups = buildElectricalQuickMeasurementGroups({
+      measurements: { singlePoleSwitchCount: 12 },
+      conflictFields: ['singlePoleSwitchCount'],
+      sources: { singlePoleSwitchCount: 'needs_confirmation' },
+    });
+    const field = groups
+      .flatMap(group => group.fields)
+      .find(item => item.key === 'singlePoleSwitchCount');
+    expect(field).toMatchObject({
+      selected: true,
+      value: 12,
+      conflicted: false,
+      provenanceLabel: 'Needs confirmation',
+    });
+  });
+
   it('writes the same canonical key and item quantity the cards use', () => {
     const next = applyElectricalQuickMeasurementPatch(
       {
@@ -189,11 +246,68 @@ describe('electricalQuickMeasurementUi', () => {
     );
   });
 
+  it('unblocks a repeat-plan field after the contractor enters a quantity', () => {
+    const next = applyElectricalQuickMeasurementPatch(
+      {
+        singlePoleSwitchCount: '12',
+        electricalValidation: {
+          fields: {
+            singlePoleSwitchCount: {
+              status: 'needs_review',
+              pricingEligible: false,
+              deterministicRepeatedImportStable: false,
+            },
+          },
+          priceableFields: [],
+          blockedFields: ['singlePoleSwitchCount'],
+        },
+        itemQuantities: {},
+      },
+      'singlePoleSwitchCount',
+      '12'
+    );
+
+    expect(
+      next.electricalValidation?.fields?.singlePoleSwitchCount
+    ).toMatchObject({
+      status: 'user_confirmed',
+      pricingEligible: true,
+    });
+    expect(next.electricalValidation?.priceableFields).toContain(
+      'singlePoleSwitchCount'
+    );
+    expect(next.electricalValidation?.blockedFields).not.toContain(
+      'singlePoleSwitchCount'
+    );
+  });
+
+  it('preserves contractor confirmation when reapplying the selected plan candidate', () => {
+    const next = applyElectricalQuickMeasurementPatch(
+      {
+        recessedLightCount: '46',
+        quickMeasurementSources: {
+          recessedLightCount: 'contractor_confirmed_from_plan_review',
+        },
+      },
+      'recessedLightCount',
+      '46'
+    );
+    expect(next.itemQuantities?.electrical_recessed_light).toMatchObject({
+      quantitySource: 'contractor_confirmed_from_plan_review',
+    });
+    expect(next.quickMeasurementSources?.recessedLightCount).toBe(
+      'contractor_confirmed_from_plan_review'
+    );
+  });
+
   it('deselecting a populated row clears the quantity, item, and electricalScope', () => {
     const next = applyElectricalQuickMeasurementPatch(
       {
         mainPanelCount: '1',
-        electricalScope: ['electrical_main_panel', 'electrical_standard_receptacle'],
+        electricalScope: [
+          'electrical_main_panel',
+          'electrical_standard_receptacle',
+        ],
         itemQuantities: {
           electrical_main_panel: {
             quantity: '1',
@@ -229,8 +343,18 @@ describe('electricalQuickMeasurementUi', () => {
       threshold: 0.15,
       requiresConfirmation: true,
       candidates: [
-        { value: 8, source: 'general_plan_takeoff', confidence: 0.7, directEvidence: true },
-        { value: 6, source: 'focused_trade', confidence: 0.7, directEvidence: true },
+        {
+          value: 8,
+          source: 'general_plan_takeoff',
+          confidence: 0.7,
+          directEvidence: true,
+        },
+        {
+          value: 6,
+          source: 'focused_trade',
+          confidence: 0.7,
+          directEvidence: true,
+        },
       ],
     };
     const selected = applyElectricalQuickMeasurementPatch(
@@ -250,7 +374,9 @@ describe('electricalQuickMeasurementUi', () => {
       conflict
     );
     expect(restored.ceilingFanCount).toBe('');
-    expect(restored.quickMeasurementUserOverrides?.ceilingFanCount).toBeUndefined();
+    expect(
+      restored.quickMeasurementUserOverrides?.ceilingFanCount
+    ).toBeUndefined();
     expect(restored.measurementConflicts).toEqual([conflict]);
   });
 
@@ -324,17 +450,31 @@ describe('electricalQuickMeasurementUi', () => {
     expect(electricalServiceAmperageTap(100, 100)).toBeNull();
   });
 
-  it('tapping a blank EA row includes quantity 1 so the chip turns green', () => {
+  it('tapping a blank EA row starts at zero without making it price-ready', () => {
     const subpanel = { unit: 'EA', selected: false, conflicted: false };
-    expect(electricalQmTapQuantity(subpanel)).toBe('1');
+    expect(electricalQmTapQuantity(subpanel)).toBe('0');
     expect(electricalQmChipSelected(subpanel, false)).toBe(false);
-    const included = applyElectricalQuickMeasurementPatch({}, 'subpanelCount', '1');
+    const included = applyElectricalQuickMeasurementPatch(
+      {
+        itemQuantities: {},
+        quickMeasurementUserOverrides: {},
+        quickMeasurementSources: {},
+        electricalScope: [],
+        pricingAcceptance: {},
+      },
+      'subpanelCount',
+      '0'
+    );
     const field = buildElectricalQuickMeasurementGroups({
       measurements: included,
+      userOverrides: included.quickMeasurementUserOverrides,
     })
       .flatMap(group => group.fields)
       .find(item => item.key === 'subpanelCount');
-    expect(field).toMatchObject({ selected: true, value: 1, unit: 'EA' });
+    expect(field).toMatchObject({ selected: true, value: 0, unit: 'EA' });
+    expect(included.itemQuantities?.electrical_subpanel).toMatchObject({
+      quantity: '0',
+    });
     expect(electricalQmOptionActive(field)).toBe(true);
     expect(electricalQmChipSelected(field, false)).toBe(true);
   });
@@ -406,7 +546,10 @@ describe('electricalQuickMeasurementUi', () => {
     expect(
       electricalMeasurementsShouldFlushImmediately(
         base as Record<string, unknown>,
-        { ...base, electricalPanelLocation: 'indoor' } as Record<string, unknown>
+        { ...base, electricalPanelLocation: 'indoor' } as Record<
+          string,
+          unknown
+        >
       )
     ).toBe(false);
   });

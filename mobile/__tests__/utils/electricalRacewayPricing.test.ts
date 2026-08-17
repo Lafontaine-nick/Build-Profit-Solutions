@@ -51,6 +51,40 @@ describe('electrical Phase 2I conduit / trenching pricing', () => {
     expect(trench?.helper).toMatch(/not conduit/i);
     expect(conduit?.helper).toMatch(/approved split/i);
     expect(trench?.helper).toMatch(/normal soil/i);
+    expect(conduit?.pricingDetail).toMatch(
+      /finished-wall condition affects labor only/i
+    );
+    expect(trench?.pricingDetail).toMatch(/does not change trenching labor/i);
+  });
+
+  it('prices 100 LF of standard conduit at $700 before condition modifiers', () => {
+    expect(
+      quoteElectricalRaceway({
+        itemId: 'electrical_conduit',
+        quantity: 100,
+        electricalProjectCondition: 'new_construction',
+      })
+    ).toMatchObject({
+      material: 300,
+      labor: 400,
+      total: 700,
+    });
+  });
+
+  it('prices 100 LF of normal-soil trenching at $1,000', () => {
+    expect(
+      quoteElectricalRaceway({
+        itemId: 'electrical_trenching',
+        quantity: 100,
+        electricalProjectCondition: 'finished_wall_service',
+        electricalTrenchCondition: 'normal_soil',
+      })
+    ).toMatchObject({
+      material: 100,
+      labor: 900,
+      total: 1000,
+      laborMultiplier: 1,
+    });
   });
 
   it('applies finished-wall labor only to conduit, never to trenching', () => {
@@ -114,6 +148,17 @@ describe('electrical Phase 2I conduit / trenching pricing', () => {
       )
     );
     expect(pricing.fill).toBeNull();
+    const trenchPricing = resolveScopeItemSuggestedPricing(
+      'electrical_trenching',
+      inputWith({ electricalTrenching: true }),
+      'electrical',
+      resolveChecklistItemQuantity(
+        'electrical_trenching',
+        normalizeScopeMeasurements({ electricalTrenching: true }),
+        { templateKey: 'electrical' }
+      )
+    );
+    expect(trenchPricing.fill).toBeNull();
   });
 
   it('parses conduit and trench lengths without stacking a homerun', () => {

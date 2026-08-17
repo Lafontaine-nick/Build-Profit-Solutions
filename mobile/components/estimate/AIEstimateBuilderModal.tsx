@@ -270,10 +270,9 @@ export default function AIEstimateBuilderModal({
         userNotes.trim()
           ? userNotes
           : buildPlanReadyJobNotesPrompt({
-              livingSf:
-                tradeLabel
-                  ? undefined
-                  : Number(result.measurements?.floorAreaSqft) || null,
+              livingSf: tradeLabel
+                ? undefined
+                : Number(result.measurements?.floorAreaSqft) || null,
               measurementCount: measCount,
               spaceCount: tradeLabel ? 0 : result.rooms?.length || 0,
               scopeCount: result.scopeDetections?.length || 0,
@@ -286,6 +285,7 @@ export default function AIEstimateBuilderModal({
     }
     const nextPlanImport: PlanImportPayload = {
       measurements: result.measurements,
+      planImportFingerprint: result.planImportFingerprint,
       scopeDetections: result.scopeDetections,
       rooms: result.rooms || [],
       notesBlock: result.notesBlock || null,

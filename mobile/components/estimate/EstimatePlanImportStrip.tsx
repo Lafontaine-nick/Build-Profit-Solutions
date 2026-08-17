@@ -2,7 +2,7 @@
  * Step 1 "Import from plan" strip — camera / library / PDF → review modal.
  * Measurements + scope detections are returned to the parent for Generate handoff.
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -37,13 +37,171 @@ import {
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
+import { ELECTRICAL_CARDS } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { hydratePaintingPlanMeasurements } from '@/utils/hydratePaintingPlanMeasurements';
+import { electricalQuickMeasurementSourceFromProvenance } from '@/utils/electricalQuickMeasurementUi';
 
 function keepPaintingPlanGeometry(
   mode: PlanEstimatingMode,
   tradeKey?: PlanTradeKey | null
 ): boolean {
   return mode === 'selected_trade' && tradeKey === 'painting';
+}
+
+type ElectricalRepeatSnapshot = {
+  fingerprint: string;
+  measurements: Record<string, number | string | null | undefined>;
+};
+
+function planImportFingerprint(
+  pages: Array<{ base64: string; mimeType: string; name?: string }>,
+  mode: PlanEstimatingMode,
+  trade: PlanTradeKey | null
+): string {
+  let hash = 2166136261;
+  const source = `${mode}:${trade || ''}|${pages
+    .map(
+      page =>
+        `${page.name || ''}:${page.mimeType}:${page.base64.length}:${page.base64}`
+    )
+    .join('|')}`;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${hash >>> 0}:${source.length}:${pages.length}`;
+}
+
+function applyRepeatedElectricalImportStability(
+  takeoff: PlanToMeasurementsResult,
+  previous: ElectricalRepeatSnapshot | null,
+  fingerprint: string
+): PlanToMeasurementsResult {
+  const currentMeasurements = takeoff.measurements || {};
+  const electricalKeys = new Set([
+    ...ELECTRICAL_CARDS.map(card => card.measurementKey),
+    'serviceAmperage',
+  ]);
+  const current = Object.fromEntries(
+    [...electricalKeys].map(key => [key, currentMeasurements[key] ?? null])
+  );
+  if (!previous || previous.fingerprint !== fingerprint) return takeoff;
+  const stabilizedMeasurements = { ...currentMeasurements };
+  const measurementConflicts = [...(takeoff.measurementConflicts || [])];
+  const samePlanReviewFields = new Set<string>();
+
+  const changed = new Set<string>();
+  for (const key of electricalKeys) {
+    if (Number(previous.measurements[key] ?? 0) !== Number(current[key] ?? 0)) {
+      changed.add(key);
+    }
+  }
+  const provenance = { ...(takeoff.measurementProvenance || {}) };
+  const validation = takeoff.electricalValidation;
+  const fields = { ...(validation?.fields || {}) };
+  const priceableFields = new Set(validation?.priceableFields || []);
+  const blockedFields = new Set(validation?.blockedFields || []);
+
+  for (const key of electricalKeys) {
+    const existing =
+      provenance[key] && typeof provenance[key] === 'object'
+        ? provenance[key]
+        : {};
+    const previousValue = Number(previous.measurements[key] ?? 0);
+    const currentValue = Number(current[key] ?? 0);
+    if (changed.has(key)) {
+      const reason =
+        'The same imported plan produced a different quantity on repeat import; confirm this field before pricing.';
+      if (previousValue > 0 && currentValue <= 0) {
+        // Do not let a silent repeat read erase a quantity already found on
+        // this exact plan. Keep it visible, but with pricing blocked until
+        // the contractor confirms the repeat result.
+        stabilizedMeasurements[key] = previous.measurements[key];
+        samePlanReviewFields.add(key);
+      } else if (previousValue > 0 && currentValue > 0) {
+        // The exact same document produced two positive counts. Keep the
+        // previously visible quantity in the contractor's flow instead of
+        // making the chip randomly disappear; the validation gate below
+        // prevents pricing until it is confirmed.
+        stabilizedMeasurements[key] = previous.measurements[key];
+        samePlanReviewFields.add(key);
+      }
+      provenance[key] = {
+        ...existing,
+        ...(previousValue > 0
+          ? {
+              value: previousValue,
+              source: String(
+                (existing as { source?: string }).source ||
+                  'previous_same_plan_import'
+              ),
+            }
+          : {}),
+        status: 'needs_review',
+        normalizedSource: 'NEEDS_REVIEW',
+        pricingEligible: false,
+        deterministicRepeatedImportStable: false,
+        reason,
+      };
+      fields[key] = {
+        ...(fields[key] || {}),
+        status: 'needs_review',
+        pricingEligible: false,
+        deterministicRepeatedImportStable: false,
+        reason,
+      };
+      priceableFields.delete(key);
+      blockedFields.add(key);
+    } else if (provenance[key]) {
+      provenance[key] = {
+        ...existing,
+        deterministicRepeatedImportStable: true,
+      };
+      if (fields[key]) {
+        fields[key] = {
+          ...fields[key],
+          deterministicRepeatedImportStable: true,
+        };
+      }
+    }
+  }
+
+  const retainedConflicts = measurementConflicts.filter(
+    conflict => !samePlanReviewFields.has(String(conflict?.field || ''))
+  );
+  const nextElectricalValidation = validation
+    ? {
+        ...validation,
+        fields,
+        priceableFields: [...priceableFields],
+        blockedFields: [...blockedFields],
+      }
+    : samePlanReviewFields.size
+      ? {
+          fields: Object.fromEntries(
+            [...samePlanReviewFields].map(key => [
+              key,
+              {
+                status: 'needs_review',
+                pricingEligible: false,
+                deterministicRepeatedImportStable: false,
+                reason:
+                  'The same imported plan produced a different quantity on repeat import; confirm this field before pricing.',
+              },
+            ])
+          ),
+          priceableFields: [],
+          blockedFields: [...samePlanReviewFields],
+        }
+      : validation;
+
+  return {
+    ...takeoff,
+    measurements: stabilizedMeasurements,
+    measurementConflicts: retainedConflicts,
+    measurementProvenance: provenance,
+    electricalValidation: nextElectricalValidation,
+  };
 }
 
 type Colors = {
@@ -54,6 +212,7 @@ type Colors = {
 
 export type PlanImportApplyResult = {
   measurements: Record<string, string>;
+  planImportFingerprint?: string | null;
   scopeDetections: PhotoScopeDetection[];
   mergedNotes: string;
   notesBlock: string;
@@ -84,6 +243,10 @@ export type PlanImportApplyResult = {
   missingInfo: string[];
 };
 
+type PlanReviewState = PlanToMeasurementsResult & {
+  planImportFingerprint: string;
+};
+
 type Props = {
   Colors: Colors;
   darkMode: boolean;
@@ -108,9 +271,10 @@ export default function EstimatePlanImportStrip({
   onApplied,
 }: Props) {
   const [importing, setImporting] = useState(false);
-  const [planReview, setPlanReview] = useState<PlanToMeasurementsResult | null>(
+  const previousElectricalImportRef = useRef<ElectricalRepeatSnapshot | null>(
     null
   );
+  const [planReview, setPlanReview] = useState<PlanReviewState | null>(null);
   const [showImportChooser, setShowImportChooser] = useState(false);
   const [estimatingMode, setEstimatingMode] =
     useState<PlanEstimatingMode>('whole_project');
@@ -139,18 +303,32 @@ export default function EstimatePlanImportStrip({
           estimatingMode,
           selectedTrade,
         });
+        const fingerprint = planImportFingerprint(
+          pages,
+          estimatingMode,
+          selectedTrade
+        );
+        const stabilized = applyRepeatedElectricalImportStability(
+          hydrated,
+          previousElectricalImportRef.current,
+          fingerprint
+        );
+        previousElectricalImportRef.current = {
+          fingerprint,
+          measurements: { ...(stabilized.measurements || {}) },
+        };
         const selection = normalizePlanImportSelection(
           estimatingMode,
           selectedTrade
         );
         const stamped: PlanToMeasurementsResult = {
-          ...hydrated,
+          ...stabilized,
           estimatingMode: selection.mode,
           selectedTrade: selection.trade?.key || null,
         };
         if (selection.mode === 'selected_trade' && selection.trade) {
           stamped.measurements = filterPlanMeasurementsForTrade(
-            hydrated.measurements || {},
+            stabilized.measurements || {},
             selection.mode,
             selection.trade.key
           );
@@ -158,18 +336,23 @@ export default function EstimatePlanImportStrip({
             stamped.rooms = [];
           }
           stamped.areaReconciliation = null;
-          if (takeoff.scope?.detections) {
+          if (stabilized.scope?.detections) {
             stamped.scope = {
-              ...takeoff.scope,
+              ...stabilized.scope,
               detections: filterPlanScopesForTrade(
-                takeoff.scope.detections,
+                stabilized.scope.detections,
                 selection.mode,
                 selection.trade.key
               ),
             };
           }
         }
-        setPlanReview(stamped);
+        setPlanReview({
+          ...stamped,
+          planImportFingerprint: fingerprint,
+          measurementProvenance: stabilized.measurementProvenance,
+          electricalValidation: stabilized.electricalValidation,
+        });
         setShowImportChooser(false);
         if (Platform.OS === 'ios') {
           void Haptics.notificationAsync(
@@ -309,11 +492,18 @@ export default function EstimatePlanImportStrip({
                     })
                       .map(([key, value]) => [
                         key,
-                        key === 'roofPitch' ? String(value || '') : Number(value),
+                        key === 'roofPitch'
+                          ? String(value || '')
+                          : Number(value),
                       ])
                       .filter(([key, value]) => {
-                        if (selection.trade?.key === 'roofing' && key === 'roofPitch') {
-                          return typeof value === 'string' && value.trim().length > 0;
+                        if (
+                          selection.trade?.key === 'roofing' &&
+                          key === 'roofPitch'
+                        ) {
+                          return (
+                            typeof value === 'string' && value.trim().length > 0
+                          );
                         }
                         const n = Number(value);
                         return Number.isFinite(n) && n > 0;
@@ -341,9 +531,11 @@ export default function EstimatePlanImportStrip({
                 ...(selection.trade.key === 'roofing'
                   ? {
                       roofPitch:
-                        takeoff.planFacts?.roofPitch || tradeMeasurements.roofPitch,
+                        takeoff.planFacts?.roofPitch ||
+                        tradeMeasurements.roofPitch,
                       storyCount:
-                        takeoff.planFacts?.storyCount || tradeMeasurements.storyCount,
+                        takeoff.planFacts?.storyCount ||
+                        tradeMeasurements.storyCount,
                     }
                   : {}),
               },
@@ -363,7 +555,9 @@ export default function EstimatePlanImportStrip({
         selection.trade?.key
       );
       const tradeRooms =
-        selection.mode === 'selected_trade' && !keepPaintingGeometry ? [] : rooms;
+        selection.mode === 'selected_trade' && !keepPaintingGeometry
+          ? []
+          : rooms;
       const tradeScopeDetections =
         selection.mode === 'selected_trade' && selection.trade
           ? filterPlanScopesForTrade(
@@ -382,9 +576,6 @@ export default function EstimatePlanImportStrip({
       ).filter(conflict => {
         const field = String(conflict?.field || '');
         if (!field || !conflict?.requiresConfirmation) return false;
-        if (Object.prototype.hasOwnProperty.call(tradeMeasurements, field)) {
-          return false;
-        }
         if (allowedConflictKeys.size && !allowedConflictKeys.has(field)) {
           return false;
         }
@@ -408,32 +599,16 @@ export default function EstimatePlanImportStrip({
                 .filter(([key]) =>
                   Object.prototype.hasOwnProperty.call(tradeMeasurements, key)
                 )
-                .map(([key, entry]) => {
-                  const record =
-                    entry && typeof entry === 'object'
-                      ? (entry as {
-                          status?: string;
-                          normalizedSource?: string;
-                          pricingEligible?: boolean;
-                        })
-                      : {};
-                  const source =
-                    record.normalizedSource === 'AI_VERIFIED' ||
-                    record.status === 'ai_verified'
-                      ? 'ai_verified'
-                      : record.normalizedSource === 'USER_CONFIRMED' ||
-                          record.normalizedSource === 'USER_ENTERED'
-                        ? 'user_entered'
-                        : record.pricingEligible === false
-                          ? 'needs_confirmation'
-                          : 'plan_detected';
-                  return [key, source];
-                })
+                .map(([key, entry]) => [
+                  key,
+                  electricalQuickMeasurementSourceFromProvenance(entry),
+                ])
             )
           : {};
 
       onApplied({
         measurements: tradeMeasurements,
+        planImportFingerprint: takeoff.planImportFingerprint,
         scopeDetections: tradeScopeDetections,
         mergedNotes: takeoff.mergedNotes || existingNotes,
         notesBlock: takeoff.notesBlock || '',
@@ -441,7 +616,7 @@ export default function EstimatePlanImportStrip({
         areaReconciliation:
           selection.mode === 'selected_trade'
             ? null
-            : takeoff.areaReconciliation ?? null,
+            : (takeoff.areaReconciliation ?? null),
         buildingAreas:
           selection.mode === 'selected_trade' && !keepPaintingGeometry
             ? undefined
@@ -458,7 +633,9 @@ export default function EstimatePlanImportStrip({
         measurementProvenance: appliedProvenance,
         measurementConflicts: unresolvedConflicts,
         electricalValidation:
-          metadata?.electricalValidation ?? takeoff.electricalValidation ?? null,
+          metadata?.electricalValidation ??
+          takeoff.electricalValidation ??
+          null,
         estimatingMode: selection.mode,
         selectedTrade: selection.trade?.key || null,
         tradeProvenance: {

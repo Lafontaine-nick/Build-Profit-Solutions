@@ -253,7 +253,9 @@ export function buildConcretePlanReviewSummary(
     });
   }
 
-  const reinforcement = positiveMeasurement(measurements.concreteReinforcementSqft);
+  const reinforcement = positiveMeasurement(
+    measurements.concreteReinforcementSqft
+  );
   if (reinforcement != null) {
     lines.push({
       label: 'Rebar / mesh',
@@ -366,7 +368,8 @@ export function buildFlooringPlanReviewSummary(
   });
   lines.push({
     label: 'Demo / removal',
-    value: demo != null ? `${formatSfWithCommas(demo)} sqft` : 'Needs confirmation',
+    value:
+      demo != null ? `${formatSfWithCommas(demo)} sqft` : 'Needs confirmation',
   });
   lines.push({
     label: 'Subfloor prep',
@@ -390,7 +393,9 @@ export function buildFlooringPlanReviewSummary(
     value:
       transitions != null
         ? `${formatSfWithCommas(transitions)} ${
-            positiveMeasurement(measurements.transitionCount) != null ? 'each' : 'LF'
+            positiveMeasurement(measurements.transitionCount) != null
+              ? 'each'
+              : 'LF'
           }`
         : '—',
   });
@@ -398,7 +403,8 @@ export function buildFlooringPlanReviewSummary(
   const quarterRound = positiveMeasurement(measurements.quarterRoundLf);
   lines.push({
     label: 'Quarter round',
-    value: quarterRound != null ? `${formatSfWithCommas(quarterRound)} LF` : '—',
+    value:
+      quarterRound != null ? `${formatSfWithCommas(quarterRound)} LF` : '—',
   });
 
   return lines;
@@ -509,8 +515,10 @@ export function planReviewProvenanceFlags(input: {
   const source = provenanceSourceText(input.provenanceEntry);
   const evidenceKind =
     typeof input.provenanceEntry === 'object' && input.provenanceEntry != null
-      ? String((input.provenanceEntry as { evidenceKind?: string }).evidenceKind || '')
-          .toLowerCase()
+      ? String(
+          (input.provenanceEntry as { evidenceKind?: string }).evidenceKind ||
+            ''
+        ).toLowerCase()
       : '';
   const fromGeometry =
     source.includes('geometry') || source.includes('calculated_from_plan');
@@ -549,10 +557,10 @@ export function planReviewProvenanceFlags(input: {
     typeof input.provenanceEntry === 'object' &&
     input.provenanceEntry != null &&
     ((input.provenanceEntry as { status?: string }).status === 'ai_verified' ||
-      (input.provenanceEntry as { normalizedSource?: string }).normalizedSource ===
-        'AI_VERIFIED' ||
-      ((input.provenanceEntry as { pricingEligible?: boolean }).pricingEligible ===
-        true &&
+      (input.provenanceEntry as { normalizedSource?: string })
+        .normalizedSource === 'AI_VERIFIED' ||
+      ((input.provenanceEntry as { pricingEligible?: boolean })
+        .pricingEligible === true &&
         (input.provenanceEntry as { independentVisionAgreement?: boolean })
           .independentVisionAgreement === true));
   const fromPlanSymbols =
@@ -570,8 +578,10 @@ export function planReviewProvenanceFlags(input: {
         source.includes('needs_review') ||
         (typeof input.provenanceEntry === 'object' &&
           input.provenanceEntry != null &&
-          Number((input.provenanceEntry as { confidenceTier?: number }).confidenceTier) >=
-            2 &&
+          Number(
+            (input.provenanceEntry as { confidenceTier?: number })
+              .confidenceTier
+          ) >= 2 &&
           !fromInstanceTags &&
           !methodsAgree &&
           !aiVerified)));
@@ -585,8 +595,7 @@ export function planReviewProvenanceFlags(input: {
         (electricalKey &&
           !aiInferred &&
           !aiVerified &&
-          (fromInstanceTags ||
-            (fromPlan && !electricalReview)))),
+          (fromInstanceTags || (fromPlan && !electricalReview)))),
     hasReliableDimensions:
       !input.hasConflict &&
       (input.key === 'kitchenFloorSqft' ||
@@ -614,6 +623,7 @@ export function buildPlanReviewMeasurementRowState(input: {
     status?: string;
     pricingEligible?: boolean;
     reason?: string;
+    deterministicRepeatedImportStable?: boolean;
   } | null;
   tradeKey?: string | null;
 }): {
@@ -651,7 +661,11 @@ export function buildPlanReviewMeasurementRowState(input: {
   return {
     pricingEligible,
     provenance,
-    includeDefault: !input.hasConflict && pricingEligible,
+    includeDefault:
+      !input.hasConflict &&
+      (pricingEligible ||
+        input.validationField?.deterministicRepeatedImportStable === false ||
+        input.tradeKey === 'electrical'),
   };
 }
 
@@ -897,7 +911,11 @@ function electricalQuantityNote(
   if (s.includes('ai_verified')) {
     return 'AI counted twice · full sheet coverage checked';
   }
-  if (s.includes('calculated_from_symbols') || s.includes('needs_review') || s.includes('symbol')) {
+  if (
+    s.includes('calculated_from_symbols') ||
+    s.includes('needs_review') ||
+    s.includes('symbol')
+  ) {
     return 'From plan symbols';
   }
   if (key === 'gfciReceptacleCount' || key === 'standardReceptacleCount') {
@@ -988,8 +1006,8 @@ export function electricalPlanReadinessLine(input: {
     return source === 'ai_verified' ? 'ai_verified' : '';
   };
   const statusKeys = new Set(
-    [...Object.keys(fields), ...Object.keys(input.measurements || {})].filter(key =>
-      ELECTRICAL_PLAN_REVIEW_KEYS.has(key)
+    [...Object.keys(fields), ...Object.keys(input.measurements || {})].filter(
+      key => ELECTRICAL_PLAN_REVIEW_KEYS.has(key)
     )
   );
   const planVerified = [...statusKeys].filter(
@@ -1099,12 +1117,18 @@ export function buildElectricalPlanReviewSummary(
   const conduit = positiveMeasurement(measurements.conduitLf);
   lines.push({
     label: 'Conduit',
-    value: conduit != null ? `${formatSfWithCommas(conduit)} LF` : 'Needs confirmation',
+    value:
+      conduit != null
+        ? `${formatSfWithCommas(conduit)} LF`
+        : 'Needs confirmation',
   });
   const trench = positiveMeasurement(measurements.trenchingLf);
   lines.push({
     label: 'Trenching',
-    value: trench != null ? `${formatSfWithCommas(trench)} LF` : 'Needs confirmation',
+    value:
+      trench != null
+        ? `${formatSfWithCommas(trench)} LF`
+        : 'Needs confirmation',
   });
 
   const detailed = hasDetailedElectricalQuantities(measurements);

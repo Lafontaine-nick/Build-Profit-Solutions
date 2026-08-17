@@ -41,6 +41,7 @@ describe('planImportPayloadFromDraft', () => {
 
   it('rebuilds plan import after applyPlanImportToDraft so regenerate can re-seed', () => {
     const payload: PlanImportPayload = {
+      planImportFingerprint: 'same-plan',
       measurements: {
         floorAreaSqft: 3098,
         garageSqft: 972,
@@ -77,16 +78,19 @@ describe('planImportPayloadFromDraft', () => {
           },
         },
       },
-      scopeDetections: [{ itemId: 'framing', label: 'Framing', state: 'included' }],
+      scopeDetections: [
+        { itemId: 'framing', label: 'Framing', state: 'included' },
+      ],
     };
 
     const drafted = applyPlanImportToDraft(baseDraft(), payload);
     const rebuilt = planImportPayloadFromDraft(drafted);
     expect(rebuilt).not.toBeNull();
+    expect(rebuilt!.planImportFingerprint).toBe('same-plan');
     expect(Number(rebuilt!.measurements?.floorAreaSqft)).toBe(3098);
     expect(Number(rebuilt!.measurements?.garageSqft)).toBe(972);
     expect(rebuilt!.planFacts?.buildingAreas?.mainFloorLivingSqft).toBe(1892);
-    expect(rebuilt!.rooms?.some((r) => r.name === 'Kitchen')).toBe(true);
+    expect(rebuilt!.rooms?.some(r => r.name === 'Kitchen')).toBe(true);
     expect(rebuilt!.electricalValidation).toMatchObject({
       priceableFields: ['standardReceptacleCount'],
       blockedFields: ['threeWaySwitchCount'],

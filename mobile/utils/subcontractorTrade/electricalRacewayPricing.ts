@@ -46,7 +46,7 @@ export function isElectricalRacewayItemId(
 ): itemId is ElectricalRacewayItemId {
   return Boolean(
     itemId &&
-      (ELECTRICAL_RACEWAY_ITEM_IDS as readonly string[]).includes(itemId)
+    (ELECTRICAL_RACEWAY_ITEM_IDS as readonly string[]).includes(itemId)
   );
 }
 
@@ -71,10 +71,16 @@ export function electricalRacewayCardShouldPrice(
   if (!(Number.isFinite(qty) && qty > 0 && isElectricalRacewayItemId(itemId))) {
     return false;
   }
-  if (itemId === 'electrical_trenching' && input.electricalTrenchCondition === 'rocky') {
+  if (
+    itemId === 'electrical_trenching' &&
+    input.electricalTrenchCondition === 'rocky'
+  ) {
     return false;
   }
-  if (itemId === 'electrical_conduit' && input.electricalConduitSpecialty === true) {
+  if (
+    itemId === 'electrical_conduit' &&
+    input.electricalConduitSpecialty === true
+  ) {
     return false;
   }
   return true;
@@ -105,6 +111,7 @@ export type ElectricalRacewayQuote = {
   laborMultiplier: number;
   specialty: boolean;
   helper: string;
+  pricingDetail: string;
   rateSourceLabel: string;
   ratesStatus: typeof ELECTRICAL_RACEWAY_RATES_STATUS;
 };
@@ -134,11 +141,12 @@ export function quoteElectricalRaceway(
     : laborMultiplier > 1
       ? 'finished wall service'
       : 'standard';
-  const helper = [
-    `${quantity} LF · ${work}`,
-    context,
-    'approved split',
-  ].join(' · ');
+  const helper = [`${quantity} LF · ${work}`, context, 'approved split'].join(
+    ' · '
+  );
+  const pricingDetail = isTrench
+    ? 'Normal-soil trench: $1 material/LF + $9 labor/LF. Building wall condition does not change trenching labor.'
+    : 'Standard conduit: $3 material/LF + $4 labor/LF. Finished-wall condition affects labor only; specialty conduit requires confirmation.';
 
   return {
     material,
@@ -149,6 +157,7 @@ export function quoteElectricalRaceway(
     laborMultiplier,
     specialty: false,
     helper,
+    pricingDetail,
     rateSourceLabel: ELECTRICAL_RACEWAY_RATE_SOURCE_LABEL,
     ratesStatus: ELECTRICAL_RACEWAY_RATES_STATUS,
   };
@@ -163,6 +172,7 @@ export type ElectricalRacewaySuggestedPricing = {
     laborSource: 'national_average';
     rateSourceLabel: string;
     helper: string;
+    pricingDetail: string;
     mode: 'suggested_price';
     splitSource: 'estimated';
     splitConfidence: 'medium';
@@ -190,6 +200,7 @@ export function resolveElectricalRacewaySuggestedPricing(
       laborSource: 'national_average',
       rateSourceLabel: quote.rateSourceLabel,
       helper: quote.helper,
+      pricingDetail: quote.pricingDetail,
       mode: 'suggested_price',
       splitSource: 'estimated',
       splitConfidence: 'medium',

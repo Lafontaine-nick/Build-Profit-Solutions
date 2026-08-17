@@ -124,9 +124,7 @@ type Props = {
     }>,
     metadata?: Pick<
       PlanToMeasurementsResult,
-      | 'measurementProvenance'
-      | 'measurementConflicts'
-      | 'electricalValidation'
+      'measurementProvenance' | 'measurementConflicts' | 'electricalValidation'
     >
   ) => void;
   onCancel: () => void;
@@ -267,7 +265,10 @@ function TradeSummaryPanel({
             {line.value}
           </Text>
           {line.note ? (
-            <Text style={[styles.evidenceText, { color: labelColor }]} numberOfLines={2}>
+            <Text
+              style={[styles.evidenceText, { color: labelColor }]}
+              numberOfLines={2}
+            >
               {line.note}
             </Text>
           ) : null}
@@ -398,7 +399,8 @@ export default function PlanTakeoffReviewModal({
           provenanceEntry: takeoff.measurementProvenance?.[key],
           fieldConfidence: takeoff.fieldConfidence?.[key] ?? null,
           hasConflict: unresolvedConflictFields.has(key),
-          reconciliationVariancePercent: areaReconciliation?.livingVariancePercent,
+          reconciliationVariancePercent:
+            areaReconciliation?.livingVariancePercent,
           validationField: takeoff.electricalValidation?.fields?.[key],
           tradeKey: effectiveTradeKey,
         });
@@ -592,7 +594,11 @@ export default function PlanTakeoffReviewModal({
       paintingReviewMeasurements,
       takeoff?.measurementProvenance
     );
-  }, [effectiveTradeKey, paintingReviewMeasurements, takeoff?.measurementProvenance]);
+  }, [
+    effectiveTradeKey,
+    paintingReviewMeasurements,
+    takeoff?.measurementProvenance,
+  ]);
 
   const electricalConflictState = useMemo(
     () =>
@@ -635,7 +641,8 @@ export default function PlanTakeoffReviewModal({
     const unclassified = electricalUnreadable.find(
       field => field.field === 'unclassifiedFixtureCount'
     );
-    const unclassifiedCountMatch = unclassified?.reason?.match(/^(\d+)\s+lighting/i);
+    const unclassifiedCountMatch =
+      unclassified?.reason?.match(/^(\d+)\s+lighting/i);
     return buildElectricalPlanReviewSummary(
       electricalReviewMeasurements,
       takeoff?.measurementProvenance,
@@ -703,16 +710,19 @@ export default function PlanTakeoffReviewModal({
   const tradeReviewKeys = new Set(
     getPlanTradeConfiguration(effectiveTradeKey)?.reviewMeasurementKeys || []
   );
-  const unreadable = uniqueUnreadablePlanFields(takeoff.unreadableFields).filter(
-    field =>
-      tradeReview
-        ? tradeReviewKeys.has(String(field.field || '')) ||
-          field.field === 'unclassifiedFixtureCount'
-        : true
+  const unreadable = uniqueUnreadablePlanFields(
+    takeoff.unreadableFields
+  ).filter(field =>
+    tradeReview
+      ? tradeReviewKeys.has(String(field.field || '')) ||
+        field.field === 'unclassifiedFixtureCount'
+      : true
   );
   const lowConfidence = (takeoff.lowConfidence || []).filter(field =>
     tradeReview ? tradeReviewKeys.has(String(field.field || '')) : true
   );
+  const electricalLowConfidence =
+    effectiveTradeKey === 'electrical' ? lowConfidence : [];
   const measurementConflicts = reviewablePlanMeasurementConflicts({
     conflicts: takeoff.measurementConflicts,
     provenance: takeoff.measurementProvenance,
@@ -734,12 +744,11 @@ export default function PlanTakeoffReviewModal({
   const canApply = tradeReview
     ? true
     : includedCount > 0 || includedRoomCount > 0 || checkedScopeCount > 0;
-  const tradeLabel =
-    tradeReview
-      ? importSelection.trade?.label ||
-        getPlanTradeConfiguration(effectiveTradeKey)?.label ||
-        'Trade'
-      : null;
+  const tradeLabel = tradeReview
+    ? importSelection.trade?.label ||
+      getPlanTradeConfiguration(effectiveTradeKey)?.label ||
+      'Trade'
+    : null;
   const livingSpaceCount = roomRows.filter(
     r => r.spaceKind === 'living'
   ).length;
@@ -783,7 +792,7 @@ export default function PlanTakeoffReviewModal({
       return;
     }
     const { resolved, unresolved, resolutions } = applyPlanConflictChoices(
-      takeoff.measurementConflicts || [],
+      measurementConflicts,
       conflictChoices,
       conflictManualValues
     );
@@ -794,17 +803,114 @@ export default function PlanTakeoffReviewModal({
     for (const row of rows) {
       if (unresolvedFields.has(row.key)) continue;
       const n = Number(row.value);
-      if (
-        row.include &&
-        row.pricingEligible &&
-        Number.isFinite(n) &&
-        n > 0
-      )
+      if (row.include && Number.isFinite(n) && n > 0)
         values[row.key] = String(n);
     }
     for (const [key, value] of Object.entries(resolved)) {
       values[key] = String(value);
     }
+    const retainedConflictProvenance = Object.fromEntries(
+      unresolved.flatMap(conflict => {
+        const field = String(conflict.field || '').trim();
+        const candidateValue =
+          conflict.selectedValue ??
+          conflict.candidates?.find(candidate => Number(candidate?.value) > 0)
+            ?.value;
+        if (!field || !Number.isFinite(Number(candidateValue))) return [];
+        values[field] = String(candidateValue);
+        const existing = takeoff.measurementProvenance?.[field];
+        return [
+          [
+            field,
+            {
+              ...(existing && typeof existing === 'object' ? existing : {}),
+              value: Number(candidateValue),
+              status: 'needs_review',
+              normalizedSource: 'NEEDS_REVIEW',
+              pricingEligible: false,
+              reason:
+                'A plan conflict is still unresolved; confirm this quantity before pricing.',
+            },
+          ],
+        ];
+      })
+    );
+    const retainedLowConfidenceProvenance = Object.fromEntries(
+      electricalLowConfidence.flatMap(reading => {
+        const field = String(reading.field || '').trim();
+        const value = Number(reading.value);
+        if (!field || !Number.isFinite(value) || value <= 0) return [];
+        values[field] = String(value);
+        const existing = takeoff.measurementProvenance?.[field];
+        return [
+          [
+            field,
+            {
+              ...(existing && typeof existing === 'object' ? existing : {}),
+              value,
+              status: 'needs_review',
+              normalizedSource: 'NEEDS_REVIEW',
+              pricingEligible: false,
+              reason:
+                'The plan reading confidence is too low; confirm this quantity before pricing.',
+            },
+          ],
+        ];
+      })
+    );
+    const reviewElectricalValidation = (() => {
+      const confirmedFields =
+        effectiveTradeKey === 'electrical'
+          ? new Set([
+              ...Object.keys(resolved),
+              ...rows
+                .filter(
+                  row =>
+                    row.include &&
+                    row.pricingEligible &&
+                    takeoff.electricalValidation?.fields?.[row.key]
+                      ?.pricingEligible !== true
+                )
+                .map(row => row.key),
+            ])
+          : new Set<string>();
+      if (!electricalLowConfidence.length && !confirmedFields.size) {
+        return takeoff.electricalValidation;
+      }
+      const validation = takeoff.electricalValidation || {};
+      const fields = { ...(validation.fields || {}) };
+      const priceableFields = new Set(validation.priceableFields || []);
+      const blockedFields = new Set(validation.blockedFields || []);
+      for (const reading of electricalLowConfidence) {
+        const field = String(reading.field || '').trim();
+        if (!field) continue;
+        fields[field] = {
+          ...(fields[field] || {}),
+          status: 'needs_review',
+          pricingEligible: false,
+          reason:
+            'The plan reading confidence is too low; confirm this quantity before pricing.',
+        };
+        priceableFields.delete(field);
+        blockedFields.add(field);
+      }
+      for (const field of confirmedFields) {
+        fields[field] = {
+          ...(fields[field] || {}),
+          status: 'user_confirmed',
+          pricingEligible: true,
+          reason: 'Contractor confirmed this quantity during plan review.',
+        };
+        priceableFields.add(field);
+        blockedFields.delete(field);
+      }
+      return {
+        ...validation,
+        fields,
+        priceableFields: [...priceableFields],
+        blockedFields: [...blockedFields],
+      };
+    })();
     const rooms = (
       effectiveTradeKey === 'painting' && roomRows.length === 0
         ? (takeoff.rooms || []).map(room => ({
@@ -838,6 +944,8 @@ export default function PlanTakeoffReviewModal({
       {
         measurementProvenance: {
           ...(takeoff.measurementProvenance || {}),
+          ...retainedConflictProvenance,
+          ...retainedLowConfidenceProvenance,
           ...Object.fromEntries(
             Object.entries(resolutions).map(([field, resolution]) => [
               field,
@@ -846,7 +954,7 @@ export default function PlanTakeoffReviewModal({
           ),
         },
         measurementConflicts: unresolved,
-        electricalValidation: takeoff.electricalValidation,
+        electricalValidation: reviewElectricalValidation,
       }
     );
   };
@@ -922,7 +1030,10 @@ export default function PlanTakeoffReviewModal({
                   });
                 }}
                 onManualChange={(field, value) => {
-                  setConflictManualValues(prev => ({ ...prev, [field]: value }));
+                  setConflictManualValues(prev => ({
+                    ...prev,
+                    [field]: value,
+                  }));
                   setConflictManualCommitted(prev => {
                     if (!prev[field]) return prev;
                     const next = { ...prev };
@@ -931,7 +1042,10 @@ export default function PlanTakeoffReviewModal({
                   });
                 }}
                 onManualSubmit={(field, value) => {
-                  setConflictManualValues(prev => ({ ...prev, [field]: value }));
+                  setConflictManualValues(prev => ({
+                    ...prev,
+                    [field]: value,
+                  }));
                   setConflictManualCommitted(prev => ({
                     ...prev,
                     [field]: true,
@@ -972,7 +1086,8 @@ export default function PlanTakeoffReviewModal({
                         key={`unread-${f.field}-${idx}`}
                         style={[styles.evidenceText, { color: Colors.sub }]}
                       >
-                        {meta.label !== f.field ? meta.label : label}: {f.reason}
+                        {meta.label !== f.field ? meta.label : label}:{' '}
+                        {f.reason}
                       </Text>
                     );
                   })}
@@ -1081,12 +1196,11 @@ export default function PlanTakeoffReviewModal({
                                   setRow(row.key, {
                                     include: true,
                                     pricingEligible: true,
-                                    provenance: resolvePlanMeasurementProvenance(
-                                      {
+                                    provenance:
+                                      resolvePlanMeasurementProvenance({
                                         key: row.key,
                                         userConfirmed: true,
-                                      }
-                                    ),
+                                      }),
                                   }),
                               },
                             ]);
@@ -1109,7 +1223,9 @@ export default function PlanTakeoffReviewModal({
                           </Text>
                           <Text
                             style={{
-                              color: confirmRow ? CONFIRM_YELLOW : provenanceColor,
+                              color: confirmRow
+                                ? CONFIRM_YELLOW
+                                : provenanceColor,
                               fontSize: 12,
                               fontWeight: '700',
                               marginTop: 4,
@@ -1119,7 +1235,10 @@ export default function PlanTakeoffReviewModal({
                           </Text>
                           {row.sourceLabel || row.subtext ? (
                             <Text
-                              style={[styles.evidenceText, { color: Colors.sub }]}
+                              style={[
+                                styles.evidenceText,
+                                { color: Colors.sub },
+                              ]}
                               numberOfLines={2}
                             >
                               {row.sourceLabel || row.subtext}
@@ -1178,14 +1297,14 @@ export default function PlanTakeoffReviewModal({
                 </Text>
                 <ReviewPanel darkMode={darkMode}>
                   <Text style={[styles.emptyText, { color: Colors.sub }]}>
-                  {tradeLabel
-                    ? `No ${tradeLabel} quantities were verified from the selected plan pages yet. ${
-                        takeoff.missingInfo?.length
-                          ? `Confirm: ${takeoff.missingInfo.join(', ')}. `
-                          : 'Review the relevant trade sheets and confirm the missing quantities. '
-                      }You can still apply and enter quantities in Confirm Scope.`
-                    : takeoff.reason ||
-                      'No square footage could be read from these pages.'}
+                    {tradeLabel
+                      ? `No ${tradeLabel} quantities were verified from the selected plan pages yet. ${
+                          takeoff.missingInfo?.length
+                            ? `Confirm: ${takeoff.missingInfo.join(', ')}. `
+                            : 'Review the relevant trade sheets and confirm the missing quantities. '
+                        }You can still apply and enter quantities in Confirm Scope.`
+                      : takeoff.reason ||
+                        'No square footage could be read from these pages.'}
                   </Text>
                 </ReviewPanel>
               </View>
@@ -1198,7 +1317,9 @@ export default function PlanTakeoffReviewModal({
                 </Text>
                 {electricalDetectedLines.length ? (
                   <>
-                    <Text style={[styles.sectionHeading, { color: Colors.text }]}>
+                    <Text
+                      style={[styles.sectionHeading, { color: Colors.text }]}
+                    >
                       Detected quantities
                     </Text>
                     <TradeSummaryPanel
@@ -1262,8 +1383,11 @@ export default function PlanTakeoffReviewModal({
                     Variance: approximately{' '}
                     {formatSf(areaReconciliation.livingVariancePercent)}%
                   </Text>
-                  <Text style={[styles.reconcileStatus, { color: Colors.text }]}>
-                    Status: {livingReconciliationStatusLabel(areaReconciliation)}
+                  <Text
+                    style={[styles.reconcileStatus, { color: Colors.text }]}
+                  >
+                    Status:{' '}
+                    {livingReconciliationStatusLabel(areaReconciliation)}
                   </Text>
 
                   <Text
@@ -1289,8 +1413,11 @@ export default function PlanTakeoffReviewModal({
                     Variance: approximately{' '}
                     {formatSf(areaReconciliation.garageVariancePercent)}%
                   </Text>
-                  <Text style={[styles.reconcileStatus, { color: Colors.text }]}>
-                    Status: {garageReconciliationStatusLabel(areaReconciliation)}
+                  <Text
+                    style={[styles.reconcileStatus, { color: Colors.text }]}
+                  >
+                    Status:{' '}
+                    {garageReconciliationStatusLabel(areaReconciliation)}
                   </Text>
 
                   <Text style={[styles.reconcileHint, { color: Colors.sub }]}>
