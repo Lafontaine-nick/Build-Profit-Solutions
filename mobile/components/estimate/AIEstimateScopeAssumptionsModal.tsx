@@ -11,6 +11,7 @@ import React, {
 import {
   ActivityIndicator,
   Alert,
+  InteractionManager,
   Keyboard,
   Modal,
   Platform,
@@ -55,7 +56,7 @@ import {
   syncElectricalScopeItems,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import {
-  ElectricalConfirmScopeAttributeChips,
+  ElectricalConfirmScopeAttributesPanel,
   ElectricalQuickMeasurementTakeoff,
 } from '@/components/estimate/ElectricalQuickMeasurementTakeoff';
 import { PlanTakeoffConflictChooser } from '@/components/estimate/PlanTakeoffConflictChooser';
@@ -830,6 +831,15 @@ const ScopeAssemblyContextValue = React.createContext<{
   activeScopeKeys: string[];
   excludedScopeKeys: string[];
 }>({ activeScopeKeys: [], excludedScopeKeys: [] });
+type SharedNormalizedScopeMeasurements = ReturnType<
+  typeof buildNormalizedScopeMeasurementsFromInput
+>;
+const ScopeNormalizedMeasurementsContext =
+  React.createContext<SharedNormalizedScopeMeasurements | null>(null);
+const ScopeParsedNotesContext = React.createContext<{
+  source: string;
+  parsed: ReturnType<typeof parseScopeMeasurementsFromNotes>;
+} | null>(null);
 
 function PricingAmountRow({
   value,
@@ -4484,6 +4494,8 @@ function QuantitySection({
     [measurementsInput.itemQuantities, measurementsInput.pricingAcceptance]
   );
   const rule = getChecklistItemQuantityRuleOrDefault(itemId, templateKey);
+  const sharedNorm = React.useContext(ScopeNormalizedMeasurementsContext);
+  const sharedParsedNotes = React.useContext(ScopeParsedNotesContext);
 
   React.useEffect(() => {
     if (pricingEditorRequest?.itemId === itemId) {
@@ -4540,11 +4552,9 @@ function QuantitySection({
     );
   }
 
-  const norm = buildNormFromInput(
-    measurementsInput,
-    originalNotes,
-    templateKey
-  );
+  const norm =
+    sharedNorm ||
+    buildNormFromInput(measurementsInput, originalNotes, templateKey);
   let resolved = resolveChecklistItemQuantity(itemId, norm, {
     choiceId,
     templateKey,
@@ -4583,9 +4593,11 @@ function QuantitySection({
   const noteQuantity = originalNotes
     ? noteQuantityForScopeItem(
         itemId,
-        parseScopeMeasurementsFromNotes(originalNotes, {
-          templateKey: templateKey ?? undefined,
-        })
+        sharedParsedNotes?.source === originalNotes
+          ? sharedParsedNotes.parsed
+          : parseScopeMeasurementsFromNotes(originalNotes, {
+              templateKey: templateKey ?? undefined,
+            })
       )
     : null;
   const currentQuantity = Number(
@@ -6992,9 +7004,29 @@ function YesNoRow({
   const [draftLabel, setDraftLabel] = useState(item.label);
   const [plumbingRoughPromptExpanded, setPlumbingRoughPromptExpanded] =
     useState(false);
+  const [optimisticState, setOptimisticState] =
+    useState<ScopeAssumptionState | null>(null);
+  const optimisticStateRef = useRef<ScopeAssumptionState | null>(null);
+  const onSetStateRef = useRef(onSetState);
+  onSetStateRef.current = onSetState;
+  const displayedState = optimisticState ?? item.state;
+  useEffect(() => {
+    if (
+      optimisticStateRef.current != null &&
+      item.state === optimisticStateRef.current
+    ) {
+      optimisticStateRef.current = null;
+      setOptimisticState(null);
+    }
+  }, [item.state]);
+  const handleLocalState = useCallback((state: ScopeAssumptionState) => {
+    optimisticStateRef.current = state;
+    setOptimisticState(state);
+    setTimeout(() => onSetStateRef.current(state), 0);
+  }, []);
   const showPlumbingRoughAccessPrompt =
     item.id === 'plumbing_rough' &&
-    item.state === 'included' &&
+    displayedState === 'included' &&
     String(templateKey || '').toLowerCase() === 'bathroom';
   const plumbingRoughPriceApplied = Boolean(
     measurementsInput.pricingAcceptance?.plumbing_rough
@@ -7050,7 +7082,7 @@ function YesNoRow({
 
   const showDrywallPaintOptions =
     item.id === 'paint_repair' &&
-    item.state === 'included' &&
+    displayedState === 'included' &&
     String(templateKey || '').toLowerCase() === 'bathroom';
   const storedPaintRepairScope =
     measurementsInput.bathroomPaintRepairScope ?? null;
@@ -7107,7 +7139,7 @@ function YesNoRow({
   });
   const showPaintRepairScopePrompt =
     item.id === 'paint_repair' &&
-    item.state === 'included' &&
+    displayedState === 'included' &&
     String(templateKey || '').toLowerCase() === 'bathroom';
   const showDrywallPatchSqftHint =
     showPaintRepairScopePrompt &&
@@ -7230,7 +7262,7 @@ function YesNoRow({
 
   const showInteriorPaintScopePrompt =
     (item.id === 'interior_paint' || item.id === 'paint') &&
-    item.state === 'included' &&
+    displayedState === 'included' &&
     String(templateKey || '').toLowerCase() === 'bathroom';
   const interiorPaintScopeApplied = Boolean(
     measurementsInput.pricingAcceptance?.interior_paint ||
@@ -7266,7 +7298,7 @@ function YesNoRow({
 
   const showGlassDoorStylePrompt =
     item.id === 'glass_door' &&
-    item.state === 'included' &&
+    displayedState === 'included' &&
     String(templateKey || '').toLowerCase() === 'bathroom';
   const glassDoorStyleApplied = Boolean(
     measurementsInput.pricingAcceptance?.glass_door
@@ -7406,22 +7438,22 @@ function YesNoRow({
       <View style={styles.choiceRow}>
         <YesNoChip
           label='Yes'
-          active={item.state === 'included'}
+          active={displayedState === 'included'}
           variant='yes'
           onPress={() => {
             hapticTap();
-            onSetState('included');
+            handleLocalState('included');
           }}
           Colors={Colors}
           darkMode={darkMode}
         />
         <YesNoChip
           label='No'
-          active={item.state === 'excluded'}
+          active={displayedState === 'excluded'}
           variant='no'
           onPress={() => {
             hapticTap();
-            onSetState('excluded');
+            handleLocalState('excluded');
           }}
           Colors={Colors}
           darkMode={darkMode}
@@ -7429,11 +7461,11 @@ function YesNoRow({
         {!isCustom ? (
           <YesNoChip
             label='Not sure'
-            active={item.state === 'unsure'}
+            active={displayedState === 'unsure'}
             variant='unsure'
             onPress={() => {
               hapticTap();
-              onSetState('unsure');
+              handleLocalState('unsure');
             }}
             Colors={Colors}
             darkMode={darkMode}
@@ -8481,7 +8513,7 @@ function YesNoRow({
       {isCustom ? (
         <CustomScopePricingSection
           itemId={item.id}
-          inScope={item.state === 'included'}
+          inScope={displayedState === 'included'}
           measurementsInput={measurementsInput}
           onItemQuantityChange={onItemQuantityChange}
           onItemQuantityBlur={onItemQuantityBlur}
@@ -8495,7 +8527,7 @@ function YesNoRow({
         <QuantitySection
           itemId={item.id}
           choiceId={item.choiceId}
-          inScope={item.state === 'included'}
+          inScope={displayedState === 'included'}
           templateKey={templateKey}
           originalNotes={originalNotes}
           measurementsInput={measurementsInput}
@@ -9128,10 +9160,33 @@ function ChoiceRow({
   /** Inside Quick measurements — skip outer scope card chrome. */
   embedded?: boolean;
 }) {
+  const [optimisticChoiceId, setOptimisticChoiceId] = useState<
+    string | null | undefined
+  >(undefined);
+  const optimisticChoiceRef = useRef<string | null | undefined>(undefined);
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+  const displayedChoiceId =
+    optimisticChoiceId !== undefined ? optimisticChoiceId : item.choiceId;
+  useEffect(() => {
+    if (
+      optimisticChoiceRef.current !== undefined &&
+      item.choiceId === optimisticChoiceRef.current
+    ) {
+      optimisticChoiceRef.current = undefined;
+      setOptimisticChoiceId(undefined);
+    }
+  }, [item.choiceId]);
+  const handleLocalChoice = useCallback((choiceId: string) => {
+    const nextChoiceId = item.choiceId === choiceId ? null : choiceId;
+    optimisticChoiceRef.current = nextChoiceId;
+    setOptimisticChoiceId(nextChoiceId);
+    setTimeout(() => onSelectRef.current(choiceId), 0);
+  }, [item.choiceId]);
   const inScope = Boolean(
-    item.choiceId &&
-      item.choiceId !== 'not_in_scope' &&
-      item.choiceId !== 'unsure'
+    displayedChoiceId &&
+      displayedChoiceId !== 'not_in_scope' &&
+      displayedChoiceId !== 'unsure'
   );
   const helper = checklistDisplayHelper(item, templateKey);
   const tier = scopeItemVisualTier(item, visualCtx);
@@ -9139,7 +9194,7 @@ function ChoiceRow({
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
   const showToiletRelocateFloorPrompt =
     item.id === 'toilet' &&
-    item.choiceId === 'relocating' &&
+    displayedChoiceId === 'relocating' &&
     String(templateKey || '').toLowerCase() === 'bathroom';
   const storedToiletRelocateFloor =
     measurementsInput.bathroomToiletRelocateFloorType ?? null;
@@ -9174,7 +9229,7 @@ function ChoiceRow({
       ) : null}
       <View style={styles.choiceWrap}>
         {(item.options || []).map(opt => {
-          const active = item.choiceId === opt.id;
+          const active = displayedChoiceId === opt.id;
           const isUnsure = opt.id === 'unsure';
           const isExcluded = opt.id === 'not_in_scope';
           const inactiveStyle = inactiveChoiceChipStyle(darkMode, Colors);
@@ -9207,7 +9262,7 @@ function ChoiceRow({
               activeOpacity={0.88}
               onPress={() => {
                 hapticTap();
-                onSelect(opt.id);
+                handleLocalChoice(opt.id);
               }}
               style={[
                 styles.choiceChipWide,
@@ -9688,6 +9743,7 @@ function CollapsibleQuickMeasurements({
   darkMode,
   applying,
   electricalQuantityEditingRef,
+  electricalAttributesCommitRef,
 }: {
   expanded: boolean;
   onToggle: () => void;
@@ -9768,6 +9824,8 @@ function CollapsibleQuickMeasurements({
   applying: boolean;
   /** While true, defer Electrical scope-card sync so quantity inputs keep focus. */
   electricalQuantityEditingRef?: React.RefObject<boolean>;
+  /** Commit local Electrical attribute chips before leaving Confirm Scope. */
+  electricalAttributesCommitRef?: React.MutableRefObject<(() => void) | null>;
 }) {
   const [moreExpanded, setMoreExpanded] = useState(true);
   const [openDetailsKey, setOpenDetailsKey] =
@@ -9799,6 +9857,34 @@ function CollapsibleQuickMeasurements({
   );
   const paintInputRef = useRef({ wall: '', ceiling: '', primed: false });
   const lastPaintSplitRef = useRef({ wall: '', ceiling: '' });
+  const isElectricalQmTemplate =
+    String(templateKey || '').toLowerCase() === 'electrical';
+  const [electricalQuantityTakeoffMounted, setElectricalQuantityTakeoffMounted] =
+    useState(!isElectricalQmTemplate);
+  useEffect(() => {
+    if (!isElectricalQmTemplate) {
+      setElectricalQuantityTakeoffMounted(true);
+      return;
+    }
+    if (!expanded) return;
+    if (electricalQuantityTakeoffMounted) return;
+    let cancelled = false;
+    const handle = InteractionManager.runAfterInteractions(() => {
+      if (!cancelled) setElectricalQuantityTakeoffMounted(true);
+    });
+    return () => {
+      cancelled = true;
+      handle.cancel();
+    };
+  }, [
+    isElectricalQmTemplate,
+    expanded,
+    electricalQuantityTakeoffMounted,
+  ]);
+  useEffect(() => {
+    if (!isElectricalQmTemplate) return;
+    setElectricalQuantityTakeoffMounted(false);
+  }, [isElectricalQmTemplate, templateKey]);
   useEffect(() => {
     const wall = String(measurements.wallPaintSqft || '');
     const ceiling = String(measurements.ceilingPaintSqft || '');
@@ -12644,16 +12730,19 @@ function CollapsibleQuickMeasurements({
             </View>
           ) : null}
           {String(templateKey || '').toLowerCase() === 'electrical' ? (
-            <ElectricalConfirmScopeAttributeChips
-              values={electricalAttributeValues}
-              onPatch={patchElectricalAttributes}
-              darkMode={darkMode}
-              showExistingService={
-                Number(measurements.serviceUpgradeCount) > 0 ||
-                Number(measurements.existingServiceAmperage) > 0
-              }
-              quantityTakeoff={electricalQuantityTakeoff}
-            />
+            <>
+              <ElectricalConfirmScopeAttributesPanel
+                values={electricalAttributeValues}
+                onCommit={patchElectricalAttributes}
+                commitRef={electricalAttributesCommitRef}
+                darkMode={darkMode}
+                showExistingService={
+                  Number(measurements.serviceUpgradeCount) > 0 ||
+                  Number(measurements.existingServiceAmperage) > 0
+                }
+              />
+              {electricalQuantityTakeoffMounted ? electricalQuantityTakeoff : null}
+            </>
           ) : null}
           {String(templateKey || '').toLowerCase() === 'painting' ? (
             <View
@@ -13596,6 +13685,7 @@ export default function AIEstimateScopeAssumptionsModal({
   const electricalMeasurementsStagedRef = useRef(false);
   const electricalScopeSyncKeyRef = useRef('');
   const electricalQmQuantityEditingRef = useRef(false);
+  const electricalAttributesCommitRef = useRef<(() => void) | null>(null);
   const selectedPricingRef = useRef<Record<string, SuggestedPricingBlock>>({});
   const scrollRef = useRef<ScrollView>(null);
   const scrollContentRef = useRef<View>(null);
@@ -14133,6 +14223,11 @@ export default function AIEstimateScopeAssumptionsModal({
     setMeasurementsSynced({ ...measurementsRef.current });
   }, [setMeasurementsSynced]);
 
+  const commitElectricalAttributes = useCallback(() => {
+    electricalAttributesCommitRef.current?.();
+    flushStagedElectricalMeasurements();
+  }, [flushStagedElectricalMeasurements]);
+
   const scopeItemsForCurrentMeasurements = useCallback(
     (currentItems: ScopeChecklistItem[]) => {
       if (String(checklist?.templateKey || '').toLowerCase() !== 'electrical') {
@@ -14649,6 +14744,19 @@ export default function AIEstimateScopeAssumptionsModal({
     [normMeasurementInput, scopeNotes, checklist?.templateKey]
   );
   const deferredNormMeasurements = useDeferredValue(normMeasurements);
+  const sharedRowNorm = useMemo(
+    () => buildNormFromInput(measurements, scopeNotes, checklist?.templateKey),
+    [measurements, scopeNotes, checklist?.templateKey]
+  );
+  const sharedParsedNotes = useMemo(
+    () => ({
+      source: scopeNotes,
+      parsed: parseScopeMeasurementsFromNotes(scopeNotes, {
+        templateKey: checklist?.templateKey ?? undefined,
+      }),
+    }),
+    [scopeNotes, checklist?.templateKey]
+  );
 
   // Keep plan-backed Stucco cards synchronized with Quick Measurements after
   // every hydration/sync pass. This only promotes Not sure; explicit Yes/No
@@ -15508,12 +15616,87 @@ export default function AIEstimateScopeAssumptionsModal({
     [displayItems]
   );
 
-  const unconfirmedSuggestedPricing = useMemo<
-    UnconfirmedSuggestedPricing[]
-  >(() => {
+  const isElectricalConfirmScope =
+    String(checklist?.templateKey || '').toLowerCase() === 'electrical';
+  const [electricalScopeRowsMounted, setElectricalScopeRowsMounted] =
+    useState(false);
+
+  useEffect(() => {
+    if (!isElectricalConfirmScope || !visible || quickMeasurementsOpen) {
+      setElectricalScopeRowsMounted(!isElectricalConfirmScope);
+      return;
+    }
+    let cancelled = false;
+    const handle = InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => {
+        if (!cancelled) setElectricalScopeRowsMounted(true);
+      });
+    });
+    return () => {
+      cancelled = true;
+      handle.cancel();
+    };
+  }, [
+    isElectricalConfirmScope,
+    visible,
+    quickMeasurementsOpen,
+  ]);
+
+  const pricingFooterComputeKey = useMemo(
+    () =>
+      [
+        items
+          .map(item => `${item.id}:${item.state}:${item.choiceId ?? ''}`)
+          .join('|'),
+        displayItems
+          .map(item => `${item.id}:${item.state}:${item.label}`)
+          .join('|'),
+        electricalScopeSyncSignature(
+          deferredMeasurements as Record<string, unknown>
+        ),
+        checklist?.templateKey,
+        scopeNotes,
+        benchmarkRefresh,
+        embedQmScopeInQuickMeasurements ? '1' : '0',
+      ].join('\u001f'),
+    [
+      items,
+      displayItems,
+      deferredMeasurements,
+      checklist?.templateKey,
+      scopeNotes,
+      benchmarkRefresh,
+      embedQmScopeInQuickMeasurements,
+    ]
+  );
+
+  const [unconfirmedSuggestedPricing, setUnconfirmedSuggestedPricing] =
+    useState<UnconfirmedSuggestedPricing[]>([]);
+  const computeUnconfirmedSuggestedPricingRef = useRef<
+    (generation: number) => Promise<UnconfirmedSuggestedPricing[]>
+  >(() => Promise.resolve([]));
+  const pricingItemCacheRef = useRef<{
+    computeKey: string;
+    entries: Map<string, UnconfirmedSuggestedPricing | null>;
+  }>({
+    computeKey: '',
+    entries: new Map(),
+  });
+  const pricingInteractionGenerationRef = useRef(0);
+  const pricingReadyRef = useRef(false);
+  computeUnconfirmedSuggestedPricingRef.current = async (generation: number) => {
     const measurements = deferredMeasurements;
     const normMeasurements = deferredNormMeasurements;
     const rows: UnconfirmedSuggestedPricing[] = [];
+    const isStale = () =>
+      generation !== pricingInteractionGenerationRef.current;
+    if (pricingItemCacheRef.current.computeKey !== pricingFooterComputeKey) {
+      pricingItemCacheRef.current = {
+        computeKey: pricingFooterComputeKey,
+        entries: new Map(),
+      };
+    }
+    const cache = pricingItemCacheRef.current.entries;
     const footerScopeKeys = new Set<string>();
     const bathroomPaintRepairCardVisible =
       items.some(candidate => candidate.id === 'paint_repair') ||
@@ -15531,26 +15714,24 @@ export default function AIEstimateScopeAssumptionsModal({
         conflict => !measurements.quickMeasurementUserOverrides?.[conflict.field]
       )
     );
-    for (const item of displayItems) {
+    for (let index = 0; index < displayItems.length; index += 1) {
+      if (isStale()) return [];
+      // Each resolver is synchronous and runs on React Native's JS thread.
+      // Yield before every item so a tap never waits behind several pricing
+      // resolvers in one batch.
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      if (isStale()) return [];
+      const item = displayItems[index];
       if (!checklistItemInScope(item)) continue;
       if (hideDeselectedRoofingQmCard(item.id)) continue;
       if (hideDuplicateRoofingBaseCard(item.id)) continue;
-      // The matching scope cards are rendered inside the Quick Measurements
-      // panels for photo/notes kitchen jobs. Their measurement rows can still
-      // produce a pricing suggestion, but they are not separate Apply cards
-      // and must not inflate the footer count.
       if (
         embedQmScopeInQuickMeasurements &&
         qmScopeEmbeddedInQuickMeasurements(item.id)
       ) {
         continue;
       }
-      // Interior Finishes is a planning comparison host, not a selectable
-      // price line. Its child trades must be priced separately.
       if (item.id === 'interior_finishes') continue;
-      // Paint/patch is a two-step scope: Yes selects the card, but the
-      // contractor must still choose affected-area or full-room before it
-      // becomes a ready price.
       if (
         bathroomPaintRepairCardVisible &&
         item.id === 'paint_repair' &&
@@ -15572,9 +15753,6 @@ export default function AIEstimateScopeAssumptionsModal({
           ? 'bathroom_paint_repair'
           : item.id;
       if (footerScopeKeys.has(footerScopeKey)) continue;
-      // Bathroom patch/full-room paint is one physical card. Legacy QM paint IDs
-      // (interior_paint/paint/prep) and drywall/patch must not create a second
-      // ready row when paint_repair becomes priceable after scope selection.
       if (
         bathroomPaintRepairCardVisible &&
         item.id !== 'paint_repair' &&
@@ -15589,11 +15767,8 @@ export default function AIEstimateScopeAssumptionsModal({
       ) {
         continue;
       }
-      // "Not sure" means the scope is not selected yet. Do not count or bulk-apply
-      // its pricing suggestion until the contractor chooses Yes/included.
       if (item.state === 'unsure') continue;
       if (blockedItemIds.has(item.id)) continue;
-      // Any committed/manual/applied price — national average is comparison-only.
       if (
         scopeHasCommittedConfirmScopePrice({
           itemId: item.id,
@@ -15611,6 +15786,14 @@ export default function AIEstimateScopeAssumptionsModal({
           checklist?.templateKey
         )
       ) {
+        continue;
+      }
+      if (cache.has(item.id)) {
+        const cached = cache.get(item.id);
+        if (cached) {
+          rows.push(cached);
+          footerScopeKeys.add(footerScopeKey);
+        }
         continue;
       }
       const resolved = resolveChecklistItemQuantity(item.id, normMeasurements, {
@@ -15650,14 +15833,17 @@ export default function AIEstimateScopeAssumptionsModal({
         suggested: initialSuggested,
         choiceId: item.choiceId,
       });
-      // Applyable fills, plus panel/service cards waiting on required amperage.
       if (includeUnconfirmedSuggestedPricingFill(suggested.fill)) {
-        rows.push({
+        const row = {
           itemId: item.id,
           label: item.label,
           block: suggested.fill,
-        });
+        };
+        cache.set(item.id, row);
+        rows.push(row);
         footerScopeKeys.add(footerScopeKey);
+      } else {
+        cache.set(item.id, null);
       }
     }
     const tradeStages = new Set(
@@ -15673,7 +15859,6 @@ export default function AIEstimateScopeAssumptionsModal({
     );
     return rows.filter(({ block }) => {
       const stageKey = block.benchmarkStageKey;
-      // Prefer trade cards over a broad stage allowance in the same Use-all batch.
       if (
         block.benchmarkAction === 'benchmark_only' &&
         stageKey &&
@@ -15681,21 +15866,71 @@ export default function AIEstimateScopeAssumptionsModal({
       ) {
         return false;
       }
-      // Keep price_ready trades (Foundation, Framing, …) in the bulk list even when
-      // a stage allowance is already applied — merge clears the allowance on apply.
       return true;
     });
+  };
+
+  useEffect(() => {
+    if (!visible) {
+      pricingReadyRef.current = false;
+      setUnconfirmedSuggestedPricing([]);
+      pricingItemCacheRef.current = {
+        computeKey: '',
+        entries: new Map(),
+      };
+      return;
+    }
+    pricingReadyRef.current = false;
+    setUnconfirmedSuggestedPricing([]);
+    if (isElectricalConfirmScope && quickMeasurementsOpen) {
+      return;
+    }
+    let cancelled = false;
+    let interactionHandle: { cancel: () => void } | null = null;
+    const generation = ++pricingInteractionGenerationRef.current;
+    const run = async () => {
+      if (
+        cancelled ||
+        generation !== pricingInteractionGenerationRef.current
+      ) {
+        return;
+      }
+      const next =
+        await computeUnconfirmedSuggestedPricingRef.current(generation);
+      if (
+        cancelled ||
+        generation !== pricingInteractionGenerationRef.current
+      ) {
+        return;
+      }
+      pricingReadyRef.current = true;
+      startTransition(() => {
+        setUnconfirmedSuggestedPricing(next);
+      });
+    };
+    if (isElectricalConfirmScope) {
+      const timer = setTimeout(() => {
+        interactionHandle = InteractionManager.runAfterInteractions(() => {
+          requestAnimationFrame(() => {
+            void run();
+          });
+        });
+      }, 800);
+      return () => {
+        cancelled = true;
+        clearTimeout(timer);
+        interactionHandle?.cancel();
+      };
+    }
+    void run();
+    return () => {
+      cancelled = true;
+    };
   }, [
-    items,
-    displayItems,
-    deferredMeasurements,
-    deferredNormMeasurements,
-    checklist?.templateKey,
-    scopeNotes,
-    enrichedPricingContext,
-    scopeAssemblyContext,
-    benchmarkRefresh,
-    embedQmScopeInQuickMeasurements,
+    visible,
+    isElectricalConfirmScope,
+    pricingFooterComputeKey,
+    quickMeasurementsOpen,
     qmScopeEmbeddedInQuickMeasurements,
     hideDeselectedRoofingQmCard,
     hideDuplicateRoofingBaseCard,
@@ -17065,6 +17300,7 @@ export default function AIEstimateScopeAssumptionsModal({
     const content = scrollContentRef.current;
     const qm = quickMeasurementsRef.current;
     const collapseQm = () => {
+      commitElectricalAttributes();
       flushStagedElectricalMeasurements();
       setQuickMeasurementsOpen(false);
     };
@@ -17086,6 +17322,7 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [
     scopeGroupedItems,
     embedQmScopeInQuickMeasurements,
+    commitElectricalAttributes,
     flushStagedElectricalMeasurements,
     qmScopeEmbeddedInQuickMeasurements,
   ]);
@@ -17820,6 +18057,7 @@ export default function AIEstimateScopeAssumptionsModal({
   const handleConfirm = () => {
     if (applying || items.length === 0) return;
 
+    commitElectricalAttributes();
     // Do not auto-apply remaining suggestions — Applied pricing is what Continue
     // carries to Step 3. Unpriced scopes stay available to price on review.
     if (Platform.OS !== 'web') {
@@ -17866,16 +18104,19 @@ export default function AIEstimateScopeAssumptionsModal({
   };
 
   const handleBack = () => {
+    commitElectricalAttributes();
     persistScopeProgressNow();
     onBack();
   };
 
   const handleClose = () => {
+    commitElectricalAttributes();
     persistScopeProgressNow();
     onClose();
   };
 
   const handleScopeOnly = () => {
+    commitElectricalAttributes();
     persistScopeProgressNow();
     onScopeOnly?.(scopeMeasurementsPayloadForCurrentState());
   };
@@ -17951,6 +18192,7 @@ export default function AIEstimateScopeAssumptionsModal({
             expanded={quickMeasurementsOpen}
             onToggle={() => {
               if (quickMeasurementsOpen) {
+                commitElectricalAttributes();
                 flushStagedElectricalMeasurements();
               }
               setQuickMeasurementsOpen(v => !v);
@@ -17973,6 +18215,7 @@ export default function AIEstimateScopeAssumptionsModal({
             includedScopeKeys={scopeAssemblyContext.activeScopeKeys}
             onSummaryChange={setQuickMeasurementSummary}
             electricalQuantityEditingRef={electricalQmQuantityEditingRef}
+            electricalAttributesCommitRef={electricalAttributesCommitRef}
             onWetAreaFinishChange={finish => {
               const choiceId = checklistChoiceFromWetAreaFinish(finish);
               if (!choiceId) return;
@@ -18118,28 +18361,30 @@ export default function AIEstimateScopeAssumptionsModal({
             applying={applying}
           />
 
-          {scopeGroupedItems.map(group => (
-            <ScopeGroupSection
-              key={group.title || 'all'}
-              title={group.title}
-              items={group.items}
-              collapsed={Boolean(collapsedGroups[group.title])}
-              onToggle={() => {
-                const isCollapsed = Boolean(collapsedGroups[group.title]);
-                if (isCollapsed) {
-                  flushStagedElectricalMeasurements();
-                }
-                setCollapsedGroups(prev => ({
-                  ...prev,
-                  [group.title]: !isCollapsed,
-                }));
-              }}
-              renderItem={renderItem}
-              noteSummary={scopeChecklistNoteSummary(group.items, visualCtx)}
-              Colors={Colors}
-              darkMode={darkMode}
-            />
-          ))}
+          {!isElectricalConfirmScope || electricalScopeRowsMounted
+            ? scopeGroupedItems.map(group => (
+                <ScopeGroupSection
+                  key={group.title || 'all'}
+                  title={group.title}
+                  items={group.items}
+                  collapsed={Boolean(collapsedGroups[group.title])}
+                  onToggle={() => {
+                    const isCollapsed = Boolean(collapsedGroups[group.title]);
+                    if (isCollapsed) {
+                      flushStagedElectricalMeasurements();
+                    }
+                    setCollapsedGroups(prev => ({
+                      ...prev,
+                      [group.title]: !isCollapsed,
+                    }));
+                  }}
+                  renderItem={renderItem}
+                  noteSummary={scopeChecklistNoteSummary(group.items, visualCtx)}
+                  Colors={Colors}
+                  darkMode={darkMode}
+                />
+              ))
+            : null}
 
           {step2AppliedEstimateTotal > 0 ? (
             <BenchmarkReasonablenessCard
@@ -18306,6 +18551,23 @@ export default function AIEstimateScopeAssumptionsModal({
           )}
         </TouchableOpacity>
 
+        {isElectricalConfirmScope && quickMeasurementsOpen ? (
+          <View style={styles.bulkSuggestedPricingLink}>
+            <Text
+              style={[
+                styles.bulkSuggestedPricingBtnText,
+                { color: '#22c55e' },
+              ]}
+            >
+              {pricingCounts.ready > 0
+                ? `${pricingCounts.ready} price${
+                    pricingCounts.ready === 1 ? '' : 's'
+                  } identified · checks start after Quick measurements`
+                : 'Pricing checks start after Quick measurements'}
+            </Text>
+          </View>
+        ) : null}
+
         {suggestedPricingFooterSummary ||
         quickMeasurementSummary.needsConfirmation > 0 ? (
           <View style={styles.bulkSuggestedPricingLink}>
@@ -18464,15 +18726,21 @@ export default function AIEstimateScopeAssumptionsModal({
   return (
     <ScopePricingContextValue.Provider value={enrichedPricingContext}>
       <ScopeAssemblyContextValue.Provider value={scopeAssemblyContext}>
-        <Modal
-          visible
-          animationType='slide'
-          presentationStyle='fullScreen'
-          onRequestClose={handleBack}
-        >
-          <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
-          <View style={{ flex: 1, backgroundColor: Colors.bg }}>{body}</View>
-        </Modal>
+        <ScopeNormalizedMeasurementsContext.Provider value={sharedRowNorm}>
+          <ScopeParsedNotesContext.Provider value={sharedParsedNotes}>
+            <Modal
+              visible
+              animationType='slide'
+              presentationStyle='fullScreen'
+              onRequestClose={handleBack}
+            >
+              <StatusBar
+                barStyle={darkMode ? 'light-content' : 'dark-content'}
+              />
+              <View style={{ flex: 1, backgroundColor: Colors.bg }}>{body}</View>
+            </Modal>
+          </ScopeParsedNotesContext.Provider>
+        </ScopeNormalizedMeasurementsContext.Provider>
       </ScopeAssemblyContextValue.Provider>
     </ScopePricingContextValue.Provider>
   );

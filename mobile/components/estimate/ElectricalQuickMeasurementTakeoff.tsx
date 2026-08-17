@@ -98,14 +98,25 @@ function useElectricalAttributeLocal(
     values.electricalTrenching,
   ]);
 
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    },
+    [],
+  );
+
   const apply = useCallback((patch: Partial<ElectricalConfirmScopeAttributes>) => {
     const next = { ...localRef.current, ...patch };
     pendingRef.current = next;
     localRef.current = next;
     setLocal(next);
-    requestAnimationFrame(() => {
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    commitTimerRef.current = setTimeout(() => {
+      commitTimerRef.current = null;
       onPatchRef.current(patch);
-    });
+    }, 0);
   }, []);
 
   const toggle = useCallback(
@@ -203,18 +214,32 @@ const ElectricalAttributeChoiceChips = React.memo(function ElectricalAttributeCh
   valueRef.current = value;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const [optimisticValue, setOptimisticValue] = useState<T | null | undefined>(
+    undefined,
+  );
+  const displayedValue =
+    optimisticValue !== undefined ? optimisticValue : value;
+
+  useEffect(() => {
+    if (optimisticValue !== undefined && value === optimisticValue) {
+      setOptimisticValue(undefined);
+    }
+  }, [optimisticValue, value]);
+  valueRef.current = displayedValue;
 
   return (
     <View style={styles.chipStack}>
       {options.map(([option, label]) => (
         <ConfirmScopeChip
           key={String(option)}
-          selected={value === option}
+          selected={displayedValue === option}
           label={label}
           darkMode={darkMode}
           onPress={() => {
             const current = valueRef.current;
-            onChangeRef.current(current === option ? null : option);
+            const next = current === option ? null : option;
+            setOptimisticValue(next);
+            onChangeRef.current(next);
           }}
         />
       ))}
@@ -251,15 +276,39 @@ const ElectricalAttributeToggleChips = React.memo(
   }) {
     const onToggleRef = useRef(onToggle);
     onToggleRef.current = onToggle;
+    const [optimisticSelected, setOptimisticSelected] = useState<
+      Record<string, boolean>
+    >({});
+    useEffect(() => {
+      setOptimisticSelected(previous => {
+        let next: Record<string, boolean> | null = null;
+        for (const option of options) {
+          const optimistic = previous[option.key];
+          if (optimistic === undefined || optimistic !== option.selected) continue;
+          next ||= { ...previous };
+          delete next[option.key];
+        }
+        return next || previous;
+      });
+    }, [options]);
     return (
       <View style={styles.chipStack}>
         {options.map(option => (
           <ConfirmScopeChip
             key={option.key}
-            selected={option.selected}
+            selected={optimisticSelected[option.key] ?? option.selected}
             label={option.label}
             darkMode={darkMode}
-            onPress={() => onToggleRef.current(option.key)}
+            onPress={() => {
+              const next = !(
+                optimisticSelected[option.key] ?? option.selected
+              );
+              setOptimisticSelected(previous => ({
+                ...previous,
+                [option.key]: next,
+              }));
+              onToggleRef.current(option.key);
+            }}
           />
         ))}
       </View>
@@ -840,7 +889,8 @@ export function ElectricalServiceAmperageControls({
   );
 }
 
-export function ElectricalConfirmScopeJobServiceCards({
+export const ElectricalConfirmScopeJobServiceCards = React.memo(
+  function ElectricalConfirmScopeJobServiceCards({
   values,
   onPatch,
   darkMode,
@@ -866,35 +916,128 @@ export function ElectricalConfirmScopeJobServiceCards({
       />
     </>
   );
-}
+  },
+  (previous, next) =>
+    previous.darkMode === next.darkMode &&
+    previous.showExistingService === next.showExistingService &&
+    previous.onPatch === next.onPatch &&
+    previous.values.electricalProjectCondition ===
+      next.values.electricalProjectCondition &&
+    previous.values.serviceAmperage === next.values.serviceAmperage &&
+    previous.values.existingServiceAmperage === next.values.existingServiceAmperage,
+);
 
-export function ElectricalPanelLocationControls({
-  values,
-  onPatch,
-  darkMode,
-}: {
-  values: ElectricalConfirmScopeAttributes;
-  onPatch: (patch: Partial<ElectricalConfirmScopeAttributes>) => void;
-  darkMode: boolean;
-}) {
-  const { local, localRef, apply, collapsed, toggle } =
-    useElectricalAttributeLocal(values, onPatch);
-  const handlers = useElectricalAttributeHandlers(apply, localRef, toggle);
+export const ElectricalPanelLocationControls = React.memo(
+  function ElectricalPanelLocationControls({
+    values,
+    onPatch,
+    darkMode,
+  }: {
+    values: ElectricalConfirmScopeAttributes;
+    onPatch: (patch: Partial<ElectricalConfirmScopeAttributes>) => void;
+    darkMode: boolean;
+  }) {
+    const [panelLocation, setPanelLocation] = useState(
+      values.electricalPanelLocation,
+    );
+    const [meterMainCombo, setMeterMainCombo] = useState(
+      values.electricalMeterMainCombo,
+    );
+    const [collapsed, setCollapsed] = useState(false);
+    const pendingRef = useRef<{
+      panelLocation: ElectricalConfirmScopeAttributes['electricalPanelLocation'];
+      meterMainCombo: boolean;
+    } | null>(null);
+    const onPatchRef = useRef(onPatch);
+    onPatchRef.current = onPatch;
+    const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const panelLocationRef = useRef(panelLocation);
+    panelLocationRef.current = panelLocation;
+    const meterMainComboRef = useRef(meterMainCombo);
+    meterMainComboRef.current = meterMainCombo;
 
-  return (
-    <ElectricalPanelLocationCard
-      panelLocation={local.electricalPanelLocation}
-      meterMainCombo={Boolean(local.electricalMeterMainCombo)}
-      collapsed={Boolean(collapsed.panel_location)}
-      darkMode={darkMode}
-      onToggle={handlers.togglePanelLocation}
-      onSelectLocation={handlers.selectPanelLocation}
-      onToggleMeterMain={handlers.toggleMeterMainCombo}
-    />
-  );
-}
+    useEffect(() => {
+      if (pendingRef.current) {
+        if (
+          pendingRef.current.panelLocation === values.electricalPanelLocation &&
+          pendingRef.current.meterMainCombo === values.electricalMeterMainCombo
+        ) {
+          pendingRef.current = null;
+        }
+        return;
+      }
+      setPanelLocation(values.electricalPanelLocation);
+      setMeterMainCombo(values.electricalMeterMainCombo);
+    }, [values.electricalPanelLocation, values.electricalMeterMainCombo]);
 
-export function ElectricalConfirmScopePackagesRacewayCards({
+    useEffect(
+      () => () => {
+        if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+      },
+      [],
+    );
+
+    const schedulePatch = useCallback(
+      (patch: Partial<ElectricalConfirmScopeAttributes>) => {
+        if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+        commitTimerRef.current = setTimeout(() => {
+          commitTimerRef.current = null;
+          onPatchRef.current(patch);
+        }, 180);
+      },
+      [],
+    );
+
+    const selectPanelLocation = useCallback(
+      (electricalPanelLocation: 'indoor' | 'outdoor' | null) => {
+        setPanelLocation(electricalPanelLocation);
+        pendingRef.current = {
+          panelLocation: electricalPanelLocation,
+          meterMainCombo: meterMainComboRef.current,
+        };
+        schedulePatch({ electricalPanelLocation });
+      },
+      [schedulePatch],
+    );
+
+    const toggleMeterMainCombo = useCallback(() => {
+      const next = !meterMainComboRef.current;
+      setMeterMainCombo(next);
+      pendingRef.current = {
+        panelLocation: panelLocationRef.current,
+        meterMainCombo: next,
+      };
+      schedulePatch({ electricalMeterMainCombo: next });
+    }, [schedulePatch]);
+
+    const togglePanelLocation = useCallback(
+      () => setCollapsed(current => !current),
+      [],
+    );
+
+    return (
+      <ElectricalPanelLocationCard
+        panelLocation={panelLocation}
+        meterMainCombo={meterMainCombo}
+        collapsed={collapsed}
+        darkMode={darkMode}
+        onToggle={togglePanelLocation}
+        onSelectLocation={selectPanelLocation}
+        onToggleMeterMain={toggleMeterMainCombo}
+      />
+    );
+  },
+  (previous, next) =>
+    previous.darkMode === next.darkMode &&
+    previous.onPatch === next.onPatch &&
+    previous.values.electricalPanelLocation ===
+      next.values.electricalPanelLocation &&
+    previous.values.electricalMeterMainCombo ===
+      next.values.electricalMeterMainCombo,
+);
+
+export const ElectricalConfirmScopePackagesRacewayCards = React.memo(
+  function ElectricalConfirmScopePackagesRacewayCards({
   values,
   onPatch,
   darkMode,
@@ -922,70 +1065,146 @@ export function ElectricalConfirmScopePackagesRacewayCards({
       onToggleRacewayOption={handlers.toggleRacewayOption}
     />
   );
-}
+  },
+  (previous, next) =>
+    previous.darkMode === next.darkMode &&
+    previous.onPatch === next.onPatch &&
+    previous.values.electricalIncludeRough === next.values.electricalIncludeRough &&
+    previous.values.electricalIncludeTrim === next.values.electricalIncludeTrim &&
+    previous.values.electricalConduit === next.values.electricalConduit &&
+    previous.values.electricalTrenching === next.values.electricalTrenching,
+);
 
-export function ElectricalConfirmScopeAttributeChips({
-  values,
-  onPatch,
-  darkMode,
-  showExistingService,
-  quantityTakeoff,
-}: {
-  values: ElectricalConfirmScopeAttributes;
-  onPatch: (patch: Partial<ElectricalConfirmScopeAttributes>) => void;
-  darkMode: boolean;
-  showExistingService: boolean;
-  quantityTakeoff?: React.ReactNode;
-}) {
-  const { local, localRef, apply, collapsed, toggle } =
-    useElectricalAttributeLocal(values, onPatch);
-  const handlers = useElectricalAttributeHandlers(apply, localRef, toggle);
+export const ElectricalConfirmScopeAttributesPanel = React.memo(
+  function ElectricalConfirmScopeAttributesPanel({
+    values,
+    onCommit,
+    commitRef,
+    darkMode,
+    showExistingService,
+  }: {
+    values: ElectricalConfirmScopeAttributes;
+    onCommit: (attributes: ElectricalConfirmScopeAttributes) => void;
+    commitRef?: React.MutableRefObject<(() => void) | null>;
+    darkMode: boolean;
+    showExistingService: boolean;
+  }) {
+    const [local, setLocal] = useState(values);
+    const localRef = useRef(values);
+    const dirtyRef = useRef(false);
+    const onCommitRef = useRef(onCommit);
+    onCommitRef.current = onCommit;
+    const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
+      job_condition: false,
+      service_amperage: false,
+      panel_location: false,
+      packages: false,
+      raceway: false,
+    });
 
-  return (
-    <>
-      <ElectricalJobConditionCard
-        condition={local.electricalProjectCondition}
-        collapsed={Boolean(collapsed.job_condition)}
-        darkMode={darkMode}
-        onToggle={handlers.toggleJobCondition}
-        onSelect={handlers.selectJobCondition}
-      />
-      <ElectricalServiceAmperageCard
-        serviceAmperage={local.serviceAmperage}
-        existingServiceAmperage={local.existingServiceAmperage}
-        showExistingService={showExistingService}
-        collapsed={Boolean(collapsed.service_amperage)}
-        darkMode={darkMode}
-        onToggle={handlers.toggleServiceAmperage}
-        onSelectService={handlers.selectServiceAmperage}
-        onSelectExisting={handlers.selectExistingServiceAmperage}
-      />
-      <ElectricalPanelLocationCard
-        panelLocation={local.electricalPanelLocation}
-        meterMainCombo={Boolean(local.electricalMeterMainCombo)}
-        collapsed={Boolean(collapsed.panel_location)}
-        darkMode={darkMode}
-        onToggle={handlers.togglePanelLocation}
-        onSelectLocation={handlers.selectPanelLocation}
-        onToggleMeterMain={handlers.toggleMeterMainCombo}
-      />
-      {quantityTakeoff}
-      <ElectricalAttributeBottomCards
-        includeRough={Boolean(local.electricalIncludeRough)}
-        includeTrim={Boolean(local.electricalIncludeTrim)}
-        includeConduit={Boolean(local.electricalConduit)}
-        includeTrenching={Boolean(local.electricalTrenching)}
-        packagesCollapsed={Boolean(collapsed.packages)}
-        racewayCollapsed={Boolean(collapsed.raceway)}
-        darkMode={darkMode}
-        onTogglePackages={handlers.togglePackages}
-        onToggleRaceway={handlers.toggleRaceway}
-        onTogglePackageOption={handlers.togglePackageOption}
-        onToggleRacewayOption={handlers.toggleRacewayOption}
-      />
-    </>
-  );
-}
+    useEffect(() => {
+      if (dirtyRef.current) return;
+      if (electricalConfirmScopeAttributesEqual(values, localRef.current)) {
+        return;
+      }
+      localRef.current = values;
+      setLocal(values);
+    }, [values]);
+
+    const commit = useCallback(() => {
+      if (!dirtyRef.current) return;
+      dirtyRef.current = false;
+      onCommitRef.current(localRef.current);
+    }, []);
+
+    useEffect(() => {
+      if (!commitRef) return;
+      commitRef.current = commit;
+      return () => {
+        if (commitRef.current === commit) commitRef.current = null;
+        commit();
+      };
+    }, [commitRef, commit]);
+
+    const apply = useCallback(
+      (patch: Partial<ElectricalConfirmScopeAttributes>) => {
+        const next = { ...localRef.current, ...patch };
+        localRef.current = next;
+        dirtyRef.current = true;
+        setLocal(next);
+      },
+      [],
+    );
+
+    const toggle = useCallback(
+      (id: string) =>
+        setCollapsed(previous => ({
+          ...previous,
+          [id]: !(previous[id] ?? false),
+        })),
+      [],
+    );
+    const handlers = useElectricalAttributeHandlers(
+      apply,
+      localRef,
+      toggle,
+    );
+
+    return (
+      <>
+        <ElectricalJobConditionCard
+          condition={local.electricalProjectCondition}
+          collapsed={Boolean(collapsed.job_condition)}
+          darkMode={darkMode}
+          onToggle={handlers.toggleJobCondition}
+          onSelect={handlers.selectJobCondition}
+        />
+        <ElectricalServiceAmperageCard
+          serviceAmperage={local.serviceAmperage}
+          existingServiceAmperage={local.existingServiceAmperage}
+          showExistingService={showExistingService}
+          collapsed={Boolean(collapsed.service_amperage)}
+          darkMode={darkMode}
+          onToggle={handlers.toggleServiceAmperage}
+          onSelectService={handlers.selectServiceAmperage}
+          onSelectExisting={handlers.selectExistingServiceAmperage}
+        />
+        <ElectricalPanelLocationCard
+          panelLocation={local.electricalPanelLocation}
+          meterMainCombo={Boolean(local.electricalMeterMainCombo)}
+          collapsed={Boolean(collapsed.panel_location)}
+          darkMode={darkMode}
+          onToggle={handlers.togglePanelLocation}
+          onSelectLocation={handlers.selectPanelLocation}
+          onToggleMeterMain={handlers.toggleMeterMainCombo}
+        />
+        <ElectricalAttributeBottomCards
+          includeRough={Boolean(local.electricalIncludeRough)}
+          includeTrim={Boolean(local.electricalIncludeTrim)}
+          includeConduit={Boolean(local.electricalConduit)}
+          includeTrenching={Boolean(local.electricalTrenching)}
+          packagesCollapsed={Boolean(collapsed.packages)}
+          racewayCollapsed={Boolean(collapsed.raceway)}
+          darkMode={darkMode}
+          onTogglePackages={handlers.togglePackages}
+          onToggleRaceway={handlers.toggleRaceway}
+          onTogglePackageOption={handlers.togglePackageOption}
+          onToggleRacewayOption={handlers.toggleRacewayOption}
+        />
+      </>
+    );
+  },
+  (previous, next) =>
+    previous.darkMode === next.darkMode &&
+    previous.showExistingService === next.showExistingService &&
+    previous.onCommit === next.onCommit &&
+    previous.commitRef === next.commitRef &&
+    electricalConfirmScopeAttributesEqual(previous.values, next.values),
+);
+
+/** Backward-compatible name for callers that only render the attribute panel. */
+export const ElectricalConfirmScopeAttributeChips =
+  ElectricalConfirmScopeAttributesPanel;
 
 function ElectricalQuickMeasurementTakeoffView({
   measurements,
