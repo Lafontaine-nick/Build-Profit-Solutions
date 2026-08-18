@@ -18,16 +18,64 @@ const {
   MEASUREMENT_KEYS,
   buildElectricalSystemPrompt,
   mergeElectricalEvidenceSources,
+  mergePlumbingFieldEvidence,
   collectUnclassifiedElectricalFixtures,
 } = require('../estimatePlanToMeasurements');
 const { filterPlanMeasurementsForTrade, filterPlanScopesForTrade, TRADE_CONFIGS } = require('../planImportTradeConfig');
 const shvPlanFacts = require('../testFixtures/shvPlanFacts');
 
 describe('estimatePlanToMeasurements', () => {
+  test('merges Plumbing evidence by canonical field and retains derivation inputs', () => {
+    expect(
+      mergePlumbingFieldEvidence(
+        {
+          roughInPoints: {
+            page: 3,
+            sheet: 'P1.1',
+            evidenceKind: 'fixture_inventory_derived',
+            derivedFrom: ['toilets'],
+          },
+        },
+        {
+          gasLineFeet: [
+            {
+              page: 4,
+              sheet: 'P2.1',
+              sourceText: '42 LF',
+              sourceType: 'pdf_text',
+            },
+          ],
+        }
+      )
+    ).toEqual({
+      plumbingRoughPointCount: [
+        {
+          page: 3,
+          sheet: 'P1.1',
+          evidenceKind: 'fixture_inventory_derived',
+          derivedFrom: ['toilets'],
+        },
+      ],
+      gasLineLf: [
+        {
+          page: 4,
+          sheet: 'P2.1',
+          sourceText: '42 LF',
+          sourceType: 'pdf_text',
+        },
+      ],
+    });
+  });
+
   test('sanitizeRooms computes area and maps bathroom keys', () => {
     const rooms = sanitizeRooms([
       { name: 'Master Bath', lengthFt: 10, widthFt: 8, confidence: 0.9 },
-      { name: 'Kitchen', areaSqft: 140, measurementKey: 'kitchenFloorSqft', confidence: 0.8 },
+      {
+        name: 'Kitchen',
+        areaSqft: 140,
+        measurementKey: 'kitchenFloorSqft',
+        confidence: 0.8,
+      },
       { name: 'Living', areaSqft: 200, confidence: 0.9 },
     ]);
     expect(rooms[0].areaSqft).toBe(80);
@@ -39,7 +87,13 @@ describe('estimatePlanToMeasurements', () => {
 
   test('sanitizeRooms preserves bounded PDF page and sheet evidence', () => {
     const [room] = sanitizeRooms([
-      { name: 'Kitchen', areaSqft: 120, confidence: 1, sourcePage: 4, sourceSheet: 'A1.2' },
+      {
+        name: 'Kitchen',
+        areaSqft: 120,
+        confidence: 1,
+        sourcePage: 4,
+        sourceSheet: 'A1.2',
+      },
     ]);
     expect(room).toMatchObject({ sourcePage: 4, sourceSheet: 'A1.2' });
   });
@@ -86,7 +140,11 @@ describe('estimatePlanToMeasurements', () => {
             kind: 'roof_plane',
             areaSqft: 500,
             pitch: '5/12',
-            points: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }],
+            points: [
+              { x: 0, y: 0 },
+              { x: 1, y: 0 },
+              { x: 1, y: 1 },
+            ],
           },
         ],
       },
@@ -102,7 +160,7 @@ describe('estimatePlanToMeasurements', () => {
     expect(facts.geometry[0].id).toBe('supplied-plane');
   });
 
-  test.each(shvPlanFacts.filter((fixture) => fixture.expected.floorDeltaSqft != null))(
+  test.each(shvPlanFacts.filter(fixture => fixture.expected.floorDeltaSqft != null))(
     'reconciles cover and floor labels for SHV Lot $lot',
     ({ expected }) => {
       const result = reconcileLabeledLivingAreas({
@@ -121,10 +179,25 @@ describe('estimatePlanToMeasurements', () => {
       { name: 'Kitchen', lengthFt: 12.083, widthFt: 14.167, confidence: 0.9 },
       { name: 'Pantry', lengthFt: 9.167, widthFt: 4.25, confidence: 0.85 },
       { name: 'Bed 3', lengthFt: 13.167, widthFt: 10.5, confidence: 0.9 },
-      { name: 'Bed 2/Office', lengthFt: 10.333, widthFt: 10.25, confidence: 0.9 },
+      {
+        name: 'Bed 2/Office',
+        lengthFt: 10.333,
+        widthFt: 10.25,
+        confidence: 0.9,
+      },
       { name: 'Great Room', lengthFt: 14.833, widthFt: 17.5, confidence: 0.9 },
-      { name: 'Primary Suite', lengthFt: 15.333, widthFt: 16.083, confidence: 0.9 },
-      { name: 'Primary Closet', lengthFt: 11.833, widthFt: 5.25, confidence: 0.85 },
+      {
+        name: 'Primary Suite',
+        lengthFt: 15.333,
+        widthFt: 16.083,
+        confidence: 0.9,
+      },
+      {
+        name: 'Primary Closet',
+        lengthFt: 11.833,
+        widthFt: 5.25,
+        confidence: 0.85,
+      },
       { name: 'Laundry', lengthFt: 8, widthFt: 5.25, confidence: 0.85 },
       { name: 'Den/Bed 4', lengthFt: 10.333, widthFt: 10.25, confidence: 0.9 },
       { name: 'Primary Bath', lengthFt: 9, widthFt: 8, confidence: 0.8 },
@@ -133,13 +206,13 @@ describe('estimatePlanToMeasurements', () => {
       { name: 'RV Garage', lengthFt: 12.083, widthFt: 42.417, confidence: 0.9 },
     ]);
     expect(rooms).toHaveLength(14);
-    expect(rooms.filter((r) => r.measurementKey === 'bathroomFloorSqft').map((r) => r.name)).toEqual([
+    expect(rooms.filter(r => r.measurementKey === 'bathroomFloorSqft').map(r => r.name)).toEqual([
       'Primary Bath',
       'Guest Bath',
     ]);
-    expect(rooms.find((r) => r.name === 'Kitchen')?.measurementKey).toBe('kitchenFloorSqft');
-    expect(rooms.find((r) => r.name === 'Great Room')?.areaSqft).toBe(259.6);
-    expect(rooms.find((r) => r.name === 'Garage')?.measurementKey).toBeNull();
+    expect(rooms.find(r => r.name === 'Kitchen')?.measurementKey).toBe('kitchenFloorSqft');
+    expect(rooms.find(r => r.name === 'Great Room')?.areaSqft).toBe(259.6);
+    expect(rooms.find(r => r.name === 'Garage')?.measurementKey).toBeNull();
 
     const measurements = sanitizeMeasurements({}, rooms, { totalLivingSqft: 1879, garageSqft: 994 }, []);
     expect(measurements.bathroomFloorSqft).toBe(107);
@@ -167,7 +240,12 @@ describe('estimatePlanToMeasurements', () => {
 
   test('sanitizeMeasurements prefers Building Areas schedule over a single room', () => {
     const rooms = sanitizeRooms([
-      { name: 'Bath', areaSqft: 40, measurementKey: 'bathroomFloorSqft', confidence: 0.9 },
+      {
+        name: 'Bath',
+        areaSqft: 40,
+        measurementKey: 'bathroomFloorSqft',
+        confidence: 0.9,
+      },
       { name: 'Living', areaSqft: 200, confidence: 0.9 },
     ]);
     const buildingAreas = sanitizeBuildingAreas({
@@ -204,12 +282,10 @@ describe('estimatePlanToMeasurements', () => {
   });
 
   test('sanitizeMeasurements keeps labeled concrete flatwork when explicitlyLabeled', () => {
-    const measurements = sanitizeMeasurements(
-      { concreteSqft: 900, wallPaintSqft: 2400 },
-      [],
-      {},
-      ['concreteSqft', 'wallPaintSqft']
-    );
+    const measurements = sanitizeMeasurements({ concreteSqft: 900, wallPaintSqft: 2400 }, [], {}, [
+      'concreteSqft',
+      'wallPaintSqft',
+    ]);
     expect(measurements.concreteSqft).toBe(900);
     expect(measurements.wallPaintSqft).toBe(2400);
   });
@@ -312,9 +388,7 @@ describe('estimatePlanToMeasurements', () => {
     // No confidence reported (e.g. schedule-derived) → kept; other gating already applied
     expect(measurements.garageSqft).toBe(483);
     expect(measurements.kitchenFloorSqft).toBeUndefined();
-    expect(lowConfidence).toEqual([
-      { field: 'kitchenFloorSqft', value: 120, confidence: 0.5 },
-    ]);
+    expect(lowConfidence).toEqual([{ field: 'kitchenFloorSqft', value: 120, confidence: 0.5 }]);
   });
 
   test('mergeRoomsPreferPdf keeps PDF rooms and adds missing vision rooms', () => {
@@ -322,27 +396,56 @@ describe('estimatePlanToMeasurements', () => {
       [{ name: 'Kitchen', areaSqft: 194.1, confidence: 0.98 }],
       [
         { name: 'Kitchen', areaSqft: 171.2, confidence: 0.7 },
-        { name: 'Primary Bath', areaSqft: 40, measurementKey: 'bathroomFloorSqft', confidence: 0.8 },
+        {
+          name: 'Primary Bath',
+          areaSqft: 40,
+          measurementKey: 'bathroomFloorSqft',
+          confidence: 0.8,
+        },
       ]
     );
-    expect(merged.find((r) => r.name === 'Kitchen')?.areaSqft).toBe(194.1);
-    expect(merged.map((r) => r.name)).toEqual(['Kitchen', 'Primary Bath']);
+    expect(merged.find(r => r.name === 'Kitchen')?.areaSqft).toBe(194.1);
+    expect(merged.map(r => r.name)).toEqual(['Kitchen', 'Primary Bath']);
   });
 
   test('pruneEnvelopeGarageRooms drops foundation combined garage envelopes', () => {
     const rooms = pruneEnvelopeGarageRooms([
-      { name: 'Garage', lengthFt: 31.083, widthFt: 23.333, areaSqft: 725.8, confidence: 0.7 },
-      { name: 'RV Garage', lengthFt: 12.083, widthFt: 42.417, areaSqft: 512.5, confidence: 0.9 },
-      { name: 'Garage', lengthFt: 19.083, widthFt: 23.25, areaSqft: 443.7, confidence: 0.9 },
+      {
+        name: 'Garage',
+        lengthFt: 31.083,
+        widthFt: 23.333,
+        areaSqft: 725.8,
+        confidence: 0.7,
+      },
+      {
+        name: 'RV Garage',
+        lengthFt: 12.083,
+        widthFt: 42.417,
+        areaSqft: 512.5,
+        confidence: 0.9,
+      },
+      {
+        name: 'Garage',
+        lengthFt: 19.083,
+        widthFt: 23.25,
+        areaSqft: 443.7,
+        confidence: 0.9,
+      },
     ]);
-    expect(rooms.map((r) => r.areaSqft).sort()).toEqual([443.7, 512.5]);
+    expect(rooms.map(r => r.areaSqft).sort()).toEqual([443.7, 512.5]);
   });
 
   test('reconcileBathroomMeasurement drops invented bath SF without bath rooms', () => {
     const unreadable = [];
     const measurements = reconcileBathroomMeasurement(
       { bathroomFloorSqft: 90, kitchenFloorSqft: 194.1 },
-      [{ name: 'Kitchen', areaSqft: 194.1, measurementKey: 'kitchenFloorSqft' }],
+      [
+        {
+          name: 'Kitchen',
+          areaSqft: 194.1,
+          measurementKey: 'kitchenFloorSqft',
+        },
+      ],
       unreadable
     );
     expect(measurements.bathroomFloorSqft).toBeUndefined();
@@ -354,8 +457,16 @@ describe('estimatePlanToMeasurements', () => {
     const measurements = reconcileBathroomMeasurement(
       { bathroomFloorSqft: 90 },
       [
-        { name: 'Primary Bath', areaSqft: 72, measurementKey: 'bathroomFloorSqft' },
-        { name: 'Guest Bath', areaSqft: 35, measurementKey: 'bathroomFloorSqft' },
+        {
+          name: 'Primary Bath',
+          areaSqft: 72,
+          measurementKey: 'bathroomFloorSqft',
+        },
+        {
+          name: 'Guest Bath',
+          areaSqft: 35,
+          measurementKey: 'bathroomFloorSqft',
+        },
       ],
       []
     );
@@ -378,9 +489,7 @@ describe('estimatePlanToMeasurements', () => {
         { field: 'serviceAmperage', reason: 'No printed amperage callout' },
         { field: 'serviceAmperage', reason: 'No printed amperage callout' },
       ])
-    ).toEqual([
-      { field: 'serviceAmperage', reason: 'No printed amperage callout' },
-    ]);
+    ).toEqual([{ field: 'serviceAmperage', reason: 'No printed amperage callout' }]);
   });
 
   const residentialPaintRooms = () =>
@@ -412,11 +521,7 @@ describe('estimatePlanToMeasurements', () => {
     expect(measurements.interiorDoorCount).toBe(12);
     expect(measurements.baseboardLf).toBe(800);
     expect(measurements.drywallSqft).toBeUndefined();
-    const filtered = filterPlanMeasurementsForTrade(
-      measurements,
-      'selected_trade',
-      TRADE_CONFIGS.painting
-    );
+    const filtered = filterPlanMeasurementsForTrade(measurements, 'selected_trade', TRADE_CONFIGS.painting);
     expect(filtered).toEqual({
       wallPaintSqft: 5000,
       ceilingPaintSqft: 2000,
@@ -454,9 +559,7 @@ describe('estimatePlanToMeasurements', () => {
     expect(derived.measurements.baseboardLf).toBe(222);
     expect(derived.measurements.cabinetRunLf).toBeUndefined();
     expect(derived.measurements.cabinetPaintSqft).toBeUndefined();
-    expect(derived.derivedKeys).toEqual(
-      expect.arrayContaining(['wallPaintSqft', 'ceilingPaintSqft', 'baseboardLf'])
-    );
+    expect(derived.derivedKeys).toEqual(expect.arrayContaining(['wallPaintSqft', 'ceilingPaintSqft', 'baseboardLf']));
     expect(derived.measurements.wallPaintSqft).not.toBe(2000);
     expect(derived.measurements.wallPaintSqft).not.toBe(6000);
   });
@@ -506,11 +609,7 @@ describe('estimatePlanToMeasurements', () => {
     expect(derived.measurements.exteriorPaintSqft).toBeUndefined();
     expect(derived.measurements.ceilingPaintSqft).not.toBe(4441);
     expect(derived.measurements.ceilingPaintSqft).not.toBe(3957);
-    const filtered = filterPlanMeasurementsForTrade(
-      derived.measurements,
-      'selected_trade',
-      TRADE_CONFIGS.painting
-    );
+    const filtered = filterPlanMeasurementsForTrade(derived.measurements, 'selected_trade', TRADE_CONFIGS.painting);
     expect(filtered.ceilingPaintSqft).toBe(3660);
     expect(filtered.garageSqft).toBeUndefined();
     expect(filtered.floorAreaSqft).toBeUndefined();
@@ -536,9 +635,7 @@ describe('estimatePlanToMeasurements', () => {
     expect(derived.measurements.ceilingPaintSqft).not.toBe(368);
     expect(derived.measurements.wallPaintSqft).toBe(1101.6);
     expect(derived.measurements.baseboardLf).toBe(108);
-    expect(derived.incompleteKeys).toEqual(
-      expect.arrayContaining(['wallPaintSqft', 'baseboardLf'])
-    );
+    expect(derived.incompleteKeys).toEqual(expect.arrayContaining(['wallPaintSqft', 'baseboardLf']));
   });
 
   test('derivePaintingGeometryMeasurements keeps labeled paint totals and skips unlabeled cabinets', () => {
@@ -610,11 +707,7 @@ describe('estimatePlanToMeasurements', () => {
     expect(measurements.standardCircuitCount).toBeUndefined();
     expect(measurements.circuit50aCount).toBeUndefined();
     expect(measurements.wallPaintSqft).toBeUndefined();
-    const filtered = filterPlanMeasurementsForTrade(
-      measurements,
-      'selected_trade',
-      TRADE_CONFIGS.electrical
-    );
+    const filtered = filterPlanMeasurementsForTrade(measurements, 'selected_trade', TRADE_CONFIGS.electrical);
     expect(filtered.recessedLightCount).toBe(34);
     expect(filtered.gfciReceptacleCount).toBe(6);
     expect(filtered.mainPanelCount).toBe(1);
@@ -626,19 +719,29 @@ describe('estimatePlanToMeasurements', () => {
     const filtered = filterPlanScopesForTrade(
       {
         detections: [
-          { itemId: 'electrical_rough', state: 'included', label: 'Electrical rough-in' },
-          { itemId: 'electrical_trim', state: 'included', label: 'Electrical fixtures' },
+          {
+            itemId: 'electrical_rough',
+            state: 'included',
+            label: 'Electrical rough-in',
+          },
+          {
+            itemId: 'electrical_trim',
+            state: 'included',
+            label: 'Electrical fixtures',
+          },
           { itemId: 'electrical', state: 'included', label: 'Electrical' },
           { itemId: 'cleanup', state: 'included', label: 'Cleanup & disposal' },
-          { itemId: 'electrical_standard_receptacle', state: 'included', label: 'Standard receptacle' },
+          {
+            itemId: 'electrical_standard_receptacle',
+            state: 'included',
+            label: 'Standard receptacle',
+          },
         ],
       },
       'selected_trade',
       TRADE_CONFIGS.electrical
     );
-    expect(filtered.detections.map((row) => row.itemId)).toEqual([
-      'electrical_standard_receptacle',
-    ]);
+    expect(filtered.detections.map(row => row.itemId)).toEqual(['electrical_standard_receptacle']);
   });
 
   test('labeled homerun counts survive electrical explicit-only sanitize', () => {
@@ -750,8 +853,20 @@ describe('estimatePlanToMeasurements', () => {
       [],
       {
         elevationFaces: [
-          { id: 'front', widthFt: 40, heightFt: 10, paintAreaSqft: 320, finish: 'siding' },
-          { id: 'rear', widthFt: 40, heightFt: 10, stuccoAreaSqft: 400, finish: 'stucco' },
+          {
+            id: 'front',
+            widthFt: 40,
+            heightFt: 10,
+            paintAreaSqft: 320,
+            finish: 'siding',
+          },
+          {
+            id: 'rear',
+            widthFt: 40,
+            heightFt: 10,
+            stuccoAreaSqft: 400,
+            finish: 'stucco',
+          },
         ],
       },
       { buildingAreas: { totalLivingSqft: 2400 } }
@@ -763,18 +878,31 @@ describe('estimatePlanToMeasurements', () => {
   test('explicit R4 instance tags conflict with vision and stay out of priced measurements', () => {
     const { omitUnresolvedElectricalConflicts } = require('../electricalPlanAdapter');
     const merged = mergeElectricalEvidenceSources({
-      generalMeasurements: { recessedLightCount: 20, ceilingFanCount: 8, mainPanelCount: 1 },
-      generalConfidence: { recessedLightCount: 0.8, ceilingFanCount: 0.7, mainPanelCount: 0.95 },
-      focusedMeasurements: { recessedLightCount: 40, ceilingFanCount: 8, mainPanelCount: 1 },
-      focusedConfidence: { recessedLightCount: 0.85, ceilingFanCount: 0.8, mainPanelCount: 0.95 },
+      generalMeasurements: {
+        recessedLightCount: 20,
+        ceilingFanCount: 8,
+        mainPanelCount: 1,
+      },
+      generalConfidence: {
+        recessedLightCount: 0.8,
+        ceilingFanCount: 0.7,
+        mainPanelCount: 0.95,
+      },
+      focusedMeasurements: {
+        recessedLightCount: 40,
+        ceilingFanCount: 8,
+        mainPanelCount: 1,
+      },
+      focusedConfidence: {
+        recessedLightCount: 0.85,
+        ceilingFanCount: 0.8,
+        mainPanelCount: 0.95,
+      },
       instanceTagMeasurements: { recessedLightCount: 48 },
     });
     expect(merged.measurements.recessedLightCount).toBe(48);
-    expect(merged.conflicts.some((row) => row.field === 'recessedLightCount')).toBe(true);
-    const omitted = omitUnresolvedElectricalConflicts(
-      merged.measurements,
-      merged.conflicts
-    );
+    expect(merged.conflicts.some(row => row.field === 'recessedLightCount')).toBe(true);
+    const omitted = omitUnresolvedElectricalConflicts(merged.measurements, merged.conflicts);
     expect(omitted.measurements.recessedLightCount).toBeUndefined();
     expect(omitted.measurements.mainPanelCount).toBe(1);
     expect(omitted.measurements.ceilingFanCount).toBe(8);

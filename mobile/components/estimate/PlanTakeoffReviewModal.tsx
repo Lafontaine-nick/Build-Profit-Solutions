@@ -58,6 +58,7 @@ import {
   livingReconciliationStatusLabel,
   measurementDisplayLabel,
   measurementSourceLabel,
+  planFieldEvidenceLabel,
   planReviewCheckboxBlockedMessage,
   resolvePlanAreaReconciliation,
   roomSourceLabel,
@@ -124,11 +125,21 @@ type Props = {
     }>,
     metadata?: Pick<
       PlanToMeasurementsResult,
-      'measurementProvenance' | 'measurementConflicts' | 'electricalValidation'
+      | 'measurementProvenance'
+      | 'measurementConflicts'
+      | 'electricalValidation'
+      | 'utilityConnections'
+      | 'fixtureInventory'
     >
   ) => void;
   onCancel: () => void;
 };
+
+function plumbingInventoryLabel(key: string): string {
+  return String(key)
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/^./, value => value.toUpperCase());
+}
 
 const SCOPE_MIN_CONFIDENCE = 0.45;
 
@@ -196,6 +207,7 @@ const FLOORING_REVIEW_ADAPTER_KEYS = new Set([
 ]);
 
 const CONFIRM_YELLOW = '#fbbf24';
+const CONFIRM_RED = '#ef4444';
 const PANEL_BORDER_DARK = 'rgba(148,163,184,0.28)';
 const PANEL_BORDER_LIGHT = 'rgba(100,116,139,0.24)';
 const PANEL_BG_DARK = 'rgba(148,163,184,0.06)';
@@ -394,6 +406,9 @@ export default function PlanTakeoffReviewModal({
               assumptions: takeoff.assumptions,
             })
           : null;
+        const evidenceLabel = planFieldEvidenceLabel(
+          takeoff.measurementProvenance?.[key]
+        );
         const rowState = buildPlanReviewMeasurementRowState({
           key,
           provenanceEntry: takeoff.measurementProvenance?.[key],
@@ -408,7 +423,8 @@ export default function PlanTakeoffReviewModal({
           key,
           label: display.label,
           subtext: display.subtext ?? null,
-          sourceLabel,
+          sourceLabel:
+            [sourceLabel, evidenceLabel].filter(Boolean).join(' · ') || null,
           unit: meta.unit,
           value: String(value),
           confidence: takeoff.fieldConfidence?.[key] ?? null,
@@ -732,6 +748,19 @@ export default function PlanTakeoffReviewModal({
   const hasMeasurements = rows.length > 0;
   const hasRooms = roomRows.length > 0;
   const hasReadingIssues = lowConfidence.length > 0 || unreadable.length > 0;
+  const plumbingMissingItems =
+    effectiveTradeKey === 'plumbing'
+      ? [
+          ...unreadable.map(field => {
+            const label = quickMeasurementFieldMeta(field.field).label;
+            return `${label}: ${field.reason}`;
+          }),
+          ...(takeoff.missingInfo || []),
+        ]
+          .map(item => String(item).trim())
+          .filter(Boolean)
+          .slice(0, 8)
+      : [];
   const includedCount = rows.filter(
     r => r.include && Number(r.value) > 0
   ).length;
@@ -760,8 +789,7 @@ export default function PlanTakeoffReviewModal({
     Number(
       (
         takeoff.itemQuantities as
-          | Record<string, { quantity?: number }>
-          | undefined
+          Record<string, { quantity?: number }> | undefined
       )?.roofing?.quantity
     ) > 0;
   const hasPlanFloorAreas =
@@ -769,6 +797,13 @@ export default function PlanTakeoffReviewModal({
     Number(takeoff.measurements?.kitchenFloorSqft) > 0 ||
     Number(takeoff.measurements?.bathroomFloorSqft) > 0 ||
     Number(takeoff.measurements?.flooringSqft) > 0;
+  const plumbingInventory = Object.entries(
+    takeoff.fixtureInventory || {}
+  ).filter(([, value]) => Number(value) > 0);
+  const plumbingDerivedRows = rows.filter(
+    row => row.provenance.status === 'ai_inferred'
+  );
+  const plumbingUtilityConnections = takeoff.utilityConnections || [];
 
   const setRow = (key: string, patch: Partial<PlanReviewRow>) => {
     setRows(prev => prev.map(r => (r.key === key ? { ...r, ...patch } : r)));
@@ -955,6 +990,8 @@ export default function PlanTakeoffReviewModal({
         },
         measurementConflicts: unresolved,
         electricalValidation: reviewElectricalValidation,
+        utilityConnections: takeoff.utilityConnections,
+        fixtureInventory: takeoff.fixtureInventory,
       }
     );
   };
@@ -1091,6 +1128,90 @@ export default function PlanTakeoffReviewModal({
                       </Text>
                     );
                   })}
+                </ReviewPanel>
+              </View>
+            ) : null}
+
+            {effectiveTradeKey === 'plumbing' &&
+            (plumbingInventory.length ||
+              plumbingDerivedRows.length ||
+              plumbingUtilityConnections.length ||
+              plumbingMissingItems.length) ? (
+              <View style={styles.section}>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  AI detection
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
+                  Plumbing detection
+                </Text>
+                <ReviewPanel darkMode={darkMode}>
+                  <Text style={[styles.summaryLabel, { color: Colors.sub }]}>
+                    Fixture inventory read from the plan
+                  </Text>
+                  {plumbingInventory.map(([key, value]) => (
+                    <Text
+                      key={`fixture-${key}`}
+                      style={[styles.evidenceText, { color: Colors.text }]}
+                    >
+                      {plumbingInventoryLabel(key)}: {value}
+                    </Text>
+                  ))}
+                  {plumbingDerivedRows.length ? (
+                    <Text
+                      style={[styles.evidenceText, { color: CONFIRM_YELLOW }]}
+                    >
+                      {plumbingDerivedRows
+                        .map(row => `${row.label} ${row.value} ${row.unit}`)
+                        .join(' · ')}
+                      {
+                        ' — derived from the fixture inventory; confirm before pricing.'
+                      }
+                    </Text>
+                  ) : null}
+                  {plumbingUtilityConnections.length ? (
+                    <>
+                      <Text
+                        style={[
+                          styles.summaryLabel,
+                          { color: Colors.sub, marginTop: 10 },
+                        ]}
+                      >
+                        Utility connections / allowances
+                      </Text>
+                      {plumbingUtilityConnections.map((connection, index) => (
+                        <Text
+                          key={`utility-${connection.label}-${index}`}
+                          style={[
+                            styles.evidenceText,
+                            { color: CONFIRM_YELLOW },
+                          ]}
+                        >
+                          {connection.label} — confirm scope/allowance; no
+                          automatic quantity
+                        </Text>
+                      ))}
+                    </>
+                  ) : null}
+                  {plumbingMissingItems.length ? (
+                    <>
+                      <Text
+                        style={[
+                          styles.summaryLabel,
+                          { color: CONFIRM_RED, marginTop: 10 },
+                        ]}
+                      >
+                        Missing or unreadable
+                      </Text>
+                      {plumbingMissingItems.map((item, index) => (
+                        <Text
+                          key={`missing-plumbing-${index}`}
+                          style={[styles.evidenceText, { color: CONFIRM_RED }]}
+                        >
+                          {item}
+                        </Text>
+                      ))}
+                    </>
+                  ) : null}
                 </ReviewPanel>
               </View>
             ) : null}
@@ -1297,14 +1418,16 @@ export default function PlanTakeoffReviewModal({
                 </Text>
                 <ReviewPanel darkMode={darkMode}>
                   <Text style={[styles.emptyText, { color: Colors.sub }]}>
-                    {tradeLabel
-                      ? `No ${tradeLabel} quantities were verified from the selected plan pages yet. ${
-                          takeoff.missingInfo?.length
-                            ? `Confirm: ${takeoff.missingInfo.join(', ')}. `
-                            : 'Review the relevant trade sheets and confirm the missing quantities. '
-                        }You can still apply and enter quantities in Confirm Scope.`
-                      : takeoff.reason ||
-                        'No square footage could be read from these pages.'}
+                    {effectiveTradeKey === 'plumbing'
+                      ? 'AI reviewed available plumbing sheets. Confirm quantities before applying pricing.'
+                      : tradeLabel
+                        ? `No ${tradeLabel} quantities were verified from the selected plan pages yet. ${
+                            takeoff.missingInfo?.length
+                              ? `Confirm: ${takeoff.missingInfo.join(', ')}. `
+                              : 'Review the relevant trade sheets and confirm the missing quantities. '
+                          }You can still apply and enter quantities in Confirm Scope.`
+                        : takeoff.reason ||
+                          'No square footage could be read from these pages.'}
                   </Text>
                 </ReviewPanel>
               </View>

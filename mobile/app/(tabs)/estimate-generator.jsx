@@ -6040,7 +6040,8 @@ export default function EstimateGeneratorScreen() {
         effectivePlanImport?.rooms?.length ||
         effectivePlanImport?.scopeDetections?.length ||
         effectivePlanImport?.planFacts ||
-        effectivePlanImport?.buildingAreas
+        effectivePlanImport?.buildingAreas ||
+        effectivePlanImport?.tradeWorkflowSource === 'standalone_trade'
       ) {
         if (effectivePlanImport) setAiLastPlanImport(effectivePlanImport);
         draft = applyPlanImportToDraft(draft, effectivePlanImport);
@@ -6183,8 +6184,18 @@ export default function EstimateGeneratorScreen() {
     async (confirmedItems, scopeMeasurements) => {
       if (!aiDraft || aiScopeAssumptionsApplying) return;
       latestScopeMeasurementsRef.current = scopeMeasurements || latestScopeMeasurementsRef.current;
+      const routedDraft =
+        scopeMeasurements?.tradeWorkflowSource === 'standalone_trade'
+          ? applyPlanImportToDraft(aiDraft, {
+              estimatingMode: 'selected_trade',
+              selectedTrade: 'plumbing',
+              tradeWorkflowSource: 'standalone_trade',
+              plumbingWorkflowMode: scopeMeasurements.plumbingWorkflowMode,
+              plumbingPerformerMode: scopeMeasurements.plumbingPerformerMode,
+            })
+          : aiDraft;
       const draftForScope = syncDraftWithLatestScopeMeasurements(
-        mergeScopeProgressIntoDraft(aiDraft, confirmedItems, scopeMeasurements, {
+        mergeScopeProgressIntoDraft(routedDraft, confirmedItems, scopeMeasurements, {
           scopeNotes: aiDraft.originalNotes || aiDraftNotes,
         })
       );
@@ -6239,10 +6250,20 @@ export default function EstimateGeneratorScreen() {
 
   const handleScopeAssumptionsScopeOnly = useCallback(async (scopeMeasurements) => {
     if (!aiDraft || aiScopeAssumptionsApplying) return;
+    const routedDraft =
+      scopeMeasurements?.tradeWorkflowSource === 'standalone_trade'
+        ? applyPlanImportToDraft(aiDraft, {
+            estimatingMode: 'selected_trade',
+            selectedTrade: 'plumbing',
+            tradeWorkflowSource: 'standalone_trade',
+            plumbingWorkflowMode: scopeMeasurements.plumbingWorkflowMode,
+            plumbingPerformerMode: scopeMeasurements.plumbingPerformerMode,
+          })
+        : aiDraft;
     const baseItems =
-      aiDraft.confirmedAssumptions?.length
-        ? aiDraft.confirmedAssumptions
-        : aiDraft.scopeChecklist?.items || [];
+      routedDraft.confirmedAssumptions?.length
+        ? routedDraft.confirmedAssumptions
+        : routedDraft.scopeChecklist?.items || [];
     const items = baseItems.map((item) => ({
       ...item,
       state: item.state === 'excluded' ? 'excluded' : 'unsure',
@@ -6250,7 +6271,7 @@ export default function EstimateGeneratorScreen() {
     setAiScopeAssumptionsApplying(true);
     let enriched;
     try {
-      enriched = await applyScopeAssumptionsToDraft(aiDraft, items, scopeMeasurements);
+        enriched = await applyScopeAssumptionsToDraft(routedDraft, items, scopeMeasurements);
     } catch (e) {
       console.warn('handleScopeAssumptionsScopeOnly failed', e);
       Alert.alert('Scope only', e?.message || 'Could not continue. Please try again.');

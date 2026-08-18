@@ -20,6 +20,7 @@ Canonical cards and measurement keys:
 - `drain_cleaning` → `drainCleaningCount` (each)
 - `water_line` → `waterLineLf` (LF)
 - `sewer_line` → `sewerLineLf` (LF)
+- `gas_line` → `gasLineLf` (LF, explicit plan-verified gas piping only)
 - `plumbing_rough` → `plumbingRoughPointCount` (each)
 - `plumbing_trim` → `plumbingTrimHookupCount` (each)
 - `parts_materials` → `partsMaterialsCount` (allowance)
@@ -34,13 +35,14 @@ living area, floor area, bath count, or room count.
 Generic Plumbing pricing uses the existing Confirm Scope national-average
 resolver, with these locked planning rates:
 
-- Rough-in: $150 material + $350 labor per point.
+- Plumbing rough-in points: $150 material + $350 labor per point.
 - Standalone trim/hookup: $150 material + $300 labor per hookup.
-- Fixture replacement: $100 material + $200 labor per fixture.
+- Fixture installation/setting: $100 material + $200 labor per fixture.
 - Fixture repair: $50 material + $250 labor per repair.
 - Drain cleaning: $25 material + $275 labor per service.
 - Water line: $8 material + $22 labor per LF.
 - Sewer/drain line: $12 material + $38 labor per LF.
+- Gas piping: $10 material + $20 labor per LF when explicitly documented.
 - Service call: $250 labor per trip.
 - Parts/materials, emergency fee, and cleanup remain explicit user-entered
   allowances.
@@ -67,6 +69,13 @@ retains field confidence and `FROM_PLAN` provenance. Focused Plumbing vision
 passes inspect fixture schedules, risers, details, water/sewer plans, and
 labeled line lengths.
 
+Selected-trade Plan Export also uses a plan-only scope allowlist. It keeps
+plumbing rough-in points, trim/hooks, underground water or under-slab piping,
+underground sewer/drain or under-slab DWV, and explicitly documented gas piping.
+Fixture installations are owned by trim/hooks in Ground Up; fixture replacement
+remains available to Notes/manual workflows. Service calls, repairs, drain
+cleaning, allowances, and cleanup stay out of Plan Export.
+
 When the same plan fingerprint is imported again, a silent or changed Plumbing
 quantity retains the previous visible value, changes its source to
 `needs_confirmation`, marks provenance `pricingEligible: false`, and blocks
@@ -80,16 +89,30 @@ pricing UI receives the physical quantity, exact cents, source/provenance, and
 confirmation state.
 
 Standalone Plumbing Quick Measurements are defined in
-`mobile/utils/scopeQuickMeasurements.ts`. Both `plumbing` and
-`plumbing_service` resolve to the Plumbing-only rows, and
-`tradeQuickMeasurementFieldKeys('plumbing')` uses the form-field keys so the
-selected-trade UI does not render an empty filtered panel. Living area is not a
-Plumbing input.
+`mobile/utils/scopeQuickMeasurements.ts`. Plan Export for ground-up/addition
+flows uses five physical concepts: rough-in points, trim/hooks, underground
+water/under-slab LF, underground sewer/drain/under-slab DWV LF, and optional
+documented gas-piping LF. Fixture setting is included with trim/hooks for Ground
+Up. Notes/manual Plumbing flows retain the broader fixture and service cards.
+`tradeQuickMeasurementFieldKeys('plumbing')` uses the plan-only keys so service
+and allowance entries do not inflate Plan Export confirmation counts. Living
+area is not a Plumbing input.
 
-`parts_materials`, `emergency_fee`, and `cleanup` remain explicit allowances;
-they are visible and selectable, and are never auto-added from unrelated
-Plumbing quantities. An explicitly entered allowance may still flow through
-the existing generic allowance pricing behavior.
+Build With AI now exposes `Single Trade / Plumbing Only` without requiring a
+plan import. The route preserves the existing whole-project and Bathroom
+Remodel flows, offers Bathroom Remodel Plumbing, New Construction Plumbing,
+and Plumbing Service modes, and records whether the work is self-performed,
+subcontracted, or based on an existing quote. New Construction Plumbing can
+use the plan takeoff; remodel and service modes use notes and site photos.
+The standalone route materializes a Plumbing-only checklist before pricing so
+unrelated Bathroom cards do not carry into the estimate.
+
+`service_call`, `drain_cleaning`, `parts_materials`, `emergency_fee`, and
+`cleanup` remain explicit scope/pricing concepts, but are not Quick Measurement
+fields; they are never auto-added from unrelated Plumbing quantities. Cleanup
+should use the existing general cleanup scope path when applicable. An
+explicitly entered allowance may still flow through the existing generic
+allowance pricing behavior.
 
 Focused tests:
 

@@ -57,7 +57,10 @@ import {
   hasDetailedElectricalQuantities,
   syncElectricalScopeItems,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
-import { syncPlumbingScopeItems } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import {
+  PLUMBING_CARDS,
+  syncPlumbingScopeItems,
+} from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
   ElectricalConfirmScopeAttributesPanel,
   ElectricalQuickMeasurementTakeoff,
@@ -713,9 +716,9 @@ function hasPrimaryTakeoffFromResolved(
 ): boolean {
   return Boolean(
     resolved.quantity != null &&
-      resolved.quantity > 0 &&
-      resolved.quantitySource !== 'missing' &&
-      resolved.quantitySource !== 'default_assumption'
+    resolved.quantity > 0 &&
+    resolved.quantitySource !== 'missing' &&
+    resolved.quantitySource !== 'default_assumption'
   );
 }
 
@@ -999,8 +1002,8 @@ function isSavedPricingBlock(
 ): boolean {
   return Boolean(
     block &&
-      (block.materialSource === 'local_benchmark' ||
-        block.laborSource === 'local_benchmark')
+    (block.materialSource === 'local_benchmark' ||
+      block.laborSource === 'local_benchmark')
   );
 }
 
@@ -2168,8 +2171,8 @@ function ComparisonToggle({
     Boolean(block.includedInStageLabel);
   const comparisonOnly = Boolean(
     block.isComparison ||
-      block.benchmarkEvidence?.benchmarkIsComparisonOnly ||
-      includedInStage
+    block.benchmarkEvidence?.benchmarkIsComparisonOnly ||
+    includedInStage
   );
   // Included-in-stage notices stay visible; other comparisons collapse by default under semantics.
   const [open, setOpen] = useState(
@@ -2915,6 +2918,92 @@ function isCustomScopeItem(item: ScopeChecklistItem): boolean {
     item.category === 'custom' || String(item.id || '').startsWith('custom_')
   );
 }
+
+type NotesScopeMode = 'whole_project' | 'plumbing' | 'plumbing_service';
+
+const NotesScopeSelector = React.memo(function NotesScopeSelector({
+  mode,
+  disabled,
+  Colors,
+  darkMode,
+  onChange,
+}: {
+  mode: NotesScopeMode;
+  disabled: boolean;
+  Colors: { text: string; line: string };
+  darkMode: boolean;
+  onChange?: (mode: NotesScopeMode) => void;
+}) {
+  const [optimisticMode, setOptimisticMode] = useState<NotesScopeMode>(mode);
+
+  useEffect(() => {
+    setOptimisticMode(mode);
+  }, [mode]);
+
+  return (
+    <View
+      style={{
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: Colors.line,
+        padding: 10,
+        marginBottom: 12,
+      }}
+    >
+      <Text
+        style={{
+          color: Colors.text,
+          fontSize: 12,
+          fontWeight: '800',
+          marginBottom: 7,
+        }}
+      >
+        Notes estimate scope
+      </Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {(
+          [
+            ['whole_project', 'Whole Project / General Contractor'],
+            ['plumbing', 'Single Trade / Plumbing Only'],
+            ['plumbing_service', 'Plumbing Service'],
+          ] as Array<[NotesScopeMode, string]>
+        ).map(([nextMode, label]) => (
+          <TouchableOpacity
+            key={nextMode}
+            disabled={disabled}
+            activeOpacity={1}
+            onPress={() => {
+              setOptimisticMode(nextMode);
+              onChange?.(nextMode);
+            }}
+            style={{
+              borderRadius: 15,
+              borderWidth: 1,
+              borderColor:
+                optimisticMode === nextMode ? '#22c55e' : Colors.line,
+              backgroundColor:
+                optimisticMode === nextMode
+                  ? 'rgba(34,197,94,0.12)'
+                  : 'transparent',
+              paddingHorizontal: 9,
+              paddingVertical: 7,
+            }}
+          >
+            <Text
+              style={{
+                color: darkMode ? '#F5F7FA' : Colors.text,
+                fontSize: 11,
+                fontWeight: '700',
+              }}
+            >
+              {label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+});
 
 function customScopePricingTotal(
   measurementsInput: ScopeMeasurementsInputExtended,
@@ -7335,7 +7424,7 @@ function YesNoRow({
     String(templateKey || '').toLowerCase() === 'bathroom';
   const interiorPaintScopeApplied = Boolean(
     measurementsInput.pricingAcceptance?.interior_paint ||
-      measurementsInput.pricingAcceptance?.paint
+    measurementsInput.pricingAcceptance?.paint
   );
   const [interiorPaintPromptExpanded, setInteriorPaintPromptExpanded] =
     useState(false);
@@ -9290,8 +9379,8 @@ function ChoiceRow({
   );
   const inScope = Boolean(
     displayedChoiceId &&
-      displayedChoiceId !== 'not_in_scope' &&
-      displayedChoiceId !== 'unsure'
+    displayedChoiceId !== 'not_in_scope' &&
+    displayedChoiceId !== 'unsure'
   );
   const helper = checklistDisplayHelper(item, templateKey);
   const tier = scopeItemVisualTier(item, visualCtx);
@@ -9496,6 +9585,21 @@ function choiceIdToState(choiceId: string): ScopeAssumptionState {
   return 'included';
 }
 
+function plumbingQuickMeasurementPricingHint(
+  fieldKey: QuickMeasurementFieldKey
+): string | undefined {
+  const card = PLUMBING_CARDS.find(item => item.measurementKey === fieldKey);
+  if (!card) return undefined;
+  const unit = card.unit || 'each';
+  const split = getNationalAverageBudgetSplit(card.itemId, unit);
+  if (!split) return undefined;
+  const material = Number(split.material) || 0;
+  const labor = Number(split.labor) || 0;
+  const total = material + labor;
+  if (!(total > 0)) return undefined;
+  return `Suggested ${formatDraftMoney(total)} / ${formatUnitLabel(unit)} · ${formatDraftMoney(material)} material + ${formatDraftMoney(labor)} labor`;
+}
+
 const QuickMeasurementField = React.memo(function QuickMeasurementField({
   field,
   value,
@@ -9585,8 +9689,15 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
   const caption = captionColor(darkMode, Colors);
   const label = estimate?.quantityLabel || quickMeasurementDisplayLabel(field);
+  const plumbingFieldSpacing = PLUMBING_CARDS.some(
+    card => card.measurementKey === field.key
+  )
+    ? styles.measurementFieldPlumbing
+    : null;
+  const plumbingPricingHint = plumbingQuickMeasurementPricingHint(field.key);
   // Living / Gross: calm only. Cabinets / counters helpers are noisy in compact whole-home layout.
   const helperText = (() => {
+    if (plumbingPricingHint) return plumbingPricingHint;
     if (compact) return undefined;
     const text = quickMeasurementHelperText(field);
     if (!text) return undefined;
@@ -9599,7 +9710,10 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
       return text;
     return undefined;
   })();
-  const showYellowBorder = variant === 'needs_confirmation' && !inWetAreaPanel;
+  const showYellowBorder =
+    variant === 'needs_confirmation' &&
+    !inWetAreaPanel &&
+    String(inputValue).trim() !== '';
 
   if (variant === 'suggestion') {
     const badge = estimate
@@ -9609,6 +9723,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
       <View
         style={[
           styles.measurementField,
+          plumbingFieldSpacing,
           compact ? styles.measurementFieldSpaced : null,
         ]}
       >
@@ -9726,6 +9841,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
     <View
       style={[
         styles.measurementField,
+        plumbingFieldSpacing,
         compact ? styles.measurementFieldSpaced : null,
       ]}
     >
@@ -9847,6 +9963,10 @@ function CollapsibleQuickMeasurements({
   hasSitePhotos = false,
   singleTradeImport = false,
   tradeKey = null,
+  notesTradeFlow = false,
+  notesScopeSelectorVisible = false,
+  notesTradeMode = 'whole_project',
+  onNotesTradeModeChange,
   Colors,
   darkMode,
   applying,
@@ -9928,6 +10048,11 @@ function CollapsibleQuickMeasurements({
   /** Single-trade plan import — show only trade-relevant quick measurements. */
   singleTradeImport?: boolean;
   tradeKey?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
+  /** Notes-only Plumbing routing selected inside Quick Measurements. */
+  notesTradeFlow?: boolean;
+  notesScopeSelectorVisible?: boolean;
+  notesTradeMode?: NotesScopeMode;
+  onNotesTradeModeChange?: (mode: NotesScopeMode) => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
@@ -10122,13 +10247,20 @@ function CollapsibleQuickMeasurements({
     !singleTradeImport &&
     !stuccoTradeFlow &&
     isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey);
+  const quickMeasurementTemplateKey = stuccoTradeFlow
+    ? 'stucco'
+    : notesTradeFlow && tradeKey === 'plumbing'
+      ? 'plumbing_service'
+      : singleTradeImport && tradeKey
+        ? String(tradeKey)
+        : effectiveTemplateKey;
 
   const noteQuickMeasurements = useMemo(() => {
     if (singleTradeImport || stuccoTradeFlow) {
       return { values: {}, keys: [] as QuickMeasurementFieldKey[] };
     }
     const parsed = parseScopeMeasurementsFromNotes(notes || '', {
-      templateKey: effectiveTemplateKey,
+      templateKey: quickMeasurementTemplateKey,
       projectType: projectType ?? undefined,
     });
     const out: Partial<Record<QuickMeasurementFieldKey, string>> = {};
@@ -10190,13 +10322,29 @@ function CollapsibleQuickMeasurements({
     put('garageSqft', parsed.garageSqft);
 
     return { values: out, keys: noteKeys };
-  }, [notes, effectiveTemplateKey, projectType, stuccoTradeFlow]);
+  }, [
+    notes,
+    effectiveTemplateKey,
+    quickMeasurementTemplateKey,
+    projectType,
+    stuccoTradeFlow,
+  ]);
   const rows = useMemo(() => {
     const baseRows = quickMeasurementRowsForInput(
-      singleTradeImport || stuccoTradeFlow ? 'stucco' : effectiveTemplateKey,
+      quickMeasurementTemplateKey,
       projectType,
       measurements,
-      noteQuickMeasurements.keys
+      noteQuickMeasurements.keys,
+      {
+        plumbingPlanImport: singleTradeImport && tradeKey === 'plumbing',
+        plumbingNotesFlow:
+          notesTradeFlow ||
+          (!singleTradeImport &&
+            ['plumbing', 'plumbing_service'].includes(
+              String(effectiveTemplateKey || '').toLowerCase()
+            )),
+        plumbingWorkflowMode: measurements.plumbingWorkflowMode,
+      }
     );
     if (singleTradeImport) {
       const allowed = new Set<QuickMeasurementFieldKey>(
@@ -10303,6 +10451,9 @@ function CollapsibleQuickMeasurements({
     includedScopeKeys,
     singleTradeImport,
     tradeKey,
+    notesTradeFlow,
+    quickMeasurementTemplateKey,
+    measurements.plumbingWorkflowMode,
   ]);
   const fillCounts = useMemo(
     () =>
@@ -10342,7 +10493,7 @@ function CollapsibleQuickMeasurements({
       userOverrides: measurements.quickMeasurementUserOverrides,
       measurementConflicts: measurements.measurementConflicts,
       includedScopeKeys,
-      templateKey: singleTradeImport ? 'stucco' : effectiveTemplateKey,
+      templateKey: quickMeasurementTemplateKey,
       wholeHomeLayout,
       keepingExistingWetArea,
       wetAreaInstallChoiceId,
@@ -10359,6 +10510,7 @@ function CollapsibleQuickMeasurements({
     noteQuickMeasurements.keys,
     includedScopeKeys,
     effectiveTemplateKey,
+    quickMeasurementTemplateKey,
     wholeHomeLayout,
     keepingExistingWetArea,
     wetAreaInstallChoiceId,
@@ -10418,9 +10570,11 @@ function CollapsibleQuickMeasurements({
     !wholeHomeLayout &&
     String(effectiveTemplateKey || '').toLowerCase() === 'painting';
   const bathroomFixturesQmJob =
+    !notesTradeFlow &&
     !wholeHomeLayout &&
     String(effectiveTemplateKey || '').toLowerCase() === 'bathroom';
   const showWetAreaFinishSteppers = useMemo(() => {
+    if (notesTradeFlow) return false;
     if (singleTradeImport) return false;
     if (
       shouldShowPlanWetAreaFinishSteppers({
@@ -10447,6 +10601,7 @@ function CollapsibleQuickMeasurements({
     }
     return false;
   }, [
+    notesTradeFlow,
     effectiveTemplateKey,
     bathCountFromPlan,
     wholeHomeLayout,
@@ -11954,6 +12109,7 @@ function CollapsibleQuickMeasurements({
       }
       setMeasurements(prev => {
         const nextItemQuantities = { ...(prev.itemQuantities || {}) };
+        let nextPlumbingScope = prev.plumbingScope;
         const itemMapping: Partial<
           Record<QuickMeasurementFieldKey, { id: string; unit: string }>
         > = {
@@ -11978,6 +12134,28 @@ function CollapsibleQuickMeasurements({
           } else {
             delete nextItemQuantities[mapped.id];
           }
+        }
+        const plumbingCard = PLUMBING_CARDS.find(
+          card => card.measurementKey === key
+        );
+        if (plumbingCard) {
+          const quantity = Number(String(value || '').replace(/,/g, ''));
+          const plumbingScope = [...(prev.plumbingScope || [])];
+          if (Number.isFinite(quantity) && quantity > 0) {
+            nextItemQuantities[plumbingCard.itemId] = {
+              quantity: value,
+              unit: plumbingCard.unit,
+              quantitySource: 'user_entered',
+            };
+            if (!plumbingScope.includes(plumbingCard.itemId)) {
+              plumbingScope.push(plumbingCard.itemId);
+            }
+          } else {
+            delete nextItemQuantities[plumbingCard.itemId];
+            const index = plumbingScope.indexOf(plumbingCard.itemId);
+            if (index >= 0) plumbingScope.splice(index, 1);
+          }
+          nextPlumbingScope = plumbingScope;
         }
         if (String(templateKey || '').toLowerCase() === 'painting') {
           const paintingItemMapping: Partial<
@@ -12073,6 +12251,7 @@ function CollapsibleQuickMeasurements({
         return {
           ...nextMeasurements,
           itemQuantities: nextItemQuantities,
+          plumbingScope: nextPlumbingScope,
           quickMeasurementSources: {
             ...(prev.quickMeasurementSources || {}),
             [key]: 'user_entered',
@@ -12453,6 +12632,21 @@ function CollapsibleQuickMeasurements({
     !shouldRenderGeneralResult(result)
       ? null
       : renderResultField(result, variant, homeGroup, homeIndex);
+  const plumbingMeasurementFlow =
+    (singleTradeImport && tradeKey === 'plumbing') ||
+    ['plumbing', 'plumbing_service'].includes(
+      String(quickMeasurementTemplateKey || '').toLowerCase()
+    );
+  const plumbingOrderedResults = rows
+    .flat()
+    .map(field => resultByKey.get(field.key))
+    .filter((result): result is QuickMeasurementFieldResult =>
+      Boolean(
+        result &&
+        (result.relevant || result.key === 'gasLineLf') &&
+        shouldRenderGeneralResult(result)
+      )
+    );
   const kitchenMeasurementFooter = kitchenQmJob ? (
     <View style={{ gap: 12, marginTop: 8 }}>
       {[
@@ -12746,6 +12940,74 @@ function CollapsibleQuickMeasurements({
       </TouchableOpacity>
       {expanded ? (
         <View style={styles.quickMeasurementsBody}>
+          {notesScopeSelectorVisible ? (
+            <NotesScopeSelector
+              mode={notesTradeMode}
+              disabled={applying}
+              Colors={Colors}
+              darkMode={darkMode}
+              onChange={onNotesTradeModeChange}
+            />
+          ) : null}
+          {false && notesScopeSelectorVisible ? (
+            <View
+              style={{
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: Colors.line,
+                padding: 10,
+                marginBottom: 12,
+              }}
+            >
+              <Text
+                style={{
+                  color: Colors.text,
+                  fontSize: 12,
+                  fontWeight: '800',
+                  marginBottom: 7,
+                }}
+              >
+                Notes estimate scope
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {(
+                  [
+                    ['whole_project', 'Whole Project / General Contractor'],
+                    ['plumbing', 'Single Trade / Plumbing Only'],
+                  ] as Array<['whole_project' | 'plumbing', string]>
+                ).map(([mode, label]) => (
+                  <TouchableOpacity
+                    key={mode}
+                    disabled={applying}
+                    activeOpacity={1}
+                    onPress={() => onNotesTradeModeChange?.(mode)}
+                    style={{
+                      borderRadius: 15,
+                      borderWidth: 1,
+                      borderColor:
+                        notesTradeMode === mode ? '#22c55e' : Colors.line,
+                      backgroundColor:
+                        notesTradeMode === mode
+                          ? 'rgba(34,197,94,0.12)'
+                          : 'transparent',
+                      paddingHorizontal: 9,
+                      paddingVertical: 7,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: Colors.text,
+                        fontSize: 11,
+                        fontWeight: '700',
+                      }}
+                    >
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ) : null}
           <PlanTakeoffConflictChooser
             conflicts={measurementConflicts}
             choices={conflictChoices}
@@ -13268,6 +13530,18 @@ function CollapsibleQuickMeasurements({
                 </View>
               ))}
             </>
+          ) : plumbingMeasurementFlow ? (
+            <View style={styles.quickMeasurementSection}>
+              {sectionTitle('Plumbing measurements')}
+              {plumbingOrderedResults.map((result, index) =>
+                renderDisplayedResultField(
+                  result,
+                  fieldVariantForResult(result),
+                  'plumbing',
+                  index
+                )
+              )}
+            </View>
           ) : (
             <>
               {showWetAreaFinishSteppers && bathroomPhotoWetArea ? (
@@ -13771,6 +14045,9 @@ export default function AIEstimateScopeAssumptionsModal({
     [draft, notesFallback]
   );
   const [items, setItems] = useState<ScopeChecklistItem[]>([]);
+  const baseItemsRef = useRef<ScopeChecklistItem[]>([]);
+  const [notesTradeMode, setNotesTradeMode] =
+    useState<NotesScopeMode>('whole_project');
   const [measurements, setMeasurements] =
     useState<ScopeMeasurementsInputExtended>({
       ...emptyQuickMeasurementInput(),
@@ -13963,6 +14240,26 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const singleTradePlanImport = planImportContext.isSingleTrade;
   const singleTradeKey = planImportContext.tradeKey;
+  const notesScopeSelectorVisible =
+    !planImport &&
+    !singleTradePlanImport &&
+    String(checklist?.templateKey || '').toLowerCase() === 'bathroom';
+  const notesPlumbingFlow =
+    notesScopeSelectorVisible &&
+    (notesTradeMode !== 'whole_project' ||
+      measurements.tradeWorkflowSource === 'standalone_trade');
+  const effectiveNotesTradeMode =
+    notesTradeMode !== 'whole_project'
+      ? notesTradeMode
+      : measurements.plumbingWorkflowMode === 'service'
+        ? 'plumbing_service'
+        : measurements.tradeWorkflowSource === 'standalone_trade'
+          ? 'plumbing'
+          : 'whole_project';
+  const plumbingItemIds = useMemo(
+    () => new Set(PLUMBING_CARDS.map(card => card.itemId)),
+    []
+  );
   const wholeProjectFlow =
     planImport?.estimatingMode === 'whole_project' ||
     ['ground_up', 'whole_project'].includes(
@@ -13990,6 +14287,9 @@ export default function AIEstimateScopeAssumptionsModal({
         'selected_trade',
         singleTradeKey
       );
+    }
+    if (notesPlumbingFlow) {
+      return expanded.filter(item => plumbingItemIds.has(item.id));
     }
     if (stuccoTradeFlow) {
       return buildStuccoTradeChecklistItems(expanded);
@@ -14045,6 +14345,8 @@ export default function AIEstimateScopeAssumptionsModal({
     scopeNotes,
     singleTradePlanImport,
     singleTradeKey,
+    notesPlumbingFlow,
+    plumbingItemIds,
     stuccoTradeFlow,
     measurements.flooringExistingTypes,
     measurements.itemQuantities,
@@ -14404,10 +14706,20 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const scopeItemsForCurrentMeasurements = useCallback(
     (currentItems: ScopeChecklistItem[]) => {
-      if (String(checklist?.templateKey || '').toLowerCase() !== 'electrical') {
-        return currentItems;
-      }
       const currentMeasurements = measurementsRef.current;
+      const currentTemplate = String(
+        checklist?.templateKey || ''
+      ).toLowerCase();
+      if (
+        currentTemplate === 'plumbing' ||
+        currentTemplate === 'plumbing_service'
+      ) {
+        return syncPlumbingScopeItems(currentItems, {
+          plumbingScope: currentMeasurements.plumbingScope,
+          quantities: currentMeasurements as Record<string, unknown>,
+        });
+      }
+      if (currentTemplate !== 'electrical') return currentItems;
       return syncElectricalScopeItems(currentItems, {
         electricalScope: currentMeasurements.electricalScope,
         quantities: currentMeasurements as Partial<Record<string, unknown>>,
@@ -14512,6 +14824,8 @@ export default function AIEstimateScopeAssumptionsModal({
             fieldConfidence: planImport.fieldConfidence,
             quickMeasurementSources: planImport.quickMeasurementSources,
             measurementProvenance: planImport.measurementProvenance,
+            utilityConnections: planImport.utilityConnections,
+            fixtureInventory: planImport.fixtureInventory,
             measurementConflicts: planImport.measurementConflicts,
             planImportFingerprint: planImport.planImportFingerprint,
             estimatingMode: planImport.estimatingMode,
@@ -14552,8 +14866,7 @@ export default function AIEstimateScopeAssumptionsModal({
           ? planImport.selectedTrade
           : draft?.scopeMeasurements?.planImportMode === 'selected_trade'
             ? (draft.scopeMeasurements.planImportTradeKey as
-                | import('@/utils/planImportTradeConfig').PlanTradeKey
-                | null)
+                import('@/utils/planImportTradeConfig').PlanTradeKey | null)
             : null;
       if (hydratedPlanTrade) {
         const allowed = new Set(
@@ -14728,6 +15041,7 @@ export default function AIEstimateScopeAssumptionsModal({
         normalized,
         planImport?.scopeDetections
       ).items;
+      baseItemsRef.current = normalized;
       if (hydrateTradeContext.isSingleTrade && hydrateTradeContext.tradeKey) {
         normalized = filterChecklistItemsForTrade(
           normalized,
@@ -14803,6 +15117,8 @@ export default function AIEstimateScopeAssumptionsModal({
     setElectricalPreviewMeasurements(null);
     livePlanImportHandoffKeyRef.current = '';
     hydratedVisibleSessionRef.current = false;
+    baseItemsRef.current = [];
+    setNotesTradeMode('whole_project');
     setItems([]);
     // Do not clear measurementsRef here. Persist reads measurementsRef above.
     setMeasurements({
@@ -15846,6 +16162,7 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.drainCleaningCount,
     measurements.waterLineLf,
     measurements.sewerLineLf,
+    measurements.gasLineLf,
     measurements.plumbingRoughPointCount,
     measurements.plumbingTrimHookupCount,
     measurements.partsMaterialsCount,
@@ -17314,7 +17631,7 @@ export default function AIEstimateScopeAssumptionsModal({
       const evidence = block.benchmarkEvidence;
       const unitMismatch = Boolean(
         evidence?.primaryTakeoff?.unit &&
-          evidence.benchmarkBasis.unit !== evidence.primaryTakeoff.unit
+        evidence.benchmarkBasis.unit !== evidence.primaryTakeoff.unit
       );
       const validation =
         measurementValidationRequiredForBenchmark() && evidence
@@ -17513,7 +17830,7 @@ export default function AIEstimateScopeAssumptionsModal({
       if (!evidence) return false;
       const unitMismatch = Boolean(
         evidence.primaryTakeoff?.unit &&
-          evidence.primaryTakeoff.unit !== evidence.benchmarkBasis.unit
+        evidence.primaryTakeoff.unit !== evidence.benchmarkBasis.unit
       );
       const validation = measurementValidationRequiredForBenchmark()
         ? validatePricingBasis({
@@ -17531,9 +17848,9 @@ export default function AIEstimateScopeAssumptionsModal({
         : null;
       return Boolean(
         evidence.priceConfidence === 'low' ||
-          evidence.quantityConfidence === 'low' ||
-          unitMismatch ||
-          validation?.requiresExplicitOverride
+        evidence.quantityConfidence === 'low' ||
+        unitMismatch ||
+        validation?.requiresExplicitOverride
       );
     });
 
@@ -18421,7 +18738,9 @@ export default function AIEstimateScopeAssumptionsModal({
             'selected_trade',
             singleTradeKey
           )
-        : baseItems;
+        : notesPlumbingFlow
+          ? baseItems.filter(item => plumbingItemIds.has(item.id))
+          : baseItems;
     const confirmItems = finalizeWetAreaInstallScopeFromMeasurements(
       scopeChecklistItemsForPersist(tradeFilteredItems),
       payload
@@ -18721,10 +19040,62 @@ export default function AIEstimateScopeAssumptionsModal({
               displayItems.find(row => row.id === 'wet_area_install')
                 ?.choiceId ?? null
             }
-            showExistingWetAreaPanel={!hasSitePhotos}
+            showExistingWetAreaPanel={!hasSitePhotos && !notesPlumbingFlow}
             hasSitePhotos={hasSitePhotos}
             singleTradeImport={singleTradePlanImport || stuccoTradeFlow}
-            tradeKey={singleTradePlanImport ? singleTradeKey : 'stucco'}
+            tradeKey={
+              notesPlumbingFlow
+                ? 'plumbing'
+                : singleTradePlanImport
+                  ? singleTradeKey
+                  : 'stucco'
+            }
+            notesTradeFlow={notesPlumbingFlow}
+            notesScopeSelectorVisible={notesScopeSelectorVisible}
+            notesTradeMode={effectiveNotesTradeMode}
+            onNotesTradeModeChange={mode => {
+              startTransition(() => {
+                setNotesTradeMode(mode);
+                if (mode !== 'whole_project') {
+                  const serviceItemIds = new Set([
+                    'service_call',
+                    'fixture_repair',
+                    'fixture_replace',
+                    'drain_cleaning',
+                  ]);
+                  const plumbingItems = PLUMBING_CARDS.filter(card =>
+                    mode === 'plumbing_service'
+                      ? serviceItemIds.has(card.itemId)
+                      : true
+                  ).map(card => ({
+                    id: card.itemId,
+                    label: card.label,
+                    helperText: card.helper,
+                    category: card.groupTitle,
+                    state: 'unsure' as const,
+                  }));
+                  setItems(plumbingItems);
+                  setMeasurementsSynced(prev => ({
+                    ...prev,
+                    tradeWorkflowSource: 'standalone_trade',
+                    plumbingWorkflowMode:
+                      mode === 'plumbing_service'
+                        ? 'service'
+                        : 'bathroom_remodel',
+                    plumbingScope: plumbingItems.map(item => item.id),
+                  }));
+                } else {
+                  setItems(baseItemsRef.current);
+                  setMeasurementsSynced(prev => ({
+                    ...prev,
+                    tradeWorkflowSource: null,
+                    plumbingWorkflowMode: null,
+                    plumbingPerformerMode: null,
+                    plumbingScope: null,
+                  }));
+                }
+              });
+            }}
             Colors={Colors}
             darkMode={darkMode}
             applying={applying}
@@ -19192,6 +19563,9 @@ const styles = StyleSheet.create({
     // stretch/shrink rows and make Needs confirmation feel like it jumps.
     width: '100%',
     minWidth: 0,
+  },
+  measurementFieldPlumbing: {
+    marginBottom: 6,
   },
   measurementFieldSpaced: {
     marginBottom: 2,

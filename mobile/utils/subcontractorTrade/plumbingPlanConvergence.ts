@@ -16,11 +16,22 @@ export type PlumbingQuantityKey =
   | 'drainCleaningCount'
   | 'waterLineLf'
   | 'sewerLineLf'
+  | 'gasLineLf'
   | 'plumbingRoughPointCount'
   | 'plumbingTrimHookupCount'
   | 'partsMaterialsCount'
   | 'emergencyFeeCount'
   | 'plumbingCleanupCount';
+
+export type PlumbingWorkflowMode =
+  | 'bathroom_remodel'
+  | 'new_construction'
+  | 'service';
+
+export type PlumbingPerformerMode =
+  | 'self_performed'
+  | 'subcontracted'
+  | 'existing_quote';
 
 export type PlumbingCardGroupId =
   | 'service'
@@ -59,7 +70,7 @@ const P = (
     {
       service: 'Service / repairs',
       fixtures: 'Fixtures / drain service',
-      lines: 'Water / sewer lines',
+      lines: 'Water / sewer / gas lines',
       rough_trim: 'Rough-in / trim',
       closeout: 'Materials / closeout',
     }[groupId] || groupId,
@@ -87,7 +98,7 @@ export const PLUMBING_CARDS: PlumbingCardDefinition[] = [
     'fixture_replace',
     'fixtureReplacementCount',
     'Plumbing fixture replacement',
-    'Fixture replacement or installation at existing rough. Fixture purchase, trim hookup, and relocated rough-in remain separate when applicable.',
+    'Set, install, or replace fixtures at documented rough. Fixture purchase, trim hookups, and relocated rough-in remain separate.',
     'fixtures',
     'CUSTOM_PRICE'
   ),
@@ -102,7 +113,7 @@ export const PLUMBING_CARDS: PlumbingCardDefinition[] = [
   P(
     'water_line',
     'waterLineLf',
-    'Water line',
+    'Water line piping',
     'Explicit water-supply line work. Quantity is linear feet when documented; do not infer LF from living area or fixture count.',
     'lines',
     'CUSTOM_PRICE',
@@ -111,8 +122,17 @@ export const PLUMBING_CARDS: PlumbingCardDefinition[] = [
   P(
     'sewer_line',
     'sewerLineLf',
-    'Sewer / drain line',
+    'Sewer / drain piping',
     'Explicit sewer, building-drain, or drain-line work. Quantity is linear feet when documented; cleaning and rough-in are separate.',
+    'lines',
+    'CUSTOM_PRICE',
+    'lf'
+  ),
+  P(
+    'gas_line',
+    'gasLineLf',
+    'Gas piping',
+    'Explicit gas piping or gas stub work shown or noted on the plan. Do not infer gas piping from appliance symbols alone.',
     'lines',
     'CUSTOM_PRICE',
     'lf'
@@ -170,19 +190,40 @@ export const PLUMBING_REVIEW_MEASUREMENT_KEYS = [
   ...PLUMBING_QUANTITY_KEYS,
 ] as PlumbingQuantityKey[];
 
-/** Quick-measurement form keys shown for standalone Plumbing imports. */
+/** Physical Plumbing keys shared by Plan Export and Notes/manual flows. */
 export const PLUMBING_QUICK_MEASUREMENT_KEYS = [
-  'serviceCallCount',
-  'fixtureRepairCount',
-  'fixtureReplacementCount',
-  'drainCleaningCount',
-  'waterLineLf',
-  'sewerLineLf',
   'plumbingRoughPointCount',
   'plumbingTrimHookupCount',
-  'partsMaterialsCount',
-  'emergencyFeeCount',
-  'plumbingCleanupCount',
+  'fixtureReplacementCount',
+  'fixtureRepairCount',
+  'waterLineLf',
+  'sewerLineLf',
+  'gasLineLf',
+] as const;
+
+/** Plan Export keys for ground-up/addition Plumbing takeoffs. */
+export const PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS = [
+  'plumbingRoughPointCount',
+  'plumbingTrimHookupCount',
+  'waterLineLf',
+  'sewerLineLf',
+  'gasLineLf',
+] as const;
+
+/** Scope cards that can be confirmed from a ground-up/addition plan. */
+export const PLUMBING_PLAN_SCOPE_ALLOWLIST = [
+  'plumbing_rough',
+  'plumbing_trim',
+  'water_line',
+  'sewer_line',
+  'gas_line',
+] as const;
+
+/** Notes/manual Plumbing Service keys, including explicit service operations. */
+export const PLUMBING_SERVICE_QUICK_MEASUREMENT_KEYS = [
+  ...PLUMBING_QUICK_MEASUREMENT_KEYS,
+  'serviceCallCount',
+  'drainCleaningCount',
 ] as const;
 
 export const PLUMBING_SCOPE_ALLOWLIST = [...PLUMBING_ITEM_IDS] as const;
@@ -193,7 +234,7 @@ export const PLUMBING_CARD_GROUPS: Array<{
 }> = [
   { id: 'service', title: 'Service / repairs' },
   { id: 'fixtures', title: 'Fixtures / drain service' },
-  { id: 'lines', title: 'Water / sewer lines' },
+  { id: 'lines', title: 'Water / sewer / gas lines' },
   { id: 'rough_trim', title: 'Rough-in / trim' },
   { id: 'closeout', title: 'Materials / closeout' },
 ];
@@ -216,6 +257,9 @@ export const PLUMBING_PLAN_ALIASES: Record<string, PlumbingQuantityKey> = {
   sewerLineFeet: 'sewerLineLf',
   drainLineLf: 'sewerLineLf',
   sewerLineLf: 'sewerLineLf',
+  gasLineFeet: 'gasLineLf',
+  gasPipingLf: 'gasLineLf',
+  gasLineLf: 'gasLineLf',
   roughInPoints: 'plumbingRoughPointCount',
   roughInPointCount: 'plumbingRoughPointCount',
   plumbingRoughPoints: 'plumbingRoughPointCount',

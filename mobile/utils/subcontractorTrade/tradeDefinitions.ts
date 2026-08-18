@@ -8,7 +8,7 @@ import {
 } from './electricalPlanConvergence';
 import {
   PLUMBING_CARDS,
-  PLUMBING_QUICK_MEASUREMENT_KEYS,
+  PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS,
   PLUMBING_REVIEW_MEASUREMENT_KEYS,
 } from './plumbingPlanConvergence';
 import { getTradeMeasurementSchema } from './measurementSchemas';
@@ -291,11 +291,12 @@ const PLUMBING_DEFINITION: SubcontractorTradeDefinition = {
   status: 'complete',
   standaloneTemplateKey: 'plumbing_service',
   scopeHint:
-    'Focus on plumbing plans, fixture schedules, risers, water/sewer lines, rough-in points, and plumbing notes. Map explicit quantities onto the canonical Plumbing cards; do not infer quantities from living area.',
+    'Focus on plumbing plans, fixture schedules, risers, water/sewer/gas lines, rough-in points, and plumbing notes. Map explicit quantities onto the canonical Plumbing cards; do not infer quantities from living area or appliance symbols.',
   missingInfo: [
     'Fixture and connection counts',
     'Rough-in points and access conditions',
     'Water, sewer, and drain-line lengths',
+    'Documented gas piping or gas stubs when present',
     'Repair, service, and allowance details',
   ],
   measurements: getTradeMeasurementSchema('plumbing'),
@@ -316,10 +317,13 @@ const PLUMBING_DEFINITION: SubcontractorTradeDefinition = {
     'drain',
     'sewer',
     'water line',
+    'gas',
+    'gas line',
+    'gas piping',
     'rough-in',
     'rough in',
   ],
-  quickMeasurementFieldKeys: [...PLUMBING_QUICK_MEASUREMENT_KEYS],
+  quickMeasurementFieldKeys: [...PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS],
 };
 
 export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<

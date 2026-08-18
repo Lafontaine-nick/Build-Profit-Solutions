@@ -2,7 +2,7 @@
  * Step 1 "Import from plan" strip — camera / library / PDF → review modal.
  * Measurements + scope detections are returned to the parent for Generate handoff.
  */
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -37,6 +37,10 @@ import {
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
+import type {
+  PlumbingPerformerMode,
+  PlumbingWorkflowMode,
+} from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { ELECTRICAL_CARDS } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { hydratePaintingPlanMeasurements } from '@/utils/hydratePaintingPlanMeasurements';
 import { electricalQuickMeasurementSourceFromProvenance } from '@/utils/electricalQuickMeasurementUi';
@@ -223,8 +227,7 @@ export type PlanImportApplyResult = {
     widthFt?: number | null;
   }>;
   areaReconciliation?:
-    | import('@/utils/measurementSemantics').AreaReconciliation
-    | null;
+    import('@/utils/measurementSemantics').AreaReconciliation | null;
   buildingAreas?: import('@/utils/planMeasurementFacts').PlanBuildingAreas;
   planFacts?: import('@/utils/planMeasurementFacts').PlanFacts;
   fieldConfidence?: Record<string, number>;
@@ -257,6 +260,13 @@ type Props = {
   /** Optional template/project hints once known; Step 1 usually has none yet. */
   templateKeyHint?: string | null;
   projectTypeHint?: string | null;
+  /** Lock Plan Import to the standalone trade selected in Build With AI. */
+  forcedTradeKey?: PlanTradeKey | null;
+  disablePlanImport?: boolean;
+  plumbingWorkflowMode?: PlumbingWorkflowMode;
+  plumbingPerformerMode?: PlumbingPerformerMode | null;
+  onPlumbingWorkflowModeChange?: (mode: PlumbingWorkflowMode) => void;
+  onPlumbingPerformerModeChange?: (mode: PlumbingPerformerMode | null) => void;
   onApplied: (result: PlanImportApplyResult) => void;
 };
 
@@ -268,6 +278,12 @@ export default function EstimatePlanImportStrip({
   planReadySubtitle = null,
   templateKeyHint = null,
   projectTypeHint = null,
+  forcedTradeKey = null,
+  disablePlanImport = false,
+  plumbingWorkflowMode = 'bathroom_remodel',
+  plumbingPerformerMode = null,
+  onPlumbingWorkflowModeChange,
+  onPlumbingPerformerModeChange,
   onApplied,
 }: Props) {
   const [importing, setImporting] = useState(false);
@@ -276,12 +292,33 @@ export default function EstimatePlanImportStrip({
   );
   const [planReview, setPlanReview] = useState<PlanReviewState | null>(null);
   const [showImportChooser, setShowImportChooser] = useState(false);
-  const [estimatingMode, setEstimatingMode] =
-    useState<PlanEstimatingMode>('whole_project');
-  const [selectedTrade, setSelectedTrade] = useState<PlanTradeKey | null>(null);
+  const [estimatingMode, setEstimatingMode] = useState<PlanEstimatingMode>(
+    forcedTradeKey ? 'selected_trade' : 'whole_project'
+  );
+  const [selectedTrade, setSelectedTrade] = useState<PlanTradeKey | null>(
+    forcedTradeKey
+  );
   const planReady = Boolean(planReadySubtitle?.trim());
-  const showPlanRouting = showImportChooser || planReady || planReview != null;
+  const routingLocked = Boolean(forcedTradeKey);
+  const showPlanRouting =
+    routingLocked || showImportChooser || planReady || planReview != null;
   const semanticsOn = measurementSemanticsV1Enabled();
+  const plumbingPlanDisabled = disablePlanImport;
+
+  useEffect(() => {
+    if (forcedTradeKey) {
+      setEstimatingMode('selected_trade');
+      setSelectedTrade(forcedTradeKey);
+    }
+  }, [forcedTradeKey]);
+
+  const updateRouting = (
+    nextMode: PlanEstimatingMode,
+    nextTrade: PlanTradeKey | null
+  ) => {
+    setEstimatingMode(nextMode);
+    setSelectedTrade(nextTrade);
+  };
 
   const executeTakeoff = useCallback(
     async (
@@ -379,7 +416,7 @@ export default function EstimatePlanImportStrip({
   );
 
   const onCamera = useCallback(async () => {
-    if (importing || disabled) return;
+    if (importing || disabled || plumbingPlanDisabled) return;
     try {
       const assets = await takePlanPhoto();
       if (!assets?.length) return;
@@ -391,10 +428,10 @@ export default function EstimatePlanImportStrip({
         e instanceof Error ? e.message : 'Could not take a photo.'
       );
     }
-  }, [importing, disabled, executeTakeoff]);
+  }, [importing, disabled, plumbingPlanDisabled, executeTakeoff]);
 
   const onLibrary = useCallback(async () => {
-    if (importing || disabled) return;
+    if (importing || disabled || plumbingPlanDisabled) return;
     try {
       const assets = await pickPlanFromLibrary();
       if (!assets?.length) return;
@@ -406,10 +443,10 @@ export default function EstimatePlanImportStrip({
         e instanceof Error ? e.message : 'Could not open photos.'
       );
     }
-  }, [importing, disabled, executeTakeoff]);
+  }, [importing, disabled, plumbingPlanDisabled, executeTakeoff]);
 
   const onPdf = useCallback(async () => {
-    if (importing || disabled) return;
+    if (importing || disabled || plumbingPlanDisabled) return;
     try {
       const pages = await pickPlanPdf();
       if (!pages?.length) return;
@@ -420,14 +457,15 @@ export default function EstimatePlanImportStrip({
         e instanceof Error ? e.message : 'Could not read the PDF.'
       );
     }
-  }, [importing, disabled, executeTakeoff]);
+  }, [importing, disabled, plumbingPlanDisabled, executeTakeoff]);
 
   const openPicker = useCallback(() => {
     if (importing || disabled) return;
-    if (!showImportChooser) {
+    if (!showImportChooser && !routingLocked) {
       setShowImportChooser(true);
       return;
     }
+    if (plumbingPlanDisabled) return;
     if (estimatingMode === 'selected_trade' && !selectedTrade) {
       Alert.alert(
         'Select a trade',
@@ -443,7 +481,9 @@ export default function EstimatePlanImportStrip({
   }, [
     importing,
     disabled,
+    plumbingPlanDisabled,
     showImportChooser,
+    routingLocked,
     estimatingMode,
     selectedTrade,
     onCamera,
@@ -465,6 +505,8 @@ export default function EstimatePlanImportStrip({
         measurementProvenance?: PlanToMeasurementsResult['measurementProvenance'];
         measurementConflicts?: PlanToMeasurementsResult['measurementConflicts'];
         electricalValidation?: PlanToMeasurementsResult['electricalValidation'];
+        utilityConnections?: PlanToMeasurementsResult['utilityConnections'];
+        fixtureInventory?: PlanToMeasurementsResult['fixtureInventory'];
       }
     ) => {
       const takeoff = planReview;
@@ -637,6 +679,10 @@ export default function EstimatePlanImportStrip({
           metadata?.electricalValidation ??
           takeoff.electricalValidation ??
           null,
+        utilityConnections:
+          metadata?.utilityConnections ?? takeoff.utilityConnections,
+        fixtureInventory:
+          metadata?.fixtureInventory ?? takeoff.fixtureInventory,
         estimatingMode: selection.mode,
         selectedTrade: selection.trade?.key || null,
         tradeProvenance: {
@@ -677,7 +723,10 @@ export default function EstimatePlanImportStrip({
       : darkMode
         ? 'rgba(34,197,94,0.08)'
         : 'rgba(34,197,94,0.06)',
-    opacity: importing || disabled ? 0.55 : 1,
+    opacity:
+      importing || disabled || (plumbingPlanDisabled && showPlanRouting)
+        ? 0.55
+        : 1,
   };
 
   return (
@@ -716,35 +765,44 @@ export default function EstimatePlanImportStrip({
             What are you estimating?
           </Text>
           <View style={{ gap: 8, marginBottom: 10 }}>
+            {!routingLocked ? (
+              <TouchableOpacity
+                onPress={() => {
+                  updateRouting('whole_project', null);
+                }}
+                style={{
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor:
+                    estimatingMode === 'whole_project'
+                      ? '#22c55e'
+                      : Colors.line,
+                  backgroundColor:
+                    estimatingMode === 'whole_project'
+                      ? 'rgba(34,197,94,0.12)'
+                      : 'transparent',
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                }}
+              >
+                <Text
+                  style={{
+                    color: Colors.text,
+                    fontSize: 12,
+                    fontWeight: '700',
+                  }}
+                >
+                  Whole Project / General Contractor
+                </Text>
+                <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
+                  Estimate multiple trades from the full plan set.
+                </Text>
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               onPress={() => {
-                setEstimatingMode('whole_project');
-                setSelectedTrade(null);
+                updateRouting('selected_trade', forcedTradeKey);
               }}
-              style={{
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor:
-                  estimatingMode === 'whole_project' ? '#22c55e' : Colors.line,
-                backgroundColor:
-                  estimatingMode === 'whole_project'
-                    ? 'rgba(34,197,94,0.12)'
-                    : 'transparent',
-                paddingHorizontal: 12,
-                paddingVertical: 10,
-              }}
-            >
-              <Text
-                style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}
-              >
-                Whole Project / General Contractor
-              </Text>
-              <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
-                Estimate multiple trades from the full plan set.
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setEstimatingMode('selected_trade')}
               style={{
                 borderRadius: 12,
                 borderWidth: 1,
@@ -761,10 +819,14 @@ export default function EstimatePlanImportStrip({
               <Text
                 style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}
               >
-                Single Trade / Subcontractor
+                {routingLocked
+                  ? 'Single Trade / Plumbing Only'
+                  : 'Single Trade / Subcontractor'}
               </Text>
               <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
-                Build an estimate for one trade only.
+                {routingLocked
+                  ? 'Import plan quantities for the Plumbing-only estimate.'
+                  : 'Build an estimate for one trade only.'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -788,10 +850,15 @@ export default function EstimatePlanImportStrip({
                   marginBottom: 10,
                 }}
               >
-                {PLAN_EXPORT_TRADE_CONFIGURATIONS.map(trade => (
+                {(routingLocked
+                  ? PLAN_EXPORT_TRADE_CONFIGURATIONS.filter(
+                      trade => trade.key === forcedTradeKey
+                    )
+                  : PLAN_EXPORT_TRADE_CONFIGURATIONS
+                ).map(trade => (
                   <TouchableOpacity
                     key={trade.key}
-                    onPress={() => setSelectedTrade(trade.key)}
+                    onPress={() => updateRouting('selected_trade', trade.key)}
                     style={{
                       borderRadius: 16,
                       borderWidth: 1,
@@ -838,11 +905,121 @@ export default function EstimatePlanImportStrip({
                 : `${PLAN_EXPORT_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)?.label || PLAN_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)?.label || 'Trade'} plan selected — we will focus on relevant sheets and quantities.`}
             </Text>
           ) : null}
+          {false && selectedTrade === 'plumbing' ? (
+            <View
+              style={{
+                borderTopWidth: 1,
+                borderTopColor: Colors.line,
+                paddingTop: 10,
+                marginBottom: 10,
+              }}
+            >
+              <Text
+                style={{
+                  color: Colors.text,
+                  fontSize: 12,
+                  fontWeight: '700',
+                  marginBottom: 6,
+                }}
+              >
+                Plumbing scope
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {(
+                  [
+                    ['bathroom_remodel', 'Bathroom Remodel'],
+                    ['new_construction', 'New Construction'],
+                    ['service', 'Service'],
+                  ] as Array<[PlumbingWorkflowMode, string]>
+                ).map(([mode, label]) => (
+                  <TouchableOpacity
+                    key={mode}
+                    disabled={disabled}
+                    onPress={() => onPlumbingWorkflowModeChange?.(mode)}
+                    style={{
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor:
+                        plumbingWorkflowMode === mode ? '#22c55e' : Colors.line,
+                      backgroundColor:
+                        plumbingWorkflowMode === mode
+                          ? 'rgba(34,197,94,0.12)'
+                          : 'transparent',
+                      paddingHorizontal: 9,
+                      paddingVertical: 6,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: Colors.text,
+                        fontSize: 11,
+                        fontWeight: '700',
+                      }}
+                    >
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text
+                style={{
+                  color: Colors.text,
+                  fontSize: 12,
+                  fontWeight: '700',
+                  marginTop: 10,
+                  marginBottom: 6,
+                }}
+              >
+                Performer
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {(
+                  [
+                    ['self_performed', 'I do the work'],
+                    ['subcontracted', 'I hire a plumber'],
+                    ['existing_quote', 'Existing quote'],
+                  ] as Array<[PlumbingPerformerMode, string]>
+                ).map(([mode, label]) => (
+                  <TouchableOpacity
+                    key={mode}
+                    disabled={disabled}
+                    onPress={() => onPlumbingPerformerModeChange?.(mode)}
+                    style={{
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor:
+                        plumbingPerformerMode === mode
+                          ? '#22c55e'
+                          : Colors.line,
+                      backgroundColor:
+                        plumbingPerformerMode === mode
+                          ? 'rgba(34,197,94,0.12)'
+                          : 'transparent',
+                      paddingHorizontal: 9,
+                      paddingVertical: 6,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: Colors.text,
+                        fontSize: 11,
+                        fontWeight: '700',
+                      }}
+                    >
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ) : null}
         </>
       ) : null}
       <TouchableOpacity
         onPress={openPicker}
-        disabled={importing || disabled}
+        disabled={
+          importing || disabled || (plumbingPlanDisabled && showPlanRouting)
+        }
         activeOpacity={0.75}
         style={[
           {
@@ -904,11 +1081,13 @@ export default function EstimatePlanImportStrip({
               fontWeight: '400',
             }}
           >
-            {planReady
-              ? semanticsOn
-                ? 'Tap Generate Estimate Draft below — job notes are optional. Tap here to import a different plan.'
-                : 'Review Job notes, then Generate. Tap here to import a different plan.'
-              : 'Photo, library pages, or PDF — you review before Generate'}
+            {plumbingPlanDisabled
+              ? 'Notes and photos are used for this Plumbing mode.'
+              : planReady
+                ? semanticsOn
+                  ? 'Tap Generate Estimate Draft below — job notes are optional. Tap here to import a different plan.'
+                  : 'Review Job notes, then Generate. Tap here to import a different plan.'
+                : 'Photo, library pages, or PDF — you review before Generate'}
           </Text>
         </View>
       </TouchableOpacity>

@@ -5,6 +5,10 @@ import {
   type LegacyPlanTradeKey,
   type SubcontractorTradeKey,
 } from '@/utils/subcontractorTrade';
+import {
+  PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS,
+  PLUMBING_PLAN_SCOPE_ALLOWLIST,
+} from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 
 export type PlanEstimatingMode = 'whole_project' | 'selected_trade';
 
@@ -30,7 +34,10 @@ function subcontractorDefinitionToPlanConfig(
   return {
     key: def.key,
     label: def.label,
-    status: def.status === 'reference' || def.status === 'complete' ? 'reference' : 'stub',
+    status:
+      def.status === 'reference' || def.status === 'complete'
+        ? 'reference'
+        : 'stub',
     scopeHint: def.scopeHint,
     missingInfo: def.missingInfo,
     reviewMeasurementKeys: def.reviewMeasurementKeys,
@@ -134,7 +141,10 @@ export function filterPlanMeasurementsForTrade(
 ): Record<string, number | string> {
   if (mode !== 'selected_trade') return measurements;
   const config = getPlanTradeConfiguration(tradeKey);
-  const allowed = config?.reviewMeasurementKeys || [];
+  const allowed =
+    tradeKey === 'plumbing'
+      ? [...PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS]
+      : config?.reviewMeasurementKeys || [];
   return Object.fromEntries(
     Object.entries(measurements || {}).filter(([key]) => allowed.includes(key))
   );
@@ -170,7 +180,10 @@ export function filterPlanScopesForTrade<
   tradeKey?: PlanTradeKey | null
 ): T[] {
   if (mode !== 'selected_trade') return detections;
-  const allowedIds = getTradeScopeAllowlist(tradeKey);
+  const allowedIds =
+    tradeKey === 'plumbing'
+      ? [...PLUMBING_PLAN_SCOPE_ALLOWLIST]
+      : getTradeScopeAllowlist(tradeKey);
   const keepDetection = (detection: T) => {
     const itemId = String(detection.itemId || '').trim();
     if (
@@ -198,7 +211,10 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
   tradeKey?: PlanTradeKey | null
 ): T[] {
   if (mode !== 'selected_trade') return items;
-  const allowed = getTradeScopeAllowlist(tradeKey);
+  const allowed =
+    tradeKey === 'plumbing'
+      ? [...PLUMBING_PLAN_SCOPE_ALLOWLIST]
+      : getTradeScopeAllowlist(tradeKey);
   return allowed ? items.filter(item => allowed.includes(item.id)) : items;
 }
 
@@ -289,6 +305,7 @@ export function resolveSingleTradePlanContext(
     planImport?: {
       estimatingMode?: PlanEstimatingMode;
       selectedTrade?: PlanTradeKey | null;
+      tradeWorkflowSource?: 'standalone_trade' | null;
     } | null;
   } = {}
 ): { isSingleTrade: boolean; tradeKey: PlanTradeKey | null } {
@@ -301,15 +318,17 @@ export function resolveSingleTradePlanContext(
     sources.draftScopeMeasurements?.planImportTradeKey ??
     sources.planImport?.selectedTrade ??
     null;
-  const isSingleTrade = mode === 'selected_trade' && Boolean(tradeKey);
+  const isStandaloneTrade =
+    sources.planImport?.tradeWorkflowSource === 'standalone_trade';
+  const isSingleTrade =
+    mode === 'selected_trade' && Boolean(tradeKey) && !isStandaloneTrade;
   return { isSingleTrade, tradeKey: isSingleTrade ? tradeKey : null };
 }
 
 /** Drop whole-project quick measurements and scope quantities for trade-only Step 2. */
-export function stripScopeInputForSingleTrade<T extends Record<string, unknown>>(
-  input: T,
-  tradeKey: PlanTradeKey | null
-): T {
+export function stripScopeInputForSingleTrade<
+  T extends Record<string, unknown>,
+>(input: T, tradeKey: PlanTradeKey | null): T {
   const allowedQm = new Set(tradeQuickMeasurementFieldKeys(tradeKey));
   const next = { ...input };
   for (const key of WHOLE_PROJECT_QUICK_MEASUREMENT_KEYS) {

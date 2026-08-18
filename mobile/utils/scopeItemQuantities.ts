@@ -17,13 +17,16 @@ import {
   ELECTRICAL_CARDS,
   type ElectricalQuantityKey,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
-import type { PlumbingQuantityKey } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
+  PLUMBING_CARDS,
   hasDetailedPlumbingRoughQuantities,
   hasDetailedPlumbingTrimQuantities,
   plumbingMeasurementKeyForItemId,
   shouldAutoPricePlumbingRoughPackage,
   shouldAutoPricePlumbingTrimPackage,
+  type PlumbingPerformerMode,
+  type PlumbingQuantityKey,
+  type PlumbingWorkflowMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
   isElectricalServicePanelItemId,
@@ -1295,7 +1298,7 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     material: 100,
     labor: 200,
     sourceLabel:
-      'Suggested budget split · National Average · plumbing fixture replacement at existing rough',
+      'Suggested budget split · National Average · plumbing fixture setting at documented rough',
     trade: 'plumbing',
     category: 'fixtures',
     pricingMethod: 'material_labor',
@@ -1325,6 +1328,16 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     material: 12,
     labor: 38,
     sourceLabel: 'Suggested budget split · National Average · sewer/drain line',
+    trade: 'plumbing',
+    category: 'lines',
+    pricingMethod: 'material_labor',
+  },
+  gas_line: {
+    unit: 'lf',
+    material: 10,
+    labor: 20,
+    sourceLabel:
+      'Suggested budget split · National Average · documented gas piping',
     trade: 'plumbing',
     category: 'lines',
     pricingMethod: 'material_labor',
@@ -5497,8 +5510,8 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     allowedUnits: ['each', 'allowance', 'lump_sum'],
     requiresUserQuantity: true,
     quantityHelper:
-      'Enter the number of plumbing fixtures replaced or installed at existing rough.',
-    missingMessage: 'Enter fixture-replacement quantity or pricing.',
+      'Enter the number of plumbing fixtures set, installed, or replaced at documented rough. Trim and final connections are separate.',
+    missingMessage: 'Enter fixture-installation quantity or pricing.',
   },
   drain_cleaning: {
     defaultUnit: 'each',
@@ -5523,6 +5536,14 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper:
       'Enter documented sewer/drain-line length in LF. Cleaning and rough-in are separate.',
     missingMessage: 'Enter sewer/drain-line LF or pricing.',
+  },
+  gas_line: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter documented gas-piping length in LF. Include only explicit gas piping or gas stubs.',
+    missingMessage: 'Enter gas-piping LF or pricing.',
   },
   parts_materials: {
     defaultUnit: 'allowance',
@@ -6374,6 +6395,7 @@ export function normalizeScopeMeasurements(
     drainCleaningCount: num(measurements?.drainCleaningCount),
     waterLineLf: num(measurements?.waterLineLf),
     sewerLineLf: num(measurements?.sewerLineLf),
+    gasLineLf: num(measurements?.gasLineLf),
     plumbingRoughPointCount: num(measurements?.plumbingRoughPointCount),
     plumbingTrimHookupCount: num(measurements?.plumbingTrimHookupCount),
     partsMaterialsCount: num(measurements?.partsMaterialsCount),
@@ -7795,6 +7817,7 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
     drain_cleaning: { unit: 'lf' },
     water_line: { unit: 'lf' },
     sewer_line: { unit: 'lf' },
+    gas_line: { unit: 'lf' },
     mobilization: { unit: 'allowance' },
     emergency_fee: { unit: 'allowance' },
     parts_materials: { unit: 'allowance' },
@@ -8820,6 +8843,19 @@ export function syncItemQuantitiesToMeasurementFields(
   }
   for (const card of ELECTRICAL_CARDS) {
     if (card.measurementKey === 'serviceAmperage') continue;
+    const entry = safeInput.itemQuantities?.[card.itemId];
+    if (!entry?.quantity) continue;
+    if (
+      !EXPLICIT_ITEM_QUANTITY_SOURCES.has(
+        entry.quantitySource || 'user_entered'
+      )
+    )
+      continue;
+    const quantity = Number(String(entry.quantity).replace(/,/g, ''));
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    (next as Record<string, unknown>)[card.measurementKey] = String(quantity);
+  }
+  for (const card of PLUMBING_CARDS) {
     const entry = safeInput.itemQuantities?.[card.itemId];
     if (!entry?.quantity) continue;
     if (
@@ -17184,7 +17220,10 @@ export function buildNormalizedScopeMeasurementsFromInput(
     ...(input || {}),
     itemQuantities: input?.itemQuantities || {},
   };
-  let extended = syncItemQuantitiesToMeasurementFields(safeInput);
+  let extended = syncPlumbingQuantitiesIntoItemQuantities(
+    syncItemQuantitiesToMeasurementFields(safeInput),
+    options?.templateKey
+  );
   const notes = String(options?.notes || '').trim();
   if (notes) {
     extended = reparseRatePricingIntoItemQuantities(
@@ -17227,7 +17266,10 @@ export function scopeMeasurementsPayloadForPersist(
     ...(input || {}),
     itemQuantities: input?.itemQuantities || {},
   };
-  let extended = syncItemQuantitiesToMeasurementFields(safeInput);
+  let extended = syncPlumbingQuantitiesIntoItemQuantities(
+    syncItemQuantitiesToMeasurementFields(safeInput),
+    options?.templateKey
+  );
   const notes = String(options?.notes || '').trim();
   if (notes) {
     extended = reparseRatePricingIntoItemQuantities(
@@ -17245,6 +17287,38 @@ export function scopeMeasurementsPayloadForPersist(
     options?.templateKey
   );
   return scopeMeasurementsToPayload(extended);
+}
+
+function syncPlumbingQuantitiesIntoItemQuantities(
+  extended: ScopeMeasurementsInputExtended,
+  templateKey?: string | null
+): ScopeMeasurementsInputExtended {
+  const template = String(templateKey || '').toLowerCase();
+  const isPlumbing = template === 'plumbing' || template === 'plumbing_service';
+  if (!isPlumbing && !Array.isArray(extended.plumbingScope)) {
+    return extended;
+  }
+  const nextQuantities = { ...(extended.itemQuantities || {}) };
+  let changed = false;
+  for (const card of PLUMBING_CARDS) {
+    const raw = (extended as Record<string, unknown>)[card.measurementKey];
+    const quantity = Number(String(raw ?? '').replace(/,/g, ''));
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    const existing = nextQuantities[card.itemId];
+    if (Number(existing?.quantity) > 0) continue;
+    const source =
+      extended.quickMeasurementSources?.[card.measurementKey] ===
+      'plan_detected'
+        ? 'plan_detected'
+        : 'user_entered';
+    nextQuantities[card.itemId] = {
+      quantity: String(quantity),
+      unit: card.unit,
+      quantitySource: source,
+    };
+    changed = true;
+  }
+  return changed ? { ...extended, itemQuantities: nextQuantities } : extended;
 }
 
 function syncElectricalQuantitiesIntoItemQuantities(
@@ -18085,6 +18159,9 @@ export function scopeMeasurementsToPayload(
     planImportMissingInfo: Array.isArray(input.planImportMissingInfo)
       ? input.planImportMissingInfo
       : undefined,
+    plumbingWorkflowMode: input.plumbingWorkflowMode ?? null,
+    plumbingPerformerMode: input.plumbingPerformerMode ?? null,
+    tradeWorkflowSource: input.tradeWorkflowSource ?? null,
     areaReconciliation: input.areaReconciliation,
   };
   return payload;
@@ -18732,6 +18809,9 @@ export function scopeMeasurementsInputFromPayload(
     planImportTradeKey: payload.planImportTradeKey ?? null,
     planImportFingerprint: payload.planImportFingerprint ?? null,
     planImportMissingInfo: payload.planImportMissingInfo ?? [],
+    plumbingWorkflowMode: payload.plumbingWorkflowMode ?? null,
+    plumbingPerformerMode: payload.plumbingPerformerMode ?? null,
+    tradeWorkflowSource: payload.tradeWorkflowSource ?? null,
     areaReconciliation: payload.areaReconciliation,
   };
 }
@@ -18842,6 +18922,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   concreteDecorativeFinish?: ScopeMeasurements['concreteDecorativeFinish'];
   complexFormingLf?: string | number | null;
   additionalHaulOffLoadCount?: string | number | null;
+  plumbingScope?: ScopeMeasurements['plumbingScope'];
   tradeScopeSelections?: ScopeMeasurements['tradeScopeSelections'];
   planRooms?: import('@/utils/estimateAiDraft').ScopeMeasurements['planRooms'];
   flooringExistingTypes?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringExistingTypes'];
@@ -18862,6 +18943,9 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   paintApplicationMethod?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintApplicationMethod'];
   paintOccupancyConfirmed?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintOccupancyConfirmed'];
   paintApplicationMethodConfirmed?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintApplicationMethodConfirmed'];
+  plumbingWorkflowMode?: PlumbingWorkflowMode | null;
+  plumbingPerformerMode?: PlumbingPerformerMode | null;
+  tradeWorkflowSource?: 'standalone_trade' | null;
   cabinetMeasurementMethod?: import('@/utils/estimateAiDraft').ScopeMeasurements['cabinetMeasurementMethod'];
   paintAreaBasis?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintAreaBasis'];
   paintAreaNeedsConfirmation?: boolean | null;

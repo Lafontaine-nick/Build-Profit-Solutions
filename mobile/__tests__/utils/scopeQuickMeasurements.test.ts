@@ -191,14 +191,21 @@ describe('scopeQuickMeasurements', () => {
     const keys = quickMeasurementRowsForTemplate('plumbing_service', 'plumbing')
       .flat()
       .map(field => field.key);
-    expect(keys).toEqual(
+    expect(keys).toEqual([
+      'plumbingRoughPointCount',
+      'plumbingTrimHookupCount',
+      'fixtureReplacementCount',
+      'fixtureRepairCount',
+      'waterLineLf',
+      'sewerLineLf',
+    ]);
+    expect(keys).not.toEqual(
       expect.arrayContaining([
-        'plumbingRoughPointCount',
-        'plumbingTrimHookupCount',
-        'fixtureReplacementCount',
-        'waterLineLf',
-        'sewerLineLf',
         'drainCleaningCount',
+        'serviceCallCount',
+        'partsMaterialsCount',
+        'emergencyFeeCount',
+        'plumbingCleanupCount',
       ])
     );
     expect(keys).not.toContain('floorAreaSqft');
@@ -229,6 +236,92 @@ describe('scopeQuickMeasurements', () => {
     expect(fields.map(field => field.key)).toEqual(
       expect.arrayContaining(['plumbingRoughPointCount', 'waterLineLf'])
     );
+  });
+
+  it('uses a physical-only Plumbing projection for Plan Export', () => {
+    const rows = quickMeasurementRowsForInput(
+      'plumbing_service',
+      'ground_up',
+      {
+        serviceCallCount: '1',
+        fixtureRepairCount: '2',
+        partsMaterialsCount: '1',
+      },
+      [],
+      { plumbingPlanImport: true }
+    );
+    expect(rows.flat().map(field => field.key)).toEqual([
+      'plumbingRoughPointCount',
+      'plumbingTrimHookupCount',
+      'waterLineLf',
+      'sewerLineLf',
+      'gasLineLf',
+    ]);
+    expect(rows.flat().find(field => field.key === 'waterLineLf')?.label).toBe(
+      'Underground water service / under-slab piping'
+    );
+    expect(rows.flat().find(field => field.key === 'sewerLineLf')?.label).toBe(
+      'Underground sewer / drain / under-slab DWV'
+    );
+    expect(rows.flat().map(field => field.key)).not.toEqual(
+      expect.arrayContaining([
+        'fixtureRepairCount',
+        'serviceCallCount',
+        'drainCleaningCount',
+        'partsMaterialsCount',
+        'emergencyFeeCount',
+        'plumbingCleanupCount',
+      ])
+    );
+  });
+
+  it('keeps explicit service rows for Notes/manual Plumbing flows', () => {
+    const rows = quickMeasurementRowsForInput(
+      'plumbing_service',
+      'room_remodel',
+      {
+        emergencyFeeCount: '1',
+        plumbingCleanupCount: '1',
+      },
+      [],
+      { plumbingNotesFlow: true }
+    );
+    expect(rows.flat().map(field => field.key)).toEqual([
+      'plumbingRoughPointCount',
+      'plumbingTrimHookupCount',
+      'fixtureReplacementCount',
+      'fixtureRepairCount',
+      'waterLineLf',
+      'sewerLineLf',
+      'serviceCallCount',
+      'drainCleaningCount',
+    ]);
+    expect(rows.flat().map(field => field.key)).not.toEqual(
+      expect.arrayContaining([
+        'partsMaterialsCount',
+        'emergencyFeeCount',
+        'plumbingCleanupCount',
+      ])
+    );
+  });
+
+  it('uses service-only rows for standalone Plumbing Service mode', () => {
+    const rows = quickMeasurementRowsForInput(
+      'plumbing_service',
+      'simple_unit',
+      {},
+      [],
+      {
+        plumbingNotesFlow: true,
+        plumbingWorkflowMode: 'service',
+      }
+    );
+    expect(rows.flat().map(field => field.key)).toEqual([
+      'serviceCallCount',
+      'fixtureRepairCount',
+      'fixtureReplacementCount',
+      'drainCleaningCount',
+    ]);
   });
 
   it('keeps kitchen quick fields when checklist is kitchen even if projectType is flooring', () => {

@@ -26,11 +26,11 @@ export const PLUMBING_PRICING_OWNERSHIP: PlumbingPricingOwnership[] = [
   },
   {
     itemId: 'fixture_replace',
-    owns: ['fixture replacement or installation at existing rough'],
+    owns: ['fixture setting, installation, or replacement at documented rough'],
     excludes: [
       'fixture purchase allowance',
       'new rough-in',
-      'trim beyond included hookup',
+      'trim and final connection work',
     ],
   },
   {
@@ -47,6 +47,15 @@ export const PLUMBING_PRICING_OWNERSHIP: PlumbingPricingOwnership[] = [
     itemId: 'sewer_line',
     owns: ['sewer, waste, or drain-line replacement'],
     excludes: ['drain cleaning', 'fixture rough-in', 'fixture trim'],
+  },
+  {
+    itemId: 'gas_line',
+    owns: ['documented gas piping and gas stubs'],
+    excludes: [
+      'appliance purchase',
+      'fixture rough-in',
+      'unverified gas routing',
+    ],
   },
   {
     itemId: 'drain_cleaning',

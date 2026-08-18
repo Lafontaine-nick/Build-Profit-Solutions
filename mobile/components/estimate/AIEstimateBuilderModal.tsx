@@ -46,6 +46,10 @@ import {
   stripPlanTakeoffFromNotes,
 } from '@/utils/planTakeoffReviewUi';
 import { getPlanTradeConfiguration } from '@/utils/planImportTradeConfig';
+import type {
+  PlumbingPerformerMode,
+  PlumbingWorkflowMode,
+} from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 
 type Props = {
   visible: boolean;
@@ -130,6 +134,11 @@ export default function AIEstimateBuilderModal({
     hasAnalyzed: false,
   });
   const [planImport, setPlanImport] = useState<PlanImportPayload | null>(null);
+  const [plumbingOnly, setPlumbingOnly] = useState(false);
+  const [plumbingWorkflowMode, setPlumbingWorkflowMode] =
+    useState<PlumbingWorkflowMode>('bathroom_remodel');
+  const [plumbingPerformerMode, setPlumbingPerformerMode] =
+    useState<PlumbingPerformerMode | null>(null);
   const [planSummaryExpanded, setPlanSummaryExpanded] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [localGenerating, setLocalGenerating] = useState(false);
@@ -162,6 +171,16 @@ export default function AIEstimateBuilderModal({
       });
       // Restore plan import when resuming a draft session; otherwise start clean.
       setPlanImport(initialPlanImport || null);
+      const standalonePlumbing =
+        initialPlanImport?.tradeWorkflowSource === 'standalone_trade' &&
+        initialPlanImport.selectedTrade === 'plumbing';
+      setPlumbingOnly(standalonePlumbing);
+      setPlumbingWorkflowMode(
+        initialPlanImport?.plumbingWorkflowMode || 'bathroom_remodel'
+      );
+      setPlumbingPerformerMode(
+        initialPlanImport?.plumbingPerformerMode || null
+      );
       setPlanSummaryExpanded(false);
     }
     if (!visible) {
@@ -258,6 +277,10 @@ export default function AIEstimateBuilderModal({
   };
 
   const handlePlanApplied = (result: PlanImportApplyResult) => {
+    // Notes-only routing must not leak into the Plan Export flow.
+    setPlumbingOnly(false);
+    setPlumbingWorkflowMode('new_construction');
+    setPlumbingPerformerMode(null);
     if (semanticsOn) {
       // Keep Job notes user-editable; structured plan data stays authoritative.
       const userNotes = stripPlanTakeoffFromNotes(result.mergedNotes || '');
@@ -420,11 +443,29 @@ export default function AIEstimateBuilderModal({
       const notesForGenerate =
         contractorIntentNotes(trimmed) ||
         (semanticsOn && importedPlanSummary ? importedPlanSummary : trimmed);
+      const hasActualPlan =
+        Boolean(planImport) &&
+        (Object.keys(planImport?.measurements || {}).length > 0 ||
+          Boolean(planImport?.planImportFingerprint) ||
+          Boolean(planImport?.rooms?.length) ||
+          Boolean(planImport?.scopeDetections?.length));
+      const routePlanImport = plumbingOnly
+        ? {
+            ...(planImport || {}),
+            estimatingMode: 'selected_trade' as const,
+            selectedTrade: 'plumbing' as const,
+            ...(hasActualPlan
+              ? {}
+              : { tradeWorkflowSource: 'standalone_trade' as const }),
+            plumbingWorkflowMode,
+            plumbingPerformerMode,
+          }
+        : planImport;
       await Promise.resolve(
         onGenerate(
           notesForGenerate,
           photoDetections,
-          planImport,
+          routePlanImport,
           sitePhotos,
           photoExistingFeatures
         )
@@ -526,6 +567,127 @@ export default function AIEstimateBuilderModal({
           ? 'Draft saved — continue to Confirm scope, or regenerate to rebuild from notes and plan.'
           : 'Type, paste, dictate, add site photos, or import plans — AI drafts scope for review.'}
       </Text>
+
+      {false && !hasPlanImport ? (
+        <View
+          style={{
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: Colors.line,
+            backgroundColor: darkMode
+              ? 'rgba(255,255,255,0.035)'
+              : Colors.surface2,
+            padding: 12,
+            marginBottom: 14,
+          }}
+        >
+          <Text
+            style={{
+              color: Colors.text,
+              fontSize: 13,
+              fontWeight: '800',
+              marginBottom: 8,
+            }}
+          >
+            Notes estimate scope
+          </Text>
+          <View style={{ gap: 7 }}>
+            {[
+              ['whole_project', 'Whole Project / General Contractor'],
+              ['plumbing_only', 'Single Trade / Plumbing Only'],
+            ].map(([id, label]) => {
+              const active =
+                id === 'plumbing_only' ? plumbingOnly : !plumbingOnly;
+              return (
+                <TouchableOpacity
+                  key={id}
+                  disabled={busy}
+                  onPress={() => {
+                    const nextPlumbingOnly = id === 'plumbing_only';
+                    setPlumbingOnly(nextPlumbingOnly);
+                    if (!nextPlumbingOnly) {
+                      setPlumbingPerformerMode(null);
+                      setPlumbingWorkflowMode('bathroom_remodel');
+                    }
+                  }}
+                  style={{
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: active ? '#22c55e' : Colors.line,
+                    backgroundColor: active
+                      ? 'rgba(34,197,94,0.12)'
+                      : 'transparent',
+                    paddingHorizontal: 11,
+                    paddingVertical: 8,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: Colors.text,
+                      fontSize: 12,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {plumbingOnly ? (
+            <>
+              <Text
+                style={{
+                  color: Colors.text,
+                  fontSize: 12,
+                  fontWeight: '700',
+                  marginTop: 10,
+                  marginBottom: 6,
+                }}
+              >
+                Plumbing mode
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {(
+                  [
+                    ['bathroom_remodel', 'Bathroom Remodel'],
+                    ['service', 'Service'],
+                    ['new_construction', 'New Construction'],
+                  ] as Array<[PlumbingWorkflowMode, string]>
+                ).map(([mode, label]) => (
+                  <TouchableOpacity
+                    key={mode}
+                    disabled={busy}
+                    onPress={() => setPlumbingWorkflowMode(mode)}
+                    style={{
+                      borderRadius: 15,
+                      borderWidth: 1,
+                      borderColor:
+                        plumbingWorkflowMode === mode ? '#22c55e' : Colors.line,
+                      backgroundColor:
+                        plumbingWorkflowMode === mode
+                          ? 'rgba(34,197,94,0.12)'
+                          : 'transparent',
+                      paddingHorizontal: 9,
+                      paddingVertical: 6,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: Colors.text,
+                        fontSize: 11,
+                        fontWeight: '700',
+                      }}
+                    >
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          ) : null}
+        </View>
+      ) : null}
 
       <EstimatePlanImportStrip
         Colors={Colors}
@@ -677,6 +839,177 @@ export default function AIEstimateBuilderModal({
           </Text>
         </Pressable>
       )}
+
+      {false && notes.trim() && !hasPlanImport ? (
+        <View
+          style={{
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: Colors.line,
+            backgroundColor: darkMode
+              ? 'rgba(255,255,255,0.035)'
+              : Colors.surface2,
+            padding: 12,
+            marginTop: 14,
+          }}
+        >
+          <Text
+            style={{
+              color: Colors.text,
+              fontSize: 13,
+              fontWeight: '800',
+              marginBottom: 8,
+            }}
+          >
+            Notes estimate scope
+          </Text>
+          <View style={{ gap: 7 }}>
+            {[
+              ['whole_project', 'Whole Project / General Contractor'],
+              ['plumbing_only', 'Single Trade / Plumbing Only'],
+            ].map(([id, label]) => {
+              const active =
+                id === 'plumbing_only' ? plumbingOnly : !plumbingOnly;
+              return (
+                <TouchableOpacity
+                  key={id}
+                  disabled={busy}
+                  onPress={() => {
+                    const nextPlumbingOnly = id === 'plumbing_only';
+                    setPlumbingOnly(nextPlumbingOnly);
+                    if (!nextPlumbingOnly) {
+                      setPlumbingPerformerMode(null);
+                      setPlumbingWorkflowMode('bathroom_remodel');
+                    }
+                  }}
+                  style={{
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: active ? '#22c55e' : Colors.line,
+                    backgroundColor: active
+                      ? 'rgba(34,197,94,0.12)'
+                      : 'transparent',
+                    paddingHorizontal: 11,
+                    paddingVertical: 8,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: Colors.text,
+                      fontSize: 12,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {plumbingOnly ? (
+            <>
+              <Text
+                style={{
+                  color: Colors.text,
+                  fontSize: 12,
+                  fontWeight: '700',
+                  marginTop: 10,
+                  marginBottom: 6,
+                }}
+              >
+                Plumbing mode
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {(
+                  [
+                    ['bathroom_remodel', 'Bathroom Remodel'],
+                    ['service', 'Service'],
+                    ['new_construction', 'New Construction'],
+                  ] as Array<[PlumbingWorkflowMode, string]>
+                ).map(([mode, label]) => (
+                  <TouchableOpacity
+                    key={mode}
+                    disabled={busy}
+                    onPress={() => setPlumbingWorkflowMode(mode)}
+                    style={{
+                      borderRadius: 15,
+                      borderWidth: 1,
+                      borderColor:
+                        plumbingWorkflowMode === mode ? '#22c55e' : Colors.line,
+                      backgroundColor:
+                        plumbingWorkflowMode === mode
+                          ? 'rgba(34,197,94,0.12)'
+                          : 'transparent',
+                      paddingHorizontal: 9,
+                      paddingVertical: 6,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: Colors.text,
+                        fontSize: 11,
+                        fontWeight: '700',
+                      }}
+                    >
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text
+                style={{
+                  color: Colors.text,
+                  fontSize: 12,
+                  fontWeight: '700',
+                  marginTop: 10,
+                  marginBottom: 6,
+                }}
+              >
+                Performer
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {(
+                  [
+                    ['self_performed', 'I do the work'],
+                    ['subcontracted', 'I hire a plumber'],
+                    ['existing_quote', 'Existing quote'],
+                  ] as Array<[PlumbingPerformerMode, string]>
+                ).map(([mode, label]) => (
+                  <TouchableOpacity
+                    key={mode}
+                    disabled={busy}
+                    onPress={() => setPlumbingPerformerMode(mode)}
+                    style={{
+                      borderRadius: 15,
+                      borderWidth: 1,
+                      borderColor:
+                        plumbingPerformerMode === mode
+                          ? '#22c55e'
+                          : Colors.line,
+                      backgroundColor:
+                        plumbingPerformerMode === mode
+                          ? 'rgba(34,197,94,0.12)'
+                          : 'transparent',
+                      paddingHorizontal: 9,
+                      paddingVertical: 6,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: Colors.text,
+                        fontSize: 11,
+                        fontWeight: '700',
+                      }}
+                    >
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          ) : null}
+        </View>
+      ) : null}
 
       <AIEstimateDisclaimer variant='compact' />
     </>

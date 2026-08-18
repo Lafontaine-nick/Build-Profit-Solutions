@@ -8,7 +8,8 @@ export type PlanMeasurementSourceType =
   | 'user_entered'
   | 'needs_confirmation';
 
-export type PlanMeasurementConfidence = 'high' | 'medium' | 'low' | 'unresolved';
+export type PlanMeasurementConfidence =
+  'high' | 'medium' | 'low' | 'unresolved';
 
 export type PlanEvidence = {
   page?: number | null;
@@ -17,6 +18,7 @@ export type PlanEvidence = {
   sourceText?: string | null;
   sourceType?: 'pdf_text' | 'plan_vision' | 'user' | 'unknown';
   confidence?: number | null;
+  derivedFrom?: string[];
 };
 
 export type PlanPolygonPoint = { x: number; y: number };
@@ -129,13 +131,17 @@ export function planFirstFloorLivingSqft(
   const main = positive(facts?.buildingAreas?.mainFloorLivingSqft);
   const upstairs = positive(facts?.buildingAreas?.upstairsLivingSqft);
   const total =
-    positive(facts?.buildingAreas?.totalLivingSqft) ?? positive(fallbackLivingSqft);
+    positive(facts?.buildingAreas?.totalLivingSqft) ??
+    positive(fallbackLivingSqft);
   const multiStory =
     (facts?.storyCount != null && facts.storyCount > 1) || upstairs != null;
 
   // Cover sheets often label total living as "Main Living Area" — ignore when it
   // equals the cover total on a multi-story plan.
-  if (main != null && !(multiStory && total != null && Math.abs(main - total) < 1)) {
+  if (
+    main != null &&
+    !(multiStory && total != null && Math.abs(main - total) < 1)
+  ) {
     return main;
   }
   if (multiStory && total != null && upstairs != null && total > upstairs) {
@@ -149,7 +155,10 @@ export function planTotalLivingSqft(
   facts: PlanFacts | null | undefined,
   fallbackLivingSqft?: number | null
 ): number | null {
-  return positive(facts?.buildingAreas?.totalLivingSqft) ?? positive(fallbackLivingSqft);
+  return (
+    positive(facts?.buildingAreas?.totalLivingSqft) ??
+    positive(fallbackLivingSqft)
+  );
 }
 
 export function geometryArea(
@@ -157,10 +166,17 @@ export function geometryArea(
   kinds: PlanGeometryRegion['kind'][]
 ): number | null {
   const regions = (facts?.geometry || []).filter(
-    (region) => kinds.includes(region.kind) && region.isIncluded !== false && positive(region.areaSqft)
+    region =>
+      kinds.includes(region.kind) &&
+      region.isIncluded !== false &&
+      positive(region.areaSqft)
   );
   if (!regions.length) return null;
-  return Math.round(regions.reduce((sum, region) => sum + Number(region.areaSqft), 0) * 10) / 10;
+  return (
+    Math.round(
+      regions.reduce((sum, region) => sum + Number(region.areaSqft), 0) * 10
+    ) / 10
+  );
 }
 
 export function geometryPerimeter(
@@ -168,14 +184,23 @@ export function geometryPerimeter(
   kinds: PlanGeometryRegion['kind'][]
 ): number | null {
   const regions = (facts?.geometry || []).filter(
-    (region) => kinds.includes(region.kind) && region.isIncluded !== false && positive(region.perimeterLf)
+    region =>
+      kinds.includes(region.kind) &&
+      region.isIncluded !== false &&
+      positive(region.perimeterLf)
   );
   if (!regions.length) return null;
-  return Math.round(regions.reduce((sum, region) => sum + Number(region.perimeterLf), 0) * 10) / 10;
+  return (
+    Math.round(
+      regions.reduce((sum, region) => sum + Number(region.perimeterLf), 0) * 10
+    ) / 10
+  );
 }
 
 /** Cover totals remain authoritative while floor-component deltas stay visible. */
-export function planAreaReconciliationWarnings(facts: PlanFacts | null | undefined): string[] {
+export function planAreaReconciliationWarnings(
+  facts: PlanFacts | null | undefined
+): string[] {
   const areas = facts?.buildingAreas;
   if (!areas) return [];
   const total = positive(areas.totalLivingSqft);
@@ -193,4 +218,3 @@ export function planAreaReconciliationWarnings(facts: PlanFacts | null | undefin
     `Cover living area (${total.toLocaleString()} sqft) differs from floor components (${floorTotal.toLocaleString()} sqft) by ${Math.abs(delta).toLocaleString()} sqft.`,
   ];
 }
-

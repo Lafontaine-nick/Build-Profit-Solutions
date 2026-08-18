@@ -3,6 +3,7 @@
  * All fields render for the job type; values prefill from notes when parsed.
  */
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
+import type { PlumbingWorkflowMode } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 
 export type QuickMeasurementFieldKey =
   | 'bathroomFloorSqft'
@@ -69,6 +70,7 @@ export type QuickMeasurementFieldKey =
   | 'drainCleaningCount'
   | 'waterLineLf'
   | 'sewerLineLf'
+  | 'gasLineLf'
   | 'plumbingRoughPointCount'
   | 'plumbingTrimHookupCount'
   | 'partsMaterialsCount'
@@ -452,7 +454,7 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'each',
     'interior',
     undefined,
-    'Replacement or installation at existing rough.'
+    'Set, install, or replace fixtures at documented rough; trim connections are separate.'
   ),
   drainCleaningCount: F(
     'drainCleaningCount',
@@ -474,12 +476,21 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
   ),
   sewerLineLf: F(
     'sewerLineLf',
-    'Sewer / drain line',
+    'Sewer / drain piping',
     '40',
     'LF',
     'structure',
     undefined,
     'Use documented sewer or drain-line length only.'
+  ),
+  gasLineLf: F(
+    'gasLineLf',
+    'Gas piping',
+    'e.g. 100',
+    'LF',
+    'structure',
+    undefined,
+    'Use only gas piping or gas stubs explicitly shown or noted on the plan.'
   ),
   plumbingRoughPointCount: F(
     'plumbingRoughPointCount',
@@ -822,7 +833,7 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
     row(
       F(
         'plumbingRoughPointCount',
-        'Rough-in points',
+        'Plumbing rough-in points',
         'e.g. 4',
         'each',
         'structure',
@@ -848,31 +859,8 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
       F('fixtureRepairCount', 'Fixture repairs', 'e.g. 1', 'each', 'interior')
     ),
     row(
-      F('waterLineLf', 'Water line', 'e.g. 40', 'LF', 'structure'),
-      F('sewerLineLf', 'Sewer / drain line', 'e.g. 20', 'LF', 'structure')
-    ),
-    row(
-      F('drainCleaningCount', 'Drain cleanings', 'e.g. 1', 'each', 'other'),
-      F('serviceCallCount', 'Service calls', 'e.g. 1', 'each', 'other')
-    ),
-    row(
-      F(
-        'partsMaterialsCount',
-        'Parts / materials',
-        'e.g. 1',
-        'allowance',
-        'other'
-      ),
-      F('emergencyFeeCount', 'Emergency fees', 'e.g. 1', 'allowance', 'other')
-    ),
-    row(
-      F(
-        'plumbingCleanupCount',
-        'Plumbing cleanup',
-        'e.g. 1',
-        'allowance',
-        'other'
-      )
+      F('waterLineLf', 'Water line piping', 'e.g. 40', 'LF', 'structure'),
+      F('sewerLineLf', 'Sewer / drain piping', 'e.g. 20', 'LF', 'structure')
     ),
   ],
   bathroom: [
@@ -1318,6 +1306,103 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
   ],
 };
 
+/** Plan Export Plumbing rows for ground-up/addition takeoffs. */
+export const PLUMBING_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
+  row(
+    F(
+      'plumbingRoughPointCount',
+      'Plumbing rough-in points',
+      'e.g. 12',
+      'each',
+      'structure',
+      true,
+      'Use explicit rough-in callouts or schedules; do not infer from living SF.'
+    )
+  ),
+  row(
+    F(
+      'plumbingTrimHookupCount',
+      'Trim / hookups',
+      'e.g. 12',
+      'each',
+      'interior'
+    )
+  ),
+  row(
+    F(
+      'waterLineLf',
+      'Underground water service / under-slab piping',
+      'e.g. 150',
+      'LF',
+      'structure',
+      undefined,
+      'Document water service or under-slab piping only; excavation, tap fees, and permits are separate unless included.'
+    ),
+    F(
+      'sewerLineLf',
+      'Underground sewer / drain / under-slab DWV',
+      'e.g. 80',
+      'LF',
+      'structure',
+      undefined,
+      'Document sewer, building drain, or under-slab DWV only; excavation, tap fees, and permits are separate unless included.'
+    )
+  ),
+  row(
+    F(
+      'gasLineLf',
+      'Gas piping',
+      'e.g. 100',
+      'LF',
+      'structure',
+      undefined,
+      'Count only explicit gas piping or gas stubs shown or noted on the plan.'
+    )
+  ),
+];
+
+/** Notes/manual Plumbing rows may include explicit service operations. */
+export const PLUMBING_NOTES_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
+  ...SCOPE_QUICK_MEASUREMENT_ROWS.plumbing,
+  row(
+    F(
+      'serviceCallCount',
+      'Service calls',
+      'e.g. 1',
+      'each',
+      'other',
+      undefined,
+      'Explicit service visits only.'
+    ),
+    F(
+      'drainCleaningCount',
+      'Drain cleanings',
+      'e.g. 1',
+      'each',
+      'other',
+      undefined,
+      'Explicit drain-clearing service only.'
+    )
+  ),
+];
+
+export const PLUMBING_SERVICE_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
+  row(
+    F('serviceCallCount', 'Service calls', 'e.g. 1', 'each', 'other'),
+    F('fixtureRepairCount', 'Fixture repairs', 'e.g. 1', 'each', 'interior')
+  ),
+  row(
+    F(
+      'fixtureReplacementCount',
+      'Fixture replacements',
+      'e.g. 1',
+      'each',
+      'interior'
+    ),
+    F('drainCleaningCount', 'Drain cleanings', 'e.g. 1', 'each', 'other')
+  ),
+];
+
 export function resolveQuickMeasurementTemplateKey(
   templateKey?: string | null,
   projectType?: string | null
@@ -1480,23 +1565,47 @@ export function quickMeasurementRowsForInput(
   measurements: Partial<
     Record<QuickMeasurementFieldKey, string | number | null | undefined>
   >,
-  noteBackedKeys?: Iterable<QuickMeasurementFieldKey>
+  noteBackedKeys?: Iterable<QuickMeasurementFieldKey>,
+  options?: {
+    plumbingPlanImport?: boolean;
+    plumbingNotesFlow?: boolean;
+    plumbingWorkflowMode?: PlumbingWorkflowMode | null;
+  }
 ): QuickMeasurementRow[] {
   const resolvedKey = resolveQuickMeasurementTemplateKey(
     templateKey,
     projectType
   );
   const noteKeySet = noteBackedKeys ? new Set(noteBackedKeys) : null;
-  const baseRows = quickMeasurementRowsForTemplate(templateKey, projectType);
+  const plumbingTemplate =
+    resolvedKey === 'plumbing' &&
+    ['plumbing', 'plumbing_service'].includes(
+      String(templateKey || '').toLowerCase()
+    );
+  const baseRows =
+    options?.plumbingPlanImport && plumbingTemplate
+      ? PLUMBING_PLAN_QUICK_MEASUREMENT_ROWS
+      : options?.plumbingNotesFlow && plumbingTemplate
+        ? options.plumbingWorkflowMode === 'service'
+          ? PLUMBING_SERVICE_QUICK_MEASUREMENT_ROWS
+          : options.plumbingWorkflowMode === 'new_construction'
+            ? PLUMBING_PLAN_QUICK_MEASUREMENT_ROWS
+            : PLUMBING_NOTES_QUICK_MEASUREMENT_ROWS
+        : quickMeasurementRowsForTemplate(templateKey, projectType);
   const baseKeys = new Set(baseRows.flatMap(r => r.map(f => f.key)));
-  const extraFields = NOTE_BACKED_QUICK_FIELD_ORDER.filter(
-    key =>
-      !baseKeys.has(key) &&
-      (!noteKeySet || noteKeySet.has(key)) &&
-      hasQuickMeasurementValue(measurements[key])
-  )
-    .map(key => QUICK_MEASUREMENT_FIELD_DEFS[key])
-    .filter((field): field is QuickMeasurementFieldDef => Boolean(field));
+  const plumbingRowsAreExplicit =
+    plumbingTemplate &&
+    (options?.plumbingPlanImport || options?.plumbingNotesFlow);
+  const extraFields = plumbingRowsAreExplicit
+    ? []
+    : NOTE_BACKED_QUICK_FIELD_ORDER.filter(
+        key =>
+          !baseKeys.has(key) &&
+          (!noteKeySet || noteKeySet.has(key)) &&
+          hasQuickMeasurementValue(measurements[key])
+      )
+        .map(key => QUICK_MEASUREMENT_FIELD_DEFS[key])
+        .filter((field): field is QuickMeasurementFieldDef => Boolean(field));
 
   // Keep row order stable while typing — dynamic note-only rows caused TextInput focus to jump.
   if (resolvedKey === 'room_remodel') {
@@ -1619,7 +1728,7 @@ export function quickMeasurementHelperText(
 ): string | undefined {
   if (field.helperText) return field.helperText;
   if (field.key === 'flooringSqft') {
-    return 'Total SF being replaced or receiving new flooring. Use this as the overall flooring-area reference.';
+    return 'Total SF being replaced or receiving new flooring. Usually matches living area unless unfinished space differs.';
   }
   if (field.key === 'floorAreaSqft') {
     return 'Heated living area from the plan.';
@@ -1673,6 +1782,18 @@ export function emptyQuickMeasurementInput(): Record<
     roofPitch: '',
     storyCount: '',
     drywallSqft: '',
+    serviceCallCount: '',
+    fixtureRepairCount: '',
+    fixtureReplacementCount: '',
+    drainCleaningCount: '',
+    waterLineLf: '',
+    sewerLineLf: '',
+    gasLineLf: '',
+    plumbingRoughPointCount: '',
+    plumbingTrimHookupCount: '',
+    partsMaterialsCount: '',
+    emergencyFeeCount: '',
+    plumbingCleanupCount: '',
     flooringSqft: '',
     flooringLvpSqft: '',
     flooringLaminateSqft: '',
@@ -1682,7 +1803,6 @@ export function emptyQuickMeasurementInput(): Record<
     flooringCarpetSqft: '',
     floorDemoSqft: '',
     floorPrepSqft: '',
-    floorPrepByProduct: null,
     flooringExistingLvpInstallMethod: null,
     flooringExistingSheetVinylType: null,
     floorPrepLevel: null,

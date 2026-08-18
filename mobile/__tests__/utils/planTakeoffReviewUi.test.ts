@@ -18,6 +18,7 @@ import {
   livingReconciliationStatusLabel,
   measurementDisplayLabel,
   measurementSourceLabel,
+  planFieldEvidenceLabel,
   buildPlanReviewMeasurementRowState,
   planReviewCheckboxBlockedMessage,
   planReviewProvenanceFlags,
@@ -480,6 +481,44 @@ describe('plan takeoff review UI polish', () => {
         provenanceEntry: { source: 'detected_from_plan' },
       }).hasExplicitPlanSource
     ).toBe(true);
+  });
+
+  it('marks Plumbing fixture-inventory derivations as AI inferred and keeps evidence visible', () => {
+    expect(
+      planReviewProvenanceFlags({
+        key: 'plumbingRoughPointCount',
+        provenanceEntry: {
+          source: 'inferred_from_fixture_inventory',
+          normalizedSource: 'FROM_PLAN_DERIVED',
+          evidenceKind: 'fixture_inventory_derived',
+          derivedFrom: ['toilets', 'lavatories'],
+        },
+      })
+    ).toMatchObject({
+      hasExplicitPlanSource: false,
+      aiInferred: true,
+    });
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'plumbingRoughPointCount',
+        tradeKey: 'plumbing',
+        fieldConfidence: 0.82,
+        provenanceEntry: {
+          source: 'inferred_from_fixture_inventory',
+          evidenceKind: 'fixture_inventory_derived',
+          derivedFrom: ['toilets', 'lavatories'],
+        },
+      }).provenance
+    ).toMatchObject({
+      status: 'ai_inferred',
+      confidence: 'low',
+    });
+    expect(
+      planFieldEvidenceLabel({
+        derivedFrom: ['toilets', 'lavatories'],
+        evidence: [{ sheet: 'P1.1', page: 6, label: 'Fixture schedule' }],
+      })
+    ).toBe('Derived from toilets, lavatories · P1.1 · p.6 · Fixture schedule');
   });
 
   it('does not mark a conflicted Electrical count as Plan verified', () => {

@@ -44,6 +44,7 @@ import {
   filterChecklistItemsForTrade,
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
+  stripScopeInputForSingleTrade,
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
@@ -56,7 +57,12 @@ import type {
   ElectricalQuantityKey,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { ELECTRICAL_CARDS } from '@/utils/subcontractorTrade/electricalPlanConvergence';
-import { PLUMBING_REVIEW_MEASUREMENT_KEYS } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import {
+  PLUMBING_CARDS,
+  PLUMBING_REVIEW_MEASUREMENT_KEYS,
+  type PlumbingPerformerMode,
+  type PlumbingWorkflowMode,
+} from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import type { NormalizedTradeMeasurements } from '@/utils/subcontractorTrade/types';
 import type {
   MeasurementSuggestion,
@@ -104,15 +110,10 @@ export type EstimateRoughEstimateRange = {
 };
 
 export type EstimateBuilderMode =
-  | 'organize_only'
-  | 'organize_calculate'
-  | 'suggest_breakdown';
+  'organize_only' | 'organize_calculate' | 'suggest_breakdown';
 
 export type EstimateTier =
-  | 'simple_unit'
-  | 'room_remodel'
-  | 'addition'
-  | 'ground_up';
+  'simple_unit' | 'room_remodel' | 'addition' | 'ground_up';
 
 export type ScopeAssumptionState = 'included' | 'excluded' | 'unsure';
 
@@ -179,8 +180,7 @@ export type ScopeItemQuantity = {
    * Legacy records without this field continue to load unchanged.
    */
   measurementState?:
-    | import('@/utils/measurementSemantics').ScopeMeasurementState
-    | null;
+    import('@/utils/measurementSemantics').ScopeMeasurementState | null;
 };
 
 /** Persisted accepted-pricing metadata for Confirm Scope cards. */
@@ -237,11 +237,9 @@ export type ScopeMeasurements = {
   stuccoWallHeightFt?: number | null;
   /** Plan-import routing/provenance; does not imply detailed trade quantities. */
   planImportMode?:
-    | import('@/utils/planImportTradeConfig').PlanEstimatingMode
-    | null;
+    import('@/utils/planImportTradeConfig').PlanEstimatingMode | null;
   planImportTradeKey?:
-    | import('@/utils/planImportTradeConfig').PlanTradeKey
-    | null;
+    import('@/utils/planImportTradeConfig').PlanTradeKey | null;
   /** Stable client fingerprint for recognizing a repeat import of the same plan. */
   planImportFingerprint?: string | null;
   planImportProvenance?: PlanImportPayload['tradeProvenance'];
@@ -250,12 +248,7 @@ export type ScopeMeasurements = {
     'walls' | 'ceilings' | 'trim' | 'doors' | 'cabinets' | 'exterior'
   > | null;
   paintAreaBasis?:
-    | 'walls'
-    | 'ceilings'
-    | 'combined'
-    | 'floor_area'
-    | 'unknown'
-    | null;
+    'walls' | 'ceilings' | 'combined' | 'floor_area' | 'unknown' | null;
   paintAreaNeedsConfirmation?: boolean | null;
   paintAreaSqft?: number | null;
   paintPricingMethod?: 'combined' | 'separate' | null;
@@ -265,11 +258,7 @@ export type ScopeMeasurements = {
   paintOccupancyConfirmed?: boolean | null;
   paintApplicationMethodConfirmed?: boolean | null;
   cabinetMeasurementMethod?:
-    | 'linear_feet'
-    | 'doors_drawers'
-    | 'lump_sum'
-    | 'surface_area'
-    | null;
+    'linear_feet' | 'doors_drawers' | 'lump_sum' | 'surface_area' | null;
   cabinetUpperLf?: number | null;
   cabinetLowerLf?: number | null;
   cabinetTallLf?: number | null;
@@ -301,10 +290,7 @@ export type ScopeMeasurements = {
   floorDemoSqft?: number | null;
   floorPrepSqft?: number | null;
   flooringExistingLvpInstallMethod?:
-    | 'floating'
-    | 'glue_down'
-    | 'unknown'
-    | null;
+    'floating' | 'glue_down' | 'unknown' | null;
   flooringExistingSheetVinylType?: 'sheet_vinyl' | 'vct' | 'unknown' | null;
   flooringNewLvpInstallMethod?: 'floating' | 'glue_down' | 'unknown' | null;
   flooringNewSheetVinylType?: 'sheet_vinyl' | 'vct' | 'unknown' | null;
@@ -373,11 +359,7 @@ export type ScopeMeasurements = {
   concreteScope?: string[] | null;
   concreteDemoSqft?: number | null;
   concreteDemoThicknessBand?:
-    | 'thin_2_3'
-    | 'standard_4'
-    | 'heavy_5_6'
-    | 'structural_7_plus'
-    | null;
+    'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
   concreteDemoThicknessBands?: Array<
     'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus'
   > | null;
@@ -491,9 +473,7 @@ export type ScopeMeasurements = {
   bathroomToiletRelocateFloorType?: string | null;
   /** Whether toilet relocate floor type was user-selected or AI-inferred. */
   bathroomToiletRelocateFloorTypeSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   /** Bathroom shower/tub rough-in — wall & floor access for valve, head, and drain lines. */
   bathroomShowerRoughAccessType?: string | null;
   /** Whether shower rough-in access was user-selected or AI-inferred. */
@@ -508,10 +488,7 @@ export type ScopeMeasurements = {
   /** Remodel demolition exposes plumbing vs separate access required. */
   bathroomShowerRoughPlumbingExposed?: string | null;
   bathroomShowerRoughPlumbingExposedSource?:
-    | 'user_selected'
-    | 'demo_detected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'demo_detected' | 'ai_inferred' | null;
   /** @deprecated Migrated to bathroomShowerRoughPlumbingExposed. */
   bathroomShowerRoughWallAccess?: string | null;
   /** @deprecated Migrated to bathroomShowerRoughPlumbingExposedSource. */
@@ -519,15 +496,11 @@ export type ScopeMeasurements = {
   /** Wood-framed floor vs concrete slab. */
   bathroomShowerRoughFloorConstruction?: string | null;
   bathroomShowerRoughFloorConstructionSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   /** Same-location slab — is cutting or below-slab drain work required? */
   bathroomShowerRoughSlabWorkRequired?: string | null;
   bathroomShowerRoughSlabWorkRequiredSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   /** Localized prime/paint scope after bath drywall repair. */
   bathroomPaintRepairScope?: string | null;
   bathroomPaintRepairScopeSource?: 'user_selected' | 'ai_inferred' | null;
@@ -537,21 +510,15 @@ export type ScopeMeasurements = {
   /** Wall/ceiling paintable SF for entire-room add-on on paint_repair. */
   bathroomPaintRepairEntireRoomSqft?: string | number | null;
   bathroomPaintRepairEntireRoomSqftSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   /** One-line combined drywall + texture + prime + paint assembly. */
   bathroomDrywallPaintUseCombinedAssembly?: boolean | null;
   bathroomDrywallPaintUseCombinedAssemblySource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   /** Interior paint mobilization — bundled vs standalone minimum. */
   bathroomInteriorPaintMobilization?: string | null;
   bathroomInteriorPaintMobilizationSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintSurface?: string | null;
   bathroomInteriorPaintSurfaceSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintCondition?: string | null;
@@ -617,6 +584,10 @@ export type ScopeMeasurements = {
   quickMeasurementFieldConfidence?: Record<string, number>;
   /** Competing plan-pass candidates retained for contractor confirmation. */
   measurementProvenance?: Record<string, unknown>;
+  /** Plumbing utility tie-ins retained as scope/allowance confirmations. */
+  plumbingUtilityConnections?: PlanToMeasurementsResult['utilityConnections'];
+  /** Plumbing fixture inventory retained for auditability after review. */
+  plumbingFixtureInventory?: Record<string, number>;
   /** Material conflicts retained through plan import and scope hydration. */
   measurementConflicts?: PlanMeasurementConflict[];
   /** Electrical confidence-tier readiness and sheet coverage validation. */
@@ -641,8 +612,7 @@ export type ScopeMeasurements = {
   } | null;
   /** Declared vs detected living/garage reconciliation (measurement-semantics). */
   areaReconciliation?:
-    | import('@/utils/measurementSemantics').AreaReconciliation
-    | null;
+    import('@/utils/measurementSemantics').AreaReconciliation | null;
   /**
    * Per-Quick-Measurement-field provenance: which fields were populated
    * directly from plan takeoff vs accepted from a planning estimate.
@@ -687,11 +657,16 @@ export type ScopeMeasurements = {
   drainCleaningCount?: number | null;
   waterLineLf?: number | null;
   sewerLineLf?: number | null;
+  gasLineLf?: number | null;
   plumbingRoughPointCount?: number | null;
   plumbingTrimHookupCount?: number | null;
   partsMaterialsCount?: number | null;
   emergencyFeeCount?: number | null;
   plumbingCleanupCount?: number | null;
+  plumbingWorkflowMode?: PlumbingWorkflowMode | null;
+  plumbingPerformerMode?: PlumbingPerformerMode | null;
+  /** Set for the standalone Plumbing notes/photos entry point. */
+  tradeWorkflowSource?: 'standalone_trade' | null;
   /** @deprecated use bathroomFloorSqft */
   sqft?: number | null;
   /** @deprecated use baseboardLf */
@@ -1459,6 +1434,33 @@ export type PlanToMeasurementsResult = {
   planFacts?: PlanFacts;
   /** Per-field 0-1 confidence that the value was read (not guessed). */
   fieldConfidence: Record<string, number>;
+  /** Sheet/page evidence retained for Plumbing quantities and derived counts. */
+  fieldEvidence?: Record<
+    string,
+    Array<{
+      page?: number;
+      sheet?: string;
+      label?: string;
+      sourceText?: string;
+      sourceType?: string;
+      evidenceKind?: string;
+      confidence?: number;
+      derivedFrom?: string[];
+    }>
+  >;
+  /** Fixture counts read from plumbing schedules/symbols before rough/trim derivation. */
+  fixtureInventory?: Record<string, number>;
+  /** Plumbing utility tie-ins are scope/allowance confirmations, never quantities. */
+  utilityConnections?: Array<{
+    label: string;
+    status?: 'scope_only' | 'confirmed';
+    evidence?: Array<{
+      page?: number;
+      sheet?: string;
+      label?: string;
+      sourceText?: string;
+    }>;
+  }>;
   /** Selected candidate and retained alternatives from competing plan passes. */
   measurementProvenance?: Record<string, unknown>;
   /** Material conflicts that require contractor confirmation. */
@@ -1498,8 +1500,7 @@ export type PlanToMeasurementsResult = {
   scope: PlanScopeResult | null;
   /** Declared vs detected living/garage reconciliation (measurement-semantics). */
   areaReconciliation?:
-    | import('@/utils/measurementSemantics').AreaReconciliation
-    | null;
+    import('@/utils/measurementSemantics').AreaReconciliation | null;
   estimatingMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode;
   selectedTrade?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
   tradeProvenance?: PlanImportPayload['tradeProvenance'];
@@ -1515,8 +1516,7 @@ export async function fetchPlanToMeasurements(params: {
   includeScope?: boolean;
   estimatingMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode;
   selectedTradeKey?:
-    | import('@/utils/planImportTradeConfig').PlanTradeKey
-    | null;
+    import('@/utils/planImportTradeConfig').PlanTradeKey | null;
 }): Promise<PlanToMeasurementsResult> {
   const takeoffRequest = resolvePaintingPlanTakeoffApiSelection({
     estimatingMode: params.estimatingMode,
@@ -1564,6 +1564,17 @@ export async function fetchPlanToMeasurements(params: {
       payload.fieldConfidence && typeof payload.fieldConfidence === 'object'
         ? (payload.fieldConfidence as Record<string, number>)
         : {},
+    fieldEvidence:
+      payload.fieldEvidence && typeof payload.fieldEvidence === 'object'
+        ? (payload.fieldEvidence as PlanToMeasurementsResult['fieldEvidence'])
+        : undefined,
+    fixtureInventory:
+      payload.fixtureInventory && typeof payload.fixtureInventory === 'object'
+        ? (payload.fixtureInventory as Record<string, number>)
+        : undefined,
+    utilityConnections: Array.isArray(payload.utilityConnections)
+      ? payload.utilityConnections
+      : undefined,
     measurementProvenance:
       payload.measurementProvenance &&
       typeof payload.measurementProvenance === 'object'
@@ -1802,21 +1813,29 @@ export type PlanImportPayload = {
   /** Read-only plan takeoff summary text (kept separate from editable Job notes). */
   notesBlock?: string | null;
   areaReconciliation?:
-    | import('@/utils/measurementSemantics').AreaReconciliation
-    | null;
+    import('@/utils/measurementSemantics').AreaReconciliation | null;
   buildingAreas?: PlanBuildingAreas;
   planFacts?: PlanFacts;
   fieldConfidence?: Record<string, number>;
+  fieldEvidence?: PlanToMeasurementsResult['fieldEvidence'];
+  fixtureInventory?: Record<string, number>;
+  utilityConnections?: PlanToMeasurementsResult['utilityConnections'];
   quickMeasurementSources?: Record<string, string>;
   measurementProvenance?: Record<string, unknown>;
   measurementConflicts?: PlanMeasurementConflict[];
   electricalValidation?: ScopeMeasurements['electricalValidation'];
+  /** Standalone trade routing; absent for the existing whole-project flow. */
+  tradeWorkflowSource?: 'standalone_trade' | null;
+  plumbingWorkflowMode?: PlumbingWorkflowMode | null;
+  plumbingPerformerMode?: PlumbingPerformerMode | null;
 };
 
 type LivePlanImportMeasurementMetadata = {
   quickMeasurementSources?: Record<string, string>;
   quickMeasurementFieldConfidence?: Record<string, number>;
   measurementProvenance?: Record<string, unknown>;
+  plumbingUtilityConnections?: ScopeMeasurements['plumbingUtilityConnections'];
+  plumbingFixtureInventory?: ScopeMeasurements['plumbingFixtureInventory'];
   measurementConflicts?: PlanMeasurementConflict[];
   electricalValidation?: ScopeMeasurements['electricalValidation'];
   planImportFingerprint?: PlanImportPayload['planImportFingerprint'];
@@ -1879,6 +1898,14 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
           'contractor_confirmed_from_plan_review';
       }
     }
+    changed = true;
+  }
+  if (payload.utilityConnections !== undefined) {
+    next.plumbingUtilityConnections = payload.utilityConnections;
+    changed = true;
+  }
+  if (payload.fixtureInventory !== undefined) {
+    next.plumbingFixtureInventory = payload.fixtureInventory;
     changed = true;
   }
   if (payload.fieldConfidence && Object.keys(payload.fieldConfidence).length) {
@@ -2536,12 +2563,12 @@ export function planImportPayloadFromDraft(
   const hasPlanFacts =
     Boolean(
       sm.planFacts?.fieldEvidence &&
-        Object.keys(sm.planFacts.fieldEvidence).length
+      Object.keys(sm.planFacts.fieldEvidence).length
     ) ||
     Boolean(sm.planFacts?.geometry && sm.planFacts.geometry.length) ||
     Boolean(
       sm.planFacts?.buildingAreas &&
-        Object.keys(sm.planFacts.buildingAreas).length
+      Object.keys(sm.planFacts.buildingAreas).length
     );
   // Notes-derived measurements and parsed rooms are not a plan import. Only
   // restore the Step 1 plan card when the draft contains takeoff provenance.
@@ -2584,6 +2611,8 @@ export function planImportPayloadFromDraft(
     areaReconciliation: sm.areaReconciliation ?? null,
     fieldConfidence: sm.quickMeasurementFieldConfidence,
     measurementProvenance: sm.measurementProvenance,
+    utilityConnections: sm.plumbingUtilityConnections,
+    fixtureInventory: sm.plumbingFixtureInventory,
     measurementConflicts: sm.measurementConflicts,
     electricalValidation: sm.electricalValidation,
     planImportFingerprint: sm.planImportFingerprint,
@@ -3018,6 +3047,34 @@ export function buildStuccoTradeChecklistItems(
   return items;
 }
 
+function standalonePlumbingChecklistItems(
+  mode: PlumbingWorkflowMode | null | undefined
+): ScopeChecklistItem[] {
+  const ids =
+    mode === 'service'
+      ? ['service_call', 'fixture_repair', 'fixture_replace', 'drain_cleaning']
+      : [
+          'plumbing_rough',
+          'plumbing_trim',
+          'water_line',
+          'sewer_line',
+          'gas_line',
+        ];
+  return ids.flatMap(id => {
+    const card = PLUMBING_CARDS.find(item => item.itemId === id);
+    if (!card) return [];
+    return [
+      {
+        id: card.itemId,
+        label: card.label,
+        helperText: card.helper,
+        category: card.groupTitle,
+        state: 'unsure' as const,
+      },
+    ];
+  });
+}
+
 export function applyPlanImportToDraft(
   draft: EstimateAiDraft,
   payload: PlanImportPayload | null | undefined
@@ -3027,6 +3084,11 @@ export function applyPlanImportToDraft(
 
   const planImportMode = payload.estimatingMode || 'whole_project';
   const planImportTradeKey = payload.selectedTrade || null;
+  const standalonePlumbingWorkflow =
+    payload.tradeWorkflowSource === 'standalone_trade' &&
+    planImportTradeKey === 'plumbing';
+  const applyAsSelectedTrade =
+    planImportMode === 'selected_trade' || standalonePlumbingWorkflow;
   let rawMeasurements = normalizeTradePlanMeasurements(
     (payload.measurements || {}) as Record<string, number | string>,
     planImportTradeKey
@@ -3107,30 +3169,54 @@ export function applyPlanImportToDraft(
   let scopeMeasurements = planMeasurementsToScopeMeasurements(
     canonicalPlanMeasurements as Record<string, number>
   );
+  if (standalonePlumbingWorkflow) {
+    scopeMeasurements = {
+      ...stripScopeInputForSingleTrade(
+        (next.scopeMeasurements || {}) as Record<string, unknown>,
+        'plumbing'
+      ),
+      ...scopeMeasurements,
+      tradeWorkflowSource: 'standalone_trade',
+      plumbingWorkflowMode: payload.plumbingWorkflowMode || 'bathroom_remodel',
+      plumbingPerformerMode: payload.plumbingPerformerMode || null,
+      planImportMode: null,
+      planImportTradeKey: null,
+      planImportFingerprint: null,
+    } as ScopeMeasurements;
+  }
   scopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
     scopeMeasurements,
     tradeNormalization
   );
-  scopeMeasurements.planImportMode = planImportMode;
-  scopeMeasurements.planImportTradeKey = planImportTradeKey;
-  scopeMeasurements.planImportFingerprint =
-    payload.planImportFingerprint ?? null;
-  scopeMeasurements.planImportProvenance = payload.tradeProvenance || {
-    source: 'plan_import',
-    mode: planImportMode,
-    selectedTrade: planImportTradeKey,
-  };
-  scopeMeasurements.planImportMissingInfo = payload.missingInfo || [];
+  if (planImportTradeKey === 'plumbing') {
+    scopeMeasurements.plumbingWorkflowMode =
+      payload.plumbingWorkflowMode || 'new_construction';
+    scopeMeasurements.plumbingPerformerMode =
+      payload.plumbingPerformerMode || null;
+  }
+  if (!standalonePlumbingWorkflow) {
+    scopeMeasurements.planImportMode = planImportMode;
+    scopeMeasurements.planImportTradeKey = planImportTradeKey;
+    scopeMeasurements.planImportFingerprint =
+      payload.planImportFingerprint ?? null;
+    scopeMeasurements.planImportProvenance = payload.tradeProvenance || {
+      source: 'plan_import',
+      mode: planImportMode,
+      selectedTrade: planImportTradeKey,
+    };
+    scopeMeasurements.planImportMissingInfo = payload.missingInfo || [];
+  }
   const tradeChecklistItems = filterChecklistItemsForTrade(
     next.scopeChecklist?.items || [],
     planImportMode,
     planImportTradeKey
   );
-  if (planImportMode === 'selected_trade' && planImportTradeKey) {
-    const selectedTradeItems =
-      planImportTradeKey === 'stucco'
-        ? buildStuccoTradeChecklistItems(tradeChecklistItems)
-        : tradeChecklistItems;
+  const selectedTradeItems = standalonePlumbingWorkflow
+    ? standalonePlumbingChecklistItems(payload.plumbingWorkflowMode)
+    : planImportTradeKey === 'stucco'
+      ? buildStuccoTradeChecklistItems(tradeChecklistItems)
+      : tradeChecklistItems;
+  if (applyAsSelectedTrade && planImportTradeKey) {
     next = {
       ...next,
       scopeChecklist: {
@@ -3147,7 +3233,7 @@ export function applyPlanImportToDraft(
                   ? 'painting'
                   : planImportTradeKey === 'plumbing'
                     ? 'plumbing_service'
-                    : next.scopeChecklist?.templateKey,
+                    : next.scopeChecklist?.templateKey || 'plumbing_service',
         title:
           planImportTradeKey === 'stucco'
             ? 'Stucco / exterior finish — confirm trade scope'
@@ -3159,7 +3245,8 @@ export function applyPlanImportToDraft(
                   ? 'Painting — confirm project scope'
                   : planImportTradeKey === 'plumbing'
                     ? 'Plumbing — confirm project scope'
-                    : next.scopeChecklist?.title,
+                    : next.scopeChecklist?.title ||
+                      'Plumbing — confirm project scope',
         intro:
           planImportTradeKey === 'stucco'
             ? 'Confirm the stucco system, quantities, accessories, and access included in this bid.'
@@ -3170,23 +3257,25 @@ export function applyPlanImportToDraft(
                 : planImportTradeKey === 'painting'
                   ? 'Confirm painting scope before pricing.'
                   : planImportTradeKey === 'plumbing'
-                    ? 'Confirm Plumbing scope before pricing.'
-                    : next.scopeChecklist?.intro,
+                    ? standalonePlumbingWorkflow
+                      ? 'Confirm the Plumbing-only scope before pricing.'
+                      : 'Confirm Plumbing scope before pricing.'
+                    : next.scopeChecklist?.intro ||
+                      'Confirm Plumbing scope before pricing.',
       },
     };
   }
-  const importedPlanFacts: PlanFacts | undefined =
-    planImportMode === 'selected_trade'
-      ? undefined
-      : payload.planFacts || payload.buildingAreas
-        ? {
-            ...(payload.planFacts || {}),
-            buildingAreas: {
-              ...(payload.buildingAreas || {}),
-              ...(payload.planFacts?.buildingAreas || {}),
-            },
-          }
-        : undefined;
+  const importedPlanFacts: PlanFacts | undefined = applyAsSelectedTrade
+    ? undefined
+    : payload.planFacts || payload.buildingAreas
+      ? {
+          ...(payload.planFacts || {}),
+          buildingAreas: {
+            ...(payload.buildingAreas || {}),
+            ...(payload.planFacts?.buildingAreas || {}),
+          },
+        }
+      : undefined;
   if (importedPlanFacts) scopeMeasurements.planFacts = importedPlanFacts;
   if (payload.fieldConfidence && Object.keys(payload.fieldConfidence).length) {
     scopeMeasurements.quickMeasurementFieldConfidence = {
@@ -3207,6 +3296,12 @@ export function applyPlanImportToDraft(
   }
   if (payload.measurementProvenance) {
     scopeMeasurements.measurementProvenance = payload.measurementProvenance;
+  }
+  if (payload.utilityConnections !== undefined) {
+    scopeMeasurements.plumbingUtilityConnections = payload.utilityConnections;
+  }
+  if (payload.fixtureInventory !== undefined) {
+    scopeMeasurements.plumbingFixtureInventory = payload.fixtureInventory;
   }
   if (samePlanImport && retainedSamePlanElectricalFields.size) {
     const previous = draft.scopeMeasurements || {};
@@ -3279,13 +3374,10 @@ export function applyPlanImportToDraft(
       blockedFields: [...blockedFields],
     };
   }
-  if (planImportMode !== 'selected_trade' && payload.areaReconciliation) {
+  if (!applyAsSelectedTrade && payload.areaReconciliation) {
     scopeMeasurements.areaReconciliation = payload.areaReconciliation;
   }
-  const rooms =
-    planImportMode === 'selected_trade'
-      ? []
-      : normalizePlanRooms(payload.rooms);
+  const rooms = applyAsSelectedTrade ? [] : normalizePlanRooms(payload.rooms);
   if (rooms.length) {
     scopeMeasurements = applyPlanRoomsToScopeMeasurements(
       scopeMeasurements,
@@ -3311,7 +3403,7 @@ export function applyPlanImportToDraft(
   }
 
   if (Object.keys(scopeMeasurements).length || rooms.length) {
-    if (planImportMode !== 'selected_trade') {
+    if (!applyAsSelectedTrade) {
       scopeMeasurements = seedPlanFloorAreaItemQuantities(
         next,
         scopeMeasurements
@@ -3323,7 +3415,7 @@ export function applyPlanImportToDraft(
         }
       );
     }
-    if (planImportMode === 'selected_trade') {
+    if (applyAsSelectedTrade) {
       next = {
         ...next,
         scopeMeasurements: stripWholeProjectScopeMeasurements(
@@ -3332,7 +3424,7 @@ export function applyPlanImportToDraft(
       };
     }
     next = overlayScopeMeasurements(next, scopeMeasurements);
-  } else if (planImportMode === 'selected_trade') {
+  } else if (applyAsSelectedTrade) {
     next = {
       ...next,
       scopeMeasurements: stripWholeProjectScopeMeasurements(

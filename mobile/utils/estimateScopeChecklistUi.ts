@@ -2569,6 +2569,14 @@ export const KITCHEN_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
   island: 'Island cabinet/base install',
 };
 
+const PLUMBING_PLAN_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
+  plumbing_rough: 'Plumbing rough-in points',
+  plumbing_trim: 'Trim / hookups',
+  water_line: 'Underground water service / under-slab piping',
+  sewer_line: 'Underground sewer / drain / under-slab DWV',
+  gas_line: 'Gas piping',
+};
+
 /** Shorter contractor-friendly helper copy (overrides server text in Confirm Scope UI). */
 export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   demo: 'Remove fixtures, tile, and finishes.',
@@ -2630,7 +2638,8 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
     'Planning comparison only — price drywall, paint, cabinets, counters, and tile separately.',
   sitework:
     'Planning comparison only — price excavation and other site trades separately.',
-  plumbing_rough: 'Rough-in points (supply/drain) for material and labor.',
+  plumbing_rough:
+    'Plumbing rough-in points (supply/drain/vent) for material and labor.',
   electrical_rough: 'Circuits / boxes / devices for material and labor.',
   hvac: 'System count (or tons) for material and labor — not living SF.',
   windows: 'Window count for material and labor.',
@@ -2648,7 +2657,7 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   pour_flatwork:
     'Driveway, walkways, porch, and exterior patio slabs — not the house or garage slab.',
   plumbing_trim:
-    'Plumbing fixtures and trim-out package. Not plumbing rough-in.',
+    'Plumbing trim / hookups: fixture trim and final connections. Not rough-in or fixture setting.',
   electrical_trim:
     'Light fixtures and finish electrical — material and install. Not electrical rough-in.',
   roofing: 'Roof squares for material and labor.',
@@ -2704,6 +2713,12 @@ export function checklistDisplayLabel(
   }
   if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_LABEL_OVERRIDES[item.id]) {
     return KITCHEN_CHECKLIST_LABEL_OVERRIDES[item.id];
+  }
+  if (
+    templateKey === 'plumbing_service' &&
+    PLUMBING_PLAN_CHECKLIST_LABEL_OVERRIDES[item.id]
+  ) {
+    return PLUMBING_PLAN_CHECKLIST_LABEL_OVERRIDES[item.id];
   }
   if (templateKey === 'electrical' && item.id === 'electrical_rough') {
     return ELECTRICAL_ROUGH_CARD_LABEL;
@@ -2877,6 +2892,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
       itemIds: [
         'water_line',
         'sewer_line',
+        'gas_line',
         'plumbing_rough',
         'plumbing_trim',
         'parts_materials',
@@ -3003,12 +3019,13 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Closeout', itemIds: ['permits'] },
   ],
   roofing: [
-    { title: 'Roofing System', itemIds: ['roofing_system', 'shingles_roofing'] },
+    {
+      title: 'Roofing System',
+      itemIds: ['roofing_system', 'shingles_roofing'],
+    },
     {
       title: 'Existing Roof / Tear-Off',
-      itemIds: [
-        'tear_off',
-      ],
+      itemIds: ['tear_off'],
     },
     {
       title: 'Underlayment & Waterproofing',
@@ -3059,10 +3076,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     },
     {
       title: 'Closeout',
-      itemIds: [
-        'permits',
-        'cleanup',
-      ],
+      itemIds: ['permits', 'cleanup'],
     },
   ],
   hvac: [

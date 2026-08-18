@@ -447,6 +447,14 @@ const ELECTRICAL_PLAN_REVIEW_KEYS = new Set([
   'serviceAmperage',
 ]);
 
+const PLUMBING_PLAN_REVIEW_KEYS = new Set([
+  'plumbingRoughPointCount',
+  'plumbingTrimHookupCount',
+  'waterLineLf',
+  'sewerLineLf',
+  'gasLineLf',
+]);
+
 export function electricalPlanQuantityPricingEligible(
   key: string,
   provenanceEntry?: unknown,
@@ -499,6 +507,34 @@ function provenanceSourceText(entry: unknown): string {
   return '';
 }
 
+export function planFieldEvidenceLabel(entry: unknown): string | undefined {
+  if (!entry || typeof entry !== 'object') return undefined;
+  const record = entry as {
+    evidence?: Array<{
+      page?: number;
+      sheet?: string;
+      label?: string;
+      sourceText?: string;
+    }>;
+    derivedFrom?: string[];
+  };
+  const evidence = Array.isArray(record.evidence) ? record.evidence[0] : null;
+  const location =
+    evidence?.sheet && evidence?.page
+      ? `${evidence.sheet} · p.${evidence.page}`
+      : evidence?.sheet
+        ? evidence.sheet
+        : evidence?.page
+          ? `p.${evidence.page}`
+          : '';
+  const source = String(evidence?.label || evidence?.sourceText || '').trim();
+  const derived =
+    Array.isArray(record.derivedFrom) && record.derivedFrom.length
+      ? `Derived from ${record.derivedFrom.join(', ')}`
+      : '';
+  return [derived, location, source].filter(Boolean).join(' · ') || undefined;
+}
+
 export function planReviewProvenanceFlags(input: {
   key: string;
   provenanceEntry?: unknown;
@@ -533,14 +569,28 @@ export function planReviewProvenanceFlags(input: {
     source === 'from_plan';
   const paintingKey = PAINTING_PLAN_REVIEW_KEYS.has(input.key);
   const electricalKey = ELECTRICAL_PLAN_REVIEW_KEYS.has(input.key);
+  const plumbingKey = PLUMBING_PLAN_REVIEW_KEYS.has(input.key);
   const incomplete =
     paintingKey &&
     typeof input.provenanceEntry === 'object' &&
     input.provenanceEntry != null &&
     (input.provenanceEntry as { coverage?: string }).coverage === 'incomplete';
+  const derivedFromFixtureInventory =
+    plumbingKey &&
+    typeof input.provenanceEntry === 'object' &&
+    input.provenanceEntry != null &&
+    (evidenceKind === 'fixture_inventory_derived' ||
+      source.includes('fixture_inventory') ||
+      (Array.isArray(
+        (input.provenanceEntry as { derivedFrom?: unknown }).derivedFrom
+      ) &&
+        ((input.provenanceEntry as { derivedFrom?: unknown[] }).derivedFrom
+          ?.length || 0) > 0));
   const aiInferred =
-    electricalKey &&
-    (evidenceKind === 'inference' || source.includes('inferred_from_context'));
+    (electricalKey &&
+      (evidenceKind === 'inference' ||
+        source.includes('inferred_from_context'))) ||
+    derivedFromFixtureInventory;
   const methodsAgree =
     typeof input.provenanceEntry === 'object' &&
     input.provenanceEntry != null &&
@@ -592,6 +642,7 @@ export function planReviewProvenanceFlags(input: {
         input.key === 'garageSqft' ||
         input.key === 'deckSqft' ||
         (paintingKey && fromPlan && !fromGeometry && !incomplete) ||
+        (plumbingKey && fromPlan && !derivedFromFixtureInventory) ||
         (electricalKey &&
           !aiInferred &&
           !aiVerified &&

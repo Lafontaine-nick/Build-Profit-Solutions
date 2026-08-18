@@ -13,8 +13,14 @@ import {
   normalizeScopeMeasurements,
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
+  scopeMeasurementsPayloadForPersist,
 } from '@/utils/scopeItemQuantities';
 import { applyPlanImportToDraft } from '@/utils/estimateAiDraft';
+import {
+  filterChecklistItemsForTrade,
+  filterPlanMeasurementsForTrade,
+  filterPlanScopesForTrade,
+} from '@/utils/planImportTradeConfig';
 
 describe('plumbing canonical architecture', () => {
   it('defines one canonical owner for every Plumbing quantity', () => {
@@ -25,6 +31,95 @@ describe('plumbing canonical architecture', () => {
       standaloneTemplateKey: 'plumbing_service',
       reviewMeasurementKeys: PLUMBING_REVIEW_MEASUREMENT_KEYS,
     });
+  });
+
+  it('keeps service and allowance cards out of selected-trade Plan Export', () => {
+    expect(
+      Object.keys(
+        filterPlanMeasurementsForTrade(
+          {
+            plumbingRoughPointCount: 4,
+            fixtureReplacementCount: 3,
+            serviceCallCount: 1,
+            fixtureRepairCount: 2,
+            partsMaterialsCount: 1,
+            gasLineLf: 100,
+          },
+          'selected_trade',
+          'plumbing'
+        )
+      )
+    ).toEqual(['plumbingRoughPointCount', 'gasLineLf']);
+
+    expect(
+      filterChecklistItemsForTrade(
+        [
+          { id: 'plumbing_rough' },
+          { id: 'fixture_replace' },
+          { id: 'service_call' },
+          { id: 'fixture_repair' },
+          { id: 'parts_materials' },
+          { id: 'gas_line' },
+        ],
+        'selected_trade',
+        'plumbing'
+      ).map(item => item.id)
+    ).toEqual(['plumbing_rough', 'gas_line']);
+
+    expect(
+      filterPlanScopesForTrade(
+        [
+          { itemId: 'plumbing_rough' },
+          { itemId: 'water_line' },
+          { itemId: 'drain_cleaning' },
+          { itemId: 'emergency_fee' },
+          { itemId: 'gas_line' },
+        ],
+        'selected_trade',
+        'plumbing'
+      ).map(item => item.itemId)
+    ).toEqual(['plumbing_rough', 'water_line', 'gas_line']);
+  });
+
+  it('routes standalone Plumbing notes into a Plumbing-only checklist', () => {
+    const draft = {
+      scopeChecklist: {
+        templateKey: 'bathroom',
+        title: 'Bathroom Remodel',
+        intro: 'Confirm bathroom scope.',
+        items: [
+          { id: 'demo', label: 'Demo', state: 'unsure' },
+          { id: 'tile', label: 'Tile', state: 'unsure' },
+        ],
+      },
+      scopeMeasurements: {
+        bathroomFloorSqft: 80,
+        itemQuantities: {},
+      },
+      rooms: [],
+    } as any;
+
+    const next = applyPlanImportToDraft(draft, {
+      tradeWorkflowSource: 'standalone_trade',
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      plumbingWorkflowMode: 'service',
+      plumbingPerformerMode: 'subcontracted',
+    });
+
+    expect(next.scopeChecklist?.templateKey).toBe('plumbing_service');
+    expect(next.scopeChecklist?.items.map(item => item.id)).toEqual([
+      'service_call',
+      'fixture_repair',
+      'fixture_replace',
+      'drain_cleaning',
+    ]);
+    expect(next.scopeMeasurements?.tradeWorkflowSource).toBe(
+      'standalone_trade'
+    );
+    expect(next.scopeMeasurements?.plumbingWorkflowMode).toBe('service');
+    expect(next.scopeMeasurements?.plumbingPerformerMode).toBe('subcontracted');
+    expect(next.scopeMeasurements?.bathroomFloorSqft).toBeUndefined();
   });
 
   it('normalizes Plan aliases without using living area', () => {
@@ -171,6 +266,34 @@ describe('plumbing canonical architecture', () => {
     }
   });
 
+  it('converts raw Plumbing Quick Measurement input into canonical quantities at persist time', () => {
+    const persisted = scopeMeasurementsPayloadForPersist(
+      {
+        plumbingRoughPointCount: '2',
+        waterLineLf: '40',
+      },
+      { templateKey: 'plumbing_service' }
+    );
+    expect(persisted.itemQuantities).toMatchObject({
+      plumbing_rough: {
+        quantity: 2,
+        unit: 'each',
+        quantitySource: 'user_entered',
+      },
+      water_line: {
+        quantity: 40,
+        unit: 'lf',
+        quantitySource: 'user_entered',
+      },
+    });
+    const normalized = normalizeScopeMeasurements(persisted);
+    expect(
+      resolveChecklistItemQuantity('water_line', normalized, {
+        templateKey: 'plumbing_service',
+      }).pricingReady
+    ).toBe(true);
+  });
+
   it('uses the same canonical rough-in pricing for Plan and Notes quantities', () => {
     const plan = normalizeTradeMeasurements(
       'plumbing',
@@ -227,6 +350,44 @@ describe('plumbing canonical architecture', () => {
         normalizeTradeMeasurements('plumbing', { waterLineLf: 40 }, 'plan')
       )
     ).toBe(1200);
+    expect(
+      price(
+        'service_call',
+        normalizeTradeMeasurements('plumbing', { serviceCallCount: 1 }, 'notes')
+      )
+    ).toBe(250);
+    expect(
+      price(
+        'fixture_repair',
+        normalizeTradeMeasurements(
+          'plumbing',
+          { fixtureRepairCount: 1 },
+          'notes'
+        )
+      )
+    ).toBe(300);
+    expect(
+      price(
+        'drain_cleaning',
+        normalizeTradeMeasurements(
+          'plumbing',
+          { drainCleaningCount: 1 },
+          'notes'
+        )
+      )
+    ).toBe(300);
+    expect(
+      price(
+        'sewer_line',
+        normalizeTradeMeasurements('plumbing', { sewerLineLf: 10 }, 'notes')
+      )
+    ).toBe(500);
+    expect(
+      price(
+        'gas_line',
+        normalizeTradeMeasurements('plumbing', { gasLineLf: 10 }, 'plan')
+      )
+    ).toBe(300);
   });
 
   it('retains a same-plan quantity disagreement for confirmation before pricing', () => {
