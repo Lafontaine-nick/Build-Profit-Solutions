@@ -1,17 +1,16 @@
 import type { ScopePricingBehavior } from './scopePricingBehavior';
-import {
-  CONCRETE_REVIEW_MEASUREMENT_KEYS,
-} from './concretePlanConvergence';
-import {
-  FLOORING_REVIEW_MEASUREMENT_KEYS,
-} from './flooringPlanConvergence';
-import {
-  PAINTING_REVIEW_MEASUREMENT_KEYS,
-} from './paintingPlanConvergence';
+import { CONCRETE_REVIEW_MEASUREMENT_KEYS } from './concretePlanConvergence';
+import { FLOORING_REVIEW_MEASUREMENT_KEYS } from './flooringPlanConvergence';
+import { PAINTING_REVIEW_MEASUREMENT_KEYS } from './paintingPlanConvergence';
 import {
   ELECTRICAL_CARDS,
   ELECTRICAL_REVIEW_MEASUREMENT_KEYS,
 } from './electricalPlanConvergence';
+import {
+  PLUMBING_CARDS,
+  PLUMBING_QUICK_MEASUREMENT_KEYS,
+  PLUMBING_REVIEW_MEASUREMENT_KEYS,
+} from './plumbingPlanConvergence';
 import { getTradeMeasurementSchema } from './measurementSchemas';
 import {
   TRADE_SCOPE_ALLOWLISTS,
@@ -224,12 +223,18 @@ const ROOFING_SCOPE_ITEMS = [
 
 const CONCRETE_SCOPE_ITEMS = [
   { scopeItemId: 'pour_flatwork', pricingBehavior: 'SEPARATE_ADDON' as const },
-  { scopeItemId: 'pour_foundation', pricingBehavior: 'SEPARATE_ADDON' as const },
+  {
+    scopeItemId: 'pour_foundation',
+    pricingBehavior: 'SEPARATE_ADDON' as const,
+  },
   { scopeItemId: 'demo_removal', pricingBehavior: 'SEPARATE_ADDON' as const },
   { scopeItemId: 'excavation', pricingBehavior: 'SEPARATE_ADDON' as const },
   { scopeItemId: 'reinforcement', pricingBehavior: 'SEPARATE_ADDON' as const },
   { scopeItemId: 'site_prep', pricingBehavior: 'SEPARATE_ADDON' as const },
-  { scopeItemId: 'complex_forming', pricingBehavior: 'SEPARATE_ADDON' as const },
+  {
+    scopeItemId: 'complex_forming',
+    pricingBehavior: 'SEPARATE_ADDON' as const,
+  },
   {
     scopeItemId: 'concrete_sealer',
     pricingBehavior: 'SEPARATE_ADDON' as const,
@@ -280,14 +285,49 @@ const ELECTRICAL_DEFINITION: SubcontractorTradeDefinition = {
   quickMeasurementFieldKeys: [...ELECTRICAL_REVIEW_MEASUREMENT_KEYS],
 };
 
+const PLUMBING_DEFINITION: SubcontractorTradeDefinition = {
+  key: 'plumbing',
+  label: 'Plumbing',
+  status: 'complete',
+  standaloneTemplateKey: 'plumbing_service',
+  scopeHint:
+    'Focus on plumbing plans, fixture schedules, risers, water/sewer lines, rough-in points, and plumbing notes. Map explicit quantities onto the canonical Plumbing cards; do not infer quantities from living area.',
+  missingInfo: [
+    'Fixture and connection counts',
+    'Rough-in points and access conditions',
+    'Water, sewer, and drain-line lengths',
+    'Repair, service, and allowance details',
+  ],
+  measurements: getTradeMeasurementSchema('plumbing'),
+  scopeItems: PLUMBING_CARDS.map(card => ({
+    scopeItemId: card.itemId,
+    pricingBehavior: card.pricingBehavior,
+    measurementKeys: [card.measurementKey],
+  })),
+  allowedScopeItemIds: TRADE_SCOPE_ALLOWLISTS.plumbing,
+  reviewMeasurementKeys: [...PLUMBING_REVIEW_MEASUREMENT_KEYS],
+  reviewScopeKeywords: [
+    'plumbing',
+    'plumber',
+    'fixture',
+    'toilet',
+    'sink',
+    'faucet',
+    'drain',
+    'sewer',
+    'water line',
+    'rough-in',
+    'rough in',
+  ],
+  quickMeasurementFieldKeys: [...PLUMBING_QUICK_MEASUREMENT_KEYS],
+};
+
 export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
   SubcontractorTradeKey,
   SubcontractorTradeDefinition
 > = {
   electrical: ELECTRICAL_DEFINITION,
-  plumbing: scaffoldedTrade('plumbing', 'Plumbing', {
-    standaloneTemplateKey: 'plumbing_service',
-  }),
+  plumbing: PLUMBING_DEFINITION,
   hvac: scaffoldedTrade('hvac', 'HVAC', { standaloneTemplateKey: 'hvac' }),
   roofing: scaffoldedTrade('roofing', 'Roofing', {
     standaloneTemplateKey: 'roofing',
@@ -423,16 +463,37 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
       'quarterRoundLf',
     ],
     scopeItems: [
-      { scopeItemId: 'flooring_lvp', pricingBehavior: 'SEPARATE_ADDON' as const },
-      { scopeItemId: 'tile_flooring', pricingBehavior: 'SEPARATE_ADDON' as const },
-      { scopeItemId: 'flooring_carpet', pricingBehavior: 'SEPARATE_ADDON' as const },
+      {
+        scopeItemId: 'flooring_lvp',
+        pricingBehavior: 'SEPARATE_ADDON' as const,
+      },
+      {
+        scopeItemId: 'tile_flooring',
+        pricingBehavior: 'SEPARATE_ADDON' as const,
+      },
+      {
+        scopeItemId: 'flooring_carpet',
+        pricingBehavior: 'SEPARATE_ADDON' as const,
+      },
       { scopeItemId: 'floor_demo', pricingBehavior: 'SEPARATE_ADDON' as const },
       { scopeItemId: 'floor_prep', pricingBehavior: 'SEPARATE_ADDON' as const },
       { scopeItemId: 'trim', pricingBehavior: 'SEPARATE_ADDON' as const },
-      { scopeItemId: 'transitions', pricingBehavior: 'SEPARATE_ADDON' as const },
-      { scopeItemId: 'quarter_round', pricingBehavior: 'SEPARATE_ADDON' as const },
-      { scopeItemId: 'underlayment', pricingBehavior: 'SEPARATE_ADDON' as const },
-      { scopeItemId: 'moisture_barrier', pricingBehavior: 'SEPARATE_ADDON' as const },
+      {
+        scopeItemId: 'transitions',
+        pricingBehavior: 'SEPARATE_ADDON' as const,
+      },
+      {
+        scopeItemId: 'quarter_round',
+        pricingBehavior: 'SEPARATE_ADDON' as const,
+      },
+      {
+        scopeItemId: 'underlayment',
+        pricingBehavior: 'SEPARATE_ADDON' as const,
+      },
+      {
+        scopeItemId: 'moisture_barrier',
+        pricingBehavior: 'SEPARATE_ADDON' as const,
+      },
     ],
   }),
   painting: scaffoldedTrade('painting', 'Painting', {
@@ -477,13 +538,28 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
     ],
     scopeItems: [
       { scopeItemId: 'prep', pricingBehavior: 'SEPARATE_ADDON' as const },
-      { scopeItemId: 'interior_paint', pricingBehavior: 'SEPARATE_ADDON' as const },
-      { scopeItemId: 'ceiling_paint', pricingBehavior: 'SEPARATE_ADDON' as const },
+      {
+        scopeItemId: 'interior_paint',
+        pricingBehavior: 'SEPARATE_ADDON' as const,
+      },
+      {
+        scopeItemId: 'ceiling_paint',
+        pricingBehavior: 'SEPARATE_ADDON' as const,
+      },
       { scopeItemId: 'trim_paint', pricingBehavior: 'SEPARATE_ADDON' as const },
       { scopeItemId: 'door_paint', pricingBehavior: 'SEPARATE_ADDON' as const },
-      { scopeItemId: 'cabinet_paint', pricingBehavior: 'SEPARATE_ADDON' as const },
-      { scopeItemId: 'exterior_prep', pricingBehavior: 'SEPARATE_ADDON' as const },
-      { scopeItemId: 'exterior_paint', pricingBehavior: 'SEPARATE_ADDON' as const },
+      {
+        scopeItemId: 'cabinet_paint',
+        pricingBehavior: 'SEPARATE_ADDON' as const,
+      },
+      {
+        scopeItemId: 'exterior_prep',
+        pricingBehavior: 'SEPARATE_ADDON' as const,
+      },
+      {
+        scopeItemId: 'exterior_paint',
+        pricingBehavior: 'SEPARATE_ADDON' as const,
+      },
     ],
   }),
   windows_doors: scaffoldedTrade('windows_doors', 'Windows & doors'),

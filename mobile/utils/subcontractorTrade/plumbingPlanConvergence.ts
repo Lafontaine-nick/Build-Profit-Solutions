@@ -1,0 +1,625 @@
+/**
+ * Canonical Plumbing architecture.
+ *
+ * Notes/Voice, manual entry, and Plan Export all converge on these keys.
+ * This module owns quantity semantics and provenance-neutral scope identity;
+ * pricing remains in the existing quantity/pricing resolver and bathroom
+ * condition-specific adapters.
+ */
+
+import type { ScopePricingBehavior } from './scopePricingBehavior';
+
+export type PlumbingQuantityKey =
+  | 'serviceCallCount'
+  | 'fixtureRepairCount'
+  | 'fixtureReplacementCount'
+  | 'drainCleaningCount'
+  | 'waterLineLf'
+  | 'sewerLineLf'
+  | 'plumbingRoughPointCount'
+  | 'plumbingTrimHookupCount'
+  | 'partsMaterialsCount'
+  | 'emergencyFeeCount'
+  | 'plumbingCleanupCount';
+
+export type PlumbingCardGroupId =
+  | 'service'
+  | 'fixtures'
+  | 'lines'
+  | 'rough_trim'
+  | 'closeout';
+
+export type PlumbingCardDefinition = {
+  itemId: string;
+  measurementKey: PlumbingQuantityKey;
+  label: string;
+  helper: string;
+  unit: 'each' | 'lf' | 'allowance';
+  groupId: PlumbingCardGroupId;
+  groupTitle: string;
+  pricingBehavior: ScopePricingBehavior;
+};
+
+const P = (
+  itemId: string,
+  measurementKey: PlumbingQuantityKey,
+  label: string,
+  helper: string,
+  groupId: PlumbingCardGroupId,
+  pricingBehavior: ScopePricingBehavior,
+  unit: PlumbingCardDefinition['unit'] = 'each'
+): PlumbingCardDefinition => ({
+  itemId,
+  measurementKey,
+  label,
+  helper,
+  unit,
+  groupId,
+  groupTitle:
+    {
+      service: 'Service / repairs',
+      fixtures: 'Fixtures / drain service',
+      lines: 'Water / sewer lines',
+      rough_trim: 'Rough-in / trim',
+      closeout: 'Materials / closeout',
+    }[groupId] || groupId,
+  pricingBehavior,
+});
+
+export const PLUMBING_CARDS: PlumbingCardDefinition[] = [
+  P(
+    'service_call',
+    'serviceCallCount',
+    'Plumbing service call',
+    'Explicit service-call visits only. Do not infer a service call from a fixture, line, or plan symbol.',
+    'service',
+    'CUSTOM_PRICE'
+  ),
+  P(
+    'fixture_repair',
+    'fixtureRepairCount',
+    'Plumbing fixture repair',
+    'Repair existing plumbing fixtures only. Replacement, installation, and new rough-in are separate cards.',
+    'fixtures',
+    'CUSTOM_PRICE'
+  ),
+  P(
+    'fixture_replace',
+    'fixtureReplacementCount',
+    'Plumbing fixture replacement',
+    'Fixture replacement or installation at existing rough. Fixture purchase, trim hookup, and relocated rough-in remain separate when applicable.',
+    'fixtures',
+    'CUSTOM_PRICE'
+  ),
+  P(
+    'drain_cleaning',
+    'drainCleaningCount',
+    'Drain cleaning',
+    'Explicit drain-clearing service only. Drain-line replacement or new rough-in is separate.',
+    'fixtures',
+    'CUSTOM_PRICE'
+  ),
+  P(
+    'water_line',
+    'waterLineLf',
+    'Water line',
+    'Explicit water-supply line work. Quantity is linear feet when documented; do not infer LF from living area or fixture count.',
+    'lines',
+    'CUSTOM_PRICE',
+    'lf'
+  ),
+  P(
+    'sewer_line',
+    'sewerLineLf',
+    'Sewer / drain line',
+    'Explicit sewer, building-drain, or drain-line work. Quantity is linear feet when documented; cleaning and rough-in are separate.',
+    'lines',
+    'CUSTOM_PRICE',
+    'lf'
+  ),
+  P(
+    'plumbing_rough',
+    'plumbingRoughPointCount',
+    'Plumbing rough-in',
+    'Supply, drain, vent, or fixture rough-in points only. Fixture setting, trim hookups, and line replacement are separate. Do not use living SF as the quantity.',
+    'rough_trim',
+    'CUSTOM_PRICE'
+  ),
+  P(
+    'plumbing_trim',
+    'plumbingTrimHookupCount',
+    'Plumbing trim / hookups',
+    'Fixture trim and connection work only. Do not include fixture purchases, new rough-in, or line replacement.',
+    'rough_trim',
+    'CUSTOM_PRICE'
+  ),
+  P(
+    'parts_materials',
+    'partsMaterialsCount',
+    'Plumbing parts / materials',
+    'Explicit parts or materials allowance not already included in another plumbing card. Do not infer from detected fixtures.',
+    'closeout',
+    'ALLOWANCE',
+    'allowance'
+  ),
+  P(
+    'emergency_fee',
+    'emergencyFeeCount',
+    'Emergency plumbing fee',
+    'Explicit emergency, after-hours, or dispatch fee only. Never infer from the word plumbing.',
+    'closeout',
+    'ALLOWANCE',
+    'allowance'
+  ),
+  P(
+    'cleanup',
+    'plumbingCleanupCount',
+    'Plumbing cleanup',
+    'Explicit plumbing cleanup and disposal only. Do not auto-add cleanup from a plan detection.',
+    'closeout',
+    'ALLOWANCE',
+    'allowance'
+  ),
+];
+
+export const PLUMBING_ITEM_IDS = PLUMBING_CARDS.map(card => card.itemId);
+export const PLUMBING_QUANTITY_KEYS = PLUMBING_CARDS.map(
+  card => card.measurementKey
+) as PlumbingQuantityKey[];
+export const PLUMBING_REVIEW_MEASUREMENT_KEYS = [
+  ...PLUMBING_QUANTITY_KEYS,
+] as PlumbingQuantityKey[];
+
+/** Quick-measurement form keys shown for standalone Plumbing imports. */
+export const PLUMBING_QUICK_MEASUREMENT_KEYS = [
+  'serviceCallCount',
+  'fixtureRepairCount',
+  'fixtureReplacementCount',
+  'drainCleaningCount',
+  'waterLineLf',
+  'sewerLineLf',
+  'plumbingRoughPointCount',
+  'plumbingTrimHookupCount',
+  'partsMaterialsCount',
+  'emergencyFeeCount',
+  'plumbingCleanupCount',
+] as const;
+
+export const PLUMBING_SCOPE_ALLOWLIST = [...PLUMBING_ITEM_IDS] as const;
+
+export const PLUMBING_CARD_GROUPS: Array<{
+  id: PlumbingCardGroupId;
+  title: string;
+}> = [
+  { id: 'service', title: 'Service / repairs' },
+  { id: 'fixtures', title: 'Fixtures / drain service' },
+  { id: 'lines', title: 'Water / sewer lines' },
+  { id: 'rough_trim', title: 'Rough-in / trim' },
+  { id: 'closeout', title: 'Materials / closeout' },
+];
+
+/** Plan and Notes aliases fold onto the same canonical measurement keys. */
+export const PLUMBING_PLAN_ALIASES: Record<string, PlumbingQuantityKey> = {
+  serviceCalls: 'serviceCallCount',
+  plumbingServiceCalls: 'serviceCallCount',
+  serviceCallCount: 'serviceCallCount',
+  fixtureRepairs: 'fixtureRepairCount',
+  fixtureRepairCount: 'fixtureRepairCount',
+  fixtureReplacements: 'fixtureReplacementCount',
+  fixtureReplaceCount: 'fixtureReplacementCount',
+  fixtureReplacementCount: 'fixtureReplacementCount',
+  drainCleaningCount: 'drainCleaningCount',
+  drainCleanings: 'drainCleaningCount',
+  waterLineFeet: 'waterLineLf',
+  waterSupplyLf: 'waterLineLf',
+  waterLineLf: 'waterLineLf',
+  sewerLineFeet: 'sewerLineLf',
+  drainLineLf: 'sewerLineLf',
+  sewerLineLf: 'sewerLineLf',
+  roughInPoints: 'plumbingRoughPointCount',
+  roughInPointCount: 'plumbingRoughPointCount',
+  plumbingRoughPoints: 'plumbingRoughPointCount',
+  plumbingRoughPointCount: 'plumbingRoughPointCount',
+  trimHookupCount: 'plumbingTrimHookupCount',
+  plumbingConnections: 'plumbingTrimHookupCount',
+  plumbingTrimCount: 'plumbingTrimHookupCount',
+  plumbingTrimHookupCount: 'plumbingTrimHookupCount',
+  partsCount: 'partsMaterialsCount',
+  plumbingPartsCount: 'partsMaterialsCount',
+  partsMaterialsCount: 'partsMaterialsCount',
+  emergencyCount: 'emergencyFeeCount',
+  emergencyFeeCount: 'emergencyFeeCount',
+  cleanupCount: 'plumbingCleanupCount',
+  plumbingCleanupCount: 'plumbingCleanupCount',
+};
+
+function positiveNumber(value: unknown): number | null {
+  const parsed = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function explicitQuantity(
+  input: Record<string, unknown>,
+  key: PlumbingQuantityKey
+): number | null {
+  const direct = positiveNumber(input[key]);
+  if (direct != null) return direct;
+  const alias = Object.entries(PLUMBING_PLAN_ALIASES).find(
+    ([, canonical]) => canonical === key
+  );
+  return alias ? positiveNumber(input[alias[0]]) : null;
+}
+
+function buildItemQuantities(
+  input: Record<string, unknown>,
+  source: string
+): Record<string, { quantity: number; unit: string; quantitySource: string }> {
+  const out: Record<
+    string,
+    { quantity: number; unit: string; quantitySource: string }
+  > = {};
+  for (const card of PLUMBING_CARDS) {
+    const quantity = explicitQuantity(input, card.measurementKey);
+    if (quantity == null) continue;
+    out[card.itemId] = {
+      quantity,
+      unit: card.unit,
+      quantitySource: source,
+    };
+  }
+  return out;
+}
+
+function normalizeAliasedInput(
+  input: Record<string, unknown>
+): Record<string, unknown> {
+  const out = { ...input };
+  for (const [alias, canonical] of Object.entries(PLUMBING_PLAN_ALIASES)) {
+    if (positiveNumber(out[canonical]) != null) continue;
+    const value = positiveNumber(out[alias]);
+    if (value != null) out[canonical] = value;
+  }
+  return out;
+}
+
+export type PlumbingStructuredMeasurements = {
+  plumbingScope?: string[] | null;
+  itemQuantities?: Record<
+    string,
+    { quantity: number; unit: string; quantitySource?: string }
+  > | null;
+};
+
+export function normalizePlumbingPlanMeasurements(
+  input: Record<string, unknown>
+): Record<string, unknown> {
+  const aliased = normalizeAliasedInput(input);
+  const out: Record<string, unknown> = {};
+  for (const key of PLUMBING_REVIEW_MEASUREMENT_KEYS) {
+    const quantity = positiveNumber(aliased[key]);
+    if (quantity != null) out[key] = quantity;
+  }
+  return out;
+}
+
+export function buildPlumbingStructuredMeasurements(
+  input: Record<string, unknown>,
+  quantitySource = 'user_entered'
+): PlumbingStructuredMeasurements {
+  const normalized = normalizeAliasedInput(input);
+  const plumbingScope = PLUMBING_CARDS.filter(
+    card => explicitQuantity(normalized, card.measurementKey) != null
+  ).map(card => card.itemId);
+  const itemQuantities = buildItemQuantities(normalized, quantitySource);
+  return {
+    plumbingScope: plumbingScope.length ? plumbingScope : null,
+    itemQuantities: Object.keys(itemQuantities).length ? itemQuantities : null,
+  };
+}
+
+export function normalizePlumbingScalarMeasurements(
+  input: Record<string, unknown>
+): Record<string, number> {
+  const normalized = normalizeAliasedInput(input);
+  const out: Record<string, number> = {};
+  for (const key of PLUMBING_REVIEW_MEASUREMENT_KEYS) {
+    const quantity = positiveNumber(normalized[key]);
+    if (quantity != null) out[key] = quantity;
+  }
+  return out;
+}
+
+const COUNT_TOKEN =
+  '(\\d+(?:\\.\\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)';
+
+const WORD_COUNTS: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
+
+function parseCount(raw: string | undefined): number {
+  const normalized = String(raw || '').toLowerCase();
+  return WORD_COUNTS[normalized] || Number(normalized) || 1;
+}
+
+function parseLength(text: string, noun: string): number | null {
+  const match = text.match(
+    new RegExp(
+      `(\\d+(?:\\.\\d+)?)\\s*(?:lf|linear\\s*(?:ft|feet)|feet|foot|ft)\\s*(?:of\\s+)?${noun}`,
+      'i'
+    )
+  );
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Parse explicit Plumbing Notes/Voice language onto canonical keys.
+ *
+ * This intentionally ignores vague "plumbing" mentions and never derives
+ * quantities from room count or living area.
+ */
+export function parsePlumbingMeasurementsFromNotes(
+  notes: string
+): Record<string, number> {
+  const text = String(notes || '').trim();
+  if (!text) return {};
+  const out: Record<string, number> = {};
+  const assign = (key: PlumbingQuantityKey, value: number | null) => {
+    if (value != null && Number.isFinite(value) && value > 0) out[key] = value;
+  };
+  const count = (pattern: RegExp): number | null => {
+    const match = text.match(pattern);
+    return match ? parseCount(match[1]) : null;
+  };
+
+  assign(
+    'serviceCallCount',
+    count(new RegExp(`${COUNT_TOKEN}\\s+service\\s+calls?`, 'i')) ??
+      (/\bservice\s+call\b/i.test(text) ? 1 : null)
+  );
+  assign(
+    'fixtureRepairCount',
+    count(
+      new RegExp(`${COUNT_TOKEN}\\s+(?:plumbing\\s+)?fixture repairs?`, 'i')
+    ) ?? (/\b(?:plumbing\s+)?fixture repair\b/i.test(text) ? 1 : null)
+  );
+  assign(
+    'fixtureReplacementCount',
+    count(
+      new RegExp(
+        `${COUNT_TOKEN}\\s+(?:plumbing\\s+)?fixture replacements?`,
+        'i'
+      )
+    ) ??
+      (/\b(?:plumbing\s+)?fixture (?:replacement|install(?:ation)?)\b/i.test(
+        text
+      )
+        ? 1
+        : null)
+  );
+  assign(
+    'drainCleaningCount',
+    count(new RegExp(`${COUNT_TOKEN}\\s+drain cleanings?`, 'i')) ??
+      (/\bdrain\s+(?:cleaning|clearing|snaking)\b/i.test(text) ? 1 : null)
+  );
+  assign('waterLineLf', parseLength(text, '(?:water|supply)\\s+lines?'));
+  assign('sewerLineLf', parseLength(text, '(?:sewer|drain|waste)\\s+lines?'));
+  assign(
+    'plumbingRoughPointCount',
+    count(
+      new RegExp(
+        `${COUNT_TOKEN}\\s+(?:plumbing\\s+)?rough(?:-in| in)\\s+points?`,
+        'i'
+      )
+    ) ?? (/\b(?:plumbing\s+)?rough(?:-in| in)\b/i.test(text) ? 1 : null)
+  );
+  assign(
+    'plumbingTrimHookupCount',
+    count(
+      new RegExp(
+        `${COUNT_TOKEN}\\s+(?:plumbing\\s+)?(?:trim|hookups?|connections?)`,
+        'i'
+      )
+    ) ??
+      (/\b(?:plumbing\s+)?(?:trim|fixture hookups?|plumbing connections?)\b/i.test(
+        text
+      )
+        ? 1
+        : null)
+  );
+  assign(
+    'partsMaterialsCount',
+    count(new RegExp(`${COUNT_TOKEN}\\s+(?:plumbing\\s+)?parts?`, 'i')) ??
+      (/\bplumbing\s+(?:parts?|materials?)\b/i.test(text) ? 1 : null)
+  );
+  assign(
+    'emergencyFeeCount',
+    /\b(?:emergency|after[\s-]?hours?)\s+(?:plumbing\s+)?(?:fee|call|service)\b/i.test(
+      text
+    )
+      ? 1
+      : null
+  );
+  assign(
+    'plumbingCleanupCount',
+    /\bplumbing\s+cleanup\b/i.test(text) ? 1 : null
+  );
+  return out;
+}
+
+export function plumbingMeasurementKeyForItemId(
+  itemId: string | null | undefined
+): PlumbingQuantityKey | null {
+  return (
+    PLUMBING_CARDS.find(card => card.itemId === itemId)?.measurementKey || null
+  );
+}
+
+export function plumbingCardForItemId(
+  itemId: string | null | undefined
+): PlumbingCardDefinition | null {
+  return PLUMBING_CARDS.find(card => card.itemId === itemId) || null;
+}
+
+export function plumbingMeasurementKeyOwnership(): Record<
+  PlumbingQuantityKey,
+  string
+> {
+  return Object.fromEntries(
+    PLUMBING_CARDS.map(card => [card.measurementKey, card.itemId])
+  ) as Record<PlumbingQuantityKey, string>;
+}
+
+export function hasDetailedPlumbingQuantities(
+  input: Record<string, unknown> | null | undefined
+): boolean {
+  if (!input) return false;
+  const itemQuantities = (input.itemQuantities || {}) as Record<
+    string,
+    { quantity?: unknown }
+  >;
+  return PLUMBING_CARDS.some(
+    card =>
+      positiveNumber(input[card.measurementKey]) != null ||
+      positiveNumber(itemQuantities[card.itemId]?.quantity) != null
+  );
+}
+
+export function hasDetailedPlumbingRoughQuantities(
+  input: Record<string, unknown> | null | undefined
+): boolean {
+  return Boolean(
+    input &&
+      (positiveNumber(input.plumbingRoughPointCount) != null ||
+        positiveNumber(
+          (
+            input.itemQuantities as
+              | Record<string, { quantity?: unknown }>
+              | undefined
+          )?.plumbing_rough?.quantity
+        ) != null)
+  );
+}
+
+export function hasDetailedPlumbingTrimQuantities(
+  input: Record<string, unknown> | null | undefined
+): boolean {
+  return Boolean(
+    input &&
+      (positiveNumber(input.plumbingTrimHookupCount) != null ||
+        positiveNumber(
+          (
+            input.itemQuantities as
+              | Record<string, { quantity?: unknown }>
+              | undefined
+          )?.plumbing_trim?.quantity
+        ) != null)
+  );
+}
+
+export function shouldAutoPricePlumbingRoughPackage(
+  input: Record<string, unknown> | null | undefined,
+  templateKey?: string | null
+): boolean {
+  if (hasDetailedPlumbingRoughQuantities(input)) return false;
+  if (String(templateKey || '').toLowerCase() === 'plumbing_service') {
+    return false;
+  }
+  return true;
+}
+
+export function shouldAutoPricePlumbingTrimPackage(
+  input: Record<string, unknown> | null | undefined,
+  templateKey?: string | null
+): boolean {
+  if (hasDetailedPlumbingTrimQuantities(input)) return false;
+  if (String(templateKey || '').toLowerCase() === 'plumbing_service') {
+    return false;
+  }
+  return true;
+}
+
+export function plumbingScopeGroups(): Array<{
+  title: string;
+  itemIds: string[];
+}> {
+  return PLUMBING_CARD_GROUPS.map(group => ({
+    title: group.title,
+    itemIds: PLUMBING_CARDS.filter(card => card.groupId === group.id).map(
+      card => card.itemId
+    ),
+  }));
+}
+
+function explicitlyCleared(value: unknown): boolean {
+  return value === null || value === '' || value === 0 || value === '0';
+}
+
+/**
+ * Keep Plumbing quantities and Confirm Scope cards in lockstep. Positive
+ * quantities promote a card; explicit clears return an existing included card
+ * to review without deleting a contractor's prior checklist decision.
+ */
+export function syncPlumbingScopeItems<
+  T extends { id: string; state?: string },
+>(
+  items: T[],
+  params: {
+    plumbingScope?: string[] | null;
+    quantities?: Partial<Record<PlumbingQuantityKey, unknown>> & {
+      itemQuantities?: Record<string, { quantity?: unknown }>;
+    };
+  }
+): T[] {
+  const included = new Set(params.plumbingScope || []);
+  const fromQuantity = new Set<string>();
+  const clearedQuantity = new Set<string>();
+  const itemQuantities = params.quantities?.itemQuantities || {};
+
+  for (const card of PLUMBING_CARDS) {
+    const raw =
+      params.quantities?.[card.measurementKey] ??
+      itemQuantities[card.itemId]?.quantity;
+    if (positiveNumber(raw) != null) {
+      included.add(card.itemId);
+      fromQuantity.add(card.itemId);
+    } else if (explicitlyCleared(raw)) {
+      clearedQuantity.add(card.itemId);
+    }
+  }
+
+  const materialized = [...items];
+  const existingIds = new Set(materialized.map(item => item.id));
+  for (const card of PLUMBING_CARDS) {
+    if (!included.has(card.itemId) || existingIds.has(card.itemId)) continue;
+    materialized.push({
+      id: card.itemId,
+      label: card.label,
+      helperText: card.helper,
+      category: card.groupId,
+      inputType: 'yes_no',
+      state: 'included',
+    } as unknown as T);
+    existingIds.add(card.itemId);
+  }
+
+  return materialized.map(item => {
+    if (fromQuantity.has(item.id)) {
+      return item.state === 'included' ? item : { ...item, state: 'included' };
+    }
+    if (item.state === 'excluded') return item;
+    if (clearedQuantity.has(item.id)) {
+      return item.state === 'included' ? { ...item, state: 'unsure' } : item;
+    }
+    if (!included.has(item.id)) return item;
+    return item.state === 'included' ? item : { ...item, state: 'included' };
+  });
+}

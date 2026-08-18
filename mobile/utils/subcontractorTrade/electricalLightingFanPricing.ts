@@ -42,7 +42,7 @@ const LIGHTING_FAN_RATES: Record<ElectricalLightingFanItemId, Split> = {
   electrical_exterior_light: { material: 55, labor: 125 },
   electrical_undercabinet_light: { material: 40, labor: 90 },
   electrical_ceiling_fan: { material: 100, labor: 175 },
-  electrical_bath_exhaust_fan: { material: 55, labor: 115 },
+  electrical_bath_exhaust_fan: { material: 75, labor: 175 },
 };
 
 export function isElectricalLightingFanItemId(
@@ -107,9 +107,21 @@ export function quoteElectricalLightingFan(
   const conditionLabel = condition
     ? condition.replace(/_/g, ' ')
     : 'standard';
+  const scopeBoundary =
+    input.itemId === 'electrical_ceiling_fan'
+      ? 'fan-rated box/bracing, homerun/circuit, and switch/control separate'
+      : input.itemId === 'electrical_bath_exhaust_fan'
+        ? 'ducting, roof/wall penetration, exterior termination, HVAC, and homerun separate'
+      : 'homerun not included';
   const helper = [
-    `${quantity} EA · fixture / hang`,
-    'homerun not included',
+    `${quantity} EA · ${
+      input.itemId === 'electrical_ceiling_fan'
+        ? 'fan fixture / hang'
+        : input.itemId === 'electrical_bath_exhaust_fan'
+          ? 'fan unit / standard mounting / electrical connection'
+        : 'fixture / hang'
+    }`,
+    scopeBoundary,
     conditionLabel,
     specialty ? 'specialty / confirm' : 'approved fixture split',
   ].join(' · ');

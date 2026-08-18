@@ -28,6 +28,14 @@ import {
   normalizeElectricalPlanMeasurements,
   normalizeElectricalScalarMeasurements,
 } from './electricalPlanConvergence';
+import {
+  buildPlumbingStructuredMeasurements,
+  PLUMBING_PLAN_ALIASES,
+  PLUMBING_REVIEW_MEASUREMENT_KEYS,
+  normalizePlumbingPlanMeasurements,
+  normalizePlumbingScalarMeasurements,
+  parsePlumbingMeasurementsFromNotes,
+} from './plumbingPlanConvergence';
 
 const PROVENANCE_TO_STORAGE: Record<
   NormalizedMeasurementProvenance,
@@ -186,7 +194,9 @@ export function normalizeTradeMeasurements(
       ...(structured.concreteThicknessByType
         ? { concreteThicknessByType: structured.concreteThicknessByType }
         : {}),
-      ...(structured.concreteScope ? { concreteScope: structured.concreteScope } : {}),
+      ...(structured.concreteScope
+        ? { concreteScope: structured.concreteScope }
+        : {}),
     };
     if (!Object.keys(structuredMeasurements).length) {
       structuredMeasurements = undefined;
@@ -357,6 +367,54 @@ export function normalizeTradeMeasurements(
         : {}),
       ...(structured.electricalMeterMainCombo != null
         ? { electricalMeterMainCombo: structured.electricalMeterMainCombo }
+        : {}),
+      ...(structured.itemQuantities
+        ? { itemQuantities: structured.itemQuantities }
+        : {}),
+    };
+    if (!Object.keys(structuredMeasurements).length) {
+      structuredMeasurements = undefined;
+    }
+  }
+
+  if (tradeKey === 'plumbing') {
+    const plumbingInput =
+      source === 'plan'
+        ? normalizePlumbingPlanMeasurements(input)
+        : source === 'notes'
+          ? {
+              ...parsePlumbingMeasurementsFromNotes(String(input.notes || '')),
+              ...input,
+            }
+          : input;
+    const quantitySource = source === 'plan' ? 'plan_detected' : 'user_entered';
+    const structured = buildPlumbingStructuredMeasurements(
+      plumbingInput,
+      quantitySource
+    );
+    const scalar = normalizePlumbingScalarMeasurements(plumbingInput);
+    for (const [alias, canonical] of Object.entries(PLUMBING_PLAN_ALIASES)) {
+      if (alias !== canonical) delete measurements[alias];
+    }
+    for (const [key, value] of Object.entries(scalar)) {
+      measurements[key] = value;
+      if (schemaKeys.has(key) && !existingSources[key]) {
+        quickMeasurementSources[key] = defaultProvenanceTag;
+      }
+      if (schemaKeys.has(key) && normalizedProvenance[key] == null) {
+        normalizedProvenance[key] = normalizedSource;
+      }
+    }
+    for (const key of PLUMBING_REVIEW_MEASUREMENT_KEYS) {
+      if (measurements[key] != null) continue;
+      const value = plumbingInput[key];
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        measurements[key] = value;
+      }
+    }
+    structuredMeasurements = {
+      ...(structured.plumbingScope
+        ? { plumbingScope: structured.plumbingScope }
         : {}),
       ...(structured.itemQuantities
         ? { itemQuantities: structured.itemQuantities }

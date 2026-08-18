@@ -17,6 +17,14 @@ import {
   ELECTRICAL_CARDS,
   type ElectricalQuantityKey,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import type { PlumbingQuantityKey } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import {
+  hasDetailedPlumbingRoughQuantities,
+  hasDetailedPlumbingTrimQuantities,
+  plumbingMeasurementKeyForItemId,
+  shouldAutoPricePlumbingRoughPackage,
+  shouldAutoPricePlumbingTrimPackage,
+} from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
   isElectricalServicePanelItemId,
   resolveElectricalServicePanelSuggestedPricing,
@@ -540,7 +548,7 @@ export type NormalizedScopeMeasurements = {
   measurementProvenance?: Record<string, unknown>;
   measurementConflicts?: import('@/utils/estimateAiDraft').PlanMeasurementConflict[];
   itemQuantities: Record<string, ScopeItemQuantityValue>;
-} & Partial<Record<ElectricalQuantityKey, number | null>>;
+} & Partial<Record<ElectricalQuantityKey | PlumbingQuantityKey, number | null>>;
 
 export type ScopeItemQuantityValue = {
   quantity: number | null;
@@ -1262,6 +1270,65 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     sourceLabel:
       'Suggested budget split · National Average · per plumbing connection',
   },
+  service_call: {
+    unit: 'each',
+    material: 0,
+    labor: 250,
+    sourceLabel:
+      'Suggested budget split · National Average · plumbing service call',
+    trade: 'plumbing',
+    category: 'service',
+    pricingMethod: 'material_labor',
+  },
+  fixture_repair: {
+    unit: 'each',
+    material: 50,
+    labor: 250,
+    sourceLabel:
+      'Suggested budget split · National Average · plumbing fixture repair',
+    trade: 'plumbing',
+    category: 'fixtures',
+    pricingMethod: 'material_labor',
+  },
+  fixture_replace: {
+    unit: 'each',
+    material: 100,
+    labor: 200,
+    sourceLabel:
+      'Suggested budget split · National Average · plumbing fixture replacement at existing rough',
+    trade: 'plumbing',
+    category: 'fixtures',
+    pricingMethod: 'material_labor',
+  },
+  drain_cleaning: {
+    unit: 'each',
+    material: 25,
+    labor: 275,
+    sourceLabel:
+      'Suggested budget split · National Average · plumbing drain cleaning',
+    trade: 'plumbing',
+    category: 'service',
+    pricingMethod: 'material_labor',
+  },
+  water_line: {
+    unit: 'lf',
+    material: 8,
+    labor: 22,
+    sourceLabel:
+      'Suggested budget split · National Average · water-supply line',
+    trade: 'plumbing',
+    category: 'lines',
+    pricingMethod: 'material_labor',
+  },
+  sewer_line: {
+    unit: 'lf',
+    material: 12,
+    labor: 38,
+    sourceLabel: 'Suggested budget split · National Average · sewer/drain line',
+    trade: 'plumbing',
+    category: 'lines',
+    pricingMethod: 'material_labor',
+  },
   railing: {
     unit: 'lf',
     material: 15,
@@ -1870,6 +1937,16 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
       sourceLabel:
         'Suggested budget split · National Average · plumbing rough per living SF',
     },
+  },
+  plumbing_trim: {
+    each: {
+      unit: 'each',
+      material: 150,
+      labor: 300,
+      sourceLabel:
+        'Suggested budget split · National Average · per plumbing trim hookup',
+    },
+    allowance: NATIONAL_AVERAGE_BUDGET_SPLITS.plumbing_trim,
   },
   electrical_rough: {
     each: NATIONAL_AVERAGE_BUDGET_SPLITS.electrical_rough,
@@ -5407,6 +5484,46 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
       'Price the service call by trip or hour with material and labor.',
     missingMessage: 'Enter service-call pricing.',
   },
+  fixture_repair: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter the number of plumbing fixtures repaired. Replacement and new rough-in are separate.',
+    missingMessage: 'Enter fixture-repair quantity or pricing.',
+  },
+  fixture_replace: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter the number of plumbing fixtures replaced or installed at existing rough.',
+    missingMessage: 'Enter fixture-replacement quantity or pricing.',
+  },
+  drain_cleaning: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter drain-cleaning service count. Drain-line replacement is separate.',
+    missingMessage: 'Enter drain-cleaning quantity or pricing.',
+  },
+  water_line: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter documented water-supply line length in LF. Do not infer from living area.',
+    missingMessage: 'Enter water-line LF or pricing.',
+  },
+  sewer_line: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter documented sewer/drain-line length in LF. Cleaning and rough-in are separate.',
+    missingMessage: 'Enter sewer/drain-line LF or pricing.',
+  },
   parts_materials: {
     defaultUnit: 'allowance',
     allowedUnits: ['allowance', 'lump_sum'],
@@ -6251,6 +6368,17 @@ export function normalizeScopeMeasurements(
       (measurements?.paintPricingMethod === 'combined'
         ? num(measurements?.paintAreaSqft)
         : null),
+    serviceCallCount: num(measurements?.serviceCallCount),
+    fixtureRepairCount: num(measurements?.fixtureRepairCount),
+    fixtureReplacementCount: num(measurements?.fixtureReplacementCount),
+    drainCleaningCount: num(measurements?.drainCleaningCount),
+    waterLineLf: num(measurements?.waterLineLf),
+    sewerLineLf: num(measurements?.sewerLineLf),
+    plumbingRoughPointCount: num(measurements?.plumbingRoughPointCount),
+    plumbingTrimHookupCount: num(measurements?.plumbingTrimHookupCount),
+    partsMaterialsCount: num(measurements?.partsMaterialsCount),
+    emergencyFeeCount: num(measurements?.emergencyFeeCount),
+    plumbingCleanupCount: num(measurements?.plumbingCleanupCount),
     bathCount:
       measurements?.bathCount != null && Number(measurements.bathCount) > 0
         ? Math.round(Number(measurements.bathCount))
@@ -8381,6 +8509,22 @@ export function getChecklistItemQuantityRule(
     rule = CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
   }
   if (!rule) return undefined;
+  if (
+    ['plumbing', 'plumbing_service'].includes(
+      String(templateKey || '').toLowerCase()
+    ) &&
+    resolvedId === 'plumbing_trim'
+  ) {
+    rule = {
+      ...rule,
+      defaultUnit: 'each',
+      allowedUnits: ['each', 'allowance', 'lump_sum'],
+      defaultQuantity: undefined,
+      requiresUserQuantity: true,
+      quantityHelper:
+        'Enter plumbing trim / hookup count. Fixture replacement, rough-in, and line work are separate.',
+    };
+  }
 
   // Measurement-semantics: do not resolve primary takeoff from living SF for physical trades.
   if (
@@ -11548,6 +11692,17 @@ export function resolveScopeItemSuggestedPricing(
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
+  const plumbingMeasurementKey = plumbingMeasurementKeyForItemId(itemId);
+  if (
+    plumbingMeasurementKey &&
+    (
+      measurementsInput.quickMeasurementSources as
+        | Record<string, string>
+        | undefined
+    )?.[plumbingMeasurementKey] === 'needs_confirmation'
+  ) {
+    return empty;
+  }
   const electricalTemplate =
     String(templateKey || '').toLowerCase() === 'electrical';
   if (isElectricalRoughItemId(itemId) && electricalTemplate) {
@@ -11608,6 +11763,7 @@ export function resolveScopeItemSuggestedPricing(
         Number(measurementsInput.microwaveHookupCount) || null,
       refrigeratorHookupCount:
         Number(measurementsInput.refrigeratorHookupCount) || null,
+      hvacHookupCount: Number(measurementsInput.hvacHookupCount) || null,
     });
   }
   if (isElectricalReceptacleItemId(itemId)) {
@@ -11616,6 +11772,21 @@ export function resolveScopeItemSuggestedPricing(
       quantity: resolved.quantity,
       quantitySource: resolved.quantitySource,
       electricalProjectCondition: measurementsInput.electricalProjectCondition,
+      rangeHookupCount: Number(measurementsInput.rangeHookupCount) || null,
+      dryerHookupCount: Number(measurementsInput.dryerHookupCount) || null,
+      waterHeaterHookupCount:
+        Number(measurementsInput.waterHeaterHookupCount) || null,
+      evChargerHookupCount:
+        Number(measurementsInput.evChargerHookupCount) || null,
+      dishwasherHookupCount:
+        Number(measurementsInput.dishwasherHookupCount) || null,
+      disposalHookupCount:
+        Number(measurementsInput.disposalHookupCount) || null,
+      microwaveHookupCount:
+        Number(measurementsInput.microwaveHookupCount) || null,
+      refrigeratorHookupCount:
+        Number(measurementsInput.refrigeratorHookupCount) || null,
+      hvacHookupCount: Number(measurementsInput.hvacHookupCount) || null,
     });
   }
   if (isElectricalSwitchItemId(itemId)) {
@@ -18837,7 +19008,9 @@ export type ScopeMeasurementsInputExtended = ReturnType<
     priceableFields?: string[];
     blockedFields?: string[];
   } | null;
-} & Partial<Record<ElectricalQuantityKey, string | number | null>>;
+} & Partial<
+    Record<ElectricalQuantityKey | PlumbingQuantityKey, string | number | null>
+  >;
 
 export function initialScopeMeasurementInputExtended(
   draft: {

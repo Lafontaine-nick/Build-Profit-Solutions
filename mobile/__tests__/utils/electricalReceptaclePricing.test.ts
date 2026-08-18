@@ -1,4 +1,5 @@
 import { quoteElectricalReceptacle } from '@/utils/subcontractorTrade/electricalReceptaclePricing';
+import { quoteElectricalCircuit } from '@/utils/subcontractorTrade/electricalCircuitPricing';
 import {
   normalizeScopeMeasurements,
   resolveChecklistItemQuantity,
@@ -170,9 +171,73 @@ describe('electrical Phase 2C receptacle pricing', () => {
       pricingReady: true,
     });
     expect(pricing.fill).toMatchObject({
-      material: 900,
-      labor: 2200,
-      total: 3100,
+      material: 850,
+      labor: 2100,
+      total: 2950,
     });
+  });
+
+  it('keeps a standalone 240V receptacle device-only at $230', () => {
+    const quote = quoteElectricalReceptacle({
+      itemId: 'electrical_240v_receptacle',
+      quantity: 1,
+      quantitySource: 'user_entered',
+    });
+    expect(quote).toMatchObject({
+      material: 55,
+      labor: 175,
+      total: 230,
+    });
+    expect(quote?.helper).toMatch(/standard termination/i);
+    expect(quote?.helper).toMatch(/homerun not included/i);
+  });
+
+  it('warns when a 240V receptacle is explicitly paired with an appliance hookup', () => {
+    const input = inputWith({
+      rangeHookupCount: '1',
+      receptacle240vCount: '1',
+      itemQuantities: {
+        electrical_range_hookup: {
+          quantity: '1',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+        electrical_240v_receptacle: {
+          quantity: '1',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+      },
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'electrical_240v_receptacle',
+      input,
+      'electrical',
+      resolveChecklistItemQuantity(
+        'electrical_240v_receptacle',
+        normalizeScopeMeasurements(input),
+        { templateKey: 'electrical' }
+      )
+    );
+    expect(pricing.fill?.total).toBe(230);
+    expect(pricing.fill?.pricingDetail).toMatch(
+      /possible duplicate electrical scope/i
+    );
+    expect(pricing.fill?.pricingDetail).toMatch(/range/i);
+  });
+
+  it('allows a 240V device and explicit 50A homerun as separate scopes', () => {
+    const receptacle = quoteElectricalReceptacle({
+      itemId: 'electrical_240v_receptacle',
+      quantity: 1,
+      quantitySource: 'user_entered',
+    });
+    const circuit = quoteElectricalCircuit({
+      itemId: 'electrical_circuit_50a',
+      quantity: 1,
+      quantitySource: 'user_entered',
+    });
+    expect(receptacle?.total).toBe(230);
+    expect(circuit?.total).toBe(750);
   });
 });

@@ -30,11 +30,13 @@ describe('electrical Phase 2F hookup pricing', () => {
       electricalProjectCondition: 'new_construction',
     });
     expect(quote).toMatchObject({
-      material: 225,
-      labor: 725,
-      total: 950,
+      material: 200,
+      labor: 600,
+      total: 800,
     });
-    expect(quote?.helper).toMatch(/dedicated circuit \+ connection/i);
+    expect(quote?.helper).toMatch(
+      /dedicated circuit, breaker, branch wiring \+ appliance connection/i
+    );
     expect(quote?.helper).toMatch(/not a plug-in only/i);
   });
 
@@ -97,7 +99,7 @@ describe('electrical Phase 2F hookup pricing', () => {
         { templateKey: 'electrical' }
       )
     );
-    expect(range.fill?.total).toBe(950);
+    expect(range.fill?.total).toBe(800);
     expect(range.fill?.rateSourceLabel).toMatch(/approved owned-circuit/i);
     expect(range.fill?.productionStatus).toBe('production_ready');
 
@@ -122,9 +124,9 @@ describe('electrical Phase 2F hookup pricing', () => {
     );
     expect(ev.fill?.total).toBe(1250);
     expect(ev.fill?.productionStatus).toBe('review_required');
-    expect(resolveStep2PricingTier('electrical_range_hookup', 'electrical').tier).toBe(
-      'auto_planning'
-    );
+    expect(
+      resolveStep2PricingTier('electrical_range_hookup', 'electrical').tier
+    ).toBe('auto_planning');
   });
 
   it('does not put rates on electrical_rough', () => {

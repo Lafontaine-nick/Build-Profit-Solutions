@@ -26,9 +26,9 @@ describe('electrical Phase 2G special systems pricing', () => {
       electricalProjectCondition: 'new_construction',
     });
     expect(quote).toMatchObject({
-      material: 180,
-      labor: 520,
-      total: 700,
+      material: 160,
+      labor: 440,
+      total: 600,
     });
     expect(quote?.helper).toMatch(/homerun not included/i);
     expect(quote?.helper).toMatch(/approved split/i);
@@ -78,7 +78,7 @@ describe('electrical Phase 2G special systems pricing', () => {
         { templateKey: 'electrical' }
       )
     );
-    expect(smoke.fill?.total).toBe(700);
+    expect(smoke.fill?.total).toBe(600);
     expect(smoke.fill?.rateSourceLabel).toMatch(/approved device\/drop/i);
     expect(smoke.fill?.productionStatus).toBe('production_ready');
     expect(smoke.fill?.pricingRecordId).toBe(

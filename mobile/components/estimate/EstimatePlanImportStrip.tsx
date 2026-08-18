@@ -523,7 +523,8 @@ export default function EstimatePlanImportStrip({
         selection.trade?.key === 'concrete' ||
         selection.trade?.key === 'flooring' ||
         selection.trade?.key === 'painting' ||
-        selection.trade?.key === 'electrical'
+        selection.trade?.key === 'electrical' ||
+        selection.trade?.key === 'plumbing'
           ? normalizeTradeMeasurements(
               selection.trade.key,
               {

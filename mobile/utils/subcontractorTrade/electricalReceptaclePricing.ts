@@ -7,6 +7,10 @@
 
 import type { ElectricalProjectCondition } from './electricalPlanConvergence';
 import { ELECTRICAL_CONDITION_LABOR_MULTIPLIERS } from './electricalServicePanelPricing';
+import {
+  electrical240VReceptacleOverlapWarning,
+  type ElectricalOwnershipInput,
+} from './electricalPricingOwnership';
 
 export const ELECTRICAL_RECEPTACLE_ITEM_IDS = [
   'electrical_standard_receptacle',
@@ -37,7 +41,7 @@ const RECEPTACLE_RATES: Record<ElectricalReceptacleItemId, Split> = {
   electrical_gfci_receptacle: { material: 35, labor: 140 },
   electrical_afci_receptacle: { material: 50, labor: 160 },
   electrical_exterior_receptacle: { material: 45, labor: 170 },
-  electrical_floor_receptacle: { material: 90, labor: 220 },
+  electrical_floor_receptacle: { material: 85, labor: 210 },
   electrical_usb_receptacle: { material: 35, labor: 110 },
   electrical_240v_receptacle: { material: 55, labor: 175 },
 };
@@ -47,7 +51,7 @@ export function isElectricalReceptacleItemId(
 ): itemId is ElectricalReceptacleItemId {
   return Boolean(
     itemId &&
-      (ELECTRICAL_RECEPTACLE_ITEM_IDS as readonly string[]).includes(itemId)
+    (ELECTRICAL_RECEPTACLE_ITEM_IDS as readonly string[]).includes(itemId)
   );
 }
 
@@ -60,14 +64,16 @@ export type ElectricalReceptaclePricingInput = {
   quantity?: number | null;
   quantitySource?: string | null;
   electricalProjectCondition?: ElectricalProjectCondition | null;
-};
+} & ElectricalOwnershipInput;
 
 export function electricalReceptacleCardShouldPrice(
   itemId: ElectricalReceptacleItemId,
   input: ElectricalReceptaclePricingInput
 ): boolean {
   const qty = Number(input.quantity);
-  return Number.isFinite(qty) && qty > 0 && isElectricalReceptacleItemId(itemId);
+  return (
+    Number.isFinite(qty) && qty > 0 && isElectricalReceptacleItemId(itemId)
+  );
 }
 
 export type ElectricalReceptacleQuote = {
@@ -99,11 +105,11 @@ export function quoteElectricalReceptacle(
       : 1;
   const material = roundMoney(split.material * quantity);
   const labor = roundMoney(split.labor * laborMultiplier * quantity);
-  const conditionLabel = condition
-    ? condition.replace(/_/g, ' ')
-    : 'standard';
+  const conditionLabel = condition ? condition.replace(/_/g, ' ') : 'standard';
   const helper = [
-    `${quantity} EA · device / box / plate`,
+    input.itemId === 'electrical_240v_receptacle'
+      ? `${quantity} EA · receptacle / device / standard termination`
+      : `${quantity} EA · device / box / plate`,
     'homerun not included',
     conditionLabel,
     'approved device split',
@@ -131,6 +137,7 @@ export type ElectricalReceptacleSuggestedPricing = {
     laborSource: 'national_average';
     rateSourceLabel: string;
     helper: string;
+    pricingDetail?: string | null;
     mode: 'suggested_price';
     splitSource: 'estimated';
     splitConfidence: 'medium';
@@ -158,6 +165,10 @@ export function resolveElectricalReceptacleSuggestedPricing(
       laborSource: 'national_average',
       rateSourceLabel: quote.rateSourceLabel,
       helper: quote.helper,
+      pricingDetail:
+        input.itemId === 'electrical_240v_receptacle'
+          ? electrical240VReceptacleOverlapWarning(input)
+          : null,
       mode: 'suggested_price',
       splitSource: 'estimated',
       splitConfidence: 'medium',

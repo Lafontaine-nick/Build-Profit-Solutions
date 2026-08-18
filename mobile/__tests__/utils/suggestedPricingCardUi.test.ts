@@ -3,6 +3,7 @@ import {
   buildSuggestedPricingCardDisplay,
   displayPriceSourceLabel,
   formatCompactSuggestedLine,
+  formatAppliedDisplayMoney,
   formatFallbackBasisLine,
   formatQuantityProvenanceLine,
   formatSuggestedComponentMoney,
@@ -146,6 +147,10 @@ describe('suggestedPricingCardUi', () => {
     expect(formatSuggestedDisplayMoney(4437.84)).toBe('$4,437.84');
     expect(raw.total).toBe(4437.84);
     expect(raw.material).toBe(443.52);
+  });
+
+  it('keeps applied totals at exact cents for Step 2 and Step 3 parity', () => {
+    expect(formatAppliedDisplayMoney(28166.25)).toBe('$28,166.25');
   });
 
   it('uses one status line for fallback cards (no stacked title/hint)', () => {

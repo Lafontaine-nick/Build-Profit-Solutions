@@ -414,10 +414,10 @@ describe('electrical pricing-control cleanup', () => {
       ['electrical_3way_switch', '5', 650],
       ['electrical_recessed_light', '48', 7200],
       ['electrical_ceiling_fan', '10', 2750],
-      ['electrical_range_hookup', '1', 950],
+      ['electrical_range_hookup', '1', 800],
       ['electrical_dryer_hookup', '1', 675],
       ['electrical_dishwasher_hookup', '1', 500],
-      ['electrical_smoke_detector', '6', 1050],
+      ['electrical_smoke_detector', '6', 900],
     ];
 
     for (const [itemId, quantity, total] of cards) {

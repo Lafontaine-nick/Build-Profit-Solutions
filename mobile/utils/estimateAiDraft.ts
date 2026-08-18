@@ -47,6 +47,7 @@ import {
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
+import { normalizePlumbingPlanMeasurements } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { confirmedPaintingMeasurementTextLines } from '@/utils/subcontractorTrade/paintingPlanConvergence';
 import type {
   ElectricalPanelLocation,
@@ -55,6 +56,7 @@ import type {
   ElectricalQuantityKey,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { ELECTRICAL_CARDS } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import { PLUMBING_REVIEW_MEASUREMENT_KEYS } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import type { NormalizedTradeMeasurements } from '@/utils/subcontractorTrade/types';
 import type {
   MeasurementSuggestion,
@@ -677,6 +679,19 @@ export type ScopeMeasurements = {
   existingServiceAmperage?: number | null;
   electricalPanelLocation?: ElectricalPanelLocation | null;
   electricalMeterMainCombo?: boolean | null;
+  /** Plumbing canonical Notes/Voice/Manual selections — not fake quantities. */
+  plumbingScope?: string[] | null;
+  serviceCallCount?: number | null;
+  fixtureRepairCount?: number | null;
+  fixtureReplacementCount?: number | null;
+  drainCleaningCount?: number | null;
+  waterLineLf?: number | null;
+  sewerLineLf?: number | null;
+  plumbingRoughPointCount?: number | null;
+  plumbingTrimHookupCount?: number | null;
+  partsMaterialsCount?: number | null;
+  emergencyFeeCount?: number | null;
+  plumbingCleanupCount?: number | null;
   /** @deprecated use bathroomFloorSqft */
   sqft?: number | null;
   /** @deprecated use baseboardLf */
@@ -1136,6 +1151,22 @@ export function repairDraftRatePricingFromNotes(
     mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
       mergedScopeMeasurements,
       normalizedElectrical
+    );
+  }
+  if (
+    ['plumbing', 'plumbing_service'].includes(
+      String(draft.scopeChecklist?.templateKey || '').toLowerCase()
+    ) ||
+    String(draft.projectType || '').toLowerCase() === 'plumbing'
+  ) {
+    const normalizedPlumbing = normalizeTradeMeasurements(
+      'plumbing',
+      { ...parsed, notes: text },
+      'notes'
+    );
+    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+      mergedScopeMeasurements,
+      normalizedPlumbing
     );
   }
 
@@ -2673,6 +2704,12 @@ function mergeTradeNormalizationIntoScopeMeasurements(
     next.electricalScope = structured.electricalScope.map(String);
   }
   if (
+    Array.isArray(structured.plumbingScope) &&
+    structured.plumbingScope.length
+  ) {
+    next.plumbingScope = structured.plumbingScope.map(String);
+  }
+  if (
     structured.electricalProjectCondition === 'new_construction' ||
     structured.electricalProjectCondition === 'remodel_open_wall' ||
     structured.electricalProjectCondition === 'finished_wall_service'
@@ -2751,7 +2788,8 @@ function normalizeImportedTradeMeasurements(
     tradeKey !== 'concrete' &&
     tradeKey !== 'flooring' &&
     tradeKey !== 'painting' &&
-    tradeKey !== 'electrical'
+    tradeKey !== 'electrical' &&
+    tradeKey !== 'plumbing'
   )
     return null;
   return normalizeTradeMeasurements(
@@ -2768,6 +2806,12 @@ function normalizeTradePlanMeasurements(
   measurements: Record<string, number | string>,
   tradeKey: PlanTradeKey | null
 ): Record<string, number | string> {
+  if (tradeKey === 'plumbing') {
+    return normalizePlumbingPlanMeasurements(measurements) as Record<
+      string,
+      number | string
+    >;
+  }
   if (tradeKey !== 'stucco') return measurements;
   const out = { ...measurements };
   const gross = Number(out.stuccoGrossWallSqft);
@@ -3001,11 +3045,14 @@ export function applyPlanImportToDraft(
     >;
     const previousSources =
       draft.scopeMeasurements?.quickMeasurementSources || {};
-    const electricalKeys = new Set([
-      ...ELECTRICAL_CARDS.map(card => card.measurementKey),
-      'serviceAmperage',
-    ]);
-    for (const key of electricalKeys) {
+    const repeatKeys =
+      planImportTradeKey === 'plumbing'
+        ? new Set(PLUMBING_REVIEW_MEASUREMENT_KEYS)
+        : new Set([
+            ...ELECTRICAL_CARDS.map(card => card.measurementKey),
+            'serviceAmperage',
+          ]);
+    for (const key of repeatKeys) {
       const incoming = rawMeasurements[key];
       const previous = previousMeasurements[key];
       const incomingNumber = Number(incoming);
@@ -3098,7 +3145,9 @@ export function applyPlanImportToDraft(
                 ? 'flooring'
                 : planImportTradeKey === 'painting'
                   ? 'painting'
-                  : next.scopeChecklist?.templateKey,
+                  : planImportTradeKey === 'plumbing'
+                    ? 'plumbing_service'
+                    : next.scopeChecklist?.templateKey,
         title:
           planImportTradeKey === 'stucco'
             ? 'Stucco / exterior finish — confirm trade scope'
@@ -3108,7 +3157,9 @@ export function applyPlanImportToDraft(
                 ? 'Flooring — confirm project scope'
                 : planImportTradeKey === 'painting'
                   ? 'Painting — confirm project scope'
-                  : next.scopeChecklist?.title,
+                  : planImportTradeKey === 'plumbing'
+                    ? 'Plumbing — confirm project scope'
+                    : next.scopeChecklist?.title,
         intro:
           planImportTradeKey === 'stucco'
             ? 'Confirm the stucco system, quantities, accessories, and access included in this bid.'
@@ -3118,7 +3169,9 @@ export function applyPlanImportToDraft(
                 ? 'Confirm flooring scope before pricing.'
                 : planImportTradeKey === 'painting'
                   ? 'Confirm painting scope before pricing.'
-                  : next.scopeChecklist?.intro,
+                  : planImportTradeKey === 'plumbing'
+                    ? 'Confirm Plumbing scope before pricing.'
+                    : next.scopeChecklist?.intro,
       },
     };
   }

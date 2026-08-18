@@ -1,5 +1,6 @@
 import type { SubcontractorTradeKey } from './types';
 import { ELECTRICAL_SCOPE_ALLOWLIST } from './electricalPlanConvergence';
+import { PLUMBING_SCOPE_ALLOWLIST } from './plumbingPlanConvergence';
 
 /** Flatten scope group item ids (mirrors SCOPE_CHECKLIST_GROUPS — read-only reference). */
 function ids(...groups: string[][]): string[] {
@@ -64,7 +65,13 @@ export const TRADE_SCOPE_ALLOWLISTS: Record<SubcontractorTradeKey, string[]> = {
     ['permits', 'cleanup']
   ),
   concrete: ids(
-    ['demo_removal', 'site_prep', 'excavation', 'reinforcement', 'complex_forming'],
+    [
+      'demo_removal',
+      'site_prep',
+      'excavation',
+      'reinforcement',
+      'complex_forming',
+    ],
     ['pour_flatwork', 'pour_foundation'],
     ['concrete_sealer', 'decorative_finish', 'additional_haul_off']
   ),
@@ -85,11 +92,7 @@ export const TRADE_SCOPE_ALLOWLISTS: Record<SubcontractorTradeKey, string[]> = {
     ['demo_removal', 'hang', 'finish_tape', 'texture', 'patch_repair'],
     ['cleanup']
   ),
-  plumbing: ids(
-    ['service_call', 'fixture_repair', 'fixture_replace', 'drain_cleaning'],
-    ['water_line', 'sewer_line', 'plumbing_rough', 'plumbing_trim', 'parts_materials'],
-    ['emergency_fee', 'cleanup']
-  ),
+  plumbing: [...PLUMBING_SCOPE_ALLOWLIST],
   insulation: ['insulation'],
   flooring: [
     'floor_demo',

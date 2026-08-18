@@ -344,6 +344,16 @@ export function AcceptedPricingSummary({
     display.pricingModel === 'unit_pricing' && display.subtitleLine
       ? display.subtitleLine
       : display.pricingTypeLabel;
+  const quantity = resolved.dualCount?.quantity ?? (
+    resolved.unit === 'allowance' || resolved.unit === 'lump_sum'
+      ? null
+      : resolved.quantity
+  );
+  const quantityUnit = resolved.dualCount?.unit ?? resolved.unit;
+  const quantityLine =
+    quantity != null && Number.isFinite(Number(quantity)) && Number(quantity) > 0
+      ? `Quantity ${Number(quantity).toLocaleString()} ${formatUnitLabel(quantityUnit)}`
+      : null;
 
   // One primary badge: attention/confidence first, else source. Skip source if it
   // duplicates the price-adjacent selection status (e.g. "User adjusted").
@@ -397,6 +407,11 @@ export function AcceptedPricingSummary({
         </Text>
       </View>
       <Text style={[styles.typeText, { color: captionColor(darkMode, Colors) }]}>{methodLine}</Text>
+      {quantityLine ? (
+        <Text style={[styles.quantityText, { color: captionColor(darkMode, Colors) }]}>
+          {quantityLine}
+        </Text>
+      ) : null}
       {display.pricingModel === 'material_labor_split' && display.subtitleLine ? (
         <Text style={[styles.subtitleText, { color: captionColor(darkMode, Colors) }]}>{display.subtitleLine}</Text>
       ) : null}
@@ -571,6 +586,10 @@ const styles = StyleSheet.create({
   typeText: {
     fontSize: 13,
     fontWeight: '600',
+  },
+  quantityText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
   subtitleText: {
     fontSize: 12,

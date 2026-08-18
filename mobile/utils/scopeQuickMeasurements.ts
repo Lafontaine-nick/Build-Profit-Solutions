@@ -63,6 +63,17 @@ export type QuickMeasurementFieldKey =
   | 'roofGutterLf'
   | 'roofDownspoutCount'
   | 'drywallSqft'
+  | 'serviceCallCount'
+  | 'fixtureRepairCount'
+  | 'fixtureReplacementCount'
+  | 'drainCleaningCount'
+  | 'waterLineLf'
+  | 'sewerLineLf'
+  | 'plumbingRoughPointCount'
+  | 'plumbingTrimHookupCount'
+  | 'partsMaterialsCount'
+  | 'emergencyFeeCount'
+  | 'plumbingCleanupCount'
   | 'flooringSqft'
   | 'flooringLvpSqft'
   | 'flooringLaminateSqft'
@@ -179,10 +190,9 @@ const EXTERIOR_FLATWORK_LABEL = 'Exterior concrete flatwork';
 const EXTERIOR_FLATWORK_HELPER =
   'Driveway, walkways, porch, and exterior patio slabs — not the house or garage slab.';
 
-const QUICK_MEASUREMENT_FIELD_DEFS: Partial<Record<
-  QuickMeasurementFieldKey,
-  QuickMeasurementFieldDef
->> = {
+const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
+  Record<QuickMeasurementFieldKey, QuickMeasurementFieldDef>
+> = {
   bathroomFloorSqft: F(
     'bathroomFloorSqft',
     'Bath floor',
@@ -308,7 +318,13 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<Record<
     undefined,
     'Use only a measured roof surface area; do not substitute living or floor area.'
   ),
-  roofPitch: F('roofPitch', 'Roof pitch / slope', 'e.g. 5:12', 'ratio', 'structure'),
+  roofPitch: F(
+    'roofPitch',
+    'Roof pitch / slope',
+    'e.g. 5:12',
+    'ratio',
+    'structure'
+  ),
   storyCount: F('storyCount', 'Stories', '1', 'story', 'structure'),
   roofDeckingReplacementSqft: F(
     'roofDeckingReplacementSqft',
@@ -317,9 +333,27 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<Record<
     'sqft',
     'structure'
   ),
-  roofDripEdgeLf: F('roofDripEdgeLf', 'Drip edge', 'e.g. 120', 'LF', 'structure'),
-  roofRidgeCapLf: F('roofRidgeCapLf', 'Ridge cap', 'e.g. 80', 'LF', 'structure'),
-  roofRidgeVentLf: F('roofRidgeVentLf', 'Ridge vent', 'e.g. 2', 'EA', 'structure'),
+  roofDripEdgeLf: F(
+    'roofDripEdgeLf',
+    'Drip edge',
+    'e.g. 120',
+    'LF',
+    'structure'
+  ),
+  roofRidgeCapLf: F(
+    'roofRidgeCapLf',
+    'Ridge cap',
+    'e.g. 80',
+    'LF',
+    'structure'
+  ),
+  roofRidgeVentLf: F(
+    'roofRidgeVentLf',
+    'Ridge vent',
+    'e.g. 2',
+    'EA',
+    'structure'
+  ),
   roofValleyFlashingLf: F(
     'roofValleyFlashingLf',
     'Valley flashing',
@@ -348,7 +382,13 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<Record<
     'EA',
     'structure'
   ),
-  roofPipeBootCount: F('roofPipeBootCount', 'Pipe boots', 'e.g. 4', 'EA', 'structure'),
+  roofPipeBootCount: F(
+    'roofPipeBootCount',
+    'Pipe boots',
+    'e.g. 4',
+    'EA',
+    'structure'
+  ),
   roofVentCount: F('roofVentCount', 'Roof vents', 'e.g. 2', 'EA', 'structure'),
   roofTurbineVentCount: F(
     'roofTurbineVentCount',
@@ -387,6 +427,105 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<Record<
     'structure'
   ),
   drywallSqft: F('drywallSqft', 'Drywall', '800', 'sqft', 'interior'),
+  serviceCallCount: F(
+    'serviceCallCount',
+    'Service calls',
+    '1',
+    'each',
+    'other',
+    undefined,
+    'Explicit plumbing service visits only.'
+  ),
+  fixtureRepairCount: F(
+    'fixtureRepairCount',
+    'Fixture repairs',
+    '1',
+    'each',
+    'interior',
+    undefined,
+    'Existing fixture repairs; replacement is separate.'
+  ),
+  fixtureReplacementCount: F(
+    'fixtureReplacementCount',
+    'Fixture replacements',
+    '1',
+    'each',
+    'interior',
+    undefined,
+    'Replacement or installation at existing rough.'
+  ),
+  drainCleaningCount: F(
+    'drainCleaningCount',
+    'Drain cleanings',
+    '1',
+    'each',
+    'other',
+    undefined,
+    'Drain clearing only; line replacement is separate.'
+  ),
+  waterLineLf: F(
+    'waterLineLf',
+    'Water line',
+    '40',
+    'LF',
+    'structure',
+    undefined,
+    'Use documented water-supply line length only.'
+  ),
+  sewerLineLf: F(
+    'sewerLineLf',
+    'Sewer / drain line',
+    '40',
+    'LF',
+    'structure',
+    undefined,
+    'Use documented sewer or drain-line length only.'
+  ),
+  plumbingRoughPointCount: F(
+    'plumbingRoughPointCount',
+    'Plumbing rough-in points',
+    '4',
+    'each',
+    'structure',
+    true,
+    'Supply, drain, vent, or fixture rough-in points; not living SF.'
+  ),
+  plumbingTrimHookupCount: F(
+    'plumbingTrimHookupCount',
+    'Plumbing trim / hookups',
+    '4',
+    'each',
+    'interior',
+    undefined,
+    'Fixture trim and final connections only.'
+  ),
+  partsMaterialsCount: F(
+    'partsMaterialsCount',
+    'Parts / materials allowances',
+    '1',
+    'allowance',
+    'other',
+    undefined,
+    'Explicit unassigned plumbing allowance.'
+  ),
+  emergencyFeeCount: F(
+    'emergencyFeeCount',
+    'Emergency fees',
+    '1',
+    'allowance',
+    'other',
+    undefined,
+    'Explicit after-hours or emergency fee only.'
+  ),
+  plumbingCleanupCount: F(
+    'plumbingCleanupCount',
+    'Plumbing cleanup',
+    '1',
+    'allowance',
+    'other',
+    undefined,
+    'Explicit plumbing cleanup/disposal only.'
+  ),
   flooringSqft: F(
     'flooringSqft',
     'Total Flooring Area',
@@ -679,6 +818,63 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
   string,
   QuickMeasurementRow[]
 > = {
+  plumbing: [
+    row(
+      F(
+        'plumbingRoughPointCount',
+        'Rough-in points',
+        'e.g. 4',
+        'each',
+        'structure',
+        true,
+        'Supply, drain, vent, or fixture rough-in points; not living SF.'
+      ),
+      F(
+        'plumbingTrimHookupCount',
+        'Trim / hookups',
+        'e.g. 4',
+        'each',
+        'interior'
+      )
+    ),
+    row(
+      F(
+        'fixtureReplacementCount',
+        'Fixture replacements',
+        'e.g. 2',
+        'each',
+        'interior'
+      ),
+      F('fixtureRepairCount', 'Fixture repairs', 'e.g. 1', 'each', 'interior')
+    ),
+    row(
+      F('waterLineLf', 'Water line', 'e.g. 40', 'LF', 'structure'),
+      F('sewerLineLf', 'Sewer / drain line', 'e.g. 20', 'LF', 'structure')
+    ),
+    row(
+      F('drainCleaningCount', 'Drain cleanings', 'e.g. 1', 'each', 'other'),
+      F('serviceCallCount', 'Service calls', 'e.g. 1', 'each', 'other')
+    ),
+    row(
+      F(
+        'partsMaterialsCount',
+        'Parts / materials',
+        'e.g. 1',
+        'allowance',
+        'other'
+      ),
+      F('emergencyFeeCount', 'Emergency fees', 'e.g. 1', 'allowance', 'other')
+    ),
+    row(
+      F(
+        'plumbingCleanupCount',
+        'Plumbing cleanup',
+        'e.g. 1',
+        'allowance',
+        'other'
+      )
+    ),
+  ],
   bathroom: [
     row(
       F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior'),
@@ -821,7 +1017,13 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
       F('roofWallFlashingLf', 'Wall flashing', 'e.g. 40', 'LF', 'structure')
     ),
     row(
-      F('roofChimneyFlashingCount', 'Chimney flashing', 'e.g. 1', 'EA', 'structure'),
+      F(
+        'roofChimneyFlashingCount',
+        'Chimney flashing',
+        'e.g. 1',
+        'EA',
+        'structure'
+      ),
       F('roofPipeBootCount', 'Pipe boots', 'e.g. 4', 'EA', 'structure')
     ),
     row(
@@ -830,7 +1032,13 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
     ),
     row(
       F('roofSkylightCount', 'Skylight flashing', 'e.g. 1', 'EA', 'structure'),
-      F('roofPenetrationCount', 'Other penetrations', 'e.g. 2', 'EA', 'structure')
+      F(
+        'roofPenetrationCount',
+        'Other penetrations',
+        'e.g. 2',
+        'EA',
+        'structure'
+      )
     ),
     row(
       F('roofGutterLf', 'Gutters', 'e.g. 150', 'LF', 'structure'),
@@ -1116,6 +1324,7 @@ export function resolveQuickMeasurementTemplateKey(
 ): string {
   const tk = String(templateKey || '').toLowerCase();
   const pt = String(projectType || '').toLowerCase();
+  if (tk === 'plumbing_service') return 'plumbing';
   // Checklist template wins. projectType must not force flooring fields onto a
   // kitchen/bath remodel just because notes also mention floor tile.
   if (tk && SCOPE_QUICK_MEASUREMENT_ROWS[tk]) return tk;

@@ -35,7 +35,7 @@ type Split = { material: number; labor: number };
  * Locked indoor, new-construction EA splits for device or drop install.
  */
 const SPECIAL_SYSTEM_RATES: Record<ElectricalSpecialSystemItemId, Split> = {
-  electrical_smoke_detector: { material: 45, labor: 130 },
+  electrical_smoke_detector: { material: 40, labor: 110 },
   electrical_co_detector: { material: 40, labor: 120 },
   electrical_doorbell: { material: 35, labor: 90 },
   electrical_cat6_drop: { material: 40, labor: 85 },

@@ -36,7 +36,7 @@ type Split = { material: number; labor: number };
  * Price includes the owned homerun and the appliance connection.
  */
 const HOOKUP_RATES: Record<ElectricalHookupItemId, Split> = {
-  electrical_range_hookup: { material: 225, labor: 725 },
+  electrical_range_hookup: { material: 200, labor: 600 },
   electrical_dryer_hookup: { material: 160, labor: 515 },
   electrical_dishwasher_hookup: { material: 85, labor: 415 },
   electrical_disposal_hookup: { material: 70, labor: 380 },
@@ -114,7 +114,7 @@ export function quoteElectricalHookup(
     ? condition.replace(/_/g, ' ')
     : 'standard';
   const helper = [
-    `${quantity} EA · includes dedicated circuit + connection`,
+    `${quantity} EA · includes dedicated circuit, breaker, branch wiring + appliance connection`,
     'not a plug-in only',
     'generic circuit not stacked',
     conditionLabel,

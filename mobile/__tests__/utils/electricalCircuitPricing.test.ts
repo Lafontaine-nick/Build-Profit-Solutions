@@ -76,6 +76,102 @@ describe('electrical Phase 2B circuit pricing', () => {
     expect(quote?.total).toBe(750);
   });
 
+  it('surfaces a duplicate warning for an explicitly entered dryer circuit', () => {
+    const input = inputWith({
+      dryerHookupCount: '1',
+      circuit30aCount: '1',
+      itemQuantities: {
+        electrical_dryer_hookup: {
+          quantity: '1',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+        electrical_circuit_30a: {
+          quantity: '1',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+      },
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'electrical_circuit_30a',
+      input,
+      'electrical',
+      resolveChecklistItemQuantity(
+        'electrical_circuit_30a',
+        normalizeScopeMeasurements(input),
+        { templateKey: 'electrical' }
+      )
+    );
+    expect(pricing.fill?.total).toBe(500);
+    expect(pricing.fill?.pricingDetail).toMatch(
+      /possible duplicate electrical scope/i
+    );
+    expect(pricing.fill?.pricingDetail).toMatch(/dryer/i);
+  });
+
+  it('surfaces a duplicate warning for an explicitly entered range circuit', () => {
+    const input = inputWith({
+      rangeHookupCount: '1',
+      circuit50aCount: '1',
+      itemQuantities: {
+        electrical_range_hookup: {
+          quantity: '1',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+        electrical_circuit_50a: {
+          quantity: '1',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+      },
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'electrical_circuit_50a',
+      input,
+      'electrical',
+      resolveChecklistItemQuantity(
+        'electrical_circuit_50a',
+        normalizeScopeMeasurements(input),
+        { templateKey: 'electrical' }
+      )
+    );
+    expect(pricing.fill?.total).toBe(750);
+    expect(pricing.fill?.pricingDetail).toMatch(/range/i);
+  });
+
+  it('surfaces a duplicate warning for an explicitly entered dishwasher circuit', () => {
+    const input = inputWith({
+      dishwasherHookupCount: '1',
+      dedicated20aCircuitCount: '1',
+      itemQuantities: {
+        electrical_dishwasher_hookup: {
+          quantity: '1',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+        electrical_dedicated_20a: {
+          quantity: '1',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+      },
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'electrical_dedicated_20a',
+      input,
+      'electrical',
+      resolveChecklistItemQuantity(
+        'electrical_dedicated_20a',
+        normalizeScopeMeasurements(input),
+        { templateKey: 'electrical' }
+      )
+    );
+    expect(pricing.fill?.total).toBe(400);
+    expect(pricing.fill?.pricingDetail).toMatch(/dishwasher/i);
+  });
+
   it('does not stack a notes-inferred 60A+ card onto an EV charger hookup', () => {
     expect(
       quoteElectricalCircuit({
@@ -121,9 +217,9 @@ describe('electrical Phase 2B circuit pricing', () => {
     expect(circuitPricing.fill?.total).toBe(2400);
     expect(circuitPricing.fill?.rateSourceLabel).toMatch(/approved homerun/i);
     expect(circuitPricing.fill?.productionStatus).toBe('production_ready');
-    expect(resolveStep2PricingTier('electrical_standard_circuit', 'electrical').tier).toBe(
-      'auto_planning'
-    );
+    expect(
+      resolveStep2PricingTier('electrical_standard_circuit', 'electrical').tier
+    ).toBe('auto_planning');
   });
 
   it('does not put rates on electrical_rough', () => {

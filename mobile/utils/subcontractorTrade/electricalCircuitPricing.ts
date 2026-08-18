@@ -2,12 +2,16 @@
  * Electrical Phase 2B — circuit pricing.
  *
  * Circuit splits are LOCKED. 60A+ remains specialty / confirm.
- * A circuit card is the homerun + breaker + wire. Devices and appliance
- * connections are later buckets.
+ * A generic circuit card is the additional homerun + breaker + wire only.
+ * Named appliance hookup cards own their circuit and connection.
  */
 
 import type { ElectricalProjectCondition } from './electricalPlanConvergence';
 import { ELECTRICAL_CONDITION_LABOR_MULTIPLIERS } from './electricalServicePanelPricing';
+import {
+  electricalGenericCircuitOverlapWarning,
+  type ElectricalOwnershipInput,
+} from './electricalPricingOwnership';
 
 export const ELECTRICAL_CIRCUIT_ITEM_IDS = [
   'electrical_standard_circuit',
@@ -18,7 +22,8 @@ export const ELECTRICAL_CIRCUIT_ITEM_IDS = [
   'electrical_circuit_60a_plus',
 ] as const;
 
-export type ElectricalCircuitItemId = (typeof ELECTRICAL_CIRCUIT_ITEM_IDS)[number];
+export type ElectricalCircuitItemId =
+  (typeof ELECTRICAL_CIRCUIT_ITEM_IDS)[number];
 
 export const ELECTRICAL_CIRCUIT_RATES_STATUS = 'locked';
 
@@ -44,7 +49,8 @@ export function isElectricalCircuitItemId(
   itemId: string | null | undefined
 ): itemId is ElectricalCircuitItemId {
   return Boolean(
-    itemId && (ELECTRICAL_CIRCUIT_ITEM_IDS as readonly string[]).includes(itemId)
+    itemId &&
+    (ELECTRICAL_CIRCUIT_ITEM_IDS as readonly string[]).includes(itemId)
   );
 }
 
@@ -57,19 +63,12 @@ export type ElectricalCircuitPricingInput = {
   quantity?: number | null;
   quantitySource?: string | null;
   electricalProjectCondition?: ElectricalProjectCondition | null;
-  rangeHookupCount?: number | null;
-  dryerHookupCount?: number | null;
-  waterHeaterHookupCount?: number | null;
-  evChargerHookupCount?: number | null;
-  dishwasherHookupCount?: number | null;
-  disposalHookupCount?: number | null;
-  microwaveHookupCount?: number | null;
-  refrigeratorHookupCount?: number | null;
-};
+} & ElectricalOwnershipInput;
 
 /**
- * Appliance hookups own their circuit. Notes-inferred generic cards do not
- * stack on top unless the contractor entered them independently.
+ * Generic circuits are auto-suppressed when a named hookup owns that circuit.
+ * An explicit contractor selection remains priceable, but carries a visible
+ * duplicate-scope warning so both lines are never charged silently.
  */
 export function electricalCircuitCardShouldPrice(
   itemId: ElectricalCircuitItemId,
@@ -79,7 +78,10 @@ export function electricalCircuitCardShouldPrice(
   if (!(Number.isFinite(qty) && qty > 0)) return false;
   if (input.quantitySource === 'user_entered') return true;
 
-  if (itemId === 'electrical_circuit_50a' && Number(input.rangeHookupCount) > 0) {
+  if (
+    itemId === 'electrical_circuit_50a' &&
+    Number(input.rangeHookupCount) > 0
+  ) {
     return false;
   }
   if (
@@ -138,11 +140,10 @@ export function quoteElectricalCircuit(
   const material = roundMoney(split.material * quantity);
   const labor = roundMoney(split.labor * laborMultiplier * quantity);
   const specialty = input.itemId === 'electrical_circuit_60a_plus';
-  const conditionLabel = condition
-    ? condition.replace(/_/g, ' ')
-    : 'standard';
+  const conditionLabel = condition ? condition.replace(/_/g, ' ') : 'standard';
   const helper = [
     `${quantity} EA · homerun / breaker`,
+    'additional circuit only',
     conditionLabel,
     specialty ? 'specialty / confirm' : 'approved homerun split',
   ].join(' · ');
@@ -170,6 +171,7 @@ export type ElectricalCircuitSuggestedPricing = {
     laborSource: 'national_average';
     rateSourceLabel: string;
     helper: string;
+    pricingDetail?: string | null;
     mode: 'suggested_price';
     splitSource: 'estimated';
     splitConfidence: 'medium';
@@ -197,11 +199,17 @@ export function resolveElectricalCircuitSuggestedPricing(
       laborSource: 'national_average',
       rateSourceLabel: quote.rateSourceLabel,
       helper: quote.helper,
+      pricingDetail: electricalGenericCircuitOverlapWarning(
+        input.itemId,
+        input
+      ),
       mode: 'suggested_price',
       splitSource: 'estimated',
       splitConfidence: 'medium',
       basis: { quantity: quote.quantity, unit: 'each' },
-      productionStatus: quote.specialty ? 'review_required' : 'production_ready',
+      productionStatus: quote.specialty
+        ? 'review_required'
+        : 'production_ready',
       benchmarkLevel: 'component',
       benchmarkScopeKey: input.itemId,
       benchmarkAction: 'price_ready',

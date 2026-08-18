@@ -171,6 +171,43 @@ describe('electrical Phase 2A service/panel pricing', () => {
     expect(quote?.total).toBe(2050);
   });
 
+  it('keeps panel replacement pricing separate from service-capacity pricing', () => {
+    const panelUpgrade = quoteElectricalServicePanel({
+      itemId: 'electrical_panel_upgrade',
+      quantity: 1,
+      serviceAmperage: 200,
+      existingServiceAmperage: 100,
+      panelUpgradeCount: 1,
+    });
+    const serviceUpgrade = quoteElectricalServicePanel({
+      itemId: 'electrical_service_upgrade',
+      quantity: 1,
+      serviceAmperage: 200,
+      existingServiceAmperage: 100,
+      serviceUpgradeCount: 1,
+    });
+
+    expect(panelUpgrade).toMatchObject({
+      material: 800,
+      labor: 1450,
+      total: 2250,
+    });
+    expect(serviceUpgrade).toMatchObject({
+      material: 2000,
+      labor: 3250,
+      total: 5250,
+    });
+    expect(
+      electricalServicePanelCardShouldPrice('electrical_main_panel', {
+        itemId: 'electrical_main_panel',
+        quantity: 1,
+        quantitySource: 'notes',
+        serviceUpgradeCount: 1,
+        serviceAmperage: 200,
+      })
+    ).toBe(false);
+  });
+
   it('keeps a subpanel independent', () => {
     const quote = quoteElectricalServicePanel({
       itemId: 'electrical_subpanel',

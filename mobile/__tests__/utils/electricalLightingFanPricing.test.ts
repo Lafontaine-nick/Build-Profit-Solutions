@@ -57,6 +57,42 @@ describe('electrical Phase 2E lighting/fan pricing', () => {
     expect(quote?.total).toBe(1035);
   });
 
+  it('keeps ceiling fan pricing fixture/hang-only with separate rough and control scope', () => {
+    const quote = quoteElectricalLightingFan({
+      itemId: 'electrical_ceiling_fan',
+      quantity: 8,
+      electricalProjectCondition: 'new_construction',
+    });
+    expect(quote).toMatchObject({
+      material: 800,
+      labor: 1400,
+      total: 2200,
+    });
+    expect(quote?.helper).toMatch(/fan fixture \/ hang/i);
+    expect(quote?.helper).toMatch(/fan-rated box\/bracing/i);
+    expect(quote?.helper).toMatch(/homerun\/circuit/i);
+    expect(quote?.helper).toMatch(/switch\/control separate/i);
+  });
+
+  it('prices bathroom exhaust fans at the electrical install baseline', () => {
+    const quote = quoteElectricalLightingFan({
+      itemId: 'electrical_bath_exhaust_fan',
+      quantity: 3,
+      electricalProjectCondition: 'new_construction',
+    });
+    expect(quote).toMatchObject({
+      material: 225,
+      labor: 525,
+      total: 750,
+    });
+    expect(quote?.helper).toMatch(
+      /fan unit \/ standard mounting \/ electrical connection/i
+    );
+    expect(quote?.helper).toMatch(
+      /ducting, roof\/wall penetration, exterior termination, HVAC, and homerun separate/i
+    );
+  });
+
   it('marks decorative / chandelier as specialty review', () => {
     const quote = quoteElectricalLightingFan({
       itemId: 'electrical_decorative_light',

@@ -1,5 +1,9 @@
-import type { SubcontractorTradeKey, TradeMeasurementDefinition } from './types';
+import type {
+  SubcontractorTradeKey,
+  TradeMeasurementDefinition,
+} from './types';
 import { ELECTRICAL_CARDS } from './electricalPlanConvergence';
+import { PLUMBING_CARDS } from './plumbingPlanConvergence';
 
 const M = (
   key: string,
@@ -139,7 +143,17 @@ export const TRADE_MEASUREMENT_SCHEMAS: Partial<
       quickMeasurementKey: 'roofDownspoutCount',
     }),
   ],
-  plumbing: [],
+  plumbing: PLUMBING_CARDS.map(card =>
+    M(
+      card.measurementKey,
+      card.label,
+      card.unit,
+      card.groupId === 'lines' ? 'primary' : 'more',
+      {
+        quickMeasurementKey: card.measurementKey,
+      }
+    )
+  ),
   hvac: [],
   concrete: [
     M('concreteDrivewaySqft', 'Driveway area', 'sqft', 'primary', {
@@ -288,7 +302,9 @@ export const TRADE_MEASUREMENT_SCHEMAS: Partial<
   windows_doors: [],
   electrical: [
     M('serviceAmperage', 'Service amperage', 'amp', 'primary'),
-    ...ELECTRICAL_CARDS.filter(card => card.measurementKey !== 'serviceAmperage').map(card =>
+    ...ELECTRICAL_CARDS.filter(
+      card => card.measurementKey !== 'serviceAmperage'
+    ).map(card =>
       M(
         card.measurementKey,
         card.label,

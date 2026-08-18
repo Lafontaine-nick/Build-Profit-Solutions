@@ -31,6 +31,11 @@ const {
   omitUnresolvedElectricalConflicts,
   instanceTagMeasurementsFromTakeoff,
 } = require('./electricalPlanAdapter');
+const {
+  PLUMBING_VISION_INSTRUCTIONS,
+  applyPlumbingVisionTakeoff,
+  normalizePlumbingPlanMeasurements,
+} = require('./plumbingPlanAdapter');
 
 /** Temporary Lot 58 diagnosis — which pipeline stage drops Electrical counts. */
 const ELECTRICAL_DEBUG_KEYS = [
@@ -1015,8 +1020,44 @@ Schema:
 }`;
 }
 
-function visionSystemPrompt(electricalSelected) {
-  return electricalSelected ? buildElectricalSystemPrompt() : buildSystemPrompt();
+function buildPlumbingSystemPrompt() {
+  return `You are a construction estimator counting Plumbing quantities on plumbing plans, fixture schedules, risers, details, and plumbing notes.
+
+Return ONLY valid JSON (no markdown).
+
+${PLUMBING_VISION_INSTRUCTIONS}
+
+For every returned measurement, include fieldConfidence from 0 to 1 and a traceable fieldEvidence entry with page, sheet, label, and sourceText when available. Leave rooms[] empty for this focused trade pass.
+
+Schema:
+{
+  "success": true,
+  "imageQuality": "good",
+  "rooms": [],
+  "measurements": {
+    "fixtureReplacementCount": 8,
+    "plumbingRoughPointCount": 12,
+    "waterLineLf": 40,
+    "sewerLineLf": 18
+  },
+  "fieldConfidence": {
+    "fixtureReplacementCount": 0.85,
+    "plumbingRoughPointCount": 0.8
+  },
+  "explicitlyLabeled": ["waterLineLf"],
+  "geometryDerived": [],
+  "inferredKeys": [],
+  "unreadableFields": [],
+  "fieldEvidence": {},
+  "assumptions": [],
+  "notesBlock": "Counted only readable Plumbing quantities."
+}`;
+}
+
+function visionSystemPrompt(electricalSelected, plumbingSelected) {
+  if (electricalSelected) return buildElectricalSystemPrompt();
+  if (plumbingSelected) return buildPlumbingSystemPrompt();
+  return buildSystemPrompt();
 }
 
 function sanitizeRooms(rawRooms) {
@@ -1586,6 +1627,17 @@ function buildItemQuantities(measurements) {
     roofSquares: { key: 'shingles_roofing', unit: 'squares' },
     deckSqft: { key: 'deck', unit: 'sqft' },
     concreteSqft: { key: 'concrete', unit: 'sqft' },
+    serviceCallCount: { key: 'service_call', unit: 'each' },
+    fixtureRepairCount: { key: 'fixture_repair', unit: 'each' },
+    fixtureReplacementCount: { key: 'fixture_replace', unit: 'each' },
+    drainCleaningCount: { key: 'drain_cleaning', unit: 'each' },
+    waterLineLf: { key: 'water_line', unit: 'lf' },
+    sewerLineLf: { key: 'sewer_line', unit: 'lf' },
+    plumbingRoughPointCount: { key: 'plumbing_rough', unit: 'each' },
+    plumbingTrimHookupCount: { key: 'plumbing_trim', unit: 'each' },
+    partsMaterialsCount: { key: 'parts_materials', unit: 'allowance' },
+    emergencyFeeCount: { key: 'emergency_fee', unit: 'allowance' },
+    plumbingCleanupCount: { key: 'cleanup', unit: 'allowance' },
   };
   for (const [measKey, meta] of Object.entries(map)) {
     if (measurements[measKey] == null) continue;
@@ -1726,6 +1778,8 @@ async function analyzePlanForMeasurements({
     planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'painting';
   const electricalSelected =
     planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'electrical';
+  const plumbingSelected =
+    planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'plumbing';
   if (!openai) {
     const err = new Error('OpenAI client not configured');
     err.status = 503;
@@ -1861,7 +1915,10 @@ async function analyzePlanForMeasurements({
     temperature: planVisionTemperature,
     max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 4000),
     messages: [
-      { role: 'system', content: visionSystemPrompt(electricalSelected) },
+      {
+        role: 'system',
+        content: visionSystemPrompt(electricalSelected, plumbingSelected),
+      },
       {
         role: 'user',
         content: [
@@ -1874,6 +1931,12 @@ async function analyzePlanForMeasurements({
                   'Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.',
                   hintBits.length ? hintBits.join('\n\n') : 'No extra context.',
                 ].join('\n\n')
+              : plumbingSelected
+                ? [
+                    PLUMBING_VISION_INSTRUCTIONS,
+                    'Return canonical Plumbing quantities only. Leave packages, living-area quantities, and unsupported/inferred values omitted.',
+                    hintBits.length ? hintBits.join('\n\n') : 'No extra context.',
+                  ].join('\n\n')
               : [
               'Extract Building Areas / Area Schedule totals AND every labeled room with length×width or SF from these floor plan / blueprint pages.',
               'For Stucco / Exterior Finish, inspect every front/rear/left/right elevation and wall section. Read elevation face widths/heights, story-specific plate heights, window and door dimensions, garage door dimensions, cladding callouts, soffits, parapets, foam bands, and control joints.',
@@ -1932,11 +1995,13 @@ async function analyzePlanForMeasurements({
           {
             role: 'system',
             content:
-              visionSystemPrompt(electricalSelected) +
-              (planSelection.trade && !electricalSelected
+              visionSystemPrompt(electricalSelected, plumbingSelected) +
+              (planSelection.trade && !electricalSelected && !plumbingSelected
                 ? '\nThis is a focused trade takeoff pass. Prioritize measurable geometry and scope for the selected trade over general room extraction.'
                 : electricalSelected
                   ? '\nThis is a focused Electrical symbol-count pass. Count devices on the attached E-sheet images.'
+                  : plumbingSelected
+                    ? '\nThis is a focused Plumbing quantity pass. Count only readable fixtures, schedules, points, and labeled line lengths.'
                   : '\nThis is a focused general-contractor takeoff pass. Prioritize measurable quantities across every major scope category.'),
           },
           {
@@ -1950,13 +2015,17 @@ async function analyzePlanForMeasurements({
                     : 'Review the complete plan set for all major building scopes: structure, foundation, concrete, framing, roof, windows/doors, exterior finishes, MEP, insulation, drywall, flooring, cabinets, tile, paint, sitework, patios, and landscaping.',
                   'For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, windowDoorOpeningsSqft, garageOpeningsSqft, and non-stucco deductions. Also populate measurements.stuccoWindowDoorOpeningSqft and measurements.stuccoGarageOpeningSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer.',
                   'PDF text perimeter/plate/story facts (when present) support gross wall area only. Opening deductions still come from elevation drawings.',
-                  paintingSelected
+                  plumbingSelected
+                    ? PLUMBING_VISION_INSTRUCTIONS
+                    : paintingSelected
                     ? paintingVisionInstructions
                     : electricalSelected
                       ? ELECTRICAL_VISION_INSTRUCTIONS
                       : 'For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.',
                   paintingSelected
                     ? 'Return wallPaintSqft, ceilingPaintSqft, baseboardLf, interiorDoorCount, and exteriorPaintSqft when geometry or schedules support them. Add geometry-derived keys to geometryDerived. Leave occupancy, application method, and prep omitted.'
+                    : plumbingSelected
+                      ? 'Return Plumbing canonical quantities only. Add only explicit or directly measured fields to explicitlyLabeled/geometryDerived. Leave packages and unsupported values omitted.'
                     : electricalSelected
                       ? `${electricalSheetCountHint} Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.`
                       : 'Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.',
@@ -1984,6 +2053,7 @@ async function analyzePlanForMeasurements({
     err.status = 502;
     throw err;
   }
+  if (plumbingSelected) applyPlumbingVisionTakeoff(parsed);
   const generalElectricalVisionSource = electricalSelected
     ? parsed.measurements
     : null;
@@ -2010,6 +2080,7 @@ async function analyzePlanForMeasurements({
         focusedElectricalVision = electricalDebugSnapshot(focused.measurements);
         foldElectricalVisionPayload(focused);
       }
+      if (plumbingSelected) applyPlumbingVisionTakeoff(focused);
       const mergedMeasurements = electricalSelected
         ? mergeElectricalEvidenceSources({
             generalMeasurements: parsed.measurements,
@@ -2236,6 +2307,9 @@ async function analyzePlanForMeasurements({
     buildingAreas,
     parsed.explicitlyLabeled
   );
+  if (plumbingSelected) {
+    rawMeasurements = normalizePlumbingPlanMeasurements(parsed.measurements);
+  }
   if (electricalSelected) {
     logElectricalTakeoffStage('AFTER SANITIZE', electricalDebugSnapshot(rawMeasurements));
   }
@@ -2366,6 +2440,26 @@ async function analyzePlanForMeasurements({
       ])
     ),
   };
+  if (plumbingSelected) {
+    const inferredKeys = new Set(
+      Array.isArray(parsed.inferredKeys) ? parsed.inferredKeys : []
+    );
+    measurementProvenance = {
+      ...measurementProvenance,
+      ...Object.fromEntries(
+        Object.entries(rawMeasurements).map(([key, value]) => [
+          key,
+          {
+            ...(measurementProvenance[key] || {}),
+            value,
+            source: 'detected_from_plan',
+            normalizedSource: 'FROM_PLAN',
+            pricingEligible: !inferredKeys.has(key),
+          },
+        ])
+      ),
+    };
+  }
   if (electricalSelected) {
     logElectricalTakeoffStage(
       'AFTER electricalPlanConvergence',

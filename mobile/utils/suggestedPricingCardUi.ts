@@ -339,16 +339,16 @@ export function formatSuggestedComponentMoney(
 ): string {
   const value = Number(amount);
   if (!Number.isFinite(value)) return '—';
-  return `$${Math.round(value).toLocaleString()}`;
+  return formatDraftMoney(value);
 }
 
-/** Keep applied pricing readable as whole-dollar display values. */
+/** Keep applied pricing consistent with the exact Step 3 totals. */
 export function formatAppliedDisplayMoney(
   total: number | null | undefined
 ): string {
   const value = Number(total);
   if (!Number.isFinite(value)) return '—';
-  return `$${Math.round(value).toLocaleString()}`;
+  return formatDraftMoney(value);
 }
 
 export function normalizeQuantitySource(

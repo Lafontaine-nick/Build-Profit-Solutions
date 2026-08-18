@@ -522,6 +522,24 @@ describe('electrical canonical architecture', () => {
     expect(range.receptacle240vCount).toBeUndefined();
   });
 
+  it('defines generic circuits as additional homeruns and 240V devices as termination-only', () => {
+    const byId = Object.fromEntries(
+      ELECTRICAL_CARDS.map(card => [card.itemId, card])
+    );
+    expect(byId.electrical_standard_circuit.helper).toMatch(
+      /additional.*not already owned/i
+    );
+    expect(byId.electrical_dedicated_20a.helper).toMatch(
+      /additional.*not already owned/i
+    );
+    expect(byId.electrical_240v_receptacle.helper).toMatch(
+      /standard termination/i
+    );
+    expect(byId.electrical_240v_receptacle.helper).toMatch(
+      /dedicated circuit separately/i
+    );
+  });
+
   it('names the AFCI card as a receptacle device, not breaker protection', () => {
     const card = ELECTRICAL_CARDS.find(
       row => row.itemId === 'electrical_afci_receptacle'

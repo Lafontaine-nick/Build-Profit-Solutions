@@ -164,7 +164,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_standard_circuit',
     'standardCircuitCount',
     'Standard 15/20A circuits',
-    'General 120V lighting and receptacle homeruns. Dedicated appliance circuits, devices, and hookups are separate.',
+    'Additional 120V homeruns only. Use only for explicit circuits not already owned by a named appliance or service scope; do not infer from devices or floor area.',
     'circuits',
     { voltage: '120V' }
   ),
@@ -172,7 +172,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_dedicated_20a',
     'dedicated20aCircuitCount',
     'Dedicated 20A circuits',
-    'Dedicated 120V 20A appliance homeruns. Do not also count as standard circuits. Dishwasher / disposal / microwave / refrigerator hookups own those circuits.',
+    'Additional dedicated 120V homeruns only. Use only for explicit circuits not already owned by a named appliance or service scope; do not also count as standard circuits.',
     'circuits',
     { voltage: '120V' }
   ),
@@ -180,7 +180,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_circuit_30a',
     'circuit30aCount',
     '30A circuits',
-    'Generic 30A homeruns, typically 240V. A dryer or water-heater hookup owns that circuit instead.',
+    'Additional 30A homeruns only, typically 240V. Use only for an explicit circuit not already owned by a named appliance or service scope.',
     'circuits',
     { voltage: '240V' }
   ),
@@ -188,7 +188,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_circuit_40a',
     'circuit40aCount',
     '40A circuits',
-    '40A circuits, typically 240V. Do not also count a matching appliance hookup here.',
+    'Additional 40A homeruns only, typically 240V. Use only for an explicit circuit not already owned by a named appliance or service scope.',
     'circuits',
     { voltage: '240V' }
   ),
@@ -196,7 +196,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_circuit_50a',
     'circuit50aCount',
     '50A circuits',
-    'Generic 50A homeruns. A 50A range circuit belongs on Electric range circuit + hookup, not here.',
+    'Additional 50A homeruns only. Use only for an explicit circuit not already owned by a named appliance or service scope.',
     'circuits',
     { voltage: '240V' }
   ),
@@ -204,7 +204,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_circuit_60a_plus',
     'circuit60aPlusCount',
     '60A+ circuits',
-    '60A and larger feeder / equipment homeruns. EV charger circuit + hookup owns that circuit. Specialty / confirm.',
+    'Additional 60A+ feeder / equipment homeruns only. Use only for an explicit circuit not already owned by a named appliance or service scope. Specialty / confirm.',
     'circuits',
     { voltage: '240V' }
   ),
@@ -244,7 +244,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_floor_receptacle',
     'floorReceptacleCount',
     'Floor receptacles',
-    'Floor boxes / floor outlets. Device only — not a standard receptacle and not the homerun.',
+    'Floor boxes / floor outlets. Includes the floor-box assembly and device; not a standard receptacle or the homerun.',
     'receptacles',
     { voltage: '120V' }
   ),
@@ -260,7 +260,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_240v_receptacle',
     'receptacle240vCount',
     '240V receptacles',
-    '240V receptacle devices only. Range / dryer hookups own those connections. Homerun is a circuit or hookup card.',
+    'Receptacle/device and standard termination only. Add the applicable dedicated circuit separately when a new homerun is required.',
     'receptacles',
     { voltage: '240V' }
   ),
@@ -352,21 +352,21 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_ceiling_fan',
     'ceilingFanCount',
     'Ceiling fan',
-    'Ceiling fan fixtures, with or without a light kit. Fixture + hang only — not a new fan-rated box, homerun, or bath exhaust fan.',
+    'Ceiling fan fixtures, with or without a light kit. Fixture + hang only — fan-rated box/bracing, homerun/circuit, and switch/control work are separate. Not a bath exhaust fan.',
     'fans'
   ),
   C(
     'electrical_bath_exhaust_fan',
     'bathExhaustFanCount',
     'Bathroom exhaust fan electrical install',
-    'Fan + electrical connection only. Does not include ducting, roof/wall venting, or HVAC work. Distinct from ceiling fans. Homerun is a circuit card.',
+    'Fan unit + standard mounting + electrical connection. Excludes ducting, roof/wall penetration, exterior termination, HVAC work, and dedicated homerun unless separately selected. Distinct from ceiling fans.',
     'fans'
   ),
   C(
     'electrical_range_hookup',
     'rangeHookupCount',
     'Electric range circuit + hookup',
-    'Includes the dedicated 50A circuit and the connection — not a plug-in only. Do not also count a generic 50A card or a 240V receptacle.',
+    'Includes the dedicated circuit, breaker, branch wiring, and appliance connection. Do not add a separate generic circuit or 240V receptacle for the same appliance.',
     'appliances',
     { voltage: '240V' }
   ),
@@ -374,7 +374,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_dryer_hookup',
     'dryerHookupCount',
     'Electric dryer circuit + hookup',
-    'Includes the dedicated 30A circuit and the connection — not a plug-in only. Do not also count a generic 30A card or a 240V receptacle.',
+    'Includes the dedicated circuit, breaker, branch wiring, and appliance connection. Do not add a separate generic circuit or 240V receptacle for the same appliance.',
     'appliances',
     { voltage: '240V' }
   ),
@@ -382,7 +382,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_dishwasher_hookup',
     'dishwasherHookupCount',
     'Dishwasher circuit + hookup',
-    'Includes the dedicated 20A circuit and the connection — not a plug-in only. Do not also count a generic dedicated 20A card.',
+    'Includes the dedicated circuit, breaker, branch wiring, and appliance connection. Do not add a separate generic circuit for the same appliance.',
     'appliances',
     { voltage: '120V' }
   ),
@@ -390,7 +390,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_disposal_hookup',
     'disposalHookupCount',
     'Disposal circuit + hookup',
-    'Includes the dedicated 20A circuit and the connection — not a plug-in only. An air switch is a switch card, not this hookup.',
+    'Includes the dedicated circuit, breaker, branch wiring, and appliance connection. An air switch is a switch card, not this hookup.',
     'appliances',
     { voltage: '120V' }
   ),
@@ -398,7 +398,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_microwave_hookup',
     'microwaveHookupCount',
     'Microwave circuit + hookup',
-    'Includes the dedicated 20A circuit and the connection — not a plug-in only. Do not also count a generic dedicated 20A card.',
+    'Includes the dedicated circuit, breaker, branch wiring, and appliance connection. Do not add a separate generic circuit for the same appliance.',
     'appliances',
     { voltage: '120V' }
   ),
@@ -406,7 +406,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_refrigerator_hookup',
     'refrigeratorHookupCount',
     'Refrigerator circuit + hookup',
-    'Includes the dedicated 20A circuit and the connection — not a plug-in only. Do not use this card for a fridge on an existing receptacle — that is a standard receptacle.',
+    'Includes the dedicated circuit, breaker, branch wiring, and appliance connection. Do not use this card for a fridge on an existing receptacle — that is a standard receptacle.',
     'appliances',
     { voltage: '120V' }
   ),
@@ -414,7 +414,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_water_heater_hookup',
     'waterHeaterHookupCount',
     'Electric water heater circuit + hookup',
-    'Includes the dedicated 30A circuit and the connection — not a plug-in only. Not a gas water heater. Do not also count a generic 30A card.',
+    'Includes the dedicated circuit, breaker, branch wiring, and appliance connection. Not a gas water heater. Do not add a separate generic circuit for the same appliance.',
     'appliances',
     { voltage: '240V' }
   ),
@@ -422,7 +422,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_hvac_hookup',
     'hvacHookupCount',
     'HVAC circuit + hookup',
-    'Includes the HVAC electrical circuit and connection — not a plug-in only. Not the HVAC trade package and not a generic circuit card. Specialty / confirm.',
+    'Includes the dedicated circuit, breaker, branch wiring, and equipment connection. Not the HVAC trade package. Do not add a separate generic circuit for the same equipment. Specialty / confirm.',
     'appliances',
     { voltage: '240V' }
   ),
@@ -430,7 +430,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_ev_charger_hookup',
     'evChargerHookupCount',
     'EV charger circuit + hookup',
-    'Includes the EV charger circuit and connection — not a plug-in only. Owns the 60A+ feeder — do not also count a generic 60A+ card. Specialty / confirm.',
+    'Includes the dedicated circuit, breaker, branch wiring, and EV connection. Do not add a separate generic 60A+ circuit for the same charger. Specialty / confirm.',
     'appliances',
     { voltage: '240V' }
   ),

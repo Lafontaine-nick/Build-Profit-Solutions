@@ -57,6 +57,34 @@ const METER_MAIN_COMBO_OPTION = {
   label: 'Meter / main combo',
 } as const;
 
+function electricalQmProvenanceTone(label: string, darkMode: boolean) {
+  if (/needs confirmation/i.test(label)) {
+    return {
+      backgroundColor: darkMode
+        ? 'rgba(251,191,36,0.14)'
+        : 'rgba(251,191,36,0.12)',
+      borderColor: darkMode ? 'rgba(251,191,36,0.42)' : 'rgba(180,83,9,0.28)',
+      color: darkMode ? '#fbbf24' : '#b45309',
+    };
+  }
+  if (/contractor confirmed/i.test(label)) {
+    return {
+      backgroundColor: darkMode
+        ? 'rgba(96,165,250,0.14)'
+        : 'rgba(96,165,250,0.12)',
+      borderColor: darkMode ? 'rgba(96,165,250,0.42)' : 'rgba(37,99,235,0.28)',
+      color: darkMode ? '#93c5fd' : '#2563eb',
+    };
+  }
+  return {
+    backgroundColor: darkMode
+      ? 'rgba(52,211,153,0.12)'
+      : 'rgba(52,211,153,0.10)',
+    borderColor: darkMode ? 'rgba(52,211,153,0.38)' : 'rgba(5,150,105,0.26)',
+    color: darkMode ? '#6ee7b7' : '#047857',
+  };
+}
+
 function useElectricalAttributeLocal(
   values: ElectricalConfirmScopeAttributes,
   onPatch: (patch: Partial<ElectricalConfirmScopeAttributes>) => void
@@ -1152,6 +1180,7 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
   function ElectricalConfirmScopeAttributesPanel({
     values,
     onCommit,
+    onPreview,
     commitRef,
     darkMode,
     showExistingService,
@@ -1159,6 +1188,7 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
   }: {
     values: ElectricalConfirmScopeAttributes;
     onCommit: (attributes: ElectricalConfirmScopeAttributes) => void;
+    onPreview?: (attributes: ElectricalConfirmScopeAttributes) => void;
     commitRef?: React.MutableRefObject<(() => void) | null>;
     darkMode: boolean;
     showExistingService: boolean;
@@ -1169,6 +1199,8 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     const dirtyRef = useRef(false);
     const onCommitRef = useRef(onCommit);
     onCommitRef.current = onCommit;
+    const onPreviewRef = useRef(onPreview);
+    onPreviewRef.current = onPreview;
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
       job_condition: false,
       service_amperage: false,
@@ -1218,6 +1250,7 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
         localRef.current = next;
         dirtyRef.current = true;
         setLocal(next);
+        onPreviewRef.current?.(next);
       },
       []
     );
@@ -1298,6 +1331,7 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     previous.showExistingService === next.showExistingService &&
     previous.hasDetailedQuantities === next.hasDetailedQuantities &&
     previous.onCommit === next.onCommit &&
+    previous.onPreview === next.onPreview &&
     previous.commitRef === next.commitRef &&
     electricalConfirmScopeAttributesEqual(previous.values, next.values)
 );
@@ -1488,7 +1522,7 @@ function ElectricalQmGroupCardView({
       onToggle={() => onToggleGroup(group.id)}
       collapsedHint={
         selectedCount > 0
-          ? 'Selected · tap to expand card'
+          ? `${selectedCount} selected · tap to expand card`
           : 'Tap to expand card'
       }
       expandedCaption={electricalQmGroupCaption(group.id)}
@@ -1639,6 +1673,12 @@ const ElectricalQmScopeOption = React.memo(
 
     const inputValue = isEditingQuantity ? quantityDraft : committedValue;
     const showStatusBelowInput = !isEditingQuantity;
+    const numericInputValue = Number(String(inputValue).replace(/,/g, ''));
+    const hasPositiveQuantity =
+      Number.isFinite(numericInputValue) && numericInputValue > 0;
+    const provenanceTone = field.provenanceLabel
+      ? electricalQmProvenanceTone(field.provenanceLabel, darkMode)
+      : null;
 
     return (
       <View>
@@ -1675,19 +1715,46 @@ const ElectricalQmScopeOption = React.memo(
               applying={applying}
               darkMode={darkMode}
               Colors={Colors}
-              highlighted
+              highlighted={field.conflicted || !hasPositiveQuantity}
             />
             {showStatusBelowInput && active && field.provenanceLabel ? (
-              <Text
+              <View
                 style={{
-                  color: darkMode ? '#94a3b8' : '#64748b',
-                  fontSize: 11,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 6,
                   marginTop: 4,
                 }}
               >
-                {field.value?.toLocaleString()} {field.unit} ·{' '}
-                {field.provenanceLabel}
-              </Text>
+                <Text
+                  style={{
+                    color: darkMode ? '#94a3b8' : '#64748b',
+                    fontSize: 11,
+                  }}
+                >
+                  {field.value?.toLocaleString()} {field.unit}
+                </Text>
+                <View
+                  style={{
+                    borderWidth: 1,
+                    borderRadius: 999,
+                    paddingHorizontal: 7,
+                    paddingVertical: 2,
+                    ...provenanceTone,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: provenanceTone?.color,
+                      fontSize: 10,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {field.provenanceLabel}
+                  </Text>
+                </View>
+              </View>
             ) : null}
             {showStatusBelowInput && !active ? (
               <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 5 }}>

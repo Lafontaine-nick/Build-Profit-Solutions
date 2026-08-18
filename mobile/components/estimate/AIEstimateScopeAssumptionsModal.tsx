@@ -57,6 +57,7 @@ import {
   hasDetailedElectricalQuantities,
   syncElectricalScopeItems,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import { syncPlumbingScopeItems } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
   ElectricalConfirmScopeAttributesPanel,
   ElectricalQuickMeasurementTakeoff,
@@ -6842,6 +6843,66 @@ function WetAreaInstallLineCard({
   );
 }
 
+/**
+ * Applying pricing updates the shared measurements object. Keep that update
+ * from invalidating every pricing card: each row only needs its own quantity
+ * entries, acceptance record, scope-gap record, and primitive measurement
+ * inputs. This is intentionally narrower than comparing measurementsInput by
+ * reference, which made a single Apply tap synchronously rebuild every card.
+ */
+function scopeRowMeasurementSignature(
+  measurementsInput: ScopeMeasurementsInputExtended,
+  itemId: string,
+  templateKey?: string | null
+): string {
+  const inputRecord = measurementsInput as Record<string, unknown>;
+  const rule = getChecklistItemQuantityRuleOrDefault(itemId, templateKey);
+  const electricalOwnershipSensitive =
+    itemId === 'electrical_standard_circuit' ||
+    itemId === 'electrical_dedicated_20a' ||
+    itemId.startsWith('electrical_circuit_') ||
+    itemId === 'electrical_240v_receptacle';
+  const quantityKeys = Object.keys(measurementsInput.itemQuantities || {})
+    .filter(
+      key =>
+        (electricalOwnershipSensitive && key.startsWith('electrical_')) ||
+        key === itemId ||
+        key.startsWith(`${itemId}__`) ||
+        key === `${itemId}_count` ||
+        key === `${itemId}Count`
+    )
+    .sort();
+  const quantityEntries = quantityKeys.map(key => [
+    key,
+    measurementsInput.itemQuantities[key],
+  ]);
+  const primitiveMeasurements = Object.keys(measurementsInput)
+    .filter(
+      key =>
+        key !== 'itemQuantities' &&
+        key !== 'pricingAcceptance' &&
+        key !== 'scopeGapResolutions'
+    )
+    .sort()
+    .map(key => {
+      const value = inputRecord[key];
+      return Array.isArray(value) || value == null || typeof value !== 'object'
+        ? [key, value]
+        : null;
+    })
+    .filter((entry): entry is [string, unknown] => Boolean(entry));
+
+  return JSON.stringify({
+    primitiveMeasurements,
+    measurementKeys: [rule.measurementKey, ...(rule.measurementKeys || [])].map(
+      key => [key, key ? inputRecord[key] : undefined]
+    ),
+    quantityEntries,
+    pricingAcceptance: measurementsInput.pricingAcceptance?.[itemId],
+    scopeGapResolutions: measurementsInput.scopeGapResolutions?.[itemId],
+  });
+}
+
 function YesNoRow({
   item,
   templateKey,
@@ -8566,6 +8627,37 @@ function YesNoRow({
   );
 }
 
+type YesNoRowProps = React.ComponentProps<typeof YesNoRow>;
+
+function areYesNoRowPropsEqual(
+  previous: YesNoRowProps,
+  next: YesNoRowProps
+): boolean {
+  return (
+    previous.item === next.item &&
+    previous.templateKey === next.templateKey &&
+    previous.originalNotes === next.originalNotes &&
+    previous.suppressSuggestedPricing === next.suppressSuggestedPricing &&
+    previous.darkMode === next.darkMode &&
+    previous.applying === next.applying &&
+    previous.pricingEditorRequest?.itemId ===
+      next.pricingEditorRequest?.itemId &&
+    previous.pricingEditorRequest?.token === next.pricingEditorRequest?.token &&
+    scopeRowMeasurementSignature(
+      previous.measurementsInput,
+      previous.item.id,
+      previous.templateKey
+    ) ===
+      scopeRowMeasurementSignature(
+        next.measurementsInput,
+        next.item.id,
+        next.templateKey
+      )
+  );
+}
+
+const MemoizedYesNoRow = React.memo(YesNoRow, areYesNoRowPropsEqual);
+
 function multiChoicePriceRows(
   itemId: string,
   choiceIds: string[],
@@ -9760,6 +9852,7 @@ function CollapsibleQuickMeasurements({
   applying,
   electricalQuantityEditingRef,
   electricalAttributesCommitRef,
+  onElectricalAttributesPreview,
 }: {
   expanded: boolean;
   onToggle: () => void;
@@ -9842,6 +9935,12 @@ function CollapsibleQuickMeasurements({
   electricalQuantityEditingRef?: React.RefObject<boolean>;
   /** Commit local Electrical attribute chips before leaving Confirm Scope. */
   electricalAttributesCommitRef?: React.MutableRefObject<(() => void) | null>;
+  /** Preview local Electrical attributes in pricing cards before commit. */
+  onElectricalAttributesPreview?: (
+    attributes: ReturnType<
+      typeof electricalConfirmScopeAttributesFromMeasurements
+    >
+  ) => void;
 }) {
   const [moreExpanded, setMoreExpanded] = useState(true);
   const [openDetailsKey, setOpenDetailsKey] =
@@ -12749,6 +12848,7 @@ function CollapsibleQuickMeasurements({
               <ElectricalConfirmScopeAttributesPanel
                 values={electricalAttributeValues}
                 onCommit={patchElectricalAttributes}
+                onPreview={onElectricalAttributesPreview}
                 commitRef={electricalAttributesCommitRef}
                 darkMode={darkMode}
                 showExistingService={
@@ -13712,10 +13812,7 @@ export default function AIEstimateScopeAssumptionsModal({
     if (!electricalPreviewMeasurements) return;
     // Keep the preview through the commit render, then release it so later
     // edits made directly on scope cards cannot read an older QM snapshot.
-    if (
-      measurements === electricalPreviewMeasurements ||
-      !electricalMeasurementsStagedRef.current
-    ) {
+    if (measurements === electricalPreviewMeasurements) {
       setElectricalPreviewMeasurements(null);
     }
   }, [measurements, electricalPreviewMeasurements]);
@@ -14229,6 +14326,24 @@ export default function AIEstimateScopeAssumptionsModal({
       setMeasurements(reconciled);
     },
     [checklist?.templateKey]
+  );
+
+  const previewElectricalAttributes = useCallback(
+    (
+      attributes: ReturnType<
+        typeof electricalConfirmScopeAttributesFromMeasurements
+      >
+    ) => {
+      // Attribute chips are pricing inputs, not staged takeoff quantities.
+      // Commit them immediately so service-panel pricing cannot read a stale
+      // amperage/location snapshot after the chip turns green.
+      setMeasurementsSynced(previous => ({
+        ...previous,
+        ...attributes,
+      }));
+      setElectricalPreviewMeasurements(null);
+    },
+    [setMeasurementsSynced]
   );
 
   const setElectricalMeasurementsStaged = useCallback(
@@ -15707,6 +15822,37 @@ export default function AIEstimateScopeAssumptionsModal({
     });
   }, [checklist?.templateKey, measurements]);
 
+  useEffect(() => {
+    if (
+      !['plumbing', 'plumbing_service'].includes(
+        String(checklist?.templateKey || '').toLowerCase()
+      )
+    )
+      return;
+    startTransition(() => {
+      setItems(prev =>
+        syncPlumbingScopeItems(prev, {
+          plumbingScope: measurements.plumbingScope,
+          quantities: measurements as Record<string, unknown>,
+        })
+      );
+    });
+  }, [
+    checklist?.templateKey,
+    measurements.plumbingScope,
+    measurements.serviceCallCount,
+    measurements.fixtureRepairCount,
+    measurements.fixtureReplacementCount,
+    measurements.drainCleaningCount,
+    measurements.waterLineLf,
+    measurements.sewerLineLf,
+    measurements.plumbingRoughPointCount,
+    measurements.plumbingTrimHookupCount,
+    measurements.partsMaterialsCount,
+    measurements.emergencyFeeCount,
+    measurements.plumbingCleanupCount,
+  ]);
+
   // Quick measurements Paint / shower tile → paint_repair count when scope is selected.
   useEffect(() => {
     if (String(checklist?.templateKey || '').toLowerCase() !== 'bathroom')
@@ -17022,9 +17168,20 @@ export default function AIEstimateScopeAssumptionsModal({
           ),
         };
       });
+      // Apply has committed the accepted pricing into measurements. Drop the
+      // pre-apply electrical preview in the same batch so the card does not
+      // render once from the stale snapshot before showing the accepted state.
+      if (isElectricalConfirmScope) {
+        setElectricalPreviewMeasurements(null);
+      }
       setTimeout(() => persistScopeProgressNow(), 0);
     },
-    [checklist?.templateKey, persistScopeProgressNow, setMeasurementsSynced]
+    [
+      checklist?.templateKey,
+      isElectricalConfirmScope,
+      persistScopeProgressNow,
+      setMeasurementsSynced,
+    ]
   );
 
   const handleClearAcceptedPricing = useCallback(
@@ -17051,6 +17208,22 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const handleApplySuggestedPricing = useCallback(
     (itemId: string, block: SuggestedPricingBlock) => {
+      const scheduleApply = (
+        applyBlock: SuggestedPricingBlock,
+        overrideConfirmed = false,
+        replaceStageKey?: string | null,
+        measurementPatch?: Partial<ScopeMeasurementsInputExtended>
+      ) => {
+        requestAnimationFrame(() =>
+          applySuggestedPricingNow(
+            itemId,
+            applyBlock,
+            overrideConfirmed,
+            replaceStageKey,
+            measurementPatch
+          )
+        );
+      };
       // Stage lumps stay view-only; pure national comparison may be applied.
       if (block.benchmarkAction === 'included_in_stage') {
         return;
@@ -17115,8 +17288,7 @@ export default function AIEstimateScopeAssumptionsModal({
             { text: 'Cancel', style: 'cancel' },
             {
               text: 'Replace allowance',
-              onPress: () =>
-                applySuggestedPricingNow(itemId, block, false, stageKey),
+              onPress: () => scheduleApply(block, false, stageKey),
             },
           ]
         );
@@ -17177,7 +17349,7 @@ export default function AIEstimateScopeAssumptionsModal({
       const applyFlooringDemoWithDisclosure = (
         disclosure: 'no' | 'yes' | 'unsure'
       ) => {
-        applySuggestedPricingNow(itemId, block, false, null, {
+        scheduleApply(block, false, null, {
           flooringDemoIncludesSubstratePrep: disclosure,
         });
       };
@@ -17220,7 +17392,7 @@ export default function AIEstimateScopeAssumptionsModal({
       }
 
       if (!needsConfirmation) {
-        applySuggestedPricingNow(itemId, block);
+        scheduleApply(block);
         return;
       }
       const detail = isTemporary
@@ -17239,7 +17411,7 @@ export default function AIEstimateScopeAssumptionsModal({
           { text: 'Cancel', style: 'cancel' },
           {
             text: 'Apply',
-            onPress: () => applySuggestedPricingNow(itemId, block, true),
+            onPress: () => scheduleApply(block, true),
           },
         ]
       );
@@ -18090,7 +18262,7 @@ export default function AIEstimateScopeAssumptionsModal({
           applying={applying}
         />
       ) : (
-        <YesNoRow
+        <MemoizedYesNoRow
           item={item}
           templateKey={checklist?.templateKey}
           originalNotes={scopeNotes}
@@ -18295,6 +18467,28 @@ export default function AIEstimateScopeAssumptionsModal({
     (total, group) => total + group.items.length,
     0
   );
+  const electricalPreviewPendingPricingCount =
+    electricalPreviewScopeGroups.reduce((total, group) => {
+      return (
+        total +
+        group.items.filter(item => {
+          const applied =
+            scopeHasCommittedConfirmScopePrice({
+              itemId: item.id,
+              itemQuantities: (electricalPreviewMeasurements || measurements)
+                .itemQuantities,
+              pricingAcceptance: (electricalPreviewMeasurements || measurements)
+                .pricingAcceptance,
+            }) ||
+            hasAcceptedScopePricing(
+              item.id,
+              (electricalPreviewMeasurements || measurements).itemQuantities,
+              (electricalPreviewMeasurements || measurements).pricingAcceptance
+            );
+          return !applied;
+        }).length
+      );
+    }, 0);
 
   const body = (
     <View style={[styles.shell, { backgroundColor: Colors.bg }]}>
@@ -18390,6 +18584,7 @@ export default function AIEstimateScopeAssumptionsModal({
             onSummaryChange={setQuickMeasurementSummary}
             electricalQuantityEditingRef={electricalQmQuantityEditingRef}
             electricalAttributesCommitRef={electricalAttributesCommitRef}
+            onElectricalAttributesPreview={previewElectricalAttributes}
             onWetAreaFinishChange={finish => {
               const choiceId = checklistChoiceFromWetAreaFinish(finish);
               if (!choiceId) return;
@@ -18735,13 +18930,15 @@ export default function AIEstimateScopeAssumptionsModal({
             <Text
               style={[styles.bulkSuggestedPricingBtnText, { color: '#22c55e' }]}
             >
-              {electricalPreviewPricingCount > 0
-                ? `${electricalPreviewPricingCount} price${
-                    electricalPreviewPricingCount === 1 ? '' : 's'
-                  } identified · selected scope pricing is shown below`
-                : electricalPreviewScopeGroups.length > 0
-                  ? 'Selected scope pricing is shown below · remaining checks finish after Quick measurements'
-                  : 'Select a measured scope item to show its pricing card below'}
+              {electricalPreviewPendingPricingCount > 0
+                ? `${electricalPreviewPendingPricingCount} pricing card${
+                    electricalPreviewPendingPricingCount === 1 ? '' : 's'
+                  } remaining to apply`
+                : electricalPreviewPricingCount > 0
+                  ? `All ${electricalPreviewPricingCount} pricing cards applied`
+                  : electricalPreviewScopeGroups.length > 0
+                    ? 'Selected scope pricing is shown below · remaining checks finish after Quick measurements'
+                    : 'Select a measured scope item to show its pricing card below'}
             </Text>
           </View>
         ) : null}

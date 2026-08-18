@@ -64,9 +64,9 @@ const FIXTURE_PRICING: Array<[string, number]> = [
   ['electrical_pendant_light', 480],
   ['electrical_exterior_light', 720],
   ['electrical_ceiling_fan', 1375],
-  ['electrical_smoke_detector', 1225],
+  ['electrical_smoke_detector', 1050],
   ['electrical_co_detector', 320],
-  ['electrical_range_hookup', 950],
+  ['electrical_range_hookup', 800],
   ['electrical_dryer_hookup', 675],
   ['electrical_dishwasher_hookup', 500],
 ];
@@ -449,10 +449,10 @@ describe('electrical Phase 3A plan export adapter', () => {
       ['electrical_3way_switch', 650],
       ['electrical_recessed_light', 7200],
       ['electrical_ceiling_fan', 2750],
-      ['electrical_range_hookup', 950],
+      ['electrical_range_hookup', 800],
       ['electrical_dryer_hookup', 675],
       ['electrical_dishwasher_hookup', 500],
-      ['electrical_smoke_detector', 1050],
+      ['electrical_smoke_detector', 900],
     ];
 
     for (const [itemId, total] of pricedCards) {

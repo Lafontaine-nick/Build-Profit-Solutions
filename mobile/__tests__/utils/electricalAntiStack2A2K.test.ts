@@ -103,7 +103,7 @@ describe('electrical 2A–2K global anti-stack', () => {
     ['2D switch', { singlePoleSwitchCount: 8 }, 'electrical_single_pole_switch', 760],
     ['2E recessed light', { recessedLightCount: 18 }, 'electrical_recessed_light', 2700],
     ['2F dishwasher hookup', { dishwasherHookupCount: 1 }, 'electrical_dishwasher_hookup', 500],
-    ['2G smoke detector', { smokeDetectorCount: 4 }, 'electrical_smoke_detector', 700],
+    ['2G smoke detector', { smokeDetectorCount: 4 }, 'electrical_smoke_detector', 600],
     ['2H relocate', { relocateCount: 1 }, 'electrical_relocate', 200],
     ['2I conduit', { conduitLf: 80 }, 'electrical_conduit', 560],
   ] as const)(

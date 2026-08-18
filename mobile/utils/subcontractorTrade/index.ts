@@ -7,6 +7,8 @@ export * from './concretePlanConvergence';
 export * from './flooringPlanConvergence';
 export * from './paintingPlanConvergence';
 export * from './electricalPlanConvergence';
+export * from './plumbingPlanConvergence';
+export * from './plumbingPricingOwnership';
 export * from './electricalServicePanelPricing';
 export * from './electricalCircuitPricing';
 export * from './electricalReceptaclePricing';
