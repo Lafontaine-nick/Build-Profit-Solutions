@@ -91,6 +91,9 @@ type Props = {
   saveToPricingLibrary?: boolean;
   onToggleSaveToPricingLibrary?: (value: boolean) => void;
   markupPct?: number;
+  onUpdateProjectComplexity?: (
+    next: import('@/utils/projectComplexityAdjustments').ProjectComplexitySettings
+  ) => void;
   children?: React.ReactNode;
 };
 
@@ -141,6 +144,7 @@ export default function AIEstimateDraftReviewModal({
   saveToPricingLibrary = true,
   onToggleSaveToPricingLibrary,
   markupPct = 0,
+  onUpdateProjectComplexity,
   children,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -275,6 +279,7 @@ export default function AIEstimateDraftReviewModal({
                 onRequestRoughRange={onRequestRoughRange}
                 roughRangeLoading={roughRangeLoading}
                 markupPct={markupPct}
+                onUpdateProjectComplexity={onUpdateProjectComplexity}
               />
             }
           />
@@ -321,6 +326,7 @@ export default function AIEstimateDraftReviewModal({
                   onRequestRoughRange={onRequestRoughRange}
                   roughRangeLoading={roughRangeLoading}
                   markupPct={markupPct}
+                  onUpdateProjectComplexity={onUpdateProjectComplexity}
                 />
               }
             />

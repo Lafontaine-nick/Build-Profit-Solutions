@@ -6622,6 +6622,23 @@ export default function EstimateGeneratorScreen() {
     });
   }, []);
 
+  const handleUpdateProjectComplexity = useCallback((nextComplexity) => {
+    setAiDraft((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        scopeMeasurements: {
+          ...(prev.scopeMeasurements || {}),
+          projectComplexity: nextComplexity,
+        },
+      };
+    });
+    latestScopeMeasurementsRef.current = {
+      ...(latestScopeMeasurementsRef.current || {}),
+      projectComplexity: nextComplexity,
+    };
+  }, []);
+
   const handleRemoveScopeItem = useCallback((packageName) => {
     setAiDraft((prev) => {
       if (!prev || !packageName) return prev;
@@ -25158,6 +25175,7 @@ export default function EstimateGeneratorScreen() {
         saveToPricingLibrary={aiSaveToPricingLibrary}
         onToggleSaveToPricingLibrary={setAiSaveToPricingLibrary}
         markupPct={Number(bid?.markupPct) || 0}
+        onUpdateProjectComplexity={handleUpdateProjectComplexity}
       />
 
       <AIEstimatePricingProposalModal

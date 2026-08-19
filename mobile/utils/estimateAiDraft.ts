@@ -605,6 +605,12 @@ export type ScopeMeasurements = {
   plumbingCleanupCount?: number | null;
   plumbingWorkflowMode?: PlumbingWorkflowMode | null;
   plumbingPerformerMode?: PlumbingPerformerMode | null;
+  /** Project complexity multiplier inputs — applied after regional/national base rates. */
+  projectComplexity?: import('@/utils/projectComplexityAdjustments').ProjectComplexitySettings | null;
+  plumbingComplexityFactors?: Array<{
+    key?: string;
+    label?: string;
+  }> | null;
   /** Set for the standalone Plumbing notes/photos entry point. */
   tradeWorkflowSource?: 'standalone_trade' | null;
   /** @deprecated use bathroomFloorSqft */

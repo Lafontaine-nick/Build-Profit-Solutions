@@ -85,6 +85,11 @@ import {
   type ResolvedRegionalPricing,
 } from '@/utils/regionalPricingMultipliers';
 import {
+  applyProjectComplexityToSuggestedPricing,
+  type ProjectComplexitySettings,
+  type SuggestedPricingComplexityMeta,
+} from '@/utils/projectComplexityAdjustments';
+import {
   applyBuilderBudgetBarometer,
   getBuilderBudgetSoftCostAllowance,
 } from '@/utils/southernUtahCalibratedRates';
@@ -10077,6 +10082,8 @@ export type SuggestedPricingBlock = {
    * the contractor selects service amperage. Not a $0 bid.
    */
   needsServiceAmperage?: boolean;
+  /** Base vs adjusted totals when project complexity multiplier is applied. */
+  complexityAdjustment?: SuggestedPricingComplexityMeta;
 };
 
 export type ScopeItemSuggestedPricing = {
@@ -11466,6 +11473,17 @@ function withUserEnteredNationalBenchmarkFallback(
   pricingContext: ScopePricingContext | null | undefined,
   result: ScopeItemSuggestedPricing
 ): ScopeItemSuggestedPricing {
+  result = applyProjectComplexityToSuggestedPricing(
+    itemId,
+    templateKey,
+    {
+      floorAreaSqft: measurementsInput.floorAreaSqft,
+      storyCount: measurementsInput.storyCount,
+      projectComplexity: measurementsInput.projectComplexity,
+      plumbingComplexityFactors: measurementsInput.plumbingComplexityFactors,
+    },
+    result
+  ) as ScopeItemSuggestedPricing;
   if (
     shouldSuppressSuggestedPricingAfterApply(
       itemId,
@@ -18170,6 +18188,8 @@ export function scopeMeasurementsToPayload(
       : undefined,
     plumbingWorkflowMode: input.plumbingWorkflowMode ?? null,
     plumbingPerformerMode: input.plumbingPerformerMode ?? null,
+    projectComplexity: input.projectComplexity ?? null,
+    plumbingComplexityFactors: input.plumbingComplexityFactors ?? null,
     tradeWorkflowSource: input.tradeWorkflowSource ?? null,
     areaReconciliation: input.areaReconciliation,
   };
@@ -18828,6 +18848,8 @@ export function scopeMeasurementsInputFromPayload(
     plumbingScope: Array.isArray(payload.plumbingScope)
       ? payload.plumbingScope
       : null,
+    projectComplexity: payload.projectComplexity ?? null,
+    plumbingComplexityFactors: payload.plumbingComplexityFactors ?? null,
     tradeWorkflowSource: payload.tradeWorkflowSource ?? null,
     areaReconciliation: payload.areaReconciliation,
   };
@@ -18962,6 +18984,8 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   paintApplicationMethodConfirmed?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintApplicationMethodConfirmed'];
   plumbingWorkflowMode?: PlumbingWorkflowMode | null;
   plumbingPerformerMode?: PlumbingPerformerMode | null;
+  projectComplexity?: ProjectComplexitySettings | null;
+  plumbingComplexityFactors?: Array<{ key?: string; label?: string }> | null;
   tradeWorkflowSource?: 'standalone_trade' | null;
   cabinetMeasurementMethod?: import('@/utils/estimateAiDraft').ScopeMeasurements['cabinetMeasurementMethod'];
   paintAreaBasis?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintAreaBasis'];

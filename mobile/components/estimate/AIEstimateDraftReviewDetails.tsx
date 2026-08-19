@@ -7,6 +7,9 @@ import {
   summarizePricingWarnings,
 } from '@/utils/estimateDraftReviewUi';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
+import ProjectComplexityReviewPanel from '@/components/estimate/ProjectComplexityReviewPanel';
+import type { ProjectComplexitySettings } from '@/utils/projectComplexityAdjustments';
+import { projectComplexityEligibleTemplate } from '@/utils/projectComplexityAdjustments';
 
 type Colors = {
   text: string;
@@ -29,6 +32,7 @@ type Props = {
   onRequestRoughRange?: () => void;
   roughRangeLoading?: boolean;
   markupPct?: number;
+  onUpdateProjectComplexity?: (next: ProjectComplexitySettings) => void;
 };
 
 const flowCard = (Colors: Colors, darkMode: boolean) =>
@@ -78,6 +82,7 @@ export default function AIEstimateDraftReviewDetails({
   onClarifyMissing,
   onRequestRoughRange,
   roughRangeLoading,
+  onUpdateProjectComplexity,
 }: Props) {
   const reviewSource = needsReview.length
     ? needsReview
@@ -93,7 +98,10 @@ export default function AIEstimateDraftReviewDetails({
   );
   const hasPricingHistory = (draft.pricingMemorySuggestions?.length ?? 0) > 0;
   const hasAllowances = (draft.allowances?.length ?? 0) > 0;
+  const templateKey = draft.scopeChecklist?.templateKey || null;
+  const showComplexity = projectComplexityEligibleTemplate(templateKey);
   const hasAnything =
+    showComplexity ||
     draft.noPricingDetected ||
     summaryWarnings.length > 0 ||
     Boolean(draft.roughEstimate) ||
@@ -111,6 +119,18 @@ export default function AIEstimateDraftReviewDetails({
 
   return (
     <>
+      {showComplexity ? (
+        <ProjectComplexityReviewPanel
+          Colors={Colors}
+          darkMode={darkMode}
+          disabled={busy}
+          floorAreaSqft={draft.scopeMeasurements?.floorAreaSqft ?? null}
+          storyCount={draft.scopeMeasurements?.storyCount ?? null}
+          projectComplexity={draft.scopeMeasurements?.projectComplexity ?? null}
+          plumbingComplexityFactors={draft.scopeMeasurements?.plumbingComplexityFactors ?? null}
+          onChange={onUpdateProjectComplexity}
+        />
+      ) : null}
       {draft.noPricingDetected ? (
         <View style={flowCard(Colors, darkMode)}>
           {onApplyScopeOnly ? (
