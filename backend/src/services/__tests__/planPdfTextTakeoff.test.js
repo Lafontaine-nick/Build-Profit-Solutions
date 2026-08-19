@@ -17,6 +17,7 @@ const {
   detectElectricalSheetKind,
   detectElectricalPlanLevel,
   extractSheet,
+  extractPlumbingSheetId,
   shouldCollapseDuplicateFixtureViews,
   toUint8Array,
   fillElectricalSheetBackground,
@@ -283,19 +284,55 @@ describe('planPdfTextTakeoff', () => {
     );
   });
 
+  test('parsePlumbingEquipmentFromPageText detects water heater and gas appliances', () => {
+    const {
+      parsePlumbingEquipmentFromPageText,
+      aggregatePlumbingEquipmentHints,
+      formatPdfEvidenceForVision,
+    } = require('../planPdfTextTakeoff');
+    const pageText =
+      'P-1 PLUMBING RISER 50 GAL GAS WATER HEATER GAS RANGE GAS FIREPLACE GAS DRYER CONNECTION';
+    const parsed = parsePlumbingEquipmentFromPageText(pageText, { page: 4, sheet: 'P-1' });
+    expect(parsed.waterHeaterDetail).toMatchObject({ count: 1, fuel: 'gas' });
+    expect(parsed.gasApplianceScope).toMatchObject({
+      range: true,
+      fireplace: true,
+      dryer: true,
+    });
+    const aggregated = aggregatePlumbingEquipmentHints([parsed]);
+    expect(aggregated.waterHeaterDetail).toMatchObject({ count: 1, fuel: 'gas' });
+    expect(aggregated.gasApplianceScope).toMatchObject({
+      range: true,
+      fireplace: true,
+      dryer: true,
+    });
+    expect(
+      formatPdfEvidenceForVision({ plumbingEquipmentHints: aggregated }, { tradeKey: 'plumbing' })
+    ).toMatch(/gas appliances detected/i);
+  });
+
   test('scorePlumbingRelevantPage prioritizes P sheets and fixture schedules', () => {
     expect(scorePlumbingRelevantPage('PLUMBING PLAN P1.1 FIXTURE SCHEDULE MAIN FLOOR')).toMatchObject({
       score: expect.any(Number),
       reasons: expect.arrayContaining(['plumbing plan', 'P sheet', 'fixture schedule']),
+    });
+    expect(scorePlumbingRelevantPage('WATER LINE P-2 SEWER LINE')).toMatchObject({
+      reasons: expect.arrayContaining(['P sheet', 'plumbing callouts']),
     });
     expect(scorePlumbingRelevantPage('MAIN FLOOR PLAN A-3 TOILET LAVATORY')).toMatchObject({
       reasons: expect.arrayContaining(['floor plan (fixture symbols)']),
     });
   });
 
-  test('expandPlumbingRelevantPages includes the following sheet after a strong plumbing hit', () => {
-    const expanded = expandPlumbingRelevantPages([{ page: 5, score: 12, reasons: ['plumbing plan'] }], 8);
-    expect(expanded.map(page => page.page)).toEqual([5, 6]);
+  test('extractPlumbingSheetId reads hyphenated P-1 / P-2 title blocks', () => {
+    expect(extractPlumbingSheetId('Detected from plan · P-2 · p.5 · Water Line')).toBe('P-2');
+    expect(extractPlumbingSheetId('PLUMBING PLAN P-1 FIXTURE SCHEDULE')).toBe('P-1');
+    expect(extractPlumbingSheetId('MAIN FLOOR PLAN A-3')).toBeNull();
+  });
+
+  test('expandPlumbingRelevantPages includes adjacent sheets around a P sheet', () => {
+    const expanded = expandPlumbingRelevantPages([{ page: 5, score: 13, reasons: ['P sheet'] }], 8);
+    expect(expanded.map(page => page.page)).toEqual([4, 5, 6]);
   });
 
   test('formatPdfEvidenceForVision lists plumbing-relevant pages for Plumbing trade', () => {

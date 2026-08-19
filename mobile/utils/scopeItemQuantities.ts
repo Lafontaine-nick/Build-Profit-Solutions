@@ -22,6 +22,7 @@ import {
   copyPlumbingQuantityFields,
   hasDetailedPlumbingRoughQuantities,
   hasDetailedPlumbingTrimQuantities,
+  plumbingCardForItemId,
   plumbingMeasurementKeyForItemId,
   shouldAutoPricePlumbingRoughPackage,
   shouldAutoPricePlumbingTrimPackage,
@@ -29,6 +30,15 @@ import {
   type PlumbingQuantityKey,
   type PlumbingWorkflowMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import {
+  FRAMING_CARDS,
+  copyFramingQuantityFields,
+  framingCardForItemId,
+  isShellFramingPackageBid,
+  resolveCoveredFramedAreaSqft,
+  resolveFramingSheathingSqft,
+  shouldPreserveShellFramingComponentMeasurement,
+} from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
   isElectricalServicePanelItemId,
   resolveElectricalServicePanelSuggestedPricing,
@@ -89,10 +99,15 @@ import {
   type ProjectComplexitySettings,
   type SuggestedPricingComplexityMeta,
 } from '@/utils/projectComplexityAdjustments';
+import { resolvePlumbingWaterHeaterSuggestedPricing } from '@/utils/subcontractorTrade/plumbingEquipmentPricing';
 import {
   applyBuilderBudgetBarometer,
   getBuilderBudgetSoftCostAllowance,
 } from '@/utils/southernUtahCalibratedRates';
+import {
+  framingComparableHelper,
+  resolveFramingShellPackageComparable,
+} from '@/utils/southernUtahFramingComparables';
 import {
   barometerLabelForProjectId,
   installedBudgetLivingSfReference,
@@ -1348,6 +1363,38 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     category: 'lines',
     pricingMethod: 'material_labor',
   },
+  plumbing_fixtures_hardware: {
+    unit: 'each',
+    material: 280,
+    labor: 0,
+    materialBucketLabel: 'Fixture & hardware allowance',
+    laborBucketLabel: 'Install labor',
+    sourceLabel:
+      'Suggested budget split · National Average · builder-grade fixture product allowance',
+    trade: 'plumbing',
+    category: 'fixtures',
+    pricingMethod: 'material_labor',
+  },
+  water_heater: {
+    unit: 'each',
+    material: 1200,
+    labor: 800,
+    sourceLabel:
+      'Suggested budget split · National Average · tank water heater supply and set',
+    trade: 'plumbing',
+    category: 'equipment',
+    pricingMethod: 'material_labor',
+  },
+  gas_appliance_connections: {
+    unit: 'each',
+    material: 75,
+    labor: 150,
+    sourceLabel:
+      'Suggested budget split · National Average · gas appliance hookup at documented stub',
+    trade: 'plumbing',
+    category: 'lines',
+    pricingMethod: 'material_labor',
+  },
   railing: {
     unit: 'lf',
     material: 15,
@@ -1761,6 +1808,27 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     labor: 7.5,
     sourceLabel: 'Suggested budget split · National Average · framing/shell',
   },
+  shear_sheathing: {
+    unit: 'sqft',
+    material: 2.5,
+    labor: 2,
+    sourceLabel:
+      'Suggested budget split · National Average · wall/roof sheathing',
+  },
+  wall_framing: {
+    unit: 'lf',
+    material: 4,
+    labor: 8,
+    sourceLabel:
+      'Suggested budget split · National Average · stud wall framing',
+  },
+  openings: {
+    unit: 'each',
+    material: 85,
+    labor: 165,
+    sourceLabel:
+      'Suggested budget split · National Average · rough opening framing',
+  },
   hvac: {
     unit: 'sqft',
     material: 4.5,
@@ -1843,6 +1911,18 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
 > = {
   plumbing: {
     each: NATIONAL_AVERAGE_BUDGET_SPLITS.plumbing,
+  },
+  wall_framing: {
+    lf: NATIONAL_AVERAGE_BUDGET_SPLITS.wall_framing,
+  },
+  openings: {
+    each: NATIONAL_AVERAGE_BUDGET_SPLITS.openings,
+  },
+  shear_sheathing: {
+    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.shear_sheathing,
+  },
+  framing: {
+    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.framing,
   },
   backsplash_demo: {
     sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.backsplash_demo,
@@ -5551,6 +5631,30 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
       'Enter documented gas-piping length in LF. Include only explicit gas piping or gas stubs.',
     missingMessage: 'Enter gas-piping LF or pricing.',
   },
+  plumbing_fixtures_hardware: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter fixture count for product allowance — toilets, faucets, shower trim, sinks, and drains. Rough-in and trim labor are separate.',
+    missingMessage: 'Enter fixture count or fixture allowance pricing.',
+  },
+  water_heater: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter water heater count when shown on plan or notes. Tankless pricing applies when documented.',
+    missingMessage: 'Enter water heater count or pricing.',
+  },
+  gas_appliance_connections: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter gas appliance hookup count for range, fireplace, dryer, or grill. Gas piping LF is separate.',
+    missingMessage: 'Enter gas appliance connection count or pricing.',
+  },
   parts_materials: {
     defaultUnit: 'allowance',
     allowedUnits: ['allowance', 'lump_sum'],
@@ -6404,6 +6508,11 @@ export function normalizeScopeMeasurements(
     gasLineLf: num(measurements?.gasLineLf),
     plumbingRoughPointCount: num(measurements?.plumbingRoughPointCount),
     plumbingTrimHookupCount: num(measurements?.plumbingTrimHookupCount),
+    plumbingFixturesHardwareCount: num(
+      measurements?.plumbingFixturesHardwareCount
+    ),
+    waterHeaterCount: num(measurements?.waterHeaterCount),
+    gasApplianceConnectionCount: num(measurements?.gasApplianceConnectionCount),
     partsMaterialsCount: num(measurements?.partsMaterialsCount),
     emergencyFeeCount: num(measurements?.emergencyFeeCount),
     plumbingCleanupCount: num(measurements?.plumbingCleanupCount),
@@ -6847,6 +6956,57 @@ const FLOORING_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     measurementKey: 'baseboardLf',
     quantityHelper: 'Enter baseboard and trim linear feet.',
     missingMessage: 'Enter baseboard/trim LF.',
+  },
+};
+
+const FRAMING_CHECKLIST_ITEM_QUANTITY_RULES: Record<
+  string,
+  ScopeItemQuantityRule
+> = {
+  framing: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['framedAreaSqft', 'floorAreaSqft', 'garageSqft'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Covered framed SF — living plus garage when documented. Sheathing is a separate card.',
+    missingMessage: 'Enter framed floor area sqft or pricing.',
+  },
+  wall_framing: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'wallFramingLf',
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Enter stud wall LF when documented — separate from shell SF framing.',
+    missingMessage: 'Enter wall framing LF or pricing.',
+  },
+  shear_sheathing: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['sheathingSqft', 'stuccoGrossWallSqft'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper: 'Enter structural sheathing SF when documented.',
+    missingMessage: 'Enter sheathing SF or pricing.',
+  },
+  openings: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'framingOpeningCount',
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper: 'Count each documented door/window rough opening.',
+    missingMessage: 'Enter opening count or pricing.',
+  },
+  cleanup: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.cleanup,
+    measurementKey: 'framingCleanupCount',
+    defaultQuantity: 1,
+    quantityHelper:
+      'Framing scrap haul-off and jobsite cleanup when explicitly in scope.',
   },
 };
 
@@ -7403,6 +7563,21 @@ function resolveStoredAllowanceSplitQuantity(
 
   if (total == null || total <= 0) return null;
 
+  const physicalOverride =
+    override &&
+    override.quantity != null &&
+    override.quantity > 0 &&
+    !['allowance', 'lump_sum'].includes(
+      normalizeBasisUnit(String(override.unit || ''))
+    ) &&
+    !plumbingStoredQuantityLooksLikeDollarTotal(
+      itemId,
+      override,
+      measurements.itemQuantities
+    )
+      ? override
+      : null;
+
   const quantitySource =
     storedAllowance?.quantitySource ||
     materialEntry?.quantitySource ||
@@ -7414,8 +7589,16 @@ function resolveStoredAllowanceSplitQuantity(
   // card must display the takeoff (for example, 50 sqft), never the dollar
   // total (for example, $108.50) as if it were a measurement.
   return {
-    quantity: storedBasis?.quantity > 0 ? storedBasis.quantity : total,
-    unit: storedBasis?.quantity > 0 ? storedBasis.unit : 'allowance',
+    quantity: physicalOverride
+      ? physicalOverride.quantity
+      : storedBasis?.quantity > 0
+        ? storedBasis.quantity
+        : total,
+    unit: physicalOverride
+      ? normalizeBasisUnit(String(physicalOverride.unit || rule.defaultUnit))
+      : storedBasis?.quantity > 0
+        ? storedBasis.unit
+        : 'allowance',
     quantitySource,
     sourceLabel: sourceLabel(quantitySource),
     pricingReady: true,
@@ -7431,7 +7614,9 @@ export function primaryQuantityForAppliedSuggestedBlock(
   block: SuggestedPricingBlock,
   rule: ScopeItemQuantityRule
 ): { quantity: string; unit: string } {
-  const basisUnit = block.basis?.unit || 'allowance';
+  const basisUnit = normalizeBasisUnit(
+    block.basis?.unit || rule.defaultUnit || 'allowance'
+  );
   const basisQty = block.basis?.quantity;
   const moneyBasisUnits = new Set(['allowance', 'lump_sum']);
   if (
@@ -7442,10 +7627,22 @@ export function primaryQuantityForAppliedSuggestedBlock(
   ) {
     return { quantity: String(block.total), unit: 'allowance' };
   }
-  return {
-    quantity: String(basisQty ?? block.total),
-    unit: basisUnit,
-  };
+  if (basisQty != null && basisQty > 0) {
+    if (
+      !moneyBasisUnits.has(basisUnit) &&
+      block.total > 0 &&
+      Math.abs(basisQty - block.total) < 0.02
+    ) {
+      const fallback = rule.defaultQuantity ?? 1;
+      return { quantity: String(fallback), unit: basisUnit };
+    }
+    return { quantity: String(basisQty), unit: basisUnit };
+  }
+  if (!moneyBasisUnits.has(basisUnit)) {
+    const fallback = rule.defaultQuantity ?? 1;
+    return { quantity: String(fallback), unit: basisUnit };
+  }
+  return { quantity: String(block.total), unit: 'allowance' };
 }
 
 type SuggestedPricingResolvedQty = Pick<
@@ -7531,6 +7728,18 @@ function resolveSuggestedPricingPhysicalCount(
     resolved.unit === unit &&
     resolved.quantity > 0
   ) {
+    const card = plumbingCardForItemId(itemId);
+    if (
+      card &&
+      card.unit === unit &&
+      plumbingStoredQuantityLooksLikeDollarTotal(
+        itemId,
+        { quantity: resolved.quantity, unit: resolved.unit },
+        itemQuantities
+      )
+    ) {
+      return null;
+    }
     if (
       itemQuantities &&
       hasUserEnteredFlatAllowancePricing(itemQuantities, itemId)
@@ -7824,16 +8033,25 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
     water_line: { unit: 'lf' },
     sewer_line: { unit: 'lf' },
     gas_line: { unit: 'lf' },
+    plumbing_fixtures_hardware: { unit: 'each' },
+    water_heater: { unit: 'each' },
+    gas_appliance_connections: { unit: 'each' },
     mobilization: { unit: 'allowance' },
     emergency_fee: { unit: 'allowance' },
     parts_materials: { unit: 'allowance' },
     materials_package: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     labor: { unit: 'hr' },
     layout: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
-    wall_framing: { unit: 'lf', measurementKeys: ['baseboardLf'] },
-    openings: { unit: 'each' },
-    blocking: { unit: 'lf' },
-    shear_sheathing: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    wall_framing: { unit: 'lf', measurementKeys: ['wallFramingLf'] },
+    openings: { unit: 'each', measurementKeys: ['framingOpeningCount'] },
+    shear_sheathing: {
+      unit: 'sqft',
+      measurementKeys: ['sheathingSqft', 'stuccoGrossWallSqft'],
+    },
+    framing: {
+      unit: 'sqft',
+      measurementKeys: ['framedAreaSqft', 'floorAreaSqft', 'garageSqft'],
+    },
     hardware: { unit: 'allowance' },
     tub_demo: { unit: 'each' },
     vanity_demo: { unit: 'each' },
@@ -7934,8 +8152,23 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<
     interior_paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft'] },
     exterior_paint: { unit: 'sqft', measurementKeys: ['exteriorPaintSqft'] },
   },
+  framing: {
+    framing: {
+      unit: 'sqft',
+      measurementKeys: ['framedAreaSqft', 'floorAreaSqft', 'garageSqft'],
+    },
+    wall_framing: { unit: 'lf', measurementKeys: ['wallFramingLf'] },
+    shear_sheathing: {
+      unit: 'sqft',
+      measurementKeys: ['sheathingSqft', 'stuccoGrossWallSqft'],
+    },
+    openings: { unit: 'each', measurementKeys: ['framingOpeningCount'] },
+  },
   room_remodel: {
-    framing: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    framing: {
+      unit: 'sqft',
+      measurementKeys: ['framedAreaSqft', 'floorAreaSqft'],
+    },
     plumbing: { unit: 'each' },
     electrical: { unit: 'each' },
     hvac: { unit: 'each' },
@@ -8096,6 +8329,15 @@ export function resolveSuggestAlignedEditorPricingBasis(
 
   if (id === 'framing' && tk === 'ground_up' && livingSf && livingSf > 0) {
     return { quantity: livingSf + Math.max(0, garageSf), unit: 'sqft' };
+  }
+
+  if (id === 'framing' && tk === 'framing') {
+    const framed = resolveCoveredFramedAreaSqft({
+      framedAreaSqft: measurementsInput.framedAreaSqft,
+      floorAreaSqft: measurementsInput.floorAreaSqft,
+      garageSqft: measurementsInput.garageSqft,
+    });
+    if (framed && framed > 0) return { quantity: framed, unit: 'sqft' };
   }
 
   if (
@@ -8534,6 +8776,11 @@ export function getChecklistItemQuantityRule(
     FLOORING_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId]
   ) {
     rule = FLOORING_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
+  } else if (
+    String(templateKey || '').toLowerCase() === 'framing' &&
+    FRAMING_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId]
+  ) {
+    rule = FRAMING_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
   } else {
     rule = CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
   }
@@ -8552,6 +8799,34 @@ export function getChecklistItemQuantityRule(
       requiresUserQuantity: true,
       quantityHelper:
         'Enter plumbing trim / hookup count. Fixture replacement, rough-in, and line work are separate.',
+    };
+  }
+  const plumbingCard = plumbingCardForItemId(resolvedId);
+  if (
+    plumbingCard &&
+    ['plumbing', 'plumbing_service'].includes(
+      String(templateKey || '').toLowerCase()
+    )
+  ) {
+    rule = {
+      ...rule,
+      measurementKey:
+        plumbingCard.measurementKey as ScopeItemQuantityRule['measurementKey'],
+      defaultUnit: plumbingCard.unit,
+      requiresUserQuantity: true,
+    };
+  }
+  const framingCard = framingCardForItemId(resolvedId);
+  if (
+    framingCard &&
+    String(templateKey || '').toLowerCase() === 'framing'
+  ) {
+    rule = {
+      ...rule,
+      measurementKey:
+        framingCard.measurementKey as ScopeItemQuantityRule['measurementKey'],
+      defaultUnit: framingCard.unit,
+      requiresUserQuantity: true,
     };
   }
 
@@ -8775,8 +9050,11 @@ function explicitItemQuantityOverride(
   if (
     usesAllowanceSplitEditor(rule) &&
     splitTotal > 0 &&
+    ['allowance', 'lump_sum'].includes(
+      normalizeBasisUnit(String(override.unit || ''))
+    ) &&
     (Math.abs(quantity - splitTotal) < 0.02 ||
-      quantity > (rule.defaultQuantity ?? 1) + 0.001)
+      quantity <= (rule.defaultQuantity ?? 1) + 0.001)
   ) {
     quantity = splitTotal;
   }
@@ -8871,8 +9149,56 @@ export function syncItemQuantitiesToMeasurementFields(
       )
     )
       continue;
+    if (
+      plumbingStoredQuantityLooksLikeDollarTotal(
+        card.itemId,
+        entry,
+        safeInput.itemQuantities
+      )
+    ) {
+      continue;
+    }
     const quantity = Number(String(entry.quantity).replace(/,/g, ''));
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    const existingQm = Number(
+      String((next as Record<string, unknown>)[card.measurementKey] ?? '').replace(
+        /,/g,
+        ''
+      )
+    );
+    if (
+      Number.isFinite(existingQm) &&
+      existingQm > 0 &&
+      Math.abs(existingQm - quantity) > 0.01
+    ) {
+      continue;
+    }
+    (next as Record<string, unknown>)[card.measurementKey] = String(quantity);
+  }
+  for (const card of FRAMING_CARDS) {
+    const entry = safeInput.itemQuantities?.[card.itemId];
+    if (!entry?.quantity) continue;
+    if (
+      !EXPLICIT_ITEM_QUANTITY_SOURCES.has(
+        entry.quantitySource || 'user_entered'
+      )
+    )
+      continue;
+    const quantity = Number(String(entry.quantity).replace(/,/g, ''));
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    const existingQm = Number(
+      String((next as Record<string, unknown>)[card.measurementKey] ?? '').replace(
+        /,/g,
+        ''
+      )
+    );
+    if (
+      Number.isFinite(existingQm) &&
+      existingQm > 0 &&
+      Math.abs(existingQm - quantity) > 0.01
+    ) {
+      continue;
+    }
     (next as Record<string, unknown>)[card.measurementKey] = String(quantity);
   }
   return next;
@@ -11748,6 +12074,29 @@ export function resolveScopeItemSuggestedPricing(
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
+  if (
+    String(templateKey || '').toLowerCase() === 'framing' &&
+    (itemId === 'wall_framing' || itemId === 'openings') &&
+    isShellFramingPackageBid(measurementsInput as Record<string, unknown>)
+  ) {
+    const measurementKey =
+      itemId === 'wall_framing' ? 'wallFramingLf' : 'framingOpeningCount';
+    const input = measurementsInput as Record<string, unknown>;
+    const sources = input.quickMeasurementSources as
+      | Record<string, string>
+      | undefined;
+    const overrides = input.quickMeasurementUserOverrides as
+      | Record<string, boolean>
+      | undefined;
+    const source = sources?.[measurementKey];
+    const userEntered =
+      source === 'user_entered' ||
+      source === 'manual_override' ||
+      overrides?.[measurementKey];
+    if (!userEntered) {
+      return empty;
+    }
+  }
   const plumbingMeasurementKey = plumbingMeasurementKeyForItemId(itemId);
   if (
     plumbingMeasurementKey &&
@@ -11758,6 +12107,26 @@ export function resolveScopeItemSuggestedPricing(
     )?.[plumbingMeasurementKey] === 'needs_confirmation'
   ) {
     return empty;
+  }
+  if (itemId === 'water_heater') {
+    const whPricing = resolvePlumbingWaterHeaterSuggestedPricing({
+      quantity: resolved.quantity,
+      waterHeaterDetail:
+        measurementsInput.plumbingWaterHeaterDetail ??
+        (measurementsInput as { waterHeaterDetail?: { type?: string | null } })
+          .waterHeaterDetail ??
+        null,
+    });
+    if (!whPricing.fill) return empty;
+    return withUserEnteredNationalBenchmarkFallback(
+      itemId,
+      rule,
+      measurementsInput,
+      resolved,
+      templateKey,
+      pricingContext,
+      whPricing
+    );
   }
   const electricalTemplate =
     String(templateKey || '').toLowerCase() === 'electrical';
@@ -13931,11 +14300,11 @@ export function resolveScopeItemSuggestedPricing(
       unit = rule.defaultUnit;
     }
   }
-  // Ground-up framing: always prefer covered framed SF (living + garage) for planning rates.
-  // Living-only SF would inflate $/SF vs the $5–$10/framed labor band. Package takeoff still wins when entered.
+  // Ground-up / framing trade: covered framed SF (living + garage) for planning rates.
+  // Living-only SF would inflate $/SF vs the $5–$10/framed labor band.
   if (
     itemId === 'framing' &&
-    String(templateKey || '').toLowerCase() === 'ground_up' &&
+    ['ground_up', 'framing'].includes(String(templateKey || '').toLowerCase()) &&
     !(
       resolved.quantity != null &&
       resolved.quantity > 0 &&
@@ -15354,7 +15723,7 @@ export function resolveScopeItemSuggestedPricing(
         )
       : laborRate;
   if (material + labor <= 0) return empty;
-  const takeoffFill: SuggestedPricingBlock = {
+  let takeoffFill: SuggestedPricingBlock = {
     material,
     labor,
     total: round2(material + labor),
@@ -15428,6 +15797,21 @@ export function resolveScopeItemSuggestedPricing(
               : null,
     isComparison: floorPrepReviewBeforeBid || undefined,
   };
+  if (
+    itemId === 'framing' &&
+    ['ground_up', 'framing'].includes(String(templateKey || '').toLowerCase()) &&
+    count > 0 &&
+    unit === 'sqft'
+  ) {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    const comparable = resolveFramingShellPackageComparable(livingSf);
+    if (comparable) {
+      takeoffFill = {
+        ...takeoffFill,
+        helper: `${framingComparableHelper(comparable, count)} · blended with national average`,
+      };
+    }
+  }
   // Comparison = pure national on the same qty/unit as fill (not living-SF stage lump).
   const nationalComparison =
     hasPhysicalTakeoffRates && concreteThicknessMultiplier === 1
@@ -15889,8 +16273,8 @@ function applyAutoFramingCoveredSfQuantity(
   ctx: { templateKey?: string | null } = {}
 ): ResolvedItemQuantity {
   if (itemId !== 'framing') return resolved;
-  if (String(ctx.templateKey || '').toLowerCase() !== 'ground_up')
-    return resolved;
+  const template = String(ctx.templateKey || '').toLowerCase();
+  if (template !== 'ground_up' && template !== 'framing') return resolved;
 
   const stored = measurements.itemQuantities[itemId];
   const storedBasis = parseStoredItemQuantity(
@@ -15940,6 +16324,78 @@ function applyAutoFramingCoveredSfQuantity(
   };
 }
 
+function resolvePlumbingCardQuickMeasurementQuantity(
+  itemId: string,
+  measurements: NormalizedScopeMeasurements,
+  templateKey?: string | null
+): ResolvedItemQuantity | null {
+  if (
+    !['plumbing', 'plumbing_service'].includes(
+      String(templateKey || '').toLowerCase()
+    )
+  ) {
+    return null;
+  }
+  const card = plumbingCardForItemId(itemId);
+  if (!card) return null;
+  const value = Number(measurements[card.measurementKey]);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const sourceTag =
+    measurements.measurementProvenance?.[card.measurementKey] != null
+      ? 'plan_detected'
+      : 'inferred';
+  return {
+    quantity: value,
+    unit: card.unit,
+    quantitySource: sourceTag,
+    sourceLabel: 'Quick Measurements · Plan takeoff',
+    pricingReady: true,
+    showInput: true,
+  };
+}
+
+function plumbingAppliedTotalAmount(
+  itemId: string,
+  itemQuantities: Record<string, ScopeItemQuantityLike> | undefined
+): number | null {
+  if (!itemQuantities) return null;
+  const allowance = Number(
+    String(
+      itemQuantities[`${itemId}__allowance`]?.quantity ?? ''
+    ).replace(/,/g, '')
+  );
+  if (Number.isFinite(allowance) && allowance > 0) return allowance;
+  const material = Number(
+    String(itemQuantities[`${itemId}__material`]?.quantity ?? '').replace(
+      /,/g,
+      ''
+    )
+  );
+  const labor = Number(
+    String(itemQuantities[`${itemId}__labor`]?.quantity ?? '').replace(/,/g, '')
+  );
+  const splitTotal =
+    (Number.isFinite(material) ? material : 0) +
+    (Number.isFinite(labor) ? labor : 0);
+  return splitTotal > 0 ? splitTotal : null;
+}
+
+function plumbingStoredQuantityLooksLikeDollarTotal(
+  itemId: string,
+  entry: { quantity?: unknown; unit?: string } | undefined,
+  itemQuantities: Record<string, ScopeItemQuantityLike> | undefined
+): boolean {
+  const card = plumbingCardForItemId(itemId);
+  if (!card || card.unit === 'allowance') return false;
+  const qty = Number(String(entry?.quantity ?? '').replace(/,/g, ''));
+  if (!Number.isFinite(qty) || qty <= 0) return false;
+  const appliedTotal = plumbingAppliedTotalAmount(itemId, itemQuantities);
+  if (appliedTotal != null && Math.abs(qty - appliedTotal) < 0.02) {
+    return true;
+  }
+  return false;
+}
+
 function resolveChecklistItemQuantityCore(
   itemId: string,
   measurements: NormalizedScopeMeasurements,
@@ -15962,6 +16418,25 @@ function resolveChecklistItemQuantityCore(
     };
   }
   const rule = explicitRule ?? DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE;
+
+  const plumbingQuickMeasurement = resolvePlumbingCardQuickMeasurementQuantity(
+    itemId,
+    measurements,
+    ctx.templateKey
+  );
+  if (plumbingQuickMeasurement) {
+    const override = measurements.itemQuantities[itemId];
+    if (
+      !override?.quantity ||
+      plumbingStoredQuantityLooksLikeDollarTotal(
+        itemId,
+        override,
+        measurements.itemQuantities
+      )
+    ) {
+      return applyPricingReadyFlags(plumbingQuickMeasurement, itemId, ctx);
+    }
+  }
 
   if (
     itemId === 'roofing_system' &&
@@ -16360,6 +16835,18 @@ function resolveChecklistItemQuantityCore(
     }
     const val = Number(measurements[key]);
     if (Number.isFinite(val) && val > 0) {
+      const card = plumbingCardForItemId(itemId);
+      if (
+        card &&
+        card.measurementKey === key &&
+        plumbingStoredQuantityLooksLikeDollarTotal(
+          itemId,
+          { quantity: val, unit: card.unit },
+          measurements.itemQuantities
+        )
+      ) {
+        continue;
+      }
       const resolved: ResolvedItemQuantity = {
         quantity: val,
         unit: measurementUnitForKey(key, rule.defaultUnit),
@@ -17241,9 +17728,14 @@ export function buildNormalizedScopeMeasurementsFromInput(
     itemQuantities: input?.itemQuantities || {},
   };
   let extended = syncPlumbingQuantitiesIntoItemQuantities(
-    syncItemQuantitiesToMeasurementFields(safeInput),
+    safeInput,
     options?.templateKey
   );
+  extended = syncFramingQuantitiesIntoItemQuantities(
+    extended,
+    options?.templateKey
+  );
+  extended = syncItemQuantitiesToMeasurementFields(extended);
   const notes = String(options?.notes || '').trim();
   if (notes) {
     extended = reparseRatePricingIntoItemQuantities(
@@ -17287,9 +17779,14 @@ export function scopeMeasurementsPayloadForPersist(
     itemQuantities: input?.itemQuantities || {},
   };
   let extended = syncPlumbingQuantitiesIntoItemQuantities(
-    syncItemQuantitiesToMeasurementFields(safeInput),
+    safeInput,
     options?.templateKey
   );
+  extended = syncFramingQuantitiesIntoItemQuantities(
+    extended,
+    options?.templateKey
+  );
+  extended = syncItemQuantitiesToMeasurementFields(extended);
   const notes = String(options?.notes || '').trim();
   if (notes) {
     extended = reparseRatePricingIntoItemQuantities(
@@ -17325,7 +17822,18 @@ function syncPlumbingQuantitiesIntoItemQuantities(
     const quantity = Number(String(raw ?? '').replace(/,/g, ''));
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
     const existing = nextQuantities[card.itemId];
-    if (Number(existing?.quantity) > 0) continue;
+    if (
+      Number(existing?.quantity) > 0 &&
+      !plumbingStoredQuantityLooksLikeDollarTotal(
+        card.itemId,
+        existing,
+        nextQuantities
+      )
+    ) {
+      if (!(quantity > Number(existing.quantity))) {
+        continue;
+      }
+    }
     const sourceTag = extended.quickMeasurementSources?.[card.measurementKey];
     const source =
       sourceTag === 'plan_detected' ||
@@ -17339,9 +17847,82 @@ function syncPlumbingQuantitiesIntoItemQuantities(
       unit: card.unit,
       quantitySource: source,
     };
+    (extended as Record<string, unknown>)[card.measurementKey] = String(quantity);
     changed = true;
   }
   return changed ? { ...extended, itemQuantities: nextQuantities } : extended;
+}
+
+function syncFramingQuantitiesIntoItemQuantities(
+  extended: ScopeMeasurementsInputExtended,
+  templateKey?: string | null
+): ScopeMeasurementsInputExtended {
+  const template = String(templateKey || '').toLowerCase();
+  const isFraming = template === 'framing';
+  if (!isFraming && !Array.isArray(extended.framingScope)) {
+    return extended;
+  }
+  const enriched = { ...(extended as Record<string, unknown>) };
+  const framed = resolveCoveredFramedAreaSqft(enriched);
+  if (framed != null && framed > 0) {
+    enriched.framedAreaSqft = framed;
+  }
+  const sheathing = resolveFramingSheathingSqft(enriched);
+  if (sheathing != null && sheathing > 0) {
+    enriched.sheathingSqft = sheathing;
+  }
+  const nextQuantities = { ...(extended.itemQuantities || {}) };
+  let changed =
+    (framed != null && framed > 0) || (sheathing != null && sheathing > 0);
+  const shellBid = isShellFramingPackageBid(enriched);
+  for (const card of FRAMING_CARDS) {
+    if (
+      shellBid &&
+      (card.itemId === 'wall_framing' || card.itemId === 'openings') &&
+      !shouldPreserveShellFramingComponentMeasurement(enriched, card.measurementKey)
+    ) {
+      continue;
+    }
+    let quantity = Number(
+      String(enriched[card.measurementKey] ?? '').replace(/,/g, '')
+    );
+    if (
+      card.measurementKey === 'framedAreaSqft' &&
+      resolveCoveredFramedAreaSqft(enriched) != null
+    ) {
+      quantity = resolveCoveredFramedAreaSqft(enriched)!;
+    }
+    if (
+      card.measurementKey === 'sheathingSqft' &&
+      resolveFramingSheathingSqft(enriched) != null
+    ) {
+      quantity = resolveFramingSheathingSqft(enriched)!;
+    }
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    if (Number(nextQuantities[card.itemId]?.quantity) > 0) continue;
+    const sourceTag = extended.quickMeasurementSources?.[card.measurementKey];
+    const source =
+      sourceTag === 'plan_detected' ||
+      sourceTag === 'plan_verified' ||
+      sourceTag === 'ai_verified' ||
+      sourceTag === 'contractor_confirmed_from_plan_review'
+        ? 'plan_detected'
+        : 'user_entered';
+    nextQuantities[card.itemId] = {
+      quantity: String(quantity),
+      unit: card.unit,
+      quantitySource: source,
+    };
+    enriched[card.measurementKey] = String(quantity);
+    changed = true;
+  }
+  return changed
+    ? ({
+        ...extended,
+        ...enriched,
+        itemQuantities: nextQuantities,
+      } as ScopeMeasurementsInputExtended)
+    : extended;
 }
 
 function syncElectricalQuantitiesIntoItemQuantities(
@@ -18136,6 +18717,10 @@ export function scopeMeasurementsToPayload(
     plumbingScope: Array.isArray(sanitized.plumbingScope)
       ? sanitized.plumbingScope
       : undefined,
+    ...copyFramingQuantityFields(sanitized as Record<string, unknown>),
+    framingScope: Array.isArray(sanitized.framingScope)
+      ? sanitized.framingScope
+      : undefined,
     showerWallTileSqft: parseScopeMeasurementInput(
       sanitized.showerWallTileSqft
     ),
@@ -18229,6 +18814,12 @@ export function scopeMeasurementsInputFromPayload(
         copyPlumbingQuantityFields(payload as Record<string, unknown>)
       ).map(([key, value]) => [key, value != null ? String(value) : ''])
     ),
+    ...Object.fromEntries(
+      Object.entries(
+        copyFramingQuantityFields(payload as Record<string, unknown>)
+      ).map(([key, value]) => [key, value != null ? String(value) : ''])
+    ),
+    framingScope: Array.isArray(payload.framingScope) ? payload.framingScope : null,
     ...copyElectricalConditionFields(payload as Record<string, unknown>),
     bathroomFloorSqft: measurementFieldString(
       payload.bathroomFloorSqft ?? payload.sqft
@@ -18962,6 +19553,12 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   complexFormingLf?: string | number | null;
   additionalHaulOffLoadCount?: string | number | null;
   plumbingScope?: ScopeMeasurements['plumbingScope'];
+  framingScope?: ScopeMeasurements['framingScope'];
+  framedAreaSqft?: string | number | null;
+  wallFramingLf?: string | number | null;
+  sheathingSqft?: string | number | null;
+  framingOpeningCount?: string | number | null;
+  framingCleanupCount?: string | number | null;
   tradeScopeSelections?: ScopeMeasurements['tradeScopeSelections'];
   planRooms?: import('@/utils/estimateAiDraft').ScopeMeasurements['planRooms'];
   flooringExistingTypes?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringExistingTypes'];
@@ -18986,6 +19583,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   plumbingPerformerMode?: PlumbingPerformerMode | null;
   projectComplexity?: ProjectComplexitySettings | null;
   plumbingComplexityFactors?: Array<{ key?: string; label?: string }> | null;
+  plumbingWaterHeaterDetail?: import('@/utils/estimateAiDraft').ScopeMeasurements['plumbingWaterHeaterDetail'];
   tradeWorkflowSource?: 'standalone_trade' | null;
   cabinetMeasurementMethod?: import('@/utils/estimateAiDraft').ScopeMeasurements['cabinetMeasurementMethod'];
   paintAreaBasis?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintAreaBasis'];

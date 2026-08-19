@@ -73,6 +73,9 @@ export type QuickMeasurementFieldKey =
   | 'gasLineLf'
   | 'plumbingRoughPointCount'
   | 'plumbingTrimHookupCount'
+  | 'plumbingFixturesHardwareCount'
+  | 'waterHeaterCount'
+  | 'gasApplianceConnectionCount'
   | 'partsMaterialsCount'
   | 'emergencyFeeCount'
   | 'plumbingCleanupCount'
@@ -121,7 +124,12 @@ export type QuickMeasurementFieldKey =
   | 'stuccoAccessAffectedSqft'
   | 'stuccoRepairAffectedSqft'
   | 'stuccoStories'
-  | 'stuccoWallHeightFt';
+  | 'stuccoWallHeightFt'
+  | 'framedAreaSqft'
+  | 'wallFramingLf'
+  | 'sheathingSqft'
+  | 'framingOpeningCount'
+  | 'framingCleanupCount';
 
 export type QuickMeasurementGroupId =
   | 'site'
@@ -510,6 +518,33 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     undefined,
     'Fixture trim and final connections only.'
   ),
+  plumbingFixturesHardwareCount: F(
+    'plumbingFixturesHardwareCount',
+    'Plumbing fixture allowance',
+    '10',
+    'fixtures',
+    'interior',
+    undefined,
+    'Fixture product allowance — not rough-in or trim labor.'
+  ),
+  waterHeaterCount: F(
+    'waterHeaterCount',
+    'Water heater',
+    '1',
+    'each',
+    'interior',
+    undefined,
+    'Water heater supply and set when documented.'
+  ),
+  gasApplianceConnectionCount: F(
+    'gasApplianceConnectionCount',
+    'Gas appliance connections',
+    '3',
+    'each',
+    'interior',
+    undefined,
+    'Final gas hookups at documented stubs.'
+  ),
   partsMaterialsCount: F(
     'partsMaterialsCount',
     'Parts / materials allowances',
@@ -790,6 +825,47 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'ft',
     'exterior'
   ),
+  framedAreaSqft: F(
+    'framedAreaSqft',
+    'Framed floor area',
+    'e.g. 2400',
+    'sqft',
+    'structure',
+    undefined,
+    'Covered framed SF — living plus garage when both are documented.'
+  ),
+  wallFramingLf: F(
+    'wallFramingLf',
+    'Wall framing',
+    'e.g. 24',
+    'LF',
+    'structure',
+    undefined,
+    'New or reworked stud walls priced by linear feet.'
+  ),
+  sheathingSqft: F(
+    'sheathingSqft',
+    'Sheathing / shear',
+    'e.g. 3200',
+    'sqft',
+    'structure',
+    undefined,
+    'Structural wall or roof sheathing when documented.'
+  ),
+  framingOpeningCount: F(
+    'framingOpeningCount',
+    'Door / window openings',
+    'e.g. 12',
+    'each',
+    'structure'
+  ),
+  framingCleanupCount: F(
+    'framingCleanupCount',
+    'Framing cleanup',
+    '1',
+    'allowance',
+    'other'
+  ),
 };
 
 const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
@@ -823,6 +899,52 @@ const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
   'flooringSqft',
   'baseboardLf',
   'landscapeSqft',
+];
+
+/** Plan Export Framing rows for ground-up/addition takeoffs. */
+export const FRAMING_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
+  row(
+    F(
+      'framedAreaSqft',
+      'Framed floor area',
+      'e.g. 2400',
+      'sqft',
+      'structure',
+      undefined,
+      'Covered framed SF — living plus garage when both are documented.'
+    ),
+    F('garageSqft', 'Garage area', 'e.g. 400', 'sqft', 'structure')
+  ),
+  row(
+    F(
+      'sheathingSqft',
+      'Sheathing / shear',
+      'e.g. 3200',
+      'sqft',
+      'structure',
+      undefined,
+      'Structural wall or roof sheathing when documented.'
+    ),
+    F(
+      'wallFramingLf',
+      'Wall framing',
+      'e.g. 24',
+      'LF',
+      'structure',
+      undefined,
+      'Partial-wall or remodel framing only when documented.'
+    )
+  ),
+  row(
+    F(
+      'framingOpeningCount',
+      'Door / window openings',
+      'e.g. 12',
+      'each',
+      'structure'
+    ),
+    F('floorAreaSqft', 'Living area', 'e.g. 2000', 'sqft', 'interior')
+  ),
 ];
 
 export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
@@ -862,7 +984,28 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
       F('waterLineLf', 'Water line piping', 'e.g. 40', 'LF', 'structure'),
       F('sewerLineLf', 'Sewer / drain piping', 'e.g. 20', 'LF', 'structure')
     ),
+    row(
+      F(
+        'plumbingFixturesHardwareCount',
+        'Fixture allowance',
+        'e.g. 10',
+        'each',
+        'interior'
+      ),
+      F('waterHeaterCount', 'Water heater', 'e.g. 1', 'each', 'interior')
+    ),
+    row(
+      F('gasLineLf', 'Gas piping', 'e.g. 100', 'LF', 'structure'),
+      F(
+        'gasApplianceConnectionCount',
+        'Gas appliance hookups',
+        'e.g. 3',
+        'each',
+        'interior'
+      )
+    ),
   ],
+  framing: FRAMING_PLAN_QUICK_MEASUREMENT_ROWS,
   bathroom: [
     row(
       F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior'),
@@ -1799,6 +1942,9 @@ export function emptyQuickMeasurementInput(): Record<
     gasLineLf: '',
     plumbingRoughPointCount: '',
     plumbingTrimHookupCount: '',
+    plumbingFixturesHardwareCount: '',
+    waterHeaterCount: '',
+    gasApplianceConnectionCount: '',
     partsMaterialsCount: '',
     emergencyFeeCount: '',
     plumbingCleanupCount: '',
@@ -1840,5 +1986,10 @@ export function emptyQuickMeasurementInput(): Record<
     stuccoRepairAffectedSqft: '',
     stuccoStories: '',
     stuccoWallHeightFt: '',
+    framedAreaSqft: '',
+    wallFramingLf: '',
+    sheathingSqft: '',
+    framingOpeningCount: '',
+    framingCleanupCount: '',
   };
 }

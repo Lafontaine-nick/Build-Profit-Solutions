@@ -79,6 +79,10 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> = 
   stuccoControlJointLf: ['stucco_accessories'],
   stuccoStories: ['stucco_access'],
   stuccoWallHeightFt: ['stucco_access'],
+  framedAreaSqft: ['framing'],
+  wallFramingLf: ['wall_framing'],
+  sheathingSqft: ['shear_sheathing'],
+  framingOpeningCount: ['openings'],
 };
 
 const STUCCO_CORE_MEASUREMENT_KEYS = new Set<QuickMeasurementFieldKey>([
@@ -86,6 +90,13 @@ const STUCCO_CORE_MEASUREMENT_KEYS = new Set<QuickMeasurementFieldKey>([
   'stuccoWindowDoorOpeningSqft',
   'stuccoGarageOpeningSqft',
   'stuccoNetWallSqft',
+]);
+
+const FRAMING_CORE_MEASUREMENT_KEYS = new Set<QuickMeasurementFieldKey>([
+  'framedAreaSqft',
+  'sheathingSqft',
+  'floorAreaSqft',
+  'garageSqft',
 ]);
 
 function relatedLabel(relatedScopeKeys: string[]): string {
@@ -215,6 +226,18 @@ export function getMeasurementRelevance(params: {
     };
   }
   if (
+    tradeOnlyTemplate === 'framing' &&
+    FRAMING_CORE_MEASUREMENT_KEYS.has(measurementKey)
+  ) {
+    return {
+      relevant: true,
+      blockingPrice:
+        measurementKey === 'framedAreaSqft' || measurementKey === 'sheathingSqft',
+      relatedScopeKeys,
+      reason: undefined,
+    };
+  }
+  if (
     measurementKey === 'floorAreaSqft' &&
     new Set([
       'concrete',
@@ -225,7 +248,6 @@ export function getMeasurementRelevance(params: {
       'painting',
       'deck_patio',
       'hvac',
-      'framing',
       'plumbing_service',
     ]).has(tradeOnlyTemplate)
   ) {

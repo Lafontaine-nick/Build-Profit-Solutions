@@ -75,19 +75,13 @@ export const TRADE_SCOPE_ALLOWLISTS: Record<SubcontractorTradeKey, string[]> = {
     ['pour_flatwork', 'pour_foundation'],
     ['concrete_sealer', 'decorative_finish', 'additional_haul_off']
   ),
-  framing: ids(
-    [
-      'layout',
-      'wall_framing',
-      'openings',
-      'blocking',
-      'shear_sheathing',
-      'hardware',
-      'materials_package',
-      'labor',
-    ],
-    ['cleanup']
-  ),
+  framing: [
+    'framing',
+    'wall_framing',
+    'openings',
+    'shear_sheathing',
+    'cleanup',
+  ],
   drywall: ids(
     ['demo_removal', 'hang', 'finish_tape', 'texture', 'patch_repair'],
     ['cleanup']

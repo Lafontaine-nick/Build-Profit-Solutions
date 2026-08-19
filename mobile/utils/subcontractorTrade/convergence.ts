@@ -29,6 +29,17 @@ import {
   normalizeElectricalScalarMeasurements,
 } from './electricalPlanConvergence';
 import {
+  buildFramingStructuredMeasurements,
+  FRAMING_PLAN_ALIASES,
+  FRAMING_REVIEW_MEASUREMENT_KEYS,
+  FRAMING_SHELL_COMPONENT_MEASUREMENT_KEYS,
+  isShellFramingPackageBid,
+  normalizeFramingPlanMeasurements,
+  normalizeFramingScalarMeasurements,
+  parseFramingMeasurementsFromNotes,
+  shouldStripShellFramingComponentMeasurement,
+} from './framingPlanConvergence';
+import {
   buildPlumbingStructuredMeasurements,
   PLUMBING_PLAN_ALIASES,
   PLUMBING_REVIEW_MEASUREMENT_KEYS,
@@ -36,6 +47,7 @@ import {
   normalizePlumbingScalarMeasurements,
   parsePlumbingMeasurementsFromNotes,
 } from './plumbingPlanConvergence';
+import { tagFramingDerivedQuickMeasurementSources } from '@/utils/planTakeoffReviewUi';
 
 const PROVENANCE_TO_STORAGE: Record<
   NormalizedMeasurementProvenance,
@@ -422,6 +434,71 @@ export function normalizeTradeMeasurements(
     };
     if (!Object.keys(structuredMeasurements).length) {
       structuredMeasurements = undefined;
+    }
+  }
+
+  if (tradeKey === 'framing') {
+    const framingInput =
+      source === 'plan'
+        ? normalizeFramingPlanMeasurements(input)
+        : source === 'notes'
+          ? {
+              ...parseFramingMeasurementsFromNotes(String(input.notes || '')),
+              ...input,
+            }
+          : input;
+    const quantitySource = source === 'plan' ? 'plan_detected' : 'user_entered';
+    const structured = buildFramingStructuredMeasurements(
+      framingInput,
+      quantitySource
+    );
+    const scalar = normalizeFramingScalarMeasurements(framingInput);
+    for (const [alias, canonical] of Object.entries(FRAMING_PLAN_ALIASES)) {
+      if (alias !== canonical) delete measurements[alias];
+    }
+    for (const [key, value] of Object.entries(scalar)) {
+      measurements[key] = value;
+      if (schemaKeys.has(key) && !existingSources[key]) {
+        quickMeasurementSources[key] = defaultProvenanceTag;
+      }
+      if (schemaKeys.has(key) && normalizedProvenance[key] == null) {
+        normalizedProvenance[key] = normalizedSource;
+      }
+    }
+    for (const key of FRAMING_REVIEW_MEASUREMENT_KEYS) {
+      if (measurements[key] != null) continue;
+      const value = framingInput[key];
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        measurements[key] = value;
+      }
+    }
+    structuredMeasurements = {
+      ...(structured.framingScope
+        ? { framingScope: structured.framingScope }
+        : {}),
+      ...(structured.itemQuantities
+        ? { itemQuantities: structured.itemQuantities }
+        : {}),
+    };
+    if (!Object.keys(structuredMeasurements).length) {
+      structuredMeasurements = undefined;
+    }
+    Object.assign(
+      quickMeasurementSources,
+      tagFramingDerivedQuickMeasurementSources({
+        ...measurements,
+        quickMeasurementSources,
+      })
+    );
+    if (isShellFramingPackageBid(framingInput)) {
+      for (const key of FRAMING_SHELL_COMPONENT_MEASUREMENT_KEYS) {
+        if (!shouldStripShellFramingComponentMeasurement(framingInput, key)) {
+          continue;
+        }
+        delete measurements[key];
+        delete quickMeasurementSources[key];
+        delete normalizedProvenance[key];
+      }
     }
   }
 

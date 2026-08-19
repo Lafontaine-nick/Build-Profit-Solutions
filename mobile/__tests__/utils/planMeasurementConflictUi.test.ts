@@ -1,6 +1,8 @@
 import {
   applyPlanConflictChoices,
   availablePlanConflictChoice,
+  applyRepeatedPlumbingImportConflicts,
+  shouldConfirmScopeShowPlanConflict,
   buildConflictResolution,
   conflictCandidateSourceLabel,
   conflictEvidenceSubtitle,
@@ -61,6 +63,9 @@ describe('planMeasurementConflictUi', () => {
     expect(conflictFieldLabel('singlePoleSwitchCount')).toBe(
       'Single-pole switch'
     );
+    expect(conflictFieldLabel('sewerLineLf')).toBe('Sewer / drain piping');
+    expect(conflictFieldLabel('waterLineLf')).toBe('Water line piping');
+    expect(conflictFieldLabel('gasLineLf')).toBe('Gas piping');
   });
 
   it('dedupes candidate chips and keeps distinct pass values', () => {
@@ -411,5 +416,45 @@ describe('planMeasurementConflictUi', () => {
     expect(availablePlanConflictChoice(20, [32, 46])).toBeUndefined();
     expect(availablePlanConflictChoice(46, [32, 46])).toBe(46);
     expect(availablePlanConflictChoice('manual', [32, 46])).toBe('manual');
+  });
+
+  it('puts same-plan sewer LF disagreements on the takeoff, not Confirm Scope', () => {
+    const takeoff = applyRepeatedPlumbingImportConflicts(
+      {
+        measurements: { sewerLineLf: 25, waterLineLf: 50 },
+        measurementConflicts: [],
+        measurementProvenance: {
+          sewerLineLf: { source: 'plan_import', value: 25 },
+        },
+      },
+      {
+        fingerprint: 'same-plan',
+        measurements: { sewerLineLf: 30, waterLineLf: 50 },
+      },
+      'same-plan'
+    );
+    expect(takeoff.measurementConflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: 'sewerLineLf',
+          requiresConfirmation: true,
+          candidates: expect.arrayContaining([
+            expect.objectContaining({ value: 30 }),
+            expect.objectContaining({ value: 25 }),
+          ]),
+        }),
+      ])
+    );
+    expect(
+      shouldConfirmScopeShowPlanConflict('sewerLineLf', {
+        tradeKey: 'plumbing',
+        templateKey: 'plumbing_service',
+      })
+    ).toBe(false);
+    expect(
+      shouldConfirmScopeShowPlanConflict('singlePoleSwitchCount', {
+        tradeKey: 'electrical',
+      })
+    ).toBe(true);
   });
 });

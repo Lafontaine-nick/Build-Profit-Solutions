@@ -44,6 +44,11 @@ import type {
 import { ELECTRICAL_CARDS } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { hydratePaintingPlanMeasurements } from '@/utils/hydratePaintingPlanMeasurements';
 import { electricalQuickMeasurementSourceFromProvenance } from '@/utils/electricalQuickMeasurementUi';
+import {
+  reconcileFramingScopeMeasurements,
+  tagFramingQuickMeasurementSourcesFromProvenance,
+} from '@/utils/planTakeoffReviewUi';
+import { applyRepeatedPlumbingImportConflicts } from '@/utils/planMeasurementConflictUi';
 
 function keepPaintingPlanGeometry(
   mode: PlanEstimatingMode,
@@ -351,8 +356,12 @@ export default function EstimatePlanImportStrip({
           estimatingMode,
           selectedTrade
         );
-        const stabilized = applyRepeatedElectricalImportStability(
-          hydrated,
+        const stabilized = applyRepeatedPlumbingImportConflicts(
+          applyRepeatedElectricalImportStability(
+            hydrated,
+            previousElectricalImportRef.current,
+            fingerprint
+          ),
           previousElectricalImportRef.current,
           fingerprint
         );
@@ -576,7 +585,8 @@ export default function EstimatePlanImportStrip({
         selection.trade?.key === 'flooring' ||
         selection.trade?.key === 'painting' ||
         selection.trade?.key === 'electrical' ||
-        selection.trade?.key === 'plumbing'
+        selection.trade?.key === 'plumbing' ||
+        selection.trade?.key === 'framing'
           ? normalizeTradeMeasurements(
               selection.trade.key,
               {
@@ -658,7 +668,43 @@ export default function EstimatePlanImportStrip({
                   electricalQuickMeasurementSourceFromProvenance(entry),
                 ])
             )
-          : {};
+          : selection.trade?.key === 'framing'
+            ? tagFramingQuickMeasurementSourcesFromProvenance(
+                Object.fromEntries(
+                  Object.entries(tradeMeasurements).map(([key, value]) => [
+                    key,
+                    Number(value),
+                  ])
+                ),
+                appliedProvenance as Record<string, unknown>
+              )
+            : {};
+
+      let framingQuickSources: Record<string, string> = {};
+      if (selection.trade?.key === 'framing') {
+        const reconciled = reconcileFramingScopeMeasurements({
+          planImportTradeKey: 'framing',
+          ...Object.fromEntries(
+            Object.entries(tradeMeasurements).map(([key, value]) => [
+              key,
+              Number(value),
+            ])
+          ),
+          quickMeasurementSources: {
+            ...(normalizedTrade?.quickMeasurementSources || {}),
+            ...provenanceQuickMeasurementSources,
+          },
+        }) as Record<string, unknown>;
+        for (const [key, value] of Object.entries(reconciled)) {
+          if (key === 'itemQuantities' || key === 'framingScope') continue;
+          const n = Number(value);
+          if (Number.isFinite(n) && n > 0) {
+            tradeMeasurements[key] = String(n);
+          }
+        }
+        framingQuickSources =
+          (reconciled.quickMeasurementSources as Record<string, string>) || {};
+      }
 
       onApplied({
         measurements: tradeMeasurements,
@@ -683,6 +729,7 @@ export default function EstimatePlanImportStrip({
         quickMeasurementSources: {
           ...(normalizedTrade?.quickMeasurementSources || {}),
           ...provenanceQuickMeasurementSources,
+          ...framingQuickSources,
         },
         measurementProvenance: appliedProvenance,
         measurementConflicts: unresolvedConflicts,

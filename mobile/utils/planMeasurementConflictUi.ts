@@ -1,5 +1,7 @@
 import type { PlanMeasurementConflict } from '@/utils/estimateAiDraft';
 import { electricalCardForMeasurementKey } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import { PLUMBING_CARDS } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import { FRAMING_CARDS } from '@/utils/subcontractorTrade/framingPlanConvergence';
 
 export type PlanTakeoffUnit = 'EA' | 'LF' | 'A' | 'sqft';
 export type PlanConflictChoice = number | 'manual';
@@ -43,6 +45,8 @@ export function planTakeoffUnit(field: string): PlanTakeoffUnit {
 export function conflictFieldLabel(field: string): string {
   return (
     electricalCardForMeasurementKey(field)?.label ||
+    PLUMBING_CARDS.find(card => card.measurementKey === field)?.label ||
+    FRAMING_CARDS.find(card => card.measurementKey === field)?.label ||
     (field === 'serviceAmperage' ? 'Service amperage' : field)
   );
 }
@@ -386,6 +390,109 @@ export function reviewablePlanMeasurementConflicts(input: {
   }
 
   return [...byField.values()];
+}
+
+const PLUMBING_TAKEOFF_LF_CONFLICT_KEYS = [
+  'waterLineLf',
+  'sewerLineLf',
+  'gasLineLf',
+] as const;
+
+export function isPlumbingPlanTakeoffConflictField(
+  field: string | null | undefined
+): boolean {
+  return (PLUMBING_TAKEOFF_LF_CONFLICT_KEYS as readonly string[]).includes(
+    String(field || '').trim()
+  );
+}
+
+export function shouldConfirmScopeShowPlanConflict(
+  field: string | null | undefined,
+  params?: { tradeKey?: string | null; templateKey?: string | null }
+): boolean {
+  const plumbingFlow =
+    params?.tradeKey === 'plumbing' ||
+    ['plumbing', 'plumbing_service'].includes(
+      String(params?.templateKey || '').toLowerCase()
+    );
+  return !(plumbingFlow && isPlumbingPlanTakeoffConflictField(field));
+}
+
+/** Surface 25 vs 30 LF disagreements on Review Plumbing Takeoff, not Confirm Scope. */
+export function applyRepeatedPlumbingImportConflicts<
+  T extends {
+    measurements?: Record<string, number | string | null | undefined>;
+    measurementConflicts?: PlanMeasurementConflict[] | null;
+    measurementProvenance?: Record<string, unknown> | null;
+  },
+>(
+  takeoff: T,
+  previous: {
+    fingerprint: string;
+    measurements: Record<string, number | string | null | undefined>;
+  } | null,
+  fingerprint: string
+): T {
+  if (!previous || previous.fingerprint !== fingerprint) return takeoff;
+  const measurements = { ...(takeoff.measurements || {}) };
+  const conflicts = [...(takeoff.measurementConflicts || [])];
+  const conflictFields = new Set(conflicts.map(conflict => String(conflict.field || '')));
+  const provenance = { ...(takeoff.measurementProvenance || {}) };
+  let changed = false;
+
+  for (const field of PLUMBING_TAKEOFF_LF_CONFLICT_KEYS) {
+    const previousValue = Number(previous.measurements[field]);
+    const incomingValue = Number(measurements[field]);
+    if (!(previousValue > 0) || !(incomingValue > 0) || previousValue === incomingValue) {
+      continue;
+    }
+    if (conflictFields.has(field)) continue;
+    const existing =
+      provenance[field] && typeof provenance[field] === 'object'
+        ? (provenance[field] as Record<string, unknown>)
+        : {};
+    conflicts.push({
+      field,
+      selectedValue: incomingValue,
+      selectedSource: 'plan_import',
+      threshold: 1,
+      requiresConfirmation: true,
+      candidates: [
+        {
+          value: previousValue,
+          source: 'previous_same_plan_import',
+          confidence: 0,
+          directEvidence: false,
+        },
+        {
+          value: incomingValue,
+          source: String(existing.source || 'plan_import'),
+          confidence: 0,
+          directEvidence: false,
+        },
+      ],
+    });
+    conflictFields.add(field);
+    provenance[field] = {
+      ...existing,
+      value: incomingValue,
+      alternatives: [
+        ...((Array.isArray(existing.alternatives) ? existing.alternatives : []) as Array<{
+          value?: unknown;
+          source?: string;
+        }>),
+        { value: previousValue, source: 'previous_same_plan_import' },
+      ],
+    };
+    changed = true;
+  }
+
+  if (!changed) return takeoff;
+  return {
+    ...takeoff,
+    measurementConflicts: conflicts,
+    measurementProvenance: provenance,
+  };
 }
 
 export function uniqueUnreadablePlanFields(

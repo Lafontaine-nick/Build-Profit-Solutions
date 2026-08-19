@@ -309,6 +309,85 @@ describe('applyPlanImportToDraft', () => {
 });
 
 describe('live plan-review handoff to Confirm Scope', () => {
+  test('hydrates plumbing equipment cards from fixture inventory and equipment metadata', () => {
+    const next = mergeLivePlanImportIntoScopeMeasurements(
+      {
+        waterLineLf: '50',
+        sewerLineLf: '30',
+      },
+      {
+        estimatingMode: 'selected_trade',
+        selectedTrade: 'plumbing',
+        measurements: { waterLineLf: '50', sewerLineLf: '30', gasLineLf: '35' },
+        fixtureInventory: {
+          toilets: 3,
+          lavatories: 3,
+          showers: 2,
+          tubs: 1,
+          kitchenSinks: 1,
+        },
+        waterHeaterDetail: { count: 1, type: 'tank', fuel: 'gas' },
+        gasApplianceScope: { range: true, fireplace: true, dryer: true },
+      }
+    );
+
+    expect(next).toMatchObject({
+      plumbingRoughPointCount: '10',
+      plumbingTrimHookupCount: '10',
+      plumbingFixturesHardwareCount: '10',
+      waterHeaterCount: '1',
+      gasApplianceConnectionCount: '3',
+      gasLineLf: '35',
+    });
+    expect(next.plumbingScope).toEqual(
+      expect.arrayContaining([
+        'plumbing_rough',
+        'plumbing_trim',
+        'plumbing_fixtures_hardware',
+        'water_heater',
+        'gas_appliance_connections',
+        'water_line',
+        'sewer_line',
+        'gas_line',
+      ])
+    );
+    expect(next.itemQuantities?.plumbing_fixtures_hardware).toMatchObject({
+      quantity: 10,
+      unit: 'each',
+    });
+  });
+
+  test('clears stale plumbing rough/trim when the live takeoff has no fixture inventory', () => {
+    const next = mergeLivePlanImportIntoScopeMeasurements(
+      {
+        plumbingRoughPointCount: '10',
+        plumbingTrimHookupCount: '10',
+        waterLineLf: '50',
+        sewerLineLf: '30',
+        plumbingScope: ['plumbing_rough', 'plumbing_trim', 'water_line', 'sewer_line'],
+        itemQuantities: {
+          plumbing_rough: { quantity: 10, unit: 'each' },
+          plumbing_trim: { quantity: 10, unit: 'each' },
+        },
+        pricingAcceptance: {
+          plumbing_rough: { selectionStatus: 'accepted', totalAmount: 5000 },
+        },
+      },
+      {
+        estimatingMode: 'selected_trade',
+        selectedTrade: 'plumbing',
+        measurements: { waterLineLf: '50', sewerLineLf: '30' },
+        fixtureInventory: {},
+      }
+    );
+
+    expect(next.waterLineLf).toBe('50');
+    expect(Number(next.plumbingRoughPointCount) || 0).toBe(0);
+    expect(next.itemQuantities?.plumbing_rough).toBeUndefined();
+    expect(next.pricingAcceptance?.plumbing_rough).toBeUndefined();
+    expect(next.plumbingScope).not.toEqual(expect.arrayContaining(['plumbing_rough']));
+  });
+
   test('preserves unresolved conflicts, provenance, and plan source labels', () => {
     const conflict = {
       field: 'ceilingFanCount',

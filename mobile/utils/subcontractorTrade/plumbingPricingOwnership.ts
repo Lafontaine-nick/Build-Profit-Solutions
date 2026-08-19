@@ -55,7 +55,35 @@ export const PLUMBING_PRICING_OWNERSHIP: PlumbingPricingOwnership[] = [
       'appliance purchase',
       'fixture rough-in',
       'unverified gas routing',
+      'final appliance hookup labor',
     ],
+  },
+  {
+    itemId: 'plumbing_fixtures_hardware',
+    owns: [
+      'builder-grade fixture and hardware product allowance',
+      'toilets',
+      'faucets',
+      'shower trim kits',
+      'tub valves',
+      'sinks',
+      'drains',
+    ],
+    excludes: ['rough-in labor', 'trim hookup labor', 'water heater'],
+  },
+  {
+    itemId: 'water_heater',
+    owns: ['water heater unit supply and set'],
+    excludes: [
+      'electrical hookup',
+      'gas piping LF',
+      'gas appliance hookup labor',
+    ],
+  },
+  {
+    itemId: 'gas_appliance_connections',
+    owns: ['final gas hookup labor and fittings at documented stubs'],
+    excludes: ['gas piping LF', 'appliance purchase', 'water heater set'],
   },
   {
     itemId: 'drain_cleaning',

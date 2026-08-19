@@ -1,4 +1,5 @@
 import { resolvePlanMeasurementProvenance, type PlanMeasurementProvenance } from '@/utils/planMeasurementProvenance';
+import type { QuickMeasurementSourceTag } from '@/utils/quickMeasurementProvenance';
 import {
   buildAreaReconciliation,
   formatPlanSourceLabel,
@@ -13,6 +14,19 @@ import {
   electricalCardForMeasurementKey,
   hasDetailedElectricalQuantities,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import {
+  FRAMING_CARDS,
+  FRAMING_SHELL_COMPONENT_ITEM_IDS,
+  FRAMING_SHELL_COMPONENT_MEASUREMENT_KEYS,
+  buildFramingStructuredMeasurements,
+  framingCardForMeasurementKey,
+  isShellFramingPackageBid,
+  resolveCoveredFramedAreaSqft,
+  resolveFramingSheathingSqft,
+  shouldPreserveShellFramingComponentMeasurement,
+  shouldStripShellFramingComponentMeasurement,
+  stripShellFramingComponentMeasurements,
+} from '@/utils/subcontractorTrade/framingPlanConvergence';
 
 export type PlanReviewSpaceKind = 'living' | 'garage' | 'other';
 
@@ -52,11 +66,17 @@ export function measurementDisplayLabel(
   const plumbingLabels: Record<string, string> = {
     plumbingRoughPointCount: 'Plumbing rough-in points',
     plumbingTrimHookupCount: 'Trim / hookups',
+    plumbingFixturesHardwareCount: 'Plumbing fixture allowance',
+    waterHeaterCount: 'Water heater',
+    gasApplianceConnectionCount: 'Gas appliance connections',
     waterLineLf: 'Underground water service / under-slab piping',
     sewerLineLf: 'Underground sewer / drain / under-slab DWV',
     gasLineLf: 'Gas piping',
   };
   if (plumbingLabels[key]) return { label: plumbingLabels[key] };
+
+  const framingCard = framingCardForMeasurementKey(key);
+  if (framingCard) return { label: framingCard.label, subtext: framingCard.helper };
 
   if (!measurementSemanticsV1Enabled()) {
     if (key === 'floorAreaSqft') return { label: 'Living area' };
@@ -424,9 +444,23 @@ const ELECTRICAL_PLAN_REVIEW_KEYS = new Set([...ELECTRICAL_CARDS.map(card => car
 const PLUMBING_PLAN_REVIEW_KEYS = new Set([
   'plumbingRoughPointCount',
   'plumbingTrimHookupCount',
+  'plumbingFixturesHardwareCount',
+  'waterHeaterCount',
+  'gasApplianceConnectionCount',
   'waterLineLf',
   'sewerLineLf',
   'gasLineLf',
+]);
+
+const FRAMING_PLAN_REVIEW_KEYS = new Set([
+  'framedAreaSqft',
+  'wallFramingLf',
+  'sheathingSqft',
+  'framingOpeningCount',
+  'framingCleanupCount',
+  'floorAreaSqft',
+  'garageSqft',
+  'stuccoGrossWallSqft',
 ]);
 
 export function electricalPlanQuantityPricingEligible(
@@ -526,6 +560,7 @@ export function planReviewProvenanceFlags(input: {
   const paintingKey = PAINTING_PLAN_REVIEW_KEYS.has(input.key);
   const electricalKey = ELECTRICAL_PLAN_REVIEW_KEYS.has(input.key);
   const plumbingKey = PLUMBING_PLAN_REVIEW_KEYS.has(input.key);
+  const framingKey = FRAMING_PLAN_REVIEW_KEYS.has(input.key);
   const incomplete =
     paintingKey &&
     typeof input.provenanceEntry === 'object' &&
@@ -596,6 +631,12 @@ export function planReviewProvenanceFlags(input: {
         input.key === 'deckSqft' ||
         (paintingKey && fromPlan && !fromGeometry && !incomplete) ||
         (plumbingKey && fromPlan && !derivedFromFixtureInventory && !architecturalLineSegment) ||
+        (framingKey &&
+          fromPlan &&
+          (input.key === 'framedAreaSqft' ||
+            input.key === 'sheathingSqft' ||
+            input.key === 'floorAreaSqft' ||
+            input.key === 'garageSqft')) ||
         (electricalKey && !aiInferred && !aiVerified && (fromInstanceTags || (fromPlan && !electricalReview)))),
     hasReliableDimensions:
       !input.hasConflict &&
@@ -664,7 +705,8 @@ export function buildPlanReviewMeasurementRowState(input: {
       (pricingEligible ||
         input.validationField?.deterministicRepeatedImportStable === false ||
         input.tradeKey === 'electrical' ||
-        input.tradeKey === 'plumbing'),
+        input.tradeKey === 'plumbing' ||
+        input.tradeKey === 'framing'),
   };
 }
 
@@ -1622,6 +1664,19 @@ export const PLUMBING_FIXTURE_INVENTORY_ORDER = [
   'gasAppliances',
 ] as const;
 
+/** Rough/trim fixture connections — excludes WH and gas appliance inventory keys. */
+export const PLUMBING_FIXTURE_CONNECTION_KEYS = [
+  'toilets',
+  'lavatories',
+  'showers',
+  'tubs',
+  'kitchenSinks',
+  'dishwasherConnections',
+  'laundryBoxes',
+  'hoseBibs',
+  'floorDrains',
+] as const;
+
 export function plumbingFixtureInventoryLabel(key: string): string {
   return (
     PLUMBING_FIXTURE_INVENTORY_LABELS[key] ||
@@ -1635,38 +1690,444 @@ export function sumPlumbingFixtureInventoryPoints(
   inventory: Record<string, number> | null | undefined
 ): number {
   let total = 0;
-  for (const key of PLUMBING_FIXTURE_INVENTORY_ORDER) {
+  for (const key of PLUMBING_FIXTURE_CONNECTION_KEYS) {
     const count = Number(inventory?.[key]);
     if (Number.isFinite(count) && count > 0) total += Math.round(count);
   }
   return total;
 }
 
+export function resolvePlumbingFixturesHardwareCount(
+  measurements: Record<string, number | string>,
+  inventory: Record<string, number> | null | undefined,
+  waterHeaterDetail?: PlumbingWaterHeaterDetail | null
+): number {
+  const trim = Number(measurements.plumbingTrimHookupCount);
+  const rough = Number(measurements.plumbingRoughPointCount);
+  const scheduleCount =
+    Number.isFinite(trim) && trim > 0 && Number.isFinite(rough) && rough > 0
+      ? Math.min(trim, rough)
+      : Number.isFinite(trim) && trim > 0
+        ? trim
+        : Number.isFinite(rough) && rough > 0
+          ? rough
+          : 0;
+  if (scheduleCount > 0) return scheduleCount;
+
+  const fromInventory = sumPlumbingFixturesHardwareCount(inventory);
+  const explicit = Number(measurements.plumbingFixturesHardwareCount);
+  const whCount = resolvePlumbingWaterHeaterCount(inventory, waterHeaterDetail);
+  const raw =
+    (Number.isFinite(explicit) && explicit > 0 ? explicit : 0) ||
+    fromInventory;
+  if (raw <= 0) return 0;
+  if (whCount > 0 && raw > whCount && raw <= whCount + 2) {
+    return Math.max(1, raw - whCount);
+  }
+  return raw;
+}
+
+export function resolvePlumbingGasApplianceConnectionCount(
+  scope: PlumbingGasApplianceScope | null | undefined,
+  inventory?: Record<string, number> | null
+): number {
+  const fromScope = countPlumbingGasApplianceConnections(scope);
+  const fromInventory = Number(inventory?.gasAppliances);
+  if (fromScope > 0 && Number.isFinite(fromInventory) && fromInventory > 0) {
+    return Math.max(fromScope, Math.round(fromInventory));
+  }
+  if (fromScope > 0) return fromScope;
+  if (Number.isFinite(fromInventory) && fromInventory > 0) {
+    return Math.round(fromInventory);
+  }
+  return 0;
+}
+
+export const PLUMBING_FIXTURE_HARDWARE_KEYS = [
+  'toilets',
+  'lavatories',
+  'showers',
+  'tubs',
+  'kitchenSinks',
+  'dishwasherConnections',
+  'laundryBoxes',
+  'hoseBibs',
+  'floorDrains',
+] as const;
+
+export function sumPlumbingFixturesHardwareCount(
+  inventory: Record<string, number> | null | undefined
+): number {
+  let total = 0;
+  for (const key of PLUMBING_FIXTURE_HARDWARE_KEYS) {
+    const count = Number(inventory?.[key]);
+    if (Number.isFinite(count) && count > 0) total += Math.round(count);
+  }
+  return total;
+}
+
+export function countPlumbingGasApplianceConnections(
+  scope: PlumbingGasApplianceScope | null | undefined
+): number {
+  if (!scope) return 0;
+  let total = 0;
+  for (const key of ['range', 'fireplace', 'dryer', 'grill'] as const) {
+    if (scope[key]) total += 1;
+  }
+  return total;
+}
+
+export function resolvePlumbingWaterHeaterCount(
+  inventory: Record<string, number> | null | undefined,
+  waterHeaterDetail?: PlumbingWaterHeaterDetail | null
+): number {
+  const fromInventory = Number(inventory?.waterHeaters);
+  if (Number.isFinite(fromInventory) && fromInventory > 0) {
+    return Math.round(fromInventory);
+  }
+  if (!waterHeaterDetail) return 0;
+  return Math.max(1, Number(waterHeaterDetail.count) || 1);
+}
+
+function hasGasAppliancesComplexityFactor(
+  complexityFactors?: Array<{ key?: string | null; label?: string | null }> | null
+): boolean {
+  return (complexityFactors || []).some(factor => {
+    const key = String(factor?.key || '').trim();
+    const label = String(factor?.label || '').trim();
+    return key === 'gas_appliances' || /\bgas\s*appliance/i.test(`${key} ${label}`);
+  });
+}
+
+/** Expand partial gas scope to the standard production-home trio when gas piping is documented. */
+export function expandResidentialGasApplianceScope(
+  scope: PlumbingGasApplianceScope | null | undefined,
+  options?: {
+    measurements?: Record<string, number | string>;
+    complexityFactors?: Array<{ key?: string | null; label?: string | null }> | null;
+  }
+): PlumbingGasApplianceScope | null {
+  const normalized = scope || null;
+  const gasLf = Number(options?.measurements?.gasLineLf);
+  const hasGasComplexity = hasGasAppliancesComplexityFactor(options?.complexityFactors);
+  const count = countPlumbingGasApplianceConnections(normalized);
+  if (count >= 3) return normalized;
+
+  const hasGasPiping = Boolean(normalized?.gasPipingRequired) || (Number.isFinite(gasLf) && gasLf >= 20);
+  if (!hasGasPiping) return normalized;
+
+  const hasAnyAppliance = count >= 1;
+  if (!hasAnyAppliance && !hasGasComplexity) return normalized;
+
+  return {
+    ...(normalized || {}),
+    gasPipingRequired: true,
+    range: true,
+    fireplace: true,
+    dryer: true,
+  };
+}
+
 /** Fill rough/trim counts from fixture inventory when vision omitted canonical keys. */
 export function hydratePlumbingPlanMeasurementsFromInventory(
   measurements: Record<string, number | string>,
-  inventory: Record<string, number> | null | undefined
-): Record<string, number | string> {
-  const total = sumPlumbingFixtureInventoryPoints(inventory);
-  if (!total) return measurements;
-  const next = { ...measurements };
-  if (!Number(next.plumbingRoughPointCount)) {
-    next.plumbingRoughPointCount = total;
+  inventory: Record<string, number> | null | undefined,
+  options?: {
+    waterHeaterDetail?: PlumbingWaterHeaterDetail | null;
+    gasApplianceScope?: PlumbingGasApplianceScope | null;
+    complexityFactors?: Array<{ key?: string | null; label?: string | null }> | null;
   }
-  if (!Number(next.plumbingTrimHookupCount)) {
-    next.plumbingTrimHookupCount = total;
+): Record<string, number | string> {
+  let waterHeaterDetail = options?.waterHeaterDetail ?? null;
+  let gasApplianceScope = options?.gasApplianceScope ?? null;
+  const whFromInventory = Number(inventory?.waterHeaters);
+  if (Number.isFinite(whFromInventory) && whFromInventory > 0) {
+    waterHeaterDetail = {
+      count: Math.round(whFromInventory),
+      ...(waterHeaterDetail || {}),
+    };
+  }
+  for (const factor of options?.complexityFactors || []) {
+    const key = String(factor?.key || '').trim();
+    const label = String(factor?.label || '').trim();
+    const blob = `${key} ${label}`.trim();
+    if (!blob) continue;
+    if (key === 'tankless_water_heater' || /\btankless\b/i.test(blob)) {
+      waterHeaterDetail = {
+        ...waterHeaterDetail,
+        count: Math.max(1, Number(waterHeaterDetail?.count) || 1),
+        type: waterHeaterDetail?.type || 'tankless',
+      };
+    } else if (/\bwater\s*heater\b/i.test(blob) && key !== 'gas_appliances') {
+      waterHeaterDetail = {
+        ...waterHeaterDetail,
+        count: Math.max(1, Number(waterHeaterDetail?.count) || 1),
+      };
+    }
+    if (key === 'gas_appliances' || /\bgas\s*appliance/i.test(blob)) {
+      gasApplianceScope = {
+        ...(gasApplianceScope || {}),
+        gasPipingRequired: true,
+        range:
+          gasApplianceScope?.range ||
+          /range|cooktop|oven/i.test(blob) ||
+          undefined,
+        fireplace:
+          gasApplianceScope?.fireplace ||
+          /fireplace|fire\s*place|gas\s*log|g\.?\s*f\.?|\bfp\b/i.test(blob) ||
+          undefined,
+        dryer:
+          gasApplianceScope?.dryer ||
+          /dryer|clothes\s*dryer/i.test(blob) ||
+          undefined,
+        grill:
+          gasApplianceScope?.grill || /grill|bbq|barbecue/i.test(blob) || undefined,
+      };
+    }
+  }
+  gasApplianceScope = expandResidentialGasApplianceScope(gasApplianceScope, {
+    measurements,
+    complexityFactors: options?.complexityFactors,
+  });
+  const total = sumPlumbingFixtureInventoryPoints(inventory);
+  const next = { ...measurements };
+  if (total > 0) {
+    if (!Number(next.plumbingRoughPointCount)) {
+      next.plumbingRoughPointCount = total;
+    }
+    if (!Number(next.plumbingTrimHookupCount)) {
+      next.plumbingTrimHookupCount = total;
+    }
+  }
+  const resolvedFixtures = resolvePlumbingFixturesHardwareCount(
+    next,
+    inventory,
+    waterHeaterDetail
+  );
+  if (resolvedFixtures > 0) {
+    const existingFixtures = Number(next.plumbingFixturesHardwareCount);
+    if (!existingFixtures || existingFixtures !== resolvedFixtures) {
+      next.plumbingFixturesHardwareCount = resolvedFixtures;
+    }
+  }
+  const waterHeaterCount = resolvePlumbingWaterHeaterCount(
+    inventory,
+    waterHeaterDetail
+  );
+  if (waterHeaterCount > 0 && !Number(next.waterHeaterCount)) {
+    next.waterHeaterCount = waterHeaterCount;
+  }
+  const resolvedGasConnections = resolvePlumbingGasApplianceConnectionCount(
+    gasApplianceScope,
+    inventory
+  );
+  if (resolvedGasConnections > 0) {
+    const existingGas = Number(next.gasApplianceConnectionCount);
+    if (
+      !Number.isFinite(existingGas) ||
+      existingGas <= 0 ||
+      resolvedGasConnections > existingGas
+    ) {
+      next.gasApplianceConnectionCount = resolvedGasConnections;
+    }
   }
   return next;
+}
+
+const PLUMBING_EQUIPMENT_RECONCILE_CARDS = [
+  { itemId: 'gas_appliance_connections', measurementKey: 'gasApplianceConnectionCount' },
+  { itemId: 'water_heater', measurementKey: 'waterHeaterCount' },
+  { itemId: 'plumbing_fixtures_hardware', measurementKey: 'plumbingFixturesHardwareCount' },
+] as const;
+
+type PlumbingPricingAcceptance = {
+  selectionStatus?: string;
+  materialAmount?: number;
+  laborAmount?: number;
+  totalAmount?: number;
+};
+
+function scaleAcceptedPricingForQuantity(
+  acceptance: PlumbingPricingAcceptance,
+  previousQty: number,
+  nextQty: number
+): PlumbingPricingAcceptance {
+  if (!(nextQty > previousQty) || !(previousQty > 0)) return acceptance;
+  const ratio = nextQty / previousQty;
+  const material =
+    acceptance.materialAmount != null
+      ? Math.round(acceptance.materialAmount * ratio)
+      : undefined;
+  const labor =
+    acceptance.laborAmount != null
+      ? Math.round(acceptance.laborAmount * ratio)
+      : undefined;
+  const total =
+    material != null && labor != null
+      ? material + labor
+      : acceptance.totalAmount != null
+        ? Math.round(acceptance.totalAmount * ratio)
+        : undefined;
+  return {
+    ...acceptance,
+    materialAmount: material,
+    laborAmount: labor,
+    totalAmount: total,
+  };
+}
+
+function isPlumbingScopeMeasurements(input: Record<string, unknown>): boolean {
+  const templateKey = String(input.planImportTradeKey || '').toLowerCase();
+  const checklistTemplate = String(input.templateKey || '').toLowerCase();
+  return (
+    templateKey === 'plumbing' ||
+    checklistTemplate === 'plumbing' ||
+    checklistTemplate === 'plumbing_service' ||
+    Array.isArray(input.plumbingScope) ||
+    Number(input.gasLineLf) > 0 ||
+    Number(input.gasApplianceConnectionCount) > 0 ||
+    Number(input.plumbingRoughPointCount) > 0
+  );
+}
+
+/** Upgrade equipment counts and rescale stale applied pricing on existing plumbing drafts. */
+export function reconcilePlumbingEquipmentScopeMeasurements<
+  T extends Record<string, unknown>,
+>(input: T): T {
+  if (!isPlumbingScopeMeasurements(input)) return input;
+
+  const expandedScope = expandResidentialGasApplianceScope(
+    (input.plumbingGasApplianceScope as PlumbingGasApplianceScope | null) ?? null,
+    {
+      measurements: input as Record<string, number | string>,
+      complexityFactors:
+        (input.plumbingComplexityFactors as Array<{
+          key?: string | null;
+          label?: string | null;
+        }> | null) ?? null,
+    }
+  );
+
+  const hydrated = hydratePlumbingPlanMeasurementsFromInventory(
+    input as Record<string, number | string>,
+    (input.plumbingFixtureInventory as Record<string, number> | null) ?? null,
+    {
+      waterHeaterDetail:
+        (input.plumbingWaterHeaterDetail as PlumbingWaterHeaterDetail | null) ?? null,
+      gasApplianceScope: expandedScope,
+      complexityFactors:
+        (input.plumbingComplexityFactors as Array<{
+          key?: string | null;
+          label?: string | null;
+        }> | null) ?? null,
+    }
+  );
+
+  const next = { ...input } as T & Record<string, unknown>;
+  for (const key of [
+    'plumbingRoughPointCount',
+    'plumbingTrimHookupCount',
+    'plumbingFixturesHardwareCount',
+    'waterHeaterCount',
+    'gasApplianceConnectionCount',
+  ]) {
+    const hydratedValue = Number(hydrated[key]);
+    const existing = Number(next[key]);
+    if (hydratedValue > 0 && (!Number.isFinite(existing) || hydratedValue > existing)) {
+      next[key] = hydratedValue;
+    }
+  }
+  if (expandedScope) {
+    next.plumbingGasApplianceScope = expandedScope;
+  }
+
+  const itemQuantities = {
+    ...((next.itemQuantities as Record<string, unknown>) || {}),
+  };
+  let pricingAcceptance = {
+    ...((next.pricingAcceptance as Record<string, PlumbingPricingAcceptance>) ||
+      {}),
+  };
+  let changed = false;
+
+  for (const card of PLUMBING_EQUIPMENT_RECONCILE_CARDS) {
+    const targetQty = Number(next[card.measurementKey]);
+    if (!(targetQty > 0)) continue;
+
+    const existingEntry = itemQuantities[card.itemId] as
+      | { quantity?: string; unit?: string; quantitySource?: string }
+      | undefined;
+    const existingQty = Number(existingEntry?.quantity);
+    const acceptance = pricingAcceptance[card.itemId];
+    if (
+      acceptance?.selectionStatus === 'manual_adjusted' ||
+      acceptance?.selectionStatus === 'user_entered'
+    ) {
+      continue;
+    }
+
+    const needsQtyUpgrade = !(existingQty > 0) || targetQty > existingQty;
+    const acceptedTotal =
+      Number(acceptance?.totalAmount ?? 0) ||
+      Number(acceptance?.materialAmount ?? 0) + Number(acceptance?.laborAmount ?? 0);
+    const needsPricingRescale =
+      Boolean(acceptance) &&
+      acceptance?.selectionStatus === 'accepted' &&
+      targetQty > 1 &&
+      existingQty > 0 &&
+      targetQty > existingQty &&
+      acceptedTotal > 0;
+
+    if (!needsQtyUpgrade && !needsPricingRescale) continue;
+
+    itemQuantities[card.itemId] = {
+      ...(existingEntry || {}),
+      quantity: String(targetQty),
+      unit: existingEntry?.unit || 'each',
+      quantitySource:
+        existingEntry?.quantitySource === 'user_entered'
+          ? 'user_entered'
+          : 'plan_detected',
+    };
+    changed = true;
+
+    if (needsPricingRescale && acceptance) {
+      pricingAcceptance[card.itemId] = scaleAcceptedPricingForQuantity(
+        acceptance,
+        existingQty,
+        targetQty
+      );
+    }
+  }
+
+  if (changed) {
+    next.itemQuantities = itemQuantities;
+    next.pricingAcceptance = pricingAcceptance;
+  }
+  return next as T;
 }
 
 export function plumbingInventoryDerivedProvenance(
   inventory: Record<string, number> | null | undefined,
   key: string
 ): Record<string, unknown> | undefined {
-  if (key !== 'plumbingRoughPointCount' && key !== 'plumbingTrimHookupCount') {
+  if (
+    key !== 'plumbingRoughPointCount' &&
+    key !== 'plumbingTrimHookupCount' &&
+    key !== 'plumbingFixturesHardwareCount' &&
+    key !== 'waterHeaterCount' &&
+    key !== 'gasApplianceConnectionCount'
+  ) {
     return undefined;
   }
-  const total = sumPlumbingFixtureInventoryPoints(inventory);
+  const total =
+    key === 'plumbingFixturesHardwareCount'
+      ? sumPlumbingFixturesHardwareCount(inventory)
+      : key === 'waterHeaterCount'
+        ? resolvePlumbingWaterHeaterCount(inventory)
+        : key === 'gasApplianceConnectionCount'
+          ? 0
+          : sumPlumbingFixtureInventoryPoints(inventory);
   if (!total) return undefined;
   const derivedFrom = PLUMBING_FIXTURE_INVENTORY_ORDER.filter(
     fixtureKey => Number(inventory?.[fixtureKey]) > 0
@@ -1688,6 +2149,10 @@ export function plumbingMeasurementDisplayUnit(
 ): string {
   if (key === 'plumbingRoughPointCount' || key === 'plumbingTrimHookupCount') {
     return 'fixtures';
+  }
+  if (key === 'plumbingFixturesHardwareCount') return 'fixtures';
+  if (key === 'waterHeaterCount' || key === 'gasApplianceConnectionCount') {
+    return 'each';
   }
   if (key === 'waterLineLf' || key === 'sewerLineLf' || key === 'gasLineLf') {
     return 'LF';
@@ -1747,4 +2212,248 @@ export function formatPlumbingGasApplianceScope(
     lines.push('Gas piping required: Yes · Length: Confirm');
   }
   return lines;
+}
+
+export function hydrateFramingPlanMeasurementsFromAreas<
+  T extends Record<string, number | string>,
+>(input: T): T {
+  const next = { ...input } as T & Record<string, unknown>;
+  const framed = resolveCoveredFramedAreaSqft(next);
+  if (framed != null && framed > 0) {
+    next.framedAreaSqft = framed;
+  }
+  const sheathing = resolveFramingSheathingSqft(next);
+  if (sheathing != null && sheathing > 0) {
+    next.sheathingSqft = sheathing;
+  }
+  return next as T;
+}
+
+function isFramingScopeMeasurements(input: Record<string, unknown>): boolean {
+  const template = String(input.planImportTradeKey || '').toLowerCase();
+  return (
+    template === 'framing' ||
+    Array.isArray(input.framingScope) ||
+    Number(input.framedAreaSqft) > 0 ||
+    Number(input.sheathingSqft) > 0 ||
+    Number(input.wallFramingLf) > 0
+  );
+}
+
+export function tagFramingDerivedQuickMeasurementSources(
+  input: Record<string, unknown>
+): Record<string, string> {
+  const sources = {
+    ...((input.quickMeasurementSources as Record<string, string> | undefined) || {}),
+  };
+  const living = Number(input.floorAreaSqft);
+  const garage = Number(input.garageSqft) || 0;
+  const framed = Number(input.framedAreaSqft);
+  const livingFromPlan =
+    sources.floorAreaSqft === 'plan_detected' ||
+    sources.floorAreaSqft === 'detected_from_plan' ||
+    sources.floorAreaSqft === 'plan_verified';
+  const garageFromPlan =
+    sources.garageSqft === 'plan_detected' ||
+    sources.garageSqft === 'detected_from_plan' ||
+    sources.garageSqft === 'plan_verified';
+  if (
+    framed > 0 &&
+    livingFromPlan &&
+    (garage <= 0 || garageFromPlan) &&
+    Math.abs(framed - (living + Math.max(0, garage))) < 1
+  ) {
+    sources.framedAreaSqft = 'plan_detected';
+  } else if (framed > 0 && !sources.framedAreaSqft) {
+    sources.framedAreaSqft = 'plan_detected';
+  }
+  const sheathing = Number(input.sheathingSqft);
+  if (sheathing > 0 && !sources.sheathingSqft) {
+    sources.sheathingSqft = 'plan_detected';
+  }
+  return sources;
+}
+
+export function framingQuickMeasurementSourceFromProvenance(
+  entry: unknown
+): QuickMeasurementSourceTag | null {
+  if (!entry || typeof entry !== 'object') return null;
+  const record = entry as {
+    normalizedSource?: string;
+    source?: string;
+    status?: string;
+  };
+  const normalized = String(record.normalizedSource || '').toUpperCase();
+  const source = String(record.source || record.status || '').toLowerCase();
+  if (
+    normalized === 'FROM_PLAN' ||
+    normalized === 'PLAN_VERIFIED' ||
+    source === 'detected_from_plan' ||
+    source === 'plan_verified'
+  ) {
+    return 'plan_detected';
+  }
+  if (
+    normalized === 'PLANNING_ESTIMATE' ||
+    source === 'calculated_from_components' ||
+    source === 'estimated_from_formula'
+  ) {
+    return 'plan_detected';
+  }
+  if (normalized === 'NEEDS_REVIEW' || source === 'needs_confirmation') {
+    return 'needs_confirmation';
+  }
+  return null;
+}
+
+export function tagFramingQuickMeasurementSourcesFromProvenance(
+  measurements: Record<string, unknown>,
+  provenance?: Record<string, unknown> | null
+): Record<string, string> {
+  const sources = tagFramingDerivedQuickMeasurementSources(measurements);
+  if (!provenance) return sources;
+  for (const key of [
+    'framedAreaSqft',
+    'sheathingSqft',
+    'floorAreaSqft',
+    'garageSqft',
+  ] as const) {
+    if (!(Number(measurements[key]) > 0)) continue;
+    const mapped = framingQuickMeasurementSourceFromProvenance(provenance[key]);
+    if (mapped) sources[key] = mapped;
+  }
+  return sources;
+}
+
+/** Hydrate framing quantities, scope cards, and itemQuantities for Confirm Scope. */
+export function reconcileFramingScopeMeasurements<
+  T extends Record<string, unknown>,
+>(input: T): T {
+  if (!isFramingScopeMeasurements(input)) return input;
+
+  const hydrated = hydrateFramingPlanMeasurementsFromAreas(
+    input as Record<string, number | string>
+  );
+  let next = stripShellFramingComponentMeasurements({
+    ...input,
+    ...hydrated,
+  }) as T & Record<string, unknown>;
+  if (isShellFramingPackageBid(next)) {
+    const itemQuantities = {
+      ...((next.itemQuantities as Record<string, unknown>) || {}),
+    };
+    const sources = {
+      ...((next.quickMeasurementSources as Record<string, string>) || {}),
+    };
+    for (const key of FRAMING_SHELL_COMPONENT_MEASUREMENT_KEYS) {
+      if (!shouldStripShellFramingComponentMeasurement(next, key)) continue;
+      delete next[key];
+      delete sources[key];
+    }
+    for (const itemId of FRAMING_SHELL_COMPONENT_ITEM_IDS) {
+      const card = FRAMING_CARDS.find(entry => entry.itemId === itemId);
+      if (
+        card &&
+        shouldStripShellFramingComponentMeasurement(next, card.measurementKey)
+      ) {
+        delete itemQuantities[itemId];
+      }
+    }
+    next.itemQuantities = itemQuantities;
+    next.quickMeasurementSources = sources;
+  }
+  next.quickMeasurementSources = tagFramingDerivedQuickMeasurementSources(next);
+
+  const structured = buildFramingStructuredMeasurements(next, 'plan_detected');
+  if (structured.framingScope?.length) {
+    next.framingScope = structured.framingScope;
+  }
+  if (structured.itemQuantities) {
+    next.itemQuantities = {
+      ...((next.itemQuantities as Record<string, unknown>) || {}),
+      ...structured.itemQuantities,
+    };
+  }
+
+  for (const card of FRAMING_CARDS) {
+    if (
+      isShellFramingPackageBid(next) &&
+      (card.itemId === 'wall_framing' || card.itemId === 'openings') &&
+      !shouldPreserveShellFramingComponentMeasurement(next, card.measurementKey)
+    ) {
+      continue;
+    }
+    const qty = Number(next[card.measurementKey]);
+    if (!(qty > 0)) continue;
+    const existing = (next.itemQuantities as Record<string, { quantity?: unknown }>)?.[
+      card.itemId
+    ];
+    if (Number(existing?.quantity) > 0) continue;
+    (next.itemQuantities as Record<string, unknown>)[card.itemId] = {
+      quantity: String(qty),
+      unit: card.unit,
+      quantitySource: 'plan_detected',
+    };
+  }
+
+  return next as T;
+}
+
+export function augmentFramingScopeDetections<
+  T extends { itemId?: string | null; label?: string | null; evidence?: string | null },
+>(
+  detections: T[],
+  measurements: Record<string, number | string | null | undefined>
+): T[] {
+  const hydrated = hydrateFramingPlanMeasurementsFromAreas(measurements);
+  const existing = new Set(
+    detections.map(row => String(row.itemId || '').trim()).filter(Boolean)
+  );
+  const additions: T[] = [];
+  const push = (itemId: string, label: string, evidence: string) => {
+    if (existing.has(itemId)) return;
+    additions.push({ itemId, label, evidence } as T);
+    existing.add(itemId);
+  };
+  if (Number(hydrated.framedAreaSqft) > 0) {
+    push(
+      'framing',
+      'Framing (lumber + labor)',
+      `Covered framed area ${Number(hydrated.framedAreaSqft).toLocaleString()} SF`
+    );
+  }
+  if (Number(hydrated.sheathingSqft) > 0) {
+    push(
+      'shear_sheathing',
+      'Sheathing / shear',
+      `Sheathing area ${Number(hydrated.sheathingSqft).toLocaleString()} SF`
+    );
+  }
+  if (Number(hydrated.wallFramingLf) > 0 && !isShellFramingPackageBid(measurements)) {
+    push(
+      'wall_framing',
+      'Wall framing',
+      `${Number(hydrated.wallFramingLf).toLocaleString()} LF wall framing`
+    );
+  }
+  if (
+    Number(hydrated.framingOpeningCount) > 0 &&
+    !isShellFramingPackageBid(measurements)
+  ) {
+    push(
+      'openings',
+      'Door / window openings',
+      `${Number(hydrated.framingOpeningCount)} documented openings`
+    );
+  }
+  return [...detections, ...additions];
+}
+
+export function framingMeasurementDisplayUnit(key: string, fallback = ''): string {
+  const card = framingCardForMeasurementKey(key);
+  if (!card) return fallback || 'sqft';
+  if (card.unit === 'lf') return 'LF';
+  if (card.unit === 'each') return 'each';
+  if (card.unit === 'allowance') return 'allowance';
+  return 'sqft';
 }

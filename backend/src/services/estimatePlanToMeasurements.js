@@ -39,6 +39,10 @@ const {
   reconcilePlumbingFixtureInventory,
   finalizePlumbingTakeoff,
 } = require('./plumbingPlanAdapter');
+const {
+  FRAMING_MEASUREMENT_KEYS,
+  finalizeFramingTakeoff,
+} = require('./framingPlanAdapter');
 
 /** Temporary Lot 58 diagnosis — which pipeline stage drops Electrical counts. */
 const ELECTRICAL_DEBUG_KEYS = [
@@ -284,6 +288,7 @@ const MEASUREMENT_KEYS = new Set([
   'excavationCy',
   'deckSqft',
   'garageSqft',
+  ...FRAMING_MEASUREMENT_KEYS,
   ...ELECTRICAL_MEASUREMENT_KEYS,
   ...Object.keys(ELECTRICAL_PLAN_ALIASES),
 ]);
@@ -1814,6 +1819,7 @@ async function analyzePlanForMeasurements({
   const paintingSelected = planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'painting';
   const electricalSelected = planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'electrical';
   const plumbingSelected = planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'plumbing';
+  const framingSelected = planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'framing';
   if (!openai) {
     const err = new Error('OpenAI client not configured');
     err.status = 503;
@@ -2260,6 +2266,7 @@ async function analyzePlanForMeasurements({
       utilityConnections: plumbingUtilityConnections,
       complexityFactors: plumbingComplexityFactors,
       plumbingRelevantPages: pdfTakeoff?.plumbingRelevantPages || [],
+      pdfTakeoff,
       waterHeaterDetail: plumbingWaterHeaterDetail || parsed.waterHeaterDetail,
       gasApplianceScope: plumbingGasApplianceScope || parsed.gasApplianceScope,
     });
@@ -2416,6 +2423,28 @@ async function analyzePlanForMeasurements({
   rawMeasurements = elevationDerived.measurements;
   for (const key of elevationDerived.derivedKeys) {
     fieldConfidence[key] = Math.max(Number(fieldConfidence[key] || 0), 0.75);
+  }
+  if (framingSelected) {
+    const finalized = finalizeFramingTakeoff({
+      measurements: rawMeasurements,
+      fieldEvidence: parsed.fieldEvidence,
+      fieldConfidence,
+      inferredKeys: parsed.inferredKeys,
+    });
+    rawMeasurements = finalized.measurements;
+    parsed.framingScope = finalized.framingScope;
+    parsed.fieldEvidence = finalized.fieldEvidence;
+    for (const key of finalized.derivedKeys) {
+      fieldConfidence[key] = Math.max(
+        Number(fieldConfidence[key] || 0),
+        Number(finalized.fieldConfidence[key] || 0.72)
+      );
+      measurementProvenance[key] = {
+        value: rawMeasurements[key],
+        source: 'calculated_from_components',
+        normalizedSource: 'PLANNING_ESTIMATE',
+      };
+    }
   }
   if (paintingSelected) {
     const paintingDerived = derivePaintingGeometryMeasurements(rawMeasurements, rooms, planFacts, {
@@ -2748,6 +2777,18 @@ async function analyzePlanForMeasurements({
     }
     if (!(positive(tradeMeasurementInput.ceilingPaintSqft) > 0)) {
       tradeMissingInfo.unshift('Ceiling area: no labeled ceiling finish SF or dimensioned interior rooms');
+    }
+  }
+  if (framingSelected) {
+    if (!(positive(tradeMeasurementInput.framedAreaSqft) > 0)) {
+      tradeMissingInfo.unshift(
+        'Covered framed floor area: no readable living plus garage SF on the plan'
+      );
+    }
+    if (!(positive(tradeMeasurementInput.sheathingSqft) > 0)) {
+      tradeMissingInfo.unshift(
+        'Sheathing / shear area: no readable wall sheathing SF or gross wall area'
+      );
     }
   }
   if (electricalSelected) {

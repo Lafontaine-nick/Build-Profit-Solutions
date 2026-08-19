@@ -59,8 +59,14 @@ import {
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import {
   PLUMBING_CARDS,
+  buildPlumbingStructuredMeasurements,
   syncPlumbingScopeItems,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import {
+  buildFramingStructuredMeasurements,
+  syncFramingScopeItems,
+} from '@/utils/subcontractorTrade/framingPlanConvergence';
+import { reconcilePlumbingEquipmentScopeMeasurements, reconcileFramingScopeMeasurements } from '@/utils/planTakeoffReviewUi';
 import {
   ElectricalConfirmScopeAttributesPanel,
   ElectricalQuickMeasurementTakeoff,
@@ -78,6 +84,7 @@ import {
   conflictedSuggestedItemIds,
   conflictResolutionProvenanceEntry,
   parseManualConflictValue,
+  shouldConfirmScopeShowPlanConflict,
   type PlanConflictChoice,
 } from '@/utils/planMeasurementConflictUi';
 import {
@@ -10689,11 +10696,17 @@ function CollapsibleQuickMeasurements({
     () =>
       (measurements.measurementConflicts || []).filter(
         conflict =>
-          !measurements.quickMeasurementUserOverrides?.[conflict.field]
+          !measurements.quickMeasurementUserOverrides?.[conflict.field] &&
+          shouldConfirmScopeShowPlanConflict(conflict.field, {
+            tradeKey,
+            templateKey,
+          })
       ),
     [
       measurements.measurementConflicts,
       measurements.quickMeasurementUserOverrides,
+      tradeKey,
+      templateKey,
     ]
   );
   for (const conflict of measurements.measurementConflicts || []) {
@@ -14564,6 +14577,24 @@ export default function AIEstimateScopeAssumptionsModal({
         checklist?.templateKey
       );
       if (
+        reconciled.planImportTradeKey === 'plumbing' ||
+        ['plumbing', 'plumbing_service'].includes(
+          String(checklist?.templateKey || '').toLowerCase()
+        )
+      ) {
+        reconciled = reconcilePlumbingEquipmentScopeMeasurements(
+          reconciled as Record<string, unknown>
+        ) as ScopeMeasurementsInputExtended;
+      }
+      if (
+        reconciled.planImportTradeKey === 'framing' ||
+        String(checklist?.templateKey || '').toLowerCase() === 'framing'
+      ) {
+        reconciled = reconcileFramingScopeMeasurements(
+          reconciled as Record<string, unknown>
+        ) as ScopeMeasurementsInputExtended;
+      }
+      if (
         reconciled.planImportMode === 'selected_trade' &&
         reconciled.planImportTradeKey === 'stucco'
       ) {
@@ -14720,6 +14751,12 @@ export default function AIEstimateScopeAssumptionsModal({
       ) {
         return syncPlumbingScopeItems(currentItems, {
           plumbingScope: currentMeasurements.plumbingScope,
+          quantities: currentMeasurements as Record<string, unknown>,
+        });
+      }
+      if (currentTemplate === 'framing') {
+        return syncFramingScopeItems(currentItems, {
+          framingScope: currentMeasurements.framingScope,
           quantities: currentMeasurements as Record<string, unknown>,
         });
       }
@@ -14949,10 +14986,54 @@ export default function AIEstimateScopeAssumptionsModal({
           String(checklist.templateKey || '').toLowerCase()
         )
       ) {
+        nextMeasurements = reconcilePlumbingEquipmentScopeMeasurements(
+          nextMeasurements as Record<string, unknown>
+        ) as typeof nextMeasurements;
         nextMeasurements = prepareScopeMeasurementsInputForUi(nextMeasurements, {
           notes: scopeNotes,
           templateKey: checklist.templateKey,
         });
+        const structured = buildPlumbingStructuredMeasurements(
+          nextMeasurements as Record<string, unknown>,
+          'plan_detected'
+        );
+        if (structured.plumbingScope?.length) {
+          nextMeasurements = {
+            ...nextMeasurements,
+            plumbingScope: structured.plumbingScope,
+            itemQuantities: {
+              ...(nextMeasurements.itemQuantities || {}),
+              ...(structured.itemQuantities || {}),
+            },
+          };
+        }
+      }
+      if (
+        hydratedPlanTrade === 'framing' ||
+        hydrateTradeContext.tradeKey === 'framing' ||
+        String(checklist.templateKey || '').toLowerCase() === 'framing'
+      ) {
+        nextMeasurements = reconcileFramingScopeMeasurements(
+          nextMeasurements as Record<string, unknown>
+        ) as typeof nextMeasurements;
+        nextMeasurements = prepareScopeMeasurementsInputForUi(nextMeasurements, {
+          notes: scopeNotes,
+          templateKey: checklist.templateKey,
+        });
+        const structured = buildFramingStructuredMeasurements(
+          nextMeasurements as Record<string, unknown>,
+          'plan_detected'
+        );
+        if (structured.framingScope?.length) {
+          nextMeasurements = {
+            ...nextMeasurements,
+            framingScope: structured.framingScope,
+            itemQuantities: {
+              ...(nextMeasurements.itemQuantities || {}),
+              ...(structured.itemQuantities || {}),
+            },
+          };
+        }
       }
       if (
         String(checklist.templateKey || '').toLowerCase() === 'painting' &&
@@ -15068,6 +15149,28 @@ export default function AIEstimateScopeAssumptionsModal({
           'selected_trade',
           hydrateTradeContext.tradeKey
         );
+      }
+      if (
+        ['plumbing', 'plumbing_service'].includes(
+          String(checklist.templateKey || '').toLowerCase()
+        ) ||
+        hydratedPlanTrade === 'plumbing' ||
+        hydrateTradeContext.tradeKey === 'plumbing'
+      ) {
+        normalized = syncPlumbingScopeItems(normalized, {
+          plumbingScope: nextMeasurements.plumbingScope,
+          quantities: nextMeasurements as Record<string, unknown>,
+        });
+      }
+      if (
+        String(checklist.templateKey || '').toLowerCase() === 'framing' ||
+        hydratedPlanTrade === 'framing' ||
+        hydrateTradeContext.tradeKey === 'framing'
+      ) {
+        normalized = syncFramingScopeItems(normalized, {
+          framingScope: nextMeasurements.framingScope,
+          quantities: nextMeasurements as Record<string, unknown>,
+        });
       }
       setItems(normalized);
       setMeasurementsSynced(nextMeasurements);
@@ -16197,9 +16300,34 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.gasLineLf,
     measurements.plumbingRoughPointCount,
     measurements.plumbingTrimHookupCount,
+    measurements.plumbingFixturesHardwareCount,
+    measurements.waterHeaterCount,
+    measurements.gasApplianceConnectionCount,
     measurements.partsMaterialsCount,
     measurements.emergencyFeeCount,
     measurements.plumbingCleanupCount,
+  ]);
+
+  useEffect(() => {
+    if (String(checklist?.templateKey || '').toLowerCase() !== 'framing') return;
+    startTransition(() => {
+      setItems(prev =>
+        syncFramingScopeItems(prev, {
+          framingScope: measurements.framingScope,
+          quantities: measurements as Record<string, unknown>,
+        })
+      );
+    });
+  }, [
+    checklist?.templateKey,
+    measurements.framingScope,
+    measurements.framedAreaSqft,
+    measurements.wallFramingLf,
+    measurements.sheathingSqft,
+    measurements.framingOpeningCount,
+    measurements.framingCleanupCount,
+    measurements.floorAreaSqft,
+    measurements.garageSqft,
   ]);
 
   // Quick measurements Paint / shower tile → paint_repair count when scope is selected.
@@ -16372,7 +16500,11 @@ export default function AIEstimateScopeAssumptionsModal({
     const blockedItemIds = conflictedSuggestedItemIds(
       (measurements.measurementConflicts || []).filter(
         conflict =>
-          !measurements.quickMeasurementUserOverrides?.[conflict.field]
+          !measurements.quickMeasurementUserOverrides?.[conflict.field] &&
+          shouldConfirmScopeShowPlanConflict(conflict.field, {
+            tradeKey: singleTradeKey,
+            templateKey: checklist?.templateKey,
+          })
       )
     );
     for (let index = 0; index < displayItems.length; index += 1) {
@@ -16634,7 +16766,11 @@ export default function AIEstimateScopeAssumptionsModal({
       conflict =>
         !pricingFooterMeasurements.quickMeasurementUserOverrides?.[
           conflict.field
-        ]
+        ] &&
+        shouldConfirmScopeShowPlanConflict(conflict.field, {
+          tradeKey: singleTradeKey,
+          templateKey: checklist?.templateKey,
+        })
     );
     const blockedItemIds = conflictedSuggestedItemIds(unresolvedPlanConflicts);
     const selectedScopeIds = new Set(

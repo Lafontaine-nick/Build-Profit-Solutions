@@ -69,9 +69,12 @@ export const PROJECT_COMPLEXITY_ADJUSTMENTS = {
 const PLUMBING_COMPLEXITY_ITEM_IDS = new Set([
   'plumbing_rough',
   'plumbing_trim',
+  'plumbing_fixtures_hardware',
+  'water_heater',
   'water_line',
   'sewer_line',
   'gas_line',
+  'gas_appliance_connections',
   'plumbing',
   'fixture_replace',
   'fixture_repair',

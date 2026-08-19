@@ -158,6 +158,16 @@ function isArchitecturalSheetId(id) {
   return /^[A-Z]-?\d{1,3}(?:\.\d{1,2})?$/.test(compact);
 }
 
+function extractPlumbingSheetId(text) {
+  const blob = String(text || '');
+  for (const match of blob.matchAll(/\b(P\s*[-.]?\s*\d{1,2}(?:\.\d{1,2})?)\b/gi)) {
+    const id = normalizeExtractedSheetId(match[1]);
+    if (/^P-?\d/i.test(id)) return id.replace(/^(P)(\d)/i, '$1-$2');
+  }
+  const fallback = extractSheet(blob);
+  return fallback && /^P/i.test(fallback) ? fallback : null;
+}
+
 function extractSheet(text) {
   const t = String(text || '');
   const candidates = [];
@@ -668,7 +678,8 @@ const ELECTRICAL_PAGE_SIGNALS = [
 
 const PLUMBING_PAGE_SIGNALS = [
   { re: /\bplumbing\s+plan\b|\bplumbing\s+layout\b|\bplumbing\s+drawing\b/i, label: 'plumbing plan', score: 14 },
-  { re: /\bP\d+\.\d+\b|\bsheet\s+P[-.]?\d/i, label: 'P sheet', score: 13 },
+  // P-1 / P-2 title blocks, P1.1, and "Sheet P2" — hyphenated IDs are common on residential sets.
+  { re: /\bP-\d{1,2}(?:\.\d{1,2})?\b|\bP\d+\.\d+\b|\bsheet\s+P[-.]?\d/i, label: 'P sheet', score: 13 },
   { re: /\bplumbing\s+riser\b|\brisometric\b|\bplumbing\s+details?\b/i, label: 'plumbing riser/details', score: 12 },
   { re: /\bfixture\s+schedule\b|\bplumbing\s+fixture\s+schedule\b/i, label: 'fixture schedule', score: 11 },
   {
@@ -709,7 +720,7 @@ function expandElectricalRelevantPages(pages, pageCount) {
   return [...byPage.values()].sort((a, b) => a.page - b.page);
 }
 
-/** Include adjacent floor-plan pages after strong plumbing sheet hits. */
+/** Include adjacent sheets after strong plumbing hits (P-1 fixture schedule often sits next to P-2). */
 function expandPlumbingRelevantPages(pages, pageCount) {
   const byPage = new Map();
   for (const page of Array.isArray(pages) ? pages : []) {
@@ -718,14 +729,21 @@ function expandPlumbingRelevantPages(pages, pageCount) {
     byPage.set(pageNumber, page);
   }
   for (const page of [...byPage.values()]) {
-    if ((page.score || 0) < 8) continue;
-    const next = page.page + 1;
-    if (next > pageCount || byPage.has(next)) continue;
-    byPage.set(next, {
-      page: next,
-      score: Math.max(1, (page.score || 1) - 2),
-      reasons: ['following plumbing / floor-plan sheet'],
-    });
+    const reasons = Array.isArray(page.reasons) ? page.reasons : [];
+    const strong =
+      (page.score || 0) >= 8 ||
+      reasons.includes('P sheet') ||
+      reasons.includes('plumbing plan') ||
+      reasons.includes('fixture schedule');
+    if (!strong) continue;
+    for (const neighbor of [page.page - 1, page.page + 1]) {
+      if (neighbor < 1 || neighbor > pageCount || byPage.has(neighbor)) continue;
+      byPage.set(neighbor, {
+        page: neighbor,
+        score: Math.max(1, (page.score || 1) - 2),
+        reasons: ['adjacent plumbing sheet'],
+      });
+    }
   }
   return [...byPage.values()].sort((a, b) => a.page - b.page);
 }
@@ -1080,6 +1098,102 @@ const PLUMBING_FIXTURE_SCHEDULE_LABELS = [
   { key: 'floorDrains', re: /\b(?:floor\s*drains?|f\.?d\.?)\b/i },
   { key: 'waterHeaters', re: /\b(?:water\s*heaters?|w\.?h\.?)\b/i },
 ];
+
+const PLUMBING_GAS_APPLIANCE_PATTERNS = [
+  { key: 'range', re: /\b(?:gas\s*)?(?:range|cooktop|oven)(?:\s*\/\s*oven)?\b/i },
+  {
+    key: 'fireplace',
+    re: /\b(?:gas\s*)?(?:fireplace|fire\s*place|gas\s*log(?:s)?|g\.?\s*f\.?)\b|\bfp\b/i,
+  },
+  { key: 'dryer', re: /\b(?:gas\s*)?(?:dryer|clothes\s*dryer)(?:\s*(?:conn(?:ection)?|hookup|outlet))?/i },
+  { key: 'grill', re: /\b(?:gas\s*)?(?:grill|bbq|barbecue)\b/i },
+];
+
+function parsePlumbingEquipmentFromPageText(pageText, { page = null, sheet = null } = {}) {
+  const blob = String(pageText || '');
+  if (!blob.trim()) {
+    return { page, sheet, waterHeaterDetail: null, gasApplianceScope: null };
+  }
+  const gasApplianceScope = {};
+  for (const { key, re } of PLUMBING_GAS_APPLIANCE_PATTERNS) {
+    if (re.test(blob)) gasApplianceScope[key] = true;
+  }
+  let waterHeaterDetail = null;
+  if (/\b(?:water\s*heaters?|w\.?\s*h\.?)\b/i.test(blob)) {
+    waterHeaterDetail = { count: 1 };
+    if (/\btankless\b/i.test(blob)) waterHeaterDetail.type = 'tankless';
+    else if (/\btank\b/i.test(blob)) waterHeaterDetail.type = 'tank';
+    if (/\bgas\b/i.test(blob)) waterHeaterDetail.fuel = 'gas';
+    else if (/\belectric\b/i.test(blob)) waterHeaterDetail.fuel = 'electric';
+    const trailing = blob.match(
+      /\b(?:water\s*heaters?|w\.?\s*h\.?)(?:\s+[^0-9-][^0-9]{0,20}){0,2}\s+(\d{1,2})\b/i
+    );
+    const leading = blob.match(/\b(\d{1,2})\s+(?:water\s*heaters?|w\.?\s*h\.?)\b/i);
+    const count = Number(trailing?.[1] || leading?.[1]);
+    if (Number.isFinite(count) && count > 0) waterHeaterDetail.count = Math.round(count);
+  }
+  const hasGas = Object.keys(gasApplianceScope).length > 0;
+  return {
+    page,
+    sheet,
+    waterHeaterDetail,
+    gasApplianceScope: hasGas ? gasApplianceScope : null,
+  };
+}
+
+function aggregatePlumbingEquipmentHints(pageResults, textChunks = []) {
+  let waterHeaterDetail = null;
+  const gasApplianceScope = {};
+  const pages = [];
+  for (const result of Array.isArray(pageResults) ? pageResults : []) {
+    if (!result?.waterHeaterDetail && !result?.gasApplianceScope) continue;
+    pages.push({
+      page: result.page || null,
+      sheet: result.sheet || null,
+      waterHeaterDetail: result.waterHeaterDetail || null,
+      gasApplianceScope: result.gasApplianceScope || null,
+    });
+    if (result.waterHeaterDetail) {
+      waterHeaterDetail = {
+        ...(waterHeaterDetail || {}),
+        ...result.waterHeaterDetail,
+        count: Math.max(
+          Number(waterHeaterDetail?.count) || 0,
+          Number(result.waterHeaterDetail.count) || 1
+        ),
+      };
+    }
+    for (const [key, value] of Object.entries(result.gasApplianceScope || {})) {
+      if (value === true) gasApplianceScope[key] = true;
+    }
+  }
+  const corpus = [...(Array.isArray(textChunks) ? textChunks : []), ...pages.map(page => page.text || '')]
+    .filter(Boolean)
+    .join('\n');
+  if (corpus) {
+    const corpusParsed = parsePlumbingEquipmentFromPageText(corpus);
+    if (corpusParsed.waterHeaterDetail) {
+      waterHeaterDetail = {
+        ...(waterHeaterDetail || {}),
+        ...corpusParsed.waterHeaterDetail,
+        count: Math.max(
+          Number(waterHeaterDetail?.count) || 0,
+          Number(corpusParsed.waterHeaterDetail.count) || 1
+        ),
+      };
+    }
+    for (const [key, value] of Object.entries(corpusParsed.gasApplianceScope || {})) {
+      if (value === true) gasApplianceScope[key] = true;
+    }
+  }
+  const gasScope = Object.keys(gasApplianceScope).length ? gasApplianceScope : null;
+  return {
+    waterHeaterDetail,
+    gasApplianceScope: gasScope,
+    pages,
+    textCorpus: corpus || null,
+  };
+}
 
 function parsePlumbingFixtureScheduleQuantity(raw) {
   const number = Number(String(raw || '').replace(/,/g, ''));
@@ -1536,6 +1650,8 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
   const electricalRelevantPages = [];
   const plumbingRelevantPages = [];
   const plumbingFixtureSchedulePages = [];
+  const plumbingEquipmentHintPages = [];
+  const plumbingEquipmentTextChunks = [];
   const electricalInstanceTagPages = [];
   let pageCount = 0;
 
@@ -1569,12 +1685,18 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
         });
       }
       const plumbingPage = scorePlumbingRelevantPage(pageText);
+      const plumbingSheetId = extractPlumbingSheetId(pageText);
+      if (plumbingSheetId && !plumbingPage.reasons.includes('P sheet')) {
+        plumbingPage.score = Math.max(plumbingPage.score, 13);
+        plumbingPage.reasons = [...new Set([...plumbingPage.reasons, 'P sheet'])];
+      }
       const plumbingPageEntry =
         plumbingPage.score > 0
           ? {
               page: pageNumber,
               score: plumbingPage.score,
               reasons: plumbingPage.reasons,
+              sheet: plumbingSheetId || extractSheet(pageText),
             }
           : null;
       if (plumbingPageEntry) {
@@ -1599,6 +1721,22 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
             score: 11,
             reasons: ['fixture schedule'],
           });
+        }
+      }
+      const shouldScanPlumbingEquipment =
+        plumbingPageEntry ||
+        plumbingSheetId ||
+        /\b(?:gas\s*)?(?:range|fireplace|dryer|grill|cooktop|water\s*heater|w\.?\s*h\.?)\b/i.test(
+          pageText
+        );
+      if (shouldScanPlumbingEquipment) {
+        plumbingEquipmentTextChunks.push(pageText);
+        const equipmentPage = parsePlumbingEquipmentFromPageText(pageText, {
+          page: pageNumber,
+          sheet: plumbingSheetId || extractSheet(pageText),
+        });
+        if (equipmentPage.waterHeaterDetail || equipmentPage.gasApplianceScope) {
+          plumbingEquipmentHintPages.push(equipmentPage);
         }
       }
       const instanceTagPage = countElectricalInstanceTagsOnPage(phrases, {
@@ -1708,6 +1846,10 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
       .sort((a, b) => b.score - a.score)
       .slice(0, 12),
     plumbingFixtureSchedule: aggregatePlumbingFixtureScheduleInventory(plumbingFixtureSchedulePages),
+    plumbingEquipmentHints: aggregatePlumbingEquipmentHints(
+      plumbingEquipmentHintPages,
+      plumbingEquipmentTextChunks
+    ),
     electricalInstanceTags: aggregateElectricalInstanceTagCounts(electricalInstanceTagPages),
     pageCount,
   };
@@ -1788,6 +1930,26 @@ function formatPdfEvidenceForVision(pdfTakeoff, options = {}) {
         lines.push(`- ${key}: ${count}`);
       }
     }
+    const equipmentHints = pdfTakeoff.plumbingEquipmentHints || {};
+    if (equipmentHints.waterHeaterDetail) {
+      const wh = equipmentHints.waterHeaterDetail;
+      lines.push(
+        `PDF text layer — water heater detected (${[
+          wh.count != null ? `${wh.count} unit${wh.count === 1 ? '' : 's'}` : null,
+          wh.type,
+          wh.fuel,
+        ]
+          .filter(Boolean)
+          .join(' · ') || 'count/type pending'}). Populate waterHeaterDetail.`
+      );
+    }
+    const gasHints = equipmentHints.gasApplianceScope || {};
+    const gasAppliances = ['range', 'fireplace', 'dryer', 'grill'].filter(key => gasHints[key]);
+    if (gasAppliances.length) {
+      lines.push(
+        `PDF text layer — gas appliances detected from plan text (${gasAppliances.join(', ')}). Populate gasApplianceScope booleans; gasLineLf still requires labeled LF.`
+      );
+    }
   }
   const electricalPages = Array.isArray(pdfTakeoff.electricalRelevantPages) ? pdfTakeoff.electricalRelevantPages : [];
   if (tradeKey === 'electrical') {
@@ -1842,6 +2004,7 @@ module.exports = {
   parsePitch,
   normalizeCadCallouts,
   extractSheet,
+  extractPlumbingSheetId,
   clusterPhrases,
   extractRoomsFromPhrases,
   dedupeRoomsByName,
@@ -1857,6 +2020,8 @@ module.exports = {
   aggregateElectricalInstanceTagCounts,
   countPlumbingFixtureScheduleOnPage,
   aggregatePlumbingFixtureScheduleInventory,
+  parsePlumbingEquipmentFromPageText,
+  aggregatePlumbingEquipmentHints,
   detectElectricalSheetKind,
   detectElectricalPlanLevel,
   shouldCollapseDuplicateFixtureViews,

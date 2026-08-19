@@ -21,6 +21,8 @@ import {
   ELECTRICAL_TRIM_CARD_HELPER,
   ELECTRICAL_TRIM_CARD_LABEL,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import { PLUMBING_PLAN_EXPORT_CHECKLIST_GROUPS } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import { FRAMING_PLAN_EXPORT_CHECKLIST_GROUPS } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
   floorDemoNotesHint,
   inferChoiceFromNotes,
@@ -2575,6 +2577,9 @@ const PLUMBING_PLAN_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
   water_line: 'Underground water service / under-slab piping',
   sewer_line: 'Underground sewer / drain / under-slab DWV',
   gas_line: 'Gas piping',
+  plumbing_fixtures_hardware: 'Plumbing fixture allowance',
+  water_heater: 'Water heater',
+  gas_appliance_connections: 'Gas appliance connections',
 };
 
 /** Shorter contractor-friendly helper copy (overrides server text in Confirm Scope UI). */
@@ -2670,6 +2675,12 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
     'Finish trim, interior doors, door hardware & shelving package until detailed takeoff.',
   plumbing_trim:
     'Set fixtures and finish connections — excludes toilet/vanity when those are separate scope lines.',
+  plumbing_fixtures_hardware:
+    'Builder-grade fixture product allowance — toilets, faucets, shower trim, tub valves, sinks, and drains. Rough-in and trim labor are separate.',
+  water_heater:
+    'Water heater supply and set when documented. Gas stub, electrical hookup, and appliance gas connections are separate.',
+  gas_appliance_connections:
+    'Final gas hookups to range, fireplace, dryer, or grill at documented stubs. Gas piping LF and water heater set are separate.',
   electrical_trim: 'Devices, plates, and bulbs.',
   permits: 'Confirm permit and impact fees for the project jurisdiction.',
   cleanup:
@@ -2877,45 +2888,8 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Electrical', itemIds: ['landscape_lighting'] },
     { title: 'Closeout', itemIds: ['mobilization', 'cleanup'] },
   ],
-  plumbing_service: [
-    {
-      title: 'Service',
-      itemIds: [
-        'service_call',
-        'fixture_repair',
-        'fixture_replace',
-        'drain_cleaning',
-      ],
-    },
-    {
-      title: 'Lines & Rough',
-      itemIds: [
-        'water_line',
-        'sewer_line',
-        'gas_line',
-        'plumbing_rough',
-        'plumbing_trim',
-        'parts_materials',
-      ],
-    },
-    { title: 'Closeout', itemIds: ['emergency_fee', 'cleanup'] },
-  ],
-  framing: [
-    {
-      title: 'Framing',
-      itemIds: [
-        'layout',
-        'wall_framing',
-        'openings',
-        'blocking',
-        'shear_sheathing',
-        'hardware',
-        'materials_package',
-        'labor',
-      ],
-    },
-    { title: 'Closeout', itemIds: ['cleanup'] },
-  ],
+  plumbing_service: PLUMBING_PLAN_EXPORT_CHECKLIST_GROUPS,
+  framing: FRAMING_PLAN_EXPORT_CHECKLIST_GROUPS,
   addition: [
     {
       title: 'Preconstruction',

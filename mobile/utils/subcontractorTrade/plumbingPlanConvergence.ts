@@ -19,6 +19,9 @@ export type PlumbingQuantityKey =
   | 'gasLineLf'
   | 'plumbingRoughPointCount'
   | 'plumbingTrimHookupCount'
+  | 'plumbingFixturesHardwareCount'
+  | 'waterHeaterCount'
+  | 'gasApplianceConnectionCount'
   | 'partsMaterialsCount'
   | 'emergencyFeeCount'
   | 'plumbingCleanupCount';
@@ -36,6 +39,7 @@ export type PlumbingPerformerMode =
 export type PlumbingCardGroupId =
   | 'service'
   | 'fixtures'
+  | 'equipment'
   | 'lines'
   | 'rough_trim'
   | 'closeout';
@@ -70,6 +74,7 @@ const P = (
     {
       service: 'Service / repairs',
       fixtures: 'Fixtures / drain service',
+      equipment: 'Fixtures & equipment',
       lines: 'Water / sewer / gas lines',
       rough_trim: 'Rough-in / trim',
       closeout: 'Materials / closeout',
@@ -154,6 +159,30 @@ export const PLUMBING_CARDS: PlumbingCardDefinition[] = [
     'CUSTOM_PRICE'
   ),
   P(
+    'plumbing_fixtures_hardware',
+    'plumbingFixturesHardwareCount',
+    'Plumbing fixture allowance',
+    'Builder-grade fixture product allowance — toilets, faucets, shower trim, tub valves, sinks, and drains. Rough-in and trim hookup labor are separate.',
+    'equipment',
+    'CUSTOM_PRICE'
+  ),
+  P(
+    'water_heater',
+    'waterHeaterCount',
+    'Water heater',
+    'Water heater supply and set for tank or tankless when documented. Gas stub, electrical hookup, and appliance gas connections are separate.',
+    'equipment',
+    'CUSTOM_PRICE'
+  ),
+  P(
+    'gas_appliance_connections',
+    'gasApplianceConnectionCount',
+    'Gas appliance connections',
+    'Final gas hookups to range, fireplace, dryer, or grill at documented stubs. Gas piping LF and water heater set are separate.',
+    'lines',
+    'CUSTOM_PRICE'
+  ),
+  P(
     'parts_materials',
     'partsMaterialsCount',
     'Plumbing parts / materials',
@@ -205,15 +234,38 @@ export const PLUMBING_QUICK_MEASUREMENT_KEYS = [
 export const PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS = [
   'plumbingRoughPointCount',
   'plumbingTrimHookupCount',
+  'plumbingFixturesHardwareCount',
+  'waterHeaterCount',
+  'gasApplianceConnectionCount',
   'waterLineLf',
   'sewerLineLf',
   'gasLineLf',
+] as const;
+
+/** Counts that only exist when a fixture schedule / equipment takeoff was read. */
+export const PLUMBING_INVENTORY_DERIVED_KEYS = [
+  'plumbingRoughPointCount',
+  'plumbingTrimHookupCount',
+  'plumbingFixturesHardwareCount',
+  'waterHeaterCount',
+  'gasApplianceConnectionCount',
+] as const;
+
+export const PLUMBING_INVENTORY_DERIVED_ITEM_IDS = [
+  'plumbing_rough',
+  'plumbing_trim',
+  'plumbing_fixtures_hardware',
+  'water_heater',
+  'gas_appliance_connections',
 ] as const;
 
 /** Scope cards that can be confirmed from a ground-up/addition plan. */
 export const PLUMBING_PLAN_SCOPE_ALLOWLIST = [
   'plumbing_rough',
   'plumbing_trim',
+  'plumbing_fixtures_hardware',
+  'water_heater',
+  'gas_appliance_connections',
   'water_line',
   'sewer_line',
   'gas_line',
@@ -234,9 +286,47 @@ export const PLUMBING_CARD_GROUPS: Array<{
 }> = [
   { id: 'service', title: 'Service / repairs' },
   { id: 'fixtures', title: 'Fixtures / drain service' },
+  { id: 'equipment', title: 'Fixtures & equipment' },
   { id: 'lines', title: 'Water / sewer / gas lines' },
   { id: 'rough_trim', title: 'Rough-in / trim' },
   { id: 'closeout', title: 'Materials / closeout' },
+];
+
+/** Ground-up plan export Confirm Scope buckets — construction phase order. */
+export const PLUMBING_PLAN_EXPORT_CHECKLIST_GROUPS: Array<{
+  title: string;
+  itemIds: string[];
+}> = [
+  {
+    title: 'Underground',
+    itemIds: ['water_line', 'sewer_line'],
+  },
+  {
+    title: 'Rough plumbing',
+    itemIds: ['plumbing_rough', 'gas_line'],
+  },
+  {
+    title: 'Finish plumbing',
+    itemIds: [
+      'plumbing_trim',
+      'plumbing_fixtures_hardware',
+      'water_heater',
+      'gas_appliance_connections',
+    ],
+  },
+  {
+    title: 'Service / repairs',
+    itemIds: [
+      'service_call',
+      'fixture_repair',
+      'fixture_replace',
+      'drain_cleaning',
+    ],
+  },
+  {
+    title: 'Materials / closeout',
+    itemIds: ['parts_materials', 'emergency_fee', 'cleanup'],
+  },
 ];
 
 /** Plan and Notes aliases fold onto the same canonical measurement keys. */
@@ -268,6 +358,12 @@ export const PLUMBING_PLAN_ALIASES: Record<string, PlumbingQuantityKey> = {
   plumbingConnections: 'plumbingTrimHookupCount',
   plumbingTrimCount: 'plumbingTrimHookupCount',
   plumbingTrimHookupCount: 'plumbingTrimHookupCount',
+  plumbingFixturesHardwareCount: 'plumbingFixturesHardwareCount',
+  fixturesHardwareCount: 'plumbingFixturesHardwareCount',
+  waterHeaterCount: 'waterHeaterCount',
+  waterHeaters: 'waterHeaterCount',
+  gasApplianceConnectionCount: 'gasApplianceConnectionCount',
+  gasApplianceConnections: 'gasApplianceConnectionCount',
   partsCount: 'partsMaterialsCount',
   plumbingPartsCount: 'partsMaterialsCount',
   partsMaterialsCount: 'partsMaterialsCount',
@@ -496,6 +592,33 @@ export function parsePlumbingMeasurementsFromNotes(
     'plumbingCleanupCount',
     /\bplumbing\s+cleanup\b/i.test(text) ? 1 : null
   );
+  assign(
+    'plumbingFixturesHardwareCount',
+    count(
+      new RegExp(
+        `${COUNT_TOKEN}\\s+(?:plumbing\\s+)?fixtures?(?:\\s*&\\s*hardware)?`,
+        'i'
+      )
+    ) ??
+      (/\b(?:plumbing\s+)?fixtures?\s*(?:&|and)\s*hardware\b/i.test(text)
+        ? 1
+        : null)
+  );
+  assign(
+    'waterHeaterCount',
+    count(new RegExp(`${COUNT_TOKEN}\\s+(?:water\\s+)?heaters?`, 'i')) ??
+      (/\b(?:water\s+)?heater\b/i.test(text) ? 1 : null)
+  );
+  assign(
+    'gasApplianceConnectionCount',
+    count(
+      new RegExp(
+        `${COUNT_TOKEN}\\s+(?:gas\\s+)?appliance\\s+(?:hookups?|connections?)`,
+        'i'
+      )
+    ) ??
+      (/\bgas\s+appliance\s+(?:hookups?|connections?)\b/i.test(text) ? 1 : null)
+  );
   return out;
 }
 
@@ -595,11 +718,9 @@ export function plumbingScopeGroups(): Array<{
   title: string;
   itemIds: string[];
 }> {
-  return PLUMBING_CARD_GROUPS.map(group => ({
+  return PLUMBING_PLAN_EXPORT_CHECKLIST_GROUPS.map(group => ({
     title: group.title,
-    itemIds: PLUMBING_CARDS.filter(card => card.groupId === group.id).map(
-      card => card.itemId
-    ),
+    itemIds: [...group.itemIds],
   }));
 }
 

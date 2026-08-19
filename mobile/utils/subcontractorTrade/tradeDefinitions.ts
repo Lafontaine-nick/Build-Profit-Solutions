@@ -11,6 +11,11 @@ import {
   PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS,
   PLUMBING_REVIEW_MEASUREMENT_KEYS,
 } from './plumbingPlanConvergence';
+import {
+  FRAMING_CARDS,
+  FRAMING_PLAN_QUICK_MEASUREMENT_KEYS,
+  FRAMING_REVIEW_MEASUREMENT_KEYS,
+} from './framingPlanConvergence';
 import { getTradeMeasurementSchema } from './measurementSchemas';
 import {
   TRADE_SCOPE_ALLOWLISTS,
@@ -421,6 +426,33 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
   }),
   framing: scaffoldedTrade('framing', 'Framing', {
     standaloneTemplateKey: 'framing',
+    status: 'complete',
+    scopeHint:
+      'Focus on floor plans, building sections, and framing notes. Map covered framed floor area (living plus garage when documented) and sheathing when explicitly supported. Do not infer stud counts or hardware from living area alone.',
+    missingInfo: [
+      'Covered framed floor area when not dimensioned',
+      'Wall framing LF for partial remodel work',
+      'Sheathing / shear area when not on elevations',
+      'Rough opening counts only when documented',
+    ],
+    reviewMeasurementKeys: [...FRAMING_REVIEW_MEASUREMENT_KEYS],
+    reviewScopeKeywords: [
+      'framing',
+      'frame',
+      'stud',
+      'sheathing',
+      'shear',
+      'osb',
+      'plywood',
+      'truss',
+      'lumber',
+    ],
+    quickMeasurementFieldKeys: [...FRAMING_PLAN_QUICK_MEASUREMENT_KEYS],
+    scopeItems: FRAMING_CARDS.map(card => ({
+      scopeItemId: card.itemId,
+      pricingBehavior: card.pricingBehavior,
+      measurementKeys: [card.measurementKey],
+    })),
   }),
   drywall: scaffoldedTrade('drywall', 'Drywall', {
     standaloneTemplateKey: 'drywall',

@@ -339,6 +339,10 @@ const MEASUREMENT_FIELD_TYPES: Record<string, MeasurementType[]> = {
   showerWallTileSqft: ['wall_surface_area'],
   showerFloorTileSqft: ['flooring_area'],
   wallPaintSqft: ['paintable_surface_area', 'wall_surface_area', 'ceiling_surface_area'],
+  framedAreaSqft: ['building_floor_area', 'conditioned_floor_area'],
+  sheathingSqft: ['exterior_wall_area', 'wall_surface_area'],
+  wallFramingLf: ['linear_length', 'perimeter'],
+  framingOpeningCount: ['opening_count'],
 };
 
 type ScopeRegistryEntry = {
@@ -487,8 +491,18 @@ const SCOPE_UNIT_REGISTRY: Record<string, ScopeRegistryEntry> = {
   }),
 
   // Shell
-  framing: ENTRY('framing', ['sqft'], ['building_floor_area', 'room_floor_area'], ['linear_length'], {
+  framing: ENTRY('framing', ['sqft'], ['building_floor_area', 'conditioned_floor_area'], ['linear_length'], {
     alternateUnits: ['lf', 'each', 'board_foot', 'allowance', 'lump_sum'],
+  }),
+  wall_framing: ENTRY('framing', ['lf'], ['linear_length'], ['building_floor_area'], {
+    alternateUnits: ['sqft', 'each', 'allowance', 'lump_sum'],
+  }),
+  shear_sheathing: ENTRY('framing', ['sqft'], ['exterior_wall_area', 'wall_surface_area'], ['building_floor_area'], {
+    alternateUnits: ['allowance', 'lump_sum'],
+  }),
+  openings: ENTRY('framing', ['each'], ['opening_count'], ['window_count', 'door_count'], {
+    alternateUnits: ['allowance', 'lump_sum'],
+    requiredMeasurementTypes: ['opening_count'],
   }),
   roof_tie_in: ENTRY('roofing', ['sqft'], ['roof_area'], ['building_floor_area'], {
     alternateUnits: ['squares', 'allowance', 'lump_sum'],
@@ -1260,8 +1274,12 @@ export function resolveScopeItemIntelligence(params: {
       ? unitDefinition.requiredMeasurementInputs
       : [];
   const missingFormulaInputs = !formula ? getMissingFormulaInputs(params.scopeKey) : [];
+  const hasResolvedQuantity =
+    params.resolved.quantity != null && Number(params.resolved.quantity) > 0;
+  const quantityMissing =
+    quantityMeta.source === 'missing' || !hasResolvedQuantity;
   const missingMeasurements =
-    quantityMeta.source === 'missing' || measurementRelationship.type === 'derived' || measurementRelationship.type === 'incompatible'
+    quantityMissing || measurementRelationship.type === 'incompatible'
       ? (unitDefinition.requiredMeasurementTypes.length
           ? unitDefinition.requiredMeasurementTypes.map((type) => measurementRequirement(type))
           : missingFormulaInputs.map((missing) => ({

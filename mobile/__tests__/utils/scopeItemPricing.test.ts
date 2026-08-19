@@ -2560,6 +2560,32 @@ describe('allowance split apply pricing', () => {
     expect(primary).toEqual({ quantity: '375', unit: 'allowance' });
   });
 
+  it('does not store dollar total as LF quantity for plumbing line cards', () => {
+    const rule = getChecklistItemQuantityRuleOrDefault(
+      'water_line',
+      'plumbing_service'
+    );
+    const primary = primaryQuantityForAppliedSuggestedBlock(
+      {
+        total: 1500,
+        material: 400,
+        labor: 1100,
+      } as any,
+      rule
+    );
+    expect(primary).toEqual({ quantity: '1', unit: 'lf' });
+    const withBasis = primaryQuantityForAppliedSuggestedBlock(
+      {
+        total: 1500,
+        material: 400,
+        labor: 1100,
+        basis: { quantity: 50, unit: 'lf' },
+      } as any,
+      rule
+    );
+    expect(withBasis).toEqual({ quantity: '50', unit: 'lf' });
+  });
+
   it('resolves applied bath accessories from split subkeys, not stale count', () => {
     const input = inputWith({
       itemQuantities: {

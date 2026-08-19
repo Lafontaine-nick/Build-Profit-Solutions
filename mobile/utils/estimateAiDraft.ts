@@ -47,7 +47,7 @@ import {
 } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
 import { normalizePlumbingPlanMeasurements } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
-import { hydratePlumbingPlanMeasurementsFromInventory } from '@/utils/planTakeoffReviewUi';
+import { hydratePlumbingPlanMeasurementsFromInventory, reconcilePlumbingEquipmentScopeMeasurements } from '@/utils/planTakeoffReviewUi';
 import { confirmedPaintingMeasurementTextLines } from '@/utils/subcontractorTrade/paintingPlanConvergence';
 import type {
   ElectricalPanelLocation,
@@ -58,10 +58,22 @@ import type {
 import { ELECTRICAL_CARDS } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import {
   PLUMBING_CARDS,
+  PLUMBING_INVENTORY_DERIVED_ITEM_IDS,
+  PLUMBING_INVENTORY_DERIVED_KEYS,
+  PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS,
   PLUMBING_REVIEW_MEASUREMENT_KEYS,
+  buildPlumbingStructuredMeasurements,
+  syncPlumbingScopeItems,
   type PlumbingPerformerMode,
   type PlumbingWorkflowMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import {
+  FRAMING_CARDS,
+  buildFramingStructuredMeasurements,
+  normalizeFramingPlanMeasurements,
+  syncFramingScopeItems,
+} from '@/utils/subcontractorTrade/framingPlanConvergence';
+import { reconcileFramingScopeMeasurements } from '@/utils/planTakeoffReviewUi';
 import type { NormalizedTradeMeasurements } from '@/utils/subcontractorTrade/types';
 import type { MeasurementSuggestion, PlanBuildingAreas, PlanFacts } from '@/utils/planMeasurementFacts';
 
@@ -600,11 +612,21 @@ export type ScopeMeasurements = {
   gasLineLf?: number | null;
   plumbingRoughPointCount?: number | null;
   plumbingTrimHookupCount?: number | null;
+  plumbingFixturesHardwareCount?: number | null;
+  waterHeaterCount?: number | null;
+  gasApplianceConnectionCount?: number | null;
   partsMaterialsCount?: number | null;
   emergencyFeeCount?: number | null;
   plumbingCleanupCount?: number | null;
   plumbingWorkflowMode?: PlumbingWorkflowMode | null;
   plumbingPerformerMode?: PlumbingPerformerMode | null;
+  /** Framing canonical plan export / notes selections. */
+  framingScope?: string[] | null;
+  framedAreaSqft?: number | null;
+  wallFramingLf?: number | null;
+  sheathingSqft?: number | null;
+  framingOpeningCount?: number | null;
+  framingCleanupCount?: number | null;
   /** Project complexity multiplier inputs — applied after regional/national base rates. */
   projectComplexity?: import('@/utils/projectComplexityAdjustments').ProjectComplexitySettings | null;
   plumbingComplexityFactors?: Array<{
@@ -1709,6 +1731,260 @@ type LivePlanImportMeasurementMetadata = {
   planImportMissingInfo?: string[];
 };
 
+function applyPlumbingEquipmentHydrationToMeasurements(
+  target: Record<string, unknown>,
+  payload: {
+    fixtureInventory?: Record<string, number> | null;
+    waterHeaterDetail?: PlanImportPayload['waterHeaterDetail'];
+    gasApplianceScope?: PlanImportPayload['gasApplianceScope'];
+    complexityFactors?: PlanImportPayload['complexityFactors'];
+  },
+  options?: { skipKeys?: Set<string>; storeAsNumber?: boolean }
+): boolean {
+  const hydrated = hydratePlumbingPlanMeasurementsFromInventory(
+    target as Record<string, number | string>,
+    payload.fixtureInventory ??
+      (target.plumbingFixtureInventory as Record<string, number> | null | undefined),
+      {
+        waterHeaterDetail:
+          payload.waterHeaterDetail ?? target.plumbingWaterHeaterDetail ?? null,
+        gasApplianceScope:
+          payload.gasApplianceScope ?? target.plumbingGasApplianceScope ?? null,
+        complexityFactors:
+          payload.complexityFactors ??
+          (target.plumbingComplexityFactors as
+            | Array<{ key?: string | null; label?: string | null }>
+            | null
+            | undefined),
+      }
+  );
+  let updated = false;
+  for (const key of PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS) {
+    if (options?.skipKeys?.has(key)) continue;
+    const value = hydrated[key];
+    if (value == null || value === '') continue;
+    const existing = Number(target[key]);
+    const hydratedNum = Number(value);
+    if (Number.isFinite(existing) && existing > 0) {
+      if (
+        key === 'gasApplianceConnectionCount' &&
+        Number.isFinite(hydratedNum) &&
+        hydratedNum > existing
+      ) {
+        target[key] =
+          typeof target[key] === 'number' || options?.storeAsNumber
+            ? hydratedNum
+            : String(hydratedNum);
+        updated = true;
+      }
+      continue;
+    }
+    const quantity = hydratedNum;
+    target[key] =
+      typeof target[key] === 'number' || options?.storeAsNumber
+        ? quantity
+        : String(value);
+    updated = true;
+  }
+  return updated;
+}
+
+function rebuildFramingStructuredScopeFromMeasurements(
+  target: Record<string, unknown>,
+  quantitySource = 'plan_detected'
+): boolean {
+  const structured = buildFramingStructuredMeasurements(target, quantitySource);
+  let updated = false;
+  if (structured.framingScope?.length) {
+    target.framingScope = [
+      ...new Set([
+        ...((target.framingScope as string[] | null | undefined) || []),
+        ...structured.framingScope,
+      ]),
+    ];
+    updated = true;
+  }
+  if (structured.itemQuantities) {
+    target.itemQuantities = {
+      ...((target.itemQuantities as Record<string, unknown> | null | undefined) ||
+        {}),
+      ...structured.itemQuantities,
+    };
+    updated = true;
+  }
+  return updated;
+}
+
+function rebuildPlumbingStructuredScopeFromMeasurements(
+  target: Record<string, unknown>,
+  quantitySource = 'plan_detected'
+): boolean {
+  const structured = buildPlumbingStructuredMeasurements(target, quantitySource);
+  let updated = false;
+  if (structured.plumbingScope?.length) {
+    target.plumbingScope = [
+      ...new Set([
+        ...((target.plumbingScope as string[] | null | undefined) || []),
+        ...structured.plumbingScope,
+      ]),
+    ];
+    updated = true;
+  }
+  if (structured.itemQuantities) {
+    target.itemQuantities = {
+      ...((target.itemQuantities as Record<string, unknown> | null | undefined) ||
+        {}),
+      ...structured.itemQuantities,
+    };
+    updated = true;
+  }
+  return updated;
+}
+
+function plumbingPayloadReplacesTakeoff(payload: PlanImportPayload): boolean {
+  return (
+    payload.selectedTrade === 'plumbing' &&
+    Object.keys(payload.measurements || {}).length > 0
+  );
+}
+
+function plumbingDerivedQuantityStillSupported(
+  key: string,
+  target: Record<string, unknown>,
+  hydratedFromIncoming: Record<string, number | string>
+): boolean {
+  if (Number(hydratedFromIncoming[key]) > 0) return true;
+  if (
+    key === 'waterHeaterCount' ||
+    key === 'gasApplianceConnectionCount' ||
+    key === 'plumbingFixturesHardwareCount'
+  ) {
+    return Number(target[key]) > 0;
+  }
+  return false;
+}
+
+function plumbingSamePlanDerivedKeySupported(
+  key: string,
+  previous: unknown,
+  hydratedFromIncoming: Record<string, number | string>,
+  samePlanImport: boolean
+): boolean {
+  const hydratedNum = Number(hydratedFromIncoming[key]);
+  const previousNum = Number(previous);
+  if (hydratedNum > 0) {
+    if (previousNum > 0 && hydratedNum > previousNum) return false;
+    return true;
+  }
+  if (
+    samePlanImport &&
+    (key === 'waterHeaterCount' ||
+      key === 'gasApplianceConnectionCount' ||
+      key === 'plumbingFixturesHardwareCount') &&
+    previousNum > 0
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function stripStalePlumbingInventoryDerivedFields(
+  target: Record<string, unknown>,
+  payload: PlanImportPayload
+): boolean {
+  const hydratedFromIncoming = hydratePlumbingPlanMeasurementsFromInventory(
+    { ...(payload.measurements || {}) } as Record<string, number | string>,
+    payload.fixtureInventory ??
+      (target.plumbingFixtureInventory as Record<string, number> | null | undefined),
+    {
+      waterHeaterDetail:
+        payload.waterHeaterDetail ??
+        (target.plumbingWaterHeaterDetail as PlanImportPayload['waterHeaterDetail']) ??
+        null,
+      gasApplianceScope:
+        payload.gasApplianceScope ??
+        (target.plumbingGasApplianceScope as PlanImportPayload['gasApplianceScope']) ??
+        null,
+      complexityFactors:
+        payload.complexityFactors ??
+        (target.plumbingComplexityFactors as PlanImportPayload['complexityFactors']) ??
+        null,
+    }
+  );
+  let updated = false;
+  const itemQuantities = {
+    ...((target.itemQuantities as Record<string, { quantity?: unknown }> | null | undefined) ||
+      {}),
+  };
+  for (const key of PLUMBING_INVENTORY_DERIVED_KEYS) {
+    if (plumbingDerivedQuantityStillSupported(key, target, hydratedFromIncoming)) {
+      continue;
+    }
+    if (target[key] == null || target[key] === '') continue;
+    target[key] = '';
+    updated = true;
+    const card = PLUMBING_CARDS.find(entry => entry.measurementKey === key);
+    if (card && itemQuantities[card.itemId]) {
+      delete itemQuantities[card.itemId];
+    }
+  }
+  if (updated) target.itemQuantities = itemQuantities;
+  const pricingAcceptance = {
+    ...((target.pricingAcceptance as Record<string, unknown> | null | undefined) || {}),
+  };
+  let pricingChanged = false;
+  for (const itemId of PLUMBING_INVENTORY_DERIVED_ITEM_IDS) {
+    const card = PLUMBING_CARDS.find(entry => entry.itemId === itemId);
+    if (
+      card &&
+      plumbingDerivedQuantityStillSupported(
+        card.measurementKey,
+        target,
+        hydratedFromIncoming
+      )
+    ) {
+      continue;
+    }
+    if (pricingAcceptance[itemId]) {
+      delete pricingAcceptance[itemId];
+      pricingChanged = true;
+    }
+  }
+  if (pricingChanged) {
+    target.pricingAcceptance = pricingAcceptance;
+    updated = true;
+  }
+  const derivedIds = new Set<string>(PLUMBING_INVENTORY_DERIVED_ITEM_IDS);
+  if (Array.isArray(target.plumbingScope)) {
+    const nextScope = target.plumbingScope.filter(id => {
+      if (!derivedIds.has(String(id))) return true;
+      const card = PLUMBING_CARDS.find(entry => entry.itemId === id);
+      return Boolean(
+        card &&
+          plumbingDerivedQuantityStillSupported(
+            card.measurementKey,
+            target,
+            hydratedFromIncoming
+          )
+      );
+    });
+    if (nextScope.length !== target.plumbingScope.length) {
+      target.plumbingScope = nextScope;
+      updated = true;
+    }
+  }
+  const fixtureInventory =
+    payload.fixtureInventory ??
+    (target.plumbingFixtureInventory as Record<string, number> | null | undefined);
+  if (!fixtureInventory || !Object.values(fixtureInventory).some(value => Number(value) > 0)) {
+    if (target.plumbingFixtureInventory) {
+      target.plumbingFixtureInventory = {};
+      updated = true;
+    }
+  }
+  return updated;
+}
+
 /**
  * Preserve reviewed plan metadata while Confirm Scope opens before the draft
  * persistence round-trip finishes. An explicit empty conflict list clears
@@ -1762,19 +2038,6 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
   if (payload.fixtureInventory !== undefined) {
     next.plumbingFixtureInventory = payload.fixtureInventory;
     changed = true;
-    if (payload.selectedTrade === 'plumbing') {
-      const hydrated = hydratePlumbingPlanMeasurementsFromInventory(
-        next as Record<string, number | string>,
-        payload.fixtureInventory
-      );
-      for (const key of ['plumbingRoughPointCount', 'plumbingTrimHookupCount'] as const) {
-        const value = hydrated[key];
-        if (value == null || value === '') continue;
-        if (samePlan && confirmedFields.has(key)) continue;
-        (next as Record<string, unknown>)[key] = String(value);
-        changed = true;
-      }
-    }
   }
   if (payload.complexityFactors !== undefined) {
     next.plumbingComplexityFactors = payload.complexityFactors;
@@ -1791,6 +2054,25 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
   if (payload.gasApplianceScope !== undefined) {
     next.plumbingGasApplianceScope = payload.gasApplianceScope;
     changed = true;
+  }
+  if (plumbingPayloadReplacesTakeoff(payload)) {
+    if (stripStalePlumbingInventoryDerivedFields(next, payload)) {
+      changed = true;
+    }
+  }
+  if (
+    payload.selectedTrade === 'plumbing' &&
+    (payload.fixtureInventory !== undefined ||
+      payload.waterHeaterDetail !== undefined ||
+      payload.gasApplianceScope !== undefined)
+  ) {
+    if (
+      applyPlumbingEquipmentHydrationToMeasurements(next, payload, {
+        skipKeys: samePlan ? confirmedFields : undefined,
+      })
+    ) {
+      changed = true;
+    }
   }
   if (payload.fieldConfidence && Object.keys(payload.fieldConfidence).length) {
     next.quickMeasurementFieldConfidence = {
@@ -1877,20 +2159,36 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
     payload.selectedTrade === 'plumbing' ||
     payload.selectedTrade === 'electrical'
   ) {
+    const normalizationInput =
+      payload.selectedTrade === 'plumbing'
+        ? {
+            ...(next as Record<string, unknown>),
+            ...(payload.measurements || {}),
+            ...(next.quickMeasurementSources
+              ? { quickMeasurementSources: next.quickMeasurementSources }
+              : {}),
+            ...(next.measurementProvenance
+              ? { measurementProvenance: next.measurementProvenance }
+              : {}),
+            ...(next.measurementConflicts
+              ? { measurementConflicts: next.measurementConflicts }
+              : {}),
+          }
+        : {
+            ...(payload.measurements || {}),
+            ...(next.quickMeasurementSources
+              ? { quickMeasurementSources: next.quickMeasurementSources }
+              : {}),
+            ...(next.measurementProvenance
+              ? { measurementProvenance: next.measurementProvenance }
+              : {}),
+            ...(next.measurementConflicts
+              ? { measurementConflicts: next.measurementConflicts }
+              : {}),
+          };
     const tradeNormalization = normalizeTradeMeasurements(
       payload.selectedTrade,
-      {
-        ...(payload.measurements || {}),
-        ...(next.quickMeasurementSources
-          ? { quickMeasurementSources: next.quickMeasurementSources }
-          : {}),
-        ...(next.measurementProvenance
-          ? { measurementProvenance: next.measurementProvenance }
-          : {}),
-        ...(next.measurementConflicts
-          ? { measurementConflicts: next.measurementConflicts }
-          : {}),
-      },
+      normalizationInput,
       'plan'
     );
     const mergedScope = mergeTradeNormalizationIntoScopeMeasurements(
@@ -1916,6 +2214,18 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
       if (samePlan && confirmedFields.has(key)) continue;
       (next as Record<string, unknown>)[key] = String(value);
       changed = true;
+    }
+    if (payload.selectedTrade === 'plumbing') {
+      if (rebuildPlumbingStructuredScopeFromMeasurements(next)) {
+        changed = true;
+      }
+    }
+    if (payload.selectedTrade === 'framing') {
+      const reconciled = reconcileFramingScopeMeasurements(next);
+      Object.assign(next, reconciled);
+      if (rebuildFramingStructuredScopeFromMeasurements(next, 'plan_detected')) {
+        changed = true;
+      }
     }
   }
 
@@ -2086,6 +2396,15 @@ export function planMeasurementsToScopeMeasurements(
   }
   if (detectedKeys.length) {
     out.quickMeasurementSources = tagPlanDetectedQuickMeasurementKeys(out.quickMeasurementSources, detectedKeys);
+  }
+  const livingForFraming = Number(out.floorAreaSqft);
+  const garageForFraming = Number(out.garageSqft) || 0;
+  if (!(Number(out.framedAreaSqft) > 0) && livingForFraming > 0) {
+    out.framedAreaSqft = livingForFraming + Math.max(0, garageForFraming);
+    out.quickMeasurementSources = tagPlanDetectedQuickMeasurementKeys(
+      out.quickMeasurementSources,
+      ['framedAreaSqft']
+    );
   }
   return out;
 }
@@ -2536,6 +2855,9 @@ export function mergeTradeNormalizationIntoScopeMeasurements(
   if (Array.isArray(structured.plumbingScope) && structured.plumbingScope.length) {
     next.plumbingScope = structured.plumbingScope.map(String);
   }
+  if (Array.isArray(structured.framingScope) && structured.framingScope.length) {
+    next.framingScope = structured.framingScope.map(String);
+  }
   if (
     structured.electricalProjectCondition === 'new_construction' ||
     structured.electricalProjectCondition === 'remodel_open_wall' ||
@@ -2610,7 +2932,8 @@ function normalizeImportedTradeMeasurements(
     tradeKey !== 'flooring' &&
     tradeKey !== 'painting' &&
     tradeKey !== 'electrical' &&
-    tradeKey !== 'plumbing'
+    tradeKey !== 'plumbing' &&
+    tradeKey !== 'framing'
   )
     return null;
   return normalizeTradeMeasurements(
@@ -2629,6 +2952,9 @@ function normalizeTradePlanMeasurements(
 ): Record<string, number | string> {
   if (tradeKey === 'plumbing') {
     return normalizePlumbingPlanMeasurements(measurements) as Record<string, number | string>;
+  }
+  if (tradeKey === 'framing') {
+    return normalizeFramingPlanMeasurements(measurements) as Record<string, number | string>;
   }
   if (tradeKey !== 'stucco') return measurements;
   const out = { ...measurements };
@@ -2837,6 +3163,18 @@ export function buildStuccoTradeChecklistItems(existing: ScopeChecklistItem[]): 
   return items;
 }
 
+function standaloneFramingChecklistItems(): ScopeChecklistItem[] {
+  return FRAMING_CARDS.flatMap(card => [
+    {
+      id: card.itemId,
+      label: card.label,
+      helperText: card.helper,
+      category: card.groupTitle,
+      state: 'unsure' as const,
+    },
+  ]);
+}
+
 function standalonePlumbingChecklistItems(mode: PlumbingWorkflowMode | null | undefined): ScopeChecklistItem[] {
   const ids =
     mode === 'service'
@@ -2879,6 +3217,11 @@ export function applyPlanImportToDraft(
     draft.scopeMeasurements?.planImportFingerprint === payload.planImportFingerprint;
   const retainedSamePlanElectricalFields = new Set<string>();
   const repeatReviewElectricalFields = new Set<string>();
+  const PLUMBING_LINE_LF_KEYS = new Set([
+    'waterLineLf',
+    'sewerLineLf',
+    'gasLineLf',
+  ]);
   if (samePlanImport) {
     const previousMeasurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
     const previousSources = draft.scopeMeasurements?.quickMeasurementSources || {};
@@ -2898,6 +3241,52 @@ export function applyPlanImportToDraft(
         previousNumber > 0 &&
         (incoming == null || incoming === '' || !Number.isFinite(incomingNumber) || incomingNumber !== previousNumber)
       ) {
+        if (
+          planImportTradeKey === 'plumbing' &&
+          PLUMBING_LINE_LF_KEYS.has(key) &&
+          Number.isFinite(incomingNumber) &&
+          incomingNumber > 0 &&
+          incomingNumber !== previousNumber
+        ) {
+          // Keep the new LF reading. The takeoff review page owns the 25 vs 30
+          // chooser — do not pin the previous import or re-open it in Confirm Scope.
+          continue;
+        }
+        if (
+          planImportTradeKey === 'plumbing' &&
+          (PLUMBING_INVENTORY_DERIVED_KEYS as readonly string[]).includes(key) &&
+          !plumbingSamePlanDerivedKeySupported(
+            key,
+            previous,
+            hydratePlumbingPlanMeasurementsFromInventory(
+              (payload.measurements || {}) as Record<string, number | string>,
+              payload.fixtureInventory ??
+                (draft.scopeMeasurements?.plumbingFixtureInventory as
+                  | Record<string, number>
+                  | null
+                  | undefined),
+              {
+                waterHeaterDetail:
+                  payload.waterHeaterDetail ??
+                  draft.scopeMeasurements?.plumbingWaterHeaterDetail ??
+                  null,
+                gasApplianceScope:
+                  payload.gasApplianceScope ??
+                  draft.scopeMeasurements?.plumbingGasApplianceScope ??
+                  null,
+                complexityFactors:
+                  payload.complexityFactors ??
+                  draft.scopeMeasurements?.plumbingComplexityFactors ??
+                  null,
+              }
+            ),
+            samePlanImport
+          )
+        ) {
+          // A weaker re-read without fixture inventory must not keep the
+          // previous rough/trim/equipment counts in Confirm Scope.
+          continue;
+        }
         // A repeat read of the same document must not make a previously
         // visible electrical count disappear or silently switch quantities.
         // Keep the old count visible, but downgrade it until the contractor
@@ -2965,7 +3354,9 @@ export function applyPlanImportToDraft(
   );
   const selectedTradeItems = standalonePlumbingWorkflow
     ? standalonePlumbingChecklistItems(payload.plumbingWorkflowMode)
-    : planImportTradeKey === 'stucco'
+    : planImportTradeKey === 'framing'
+      ? standaloneFramingChecklistItems()
+      : planImportTradeKey === 'stucco'
       ? buildStuccoTradeChecklistItems(tradeChecklistItems)
       : tradeChecklistItems;
   if (applyAsSelectedTrade && planImportTradeKey) {
@@ -2983,9 +3374,11 @@ export function applyPlanImportToDraft(
                 ? 'flooring'
                 : planImportTradeKey === 'painting'
                   ? 'painting'
-                  : planImportTradeKey === 'plumbing'
-                    ? 'plumbing_service'
-                    : next.scopeChecklist?.templateKey || 'plumbing_service',
+                  : planImportTradeKey === 'framing'
+                    ? 'framing'
+                    : planImportTradeKey === 'plumbing'
+                      ? 'plumbing_service'
+                      : next.scopeChecklist?.templateKey || 'plumbing_service',
         title:
           planImportTradeKey === 'stucco'
             ? 'Stucco / exterior finish — confirm trade scope'
@@ -2995,9 +3388,11 @@ export function applyPlanImportToDraft(
                 ? 'Flooring — confirm project scope'
                 : planImportTradeKey === 'painting'
                   ? 'Painting — confirm project scope'
-                  : planImportTradeKey === 'plumbing'
-                    ? 'Plumbing — confirm project scope'
-                    : next.scopeChecklist?.title || 'Plumbing — confirm project scope',
+                  : planImportTradeKey === 'framing'
+                    ? 'Framing — confirm project scope'
+                    : planImportTradeKey === 'plumbing'
+                      ? 'Plumbing — confirm project scope'
+                      : next.scopeChecklist?.title || 'Plumbing — confirm project scope',
         intro:
           planImportTradeKey === 'stucco'
             ? 'Confirm the stucco system, quantities, accessories, and access included in this bid.'
@@ -3007,7 +3402,9 @@ export function applyPlanImportToDraft(
                 ? 'Confirm flooring scope before pricing.'
                 : planImportTradeKey === 'painting'
                   ? 'Confirm painting scope before pricing.'
-                  : planImportTradeKey === 'plumbing'
+                  : planImportTradeKey === 'framing'
+                    ? 'Confirm framing scope before pricing.'
+                    : planImportTradeKey === 'plumbing'
                     ? standalonePlumbingWorkflow
                       ? 'Confirm the Plumbing-only scope before pricing.'
                       : 'Confirm Plumbing scope before pricing.'
@@ -3064,6 +3461,59 @@ export function applyPlanImportToDraft(
   }
   if (payload.gasApplianceScope !== undefined) {
     scopeMeasurements.plumbingGasApplianceScope = payload.gasApplianceScope;
+  }
+  if (planImportTradeKey === 'plumbing') {
+    const previousPlumbing = draft.scopeMeasurements || {};
+    if (
+      scopeMeasurements.plumbingWaterHeaterDetail == null &&
+      previousPlumbing.plumbingWaterHeaterDetail != null
+    ) {
+      scopeMeasurements.plumbingWaterHeaterDetail = previousPlumbing.plumbingWaterHeaterDetail;
+    }
+    if (
+      scopeMeasurements.plumbingGasApplianceScope == null &&
+      previousPlumbing.plumbingGasApplianceScope != null
+    ) {
+      scopeMeasurements.plumbingGasApplianceScope = previousPlumbing.plumbingGasApplianceScope;
+    }
+    if (
+      scopeMeasurements.plumbingComplexityFactors == null &&
+      previousPlumbing.plumbingComplexityFactors != null
+    ) {
+      scopeMeasurements.plumbingComplexityFactors = previousPlumbing.plumbingComplexityFactors;
+    }
+    applyPlumbingEquipmentHydrationToMeasurements(
+      scopeMeasurements as Record<string, unknown>,
+      {
+        fixtureInventory:
+          payload.fixtureInventory ?? scopeMeasurements.plumbingFixtureInventory ?? null,
+        waterHeaterDetail:
+          payload.waterHeaterDetail ?? scopeMeasurements.plumbingWaterHeaterDetail ?? null,
+        gasApplianceScope:
+          payload.gasApplianceScope ?? scopeMeasurements.plumbingGasApplianceScope ?? null,
+        complexityFactors:
+          payload.complexityFactors ?? scopeMeasurements.plumbingComplexityFactors ?? null,
+      },
+      { storeAsNumber: true }
+    );
+    reconcilePlumbingEquipmentScopeMeasurements(
+      scopeMeasurements as Record<string, unknown>
+    );
+    rebuildPlumbingStructuredScopeFromMeasurements(
+      scopeMeasurements as Record<string, unknown>,
+      'plan_detected'
+    );
+    stripStalePlumbingInventoryDerivedFields(
+      scopeMeasurements as Record<string, unknown>,
+      payload
+    );
+  }
+  if (planImportTradeKey === 'framing') {
+    reconcileFramingScopeMeasurements(scopeMeasurements as Record<string, unknown>);
+    rebuildFramingStructuredScopeFromMeasurements(
+      scopeMeasurements as Record<string, unknown>,
+      'plan_detected'
+    );
   }
   if (samePlanImport && retainedSamePlanElectricalFields.size) {
     const previous = draft.scopeMeasurements || {};
@@ -3138,12 +3588,51 @@ export function applyPlanImportToDraft(
   }
 
   const detections = filterPlanScopesForTrade(payload.scopeDetections || [], planImportMode, planImportTradeKey);
-  const items = next.scopeChecklist?.items;
-  if (detections?.length && items?.length) {
+  let items = next.scopeChecklist?.items || [];
+  if (detections?.length && items.length) {
     const { items: nextItems } = applyScopeDetectionsToChecklistItems(items, detections);
+    items = nextItems;
     next = {
       ...next,
       scopeChecklist: { ...next.scopeChecklist!, items: nextItems },
+    };
+  }
+  if (planImportTradeKey === 'plumbing') {
+    const syncedItems = syncPlumbingScopeItems(items, {
+      plumbingScope: scopeMeasurements.plumbingScope,
+      quantities: scopeMeasurements as Record<string, unknown>,
+    });
+    items = syncedItems;
+    next = {
+      ...next,
+      scopeChecklist: {
+        ...(next.scopeChecklist || {
+          templateKey: 'plumbing_service',
+          title: 'Plumbing — confirm project scope',
+          intro: 'Confirm Plumbing scope before pricing.',
+          items: [],
+        }),
+        items: syncedItems,
+      },
+    };
+  }
+  if (planImportTradeKey === 'framing') {
+    const syncedItems = syncFramingScopeItems(items, {
+      framingScope: scopeMeasurements.framingScope,
+      quantities: scopeMeasurements as Record<string, unknown>,
+    });
+    items = syncedItems;
+    next = {
+      ...next,
+      scopeChecklist: {
+        ...(next.scopeChecklist || {
+          templateKey: 'framing',
+          title: 'Framing — confirm project scope',
+          intro: 'Confirm framing scope before pricing.',
+          items: [],
+        }),
+        items: syncedItems,
+      },
     };
   }
 
@@ -3167,6 +3656,46 @@ export function applyPlanImportToDraft(
       scopeMeasurements: stripWholeProjectScopeMeasurements(next.scopeMeasurements),
     };
     next = overlayScopeMeasurements(next, scopeMeasurements);
+  }
+  if (planImportTradeKey === 'plumbing' && next.scopeMeasurements) {
+    stripStalePlumbingInventoryDerivedFields(
+      next.scopeMeasurements as Record<string, unknown>,
+      payload
+    );
+    const syncedAfterOverlay = syncPlumbingScopeItems(next.scopeChecklist?.items || [], {
+      plumbingScope: next.scopeMeasurements.plumbingScope,
+      quantities: next.scopeMeasurements as Record<string, unknown>,
+    });
+    next = {
+      ...next,
+      scopeChecklist: {
+        ...(next.scopeChecklist || {
+          templateKey: 'plumbing_service',
+          title: 'Plumbing — confirm project scope',
+          intro: 'Confirm Plumbing scope before pricing.',
+          items: [],
+        }),
+        items: syncedAfterOverlay,
+      },
+    };
+  }
+  if (planImportTradeKey === 'framing' && next.scopeMeasurements) {
+    const syncedAfterOverlay = syncFramingScopeItems(next.scopeChecklist?.items || [], {
+      framingScope: next.scopeMeasurements.framingScope,
+      quantities: next.scopeMeasurements as Record<string, unknown>,
+    });
+    next = {
+      ...next,
+      scopeChecklist: {
+        ...(next.scopeChecklist || {
+          templateKey: 'framing',
+          title: 'Framing — confirm project scope',
+          intro: 'Confirm framing scope before pricing.',
+          items: [],
+        }),
+        items: syncedAfterOverlay,
+      },
+    };
   }
 
   return next;

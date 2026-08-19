@@ -16,6 +16,9 @@ const PLUMBING_MEASUREMENT_KEYS = [
   'gasLineLf',
   'plumbingRoughPointCount',
   'plumbingTrimHookupCount',
+  'plumbingFixturesHardwareCount',
+  'waterHeaterCount',
+  'gasApplianceConnectionCount',
   'partsMaterialsCount',
   'emergencyFeeCount',
   'plumbingCleanupCount',
@@ -42,6 +45,13 @@ const PLUMBING_PLAN_ALIASES = {
   trimHookupCount: 'plumbingTrimHookupCount',
   plumbingConnections: 'plumbingTrimHookupCount',
   plumbingTrimCount: 'plumbingTrimHookupCount',
+  plumbingTrimHookupCount: 'plumbingTrimHookupCount',
+  plumbingFixturesHardwareCount: 'plumbingFixturesHardwareCount',
+  fixturesHardwareCount: 'plumbingFixturesHardwareCount',
+  waterHeaterCount: 'waterHeaterCount',
+  waterHeaters: 'waterHeaterCount',
+  gasApplianceConnectionCount: 'gasApplianceConnectionCount',
+  gasApplianceConnections: 'gasApplianceConnectionCount',
   partsCount: 'partsMaterialsCount',
   plumbingPartsCount: 'partsMaterialsCount',
   emergencyCount: 'emergencyFeeCount',
@@ -61,6 +71,11 @@ const PLUMBING_FIXTURE_ROUGH_IN_KEYS = [
   'floorDrains',
   'waterHeaters',
 ];
+
+/** Rough/trim counts exclude water heaters — those bill on the WH card. */
+const PLUMBING_FIXTURE_CONNECTION_KEYS = PLUMBING_FIXTURE_ROUGH_IN_KEYS.filter(
+  key => key !== 'waterHeaters'
+);
 
 const PLUMBING_FIXTURE_INVENTORY_ALIASES = {
   toilet: 'toilets',
@@ -104,6 +119,9 @@ const PLUMBING_EXPLICIT_ONLY_KEYS = new Set([
   'gasLineLf',
   'plumbingRoughPointCount',
   'plumbingTrimHookupCount',
+  'plumbingFixturesHardwareCount',
+  'waterHeaterCount',
+  'gasApplianceConnectionCount',
   'partsMaterialsCount',
   'emergencyFeeCount',
   'plumbingCleanupCount',
@@ -241,11 +259,41 @@ function normalizePlumbingFixtureInventory(raw) {
 
 function sumPlumbingFixtureRoughInPoints(inventory) {
   let total = 0;
-  for (const key of PLUMBING_FIXTURE_ROUGH_IN_KEYS) {
+  for (const key of PLUMBING_FIXTURE_CONNECTION_KEYS) {
     const count = positive(inventory?.[key]);
     if (count != null) total += Math.round(count);
   }
   return total > 0 ? total : null;
+}
+
+function resolvePlumbingFixturesHardwareCount(input = {}) {
+  const measurements = input.measurements || {};
+  const inventory = input.inventory || input.fixtureInventory || {};
+  const trim = positive(measurements.plumbingTrimHookupCount);
+  const rough = positive(measurements.plumbingRoughPointCount);
+  const scheduleCount = trim != null && rough != null ? Math.min(trim, rough) : trim ?? rough;
+  if (scheduleCount != null) return scheduleCount;
+
+  const fromInventory = sumPlumbingFixturesHardwareCount(inventory);
+  const explicit = positive(measurements.plumbingFixturesHardwareCount);
+  const whCount =
+    resolvePlumbingWaterHeaterCount(inventory, input.waterHeaterDetail) || 0;
+  const raw = explicit ?? fromInventory;
+  if (raw == null) return null;
+  if (whCount > 0 && raw > whCount && raw <= whCount + 2) {
+    const adjusted = raw - whCount;
+    if (adjusted > 0) return adjusted;
+  }
+  return raw;
+}
+
+function resolvePlumbingGasApplianceConnectionCount(gasApplianceScope, inventory) {
+  const fromScope = countPlumbingGasApplianceConnections(gasApplianceScope);
+  const fromInventory = positive(inventory?.gasAppliances);
+  if (fromScope != null && fromInventory != null) {
+    return Math.max(fromScope, Math.round(fromInventory));
+  }
+  return fromScope ?? (fromInventory != null ? Math.round(fromInventory) : null);
 }
 
 function mergeFixtureCountObject(target, counts) {
@@ -318,6 +366,301 @@ function classifyPlumbingSheetKind(sheet) {
   if (/^S[\d.-]/.test(normalized) || /\bSITE/.test(normalized)) return 'site';
   if (/^C[\d.-]/.test(normalized) || /\bCIVIL/.test(normalized)) return 'civil';
   return 'unknown';
+}
+
+/** Fixture product keys — excludes water heaters counted on the WH card. */
+const PLUMBING_FIXTURE_HARDWARE_KEYS = PLUMBING_FIXTURE_ROUGH_IN_KEYS.filter(
+  key => key !== 'waterHeaters'
+);
+
+function sumPlumbingFixturesHardwareCount(inventory) {
+  let total = 0;
+  for (const key of PLUMBING_FIXTURE_HARDWARE_KEYS) {
+    const count = positive(inventory?.[key]);
+    if (count != null) total += Math.round(count);
+  }
+  return total > 0 ? total : null;
+}
+
+function countPlumbingGasApplianceConnections(scope) {
+  if (!scope || typeof scope !== 'object') return null;
+  let total = 0;
+  for (const key of ['range', 'fireplace', 'dryer', 'grill']) {
+    if (scope[key]) total += 1;
+  }
+  return total > 0 ? total : null;
+}
+
+function hasGasAppliancesComplexityFactor(complexityFactors) {
+  return (Array.isArray(complexityFactors) ? complexityFactors : []).some(factor => {
+    const key = String(factor?.key || '').trim();
+    const label = String(factor?.label || '').trim();
+    return key === 'gas_appliances' || /\bgas\s*appliance/i.test(`${key} ${label}`);
+  });
+}
+
+/** Expand partial gas scope to the standard production-home trio when gas piping is documented. */
+function expandResidentialGasApplianceScope(scope, options = {}) {
+  const normalized = normalizePlumbingGasApplianceScope(scope);
+  const gasLf = positive(options.measurements?.gasLineLf);
+  const hasGasComplexity = hasGasAppliancesComplexityFactor(options.complexityFactors);
+  const count = countPlumbingGasApplianceConnections(normalized) || 0;
+  if (count >= 3) return normalized;
+
+  const hasGasPiping = Boolean(normalized?.gasPipingRequired) || gasLf >= 20;
+  if (!hasGasPiping) return normalized;
+
+  const hasAnyAppliance = count >= 1;
+  if (!hasAnyAppliance && !hasGasComplexity) return normalized;
+
+  return normalizePlumbingGasApplianceScope({
+    ...(normalized || {}),
+    gasPipingRequired: true,
+    range: true,
+    fireplace: true,
+    dryer: true,
+  });
+}
+
+function collectPlumbingFieldEvidenceText(fieldEvidence) {
+  const parts = [];
+  for (const entries of Object.values(fieldEvidence || {})) {
+    for (const entry of Array.isArray(entries) ? entries : []) {
+      if (!entry || typeof entry !== 'object') continue;
+      for (const key of ['sourceText', 'label', 'sheet']) {
+        const value = String(entry[key] || '').trim();
+        if (value) parts.push(value);
+      }
+    }
+  }
+  return parts.join(' ');
+}
+
+function parsePlumbingEquipmentFromTextBlob(blob) {
+  const text = String(blob || '');
+  if (!text.trim()) {
+    return { waterHeaterDetail: null, gasApplianceScope: null };
+  }
+  const gasApplianceScope = {};
+  for (const { key, re } of [
+    { key: 'range', re: /\b(?:gas\s*)?(?:range|cooktop|oven)(?:\s*\/\s*oven)?\b/i },
+    {
+      key: 'fireplace',
+      re: /\b(?:gas\s*)?(?:fireplace|fire\s*place|gas\s*log(?:s)?|g\.?\s*f\.?)\b|\bfp\b/i,
+    },
+    {
+      key: 'dryer',
+      re: /\b(?:gas\s*)?(?:dryer|clothes\s*dryer)(?:\s*(?:conn(?:ection)?|hookup|outlet))?/i,
+    },
+    { key: 'grill', re: /\b(?:gas\s*)?(?:grill|bbq|barbecue)\b/i },
+  ]) {
+    if (re.test(text)) gasApplianceScope[key] = true;
+  }
+  let waterHeaterDetail = null;
+  if (/\b(?:water\s*heaters?|w\.?\s*h\.?)\b/i.test(text)) {
+    waterHeaterDetail = { count: 1 };
+    if (/\btankless\b/i.test(text)) waterHeaterDetail.type = 'tankless';
+    else if (/\btank\b/i.test(text)) waterHeaterDetail.type = 'tank';
+    if (/\bgas\b/i.test(text)) waterHeaterDetail.fuel = 'gas';
+    else if (/\belectric\b/i.test(text)) waterHeaterDetail.fuel = 'electric';
+    const trailing = text.match(
+      /\b(?:water\s*heaters?|w\.?\s*h\.?)(?:\s+[^0-9-][^0-9]{0,20}){0,2}\s+(\d{1,2})\b/i
+    );
+    const leading = text.match(/\b(\d{1,2})\s+(?:water\s*heaters?|w\.?\s*h\.?)\b/i);
+    const count = Number(trailing?.[1] || leading?.[1]);
+    if (Number.isFinite(count) && count > 0) waterHeaterDetail.count = Math.round(count);
+  }
+  const hasGas = Object.keys(gasApplianceScope).length > 0;
+  return {
+    waterHeaterDetail,
+    gasApplianceScope: hasGas ? gasApplianceScope : null,
+  };
+}
+
+function mergePlumbingWaterHeaterDetail(existing, incoming) {
+  const left = normalizePlumbingWaterHeaterDetail(existing);
+  const right = normalizePlumbingWaterHeaterDetail(incoming);
+  if (!left) return right;
+  if (!right) return left;
+  return normalizePlumbingWaterHeaterDetail({
+    count: Math.max(Number(left.count) || 1, Number(right.count) || 1),
+    type: left.type || right.type,
+    fuel: left.fuel || right.fuel,
+    location: left.location || right.location,
+    confidence: Math.max(Number(left.confidence) || 0, Number(right.confidence) || 0) || undefined,
+  });
+}
+
+function mergePlumbingGasApplianceScope(existing, incoming) {
+  const left = normalizePlumbingGasApplianceScope(existing) || {};
+  const right = normalizePlumbingGasApplianceScope(incoming) || {};
+  const next = { ...left, ...right };
+  for (const key of ['range', 'waterHeater', 'fireplace', 'dryer', 'grill']) {
+    if (left[key] || right[key]) next[key] = true;
+  }
+  return normalizePlumbingGasApplianceScope(next);
+}
+
+function inferPlumbingEquipmentFromComplexityFactors(complexityFactors) {
+  let waterHeaterDetail = null;
+  let gasApplianceScope = null;
+  for (const factor of Array.isArray(complexityFactors) ? complexityFactors : []) {
+    const key = String(factor?.key || '').trim();
+    const label = String(factor?.label || '').trim();
+    const blob = `${key} ${label}`.trim();
+    if (!blob) continue;
+    if (key === 'tankless_water_heater' || /\btankless\b/i.test(blob)) {
+      waterHeaterDetail = mergePlumbingWaterHeaterDetail(waterHeaterDetail, {
+        count: 1,
+        type: 'tankless',
+      });
+    } else if (/\bwater\s*heater\b|\bw\.?\s*h\.?\b/i.test(blob) && key !== 'gas_appliances') {
+      waterHeaterDetail = mergePlumbingWaterHeaterDetail(waterHeaterDetail, { count: 1 });
+    }
+    if (key === 'gas_appliances' || /\bgas\s*appliance/i.test(blob)) {
+      const parsed = parsePlumbingEquipmentFromTextBlob(blob);
+      gasApplianceScope = mergePlumbingGasApplianceScope(
+        gasApplianceScope,
+        parsed.gasApplianceScope || { gasPipingRequired: true }
+      );
+    }
+  }
+  return { waterHeaterDetail, gasApplianceScope };
+}
+
+function inferPlumbingEquipmentFromPlanContext(input = {}) {
+  const inventory = normalizePlumbingFixtureInventory(input.fixtureInventory);
+  let waterHeaterDetail = normalizePlumbingWaterHeaterDetail(input.waterHeaterDetail);
+  let gasApplianceScope = normalizePlumbingGasApplianceScope(input.gasApplianceScope);
+
+  if (positive(inventory.waterHeaters) > 0) {
+    waterHeaterDetail = mergePlumbingWaterHeaterDetail(waterHeaterDetail, {
+      count: Math.round(positive(inventory.waterHeaters)),
+    });
+  }
+
+  const pdfHints = input.pdfEquipmentHints || input.pdfTakeoff?.plumbingEquipmentHints || null;
+  if (pdfHints?.waterHeaterDetail) {
+    waterHeaterDetail = mergePlumbingWaterHeaterDetail(waterHeaterDetail, pdfHints.waterHeaterDetail);
+  }
+  if (pdfHints?.gasApplianceScope) {
+    gasApplianceScope = mergePlumbingGasApplianceScope(gasApplianceScope, pdfHints.gasApplianceScope);
+  }
+
+  const evidenceParsed = parsePlumbingEquipmentFromTextBlob(
+    [
+      pdfHints?.textCorpus,
+      collectPlumbingFieldEvidenceText(input.fieldEvidence),
+    ]
+      .filter(Boolean)
+      .join(' ')
+  );
+  if (evidenceParsed.waterHeaterDetail) {
+    waterHeaterDetail = mergePlumbingWaterHeaterDetail(waterHeaterDetail, evidenceParsed.waterHeaterDetail);
+  }
+  if (evidenceParsed.gasApplianceScope) {
+    gasApplianceScope = mergePlumbingGasApplianceScope(gasApplianceScope, evidenceParsed.gasApplianceScope);
+  }
+
+  const complexityParsed = inferPlumbingEquipmentFromComplexityFactors(input.complexityFactors);
+  if (complexityParsed.waterHeaterDetail) {
+    waterHeaterDetail = mergePlumbingWaterHeaterDetail(waterHeaterDetail, complexityParsed.waterHeaterDetail);
+  }
+  if (complexityParsed.gasApplianceScope) {
+    gasApplianceScope = mergePlumbingGasApplianceScope(gasApplianceScope, complexityParsed.gasApplianceScope);
+  }
+
+  return {
+    fixtureInventory: inventory,
+    waterHeaterDetail,
+    gasApplianceScope: expandResidentialGasApplianceScope(gasApplianceScope, {
+      measurements: input.measurements,
+      complexityFactors: input.complexityFactors,
+    }),
+  };
+}
+
+function resolvePlumbingWaterHeaterCount(inventory, waterHeaterDetail) {
+  const fromInventory = positive(inventory?.waterHeaters);
+  if (fromInventory != null) return Math.round(fromInventory);
+  if (!waterHeaterDetail) return null;
+  return Math.max(1, positive(waterHeaterDetail.count) ?? 1);
+}
+
+function derivePlumbingEquipmentCounts(input = {}) {
+  const inventory = normalizePlumbingFixtureInventory(input.inventory || input.fixtureInventory);
+  const measurements = { ...(input.measurements || {}) };
+  const fieldEvidence = { ...(input.fieldEvidence || {}) };
+  const fieldConfidence = { ...(input.fieldConfidence || {}) };
+  const geometryDerived = [...(Array.isArray(input.geometryDerived) ? input.geometryDerived : [])];
+  let changed = false;
+
+  const assignDerived = (key, value, label, { overwrite = false } = {}) => {
+    if (value == null) return;
+    const existing = positive(measurements[key]);
+    if (existing != null && !overwrite && existing !== value) return;
+    if (existing === value) return;
+    measurements[key] = value;
+    fieldEvidence[key] = [
+      {
+        evidenceKind: 'plan_scope_derived',
+        sourceType: 'plan_vision',
+        confidence: 0.75,
+        label,
+        sourceText: `Derived ${value} ${label} from plan takeoff`,
+      },
+    ];
+    fieldConfidence[key] = Math.max(fieldConfidence[key] || 0, 0.75);
+    if (!geometryDerived.includes(key)) geometryDerived.push(key);
+    changed = true;
+  };
+
+  const fixturesHardware = resolvePlumbingFixturesHardwareCount({
+    measurements,
+    inventory,
+    waterHeaterDetail: input.waterHeaterDetail,
+  });
+  const existingFixtures = positive(measurements.plumbingFixturesHardwareCount);
+  assignDerived(
+    'plumbingFixturesHardwareCount',
+    fixturesHardware,
+    'fixture & hardware allowances',
+    {
+      overwrite:
+        fixturesHardware != null &&
+        existingFixtures != null &&
+        existingFixtures !== fixturesHardware,
+    }
+  );
+  assignDerived(
+    'waterHeaterCount',
+    resolvePlumbingWaterHeaterCount(inventory, input.waterHeaterDetail),
+    'water heater(s)'
+  );
+  const gasConnections = resolvePlumbingGasApplianceConnectionCount(
+    input.gasApplianceScope,
+    inventory
+  );
+  const existingGasConnections = positive(measurements.gasApplianceConnectionCount);
+  assignDerived(
+    'gasApplianceConnectionCount',
+    gasConnections,
+    'gas appliance connections',
+    {
+      overwrite:
+        gasConnections != null &&
+        (existingGasConnections == null || gasConnections > existingGasConnections),
+    }
+  );
+
+  return {
+    inventory,
+    measurements,
+    fieldEvidence,
+    fieldConfidence,
+    geometryDerived,
+    changed,
+  };
 }
 
 function derivePlumbingCountsFromFixtureInventory(input = {}) {
@@ -488,7 +831,13 @@ function buildPlumbingReviewStatus(input = {}) {
 
   const pages = Array.isArray(input.plumbingRelevantPages) ? input.plumbingRelevantPages : [];
   const pageReasons = pages.flatMap(page => (Array.isArray(page.reasons) ? page.reasons : []));
-  const hasPlumbingSheet = pageReasons.some(reason => /P sheet|plumbing plan|plumbing riser/i.test(reason));
+  const evidenceSheets = Object.values(input.fieldEvidence || {})
+    .flat()
+    .map(entry => classifyPlumbingSheetKind(entry?.sheet));
+  const hasPlumbingSheet =
+    pageReasons.some(reason => /P sheet|plumbing plan|plumbing riser/i.test(reason)) ||
+    pages.some(page => classifyPlumbingSheetKind(page?.sheet) === 'plumbing') ||
+    evidenceSheets.includes('plumbing');
   const hasFixtureSchedule = pageReasons.some(reason => /fixture schedule/i.test(reason));
   const hasRiser = pageReasons.some(reason => /riser|isometric/i.test(reason));
 
@@ -565,10 +914,22 @@ function mergePlumbingPdfFixtureSchedule(input = {}) {
 }
 
 function finalizePlumbingTakeoff(input = {}) {
+  const inferredEquipment = inferPlumbingEquipmentFromPlanContext({
+    fixtureInventory: input.fixtureInventory,
+    waterHeaterDetail: input.waterHeaterDetail,
+    gasApplianceScope: input.gasApplianceScope,
+    fieldEvidence: input.fieldEvidence,
+    complexityFactors: input.complexityFactors,
+    measurements: input.measurements,
+    pdfTakeoff: input.pdfTakeoff,
+    pdfEquipmentHints: input.pdfEquipmentHints,
+  });
   const reconciledInventory = reconcilePlumbingFixtureInventory({
-    inventory: input.fixtureInventory,
+    inventory: inferredEquipment.fixtureInventory,
     fieldEvidence: input.fieldEvidence,
   });
+  const waterHeaterDetail = inferredEquipment.waterHeaterDetail;
+  const gasApplianceScope = inferredEquipment.gasApplianceScope;
   const derived = derivePlumbingCountsFromFixtureInventory({
     inventory: reconciledInventory,
     measurements: input.measurements,
@@ -576,17 +937,24 @@ function finalizePlumbingTakeoff(input = {}) {
     fieldConfidence: input.fieldConfidence,
     geometryDerived: input.geometryDerived,
   });
-  const lineWarnings = applyPlumbingLineScopeWarnings({
+  const equipment = derivePlumbingEquipmentCounts({
+    inventory: derived.inventory,
     measurements: derived.measurements,
     fieldEvidence: derived.fieldEvidence,
+    fieldConfidence: derived.fieldConfidence,
+    geometryDerived: derived.geometryDerived,
+    waterHeaterDetail,
+    gasApplianceScope,
+  });
+  const lineWarnings = applyPlumbingLineScopeWarnings({
+    measurements: equipment.measurements,
+    fieldEvidence: equipment.fieldEvidence,
     inferredKeys: input.inferredKeys,
   });
   const inferredKeys = remapPlumbingKeys(lineWarnings.inferredKeys);
-  const waterHeaterDetail = normalizePlumbingWaterHeaterDetail(input.waterHeaterDetail);
-  const gasApplianceScope = normalizePlumbingGasApplianceScope(input.gasApplianceScope);
   const reviewStatus = buildPlumbingReviewStatus({
     fixtureInventory: derived.inventory,
-    measurements: derived.measurements,
+    measurements: equipment.measurements,
     fieldEvidence: lineWarnings.fieldEvidence,
     utilityConnections: input.utilityConnections,
     complexityFactors: input.complexityFactors,
@@ -598,13 +966,13 @@ function finalizePlumbingTakeoff(input = {}) {
     fixtureInventory: derived.inventory,
     waterHeaterDetail,
     gasApplianceScope,
-    measurements: normalizePlumbingPlanMeasurements(derived.measurements),
+    measurements: normalizePlumbingPlanMeasurements(equipment.measurements),
     fieldEvidence: lineWarnings.fieldEvidence,
-    fieldConfidence: derived.fieldConfidence,
-    geometryDerived: remapPlumbingKeys(derived.geometryDerived),
+    fieldConfidence: equipment.fieldConfidence,
+    geometryDerived: remapPlumbingKeys(equipment.geometryDerived),
     inferredKeys,
     plumbingReviewStatus: reviewStatus,
-    changed: derived.changed || lineWarnings.inferredKeys.length > 0,
+    changed: derived.changed || equipment.changed || lineWarnings.inferredKeys.length > 0,
   };
 }
 
@@ -694,6 +1062,12 @@ module.exports = {
   normalizePlumbingComplexityFactors,
   classifyPlumbingSheetKind,
   derivePlumbingCountsFromFixtureInventory,
+  derivePlumbingEquipmentCounts,
+  inferPlumbingEquipmentFromPlanContext,
+  resolvePlumbingFixturesHardwareCount,
+  resolvePlumbingGasApplianceConnectionCount,
+  expandResidentialGasApplianceScope,
+  hasGasAppliancesComplexityFactor,
   reconcilePlumbingFixtureInventory,
   sumPlumbingFixtureRoughInPoints,
   normalizePlumbingWaterHeaterDetail,

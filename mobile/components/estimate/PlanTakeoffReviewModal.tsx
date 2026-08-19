@@ -59,6 +59,10 @@ import {
   formatPlumbingWaterHeaterDetail,
   PLUMBING_FIXTURE_INVENTORY_ORDER,
   hydratePlumbingPlanMeasurementsFromInventory,
+  hydrateFramingPlanMeasurementsFromAreas,
+  reconcileFramingScopeMeasurements,
+  augmentFramingScopeDetections,
+  framingMeasurementDisplayUnit,
   plumbingFixtureInventoryLabel,
   plumbingInventoryDerivedProvenance,
   plumbingMeasurementDisplayUnit,
@@ -188,6 +192,14 @@ const MEASUREMENT_SORT_ORDER: Record<string, number> = {
   cabinetPaintSqft: 53,
   kitchenFloorSqft: 50,
   bathroomFloorSqft: 51,
+  waterLineLf: 60,
+  sewerLineLf: 61,
+  gasLineLf: 62,
+  plumbingRoughPointCount: 63,
+  plumbingTrimHookupCount: 64,
+  plumbingFixturesHardwareCount: 65,
+  waterHeaterCount: 66,
+  gasApplianceConnectionCount: 67,
 };
 
 const CONCRETE_REVIEW_THICKNESS_KEYS = new Set([
@@ -326,19 +338,33 @@ export default function PlanTakeoffReviewModal({
       effectiveMode,
       effectiveTradeKey
     );
-    if (effectiveTradeKey !== 'plumbing') return filtered;
-    return hydratePlumbingPlanMeasurementsFromInventory(
-      filtered,
-      takeoff?.fixtureInventory
-    );
+    if (effectiveTradeKey === 'plumbing') {
+      return hydratePlumbingPlanMeasurementsFromInventory(
+        filtered,
+        takeoff?.fixtureInventory,
+        {
+          waterHeaterDetail: takeoff?.waterHeaterDetail,
+          gasApplianceScope: takeoff?.gasApplianceScope,
+          complexityFactors: takeoff?.complexityFactors,
+        }
+      );
+    }
+    if (effectiveTradeKey === 'framing') {
+      return hydrateFramingPlanMeasurementsFromAreas(filtered);
+    }
+    return filtered;
   }, [takeoff, effectiveMode, effectiveTradeKey]);
 
   const scopeDetections = useMemo(() => {
     const detections = takeoff?.scope?.detections || [];
-    return filterPlanScopesForTrade(detections, effectiveMode, effectiveTradeKey).filter(
+    const filtered = filterPlanScopesForTrade(detections, effectiveMode, effectiveTradeKey).filter(
       d => (d.confidence ?? 0) >= SCOPE_MIN_CONFIDENCE && (d.state === 'included' || d.state === 'excluded')
     );
-  }, [takeoff, effectiveMode, effectiveTradeKey]);
+    if (effectiveTradeKey === 'framing') {
+      return augmentFramingScopeDetections(filtered, visibleMeasurements);
+    }
+    return filtered;
+  }, [takeoff, effectiveMode, effectiveTradeKey, visibleMeasurements]);
 
   const areaReconciliation = useMemo(() => {
     if (!takeoff || !semanticsOn || tradeReview) return null;
@@ -714,6 +740,13 @@ export default function PlanTakeoffReviewModal({
       conflictChoices,
       conflictManualValues
     );
+    if (effectiveTradeKey === 'plumbing' && unresolved.length) {
+      Alert.alert(
+        'Choose the plan reading',
+        'These conflicting plumbing lengths have to be resolved on this takeoff page. Pick the value that matches the drawing, then apply.'
+      );
+      return;
+    }
     const unresolvedFields = new Set(unresolved.map(conflict => String(conflict.field)));
     const values: Record<string, string> = {};
     for (const row of rows) {
@@ -723,6 +756,35 @@ export default function PlanTakeoffReviewModal({
     }
     for (const [key, value] of Object.entries(resolved)) {
       values[key] = String(value);
+    }
+    if (effectiveTradeKey === 'plumbing') {
+      const hydrated = hydratePlumbingPlanMeasurementsFromInventory(
+        values,
+        takeoff.fixtureInventory,
+        {
+          waterHeaterDetail: takeoff.waterHeaterDetail,
+          gasApplianceScope: takeoff.gasApplianceScope,
+          complexityFactors: takeoff.complexityFactors,
+        }
+      );
+      for (const [key, value] of Object.entries(hydrated)) {
+        if (values[key] != null && values[key] !== '') continue;
+        const n = Number(value);
+        if (Number.isFinite(n) && n > 0) values[key] = String(n);
+      }
+    }
+    if (effectiveTradeKey === 'framing') {
+      const reconciled = reconcileFramingScopeMeasurements({
+        ...values,
+        planImportTradeKey: 'framing',
+        quickMeasurementSources: takeoff?.quickMeasurementSources,
+      }) as Record<string, string | number>;
+      for (const [key, value] of Object.entries(reconciled)) {
+        if (key === 'itemQuantities' || key === 'framingScope') continue;
+        const n = Number(value);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        values[key] = String(n);
+      }
     }
     const retainedConflictProvenance = Object.fromEntries(
       unresolved.flatMap(conflict => {

@@ -212,6 +212,20 @@ describe('plumbingPlanAdapter', () => {
     });
   });
 
+  test('does not flag missing P sheets when field evidence already names P-2', () => {
+    const { buildPlumbingReviewStatus } = require('../plumbingPlanAdapter');
+    const status = buildPlumbingReviewStatus({
+      fixtureInventory: {},
+      measurements: { waterLineLf: 50, sewerLineLf: 30 },
+      fieldEvidence: {
+        waterLineLf: [{ sheet: 'P-2', page: 5, label: 'Water Line' }],
+        sewerLineLf: [{ sheet: 'P-2', page: 5, label: 'Sewer Line' }],
+      },
+      plumbingRelevantPages: [{ page: 5, reasons: ['plumbing callouts'], sheet: 'P-2' }],
+    });
+    expect(status.notFound).not.toEqual(expect.arrayContaining(['Dedicated plumbing sheets (P sheets)']));
+  });
+
   test('mergePlumbingPdfFixtureSchedule folds PDF schedule inventory into takeoff', () => {
     const { mergePlumbingPdfFixtureSchedule, finalizePlumbingTakeoff } = require('../plumbingPlanAdapter');
     const merged = mergePlumbingPdfFixtureSchedule({
@@ -328,5 +342,119 @@ describe('plumbingPlanAdapter', () => {
     expect(finalized.plumbingReviewStatus.detected).toEqual(
       expect.arrayContaining([expect.stringMatching(/water heater/i), expect.stringMatching(/Gas appliances/i)])
     );
+  });
+
+  test('infers water heater and gas connections from PDF hints when vision omits equipment', () => {
+    const { finalizePlumbingTakeoff } = require('../plumbingPlanAdapter');
+    const finalized = finalizePlumbingTakeoff({
+      measurements: {
+        plumbingRoughPointCount: 10,
+        plumbingTrimHookupCount: 10,
+        gasLineLf: 35,
+      },
+      fieldEvidence: {
+        plumbingRoughPointCount: [
+          {
+            sheet: 'P-1',
+            page: 3,
+            label: 'Fixture schedule',
+            fixtureCounts: { toilets: 3, lavatories: 3, showers: 2, tubs: 1, kitchenSinks: 1 },
+          },
+        ],
+      },
+      pdfTakeoff: {
+        plumbingEquipmentHints: {
+          waterHeaterDetail: { count: 1, type: 'tank', fuel: 'gas' },
+          gasApplianceScope: { range: true, fireplace: true, dryer: true },
+        },
+      },
+      plumbingRelevantPages: [{ page: 3, reasons: ['fixture schedule'], sheet: 'P-1' }],
+    });
+    expect(finalized.waterHeaterDetail).toMatchObject({ count: 1, type: 'tank', fuel: 'gas' });
+    expect(finalized.gasApplianceScope).toMatchObject({
+      range: true,
+      fireplace: true,
+      dryer: true,
+      gasPipingRequired: true,
+    });
+    expect(finalized.measurements).toMatchObject({
+      waterHeaterCount: 1,
+      gasApplianceConnectionCount: 3,
+    });
+  });
+
+  test('infers water heater from fixture inventory waterHeaters count', () => {
+    const { finalizePlumbingTakeoff } = require('../plumbingPlanAdapter');
+    const finalized = finalizePlumbingTakeoff({
+      fixtureInventory: { waterHeaters: 1 },
+      measurements: { plumbingRoughPointCount: 10, plumbingTrimHookupCount: 10 },
+      fieldEvidence: {},
+      plumbingRelevantPages: [{ page: 3, reasons: ['fixture schedule'] }],
+    });
+    expect(finalized.waterHeaterDetail).toMatchObject({ count: 1 });
+    expect(finalized.measurements.waterHeaterCount).toBe(1);
+  });
+
+  test('clamps fixtures hardware to rough/trim when vision double-counts water heater', () => {
+    const { finalizePlumbingTakeoff } = require('../plumbingPlanAdapter');
+    const finalized = finalizePlumbingTakeoff({
+      fixtureInventory: {
+        toilets: 3,
+        lavatories: 3,
+        showers: 2,
+        tubs: 1,
+        kitchenSinks: 1,
+        waterHeaters: 1,
+      },
+      measurements: {
+        plumbingRoughPointCount: 10,
+        plumbingTrimHookupCount: 10,
+        plumbingFixturesHardwareCount: 11,
+        waterHeaterCount: 1,
+      },
+      fieldEvidence: {},
+      waterHeaterDetail: { count: 1, type: 'tank', fuel: 'gas' },
+      plumbingRelevantPages: [{ page: 3, reasons: ['fixture schedule'] }],
+    });
+    expect(finalized.measurements.plumbingFixturesHardwareCount).toBe(10);
+    expect(finalized.measurements.waterHeaterCount).toBe(1);
+  });
+
+  test('uses fixture inventory gasAppliances count for gas connection total', () => {
+    const { finalizePlumbingTakeoff } = require('../plumbingPlanAdapter');
+    const finalized = finalizePlumbingTakeoff({
+      measurements: {
+        plumbingRoughPointCount: 10,
+        plumbingTrimHookupCount: 10,
+        gasLineLf: 30,
+        gasApplianceConnectionCount: 1,
+      },
+      fixtureInventory: { gasAppliances: 3 },
+      gasApplianceScope: { range: true, gasPipingRequired: true },
+      fieldEvidence: {},
+      plumbingRelevantPages: [{ page: 4, reasons: ['P sheet'], sheet: 'P-1' }],
+    });
+    expect(finalized.measurements.gasApplianceConnectionCount).toBe(3);
+  });
+
+  test('expands partial gas scope to three connections when gas line is documented', () => {
+    const { finalizePlumbingTakeoff } = require('../plumbingPlanAdapter');
+    const finalized = finalizePlumbingTakeoff({
+      measurements: {
+        plumbingRoughPointCount: 10,
+        plumbingTrimHookupCount: 10,
+        gasLineLf: 35,
+        gasApplianceConnectionCount: 1,
+      },
+      gasApplianceScope: { range: true, gasPipingRequired: true },
+      fieldEvidence: {},
+      plumbingRelevantPages: [{ page: 4, reasons: ['P sheet'], sheet: 'P-1' }],
+    });
+    expect(finalized.gasApplianceScope).toMatchObject({
+      range: true,
+      fireplace: true,
+      dryer: true,
+    });
+    expect(finalized.measurements.gasApplianceConnectionCount).toBe(3);
   });
 });

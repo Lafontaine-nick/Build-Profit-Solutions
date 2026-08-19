@@ -9,6 +9,10 @@ import {
   PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS,
   PLUMBING_PLAN_SCOPE_ALLOWLIST,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import {
+  FRAMING_PLAN_QUICK_MEASUREMENT_KEYS,
+  FRAMING_PLAN_SCOPE_ALLOWLIST,
+} from '@/utils/subcontractorTrade/framingPlanConvergence';
 
 export type PlanEstimatingMode = 'whole_project' | 'selected_trade';
 
@@ -144,7 +148,9 @@ export function filterPlanMeasurementsForTrade(
   const allowed =
     tradeKey === 'plumbing'
       ? [...PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS]
-      : config?.reviewMeasurementKeys || [];
+      : tradeKey === 'framing'
+        ? [...FRAMING_PLAN_QUICK_MEASUREMENT_KEYS]
+        : config?.reviewMeasurementKeys || [];
   return Object.fromEntries(
     Object.entries(measurements || {}).filter(([key]) => allowed.includes(key))
   );
@@ -183,7 +189,9 @@ export function filterPlanScopesForTrade<
   const allowedIds =
     tradeKey === 'plumbing'
       ? [...PLUMBING_PLAN_SCOPE_ALLOWLIST]
-      : getTradeScopeAllowlist(tradeKey);
+      : tradeKey === 'framing'
+        ? [...FRAMING_PLAN_SCOPE_ALLOWLIST]
+        : getTradeScopeAllowlist(tradeKey);
   const keepDetection = (detection: T) => {
     const itemId = String(detection.itemId || '').trim();
     if (
@@ -214,7 +222,9 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
   const allowed =
     tradeKey === 'plumbing'
       ? [...PLUMBING_PLAN_SCOPE_ALLOWLIST]
-      : getTradeScopeAllowlist(tradeKey);
+      : tradeKey === 'framing'
+        ? [...FRAMING_PLAN_SCOPE_ALLOWLIST]
+        : getTradeScopeAllowlist(tradeKey);
   return allowed ? items.filter(item => allowed.includes(item.id)) : items;
 }
 

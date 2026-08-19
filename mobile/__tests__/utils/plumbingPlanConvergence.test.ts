@@ -4,9 +4,11 @@ import {
   normalizePlumbingPlanMeasurements,
   parsePlumbingMeasurementsFromNotes,
   PLUMBING_CARDS,
+  PLUMBING_PLAN_EXPORT_CHECKLIST_GROUPS,
   PLUMBING_REVIEW_MEASUREMENT_KEYS,
   syncPlumbingScopeItems,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import { groupScopeChecklistItems } from '@/utils/estimateScopeChecklistUi';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
 import { getSubcontractorTradeDefinition } from '@/utils/subcontractorTrade/tradeDefinitions';
 import {
@@ -32,6 +34,50 @@ describe('plumbing canonical architecture', () => {
       standaloneTemplateKey: 'plumbing_service',
       reviewMeasurementKeys: PLUMBING_REVIEW_MEASUREMENT_KEYS,
     });
+  });
+
+  it('names fixture allowance card and groups plan export scopes by construction phase', () => {
+    expect(
+      PLUMBING_CARDS.find(card => card.itemId === 'plumbing_fixtures_hardware')?.label
+    ).toBe('Plumbing fixture allowance');
+    expect(PLUMBING_PLAN_EXPORT_CHECKLIST_GROUPS.map(group => group.title)).toEqual([
+      'Underground',
+      'Rough plumbing',
+      'Finish plumbing',
+      'Service / repairs',
+      'Materials / closeout',
+    ]);
+
+    const plan58Items = [
+      'water_line',
+      'sewer_line',
+      'gas_line',
+      'plumbing_rough',
+      'plumbing_trim',
+      'plumbing_fixtures_hardware',
+      'water_heater',
+      'gas_appliance_connections',
+    ].map(id => ({
+      id,
+      label: id,
+      state: 'included' as const,
+      inputType: 'yes_no' as const,
+    }));
+    const grouped = groupScopeChecklistItems(plan58Items, 'plumbing_service');
+    expect(grouped.map(group => group.title)).toEqual([
+      'Underground',
+      'Rough plumbing',
+      'Finish plumbing',
+    ]);
+    expect(grouped.find(group => group.title === 'Other')).toBeUndefined();
+    expect(
+      grouped.find(group => group.title === 'Finish plumbing')?.items.map(item => item.id)
+    ).toEqual([
+      'plumbing_trim',
+      'plumbing_fixtures_hardware',
+      'water_heater',
+      'gas_appliance_connections',
+    ]);
   });
 
   it('keeps service and allowance cards out of selected-trade Plan Export', () => {
@@ -357,6 +403,67 @@ describe('plumbing canonical architecture', () => {
     ).toBe(true);
   });
 
+  it('repairs mistaken dollar totals stored as plumbing card quantities', () => {
+    const persisted = scopeMeasurementsPayloadForPersist(
+      {
+        waterLineLf: '50',
+        plumbingRoughPointCount: '10',
+        itemQuantities: {
+          water_line: {
+            quantity: '1500',
+            unit: 'lf',
+            quantitySource: 'user_entered',
+          },
+          water_line__material: {
+            quantity: '400',
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+          water_line__labor: {
+            quantity: '1100',
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+          plumbing_rough: {
+            quantity: '5000',
+            unit: 'each',
+            quantitySource: 'user_entered',
+          },
+          plumbing_rough__material: {
+            quantity: '2000',
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+          plumbing_rough__labor: {
+            quantity: '3000',
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+        },
+      },
+      { templateKey: 'plumbing_service' }
+    );
+    expect(persisted.itemQuantities?.water_line).toMatchObject({
+      quantity: 50,
+      unit: 'lf',
+    });
+    expect(persisted.itemQuantities?.plumbing_rough).toMatchObject({
+      quantity: 10,
+      unit: 'each',
+    });
+    const normalized = normalizeScopeMeasurements(persisted);
+    expect(
+      resolveChecklistItemQuantity('water_line', normalized, {
+        templateKey: 'plumbing_service',
+      })
+    ).toMatchObject({ quantity: 50, unit: 'lf' });
+    expect(
+      resolveChecklistItemQuantity('plumbing_rough', normalized, {
+        templateKey: 'plumbing_service',
+      })
+    ).toMatchObject({ quantity: 10, unit: 'each' });
+  });
+
   it('uses the same canonical rough-in pricing for Plan and Notes quantities', () => {
     const plan = normalizeTradeMeasurements(
       'plumbing',
@@ -493,5 +600,230 @@ describe('plumbing canonical architecture', () => {
       pricingEligible: false,
       status: 'needs_review',
     });
+  });
+
+  it('hydrates equipment cards and syncs checklist items on plumbing plan apply', () => {
+    const draft = {
+      scopeChecklist: {
+        templateKey: 'plumbing_service',
+        title: 'Confirm Plumbing scope',
+        intro: '',
+        items: [],
+      },
+      scopeMeasurements: {},
+    } as any;
+    const next = applyPlanImportToDraft(draft, {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      measurements: { waterLineLf: 50, sewerLineLf: 30, gasLineLf: 35 },
+      fixtureInventory: {
+        toilets: 3,
+        lavatories: 3,
+        showers: 2,
+        tubs: 1,
+        kitchenSinks: 1,
+      },
+      waterHeaterDetail: { count: 1, type: 'tank', fuel: 'gas' },
+      gasApplianceScope: { range: true, fireplace: true, dryer: true },
+      scopeDetections: [],
+    });
+    expect(next.scopeMeasurements).toMatchObject({
+      plumbingRoughPointCount: 10,
+      plumbingTrimHookupCount: 10,
+      plumbingFixturesHardwareCount: 10,
+      waterHeaterCount: 1,
+      gasApplianceConnectionCount: 3,
+    });
+    expect(next.scopeMeasurements?.plumbingScope).toEqual(
+      expect.arrayContaining([
+        'plumbing_rough',
+        'plumbing_trim',
+        'plumbing_fixtures_hardware',
+        'water_heater',
+        'gas_appliance_connections',
+        'water_line',
+        'sewer_line',
+        'gas_line',
+      ])
+    );
+    expect(next.scopeChecklist?.items.map(item => item.id)).toEqual(
+      expect.arrayContaining([
+        'plumbing_rough',
+        'plumbing_trim',
+        'plumbing_fixtures_hardware',
+        'water_heater',
+        'gas_appliance_connections',
+        'water_line',
+        'sewer_line',
+        'gas_line',
+      ])
+    );
+  });
+
+  it('preserves applied equipment pricing when API payload omits filtered measurement keys', () => {
+    const draft = {
+      scopeChecklist: {
+        templateKey: 'plumbing_service',
+        title: 'Confirm Plumbing scope',
+        intro: '',
+        items: [
+          { id: 'water_heater', label: 'Water heater', state: 'included' },
+          {
+            id: 'gas_appliance_connections',
+            label: 'Gas appliance connections',
+            state: 'included',
+          },
+        ],
+      },
+      scopeMeasurements: {
+        planImportFingerprint: 'same-plumbing-plan',
+        plumbingRoughPointCount: 10,
+        plumbingTrimHookupCount: 10,
+        plumbingFixturesHardwareCount: 10,
+        waterHeaterCount: 1,
+        gasApplianceConnectionCount: 3,
+        waterLineLf: 50,
+        sewerLineLf: 30,
+        gasLineLf: 40,
+        plumbingWaterHeaterDetail: { count: 1, type: 'tank', fuel: 'gas' },
+        plumbingGasApplianceScope: { range: true, fireplace: true, dryer: true },
+        plumbingFixtureInventory: {
+          toilets: 3,
+          lavatories: 3,
+          showers: 2,
+          tubs: 1,
+          kitchenSinks: 1,
+        },
+        pricingAcceptance: {
+          water_heater: { total: 2000, material: 1200, labor: 800 },
+          gas_appliance_connections: { total: 675, material: 225, labor: 450 },
+        },
+        plumbingScope: [
+          'plumbing_rough',
+          'plumbing_trim',
+          'plumbing_fixtures_hardware',
+          'water_heater',
+          'gas_appliance_connections',
+          'water_line',
+          'sewer_line',
+          'gas_line',
+        ],
+      },
+    } as any;
+    const next = applyPlanImportToDraft(draft, {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      planImportFingerprint: 'same-plumbing-plan',
+      measurements: {
+        waterLineLf: 50,
+        sewerLineLf: 30,
+        gasLineLf: 40,
+        plumbingRoughPointCount: 10,
+        plumbingTrimHookupCount: 10,
+        plumbingFixturesHardwareCount: 10,
+      },
+      fixtureInventory: {
+        toilets: 3,
+        lavatories: 3,
+        showers: 2,
+        tubs: 1,
+        kitchenSinks: 1,
+      },
+      scopeDetections: [],
+    });
+    expect(next.scopeMeasurements?.waterHeaterCount).toBe(1);
+    expect(next.scopeMeasurements?.gasApplianceConnectionCount).toBe(3);
+    expect(next.scopeMeasurements?.pricingAcceptance?.water_heater).toMatchObject({
+      total: 2000,
+    });
+    expect(
+      next.scopeMeasurements?.pricingAcceptance?.gas_appliance_connections
+    ).toMatchObject({ total: 675 });
+    expect(next.scopeMeasurements?.plumbingScope).toEqual(
+      expect.arrayContaining(['water_heater', 'gas_appliance_connections'])
+    );
+  });
+
+  it('does not reopen sewer LF conflicts on Confirm Scope after apply', () => {
+    const draft = {
+      scopeChecklist: {
+        templateKey: 'plumbing_service',
+        title: 'Confirm Plumbing scope',
+        intro: '',
+        items: [],
+      },
+      scopeMeasurements: {
+        planImportFingerprint: 'same-plumbing-plan',
+        sewerLineLf: 30,
+        quickMeasurementSources: {
+          sewerLineLf: 'plan_detected',
+        },
+      },
+    } as any;
+    const next = applyPlanImportToDraft(draft, {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      planImportFingerprint: 'same-plumbing-plan',
+      measurements: { sewerLineLf: 25 },
+      scopeDetections: [],
+    });
+    expect(next.scopeMeasurements?.sewerLineLf).toBe(25);
+    expect(next.scopeMeasurements?.measurementConflicts || []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: 'sewerLineLf' })])
+    );
+  });
+
+  it('drops stale rough/trim when a reimport has no fixture inventory', () => {
+    const draft = {
+      scopeChecklist: {
+        templateKey: 'plumbing_service',
+        title: 'Confirm Plumbing scope',
+        intro: '',
+        items: [
+          { id: 'plumbing_rough', label: 'Plumbing rough-in', state: 'included' },
+          { id: 'plumbing_trim', label: 'Plumbing trim / hookups', state: 'included' },
+          { id: 'water_line', label: 'Water line piping', state: 'included' },
+          { id: 'sewer_line', label: 'Sewer / drain piping', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        planImportFingerprint: 'same-plumbing-plan',
+        plumbingRoughPointCount: 10,
+        plumbingTrimHookupCount: 10,
+        waterLineLf: 50,
+        sewerLineLf: 30,
+        plumbingScope: ['plumbing_rough', 'plumbing_trim', 'water_line', 'sewer_line'],
+        itemQuantities: {
+          plumbing_rough: { quantity: 10, unit: 'each' },
+          plumbing_trim: { quantity: 10, unit: 'each' },
+          water_line: { quantity: 50, unit: 'lf' },
+          sewer_line: { quantity: 30, unit: 'lf' },
+        },
+        pricingAcceptance: {
+          plumbing_rough: { selectionStatus: 'accepted', totalAmount: 5000 },
+          plumbing_trim: { selectionStatus: 'accepted', totalAmount: 4500 },
+        },
+      },
+    } as any;
+    const next = applyPlanImportToDraft(draft, {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      planImportFingerprint: 'same-plumbing-plan',
+      measurements: { waterLineLf: 50, sewerLineLf: 30 },
+      fixtureInventory: {},
+      scopeDetections: [],
+    });
+    expect(next.scopeMeasurements?.waterLineLf).toBe(50);
+    expect(next.scopeMeasurements?.sewerLineLf).toBe(30);
+    expect(Number(next.scopeMeasurements?.plumbingRoughPointCount) || 0).toBe(0);
+    expect(Number(next.scopeMeasurements?.plumbingTrimHookupCount) || 0).toBe(0);
+    expect(next.scopeMeasurements?.itemQuantities?.plumbing_rough).toBeUndefined();
+    expect(next.scopeMeasurements?.pricingAcceptance?.plumbing_rough).toBeUndefined();
+    expect(next.scopeMeasurements?.plumbingScope).toEqual(
+      expect.arrayContaining(['water_line', 'sewer_line'])
+    );
+    expect(next.scopeMeasurements?.plumbingScope).not.toEqual(
+      expect.arrayContaining(['plumbing_rough', 'plumbing_trim'])
+    );
   });
 });

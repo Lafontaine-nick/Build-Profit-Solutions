@@ -21,6 +21,7 @@ import {
   STAGE_BENCHMARK_OWNERS,
 } from '@/utils/measurementSemantics/scopePriceUi';
 import { planTotalLivingSqft } from '@/utils/planMeasurementFacts';
+import { reconcilePlumbingEquipmentScopeMeasurements, reconcileFramingScopeMeasurements } from '@/utils/planTakeoffReviewUi';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import {
   allowanceSplitSubKey,
@@ -76,7 +77,7 @@ export function mergeConfirmScopeSavedMeasurements(
   saved?: ScopeMeasurements | null
 ): ScopeMeasurementsInputExtended {
   if (!saved) return base;
-  return {
+  const merged = {
     ...base,
     ...saved,
     itemQuantities: {
@@ -104,6 +105,9 @@ export function mergeConfirmScopeSavedMeasurements(
       ...(saved.quickMeasurementFieldConfidence || {}),
     },
   };
+  return reconcilePlumbingEquipmentScopeMeasurements(
+    reconcileFramingScopeMeasurements(merged) as typeof merged
+  );
 }
 
 function parseQtyMoney(entry?: { quantity?: string | number | null }): number {

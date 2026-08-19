@@ -200,7 +200,32 @@ export const TRADE_MEASUREMENT_SCHEMAS: Partial<
       quickMeasurementKey: 'complexFormingLf',
     }),
   ],
-  framing: [],
+  framing: [
+    M('framedAreaSqft', 'Framed floor area', 'sqft', 'primary', {
+      quickMeasurementKey: 'framedAreaSqft',
+    }),
+    M('wallFramingLf', 'Wall framing', 'LF', 'primary', {
+      quickMeasurementKey: 'wallFramingLf',
+    }),
+    M('sheathingSqft', 'Sheathing / shear', 'sqft', 'primary', {
+      quickMeasurementKey: 'sheathingSqft',
+    }),
+    M('framingOpeningCount', 'Door / window openings', 'each', 'more', {
+      quickMeasurementKey: 'framingOpeningCount',
+    }),
+    M('framingCleanupCount', 'Framing cleanup', 'allowance', 'more', {
+      quickMeasurementKey: 'framingCleanupCount',
+    }),
+    M('floorAreaSqft', 'Living area', 'sqft', 'more', {
+      quickMeasurementKey: 'floorAreaSqft',
+    }),
+    M('garageSqft', 'Garage area', 'sqft', 'more', {
+      quickMeasurementKey: 'garageSqft',
+    }),
+    M('stuccoGrossWallSqft', 'Gross wall area', 'sqft', 'more', {
+      quickMeasurementKey: 'stuccoGrossWallSqft',
+    }),
+  ],
   drywall: [
     M('drywallSqft', 'Total drywall area', 'sqft', 'primary', {
       quickMeasurementKey: 'drywallSqft',
