@@ -261,6 +261,28 @@ describe('planPdfTextTakeoff', () => {
     expect(expanded.find(page => page.page === 13).reasons).toContain('following electrical sheet');
   });
 
+  test('parsePlumbingFixtureScheduleFromPageText reads fixture schedule rows', () => {
+    const {
+      countPlumbingFixtureScheduleOnPage,
+      aggregatePlumbingFixtureScheduleInventory,
+    } = require('../planPdfTextTakeoff');
+    const pageText =
+      'PLUMBING FIXTURE SCHEDULE MARK DESCRIPTION QTY WC-1 WATER CLOSET 3 LAV-1 LAVATORY 3 SH-1 SHOWER 2 TB-1 TUB 1 KS-1 KITCHEN SINK 1';
+    const parsed = countPlumbingFixtureScheduleOnPage([], { pageText, page: 3 });
+    expect(parsed.inventory).toMatchObject({
+      toilets: 3,
+      lavatories: 3,
+      showers: 2,
+      tubs: 1,
+      kitchenSinks: 1,
+    });
+    const aggregated = aggregatePlumbingFixtureScheduleInventory([parsed]);
+    expect(aggregated.inventory).toMatchObject(parsed.inventory);
+    expect(formatPdfEvidenceForVision({ plumbingFixtureSchedule: aggregated }, { tradeKey: 'plumbing' })).toMatch(
+      /fixture schedule counts/i
+    );
+  });
+
   test('scorePlumbingRelevantPage prioritizes P sheets and fixture schedules', () => {
     expect(scorePlumbingRelevantPage('PLUMBING PLAN P1.1 FIXTURE SCHEDULE MAIN FLOOR')).toMatchObject({
       score: expect.any(Number),

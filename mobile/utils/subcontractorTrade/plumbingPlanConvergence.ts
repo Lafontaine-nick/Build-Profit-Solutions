@@ -612,6 +612,19 @@ function explicitlyCleared(value: unknown): boolean {
  * quantities promote a card; explicit clears return an existing included card
  * to review without deleting a contractor's prior checklist decision.
  */
+export function copyPlumbingQuantityFields(
+  source: Record<string, unknown> | null | undefined,
+  parse: (value: unknown) => number | null = positiveNumber
+): Partial<Record<PlumbingQuantityKey, number | null>> {
+  const out: Partial<Record<PlumbingQuantityKey, number | null>> = {};
+  if (!source) return out;
+  for (const key of PLUMBING_QUANTITY_KEYS) {
+    const parsed = parse(source[key]);
+    if (parsed != null) out[key] = parsed;
+  }
+  return out;
+}
+
 export function syncPlumbingScopeItems<
   T extends { id: string; state?: string },
 >(

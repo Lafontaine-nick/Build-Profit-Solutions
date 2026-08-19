@@ -525,6 +525,45 @@ function buildPlumbingReviewStatus(input = {}) {
   };
 }
 
+function mergePlumbingPdfFixtureSchedule(input = {}) {
+  const schedule = input.pdfTakeoff?.plumbingFixtureSchedule;
+  const scheduleInventory = schedule?.inventory;
+  if (!scheduleInventory || typeof scheduleInventory !== 'object') {
+    return input;
+  }
+  if (!Object.values(scheduleInventory).some(count => positive(count) > 0)) {
+    return input;
+  }
+  const fieldEvidence = { ...(input.fieldEvidence || {}) };
+  const scheduleEvidence = {
+    evidenceKind: 'fixture_schedule_pdf_text',
+    sourceType: 'pdf_text',
+    confidence: 0.9,
+    label: 'Fixture schedule',
+    sourceText: `Fixture counts from PDF text layer${
+      Array.isArray(schedule.pages) && schedule.pages.length
+        ? ` (page ${schedule.pages.map(entry => entry.page).filter(Boolean).join(', ')})`
+        : ''
+    }`,
+    fixtureCounts: scheduleInventory,
+  };
+  for (const key of ['plumbingRoughPointCount', 'plumbingTrimHookupCount']) {
+    fieldEvidence[key] = [...(Array.isArray(fieldEvidence[key]) ? fieldEvidence[key] : []), scheduleEvidence].slice(
+      0,
+      16
+    );
+  }
+  const fixtureInventory = reconcilePlumbingFixtureInventory({
+    inventory: { ...(input.fixtureInventory || {}), ...scheduleInventory },
+    fieldEvidence,
+  });
+  return {
+    ...input,
+    fixtureInventory,
+    fieldEvidence,
+  };
+}
+
 function finalizePlumbingTakeoff(input = {}) {
   const reconciledInventory = reconcilePlumbingFixtureInventory({
     inventory: input.fixtureInventory,
@@ -661,6 +700,7 @@ module.exports = {
   normalizePlumbingGasApplianceScope,
   applyPlumbingLineScopeWarnings,
   buildPlumbingReviewStatus,
+  mergePlumbingPdfFixtureSchedule,
   finalizePlumbingTakeoff,
   applyPlumbingVisionTakeoff,
 };

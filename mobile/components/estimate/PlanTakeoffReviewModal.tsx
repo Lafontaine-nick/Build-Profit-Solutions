@@ -58,7 +58,9 @@ import {
   formatPlumbingGasApplianceScope,
   formatPlumbingWaterHeaterDetail,
   PLUMBING_FIXTURE_INVENTORY_ORDER,
+  hydratePlumbingPlanMeasurementsFromInventory,
   plumbingFixtureInventoryLabel,
+  plumbingInventoryDerivedProvenance,
   plumbingMeasurementDisplayUnit,
   sumPlumbingFixtureInventoryPoints,
   planFieldEvidenceLabel,
@@ -318,10 +320,18 @@ export default function PlanTakeoffReviewModal({
   const [conflictChooserKey, setConflictChooserKey] = useState(0);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
-  const visibleMeasurements = useMemo(
-    () => filterPlanMeasurementsForTrade(takeoff?.measurements || {}, effectiveMode, effectiveTradeKey),
-    [takeoff, effectiveMode, effectiveTradeKey]
-  );
+  const visibleMeasurements = useMemo(() => {
+    const filtered = filterPlanMeasurementsForTrade(
+      takeoff?.measurements || {},
+      effectiveMode,
+      effectiveTradeKey
+    );
+    if (effectiveTradeKey !== 'plumbing') return filtered;
+    return hydratePlumbingPlanMeasurementsFromInventory(
+      filtered,
+      takeoff?.fixtureInventory
+    );
+  }, [takeoff, effectiveMode, effectiveTradeKey]);
 
   const scopeDetections = useMemo(() => {
     const detections = takeoff?.scope?.detections || [];
@@ -372,9 +382,12 @@ export default function PlanTakeoffReviewModal({
             })
           : null;
         const evidenceLabel = planFieldEvidenceLabel(takeoff.measurementProvenance?.[key]);
+        const provenanceEntry =
+          takeoff.measurementProvenance?.[key] ??
+          plumbingInventoryDerivedProvenance(takeoff.fixtureInventory, key);
         const rowState = buildPlanReviewMeasurementRowState({
           key,
-          provenanceEntry: takeoff.measurementProvenance?.[key],
+          provenanceEntry,
           fieldConfidence: takeoff.fieldConfidence?.[key] ?? null,
           hasConflict: unresolvedConflictFields.has(key),
           reconciliationVariancePercent: areaReconciliation?.livingVariancePercent,

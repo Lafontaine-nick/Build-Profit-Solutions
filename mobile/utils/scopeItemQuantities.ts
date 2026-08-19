@@ -19,6 +19,7 @@ import {
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import {
   PLUMBING_CARDS,
+  copyPlumbingQuantityFields,
   hasDetailedPlumbingRoughQuantities,
   hasDetailedPlumbingTrimQuantities,
   plumbingMeasurementKeyForItemId,
@@ -8707,6 +8708,7 @@ const EXPLICIT_ITEM_QUANTITY_SOURCES = new Set<QuantitySource>([
   'user_entered',
   'manual_override',
   'plan_vision',
+  'plan_detected',
 ]);
 
 function itemQuantityEntryForId(
@@ -17306,9 +17308,12 @@ function syncPlumbingQuantitiesIntoItemQuantities(
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
     const existing = nextQuantities[card.itemId];
     if (Number(existing?.quantity) > 0) continue;
+    const sourceTag = extended.quickMeasurementSources?.[card.measurementKey];
     const source =
-      extended.quickMeasurementSources?.[card.measurementKey] ===
-      'plan_detected'
+      sourceTag === 'plan_detected' ||
+      sourceTag === 'plan_verified' ||
+      sourceTag === 'ai_verified' ||
+      sourceTag === 'contractor_confirmed_from_plan_review'
         ? 'plan_detected'
         : 'user_entered';
     nextQuantities[card.itemId] = {
@@ -18109,6 +18114,10 @@ export function scopeMeasurementsToPayload(
         ? Math.round(Number(sanitized.garageDoorRvCount))
         : null,
     baseboardLf: parseScopeMeasurementInput(sanitized.baseboardLf),
+    ...copyPlumbingQuantityFields(sanitized as Record<string, unknown>),
+    plumbingScope: Array.isArray(sanitized.plumbingScope)
+      ? sanitized.plumbingScope
+      : undefined,
     showerWallTileSqft: parseScopeMeasurementInput(
       sanitized.showerWallTileSqft
     ),
@@ -18193,6 +18202,11 @@ export function scopeMeasurementsInputFromPayload(
     ...Object.fromEntries(
       Object.entries(
         copyElectricalQuantityFields(payload as Record<string, unknown>)
+      ).map(([key, value]) => [key, value != null ? String(value) : ''])
+    ),
+    ...Object.fromEntries(
+      Object.entries(
+        copyPlumbingQuantityFields(payload as Record<string, unknown>)
       ).map(([key, value]) => [key, value != null ? String(value) : ''])
     ),
     ...copyElectricalConditionFields(payload as Record<string, unknown>),
@@ -18811,6 +18825,9 @@ export function scopeMeasurementsInputFromPayload(
     planImportMissingInfo: payload.planImportMissingInfo ?? [],
     plumbingWorkflowMode: payload.plumbingWorkflowMode ?? null,
     plumbingPerformerMode: payload.plumbingPerformerMode ?? null,
+    plumbingScope: Array.isArray(payload.plumbingScope)
+      ? payload.plumbingScope
+      : null,
     tradeWorkflowSource: payload.tradeWorkflowSource ?? null,
     areaReconciliation: payload.areaReconciliation,
   };

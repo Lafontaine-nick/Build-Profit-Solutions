@@ -22,6 +22,7 @@ import {
   buildPlanReviewMeasurementRowState,
   planReviewCheckboxBlockedMessage,
   planReviewProvenanceFlags,
+  hydratePlumbingPlanMeasurementsFromInventory,
   plumbingFixtureInventoryLabel,
   plumbingMeasurementDisplayUnit,
   sumPlumbingFixtureInventoryPoints,
@@ -497,6 +498,12 @@ describe('plan takeoff review UI polish', () => {
     expect(plumbingMeasurementDisplayUnit('plumbingRoughPointCount')).toBe('fixtures');
     expect(plumbingFixtureInventoryLabel('kitchenSinks')).toBe('Kitchen sink');
     expect(sumPlumbingFixtureInventoryPoints({ toilets: 3, lavatories: 3, showers: 2, tubs: 1, kitchenSinks: 1 })).toBe(10);
+    expect(
+      hydratePlumbingPlanMeasurementsFromInventory({}, { toilets: 3, lavatories: 3, showers: 2, tubs: 1, kitchenSinks: 1 })
+    ).toMatchObject({
+      plumbingRoughPointCount: 10,
+      plumbingTrimHookupCount: 10,
+    });
     expect(
       planReviewProvenanceFlags({
         key: 'waterLineLf',

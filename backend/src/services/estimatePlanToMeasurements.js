@@ -35,6 +35,8 @@ const {
   normalizePlumbingPlanMeasurements,
   normalizePlumbingComplexityFactors,
   normalizePlumbingUtilityConnections,
+  mergePlumbingPdfFixtureSchedule,
+  reconcilePlumbingFixtureInventory,
   finalizePlumbingTakeoff,
 } = require('./plumbingPlanAdapter');
 
@@ -2241,6 +2243,13 @@ async function analyzePlanForMeasurements({
   }
 
   if (plumbingSelected) {
+    const mergedPdfSchedule = mergePlumbingPdfFixtureSchedule({
+      pdfTakeoff,
+      fixtureInventory: plumbingFixtureInventory,
+      fieldEvidence: plumbingFieldEvidence,
+    });
+    plumbingFixtureInventory = mergedPdfSchedule.fixtureInventory;
+    plumbingFieldEvidence = mergedPdfSchedule.fieldEvidence;
     const finalized = finalizePlumbingTakeoff({
       fixtureInventory: plumbingFixtureInventory,
       measurements: parsed.measurements,

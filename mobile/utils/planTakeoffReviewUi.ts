@@ -1642,6 +1642,45 @@ export function sumPlumbingFixtureInventoryPoints(
   return total;
 }
 
+/** Fill rough/trim counts from fixture inventory when vision omitted canonical keys. */
+export function hydratePlumbingPlanMeasurementsFromInventory(
+  measurements: Record<string, number | string>,
+  inventory: Record<string, number> | null | undefined
+): Record<string, number | string> {
+  const total = sumPlumbingFixtureInventoryPoints(inventory);
+  if (!total) return measurements;
+  const next = { ...measurements };
+  if (!Number(next.plumbingRoughPointCount)) {
+    next.plumbingRoughPointCount = total;
+  }
+  if (!Number(next.plumbingTrimHookupCount)) {
+    next.plumbingTrimHookupCount = total;
+  }
+  return next;
+}
+
+export function plumbingInventoryDerivedProvenance(
+  inventory: Record<string, number> | null | undefined,
+  key: string
+): Record<string, unknown> | undefined {
+  if (key !== 'plumbingRoughPointCount' && key !== 'plumbingTrimHookupCount') {
+    return undefined;
+  }
+  const total = sumPlumbingFixtureInventoryPoints(inventory);
+  if (!total) return undefined;
+  const derivedFrom = PLUMBING_FIXTURE_INVENTORY_ORDER.filter(
+    fixtureKey => Number(inventory?.[fixtureKey]) > 0
+  );
+  return {
+    source: 'inferred_from_fixture_inventory',
+    normalizedSource: 'FROM_PLAN_DERIVED',
+    evidenceKind: 'fixture_inventory_derived',
+    derivedFrom,
+    pricingEligible: true,
+    value: total,
+  };
+}
+
 /** Contractor-facing unit for Plumbing plan review and Confirm Scope. */
 export function plumbingMeasurementDisplayUnit(
   key: string,

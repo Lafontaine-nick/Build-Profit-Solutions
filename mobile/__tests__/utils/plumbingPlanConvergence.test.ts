@@ -11,11 +11,12 @@ import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergen
 import { getSubcontractorTradeDefinition } from '@/utils/subcontractorTrade/tradeDefinitions';
 import {
   normalizeScopeMeasurements,
+  prepareScopeMeasurementsInputForUi,
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
   scopeMeasurementsPayloadForPersist,
 } from '@/utils/scopeItemQuantities';
-import { applyPlanImportToDraft } from '@/utils/estimateAiDraft';
+import { applyPlanImportToDraft, planImportPayloadFromDraft } from '@/utils/estimateAiDraft';
 import {
   filterChecklistItemsForTrade,
   filterPlanMeasurementsForTrade,
@@ -264,6 +265,68 @@ describe('plumbing canonical architecture', () => {
         expect(pricing.fill).not.toBeNull();
       }
     }
+  });
+
+  it('preserves Plumbing quick measurements through Confirm Scope UI round-trip', () => {
+    const input = {
+      plumbingRoughPointCount: '10',
+      plumbingTrimHookupCount: '10',
+      waterLineLf: '50',
+      sewerLineLf: '30',
+      quickMeasurementSources: {
+        plumbingRoughPointCount: 'plan_verified',
+        plumbingTrimHookupCount: 'plan_verified',
+        waterLineLf: 'needs_confirmation',
+        sewerLineLf: 'needs_confirmation',
+      },
+      plumbingScope: ['plumbing_rough', 'plumbing_trim', 'water_line', 'sewer_line'],
+    };
+    const roundTrip = prepareScopeMeasurementsInputForUi(input as never, {
+      templateKey: 'plumbing_service',
+      notes: 'Plumbing takeoff from Plan 58.',
+    });
+    expect(roundTrip.plumbingRoughPointCount).toBe('10');
+    expect(roundTrip.plumbingTrimHookupCount).toBe('10');
+    expect(roundTrip.waterLineLf).toBe('50');
+    expect(roundTrip.sewerLineLf).toBe('30');
+    expect(roundTrip.quickMeasurementSources?.plumbingRoughPointCount).toBe(
+      'plan_verified'
+    );
+    expect(roundTrip.itemQuantities?.plumbing_rough).toMatchObject({
+      quantity: '10',
+      unit: 'each',
+    });
+    expect(roundTrip.itemQuantities?.water_line).toMatchObject({
+      quantity: '50',
+      unit: 'lf',
+    });
+  });
+
+  it('rebuilds plan import payload from draft plumbing provenance', () => {
+    const payload = planImportPayloadFromDraft({
+      scopeMeasurements: {
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'plumbing',
+        plumbingRoughPointCount: 10,
+        waterLineLf: 50,
+        quickMeasurementSources: {
+          plumbingRoughPointCount: 'plan_verified',
+          waterLineLf: 'needs_confirmation',
+        },
+      },
+    } as never);
+    expect(payload).toMatchObject({
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      measurements: {
+        plumbingRoughPointCount: 10,
+        waterLineLf: 50,
+      },
+      quickMeasurementSources: {
+        plumbingRoughPointCount: 'plan_verified',
+        waterLineLf: 'needs_confirmation',
+      },
+    });
   });
 
   it('converts raw Plumbing Quick Measurement input into canonical quantities at persist time', () => {

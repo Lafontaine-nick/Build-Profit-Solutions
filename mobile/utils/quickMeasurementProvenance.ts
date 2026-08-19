@@ -187,6 +187,9 @@ function resolveFieldState(params: {
     if (params.sourceTag === 'ai_verified') {
       return 'ai_verified';
     }
+    if (params.sourceTag === 'needs_confirmation') {
+      return 'needs_confirmation';
+    }
     return 'confirmed';
   }
   return params.hasEstimate ? 'estimate_available' : 'needs_confirmation';

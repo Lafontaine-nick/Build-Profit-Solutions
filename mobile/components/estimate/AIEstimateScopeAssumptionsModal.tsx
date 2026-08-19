@@ -14943,6 +14943,18 @@ export default function AIEstimateScopeAssumptionsModal({
         };
       }
       if (
+        hydratedPlanTrade === 'plumbing' ||
+        hydrateTradeContext.tradeKey === 'plumbing' ||
+        ['plumbing', 'plumbing_service'].includes(
+          String(checklist.templateKey || '').toLowerCase()
+        )
+      ) {
+        nextMeasurements = prepareScopeMeasurementsInputForUi(nextMeasurements, {
+          notes: scopeNotes,
+          templateKey: checklist.templateKey,
+        });
+      }
+      if (
         String(checklist.templateKey || '').toLowerCase() === 'painting' &&
         Number(nextMeasurements.exteriorPaintSqft || 0) > 0
       ) {
@@ -15097,9 +15109,21 @@ export default function AIEstimateScopeAssumptionsModal({
       return;
     }
     livePlanImportHandoffKeyRef.current = livePlanImportHandoffKey;
-    setMeasurementsSynced(prev =>
-      mergeLivePlanImportIntoScopeMeasurements(prev, planImport)
-    );
+    setMeasurementsSynced(prev => {
+      let next = mergeLivePlanImportIntoScopeMeasurements(prev, planImport);
+      if (
+        planImport.selectedTrade === 'plumbing' ||
+        ['plumbing', 'plumbing_service'].includes(
+          String(checklist?.templateKey || '').toLowerCase()
+        )
+      ) {
+        next = prepareScopeMeasurementsInputForUi(next, {
+          notes: scopeNotes,
+          templateKey: checklist?.templateKey,
+        });
+      }
+      return next;
+    });
     if (planImport.scopeDetections?.length) {
       setItems(prev => {
         const applied = applyScopeDetectionsToChecklistItems(

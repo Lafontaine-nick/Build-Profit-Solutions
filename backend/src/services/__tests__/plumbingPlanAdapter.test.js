@@ -212,6 +212,33 @@ describe('plumbingPlanAdapter', () => {
     });
   });
 
+  test('mergePlumbingPdfFixtureSchedule folds PDF schedule inventory into takeoff', () => {
+    const { mergePlumbingPdfFixtureSchedule, finalizePlumbingTakeoff } = require('../plumbingPlanAdapter');
+    const merged = mergePlumbingPdfFixtureSchedule({
+      pdfTakeoff: {
+        plumbingFixtureSchedule: {
+          inventory: { toilets: 3, lavatories: 3, showers: 2, tubs: 1, kitchenSinks: 1 },
+          pages: [{ page: 3 }],
+        },
+      },
+      fixtureInventory: {},
+      fieldEvidence: {},
+    });
+    const finalized = finalizePlumbingTakeoff({
+      fixtureInventory: merged.fixtureInventory,
+      measurements: {},
+      fieldEvidence: merged.fieldEvidence,
+      fieldConfidence: {},
+      geometryDerived: [],
+      inferredKeys: [],
+      plumbingRelevantPages: [{ page: 3, reasons: ['fixture schedule'] }],
+    });
+    expect(finalized.measurements).toMatchObject({
+      plumbingRoughPointCount: 10,
+      plumbingTrimHookupCount: 10,
+    });
+  });
+
   test('reconciles fixtureInventory from fieldEvidence fixtureCounts', () => {
     const { reconcilePlumbingFixtureInventory } = require('../plumbingPlanAdapter');
     expect(

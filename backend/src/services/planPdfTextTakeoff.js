@@ -1068,6 +1068,114 @@ function sumCollapsingDuplicateFixtureViews(pages) {
   return groups.reduce((sum, group) => sum + Math.max(...group.map(page => Number(page.count) || 0)), 0);
 }
 
+const PLUMBING_FIXTURE_SCHEDULE_LABELS = [
+  { key: 'toilets', re: /\b(?:wc|w\.?c\.?|water\s*closets?|toilets?)\b/i },
+  { key: 'lavatories', re: /\b(?:lav(?:atory|s)?|vanity\s*sinks?|lav\s*sinks?)\b/i },
+  { key: 'showers', re: /\b(?:showers?|shwr?s?)\b/i },
+  { key: 'tubs', re: /\b(?:tubs?|bath\s*tubs?|tub\s*\/\s*shwr)\b/i },
+  { key: 'kitchenSinks', re: /\b(?:kitchen\s*sinks?|kit(?:\.|\s)?sink)\b/i },
+  { key: 'dishwasherConnections', re: /\b(?:dishwashers?|d\.?w\.?)\b/i },
+  { key: 'laundryBoxes', re: /\b(?:laundry\s*(?:boxes?|connections?)|washer\s*box(?:es)?)\b/i },
+  { key: 'hoseBibs', re: /\b(?:hose\s*bibs?|sillcocks?)\b/i },
+  { key: 'floorDrains', re: /\b(?:floor\s*drains?|f\.?d\.?)\b/i },
+  { key: 'waterHeaters', re: /\b(?:water\s*heaters?|w\.?h\.?)\b/i },
+];
+
+function parsePlumbingFixtureScheduleQuantity(raw) {
+  const number = Number(String(raw || '').replace(/,/g, ''));
+  return Number.isFinite(number) && number > 0 && number <= 99 ? Math.round(number) : null;
+}
+
+function pageLooksLikePlumbingFixtureSchedule(pageText, plumbingPage = null) {
+  const blob = String(pageText || '');
+  if (/\bfixture\s*schedule\b|\bplumbing\s*fixture\s*schedule\b/i.test(blob)) return true;
+  const reasons = Array.isArray(plumbingPage?.reasons) ? plumbingPage.reasons : [];
+  if (reasons.includes('fixture schedule')) return true;
+  const hits = PLUMBING_FIXTURE_SCHEDULE_LABELS.filter(spec => spec.re.test(blob)).length;
+  return hits >= 2 && /\bqty\b|\bquantity\b|\bmark\b|\bdescription\b/i.test(blob);
+}
+
+function parsePlumbingFixtureScheduleRowText(rowText) {
+  const inventory = {};
+  const line = String(rowText || '').trim();
+  if (!line || line.length > 240) return inventory;
+  for (const spec of PLUMBING_FIXTURE_SCHEDULE_LABELS) {
+    if (!spec.re.test(line)) continue;
+    // Quantity must follow the label through words/spaces — not a mark hyphen (WC-1).
+    const trailing = line.match(
+      new RegExp(`${spec.re.source}(?:\\s+[^\\d-][^\\d]{0,20}){0,2}\\s+(\\d{1,2})\\b`, spec.re.flags)
+    );
+    const leading = line.match(
+      new RegExp(`\\b(\\d{1,2})\\s+(?:[^\\d-]+\\s+){0,2}${spec.re.source}`, spec.re.flags)
+    );
+    const qty = parsePlumbingFixtureScheduleQuantity(trailing?.[1] || leading?.[1]);
+    if (qty == null) continue;
+    inventory[spec.key] = Math.max(inventory[spec.key] || 0, qty);
+  }
+  return inventory;
+}
+
+function countPlumbingFixtureScheduleOnPage(phrases, { pageText, page = null, sheet = null, plumbingPage = null } = {}) {
+  if (!pageLooksLikePlumbingFixtureSchedule(pageText, plumbingPage)) {
+    return { page, sheet, inventory: {} };
+  }
+  const inventory = {};
+  const phraseList = Array.isArray(phrases) ? phrases : [];
+  const byRow = new Map();
+  for (const phrase of phraseList) {
+    const y = Math.round(Number(phrase.y) || 0);
+    const bucket = Math.round(y / 4) * 4;
+    if (!byRow.has(bucket)) byRow.set(bucket, []);
+    byRow.get(bucket).push(phrase);
+  }
+  for (const rowPhrases of byRow.values()) {
+    const rowText = rowPhrases.map(entry => entry.str).join(' ');
+    for (const [key, count] of Object.entries(parsePlumbingFixtureScheduleRowText(rowText))) {
+      inventory[key] = Math.max(inventory[key] || 0, count);
+    }
+    for (const phrase of rowPhrases) {
+      const qty = parsePlumbingFixtureScheduleQuantity(phrase.str);
+      if (qty == null) continue;
+      for (const spec of PLUMBING_FIXTURE_SCHEDULE_LABELS) {
+        const neighborText = rowPhrases.map(entry => entry.str).join(' ');
+        if (spec.re.test(neighborText)) {
+          inventory[spec.key] = Math.max(inventory[spec.key] || 0, qty);
+        }
+      }
+    }
+  }
+  for (const chunk of String(pageText || '').split(/[\n|]+/)) {
+    for (const [key, count] of Object.entries(parsePlumbingFixtureScheduleRowText(chunk))) {
+      inventory[key] = Math.max(inventory[key] || 0, count);
+    }
+  }
+  return {
+    page,
+    sheet,
+    inventory,
+  };
+}
+
+function aggregatePlumbingFixtureScheduleInventory(pageResults) {
+  const inventory = {};
+  const pages = [];
+  for (const result of Array.isArray(pageResults) ? pageResults : []) {
+    const pageInventory = result?.inventory || {};
+    if (!Object.values(pageInventory).some(count => Number(count) > 0)) continue;
+    pages.push({
+      page: result.page || null,
+      sheet: result.sheet || null,
+      inventory: pageInventory,
+    });
+    for (const [key, count] of Object.entries(pageInventory)) {
+      const value = Number(count);
+      if (!Number.isFinite(value) || value <= 0) continue;
+      inventory[key] = Math.max(inventory[key] || 0, Math.round(value));
+    }
+  }
+  return { inventory, pages };
+}
+
 function aggregateElectricalInstanceTagCounts(pageResults) {
   const byKey = {};
   for (const spec of ELECTRICAL_INSTANCE_TAG_SPECS) {
@@ -1427,6 +1535,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
   const paintingRelevantPages = [];
   const electricalRelevantPages = [];
   const plumbingRelevantPages = [];
+  const plumbingFixtureSchedulePages = [];
   const electricalInstanceTagPages = [];
   let pageCount = 0;
 
@@ -1460,12 +1569,37 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
         });
       }
       const plumbingPage = scorePlumbingRelevantPage(pageText);
-      if (plumbingPage.score > 0) {
-        plumbingRelevantPages.push({
-          page: pageNumber,
-          score: plumbingPage.score,
-          reasons: plumbingPage.reasons,
-        });
+      const plumbingPageEntry =
+        plumbingPage.score > 0
+          ? {
+              page: pageNumber,
+              score: plumbingPage.score,
+              reasons: plumbingPage.reasons,
+            }
+          : null;
+      if (plumbingPageEntry) {
+        plumbingRelevantPages.push(plumbingPageEntry);
+      }
+      const fixtureSchedulePage = countPlumbingFixtureScheduleOnPage(phrases, {
+        pageText,
+        page: pageNumber,
+        sheet: extractSheet(pageText),
+        plumbingPage: plumbingPageEntry,
+      });
+      if (Object.values(fixtureSchedulePage.inventory || {}).some(count => Number(count) > 0)) {
+        plumbingFixtureSchedulePages.push(fixtureSchedulePage);
+        if (plumbingPageEntry) {
+          plumbingPageEntry.score = Math.max(plumbingPageEntry.score, 11);
+          plumbingPageEntry.reasons = [
+            ...new Set([...(plumbingPageEntry.reasons || []), 'fixture schedule']),
+          ];
+        } else {
+          plumbingRelevantPages.push({
+            page: pageNumber,
+            score: 11,
+            reasons: ['fixture schedule'],
+          });
+        }
       }
       const instanceTagPage = countElectricalInstanceTagsOnPage(phrases, {
         pageText,
@@ -1573,6 +1707,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
     plumbingRelevantPages: expandPlumbingRelevantPages(plumbingRelevantPages, pageCount)
       .sort((a, b) => b.score - a.score)
       .slice(0, 12),
+    plumbingFixtureSchedule: aggregatePlumbingFixtureScheduleInventory(plumbingFixtureSchedulePages),
     electricalInstanceTags: aggregateElectricalInstanceTagCounts(electricalInstanceTagPages),
     pageCount,
   };
@@ -1643,6 +1778,16 @@ function formatPdfEvidenceForVision(pdfTakeoff, options = {}) {
         lines.push(`- page ${page.page}: ${Array.isArray(page.reasons) ? page.reasons.join(', ') : 'plumbing plan'}`);
       }
     }
+    const schedule = pdfTakeoff.plumbingFixtureSchedule?.inventory || {};
+    const scheduleEntries = Object.entries(schedule).filter(([, count]) => Number(count) > 0);
+    if (scheduleEntries.length) {
+      lines.push(
+        'PDF text layer — fixture schedule counts (authoritative when present; populate fixtureInventory and derive rough-in / trim from the sum):'
+      );
+      for (const [key, count] of scheduleEntries) {
+        lines.push(`- ${key}: ${count}`);
+      }
+    }
   }
   const electricalPages = Array.isArray(pdfTakeoff.electricalRelevantPages) ? pdfTakeoff.electricalRelevantPages : [];
   if (tradeKey === 'electrical') {
@@ -1710,6 +1855,8 @@ module.exports = {
   ELECTRICAL_INSTANCE_TAG_SPECS,
   countElectricalInstanceTagsOnPage,
   aggregateElectricalInstanceTagCounts,
+  countPlumbingFixtureScheduleOnPage,
+  aggregatePlumbingFixtureScheduleInventory,
   detectElectricalSheetKind,
   detectElectricalPlanLevel,
   shouldCollapseDuplicateFixtureViews,

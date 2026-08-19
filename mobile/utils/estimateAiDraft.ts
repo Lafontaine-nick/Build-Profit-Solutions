@@ -41,11 +41,13 @@ import {
   filterChecklistItemsForTrade,
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
+  getTradeScopeAllowlist,
   stripScopeInputForSingleTrade,
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
 import { normalizePlumbingPlanMeasurements } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import { hydratePlumbingPlanMeasurementsFromInventory } from '@/utils/planTakeoffReviewUi';
 import { confirmedPaintingMeasurementTextLines } from '@/utils/subcontractorTrade/paintingPlanConvergence';
 import type {
   ElectricalPanelLocation,
@@ -1754,6 +1756,19 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
   if (payload.fixtureInventory !== undefined) {
     next.plumbingFixtureInventory = payload.fixtureInventory;
     changed = true;
+    if (payload.selectedTrade === 'plumbing') {
+      const hydrated = hydratePlumbingPlanMeasurementsFromInventory(
+        next as Record<string, number | string>,
+        payload.fixtureInventory
+      );
+      for (const key of ['plumbingRoughPointCount', 'plumbingTrimHookupCount'] as const) {
+        const value = hydrated[key];
+        if (value == null || value === '') continue;
+        if (samePlan && confirmedFields.has(key)) continue;
+        (next as Record<string, unknown>)[key] = String(value);
+        changed = true;
+      }
+    }
   }
   if (payload.complexityFactors !== undefined) {
     next.plumbingComplexityFactors = payload.complexityFactors;
@@ -2357,6 +2372,11 @@ export function planImportPayloadFromDraft(draft: EstimateAiDraft | null | undef
   const hasPlanMeasurementSource = Object.values(sourceMap).some(
     source =>
       source === 'detected_from_plan' ||
+      source === 'plan_detected' ||
+      source === 'plan_verified' ||
+      source === 'ai_verified' ||
+      source === 'contractor_confirmed_from_plan_review' ||
+      source === 'needs_confirmation' ||
       source === 'measured_from_geometry' ||
       source === 'calculated_from_components' ||
       source === 'estimated_from_formula' ||
@@ -2406,6 +2426,7 @@ export function planImportPayloadFromDraft(draft: EstimateAiDraft | null | undef
     buildingAreas,
     areaReconciliation: sm.areaReconciliation ?? null,
     fieldConfidence: sm.quickMeasurementFieldConfidence,
+    quickMeasurementSources: sm.quickMeasurementSources,
     measurementProvenance: sm.measurementProvenance,
     utilityConnections: sm.plumbingUtilityConnections,
     fixtureInventory: sm.plumbingFixtureInventory,
@@ -2657,8 +2678,22 @@ function stripWholeProjectScopeMeasurements(
   delete next.planFacts;
   delete next.areaReconciliation;
   if (next.itemQuantities) {
-    const allowed = new Set(['stucco', 'electrical_rough']);
-    next.itemQuantities = Object.fromEntries(Object.entries(next.itemQuantities).filter(([id]) => allowed.has(id)));
+    const tradeKey = next.planImportTradeKey as PlanTradeKey | null | undefined;
+    const allowedIds = getTradeScopeAllowlist(tradeKey);
+    if (allowedIds?.length) {
+      next.itemQuantities = Object.fromEntries(
+        Object.entries(next.itemQuantities).filter(([id]) =>
+          allowedIds.some(
+            allowed => id === allowed || id.startsWith(`${allowed}__`)
+          )
+        )
+      );
+    } else {
+      const allowed = new Set(['stucco', 'electrical_rough']);
+      next.itemQuantities = Object.fromEntries(
+        Object.entries(next.itemQuantities).filter(([id]) => allowed.has(id))
+      );
+    }
   }
   return next;
 }

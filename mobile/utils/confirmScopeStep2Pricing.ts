@@ -207,6 +207,14 @@ const BATHROOM_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
   floor_prep: { tier: 'auto_planning' },
 };
 
+const PLUMBING_SERVICE_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
+  plumbing_rough: { tier: 'auto_planning' },
+  plumbing_trim: { tier: 'auto_planning' },
+  water_line: { tier: 'auto_planning' },
+  sewer_line: { tier: 'auto_planning' },
+  gas_line: { tier: 'auto_planning' },
+};
+
 export function resolveStep2PricingTier(
   itemId: string,
   templateKey?: string | null
@@ -247,6 +255,9 @@ export function resolveStep2PricingTier(
   }
   if (template === 'bathroom' && BATHROOM_STEP2_PRICING_TIER[itemId]) {
     return BATHROOM_STEP2_PRICING_TIER[itemId];
+  }
+  if (template === 'plumbing_service' && PLUMBING_SERVICE_STEP2_PRICING_TIER[itemId]) {
+    return PLUMBING_SERVICE_STEP2_PRICING_TIER[itemId];
   }
   if (template === 'ground_up' && GROUND_UP_STEP2_PRICING_TIER[itemId]) {
     return GROUND_UP_STEP2_PRICING_TIER[itemId];
