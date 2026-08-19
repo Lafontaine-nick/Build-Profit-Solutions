@@ -33,7 +33,9 @@ const {
   applyPlumbingVisionTakeoff,
   normalizePlumbingFieldEvidence,
   normalizePlumbingPlanMeasurements,
+  normalizePlumbingComplexityFactors,
   normalizePlumbingUtilityConnections,
+  finalizePlumbingTakeoff,
 } = require('./plumbingPlanAdapter');
 
 /** Temporary Lot 58 diagnosis — which pipeline stage drops Electrical counts. */
@@ -891,6 +893,15 @@ Schema:
       "evidence": [{ "page": 3, "sheet": "P0.1", "label": "Utility connection note" }]
     }
   ],
+  "complexityFactors": [
+    {
+      "key": "two_story_plumbing",
+      "label": "Two-story plumbing",
+      "status": "review",
+      "confidence": 0.9,
+      "evidence": [{ "page": 2, "sheet": "A1.1", "label": "Upper floor" }]
+    }
+  ],
   "fieldEvidence": {
     "plumbingRoughPointCount": [
       {
@@ -1027,8 +1038,30 @@ Schema:
   "measurements": {
     "fixtureReplacementCount": 8,
     "plumbingRoughPointCount": 12,
+    "plumbingTrimHookupCount": 12,
     "waterLineLf": 40,
     "sewerLineLf": 18
+  },
+  "fixtureInventory": {
+    "toilets": 3,
+    "lavatories": 3,
+    "showers": 2,
+    "tubs": 1,
+    "kitchenSinks": 1,
+    "laundryBoxes": 1
+  },
+  "waterHeaterDetail": {
+    "count": 1,
+    "type": "tankless",
+    "fuel": "gas",
+    "location": "Garage",
+    "confidence": 0.9
+  },
+  "gasApplianceScope": {
+    "range": true,
+    "waterHeater": true,
+    "fireplace": true,
+    "gasPipingRequired": true
   },
   "fieldConfidence": {
     "fixtureReplacementCount": 0.85,
@@ -1847,6 +1880,17 @@ async function analyzePlanForMeasurements({
     }
   }
 
+  let plumbingSheetImages = [];
+  if (plumbingSelected && pdfBuffers.length && pdfTakeoff?.plumbingRelevantPages?.length) {
+    try {
+      const { renderPlumbingPlanPages } = require('./planPdfTextTakeoff');
+      plumbingSheetImages = await renderPlumbingPlanPages(pdfBuffers, pdfTakeoff.plumbingRelevantPages);
+    } catch (err) {
+      console.warn('Plumbing sheet raster skipped:', err?.message || err);
+      plumbingSheetImages = [];
+    }
+  }
+
   if (electricalSelected) {
     logElectricalTakeoffStage('ELECTRICAL PAGE SELECTION', {
       pages: (pdfTakeoff?.electricalRelevantPages || []).map(page => page.page),
@@ -1887,12 +1931,18 @@ async function analyzePlanForMeasurements({
     'For exterior paint, use labeled paint area or dimensioned elevation width × height for painted cladding. Do not count stucco/brick/stone cladding as painted wall area.',
   ].join('\n');
   const electricalVisionParts = electricalSheetImages.length ? electricalSheetImages.map(toVisionContentPart) : null;
-  const visionParts = electricalVisionParts || compatible.map(toVisionContentPart);
+  const plumbingVisionParts = plumbingSheetImages.length ? plumbingSheetImages.map(toVisionContentPart) : null;
+  const visionParts = electricalVisionParts || plumbingVisionParts || compatible.map(toVisionContentPart);
   const electricalSheetCountHint = electricalVisionParts
     ? `The attached images are Electrical sheets (pages ${
         (pdfTakeoff?.electricalRelevantPages || []).map(page => page.page).join(', ') || 'E sheets'
       }). Count symbols on every attached page, return a sheet subtotal for every page, and reconcile the final totals to those subtotals. Do not extract living SF or room L×W on this pass.`
     : 'Prioritize E sheets and panel schedules inside the attached plan file.';
+  const plumbingSheetCountHint = plumbingVisionParts
+    ? `The attached images are Plumbing-relevant sheets (pages ${
+        (pdfTakeoff?.plumbingRelevantPages || []).map(page => page.page).join(', ') || 'P / floor-plan sheets'
+      }). Build fixtureInventory from readable fixture symbols and schedules on every attached page. Derive rough-in and trim only from that inventory. Treat labeled LF on architectural sheets as partial segments that require contractor confirmation.`
+    : 'Prioritize P sheets, fixture schedules, riser diagrams, floor plans with fixture symbols, and site/utility plans inside the attached plan file.';
 
   // Electrical counts are a measurement pass, not creative estimation. Keep
   // repeated imports of the same sheets stable; genuine disagreements still
@@ -2019,13 +2069,13 @@ async function analyzePlanForMeasurements({
                     paintingSelected
                       ? 'Return wallPaintSqft, ceilingPaintSqft, baseboardLf, interiorDoorCount, and exteriorPaintSqft when geometry or schedules support them. Add geometry-derived keys to geometryDerived. Leave occupancy, application method, and prep omitted.'
                       : plumbingSelected
-                        ? 'Return Plumbing canonical quantities only. Add only explicit or directly measured fields to explicitlyLabeled/geometryDerived. Leave packages and unsupported values omitted.'
+                        ? `${plumbingSheetCountHint} Return Plumbing canonical quantities only. Add only explicit or directly measured fields to explicitlyLabeled/geometryDerived. Leave packages and unsupported values omitted.`
                         : electricalSelected
                           ? `${electricalSheetCountHint} Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.`
                           : 'Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.',
                   ].join('\n\n'),
                 },
-                ...(electricalSelected ? visionParts : compatible.map(toVisionContentPart)),
+                ...(electricalSelected || plumbingSelected ? visionParts : compatible.map(toVisionContentPart)),
               ],
             },
           ],
@@ -2061,6 +2111,10 @@ async function analyzePlanForMeasurements({
   let plumbingFixtureInventory =
     parsed.fixtureInventory && typeof parsed.fixtureInventory === 'object' ? parsed.fixtureInventory : null;
   let plumbingUtilityConnections = normalizePlumbingUtilityConnections(parsed.utilityConnections);
+  let plumbingComplexityFactors = normalizePlumbingComplexityFactors(parsed.complexityFactors);
+  let plumbingWaterHeaterDetail = null;
+  let plumbingGasApplianceScope = null;
+  let plumbingReviewStatus = null;
   const electricalTagMeasurements = electricalSelected ? instanceTagMeasurementsFromTakeoff(pdfTakeoff) : {};
   if (tradeVisualCompletion) {
     try {
@@ -2081,6 +2135,16 @@ async function analyzePlanForMeasurements({
           ...plumbingUtilityConnections,
           ...normalizePlumbingUtilityConnections(focused.utilityConnections),
         ].slice(0, 16);
+        plumbingComplexityFactors = [
+          ...plumbingComplexityFactors,
+          ...normalizePlumbingComplexityFactors(focused.complexityFactors),
+        ].slice(0, 16);
+        if (focused.waterHeaterDetail) {
+          plumbingWaterHeaterDetail = focused.waterHeaterDetail;
+        }
+        if (focused.gasApplianceScope) {
+          plumbingGasApplianceScope = focused.gasApplianceScope;
+        }
       }
       const mergedMeasurements = electricalSelected
         ? mergeElectricalEvidenceSources({
@@ -2165,12 +2229,41 @@ async function analyzePlanForMeasurements({
               fieldEvidence: plumbingFieldEvidence,
               fixtureInventory: plumbingFixtureInventory,
               utilityConnections: plumbingUtilityConnections,
+              complexityFactors: plumbingComplexityFactors,
+              waterHeaterDetail: plumbingWaterHeaterDetail,
+              gasApplianceScope: plumbingGasApplianceScope,
             }
           : {}),
       };
     } catch (err) {
       console.warn('Focused trade takeoff pass returned invalid JSON:', err?.message || err);
     }
+  }
+
+  if (plumbingSelected) {
+    const finalized = finalizePlumbingTakeoff({
+      fixtureInventory: plumbingFixtureInventory,
+      measurements: parsed.measurements,
+      fieldEvidence: plumbingFieldEvidence,
+      fieldConfidence: parsed.fieldConfidence,
+      geometryDerived: parsed.geometryDerived,
+      inferredKeys: parsed.inferredKeys,
+      utilityConnections: plumbingUtilityConnections,
+      complexityFactors: plumbingComplexityFactors,
+      plumbingRelevantPages: pdfTakeoff?.plumbingRelevantPages || [],
+      waterHeaterDetail: plumbingWaterHeaterDetail || parsed.waterHeaterDetail,
+      gasApplianceScope: plumbingGasApplianceScope || parsed.gasApplianceScope,
+    });
+    parsed.measurements = finalized.measurements;
+    parsed.fieldEvidence = finalized.fieldEvidence;
+    parsed.fieldConfidence = finalized.fieldConfidence;
+    parsed.geometryDerived = finalized.geometryDerived;
+    parsed.inferredKeys = finalized.inferredKeys;
+    plumbingFixtureInventory = finalized.fixtureInventory;
+    plumbingFieldEvidence = finalized.fieldEvidence;
+    plumbingReviewStatus = finalized.plumbingReviewStatus;
+    plumbingWaterHeaterDetail = finalized.waterHeaterDetail;
+    plumbingGasApplianceScope = finalized.gasApplianceScope;
   }
 
   if (electricalSelected && !electricalEvidenceMerged) {
@@ -2443,6 +2536,10 @@ async function analyzePlanForMeasurements({
       ...plumbingUtilityConnections,
       ...(parsed.utilityConnections || []),
     ]);
+    plumbingComplexityFactors = normalizePlumbingComplexityFactors([
+      ...plumbingComplexityFactors,
+      ...(parsed.complexityFactors || []),
+    ]);
   }
   if (electricalSelected) {
     logElectricalTakeoffStage('AFTER electricalPlanConvergence', electricalDebugSnapshot(rawMeasurements));
@@ -2453,6 +2550,15 @@ async function analyzePlanForMeasurements({
       `Electrical-relevant pages: ${pdfTakeoff.electricalRelevantPages
         .slice(0, 8)
         .map(page => `${page.page} (${(page.reasons || []).join(', ') || 'electrical plan'})`)
+        .join('; ')}`,
+    ];
+  }
+  if (plumbingSelected && pdfTakeoff?.plumbingRelevantPages?.length) {
+    parsed.assumptions = [
+      ...(Array.isArray(parsed.assumptions) ? parsed.assumptions : []),
+      `Plumbing-relevant pages: ${pdfTakeoff.plumbingRelevantPages
+        .slice(0, 8)
+        .map(page => `${page.page} (${(page.reasons || []).join(', ') || 'plumbing plan'})`)
         .join('; ')}`,
     ];
   }
@@ -2610,6 +2716,10 @@ async function analyzePlanForMeasurements({
   }
   const tradeAreaReconciliation = planSelection.mode === 'selected_trade' ? null : areaReconciliation;
   const tradeMissingInfo = [...(planSelection.trade?.missingInfo || [])];
+  if (plumbingSelected && plumbingReviewStatus) {
+    tradeMissingInfo.length = 0;
+    tradeMissingInfo.push(...plumbingReviewStatus.needsConfirmation, ...plumbingReviewStatus.notFound);
+  }
   if (planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'stucco') {
     if (!(positive(tradeMeasurementInput.stuccoGrossWallSqft) > 0)) {
       tradeMissingInfo.unshift('Gross exterior wall area: no readable elevation-face or perimeter dimensions');
@@ -2661,6 +2771,10 @@ async function analyzePlanForMeasurements({
           fieldEvidence: plumbingFieldEvidence,
           fixtureInventory: plumbingFixtureInventory,
           utilityConnections: plumbingUtilityConnections,
+          complexityFactors: plumbingComplexityFactors,
+          plumbingReviewStatus,
+          waterHeaterDetail: plumbingWaterHeaterDetail,
+          gasApplianceScope: plumbingGasApplianceScope,
         }
       : {}),
     measurementConflicts,

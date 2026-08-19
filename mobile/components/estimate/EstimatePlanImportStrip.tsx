@@ -244,6 +244,12 @@ export type PlanImportApplyResult = {
     routerStatus: 'reference' | 'stub' | null;
   };
   missingInfo: string[];
+  utilityConnections?: PlanToMeasurementsResult['utilityConnections'];
+  fixtureInventory?: PlanToMeasurementsResult['fixtureInventory'];
+  complexityFactors?: PlanToMeasurementsResult['complexityFactors'];
+  plumbingReviewStatus?: PlanToMeasurementsResult['plumbingReviewStatus'];
+  waterHeaterDetail?: PlanToMeasurementsResult['waterHeaterDetail'];
+  gasApplianceScope?: PlanToMeasurementsResult['gasApplianceScope'];
 };
 
 type PlanReviewState = PlanToMeasurementsResult & {
@@ -507,6 +513,10 @@ export default function EstimatePlanImportStrip({
         electricalValidation?: PlanToMeasurementsResult['electricalValidation'];
         utilityConnections?: PlanToMeasurementsResult['utilityConnections'];
         fixtureInventory?: PlanToMeasurementsResult['fixtureInventory'];
+        complexityFactors?: PlanToMeasurementsResult['complexityFactors'];
+        plumbingReviewStatus?: PlanToMeasurementsResult['plumbingReviewStatus'];
+        waterHeaterDetail?: PlanToMeasurementsResult['waterHeaterDetail'];
+        gasApplianceScope?: PlanToMeasurementsResult['gasApplianceScope'];
       }
     ) => {
       const takeoff = planReview;
@@ -635,8 +645,9 @@ export default function EstimatePlanImportStrip({
           : {}),
         ...(metadata?.measurementProvenance || {}),
       };
-      const electricalQuickMeasurementSources =
-        selection.trade?.key === 'electrical'
+      const provenanceQuickMeasurementSources =
+        selection.trade?.key === 'electrical' ||
+        selection.trade?.key === 'plumbing'
           ? Object.fromEntries(
               Object.entries(appliedProvenance)
                 .filter(([key]) =>
@@ -671,7 +682,7 @@ export default function EstimatePlanImportStrip({
         fieldConfidence: takeoff.fieldConfidence,
         quickMeasurementSources: {
           ...(normalizedTrade?.quickMeasurementSources || {}),
-          ...electricalQuickMeasurementSources,
+          ...provenanceQuickMeasurementSources,
         },
         measurementProvenance: appliedProvenance,
         measurementConflicts: unresolvedConflicts,
@@ -683,6 +694,14 @@ export default function EstimatePlanImportStrip({
           metadata?.utilityConnections ?? takeoff.utilityConnections,
         fixtureInventory:
           metadata?.fixtureInventory ?? takeoff.fixtureInventory,
+        complexityFactors:
+          metadata?.complexityFactors ?? takeoff.complexityFactors,
+        plumbingReviewStatus:
+          metadata?.plumbingReviewStatus ?? takeoff.plumbingReviewStatus,
+        waterHeaterDetail:
+          metadata?.waterHeaterDetail ?? takeoff.waterHeaterDetail,
+        gasApplianceScope:
+          metadata?.gasApplianceScope ?? takeoff.gasApplianceScope,
         estimatingMode: selection.mode,
         selectedTrade: selection.trade?.key || null,
         tradeProvenance: {

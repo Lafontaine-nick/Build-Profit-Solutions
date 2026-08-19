@@ -16,12 +16,12 @@ const ROOM_NAME_PATTERNS = [
   { re: /\bliving\s*area\b/i, name: 'Living Area' },
   { re: /\bden\s*\/\s*bed\s*4\b/i, name: 'Den/Bed 4' },
   { re: /\bbed\s*2\s*\/\s*office\b/i, name: 'Bed 2/Office' },
-  { re: /\bbed(?:room)?\s*(\d+)\b/i, name: (m) => `Bed ${m[1]}` },
+  { re: /\bbed(?:room)?\s*(\d+)\b/i, name: m => `Bed ${m[1]}` },
   { re: /\bprimary\s*bath(room)?\b/i, name: 'Primary Bath' },
   { re: /\bmaster\s*bath(room)?\b/i, name: 'Primary Bath' },
   { re: /\bguest\s*bath(room)?\b/i, name: 'Guest Bath' },
   { re: /\bpowder\b/i, name: 'Powder' },
-  { re: /\bbath(?:room)?\s*(\d+)\b/i, name: (m) => `Bath ${m[1]}` },
+  { re: /\bbath(?:room)?\s*(\d+)\b/i, name: m => `Bath ${m[1]}` },
   { re: /\bbath(?:room)?\b/i, name: 'Bath' },
   { re: /\bkitchen\b/i, name: 'Kitchen' },
   { re: /\bdining\b/i, name: 'Dining' },
@@ -68,9 +68,7 @@ function feetInchesToDecimal(ft, inches) {
 
 function parseDimensionString(text) {
   const s = String(text || '').replace(/\s+/g, '');
-  const m = s.match(
-    /^(\d{1,2})'(?:-|–)?(\d{1,2})"?[xX×](\d{1,2})'(?:-|–)?(\d{1,2})"?$/
-  );
+  const m = s.match(/^(\d{1,2})'(?:-|–)?(\d{1,2})"?[xX×](\d{1,2})'(?:-|–)?(\d{1,2})"?$/);
   if (!m) return null;
   const lengthFt = feetInchesToDecimal(m[1], m[2]);
   const widthFt = feetInchesToDecimal(m[3], m[4]);
@@ -110,7 +108,7 @@ function normalizeRoomLabel(raw) {
       .replace(/LIVINGAREA/i, 'Living Area')
       .replace(/DEN\/?BED\s*4/i, 'Den/Bed 4')
       .replace(/BED\s*2\s*\/?\s*OFFICE/i, 'Bed 2/Office')
-      .replace(/([A-Z]{2,})/g, (m) => m)
+      .replace(/([A-Z]{2,})/g, m => m)
       .trim(),
   ];
 
@@ -151,9 +149,7 @@ function normalizeExtractedSheetId(value) {
 }
 
 function isFixtureTagSheetId(id) {
-  return /^(?:R-?\d{1,2}[A-Z]?|C\.?F\.?(?:-?\d)?|L-?\d{1,2}[A-Z]?)$/i.test(
-    String(id || '')
-  );
+  return /^(?:R-?\d{1,2}[A-Z]?|C\.?F\.?(?:-?\d)?|L-?\d{1,2}[A-Z]?)$/i.test(String(id || ''));
 }
 
 function isArchitecturalSheetId(id) {
@@ -190,7 +186,9 @@ function evidenceFor(label, sourceText, page, sheet) {
     page: Number.isInteger(page) && page > 0 ? page : null,
     sheet: sheet || null,
     label,
-    sourceText: String(sourceText || '').trim().slice(0, 160),
+    sourceText: String(sourceText || '')
+      .trim()
+      .slice(0, 160),
     sourceType: 'pdf_text',
     confidence: 1,
   };
@@ -259,9 +257,9 @@ function parseLabeledHeight(text, kind) {
   const t = normalizeCadCallouts(text);
   if (kind === 'plate') {
     const hits = [];
-    const remember = (parsed) => {
+    const remember = parsed => {
       if (!parsed || !(parsed.value > 0) || parsed.value > 40) return;
-      if (hits.some((h) => Math.abs(h.value - parsed.value) < 0.05)) return;
+      if (hits.some(h => Math.abs(h.value - parsed.value) < 0.05)) return;
       hits.push(parsed);
     };
     const patterns = [
@@ -289,9 +287,7 @@ function parseLabeledHeight(text, kind) {
     if (!hits.length) return null;
     // Multi-story sections label both first-floor plate (~10.2') and the
     // cumulative upper plate (~20.5'). Stucco needs the per-story height.
-    const perStory = hits
-      .filter((h) => h.value >= 7 && h.value <= 14)
-      .sort((a, b) => a.value - b.value);
+    const perStory = hits.filter(h => h.value >= 7 && h.value <= 14).sort((a, b) => a.value - b.value);
     if (perStory.length) return perStory[0];
     return hits.sort((a, b) => a.value - b.value)[0];
   }
@@ -307,9 +303,7 @@ function parseLabeledHeight(text, kind) {
     const parsed = parseFeetToken(match[1], match[2] || 0, match[0]);
     if (parsed) return parsed;
   }
-  const decimal = t.match(
-    /\b(?:wall|ceiling)\s*height\s*[:=-]?\s*(\d{1,2}(?:\.\d+)?)\s*['’](?!\s*-\s*\d)/i
-  );
+  const decimal = t.match(/\b(?:wall|ceiling)\s*height\s*[:=-]?\s*(\d{1,2}(?:\.\d+)?)\s*['’](?!\s*-\s*\d)/i);
   if (decimal) {
     const value = Number(decimal[1]);
     if (Number.isFinite(value) && value > 0 && value <= 40) {
@@ -322,16 +316,10 @@ function parseLabeledHeight(text, kind) {
 /** Labeled exterior/foundation perimeter in LF (or feet-inches). */
 function parseLabeledPerimeter(text, kind) {
   const t = normalizeCadCallouts(text);
-  const kindWord =
-    kind === 'foundation'
-      ? '(?:foundation|footing)'
-      : '(?:exterior|building|house)';
+  const kindWord = kind === 'foundation' ? '(?:foundation|footing)' : '(?:exterior|building|house)';
   // Prefer feet-inches so "198'-6\"" is not truncated to 198 by the LF pattern.
   const ftIn = t.match(
-    new RegExp(
-      `\\b${kindWord}\\s*perimeter\\s*[:=-]?\\s*(\\d{2,4})['’](?:[-\\s]*(\\d{1,2})["”])?`,
-      'i'
-    )
+    new RegExp(`\\b${kindWord}\\s*perimeter\\s*[:=-]?\\s*(\\d{2,4})['’](?:[-\\s]*(\\d{1,2})["”])?`, 'i')
   );
   if (ftIn) {
     const value = feetInchesToDecimal(ftIn[1], ftIn[2] || 0);
@@ -368,10 +356,7 @@ function parseLabeledPerimeter(text, kind) {
 function parseOverallEnvelopePerimeter(text) {
   const t = normalizeCadCallouts(text);
   if (!/foundation/i.test(t)) return null;
-  const withoutRooms = t.replace(
-    /\b\d{1,3}'[^"\n]{0,16}"?\s*[xX×]\s*\d{1,3}'[^"\n]{0,16}"?/g,
-    ' '
-  );
+  const withoutRooms = t.replace(/\b\d{1,3}'[^"\n]{0,16}"?\s*[xX×]\s*\d{1,3}'[^"\n]{0,16}"?/g, ' ');
   const counts = new Map();
   const re = /\b(\d{2,3})['’](?:\s*-\s*(\d{1,2}))?/g;
   let match;
@@ -384,16 +369,14 @@ function parseOverallEnvelopePerimeter(text) {
     if (prev) prev.count += 1;
     else counts.set(key, { value: rounded, sourceText: match[0], count: 1 });
   }
-  const repeated = [...counts.values()]
-    .filter((entry) => entry.count >= 2)
-    .sort((a, b) => b.value - a.value);
+  const repeated = [...counts.values()].filter(entry => entry.count >= 2).sort((a, b) => b.value - a.value);
   const uniqueSorted = [...counts.values()].sort((a, b) => b.value - a.value);
   let a = null;
   let b = null;
   if (repeated.length >= 2) {
     const unique = [];
     for (const entry of repeated) {
-      if (unique.some((u) => Math.abs(u.value - entry.value) < 1.5)) continue;
+      if (unique.some(u => Math.abs(u.value - entry.value) < 1.5)) continue;
       unique.push(entry);
       if (unique.length >= 2) break;
     }
@@ -406,8 +389,7 @@ function parseOverallEnvelopePerimeter(text) {
   // Pair the repeated overall with the next largest distinct envelope dim.
   if ((!a || !b) && repeated.length >= 1 && uniqueSorted.length >= 2) {
     a = repeated[0];
-    b =
-      uniqueSorted.find((entry) => Math.abs(entry.value - a.value) >= 5) || null;
+    b = uniqueSorted.find(entry => Math.abs(entry.value - a.value) >= 5) || null;
   }
   if (!a || !b) return null;
   if (a.value - b.value < 5 && b.value - a.value < 5) return null;
@@ -458,9 +440,7 @@ function parseNonPaintedExteriorPercent(text) {
     90,
     [...materials.values()].reduce((sum, value) => sum + value, 0)
   );
-  const sourceText = [...materials.entries()]
-    .map(([material, pct]) => `${material} ${pct}%`)
-    .join(', ');
+  const sourceText = [...materials.entries()].map(([material, pct]) => `${material} ${pct}%`).join(', ');
   return { value: Math.round(total * 10) / 10, sourceText };
 }
 
@@ -505,20 +485,15 @@ function parsePageFactsFromText(text, { page = null, sheet = null } = {}) {
   addArea('coveredOutdoorSqft', [
     /Covered\s*Outdoor\s*(?:Area)?\s*:?\s*([\d,]+(?:\.\d+)?)\s*(?:Sq\.?\s*Ft|SF|SQFT)\b/i,
   ]);
-  addArea('roofDeckSqft', [
-    /Roof\s*Deck\s*:\s*([\d,]+(?:\.\d+)?)\s*(?:Sq\.?\s*Ft|SF|SQFT)\b/i,
-  ]);
+  addArea('roofDeckSqft', [/Roof\s*Deck\s*:\s*([\d,]+(?:\.\d+)?)\s*(?:Sq\.?\s*Ft|SF|SQFT)\b/i]);
 
   // "Main Living Area" on cover sheets is usually the *total* living SF (also
   // captured above). Only treat it as the first-floor footprint when it differs
   // from the cover total — otherwise 2-story plans double-count upstairs as roof.
-  const mainLiving = labeledNumber(t, [
-    /Main\s*Living\s*Area\s*:\s*([\d,]+(?:\.\d+)?)\s*(?:Sq\.?\s*Ft|SF|SQFT)\b/i,
-  ]);
+  const mainLiving = labeledNumber(t, [/Main\s*Living\s*Area\s*:\s*([\d,]+(?:\.\d+)?)\s*(?:Sq\.?\s*Ft|SF|SQFT)\b/i]);
   if (mainLiving && buildingAreas.mainFloorLivingSqft == null) {
     const coverTotal = buildingAreas.totalLivingSqft;
-    const isCoverTotalAlias =
-      coverTotal != null && Math.abs(Number(coverTotal) - mainLiving.value) < 1;
+    const isCoverTotalAlias = coverTotal != null && Math.abs(Number(coverTotal) - mainLiving.value) < 1;
     if (!isCoverTotalAlias) {
       buildingAreas.mainFloorLivingSqft = mainLiving.value;
       fieldEvidence['buildingAreas.mainFloorLivingSqft'] = {
@@ -537,20 +512,15 @@ function parsePageFactsFromText(text, { page = null, sheet = null } = {}) {
     /\bLiving\s*Area\b[\s\S]{0,48}?([\d,]{3,5}(?:\.\d+)?)\s*(?:Sq\.?\s*Ft|SF|SQFT)\b/i,
   ]);
   if (floorLiving) {
-    const isUpper =
-      /\b(?:2nd|second|upper)\s*(?:level|floor)\b/i.test(t) ||
-      /\bupstairs\b/i.test(t);
-    const isMain =
-      /\b(?:main|first|1st)\s*(?:level|floor)\b/i.test(t) && !isUpper;
+    const isUpper = /\b(?:2nd|second|upper)\s*(?:level|floor)\b/i.test(t) || /\bupstairs\b/i.test(t);
+    const isMain = /\b(?:main|first|1st)\s*(?:level|floor)\b/i.test(t) && !isUpper;
     if (isUpper && buildingAreas.upstairsLivingSqft == null) {
       buildingAreas.upstairsLivingSqft = floorLiving.value;
       fieldEvidence['buildingAreas.upstairsLivingSqft'] = {
         value: floorLiving.value,
         sourceType: 'detected_from_plan',
         confidence: 'high',
-        evidence: [
-          evidenceFor('upstairsLivingSqft', floorLiving.sourceText, page, sourceSheet),
-        ],
+        evidence: [evidenceFor('upstairsLivingSqft', floorLiving.sourceText, page, sourceSheet)],
       };
     } else if (isMain && buildingAreas.mainFloorLivingSqft == null) {
       buildingAreas.mainFloorLivingSqft = floorLiving.value;
@@ -558,9 +528,7 @@ function parsePageFactsFromText(text, { page = null, sheet = null } = {}) {
         value: floorLiving.value,
         sourceType: 'detected_from_plan',
         confidence: 'high',
-        evidence: [
-          evidenceFor('mainFloorLivingSqft', floorLiving.sourceText, page, sourceSheet),
-        ],
+        evidence: [evidenceFor('mainFloorLivingSqft', floorLiving.sourceText, page, sourceSheet)],
       };
     }
   }
@@ -604,19 +572,16 @@ function parsePageFactsFromText(text, { page = null, sheet = null } = {}) {
     buildingAreas.mainFloorLivingSqft,
     buildingAreas.upstairsLivingSqft,
     ...(buildingAreas.additionalFloorAreas || []),
-  ].filter((value) => value != null);
+  ].filter(value => value != null);
   if (labeledFloors.length) {
     planFacts.storyCount = labeledFloors.length;
     fieldEvidence.storyCount = {
       value: labeledFloors.length,
       sourceType: 'detected_from_plan',
       confidence: 'high',
-      evidence: [
-        fieldEvidence['buildingAreas.mainFloorLivingSqft'],
-        fieldEvidence['buildingAreas.upstairsLivingSqft'],
-      ]
+      evidence: [fieldEvidence['buildingAreas.mainFloorLivingSqft'], fieldEvidence['buildingAreas.upstairsLivingSqft']]
         .filter(Boolean)
-        .flatMap((fact) => fact.evidence || []),
+        .flatMap(fact => fact.evidence || []),
     };
   }
   return { buildingAreas, planFacts, sourceSheet };
@@ -626,7 +591,7 @@ function clusterPhrases(items) {
   const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
   const lines = [];
   for (const it of sorted) {
-    let line = lines.find((l) => Math.abs(l.y - it.y) <= 3.5);
+    let line = lines.find(l => Math.abs(l.y - it.y) <= 3.5);
     if (!line) {
       line = { y: it.y, parts: [] };
       lines.push(line);
@@ -654,14 +619,16 @@ function clusterPhrases(items) {
       }
     }
   }
-  return phrases.map((p) => ({
+  return phrases.map(p => ({
     ...p,
-    str: String(p.str || '').replace(/\s+/g, ' ').trim(),
+    str: String(p.str || '')
+      .replace(/\s+/g, ' ')
+      .trim(),
   }));
 }
 
 function classifyPage(phrases, pageIndex) {
-  const blob = phrases.map((p) => p.str).join(' ');
+  const blob = phrases.map(p => p.str).join(' ');
   if (FOUNDATION_PAGE_RE.test(blob)) return 'foundation';
   if (FLOOR_PAGE_RE.test(blob)) return 'floor';
   if (SKIP_PAGE_RE.test(blob)) return 'skip';
@@ -690,9 +657,35 @@ const ELECTRICAL_PAGE_SIGNALS = [
   { re: /\blighting\s+plan\b|\bpower\s+plan\b|\blighting\s+layout\b/i, label: 'lighting / power plan', score: 11 },
   { re: /\bpanel\s+schedule\b|\bcircuit\s+schedule\b/i, label: 'panel schedule', score: 12 },
   { re: /\bdevice\s+legend\b|\blighting\s+legend\b|\bsymbol\s+legend\b/i, label: 'device legend', score: 8 },
-  { re: /\bmain\s+(?:floor|level)\s+electrical|\b(?:second|upper)\s+(?:floor|level)\s+electrical/i, label: 'level electrical', score: 10 },
+  {
+    re: /\bmain\s+(?:floor|level)\s+electrical|\b(?:second|upper)\s+(?:floor|level)\s+electrical/i,
+    label: 'level electrical',
+    score: 10,
+  },
   { re: /\bE\d+\.\d+\b|\bsheet\s+E[-.]?\d/i, label: 'E sheet', score: 9 },
   { re: /\breceptacle|\bgfci\b|\bsmoke\s+detector|\bceiling\s+fan\b/i, label: 'device callouts', score: 4 },
+];
+
+const PLUMBING_PAGE_SIGNALS = [
+  { re: /\bplumbing\s+plan\b|\bplumbing\s+layout\b|\bplumbing\s+drawing\b/i, label: 'plumbing plan', score: 14 },
+  { re: /\bP\d+\.\d+\b|\bsheet\s+P[-.]?\d/i, label: 'P sheet', score: 13 },
+  { re: /\bplumbing\s+riser\b|\brisometric\b|\bplumbing\s+details?\b/i, label: 'plumbing riser/details', score: 12 },
+  { re: /\bfixture\s+schedule\b|\bplumbing\s+fixture\s+schedule\b/i, label: 'fixture schedule', score: 11 },
+  {
+    re: /\bwater\s+heater\b|\bsewer\s+line\b|\bwater\s+line\b|\bdwv\b|\bdrain[-\s]?waste\b/i,
+    label: 'plumbing callouts',
+    score: 5,
+  },
+  {
+    re: /\bfloor\s*plan|\bmain\s*floor|\bupper\s*floor|\bsecond\s*floor|\bfloor\s*layout/i,
+    label: 'floor plan (fixture symbols)',
+    score: 6,
+  },
+  {
+    re: /\bsite\s*plan\b|\butility\b|\bsewer\s+tap\b|\bwater\s+tap\b|\bwater\s+meter\b/i,
+    label: 'site / utility',
+    score: 7,
+  },
 ];
 
 /** Upper-level E sheets often have almost no text layer. Include the next page after a strong hit. */
@@ -711,6 +704,27 @@ function expandElectricalRelevantPages(pages, pageCount) {
       page: next,
       score: Math.max(1, (page.score || 1) - 3),
       reasons: ['following electrical sheet'],
+    });
+  }
+  return [...byPage.values()].sort((a, b) => a.page - b.page);
+}
+
+/** Include adjacent floor-plan pages after strong plumbing sheet hits. */
+function expandPlumbingRelevantPages(pages, pageCount) {
+  const byPage = new Map();
+  for (const page of Array.isArray(pages) ? pages : []) {
+    const pageNumber = Number(page?.page);
+    if (!Number.isInteger(pageNumber) || pageNumber < 1) continue;
+    byPage.set(pageNumber, page);
+  }
+  for (const page of [...byPage.values()]) {
+    if ((page.score || 0) < 8) continue;
+    const next = page.page + 1;
+    if (next > pageCount || byPage.has(next)) continue;
+    byPage.set(next, {
+      page: next,
+      score: Math.max(1, (page.score || 1) - 2),
+      reasons: ['following plumbing / floor-plan sheet'],
     });
   }
   return [...byPage.values()].sort((a, b) => a.page - b.page);
@@ -736,8 +750,7 @@ const ELECTRICAL_INSTANCE_TAG_SPECS = [
   },
 ];
 
-const OTHER_FIXTURE_TAG_RE =
-  /^(?:R-?(?:[1-35-9]|1\d)|L-?\d{1,2}|P-?\d{1,2}|F-?\d{1,2})[A-Z]?$/i;
+const OTHER_FIXTURE_TAG_RE = /^(?:R-?(?:[1-35-9]|1\d)|L-?\d{1,2}|P-?\d{1,2}|F-?\d{1,2})[A-Z]?$/i;
 
 const FIXTURE_TAG_SKIP_PAGE_RE =
   /elevation|section|roof\s*plan|framing|terrain|site\s*plan|cover\s*sheet|structural|foundation/i;
@@ -785,7 +798,7 @@ function phraseLooksLikeNonInstance(str) {
 function glyphPairCoveredByPhraseHit(hit, phraseHits) {
   const x = Number(hit?.x) || 0;
   const y = Number(hit?.y) || 0;
-  return (Array.isArray(phraseHits) ? phraseHits : []).some((phrase) => {
+  return (Array.isArray(phraseHits) ? phraseHits : []).some(phrase => {
     if (Math.abs((Number(phrase.y) || 0) - y) > 6) return false;
     const left = Number(phrase.x) || 0;
     const right = Number(phrase.xEnd) || left;
@@ -866,9 +879,7 @@ function findLegendRegions(phrases) {
   for (const phrase of Array.isArray(phrases) ? phrases : []) {
     const str = String(phrase?.str || '');
     if (
-      !/\b(legend|fixture\s*schedule|lighting\s*schedule|symbol\s*(?:legend|list|key)|device\s*legend)\b/i.test(
-        str
-      )
+      !/\b(legend|fixture\s*schedule|lighting\s*schedule|symbol\s*(?:legend|list|key)|device\s*legend)\b/i.test(str)
     ) {
       continue;
     }
@@ -886,23 +897,16 @@ function isInsideLegendRegion(phrase, regions) {
   const x = Number(phrase?.x) || 0;
   const y = Number(phrase?.y) || 0;
   return (Array.isArray(regions) ? regions : []).some(
-    (region) =>
-      x >= region.x - 24 &&
-      x <= region.x + region.w &&
-      y <= region.y + 24 &&
-      y >= region.y - region.h
+    region => x >= region.x - 24 && x <= region.x + region.w && y <= region.y + 24 && y >= region.y - region.h
   );
 }
 
 function tagHitsHaveSpread(hits, minSpan = 40) {
   const list = Array.isArray(hits) ? hits : [];
   if (list.length < 2) return false;
-  const xs = list.map((hit) => Number(hit.x) || 0);
-  const ys = list.map((hit) => Number(hit.y) || 0);
-  return (
-    Math.max(...xs) - Math.min(...xs) > minSpan ||
-    Math.max(...ys) - Math.min(...ys) > minSpan
-  );
+  const xs = list.map(hit => Number(hit.x) || 0);
+  const ys = list.map(hit => Number(hit.y) || 0);
+  return Math.max(...xs) - Math.min(...xs) > minSpan || Math.max(...ys) - Math.min(...ys) > minSpan;
 }
 
 function instanceCountFromTagHits(hits) {
@@ -910,15 +914,12 @@ function instanceCountFromTagHits(hits) {
   if (!list.length) return 0;
   const raw = list.reduce((sum, hit) => sum + (Number(hit.count) || 1), 0);
   if (!tagHitsHaveSpread(list)) return raw;
-  return clusterTagHits(list).reduce(
-    (sum, hit) => sum + (Number(hit.count) || 1),
-    0
-  );
+  return clusterTagHits(list).reduce((sum, hit) => sum + (Number(hit.count) || 1), 0);
 }
 
 function isMappedElectricalInstanceTag(str) {
   const compact = String(str || '').replace(/\s+/g, '');
-  return ELECTRICAL_INSTANCE_TAG_SPECS.some((spec) => spec.tokenRe.test(compact));
+  return ELECTRICAL_INSTANCE_TAG_SPECS.some(spec => spec.tokenRe.test(compact));
 }
 
 function clusterTagHits(hits, radius = 8) {
@@ -940,14 +941,14 @@ function clusterTagHits(hits, radius = 8) {
         used.add(j);
       }
     }
-    const count = Math.max(...group.map((hit) => Number(hit.count) || 1));
+    const count = Math.max(...group.map(hit => Number(hit.count) || 1));
     clusters.push({ ...group[0], count });
   }
   return clusters;
 }
 
 function countElectricalInstanceTagsOnPage(phrases, { pageText, page = null, sheet = null, items = null } = {}) {
-  const blob = pageText || (Array.isArray(phrases) ? phrases.map((p) => p.str).join(' ') : '');
+  const blob = pageText || (Array.isArray(phrases) ? phrases.map(p => p.str).join(' ') : '');
   if (isFixtureTagSkipPage(blob)) {
     return {
       measurements: {},
@@ -979,9 +980,7 @@ function countElectricalInstanceTagsOnPage(phrases, { pageText, page = null, she
         y: Number(phrase.y) || 0,
         count,
         str,
-        xEnd:
-          Number(phrase.xEnd) ||
-          x + Math.max(Number(phrase.w) || 0, String(str).length * 6),
+        xEnd: Number(phrase.xEnd) || x + Math.max(Number(phrase.w) || 0, String(str).length * 6),
       });
     }
     for (const hit of pairAdjacentGlyphTags(items, spec)) {
@@ -1044,13 +1043,7 @@ function normalizeSheetId(sheet) {
 }
 
 function shouldCollapseDuplicateFixtureViews(a, b) {
-  if (
-    a?.level &&
-    b?.level &&
-    a.level !== 'unknown' &&
-    b.level !== 'unknown' &&
-    a.level !== b.level
-  ) {
+  if (a?.level && b?.level && a.level !== 'unknown' && b.level !== 'unknown' && a.level !== b.level) {
     return false;
   }
   const sheetA = normalizeSheetId(a?.sheet);
@@ -1068,23 +1061,18 @@ function shouldCollapseDuplicateFixtureViews(a, b) {
 function sumCollapsingDuplicateFixtureViews(pages) {
   const groups = [];
   for (const page of Array.isArray(pages) ? pages : []) {
-    const existing = groups.find((group) =>
-      group.some((member) => shouldCollapseDuplicateFixtureViews(member, page))
-    );
+    const existing = groups.find(group => group.some(member => shouldCollapseDuplicateFixtureViews(member, page)));
     if (existing) existing.push(page);
     else groups.push([page]);
   }
-  return groups.reduce(
-    (sum, group) => sum + Math.max(...group.map((page) => Number(page.count) || 0)),
-    0
-  );
+  return groups.reduce((sum, group) => sum + Math.max(...group.map(page => Number(page.count) || 0)), 0);
 }
 
 function aggregateElectricalInstanceTagCounts(pageResults) {
   const byKey = {};
   for (const spec of ELECTRICAL_INSTANCE_TAG_SPECS) {
     const pages = (Array.isArray(pageResults) ? pageResults : [])
-      .map((result) => ({
+      .map(result => ({
         ...result,
         count: Number(result?.measurements?.[spec.key]) || 0,
         kind: result?.kind || result?.details?.[spec.key]?.kind,
@@ -1092,7 +1080,7 @@ function aggregateElectricalInstanceTagCounts(pageResults) {
         sheet: result?.sheet || result?.details?.[spec.key]?.sheet,
         page: result?.page || result?.details?.[spec.key]?.page,
       }))
-      .filter((result) => result.count >= 2);
+      .filter(result => result.count >= 2);
     if (!pages.length) continue;
     const total = sumCollapsingDuplicateFixtureViews(pages);
     if (total < 2) continue;
@@ -1100,7 +1088,7 @@ function aggregateElectricalInstanceTagCounts(pageResults) {
       value: total,
       tag: spec.id,
       sourceType: 'pdf_text_instance_tags',
-      sheets: pages.map((page) => ({
+      sheets: pages.map(page => ({
         sheet: page.sheet || null,
         page: page.page || null,
         count: page.count,
@@ -1110,28 +1098,23 @@ function aggregateElectricalInstanceTagCounts(pageResults) {
     };
   }
   const unclassifiedPages = (Array.isArray(pageResults) ? pageResults : [])
-    .map((result) => ({
+    .map(result => ({
       ...result,
       count: Number(result?.unclassifiedFixtureCount) || 0,
     }))
-    .filter((result) => result.count >= 2);
-  const unclassifiedFixtureCount = unclassifiedPages.length
-    ? sumCollapsingDuplicateFixtureViews(unclassifiedPages)
-    : 0;
+    .filter(result => result.count >= 2);
+  const unclassifiedFixtureCount = unclassifiedPages.length ? sumCollapsingDuplicateFixtureViews(unclassifiedPages) : 0;
   return {
-    measurements: Object.fromEntries(
-      Object.entries(byKey).map(([key, entry]) => [key, entry.value])
-    ),
+    measurements: Object.fromEntries(Object.entries(byKey).map(([key, entry]) => [key, entry.value])),
     byKey,
-    unclassifiedFixtureCount:
-      unclassifiedFixtureCount >= 2 ? unclassifiedFixtureCount : 0,
+    unclassifiedFixtureCount: unclassifiedFixtureCount >= 2 ? unclassifiedFixtureCount : 0,
   };
 }
 
 function scorePaintingRelevantPage(text) {
   const blob = String(text || '');
   if (!blob.trim()) return { score: 0, reasons: [] };
-  const hasPaintSignal = PAINTING_PAGE_SIGNALS.some((signal) => signal.re.test(blob));
+  const hasPaintSignal = PAINTING_PAGE_SIGNALS.some(signal => signal.re.test(blob));
   if (PAINTING_IRRELEVANT_PAGE_RE.test(blob) && !hasPaintSignal) {
     return { score: 0, reasons: [] };
   }
@@ -1160,6 +1143,20 @@ function scoreElectricalRelevantPage(text) {
   return { score, reasons: [...new Set(reasons)] };
 }
 
+function scorePlumbingRelevantPage(text) {
+  const blob = String(text || '');
+  if (!blob.trim()) return { score: 0, reasons: [] };
+  let score = 0;
+  const reasons = [];
+  for (const signal of PLUMBING_PAGE_SIGNALS) {
+    if (signal.re.test(blob)) {
+      score += signal.score;
+      reasons.push(signal.label);
+    }
+  }
+  return { score, reasons: [...new Set(reasons)] };
+}
+
 function extractRoomsFromPhrases(phrases, { sourcePage = null, sourceSheet = null } = {}) {
   const dims = [];
   const names = [];
@@ -1171,11 +1168,7 @@ function extractRoomsFromPhrases(phrases, { sourcePage = null, sourceSheet = nul
     }
     // Also accept "13'-1" X 8'-7"" with spaces / odd quotes
     const loose = parseDimensionString(
-      p.str
-        .replace(/\s+/g, '')
-        .replace(/[–—]/g, '-')
-        .replace(/”|“|"/g, '"')
-        .replace(/×/g, 'x')
+      p.str.replace(/\s+/g, '').replace(/[–—]/g, '-').replace(/”|“|"/g, '"').replace(/×/g, 'x')
     );
     if (loose) {
       dims.push({ ...loose, x: p.x, y: p.y });
@@ -1304,17 +1297,29 @@ function encodeJpeg(canvas, quality = 82) {
  * Rasterize Electrical sheets so vision can count symbols. The full PDF file
  * pass reads architectural text and skips tiny E-sheet glyphs.
  */
+async function renderPlumbingPlanPages(pdfBuffers, plumbingPages, options = {}) {
+  const images = await renderElectricalPlanPages(pdfBuffers, plumbingPages, options);
+  return images.map(image => ({
+    ...image,
+    filename: String(image.filename || '').replace(/^electrical-page-/, 'plumbing-page-'),
+  }));
+}
+
 async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = {}) {
   const canvasLib = loadNodeCanvas();
   if (!canvasLib?.createCanvas) {
     console.warn('Electrical sheet raster skipped: @napi-rs/canvas is not installed');
     return [];
   }
-  const pageNumbers = [...new Set(
-    (Array.isArray(electricalPages) ? electricalPages : [])
-      .map((page) => Number(page?.page))
-      .filter((page) => Number.isInteger(page) && page > 0)
-  )].sort((a, b) => a - b).slice(0, options.maxPages || 12);
+  const pageNumbers = [
+    ...new Set(
+      (Array.isArray(electricalPages) ? electricalPages : [])
+        .map(page => Number(page?.page))
+        .filter(page => Number.isInteger(page) && page > 0)
+    ),
+  ]
+    .sort((a, b) => a - b)
+    .slice(0, options.maxPages || 12);
   const buffers = (Array.isArray(pdfBuffers) ? pdfBuffers : [pdfBuffers]).filter(Boolean);
   if (!pageNumbers.length || !buffers.length) return [];
 
@@ -1347,11 +1352,7 @@ async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = 
         const scale = Math.min(2.4, maxDim / Math.max(base.width, base.height, 1));
         const viewport = page.getViewport({ scale });
         const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
-        fillElectricalSheetBackground(
-          canvasAndContext.context,
-          viewport.width,
-          viewport.height
-        );
+        fillElectricalSheetBackground(canvasAndContext.context, viewport.width, viewport.height);
         await page.render({
           canvas: canvasAndContext.canvas,
           canvasContext: canvasAndContext.context,
@@ -1371,10 +1372,7 @@ async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = 
           height: Math.round(viewport.height),
         });
       } catch (err) {
-        console.warn(
-          `Electrical sheet raster failed for page ${pageNumber}:`,
-          err?.message || err
-        );
+        console.warn(`Electrical sheet raster failed for page ${pageNumber}:`, err?.message || err);
       }
     }
   }
@@ -1382,11 +1380,7 @@ async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = 
 }
 
 function toUint8Array(buffer) {
-  const src = Buffer.isBuffer(buffer)
-    ? buffer
-    : buffer instanceof Uint8Array
-      ? buffer
-      : Buffer.from(buffer || []);
+  const src = Buffer.isBuffer(buffer) ? buffer : buffer instanceof Uint8Array ? buffer : Buffer.from(buffer || []);
   const copy = new Uint8Array(src.length);
   copy.set(src);
   return copy;
@@ -1401,7 +1395,7 @@ async function extractItemsFromPdfBuffer(buffer) {
     const page = await doc.getPage(i);
     const content = await page.getTextContent();
     const items = content.items
-      .map((it) => {
+      .map(it => {
         const t = it.transform || [1, 0, 0, 1, 0, 0];
         return {
           str: collapseDoubledGlyphs(it.str),
@@ -1410,7 +1404,7 @@ async function extractItemsFromPdfBuffer(buffer) {
           w: it.width || 0,
         };
       })
-      .filter((it) => it.str && String(it.str).trim());
+      .filter(it => it.str && String(it.str).trim());
     pages.push({ pageIndex: i - 1, items });
   }
   return pages;
@@ -1432,6 +1426,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
   const assumptions = [];
   const paintingRelevantPages = [];
   const electricalRelevantPages = [];
+  const plumbingRelevantPages = [];
   const electricalInstanceTagPages = [];
   let pageCount = 0;
 
@@ -1446,7 +1441,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
     pageCount += pages.length;
     for (const page of pages) {
       const phrases = clusterPhrases(page.items);
-      const pageText = phrases.map((p) => p.str).join(' ');
+      const pageText = phrases.map(p => p.str).join(' ');
       const pageNumber = page.pageIndex + 1;
       const paintingPage = scorePaintingRelevantPage(pageText);
       if (paintingPage.score > 0) {
@@ -1464,6 +1459,14 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
           reasons: electricalPage.reasons,
         });
       }
+      const plumbingPage = scorePlumbingRelevantPage(pageText);
+      if (plumbingPage.score > 0) {
+        plumbingRelevantPages.push({
+          page: pageNumber,
+          score: plumbingPage.score,
+          reasons: plumbingPage.reasons,
+        });
+      }
       const instanceTagPage = countElectricalInstanceTagsOnPage(phrases, {
         pageText,
         page: pageNumber,
@@ -1471,15 +1474,11 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
       });
       if (Object.keys(instanceTagPage.measurements || {}).length) {
         electricalInstanceTagPages.push(instanceTagPage);
-        const existingElectrical = electricalRelevantPages.find(
-          (entry) => entry.page === pageNumber
-        );
+        const existingElectrical = electricalRelevantPages.find(entry => entry.page === pageNumber);
         const tagReason = 'fixture instance tags';
         if (existingElectrical) {
           existingElectrical.score = Math.max(existingElectrical.score, 9);
-          existingElectrical.reasons = [
-            ...new Set([...(existingElectrical.reasons || []), tagReason]),
-          ];
+          existingElectrical.reasons = [...new Set([...(existingElectrical.reasons || []), tagReason])];
         } else {
           electricalRelevantPages.push({
             page: pageNumber,
@@ -1512,16 +1511,10 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
           continue;
         }
         // Prefer per-story plate (~10.2') over cumulative upper plate (~20.5').
-        if (
-          key === 'plateHeightFt' &&
-          Number(scalarFacts[key]) > 14 &&
-          Number(nextVal) >= 7 &&
-          Number(nextVal) <= 14
-        ) {
+        if (key === 'plateHeightFt' && Number(scalarFacts[key]) > 14 && Number(nextVal) >= 7 && Number(nextVal) <= 14) {
           scalarFacts[key] = nextVal;
           if (parsedFacts.planFacts.fieldEvidence?.plateHeightFt) {
-            fieldEvidence.plateHeightFt =
-              parsedFacts.planFacts.fieldEvidence.plateHeightFt;
+            fieldEvidence.plateHeightFt = parsedFacts.planFacts.fieldEvidence.plateHeightFt;
           }
         }
       }
@@ -1530,7 +1523,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
       if (kind === 'skip' || kind === 'foundation' || kind === 'cover') continue;
       if (kind !== 'floor' && kind !== 'other') continue;
       // Only pair rooms on floor-like pages (or unknown pages that have many L×W labels)
-      const dimCount = phrases.filter((p) => parseDimensionString(p.str.replace(/\s+/g, ''))).length;
+      const dimCount = phrases.filter(p => parseDimensionString(p.str.replace(/\s+/g, ''))).length;
       if (kind === 'other' && dimCount < 3) continue;
 
       const rooms = extractRoomsFromPhrases(phrases, {
@@ -1551,7 +1544,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
     buildingAreas.mainFloorLivingSqft,
     buildingAreas.upstairsLivingSqft,
     ...(Array.isArray(buildingAreas.additionalFloorAreas) ? buildingAreas.additionalFloorAreas : []),
-  ].filter((value) => value != null);
+  ].filter(value => value != null);
   if (explicitFloors.length) {
     scalarFacts.storyCount = explicitFloors.length;
     const evidence = [
@@ -1559,7 +1552,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
       fieldEvidence['buildingAreas.upstairsLivingSqft'],
     ]
       .filter(Boolean)
-      .flatMap((fact) => fact.evidence || []);
+      .flatMap(fact => fact.evidence || []);
     fieldEvidence.storyCount = {
       value: explicitFloors.length,
       sourceType: 'detected_from_plan',
@@ -1573,13 +1566,11 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
     planFacts: { buildingAreas, ...scalarFacts, fieldEvidence },
     rooms: dedupeRoomsByName(allRooms).slice(0, 60),
     assumptions: [...new Set(assumptions)].slice(0, 8),
-    paintingRelevantPages: paintingRelevantPages
+    paintingRelevantPages: paintingRelevantPages.sort((a, b) => b.score - a.score).slice(0, 12),
+    electricalRelevantPages: expandElectricalRelevantPages(electricalRelevantPages, pageCount)
       .sort((a, b) => b.score - a.score)
       .slice(0, 12),
-    electricalRelevantPages: expandElectricalRelevantPages(
-      electricalRelevantPages,
-      pageCount
-    )
+    plumbingRelevantPages: expandPlumbingRelevantPages(plumbingRelevantPages, pageCount)
       .sort((a, b) => b.score - a.score)
       .slice(0, 12),
     electricalInstanceTags: aggregateElectricalInstanceTagCounts(electricalInstanceTagPages),
@@ -1606,7 +1597,7 @@ function formatPdfEvidenceForVision(pdfTakeoff, options = {}) {
     'nonPaintedExteriorPercent',
     'coveredPatioRoofed',
   ];
-  const scalars = scalarKeys.filter((key) => facts[key] != null);
+  const scalars = scalarKeys.filter(key => facts[key] != null);
   if (scalars.length) {
     lines.push(
       'PDF text layer — labeled plan facts for living SF / stories / plate-or-wall height / perimeter (prefer these for GROSS wall area; do not invent):'
@@ -1629,9 +1620,7 @@ function formatPdfEvidenceForVision(pdfTakeoff, options = {}) {
     );
   }
   const tradeKey = String(options.tradeKey || '').toLowerCase();
-  const paintingPages = Array.isArray(pdfTakeoff.paintingRelevantPages)
-    ? pdfTakeoff.paintingRelevantPages
-    : [];
+  const paintingPages = Array.isArray(pdfTakeoff.paintingRelevantPages) ? pdfTakeoff.paintingRelevantPages : [];
   if (tradeKey === 'painting') {
     lines.push(
       'Painting-relevant sheets are floor plans, RCPs, finish schedules, door schedules, interior/exterior elevations, and millwork — not only sheets titled Paint. Calculate paint quantities from those sheets when geometry is explicit.'
@@ -1639,15 +1628,23 @@ function formatPdfEvidenceForVision(pdfTakeoff, options = {}) {
     if (paintingPages.length) {
       lines.push('PDF text layer — pages that look useful for a Painting takeoff:');
       for (const page of paintingPages.slice(0, 8)) {
-        lines.push(
-          `- page ${page.page}: ${Array.isArray(page.reasons) ? page.reasons.join(', ') : 'plan geometry'}`
-        );
+        lines.push(`- page ${page.page}: ${Array.isArray(page.reasons) ? page.reasons.join(', ') : 'plan geometry'}`);
       }
     }
   }
-  const electricalPages = Array.isArray(pdfTakeoff.electricalRelevantPages)
-    ? pdfTakeoff.electricalRelevantPages
-    : [];
+  if (tradeKey === 'plumbing') {
+    const plumbingPages = Array.isArray(pdfTakeoff.plumbingRelevantPages) ? pdfTakeoff.plumbingRelevantPages : [];
+    lines.push(
+      'Plumbing-relevant sheets are dedicated P sheets, fixture schedules, riser/isometric diagrams, floor plans with fixture symbols, and site/utility plans. Priority: P sheets > fixture schedules > architectural floor plans > site plans. Count fixture symbols and schedules before inferring underground LF from architectural sheets.'
+    );
+    if (plumbingPages.length) {
+      lines.push('PDF text layer — pages that look useful for a Plumbing takeoff:');
+      for (const page of plumbingPages.slice(0, 8)) {
+        lines.push(`- page ${page.page}: ${Array.isArray(page.reasons) ? page.reasons.join(', ') : 'plumbing plan'}`);
+      }
+    }
+  }
+  const electricalPages = Array.isArray(pdfTakeoff.electricalRelevantPages) ? pdfTakeoff.electricalRelevantPages : [];
   if (tradeKey === 'electrical') {
     lines.push(
       'Electrical-relevant sheets are electrical plans (E sheets), panel schedules, device legends, and lighting legends. Count symbols on those sheets. Sum main-level and upper-level lighting plans (for example A-10 + A-11). Count every ceiling-fan symbol, including covered patio, bedrooms, and upstairs living. Lighting fixtures that are not recessed/canless and not ceiling fans still count — if there is no symbol legend, report them as unclassifiedFixtureCount instead of guessing pendant/vanity/garage. Do not invent homeruns, conduit LF, trench LF, or rough/trim packages from device counts.'
@@ -1655,9 +1652,7 @@ function formatPdfEvidenceForVision(pdfTakeoff, options = {}) {
     if (electricalPages.length) {
       lines.push('PDF text layer — pages that look useful for an Electrical takeoff:');
       for (const page of electricalPages.slice(0, 8)) {
-        lines.push(
-          `- page ${page.page}: ${Array.isArray(page.reasons) ? page.reasons.join(', ') : 'electrical plan'}`
-        );
+        lines.push(`- page ${page.page}: ${Array.isArray(page.reasons) ? page.reasons.join(', ') : 'electrical plan'}`);
       }
     }
     const instanceTags = pdfTakeoff.electricalInstanceTags?.byKey || {};
@@ -1666,20 +1661,15 @@ function formatPdfEvidenceForVision(pdfTakeoff, options = {}) {
       .map(([key, entry]) => {
         const sheets = Array.isArray(entry.sheets)
           ? entry.sheets
-              .map((sheet) => {
-                const where = [
-                  sheet.sheet ? `sheet ${sheet.sheet}` : null,
-                  sheet.page ? `page ${sheet.page}` : null,
-                ]
+              .map(sheet => {
+                const where = [sheet.sheet ? `sheet ${sheet.sheet}` : null, sheet.page ? `page ${sheet.page}` : null]
                   .filter(Boolean)
                   .join(' ');
                 return `${where || 'plan'}: ${sheet.count} ${entry.tag}`.trim();
               })
               .join('; ')
           : '';
-        return `- ${key}: ${entry.value} from ${entry.tag} instance tags${
-          sheets ? ` (${sheets})` : ''
-        }`;
+        return `- ${key}: ${entry.value} from ${entry.tag} instance tags${sheets ? ` (${sheets})` : ''}`;
       });
     if (instanceLines.length) {
       lines.push(
@@ -1714,7 +1704,9 @@ module.exports = {
   formatPdfEvidenceForVision,
   scorePaintingRelevantPage,
   scoreElectricalRelevantPage,
+  scorePlumbingRelevantPage,
   expandElectricalRelevantPages,
+  expandPlumbingRelevantPages,
   ELECTRICAL_INSTANCE_TAG_SPECS,
   countElectricalInstanceTagsOnPage,
   aggregateElectricalInstanceTagCounts,
@@ -1722,6 +1714,7 @@ module.exports = {
   detectElectricalPlanLevel,
   shouldCollapseDuplicateFixtureViews,
   renderElectricalPlanPages,
+  renderPlumbingPlanPages,
   fillElectricalSheetBackground,
   toUint8Array,
   feetInchesToDecimal,

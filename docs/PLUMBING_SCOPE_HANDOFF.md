@@ -47,6 +47,20 @@ resolver, with these locked planning rates:
 - Parts/materials, emergency fee, and cleanup remain explicit user-entered
   allowances.
 
+Pricing boundary:
+
+- Rough-in and trim/hookup rates are planning rates, not engineering guarantees.
+- Rough-in covers the priced rough-in point assembly; underground water/sewer
+  piping, gas piping, excavation, utility taps, permits, inspections, and
+  unusual access remain separate when documented or confirmed.
+- Trim/hookup covers fixture trim and final connections at documented rough.
+  Fixture purchase allowances and specialty equipment remain separate unless
+  explicitly included.
+- Plumbing complexity flags (two-story plumbing, slab foundation, multiple wet
+  walls, tankless water heater, recirculation loop, outdoor plumbing, and gas
+  appliances) are review-only metadata. They do not automatically change labor
+  pricing until a contractor-approved adjustment rule exists.
+
 Bathroom-specific rough-in and trim pricing remains owned by:
 
 - `mobile/utils/bathroomPlumbingRoughPricing.ts`

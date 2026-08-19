@@ -1,7 +1,4 @@
-import {
-  resolvePlanMeasurementProvenance,
-  type PlanMeasurementProvenance,
-} from '@/utils/planMeasurementProvenance';
+import { resolvePlanMeasurementProvenance, type PlanMeasurementProvenance } from '@/utils/planMeasurementProvenance';
 import {
   buildAreaReconciliation,
   formatPlanSourceLabel,
@@ -30,26 +27,16 @@ export function spacesDetectedTitle(spaceCount: number): string {
   return `${spaceCount} spaces detected`;
 }
 
-export function readyStateSummary(input: {
-  measurementCount: number;
-  spaceCount: number;
-  scopeCount: number;
-}): string {
+export function readyStateSummary(input: { measurementCount: number; spaceCount: number; scopeCount: number }): string {
   const bits: string[] = [];
   if (input.measurementCount) {
-    bits.push(
-      `${input.measurementCount} project measurement${input.measurementCount === 1 ? '' : 's'}`
-    );
+    bits.push(`${input.measurementCount} project measurement${input.measurementCount === 1 ? '' : 's'}`);
   }
   if (input.spaceCount) {
-    bits.push(
-      `${input.spaceCount} detected space${input.spaceCount === 1 ? '' : 's'}`
-    );
+    bits.push(`${input.spaceCount} detected space${input.spaceCount === 1 ? '' : 's'}`);
   }
   if (input.scopeCount) {
-    bits.push(
-      `${input.scopeCount} scope item${input.scopeCount === 1 ? '' : 's'}`
-    );
+    bits.push(`${input.scopeCount} scope item${input.scopeCount === 1 ? '' : 's'}`);
   }
   return bits.length ? `Ready · ${bits.join(' · ')}` : 'Ready · Plan reviewed';
 }
@@ -62,6 +49,15 @@ export function measurementDisplayLabel(
   label: string;
   subtext?: string | null;
 } {
+  const plumbingLabels: Record<string, string> = {
+    plumbingRoughPointCount: 'Plumbing rough-in points',
+    plumbingTrimHookupCount: 'Trim / hookups',
+    waterLineLf: 'Underground water service / under-slab piping',
+    sewerLineLf: 'Underground sewer / drain / under-slab DWV',
+    gasLineLf: 'Gas piping',
+  };
+  if (plumbingLabels[key]) return { label: plumbingLabels[key] };
+
   if (!measurementSemanticsV1Enabled()) {
     if (key === 'floorAreaSqft') return { label: 'Living area' };
     return { label: key };
@@ -161,9 +157,7 @@ export type ConcretePlanReviewLine = {
   note?: string | null;
 };
 
-function positiveMeasurement(
-  value: number | string | null | undefined
-): number | null {
+function positiveMeasurement(value: number | string | null | undefined): number | null {
   const n = Number(String(value ?? '').replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
 }
@@ -213,10 +207,7 @@ export function buildConcretePlanReviewSummary(
     for (const row of perTypeValues) {
       lines.push({
         label: row.label,
-        value:
-          row.value != null
-            ? `${formatSfWithCommas(row.value)} ${row.unit}`
-            : '—',
+        value: row.value != null ? `${formatSfWithCommas(row.value)} ${row.unit}` : '—',
       });
     }
   } else if (aggregateFlatwork != null) {
@@ -253,9 +244,7 @@ export function buildConcretePlanReviewSummary(
     });
   }
 
-  const reinforcement = positiveMeasurement(
-    measurements.concreteReinforcementSqft
-  );
+  const reinforcement = positiveMeasurement(measurements.concreteReinforcementSqft);
   if (reinforcement != null) {
     lines.push({
       label: 'Rebar / mesh',
@@ -303,9 +292,7 @@ const FLOORING_PLAN_REVIEW_INSTALL_ROWS = [
   },
 ] as const;
 
-function formatExistingFloorSummary(
-  measurements: Record<string, number | string | null | undefined>
-): string {
+function formatExistingFloorSummary(measurements: Record<string, number | string | null | undefined>): string {
   const types = Array.isArray(measurements.flooringExistingTypes)
     ? measurements.flooringExistingTypes.map(String).filter(Boolean)
     : [];
@@ -330,13 +317,8 @@ export function buildFlooringPlanReviewSummary(
     value: positiveMeasurement(measurements[row.key]),
   }));
   const hasPerType = perTypeValues.some(row => row.value != null);
-  const aggregate =
-    positiveMeasurement(measurements.flooringSqft) ??
-    positiveMeasurement(measurements.floorAreaSqft);
-  const installTotal =
-    perTypeValues.reduce((sum, row) => sum + (row.value || 0), 0) ||
-    aggregate ||
-    null;
+  const aggregate = positiveMeasurement(measurements.flooringSqft) ?? positiveMeasurement(measurements.floorAreaSqft);
+  const installTotal = perTypeValues.reduce((sum, row) => sum + (row.value || 0), 0) || aggregate || null;
 
   if (installTotal != null) {
     lines.push({
@@ -368,8 +350,7 @@ export function buildFlooringPlanReviewSummary(
   });
   lines.push({
     label: 'Demo / removal',
-    value:
-      demo != null ? `${formatSfWithCommas(demo)} sqft` : 'Needs confirmation',
+    value: demo != null ? `${formatSfWithCommas(demo)} sqft` : 'Needs confirmation',
   });
   lines.push({
     label: 'Subfloor prep',
@@ -386,16 +367,13 @@ export function buildFlooringPlanReviewSummary(
   });
 
   const transitions =
-    positiveMeasurement(measurements.transitionCount) ??
-    positiveMeasurement(measurements.transitionLf);
+    positiveMeasurement(measurements.transitionCount) ?? positiveMeasurement(measurements.transitionLf);
   lines.push({
     label: 'Transitions',
     value:
       transitions != null
         ? `${formatSfWithCommas(transitions)} ${
-            positiveMeasurement(measurements.transitionCount) != null
-              ? 'each'
-              : 'LF'
+            positiveMeasurement(measurements.transitionCount) != null ? 'each' : 'LF'
           }`
         : '—',
   });
@@ -403,8 +381,7 @@ export function buildFlooringPlanReviewSummary(
   const quarterRound = positiveMeasurement(measurements.quarterRoundLf);
   lines.push({
     label: 'Quarter round',
-    value:
-      quarterRound != null ? `${formatSfWithCommas(quarterRound)} LF` : '—',
+    value: quarterRound != null ? `${formatSfWithCommas(quarterRound)} LF` : '—',
   });
 
   return lines;
@@ -442,10 +419,7 @@ const PAINTING_PLAN_REVIEW_KEYS = new Set([
   'exteriorPaintSqft',
 ]);
 
-const ELECTRICAL_PLAN_REVIEW_KEYS = new Set([
-  ...ELECTRICAL_CARDS.map(card => card.measurementKey),
-  'serviceAmperage',
-]);
+const ELECTRICAL_PLAN_REVIEW_KEYS = new Set([...ELECTRICAL_CARDS.map(card => card.measurementKey), 'serviceAmperage']);
 
 const PLUMBING_PLAN_REVIEW_KEYS = new Set([
   'plumbingRoughPointCount',
@@ -461,10 +435,7 @@ export function electricalPlanQuantityPricingEligible(
   validationField?: { pricingEligible?: boolean } | null
 ): boolean {
   if (!ELECTRICAL_PLAN_REVIEW_KEYS.has(key)) return true;
-  if (
-    validationField != null &&
-    typeof validationField.pricingEligible === 'boolean'
-  ) {
+  if (validationField != null && typeof validationField.pricingEligible === 'boolean') {
     return validationField.pricingEligible;
   }
   if (!provenanceEntry || typeof provenanceEntry !== 'object') return false;
@@ -485,16 +456,10 @@ export function electricalPlanQuantityPricingEligible(
   ) {
     return true;
   }
-  if (
-    !entry.evidenceKind &&
-    (entry as { source?: unknown }).source === 'detected_from_plan'
-  ) {
+  if (!entry.evidenceKind && (entry as { source?: unknown }).source === 'detected_from_plan') {
     return true;
   }
-  return (
-    entry.evidenceKind === 'instance_tags' ||
-    entry.evidenceKind === 'explicit_label'
-  );
+  return entry.evidenceKind === 'instance_tags' || entry.evidenceKind === 'explicit_label';
 }
 
 function provenanceSourceText(entry: unknown): string {
@@ -551,22 +516,13 @@ export function planReviewProvenanceFlags(input: {
   const source = provenanceSourceText(input.provenanceEntry);
   const evidenceKind =
     typeof input.provenanceEntry === 'object' && input.provenanceEntry != null
-      ? String(
-          (input.provenanceEntry as { evidenceKind?: string }).evidenceKind ||
-            ''
-        ).toLowerCase()
+      ? String((input.provenanceEntry as { evidenceKind?: string }).evidenceKind || '').toLowerCase()
       : '';
-  const fromGeometry =
-    source.includes('geometry') || source.includes('calculated_from_plan');
+  const fromGeometry = source.includes('geometry') || source.includes('calculated_from_plan');
   const fromInstanceTags =
-    source.includes('instance_tag') ||
-    source.includes('pdf_text') ||
-    evidenceKind === 'instance_tags';
+    source.includes('instance_tag') || source.includes('pdf_text') || evidenceKind === 'instance_tags';
   const fromPlan =
-    fromInstanceTags ||
-    source.includes('detected_from_plan') ||
-    source.includes('labeled') ||
-    source === 'from_plan';
+    fromInstanceTags || source.includes('detected_from_plan') || source.includes('labeled') || source === 'from_plan';
   const paintingKey = PAINTING_PLAN_REVIEW_KEYS.has(input.key);
   const electricalKey = ELECTRICAL_PLAN_REVIEW_KEYS.has(input.key);
   const plumbingKey = PLUMBING_PLAN_REVIEW_KEYS.has(input.key);
@@ -581,16 +537,22 @@ export function planReviewProvenanceFlags(input: {
     input.provenanceEntry != null &&
     (evidenceKind === 'fixture_inventory_derived' ||
       source.includes('fixture_inventory') ||
-      (Array.isArray(
-        (input.provenanceEntry as { derivedFrom?: unknown }).derivedFrom
-      ) &&
-        ((input.provenanceEntry as { derivedFrom?: unknown[] }).derivedFrom
-          ?.length || 0) > 0));
+      (Array.isArray((input.provenanceEntry as { derivedFrom?: unknown }).derivedFrom) &&
+        ((input.provenanceEntry as { derivedFrom?: unknown[] }).derivedFrom?.length || 0) > 0));
+  const architecturalLineSegment =
+    plumbingKey &&
+    typeof input.provenanceEntry === 'object' &&
+    input.provenanceEntry != null &&
+    (evidenceKind === 'architectural_line_segment' ||
+      source.includes('architectural_line') ||
+      (Array.isArray((input.provenanceEntry as { evidence?: unknown[] }).evidence) &&
+        (
+          (input.provenanceEntry as { evidence?: Array<{ requiresContractorConfirmation?: boolean }> }).evidence || []
+        ).some(entry => entry?.requiresContractorConfirmation)));
   const aiInferred =
-    (electricalKey &&
-      (evidenceKind === 'inference' ||
-        source.includes('inferred_from_context'))) ||
-    derivedFromFixtureInventory;
+    (electricalKey && (evidenceKind === 'inference' || source.includes('inferred_from_context'))) ||
+    derivedFromFixtureInventory ||
+    architecturalLineSegment;
   const methodsAgree =
     typeof input.provenanceEntry === 'object' &&
     input.provenanceEntry != null &&
@@ -599,27 +561,21 @@ export function planReviewProvenanceFlags(input: {
     typeof input.provenanceEntry === 'object' && input.provenanceEntry != null
       ? (input.provenanceEntry as { pricingEligible?: boolean }).pricingEligible
       : undefined;
-  const pricingBlocked =
-    input.pricingEligible === false || entryPricingEligible === false;
+  const pricingBlocked = input.pricingEligible === false || entryPricingEligible === false;
   const aiVerified =
     !pricingBlocked &&
     electricalKey &&
     typeof input.provenanceEntry === 'object' &&
     input.provenanceEntry != null &&
     ((input.provenanceEntry as { status?: string }).status === 'ai_verified' ||
-      (input.provenanceEntry as { normalizedSource?: string })
-        .normalizedSource === 'AI_VERIFIED' ||
-      ((input.provenanceEntry as { pricingEligible?: boolean })
-        .pricingEligible === true &&
-        (input.provenanceEntry as { independentVisionAgreement?: boolean })
-          .independentVisionAgreement === true));
+      (input.provenanceEntry as { normalizedSource?: string }).normalizedSource === 'AI_VERIFIED' ||
+      ((input.provenanceEntry as { pricingEligible?: boolean }).pricingEligible === true &&
+        (input.provenanceEntry as { independentVisionAgreement?: boolean }).independentVisionAgreement === true));
   const fromPlanSymbols =
     electricalKey &&
     !fromInstanceTags &&
     !aiVerified &&
-    (evidenceKind === 'symbols' ||
-      source.includes('calculated_from_symbols') ||
-      source.includes('symbol'));
+    (evidenceKind === 'symbols' || source.includes('calculated_from_symbols') || source.includes('symbol'));
   const electricalReview =
     Boolean(input.hasConflict) ||
     aiInferred ||
@@ -628,10 +584,7 @@ export function planReviewProvenanceFlags(input: {
         source.includes('needs_review') ||
         (typeof input.provenanceEntry === 'object' &&
           input.provenanceEntry != null &&
-          Number(
-            (input.provenanceEntry as { confidenceTier?: number })
-              .confidenceTier
-          ) >= 2 &&
+          Number((input.provenanceEntry as { confidenceTier?: number }).confidenceTier) >= 2 &&
           !fromInstanceTags &&
           !methodsAgree &&
           !aiVerified)));
@@ -642,21 +595,15 @@ export function planReviewProvenanceFlags(input: {
         input.key === 'garageSqft' ||
         input.key === 'deckSqft' ||
         (paintingKey && fromPlan && !fromGeometry && !incomplete) ||
-        (plumbingKey && fromPlan && !derivedFromFixtureInventory) ||
-        (electricalKey &&
-          !aiInferred &&
-          !aiVerified &&
-          (fromInstanceTags || (fromPlan && !electricalReview)))),
+        (plumbingKey && fromPlan && !derivedFromFixtureInventory && !architecturalLineSegment) ||
+        (electricalKey && !aiInferred && !aiVerified && (fromInstanceTags || (fromPlan && !electricalReview)))),
     hasReliableDimensions:
       !input.hasConflict &&
       (input.key === 'kitchenFloorSqft' ||
         input.key === 'bathroomFloorSqft' ||
         (paintingKey && fromGeometry && !incomplete)),
     roomDependent:
-      input.key === 'kitchenFloorSqft' ||
-      input.key === 'bathroomFloorSqft' ||
-      incomplete ||
-      electricalReview,
+      input.key === 'kitchenFloorSqft' || input.key === 'bathroomFloorSqft' || incomplete || electricalReview,
     fromPlanSymbols: !input.hasConflict && fromPlanSymbols,
     aiVerified: !input.hasConflict && aiVerified,
     aiInferred: !input.hasConflict && aiInferred,
@@ -684,12 +631,12 @@ export function buildPlanReviewMeasurementRowState(input: {
 } {
   const pricingEligible =
     input.tradeKey === 'electrical'
-      ? electricalPlanQuantityPricingEligible(
-          input.key,
-          input.provenanceEntry,
-          input.validationField
-        )
-      : true;
+      ? electricalPlanQuantityPricingEligible(input.key, input.provenanceEntry, input.validationField)
+      : typeof input.provenanceEntry === 'object' &&
+          input.provenanceEntry != null &&
+          (input.provenanceEntry as { pricingEligible?: boolean }).pricingEligible === false
+        ? false
+        : true;
   const provenanceFlags = planReviewProvenanceFlags({
     key: input.key,
     provenanceEntry: input.provenanceEntry,
@@ -716,7 +663,8 @@ export function buildPlanReviewMeasurementRowState(input: {
       !input.hasConflict &&
       (pricingEligible ||
         input.validationField?.deterministicRepeatedImportStable === false ||
-        input.tradeKey === 'electrical'),
+        input.tradeKey === 'electrical' ||
+        input.tradeKey === 'plumbing'),
   };
 }
 
@@ -742,45 +690,29 @@ export function planReviewCheckboxBlockedMessage(
     default:
       return {
         title: 'Confirm this count',
-        message:
-          provenance.reason ||
-          `Confirm ${formatted} before including it in the bid.`,
+        message: provenance.reason || `Confirm ${formatted} before including it in the bid.`,
         confirmLabel: `Use ${row.value}`,
       };
   }
 }
 
-function paintingQuantityNote(
-  key: string,
-  provenance?: Record<string, unknown> | null
-): string | undefined {
+function paintingQuantityNote(key: string, provenance?: Record<string, unknown> | null): string | undefined {
   const entry = provenance?.[key];
   if (entry == null) return undefined;
   const s = provenanceSourceText(entry);
   if (
-    (typeof entry === 'object' &&
-      entry != null &&
-      (entry as { coverage?: string }).coverage === 'incomplete') ||
+    (typeof entry === 'object' && entry != null && (entry as { coverage?: string }).coverage === 'incomplete') ||
     s.includes('incomplete')
   ) {
     return 'Partial room geometry — confirm';
   }
-  if (
-    s.includes('geometry') ||
-    s.includes('measured_from_geometry') ||
-    s.includes('calculated_from_plan')
-  ) {
+  if (s.includes('geometry') || s.includes('measured_from_geometry') || s.includes('calculated_from_plan')) {
     return 'Calculated from plan geometry';
   }
   if (key === 'interiorDoorCount') {
     return s.includes('schedule') ? 'From door schedule' : 'From plan';
   }
-  if (
-    s.includes('explicit') ||
-    s.includes('detected_from_plan') ||
-    s === 'from_plan' ||
-    s.includes('labeled')
-  ) {
+  if (s.includes('explicit') || s.includes('detected_from_plan') || s === 'from_plan' || s.includes('labeled')) {
     return 'From plan';
   }
   return undefined;
@@ -795,21 +727,13 @@ export function buildPaintingPlanReviewSummary(
   const walls = positiveMeasurement(measurements.wallPaintSqft);
   const ceilings = positiveMeasurement(measurements.ceilingPaintSqft);
   const combined =
-    positiveMeasurement(measurements.combinedPaintableAreaSqft) ??
-    positiveMeasurement(measurements.paintAreaSqft);
+    positiveMeasurement(measurements.combinedPaintableAreaSqft) ?? positiveMeasurement(measurements.paintAreaSqft);
   const doors = positiveMeasurement(measurements.interiorDoorCount);
   const trim = positiveMeasurement(measurements.baseboardLf);
-  const cabinets =
-    positiveMeasurement(measurements.cabinetRunLf) ??
-    positiveMeasurement(measurements.cabinetPaintSqft);
+  const cabinets = positiveMeasurement(measurements.cabinetRunLf) ?? positiveMeasurement(measurements.cabinetPaintSqft);
   const exterior = positiveMeasurement(measurements.exteriorPaintSqft);
   const hasInterior =
-    walls != null ||
-    ceilings != null ||
-    combined != null ||
-    doors != null ||
-    trim != null ||
-    cabinets != null;
+    walls != null || ceilings != null || combined != null || doors != null || trim != null || cabinets != null;
 
   if (hasInterior) {
     if (walls != null) {
@@ -852,16 +776,11 @@ export function buildPaintingPlanReviewSummary(
       });
     }
     if (cabinets != null) {
-      const cabinetKey =
-        positiveMeasurement(measurements.cabinetRunLf) != null
-          ? 'cabinetRunLf'
-          : 'cabinetPaintSqft';
+      const cabinetKey = positiveMeasurement(measurements.cabinetRunLf) != null ? 'cabinetRunLf' : 'cabinetPaintSqft';
       const note = paintingQuantityNote(cabinetKey, provenance);
       lines.push({
         label: 'Cabinet painting',
-        value: `${formatSfWithCommas(cabinets)} ${
-          cabinetKey === 'cabinetRunLf' ? 'LF' : 'sqft'
-        }`,
+        value: `${formatSfWithCommas(cabinets)} ${cabinetKey === 'cabinetRunLf' ? 'LF' : 'sqft'}`,
         ...(note ? { note } : {}),
       });
     }
@@ -921,26 +840,19 @@ function electricalQuantityLabel(
 ): string {
   if (card.measurementKey === 'mainPanelCount') {
     const amps = positiveMeasurement(measurements.serviceAmperage);
-    return amps != null
-      ? `${formatSfWithCommas(quantity)} EA · ${amps}A`
-      : `${formatSfWithCommas(quantity)} EA`;
+    return amps != null ? `${formatSfWithCommas(quantity)} EA · ${amps}A` : `${formatSfWithCommas(quantity)} EA`;
   }
   if (card.unit === 'lf') return `${formatSfWithCommas(quantity)} LF`;
   return `${formatSfWithCommas(quantity)} EA`;
 }
 
-function electricalQuantityNote(
-  key: string,
-  provenance?: Record<string, unknown> | null
-): string | undefined {
+function electricalQuantityNote(key: string, provenance?: Record<string, unknown> | null): string | undefined {
   const entry = provenance?.[key];
   if (
     entry &&
     typeof entry === 'object' &&
-    (((entry as { status?: string }).status || '').toLowerCase() ===
-      'ai_verified' ||
-      (entry as { normalizedSource?: string }).normalizedSource ===
-        'AI_VERIFIED')
+    (((entry as { status?: string }).status || '').toLowerCase() === 'ai_verified' ||
+      (entry as { normalizedSource?: string }).normalizedSource === 'AI_VERIFIED')
   ) {
     return 'AI counted twice · full sheet coverage checked';
   }
@@ -962,11 +874,7 @@ function electricalQuantityNote(
   if (s.includes('ai_verified')) {
     return 'AI counted twice · full sheet coverage checked';
   }
-  if (
-    s.includes('calculated_from_symbols') ||
-    s.includes('needs_review') ||
-    s.includes('symbol')
-  ) {
+  if (s.includes('calculated_from_symbols') || s.includes('needs_review') || s.includes('symbol')) {
     return 'From plan symbols';
   }
   if (key === 'gfciReceptacleCount' || key === 'standardReceptacleCount') {
@@ -983,10 +891,7 @@ export type ElectricalPlanReviewOptions = {
   unclassifiedFixtureCount?: number | string | null;
   unclassifiedFixtureNote?: string | null;
   electricalValidation?: {
-    fields?: Record<
-      string,
-      { status?: string; pricingEligible?: boolean; reason?: string }
-    >;
+    fields?: Record<string, { status?: string; pricingEligible?: boolean; reason?: string }>;
     priceableFields?: string[];
     blockedFields?: string[];
   } | null;
@@ -1047,26 +952,18 @@ export function electricalPlanReadinessLine(input: {
     const status = String(record.status || '').toLowerCase();
     if (status) return status;
     const source = String(record.normalizedSource || '').toLowerCase();
-    if (
-      source === 'from_plan' ||
-      record.evidenceKind === 'instance_tags' ||
-      record.evidenceKind === 'explicit_label'
-    ) {
+    if (source === 'from_plan' || record.evidenceKind === 'instance_tags' || record.evidenceKind === 'explicit_label') {
       return 'plan_verified';
     }
     return source === 'ai_verified' ? 'ai_verified' : '';
   };
   const statusKeys = new Set(
-    [...Object.keys(fields), ...Object.keys(input.measurements || {})].filter(
-      key => ELECTRICAL_PLAN_REVIEW_KEYS.has(key)
+    [...Object.keys(fields), ...Object.keys(input.measurements || {})].filter(key =>
+      ELECTRICAL_PLAN_REVIEW_KEYS.has(key)
     )
   );
-  const planVerified = [...statusKeys].filter(
-    key => statusFor(key) === 'plan_verified'
-  ).length;
-  const aiVerified = [...statusKeys].filter(
-    key => statusFor(key) === 'ai_verified'
-  ).length;
+  const planVerified = [...statusKeys].filter(key => statusFor(key) === 'plan_verified').length;
+  const aiVerified = [...statusKeys].filter(key => statusFor(key) === 'ai_verified').length;
   return {
     label: 'Electrical readiness',
     value: `${priceable.size} prices ready · ${blocked.size} to confirm`,
@@ -1083,9 +980,7 @@ export function buildElectricalPlanReviewSummary(
   const lines: ElectricalPlanReviewLine[] = [];
   const shownKeys = new Set<string>();
   const unresolved = new Set(
-    (options?.unresolvedConflictFields || [])
-      .map(field => String(field || '').trim())
-      .filter(Boolean)
+    (options?.unresolvedConflictFields || []).map(field => String(field || '').trim()).filter(Boolean)
   );
 
   for (const group of ELECTRICAL_CARD_GROUPS) {
@@ -1096,27 +991,18 @@ export function buildElectricalPlanReviewSummary(
       const quantity = positiveMeasurement(measurements[card.measurementKey]);
       if (quantity == null) continue;
       shownKeys.add(card.measurementKey);
-      const validation =
-        options?.electricalValidation?.fields?.[card.measurementKey];
+      const validation = options?.electricalValidation?.fields?.[card.measurementKey];
       const pricingEligible =
         validation?.pricingEligible ??
-        (provenance?.[card.measurementKey] == null &&
-        options?.electricalValidation == null
+        (provenance?.[card.measurementKey] == null && options?.electricalValidation == null
           ? true
-          : electricalPlanQuantityPricingEligible(
-              card.measurementKey,
-              provenance?.[card.measurementKey]
-            ));
+          : electricalPlanQuantityPricingEligible(card.measurementKey, provenance?.[card.measurementKey]));
       const note = pricingEligible
         ? electricalQuantityNote(card.measurementKey, provenance)
-        : `${formatSfWithCommas(quantity)} EA visible — ${
-            validation?.reason || 'Confirm before pricing'
-          }`;
+        : `${formatSfWithCommas(quantity)} EA visible — ${validation?.reason || 'Confirm before pricing'}`;
       lines.push({
         label: card.label,
-        value: pricingEligible
-          ? electricalQuantityLabel(card, quantity, measurements)
-          : 'Needs confirmation',
+        value: pricingEligible ? electricalQuantityLabel(card, quantity, measurements) : 'Needs confirmation',
         ...(note ? { note } : {}),
       });
     }
@@ -1128,35 +1014,24 @@ export function buildElectricalPlanReviewSummary(
     !shownKeys.has('panelUpgradeCount') &&
     !shownKeys.has('serviceUpgradeCount')
   ) {
-    const serviceValidation =
-      options?.electricalValidation?.fields?.serviceAmperage;
+    const serviceValidation = options?.electricalValidation?.fields?.serviceAmperage;
     const servicePricingEligible =
       serviceValidation?.pricingEligible ??
-      (provenance?.serviceAmperage == null &&
-      options?.electricalValidation == null
+      (provenance?.serviceAmperage == null && options?.electricalValidation == null
         ? true
-        : electricalPlanQuantityPricingEligible(
-            'serviceAmperage',
-            provenance?.serviceAmperage
-          ));
+        : electricalPlanQuantityPricingEligible('serviceAmperage', provenance?.serviceAmperage));
     lines.push({
       label: 'Service amperage',
-      value: servicePricingEligible
-        ? `${positiveMeasurement(measurements.serviceAmperage)}A`
-        : 'Needs confirmation',
+      value: servicePricingEligible ? `${positiveMeasurement(measurements.serviceAmperage)}A` : 'Needs confirmation',
       ...(servicePricingEligible
         ? {}
         : {
-            note:
-              serviceValidation?.reason ||
-              'Confirm the printed amperage before pricing',
+            note: serviceValidation?.reason || 'Confirm the printed amperage before pricing',
           }),
     });
   }
 
-  const hasCircuitCounts = [...ELECTRICAL_CIRCUIT_KEYS].some(
-    key => positiveMeasurement(measurements[key]) != null
-  );
+  const hasCircuitCounts = [...ELECTRICAL_CIRCUIT_KEYS].some(key => positiveMeasurement(measurements[key]) != null);
   if (!hasCircuitCounts) {
     lines.push({
       label: 'Shared homeruns / unlabeled circuits',
@@ -1168,26 +1043,18 @@ export function buildElectricalPlanReviewSummary(
   const conduit = positiveMeasurement(measurements.conduitLf);
   lines.push({
     label: 'Conduit',
-    value:
-      conduit != null
-        ? `${formatSfWithCommas(conduit)} LF`
-        : 'Needs confirmation',
+    value: conduit != null ? `${formatSfWithCommas(conduit)} LF` : 'Needs confirmation',
   });
   const trench = positiveMeasurement(measurements.trenchingLf);
   lines.push({
     label: 'Trenching',
-    value:
-      trench != null
-        ? `${formatSfWithCommas(trench)} LF`
-        : 'Needs confirmation',
+    value: trench != null ? `${formatSfWithCommas(trench)} LF` : 'Needs confirmation',
   });
 
   const detailed = hasDetailedElectricalQuantities(measurements);
   lines.push({
     label: 'Rough / trim packages',
-    value: detailed
-      ? 'Not auto-priced from detailed takeoff'
-      : 'Needs confirmation',
+    value: detailed ? 'Not auto-priced from detailed takeoff' : 'Needs confirmation',
   });
   lines.push({
     label: 'Job condition',
@@ -1255,14 +1122,8 @@ export function mergeElectricalConflictReadings(
   return next;
 }
 
-export function isElectricalPlanReviewStatusLine(line: {
-  label: string;
-  value: string;
-}): boolean {
-  return (
-    line.value === 'Needs confirmation' ||
-    line.value === 'Not auto-priced from detailed takeoff'
-  );
+export function isElectricalPlanReviewStatusLine(line: { label: string; value: string }): boolean {
+  return line.value === 'Needs confirmation' || line.value === 'Not auto-priced from detailed takeoff';
 }
 
 export function electricalPlanReviewDetectedLines(
@@ -1277,25 +1138,17 @@ export function electricalPlanReviewStatusLines(
   return lines.filter(isElectricalPlanReviewStatusLine);
 }
 
-function pageFromAssumptions(
-  assumptions: string[] | null | undefined,
-  patterns: RegExp[]
-): number | null {
+function pageFromAssumptions(assumptions: string[] | null | undefined, patterns: RegExp[]): number | null {
   for (const line of assumptions || []) {
     const text = String(line || '');
     if (!patterns.some(p => p.test(text))) continue;
-    const match =
-      text.match(/pages?\s*(\d+)(?:\s*[–-]\s*(\d+))?/i) ||
-      text.match(/sheet\s*(\d+)/i);
+    const match = text.match(/pages?\s*(\d+)(?:\s*[–-]\s*(\d+))?/i) || text.match(/sheet\s*(\d+)/i);
     if (match) return Number(match[1]);
   }
   return null;
 }
 
-function pageEndFromAssumptions(
-  assumptions: string[] | null | undefined,
-  patterns: RegExp[]
-): number | null {
+function pageEndFromAssumptions(assumptions: string[] | null | undefined, patterns: RegExp[]): number | null {
   for (const line of assumptions || []) {
     const text = String(line || '');
     if (!patterns.some(p => p.test(text))) continue;
@@ -1324,11 +1177,7 @@ export function measurementSourceLabel(input: {
 
   const page = input.sourcePage ?? null;
 
-  if (
-    input.key === 'floorAreaSqft' ||
-    input.key === 'garageSqft' ||
-    input.key === 'deckSqft'
-  ) {
+  if (input.key === 'floorAreaSqft' || input.key === 'garageSqft' || input.key === 'deckSqft') {
     const resolvedPage =
       page ??
       pageFromAssumptions(input.assumptions, [
@@ -1343,11 +1192,7 @@ export function measurementSourceLabel(input: {
   }
 
   if (input.key === 'kitchenFloorSqft' || input.key === 'bathroomFloorSqft') {
-    const resolvedPage =
-      page ??
-      pageFromAssumptions(input.assumptions, [
-        /kitchen|bath|room|dimension|floor\s*plan/i,
-      ]);
+    const resolvedPage = page ?? pageFromAssumptions(input.assumptions, [/kitchen|bath|room|dimension|floor\s*plan/i]);
     return resolvedPage != null
       ? `Derived from room dimensions — page ${resolvedPage}`
       : 'Derived from room dimensions';
@@ -1355,10 +1200,7 @@ export function measurementSourceLabel(input: {
 
   if (ELECTRICAL_PLAN_REVIEW_KEYS.has(input.key)) {
     const resolvedPage =
-      page ??
-      pageFromAssumptions(input.assumptions, [
-        /electrical|panel|receptacle|switch|lighting|e\s*sheet/i,
-      ]);
+      page ?? pageFromAssumptions(input.assumptions, [/electrical|panel|receptacle|switch|lighting|e\s*sheet/i]);
     return formatPlanSourceLabel({
       kind: 'electrical_plan',
       page: resolvedPage,
@@ -1382,14 +1224,8 @@ export function roomSourceLabel(input: {
   if (!measurementSemanticsV1Enabled()) return null;
   if (input.sourceLabel) return input.sourceLabel;
   if (input.lengthFt != null && input.widthFt != null) {
-    const page =
-      input.sourcePage ??
-      pageFromAssumptions(input.assumptions, [
-        /room|dimension|floor\s*plan|pdf text/i,
-      ]);
-    return page != null
-      ? `Derived from room dimensions — page ${page}`
-      : 'Derived from room dimensions';
+    const page = input.sourcePage ?? pageFromAssumptions(input.assumptions, [/room|dimension|floor\s*plan|pdf text/i]);
+    return page != null ? `Derived from room dimensions — page ${page}` : 'Derived from room dimensions';
   }
   return formatPlanSourceLabel({ kind: 'plan_generic' });
 }
@@ -1400,9 +1236,7 @@ function pageFromText(text: string | null | undefined): number | null {
 }
 
 function isGenericGroundUpEvidence(evidence: string): boolean {
-  return /standard\s+for\s+ground-?up|standard\s+ground-?up\s+scope/i.test(
-    evidence || ''
-  );
+  return /standard\s+for\s+ground-?up|standard\s+ground-?up\s+scope/i.test(evidence || '');
 }
 
 export function scopeTakeoffStatusLines(input: {
@@ -1421,33 +1255,20 @@ export function scopeTakeoffStatusLines(input: {
   const evidence = String(input.evidence || '').trim();
   const lines: string[] = [];
   const status = missingStatusForScope(id);
-  const isTileFlooring =
-    id === 'tile_flooring' || id === 'flooring' || id === 'tile';
+  const isTileFlooring = id === 'tile_flooring' || id === 'flooring' || id === 'tile';
 
   if (id === 'mep_rough') {
-    const page =
-      pageFromText(evidence) ??
-      pageFromAssumptions(input.assumptions, [/electrical|mep|plumbing|hvac/i]);
+    const page = pageFromText(evidence) ?? pageFromAssumptions(input.assumptions, [/electrical|mep|plumbing|hvac/i]);
     lines.push(
       page != null
         ? `Electrical detected on page ${page}; plumbing and HVAC require trade review`
         : 'Electrical detected; plumbing and HVAC require trade review'
     );
-  } else if (
-    isTileFlooring &&
-    (input.hasPlanFloorAreas || !isGenericGroundUpEvidence(evidence))
-  ) {
+  } else if (isTileFlooring && (input.hasPlanFloorAreas || !isGenericGroundUpEvidence(evidence))) {
     const page =
-      pageFromText(evidence) ??
-      pageFromAssumptions(input.assumptions, [
-        /floor\s*plan|room|dimension|tile|flooring/i,
-      ]);
+      pageFromText(evidence) ?? pageFromAssumptions(input.assumptions, [/floor\s*plan|room|dimension|tile|flooring/i]);
     if (page != null || input.hasPlanFloorAreas) {
-      lines.push(
-        page != null
-          ? `Floor areas detected from page ${page}`
-          : 'Floor areas detected from plan'
-      );
+      lines.push(page != null ? `Floor areas detected from page ${page}` : 'Floor areas detected from plan');
     } else if (evidence && !isGenericGroundUpEvidence(evidence)) {
       lines.push(evidence);
     } else {
@@ -1477,13 +1298,11 @@ export function scopeTakeoffStatusLines(input: {
   let statusLine: string | null = null;
   if (id === 'sitework' || id === 'excavation') {
     statusLine = evidence || lines.length ? 'Needs site takeoff' : null;
-    if (!evidence && lines[0]?.includes('needs site takeoff'))
-      statusLine = null;
+    if (!evidence && lines[0]?.includes('needs site takeoff')) statusLine = null;
   } else if (id === 'foundation') {
     statusLine = 'Needs structural takeoff';
   } else if (id === 'framing') {
-    statusLine =
-      'Benchmark pricing available — detailed takeoff still required';
+    statusLine = 'Benchmark pricing available — detailed takeoff still required';
   } else if (id === 'roofing') {
     statusLine = input.hasRoofQuantity ? null : 'Needs roof geometry takeoff';
   } else if (id === 'mep_rough') {
@@ -1496,27 +1315,16 @@ export function scopeTakeoffStatusLines(input: {
     statusLine = 'Needs envelope surface takeoff';
   } else if (id === 'drywall') {
     statusLine = 'Needs wall and ceiling takeoff';
-  } else if (
-    id === 'cabinets_counters' ||
-    id === 'cabinets' ||
-    id === 'countertops'
-  ) {
+  } else if (id === 'cabinets_counters' || id === 'cabinets' || id === 'countertops') {
     statusLine = 'Needs cabinet LF/count and countertop SF';
   } else if (id === 'appliances') {
     statusLine = 'Needs appliance count';
-  } else if (
-    status === 'needs_takeoff' ||
-    status === 'needs_structural_takeoff' ||
-    status === 'needs_count'
-  ) {
+  } else if (status === 'needs_takeoff' || status === 'needs_structural_takeoff' || status === 'needs_count') {
     statusLine = measurementStatusLabel(status);
   }
 
   const joinedLower = lines.join(' ').toLowerCase();
-  if (
-    statusLine &&
-    !joinedLower.includes(statusLine.toLowerCase().slice(0, 18))
-  ) {
+  if (statusLine && !joinedLower.includes(statusLine.toLowerCase().slice(0, 18))) {
     lines.push(statusLine);
   }
   return lines.filter(Boolean);
@@ -1540,18 +1348,13 @@ export function resolvePlanAreaReconciliation(input: {
  * Display-only living status. Net detected rooms ≠ gross declared living SF is
  * incomplete room coverage — not a "material variance" between authoritative totals.
  */
-export function livingReconciliationStatusLabel(
-  recon: AreaReconciliation
-): string {
+export function livingReconciliationStatusLabel(recon: AreaReconciliation): string {
   const unassigned = recon.unassignedLivingSf;
   if (unassigned != null && unassigned > 0.05) {
     return `Room detection incomplete — ${formatSf(unassigned)} SF not assigned`;
   }
   if (recon.status === 'reconciled') return 'Reconciled';
-  if (
-    recon.livingVariancePercent != null &&
-    Math.abs(recon.livingVariancePercent) <= 3
-  ) {
+  if (recon.livingVariancePercent != null && Math.abs(recon.livingVariancePercent) <= 3) {
     return 'Reconciled';
   }
   return 'Partial room coverage — review missing spaces';
@@ -1560,9 +1363,7 @@ export function livingReconciliationStatusLabel(
 /**
  * Display-only garage status. Thresholds unchanged (≤3 reconciled, ≤10 review band).
  */
-export function garageReconciliationStatusLabel(
-  recon: AreaReconciliation
-): string {
+export function garageReconciliationStatusLabel(recon: AreaReconciliation): string {
   const pct = recon.garageVariancePercent;
   if (pct == null) return 'Needs review';
   const abs = Math.abs(pct);
@@ -1572,14 +1373,9 @@ export function garageReconciliationStatusLabel(
 }
 
 /** @deprecated Prefer living/garage-specific helpers — kept for call-site migration. */
-export function varianceStatusLabel(
-  status: AreaReconciliation['status'],
-  kind: 'living' | 'garage'
-): string {
+export function varianceStatusLabel(status: AreaReconciliation['status'], kind: 'living' | 'garage'): string {
   if (kind === 'living') {
-    return status === 'reconciled'
-      ? 'Reconciled'
-      : 'Partial room coverage — review missing spaces';
+    return status === 'reconciled' ? 'Reconciled' : 'Partial room coverage — review missing spaces';
   }
   if (status === 'reconciled') return 'Reconciled';
   if (status === 'review') return 'Minor unreconciled area';
@@ -1592,10 +1388,7 @@ export function applyPlanTakeoffButtonLabel(input: {
   semanticsEnabled?: boolean;
 }): string {
   const { includedMeasurementCount, checkedScopeCount } = input;
-  const semantics =
-    input.semanticsEnabled != null
-      ? input.semanticsEnabled
-      : measurementSemanticsV1Enabled();
+  const semantics = input.semanticsEnabled != null ? input.semanticsEnabled : measurementSemanticsV1Enabled();
   if (includedMeasurementCount > 0 && checkedScopeCount > 0) {
     return semantics ? 'Apply plan takeoff' : 'Apply to bid';
   }
@@ -1628,9 +1421,7 @@ export function buildPlanReadyJobNotesPrompt(input: {
       });
   const meas = Number(input.measurementCount) || 0;
   const measBit =
-    meas > 0
-      ? `${meas} ${input.tradeLabel ? 'plan quantity' : 'project measurement'}${meas === 1 ? '' : 's'}`
-      : null;
+    meas > 0 ? `${meas} ${input.tradeLabel ? 'plan quantity' : 'project measurement'}${meas === 1 ? '' : 's'}` : null;
   const detail = stats || measBit;
   const detailSentence = detail ? ` ${detail}.` : '';
   if (input.tradeLabel) {
@@ -1651,10 +1442,7 @@ export function buildPlanReadyJobNotesPrompt(input: {
 export function planImportLooksLikeGroundUp(
   planImport:
     | {
-        measurements?: Record<
-          string,
-          string | number | null | undefined
-        > | null;
+        measurements?: Record<string, string | number | null | undefined> | null;
         rooms?: Array<{ name?: string; areaSqft?: number | null }> | null;
         buildingAreas?: {
           mainFloorLivingSqft?: number | null;
@@ -1690,40 +1478,23 @@ export function planImportLooksLikeGroundUp(
       String(d.itemId || '')
     )
   ).length;
-  return (
-    rooms >= 4 ||
-    structuralHits >= 2 ||
-    (living >= 800 && rooms >= 2) ||
-    (living >= 800 && garage > 0)
-  );
+  return rooms >= 4 || structuralHits >= 2 || (living >= 800 && rooms >= 2) || (living >= 800 && garage > 0);
 }
 
 /**
  * Ensure Generate uses ground-up classification when a whole-home plan is attached.
  * Does not replace user-authored remodel language.
  */
-export function ensureGroundUpPlanNotes(
-  notes: string,
-  planImportLooksGroundUp: boolean
-): string {
+export function ensureGroundUpPlanNotes(notes: string, planImportLooksGroundUp: boolean): string {
   const text = String(notes || '').trim();
   if (!planImportLooksGroundUp) return text;
-  if (
-    /\b(ground[\s-]?up|new\s+construction|new\s+build|new\s+home|custom\s+home)\b/i.test(
-      text
-    )
-  ) {
+  if (/\b(ground[\s-]?up|new\s+construction|new\s+build|new\s+home|custom\s+home)\b/i.test(text)) {
     return text;
   }
-  if (
-    /\b(remodel|renovation|renovate|selective\s+demo|tear[\s-]?out)\b/i.test(
-      text
-    )
-  ) {
+  if (/\b(remodel|renovation|renovate|selective\s+demo|tear[\s-]?out)\b/i.test(text)) {
     return text;
   }
-  const prefix =
-    'Ground-up new construction from imported architectural plans.';
+  const prefix = 'Ground-up new construction from imported architectural plans.';
   return text ? `${prefix}\n${text}` : prefix;
 }
 
@@ -1738,14 +1509,10 @@ export function importedPlanSummaryCollapsedSubtitle(input: {
     bits.push(`${formatSfWithCommas(living)} SF`);
   }
   if (input.spaceCount) {
-    bits.push(
-      `${input.spaceCount} detected space${input.spaceCount === 1 ? '' : 's'}`
-    );
+    bits.push(`${input.spaceCount} detected space${input.spaceCount === 1 ? '' : 's'}`);
   }
   if (input.scopeCount) {
-    bits.push(
-      `${input.scopeCount} scope item${input.scopeCount === 1 ? '' : 's'}`
-    );
+    bits.push(`${input.scopeCount} scope item${input.scopeCount === 1 ? '' : 's'}`);
   }
   return bits.join(' · ');
 }
@@ -1761,9 +1528,7 @@ export function importedTradePlanSummaryCollapsedSubtitle(input: {
     bits.push(`${meas} plan quantit${meas === 1 ? 'y' : 'ies'}`);
   }
   if (input.scopeCount) {
-    bits.push(
-      `${input.scopeCount} scope item${input.scopeCount === 1 ? '' : 's'}`
-    );
+    bits.push(`${input.scopeCount} scope item${input.scopeCount === 1 ? '' : 's'}`);
   }
   return bits.join(' · ');
 }
@@ -1797,20 +1562,15 @@ export function buildImportedPlanSummaryText(input: {
   if (Number.isFinite(living) && living > 0) {
     lines.push(
       `Total living area is ${living} sqft` +
-        (Number.isFinite(garage) && garage > 0
-          ? ` with a garage area of ${garage} sqft`
-          : '') +
-        (Number.isFinite(deck) && deck > 0
-          ? ` and a covered patio of ${deck} sqft`
-          : '') +
+        (Number.isFinite(garage) && garage > 0 ? ` with a garage area of ${garage} sqft` : '') +
+        (Number.isFinite(deck) && deck > 0 ? ` and a covered patio of ${deck} sqft` : '') +
         '.'
     );
   }
   if (input.rooms?.length) {
     lines.push('Room measurements:');
     for (const room of input.rooms) {
-      if (room.areaSqft != null)
-        lines.push(`- ${room.name}: ${room.areaSqft} sqft`);
+      if (room.areaSqft != null) lines.push(`- ${room.name}: ${room.areaSqft} sqft`);
     }
   }
   if (input.scopeLabels?.length) {
@@ -1832,4 +1592,120 @@ export function formatSfWithCommas(n: number | null | undefined): string {
   const [whole, frac] = raw.split('.');
   const withCommas = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return frac != null ? `${withCommas}.${frac}` : withCommas;
+}
+
+export const PLUMBING_FIXTURE_INVENTORY_LABELS: Record<string, string> = {
+  toilets: 'Toilets',
+  lavatories: 'Lavatories',
+  showers: 'Showers',
+  tubs: 'Tub / tub-shower',
+  kitchenSinks: 'Kitchen sink',
+  dishwasherConnections: 'Dishwasher connection',
+  laundryBoxes: 'Laundry / washer box',
+  hoseBibs: 'Hose bibs',
+  floorDrains: 'Floor drains',
+  waterHeaters: 'Water heaters',
+  gasAppliances: 'Gas appliances',
+};
+
+export const PLUMBING_FIXTURE_INVENTORY_ORDER = [
+  'toilets',
+  'lavatories',
+  'showers',
+  'tubs',
+  'kitchenSinks',
+  'dishwasherConnections',
+  'laundryBoxes',
+  'hoseBibs',
+  'floorDrains',
+  'waterHeaters',
+  'gasAppliances',
+] as const;
+
+export function plumbingFixtureInventoryLabel(key: string): string {
+  return (
+    PLUMBING_FIXTURE_INVENTORY_LABELS[key] ||
+    String(key)
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/^./, value => value.toUpperCase())
+  );
+}
+
+export function sumPlumbingFixtureInventoryPoints(
+  inventory: Record<string, number> | null | undefined
+): number {
+  let total = 0;
+  for (const key of PLUMBING_FIXTURE_INVENTORY_ORDER) {
+    const count = Number(inventory?.[key]);
+    if (Number.isFinite(count) && count > 0) total += Math.round(count);
+  }
+  return total;
+}
+
+/** Contractor-facing unit for Plumbing plan review and Confirm Scope. */
+export function plumbingMeasurementDisplayUnit(
+  key: string,
+  fallback = ''
+): string {
+  if (key === 'plumbingRoughPointCount' || key === 'plumbingTrimHookupCount') {
+    return 'fixtures';
+  }
+  if (key === 'waterLineLf' || key === 'sewerLineLf' || key === 'gasLineLf') {
+    return 'LF';
+  }
+  return fallback || 'each';
+}
+
+export type PlumbingWaterHeaterDetail = {
+  count?: number;
+  type?: string | null;
+  fuel?: string | null;
+  location?: string | null;
+  confidence?: number;
+};
+
+export type PlumbingGasApplianceScope = {
+  range?: boolean;
+  waterHeater?: boolean;
+  fireplace?: boolean;
+  dryer?: boolean;
+  grill?: boolean;
+  gasPipingRequired?: boolean;
+  confidence?: number;
+};
+
+export function formatPlumbingWaterHeaterDetail(
+  detail: PlumbingWaterHeaterDetail | null | undefined
+): string | null {
+  if (!detail) return null;
+  const parts = [
+    `${detail.count ?? 1} water heater${detail.count === 1 ? '' : 's'}`,
+    detail.type,
+    detail.fuel,
+    detail.location,
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
+}
+
+export function formatPlumbingGasApplianceScope(
+  scope: PlumbingGasApplianceScope | null | undefined
+): string[] {
+  if (!scope) return [];
+  const lines: string[] = [];
+  const labels: Record<string, string> = {
+    range: 'Range',
+    waterHeater: 'Water heater',
+    fireplace: 'Fireplace',
+    dryer: 'Dryer',
+    grill: 'Grill',
+  };
+  for (const [key, label] of Object.entries(labels)) {
+    if (scope[key as keyof PlumbingGasApplianceScope]) {
+      lines.push(`${label}: Yes`);
+    }
+  }
+  if (scope.gasPipingRequired) {
+    lines.push('Gas piping required: Yes · Length: Confirm');
+  }
+  return lines;
 }

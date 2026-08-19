@@ -416,6 +416,63 @@ describe('live plan-review handoff to Confirm Scope', () => {
     expect(next.measurementConflicts).toEqual([]);
   });
 
+  test('merges Plumbing plan quantities into scope cards and itemQuantities', () => {
+    const next = mergeLivePlanImportIntoScopeMeasurements(
+      {
+        quickMeasurementSources: {},
+        itemQuantities: {},
+      },
+      {
+        measurements: {
+          waterLineLf: '50',
+          sewerLineLf: '30',
+          plumbingRoughPointCount: '10',
+          plumbingTrimHookupCount: '10',
+        },
+        quickMeasurementSources: {
+          waterLineLf: 'needs_confirmation',
+          sewerLineLf: 'needs_confirmation',
+          plumbingRoughPointCount: 'plan_verified',
+          plumbingTrimHookupCount: 'plan_verified',
+        },
+        measurementProvenance: {
+          waterLineLf: {
+            status: 'plan_verified',
+            normalizedSource: 'FROM_PLAN',
+            pricingEligible: false,
+          },
+          plumbingRoughPointCount: {
+            status: 'plan_verified',
+            normalizedSource: 'FROM_PLAN',
+            pricingEligible: true,
+          },
+        },
+        estimatingMode: 'selected_trade',
+        selectedTrade: 'plumbing',
+      }
+    );
+
+    expect(next.waterLineLf).toBe('50');
+    expect(next.plumbingRoughPointCount).toBe('10');
+    expect(next.quickMeasurementSources?.plumbingRoughPointCount).toBe(
+      'plan_verified'
+    );
+    expect(next.itemQuantities).toMatchObject({
+      water_line: { quantity: 50, unit: 'lf' },
+      sewer_line: { quantity: 30, unit: 'lf' },
+      plumbing_rough: { quantity: 10, unit: 'each' },
+      plumbing_trim: { quantity: 10, unit: 'each' },
+    });
+    expect(next.plumbingScope).toEqual(
+      expect.arrayContaining([
+        'water_line',
+        'sewer_line',
+        'plumbing_rough',
+        'plumbing_trim',
+      ])
+    );
+  });
+
   test('clears old plan confirmations when a different plan is imported', () => {
     const next = mergeLivePlanImportIntoScopeMeasurements(
       {

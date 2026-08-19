@@ -22,6 +22,9 @@ import {
   buildPlanReviewMeasurementRowState,
   planReviewCheckboxBlockedMessage,
   planReviewProvenanceFlags,
+  plumbingFixtureInventoryLabel,
+  plumbingMeasurementDisplayUnit,
+  sumPlumbingFixtureInventoryPoints,
   readyStateSummary,
   resolvePlanAreaReconciliation,
   scopeTakeoffStatusLines,
@@ -46,12 +49,10 @@ const LOT_41_ROOMS = [
 ];
 
 describe('plan takeoff review UI polish', () => {
-  const originalSemantics =
-    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1;
+  const originalSemantics = process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1;
 
   afterEach(() => {
-    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 =
-      originalSemantics;
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = originalSemantics;
   });
 
   it('replaces Rooms (x of x) with spaces detected when semantics enabled', () => {
@@ -85,9 +86,7 @@ describe('plan takeoff review UI polish', () => {
       rooms: LOT_41_ROOMS,
     });
     const livingStatus = livingReconciliationStatusLabel(recon);
-    expect(livingStatus).toMatch(
-      /Room detection incomplete|Partial room coverage/i
-    );
+    expect(livingStatus).toMatch(/Room detection incomplete|Partial room coverage/i);
     expect(livingStatus).toMatch(/596\.8/);
     expect(livingStatus).not.toMatch(/material variance/i);
 
@@ -100,9 +99,7 @@ describe('plan takeoff review UI polish', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     const display = measurementDisplayLabel('flooringSqft', 1879, 1879);
     expect(display.label).toBe('Gross interior floor area');
-    expect(display.subtext).toBe(
-      'Derived from declared living area — finish allocation required'
-    );
+    expect(display.subtext).toBe('Derived from declared living area — finish allocation required');
     // No second source/explanation line for flooring derived from living SF.
     expect(
       measurementSourceLabel({
@@ -117,9 +114,7 @@ describe('plan takeoff review UI polish', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     const living = measurementSourceLabel({
       key: 'floorAreaSqft',
-      assumptions: [
-        'Total living from Building Areas table on cover sheet page 1',
-      ],
+      assumptions: ['Total living from Building Areas table on cover sheet page 1'],
     });
     expect(living).toMatch(/Explicitly stated on cover sheet/i);
     expect(living).toMatch(/page 1/i);
@@ -140,12 +135,8 @@ describe('plan takeoff review UI polish', () => {
     });
     expect(mep[0]).toMatch(/Electrical detected on page 10/i);
     expect(mep[0]).toMatch(/plumbing and HVAC require trade review/i);
-    expect(
-      mep.some(l => /Needs trade counts \/ installed-package pricing/i.test(l))
-    ).toBe(true);
-    expect(mep.join(' ')).not.toMatch(
-      /^Detected from electrical plan — page 10$/i
-    );
+    expect(mep.some(l => /Needs trade counts \/ installed-package pricing/i.test(l))).toBe(true);
+    expect(mep.join(' ')).not.toMatch(/^Detected from electrical plan — page 10$/i);
   });
 
   it('keeps tile & flooring page-4 source when plan floor areas exist', () => {
@@ -156,17 +147,9 @@ describe('plan takeoff review UI polish', () => {
       hasPlanFloorAreas: true,
       assumptions: ['Room dimensions from floor plan page 4'],
     });
-    expect(tile.some(l => /Floor areas detected from page 4/i.test(l))).toBe(
-      true
-    );
-    expect(
-      tile.some(l =>
-        /Needs finish allocation and material-specific takeoff/i.test(l)
-      )
-    ).toBe(true);
-    expect(tile.join(' ').toLowerCase()).not.toBe(
-      'standard for ground-up new construction'
-    );
+    expect(tile.some(l => /Floor areas detected from page 4/i.test(l))).toBe(true);
+    expect(tile.some(l => /Needs finish allocation and material-specific takeoff/i.test(l))).toBe(true);
+    expect(tile.join(' ').toLowerCase()).not.toBe('standard for ground-up new construction');
   });
 
   it('shows missing-takeoff statuses for foundation, framing, insulation and drywall', () => {
@@ -202,8 +185,7 @@ describe('plan takeoff review UI polish', () => {
 
   it('keeps imported plan summary distinct and provides collapsed subtitle', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
-    const merged =
-      'Customer wants LVP in living areas.\n\n--- Plan takeoff ---\nTotal living area is 1879 sqft.\n';
+    const merged = 'Customer wants LVP in living areas.\n\n--- Plan takeoff ---\nTotal living area is 1879 sqft.\n';
     const jobNotes = stripPlanTakeoffFromNotes(merged);
     expect(jobNotes).toContain('Customer wants LVP');
     expect(jobNotes).not.toMatch(/Plan takeoff/i);
@@ -233,9 +215,7 @@ describe('plan takeoff review UI polish', () => {
       spaceCount: 9,
       scopeCount: 18,
     });
-    expect(prompt).toMatch(
-      /Ground-up new construction plan imported and ready to generate/i
-    );
+    expect(prompt).toMatch(/Ground-up new construction plan imported and ready to generate/i);
     expect(prompt).toMatch(/3,098 SF/);
     expect(prompt).toMatch(/Generate Estimate Draft/i);
     expect(prompt).not.toMatch(/Plan takeoff/i);
@@ -252,12 +232,8 @@ describe('plan takeoff review UI polish', () => {
         scopeDetections: [{ itemId: 'foundation' }, { itemId: 'framing' }],
       })
     ).toBe(true);
-    expect(
-      ensureGroundUpPlanNotes('3,098 SF · 9 detected spaces', true)
-    ).toMatch(/Ground-up new construction/i);
-    expect(ensureGroundUpPlanNotes('Kitchen remodel only', true)).toMatch(
-      /Kitchen remodel only/i
-    );
+    expect(ensureGroundUpPlanNotes('3,098 SF · 9 detected spaces', true)).toMatch(/Ground-up new construction/i);
+    expect(ensureGroundUpPlanNotes('Kitchen remodel only', true)).toMatch(/Kitchen remodel only/i);
   });
 
   it('uses Apply plan takeoff when semantics enabled', () => {
@@ -273,22 +249,16 @@ describe('plan takeoff review UI polish', () => {
 
   it('uses preferred ready-state copy with detected spaces', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
-    expect(
-      readyStateSummary({ measurementCount: 5, spaceCount: 12, scopeCount: 13 })
-    ).toBe(
+    expect(readyStateSummary({ measurementCount: 5, spaceCount: 12, scopeCount: 13 })).toBe(
       'Ready · 5 project measurements · 12 detected spaces · 13 scope items'
     );
   });
 
   it('preserves legacy UI wording when feature flag disabled', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'false';
-    expect(measurementDisplayLabel('flooringSqft', 1879, 1879).label).toBe(
-      'flooringSqft'
-    );
+    expect(measurementDisplayLabel('flooringSqft', 1879, 1879).label).toBe('flooringSqft');
     expect(measurementSourceLabel({ key: 'floorAreaSqft' })).toBeNull();
-    expect(
-      scopeTakeoffStatusLines({ itemId: 'foundation', evidence: 'page 3' })
-    ).toEqual(['page 3']);
+    expect(scopeTakeoffStatusLines({ itemId: 'foundation', evidence: 'page 3' })).toEqual(['page 3']);
     expect(
       applyPlanTakeoffButtonLabel({
         includedMeasurementCount: 5,
@@ -521,6 +491,45 @@ describe('plan takeoff review UI polish', () => {
     ).toBe('Derived from toilets, lavatories · P1.1 · p.6 · Fixture schedule');
   });
 
+  it('uses contractor-friendly Plumbing labels and flags architectural LF reads', () => {
+    expect(measurementDisplayLabel('waterLineLf').label).toBe('Underground water service / under-slab piping');
+    expect(measurementDisplayLabel('plumbingRoughPointCount').label).toBe('Plumbing rough-in points');
+    expect(plumbingMeasurementDisplayUnit('plumbingRoughPointCount')).toBe('fixtures');
+    expect(plumbingFixtureInventoryLabel('kitchenSinks')).toBe('Kitchen sink');
+    expect(sumPlumbingFixtureInventoryPoints({ toilets: 3, lavatories: 3, showers: 2, tubs: 1, kitchenSinks: 1 })).toBe(10);
+    expect(
+      planReviewProvenanceFlags({
+        key: 'waterLineLf',
+        provenanceEntry: {
+          source: 'detected_from_plan',
+          evidenceKind: 'architectural_line_segment',
+          pricingEligible: false,
+        },
+      })
+    ).toMatchObject({
+      hasExplicitPlanSource: false,
+      aiInferred: true,
+    });
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'waterLineLf',
+        tradeKey: 'plumbing',
+        fieldConfidence: 0.9,
+        provenanceEntry: {
+          source: 'detected_from_plan',
+          evidenceKind: 'architectural_line_segment',
+          pricingEligible: false,
+        },
+      })
+    ).toMatchObject({
+      pricingEligible: false,
+      provenance: {
+        status: 'ai_inferred',
+      },
+      includeDefault: true,
+    });
+  });
+
   it('does not mark a conflicted Electrical count as Plan verified', () => {
     expect(
       planReviewProvenanceFlags({
@@ -728,11 +737,7 @@ describe('plan takeoff review UI polish', () => {
     expect(merged.recessedLightCount).toBeUndefined();
     expect(merged.mainPanelCount).toBe(1);
     const summary = buildElectricalPlanReviewSummary(merged, null, {
-      unresolvedConflictFields: [
-        'standardReceptacleCount',
-        'gfciReceptacleCount',
-        'recessedLightCount',
-      ],
+      unresolvedConflictFields: ['standardReceptacleCount', 'gfciReceptacleCount', 'recessedLightCount'],
     });
     const detected = electricalPlanReviewDetectedLines(summary);
     const status = electricalPlanReviewStatusLines(summary);
@@ -749,15 +754,9 @@ describe('plan takeoff review UI polish', () => {
         }),
       ])
     );
-    expect(detected.some(line => line.label === 'Standard receptacles')).toBe(
-      false
-    );
-    expect(detected.some(line => line.label === 'GFCI receptacles')).toBe(
-      false
-    );
-    expect(
-      detected.some(line => line.label === 'Recessed / canless / wafer light')
-    ).toBe(false);
+    expect(detected.some(line => line.label === 'Standard receptacles')).toBe(false);
+    expect(detected.some(line => line.label === 'GFCI receptacles')).toBe(false);
+    expect(detected.some(line => line.label === 'Recessed / canless / wafer light')).toBe(false);
     expect(status).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -805,14 +804,10 @@ describe('plan takeoff review UI polish', () => {
   });
 
   it('surfaces unclassified lighting fixtures as needs confirmation', () => {
-    const summary = buildElectricalPlanReviewSummary(
-      { mainPanelCount: 1 },
-      null,
-      {
-        unclassifiedFixtureCount: 4,
-        unclassifiedFixtureNote: '4 lighting fixtures without a symbol legend',
-      }
-    );
+    const summary = buildElectricalPlanReviewSummary({ mainPanelCount: 1 }, null, {
+      unclassifiedFixtureCount: 4,
+      unclassifiedFixtureNote: '4 lighting fixtures without a symbol legend',
+    });
     expect(electricalPlanReviewStatusLines(summary)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -825,19 +820,13 @@ describe('plan takeoff review UI polish', () => {
   });
 
   it('does not duplicate unclassified lighting in Electrical status lines', () => {
-    const summary = buildElectricalPlanReviewSummary(
-      { mainPanelCount: 1 },
-      null,
-      {
-        unresolvedConflictFields: ['unclassifiedFixtureCount'],
-        unclassifiedFixtureCount: 5,
-        unclassifiedFixtureNote: '5 lighting fixtures without a symbol legend',
-      }
-    );
+    const summary = buildElectricalPlanReviewSummary({ mainPanelCount: 1 }, null, {
+      unresolvedConflictFields: ['unclassifiedFixtureCount'],
+      unclassifiedFixtureCount: 5,
+      unclassifiedFixtureNote: '5 lighting fixtures without a symbol legend',
+    });
     const status = electricalPlanReviewStatusLines(summary);
-    const unclassified = status.filter(
-      line => line.label === 'Unclassified lighting fixtures'
-    );
+    const unclassified = status.filter(line => line.label === 'Unclassified lighting fixtures');
     expect(unclassified).toHaveLength(1);
     expect(unclassified[0]).toMatchObject({
       value: 'Needs confirmation',
@@ -847,9 +836,7 @@ describe('plan takeoff review UI polish', () => {
 
   it('builds grouped Electrical plan review summary from canonical counts', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
-    expect(measurementDisplayLabel('standardReceptacleCount').label).toBe(
-      'Standard receptacles'
-    );
+    expect(measurementDisplayLabel('standardReceptacleCount').label).toBe('Standard receptacles');
     const summary = buildElectricalPlanReviewSummary({
       mainPanelCount: 1,
       serviceAmperage: 200,
@@ -935,9 +922,7 @@ describe('plan takeoff review UI polish', () => {
         },
       ])
     );
-    expect(measurementSourceLabel({ key: 'recessedLightCount' })).toMatch(
-      /electrical plan/i
-    );
+    expect(measurementSourceLabel({ key: 'recessedLightCount' })).toMatch(/electrical plan/i);
   });
 
   it('aligns Electrical review row label with pricing eligibility', () => {
@@ -990,8 +975,7 @@ describe('plan takeoff review UI polish', () => {
           status: 'from_plan_symbols',
           label: 'From plan — confirm',
           confidence: 'medium',
-          reason:
-            'Counted from plan symbols without an explicit printed quantity.',
+          reason: 'Counted from plan symbols without an explicit printed quantity.',
         },
         { label: '3-way switch', value: '4', unit: 'EA' }
       )

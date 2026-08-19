@@ -9,7 +9,9 @@ const {
   formatPdfEvidenceForVision,
   scorePaintingRelevantPage,
   scoreElectricalRelevantPage,
+  scorePlumbingRelevantPage,
   expandElectricalRelevantPages,
+  expandPlumbingRelevantPages,
   countElectricalInstanceTagsOnPage,
   aggregateElectricalInstanceTagCounts,
   detectElectricalSheetKind,
@@ -30,13 +32,13 @@ describe('planPdfTextTakeoff', () => {
   });
 
   test('parseDimensionString reads feet-inch L×W', () => {
-    expect(parseDimensionString("13'-1\"X14'-10\"")).toEqual({
+    expect(parseDimensionString('13\'-1"X14\'-10"')).toEqual({
       lengthFt: 13.083,
       widthFt: 14.833,
       areaSqft: 194.1,
-      raw: "13'-1\" x 14'-10\"",
+      raw: '13\'-1" x 14\'-10"',
     });
-    expect(parseDimensionString("12'-1\" x 42'-5\"")).toMatchObject({
+    expect(parseDimensionString('12\'-1" x 42\'-5"')).toMatchObject({
       lengthFt: 12.083,
       widthFt: 42.417,
       areaSqft: 512.5,
@@ -64,18 +66,16 @@ describe('planPdfTextTakeoff', () => {
   });
 
   test('Lot 58 floor Living Area callouts survive CAD junk between label and SF', () => {
-    const main = parsePageFactsFromText(
-      "PRIMARYSUITE LIVINGAREA N 2047SQFT PANTRY MAIN LEVEL LAYOUT BEDROOM2",
-      { page: 3 }
-    );
+    const main = parsePageFactsFromText('PRIMARYSUITE LIVINGAREA N 2047SQFT PANTRY MAIN LEVEL LAYOUT BEDROOM2', {
+      page: 3,
+    });
     expect(main.buildingAreas.mainFloorLivingSqft).toBe(2047);
     expect(main.buildingAreas.totalLivingSqft).toBeUndefined();
     expect(main.planFacts.storyCount).toBe(1);
 
-    const upper = parsePageFactsFromText(
-      "BEDROOM3 LIVINGAREA 6'-1\"X3'-10\" 1613SQFT 2ND LEVEL LAYOUT BEDROOM6",
-      { page: 4 }
-    );
+    const upper = parsePageFactsFromText('BEDROOM3 LIVINGAREA 6\'-1"X3\'-10" 1613SQFT 2ND LEVEL LAYOUT BEDROOM6', {
+      page: 4,
+    });
     expect(upper.buildingAreas.upstairsLivingSqft).toBe(1613);
     expect(upper.buildingAreas.mainFloorLivingSqft).toBeUndefined();
   });
@@ -122,70 +122,59 @@ describe('planPdfTextTakeoff', () => {
       parseOverallEnvelopePerimeter,
       normalizeCadCallouts,
     } = require('../planPdfTextTakeoff');
-    expect(parseLabeledHeight("PLATE HEIGHT 10'-0\"", 'plate')?.value).toBe(10);
-    expect(parseLabeledHeight("CEILING HEIGHT 9'-1\"", 'wall')?.value).toBeCloseTo(9.083, 3);
+    expect(parseLabeledHeight('PLATE HEIGHT 10\'-0"', 'plate')?.value).toBe(10);
+    expect(parseLabeledHeight('CEILING HEIGHT 9\'-1"', 'wall')?.value).toBeCloseTo(9.083, 3);
     expect(parseLabeledHeight("TOPOFPLATE 10.2'", 'plate')?.value).toBe(10.2);
-    expect(parseLabeledHeight('TOP OF PLATE 10.2\'', 'plate')?.value).toBe(10.2);
+    expect(parseLabeledHeight("TOP OF PLATE 10.2'", 'plate')?.value).toBe(10.2);
     // Lot 58 elevations label cumulative 20.5' and per-story 10.2' with CAD junk after.
     expect(
       parseLabeledHeight(
-        'TOP OF PLATE 20.5\' " 8 1 3 -\' 9 TOP OF SUBFLOOR-2NDFLOOR 11.2\' TOP OF PLATE " 10.2\' 8 5 0 -\' 1',
+        "TOP OF PLATE 20.5' \" 8 1 3 -' 9 TOP OF SUBFLOOR-2NDFLOOR 11.2' TOP OF PLATE \" 10.2' 8 5 0 -' 1",
         'plate'
       )?.value
     ).toBe(10.2);
-    expect(
-      parseOverallEnvelopePerimeter("FOUNDATION PLAN 55' 31' 55' 22' 18'")?.value
-    ).toBe(172);
+    expect(parseOverallEnvelopePerimeter("FOUNDATION PLAN 55' 31' 55' 22' 18'")?.value).toBe(172);
     expect(parseLabeledPerimeter('EXTERIOR PERIMETER 214 LF', 'exterior')?.value).toBe(214);
-    expect(parseLabeledPerimeter("FOUNDATION PERIMETER 198'-6\"", 'foundation')?.value).toBeCloseTo(
-      198.5,
-      1
-    );
+    expect(parseLabeledPerimeter('FOUNDATION PERIMETER 198\'-6"', 'foundation')?.value).toBeCloseTo(198.5, 1);
     expect(parseNonPaintedExteriorPercent('STONE 20% BRICK 10%')?.value).toBe(30);
     expect(parsePitch('ROOF PLAN 5:12 5:12 5:12')?.value).toBe('5:12');
-    expect(normalizeCadCallouts('TOPOFPLATE 10.2\'')).toContain('TOP OF PLATE');
+    expect(normalizeCadCallouts("TOPOFPLATE 10.2'")).toContain('TOP OF PLATE');
     expect(
-      parseOverallEnvelopePerimeter(
-        "FOUNDATION PLAN 70'-6\" 45'-8\" 26'-8\" 13'-6\" 70'-6\" 45'-8\""
-      )?.value
+      parseOverallEnvelopePerimeter('FOUNDATION PLAN 70\'-6" 45\'-8" 26\'-8" 13\'-6" 70\'-6" 45\'-8"')?.value
     ).toBe(232.4);
-    expect(
-      parseOverallEnvelopePerimeter("FOUNDATION PLAN 70'-6\" 45'-8\" 26'-8\" 13'-6\"")
-    ).toBeNull();
-    expect(
-      parseOverallEnvelopePerimeter("FOUNDATION PLAN GARAGE 31'-1\"X23'-4\" 70'-6\" 70'-6\"")
-    ).toBeNull();
+    expect(parseOverallEnvelopePerimeter('FOUNDATION PLAN 70\'-6" 45\'-8" 26\'-8" 13\'-6"')).toBeNull();
+    expect(parseOverallEnvelopePerimeter('FOUNDATION PLAN GARAGE 31\'-1"X23\'-4" 70\'-6" 70\'-6"')).toBeNull();
   });
 
   test('extractRoomsFromPhrases pairs each label with nearest L×W (SHV-like)', () => {
     const phrases = [
       { str: 'DINING', x: 642, y: 1199 },
-      { str: "13'-1\"X8'-7\"", x: 634, y: 1188 },
+      { str: '13\'-1"X8\'-7"', x: 634, y: 1188 },
       { str: 'PRIMARYSUITE', x: 1184, y: 1140 },
-      { str: "15'-4\"X16'-7\"", x: 1200, y: 1128 },
+      { str: '15\'-4"X16\'-7"', x: 1200, y: 1128 },
       { str: 'GREATROOM', x: 876, y: 1087 },
-      { str: "14'-10\"X17'-6\"", x: 884, y: 1075 },
+      { str: '14\'-10"X17\'-6"', x: 884, y: 1075 },
       { str: 'CLOSET', x: 1454, y: 1057 },
-      { str: "11'-6\"X4'-9\"", x: 1451, y: 1050 },
+      { str: '11\'-6"X4\'-9"', x: 1451, y: 1050 },
       { str: 'KITCHEN', x: 594, y: 1044 },
-      { str: "13'-1\"X14'-10\"", x: 586, y: 1033 },
+      { str: '13\'-1"X14\'-10"', x: 586, y: 1033 },
       { str: 'LAUNDRY', x: 1426, y: 922 },
-      { str: "8'-0\"X5'-3\"", x: 1430, y: 910 },
+      { str: '8\'-0"X5\'-3"', x: 1430, y: 910 },
       { str: 'RVGARAGE', x: 1669, y: 893 },
-      { str: "12'-1\"X42'-5\"", x: 1674, y: 881 },
+      { str: '12\'-1"X42\'-5"', x: 1674, y: 881 },
       { str: 'PANTRY', x: 652, y: 822 },
-      { str: "9'-2\"X4'-3\"", x: 652, y: 810 },
+      { str: '9\'-2"X4\'-3"', x: 652, y: 810 },
       { str: 'DEN/BED4', x: 1109, y: 712 },
-      { str: "10'-4\"X10'-8\"", x: 1110, y: 700 },
+      { str: '10\'-4"X10\'-8"', x: 1110, y: 700 },
       { str: 'GARAGE', x: 1378, y: 695 },
-      { str: "19'-1\"X23'-3\"", x: 1372, y: 684 },
+      { str: '19\'-1"X23\'-3"', x: 1372, y: 684 },
       { str: 'BED3', x: 602, y: 684 },
-      { str: "10'-2\"X10'-6\"", x: 588, y: 671 },
+      { str: '10\'-2"X10\'-6"', x: 588, y: 671 },
       { str: 'BED2/OFFICE', x: 788, y: 546 },
-      { str: "10'-9\"X10'-2\"", x: 799, y: 534 },
+      { str: '10\'-9"X10\'-2"', x: 799, y: 534 },
     ];
     const rooms = extractRoomsFromPhrases(phrases, { sourcePage: 3, sourceSheet: 'A1.1' });
-    const byName = Object.fromEntries(rooms.map((r) => [r.name, r]));
+    const byName = Object.fromEntries(rooms.map(r => [r.name, r]));
     expect(byName.Kitchen.areaSqft).toBe(194.1);
     expect(byName.Dining.areaSqft).toBe(112.3);
     expect(byName['Den/Bed 4'].areaSqft).toBe(110.2);
@@ -228,9 +217,7 @@ describe('planPdfTextTakeoff', () => {
       scorePaintingRelevantPage('E1.0 ELECTRICAL PLAN').score
     );
     expect(scorePaintingRelevantPage('DOOR SCHEDULE').reasons).toContain('door schedule');
-    expect(scorePaintingRelevantPage('REFLECTED CEILING PLAN / RCP').reasons).toEqual(
-      expect.arrayContaining(['RCP'])
-    );
+    expect(scorePaintingRelevantPage('REFLECTED CEILING PLAN / RCP').reasons).toEqual(expect.arrayContaining(['RCP']));
     expect(scorePaintingRelevantPage('FRONT ELEVATION').reasons).toContain('exterior elevation');
     expect(scorePaintingRelevantPage('E1.0 ELECTRICAL PLAN').score).toBe(0);
   });
@@ -243,13 +230,11 @@ describe('planPdfTextTakeoff', () => {
     expect(scoreElectricalRelevantPage('PANEL SCHEDULE 200A')).toMatchObject({
       reasons: expect.arrayContaining(['panel schedule']),
     });
-    expect(
-      scoreElectricalRelevantPage('MAIN LEVEL ELECTRICAL PLAN').score
-    ).toBeGreaterThan(scoreElectricalRelevantPage('A1.1 FLOOR PLAN MAIN LEVEL').score);
-    expect(scoreElectricalRelevantPage('A1.1 FLOOR PLAN MAIN LEVEL').score).toBe(0);
-    expect(scoreElectricalRelevantPage('UPPER FLOOR LIGHTING PLAN').reasons).toContain(
-      'lighting / power plan'
+    expect(scoreElectricalRelevantPage('MAIN LEVEL ELECTRICAL PLAN').score).toBeGreaterThan(
+      scoreElectricalRelevantPage('A1.1 FLOOR PLAN MAIN LEVEL').score
     );
+    expect(scoreElectricalRelevantPage('A1.1 FLOOR PLAN MAIN LEVEL').score).toBe(0);
+    expect(scoreElectricalRelevantPage('UPPER FLOOR LIGHTING PLAN').reasons).toContain('lighting / power plan');
   });
 
   test('toUint8Array copies bytes so pdf.js cannot detach the original buffer', () => {
@@ -271,14 +256,40 @@ describe('planPdfTextTakeoff', () => {
   });
 
   test('expandElectricalRelevantPages includes the following sheet after a strong E-page hit', () => {
-    const expanded = expandElectricalRelevantPages(
-      [{ page: 12, score: 12, reasons: ['electrical plan'] }],
-      15
+    const expanded = expandElectricalRelevantPages([{ page: 12, score: 12, reasons: ['electrical plan'] }], 15);
+    expect(expanded.map(page => page.page)).toEqual([12, 13]);
+    expect(expanded.find(page => page.page === 13).reasons).toContain('following electrical sheet');
+  });
+
+  test('scorePlumbingRelevantPage prioritizes P sheets and fixture schedules', () => {
+    expect(scorePlumbingRelevantPage('PLUMBING PLAN P1.1 FIXTURE SCHEDULE MAIN FLOOR')).toMatchObject({
+      score: expect.any(Number),
+      reasons: expect.arrayContaining(['plumbing plan', 'P sheet', 'fixture schedule']),
+    });
+    expect(scorePlumbingRelevantPage('MAIN FLOOR PLAN A-3 TOILET LAVATORY')).toMatchObject({
+      reasons: expect.arrayContaining(['floor plan (fixture symbols)']),
+    });
+  });
+
+  test('expandPlumbingRelevantPages includes the following sheet after a strong plumbing hit', () => {
+    const expanded = expandPlumbingRelevantPages([{ page: 5, score: 12, reasons: ['plumbing plan'] }], 8);
+    expect(expanded.map(page => page.page)).toEqual([5, 6]);
+  });
+
+  test('formatPdfEvidenceForVision lists plumbing-relevant pages for Plumbing trade', () => {
+    const text = formatPdfEvidenceForVision(
+      {
+        plumbingRelevantPages: [
+          { page: 5, reasons: ['floor plan (fixture symbols)'] },
+          { page: 7, reasons: ['P sheet', 'fixture schedule'] },
+        ],
+      },
+      { tradeKey: 'plumbing' }
     );
-    expect(expanded.map((page) => page.page)).toEqual([12, 13]);
-    expect(expanded.find((page) => page.page === 13).reasons).toContain(
-      'following electrical sheet'
-    );
+    expect(text).toMatch(/Plumbing-relevant sheets/i);
+    expect(text).toContain('page 5');
+    expect(text).toContain('page 7');
+    expect(text).toMatch(/P sheets > fixture schedules/i);
   });
 
   test('formatPdfEvidenceForVision lists electrical-relevant pages for Electrical trade', () => {
@@ -348,10 +359,7 @@ describe('planPdfTextTakeoff', () => {
       { page: 10, sheet: 'A-10' }
     );
     const upper = countElectricalInstanceTagsOnPage(
-      [
-        { str: 'LIGHTING PLAN 2ND LEVEL A-11', x: 400, y: 1200 },
-        ...scatterTags('R4', 15, { x0: 200, y0: 700 }),
-      ],
+      [{ str: 'LIGHTING PLAN 2ND LEVEL A-11', x: 400, y: 1200 }, ...scatterTags('R4', 15, { x0: 200, y0: 700 })],
       { page: 11, sheet: 'A-11' }
     );
     expect(main.measurements.recessedLightCount).toBe(33);
@@ -380,10 +388,7 @@ describe('planPdfTextTakeoff', () => {
 
   test('same-level RCP and lighting plan do not double-count R4 tags', () => {
     const lighting = countElectricalInstanceTagsOnPage(
-      [
-        { str: 'LIGHTING PLAN MAIN LEVEL A-10', x: 400, y: 1200 },
-        ...scatterTags('R4', 20),
-      ],
+      [{ str: 'LIGHTING PLAN MAIN LEVEL A-10', x: 400, y: 1200 }, ...scatterTags('R4', 20)],
       { page: 10, sheet: 'A-10' }
     );
     const rcp = countElectricalInstanceTagsOnPage(
@@ -401,10 +406,7 @@ describe('planPdfTextTakeoff', () => {
 
   test('repeated CF instance tags become ceilingFanCount when present', () => {
     const page = countElectricalInstanceTagsOnPage(
-      [
-        { str: 'LIGHTING PLAN MAIN LEVEL', x: 400, y: 1200 },
-        ...scatterTags('CF', 9),
-      ],
+      [{ str: 'LIGHTING PLAN MAIN LEVEL', x: 400, y: 1200 }, ...scatterTags('CF', 9)],
       { page: 10 }
     );
     expect(page.measurements.ceilingFanCount).toBe(9);
@@ -470,8 +472,7 @@ describe('planPdfTextTakeoff', () => {
     expect(upper.level).toBe('upper');
     const aggregated = aggregateElectricalInstanceTagCounts([main, upper]);
     expect(aggregated.measurements.recessedLightCount).toBe(
-      main.measurements.recessedLightCount +
-        upper.measurements.recessedLightCount
+      main.measurements.recessedLightCount + upper.measurements.recessedLightCount
     );
     expect(aggregated.byKey.recessedLightCount.sheets).toEqual(
       expect.arrayContaining([
@@ -483,10 +484,7 @@ describe('planPdfTextTakeoff', () => {
 
   test('lighting plan pages are not skipped because notes mention section', () => {
     const page = countElectricalInstanceTagsOnPage(
-      [
-        { str: 'LIGHTING PLAN 2ND LEVEL A-11 SEE SECTION', x: 400, y: 1200 },
-        ...scatterTags('R4', 15),
-      ],
+      [{ str: 'LIGHTING PLAN 2ND LEVEL A-11 SEE SECTION', x: 400, y: 1200 }, ...scatterTags('R4', 15)],
       { page: 11 }
     );
     expect(page.measurements.recessedLightCount).toBe(15);
@@ -505,17 +503,11 @@ describe('planPdfTextTakeoff', () => {
 
   test('main and upper lighting plans sum even if both extract as the same sheet id', () => {
     const main = countElectricalInstanceTagsOnPage(
-      [
-        { str: 'LIGHTING PLAN MAIN LEVEL A-10', x: 400, y: 1200 },
-        ...scatterTags('R4', 33),
-      ],
+      [{ str: 'LIGHTING PLAN MAIN LEVEL A-10', x: 400, y: 1200 }, ...scatterTags('R4', 33)],
       { page: 10, sheet: 'A-10' }
     );
     const upper = countElectricalInstanceTagsOnPage(
-      [
-        { str: 'LIGHTING PLAN 2ND LEVEL A-11', x: 400, y: 1200 },
-        ...scatterTags('R4', 15, { x0: 200, y0: 700 }),
-      ],
+      [{ str: 'LIGHTING PLAN 2ND LEVEL A-11', x: 400, y: 1200 }, ...scatterTags('R4', 15, { x0: 200, y0: 700 })],
       { page: 11, sheet: 'A-10' }
     );
     expect(main.level).toBe('main');

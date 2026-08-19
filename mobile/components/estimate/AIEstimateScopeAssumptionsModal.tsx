@@ -10651,11 +10651,13 @@ function CollapsibleQuickMeasurements({
     // Pin only after typing has moved a field out of its home section. Applying pin on
     // focus alone reorders Needs confirmation (pre-split indexes ≠ post-split indexes)
     // and makes the yellow inputs jump / remount when tapped.
+    const editingGroup =
+      editingHomeGroup && Array.isArray(grouped[editingHomeGroup])
+        ? grouped[editingHomeGroup]
+        : null;
     const shouldPin =
-      Boolean(editingFieldKey && editingHomeGroup) &&
-      !grouped[editingHomeGroup!].some(
-        result => result.key === editingFieldKey
-      );
+      Boolean(editingFieldKey && editingGroup) &&
+      !editingGroup!.some(result => result.key === editingFieldKey);
     const pinned = shouldPin
       ? pinQuickMeasurementFieldInGroup(
           grouped,
@@ -12070,7 +12072,7 @@ function CollapsibleQuickMeasurements({
           const homeGroup: QuickMeasurementGroupId =
             result.state === 'confirmed'
               ? 'confirmed'
-              : result.state === 'detected'
+              : result.state === 'detected' || result.state === 'ai_verified'
                 ? 'fromPlan'
                 : result.state === 'estimate_available'
                   ? 'suggestions'
@@ -12376,7 +12378,9 @@ function CollapsibleQuickMeasurements({
     result: QuickMeasurementFieldResult
   ): QuickMeasurementGroupId => {
     if (result.state === 'confirmed') return 'confirmed';
-    if (result.state === 'detected') return 'fromPlan';
+    if (result.state === 'detected' || result.state === 'ai_verified') {
+      return 'fromPlan';
+    }
     if (result.state === 'estimate_available') return 'suggestions';
     if (result.state === 'not_relevant') return 'more';
     return 'needsConfirmation';
@@ -13537,7 +13541,7 @@ function CollapsibleQuickMeasurements({
                 renderDisplayedResultField(
                   result,
                   fieldVariantForResult(result),
-                  'plumbing',
+                  homeGroupForResult(result),
                   index
                 )
               )}
@@ -14826,6 +14830,10 @@ export default function AIEstimateScopeAssumptionsModal({
             measurementProvenance: planImport.measurementProvenance,
             utilityConnections: planImport.utilityConnections,
             fixtureInventory: planImport.fixtureInventory,
+            complexityFactors: planImport.complexityFactors,
+            plumbingReviewStatus: planImport.plumbingReviewStatus,
+            waterHeaterDetail: planImport.waterHeaterDetail,
+            gasApplianceScope: planImport.gasApplianceScope,
             measurementConflicts: planImport.measurementConflicts,
             planImportFingerprint: planImport.planImportFingerprint,
             estimatingMode: planImport.estimatingMode,

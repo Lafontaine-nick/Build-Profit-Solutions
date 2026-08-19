@@ -496,7 +496,7 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'plumbingRoughPointCount',
     'Plumbing rough-in points',
     '4',
-    'each',
+    'fixtures',
     'structure',
     true,
     'Supply, drain, vent, or fixture rough-in points; not living SF.'
@@ -505,7 +505,7 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'plumbingTrimHookupCount',
     'Plumbing trim / hookups',
     '4',
-    'each',
+    'fixtures',
     'interior',
     undefined,
     'Fixture trim and final connections only.'
@@ -1689,7 +1689,15 @@ export function quickMeasurementFieldMeta(key: string): {
   unit: string;
 } {
   const def = QUICK_MEASUREMENT_FIELD_DEFS[key as QuickMeasurementFieldKey];
-  if (def) return { label: def.label, unit: def.unit };
+  if (def) {
+    return {
+      label: def.label,
+      unit:
+        key === 'plumbingRoughPointCount' || key === 'plumbingTrimHookupCount'
+          ? 'fixtures'
+          : def.unit,
+    };
+  }
   return { label: key, unit: '' };
 }
 

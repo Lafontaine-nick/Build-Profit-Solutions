@@ -2,6 +2,7 @@ const {
   PLUMBING_MEASUREMENT_KEYS,
   applyPlumbingVisionTakeoff,
   normalizePlumbingFieldEvidence,
+  normalizePlumbingComplexityFactors,
   normalizePlumbingPlanMeasurements,
   normalizePlumbingUtilityConnections,
 } = require('../plumbingPlanAdapter');
@@ -109,5 +110,196 @@ describe('plumbingPlanAdapter', () => {
         evidence: [{ page: 3, sheet: 'P0.1', label: 'UTILITY NOTE' }],
       },
     ]);
+  });
+
+  test('keeps complexity flags review-only and evidence-backed', () => {
+    expect(
+      normalizePlumbingComplexityFactors([
+        {
+          key: 'slab_foundation',
+          label: 'Slab foundation',
+          confidence: 0.9,
+          evidence: [{ page: 2, sheet: 'S1.1', label: 'SLAB ON GRADE' }],
+        },
+        {
+          key: 'invented_labor_multiplier',
+          label: 'Invented labor multiplier',
+        },
+      ])
+    ).toEqual([
+      {
+        key: 'slab_foundation',
+        label: 'Slab foundation',
+        status: 'review',
+        confidence: 0.9,
+        evidence: [{ page: 2, sheet: 'S1.1', label: 'SLAB ON GRADE' }],
+      },
+      {
+        label: 'Invented labor multiplier',
+        status: 'review',
+      },
+    ]);
+  });
+
+  test('derives rough-in and trim from fixture inventory when counts are missing', () => {
+    const {
+      derivePlumbingCountsFromFixtureInventory,
+      normalizePlumbingFixtureInventory,
+    } = require('../plumbingPlanAdapter');
+    const derived = derivePlumbingCountsFromFixtureInventory({
+      inventory: normalizePlumbingFixtureInventory({
+        toilets: 3,
+        lavatories: 3,
+        showers: 2,
+        kitchenSinks: 1,
+        hoseBibs: 3,
+      }),
+      measurements: {},
+      fieldEvidence: {},
+      fieldConfidence: {},
+      geometryDerived: [],
+    });
+    expect(derived.measurements).toEqual({
+      plumbingRoughPointCount: 12,
+      plumbingTrimHookupCount: 12,
+    });
+    expect(derived.fieldEvidence.plumbingRoughPointCount[0].derivedFrom).toEqual(
+      expect.arrayContaining(['toilets', 'lavatories', 'showers'])
+    );
+  });
+
+  test('marks architectural LF reads as contractor confirmation-only', () => {
+    const { applyPlumbingLineScopeWarnings } = require('../plumbingPlanAdapter');
+    const warned = applyPlumbingLineScopeWarnings({
+      measurements: { waterLineLf: 50, sewerLineLf: 30 },
+      fieldEvidence: {
+        waterLineLf: [{ sheet: 'A-3', page: 5, label: 'Water Line' }],
+        sewerLineLf: [{ sheet: 'A-3', page: 5, label: 'Sewer Line' }],
+      },
+      inferredKeys: [],
+    });
+    expect(warned.inferredKeys).toEqual(expect.arrayContaining(['waterLineLf', 'sewerLineLf']));
+    expect(warned.fieldEvidence.waterLineLf[0]).toMatchObject({
+      requiresContractorConfirmation: true,
+      evidenceKind: 'architectural_line_segment',
+    });
+  });
+
+  test('builds dynamic plumbing review status for Plan Export', () => {
+    const { buildPlumbingReviewStatus } = require('../plumbingPlanAdapter');
+    expect(
+      buildPlumbingReviewStatus({
+        fixtureInventory: { toilets: 3, lavatories: 3, showers: 2 },
+        measurements: {
+          plumbingRoughPointCount: 8,
+          waterLineLf: 50,
+        },
+        fieldEvidence: {
+          waterLineLf: [{ sheet: 'A-3', requiresContractorConfirmation: true }],
+        },
+        plumbingRelevantPages: [{ page: 3, reasons: ['floor plan (fixture symbols)'] }],
+      })
+    ).toMatchObject({
+      detected: expect.arrayContaining(['8 rough-in points']),
+      needsConfirmation: expect.arrayContaining([
+        expect.stringMatching(/Water line: 50 LF detected/),
+        'Underground sewer / DWV length',
+      ]),
+      notFound: expect.arrayContaining([
+        'Plumbing riser diagram',
+        'Dedicated plumbing sheets (P sheets)',
+      ]),
+    });
+  });
+
+  test('reconciles fixtureInventory from fieldEvidence fixtureCounts', () => {
+    const { reconcilePlumbingFixtureInventory } = require('../plumbingPlanAdapter');
+    expect(
+      reconcilePlumbingFixtureInventory({
+        inventory: {},
+        fieldEvidence: {
+          plumbingRoughPointCount: [
+            {
+              sheet: 'A-1',
+              page: 3,
+              label: 'Fixture schedule',
+              fixtureCounts: {
+                toilets: 3,
+                lavatories: 3,
+                showers: 2,
+                tubs: 1,
+                kitchenSinks: 1,
+              },
+            },
+          ],
+        },
+      })
+    ).toEqual({
+      toilets: 3,
+      lavatories: 3,
+      showers: 2,
+      tubs: 1,
+      kitchenSinks: 1,
+    });
+  });
+
+  test('normalizes water heater detail and gas appliance scope', () => {
+    const {
+      normalizePlumbingWaterHeaterDetail,
+      normalizePlumbingGasApplianceScope,
+      finalizePlumbingTakeoff,
+    } = require('../plumbingPlanAdapter');
+    expect(
+      normalizePlumbingWaterHeaterDetail({
+        count: 1,
+        type: 'tankless',
+        fuel: 'gas',
+        location: 'Garage',
+      })
+    ).toMatchObject({
+      count: 1,
+      type: 'tankless',
+      fuel: 'gas',
+      location: 'Garage',
+    });
+    expect(
+      normalizePlumbingGasApplianceScope({
+        range: true,
+        fireplace: true,
+        gasPipingRequired: true,
+      })
+    ).toMatchObject({
+      range: true,
+      fireplace: true,
+      gasPipingRequired: true,
+    });
+    const finalized = finalizePlumbingTakeoff({
+      measurements: { plumbingRoughPointCount: 10, plumbingTrimHookupCount: 10 },
+      fieldEvidence: {
+        plumbingRoughPointCount: [
+          {
+            sheet: 'A-1',
+            page: 3,
+            label: 'Fixture schedule',
+            fixtureCounts: { toilets: 3, lavatories: 3, showers: 2, tubs: 1, kitchenSinks: 1 },
+          },
+        ],
+      },
+      waterHeaterDetail: { type: 'tankless', fuel: 'gas', location: 'Garage' },
+      gasApplianceScope: { range: true, waterHeater: true, gasPipingRequired: true },
+      plumbingRelevantPages: [{ page: 3, reasons: ['fixture schedule'] }],
+    });
+    expect(finalized.fixtureInventory).toMatchObject({
+      toilets: 3,
+      lavatories: 3,
+      showers: 2,
+      tubs: 1,
+      kitchenSinks: 1,
+    });
+    expect(finalized.waterHeaterDetail).toMatchObject({ type: 'tankless', fuel: 'gas' });
+    expect(finalized.gasApplianceScope).toMatchObject({ range: true, gasPipingRequired: true });
+    expect(finalized.plumbingReviewStatus.detected).toEqual(
+      expect.arrayContaining([expect.stringMatching(/water heater/i), expect.stringMatching(/Gas appliances/i)])
+    );
   });
 });
