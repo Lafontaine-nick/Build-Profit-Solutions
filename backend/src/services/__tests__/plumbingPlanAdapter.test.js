@@ -457,4 +457,36 @@ describe('plumbingPlanAdapter', () => {
     });
     expect(finalized.measurements.gasApplianceConnectionCount).toBe(3);
   });
+
+  test('infers water heater and gas connections from documented gas LF alone', () => {
+    const { finalizePlumbingTakeoff } = require('../plumbingPlanAdapter');
+    const finalized = finalizePlumbingTakeoff({
+      measurements: {
+        plumbingRoughPointCount: 10,
+        plumbingTrimHookupCount: 10,
+        waterLineLf: 50,
+        sewerLineLf: 30,
+        gasLineLf: 40,
+      },
+      fieldEvidence: {
+        plumbingRoughPointCount: [
+          {
+            sheet: 'P-1',
+            page: 3,
+            label: 'Fixture schedule',
+            fixtureCounts: { toilets: 3, lavatories: 3, showers: 2, tubs: 1, kitchenSinks: 1 },
+          },
+        ],
+      },
+      plumbingRelevantPages: [{ page: 3, reasons: ['fixture schedule'], sheet: 'P-1' }],
+    });
+    expect(finalized.waterHeaterDetail).toMatchObject({ count: 1, fuel: 'gas' });
+    expect(finalized.measurements.waterHeaterCount).toBe(1);
+    expect(finalized.gasApplianceScope).toMatchObject({
+      range: true,
+      fireplace: true,
+      dryer: true,
+    });
+    expect(finalized.measurements.gasApplianceConnectionCount).toBe(3);
+  });
 });

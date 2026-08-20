@@ -80,7 +80,9 @@ describe('framing template pricing vs barometer plans + national', () => {
       const input = planInput(plan.id);
       const resolved = resolveChecklistItemQuantity(
         'framing',
-        buildNormalizedScopeMeasurementsFromInput(input, { templateKey: 'framing' }),
+        buildNormalizedScopeMeasurementsFromInput(input, {
+          templateKey: 'framing',
+        }),
         { templateKey: 'framing' }
       );
       expect(resolved.pricingReady).toBe(true);
@@ -101,14 +103,25 @@ describe('framing template pricing vs barometer plans + national', () => {
         new RegExp(`~\\$${plan.package.toLocaleString()}`)
       );
       expect(priced.fill?.helper).toMatch(/blended with national average/i);
+      expect(priced.fill?.pricingDetail).toMatch(
+        /Included package components.*not additional charges/
+      );
+      expect(priced.fill?.pricingDetail).toMatch(/trusses/i);
+      expect(priced.fill?.pricingDetail).toMatch(/Sheathing is included/i);
       expect(priced.comparison?.total).toBeGreaterThan(fillTotal);
-      expect(priced.comparison?.rateSourceLabel).toMatch(/national average comparison/i);
+      expect(priced.comparison?.rateSourceLabel).toMatch(
+        /national average comparison/i
+      );
     });
   }
 
   it('keeps barometer framing rate between national and local detached median', () => {
     const national = getNationalAverageBudgetSplit('framing', 'sqft')!;
-    const calibrated = applyBuilderBudgetBarometer('framing', 'sqft', national)!;
+    const calibrated = applyBuilderBudgetBarometer(
+      'framing',
+      'sqft',
+      national
+    )!;
     const nationalTotal = national.material + national.labor;
     const calibratedTotal = calibrated.material + calibrated.labor;
     const localMedian = detachedMedianFramingShellRatePerFramedSf();
@@ -134,7 +147,9 @@ describe('framing template pricing vs barometer plans + national', () => {
       'framing',
       resolveChecklistItemQuantity(
         'wall_framing',
-        buildNormalizedScopeMeasurementsFromInput(input, { templateKey: 'framing' }),
+        buildNormalizedScopeMeasurementsFromInput(input, {
+          templateKey: 'framing',
+        }),
         { templateKey: 'framing' }
       )
     );
@@ -144,7 +159,9 @@ describe('framing template pricing vs barometer plans + national', () => {
       'framing',
       resolveChecklistItemQuantity(
         'openings',
-        buildNormalizedScopeMeasurementsFromInput(input, { templateKey: 'framing' }),
+        buildNormalizedScopeMeasurementsFromInput(input, {
+          templateKey: 'framing',
+        }),
         { templateKey: 'framing' }
       )
     );

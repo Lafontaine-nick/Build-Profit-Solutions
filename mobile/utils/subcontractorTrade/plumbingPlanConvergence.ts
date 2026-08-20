@@ -801,3 +801,26 @@ export function syncPlumbingScopeItems<
     return item.state === 'included' ? item : { ...item, state: 'included' };
   });
 }
+
+/** Invalidate Confirm Scope pricing recompute when plumbing QM or takeoff qty changes. */
+export function plumbingScopeSyncSignature(
+  measurements: Record<string, unknown>
+): string {
+  const itemQuantities =
+    (measurements.itemQuantities as
+      | Record<string, { quantity?: unknown }>
+      | undefined) || {};
+  return [
+    ...PLUMBING_CARDS.map(card => {
+      const qm = String(measurements[card.measurementKey] ?? '').replace(/,/g, '');
+      const takeoff = String(itemQuantities[card.itemId]?.quantity ?? '').replace(
+        /,/g,
+        ''
+      );
+      return `${card.measurementKey}:${qm}:${takeoff}`;
+    }),
+    `floorAreaSqft:${String(measurements.floorAreaSqft ?? '').replace(/,/g, '')}`,
+    `storyCount:${String(measurements.storyCount ?? '').replace(/,/g, '')}`,
+    `projectComplexity:${JSON.stringify(measurements.projectComplexity ?? null)}`,
+  ].join('|');
+}

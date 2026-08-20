@@ -27,6 +27,11 @@ import {
   type PlanMeasurementSourceType,
 } from '@/utils/planMeasurementFacts';
 import { enrichPlanFactsWithSouthernUtahBarometer } from '@/utils/southernUtahPlanFacts';
+import {
+  insulationEnvelopeInputsFromPlanFacts,
+  resolveInsulationEnvelopePlanningQuantity,
+  type InsulationEnvelopeInputs,
+} from '@/utils/insulationEnvelopeQuantity';
 
 export type QuickMeasurementEstimate = MeasurementSuggestion & {
   key: QuickMeasurementFieldKey;
@@ -35,7 +40,9 @@ export type QuickMeasurementEstimate = MeasurementSuggestion & {
   quantityLabel?: string;
 };
 
-type MeasurementLookup = Partial<Record<QuickMeasurementFieldKey, string | number | null | undefined>> & {
+type MeasurementLookup = Partial<
+  Record<QuickMeasurementFieldKey, string | number | null | undefined>
+> & {
   planFacts?: PlanFacts;
   planRooms?: PlanRoomMeasurement[];
   wetAreaFinish?: WetAreaFinishChoice | null;
@@ -44,12 +51,20 @@ type MeasurementLookup = Partial<Record<QuickMeasurementFieldKey, string | numbe
   tubBathCount?: number | null;
   itemQuantities?: Record<
     string,
-    { quantity?: string | number | null; unit?: string; quantitySource?: string }
+    {
+      quantity?: string | number | null;
+      unit?: string;
+      quantitySource?: string;
+    }
   >;
 };
 
 function n(value: unknown): number | null {
-  const parsed = Number(String(value ?? '').replace(/,/g, '').trim());
+  const parsed = Number(
+    String(value ?? '')
+      .replace(/,/g, '')
+      .trim()
+  );
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
@@ -109,17 +124,26 @@ function round1(value: number): number {
 }
 
 /** Display rounding: roof squares keep 1 decimal; surface/CY/LF show whole numbers. */
-export function roundSuggestedDisplayNumber(value: number, unit: string): number {
+export function roundSuggestedDisplayNumber(
+  value: number,
+  unit: string
+): number {
   const u = String(unit || '').toLowerCase();
   if (u === 'sq' || u === 'squares') return round1(value);
   return Math.round(value);
 }
 
-export function formatSuggestedDisplayValue(value: number, unit: string): string {
+export function formatSuggestedDisplayValue(
+  value: number,
+  unit: string
+): string {
   return `${roundSuggestedDisplayNumber(value, unit).toLocaleString()} ${unit}`;
 }
 
-function evidenceFor(facts: PlanFacts | undefined, keys: string[]): PlanEvidence[] {
+function evidenceFor(
+  facts: PlanFacts | undefined,
+  keys: string[]
+): PlanEvidence[] {
   const evidence: PlanEvidence[] = [];
   for (const key of keys) {
     evidence.push(
@@ -174,7 +198,10 @@ function baseEstimate(params: {
   };
 }
 
-function floorAreas(facts: PlanFacts | undefined, fallbackLiving: number): number[] {
+function floorAreas(
+  facts: PlanFacts | undefined,
+  fallbackLiving: number
+): number[] {
   const areas = facts?.buildingAreas;
   const explicit = [
     n(areas?.mainFloorLivingSqft),
@@ -202,12 +229,17 @@ function roomAreaSqft(room: PlanRoomMeasurement): number | null {
   if (area != null) return area;
   const length = n(room.lengthFt);
   const width = n(room.widthFt);
-  if (length != null && width != null) return Math.round(length * width * 10) / 10;
+  if (length != null && width != null)
+    return Math.round(length * width * 10) / 10;
   return null;
 }
 
-function livingPlanRooms(rooms: PlanRoomMeasurement[] | undefined): PlanRoomMeasurement[] {
-  return (rooms || []).filter((room) => !GARAGE_ROOM_RE.test(String(room.name || '')));
+function livingPlanRooms(
+  rooms: PlanRoomMeasurement[] | undefined
+): PlanRoomMeasurement[] {
+  return (rooms || []).filter(
+    room => !GARAGE_ROOM_RE.test(String(room.name || ''))
+  );
 }
 
 type InteriorSurfaceModel = {
@@ -240,7 +272,8 @@ function interiorSurfaceFromRooms(
     ceilings += area;
     walls += perimeter * wallHeight;
     roomCount += 1;
-    if (n(room.lengthFt) != null && n(room.widthFt) != null) usedExactDimensions += 1;
+    if (n(room.lengthFt) != null && n(room.widthFt) != null)
+      usedExactDimensions += 1;
   }
   if (roomCount < MIN_ROOMS_FOR_SURFACE_MODEL) return null;
   const openings = (ceilings + walls) * DRYWALL_OPENINGS_DEDUCTION;
@@ -258,7 +291,13 @@ function estimatedInteriorSurfaceFromFloorAreas(params: {
   totalLiving: number;
   areas: number[];
   wallHeight: number;
-}): { ceilings: number; exteriorWalls: number; partitions: number; openings: number; value: number } {
+}): {
+  ceilings: number;
+  exteriorWalls: number;
+  partitions: number;
+  openings: number;
+  value: number;
+} {
   const ceilings = params.totalLiving;
   const exteriorWalls = params.areas.reduce(
     (sum, area) => sum + estimatedPerimeterFt(area) * params.wallHeight,
@@ -285,7 +324,8 @@ function finishPaintDeductions(measurements: MeasurementLookup): {
   const showerWallTileSqft = n(measurements.showerWallTileSqft) ?? 0;
   const backsplashSqft = n(measurements.backsplashSqft) ?? 0;
   const cabinetLf = n(measurements.cabinetLf) ?? 0;
-  const cabinetCoverageSqft = cabinetLf > 0 ? cabinetLf * CABINET_COVERED_HEIGHT_FT : 0;
+  const cabinetCoverageSqft =
+    cabinetLf > 0 ? cabinetLf * CABINET_COVERED_HEIGHT_FT : 0;
   return {
     showerWallTileSqft,
     backsplashSqft,
@@ -307,11 +347,19 @@ export function isLegacyTotalLivingRoofSquares(
 ): boolean {
   const living = n(measurements.floorAreaSqft);
   if (living == null || !(roofSquares > 0)) return false;
-  const garage = n(measurements.planFacts?.buildingAreas?.garageSqft) ?? n(measurements.garageSqft) ?? 0;
+  const garage =
+    n(measurements.planFacts?.buildingAreas?.garageSqft) ??
+    n(measurements.garageSqft) ??
+    0;
   const patio =
-    n(measurements.planFacts?.buildingAreas?.coveredPatioSqft) ?? n(measurements.deckSqft) ?? 0;
+    n(measurements.planFacts?.buildingAreas?.coveredPatioSqft) ??
+    n(measurements.deckSqft) ??
+    0;
   const legacy =
-    ((living + garage + patio) * pitchMultiplier(DEFAULT_ROOF_PITCH) * (1 + ROOF_WASTE_FACTOR)) / 100;
+    ((living + garage + patio) *
+      pitchMultiplier(DEFAULT_ROOF_PITCH) *
+      (1 + ROOF_WASTE_FACTOR)) /
+    100;
   return Math.abs(roofSquares - legacy) < 0.35;
 }
 
@@ -343,15 +391,89 @@ function asMeasurementNumber<T extends MeasurementLookup>(
  * Attach SHV barometer floor/pitch facts; replace bad roof squares and
  * undercounted drywall/paint surface SF (Plan 39 4,056 → ~10.8k @ ~$2.10/SF blend).
  */
-export function syncMeasurementsWithSouthernUtahPlanFacts<T extends MeasurementLookup>(
-  measurements: T,
-  options?: { templateKey?: string | null }
-): T {
+export function syncMeasurementsWithSouthernUtahPlanFacts<
+  T extends MeasurementLookup,
+>(measurements: T, options?: { templateKey?: string | null }): T {
   const living = n(measurements.floorAreaSqft);
-  const enriched = enrichPlanFactsWithSouthernUtahBarometer(measurements.planFacts, living);
-  let next: T = enriched ? { ...measurements, planFacts: enriched } : { ...measurements };
+  const enriched = enrichPlanFactsWithSouthernUtahBarometer(
+    measurements.planFacts,
+    living
+  );
+  let next: T = enriched
+    ? { ...measurements, planFacts: enriched }
+    : { ...measurements };
 
-  const roofEstimate = getQuickMeasurementEstimate('roofSquares', next, next.planFacts);
+  const insulationFlow =
+    String(options?.templateKey || '').toLowerCase() === 'insulation' ||
+    String(
+      (measurements as MeasurementLookup).planImportTradeKey || ''
+    ).toLowerCase() === 'insulation';
+  if (insulationFlow && next.planFacts) {
+    const planInsulation = next.planFacts as PlanFacts & {
+      insulationMaterialType?: string | null;
+      insulationRValue?: string | null;
+      garageInsulationIncluded?: boolean | null;
+    };
+    if (
+      !String(next.insulationMaterialType || '').trim() &&
+      planInsulation.insulationMaterialType
+    ) {
+      next.insulationMaterialType = planInsulation.insulationMaterialType;
+    }
+    if (
+      !String(next.insulationRValue || '').trim() &&
+      planInsulation.insulationRValue
+    ) {
+      next.insulationRValue = planInsulation.insulationRValue;
+    }
+    if (
+      next.garageInsulationIncluded == null &&
+      planInsulation.garageInsulationIncluded != null
+    ) {
+      next.garageInsulationIncluded = planInsulation.garageInsulationIncluded
+        ? 'yes'
+        : 'no';
+    }
+    const envelope = resolveInsulationEnvelopePlanningQuantity(
+      insulationEnvelopeInputsFromPlanFacts(
+        next.planFacts,
+        living,
+        next as Partial<InsulationEnvelopeInputs>
+      )
+    );
+    if (envelope) {
+      const componentValues = Object.fromEntries(
+        envelope.components
+          .filter(component => {
+            if (!component.included) return false;
+            if (component.source === 'planning_assumption') return false;
+            if (
+              component.key === 'atticInsulationSqft' &&
+              component.source !== 'contractor_entered' &&
+              component.source !== 'detected_from_plan'
+            ) {
+              return false;
+            }
+            return true;
+          })
+          .map(component => [component.key, component.quantity])
+      ) as Partial<T>;
+      next = {
+        ...next,
+        ...Object.fromEntries(
+          Object.entries(componentValues).filter(
+            ([key]) => !Number((measurements as Record<string, unknown>)[key])
+          )
+        ),
+      } as T;
+    }
+  }
+
+  const roofEstimate = getQuickMeasurementEstimate(
+    'roofSquares',
+    next,
+    next.planFacts
+  );
   const currentRoof = n(measurements.roofSquares);
   // Only rewrite the bad total-living roof path — leave empty for QM "estimate available".
   if (
@@ -365,7 +487,8 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<T extends MeasurementL
     };
   }
 
-  const isGroundUp = String(options?.templateKey || '').toLowerCase() === 'ground_up';
+  const isGroundUp =
+    String(options?.templateKey || '').toLowerCase() === 'ground_up';
   const currentDrywall = n(measurements.drywallSqft);
   // Ground-up only: rewrite thin notes drywall SF (4,056) to living×3.5 (10,843). Leave empty for QM.
   const formulaSurface = living != null ? Math.round(living * 3.5) : null;
@@ -375,7 +498,11 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<T extends MeasurementL
     currentDrywall != null &&
     isUndercountedDrywallSurface(currentDrywall, living)
   ) {
-    const drywallValue = asMeasurementNumber(next, 'drywallSqft', formulaSurface);
+    const drywallValue = asMeasurementNumber(
+      next,
+      'drywallSqft',
+      formulaSurface
+    );
     next = { ...next, drywallSqft: drywallValue };
     const currentPaint = n(measurements.wallPaintSqft);
     if (
@@ -385,7 +512,11 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<T extends MeasurementL
     ) {
       next = {
         ...next,
-        wallPaintSqft: asMeasurementNumber(next, 'wallPaintSqft', formulaSurface),
+        wallPaintSqft: asMeasurementNumber(
+          next,
+          'wallPaintSqft',
+          formulaSurface
+        ),
       };
     }
     // Drop undercounted notes itemQuantities so resolve/pricing cannot keep $8.8k on 4,056 SF.
@@ -426,8 +557,10 @@ export function getQuickMeasurementEstimate(
       : baseFacts;
   const totalLiving = planTotalLivingSqft(facts, living);
   const firstFloorLiving = planFirstFloorLivingSqft(facts, living);
-  const garage = n(facts?.buildingAreas?.garageSqft) ?? n(measurements.garageSqft) ?? 0;
-  const patio = n(facts?.buildingAreas?.coveredPatioSqft) ?? n(measurements.deckSqft) ?? 0;
+  const garage =
+    n(facts?.buildingAreas?.garageSqft) ?? n(measurements.garageSqft) ?? 0;
+  const patio =
+    n(facts?.buildingAreas?.coveredPatioSqft) ?? n(measurements.deckSqft) ?? 0;
   const labeledHeight = labeledWallHeightFt(facts);
   const wallHeight = labeledHeight ?? EXTERIOR_WALL_HEIGHT_FT;
   const rooms = measurements.planRooms;
@@ -437,7 +570,9 @@ export function getQuickMeasurementEstimate(
       if (totalLiving == null && !livingPlanRooms(rooms).length) return null;
       const roomSurface = interiorSurfaceFromRooms(rooms, wallHeight);
       if (roomSurface) {
-        const planSupported = Boolean(labeledHeight && roomSurface.usedExactDimensions);
+        const planSupported = Boolean(
+          labeledHeight && roomSurface.usedExactDimensions
+        );
         return baseEstimate({
           key,
           value: roomSurface.value,
@@ -460,11 +595,17 @@ export function getQuickMeasurementEstimate(
             wallSqft: roomSurface.walls,
           },
           assumptions: [
-            ...(labeledHeight != null ? [] : [`${EXTERIOR_WALL_HEIGHT_FT} ft wall-height fallback`]),
+            ...(labeledHeight != null
+              ? []
+              : [`${EXTERIOR_WALL_HEIGHT_FT} ft wall-height fallback`]),
             `${Math.round(DRYWALL_OPENINGS_DEDUCTION * 100)}% major-opening deduction`,
             'Garage drywall excluded unless finished-garage scope is selected later',
           ],
-          includedComponents: ['Room ceilings', 'Room wall faces', 'Closets included when listed as rooms'],
+          includedComponents: [
+            'Room ceilings',
+            'Room wall faces',
+            'Closets included when listed as rooms',
+          ],
           excludedComponents: [
             'Garage drywall',
             'Wet-area backing',
@@ -476,11 +617,24 @@ export function getQuickMeasurementEstimate(
           warning: planSupported
             ? 'Planning quantity from room list and plate height — not a wall-by-wall takeoff.'
             : 'Planning quantity from room list; confirm wall height and openings.',
-          planEvidence: evidenceFor(facts, ['wallHeightFt', 'plateHeightFt', 'totalLivingSqft']),
+          planEvidence: evidenceFor(facts, [
+            'wallHeightFt',
+            'plateHeightFt',
+            'totalLivingSqft',
+          ]),
           calculationBreakdown: [
             component('Ceilings (room floors)', roomSurface.ceilings, 'sqft'),
-            component('Wall faces (room perimeters × height)', roomSurface.walls, 'sqft'),
-            component('Major openings', roomSurface.openings, 'sqft', 'subtract'),
+            component(
+              'Wall faces (room perimeters × height)',
+              roomSurface.walls,
+              'sqft'
+            ),
+            component(
+              'Major openings',
+              roomSurface.openings,
+              'sqft',
+              'subtract'
+            ),
           ],
         });
       }
@@ -489,7 +643,7 @@ export function getQuickMeasurementEstimate(
       const areas = floorAreas(facts, totalLiving);
       const hasFloorFacts = Boolean(
         n(facts?.buildingAreas?.mainFloorLivingSqft) &&
-          (facts?.storyCount === 1 || n(facts?.buildingAreas?.upstairsLivingSqft))
+        (facts?.storyCount === 1 || n(facts?.buildingAreas?.upstairsLivingSqft))
       );
       if (hasFloorFacts) {
         const surface = estimatedInteriorSurfaceFromFloorAreas({
@@ -506,7 +660,8 @@ export function getQuickMeasurementEstimate(
           confidenceReason:
             'Uses living-area floor facts with estimated perimeter/partition density — not a room-by-room takeoff.',
           formulaId: 'drywall_components_from_floor_areas',
-          basis: 'Ceilings + estimated exterior-wall inside faces + estimated partition faces, less major openings.',
+          basis:
+            'Ceilings + estimated exterior-wall inside faces + estimated partition faces, less major openings.',
           inputsUsed: {
             totalLivingSqft: totalLiving,
             floorAreasSqft: areas.join(', '),
@@ -515,19 +670,48 @@ export function getQuickMeasurementEstimate(
             openingsDeductionPercent: DRYWALL_OPENINGS_DEDUCTION * 100,
           },
           assumptions: [
-            ...(labeledHeight != null ? [] : [`${EXTERIOR_WALL_HEIGHT_FT} ft wall-height fallback`]),
+            ...(labeledHeight != null
+              ? []
+              : [`${EXTERIOR_WALL_HEIGHT_FT} ft wall-height fallback`]),
             'Partition density is estimated from conditioned floor area',
             `${Math.round(DRYWALL_OPENINGS_DEDUCTION * 100)}% major-opening deduction`,
           ],
-          includedComponents: ['Ceilings', 'Inside face of exterior walls', 'Both sides of interior partitions', 'Closets'],
-          excludedComponents: ['Garage drywall', 'Wet-area backing', 'Fire-rated assemblies', 'Vaulted surfaces', 'Shaft walls', 'Level 5 finish'],
-          warning: 'Planning quantity, not a wall-by-wall takeoff. Room L×W would strengthen this.',
-          planEvidence: evidenceFor(facts, ['totalLivingSqft', 'mainFloorLivingSqft', 'upstairsLivingSqft', 'wallHeightFt']),
+          includedComponents: [
+            'Ceilings',
+            'Inside face of exterior walls',
+            'Both sides of interior partitions',
+            'Closets',
+          ],
+          excludedComponents: [
+            'Garage drywall',
+            'Wet-area backing',
+            'Fire-rated assemblies',
+            'Vaulted surfaces',
+            'Shaft walls',
+            'Level 5 finish',
+          ],
+          warning:
+            'Planning quantity, not a wall-by-wall takeoff. Room L×W would strengthen this.',
+          planEvidence: evidenceFor(facts, [
+            'totalLivingSqft',
+            'mainFloorLivingSqft',
+            'upstairsLivingSqft',
+            'wallHeightFt',
+          ]),
           calculationBreakdown: [
             component('Ceilings', surface.ceilings, 'sqft'),
             component('Exterior wall surfaces', surface.exteriorWalls, 'sqft'),
-            component('Interior partition surfaces', surface.partitions, 'sqft'),
-            component('Openings deduction', surface.openings, 'sqft', 'subtract'),
+            component(
+              'Interior partition surfaces',
+              surface.partitions,
+              'sqft'
+            ),
+            component(
+              'Openings deduction',
+              surface.openings,
+              'sqft',
+              'subtract'
+            ),
           ],
         });
       }
@@ -542,13 +726,26 @@ export function getQuickMeasurementEstimate(
         unit: 'sqft',
         sourceType: 'fallback_multiplier',
         confidence: 'low',
-        confidenceReason: 'No wall geometry or complete floor-by-floor facts were available.',
+        confidenceReason:
+          'No wall geometry or complete floor-by-floor facts were available.',
         formulaId: formula.formulaKey,
         basis: `Planning estimate based on living area × ${multiplier}. Not a wall-by-wall takeoff.`,
-        inputsUsed: { totalLivingSqft: totalLiving, surfaceMultiplier: multiplier },
+        inputsUsed: {
+          totalLivingSqft: totalLiving,
+          surfaceMultiplier: multiplier,
+        },
         assumptions: ['Living-area surface multiplier (3–4.2× range)'],
-        includedComponents: ['Walls and ceilings represented by benchmark multiplier'],
-        excludedComponents: ['Garage drywall', 'Wet-area backing', 'Fire-rated assemblies', 'Vaulted surfaces', 'Shaft walls', 'Level 5 finish'],
+        includedComponents: [
+          'Walls and ceilings represented by benchmark multiplier',
+        ],
+        excludedComponents: [
+          'Garage drywall',
+          'Wet-area backing',
+          'Fire-rated assemblies',
+          'Vaulted surfaces',
+          'Shaft walls',
+          'Level 5 finish',
+        ],
         warning: 'Low-confidence fallback; contractor confirmation required.',
         planEvidence: evidenceFor(facts, ['totalLivingSqft']),
         calculationBreakdown: [
@@ -558,7 +755,11 @@ export function getQuickMeasurementEstimate(
       });
     }
     case 'wallPaintSqft': {
-      const drywall = getQuickMeasurementEstimate('drywallSqft', measurements, suppliedFacts);
+      const drywall = getQuickMeasurementEstimate(
+        'drywallSqft',
+        measurements,
+        suppliedFacts
+      );
       if (!drywall) return null;
       const deductions = finishPaintDeductions(measurements);
       const value = Math.max(0, drywall.value - deductions.total);
@@ -588,9 +789,13 @@ export function getQuickMeasurementEstimate(
           ...drywall.assumptions,
           ...(hasFinishDeductions
             ? []
-            : ['No shower-tile, backsplash, or cabinet coverage deductions were available']),
+            : [
+                'No shower-tile, backsplash, or cabinet coverage deductions were available',
+              ]),
           ...(deductions.cabinetCoverageSqft > 0
-            ? [`Cabinet runs cover ~${CABINET_COVERED_HEIGHT_FT} ft of wall height`]
+            ? [
+                `Cabinet runs cover ~${CABINET_COVERED_HEIGHT_FT} ft of wall height`,
+              ]
             : []),
         ],
         includedComponents: ['Interior walls', 'Ceilings', 'Closets'],
@@ -608,17 +813,38 @@ export function getQuickMeasurementEstimate(
           : 'Paint currently matches drywall because it is derived from drywall surfaces with no finish deductions entered.',
         planEvidence: drywall.planEvidence,
         calculationBreakdown: [
-          ...drywall.calculationBreakdown.filter((step) =>
+          ...drywall.calculationBreakdown.filter(step =>
             /ceiling|wall|partition|opening/i.test(step.label)
           ),
           ...(deductions.showerWallTileSqft > 0
-            ? [component('Shower wall tile', deductions.showerWallTileSqft, 'sqft', 'subtract')]
+            ? [
+                component(
+                  'Shower wall tile',
+                  deductions.showerWallTileSqft,
+                  'sqft',
+                  'subtract'
+                ),
+              ]
             : []),
           ...(deductions.backsplashSqft > 0
-            ? [component('Backsplash', deductions.backsplashSqft, 'sqft', 'subtract')]
+            ? [
+                component(
+                  'Backsplash',
+                  deductions.backsplashSqft,
+                  'sqft',
+                  'subtract'
+                ),
+              ]
             : []),
           ...(deductions.cabinetCoverageSqft > 0
-            ? [component('Cabinet-covered wall', deductions.cabinetCoverageSqft, 'sqft', 'subtract')]
+            ? [
+                component(
+                  'Cabinet-covered wall',
+                  deductions.cabinetCoverageSqft,
+                  'sqft',
+                  'subtract'
+                ),
+              ]
             : []),
         ],
       });
@@ -628,17 +854,29 @@ export function getQuickMeasurementEstimate(
       const measuredPerimeter =
         n(facts?.exteriorPerimeterLf) ??
         n(facts?.foundationPerimeterLf) ??
-        geometryPerimeter(facts, ['living_footprint', 'garage_footprint', 'foundation']);
+        geometryPerimeter(facts, [
+          'living_footprint',
+          'garage_footprint',
+          'foundation',
+        ]);
       const firstFloorFootprint = firstFloorLiving + garage;
-      const perimeter = measuredPerimeter ?? estimatedPerimeterFt(firstFloorFootprint);
+      const perimeter =
+        measuredPerimeter ?? estimatedPerimeterFt(firstFloorFootprint);
       const stories = Math.max(1, Math.round(n(facts?.storyCount) ?? 1));
       const openings = Math.max(
         0,
-        Math.min(0.5, (facts?.openingsPercent ?? EXTERIOR_OPENINGS_DEDUCTION * 100) / 100)
+        Math.min(
+          0.5,
+          (facts?.openingsPercent ?? EXTERIOR_OPENINGS_DEDUCTION * 100) / 100
+        )
       );
       const nonPainted = Math.max(
         0,
-        Math.min(0.9, (facts?.nonPaintedExteriorPercent ?? DEFAULT_NON_PAINTED_DEDUCTION * 100) / 100)
+        Math.min(
+          0.9,
+          (facts?.nonPaintedExteriorPercent ??
+            DEFAULT_NON_PAINTED_DEDUCTION * 100) / 100
+        )
       );
       const grossWalls = perimeter * wallHeight * stories;
       const openingsDeduction = grossWalls * openings;
@@ -650,7 +888,9 @@ export function getQuickMeasurementEstimate(
         key,
         value,
         unit: 'sqft',
-        sourceType: calculated ? 'calculated_from_components' : 'estimated_from_formula',
+        sourceType: calculated
+          ? 'calculated_from_components'
+          : 'estimated_from_formula',
         confidence: calculated ? 'medium' : 'low',
         confidenceReason: calculated
           ? 'Uses labeled exterior perimeter and wall/plate height; finish transitions still require review.'
@@ -658,7 +898,8 @@ export function getQuickMeasurementEstimate(
             ? 'Uses measured exterior perimeter, but wall height still relies on a planning assumption.'
             : 'Exterior perimeter is approximated because elevation/foundation perimeter was unavailable.',
         formulaId: 'exterior_paint_from_footprint_perimeter',
-        basis: 'Exterior perimeter × wall height × stories, less openings and known non-painted finishes.',
+        basis:
+          'Exterior perimeter × wall height × stories, less openings and known non-painted finishes.',
         inputsUsed: {
           exteriorPerimeterLf: perimeter,
           wallHeightFt: wallHeight,
@@ -669,12 +910,24 @@ export function getQuickMeasurementEstimate(
           perimeterMeasured: measuredPerimeter != null,
         },
         assumptions: [
-          ...(geometryBased ? [] : ['Perimeter approximated from first-floor living + garage footprint']),
-          ...(labeledHeight != null ? [] : [`${EXTERIOR_WALL_HEIGHT_FT} ft wall-height fallback`]),
+          ...(geometryBased
+            ? []
+            : [
+                'Perimeter approximated from first-floor living + garage footprint',
+              ]),
+          ...(labeledHeight != null
+            ? []
+            : [`${EXTERIOR_WALL_HEIGHT_FT} ft wall-height fallback`]),
           `${Math.round(openings * 100)}% openings allowance`,
         ],
         includedComponents: ['Exterior wall faces', 'Upper-story wall faces'],
-        excludedComponents: ['Windows and doors', 'Known non-painted finishes', 'Trim', 'Soffit', 'Fascia'],
+        excludedComponents: [
+          'Windows and doors',
+          'Known non-painted finishes',
+          'Trim',
+          'Soffit',
+          'Fascia',
+        ],
         warning:
           nonPainted === 0
             ? 'No masonry/stone/stucco deduction was detected; verify exterior finish transitions.'
@@ -689,14 +942,27 @@ export function getQuickMeasurementEstimate(
         ]),
         calculationBreakdown: [
           component('Gross exterior walls', grossWalls, 'sqft'),
-          component('Openings deduction', openingsDeduction, 'sqft', 'subtract'),
-          component('Non-painted finish deduction', finishDeduction, 'sqft', 'subtract'),
+          component(
+            'Openings deduction',
+            openingsDeduction,
+            'sqft',
+            'subtract'
+          ),
+          component(
+            'Non-painted finish deduction',
+            finishDeduction,
+            'sqft',
+            'subtract'
+          ),
         ],
       });
     }
     case 'roofSquares': {
       const roofPlanes = (facts?.geometry || []).filter(
-        (region) => region.kind === 'roof_plane' && region.isIncluded !== false && n(region.areaSqft)
+        region =>
+          region.kind === 'roof_plane' &&
+          region.isIncluded !== false &&
+          n(region.areaSqft)
       );
       const detectedPitch = facts?.roofPitch || null;
       const pitch = detectedPitch || DEFAULT_ROOF_PITCH;
@@ -718,13 +984,21 @@ export function getQuickMeasurementEstimate(
           projectedArea += area;
           const planeSloped = area * pitchMultiplier(planePitch);
           slopedArea += planeSloped;
-          breakdown.push(component(`Roof plane ${plane.id}`, planeSloped, 'sqft', `${area} sqft @ ${planePitch}`));
+          breakdown.push(
+            component(
+              `Roof plane ${plane.id}`,
+              planeSloped,
+              'sqft',
+              `${area} sqft @ ${planePitch}`
+            )
+          );
         }
         sourceType = 'measured_from_geometry';
-        confidence =
-          roofPlanes.every((plane) => plane.pitch || (detectedPitch && !pitchIsDescriptor))
-            ? 'high'
-            : 'medium';
+        confidence = roofPlanes.every(
+          plane => plane.pitch || (detectedPitch && !pitchIsDescriptor)
+        )
+          ? 'high'
+          : 'medium';
         confidenceReason = pitchIsDescriptor
           ? 'Uses roof-plane geometry, but the low-slope label requires a numeric pitch assumption.'
           : 'Uses supplied roof-plane geometry and detected/assigned pitch per plane.';
@@ -735,14 +1009,20 @@ export function getQuickMeasurementEstimate(
         projectedArea = firstFloorLiving + garage + (patioIncluded ? patio : 0);
         slopedArea = projectedArea * pitchMultiplier(pitch);
         const hasPlanFootprint = Boolean(
-          n(facts?.buildingAreas?.mainFloorLivingSqft) || n(facts?.roofedFootprintSqft)
+          n(facts?.buildingAreas?.mainFloorLivingSqft) ||
+          n(facts?.roofedFootprintSqft)
         );
         if (n(facts?.roofedFootprintSqft)) {
           projectedArea = Number(facts?.roofedFootprintSqft);
           slopedArea = projectedArea * pitchMultiplier(pitch);
         }
-        sourceType = hasPlanFootprint ? 'calculated_from_components' : 'fallback_multiplier';
-        confidence = hasPlanFootprint && detectedPitch && !pitchIsDescriptor ? 'medium' : 'low';
+        sourceType = hasPlanFootprint
+          ? 'calculated_from_components'
+          : 'fallback_multiplier';
+        confidence =
+          hasPlanFootprint && detectedPitch && !pitchIsDescriptor
+            ? 'medium'
+            : 'low';
         confidenceReason = hasPlanFootprint
           ? 'Uses explicit first-floor roofed components; roof-plane shapes and overhangs are not measured.'
           : 'Uses living/garage footprint fallback because roof geometry and first-floor facts were unavailable.';
@@ -751,8 +1031,12 @@ export function getQuickMeasurementEstimate(
           ...(garage > 0 ? ['Garage roof'] : []),
           ...(patioIncluded ? ['Roofed covered patio'] : []),
         ];
-        breakdown.push(component('Projected roofed footprint', projectedArea, 'sqft'));
-        breakdown.push(component('Pitch-adjusted roof area', slopedArea, 'sqft', pitch));
+        breakdown.push(
+          component('Projected roofed footprint', projectedArea, 'sqft')
+        );
+        breakdown.push(
+          component('Pitch-adjusted roof area', slopedArea, 'sqft', pitch)
+        );
       }
       const wasteArea = slopedArea * waste;
       const squares = (slopedArea + wasteArea) / 100;
@@ -771,56 +1055,86 @@ export function getQuickMeasurementEstimate(
           roofPitch: pitch,
           slopeFactor: pitchMultiplier(pitch),
           wastePercent,
-          coveredPatioIncluded: patio > 0 && facts?.coveredPatioRoofed !== false,
+          coveredPatioIncluded:
+            patio > 0 && facts?.coveredPatioRoofed !== false,
         },
         assumptions: [
           ...(detectedPitch ? [] : [`${DEFAULT_ROOF_PITCH} pitch fallback`]),
           ...(pitchIsDescriptor
-            ? ['Low-slope descriptor modeled with a 2:12 slope factor; confirm numeric pitch']
+            ? [
+                'Low-slope descriptor modeled with a 2:12 slope factor; confirm numeric pitch',
+              ]
             : []),
-          ...(roofPlanes.length ? [] : ['Overhangs are not included unless captured in roofed-footprint facts']),
+          ...(roofPlanes.length
+            ? []
+            : [
+                'Overhangs are not included unless captured in roofed-footprint facts',
+              ]),
         ],
         includedComponents,
-        excludedComponents: ['Detached structures unless supplied', 'Unmeasured overhangs', 'Exterior flatwork'],
+        excludedComponents: [
+          'Detached structures unless supplied',
+          'Unmeasured overhangs',
+          'Exterior flatwork',
+        ],
         warning:
           sourceType === 'fallback_multiplier' || pitchIsDescriptor
             ? 'Planning estimate only; verify roof geometry, numeric pitch, overhangs, and waste.'
             : null,
-        planEvidence: evidenceFor(facts, ['roofPitch', 'roofedFootprintSqft', 'mainFloorLivingSqft', 'garageSqft', 'coveredPatioSqft']),
+        planEvidence: evidenceFor(facts, [
+          'roofPitch',
+          'roofedFootprintSqft',
+          'mainFloorLivingSqft',
+          'garageSqft',
+          'coveredPatioSqft',
+        ]),
         calculationBreakdown: breakdown,
       });
     }
     case 'concreteCy': {
       const geometryFootprint = geometryArea(facts, ['foundation']);
-      const livingFootprint = geometryFootprint ?? n(facts?.foundationFootprintSqft) ?? firstFloorLiving;
+      const livingFootprint =
+        geometryFootprint ??
+        n(facts?.foundationFootprintSqft) ??
+        firstFloorLiving;
       if (livingFootprint == null) return null;
-      const patioIncluded = facts?.includeCoveredPatioSlab === true && patio > 0;
-      const slabFootprint = livingFootprint + garage + (patioIncluded ? patio : 0);
+      const patioIncluded =
+        facts?.includeCoveredPatioSlab === true && patio > 0;
+      const slabFootprint =
+        livingFootprint + garage + (patioIncluded ? patio : 0);
       const measuredPerimeter =
-        n(facts?.foundationPerimeterLf) ?? geometryPerimeter(facts, ['foundation']);
-      const perimeter = measuredPerimeter ?? estimatedPerimeterFt(livingFootprint + garage);
+        n(facts?.foundationPerimeterLf) ??
+        geometryPerimeter(facts, ['foundation']);
+      const perimeter =
+        measuredPerimeter ?? estimatedPerimeterFt(livingFootprint + garage);
       const interiorFootingLf = perimeter * INTERIOR_FOOTING_RATIO;
       const footingCf = perimeter * FOOTING_WIDTH_FT * FOOTING_DEPTH_FT;
-      const interiorFootingCf = interiorFootingLf * FOOTING_WIDTH_FT * FOOTING_DEPTH_FT;
+      const interiorFootingCf =
+        interiorFootingLf * FOOTING_WIDTH_FT * FOOTING_DEPTH_FT;
       const stemCf = perimeter * STEM_WALL_HEIGHT_FT * STEM_WALL_THICKNESS_FT;
       const slabCf = slabFootprint * SLAB_THICKNESS_FT;
       const subtotalCf = footingCf + interiorFootingCf + stemCf + slabCf;
       const wasteCf = subtotalCf * FOUNDATION_WASTE_FACTOR;
       const totalCy = (subtotalCf + wasteCf) / 27;
       const componentFacts = Boolean(
-        n(facts?.foundationFootprintSqft) || geometryFootprint || measuredPerimeter
+        n(facts?.foundationFootprintSqft) ||
+        geometryFootprint ||
+        measuredPerimeter
       );
       return baseEstimate({
         key,
         value: totalCy,
         unit: 'CY',
-        sourceType: componentFacts ? 'calculated_from_components' : 'estimated_from_formula',
+        sourceType: componentFacts
+          ? 'calculated_from_components'
+          : 'estimated_from_formula',
         confidence: componentFacts ? 'medium' : 'low',
         confidenceReason: componentFacts
           ? 'Uses foundation area/perimeter facts; structural member sizes remain assumptions.'
           : 'Uses first-floor area and estimated perimeter because structural geometry was unavailable.',
         formulaId: 'foundation_cy_from_footprint',
-        basis: 'House/garage slabs + continuous/interior footings + stem walls + waste. Verify against structural plans.',
+        basis:
+          'House/garage slabs + continuous/interior footings + stem walls + waste. Verify against structural plans.',
         quantityLabel: 'Foundation and building slabs',
         inputsUsed: {
           firstFloorLivingFootprintSqft: livingFootprint,
@@ -857,8 +1171,14 @@ export function getQuickMeasurementEstimate(
           'Site walls',
           'Piers/pads unless supplied',
         ],
-        warning: 'Verify footing, stem-wall, thickened-edge, pier, and slab details against structural plans.',
-        planEvidence: evidenceFor(facts, ['foundationFootprintSqft', 'foundationPerimeterLf', 'mainFloorLivingSqft', 'garageSqft']),
+        warning:
+          'Verify footing, stem-wall, thickened-edge, pier, and slab details against structural plans.',
+        planEvidence: evidenceFor(facts, [
+          'foundationFootprintSqft',
+          'foundationPerimeterLf',
+          'mainFloorLivingSqft',
+          'garageSqft',
+        ]),
         calculationBreakdown: [
           component('Building slabs', slabCf / 27, 'CY'),
           component('Continuous footings', footingCf / 27, 'CY'),
@@ -870,27 +1190,39 @@ export function getQuickMeasurementEstimate(
     }
     case 'excavationCy': {
       const geometryFootprint = geometryArea(facts, ['foundation']);
-      const livingFootprint = geometryFootprint ?? n(facts?.foundationFootprintSqft) ?? firstFloorLiving;
+      const livingFootprint =
+        geometryFootprint ??
+        n(facts?.foundationFootprintSqft) ??
+        firstFloorLiving;
       if (livingFootprint == null) return null;
       const footprint = livingFootprint + garage;
       const measuredPerimeter =
-        n(facts?.foundationPerimeterLf) ?? geometryPerimeter(facts, ['foundation']);
+        n(facts?.foundationPerimeterLf) ??
+        geometryPerimeter(facts, ['foundation']);
       const perimeter = measuredPerimeter ?? estimatedPerimeterFt(footprint);
-      const trenchCy = (perimeter * FOOTING_TRENCH_WIDTH_FT * FOOTING_TRENCH_DEPTH_FT) / 27;
+      const trenchCy =
+        (perimeter * FOOTING_TRENCH_WIDTH_FT * FOOTING_TRENCH_DEPTH_FT) / 27;
       const padCutCy = (footprint * SLAB_OVEREX_DEPTH_FT) / 27;
       const workingRoomCy = trenchCy * 0.1;
       const totalCy = trenchCy + padCutCy + workingRoomCy;
-      const hasFoundationFacts = Boolean(geometryFootprint || n(facts?.foundationFootprintSqft) || measuredPerimeter);
+      const hasFoundationFacts = Boolean(
+        geometryFootprint ||
+        n(facts?.foundationFootprintSqft) ||
+        measuredPerimeter
+      );
       return baseEstimate({
         key,
         value: totalCy,
         unit: 'CY',
-        sourceType: hasFoundationFacts ? 'calculated_from_components' : 'estimated_from_formula',
+        sourceType: hasFoundationFacts
+          ? 'calculated_from_components'
+          : 'estimated_from_formula',
         confidence: 'low',
         confidenceReason:
           'Architectural footprint supports a shallow allowance, but civil grading, structural footing, and geotechnical data are missing.',
         formulaId: 'excavation_cy_from_footing_trench',
-        basis: 'Planning excavation allowance: shallow building-pad cut + footing trench + working room. Not a full building dig.',
+        basis:
+          'Planning excavation allowance: shallow building-pad cut + footing trench + working room. Not a full building dig.',
         inputsUsed: {
           foundationFootprintSqft: footprint,
           foundationPerimeterLf: perimeter,
@@ -906,7 +1238,11 @@ export function getQuickMeasurementEstimate(
           'Does not excavate the full building area to frost depth',
           'Excludes rock excavation, haul-off/export, dump fees, imported fill, and utility trenching',
         ],
-        includedComponents: ['Building pad cut', 'Footing/stem-wall trench', 'Working-room allowance'],
+        includedComponents: [
+          'Building pad cut',
+          'Footing/stem-wall trench',
+          'Working-room allowance',
+        ],
         excludedComponents: [
           'Haul-off/export',
           'Dump fees',
@@ -920,7 +1256,12 @@ export function getQuickMeasurementEstimate(
         ],
         warning:
           'Final quantity depends on grading, soils, footing design, over-excavation, rock, and export requirements.',
-        planEvidence: evidenceFor(facts, ['foundationFootprintSqft', 'foundationPerimeterLf', 'mainFloorLivingSqft', 'garageSqft']),
+        planEvidence: evidenceFor(facts, [
+          'foundationFootprintSqft',
+          'foundationPerimeterLf',
+          'mainFloorLivingSqft',
+          'garageSqft',
+        ]),
         calculationBreakdown: [
           component('Shallow building-pad cut', padCutCy, 'CY'),
           component('Footing/stem trench', trenchCy, 'CY'),
@@ -969,7 +1310,8 @@ export function getQuickMeasurementEstimate(
           ? TYPICAL_SHOWER_WALL_SQFT_PER_BATH
           : TYPICAL_SHOWER_FLOOR_SQFT_PER_BATH;
       const value = baths * perBath;
-      const unitLabel = key === 'showerWallTileSqft' ? 'shower wall' : 'shower floor';
+      const unitLabel =
+        key === 'showerWallTileSqft' ? 'shower wall' : 'shower floor';
       return baseEstimate({
         key,
         value,
@@ -982,7 +1324,8 @@ export function getQuickMeasurementEstimate(
             ? 'shower_wall_from_bath_count_tile'
             : 'shower_floor_from_bath_count_tile',
         basis: `Typical tiled ${unitLabel} allowance × ${baths} bath${baths === 1 ? '' : 's'}. Not a measured shower takeoff.`,
-        quantityLabel: key === 'showerWallTileSqft' ? 'Shower walls' : 'Shower floor',
+        quantityLabel:
+          key === 'showerWallTileSqft' ? 'Shower walls' : 'Shower floor',
         inputsUsed: {
           bathCount: baths,
           wetAreaFinish: 'tile',
@@ -993,7 +1336,9 @@ export function getQuickMeasurementEstimate(
           'Confirm each shower size against the plan',
         ],
         includedComponents: [
-          key === 'showerWallTileSqft' ? 'Tiled shower wall surfaces' : 'Tiled shower floor / pan surface',
+          key === 'showerWallTileSqft'
+            ? 'Tiled shower wall surfaces'
+            : 'Tiled shower floor / pan surface',
         ],
         excludedComponents: [
           'Tub surrounds',
@@ -1001,7 +1346,8 @@ export function getQuickMeasurementEstimate(
           'Niche/bench extras unless measured',
           'Bathroom floor tile outside the shower',
         ],
-        warning: 'Planning allowance only — verify shower dimensions on the plan.',
+        warning:
+          'Planning allowance only — verify shower dimensions on the plan.',
         calculationBreakdown: [
           component('Baths with tiled showers', baths, 'ea'),
           component(`Typical ${unitLabel} per bath`, perBath, 'sqft'),

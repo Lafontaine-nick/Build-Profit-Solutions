@@ -231,7 +231,47 @@ export const TRADE_MEASUREMENT_SCHEMAS: Partial<
       quickMeasurementKey: 'drywallSqft',
     }),
   ],
-  insulation: [],
+  insulation: [
+    M(
+      'exteriorWallInsulationSqft',
+      'Exterior wall insulation',
+      'sqft',
+      'primary',
+      { quickMeasurementKey: 'exteriorWallInsulationSqft' }
+    ),
+    M('atticInsulationSqft', 'Attic / ceiling insulation', 'sqft', 'primary', {
+      quickMeasurementKey: 'atticInsulationSqft',
+    }),
+    M('insulatedRoofDeckSqft', 'Insulated roof deck', 'sqft', 'more', {
+      quickMeasurementKey: 'insulatedRoofDeckSqft',
+    }),
+    M('floorInsulationSqft', 'Floor insulation', 'sqft', 'more', {
+      quickMeasurementKey: 'floorInsulationSqft',
+    }),
+    M(
+      'garageSeparationInsulationSqft',
+      'Garage separation insulation',
+      'sqft',
+      'more',
+      { quickMeasurementKey: 'garageSeparationInsulationSqft' }
+    ),
+    M('openingDeductionSqft', 'Exterior opening deduction', 'sqft', 'more', {
+      quickMeasurementKey: 'openingDeductionSqft',
+    }),
+    M('insulationMaterialType', 'Insulation type', 'type', 'primary', {
+      quickMeasurementKey: 'insulationMaterialType',
+    }),
+    M('insulationRValue', 'Target R-value', 'R-value', 'primary', {
+      quickMeasurementKey: 'insulationRValue',
+    }),
+    M(
+      'garageInsulationIncluded',
+      'Garage insulation included',
+      'choice',
+      'more',
+      { quickMeasurementKey: 'garageInsulationIncluded' }
+    ),
+  ],
   flooring: [
     M('flooringSqft', 'Total flooring area', 'sqft', 'primary', {
       quickMeasurementKey: 'flooringSqft',

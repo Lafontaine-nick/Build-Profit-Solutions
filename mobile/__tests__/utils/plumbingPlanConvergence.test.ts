@@ -7,6 +7,7 @@ import {
   PLUMBING_PLAN_EXPORT_CHECKLIST_GROUPS,
   PLUMBING_REVIEW_MEASUREMENT_KEYS,
   syncPlumbingScopeItems,
+  plumbingScopeSyncSignature,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { groupScopeChecklistItems } from '@/utils/estimateScopeChecklistUi';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
@@ -280,6 +281,18 @@ describe('plumbing canonical architecture', () => {
     expect(cleared).toEqual([
       expect.objectContaining({ id: 'water_line', state: 'unsure' }),
     ]);
+  });
+
+  it('changes plumbingScopeSyncSignature when LF quick measurements move', () => {
+    const before = plumbingScopeSyncSignature({
+      waterLineLf: '50',
+      itemQuantities: { water_line: { quantity: '50' } },
+    });
+    const after = plumbingScopeSyncSignature({
+      waterLineLf: '55',
+      itemQuantities: { water_line: { quantity: '55' } },
+    });
+    expect(before).not.toBe(after);
   });
 
   it('provides pricing for every measurable Plumbing quantity card', () => {

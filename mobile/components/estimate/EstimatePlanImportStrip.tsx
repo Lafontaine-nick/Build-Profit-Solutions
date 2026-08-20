@@ -49,12 +49,23 @@ import {
   tagFramingQuickMeasurementSourcesFromProvenance,
 } from '@/utils/planTakeoffReviewUi';
 import { applyRepeatedPlumbingImportConflicts } from '@/utils/planMeasurementConflictUi';
+import { tagPlanDetectedQuickMeasurementKeys } from '@/utils/quickMeasurementProvenance';
 
 function keepPaintingPlanGeometry(
   mode: PlanEstimatingMode,
   tradeKey?: PlanTradeKey | null
 ): boolean {
   return mode === 'selected_trade' && tradeKey === 'painting';
+}
+
+function keepSelectedTradePlanContext(
+  mode: PlanEstimatingMode,
+  tradeKey?: PlanTradeKey | null
+): boolean {
+  return (
+    keepPaintingPlanGeometry(mode, tradeKey) ||
+    (mode === 'selected_trade' && tradeKey === 'insulation')
+  );
 }
 
 type ElectricalRepeatSnapshot = {
@@ -718,11 +729,13 @@ export default function EstimatePlanImportStrip({
             ? null
             : (takeoff.areaReconciliation ?? null),
         buildingAreas:
-          selection.mode === 'selected_trade' && !keepPaintingGeometry
+          selection.mode === 'selected_trade' &&
+          !keepSelectedTradePlanContext(selection.mode, selection.trade?.key)
             ? undefined
             : takeoff.buildingAreas,
         planFacts:
-          selection.mode === 'selected_trade' && !keepPaintingGeometry
+          selection.mode === 'selected_trade' &&
+          !keepSelectedTradePlanContext(selection.mode, selection.trade?.key)
             ? undefined
             : takeoff.planFacts,
         fieldConfidence: takeoff.fieldConfidence,
@@ -730,6 +743,12 @@ export default function EstimatePlanImportStrip({
           ...(normalizedTrade?.quickMeasurementSources || {}),
           ...provenanceQuickMeasurementSources,
           ...framingQuickSources,
+          ...(selection.trade?.key === 'insulation'
+            ? tagPlanDetectedQuickMeasurementKeys(
+                undefined,
+                Object.keys(tradeMeasurements)
+              )
+            : {}),
         },
         measurementProvenance: appliedProvenance,
         measurementConflicts: unresolvedConflicts,

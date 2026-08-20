@@ -37,8 +37,13 @@ import {
   isShellFramingPackageBid,
   resolveCoveredFramedAreaSqft,
   resolveFramingSheathingSqft,
+  shellPackageIncludesSheathing,
   shouldPreserveShellFramingComponentMeasurement,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
+import {
+  copyInsulationScopeNumericFields,
+  copyInsulationScopeTextFields,
+} from '@/utils/subcontractorTrade/insulationPlanConvergence';
 import {
   isElectricalServicePanelItemId,
   resolveElectricalServicePanelSuggestedPricing,
@@ -96,6 +101,7 @@ import {
 } from '@/utils/regionalPricingMultipliers';
 import {
   applyProjectComplexityToSuggestedPricing,
+  hydrateProjectComplexityInputFields,
   type ProjectComplexitySettings,
   type SuggestedPricingComplexityMeta,
 } from '@/utils/projectComplexityAdjustments';
@@ -105,9 +111,14 @@ import {
   getBuilderBudgetSoftCostAllowance,
 } from '@/utils/southernUtahCalibratedRates';
 import {
+  framingShellPackageBreakdownForProject,
   framingComparableHelper,
   resolveFramingShellPackageComparable,
 } from '@/utils/southernUtahFramingComparables';
+import {
+  plumbingPackageComparableHelper,
+  resolvePlumbingPackageComparable,
+} from '@/utils/southernUtahPlumbingComparables';
 import {
   barometerLabelForProjectId,
   installedBudgetLivingSfReference,
@@ -511,11 +522,7 @@ export type NormalizedScopeMeasurements = {
   additionalHaulOffLoadCount: number | null;
   concreteDemoSqft: number | null;
   concreteDemoThicknessBand:
-    | 'thin_2_3'
-    | 'standard_4'
-    | 'heavy_5_6'
-    | 'structural_7_plus'
-    | null;
+    'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
   concreteDemoThicknessBands: Array<
     'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus'
   > | null;
@@ -597,8 +604,7 @@ export type ScopeItemQuantityValue = {
   includesCountertops?: boolean;
   /** Optional durable primary/pricing/benchmark roles (measurement-semantics). */
   measurementState?:
-    | import('@/utils/measurementSemantics').ScopeMeasurementState
-    | null;
+    import('@/utils/measurementSemantics').ScopeMeasurementState | null;
 };
 
 export type ResolvedItemQuantity = {
@@ -652,10 +658,7 @@ export type NationalAverageBudgetSplit = {
   rateSourceReference?: string;
   scopeProfileSource?: ScopeProfileSource;
   productionStatus?:
-    | 'production_ready'
-    | 'review_required'
-    | 'fallback_only'
-    | 'disabled';
+    'production_ready' | 'review_required' | 'fallback_only' | 'disabled';
   geographicBasis?: 'national' | 'state' | 'southern_utah';
   regionalMultiplier?: number;
   regionalStateCode?: string | null;
@@ -687,10 +690,7 @@ export type BenchmarkPricingCoverageStatus =
   | 'needs_review';
 
 export type BenchmarkPricingProductionStatus =
-  | 'production_ready'
-  | 'review_required'
-  | 'fallback_only'
-  | 'disabled';
+  'production_ready' | 'review_required' | 'fallback_only' | 'disabled';
 
 const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   string,
@@ -5610,6 +5610,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
   water_line: {
     defaultUnit: 'lf',
     allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'waterLineLf',
     requiresUserQuantity: true,
     quantityHelper:
       'Enter documented water-supply line length in LF. Do not infer from living area.',
@@ -5618,6 +5619,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
   sewer_line: {
     defaultUnit: 'lf',
     allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'sewerLineLf',
     requiresUserQuantity: true,
     quantityHelper:
       'Enter documented sewer/drain-line length in LF. Cleaning and rough-in are separate.',
@@ -5626,6 +5628,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
   gas_line: {
     defaultUnit: 'lf',
     allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'gasLineLf',
     requiresUserQuantity: true,
     quantityHelper:
       'Enter documented gas-piping length in LF. Include only explicit gas piping or gas stubs.',
@@ -8364,7 +8367,8 @@ export function resolveSuggestAlignedEditorPricingBasis(
     const envelope = resolveInsulationEnvelopePlanningQuantity(
       insulationEnvelopeInputsFromPlanFacts(
         measurementsInput.planFacts,
-        livingSf
+        livingSf,
+        measurementsInput
       )
     );
     const envelopeSf = envelope?.totalInsulationEnvelopeSqft;
@@ -8552,8 +8556,7 @@ export function resolveAllowanceEditorPricingBasis(
     garageSf,
     preferredUnit,
     preferredMeasurementKeys: preferred?.measurementKeys as
-      | string[]
-      | undefined,
+      string[] | undefined,
     sumMeasurementKeys: preferred?.sumMeasurementKeys,
     defaultUnit: rule.defaultUnit,
   });
@@ -8667,41 +8670,37 @@ export function resolveAllowanceEditorPricingBasis(
     measurementsInput
   );
   if (fromPricingBasis) {
-    if (
-      !(
-        fromPricingBasis.unit === 'sqft' &&
-        livingSf != null &&
-        Math.abs(fromPricingBasis.quantity - livingSf) < 0.51 &&
-        (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
-          id === 'insulation' ||
-          id === 'interior_paint' ||
-          id === 'paint' ||
-          id === 'paint_trim' ||
-          id === 'drywall' ||
-          id === 'hang' ||
-          id === 'finish_tape')
-      )
-    ) {
+    if (!(
+      fromPricingBasis.unit === 'sqft' &&
+      livingSf != null &&
+      Math.abs(fromPricingBasis.quantity - livingSf) < 0.51 &&
+      (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
+        id === 'insulation' ||
+        id === 'interior_paint' ||
+        id === 'paint' ||
+        id === 'paint_trim' ||
+        id === 'drywall' ||
+        id === 'hang' ||
+        id === 'finish_tape')
+    )) {
       return fromPricingBasis;
     }
   }
   const fromRule = firstMeasurementForRule(rule, measurementsInput);
   if (fromRule) {
-    if (
-      !(
-        fromRule.unit === 'sqft' &&
-        livingSf != null &&
-        Math.abs(fromRule.quantity - livingSf) < 0.51 &&
-        (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
-          id === 'insulation' ||
-          id === 'interior_paint' ||
-          id === 'paint' ||
-          id === 'paint_trim' ||
-          id === 'drywall' ||
-          id === 'hang' ||
-          id === 'finish_tape')
-      )
-    ) {
+    if (!(
+      fromRule.unit === 'sqft' &&
+      livingSf != null &&
+      Math.abs(fromRule.quantity - livingSf) < 0.51 &&
+      (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
+        id === 'insulation' ||
+        id === 'interior_paint' ||
+        id === 'paint' ||
+        id === 'paint_trim' ||
+        id === 'drywall' ||
+        id === 'hang' ||
+        id === 'finish_tape')
+    )) {
       return fromRule;
     }
   }
@@ -8817,10 +8816,7 @@ export function getChecklistItemQuantityRule(
     };
   }
   const framingCard = framingCardForItemId(resolvedId);
-  if (
-    framingCard &&
-    String(templateKey || '').toLowerCase() === 'framing'
-  ) {
+  if (framingCard && String(templateKey || '').toLowerCase() === 'framing') {
     rule = {
       ...rule,
       measurementKey:
@@ -8967,10 +8963,7 @@ export function syncDualAllowanceSqftFields(
   const sync = (
     itemId: string,
     field:
-      | 'backsplashSqft'
-      | 'wallPaintSqft'
-      | 'showerWallTileSqft'
-      | 'flooringSqft'
+      'backsplashSqft' | 'wallPaintSqft' | 'showerWallTileSqft' | 'flooringSqft'
   ) => {
     if (parseScopeMeasurementInput(String(next[field] ?? ''))) return;
     const q = sqftFromItemQuantities(input, itemId);
@@ -9161,10 +9154,9 @@ export function syncItemQuantitiesToMeasurementFields(
     const quantity = Number(String(entry.quantity).replace(/,/g, ''));
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
     const existingQm = Number(
-      String((next as Record<string, unknown>)[card.measurementKey] ?? '').replace(
-        /,/g,
-        ''
-      )
+      String(
+        (next as Record<string, unknown>)[card.measurementKey] ?? ''
+      ).replace(/,/g, '')
     );
     if (
       Number.isFinite(existingQm) &&
@@ -9187,10 +9179,9 @@ export function syncItemQuantitiesToMeasurementFields(
     const quantity = Number(String(entry.quantity).replace(/,/g, ''));
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
     const existingQm = Number(
-      String((next as Record<string, unknown>)[card.measurementKey] ?? '').replace(
-        /,/g,
-        ''
-      )
+      String(
+        (next as Record<string, unknown>)[card.measurementKey] ?? ''
+      ).replace(/,/g, '')
     );
     if (
       Number.isFinite(existingQm) &&
@@ -10149,10 +10140,7 @@ export function resolveSuggestedBudgetSplitDisplay(
 // fill, labor-only fill, and a comparison split when notes priced both legs.
 
 export type PricingLegSource =
-  | 'notes'
-  | 'template'
-  | 'local_benchmark'
-  | 'national_average';
+  'notes' | 'template' | 'local_benchmark' | 'national_average';
 
 export type ScopePricingLineItem = {
   name?: string | null;
@@ -10353,9 +10341,7 @@ export function resolveTemplateRateForItem(
 }
 
 export type SuggestedPricingMode =
-  | 'note_total_split'
-  | 'fill_missing'
-  | 'suggested_price';
+  'note_total_split' | 'fill_missing' | 'suggested_price';
 
 /** Suggested pricing block enriched with per-leg sources for the Confirm Scope UI. */
 export type SuggestedPricingBlock = {
@@ -10417,6 +10403,11 @@ export type ScopeItemSuggestedPricing = {
   fill: SuggestedPricingBlock | null;
   /** Collapsible comparison shown when notes already priced both legs. */
   comparison: SuggestedPricingBlock | null;
+};
+
+export type ScopeItemSuggestedPricingResolveOptions = {
+  /** Recompute applied pricing after complexity/QM changes — bypass post-Apply suppress. */
+  bypassAppliedSuppress?: boolean;
 };
 
 function round2(n: number): number {
@@ -11797,7 +11788,8 @@ function withUserEnteredNationalBenchmarkFallback(
   resolved: SuggestedPricingResolvedQty,
   templateKey: string | null | undefined,
   pricingContext: ScopePricingContext | null | undefined,
-  result: ScopeItemSuggestedPricing
+  result: ScopeItemSuggestedPricing,
+  options?: ScopeItemSuggestedPricingResolveOptions
 ): ScopeItemSuggestedPricing {
   result = applyProjectComplexityToSuggestedPricing(
     itemId,
@@ -11805,8 +11797,15 @@ function withUserEnteredNationalBenchmarkFallback(
     {
       floorAreaSqft: measurementsInput.floorAreaSqft,
       storyCount: measurementsInput.storyCount,
+      planFacts: measurementsInput.planFacts,
       projectComplexity: measurementsInput.projectComplexity,
       plumbingComplexityFactors: measurementsInput.plumbingComplexityFactors,
+      planImportMode: measurementsInput.planImportMode,
+      planImportTradeKey: measurementsInput.planImportTradeKey,
+      planImportFingerprint: measurementsInput.planImportFingerprint,
+      quickMeasurementSources: measurementsInput.quickMeasurementSources,
+      quickMeasurementUserOverrides:
+        measurementsInput.quickMeasurementUserOverrides,
     },
     result
   ) as ScopeItemSuggestedPricing;
@@ -11831,7 +11830,11 @@ function withUserEnteredNationalBenchmarkFallback(
 
   // Manual/user pricing is already active — never leave national average as an
   // applyable fill (that drives the footer "N prices ready" count).
-  if (result.fill && !result.fill.isComparison) {
+  if (
+    !options?.bypassAppliedSuppress &&
+    result.fill &&
+    !result.fill.isComparison
+  ) {
     return {
       fill: null,
       comparison:
@@ -12053,6 +12056,57 @@ function buildGroundUpBarometerLumpPricing(
  * labor independently with the priority notes -> template/bid -> national
  * average, and works for any trade/material/labor combination.
  */
+function insulationAssemblyRateAdjustments(
+  measurements: ScopeMeasurementsInputExtended
+): {
+  materialMultiplier: number;
+  laborMultiplier: number;
+  label: string;
+} {
+  const type = String(measurements.insulationMaterialType || '')
+    .trim()
+    .toLowerCase();
+  const typeRates: Record<string, [number, number]> = {
+    batt: [1, 1],
+    'blown-in': [0.9, 1.1],
+    'spray foam': [2.5, 1.35],
+    'rigid foam board': [2, 1.25],
+    cellulose: [0.9, 1],
+    'mineral wool': [1.35, 1.15],
+  };
+  const typeKey = Object.keys(typeRates).find(key => type.includes(key));
+  const [typeMaterial, typeLabor] = typeKey
+    ? typeRates[typeKey]
+    : [1, 1];
+  const rValue = Number(
+    String(measurements.insulationRValue || '').match(/\d{2,3}/)?.[0] || ''
+  );
+  const rMaterial =
+    {
+      13: 0.85,
+      15: 0.9,
+      19: 0.95,
+      21: 1,
+      30: 1.15,
+      38: 1.3,
+      49: 1.5,
+      60: 1.7,
+    }[rValue] ??
+    (rValue > 0
+      ? Math.max(0.85, Math.min(1.7, 0.65 + rValue / 60))
+      : 1);
+  return {
+    materialMultiplier: typeMaterial * rMaterial,
+    laborMultiplier: typeLabor,
+    label: [
+      typeKey ? typeKey : null,
+      rValue > 0 ? `R-${rValue}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  };
+}
+
 export function resolveScopeItemSuggestedPricing(
   itemId: string,
   measurementsInput: ScopeMeasurementsInputExtended,
@@ -12069,11 +12123,19 @@ export function resolveScopeItemSuggestedPricing(
   >,
   pricingContext?: ScopePricingContext | null,
   choiceId?: string | null,
-  originalNotes?: string | null
+  originalNotes?: string | null,
+  options?: ScopeItemSuggestedPricingResolveOptions
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
+  if (
+    String(templateKey || '').toLowerCase() === 'framing' &&
+    itemId === 'shear_sheathing' &&
+    shellPackageIncludesSheathing(measurementsInput as Record<string, unknown>)
+  ) {
+    return empty;
+  }
   if (
     String(templateKey || '').toLowerCase() === 'framing' &&
     (itemId === 'wall_framing' || itemId === 'openings') &&
@@ -12083,11 +12145,9 @@ export function resolveScopeItemSuggestedPricing(
       itemId === 'wall_framing' ? 'wallFramingLf' : 'framingOpeningCount';
     const input = measurementsInput as Record<string, unknown>;
     const sources = input.quickMeasurementSources as
-      | Record<string, string>
-      | undefined;
+      Record<string, string> | undefined;
     const overrides = input.quickMeasurementUserOverrides as
-      | Record<string, boolean>
-      | undefined;
+      Record<string, boolean> | undefined;
     const source = sources?.[measurementKey];
     const userEntered =
       source === 'user_entered' ||
@@ -12102,8 +12162,7 @@ export function resolveScopeItemSuggestedPricing(
     plumbingMeasurementKey &&
     (
       measurementsInput.quickMeasurementSources as
-        | Record<string, string>
-        | undefined
+        Record<string, string> | undefined
     )?.[plumbingMeasurementKey] === 'needs_confirmation'
   ) {
     return empty;
@@ -12125,11 +12184,33 @@ export function resolveScopeItemSuggestedPricing(
       resolved,
       templateKey,
       pricingContext,
-      whPricing
+      whPricing,
+      options
     );
   }
   const electricalTemplate =
     String(templateKey || '').toLowerCase() === 'electrical';
+  const applyElectricalComplexity = (
+    result: ScopeItemSuggestedPricing
+  ): ScopeItemSuggestedPricing =>
+    applyProjectComplexityToSuggestedPricing(
+      itemId,
+      templateKey,
+      {
+        floorAreaSqft: measurementsInput.floorAreaSqft,
+        storyCount: measurementsInput.storyCount,
+        planFacts: measurementsInput.planFacts,
+        projectComplexity: measurementsInput.projectComplexity,
+        plumbingComplexityFactors: measurementsInput.plumbingComplexityFactors,
+        planImportMode: measurementsInput.planImportMode,
+        planImportTradeKey: measurementsInput.planImportTradeKey,
+        planImportFingerprint: measurementsInput.planImportFingerprint,
+        quickMeasurementSources: measurementsInput.quickMeasurementSources,
+        quickMeasurementUserOverrides:
+          measurementsInput.quickMeasurementUserOverrides,
+      },
+      result
+    ) as ScopeItemSuggestedPricing;
   if (isElectricalRoughItemId(itemId) && electricalTemplate) {
     if (
       !shouldAutoPriceElectricalRoughPackage(
@@ -12139,130 +12220,161 @@ export function resolveScopeItemSuggestedPricing(
     ) {
       return empty;
     }
-    return resolveElectricalRoughSuggestedPricing({
-      itemId,
-      quantity: resolved.quantity,
-      unit: resolved.unit,
-      quantitySource: resolved.quantitySource,
-      electricalProjectCondition: measurementsInput.electricalProjectCondition,
-      electricalIncludeRough: measurementsInput.electricalIncludeRough,
-      electricalScope: measurementsInput.electricalScope,
-    });
+    return applyElectricalComplexity(
+      resolveElectricalRoughSuggestedPricing({
+        itemId,
+        quantity: resolved.quantity,
+        unit: resolved.unit,
+        quantitySource: resolved.quantitySource,
+        electricalProjectCondition:
+          measurementsInput.electricalProjectCondition,
+        electricalIncludeRough: measurementsInput.electricalIncludeRough,
+        electricalScope: measurementsInput.electricalScope,
+      })
+    );
   }
   if (isElectricalServicePanelItemId(itemId)) {
-    return resolveElectricalServicePanelSuggestedPricing({
-      itemId,
-      quantity: resolved.quantity,
-      quantitySource: resolved.quantitySource,
-      serviceAmperage: Number(measurementsInput.serviceAmperage) || null,
-      existingServiceAmperage:
-        Number(measurementsInput.existingServiceAmperage) || null,
-      electricalProjectCondition: measurementsInput.electricalProjectCondition,
-      electricalPanelLocation: measurementsInput.electricalPanelLocation,
-      electricalMeterMainCombo: measurementsInput.electricalMeterMainCombo,
-      mainPanelCount: Number(measurementsInput.mainPanelCount) || null,
-      panelUpgradeCount: Number(measurementsInput.panelUpgradeCount) || null,
-      serviceUpgradeCount:
-        Number(measurementsInput.serviceUpgradeCount) || null,
-      subpanelCount: Number(measurementsInput.subpanelCount) || null,
-      electricalScope: measurementsInput.electricalScope,
-    });
+    return applyElectricalComplexity(
+      resolveElectricalServicePanelSuggestedPricing({
+        itemId,
+        quantity: resolved.quantity,
+        quantitySource: resolved.quantitySource,
+        serviceAmperage: Number(measurementsInput.serviceAmperage) || null,
+        existingServiceAmperage:
+          Number(measurementsInput.existingServiceAmperage) || null,
+        electricalProjectCondition:
+          measurementsInput.electricalProjectCondition,
+        electricalPanelLocation: measurementsInput.electricalPanelLocation,
+        electricalMeterMainCombo: measurementsInput.electricalMeterMainCombo,
+        mainPanelCount: Number(measurementsInput.mainPanelCount) || null,
+        panelUpgradeCount: Number(measurementsInput.panelUpgradeCount) || null,
+        serviceUpgradeCount:
+          Number(measurementsInput.serviceUpgradeCount) || null,
+        subpanelCount: Number(measurementsInput.subpanelCount) || null,
+        electricalScope: measurementsInput.electricalScope,
+      })
+    );
   }
   if (isElectricalCircuitItemId(itemId)) {
-    return resolveElectricalCircuitSuggestedPricing({
-      itemId,
-      quantity: resolved.quantity,
-      quantitySource: resolved.quantitySource,
-      electricalProjectCondition: measurementsInput.electricalProjectCondition,
-      rangeHookupCount: Number(measurementsInput.rangeHookupCount) || null,
-      dryerHookupCount: Number(measurementsInput.dryerHookupCount) || null,
-      waterHeaterHookupCount:
-        Number(measurementsInput.waterHeaterHookupCount) || null,
-      evChargerHookupCount:
-        Number(measurementsInput.evChargerHookupCount) || null,
-      dishwasherHookupCount:
-        Number(measurementsInput.dishwasherHookupCount) || null,
-      disposalHookupCount:
-        Number(measurementsInput.disposalHookupCount) || null,
-      microwaveHookupCount:
-        Number(measurementsInput.microwaveHookupCount) || null,
-      refrigeratorHookupCount:
-        Number(measurementsInput.refrigeratorHookupCount) || null,
-      hvacHookupCount: Number(measurementsInput.hvacHookupCount) || null,
-    });
+    return applyElectricalComplexity(
+      resolveElectricalCircuitSuggestedPricing({
+        itemId,
+        quantity: resolved.quantity,
+        quantitySource: resolved.quantitySource,
+        electricalProjectCondition:
+          measurementsInput.electricalProjectCondition,
+        rangeHookupCount: Number(measurementsInput.rangeHookupCount) || null,
+        dryerHookupCount: Number(measurementsInput.dryerHookupCount) || null,
+        waterHeaterHookupCount:
+          Number(measurementsInput.waterHeaterHookupCount) || null,
+        evChargerHookupCount:
+          Number(measurementsInput.evChargerHookupCount) || null,
+        dishwasherHookupCount:
+          Number(measurementsInput.dishwasherHookupCount) || null,
+        disposalHookupCount:
+          Number(measurementsInput.disposalHookupCount) || null,
+        microwaveHookupCount:
+          Number(measurementsInput.microwaveHookupCount) || null,
+        refrigeratorHookupCount:
+          Number(measurementsInput.refrigeratorHookupCount) || null,
+        hvacHookupCount: Number(measurementsInput.hvacHookupCount) || null,
+      })
+    );
   }
   if (isElectricalReceptacleItemId(itemId)) {
-    return resolveElectricalReceptacleSuggestedPricing({
-      itemId,
-      quantity: resolved.quantity,
-      quantitySource: resolved.quantitySource,
-      electricalProjectCondition: measurementsInput.electricalProjectCondition,
-      rangeHookupCount: Number(measurementsInput.rangeHookupCount) || null,
-      dryerHookupCount: Number(measurementsInput.dryerHookupCount) || null,
-      waterHeaterHookupCount:
-        Number(measurementsInput.waterHeaterHookupCount) || null,
-      evChargerHookupCount:
-        Number(measurementsInput.evChargerHookupCount) || null,
-      dishwasherHookupCount:
-        Number(measurementsInput.dishwasherHookupCount) || null,
-      disposalHookupCount:
-        Number(measurementsInput.disposalHookupCount) || null,
-      microwaveHookupCount:
-        Number(measurementsInput.microwaveHookupCount) || null,
-      refrigeratorHookupCount:
-        Number(measurementsInput.refrigeratorHookupCount) || null,
-      hvacHookupCount: Number(measurementsInput.hvacHookupCount) || null,
-    });
+    return applyElectricalComplexity(
+      resolveElectricalReceptacleSuggestedPricing({
+        itemId,
+        quantity: resolved.quantity,
+        quantitySource: resolved.quantitySource,
+        electricalProjectCondition:
+          measurementsInput.electricalProjectCondition,
+        rangeHookupCount: Number(measurementsInput.rangeHookupCount) || null,
+        dryerHookupCount: Number(measurementsInput.dryerHookupCount) || null,
+        waterHeaterHookupCount:
+          Number(measurementsInput.waterHeaterHookupCount) || null,
+        evChargerHookupCount:
+          Number(measurementsInput.evChargerHookupCount) || null,
+        dishwasherHookupCount:
+          Number(measurementsInput.dishwasherHookupCount) || null,
+        disposalHookupCount:
+          Number(measurementsInput.disposalHookupCount) || null,
+        microwaveHookupCount:
+          Number(measurementsInput.microwaveHookupCount) || null,
+        refrigeratorHookupCount:
+          Number(measurementsInput.refrigeratorHookupCount) || null,
+        hvacHookupCount: Number(measurementsInput.hvacHookupCount) || null,
+      })
+    );
   }
   if (isElectricalSwitchItemId(itemId)) {
-    return resolveElectricalSwitchSuggestedPricing({
-      itemId,
-      quantity: resolved.quantity,
-      quantitySource: resolved.quantitySource,
-      electricalProjectCondition: measurementsInput.electricalProjectCondition,
-    });
+    return applyElectricalComplexity(
+      resolveElectricalSwitchSuggestedPricing({
+        itemId,
+        quantity: resolved.quantity,
+        quantitySource: resolved.quantitySource,
+        electricalProjectCondition:
+          measurementsInput.electricalProjectCondition,
+      })
+    );
   }
   if (isElectricalLightingFanItemId(itemId)) {
-    return resolveElectricalLightingFanSuggestedPricing({
-      itemId,
-      quantity: resolved.quantity,
-      quantitySource: resolved.quantitySource,
-      electricalProjectCondition: measurementsInput.electricalProjectCondition,
-    });
+    return applyElectricalComplexity(
+      resolveElectricalLightingFanSuggestedPricing({
+        itemId,
+        quantity: resolved.quantity,
+        quantitySource: resolved.quantitySource,
+        electricalProjectCondition:
+          measurementsInput.electricalProjectCondition,
+      })
+    );
   }
   if (isElectricalHookupItemId(itemId)) {
-    return resolveElectricalHookupSuggestedPricing({
-      itemId,
-      quantity: resolved.quantity,
-      quantitySource: resolved.quantitySource,
-      electricalProjectCondition: measurementsInput.electricalProjectCondition,
-    });
+    return applyElectricalComplexity(
+      resolveElectricalHookupSuggestedPricing({
+        itemId,
+        quantity: resolved.quantity,
+        quantitySource: resolved.quantitySource,
+        electricalProjectCondition:
+          measurementsInput.electricalProjectCondition,
+      })
+    );
   }
   if (isElectricalSpecialSystemItemId(itemId)) {
-    return resolveElectricalSpecialSystemSuggestedPricing({
-      itemId,
-      quantity: resolved.quantity,
-      quantitySource: resolved.quantitySource,
-      electricalProjectCondition: measurementsInput.electricalProjectCondition,
-    });
+    return applyElectricalComplexity(
+      resolveElectricalSpecialSystemSuggestedPricing({
+        itemId,
+        quantity: resolved.quantity,
+        quantitySource: resolved.quantitySource,
+        electricalProjectCondition:
+          measurementsInput.electricalProjectCondition,
+      })
+    );
   }
   if (isElectricalModificationItemId(itemId)) {
-    return resolveElectricalModificationSuggestedPricing({
-      itemId,
-      quantity: resolved.quantity,
-      quantitySource: resolved.quantitySource,
-      electricalProjectCondition: measurementsInput.electricalProjectCondition,
-    });
+    return applyElectricalComplexity(
+      resolveElectricalModificationSuggestedPricing({
+        itemId,
+        quantity: resolved.quantity,
+        quantitySource: resolved.quantitySource,
+        electricalProjectCondition:
+          measurementsInput.electricalProjectCondition,
+      })
+    );
   }
   if (isElectricalRacewayItemId(itemId)) {
-    return resolveElectricalRacewaySuggestedPricing({
-      itemId,
-      quantity: resolved.quantity,
-      quantitySource: resolved.quantitySource,
-      electricalProjectCondition: measurementsInput.electricalProjectCondition,
-      electricalTrenchCondition: measurementsInput.electricalTrenchCondition,
-      electricalConduitSpecialty: measurementsInput.electricalConduitSpecialty,
-    });
+    return applyElectricalComplexity(
+      resolveElectricalRacewaySuggestedPricing({
+        itemId,
+        quantity: resolved.quantity,
+        quantitySource: resolved.quantitySource,
+        electricalProjectCondition:
+          measurementsInput.electricalProjectCondition,
+        electricalTrenchCondition: measurementsInput.electricalTrenchCondition,
+        electricalConduitSpecialty:
+          measurementsInput.electricalConduitSpecialty,
+      })
+    );
   }
   if (isElectricalTrimItemId(itemId)) {
     if (
@@ -12274,16 +12386,18 @@ export function resolveScopeItemSuggestedPricing(
       return empty;
     }
     if (electricalTemplate) {
-      return resolveElectricalTrimSuggestedPricing({
-        itemId,
-        quantity: resolved.quantity,
-        unit: resolved.unit,
-        quantitySource: resolved.quantitySource,
-        electricalProjectCondition:
-          measurementsInput.electricalProjectCondition,
-        electricalIncludeTrim: measurementsInput.electricalIncludeTrim,
-        electricalScope: measurementsInput.electricalScope,
-      });
+      return applyElectricalComplexity(
+        resolveElectricalTrimSuggestedPricing({
+          itemId,
+          quantity: resolved.quantity,
+          unit: resolved.unit,
+          quantitySource: resolved.quantitySource,
+          electricalProjectCondition:
+            measurementsInput.electricalProjectCondition,
+          electricalIncludeTrim: measurementsInput.electricalIncludeTrim,
+          electricalScope: measurementsInput.electricalScope,
+        })
+      );
     }
   }
   if (electricalTemplate && isCanonicalElectricalItemId(itemId)) {
@@ -12547,6 +12661,7 @@ export function resolveScopeItemSuggestedPricing(
 
   const itemQuantities = measurementsInput.itemQuantities || {};
   if (
+    !options?.bypassAppliedSuppress &&
     shouldSuppressSuggestedPricingAfterApply(
       itemId,
       itemQuantities,
@@ -13698,6 +13813,7 @@ export function resolveScopeItemSuggestedPricing(
     if (splitOnly?.fill) {
       // Manual/user pricing is active — never leave national average as applyable.
       if (
+        !options?.bypassAppliedSuppress &&
         userHasCommittedScopePricing(
           itemId,
           itemQuantities,
@@ -13719,6 +13835,7 @@ export function resolveScopeItemSuggestedPricing(
   });
   if (componentSuggested !== undefined) {
     if (
+      !options?.bypassAppliedSuppress &&
       componentSuggested.fill &&
       userHasCommittedScopePricing(
         itemId,
@@ -14244,6 +14361,22 @@ export function resolveScopeItemSuggestedPricing(
     }
   }
 
+  if (
+    itemId === 'insulation' &&
+    average?.material != null &&
+    average?.labor != null
+  ) {
+    const assembly = insulationAssemblyRateAdjustments(measurementsInput);
+    average = {
+      ...average,
+      material: round2(average.material * assembly.materialMultiplier),
+      labor: round2(average.labor * assembly.laborMultiplier),
+      sourceLabel: `${average.sourceLabel || 'Insulation rate'}${
+        assembly.label ? ` · ${assembly.label}` : ''
+      }`,
+    };
+  }
+
   let unit = average?.unit || preferredUnit;
 
   // Quantity in the rate unit (e.g. 850 sqft, 220 lf) — not applied dollar totals.
@@ -14304,7 +14437,9 @@ export function resolveScopeItemSuggestedPricing(
   // Living-only SF would inflate $/SF vs the $5–$10/framed labor band.
   if (
     itemId === 'framing' &&
-    ['ground_up', 'framing'].includes(String(templateKey || '').toLowerCase()) &&
+    ['ground_up', 'framing'].includes(
+      String(templateKey || '').toLowerCase()
+    ) &&
     !(
       resolved.quantity != null &&
       resolved.quantity > 0 &&
@@ -14434,7 +14569,17 @@ export function resolveScopeItemSuggestedPricing(
           livingSf,
           state: pricingContext?.state,
         });
-        return buildGroundUpBarometerLumpPricing('insulation', lump, {
+        const assembly = insulationAssemblyRateAdjustments(measurementsInput);
+        const adjustedLump = {
+          ...lump,
+          material: round2(lump.material * assembly.materialMultiplier),
+          labor: round2(lump.labor * assembly.laborMultiplier),
+          total: round2(
+            lump.material * assembly.materialMultiplier +
+              lump.labor * assembly.laborMultiplier
+          ),
+        };
+        return buildGroundUpBarometerLumpPricing('insulation', adjustedLump, {
           livingSf,
           allowanceLabel: 'Installed insulation budget',
         });
@@ -14785,7 +14930,8 @@ export function resolveScopeItemSuggestedPricing(
       const envelope = resolveInsulationEnvelopePlanningQuantity(
         insulationEnvelopeInputsFromPlanFacts(
           (measurementsInput as ScopeMeasurementsInputExtended).planFacts,
-          livingSf
+          livingSf,
+          measurementsInput
         )
       );
       const envelopeSf = envelope?.totalInsulationEnvelopeSqft;
@@ -15171,8 +15317,8 @@ export function resolveScopeItemSuggestedPricing(
   );
   const dynamicFlooringInstall = Boolean(
     flooringInstallAverage &&
-      unit === 'sqft' &&
-      String(templateKey || '').toLowerCase() === 'flooring'
+    unit === 'sqft' &&
+    String(templateKey || '').toLowerCase() === 'flooring'
   );
   if (dynamicFlooringInstall && flooringInstallAverage) {
     average = {
@@ -15504,8 +15650,8 @@ export function resolveScopeItemSuggestedPricing(
   ].includes(String(unit || '').toLowerCase());
   const hasPhysicalTakeoffRates = Boolean(
     isPhysicalTakeoffUnit &&
-      count > 0 &&
-      hasAnyPricingRate(materialRate, laborRate)
+    count > 0 &&
+    hasAnyPricingRate(materialRate, laborRate)
   );
   if (!template && !hasPhysicalTakeoffRates) {
     const benchmarkFill = benchmarkSuggestedPricingBlock(
@@ -15684,7 +15830,8 @@ export function resolveScopeItemSuggestedPricing(
         ? resolveInsulationEnvelopePlanningQuantity(
             insulationEnvelopeInputsFromPlanFacts(
               (measurementsInput as ScopeMeasurementsInputExtended).planFacts,
-              livingSf
+              livingSf,
+              measurementsInput
             )
           )?.totalInsulationEnvelopeSqft || livingSf
         : livingSf != null && livingSf > 0
@@ -15799,16 +15946,52 @@ export function resolveScopeItemSuggestedPricing(
   };
   if (
     itemId === 'framing' &&
-    ['ground_up', 'framing'].includes(String(templateKey || '').toLowerCase()) &&
+    ['ground_up', 'framing'].includes(
+      String(templateKey || '').toLowerCase()
+    ) &&
     count > 0 &&
     unit === 'sqft'
   ) {
-    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    const livingSf = parseScopeMeasurementInput(
+      measurementsInput.floorAreaSqft
+    );
     const comparable = resolveFramingShellPackageComparable(livingSf);
     if (comparable) {
+      const reference = framingShellPackageBreakdownForProject(
+        comparable.projectId,
+        count
+      );
       takeoffFill = {
         ...takeoffFill,
         helper: `${framingComparableHelper(comparable, count)} · blended with national average`,
+        pricingDetail: [
+          'Included package components — not additional charges',
+          `Framing lumber/material: $${Math.round(reference.lumberMaterial).toLocaleString()}`,
+          `Trusses: $${Math.round(reference.trusses).toLocaleString()}`,
+          `Decks: $${Math.round(reference.decks).toLocaleString()}`,
+          `Framing labor: $${Math.round(reference.labor).toLocaleString()}`,
+          'Sheathing is included in the framing material package; it is not a second card.',
+          `Reference package total: $${Math.round(reference.total).toLocaleString()}`,
+        ].join('\n'),
+      };
+    }
+  }
+  if (
+    itemId === 'plumbing_rough' &&
+    ['ground_up', 'plumbing_service', 'plumbing'].includes(
+      String(templateKey || '').toLowerCase()
+    ) &&
+    count > 0 &&
+    unit === 'each'
+  ) {
+    const livingSf = parseScopeMeasurementInput(
+      measurementsInput.floorAreaSqft
+    );
+    const comparable = resolvePlumbingPackageComparable(livingSf);
+    if (comparable) {
+      takeoffFill = {
+        ...takeoffFill,
+        helper: `${plumbingPackageComparableHelper(comparable)} · blended with national average`,
       };
     }
   }
@@ -15831,7 +16014,8 @@ export function resolveScopeItemSuggestedPricing(
     {
       fill: takeoffFill,
       comparison: nationalComparison,
-    }
+    },
+    options
   );
 }
 
@@ -16360,9 +16544,10 @@ function plumbingAppliedTotalAmount(
 ): number | null {
   if (!itemQuantities) return null;
   const allowance = Number(
-    String(
-      itemQuantities[`${itemId}__allowance`]?.quantity ?? ''
-    ).replace(/,/g, '')
+    String(itemQuantities[`${itemId}__allowance`]?.quantity ?? '').replace(
+      /,/g,
+      ''
+    )
   );
   if (Number.isFinite(allowance) && allowance > 0) return allowance;
   const material = Number(
@@ -16435,6 +16620,22 @@ function resolveChecklistItemQuantityCore(
       )
     ) {
       return applyPricingReadyFlags(plumbingQuickMeasurement, itemId, ctx);
+    }
+    // LF line cards: Quick Measurements is authoritative when it disagrees with
+    // a stale scope-card takeoff count (matches applied-pricing resync).
+    const card = plumbingCardForItemId(itemId);
+    if (card?.unit === 'lf') {
+      const overrideQty = Number(
+        String(override.quantity ?? '').replace(/,/g, '')
+      );
+      const qmQty = Number(plumbingQuickMeasurement.quantity);
+      if (
+        Number.isFinite(qmQty) &&
+        qmQty > 0 &&
+        (!Number.isFinite(overrideQty) || Math.abs(overrideQty - qmQty) > 0.01)
+      ) {
+        return applyPricingReadyFlags(plumbingQuickMeasurement, itemId, ctx);
+      }
     }
   }
 
@@ -17522,8 +17723,8 @@ export function checklistItemInScope(item: {
   if (item.inputType === 'choice') {
     return Boolean(
       item.choiceId &&
-        item.choiceId !== 'not_in_scope' &&
-        item.choiceId !== 'unsure'
+      item.choiceId !== 'not_in_scope' &&
+      item.choiceId !== 'unsure'
     );
   }
   return item.state === 'included';
@@ -17700,7 +17901,7 @@ export function countDraftPricingReadiness(
   if (!draft) return { ready: 0, needsMeasurement: 0 };
   const hasScopePackages = Boolean(
     (draft.scopePackages && draft.scopePackages.length > 0) ||
-      (draft.rooms && draft.rooms.length > 0)
+    (draft.rooms && draft.rooms.length > 0)
   );
   // Step 3 review always has scope packages. Prefer that count — checklist
   // "ready" counts measured items even when Confirm Scope already priced them,
@@ -17822,17 +18023,20 @@ function syncPlumbingQuantitiesIntoItemQuantities(
     const quantity = Number(String(raw ?? '').replace(/,/g, ''));
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
     const existing = nextQuantities[card.itemId];
+    const existingQty = Number(
+      String(existing?.quantity ?? '').replace(/,/g, '')
+    );
     if (
-      Number(existing?.quantity) > 0 &&
+      Number.isFinite(existingQty) &&
+      existingQty > 0 &&
       !plumbingStoredQuantityLooksLikeDollarTotal(
         card.itemId,
         existing,
         nextQuantities
-      )
+      ) &&
+      Math.abs(existingQty - quantity) < 0.01
     ) {
-      if (!(quantity > Number(existing.quantity))) {
-        continue;
-      }
+      continue;
     }
     const sourceTag = extended.quickMeasurementSources?.[card.measurementKey];
     const source =
@@ -17847,7 +18051,8 @@ function syncPlumbingQuantitiesIntoItemQuantities(
       unit: card.unit,
       quantitySource: source,
     };
-    (extended as Record<string, unknown>)[card.measurementKey] = String(quantity);
+    (extended as Record<string, unknown>)[card.measurementKey] =
+      String(quantity);
     changed = true;
   }
   return changed ? { ...extended, itemQuantities: nextQuantities } : extended;
@@ -17879,7 +18084,10 @@ function syncFramingQuantitiesIntoItemQuantities(
     if (
       shellBid &&
       (card.itemId === 'wall_framing' || card.itemId === 'openings') &&
-      !shouldPreserveShellFramingComponentMeasurement(enriched, card.measurementKey)
+      !shouldPreserveShellFramingComponentMeasurement(
+        enriched,
+        card.measurementKey
+      )
     ) {
       continue;
     }
@@ -18212,6 +18420,11 @@ export function scopeMeasurementsToPayload(
     stuccoWallHeightFt: parseScopeMeasurementInput(
       sanitized.stuccoWallHeightFt
     ),
+    ...copyInsulationScopeNumericFields(
+      sanitized as Record<string, unknown>,
+      parseScopeMeasurementInput
+    ),
+    ...copyInsulationScopeTextFields(sanitized as Record<string, unknown>),
     paintScope: sanitized.paintScope ?? null,
     wallPaintSqft: parseScopeMeasurementInput(sanitized.wallPaintSqft),
     ceilingPaintSqft: parseScopeMeasurementInput(sanitized.ceilingPaintSqft),
@@ -18801,7 +19014,7 @@ export function scopeMeasurementsInputFromPayload(
       ...(val.includesCountertops ? { includesCountertops: true } : {}),
     };
   }
-  return {
+  const input: ScopeMeasurementsInputExtended = {
     ...base,
     paintScope: payload.paintScope ?? null,
     ...Object.fromEntries(
@@ -18819,7 +19032,9 @@ export function scopeMeasurementsInputFromPayload(
         copyFramingQuantityFields(payload as Record<string, unknown>)
       ).map(([key, value]) => [key, value != null ? String(value) : ''])
     ),
-    framingScope: Array.isArray(payload.framingScope) ? payload.framingScope : null,
+    framingScope: Array.isArray(payload.framingScope)
+      ? payload.framingScope
+      : null,
     ...copyElectricalConditionFields(payload as Record<string, unknown>),
     bathroomFloorSqft: measurementFieldString(
       payload.bathroomFloorSqft ?? payload.sqft
@@ -18942,6 +19157,19 @@ export function scopeMeasurementsInputFromPayload(
     ),
     stuccoStories: measurementFieldString(payload.stuccoStories),
     stuccoWallHeightFt: measurementFieldString(payload.stuccoWallHeightFt),
+    ...Object.fromEntries(
+      Object.entries(
+        copyInsulationScopeNumericFields(payload as Record<string, unknown>, value => {
+          const n = Number(value);
+          return Number.isFinite(n) && n > 0 ? n : null;
+        })
+      ).map(([key, value]) => [key, value != null ? String(value) : ''])
+    ),
+    ...Object.fromEntries(
+      Object.entries(
+        copyInsulationScopeTextFields(payload as Record<string, unknown>)
+      ).map(([key, value]) => [key, value ?? ''])
+    ),
     railingLf: measurementFieldString(payload.railingLf),
     baseboardLf: measurementFieldString(payload.baseboardLf),
     showerWallTileSqft: measurementFieldString(payload.showerWallTileSqft),
@@ -19444,6 +19672,10 @@ export function scopeMeasurementsInputFromPayload(
     tradeWorkflowSource: payload.tradeWorkflowSource ?? null,
     areaReconciliation: payload.areaReconciliation,
   };
+  return {
+    ...input,
+    ...hydrateProjectComplexityInputFields(input),
+  };
 }
 
 /** Sync sqft fields, sanitize mistaken rates, and bake sqft × $/sqft totals for the form. */
@@ -19531,11 +19763,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   concreteReinforcementSqft?: string | number | null;
   concreteSealerSqft?: string | number | null;
   concreteDemoThicknessBand?:
-    | 'thin_2_3'
-    | 'standard_4'
-    | 'heavy_5_6'
-    | 'structural_7_plus'
-    | null;
+    'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
   concreteDemoReinforced?: boolean | null;
   concreteDemoLimitedAccess?: boolean | null;
   concreteDemoThicknessBands?: Array<
@@ -19609,8 +19837,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
       quantitySource?: QuantitySource;
       includesCountertops?: boolean;
       measurementState?:
-        | import('@/utils/measurementSemantics').ScopeMeasurementState
-        | null;
+        import('@/utils/measurementSemantics').ScopeMeasurementState | null;
     }
   >;
   pricingAcceptance?: Record<
@@ -19638,8 +19865,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   garageDoorDoubleCount?: number | null;
   garageDoorRvCount?: number | null;
   areaReconciliation?:
-    | import('@/utils/measurementSemantics').AreaReconciliation
-    | null;
+    import('@/utils/measurementSemantics').AreaReconciliation | null;
   pricingOverrideLog?: import('@/utils/measurementSemantics').PricingOverrideLog[];
   /** Applied stage/component benchmark keys — blocks double application. */
   appliedBenchmarkKeys?: string[];
@@ -19649,9 +19875,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   bathroomToiletRelocateFloorType?: string | null;
   /** Whether toilet relocate floor type was user-selected or AI-inferred. */
   bathroomToiletRelocateFloorTypeSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   /** Bathroom shower/tub rough-in wall & floor access (valve, head, drain). */
   bathroomShowerRoughAccessType?: string | null;
   /** Whether shower rough-in access was user-selected or AI-inferred. */
@@ -19666,38 +19890,25 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   bathroomShowerRoughWallAccessSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomShowerRoughPlumbingExposed?: string | null;
   bathroomShowerRoughPlumbingExposedSource?:
-    | 'user_selected'
-    | 'demo_detected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'demo_detected' | 'ai_inferred' | null;
   bathroomShowerRoughFloorConstruction?: string | null;
   bathroomShowerRoughFloorConstructionSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomShowerRoughSlabWorkRequired?: string | null;
   bathroomShowerRoughSlabWorkRequiredSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomDrywallPaintUseCombinedAssemblySource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomPaintRepairScope?: string | null;
   bathroomPaintRepairScopeSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomPaintRepairEntireRoom?: boolean | null;
   bathroomPaintRepairEntireRoomSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomPaintRepairEntireRoomSqft?: string | number | null;
   bathroomPaintRepairEntireRoomSqftSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintMobilization?: string | null;
   bathroomInteriorPaintMobilizationSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintSurface?: string | null;
   bathroomInteriorPaintSurfaceSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintCondition?: string | null;
@@ -19712,11 +19923,9 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   >;
   quickMeasurementFieldConfidence?: Record<string, number>;
   planImportMode?:
-    | import('@/utils/planImportTradeConfig').PlanEstimatingMode
-    | null;
+    import('@/utils/planImportTradeConfig').PlanEstimatingMode | null;
   planImportTradeKey?:
-    | import('@/utils/planImportTradeConfig').PlanTradeKey
-    | null;
+    import('@/utils/planImportTradeConfig').PlanTradeKey | null;
   planImportMissingInfo?: string[];
   electricalValidation?: {
     fields?: Record<
@@ -19995,6 +20204,20 @@ export function initialScopeMeasurementInputExtended(
     return '';
   };
 
+  const pickString = (key: QuickMeasurementFieldKey) => {
+    const parsedNoteValue = parsedFromNotes[key as keyof typeof parsedFromNotes];
+    if (typeof parsedNoteValue === 'string' && parsedNoteValue.trim()) {
+      return parsedNoteValue.trim();
+    }
+    const fromNotes = suggested?.[key as keyof ScopeMeasurements];
+    if (typeof fromNotes === 'string' && fromNotes.trim()) return fromNotes.trim();
+    const savedValue = saved?.[key as keyof ScopeMeasurements];
+    if (typeof savedValue === 'string' && savedValue.trim()) {
+      return savedValue.trim();
+    }
+    return '';
+  };
+
   const hasBaseboardNotes =
     /\b(baseboards?|trim|crown|moulding|molding|casing)\b/i.test(scopeNotes);
   const pickBaseboardLf = () => {
@@ -20162,6 +20385,17 @@ export function initialScopeMeasurementInputExtended(
     stuccoRepairAffectedSqft: pick('stuccoRepairAffectedSqft'),
     stuccoStories: pick('stuccoStories'),
     stuccoWallHeightFt: pick('stuccoWallHeightFt'),
+    exteriorWallInsulationSqft: pick('exteriorWallInsulationSqft'),
+    atticInsulationSqft: pick('atticInsulationSqft'),
+    insulatedRoofDeckSqft: pick('insulatedRoofDeckSqft'),
+    floorInsulationSqft: pick('floorInsulationSqft'),
+    garageSeparationInsulationSqft: pick('garageSeparationInsulationSqft'),
+    insulatedGarageWallSqft: pick('insulatedGarageWallSqft'),
+    insulatedGarageCeilingSqft: pick('insulatedGarageCeilingSqft'),
+    openingDeductionSqft: pick('openingDeductionSqft'),
+    insulationMaterialType: pickString('insulationMaterialType'),
+    insulationRValue: pickString('insulationRValue'),
+    garageInsulationIncluded: pickString('garageInsulationIncluded'),
     railingLf: pick('railingLf'),
     baseboardLf: pickBaseboardLf(),
     showerWallTileSqft: pick('showerWallTileSqft'),
@@ -20618,6 +20852,11 @@ export function initialScopeMeasurementInputExtended(
       result,
       saved.planImportTradeKey as PlanTradeKey
     );
+    if (saved.planImportTradeKey === 'insulation') {
+      result = syncMeasurementsWithSouthernUtahPlanFacts(result, {
+        templateKey: 'insulation',
+      });
+    }
   } else {
     result = syncMeasurementsWithSouthernUtahPlanFacts(result, {
       templateKey: draft?.scopeChecklist?.templateKey,

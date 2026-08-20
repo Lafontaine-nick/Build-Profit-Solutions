@@ -93,6 +93,45 @@ export function framingShellPackageTotalForProject(
   return round2(lumber + trusses + decks + labor);
 }
 
+export type FramingShellPackageBreakdown = {
+  lumberMaterial: number;
+  trusses: number;
+  decks: number;
+  labor: number;
+  total: number;
+};
+
+/** Reference component mix for display; child values are not additive cards. */
+export function framingShellPackageBreakdownForProject(
+  projectId: SouthernUtahProjectId,
+  targetFramedSf?: number | null
+): FramingShellPackageBreakdown {
+  const baseSf = coveredFramedSfForProject(projectId);
+  const scale =
+    targetFramedSf != null && targetFramedSf > 0 && baseSf > 0
+      ? targetFramedSf / baseSf
+      : 1;
+  const lumberMaterial = round2(
+    (FRAMING_LUMBER_INSTALLED_BY_PROJECT[projectId] || 0) * scale
+  );
+  const trusses = round2(
+    (FRAMING_TRUSSES_INSTALLED_BY_PROJECT[projectId] || 0) * scale
+  );
+  const decks = round2(
+    (FRAMING_DECKS_INSTALLED_BY_PROJECT[projectId] || 0) * scale
+  );
+  const labor = round2(
+    (FRAMING_LABOR_INSTALLED_BY_PROJECT[projectId] || 0) * scale
+  );
+  return {
+    lumberMaterial,
+    trusses,
+    decks,
+    labor,
+    total: round2(lumberMaterial + trusses + decks + labor),
+  };
+}
+
 export function framingShellPackageRateForProject(
   projectId: SouthernUtahProjectId
 ): number | null {
@@ -113,9 +152,9 @@ function median(values: number[]): number {
 
 /** Detached median installed $/ covered framed SF (Lots 39/41/49/58). */
 export function detachedMedianFramingShellRatePerFramedSf(): number {
-  const rates = DETACHED_PLAN_IDS.map(id => framingShellPackageRateForProject(id)).filter(
-    (rate): rate is number => rate != null && rate > 0
-  );
+  const rates = DETACHED_PLAN_IDS.map(id =>
+    framingShellPackageRateForProject(id)
+  ).filter((rate): rate is number => rate != null && rate > 0);
   return median(rates);
 }
 
@@ -168,8 +207,10 @@ export function blendFramingShellRateWithNational(national: {
       0
     ) / DETACHED_PLAN_IDS.length;
   const localSf =
-    DETACHED_PLAN_IDS.reduce((sum, id) => sum + coveredFramedSfForProject(id), 0) /
-    DETACHED_PLAN_IDS.length;
+    DETACHED_PLAN_IDS.reduce(
+      (sum, id) => sum + coveredFramedSfForProject(id),
+      0
+    ) / DETACHED_PLAN_IDS.length;
   const localMatPerSf = localMat / localSf;
   const localLabPerSf = localLab / localSf;
   const material = round2(

@@ -140,6 +140,7 @@ Plumbing takeoff contract:
 - GasLineLf requires a readable gas-piping dimension or labeled length. Appliance symbols identify gas scope only; they do not establish LF.
 - Return utilityConnections as scope/allowance confirmations (for example municipal water, sewer, gas, tap, meter, or utility-provider work). Do not convert utility connections into LF or EA measurements.
 - Return complexityFactors only when the plan explicitly shows or notes the condition: two-story plumbing, slab foundation, multiple wet walls, tankless water heater, recirculation loop, outdoor plumbing, or gas appliances. These are review flags only; never change pricing automatically from them.
+- When total living area and/or story count is readable on the cover sheet or floor plans, populate planFacts.buildingAreas.totalLivingSqft and planFacts.storyCount (1, 2, or 3) with fieldEvidence. storyCount is required when the plan shows upper/second floor areas or labels the home as two-story. These planFacts drive project-complexity labor adjustment in Confirm Scope only — never use living SF or story count to derive plumbing rough/trim/LF/EA quantities.
 - Rough-in points require explicit point callouts or a readable fixture/rough-in schedule. Do not invent a whole-house rough package.
 - Do not infer service calls, repairs, parts, emergency fees, or cleanup from generic plumbing symbols.
 - Put inferred, ambiguous, or unreadable fields in inferredKeys or unreadableFields; they remain confirmation-only and are not priceable.
@@ -403,15 +404,11 @@ function hasGasAppliancesComplexityFactor(complexityFactors) {
 function expandResidentialGasApplianceScope(scope, options = {}) {
   const normalized = normalizePlumbingGasApplianceScope(scope);
   const gasLf = positive(options.measurements?.gasLineLf);
-  const hasGasComplexity = hasGasAppliancesComplexityFactor(options.complexityFactors);
   const count = countPlumbingGasApplianceConnections(normalized) || 0;
   if (count >= 3) return normalized;
 
   const hasGasPiping = Boolean(normalized?.gasPipingRequired) || gasLf >= 20;
   if (!hasGasPiping) return normalized;
-
-  const hasAnyAppliance = count >= 1;
-  if (!hasAnyAppliance && !hasGasComplexity) return normalized;
 
   return normalizePlumbingGasApplianceScope({
     ...(normalized || {}),
@@ -420,6 +417,21 @@ function expandResidentialGasApplianceScope(scope, options = {}) {
     fireplace: true,
     dryer: true,
   });
+}
+
+function inferPlumbingWaterHeaterFromGasPiping(input = {}) {
+  const inventory = normalizePlumbingFixtureInventory(input.fixtureInventory);
+  const existing = normalizePlumbingWaterHeaterDetail(input.waterHeaterDetail);
+  if (positive(inventory.waterHeaters) > 0 || existing) {
+    return existing;
+  }
+  const gasLf = positive(input.measurements?.gasLineLf);
+  const gasScope = normalizePlumbingGasApplianceScope(input.gasApplianceScope);
+  if (!(gasLf >= 20 || gasScope?.gasPipingRequired)) return null;
+  if (/\belectric\b/i.test(collectPlumbingFieldEvidenceText(input.fieldEvidence))) {
+    return normalizePlumbingWaterHeaterDetail({ count: 1, fuel: 'electric' });
+  }
+  return normalizePlumbingWaterHeaterDetail({ count: 1, fuel: 'gas' });
 }
 
 function collectPlumbingFieldEvidenceText(fieldEvidence) {
@@ -572,7 +584,14 @@ function inferPlumbingEquipmentFromPlanContext(input = {}) {
 
   return {
     fixtureInventory: inventory,
-    waterHeaterDetail,
+    waterHeaterDetail:
+      inferPlumbingWaterHeaterFromGasPiping({
+        fixtureInventory: inventory,
+        waterHeaterDetail,
+        gasApplianceScope,
+        measurements: input.measurements,
+        fieldEvidence: input.fieldEvidence,
+      }) || waterHeaterDetail,
     gasApplianceScope: expandResidentialGasApplianceScope(gasApplianceScope, {
       measurements: input.measurements,
       complexityFactors: input.complexityFactors,

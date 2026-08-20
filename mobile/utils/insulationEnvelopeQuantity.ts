@@ -78,6 +78,7 @@ export type InsulationEnvelopeInputs = {
   openingDeductionSqft?: number | null;
   /** Include garage assemblies only when confirmed/detected. */
   includeGarageInsulation?: boolean;
+  garageInsulationIncluded?: string | null;
   preferRoofDeckOverAttic?: boolean;
 };
 
@@ -87,27 +88,40 @@ function n(value: unknown): number | null {
 }
 
 function estimatedPerimeterFromLiving(livingSf: number): number {
-  return Math.round(INSULATION_PERIMETER_FROM_LIVING_FACTOR * Math.sqrt(livingSf));
+  return Math.round(
+    INSULATION_PERIMETER_FROM_LIVING_FACTOR * Math.sqrt(livingSf)
+  );
 }
 
 export function insulationEnvelopeInputsFromPlanFacts(
   facts: PlanFacts | null | undefined,
-  floorAreaSqft?: number | null
+  floorAreaSqft?: number | null,
+  overrides?: Partial<InsulationEnvelopeInputs>
 ): InsulationEnvelopeInputs {
   const living =
     n(floorAreaSqft) ||
     n(facts?.buildingAreas?.totalLivingSqft) ||
     n(facts?.buildingAreas?.mainFloorLivingSqft);
+  const garageChoice = String(overrides?.garageInsulationIncluded || '')
+    .trim()
+    .toLowerCase();
   return {
     floorAreaSqft: living,
-    mainFloorLivingSqft:
-      n(facts?.buildingAreas?.mainFloorLivingSqft) || living,
+    mainFloorLivingSqft: n(facts?.buildingAreas?.mainFloorLivingSqft) || living,
     exteriorPerimeterLf: n(facts?.exteriorPerimeterLf),
     foundationPerimeterLf: n(facts?.foundationPerimeterLf),
     wallHeightFt: n(facts?.wallHeightFt),
     plateHeightFt: n(facts?.plateHeightFt),
     storyCount: n(facts?.storyCount) || 1,
     openingsPercent: n(facts?.openingsPercent),
+    includeGarageInsulation:
+      overrides?.includeGarageInsulation ??
+      (garageChoice === 'yes' || garageChoice === 'separation only'
+        ? true
+        : garageChoice === 'no'
+          ? false
+          : undefined),
+    ...overrides,
   };
 }
 
@@ -123,7 +137,12 @@ export function resolveInsulationEnvelopePlanningQuantity(
   const explicitAttic = n(raw.atticInsulationSqft);
   const explicitDeck = n(raw.insulatedRoofDeckSqft);
   // Allow fully explicit component takeoffs without living SF.
-  if (!living && explicitWalls == null && explicitAttic == null && explicitDeck == null) {
+  if (
+    !living &&
+    explicitWalls == null &&
+    explicitAttic == null &&
+    explicitDeck == null
+  ) {
     return null;
   }
 
@@ -149,11 +168,16 @@ export function resolveInsulationEnvelopePlanningQuantity(
     const perimeter =
       n(raw.exteriorPerimeterLf) || n(raw.foundationPerimeterLf);
     const height =
-      n(raw.wallHeightFt) || n(raw.plateHeightFt) || INSULATION_DEFAULT_WALL_HEIGHT_FT;
-    const heightLabeled = n(raw.wallHeightFt) != null || n(raw.plateHeightFt) != null;
+      n(raw.wallHeightFt) ||
+      n(raw.plateHeightFt) ||
+      INSULATION_DEFAULT_WALL_HEIGHT_FT;
+    const heightLabeled =
+      n(raw.wallHeightFt) != null || n(raw.plateHeightFt) != null;
     if (perimeter != null) {
       exteriorWalls = Math.round(perimeter * height * stories);
-      wallSource = heightLabeled ? 'calculated_from_plan' : 'planning_assumption';
+      wallSource = heightLabeled
+        ? 'calculated_from_plan'
+        : 'planning_assumption';
       wallConfidence = heightLabeled ? 'medium' : 'low';
       wallFormula = `${perimeter} LF × ${height} ft × ${stories} stor${stories === 1 ? 'y' : 'ies'}`;
     } else if (living) {
@@ -189,10 +213,16 @@ export function resolveInsulationEnvelopePlanningQuantity(
     label: 'Window / exterior-door openings',
     quantity: openingDeduction,
     unit: 'sqft',
-    source: n(raw.openingDeductionSqft) != null ? 'contractor_entered' : 'planning_assumption',
+    source:
+      n(raw.openingDeductionSqft) != null
+        ? 'contractor_entered'
+        : 'planning_assumption',
     confidence: n(raw.openingDeductionSqft) != null ? 'high' : 'low',
     included: true,
-    formula: n(raw.openingDeductionSqft) != null ? undefined : `${Math.round(openingsPct * 100)}% of exterior walls`,
+    formula:
+      n(raw.openingDeductionSqft) != null
+        ? undefined
+        : `${Math.round(openingsPct * 100)}% of exterior walls`,
     contractorConfirmationRequired: true,
   });
 
@@ -209,7 +239,10 @@ export function resolveInsulationEnvelopePlanningQuantity(
       label: 'Attic / insulated ceiling',
       quantity: attic,
       unit: 'sqft',
-      source: n(raw.atticInsulationSqft) != null ? 'contractor_entered' : 'calculated_from_plan',
+      source:
+        n(raw.atticInsulationSqft) != null
+          ? 'contractor_entered'
+          : 'calculated_from_plan',
       confidence: n(raw.atticInsulationSqft) != null ? 'high' : 'medium',
       included: true,
       formula:
@@ -241,7 +274,8 @@ export function resolveInsulationEnvelopePlanningQuantity(
       confidence: 'medium',
       included: false,
       contractorConfirmationRequired: true,
-      formula: 'Excluded while attic-floor insulation is used (confirm thermal boundary)',
+      formula:
+        'Excluded while attic-floor insulation is used (confirm thermal boundary)',
     });
   }
 
@@ -252,7 +286,11 @@ export function resolveInsulationEnvelopePlanningQuantity(
     value: number | null | undefined;
     garage?: boolean;
   }> = [
-    { key: 'floorInsulationSqft', label: 'Floor over unconditioned space', value: raw.floorInsulationSqft },
+    {
+      key: 'floorInsulationSqft',
+      label: 'Floor over unconditioned space',
+      value: raw.floorInsulationSqft,
+    },
     {
       key: 'garageSeparationInsulationSqft',
       label: 'Garage-to-house separation',
@@ -286,19 +324,28 @@ export function resolveInsulationEnvelopePlanningQuantity(
       confidence: 'high',
       included: include,
       contractorConfirmationRequired: row.garage,
-      formula: include ? undefined : 'Excluded until garage insulation is confirmed',
+      formula: include
+        ? undefined
+        : 'Excluded until garage insulation is confirmed',
     });
   }
 
   const netWalls = Math.max(0, exteriorWalls - openingDeduction);
   const additions = components
-    .filter((c) => c.included && c.key !== 'exteriorWallInsulationSqft' && c.key !== 'openingDeductionSqft')
+    .filter(
+      c =>
+        c.included &&
+        c.key !== 'exteriorWallInsulationSqft' &&
+        c.key !== 'openingDeductionSqft'
+    )
     .reduce((sum, c) => sum + c.quantity, 0);
   const total = Math.max(0, Math.round(netWalls + additions));
 
   if (!(total > 0)) return null;
 
-  const measuredWalls = wallSource === 'calculated_from_plan' || wallSource === 'contractor_entered';
+  const measuredWalls =
+    wallSource === 'calculated_from_plan' ||
+    wallSource === 'contractor_entered';
   const confidence: 'low' | 'medium' = measuredWalls ? 'medium' : 'low';
 
   return {

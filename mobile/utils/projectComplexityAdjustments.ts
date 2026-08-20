@@ -27,6 +27,107 @@ export type ProjectComplexityFactorInput = {
   manualMultiplier?: number | null;
 };
 
+type PlanFactsLike = {
+  storyCount?: number | null;
+  buildingAreas?: {
+    totalLivingSqft?: number | null;
+    upstairsLivingSqft?: number | null;
+  } | null;
+} | null | undefined;
+
+export type ProjectComplexityMeasurementContext = {
+  floorAreaSqft?: unknown;
+  storyCount?: unknown;
+  planFacts?: PlanFactsLike;
+  plumbingComplexityFactors?: Array<{ key?: string; label?: string }> | null;
+  planImportMode?: string | null;
+  planImportTradeKey?: string | null;
+  planImportFingerprint?: string | null;
+  quickMeasurementSources?: Record<string, string> | null;
+  quickMeasurementUserOverrides?: Record<string, boolean> | null;
+  /** When false, never infer living SF / stories from planFacts (notes-only jobs). */
+  allowPlanFactsFallback?: boolean;
+};
+
+/** Contractor explicitly entered living area for complexity (not plan-detected). */
+export function isMepUserEnteredLivingArea(
+  input: ProjectComplexityMeasurementContext = {}
+): boolean {
+  if (input.quickMeasurementUserOverrides?.floorAreaSqft) return true;
+  const source = String(input.quickMeasurementSources?.floorAreaSqft || '');
+  return source === 'user_entered' || source === 'manual_override';
+}
+
+/**
+ * Plan-import plumbing/electrical uses card takeoff for size — apply story labor
+ * only unless the contractor opts in to a living-area adjustment.
+ */
+export function shouldApplySquareFootageComplexity(
+  input: ProjectComplexityMeasurementContext = {}
+): boolean {
+  if (isMepUserEnteredLivingArea(input)) return true;
+  const trade = String(input.planImportTradeKey || '').toLowerCase();
+  if (
+    input.planImportMode === 'selected_trade' &&
+    (trade === 'plumbing' || trade === 'electrical')
+  ) {
+    return false;
+  }
+  if (!hasPlanProjectComplexityContext(input)) {
+    return (
+      positive(input.floorAreaSqft) != null ||
+      (planFactsFallbackAllowed(input) &&
+        positive(input.planFacts?.buildingAreas?.totalLivingSqft) != null)
+    );
+  }
+  return positive(input.floorAreaSqft) != null;
+}
+
+const PLAN_COMPLEXITY_QM_SOURCES = new Set([
+  'plan_detected',
+  'detected_from_plan',
+  'plan_verified',
+  'ai_verified',
+  'contractor_confirmed_from_plan_review',
+  'measured_from_geometry',
+  'calculated_from_components',
+  'estimated_from_formula',
+  'fallback_multiplier',
+]);
+
+/** True when complexity fields may be seeded from plan takeoff / planFacts. */
+export function hasPlanProjectComplexityContext(
+  input: ProjectComplexityMeasurementContext = {}
+): boolean {
+  if (input.planImportMode || input.planImportFingerprint) return true;
+  if (input.planImportTradeKey) return true;
+  const sources = input.quickMeasurementSources || {};
+  if (
+    Object.values(sources).some(source =>
+      PLAN_COMPLEXITY_QM_SOURCES.has(String(source))
+    )
+  ) {
+    return true;
+  }
+  const planFacts = input.planFacts;
+  if (
+    planFacts &&
+    (positive(planFacts.buildingAreas?.totalLivingSqft) != null ||
+      positive(planFacts.storyCount) != null)
+  ) {
+    return Boolean(input.planImportMode || input.planImportFingerprint || input.planImportTradeKey);
+  }
+  return false;
+}
+
+function planFactsFallbackAllowed(
+  input: ProjectComplexityMeasurementContext = {}
+): boolean {
+  if (input.allowPlanFactsFallback === false) return false;
+  if (input.allowPlanFactsFallback === true) return true;
+  return hasPlanProjectComplexityContext(input);
+}
+
 export type ProjectComplexityMultiplierBreakdown = {
   squareFootMultiplier: number;
   storyMultiplier: number;
@@ -188,32 +289,234 @@ export function calculateProjectComplexityMultiplier(
   };
 }
 
-export function inferProjectComplexitySettings(input: {
-  floorAreaSqft?: unknown;
-  storyCount?: unknown;
-  projectComplexity?: ProjectComplexitySettings | null;
-  plumbingComplexityFactors?: Array<{ key?: string; label?: string }> | null;
-}): ProjectComplexitySettings {
+export function resolveStoryCountFromProjectContext(
+  input: ProjectComplexityMeasurementContext = {}
+): 1 | 2 | 3 {
+  const fromField = positive(input.storyCount);
+  if (fromField != null) return resolveStories(fromField);
+
+  if (planFactsFallbackAllowed(input)) {
+    const fromPlanFacts = positive(input.planFacts?.storyCount);
+    if (fromPlanFacts != null) return resolveStories(fromPlanFacts);
+
+    if (positive(input.planFacts?.buildingAreas?.upstairsLivingSqft) != null) {
+      return 2;
+    }
+  }
+
+  const fromPlumbingFlag = (input.plumbingComplexityFactors || []).some(
+    factor =>
+      factor.key === 'two_story_plumbing' ||
+      /two[\s-]?story/i.test(String(factor.label || ''))
+  );
+  return fromPlumbingFlag ? 2 : 1;
+}
+
+export function resolveFloorAreaFromProjectContext(
+  input: ProjectComplexityMeasurementContext = {}
+): number | null {
+  const fromField = positive(input.floorAreaSqft);
+  if (fromField != null) return fromField;
+  if (!planFactsFallbackAllowed(input)) return null;
+  return positive(input.planFacts?.buildingAreas?.totalLivingSqft) ?? null;
+}
+
+/** Copy storyCount / floorAreaSqft from planFacts when missing on persisted measurements. */
+export function hydrateProjectComplexityMeasurements<
+  T extends Record<string, unknown>,
+>(measurements: T): T {
+  if (!hasPlanProjectComplexityContext(measurements as ProjectComplexityMeasurementContext)) {
+    return measurements;
+  }
+
+  const planFacts = measurements.planFacts as PlanFactsLike;
+  if (!planFacts && !measurements.plumbingComplexityFactors) return measurements;
+
+  const out = { ...measurements };
+  if (!positive(out.storyCount)) {
+    const fromPlan = positive(planFacts?.storyCount);
+    if (fromPlan != null) {
+      out.storyCount = resolveStories(fromPlan);
+    } else if (positive(planFacts?.buildingAreas?.upstairsLivingSqft) != null) {
+      out.storyCount = 2;
+    }
+  }
+  if (
+    !positive(out.floorAreaSqft) &&
+    shouldApplySquareFootageComplexity({
+      floorAreaSqft: out.floorAreaSqft,
+      storyCount: out.storyCount,
+      planFacts,
+      planImportMode: measurements.planImportMode as string | null | undefined,
+      planImportTradeKey: measurements.planImportTradeKey as
+        | string
+        | null
+        | undefined,
+      planImportFingerprint: measurements.planImportFingerprint as
+        | string
+        | null
+        | undefined,
+      quickMeasurementSources: measurements.quickMeasurementSources as
+        | Record<string, string>
+        | null
+        | undefined,
+      quickMeasurementUserOverrides: measurements.quickMeasurementUserOverrides as
+        | Record<string, boolean>
+        | null
+        | undefined,
+    })
+  ) {
+    const resolved = resolveFloorAreaFromProjectContext({
+      floorAreaSqft: out.floorAreaSqft,
+      planFacts,
+      planImportMode: measurements.planImportMode as string | null | undefined,
+      planImportTradeKey: measurements.planImportTradeKey as
+        | string
+        | null
+        | undefined,
+      planImportFingerprint: measurements.planImportFingerprint as
+        | string
+        | null
+        | undefined,
+      quickMeasurementSources: measurements.quickMeasurementSources as
+        | Record<string, string>
+        | null
+        | undefined,
+    });
+    if (resolved != null) out.floorAreaSqft = resolved;
+  }
+  return out;
+}
+
+export function hydrateProjectComplexityInputFields(
+  input: ProjectComplexityMeasurementContext & {
+    floorAreaSqft?: string | number | null;
+    storyCount?: string | number | null;
+  }
+): { floorAreaSqft?: string; storyCount?: string } {
+  const patches: { floorAreaSqft?: string; storyCount?: string } = {};
+  if (!hasPlanProjectComplexityContext(input)) {
+    return patches;
+  }
+  if (!positive(input.storyCount)) {
+    const fromPlan = positive(input.planFacts?.storyCount);
+    if (fromPlan != null) {
+      patches.storyCount = String(resolveStories(fromPlan));
+    } else if (
+      positive(input.planFacts?.buildingAreas?.upstairsLivingSqft) != null
+    ) {
+      patches.storyCount = '2';
+    }
+  }
+  if (
+    !positive(input.floorAreaSqft) &&
+    shouldApplySquareFootageComplexity(input)
+  ) {
+    const resolved = resolveFloorAreaFromProjectContext(input);
+    if (resolved != null) patches.floorAreaSqft = String(Math.round(resolved));
+  }
+  return patches;
+}
+
+/** Seed living SF / stories for MEP selected-trade imports (complexity only). */
+export function seedMepProjectComplexityFromPlanImport(
+  scopeMeasurements: Record<string, unknown>,
+  payload: {
+    buildingAreas?: PlanFacts['buildingAreas'] | null;
+    planFacts?: PlanFacts | null;
+  }
+): void {
+  const buildingAreas = {
+    ...(payload.buildingAreas || {}),
+    ...(payload.planFacts?.buildingAreas || {}),
+  };
+  const planStory = positive(payload.planFacts?.storyCount);
+  const totalLiving = positive(buildingAreas.totalLivingSqft);
+  const upstairsLiving = positive(buildingAreas.upstairsLivingSqft);
+  const resolvedStories =
+    planStory != null
+      ? resolveStories(planStory)
+      : upstairsLiving != null
+        ? 2
+        : null;
+
+  if (totalLiving != null || resolvedStories != null || upstairsLiving != null) {
+    const existingPlanFacts =
+      scopeMeasurements.planFacts && typeof scopeMeasurements.planFacts === 'object'
+        ? (scopeMeasurements.planFacts as PlanFacts)
+        : {};
+    scopeMeasurements.planFacts = {
+      ...existingPlanFacts,
+      ...(resolvedStories != null ? { storyCount: resolvedStories } : {}),
+      buildingAreas: {
+        ...(existingPlanFacts.buildingAreas || {}),
+        ...buildingAreas,
+      },
+    };
+  }
+
+  const overrides =
+    (scopeMeasurements.quickMeasurementUserOverrides as
+      | Record<string, boolean>
+      | undefined) || {};
+  const sources =
+    (scopeMeasurements.quickMeasurementSources as Record<string, string>) || {};
+
+  if (
+    resolvedStories != null &&
+    !positive(scopeMeasurements.storyCount) &&
+    !overrides.storyCount
+  ) {
+    scopeMeasurements.storyCount = String(resolvedStories);
+    scopeMeasurements.quickMeasurementSources = {
+      ...(scopeMeasurements.quickMeasurementSources as Record<string, string>),
+      storyCount: 'plan_detected',
+    };
+  }
+
+  const stories =
+    positive(scopeMeasurements.storyCount) ?? resolvedStories ?? null;
+  if (stories != null) {
+    const existingComplexity =
+      scopeMeasurements.projectComplexity &&
+      typeof scopeMeasurements.projectComplexity === 'object'
+        ? scopeMeasurements.projectComplexity
+        : {};
+    scopeMeasurements.projectComplexity = {
+      ...existingComplexity,
+      mode: 'automatic',
+      stories: resolveStories(stories) as 1 | 2 | 3,
+    };
+  }
+}
+
+export function inferProjectComplexitySettings(
+  input: ProjectComplexityMeasurementContext & {
+    projectComplexity?: ProjectComplexitySettings | null;
+  }
+): ProjectComplexitySettings {
   const stored = input.projectComplexity || {};
-  const inferredStories = (() => {
-    const fromField = positive(input.storyCount);
-    if (fromField != null) return resolveStories(fromField);
-    const fromPlan = (input.plumbingComplexityFactors || []).some(
-      factor =>
-        factor.key === 'two_story_plumbing' ||
-        /two[\s-]?story/i.test(String(factor.label || ''))
-    );
-    return fromPlan ? 2 : 1;
-  })();
+  const inferredStories = resolveStoryCountFromProjectContext(input);
+  const enteredStories = positive(input.storyCount);
+  const storyCountWasEdited =
+    input.quickMeasurementUserOverrides?.storyCount === true ||
+    String(input.quickMeasurementSources?.storyCount || '') === 'user_entered' ||
+    String(input.quickMeasurementSources?.storyCount || '') === 'manual_override';
+  let squareFootage =
+    positive(stored.squareFootage) ??
+    resolveFloorAreaFromProjectContext(input) ??
+    null;
+  if (!shouldApplySquareFootageComplexity(input)) {
+    squareFootage = null;
+  }
 
   return {
     mode: stored.mode === 'manual' ? 'manual' : 'automatic',
-    squareFootage:
-      positive(stored.squareFootage) ??
-      positive(input.floorAreaSqft) ??
-      null,
+    squareFootage,
     stories:
-      stored.stories != null
+      storyCountWasEdited && enteredStories != null
+        ? resolveStories(enteredStories)
+        : stored.stories != null
         ? resolveStories(stored.stories)
         : inferredStories,
     constructionType: stored.constructionType || 'standard',
@@ -355,11 +658,8 @@ export function applyComplexityToSuggestedBlock<T extends ComplexityPricingBlock
 export function applyProjectComplexityToSuggestedPricing(
   itemId: string,
   templateKey: string | null | undefined,
-  measurementsInput: {
-    floorAreaSqft?: unknown;
-    storyCount?: unknown;
+  measurementsInput: ProjectComplexityMeasurementContext & {
     projectComplexity?: ProjectComplexitySettings | null;
-    plumbingComplexityFactors?: Array<{ key?: string; label?: string }> | null;
   },
   result: ComplexityPricingResult
 ): ComplexityPricingResult {
@@ -369,8 +669,23 @@ export function applyProjectComplexityToSuggestedPricing(
   const settings = inferProjectComplexitySettings({
     floorAreaSqft: measurementsInput.floorAreaSqft,
     storyCount: measurementsInput.storyCount,
+    planFacts: measurementsInput.planFacts,
     projectComplexity: measurementsInput.projectComplexity,
     plumbingComplexityFactors: measurementsInput.plumbingComplexityFactors,
+    planImportMode: measurementsInput.planImportMode,
+    planImportTradeKey: measurementsInput.planImportTradeKey,
+    planImportFingerprint: measurementsInput.planImportFingerprint,
+    quickMeasurementSources: measurementsInput.quickMeasurementSources,
+    quickMeasurementUserOverrides: measurementsInput.quickMeasurementUserOverrides,
+    allowPlanFactsFallback: hasPlanProjectComplexityContext({
+      floorAreaSqft: measurementsInput.floorAreaSqft,
+      storyCount: measurementsInput.storyCount,
+      planFacts: measurementsInput.planFacts,
+      planImportMode: measurementsInput.planImportMode,
+      planImportTradeKey: measurementsInput.planImportTradeKey,
+      planImportFingerprint: measurementsInput.planImportFingerprint,
+      quickMeasurementSources: measurementsInput.quickMeasurementSources,
+    }),
   });
   const breakdown = calculateProjectComplexityMultiplier(settings);
   if (breakdown.totalMultiplier === 1) return result;

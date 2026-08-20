@@ -421,6 +421,13 @@ describe('electricalQuickMeasurementUi', () => {
         electricalIncludeRough: true,
       })
     ).not.toBe(signature);
+    expect(
+      electricalScopeSyncSignature({
+        ...base,
+        storyCount: '2',
+        floorAreaSqft: '3660',
+      })
+    ).not.toBe(signature);
   });
 
   it('keeps blank chips unselected until the contractor taps them', () => {

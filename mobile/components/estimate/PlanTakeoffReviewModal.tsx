@@ -87,6 +87,7 @@ import {
   type PlanEstimatingMode,
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
+import { hydrateInsulationPlanMeasurementsFromTakeoff } from '@/utils/subcontractorTrade/insulationPlanConvergence';
 
 export type PlanReviewRow = {
   key: string;
@@ -351,6 +352,12 @@ export default function PlanTakeoffReviewModal({
     }
     if (effectiveTradeKey === 'framing') {
       return hydrateFramingPlanMeasurementsFromAreas(filtered);
+    }
+    if (effectiveTradeKey === 'insulation') {
+      return hydrateInsulationPlanMeasurementsFromTakeoff(
+        filtered,
+        takeoff?.planFacts
+      );
     }
     return filtered;
   }, [takeoff, effectiveMode, effectiveTradeKey]);

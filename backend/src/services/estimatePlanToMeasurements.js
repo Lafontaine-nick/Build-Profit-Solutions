@@ -12,10 +12,21 @@
 const MAX_IMAGES = 8;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
-const ALLOWED_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
-const PDF_MIME = 'application/pdf';
-const { filterPlanMeasurementsForTrade, filterPlanScopesForTrade } = require('./planImportTradeConfig');
-const { mergeMeasurementCandidates, mergeMeasurementCandidateSets } = require('./measurementMerge');
+const ALLOWED_MIME = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+]);
+const PDF_MIME = "application/pdf";
+const {
+  filterPlanMeasurementsForTrade,
+  filterPlanScopesForTrade,
+} = require("./planImportTradeConfig");
+const {
+  mergeMeasurementCandidates,
+  mergeMeasurementCandidateSets,
+} = require("./measurementMerge");
 const {
   ELECTRICAL_MEASUREMENT_KEYS,
   ELECTRICAL_PLAN_ALIASES,
@@ -27,7 +38,7 @@ const {
   remapElectricalLabeledKeys,
   omitUnresolvedElectricalConflicts,
   instanceTagMeasurementsFromTakeoff,
-} = require('./electricalPlanAdapter');
+} = require("./electricalPlanAdapter");
 const {
   PLUMBING_VISION_INSTRUCTIONS,
   applyPlumbingVisionTakeoff,
@@ -38,26 +49,27 @@ const {
   mergePlumbingPdfFixtureSchedule,
   reconcilePlumbingFixtureInventory,
   finalizePlumbingTakeoff,
-} = require('./plumbingPlanAdapter');
+} = require("./plumbingPlanAdapter");
 const {
   FRAMING_MEASUREMENT_KEYS,
   finalizeFramingTakeoff,
-} = require('./framingPlanAdapter');
+} = require("./framingPlanAdapter");
 
 /** Temporary Lot 58 diagnosis — which pipeline stage drops Electrical counts. */
 const ELECTRICAL_DEBUG_KEYS = [
-  'standardReceptacleCount',
-  'gfciReceptacleCount',
-  'recessedLightCount',
-  'singlePoleSwitchCount',
-  'threeWaySwitchCount',
-  'ceilingFanCount',
-  'mainPanelCount',
-  'serviceAmperage',
+  "standardReceptacleCount",
+  "gfciReceptacleCount",
+  "recessedLightCount",
+  "singlePoleSwitchCount",
+  "threeWaySwitchCount",
+  "ceilingFanCount",
+  "mainPanelCount",
+  "serviceAmperage",
 ];
 
 function electricalDebugSnapshot(measurements) {
-  const src = measurements && typeof measurements === 'object' ? measurements : {};
+  const src =
+    measurements && typeof measurements === "object" ? measurements : {};
   const out = {};
   for (const key of ELECTRICAL_DEBUG_KEYS) {
     out[key] = src[key] ?? null;
@@ -66,13 +78,16 @@ function electricalDebugSnapshot(measurements) {
 }
 
 function electricalishMeasurementKeys(measurements) {
-  const src = measurements && typeof measurements === 'object' ? measurements : {};
+  const src =
+    measurements && typeof measurements === "object" ? measurements : {};
   const out = {};
   for (const [key, value] of Object.entries(src)) {
     if (
       ELECTRICAL_DEBUG_KEYS.includes(key) ||
       ELECTRICAL_PLAN_ALIASES[key] ||
-      /recept|gfci|switch|light|fan|panel|amp|outlet|duplex|circuit|smoke|hookup|fixture|conduit|trench/i.test(key)
+      /recept|gfci|switch|light|fan|panel|amp|outlet|duplex|circuit|smoke|hookup|fixture|conduit|trench/i.test(
+        key,
+      )
     ) {
       out[key] = value;
     }
@@ -85,12 +100,16 @@ function logElectricalTakeoffStage(stage, payload) {
 }
 
 function foldElectricalVisionPayload(parsed) {
-  if (!parsed || typeof parsed !== 'object') return parsed;
-  parsed.measurements = normalizeElectricalPlanMeasurements(parsed.measurements);
-  parsed.explicitlyLabeled = remapElectricalLabeledKeys(parsed.explicitlyLabeled);
+  if (!parsed || typeof parsed !== "object") return parsed;
+  parsed.measurements = normalizeElectricalPlanMeasurements(
+    parsed.measurements,
+  );
+  parsed.explicitlyLabeled = remapElectricalLabeledKeys(
+    parsed.explicitlyLabeled,
+  );
   parsed.geometryDerived = remapElectricalLabeledKeys(parsed.geometryDerived);
   parsed.inferredKeys = remapElectricalLabeledKeys(parsed.inferredKeys);
-  if (parsed.fieldConfidence && typeof parsed.fieldConfidence === 'object') {
+  if (parsed.fieldConfidence && typeof parsed.fieldConfidence === "object") {
     const nextConf = { ...parsed.fieldConfidence };
     for (const [alias, canonical] of Object.entries(ELECTRICAL_PLAN_ALIASES)) {
       if (nextConf[canonical] == null && nextConf[alias] != null) {
@@ -114,23 +133,26 @@ function mergeElectricalEvidenceSources({
     {
       measurements: generalMeasurements,
       confidence: generalConfidence,
-      source: 'general_plan_takeoff',
+      source: "general_plan_takeoff",
     },
   ];
-  if (focusedMeasurements && typeof focusedMeasurements === 'object') {
+  if (focusedMeasurements && typeof focusedMeasurements === "object") {
     sets.push({
       measurements: focusedMeasurements,
       confidence: focusedConfidence,
-      source: 'focused_trade_takeoff',
+      source: "focused_trade_takeoff",
     });
   }
-  const tags = instanceTagMeasurements && typeof instanceTagMeasurements === 'object' ? instanceTagMeasurements : {};
+  const tags =
+    instanceTagMeasurements && typeof instanceTagMeasurements === "object"
+      ? instanceTagMeasurements
+      : {};
   if (Object.keys(tags).length) {
     sets.push({
       measurements: tags,
-      confidence: Object.fromEntries(Object.keys(tags).map(key => [key, 1])),
-      source: 'pdf_text_instance_tags',
-      evidence: Object.fromEntries(Object.keys(tags).map(key => [key, true])),
+      confidence: Object.fromEntries(Object.keys(tags).map((key) => [key, 1])),
+      source: "pdf_text_instance_tags",
+      evidence: Object.fromEntries(Object.keys(tags).map((key) => [key, true])),
       defaultConfidence: 1,
     });
   }
@@ -149,8 +171,12 @@ function mergeElectricalSheetEvidence(...sources) {
       const page = Number(sheet?.page);
       if (!Number.isInteger(page) || page < 1) continue;
       const previous = byPage.get(page);
-      const previousCounts = previous?.counts && typeof previous.counts === 'object' ? previous.counts : {};
-      const nextCounts = sheet?.counts && typeof sheet.counts === 'object' ? sheet.counts : {};
+      const previousCounts =
+        previous?.counts && typeof previous.counts === "object"
+          ? previous.counts
+          : {};
+      const nextCounts =
+        sheet?.counts && typeof sheet.counts === "object" ? sheet.counts : {};
       byPage.set(page, {
         ...(previous || {}),
         ...sheet,
@@ -164,7 +190,11 @@ function mergeElectricalSheetEvidence(...sources) {
     }
   }
   const omittedPages = [
-    ...new Set(sources.flatMap(source => (Array.isArray(source?.omittedPages) ? source.omittedPages : []))),
+    ...new Set(
+      sources.flatMap((source) =>
+        Array.isArray(source?.omittedPages) ? source.omittedPages : [],
+      ),
+    ),
   ];
   return {
     sheetSubtotals: [...byPage.values()].sort((a, b) => a.page - b.page),
@@ -175,10 +205,13 @@ function mergeElectricalSheetEvidence(...sources) {
 function mergeElectricalFieldEvidence(...sources) {
   const out = {};
   for (const source of sources) {
-    if (!source || typeof source !== 'object') continue;
+    if (!source || typeof source !== "object") continue;
     for (const [key, entries] of Object.entries(source)) {
       const list = Array.isArray(entries) ? entries : [entries];
-      out[key] = [...(Array.isArray(out[key]) ? out[key] : []), ...list].slice(0, 16);
+      out[key] = [...(Array.isArray(out[key]) ? out[key] : []), ...list].slice(
+        0,
+        16,
+      );
     }
   }
   return out;
@@ -189,7 +222,10 @@ function mergePlumbingFieldEvidence(...sources) {
   for (const source of sources) {
     const normalized = normalizePlumbingFieldEvidence(source);
     for (const [key, entries] of Object.entries(normalized)) {
-      out[key] = [...(Array.isArray(out[key]) ? out[key] : []), ...entries].slice(0, 16);
+      out[key] = [
+        ...(Array.isArray(out[key]) ? out[key] : []),
+        ...entries,
+      ].slice(0, 16);
     }
   }
   return out;
@@ -199,95 +235,103 @@ function mergePlumbingFieldEvidence(...sources) {
 const MIN_FIELD_CONFIDENCE = 0.6;
 
 const UNCLEAR_PLAN_REASON =
-  'AI could not read square footage — the plan pages are not clear enough. ' +
-  'Retake the photos closer and in focus (or import the original PDF) and try again.';
+  "AI could not read square footage — the plan pages are not clear enough. " +
+  "Retake the photos closer and in focus (or import the original PDF) and try again.";
 
 /** Quick Measurement keys we accept from vision. */
 const MEASUREMENT_KEYS = new Set([
-  'bathroomFloorSqft',
-  'kitchenFloorSqft',
-  'floorAreaSqft',
-  'backsplashSqft',
-  'countertopSqft',
-  'cabinetLf',
-  'showerWallTileSqft',
-  'showerFloorTileSqft',
-  'wallPaintSqft',
-  'ceilingPaintSqft',
-  'paintAreaSqft',
-  'interiorDoorCount',
-  'cabinetRunLf',
-  'cabinetPaintSqft',
-  'exteriorPaintSqft',
-  'stuccoGrossWallSqft',
-  'stuccoWindowDoorOpeningSqft',
-  'stuccoGarageOpeningSqft',
-  'stuccoOtherFinishDeductionSqft',
-  'stuccoNetWallSqft',
-  'stuccoSoffitSqft',
-  'stuccoParapetSqft',
-  'stuccoFoamTrimLf',
-  'stuccoControlJointLf',
-  'stuccoAccessAffectedSqft',
-  'stuccoRepairAffectedSqft',
-  'stuccoStories',
-  'stuccoWallHeightFt',
-  'baseboardLf',
-  'railingLf',
-  'landscapeSqft',
-  'sodSqft',
-  'paverSqft',
-  'rockMulchSqft',
-  'landscapeTons',
-  'roofAreaSqft',
-  'roofSquares',
-  'roofPitch',
-  'storyCount',
-  'roofDeckingReplacementSqft',
-  'roofDripEdgeLf',
-  'roofRidgeCapLf',
-  'roofRidgeVentLf',
-  'roofValleyFlashingLf',
-  'roofStepFlashingLf',
-  'roofWallFlashingLf',
-  'roofChimneyFlashingCount',
-  'roofPipeBootCount',
-  'roofVentCount',
-  'roofTurbineVentCount',
-  'roofSkylightCount',
-  'roofPenetrationCount',
-  'roofRepairAffectedSqft',
-  'roofGutterLf',
-  'roofDownspoutCount',
-  'drywallSqft',
-  'flooringSqft',
-  'flooringLvpSqft',
-  'flooringLaminateSqft',
-  'flooringEngineeredHardwoodSqft',
-  'flooringSolidHardwoodSqft',
-  'flooringTileSqft',
-  'flooringCarpetSqft',
-  'flooringSheetVinylSqft',
-  'floorDemoSqft',
-  'floorDemoCarpetSqft',
-  'floorDemoTileSqft',
-  'floorDemoLvpSqft',
-  'floorPrepSqft',
-  'underlaymentSqft',
-  'moistureBarrierSqft',
-  'baseboardLf',
-  'transitionCount',
-  'quarterRoundLf',
-  'concreteSqft',
-  'concreteDrivewaySqft',
-  'concreteSidewalkSqft',
-  'concretePatioSqft',
-  'concreteWalkwaySqft',
-  'concreteRvPadSqft',
-  'concreteCy',
-  'excavationCy',
-  'deckSqft',
-  'garageSqft',
+  "bathroomFloorSqft",
+  "kitchenFloorSqft",
+  "floorAreaSqft",
+  "backsplashSqft",
+  "countertopSqft",
+  "cabinetLf",
+  "showerWallTileSqft",
+  "showerFloorTileSqft",
+  "wallPaintSqft",
+  "ceilingPaintSqft",
+  "paintAreaSqft",
+  "interiorDoorCount",
+  "cabinetRunLf",
+  "cabinetPaintSqft",
+  "exteriorPaintSqft",
+  "stuccoGrossWallSqft",
+  "stuccoWindowDoorOpeningSqft",
+  "stuccoGarageOpeningSqft",
+  "stuccoOtherFinishDeductionSqft",
+  "stuccoNetWallSqft",
+  "stuccoSoffitSqft",
+  "stuccoParapetSqft",
+  "stuccoFoamTrimLf",
+  "stuccoControlJointLf",
+  "stuccoAccessAffectedSqft",
+  "stuccoRepairAffectedSqft",
+  "stuccoStories",
+  "stuccoWallHeightFt",
+  "baseboardLf",
+  "railingLf",
+  "landscapeSqft",
+  "sodSqft",
+  "paverSqft",
+  "rockMulchSqft",
+  "landscapeTons",
+  "roofAreaSqft",
+  "roofSquares",
+  "roofPitch",
+  "storyCount",
+  "roofDeckingReplacementSqft",
+  "roofDripEdgeLf",
+  "roofRidgeCapLf",
+  "roofRidgeVentLf",
+  "roofValleyFlashingLf",
+  "roofStepFlashingLf",
+  "roofWallFlashingLf",
+  "roofChimneyFlashingCount",
+  "roofPipeBootCount",
+  "roofVentCount",
+  "roofTurbineVentCount",
+  "roofSkylightCount",
+  "roofPenetrationCount",
+  "roofRepairAffectedSqft",
+  "roofGutterLf",
+  "roofDownspoutCount",
+  "drywallSqft",
+  "exteriorWallInsulationSqft",
+  "atticInsulationSqft",
+  "insulatedRoofDeckSqft",
+  "floorInsulationSqft",
+  "garageSeparationInsulationSqft",
+  "insulatedGarageWallSqft",
+  "insulatedGarageCeilingSqft",
+  "openingDeductionSqft",
+  "flooringSqft",
+  "flooringLvpSqft",
+  "flooringLaminateSqft",
+  "flooringEngineeredHardwoodSqft",
+  "flooringSolidHardwoodSqft",
+  "flooringTileSqft",
+  "flooringCarpetSqft",
+  "flooringSheetVinylSqft",
+  "floorDemoSqft",
+  "floorDemoCarpetSqft",
+  "floorDemoTileSqft",
+  "floorDemoLvpSqft",
+  "floorPrepSqft",
+  "underlaymentSqft",
+  "moistureBarrierSqft",
+  "baseboardLf",
+  "transitionCount",
+  "quarterRoundLf",
+  "concreteSqft",
+  "concreteDrivewaySqft",
+  "concreteSidewalkSqft",
+  "concretePatioSqft",
+  "concreteWalkwaySqft",
+  "concreteRvPadSqft",
+  "concreteCy",
+  "excavationCy",
+  "deckSqft",
+  "garageSqft",
   ...FRAMING_MEASUREMENT_KEYS,
   ...ELECTRICAL_MEASUREMENT_KEYS,
   ...Object.keys(ELECTRICAL_PLAN_ALIASES),
@@ -301,40 +345,40 @@ const MEASUREMENT_KEYS = new Set([
  * derivePaintingGeometryMeasurements.
  */
 const LABELED_ONLY_KEYS = new Set([
-  'wallPaintSqft',
-  'ceilingPaintSqft',
-  'paintAreaSqft',
-  'interiorDoorCount',
-  'cabinetRunLf',
-  'cabinetPaintSqft',
-  'exteriorPaintSqft',
-  'drywallSqft',
-  'baseboardLf',
-  'railingLf',
-  'stuccoAccessAffectedSqft',
-  'stuccoRepairAffectedSqft',
+  "wallPaintSqft",
+  "ceilingPaintSqft",
+  "paintAreaSqft",
+  "interiorDoorCount",
+  "cabinetRunLf",
+  "cabinetPaintSqft",
+  "exteriorPaintSqft",
+  "drywallSqft",
+  "baseboardLf",
+  "railingLf",
+  "stuccoAccessAffectedSqft",
+  "stuccoRepairAffectedSqft",
 ]);
 
 /** Concrete flatwork only when the sheet labels concrete/slab/driveway — not covered patio. */
 const CONCRETE_EXPLICIT_KEYS = new Set([
-  'concreteSqft',
-  'concreteCy',
-  'concreteDrivewaySqft',
-  'concreteSidewalkSqft',
-  'concretePatioSqft',
-  'concreteWalkwaySqft',
-  'concreteRvPadSqft',
+  "concreteSqft",
+  "concreteCy",
+  "concreteDrivewaySqft",
+  "concreteSidewalkSqft",
+  "concretePatioSqft",
+  "concreteWalkwaySqft",
+  "concreteRvPadSqft",
 ]);
 
 function normalizeMime(mimeType) {
-  const m = String(mimeType || 'image/jpeg').toLowerCase();
-  if (m === 'image/heic' || m === 'image/heif') return 'image/jpeg';
-  if (!ALLOWED_MIME.has(m)) return 'image/jpeg';
-  return m === 'image/jpg' ? 'image/jpeg' : m;
+  const m = String(mimeType || "image/jpeg").toLowerCase();
+  if (m === "image/heic" || m === "image/heif") return "image/jpeg";
+  if (!ALLOWED_MIME.has(m)) return "image/jpeg";
+  return m === "image/jpg" ? "image/jpeg" : m;
 }
 
 function approxBase64Bytes(b64) {
-  return Math.floor((String(b64 || '').length * 3) / 4);
+  return Math.floor((String(b64 || "").length * 3) / 4);
 }
 
 function positive(n) {
@@ -344,8 +388,10 @@ function positive(n) {
 
 /** Keep positive numeric measurement keys from either vision pass. */
 function mergePositiveMeasurementMaps(base = {}, overlay = {}) {
-  const out = { ...(base && typeof base === 'object' ? base : {}) };
-  for (const [key, value] of Object.entries(overlay && typeof overlay === 'object' ? overlay : {})) {
+  const out = { ...(base && typeof base === "object" ? base : {}) };
+  for (const [key, value] of Object.entries(
+    overlay && typeof overlay === "object" ? overlay : {},
+  )) {
     const next = positive(value);
     if (next == null) continue;
     out[key] = next;
@@ -354,19 +400,23 @@ function mergePositiveMeasurementMaps(base = {}, overlay = {}) {
 }
 
 function stuccoEvidenceByField(planFacts = {}) {
-  const hasElevationFaces = Array.isArray(planFacts?.elevationFaces) && planFacts.elevationFaces.length > 0;
-  const hasPerimeter = positive(planFacts?.exteriorPerimeterLf) || positive(planFacts?.foundationPerimeterLf);
+  const hasElevationFaces =
+    Array.isArray(planFacts?.elevationFaces) &&
+    planFacts.elevationFaces.length > 0;
+  const hasPerimeter =
+    positive(planFacts?.exteriorPerimeterLf) ||
+    positive(planFacts?.foundationPerimeterLf);
   const evidence = {};
   if (hasElevationFaces) {
     for (const field of [
-      'stuccoGrossWallSqft',
-      'stuccoWindowDoorOpeningSqft',
-      'stuccoGarageOpeningSqft',
-      'stuccoOtherFinishDeductionSqft',
-      'stuccoSoffitSqft',
-      'stuccoParapetSqft',
-      'stuccoFoamTrimLf',
-      'stuccoControlJointLf',
+      "stuccoGrossWallSqft",
+      "stuccoWindowDoorOpeningSqft",
+      "stuccoGarageOpeningSqft",
+      "stuccoOtherFinishDeductionSqft",
+      "stuccoSoffitSqft",
+      "stuccoParapetSqft",
+      "stuccoFoamTrimLf",
+      "stuccoControlJointLf",
     ]) {
       evidence[field] = true;
     }
@@ -395,7 +445,9 @@ function preferElevationFacesWithOpenings(a, b) {
 }
 
 function deriveStuccoElevationMeasurements(measurements = {}, planFacts = {}) {
-  const faces = Array.isArray(planFacts?.elevationFaces) ? planFacts.elevationFaces : [];
+  const faces = Array.isArray(planFacts?.elevationFaces)
+    ? planFacts.elevationFaces
+    : [];
   let gross = 0;
   let openings = 0;
   let windowDoorOpenings = 0;
@@ -409,7 +461,9 @@ function deriveStuccoElevationMeasurements(measurements = {}, planFacts = {}) {
     const width = positive(face?.widthFt);
     const height = positive(face?.heightFt);
     const faceArea =
-      positive(face?.stuccoAreaSqft) || positive(face?.areaSqft) || (width && height ? width * height : null);
+      positive(face?.stuccoAreaSqft) ||
+      positive(face?.areaSqft) ||
+      (width && height ? width * height : null);
     if (faceArea) gross += faceArea;
     const faceWindowDoorOpenings = positive(face?.windowDoorOpeningsSqft);
     const faceGarageOpenings = positive(face?.garageOpeningsSqft);
@@ -440,29 +494,38 @@ function deriveStuccoElevationMeasurements(measurements = {}, planFacts = {}) {
   const derivedKeys = [];
   if (!(positive(next.stuccoGrossWallSqft) > 0) && gross > 0) {
     next.stuccoGrossWallSqft = Math.round(gross * 10) / 10;
-    derivedKeys.push('stuccoGrossWallSqft');
+    derivedKeys.push("stuccoGrossWallSqft");
   }
   if (!(positive(next.stuccoParapetSqft) > 0) && parapet > 0) {
     next.stuccoParapetSqft = Math.round(parapet * 10) / 10;
-    derivedKeys.push('stuccoParapetSqft');
+    derivedKeys.push("stuccoParapetSqft");
   }
   if (!(positive(next.stuccoWindowDoorOpeningSqft) > 0)) {
     if (hasCategorizedOpeningData && windowDoorOpenings > 0) {
-      next.stuccoWindowDoorOpeningSqft = Math.round(windowDoorOpenings * 10) / 10;
-      derivedKeys.push('stuccoWindowDoorOpeningSqft');
+      next.stuccoWindowDoorOpeningSqft =
+        Math.round(windowDoorOpenings * 10) / 10;
+      derivedKeys.push("stuccoWindowDoorOpeningSqft");
     } else if (hasOpeningData && openings > 0) {
       // Uncategorized face openingsSqft — treat as window/door when no garage split.
       next.stuccoWindowDoorOpeningSqft = Math.round(openings * 10) / 10;
-      derivedKeys.push('stuccoWindowDoorOpeningSqft');
+      derivedKeys.push("stuccoWindowDoorOpeningSqft");
     }
   }
-  if (!(positive(next.stuccoGarageOpeningSqft) > 0) && hasCategorizedOpeningData && garageOpenings > 0) {
+  if (
+    !(positive(next.stuccoGarageOpeningSqft) > 0) &&
+    hasCategorizedOpeningData &&
+    garageOpenings > 0
+  ) {
     next.stuccoGarageOpeningSqft = Math.round(garageOpenings * 10) / 10;
-    derivedKeys.push('stuccoGarageOpeningSqft');
+    derivedKeys.push("stuccoGarageOpeningSqft");
   }
-  if (!(positive(next.stuccoOtherFinishDeductionSqft) > 0) && hasNonStuccoData && nonStucco > 0) {
+  if (
+    !(positive(next.stuccoOtherFinishDeductionSqft) > 0) &&
+    hasNonStuccoData &&
+    nonStucco > 0
+  ) {
     next.stuccoOtherFinishDeductionSqft = Math.round(nonStucco * 10) / 10;
-    derivedKeys.push('stuccoOtherFinishDeductionSqft');
+    derivedKeys.push("stuccoOtherFinishDeductionSqft");
   }
   const grossValue = positive(next.stuccoGrossWallSqft);
   const openingValue = positive(next.stuccoWindowDoorOpeningSqft) || 0;
@@ -471,10 +534,16 @@ function deriveStuccoElevationMeasurements(measurements = {}, planFacts = {}) {
   if (
     !(positive(next.stuccoNetWallSqft) > 0) &&
     grossValue &&
-    (hasOpeningData || positive(next.stuccoGarageOpeningSqft) || hasNonStuccoData)
+    (hasOpeningData ||
+      positive(next.stuccoGarageOpeningSqft) ||
+      hasNonStuccoData)
   ) {
-    next.stuccoNetWallSqft = Math.max(0, Math.round((grossValue - openingValue - garageValue - finishValue) * 10) / 10);
-    derivedKeys.push('stuccoNetWallSqft');
+    next.stuccoNetWallSqft = Math.max(
+      0,
+      Math.round((grossValue - openingValue - garageValue - finishValue) * 10) /
+        10,
+    );
+    derivedKeys.push("stuccoNetWallSqft");
   }
   return { measurements: next, derivedKeys };
 }
@@ -483,7 +552,7 @@ const NON_PAINTABLE_INTERIOR_ROOM_RE =
   /\b(garage|rv\s*garage|carport|patio|porch|deck|balcony|terrace|mechanical|unfinished|attic|crawl|exterior|\bshop\b)\b/i;
 
 function isPaintableInteriorRoom(name) {
-  const n = String(name || '').trim();
+  const n = String(name || "").trim();
   if (!n) return false;
   return !NON_PAINTABLE_INTERIOR_ROOM_RE.test(n);
 }
@@ -491,8 +560,11 @@ function isPaintableInteriorRoom(name) {
 function roomRectangle(room) {
   const lengthFt = positive(room?.lengthFt);
   const widthFt = positive(room?.widthFt);
-  const areaSqft = positive(room?.areaSqft) || (lengthFt != null && widthFt != null ? lengthFt * widthFt : null);
-  const perimeterLf = lengthFt != null && widthFt != null ? 2 * (lengthFt + widthFt) : null;
+  const areaSqft =
+    positive(room?.areaSqft) ||
+    (lengthFt != null && widthFt != null ? lengthFt * widthFt : null);
+  const perimeterLf =
+    lengthFt != null && widthFt != null ? 2 * (lengthFt + widthFt) : null;
   return { lengthFt, widthFt, areaSqft, perimeterLf };
 }
 
@@ -547,7 +619,11 @@ function pickPaintingCeilingSqft(roomCeilingSqft, livingCeilingSqft) {
   };
 }
 
-function looksLikeLivingAreaProxy(value, measurements = {}, buildingAreas = {}) {
+function looksLikeLivingAreaProxy(
+  value,
+  measurements = {},
+  buildingAreas = {},
+) {
   const living =
     positive(buildingAreas.totalLivingSqft) ||
     positive(measurements.floorAreaSqft) ||
@@ -556,13 +632,17 @@ function looksLikeLivingAreaProxy(value, measurements = {}, buildingAreas = {}) 
   if (Math.abs(value - living) < 1) return true;
   const ratio = value / living;
   if (ratio >= 2.2 && ratio <= 4.0) {
-    return [2.5, 3, 3.5].some(multiplier => Math.abs(value - living * multiplier) / living < 0.08);
+    return [2.5, 3, 3.5].some(
+      (multiplier) => Math.abs(value - living * multiplier) / living < 0.08,
+    );
   }
   return false;
 }
 
 function deriveExteriorPaintFromFaces(planFacts = {}) {
-  const faces = Array.isArray(planFacts.elevationFaces) ? planFacts.elevationFaces : [];
+  const faces = Array.isArray(planFacts.elevationFaces)
+    ? planFacts.elevationFaces
+    : [];
   let total = 0;
   let used = 0;
   for (const face of faces) {
@@ -572,14 +652,16 @@ function deriveExteriorPaintFromFaces(planFacts = {}) {
       used += 1;
       continue;
     }
-    const finish = String(face?.finish || face?.cladding || '').toLowerCase();
+    const finish = String(face?.finish || face?.cladding || "").toLowerCase();
     const isMasonry = /brick|stone|masonry|veneer/.test(finish);
-    const isStucco = /stucco|efis|eifs/.test(finish) || positive(face?.stuccoAreaSqft);
+    const isStucco =
+      /stucco|efis|eifs/.test(finish) || positive(face?.stuccoAreaSqft);
     const isPaintedCladding = /paint|siding|fiber|hardi|wood|lap/.test(finish);
     if (isMasonry || isStucco || !isPaintedCladding) continue;
     const width = positive(face?.widthFt);
     const height = positive(face?.heightFt);
-    const area = positive(face?.areaSqft) || (width && height ? width * height : null);
+    const area =
+      positive(face?.areaSqft) || (width && height ? width * height : null);
     if (!area) continue;
     total += area;
     used += 1;
@@ -596,56 +678,92 @@ function deriveExteriorPaintFromFaces(planFacts = {}) {
 function conditionedLivingCeilingSqft(buildingAreas = {}) {
   const main = positive(buildingAreas.mainFloorLivingSqft);
   const upper = positive(buildingAreas.upstairsLivingSqft);
-  const additional = (Array.isArray(buildingAreas.additionalFloorAreas) ? buildingAreas.additionalFloorAreas : [])
+  const additional = (
+    Array.isArray(buildingAreas.additionalFloorAreas)
+      ? buildingAreas.additionalFloorAreas
+      : []
+  )
     .map(positive)
-    .filter(value => value != null);
+    .filter((value) => value != null);
   if (main != null || upper != null || additional.length) {
-    return roundTenth((main || 0) + (upper || 0) + additional.reduce((sum, value) => sum + value, 0));
+    return roundTenth(
+      (main || 0) +
+        (upper || 0) +
+        additional.reduce((sum, value) => sum + value, 0),
+    );
   }
   return positive(buildingAreas.totalLivingSqft);
 }
 
-function derivePaintingGeometryMeasurements(measurements = {}, rooms = [], planFacts = {}, options = {}) {
+function derivePaintingGeometryMeasurements(
+  measurements = {},
+  rooms = [],
+  planFacts = {},
+  options = {},
+) {
   const next = { ...measurements };
   const derivedKeys = [];
   const explicitKeys = [];
   const assumptions = [];
   const labeled = new Set(
-    (Array.isArray(options.explicitlyLabeled) ? options.explicitlyLabeled : []).map(key => String(key || '').trim())
+    (Array.isArray(options.explicitlyLabeled)
+      ? options.explicitlyLabeled
+      : []
+    ).map((key) => String(key || "").trim()),
   );
   const geometryDerived = new Set(
-    (Array.isArray(options.geometryDerived) ? options.geometryDerived : []).map(key => String(key || '').trim())
+    (Array.isArray(options.geometryDerived) ? options.geometryDerived : []).map(
+      (key) => String(key || "").trim(),
+    ),
   );
   const rawVision =
-    options.rawVisionMeasurements && typeof options.rawVisionMeasurements === 'object'
+    options.rawVisionMeasurements &&
+    typeof options.rawVisionMeasurements === "object"
       ? options.rawVisionMeasurements
       : {};
   const buildingAreas = options.buildingAreas || planFacts.buildingAreas || {};
   const wallHeightFt =
-    explicitInteriorWallHeightFt(planFacts) || explicitInteriorWallHeightFt(options.rawPlanFacts || {});
+    explicitInteriorWallHeightFt(planFacts) ||
+    explicitInteriorWallHeightFt(options.rawPlanFacts || {});
 
   const paintable = (Array.isArray(rooms) ? rooms : [])
-    .filter(room => isPaintableInteriorRoom(room?.name) && (Number(room?.confidence) || 0) >= 0.4)
-    .map(room => ({ room, ...roomRectangle(room) }));
-  const dimensioned = paintable.filter(entry => entry.perimeterLf != null);
-  const withArea = paintable.filter(entry => entry.areaSqft != null);
+    .filter(
+      (room) =>
+        isPaintableInteriorRoom(room?.name) &&
+        (Number(room?.confidence) || 0) >= 0.4,
+    )
+    .map((room) => ({ room, ...roomRectangle(room) }));
+  const dimensioned = paintable.filter((entry) => entry.perimeterLf != null);
+  const withArea = paintable.filter((entry) => entry.areaSqft != null);
   const MIN_ROOMS = 2;
   const roomCeilingSqft =
-    withArea.length >= MIN_ROOMS ? withArea.reduce((sum, entry) => sum + entry.areaSqft, 0) : null;
+    withArea.length >= MIN_ROOMS
+      ? withArea.reduce((sum, entry) => sum + entry.areaSqft, 0)
+      : null;
   const livingCeilingSqft = conditionedLivingCeilingSqft(buildingAreas);
-  const pickedCeiling = pickPaintingCeilingSqft(roomCeilingSqft, livingCeilingSqft);
+  const pickedCeiling = pickPaintingCeilingSqft(
+    roomCeilingSqft,
+    livingCeilingSqft,
+  );
   const geometryIncomplete = Boolean(pickedCeiling.incompleteRooms);
 
-  if (!(positive(next.wallPaintSqft) > 0) && wallHeightFt && dimensioned.length >= MIN_ROOMS) {
-    const wallSqft = dimensioned.reduce((sum, entry) => sum + entry.perimeterLf * wallHeightFt, 0);
+  if (
+    !(positive(next.wallPaintSqft) > 0) &&
+    wallHeightFt &&
+    dimensioned.length >= MIN_ROOMS
+  ) {
+    const wallSqft = dimensioned.reduce(
+      (sum, entry) => sum + entry.perimeterLf * wallHeightFt,
+      0,
+    );
     const rounded = roundTenth(wallSqft);
     if (rounded > 0) {
       next.wallPaintSqft = rounded;
-      derivedKeys.push('wallPaintSqft');
+      derivedKeys.push("wallPaintSqft");
       assumptions.push(
         geometryIncomplete
           ? `Interior wall paint ${rounded.toLocaleString()} SF calculated from ${dimensioned.length} dimensioned rooms × ${wallHeightFt} FT wall/plate height (gross, room-perimeter method). Partial room geometry versus labeled living area — confirm remaining walls.`
-          : `Interior wall paint ${rounded.toLocaleString()} SF calculated from ${dimensioned.length} dimensioned rooms × ${wallHeightFt} FT wall/plate height (gross, room-perimeter method).`
+          : `Interior wall paint ${rounded.toLocaleString()} SF calculated from ${dimensioned.length} dimensioned rooms × ${wallHeightFt} FT wall/plate height (gross, room-perimeter method).`,
       );
     }
   }
@@ -660,13 +778,16 @@ function derivePaintingGeometryMeasurements(measurements = {}, rooms = [], planF
   if (shouldReplaceCeiling && pickedCeiling.value) {
     const rounded = roundTenth(pickedCeiling.value);
     next.ceilingPaintSqft = rounded;
-    if (!derivedKeys.includes('ceilingPaintSqft')) derivedKeys.push('ceilingPaintSqft');
+    if (!derivedKeys.includes("ceilingPaintSqft"))
+      derivedKeys.push("ceilingPaintSqft");
     const ceilingSource = pickedCeiling.incompleteRooms
       ? `labeled conditioned living area (detected rooms ${pickedCeiling.roomSqft.toLocaleString()} SF were incomplete; garage and covered patio excluded)`
       : pickedCeiling.usedRooms
         ? `${withArea.length} dimensioned interior rooms`
-        : 'labeled conditioned living area (garage and covered patio excluded)';
-    assumptions.push(`Ceiling paint ${rounded.toLocaleString()} SF calculated from ${ceilingSource}.`);
+        : "labeled conditioned living area (garage and covered patio excluded)";
+    assumptions.push(
+      `Ceiling paint ${rounded.toLocaleString()} SF calculated from ${ceilingSource}.`,
+    );
   }
 
   if (!(positive(next.baseboardLf) > 0) && dimensioned.length >= MIN_ROOMS) {
@@ -674,11 +795,11 @@ function derivePaintingGeometryMeasurements(measurements = {}, rooms = [], planF
     const rounded = roundTenth(lf);
     if (rounded > 0) {
       next.baseboardLf = rounded;
-      derivedKeys.push('baseboardLf');
+      derivedKeys.push("baseboardLf");
       assumptions.push(
         geometryIncomplete
           ? `Baseboard / trim ${rounded.toLocaleString()} LF calculated from ${dimensioned.length} dimensioned room perimeters (planning LF). Partial room geometry — confirm remaining trim.`
-          : `Baseboard / trim ${rounded.toLocaleString()} LF calculated from ${dimensioned.length} dimensioned room perimeters (planning LF).`
+          : `Baseboard / trim ${rounded.toLocaleString()} LF calculated from ${dimensioned.length} dimensioned room perimeters (planning LF).`,
       );
     }
   }
@@ -690,33 +811,37 @@ function derivePaintingGeometryMeasurements(measurements = {}, rooms = [], planF
     // vision omitted geometryDerived (Lot 58 has swings, no door schedule).
     if (count >= 1 && count <= 80) {
       next.interiorDoorCount = count;
-      if (labeled.has('interiorDoorCount')) explicitKeys.push('interiorDoorCount');
-      else derivedKeys.push('interiorDoorCount');
+      if (labeled.has("interiorDoorCount"))
+        explicitKeys.push("interiorDoorCount");
+      else derivedKeys.push("interiorDoorCount");
       assumptions.push(
-        labeled.has('interiorDoorCount')
+        labeled.has("interiorDoorCount")
           ? `Interior door count ${count} EA labeled on the plan.`
-          : geometryDerived.has('interiorDoorCount')
+          : geometryDerived.has("interiorDoorCount")
             ? `Interior door count ${count} EA from door schedule or identifiable interior door symbols.`
-            : `Interior door count ${count} EA from identifiable interior door symbols on the plan.`
+            : `Interior door count ${count} EA from identifiable interior door symbols on the plan.`,
       );
     }
   }
 
   if (!(positive(next.exteriorPaintSqft) > 0)) {
     const fromFaces = deriveExteriorPaintFromFaces(planFacts);
-    if (fromFaces && !looksLikeLivingAreaProxy(fromFaces, next, buildingAreas)) {
+    if (
+      fromFaces &&
+      !looksLikeLivingAreaProxy(fromFaces, next, buildingAreas)
+    ) {
       next.exteriorPaintSqft = fromFaces;
-      derivedKeys.push('exteriorPaintSqft');
+      derivedKeys.push("exteriorPaintSqft");
       assumptions.push(
-        `Exterior paint ${fromFaces.toLocaleString()} SF calculated from dimensioned elevation faces with painted cladding.`
+        `Exterior paint ${fromFaces.toLocaleString()} SF calculated from dimensioned elevation faces with painted cladding.`,
       );
     }
   }
 
   const incompleteKeys = [];
   if (geometryIncomplete) {
-    if (positive(next.wallPaintSqft) > 0) incompleteKeys.push('wallPaintSqft');
-    if (positive(next.baseboardLf) > 0) incompleteKeys.push('baseboardLf');
+    if (positive(next.wallPaintSqft) > 0) incompleteKeys.push("wallPaintSqft");
+    if (positive(next.baseboardLf) > 0) incompleteKeys.push("baseboardLf");
   }
 
   return {
@@ -726,6 +851,135 @@ function derivePaintingGeometryMeasurements(measurements = {}, rooms = [], planF
     assumptions,
     incompleteKeys,
   };
+}
+
+const INSULATION_VISION_INSTRUCTIONS = `
+Insulation takeoff rules:
+- Review wall sections, building sections, energy-code notes, insulation schedules, attic plans, roof plans, garage separation details, and exterior elevations.
+- Return explicit labeled measurements using these canonical keys:
+  exteriorWallInsulationSqft, atticInsulationSqft, insulatedRoofDeckSqft,
+  floorInsulationSqft, garageSeparationInsulationSqft,
+  insulatedGarageWallSqft, insulatedGarageCeilingSqft, openingDeductionSqft.
+- Read exterior elevations like a stucco takeoff: return elevationFaces with readable face width/height or area, windowDoorOpeningsSqft, garageOpeningsSqft, and openingsSqft when categorized totals are unavailable. Also populate measurements.openingDeductionSqft when the summed opening area is readable.
+- When a quantity is explicitly labeled, or directly calculated from readable labeled dimensions, put the numeric result in measurements using the canonical key. Do not leave a usable quantity only inside planFacts.
+- If the plan gives exterior perimeter, wall/plate height, stories, and opening information but not an insulation SF total, return those facts in planFacts so the app can calculate the envelope transparently.
+- If an insulation schedule, wall section, or energy-code note explicitly names the assembly, R-value, material, or garage inclusion, return insulationMaterialType, insulationRValue, and garageInsulationIncluded in planFacts with evidence. Never infer these from typical practice.
+- Attic insulation and insulated roof deck are alternative thermal boundaries by default; do not count both unless the plan explicitly requires both.
+- Do not use living SF, drywall SF, or visual proportions as insulation SF. Do not invent R-values, assembly types, garage inclusion, or material quantities.
+- Mark explicit quantities in explicitlyLabeled and calculated quantities in geometryDerived. Put unsupported values in unreadableFields or missingInfo.
+`;
+
+function perStoryWallHeightFromPlanFacts(planFacts = {}, stories = 1) {
+  let wallHeightCandidate = positive(planFacts?.wallHeightFt);
+  let plateHeightCandidate = positive(planFacts?.plateHeightFt);
+  if (stories > 1 && plateHeightCandidate > 14) {
+    plateHeightCandidate =
+      Math.round((plateHeightCandidate / stories) * 10) / 10;
+  }
+  if (stories > 1 && wallHeightCandidate > 14) {
+    wallHeightCandidate =
+      Math.round((wallHeightCandidate / stories) * 10) / 10;
+  }
+  return wallHeightCandidate || plateHeightCandidate || null;
+}
+
+function deriveInsulationMeasurementsFromPlanFacts(
+  measurements = {},
+  planFacts = {},
+) {
+  const next = { ...measurements };
+  const derivedKeys = [];
+  const assumptions = [];
+  const faces = Array.isArray(planFacts?.elevationFaces)
+    ? planFacts.elevationFaces
+    : [];
+  let openingDeduction = 0;
+  let hasOpeningEvidence = false;
+  for (const face of faces) {
+    const opening =
+      positive(face?.windowDoorOpeningsSqft) ||
+      positive(face?.garageOpeningsSqft) ||
+      positive(face?.openingsSqft);
+    if (opening != null) {
+      openingDeduction += opening;
+      hasOpeningEvidence = true;
+    }
+  }
+  const stuccoWindowOpenings = positive(next.stuccoWindowDoorOpeningSqft);
+  const stuccoGarageOpenings = positive(next.stuccoGarageOpeningSqft);
+  const stuccoOpeningTotal =
+    (stuccoWindowOpenings || 0) + (stuccoGarageOpenings || 0);
+  if (stuccoOpeningTotal > 0) {
+    hasOpeningEvidence = true;
+    if (!(openingDeduction > 0)) openingDeduction = stuccoOpeningTotal;
+  }
+  if (
+    !(positive(next.openingDeductionSqft) > 0) &&
+    hasOpeningEvidence &&
+    openingDeduction > 0
+  ) {
+    next.openingDeductionSqft = roundTenth(openingDeduction);
+    derivedKeys.push("openingDeductionSqft");
+    assumptions.push(
+      stuccoOpeningTotal > 0 && openingDeduction === stuccoOpeningTotal
+        ? `Opening deduction ${roundTenth(openingDeduction).toLocaleString()} SF from readable elevation window, door, and garage openings.`
+        : `Opening deduction ${roundTenth(openingDeduction).toLocaleString()} SF summed from dimensioned elevation opening areas.`,
+    );
+  }
+
+  const stuccoGross = positive(next.stuccoGrossWallSqft);
+  const stuccoNet = positive(next.stuccoNetWallSqft);
+  const resolvedOpenings = positive(next.openingDeductionSqft) || openingDeduction;
+  if (!(positive(next.exteriorWallInsulationSqft) > 0)) {
+    if (stuccoNet > 0) {
+      next.exteriorWallInsulationSqft = roundTenth(stuccoNet);
+      derivedKeys.push("exteriorWallInsulationSqft");
+      assumptions.push(
+        `Exterior wall insulation ${roundTenth(stuccoNet).toLocaleString()} SF from readable elevation gross wall area minus verified openings.`,
+      );
+    } else if (stuccoGross > 0) {
+      const net = Math.max(
+        0,
+        stuccoGross - (resolvedOpenings > 0 ? resolvedOpenings : 0),
+      );
+      if (net > 0) {
+        next.exteriorWallInsulationSqft = roundTenth(net);
+        derivedKeys.push("exteriorWallInsulationSqft");
+        assumptions.push(
+          resolvedOpenings > 0
+            ? `Exterior wall insulation ${roundTenth(net).toLocaleString()} SF from readable elevation gross wall area minus verified openings.`
+            : `Exterior wall insulation ${roundTenth(net).toLocaleString()} SF from readable elevation gross wall area; opening deductions still need confirmation.`,
+        );
+      }
+    }
+  }
+
+  const perimeter =
+    positive(planFacts?.exteriorPerimeterLf) ||
+    positive(planFacts?.foundationPerimeterLf);
+  const stories = positive(planFacts?.storyCount);
+  const height = perStoryWallHeightFromPlanFacts(
+    planFacts,
+    stories > 1 ? stories : 1,
+  );
+  if (
+    !(positive(next.exteriorWallInsulationSqft) > 0) &&
+    perimeter &&
+    height &&
+    stories &&
+    hasOpeningEvidence
+  ) {
+    const gross = perimeter * height * stories;
+    const net = Math.max(0, gross - (resolvedOpenings || 0));
+    if (net > 0) {
+      next.exteriorWallInsulationSqft = roundTenth(net);
+      derivedKeys.push("exteriorWallInsulationSqft");
+      assumptions.push(
+        `Exterior wall insulation ${roundTenth(net).toLocaleString()} SF calculated from verified perimeter × wall height × stories minus verified openings.`,
+      );
+    }
+  }
+  return { measurements: next, derivedKeys, assumptions };
 }
 
 function buildSystemPrompt() {
@@ -954,7 +1208,8 @@ Counting contract (most important):
 - For every non-symbol quantity or explicitly labeled quantity, return electricalFieldEvidence[field] with the page/sheet and the printed label or source text. A quantity without a traceable field evidence reference cannot be Plan verified.
 - serviceAmperage ONLY when a printed amperage callout exists (200A, 125A, 150A). Never infer amperage from house size or from seeing a panel box. If it is not printed, omit it and list serviceAmperage in unreadableFields.
 - Do NOT invent homeruns, breaker counts, conduit LF, trench LF, rough/trim packages, job condition, or living SF. Device symbols do not create circuit relationships.
-- Leave rooms[] empty. Do not extract kitchen/bath/living square footage on this pass.
+- When total living area and/or story count is readable on cover sheets or floor plans, populate planFacts.buildingAreas.totalLivingSqft and planFacts.storyCount (1, 2, or 3) with fieldEvidence. These planFacts drive project-complexity labor adjustment in Confirm Scope only — never use living SF or story count to derive device/circuit quantities.
+- Leave rooms[] empty. Do not extract kitchen/bath/living square footage into measurements on this pass.
 - imageQuality: "good" if Electrical symbols or labels are visible, "partial" if some are, "unreadable" only if the attached images are blank or not Electrical sheets.
 - For every key in measurements, add fieldConfidence 0-1. Symbol counts you can see should be 0.7-0.95.
 - inferredKeys: keys guessed from room type or wet-location (probable GFCI in a bath) rather than counted symbols or printed tags.
@@ -1084,16 +1339,22 @@ Schema:
 }`;
 }
 
-function visionSystemPrompt(electricalSelected, plumbingSelected) {
+function visionSystemPrompt(
+  electricalSelected,
+  plumbingSelected,
+  insulationSelected,
+) {
   if (electricalSelected) return buildElectricalSystemPrompt();
   if (plumbingSelected) return buildPlumbingSystemPrompt();
-  return buildSystemPrompt();
+  return `${buildSystemPrompt()}${
+    insulationSelected ? `\n${INSULATION_VISION_INSTRUCTIONS}` : ""
+  }`;
 }
 
 function sanitizeRooms(rawRooms) {
   const out = [];
   for (const room of Array.isArray(rawRooms) ? rawRooms : []) {
-    const name = String(room?.name || '')
+    const name = String(room?.name || "")
       .trim()
       .slice(0, 80);
     if (!name) continue;
@@ -1103,19 +1364,26 @@ function sanitizeRooms(rawRooms) {
     if (areaSqft == null && lengthFt != null && widthFt != null) {
       areaSqft = Math.round(lengthFt * widthFt * 10) / 10;
     }
-    let measurementKey = room.measurementKey ? String(room.measurementKey).trim() : null;
-    if (measurementKey && !MEASUREMENT_KEYS.has(measurementKey)) measurementKey = null;
+    let measurementKey = room.measurementKey
+      ? String(room.measurementKey).trim()
+      : null;
+    if (measurementKey && !MEASUREMENT_KEYS.has(measurementKey))
+      measurementKey = null;
     if (!measurementKey) {
       const n = name.toLowerCase();
-      if (/bath|powder|toilet/.test(n)) measurementKey = 'bathroomFloorSqft';
-      else if (/kitchen/.test(n)) measurementKey = 'kitchenFloorSqft';
-      else if (/deck|patio|roof\s*deck/.test(n)) measurementKey = 'deckSqft';
-      else if (/garage|storage|mechanical|closet|w\.?i\.?c/.test(n)) measurementKey = null;
+      if (/bath|powder|toilet/.test(n)) measurementKey = "bathroomFloorSqft";
+      else if (/kitchen/.test(n)) measurementKey = "kitchenFloorSqft";
+      else if (/deck|patio|roof\s*deck/.test(n)) measurementKey = "deckSqft";
+      else if (/garage|storage|mechanical|closet|w\.?i\.?c/.test(n))
+        measurementKey = null;
       // Living/bedroom/etc. stay in rooms list for notes — do not map a single room to floorAreaSqft
       else measurementKey = null;
     }
     // Never let a single room claim whole-house floor area
-    if (measurementKey === 'floorAreaSqft' || measurementKey === 'flooringSqft') {
+    if (
+      measurementKey === "floorAreaSqft" ||
+      measurementKey === "flooringSqft"
+    ) {
       measurementKey = null;
     }
     const entry = {
@@ -1131,28 +1399,30 @@ function sanitizeRooms(rawRooms) {
     if (Number.isInteger(sourcePage) && sourcePage > 0 && sourcePage <= 1000) {
       entry.sourcePage = sourcePage;
     }
-    if (room.sourceSheet) entry.sourceSheet = String(room.sourceSheet).trim().slice(0, 20);
+    if (room.sourceSheet)
+      entry.sourceSheet = String(room.sourceSheet).trim().slice(0, 20);
     out.push(entry);
   }
   return out.slice(0, 60);
 }
 
 function roomNameKey(name) {
-  return String(name || '')
+  return String(name || "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
 
 /** Prefer spatially paired PDF rooms; add vision-only rooms that don't collide. */
 function mergeRoomsPreferPdf(pdfRooms, visionRooms) {
   const out = [...(Array.isArray(pdfRooms) ? pdfRooms : [])];
-  const seen = new Set(out.map(r => roomNameKey(r.name)));
+  const seen = new Set(out.map((r) => roomNameKey(r.name)));
   for (const room of Array.isArray(visionRooms) ? visionRooms : []) {
     const key = roomNameKey(room.name);
     if (!key || seen.has(key)) continue;
     // Don't let vision re-add a vague "Garage" envelope when PDF already has garage bays
-    if (/^garage$/.test(key) && [...seen].some(k => /garage/.test(k))) continue;
+    if (/^garage$/.test(key) && [...seen].some((k) => /garage/.test(k)))
+      continue;
     out.push(room);
     seen.add(key);
   }
@@ -1160,7 +1430,7 @@ function mergeRoomsPreferPdf(pdfRooms, visionRooms) {
 }
 
 function isPlainGarageName(name) {
-  return /^garages?$/i.test(String(name || '').trim());
+  return /^garages?$/i.test(String(name || "").trim());
 }
 
 /**
@@ -1170,11 +1440,14 @@ function isPlainGarageName(name) {
  */
 function pruneEnvelopeGarageRooms(rooms) {
   const list = Array.isArray(rooms) ? rooms : [];
-  const garageLike = list.filter(r => /\bgarage\b/i.test(r.name || ''));
+  const garageLike = list.filter((r) => /\bgarage\b/i.test(r.name || ""));
   if (garageLike.length < 2) return list;
-  const hasNamedBay = garageLike.some(r => !isPlainGarageName(r.name) || (r.areaSqft != null && r.areaSqft < 700));
+  const hasNamedBay = garageLike.some(
+    (r) =>
+      !isPlainGarageName(r.name) || (r.areaSqft != null && r.areaSqft < 700),
+  );
   if (!hasNamedBay) return list;
-  return list.filter(r => {
+  return list.filter((r) => {
     if (!isPlainGarageName(r.name)) return true;
     const lengthFt = Number(r.lengthFt) || 0;
     const widthFt = Number(r.widthFt) || 0;
@@ -1188,28 +1461,36 @@ function pruneEnvelopeGarageRooms(rooms) {
 }
 
 /** Never keep bath SF the model invented when no bath rooms have readable area. */
-function reconcileBathroomMeasurement(measurements, rooms, unreadableFields = []) {
+function reconcileBathroomMeasurement(
+  measurements,
+  rooms,
+  unreadableFields = [],
+) {
   const next = { ...measurements };
   const bathRooms = (rooms || []).filter(
-    r => r.measurementKey === 'bathroomFloorSqft' && r.areaSqft != null && r.areaSqft > 0
+    (r) =>
+      r.measurementKey === "bathroomFloorSqft" &&
+      r.areaSqft != null &&
+      r.areaSqft > 0,
   );
   if (!bathRooms.length) {
     if (next.bathroomFloorSqft != null) {
       unreadableFields.push({
-        field: 'bathroomFloorSqft',
-        reason: 'No bathroom dimensions labeled on plan',
+        field: "bathroomFloorSqft",
+        reason: "No bathroom dimensions labeled on plan",
       });
       delete next.bathroomFloorSqft;
     }
     return next;
   }
-  const sum = Math.round(bathRooms.reduce((s, r) => s + r.areaSqft, 0) * 10) / 10;
+  const sum =
+    Math.round(bathRooms.reduce((s, r) => s + r.areaSqft, 0) * 10) / 10;
   next.bathroomFloorSqft = sum;
   return next;
 }
 
 function sanitizeFieldConfidence(raw) {
-  if (!raw || typeof raw !== 'object') return {};
+  if (!raw || typeof raw !== "object") return {};
   const out = {};
   for (const [key, value] of Object.entries(raw)) {
     if (!MEASUREMENT_KEYS.has(key)) continue;
@@ -1220,19 +1501,30 @@ function sanitizeFieldConfidence(raw) {
   return out;
 }
 
-function collectUnclassifiedElectricalFixtures({ measurements, pdfTakeoff, unreadableFields } = {}) {
+function collectUnclassifiedElectricalFixtures({
+  measurements,
+  pdfTakeoff,
+  unreadableFields,
+} = {}) {
   const nextMeasurements = { ...(measurements || {}) };
   const visionCount = Number(nextMeasurements.unclassifiedFixtureCount);
   delete nextMeasurements.unclassifiedFixtureCount;
-  const tagCount = Number(pdfTakeoff?.electricalInstanceTags?.unclassifiedFixtureCount);
+  const tagCount = Number(
+    pdfTakeoff?.electricalInstanceTags?.unclassifiedFixtureCount,
+  );
   const count = [visionCount, tagCount]
-    .filter(value => Number.isFinite(value) && value >= 2)
+    .filter((value) => Number.isFinite(value) && value >= 2)
     .reduce((max, value) => Math.max(max, Math.round(value)), 0);
-  const nextUnreadable = Array.isArray(unreadableFields) ? [...unreadableFields] : [];
-  const already = nextUnreadable.some(entry => String(entry?.field || entry?.key || '') === 'unclassifiedFixtureCount');
+  const nextUnreadable = Array.isArray(unreadableFields)
+    ? [...unreadableFields]
+    : [];
+  const already = nextUnreadable.some(
+    (entry) =>
+      String(entry?.field || entry?.key || "") === "unclassifiedFixtureCount",
+  );
   if (count >= 2 && !already) {
     nextUnreadable.push({
-      field: 'unclassifiedFixtureCount',
+      field: "unclassifiedFixtureCount",
       reason: `${count} lighting fixtures without a symbol legend`,
     });
   }
@@ -1243,14 +1535,14 @@ function sanitizeUnreadableFields(raw) {
   const seen = new Set();
   const out = [];
   for (const entry of Array.isArray(raw) ? raw : []) {
-    const field = String(entry?.field || entry?.key || '')
+    const field = String(entry?.field || entry?.key || "")
       .trim()
       .slice(0, 60);
     if (!field || seen.has(field)) continue;
     seen.add(field);
     out.push({
       field,
-      reason: String(entry?.reason || 'Not legible on the plan')
+      reason: String(entry?.reason || "Not legible on the plan")
         .trim()
         .slice(0, 160),
     });
@@ -1259,10 +1551,10 @@ function sanitizeUnreadableFields(raw) {
 }
 
 function sanitizeImageQuality(raw) {
-  const q = String(raw || '')
+  const q = String(raw || "")
     .trim()
     .toLowerCase();
-  return ['good', 'partial', 'unreadable'].includes(q) ? q : null;
+  return ["good", "partial", "unreadable"].includes(q) ? q : null;
 }
 
 /**
@@ -1289,74 +1581,88 @@ function applyConfidenceFloor(measurements, fieldConfidence) {
 }
 
 function sanitizeBuildingAreas(raw) {
-  if (!raw || typeof raw !== 'object') return {};
+  if (!raw || typeof raw !== "object") return {};
   const out = {};
   for (const key of [
-    'totalLivingSqft',
-    'mainFloorLivingSqft',
-    'upstairsLivingSqft',
-    'garageSqft',
-    'coveredPatioSqft',
-    'coveredOutdoorSqft',
-    'roofDeckSqft',
+    "totalLivingSqft",
+    "mainFloorLivingSqft",
+    "upstairsLivingSqft",
+    "garageSqft",
+    "coveredPatioSqft",
+    "coveredOutdoorSqft",
+    "roofDeckSqft",
   ]) {
     const v = positive(raw[key]);
     if (v != null) out[key] = Math.round(v * 10) / 10;
   }
-  const additional = (Array.isArray(raw.additionalFloorAreas) ? raw.additionalFloorAreas : [])
+  const additional = (
+    Array.isArray(raw.additionalFloorAreas) ? raw.additionalFloorAreas : []
+  )
     .map(positive)
-    .filter(v => v != null)
-    .map(v => Math.round(v * 10) / 10)
+    .filter((v) => v != null)
+    .map((v) => Math.round(v * 10) / 10)
     .slice(0, 4);
   if (additional.length) out.additionalFloorAreas = additional;
   if (out.totalLivingSqft == null) {
-    const parts = [out.mainFloorLivingSqft, out.upstairsLivingSqft, ...(out.additionalFloorAreas || [])].filter(
-      v => v != null
-    );
+    const parts = [
+      out.mainFloorLivingSqft,
+      out.upstairsLivingSqft,
+      ...(out.additionalFloorAreas || []),
+    ].filter((v) => v != null);
     if (parts.length) {
-      out.totalLivingSqft = Math.round(parts.reduce((s, v) => s + v, 0) * 10) / 10;
+      out.totalLivingSqft =
+        Math.round(parts.reduce((s, v) => s + v, 0) * 10) / 10;
     }
   }
   return out;
 }
 
-const EVIDENCE_SOURCE_TYPES = new Set(['pdf_text', 'plan_vision', 'user', 'unknown']);
-const FACT_SOURCE_TYPES = new Set([
-  'detected_from_plan',
-  'measured_from_geometry',
-  'user_entered',
-  'needs_confirmation',
+const EVIDENCE_SOURCE_TYPES = new Set([
+  "pdf_text",
+  "plan_vision",
+  "user",
+  "unknown",
 ]);
-const FACT_CONFIDENCE = new Set(['high', 'medium', 'low', 'unresolved']);
+const FACT_SOURCE_TYPES = new Set([
+  "detected_from_plan",
+  "measured_from_geometry",
+  "user_entered",
+  "needs_confirmation",
+]);
+const FACT_CONFIDENCE = new Set(["high", "medium", "low", "unresolved"]);
 const GEOMETRY_KINDS = new Set([
-  'living_footprint',
-  'garage_footprint',
-  'covered_patio',
-  'roof_plane',
-  'foundation',
-  'courtyard',
-  'detached_structure',
-  'other',
+  "living_footprint",
+  "garage_footprint",
+  "covered_patio",
+  "roof_plane",
+  "foundation",
+  "courtyard",
+  "detached_structure",
+  "other",
 ]);
 
 function sanitizeEvidence(raw) {
   const out = [];
   for (const item of Array.isArray(raw) ? raw : []) {
-    if (!item || typeof item !== 'object') continue;
+    if (!item || typeof item !== "object") continue;
     const entry = {};
     const page = Number(item.page ?? item.sourcePage);
     if (Number.isInteger(page) && page > 0 && page <= 1000) entry.page = page;
-    const sheet = String(item.sheet ?? item.sourceSheet ?? '').trim();
+    const sheet = String(item.sheet ?? item.sourceSheet ?? "").trim();
     if (sheet) entry.sheet = sheet.slice(0, 20);
-    const label = String(item.label || '').trim();
+    const label = String(item.label || "").trim();
     if (label) entry.label = label.slice(0, 80);
-    const sourceText = String(item.sourceText || '').trim();
+    const sourceText = String(item.sourceText || "").trim();
     if (sourceText) entry.sourceText = sourceText.slice(0, 200);
-    const sourceType = String(item.sourceType || '').trim();
-    entry.sourceType = EVIDENCE_SOURCE_TYPES.has(sourceType) ? sourceType : 'unknown';
+    const sourceType = String(item.sourceType || "").trim();
+    entry.sourceType = EVIDENCE_SOURCE_TYPES.has(sourceType)
+      ? sourceType
+      : "unknown";
     const confidence = Number(item.confidence);
-    if (Number.isFinite(confidence)) entry.confidence = Math.max(0, Math.min(1, confidence));
-    if (entry.page || entry.sheet || entry.label || entry.sourceText) out.push(entry);
+    if (Number.isFinite(confidence))
+      entry.confidence = Math.max(0, Math.min(1, confidence));
+    if (entry.page || entry.sheet || entry.label || entry.sourceText)
+      out.push(entry);
   }
   return out.slice(0, 12);
 }
@@ -1364,48 +1670,56 @@ function sanitizeEvidence(raw) {
 function sanitizeGeometry(raw) {
   const regions = [];
   for (const region of Array.isArray(raw) ? raw : []) {
-    const id = String(region?.id || '')
+    const id = String(region?.id || "")
       .trim()
       .slice(0, 60);
-    const kind = String(region?.kind || '').trim();
+    const kind = String(region?.kind || "").trim();
     if (!id || !GEOMETRY_KINDS.has(kind)) continue;
     const entry = { id, kind };
-    for (const key of ['areaSqft', 'perimeterLf']) {
+    for (const key of ["areaSqft", "perimeterLf"]) {
       const value = positive(region[key]);
       if (value != null) entry[key] = Math.round(value * 100) / 100;
     }
-    if (typeof region.pitch === 'string' && /^\d{1,2}\s*[:/]\s*12$/.test(region.pitch.trim())) {
-      entry.pitch = region.pitch.trim().replace('/', ':').replace(/\s+/g, '');
+    if (
+      typeof region.pitch === "string" &&
+      /^\d{1,2}\s*[:/]\s*12$/.test(region.pitch.trim())
+    ) {
+      entry.pitch = region.pitch.trim().replace("/", ":").replace(/\s+/g, "");
     }
-    for (const key of ['isRoofed', 'isIncluded']) {
-      if (typeof region[key] === 'boolean') entry[key] = region[key];
+    for (const key of ["isRoofed", "isIncluded"]) {
+      if (typeof region[key] === "boolean") entry[key] = region[key];
     }
     const points = (Array.isArray(region.points) ? region.points : [])
-      .map(point => ({ x: Number(point?.x), y: Number(point?.y) }))
-      .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y))
+      .map((point) => ({ x: Number(point?.x), y: Number(point?.y) }))
+      .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
       .slice(0, 500);
     if (points.length >= 3) entry.points = points;
     const evidence = sanitizeEvidence(region.evidence);
     if (evidence.length) entry.evidence = evidence;
     // Geometry is accepted only when it contains supplied dimensions or points.
-    if (entry.areaSqft != null || entry.perimeterLf != null || entry.points) regions.push(entry);
+    if (entry.areaSqft != null || entry.perimeterLf != null || entry.points)
+      regions.push(entry);
   }
   return regions.slice(0, 100);
 }
 
 function sanitizePlanFacts(raw, buildingAreas = {}) {
-  const src = raw && typeof raw === 'object' ? raw : {};
+  const src = raw && typeof raw === "object" ? raw : {};
   const fieldEvidence = {};
   for (const [key, fact] of Object.entries(src.fieldEvidence || {})) {
-    if (!fact || typeof fact !== 'object') continue;
+    if (!fact || typeof fact !== "object") continue;
     const evidence = sanitizeEvidence(fact.evidence);
     if (!evidence.length) continue;
-    const sourceType = String(fact.sourceType || '');
-    const confidence = String(fact.confidence || '');
+    const sourceType = String(fact.sourceType || "");
+    const confidence = String(fact.confidence || "");
     fieldEvidence[String(key).slice(0, 80)] = {
-      value: ['string', 'number', 'boolean'].includes(typeof fact.value) ? fact.value : null,
-      sourceType: FACT_SOURCE_TYPES.has(sourceType) ? sourceType : 'detected_from_plan',
-      confidence: FACT_CONFIDENCE.has(confidence) ? confidence : 'medium',
+      value: ["string", "number", "boolean"].includes(typeof fact.value)
+        ? fact.value
+        : null,
+      sourceType: FACT_SOURCE_TYPES.has(sourceType)
+        ? sourceType
+        : "detected_from_plan",
+      confidence: FACT_CONFIDENCE.has(confidence) ? confidence : "medium",
       evidence,
     };
   }
@@ -1413,76 +1727,118 @@ function sanitizePlanFacts(raw, buildingAreas = {}) {
     buildingAreas: sanitizeBuildingAreas(buildingAreas),
     fieldEvidence,
   };
-  const hasEvidence = key => Boolean(fieldEvidence[key]?.evidence?.length);
+  const hasEvidence = (key) => Boolean(fieldEvidence[key]?.evidence?.length);
   const storyCount = Number(src.storyCount);
-  if (hasEvidence('storyCount') && Number.isInteger(storyCount) && storyCount >= 1 && storyCount <= 10) {
+  if (
+    hasEvidence("storyCount") &&
+    Number.isInteger(storyCount) &&
+    storyCount >= 1 &&
+    storyCount <= 10
+  ) {
     out.storyCount = storyCount;
   }
-  if (hasEvidence('roofPitch')) {
-    const pitch = String(src.roofPitch || '')
+  if (hasEvidence("roofPitch")) {
+    const pitch = String(src.roofPitch || "")
       .trim()
       .toLowerCase();
-    if (/^\d{1,2}\s*[:/]\s*12$/.test(pitch)) out.roofPitch = pitch.replace('/', ':').replace(/\s+/g, '');
-    else if (pitch === 'low-slope') out.roofPitch = pitch;
+    if (/^\d{1,2}\s*[:/]\s*12$/.test(pitch))
+      out.roofPitch = pitch.replace("/", ":").replace(/\s+/g, "");
+    else if (pitch === "low-slope") out.roofPitch = pitch;
   }
-  for (const key of ['wallHeightFt', 'plateHeightFt', 'ceilingHeightFt']) {
+  for (const key of ["wallHeightFt", "plateHeightFt", "ceilingHeightFt"]) {
     const value = positive(src[key]);
-    if (hasEvidence(key) && value != null && value <= 40) out[key] = Math.round(value * 1000) / 1000;
+    if (hasEvidence(key) && value != null && value <= 40)
+      out[key] = Math.round(value * 1000) / 1000;
   }
   for (const key of [
-    'exteriorPerimeterLf',
-    'foundationPerimeterLf',
-    'foundationFootprintSqft',
-    'roofedFootprintSqft',
+    "exteriorPerimeterLf",
+    "foundationPerimeterLf",
+    "foundationFootprintSqft",
+    "roofedFootprintSqft",
   ]) {
     const value = positive(src[key]);
     if (hasEvidence(key) && value != null && value <= 50000) {
       out[key] = Math.round(value * 10) / 10;
     }
   }
-  for (const key of ['nonPaintedExteriorPercent', 'openingsPercent', 'roofWastePercent']) {
+  for (const key of [
+    "nonPaintedExteriorPercent",
+    "openingsPercent",
+    "roofWastePercent",
+  ]) {
     const value = Number(src[key]);
-    if (hasEvidence(key) && Number.isFinite(value) && value >= 0 && value <= 100) {
+    if (
+      hasEvidence(key) &&
+      Number.isFinite(value) &&
+      value >= 0 &&
+      value <= 100
+    ) {
       out[key] = Math.round(value * 10) / 10;
     }
   }
-  if (hasEvidence('coveredPatioRoofed') && typeof src.coveredPatioRoofed === 'boolean') {
+  for (const key of ["insulationMaterialType", "insulationRValue"]) {
+    const value = String(src[key] || "").trim();
+    if (hasEvidence(key) && value) out[key] = value.slice(0, 80);
+  }
+  if (
+    hasEvidence("garageInsulationIncluded") &&
+    typeof src.garageInsulationIncluded === "boolean"
+  ) {
+    out.garageInsulationIncluded = src.garageInsulationIncluded;
+  }
+  if (
+    hasEvidence("coveredPatioRoofed") &&
+    typeof src.coveredPatioRoofed === "boolean"
+  ) {
     out.coveredPatioRoofed = src.coveredPatioRoofed;
   }
-  if (hasEvidence('includeCoveredPatioSlab') && typeof src.includeCoveredPatioSlab === 'boolean') {
+  if (
+    hasEvidence("includeCoveredPatioSlab") &&
+    typeof src.includeCoveredPatioSlab === "boolean"
+  ) {
     out.includeCoveredPatioSlab = src.includeCoveredPatioSlab;
   }
   const geometry = sanitizeGeometry(src.geometry);
   if (geometry.length) out.geometry = geometry;
-  const elevationFaces = (Array.isArray(src.elevationFaces) ? src.elevationFaces : [])
-    .map(face => {
+  const elevationFaces = (
+    Array.isArray(src.elevationFaces) ? src.elevationFaces : []
+  )
+    .map((face) => {
       const entry = {
-        id: String(face?.id || '')
+        id: String(face?.id || "")
           .trim()
           .slice(0, 40),
       };
       for (const key of [
-        'widthFt',
-        'heightFt',
-        'areaSqft',
-        'stuccoAreaSqft',
-        'paintAreaSqft',
-        'openingsSqft',
-        'windowDoorOpeningsSqft',
-        'garageOpeningsSqft',
-        'nonStuccoSqft',
-        'parapetSqft',
+        "widthFt",
+        "heightFt",
+        "areaSqft",
+        "stuccoAreaSqft",
+        "paintAreaSqft",
+        "openingsSqft",
+        "windowDoorOpeningsSqft",
+        "garageOpeningsSqft",
+        "nonStuccoSqft",
+        "parapetSqft",
       ]) {
         const value = positive(face?.[key]);
-        if (value != null && value <= 50000) entry[key] = Math.round(value * 10) / 10;
+        if (value != null && value <= 50000)
+          entry[key] = Math.round(value * 10) / 10;
       }
       const evidence = sanitizeEvidence(face?.evidence);
       if (evidence.length) entry.evidence = evidence;
-      const finish = String(face?.finish || face?.cladding || '')
+      const finish = String(face?.finish || face?.cladding || "")
         .trim()
         .slice(0, 40);
       if (finish) entry.finish = finish;
-      return entry.id && (entry.areaSqft || entry.stuccoAreaSqft || entry.paintAreaSqft || entry.widthFt)
+      return entry.id &&
+        (entry.areaSqft ||
+          entry.stuccoAreaSqft ||
+          entry.paintAreaSqft ||
+          entry.widthFt ||
+          entry.windowDoorOpeningsSqft ||
+          entry.garageOpeningsSqft ||
+          entry.openingsSqft)
         ? entry
         : null;
     })
@@ -1490,10 +1846,10 @@ function sanitizePlanFacts(raw, buildingAreas = {}) {
     .slice(0, 8);
   if (elevationFaces.length) out.elevationFaces = elevationFaces;
   const warnings = (Array.isArray(src.warnings) ? src.warnings : [])
-    .map(warning =>
-      String(warning || '')
+    .map((warning) =>
+      String(warning || "")
         .trim()
-        .slice(0, 200)
+        .slice(0, 200),
     )
     .filter(Boolean)
     .slice(0, 10);
@@ -1506,21 +1862,25 @@ function reconcileLabeledLivingAreas(buildingAreas, current = null) {
     positive(buildingAreas.mainFloorLivingSqft),
     positive(buildingAreas.upstairsLivingSqft),
     ...(buildingAreas.additionalFloorAreas || []).map(positive),
-  ].filter(value => value != null);
+  ].filter((value) => value != null);
   const cover = positive(buildingAreas.totalLivingSqft);
   if (!cover || !floors.length) return current;
-  const floorLivingSqft = Math.round(floors.reduce((sum, value) => sum + value, 0) * 10) / 10;
+  const floorLivingSqft =
+    Math.round(floors.reduce((sum, value) => sum + value, 0) * 10) / 10;
   const floorDeltaSqft = Math.round((floorLivingSqft - cover) * 10) / 10;
   return {
     ...(current || {}),
     coverTotalLivingSqft: cover,
     floorLivingSqft,
     floorDeltaSqft,
-    floorAreaStatus: Math.abs(floorDeltaSqft) < 0.6 ? 'reconciled' : 'review',
+    floorAreaStatus: Math.abs(floorDeltaSqft) < 0.6 ? "reconciled" : "review",
     warnings:
       Math.abs(floorDeltaSqft) < 0.6
         ? current?.warnings || []
-        : [...(current?.warnings || []), `Labeled floor areas differ from the cover total by ${floorDeltaSqft} sqft.`],
+        : [
+            ...(current?.warnings || []),
+            `Labeled floor areas differ from the cover total by ${floorDeltaSqft} sqft.`,
+          ],
   };
 }
 
@@ -1528,7 +1888,7 @@ function scheduleDeckSqft(buildingAreas) {
   const patio = positive(buildingAreas.coveredPatioSqft);
   const roofDeck = positive(buildingAreas.roofDeckSqft);
   const coveredOutdoor = positive(buildingAreas.coveredOutdoorSqft);
-  const parts = [patio, roofDeck].filter(v => v != null);
+  const parts = [patio, roofDeck].filter((v) => v != null);
   if (parts.length) {
     return Math.round(parts.reduce((s, v) => s + v, 0) * 10) / 10;
   }
@@ -1542,32 +1902,40 @@ function isPatioLikeConcreteValue(concreteSqft, buildingAreas) {
     positive(buildingAreas.roofDeckSqft),
     positive(buildingAreas.coveredOutdoorSqft),
     scheduleDeckSqft(buildingAreas),
-  ].filter(v => v != null);
-  return patioValues.some(v => Math.abs(v - concreteSqft) < 0.6);
+  ].filter((v) => v != null);
+  return patioValues.some((v) => Math.abs(v - concreteSqft) < 0.6);
 }
 
-function sanitizeMeasurements(raw, rooms, buildingAreas = {}, explicitlyLabeled = []) {
+function sanitizeMeasurements(
+  raw,
+  rooms,
+  buildingAreas = {},
+  explicitlyLabeled = [],
+) {
   const out = {};
-  const src = raw && typeof raw === 'object' ? raw : {};
+  const src = raw && typeof raw === "object" ? raw : {};
   const labeled = new Set(
     (Array.isArray(explicitlyLabeled) ? explicitlyLabeled : [])
-      .map(k => String(k || '').trim())
-      .filter(k => MEASUREMENT_KEYS.has(k))
+      .map((k) => String(k || "").trim())
+      .filter((k) => MEASUREMENT_KEYS.has(k)),
   );
 
   for (const key of MEASUREMENT_KEYS) {
-    if (key === 'roofPitch') {
-      const pitch = String(src[key] || '')
+    if (key === "roofPitch") {
+      const pitch = String(src[key] || "")
         .trim()
         .slice(0, 20);
-      if (/^\d+(?:\s*:\s*|\s*\/\s*)\d+$/.test(pitch) || /^low[- ]slope$/i.test(pitch)) {
-        out[key] = pitch.replace(/\s+/g, '');
+      if (
+        /^\d+(?:\s*:\s*|\s*\/\s*)\d+$/.test(pitch) ||
+        /^low[- ]slope$/i.test(pitch)
+      ) {
+        out[key] = pitch.replace(/\s+/g, "");
       }
       continue;
     }
     const v = positive(src[key]);
     if (v == null) continue;
-    if (key === 'interiorDoorCount') {
+    if (key === "interiorDoorCount") {
       const count = Math.round(v);
       if (count >= 1 && count <= 80) out[key] = count;
       continue;
@@ -1603,27 +1971,50 @@ function sanitizeMeasurements(raw, rooms, buildingAreas = {}, explicitlyLabeled 
   }
 
   // If vision stuffed patio SF into concreteSqft, move it to deck
-  if (out.concreteSqft != null && isPatioLikeConcreteValue(out.concreteSqft, buildingAreas)) {
+  if (
+    out.concreteSqft != null &&
+    isPatioLikeConcreteValue(out.concreteSqft, buildingAreas)
+  ) {
     if (out.deckSqft == null) out.deckSqft = out.concreteSqft;
     delete out.concreteSqft;
   }
   // Also catch unlabeled concrete that matched patio before we stripped it
   const rawConcrete = positive(src.concreteSqft);
-  if (out.deckSqft == null && rawConcrete != null && isPatioLikeConcreteValue(rawConcrete, buildingAreas)) {
+  if (
+    out.deckSqft == null &&
+    rawConcrete != null &&
+    isPatioLikeConcreteValue(rawConcrete, buildingAreas)
+  ) {
     out.deckSqft = rawConcrete;
   }
   // Never keep the same number in both deck and concrete — covered patio is deck.
-  if (out.concreteSqft != null && out.deckSqft != null && Math.abs(out.concreteSqft - out.deckSqft) < 0.6) {
+  if (
+    out.concreteSqft != null &&
+    out.deckSqft != null &&
+    Math.abs(out.concreteSqft - out.deckSqft) < 0.6
+  ) {
     delete out.concreteSqft;
   }
 
   // Aggregate kitchen/bath/deck rooms when vision omitted the measurements map
   const byKey = new Map();
   for (const room of rooms) {
-    if (!room.measurementKey || room.areaSqft == null || room.confidence < 0.4) continue;
-    if (LABELED_ONLY_KEYS.has(room.measurementKey) && !labeled.has(room.measurementKey)) continue;
-    if (CONCRETE_EXPLICIT_KEYS.has(room.measurementKey) && !labeled.has(room.measurementKey)) continue;
-    byKey.set(room.measurementKey, (byKey.get(room.measurementKey) || 0) + room.areaSqft);
+    if (!room.measurementKey || room.areaSqft == null || room.confidence < 0.4)
+      continue;
+    if (
+      LABELED_ONLY_KEYS.has(room.measurementKey) &&
+      !labeled.has(room.measurementKey)
+    )
+      continue;
+    if (
+      CONCRETE_EXPLICIT_KEYS.has(room.measurementKey) &&
+      !labeled.has(room.measurementKey)
+    )
+      continue;
+    byKey.set(
+      room.measurementKey,
+      (byKey.get(room.measurementKey) || 0) + room.areaSqft,
+    );
   }
   for (const [key, total] of byKey) {
     if (out[key] == null) out[key] = Math.round(total * 10) / 10;
@@ -1632,14 +2023,14 @@ function sanitizeMeasurements(raw, rooms, buildingAreas = {}, explicitlyLabeled 
   // Only sum rooms into floorAreaSqft when no schedule total exists
   if (out.floorAreaSqft == null) {
     const roomSum = rooms
-      .filter(r => r.areaSqft != null && r.confidence >= 0.4)
-      .filter(r => {
-        const n = String(r.name || '').toLowerCase();
+      .filter((r) => r.areaSqft != null && r.confidence >= 0.4)
+      .filter((r) => {
+        const n = String(r.name || "").toLowerCase();
         return !/garage|patio|deck|storage|mechanical|closet|w\.?i\.?c/.test(n);
       })
       .reduce((s, r) => s + r.areaSqft, 0);
     // Require a meaningful multi-room sum (avoid a single 40 SF bath becoming "Room floor")
-    if (roomSum >= 200 && rooms.filter(r => r.areaSqft != null).length >= 2) {
+    if (roomSum >= 200 && rooms.filter((r) => r.areaSqft != null).length >= 2) {
       out.floorAreaSqft = Math.round(roomSum * 10) / 10;
     }
   }
@@ -1654,32 +2045,32 @@ function sanitizeMeasurements(raw, rooms, buildingAreas = {}, explicitlyLabeled 
 function buildItemQuantities(measurements) {
   const itemQuantities = {};
   const map = {
-    flooringSqft: { key: 'flooring', unit: 'sqft' },
-    floorAreaSqft: { key: 'flooring', unit: 'sqft' },
-    drywallSqft: { key: 'drywall', unit: 'sqft' },
-    wallPaintSqft: { key: 'paint', unit: 'sqft' },
-    ceilingPaintSqft: { key: 'ceiling_paint', unit: 'sqft' },
-    interiorDoorCount: { key: 'door_paint', unit: 'each' },
-    cabinetRunLf: { key: 'cabinet_paint', unit: 'lf' },
-    exteriorPaintSqft: { key: 'exterior_paint', unit: 'sqft' },
-    baseboardLf: { key: 'trim', unit: 'lf' },
-    cabinetLf: { key: 'cabinets', unit: 'lf' },
-    countertopSqft: { key: 'countertops', unit: 'sqft' },
-    backsplashSqft: { key: 'backsplash', unit: 'sqft' },
-    roofSquares: { key: 'shingles_roofing', unit: 'squares' },
-    deckSqft: { key: 'deck', unit: 'sqft' },
-    concreteSqft: { key: 'concrete', unit: 'sqft' },
-    serviceCallCount: { key: 'service_call', unit: 'each' },
-    fixtureRepairCount: { key: 'fixture_repair', unit: 'each' },
-    fixtureReplacementCount: { key: 'fixture_replace', unit: 'each' },
-    drainCleaningCount: { key: 'drain_cleaning', unit: 'each' },
-    waterLineLf: { key: 'water_line', unit: 'lf' },
-    sewerLineLf: { key: 'sewer_line', unit: 'lf' },
-    plumbingRoughPointCount: { key: 'plumbing_rough', unit: 'each' },
-    plumbingTrimHookupCount: { key: 'plumbing_trim', unit: 'each' },
-    partsMaterialsCount: { key: 'parts_materials', unit: 'allowance' },
-    emergencyFeeCount: { key: 'emergency_fee', unit: 'allowance' },
-    plumbingCleanupCount: { key: 'cleanup', unit: 'allowance' },
+    flooringSqft: { key: "flooring", unit: "sqft" },
+    floorAreaSqft: { key: "flooring", unit: "sqft" },
+    drywallSqft: { key: "drywall", unit: "sqft" },
+    wallPaintSqft: { key: "paint", unit: "sqft" },
+    ceilingPaintSqft: { key: "ceiling_paint", unit: "sqft" },
+    interiorDoorCount: { key: "door_paint", unit: "each" },
+    cabinetRunLf: { key: "cabinet_paint", unit: "lf" },
+    exteriorPaintSqft: { key: "exterior_paint", unit: "sqft" },
+    baseboardLf: { key: "trim", unit: "lf" },
+    cabinetLf: { key: "cabinets", unit: "lf" },
+    countertopSqft: { key: "countertops", unit: "sqft" },
+    backsplashSqft: { key: "backsplash", unit: "sqft" },
+    roofSquares: { key: "shingles_roofing", unit: "squares" },
+    deckSqft: { key: "deck", unit: "sqft" },
+    concreteSqft: { key: "concrete", unit: "sqft" },
+    serviceCallCount: { key: "service_call", unit: "each" },
+    fixtureRepairCount: { key: "fixture_repair", unit: "each" },
+    fixtureReplacementCount: { key: "fixture_replace", unit: "each" },
+    drainCleaningCount: { key: "drain_cleaning", unit: "each" },
+    waterLineLf: { key: "water_line", unit: "lf" },
+    sewerLineLf: { key: "sewer_line", unit: "lf" },
+    plumbingRoughPointCount: { key: "plumbing_rough", unit: "each" },
+    plumbingTrimHookupCount: { key: "plumbing_trim", unit: "each" },
+    partsMaterialsCount: { key: "parts_materials", unit: "allowance" },
+    emergencyFeeCount: { key: "emergency_fee", unit: "allowance" },
+    plumbingCleanupCount: { key: "cleanup", unit: "allowance" },
   };
   for (const [measKey, meta] of Object.entries(map)) {
     if (measurements[measKey] == null) continue;
@@ -1687,7 +2078,7 @@ function buildItemQuantities(measurements) {
     itemQuantities[meta.key] = {
       quantity: measurements[measKey],
       unit: meta.unit,
-      quantitySource: 'plan_vision',
+      quantitySource: "plan_vision",
     };
   }
   return itemQuantities;
@@ -1699,7 +2090,7 @@ function formatRoomInventoryLines(rooms) {
     const lengthFt = positive(room.lengthFt);
     const widthFt = positive(room.widthFt);
     const areaSqft = positive(room.areaSqft);
-    let dims = 'size unclear';
+    let dims = "size unclear";
     if (lengthFt != null && widthFt != null) {
       dims = `${lengthFt}×${widthFt} ft`;
       if (areaSqft != null) dims += ` (${areaSqft} sqft)`;
@@ -1713,16 +2104,18 @@ function formatRoomInventoryLines(rooms) {
 
 function formatNotesBlock({ notesBlock, rooms, measurements, buildingAreas }) {
   const lines = [];
-  const summary = notesBlock ? String(notesBlock).trim() : '';
+  const summary = notesBlock ? String(notesBlock).trim() : "";
   if (summary) {
     lines.push(summary);
   } else {
-    lines.push('Plan takeoff (confirm measurements):');
+    lines.push("Plan takeoff (confirm measurements):");
     if (buildingAreas?.totalLivingSqft != null) {
       lines.push(`- Total living: ${buildingAreas.totalLivingSqft} sqft`);
     }
     if (buildingAreas?.mainFloorLivingSqft != null) {
-      lines.push(`- Main floor living: ${buildingAreas.mainFloorLivingSqft} sqft`);
+      lines.push(
+        `- Main floor living: ${buildingAreas.mainFloorLivingSqft} sqft`,
+      );
     }
     if (buildingAreas?.upstairsLivingSqft != null) {
       lines.push(`- Upstairs living: ${buildingAreas.upstairsLivingSqft} sqft`);
@@ -1737,46 +2130,46 @@ function formatNotesBlock({ notesBlock, rooms, measurements, buildingAreas }) {
 
   const roomLines = formatRoomInventoryLines(rooms);
   if (roomLines.length && !/Room measurements:/i.test(summary)) {
-    if (lines.length) lines.push('');
-    lines.push('Room measurements:');
+    if (lines.length) lines.push("");
+    lines.push("Room measurements:");
     lines.push(...roomLines);
   }
 
   const keys = Object.keys(measurements || {});
   if (keys.length && !summary) {
-    lines.push(`Mapped fields: ${keys.join(', ')}`);
+    lines.push(`Mapped fields: ${keys.join(", ")}`);
   }
-  return lines.join('\n').trim().slice(0, 4000);
+  return lines.join("\n").trim().slice(0, 4000);
 }
 
 /**
  * Merge plan notes into job notes (idempotent marker).
  */
 function mergePlanNotesIntoJobNotes(existingNotes, notesBlock) {
-  const block = String(notesBlock || '').trim();
-  if (!block) return String(existingNotes || '').trim();
-  const marker = '--- Plan takeoff ---';
-  const existing = String(existingNotes || '');
+  const block = String(notesBlock || "").trim();
+  if (!block) return String(existingNotes || "").trim();
+  const marker = "--- Plan takeoff ---";
+  const existing = String(existingNotes || "");
   const withoutOld = existing.includes(marker)
     ? existing.slice(0, existing.indexOf(marker)).trimEnd()
     : existing.trimEnd();
-  return [withoutOld, '', marker, block]
-    .filter((p, i) => (i === 0 ? true : p !== ''))
-    .join('\n')
+  return [withoutOld, "", marker, block]
+    .filter((p, i) => (i === 0 ? true : p !== ""))
+    .join("\n")
     .trim();
 }
 
 function isPdfPayload(img) {
-  return String(img?.mimeType || '').toLowerCase() === PDF_MIME;
+  return String(img?.mimeType || "").toLowerCase() === PDF_MIME;
 }
 
 async function ensureCompatibleImage(img) {
-  const rawB64 = String(img?.base64 || '').replace(/^data:[^;]+;base64,/, '');
+  const rawB64 = String(img?.base64 || "").replace(/^data:[^;]+;base64,/, "");
   if (isPdfPayload(img)) {
     return {
       base64: rawB64,
       mimeType: PDF_MIME,
-      filename: String(img?.name || 'plan.pdf').slice(0, 120),
+      filename: String(img?.name || "plan.pdf").slice(0, 120),
     };
   }
   return { base64: rawB64, mimeType: normalizeMime(img?.mimeType) };
@@ -1786,15 +2179,15 @@ async function ensureCompatibleImage(img) {
 function toVisionContentPart(page) {
   if (page.mimeType === PDF_MIME) {
     return {
-      type: 'file',
+      type: "file",
       file: {
-        filename: page.filename || 'plan.pdf',
+        filename: page.filename || "plan.pdf",
         file_data: `data:${PDF_MIME};base64,${page.base64}`,
       },
     };
   }
   return {
-    type: 'image_url',
+    type: "image_url",
     image_url: { url: `data:${page.mimeType};base64,${page.base64}` },
   };
 }
@@ -1804,38 +2197,52 @@ function toVisionContentPart(page) {
  */
 async function analyzePlanForMeasurements({
   images,
-  existingNotes = '',
+  existingNotes = "",
   templateKeyHint = null,
   projectTypeHint = null,
   includeScope = false,
-  estimatingMode = 'whole_project',
+  estimatingMode = "whole_project",
   selectedTrade = null,
   openai,
   aiModels,
   aiRuntime,
 }) {
-  const { resolvePlanImportSelection } = require('./planImportTradeConfig');
-  const planSelection = resolvePlanImportSelection(estimatingMode, selectedTrade?.key || selectedTrade);
-  const paintingSelected = planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'painting';
-  const electricalSelected = planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'electrical';
-  const plumbingSelected = planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'plumbing';
-  const framingSelected = planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'framing';
+  const { resolvePlanImportSelection } = require("./planImportTradeConfig");
+  const planSelection = resolvePlanImportSelection(
+    estimatingMode,
+    selectedTrade?.key || selectedTrade,
+  );
+  const paintingSelected =
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "painting";
+  const electricalSelected =
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "electrical";
+  const plumbingSelected =
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "plumbing";
+  const insulationSelected =
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "insulation";
+  const framingSelected =
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "framing";
   if (!openai) {
-    const err = new Error('OpenAI client not configured');
+    const err = new Error("OpenAI client not configured");
     err.status = 503;
     throw err;
   }
 
   const list = (Array.isArray(images) ? images : []).slice(0, MAX_IMAGES);
   if (!list.length) {
-    const err = new Error('At least one plan image is required');
+    const err = new Error("At least one plan image is required");
     err.status = 400;
     throw err;
   }
 
   for (const img of list) {
-    if (!img?.base64 || typeof img.base64 !== 'string') {
-      const err = new Error('Each page must include a base64 string');
+    if (!img?.base64 || typeof img.base64 !== "string") {
+      const err = new Error("Each page must include a base64 string");
       err.status = 400;
       throw err;
     }
@@ -1843,8 +2250,8 @@ async function analyzePlanForMeasurements({
     if (approxBase64Bytes(img.base64) > limit) {
       const err = new Error(
         isPdfPayload(img)
-          ? 'PDF too large — keep the plan set under 20MB'
-          : 'Image too large — keep each plan page under 12MB'
+          ? "PDF too large — keep the plan set under 20MB"
+          : "Image too large — keep each plan page under 12MB",
       );
       err.status = 413;
       throw err;
@@ -1860,10 +2267,18 @@ async function analyzePlanForMeasurements({
   let pdfTakeoff = null;
   let pdfBuffers = [];
   try {
-    const { extractPlanTakeoffFromPdfBuffers, formatPdfEvidenceForVision } = require('./planPdfTextTakeoff');
+    const {
+      extractPlanTakeoffFromPdfBuffers,
+      formatPdfEvidenceForVision,
+    } = require("./planPdfTextTakeoff");
     pdfBuffers = compatible
-      .filter(p => p.mimeType === PDF_MIME && p.base64)
-      .map(p => Buffer.from(String(p.base64).replace(/^data:[^;]+;base64,/, ''), 'base64'));
+      .filter((p) => p.mimeType === PDF_MIME && p.base64)
+      .map((p) =>
+        Buffer.from(
+          String(p.base64).replace(/^data:[^;]+;base64,/, ""),
+          "base64",
+        ),
+      );
     if (pdfBuffers.length) {
       pdfTakeoff = await extractPlanTakeoffFromPdfBuffers(pdfBuffers);
       if (pdfTakeoff) {
@@ -1873,40 +2288,56 @@ async function analyzePlanForMeasurements({
       }
     }
   } catch (err) {
-    console.warn('PDF text takeoff skipped:', err?.message || err);
+    console.warn("PDF text takeoff skipped:", err?.message || err);
     pdfTakeoff = null;
   }
 
   let electricalSheetImages = [];
-  if (electricalSelected && pdfBuffers.length && pdfTakeoff?.electricalRelevantPages?.length) {
+  if (
+    electricalSelected &&
+    pdfBuffers.length &&
+    pdfTakeoff?.electricalRelevantPages?.length
+  ) {
     try {
-      const { renderElectricalPlanPages } = require('./planPdfTextTakeoff');
-      electricalSheetImages = await renderElectricalPlanPages(pdfBuffers, pdfTakeoff.electricalRelevantPages);
+      const { renderElectricalPlanPages } = require("./planPdfTextTakeoff");
+      electricalSheetImages = await renderElectricalPlanPages(
+        pdfBuffers,
+        pdfTakeoff.electricalRelevantPages,
+      );
     } catch (err) {
-      console.warn('Electrical sheet raster skipped:', err?.message || err);
+      console.warn("Electrical sheet raster skipped:", err?.message || err);
       electricalSheetImages = [];
     }
   }
 
   let plumbingSheetImages = [];
-  if (plumbingSelected && pdfBuffers.length && pdfTakeoff?.plumbingRelevantPages?.length) {
+  if (
+    plumbingSelected &&
+    pdfBuffers.length &&
+    pdfTakeoff?.plumbingRelevantPages?.length
+  ) {
     try {
-      const { renderPlumbingPlanPages } = require('./planPdfTextTakeoff');
-      plumbingSheetImages = await renderPlumbingPlanPages(pdfBuffers, pdfTakeoff.plumbingRelevantPages);
+      const { renderPlumbingPlanPages } = require("./planPdfTextTakeoff");
+      plumbingSheetImages = await renderPlumbingPlanPages(
+        pdfBuffers,
+        pdfTakeoff.plumbingRelevantPages,
+      );
     } catch (err) {
-      console.warn('Plumbing sheet raster skipped:', err?.message || err);
+      console.warn("Plumbing sheet raster skipped:", err?.message || err);
       plumbingSheetImages = [];
     }
   }
 
   if (electricalSelected) {
-    logElectricalTakeoffStage('ELECTRICAL PAGE SELECTION', {
-      pages: (pdfTakeoff?.electricalRelevantPages || []).map(page => page.page),
-      reasons: (pdfTakeoff?.electricalRelevantPages || []).map(page => ({
+    logElectricalTakeoffStage("ELECTRICAL PAGE SELECTION", {
+      pages: (pdfTakeoff?.electricalRelevantPages || []).map(
+        (page) => page.page,
+      ),
+      reasons: (pdfTakeoff?.electricalRelevantPages || []).map((page) => ({
         page: page.page,
         reasons: page.reasons || [],
       })),
-      rasterizedPages: electricalSheetImages.map(page => ({
+      rasterizedPages: electricalSheetImages.map((page) => ({
         page: page.page,
         bytes: page.byteLength || null,
         width: page.width || null,
@@ -1921,41 +2352,57 @@ async function analyzePlanForMeasurements({
   if (planSelection.trade) {
     hintBits.push(
       `ESTIMATING MODE: selected trade — ${planSelection.trade.label}. ${
-        planSelection.trade.scopeHint || `Route review toward ${planSelection.trade.label.toLowerCase()} only.`
-      } Preserve missing information for contractor confirmation. For Stucco / Exterior Finish, always take off window/door and garage openings from elevation drawings even when perimeter/plate facts already support gross wall area.`
+        planSelection.trade.scopeHint ||
+        `Route review toward ${planSelection.trade.label.toLowerCase()} only.`
+      } Preserve missing information for contractor confirmation. For Stucco / Exterior Finish, always take off window/door and garage openings from elevation drawings even when perimeter/plate facts already support gross wall area.`,
     );
   }
   if (existingNotes?.trim()) {
-    hintBits.push(`job notes (context only):\n${String(existingNotes).trim().slice(0, 1200)}`);
+    hintBits.push(
+      `job notes (context only):\n${String(existingNotes).trim().slice(0, 1200)}`,
+    );
   }
   if (pdfTakeoff?.evidenceText) {
     hintBits.push(pdfTakeoff.evidenceText);
   }
 
   const paintingVisionInstructions = [
-    'For Painting, relevant sheets are floor plans, RCPs / reflected ceiling plans, finish schedules, door schedules, interior elevations, cabinet/millwork, and exterior elevations — not only sheets that say Paint.',
+    "For Painting, relevant sheets are floor plans, RCPs / reflected ceiling plans, finish schedules, door schedules, interior elevations, cabinet/millwork, and exterior elevations — not only sheets that say Paint.",
     "Perform a painting takeoff when geometry supports it. wallPaintSqft = dimensioned room perimeter × explicit wall/plate height (gross). ceilingPaintSqft = dimensioned interior room areas. baseboardLf = dimensioned room perimeters when base/trim is supported. Never use living SF, floor SF, or an arbitrary multiplier. Never assume 9' height if it is not labeled.",
-    'Count interiorDoorCount from a door schedule or identifiable interior door symbols (exclude exterior doors) and add it to geometryDerived. Cabinet paint keys only when paint-grade millwork is explicit.',
-    'For exterior paint, use labeled paint area or dimensioned elevation width × height for painted cladding. Do not count stucco/brick/stone cladding as painted wall area.',
-  ].join('\n');
-  const electricalVisionParts = electricalSheetImages.length ? electricalSheetImages.map(toVisionContentPart) : null;
-  const plumbingVisionParts = plumbingSheetImages.length ? plumbingSheetImages.map(toVisionContentPart) : null;
-  const visionParts = electricalVisionParts || plumbingVisionParts || compatible.map(toVisionContentPart);
+    "Count interiorDoorCount from a door schedule or identifiable interior door symbols (exclude exterior doors) and add it to geometryDerived. Cabinet paint keys only when paint-grade millwork is explicit.",
+    "For exterior paint, use labeled paint area or dimensioned elevation width × height for painted cladding. Do not count stucco/brick/stone cladding as painted wall area.",
+  ].join("\n");
+  const electricalVisionParts = electricalSheetImages.length
+    ? electricalSheetImages.map(toVisionContentPart)
+    : null;
+  const plumbingVisionParts = plumbingSheetImages.length
+    ? plumbingSheetImages.map(toVisionContentPart)
+    : null;
+  const visionParts =
+    electricalVisionParts ||
+    plumbingVisionParts ||
+    compatible.map(toVisionContentPart);
   const electricalSheetCountHint = electricalVisionParts
     ? `The attached images are Electrical sheets (pages ${
-        (pdfTakeoff?.electricalRelevantPages || []).map(page => page.page).join(', ') || 'E sheets'
+        (pdfTakeoff?.electricalRelevantPages || [])
+          .map((page) => page.page)
+          .join(", ") || "E sheets"
       }). Count symbols on every attached page, return a sheet subtotal for every page, and reconcile the final totals to those subtotals. Do not extract living SF or room L×W on this pass.`
-    : 'Prioritize E sheets and panel schedules inside the attached plan file.';
+    : "Prioritize E sheets and panel schedules inside the attached plan file.";
   const plumbingSheetCountHint = plumbingVisionParts
     ? `The attached images are Plumbing-relevant sheets (pages ${
-        (pdfTakeoff?.plumbingRelevantPages || []).map(page => page.page).join(', ') || 'P / floor-plan sheets'
+        (pdfTakeoff?.plumbingRelevantPages || [])
+          .map((page) => page.page)
+          .join(", ") || "P / floor-plan sheets"
       }). Build fixtureInventory from readable fixture symbols and schedules on every attached page. Derive rough-in and trim only from that inventory. Treat labeled LF on architectural sheets as partial segments that require contractor confirmation.`
-    : 'Prioritize P sheets, fixture schedules, riser diagrams, floor plans with fixture symbols, and site/utility plans inside the attached plan file.';
+    : "Prioritize P sheets, fixture schedules, riser diagrams, floor plans with fixture symbols, and site/utility plans inside the attached plan file.";
 
   // Electrical counts are a measurement pass, not creative estimation. Keep
   // repeated imports of the same sheets stable; genuine disagreements still
   // remain as conflict candidates for contractor confirmation.
-  const planVisionTemperature = electricalSelected ? 0 : Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15);
+  const planVisionTemperature = electricalSelected
+    ? 0
+    : Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15);
   const measurementsPromise = openai.chat.completions.create({
     model: aiModels.assistant.vision,
     response_format: aiRuntime.assistant.vision.responseFormat,
@@ -1963,42 +2410,57 @@ async function analyzePlanForMeasurements({
     max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 4000),
     messages: [
       {
-        role: 'system',
-        content: visionSystemPrompt(electricalSelected, plumbingSelected),
+        role: "system",
+        content: visionSystemPrompt(
+          electricalSelected,
+          plumbingSelected,
+          insulationSelected,
+        ),
       },
       {
-        role: 'user',
+        role: "user",
         content: [
           {
-            type: 'text',
+            type: "text",
             text: electricalSelected
               ? [
                   ELECTRICAL_VISION_INSTRUCTIONS,
                   electricalSheetCountHint,
-                  'Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.',
-                  hintBits.length ? hintBits.join('\n\n') : 'No extra context.',
-                ].join('\n\n')
+                  "Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.",
+                  hintBits.length ? hintBits.join("\n\n") : "No extra context.",
+                ].join("\n\n")
               : plumbingSelected
                 ? [
                     PLUMBING_VISION_INSTRUCTIONS,
-                    'Return canonical Plumbing quantities only. Leave packages, living-area quantities, and unsupported/inferred values omitted.',
-                    hintBits.length ? hintBits.join('\n\n') : 'No extra context.',
-                  ].join('\n\n')
-                : [
-                    'Extract Building Areas / Area Schedule totals AND every labeled room with length×width or SF from these floor plan / blueprint pages.',
-                    'For Stucco / Exterior Finish, inspect every front/rear/left/right elevation and wall section. Read elevation face widths/heights, story-specific plate heights, window and door dimensions, garage door dimensions, cladding callouts, soffits, parapets, foam bands, and control joints.',
-                    'Calculate gross exterior wall SF only from readable elevation face dimensions or a readable perimeter plus story-specific heights. PDF perimeter/plate facts (when provided) replace living-SF guesses for GROSS only — you must still return window/door opening SF and garage opening SF from the elevations. Subtract only readable opening and non-stucco finish deductions. Never use living SF, floor SF, ridge height, or visual proportions as wall area.',
-                    'Include all bedrooms, baths, kitchen, dining, great room/living, laundry, pantry, closets, garage/RV garage, patio/porch — not just a few key rooms.',
-                    'Pair each room label with the dimension string printed for that room only — never swap Kitchen/Den/Bedroom/Garage/RV dims.',
-                    'Use floor-plan sheets for room L×W, not foundation overall garage envelopes. Each bath needs its own readable L×W; otherwise omit bathroomFloorSqft.',
-                    'Photos of printed sheets are OK — read the title-block square footage table carefully.',
-                    'Only report numbers you can actually read. If a value is blurry or illegible, omit it and list it in unreadableFields — never guess.',
-                    paintingSelected
-                      ? paintingVisionInstructions
-                      : 'Do not invent paint, drywall, or trim quantities. If a Stucco quantity is unavailable, list the exact missing sheet/measurement in unreadableFields or missingInfo.',
-                    'Covered patio / roof deck → deckSqft. Garage schedule → garageSqft. Never map patio to concrete flatwork.',
-                    hintBits.length ? hintBits.join('\n\n') : 'No extra context.',
-                  ].join('\n\n'),
+                    "Return canonical Plumbing quantities only. Leave packages, living-area quantities, and unsupported/inferred values omitted.",
+                    hintBits.length
+                      ? hintBits.join("\n\n")
+                      : "No extra context.",
+                  ].join("\n\n")
+                : insulationSelected
+                  ? [
+                      INSULATION_VISION_INSTRUCTIONS,
+                      hintBits.length
+                        ? hintBits.join("\n\n")
+                        : "No extra context.",
+                    ].join("\n\n")
+                  : [
+                      "Extract Building Areas / Area Schedule totals AND every labeled room with length×width or SF from these floor plan / blueprint pages.",
+                      "For Stucco / Exterior Finish, inspect every front/rear/left/right elevation and wall section. Read elevation face widths/heights, story-specific plate heights, window and door dimensions, garage door dimensions, cladding callouts, soffits, parapets, foam bands, and control joints.",
+                      "Calculate gross exterior wall SF only from readable elevation face dimensions or a readable perimeter plus story-specific heights. PDF perimeter/plate facts (when provided) replace living-SF guesses for GROSS only — you must still return window/door opening SF and garage opening SF from the elevations. Subtract only readable opening and non-stucco finish deductions. Never use living SF, floor SF, ridge height, or visual proportions as wall area.",
+                      "Include all bedrooms, baths, kitchen, dining, great room/living, laundry, pantry, closets, garage/RV garage, patio/porch — not just a few key rooms.",
+                      "Pair each room label with the dimension string printed for that room only — never swap Kitchen/Den/Bedroom/Garage/RV dims.",
+                      "Use floor-plan sheets for room L×W, not foundation overall garage envelopes. Each bath needs its own readable L×W; otherwise omit bathroomFloorSqft.",
+                      "Photos of printed sheets are OK — read the title-block square footage table carefully.",
+                      "Only report numbers you can actually read. If a value is blurry or illegible, omit it and list it in unreadableFields — never guess.",
+                      paintingSelected
+                        ? paintingVisionInstructions
+                        : "Do not invent paint, drywall, or trim quantities. If a Stucco quantity is unavailable, list the exact missing sheet/measurement in unreadableFields or missingInfo.",
+                      "Covered patio / roof deck → deckSqft. Garage schedule → garageSqft. Never map patio to concrete flatwork.",
+                      hintBits.length
+                        ? hintBits.join("\n\n")
+                        : "No extra context.",
+                    ].join("\n\n"),
           },
           ...visionParts,
         ],
@@ -2010,7 +2472,7 @@ async function analyzePlanForMeasurements({
   const scopePromise = includeScope
     ? (async () => {
         try {
-          const { analyzePlanForScope } = require('./estimatePlanToScope');
+          const { analyzePlanForScope } = require("./estimatePlanToScope");
           return await analyzePlanForScope({
             pages: compatible,
             toVisionContentPart,
@@ -2024,11 +2486,11 @@ async function analyzePlanForMeasurements({
             aiRuntime,
           });
         } catch (err) {
-          console.warn('Plan scope pass failed:', err?.message || err);
+          console.warn("Plan scope pass failed:", err?.message || err);
           return {
             success: false,
             reason: null,
-            scopeText: '',
+            scopeText: "",
             detections: [],
           };
         }
@@ -2037,53 +2499,68 @@ async function analyzePlanForMeasurements({
   // A focused trade pass helps PDF file inputs where the general takeoff reads
   // the text layer but does not inspect graphical elevation geometry deeply.
   const tradeVisualPromise =
-    planSelection.mode === 'whole_project' || planSelection.trade
+    planSelection.mode === "whole_project" || planSelection.trade
       ? openai.chat.completions.create({
           model: aiModels.assistant.vision,
           response_format: aiRuntime.assistant.vision.responseFormat,
           temperature: planVisionTemperature,
-          max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 2500),
+          max_tokens: Math.max(
+            aiRuntime.assistant.vision.maxTokens || 900,
+            2500,
+          ),
           messages: [
             {
-              role: 'system',
+              role: "system",
               content:
-                visionSystemPrompt(electricalSelected, plumbingSelected) +
+                visionSystemPrompt(
+                  electricalSelected,
+                  plumbingSelected,
+                  insulationSelected,
+                ) +
                 (planSelection.trade && !electricalSelected && !plumbingSelected
-                  ? '\nThis is a focused trade takeoff pass. Prioritize measurable geometry and scope for the selected trade over general room extraction.'
+                  ? "\nThis is a focused trade takeoff pass. Prioritize measurable geometry and scope for the selected trade over general room extraction."
                   : electricalSelected
-                    ? '\nThis is a focused Electrical symbol-count pass. Count devices on the attached E-sheet images.'
-                    : plumbingSelected
-                      ? '\nThis is a focused Plumbing quantity pass. Count only readable fixtures, schedules, points, and labeled line lengths.'
-                      : '\nThis is a focused general-contractor takeoff pass. Prioritize measurable quantities across every major scope category.'),
+                    ? "\nThis is a focused Electrical symbol-count pass. Count devices on the attached E-sheet images."
+                    : insulationSelected
+                      ? "\nThis is a focused Insulation thermal-envelope pass. Inspect wall sections, attic/roof details, insulation schedules, and garage separation details."
+                      : plumbingSelected
+                        ? "\nThis is a focused Plumbing quantity pass. Count only readable fixtures, schedules, points, and labeled line lengths."
+                        : "\nThis is a focused general-contractor takeoff pass. Prioritize measurable quantities across every major scope category."),
             },
             {
-              role: 'user',
+              role: "user",
               content: [
                 {
-                  type: 'text',
+                  type: "text",
                   text: [
                     planSelection.trade
                       ? `Focus only on ${planSelection.trade.label}. Inspect every relevant elevation, section, detail, schedule, and takeoff sheet in the plan file.`
-                      : 'Review the complete plan set for all major building scopes: structure, foundation, concrete, framing, roof, windows/doors, exterior finishes, MEP, insulation, drywall, flooring, cabinets, tile, paint, sitework, patios, and landscaping.',
-                    'For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, windowDoorOpeningsSqft, garageOpeningsSqft, and non-stucco deductions. Also populate measurements.stuccoWindowDoorOpeningSqft and measurements.stuccoGarageOpeningSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer.',
-                    'PDF text perimeter/plate/story facts (when present) support gross wall area only. Opening deductions still come from elevation drawings.',
-                    plumbingSelected
-                      ? PLUMBING_VISION_INSTRUCTIONS
-                      : paintingSelected
-                        ? paintingVisionInstructions
-                        : electricalSelected
-                          ? ELECTRICAL_VISION_INSTRUCTIONS
-                          : 'For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.',
-                    paintingSelected
-                      ? 'Return wallPaintSqft, ceilingPaintSqft, baseboardLf, interiorDoorCount, and exteriorPaintSqft when geometry or schedules support them. Add geometry-derived keys to geometryDerived. Leave occupancy, application method, and prep omitted.'
+                      : "Review the complete plan set for all major building scopes: structure, foundation, concrete, framing, roof, windows/doors, exterior finishes, MEP, insulation, drywall, flooring, cabinets, tile, paint, sitework, patios, and landscaping.",
+                    "For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, windowDoorOpeningsSqft, garageOpeningsSqft, and non-stucco deductions. Also populate measurements.stuccoWindowDoorOpeningSqft and measurements.stuccoGarageOpeningSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer.",
+                    "PDF text perimeter/plate/story facts (when present) support gross wall area only. Opening deductions still come from elevation drawings.",
+                    insulationSelected
+                      ? INSULATION_VISION_INSTRUCTIONS
                       : plumbingSelected
-                        ? `${plumbingSheetCountHint} Return Plumbing canonical quantities only. Add only explicit or directly measured fields to explicitlyLabeled/geometryDerived. Leave packages and unsupported values omitted.`
-                        : electricalSelected
-                          ? `${electricalSheetCountHint} Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.`
-                          : 'Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.',
-                  ].join('\n\n'),
+                        ? PLUMBING_VISION_INSTRUCTIONS
+                        : paintingSelected
+                          ? paintingVisionInstructions
+                          : electricalSelected
+                            ? ELECTRICAL_VISION_INSTRUCTIONS
+                            : "For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.",
+                    paintingSelected
+                      ? "Return wallPaintSqft, ceilingPaintSqft, baseboardLf, interiorDoorCount, and exteriorPaintSqft when geometry or schedules support them. Add geometry-derived keys to geometryDerived. Leave occupancy, application method, and prep omitted."
+                      : insulationSelected
+                        ? "Return insulation quantities only when explicitly labeled or directly calculated from labeled planFacts. Preserve the wall/attic versus roof-deck boundary distinction."
+                        : plumbingSelected
+                          ? `${plumbingSheetCountHint} Return Plumbing canonical quantities only. Add only explicit or directly measured fields to explicitlyLabeled/geometryDerived. Leave packages and unsupported values omitted.`
+                          : electricalSelected
+                            ? `${electricalSheetCountHint} Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.`
+                            : "Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.",
+                  ].join("\n\n"),
                 },
-                ...(electricalSelected || plumbingSelected ? visionParts : compatible.map(toVisionContentPart)),
+                ...(electricalSelected || plumbingSelected
+                  ? visionParts
+                  : compatible.map(toVisionContentPart)),
               ],
             },
           ],
@@ -2096,18 +2573,24 @@ async function analyzePlanForMeasurements({
     tradeVisualPromise,
   ]);
 
-  const raw = completion.choices?.[0]?.message?.content || '{}';
+  const raw = completion.choices?.[0]?.message?.content || "{}";
   let parsed;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    const err = new Error('Vision model returned invalid JSON. Try a clearer plan image.');
+    const err = new Error(
+      "Vision model returned invalid JSON. Try a clearer plan image.",
+    );
     err.status = 502;
     throw err;
   }
   if (plumbingSelected) applyPlumbingVisionTakeoff(parsed);
-  const generalElectricalVisionSource = electricalSelected ? parsed.measurements : null;
-  const generalElectricalVision = electricalSelected ? electricalDebugSnapshot(parsed.measurements) : null;
+  const generalElectricalVisionSource = electricalSelected
+    ? parsed.measurements
+    : null;
+  const generalElectricalVision = electricalSelected
+    ? electricalDebugSnapshot(parsed.measurements)
+    : null;
   if (electricalSelected) foldElectricalVisionPayload(parsed);
   let focusedElectricalVision = null;
   let focusedElectricalVisionSource = null;
@@ -2115,18 +2598,30 @@ async function analyzePlanForMeasurements({
   let measurementConflicts = [];
   let electricalValidation = null;
   let electricalEvidenceMerged = false;
-  let plumbingFieldEvidence = normalizePlumbingFieldEvidence(parsed.fieldEvidence);
+  let plumbingFieldEvidence = normalizePlumbingFieldEvidence(
+    parsed.fieldEvidence,
+  );
   let plumbingFixtureInventory =
-    parsed.fixtureInventory && typeof parsed.fixtureInventory === 'object' ? parsed.fixtureInventory : null;
-  let plumbingUtilityConnections = normalizePlumbingUtilityConnections(parsed.utilityConnections);
-  let plumbingComplexityFactors = normalizePlumbingComplexityFactors(parsed.complexityFactors);
+    parsed.fixtureInventory && typeof parsed.fixtureInventory === "object"
+      ? parsed.fixtureInventory
+      : null;
+  let plumbingUtilityConnections = normalizePlumbingUtilityConnections(
+    parsed.utilityConnections,
+  );
+  let plumbingComplexityFactors = normalizePlumbingComplexityFactors(
+    parsed.complexityFactors,
+  );
   let plumbingWaterHeaterDetail = null;
   let plumbingGasApplianceScope = null;
   let plumbingReviewStatus = null;
-  const electricalTagMeasurements = electricalSelected ? instanceTagMeasurementsFromTakeoff(pdfTakeoff) : {};
+  const electricalTagMeasurements = electricalSelected
+    ? instanceTagMeasurementsFromTakeoff(pdfTakeoff)
+    : {};
   if (tradeVisualCompletion) {
     try {
-      const focused = JSON.parse(tradeVisualCompletion.choices?.[0]?.message?.content || '{}');
+      const focused = JSON.parse(
+        tradeVisualCompletion.choices?.[0]?.message?.content || "{}",
+      );
       if (electricalSelected) {
         focusedElectricalVisionSource = focused.measurements;
         focusedElectricalVision = electricalDebugSnapshot(focused.measurements);
@@ -2134,7 +2629,10 @@ async function analyzePlanForMeasurements({
       }
       if (plumbingSelected) applyPlumbingVisionTakeoff(focused);
       if (plumbingSelected) {
-        plumbingFieldEvidence = mergePlumbingFieldEvidence(plumbingFieldEvidence, focused.fieldEvidence);
+        plumbingFieldEvidence = mergePlumbingFieldEvidence(
+          plumbingFieldEvidence,
+          focused.fieldEvidence,
+        );
         plumbingFixtureInventory = {
           ...(plumbingFixtureInventory || {}),
           ...(focused.fixtureInventory || {}),
@@ -2174,35 +2672,42 @@ async function analyzePlanForMeasurements({
       if (electricalSelected) {
         parsed.electricalSheetEvidence = mergeElectricalSheetEvidence(
           parsed.electricalSheetEvidence,
-          focused.electricalSheetEvidence
+          focused.electricalSheetEvidence,
         );
         parsed.electricalFieldEvidence = mergeElectricalFieldEvidence(
           parsed.electricalFieldEvidence,
-          focused.electricalFieldEvidence
+          focused.electricalFieldEvidence,
         );
       }
       const mergedFieldConfidence = {
         ...(parsed.fieldConfidence || {}),
         ...(focused.fieldConfidence || {}),
       };
-      for (const [field, selected] of Object.entries(mergedMeasurements.provenance)) {
+      for (const [field, selected] of Object.entries(
+        mergedMeasurements.provenance,
+      )) {
         mergedFieldConfidence[field] = Number(selected.confidence) || 0;
-        if (process.env.NODE_ENV !== 'production') {
-          console.debug('[plan measurement merge]', {
+        if (process.env.NODE_ENV !== "production") {
+          console.debug("[plan measurement merge]", {
             field,
-            candidates: [selected, ...(Array.isArray(selected.alternatives) ? selected.alternatives : [])].map(
-              candidate => ({
-                value: candidate.value,
-                source: candidate.source,
-                confidence: candidate.confidence,
-                directEvidence: candidate.directEvidence,
-              })
-            ),
+            candidates: [
+              selected,
+              ...(Array.isArray(selected.alternatives)
+                ? selected.alternatives
+                : []),
+            ].map((candidate) => ({
+              value: candidate.value,
+              source: candidate.source,
+              confidence: candidate.confidence,
+              directEvidence: candidate.directEvidence,
+            })),
             selected: {
               value: selected.value,
               source: selected.source,
             },
-            conflict: mergedMeasurements.conflicts.some(conflict => conflict.field === field),
+            conflict: mergedMeasurements.conflicts.some(
+              (conflict) => conflict.field === field,
+            ),
           });
         }
       }
@@ -2216,7 +2721,7 @@ async function analyzePlanForMeasurements({
           ...(focused.planFacts || {}),
           elevationFaces: preferElevationFacesWithOpenings(
             parsed.planFacts?.elevationFaces,
-            focused.planFacts?.elevationFaces
+            focused.planFacts?.elevationFaces,
           ),
           fieldEvidence: {
             ...(parsed.planFacts?.fieldEvidence || {}),
@@ -2228,10 +2733,22 @@ async function analyzePlanForMeasurements({
         },
         measurementProvenance,
         measurementConflicts,
-        explicitlyLabeled: [...(parsed.explicitlyLabeled || []), ...(focused.explicitlyLabeled || [])],
-        geometryDerived: [...(parsed.geometryDerived || []), ...(focused.geometryDerived || [])],
-        inferredKeys: [...(parsed.inferredKeys || []), ...(focused.inferredKeys || [])],
-        unreadableFields: [...(parsed.unreadableFields || []), ...(focused.unreadableFields || [])],
+        explicitlyLabeled: [
+          ...(parsed.explicitlyLabeled || []),
+          ...(focused.explicitlyLabeled || []),
+        ],
+        geometryDerived: [
+          ...(parsed.geometryDerived || []),
+          ...(focused.geometryDerived || []),
+        ],
+        inferredKeys: [
+          ...(parsed.inferredKeys || []),
+          ...(focused.inferredKeys || []),
+        ],
+        unreadableFields: [
+          ...(parsed.unreadableFields || []),
+          ...(focused.unreadableFields || []),
+        ],
         ...(plumbingSelected
           ? {
               fieldEvidence: plumbingFieldEvidence,
@@ -2244,7 +2761,10 @@ async function analyzePlanForMeasurements({
           : {}),
       };
     } catch (err) {
-      console.warn('Focused trade takeoff pass returned invalid JSON:', err?.message || err);
+      console.warn(
+        "Focused trade takeoff pass returned invalid JSON:",
+        err?.message || err,
+      );
     }
   }
 
@@ -2297,17 +2817,24 @@ async function analyzePlanForMeasurements({
   }
 
   if (electricalSelected) {
-    logElectricalTakeoffStage('RAW ELECTRICAL VISION EXTRACTION', {
+    logElectricalTakeoffStage("RAW ELECTRICAL VISION EXTRACTION", {
       merged: electricalDebugSnapshot(parsed.measurements),
       mergedAliases: electricalishMeasurementKeys(parsed.measurements),
       general: generalElectricalVision,
-      generalAliases: electricalishMeasurementKeys(generalElectricalVisionSource),
+      generalAliases: electricalishMeasurementKeys(
+        generalElectricalVisionSource,
+      ),
       focused: focusedElectricalVision,
-      focusedAliases: electricalishMeasurementKeys(focusedElectricalVisionSource),
+      focusedAliases: electricalishMeasurementKeys(
+        focusedElectricalVisionSource,
+      ),
       instanceTags: electricalTagMeasurements,
       unreadableFields: (parsed.unreadableFields || []).slice(0, 20),
     });
-    const omitted = omitUnresolvedElectricalConflicts(parsed.measurements, measurementConflicts);
+    const omitted = omitUnresolvedElectricalConflicts(
+      parsed.measurements,
+      measurementConflicts,
+    );
     parsed.measurements = omitted.measurements;
     const unclassified = collectUnclassifiedElectricalFixtures({
       measurements: parsed.measurements,
@@ -2324,7 +2851,7 @@ async function analyzePlanForMeasurements({
     scopeResult && scopeResult.success
       ? { scopeText: scopeResult.scopeText, detections: scopeResult.detections }
       : null;
-  const failurePayload = reason => ({
+  const failurePayload = (reason) => ({
     success: false,
     reason,
     imageQuality,
@@ -2338,28 +2865,34 @@ async function analyzePlanForMeasurements({
     areaReconciliation: null,
     itemQuantities: {},
     assumptions: [],
-    notesBlock: '',
+    notesBlock: "",
     // Scope reads labels/callouts, not dimension strings — it can survive an
     // unreadable-numbers failure and still be worth confirming.
     scope,
   });
 
   const pdfRoomsEarly = sanitizeRooms(pdfTakeoff?.rooms || []);
-  const pdfHasTakeoff = pdfRoomsEarly.length >= 3 || Object.keys(pdfTakeoff?.buildingAreas || {}).length > 0;
+  const pdfHasTakeoff =
+    pdfRoomsEarly.length >= 3 ||
+    Object.keys(pdfTakeoff?.buildingAreas || {}).length > 0;
 
   // Vision may fail on weird renders; PDF text takeoff can still succeed.
-  if (imageQuality === 'unreadable' && !pdfHasTakeoff) {
+  if (imageQuality === "unreadable" && !pdfHasTakeoff) {
     return failurePayload(UNCLEAR_PLAN_REASON);
   }
 
   if (parsed?.success === false && !pdfHasTakeoff) {
-    return failurePayload(parsed.reason || 'Image does not look like a floor plan or blueprint.');
+    return failurePayload(
+      parsed.reason || "Image does not look like a floor plan or blueprint.",
+    );
   }
 
   const visionRooms = pruneEnvelopeGarageRooms(sanitizeRooms(parsed?.rooms));
   const pdfRooms = pdfRoomsEarly;
   const rooms =
-    pdfRooms.length >= 3 ? mergeRoomsPreferPdf(pdfRooms, visionRooms) : pruneEnvelopeGarageRooms(visionRooms);
+    pdfRooms.length >= 3
+      ? mergeRoomsPreferPdf(pdfRooms, visionRooms)
+      : pruneEnvelopeGarageRooms(visionRooms);
 
   const buildingAreas = sanitizeBuildingAreas({
     ...(parsed.buildingAreas || {}),
@@ -2372,43 +2905,63 @@ async function analyzePlanForMeasurements({
       ...visionPlanFacts,
       ...pdfPlanFacts,
       geometry: visionPlanFacts.geometry,
-      warnings: [...(visionPlanFacts.warnings || []), ...(pdfPlanFacts.warnings || [])],
+      warnings: [
+        ...(visionPlanFacts.warnings || []),
+        ...(pdfPlanFacts.warnings || []),
+      ],
       fieldEvidence: {
         ...(visionPlanFacts.fieldEvidence || {}),
         ...(pdfPlanFacts.fieldEvidence || {}),
       },
     },
-    buildingAreas
+    buildingAreas,
   );
   const fieldConfidence = sanitizeFieldConfidence(parsed.fieldConfidence);
   // PDF schedule totals are authoritative — mark high confidence so they are kept.
-  if (pdfTakeoff?.buildingAreas?.totalLivingSqft != null) fieldConfidence.floorAreaSqft = 1;
-  if (pdfTakeoff?.buildingAreas?.garageSqft != null) fieldConfidence.garageSqft = 1;
-  if (pdfTakeoff?.buildingAreas?.coveredPatioSqft != null || pdfTakeoff?.buildingAreas?.roofDeckSqft != null) {
+  if (pdfTakeoff?.buildingAreas?.totalLivingSqft != null)
+    fieldConfidence.floorAreaSqft = 1;
+  if (pdfTakeoff?.buildingAreas?.garageSqft != null)
+    fieldConfidence.garageSqft = 1;
+  if (
+    pdfTakeoff?.buildingAreas?.coveredPatioSqft != null ||
+    pdfTakeoff?.buildingAreas?.roofDeckSqft != null
+  ) {
     fieldConfidence.deckSqft = 1;
   }
 
-  let rawMeasurements = sanitizeMeasurements(parsed.measurements, rooms, buildingAreas, parsed.explicitlyLabeled);
+  let rawMeasurements = sanitizeMeasurements(
+    parsed.measurements,
+    rooms,
+    buildingAreas,
+    parsed.explicitlyLabeled,
+  );
   if (plumbingSelected) {
     rawMeasurements = normalizePlumbingPlanMeasurements(parsed.measurements);
   }
   if (electricalSelected) {
-    logElectricalTakeoffStage('AFTER SANITIZE', electricalDebugSnapshot(rawMeasurements));
+    logElectricalTakeoffStage(
+      "AFTER SANITIZE",
+      electricalDebugSnapshot(rawMeasurements),
+    );
   }
   const paintingKeys = [
-    'wallPaintSqft',
-    'ceilingPaintSqft',
-    'paintAreaSqft',
-    'interiorDoorCount',
-    'baseboardLf',
-    'cabinetRunLf',
-    'cabinetPaintSqft',
-    'exteriorPaintSqft',
+    "wallPaintSqft",
+    "ceilingPaintSqft",
+    "paintAreaSqft",
+    "interiorDoorCount",
+    "baseboardLf",
+    "cabinetRunLf",
+    "cabinetPaintSqft",
+    "exteriorPaintSqft",
   ];
-  const paintingKeysFrom = map =>
-    Object.fromEntries(paintingKeys.filter(key => positive(map?.[key]) > 0).map(key => [key, map[key]]));
-  if (process.env.NODE_ENV !== 'production' && paintingSelected) {
-    console.debug('[painting plan extract]', {
+  const paintingKeysFrom = (map) =>
+    Object.fromEntries(
+      paintingKeys
+        .filter((key) => positive(map?.[key]) > 0)
+        .map((key) => [key, map[key]]),
+    );
+  if (process.env.NODE_ENV !== "production" && paintingSelected) {
+    console.debug("[painting plan extract]", {
       visionBeforeSanitize: paintingKeysFrom(parsed.measurements),
       explicitlyLabeled: parsed.explicitlyLabeled || [],
       geometryDerived: parsed.geometryDerived || [],
@@ -2419,10 +2972,48 @@ async function analyzePlanForMeasurements({
       paintingRelevantPages: pdfTakeoff?.paintingRelevantPages || [],
     });
   }
-  const elevationDerived = deriveStuccoElevationMeasurements(rawMeasurements, parsed.planFacts);
+  const elevationDerived = deriveStuccoElevationMeasurements(
+    rawMeasurements,
+    parsed.planFacts,
+  );
   rawMeasurements = elevationDerived.measurements;
   for (const key of elevationDerived.derivedKeys) {
     fieldConfidence[key] = Math.max(Number(fieldConfidence[key] || 0), 0.75);
+  }
+  if (insulationSelected) {
+    const insulationPlanFacts = {
+      ...planFacts,
+      elevationFaces: preferElevationFacesWithOpenings(
+        planFacts?.elevationFaces,
+        parsed.planFacts?.elevationFaces,
+      ),
+    };
+    const insulationDerived = deriveInsulationMeasurementsFromPlanFacts(
+      rawMeasurements,
+      insulationPlanFacts,
+    );
+    rawMeasurements = insulationDerived.measurements;
+    parsed.geometryDerived = [
+      ...(Array.isArray(parsed.geometryDerived)
+        ? parsed.geometryDerived
+        : []),
+      ...insulationDerived.derivedKeys,
+    ];
+    parsed.assumptions = [
+      ...(Array.isArray(parsed.assumptions) ? parsed.assumptions : []),
+      ...insulationDerived.assumptions,
+    ];
+    for (const key of insulationDerived.derivedKeys) {
+      fieldConfidence[key] = Math.max(
+        Number(fieldConfidence[key] || 0),
+        0.75,
+      );
+      measurementProvenance[key] = {
+        value: rawMeasurements[key],
+        source: "calculated_from_plan_facts",
+        normalizedSource: "NEEDS_REVIEW",
+      };
+    }
   }
   if (framingSelected) {
     const finalized = finalizeFramingTakeoff({
@@ -2437,39 +3028,47 @@ async function analyzePlanForMeasurements({
     for (const key of finalized.derivedKeys) {
       fieldConfidence[key] = Math.max(
         Number(fieldConfidence[key] || 0),
-        Number(finalized.fieldConfidence[key] || 0.72)
+        Number(finalized.fieldConfidence[key] || 0.72),
       );
       measurementProvenance[key] = {
         value: rawMeasurements[key],
-        source: 'calculated_from_components',
-        normalizedSource: 'PLANNING_ESTIMATE',
+        source: "calculated_from_components",
+        normalizedSource: "PLANNING_ESTIMATE",
       };
     }
   }
   if (paintingSelected) {
-    const paintingDerived = derivePaintingGeometryMeasurements(rawMeasurements, rooms, planFacts, {
-      rawVisionMeasurements: parsed.measurements,
-      explicitlyLabeled: parsed.explicitlyLabeled,
-      geometryDerived: parsed.geometryDerived,
-      buildingAreas,
-      rawPlanFacts: visionPlanFacts,
-    });
+    const paintingDerived = derivePaintingGeometryMeasurements(
+      rawMeasurements,
+      rooms,
+      planFacts,
+      {
+        rawVisionMeasurements: parsed.measurements,
+        explicitlyLabeled: parsed.explicitlyLabeled,
+        geometryDerived: parsed.geometryDerived,
+        buildingAreas,
+        rawPlanFacts: visionPlanFacts,
+      },
+    );
     rawMeasurements = paintingDerived.measurements;
     for (const key of paintingDerived.derivedKeys) {
       const incomplete = (paintingDerived.incompleteKeys || []).includes(key);
-      fieldConfidence[key] = Math.max(Number(fieldConfidence[key] || 0), incomplete ? 0.55 : 0.75);
+      fieldConfidence[key] = Math.max(
+        Number(fieldConfidence[key] || 0),
+        incomplete ? 0.55 : 0.75,
+      );
       measurementProvenance[key] = {
         value: rawMeasurements[key],
-        source: 'measured_from_geometry',
-        normalizedSource: incomplete ? 'NEEDS_REVIEW' : 'FROM_PLAN',
-        ...(incomplete ? { coverage: 'incomplete' } : {}),
+        source: "measured_from_geometry",
+        normalizedSource: incomplete ? "NEEDS_REVIEW" : "FROM_PLAN",
+        ...(incomplete ? { coverage: "incomplete" } : {}),
       };
     }
     for (const key of paintingDerived.explicitKeys) {
       measurementProvenance[key] = {
         value: rawMeasurements[key],
-        source: 'detected_from_plan',
-        normalizedSource: 'FROM_PLAN',
+        source: "detected_from_plan",
+        normalizedSource: "FROM_PLAN",
       };
     }
     if (paintingDerived.assumptions.length) {
@@ -2478,8 +3077,8 @@ async function analyzePlanForMeasurements({
         ...paintingDerived.assumptions,
       ];
     }
-    if (process.env.NODE_ENV !== 'production') {
-      console.debug('[painting plan extract]', {
+    if (process.env.NODE_ENV !== "production") {
+      console.debug("[painting plan extract]", {
         afterGeometryDerive: paintingKeysFrom(rawMeasurements),
         derivedKeys: paintingDerived.derivedKeys,
       });
@@ -2489,8 +3088,11 @@ async function analyzePlanForMeasurements({
         ...(Array.isArray(parsed.assumptions) ? parsed.assumptions : []),
         `Painting-relevant pages: ${pdfTakeoff.paintingRelevantPages
           .slice(0, 8)
-          .map(page => `${page.page} (${(page.reasons || []).join(', ') || 'plan'})`)
-          .join('; ')}`,
+          .map(
+            (page) =>
+              `${page.page} (${(page.reasons || []).join(", ") || "plan"})`,
+          )
+          .join("; ")}`,
       ];
     }
   }
@@ -2526,15 +3128,17 @@ async function analyzePlanForMeasurements({
           ...entry,
           alternatives: measurementProvenance[key]?.alternatives,
         },
-      ])
+      ]),
     ),
   };
   if (plumbingSelected) {
-    const inferredKeys = new Set(Array.isArray(parsed.inferredKeys) ? parsed.inferredKeys : []);
+    const inferredKeys = new Set(
+      Array.isArray(parsed.inferredKeys) ? parsed.inferredKeys : [],
+    );
     const fieldEvidence = mergePlumbingFieldEvidence(
       plumbingFieldEvidence,
       parsed.fieldEvidence,
-      parsed.planFacts?.fieldEvidence
+      parsed.planFacts?.fieldEvidence,
     );
     plumbingFieldEvidence = fieldEvidence;
     measurementProvenance = {
@@ -2545,20 +3149,34 @@ async function analyzePlanForMeasurements({
           (() => {
             const evidence = fieldEvidence[key] || [];
             const derived =
-              evidence.some(entry => Array.isArray(entry?.derivedFrom) && entry.derivedFrom.length > 0) ||
-              evidence.some(entry => entry?.evidenceKind === 'fixture_inventory_derived');
+              evidence.some(
+                (entry) =>
+                  Array.isArray(entry?.derivedFrom) &&
+                  entry.derivedFrom.length > 0,
+              ) ||
+              evidence.some(
+                (entry) => entry?.evidenceKind === "fixture_inventory_derived",
+              );
             return {
               ...(measurementProvenance[key] || {}),
               value,
-              source: derived ? 'inferred_from_fixture_inventory' : 'detected_from_plan',
-              normalizedSource: derived ? 'FROM_PLAN_DERIVED' : 'FROM_PLAN',
+              source: derived
+                ? "inferred_from_fixture_inventory"
+                : "detected_from_plan",
+              normalizedSource: derived ? "FROM_PLAN_DERIVED" : "FROM_PLAN",
               evidence,
-              evidenceKind: derived ? 'fixture_inventory_derived' : evidence[0]?.evidenceKind || 'explicit_label',
+              evidenceKind: derived
+                ? "fixture_inventory_derived"
+                : evidence[0]?.evidenceKind || "explicit_label",
               ...(derived
                 ? {
                     derivedFrom: [
                       ...new Set(
-                        evidence.flatMap(entry => (Array.isArray(entry?.derivedFrom) ? entry.derivedFrom : []))
+                        evidence.flatMap((entry) =>
+                          Array.isArray(entry?.derivedFrom)
+                            ? entry.derivedFrom
+                            : [],
+                        ),
                       ),
                     ].slice(0, 12),
                   }
@@ -2566,7 +3184,7 @@ async function analyzePlanForMeasurements({
               pricingEligible: !inferredKeys.has(key),
             };
           })(),
-        ])
+        ]),
       ),
     };
     parsed.fieldEvidence = fieldEvidence;
@@ -2580,15 +3198,21 @@ async function analyzePlanForMeasurements({
     ]);
   }
   if (electricalSelected) {
-    logElectricalTakeoffStage('AFTER electricalPlanConvergence', electricalDebugSnapshot(rawMeasurements));
+    logElectricalTakeoffStage(
+      "AFTER electricalPlanConvergence",
+      electricalDebugSnapshot(rawMeasurements),
+    );
   }
   if (electricalSelected && pdfTakeoff?.electricalRelevantPages?.length) {
     parsed.assumptions = [
       ...(Array.isArray(parsed.assumptions) ? parsed.assumptions : []),
       `Electrical-relevant pages: ${pdfTakeoff.electricalRelevantPages
         .slice(0, 8)
-        .map(page => `${page.page} (${(page.reasons || []).join(', ') || 'electrical plan'})`)
-        .join('; ')}`,
+        .map(
+          (page) =>
+            `${page.page} (${(page.reasons || []).join(", ") || "electrical plan"})`,
+        )
+        .join("; ")}`,
     ];
   }
   if (plumbingSelected && pdfTakeoff?.plumbingRelevantPages?.length) {
@@ -2596,27 +3220,39 @@ async function analyzePlanForMeasurements({
       ...(Array.isArray(parsed.assumptions) ? parsed.assumptions : []),
       `Plumbing-relevant pages: ${pdfTakeoff.plumbingRelevantPages
         .slice(0, 8)
-        .map(page => `${page.page} (${(page.reasons || []).join(', ') || 'plumbing plan'})`)
-        .join('; ')}`,
+        .map(
+          (page) =>
+            `${page.page} (${(page.reasons || []).join(", ") || "plumbing plan"})`,
+        )
+        .join("; ")}`,
     ];
   }
   const instanceTagAssumption = Object.entries(electricalTagMeasurements || {})
     .filter(([, value]) => Number(value) > 0)
     .map(([key, value]) => `${key}=${value}`)
-    .join(', ');
+    .join(", ");
   if (electricalSelected && instanceTagAssumption) {
     parsed.assumptions = [
       ...(Array.isArray(parsed.assumptions) ? parsed.assumptions : []),
       `Electrical instance tags from PDF text: ${instanceTagAssumption}`,
     ];
   }
-  rawMeasurements = reconcileBathroomMeasurement(rawMeasurements, rooms, unreadableFields);
-  const { measurements, lowConfidence } = applyConfidenceFloor(rawMeasurements, fieldConfidence);
+  rawMeasurements = reconcileBathroomMeasurement(
+    rawMeasurements,
+    rooms,
+    unreadableFields,
+  );
+  const { measurements, lowConfidence } = applyConfidenceFloor(
+    rawMeasurements,
+    fieldConfidence,
+  );
   const assumptions = [
     ...(Array.isArray(pdfTakeoff?.assumptions) ? pdfTakeoff.assumptions : []),
-    ...(Array.isArray(parsed.assumptions) ? parsed.assumptions.map(a => String(a).slice(0, 200)) : []),
+    ...(Array.isArray(parsed.assumptions)
+      ? parsed.assumptions.map((a) => String(a).slice(0, 200))
+      : []),
   ]
-    .map(a => String(a).slice(0, 200))
+    .map((a) => String(a).slice(0, 200))
     .filter(Boolean)
     .slice(0, 16);
   let notesBlock = formatNotesBlock({
@@ -2626,14 +3262,21 @@ async function analyzePlanForMeasurements({
     buildingAreas,
   });
   if (scope?.scopeText) {
-    const { appendScopeTextToNotesBlock } = require('./estimatePlanToScope');
+    const { appendScopeTextToNotesBlock } = require("./estimatePlanToScope");
     notesBlock = appendScopeTextToNotesBlock(notesBlock, scope.scopeText);
   }
 
-  if (!Object.keys(measurements).length && !rooms.length && !Object.keys(buildingAreas).length) {
-    const onlyLowConfidence = lowConfidence.length > 0 || unreadableFields.length > 0;
+  if (
+    !Object.keys(measurements).length &&
+    !rooms.length &&
+    !Object.keys(buildingAreas).length
+  ) {
+    const onlyLowConfidence =
+      lowConfidence.length > 0 || unreadableFields.length > 0;
     const failure = failurePayload(
-      onlyLowConfidence ? UNCLEAR_PLAN_REASON : parsed.reason || 'No readable dimensions found on the plan.'
+      onlyLowConfidence
+        ? UNCLEAR_PLAN_REASON
+        : parsed.reason || "No readable dimensions found on the plan.",
     );
     failure.lowConfidence = lowConfidence;
     failure.assumptions = assumptions;
@@ -2642,76 +3285,116 @@ async function analyzePlanForMeasurements({
 
   let areaReconciliation = null;
   try {
-    const { measurementSemanticsV1Enabled, buildAreaReconciliation } = require('./measurementSemantics');
+    const {
+      measurementSemanticsV1Enabled,
+      buildAreaReconciliation,
+    } = require("./measurementSemantics");
     if (measurementSemanticsV1Enabled()) {
       areaReconciliation = buildAreaReconciliation({
-        declaredLivingSf: measurements.floorAreaSqft ?? buildingAreas?.totalLivingSqft,
+        declaredLivingSf:
+          measurements.floorAreaSqft ?? buildingAreas?.totalLivingSqft,
         declaredGarageSf: measurements.garageSqft ?? buildingAreas?.garageSqft,
-        patioDeckSf: measurements.deckSqft ?? buildingAreas?.coveredPatioSqft ?? buildingAreas?.coveredOutdoorSqft,
+        patioDeckSf:
+          measurements.deckSqft ??
+          buildingAreas?.coveredPatioSqft ??
+          buildingAreas?.coveredOutdoorSqft,
         rooms,
       });
     }
   } catch {
     areaReconciliation = null;
   }
-  areaReconciliation = reconcileLabeledLivingAreas(buildingAreas, areaReconciliation);
+  areaReconciliation = reconcileLabeledLivingAreas(
+    buildingAreas,
+    areaReconciliation,
+  );
   const tradeMeasurementInput = { ...measurements };
-  if (planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'roofing') {
+  if (
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "roofing"
+  ) {
     if (!tradeMeasurementInput.roofPitch && planFacts?.roofPitch) {
       tradeMeasurementInput.roofPitch = String(planFacts.roofPitch);
       measurementProvenance.roofPitch = {
         value: tradeMeasurementInput.roofPitch,
-        source: 'plan_facts',
-        normalizedSource: 'FROM_PLAN',
+        source: "plan_facts",
+        normalizedSource: "FROM_PLAN",
       };
     }
-    if (!(positive(tradeMeasurementInput.storyCount) > 0) && positive(planFacts?.storyCount)) {
+    if (
+      !(positive(tradeMeasurementInput.storyCount) > 0) &&
+      positive(planFacts?.storyCount)
+    ) {
       tradeMeasurementInput.storyCount = positive(planFacts.storyCount);
       measurementProvenance.storyCount = {
         value: tradeMeasurementInput.storyCount,
-        source: 'plan_facts',
-        normalizedSource: 'FROM_PLAN',
+        source: "plan_facts",
+        normalizedSource: "FROM_PLAN",
       };
     }
   }
-  if (planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'stucco') {
-    if (!(positive(tradeMeasurementInput.stuccoStories) > 0) && positive(planFacts?.storyCount)) {
+  if (
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "stucco"
+  ) {
+    if (
+      !(positive(tradeMeasurementInput.stuccoStories) > 0) &&
+      positive(planFacts?.storyCount)
+    ) {
       tradeMeasurementInput.stuccoStories = positive(planFacts.storyCount);
     }
-    const planStories = positive(tradeMeasurementInput.stuccoStories) || positive(planFacts?.storyCount);
+    const planStories =
+      positive(tradeMeasurementInput.stuccoStories) ||
+      positive(planFacts?.storyCount);
     let wallHeightCandidate = positive(planFacts?.wallHeightFt);
     let plateHeightCandidate = positive(planFacts?.plateHeightFt);
     // Cumulative upper-plate elevations (e.g. Lot 58 TOP OF PLATE 20.5') are not
     // per-story wall height. Prefer a true per-story plate/wall, else divide.
     if (planStories > 1 && plateHeightCandidate > 14) {
-      plateHeightCandidate = Math.round((plateHeightCandidate / planStories) * 10) / 10;
+      plateHeightCandidate =
+        Math.round((plateHeightCandidate / planStories) * 10) / 10;
     }
     if (planStories > 1 && wallHeightCandidate > 14) {
-      wallHeightCandidate = Math.round((wallHeightCandidate / planStories) * 10) / 10;
+      wallHeightCandidate =
+        Math.round((wallHeightCandidate / planStories) * 10) / 10;
     }
     const perStoryHeight = wallHeightCandidate || plateHeightCandidate;
-    if (planStories > 1 && positive(tradeMeasurementInput.stuccoWallHeightFt) > 14 && perStoryHeight) {
+    if (
+      planStories > 1 &&
+      positive(tradeMeasurementInput.stuccoWallHeightFt) > 14 &&
+      perStoryHeight
+    ) {
       tradeMeasurementInput.stuccoWallHeightFt = perStoryHeight;
     }
-    if (!(positive(tradeMeasurementInput.stuccoWallHeightFt) > 0) && perStoryHeight) {
+    if (
+      !(positive(tradeMeasurementInput.stuccoWallHeightFt) > 0) &&
+      perStoryHeight
+    ) {
       tradeMeasurementInput.stuccoWallHeightFt = perStoryHeight;
     }
-    const perimeterLf = positive(planFacts?.exteriorPerimeterLf) || positive(planFacts?.foundationPerimeterLf);
+    const perimeterLf =
+      positive(planFacts?.exteriorPerimeterLf) ||
+      positive(planFacts?.foundationPerimeterLf);
     const perimeterSource = positive(planFacts?.exteriorPerimeterLf)
-      ? 'labeled exterior perimeter'
-      : 'labeled foundation envelope perimeter used as an exterior proxy';
+      ? "labeled exterior perimeter"
+      : "labeled foundation envelope perimeter used as an exterior proxy";
     const wallHeightFt = positive(tradeMeasurementInput.stuccoWallHeightFt);
     const stories = positive(tradeMeasurementInput.stuccoStories);
     const derivedGross =
-      perimeterLf && wallHeightFt && stories ? Math.round(perimeterLf * wallHeightFt * stories) : null;
+      perimeterLf && wallHeightFt && stories
+        ? Math.round(perimeterLf * wallHeightFt * stories)
+        : null;
     const existingGross = positive(tradeMeasurementInput.stuccoGrossWallSqft);
     // Perimeter × height × stories is the planning takeoff for SHV-style plans.
     // Prefer it when vision/planning gross is missing or looks single-story-low.
-    if (derivedGross && (!existingGross || existingGross < derivedGross * 0.7)) {
+    if (
+      derivedGross &&
+      (!existingGross || existingGross < derivedGross * 0.7)
+    ) {
       tradeMeasurementInput.stuccoGrossWallSqft = derivedGross;
       fieldConfidence.stuccoGrossWallSqft = 0.8;
       assumptions.push(
-        `Gross stucco wall area derived from ${perimeterSource} (${perimeterLf} LF), wall/plate height (${wallHeightFt} FT), and stories (${stories}); verify upper-floor setbacks and openings.`
+        `Gross stucco wall area derived from ${perimeterSource} (${perimeterLf} LF), wall/plate height (${wallHeightFt} FT), and stories (${stories}); verify upper-floor setbacks and openings.`,
       );
       // Force net recalculation from the corrected gross.
       delete tradeMeasurementInput.stuccoNetWallSqft;
@@ -2726,84 +3409,170 @@ async function analyzePlanForMeasurements({
       positive(tradeMeasurementInput.stuccoWindowDoorOpeningSqft) != null ||
       positive(tradeMeasurementInput.stuccoGarageOpeningSqft) != null ||
       positive(tradeMeasurementInput.stuccoOtherFinishDeductionSqft) != null;
-    if (!(positive(tradeMeasurementInput.stuccoNetWallSqft) > 0) && grossWallSqft && hasAnyOpeningDeduction) {
+    if (
+      !(positive(tradeMeasurementInput.stuccoNetWallSqft) > 0) &&
+      grossWallSqft &&
+      hasAnyOpeningDeduction
+    ) {
       // Only publish net once at least one opening/finish deduction was read.
       // Otherwise net===gross looks "confirmed" while openings are still blank.
-      const knownDeductions = deductions.reduce((sum, value) => sum + (value || 0), 0);
-      tradeMeasurementInput.stuccoNetWallSqft = Math.max(0, Math.round((grossWallSqft - knownDeductions) * 10) / 10);
-      fieldConfidence.stuccoNetWallSqft = deductions.every(value => value != null) ? 0.7 : 0.65;
+      const knownDeductions = deductions.reduce(
+        (sum, value) => sum + (value || 0),
+        0,
+      );
+      tradeMeasurementInput.stuccoNetWallSqft = Math.max(
+        0,
+        Math.round((grossWallSqft - knownDeductions) * 10) / 10,
+      );
+      fieldConfidence.stuccoNetWallSqft = deductions.every(
+        (value) => value != null,
+      )
+        ? 0.7
+        : 0.65;
     }
     if (positive(tradeMeasurementInput.stuccoGrossWallSqft)) {
       notesBlock +=
         `\n\nStucco takeoff: gross wall area ${tradeMeasurementInput.stuccoGrossWallSqft.toLocaleString()} SF` +
         (positive(tradeMeasurementInput.stuccoNetWallSqft)
           ? `; calculated net stucco area ${tradeMeasurementInput.stuccoNetWallSqft.toLocaleString()} SF.`
-          : '; opening deductions still need confirmation.');
+          : "; opening deductions still need confirmation.");
+    }
+  }
+  if (insulationSelected) {
+    const insulationPlanFacts = {
+      ...planFacts,
+      elevationFaces: preferElevationFacesWithOpenings(
+        planFacts?.elevationFaces,
+        parsed.planFacts?.elevationFaces,
+      ),
+    };
+    const insulationDerived = deriveInsulationMeasurementsFromPlanFacts(
+      tradeMeasurementInput,
+      insulationPlanFacts,
+    );
+    for (const [key, value] of Object.entries(insulationDerived.measurements)) {
+      if (positive(value) > 0) tradeMeasurementInput[key] = value;
+    }
+    for (const key of insulationDerived.derivedKeys) {
+      fieldConfidence[key] = Math.max(Number(fieldConfidence[key] || 0), 0.75);
+      measurementProvenance[key] = {
+        value: tradeMeasurementInput[key],
+        source: "calculated_from_plan_facts",
+        normalizedSource: "NEEDS_REVIEW",
+      };
+    }
+    assumptions.push(...insulationDerived.assumptions);
+    if (positive(tradeMeasurementInput.openingDeductionSqft)) {
+      notesBlock += `\n\nInsulation takeoff: exterior opening deduction ${tradeMeasurementInput.openingDeductionSqft.toLocaleString()} SF from readable elevation openings.`;
+    }
+    if (positive(tradeMeasurementInput.exteriorWallInsulationSqft)) {
+      notesBlock += `\n\nInsulation takeoff: exterior wall insulation ${tradeMeasurementInput.exteriorWallInsulationSqft.toLocaleString()} SF from readable plan geometry.`;
     }
   }
   const tradeMeasurements = filterPlanMeasurementsForTrade(
     tradeMeasurementInput,
     planSelection.mode,
-    planSelection.trade
+    planSelection.trade,
   );
-  const tradeScope = filterPlanScopesForTrade(scope, planSelection.mode, planSelection.trade);
-  const keepPaintingRooms = planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'painting';
-  const tradeRooms = planSelection.mode === 'selected_trade' && !keepPaintingRooms ? [] : rooms;
+  const tradeScope = filterPlanScopesForTrade(
+    scope,
+    planSelection.mode,
+    planSelection.trade,
+  );
+  const keepPaintingRooms =
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "painting";
+  const tradeRooms =
+    planSelection.mode === "selected_trade" && !keepPaintingRooms ? [] : rooms;
   if (paintingSelected && rooms.length) {
     planFacts.interiorRooms = rooms.slice(0, 80);
   }
-  const tradeAreaReconciliation = planSelection.mode === 'selected_trade' ? null : areaReconciliation;
+  const tradeAreaReconciliation =
+    planSelection.mode === "selected_trade" ? null : areaReconciliation;
   const tradeMissingInfo = [...(planSelection.trade?.missingInfo || [])];
   if (plumbingSelected && plumbingReviewStatus) {
     tradeMissingInfo.length = 0;
-    tradeMissingInfo.push(...plumbingReviewStatus.needsConfirmation, ...plumbingReviewStatus.notFound);
+    tradeMissingInfo.push(
+      ...plumbingReviewStatus.needsConfirmation,
+      ...plumbingReviewStatus.notFound,
+    );
   }
-  if (planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'stucco') {
+  if (
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "stucco"
+  ) {
     if (!(positive(tradeMeasurementInput.stuccoGrossWallSqft) > 0)) {
-      tradeMissingInfo.unshift('Gross exterior wall area: no readable elevation-face or perimeter dimensions');
+      tradeMissingInfo.unshift(
+        "Gross exterior wall area: no readable elevation-face or perimeter dimensions",
+      );
     }
     if (
       !(positive(tradeMeasurementInput.stuccoWindowDoorOpeningSqft) > 0) &&
       !(positive(tradeMeasurementInput.stuccoGarageOpeningSqft) > 0)
     ) {
-      tradeMissingInfo.unshift('Opening deductions: no readable window, door, or garage opening dimensions');
+      tradeMissingInfo.unshift(
+        "Opening deductions: no readable window, door, or garage opening dimensions",
+      );
     }
   }
   if (paintingSelected) {
     if (!(positive(tradeMeasurementInput.wallPaintSqft) > 0)) {
       tradeMissingInfo.unshift(
-        'Interior wall area: no labeled paint SF or dimensioned rooms with explicit wall/plate height'
+        "Interior wall area: no labeled paint SF or dimensioned rooms with explicit wall/plate height",
       );
     }
     if (!(positive(tradeMeasurementInput.ceilingPaintSqft) > 0)) {
-      tradeMissingInfo.unshift('Ceiling area: no labeled ceiling finish SF or dimensioned interior rooms');
+      tradeMissingInfo.unshift(
+        "Ceiling area: no labeled ceiling finish SF or dimensioned interior rooms",
+      );
     }
   }
   if (framingSelected) {
     if (!(positive(tradeMeasurementInput.framedAreaSqft) > 0)) {
       tradeMissingInfo.unshift(
-        'Covered framed floor area: no readable living plus garage SF on the plan'
+        "Covered framed floor area: no readable living plus garage SF on the plan",
       );
     }
     if (!(positive(tradeMeasurementInput.sheathingSqft) > 0)) {
       tradeMissingInfo.unshift(
-        'Sheathing / shear area: no readable wall sheathing SF or gross wall area'
+        "Sheathing / shear area: no readable wall sheathing SF or gross wall area",
       );
+    }
+  }
+  if (insulationSelected) {
+    const insulationMissing = [
+      ["exteriorWallInsulationSqft", "Exterior wall insulation SF"],
+      ["atticInsulationSqft", "Attic / ceiling insulation SF"],
+      ["insulatedRoofDeckSqft", "Insulated roof-deck SF"],
+      ["openingDeductionSqft", "Exterior opening deduction SF"],
+      ["garageSeparationInsulationSqft", "Garage separation insulation SF"],
+      ["floorInsulationSqft", "Floor insulation SF"],
+    ];
+    for (const [key, label] of insulationMissing) {
+      if (!(positive(tradeMeasurementInput[key]) > 0)) {
+        tradeMissingInfo.unshift(
+          `${label}: no readable labeled quantity or complete dimensioned geometry`,
+        );
+      }
     }
   }
   if (electricalSelected) {
     if (!(positive(tradeMeasurementInput.mainPanelCount) > 0)) {
-      tradeMissingInfo.unshift('Panel / service: no readable panel count or amperage callout');
+      tradeMissingInfo.unshift(
+        "Panel / service: no readable panel count or amperage callout",
+      );
     }
     if (!(positive(tradeMeasurementInput.serviceAmperage) > 0)) {
-      tradeMissingInfo.unshift('Service size: no printed amperage callout — confirm 100A/125A/150A/200A');
+      tradeMissingInfo.unshift(
+        "Service size: no printed amperage callout — confirm 100A/125A/150A/200A",
+      );
     }
     if (
       !(positive(tradeMeasurementInput.standardCircuitCount) > 0) &&
       !(positive(tradeMeasurementInput.dedicated20aCircuitCount) > 0)
     ) {
       tradeMissingInfo.unshift(
-        'Homeruns / dedicated circuits: confirm from panel schedule — device symbols do not invent circuit counts'
+        "Homeruns / dedicated circuits: confirm from panel schedule — device symbols do not invent circuit counts",
       );
     }
   }
@@ -2811,7 +3580,7 @@ async function analyzePlanForMeasurements({
   return {
     success: true,
     reason: null,
-    imageQuality: imageQuality || (pdfRooms.length ? 'good' : 'partial'),
+    imageQuality: imageQuality || (pdfRooms.length ? "good" : "partial"),
     rooms: tradeRooms,
     measurements: tradeMeasurements,
     fieldConfidence,
@@ -2841,7 +3610,7 @@ async function analyzePlanForMeasurements({
     estimatingMode: planSelection.mode,
     selectedTrade: planSelection.trade?.key || null,
     tradeProvenance: {
-      source: 'plan_import',
+      source: "plan_import",
       mode: planSelection.mode,
       selectedTrade: planSelection.trade?.key || null,
       routerStatus: planSelection.trade?.status || null,
@@ -2854,7 +3623,11 @@ async function analyzePlanForMeasurements({
  * Pure merge helper for tests / mobile mirror.
  * Only fills empty measurement fields (does not overwrite user values).
  */
-function mergePlanMeasurementsIntoExisting(current = {}, extracted = {}, { overwrite = false } = {}) {
+function mergePlanMeasurementsIntoExisting(
+  current = {},
+  extracted = {},
+  { overwrite = false } = {},
+) {
   const next = { ...current };
   let filled = 0;
   for (const [key, value] of Object.entries(extracted || {})) {
@@ -2876,6 +3649,7 @@ module.exports = {
   mergePositiveMeasurementMaps,
   preferElevationFacesWithOpenings,
   deriveStuccoElevationMeasurements,
+  deriveInsulationMeasurementsFromPlanFacts,
   derivePaintingGeometryMeasurements,
   sanitizeRooms,
   sanitizeMeasurements,

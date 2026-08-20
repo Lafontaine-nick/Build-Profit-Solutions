@@ -101,16 +101,10 @@ export type SuggestedQuantitySource =
   | 'unknown';
 
 export type SuggestedPricingStatus =
-  | 'ready'
-  | 'planning'
-  | 'allowance'
-  | 'review_required';
+  'ready' | 'planning' | 'allowance' | 'review_required';
 
 export type SuggestedPricingActionType =
-  | 'apply_price'
-  | 'apply_allowance'
-  | 'use_planning_price'
-  | 'use_suggested';
+  'apply_price' | 'apply_allowance' | 'use_planning_price' | 'use_suggested';
 
 export type SuggestedPricingCardDisplay = {
   quantitySource: SuggestedQuantitySource;
@@ -1016,6 +1010,7 @@ export function buildSuggestedPricingCardDisplay(input: {
     ? ELECTRICAL_SERVICE_AMPERAGE_REQUIRED_STATUS
     : formatCompactSuggestedLine(block.total);
   const isFlooringLineCard = isFlooringConfirmScopePricingCard(itemId);
+  const isFramingShellLineCard = itemId === 'framing';
   const isFlooringLinearFootCard =
     itemId === 'trim' || itemId === 'quarter_round';
   const flooringQuantityUnit = isFlooringLinearFootCard
@@ -1118,7 +1113,11 @@ export function buildSuggestedPricingCardDisplay(input: {
           ? formatSuggestedSplitLine(block)
           : lumpSumOnly
             ? 'Allowance · Flat amount'
-            : `${formatSuggestedSplitLine(block)}${block.pricingDetail ? ` · ${block.pricingDetail}` : ''}`,
+            : `${formatSuggestedSplitLine(block)}${
+                block.pricingDetail && !isFramingShellLineCard
+                  ? ` · ${block.pricingDetail}`
+                  : ''
+              }`,
     unitRateLine:
       unitRateLine && /reference only/i.test(unitRateLine)
         ? null

@@ -339,6 +339,20 @@ export function resolveSingleTradePlanContext(
 export function stripScopeInputForSingleTrade<
   T extends Record<string, unknown>,
 >(input: T, tradeKey: PlanTradeKey | null): T {
+  const preserveMepComplexity =
+    tradeKey === 'electrical' || tradeKey === 'plumbing';
+  const complexitySnapshot = preserveMepComplexity
+    ? {
+        planFacts: input.planFacts,
+        floorAreaSqft: input.floorAreaSqft,
+        storyCount: input.storyCount,
+        projectComplexity: input.projectComplexity,
+        floorAreaSource: (input.quickMeasurementSources as Record<string, string> | undefined)
+          ?.floorAreaSqft,
+        storySource: (input.quickMeasurementSources as Record<string, string> | undefined)
+          ?.storyCount,
+      }
+    : null;
   const allowedQm = new Set(tradeQuickMeasurementFieldKeys(tradeKey));
   const next = { ...input };
   for (const key of WHOLE_PROJECT_QUICK_MEASUREMENT_KEYS) {
@@ -348,7 +362,9 @@ export function stripScopeInputForSingleTrade<
     }
   }
   delete next.planRooms;
-  delete next.planFacts;
+  // Insulation derives its thermal-envelope quantities from plan facts
+  // (living area, perimeter, wall height, stories, and openings).
+  if (tradeKey !== 'insulation') delete next.planFacts;
   delete next.areaReconciliation;
   delete next.garageDoorSingleCount;
   delete next.garageDoorDoubleCount;
@@ -371,6 +387,27 @@ export function stripScopeInputForSingleTrade<
         )
       )
     );
+  }
+  if (complexitySnapshot) {
+    if (complexitySnapshot.planFacts) next.planFacts = complexitySnapshot.planFacts;
+    if (complexitySnapshot.floorAreaSqft) {
+      next.floorAreaSqft = complexitySnapshot.floorAreaSqft;
+    }
+    if (complexitySnapshot.storyCount) next.storyCount = complexitySnapshot.storyCount;
+    if (complexitySnapshot.projectComplexity) {
+      next.projectComplexity = complexitySnapshot.projectComplexity;
+    }
+    if (complexitySnapshot.floorAreaSource || complexitySnapshot.storySource) {
+      next.quickMeasurementSources = {
+        ...(next.quickMeasurementSources as Record<string, string> | undefined),
+        ...(complexitySnapshot.floorAreaSource
+          ? { floorAreaSqft: complexitySnapshot.floorAreaSource }
+          : {}),
+        ...(complexitySnapshot.storySource
+          ? { storyCount: complexitySnapshot.storySource }
+          : {}),
+      };
+    }
   }
   return next;
 }

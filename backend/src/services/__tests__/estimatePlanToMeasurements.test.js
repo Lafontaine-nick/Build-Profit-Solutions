@@ -907,4 +907,45 @@ describe('estimatePlanToMeasurements', () => {
     expect(omitted.measurements.mainPanelCount).toBe(1);
     expect(omitted.measurements.ceilingFanCount).toBe(8);
   });
+
+  test('deriveInsulationMeasurementsFromPlanFacts maps stucco elevation openings', () => {
+    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+    const result = deriveInsulationMeasurementsFromPlanFacts(
+      { stuccoWindowDoorOpeningSqft: 289.6 },
+      {},
+    );
+    expect(result.measurements.openingDeductionSqft).toBe(289.6);
+    expect(result.derivedKeys).toContain('openingDeductionSqft');
+  });
+
+  test('deriveInsulationMeasurementsFromPlanFacts derives net exterior walls from perimeter', () => {
+    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+    const result = deriveInsulationMeasurementsFromPlanFacts(
+      { openingDeductionSqft: 289 },
+      {
+        foundationPerimeterLf: 214,
+        wallHeightFt: 9,
+        storyCount: 1,
+        elevationFaces: [{ id: 'north', windowDoorOpeningsSqft: 289 }],
+      },
+    );
+    expect(result.measurements.exteriorWallInsulationSqft).toBe(1637);
+  });
+
+  test('insulation selected-trade filter keeps canonical envelope keys', () => {
+    const filtered = filterPlanMeasurementsForTrade(
+      {
+        openingDeductionSqft: 289.6,
+        exteriorWallInsulationSqft: 1637,
+        stuccoWindowDoorOpeningSqft: 289.6,
+        drywallSqft: 12000,
+      },
+      'selected_trade',
+      TRADE_CONFIGS.insulation,
+    );
+    expect(filtered.openingDeductionSqft).toBe(289.6);
+    expect(filtered.exteriorWallInsulationSqft).toBe(1637);
+    expect(filtered.stuccoWindowDoorOpeningSqft).toBeUndefined();
+    expect(filtered.drywallSqft).toBeUndefined();
+  });
 });

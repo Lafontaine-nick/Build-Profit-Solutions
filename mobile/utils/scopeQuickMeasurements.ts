@@ -64,6 +64,17 @@ export type QuickMeasurementFieldKey =
   | 'roofGutterLf'
   | 'roofDownspoutCount'
   | 'drywallSqft'
+  | 'exteriorWallInsulationSqft'
+  | 'atticInsulationSqft'
+  | 'insulatedRoofDeckSqft'
+  | 'floorInsulationSqft'
+  | 'garageSeparationInsulationSqft'
+  | 'insulatedGarageWallSqft'
+  | 'insulatedGarageCeilingSqft'
+  | 'openingDeductionSqft'
+  | 'insulationMaterialType'
+  | 'insulationRValue'
+  | 'garageInsulationIncluded'
   | 'serviceCallCount'
   | 'fixtureRepairCount'
   | 'fixtureReplacementCount'
@@ -132,11 +143,7 @@ export type QuickMeasurementFieldKey =
   | 'framingCleanupCount';
 
 export type QuickMeasurementGroupId =
-  | 'site'
-  | 'structure'
-  | 'interior'
-  | 'exterior'
-  | 'other';
+  'site' | 'structure' | 'interior' | 'exterior' | 'other';
 
 export type QuickMeasurementFieldDef = {
   key: QuickMeasurementFieldKey;
@@ -437,6 +444,83 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'structure'
   ),
   drywallSqft: F('drywallSqft', 'Drywall', '800', 'sqft', 'interior'),
+  exteriorWallInsulationSqft: F(
+    'exteriorWallInsulationSqft',
+    'Exterior wall insulation',
+    'e.g. 4500',
+    'sqft',
+    'structure'
+  ),
+  atticInsulationSqft: F(
+    'atticInsulationSqft',
+    'Attic / ceiling insulation',
+    'e.g. 2000',
+    'sqft',
+    'structure'
+  ),
+  insulatedRoofDeckSqft: F(
+    'insulatedRoofDeckSqft',
+    'Insulated roof deck',
+    'e.g. 2000',
+    'sqft',
+    'structure'
+  ),
+  floorInsulationSqft: F(
+    'floorInsulationSqft',
+    'Floor insulation',
+    'e.g. 800',
+    'sqft',
+    'structure'
+  ),
+  garageSeparationInsulationSqft: F(
+    'garageSeparationInsulationSqft',
+    'Garage separation insulation',
+    'e.g. 400',
+    'sqft',
+    'structure'
+  ),
+  insulatedGarageWallSqft: F(
+    'insulatedGarageWallSqft',
+    'Insulated garage walls',
+    'e.g. 800',
+    'sqft',
+    'structure'
+  ),
+  insulatedGarageCeilingSqft: F(
+    'insulatedGarageCeilingSqft',
+    'Insulated garage ceiling',
+    'e.g. 800',
+    'sqft',
+    'structure'
+  ),
+  openingDeductionSqft: F(
+    'openingDeductionSqft',
+    'Exterior opening deduction',
+    'e.g. 600',
+    'sqft',
+    'structure'
+  ),
+  insulationMaterialType: F(
+    'insulationMaterialType',
+    'Insulation type',
+    'e.g. batt, blown, spray foam',
+    'type',
+    'structure'
+  ),
+  insulationRValue: F(
+    'insulationRValue',
+    'Target R-value',
+    'e.g. R-21 wall, R-49 attic',
+    'R-value',
+    'structure'
+  ),
+  garageInsulationIncluded: F(
+    'garageInsulationIncluded',
+    'Garage insulation included',
+    'yes / no / separation only',
+    'choice',
+    'structure'
+  ),
   serviceCallCount: F(
     'serviceCallCount',
     'Service calls',
@@ -1177,6 +1261,83 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
     ),
   ],
   drywall: [row(F('drywallSqft', 'Drywall', '800', 'sqft', 'interior', true))],
+  insulation: [
+    row(
+      F(
+        'exteriorWallInsulationSqft',
+        'Exterior wall insulation',
+        'e.g. 4500',
+        'sqft',
+        'structure',
+        true
+      ),
+      F(
+        'atticInsulationSqft',
+        'Attic / ceiling insulation',
+        'e.g. 2000',
+        'sqft',
+        'structure'
+      )
+    ),
+    row(
+      F(
+        'insulatedRoofDeckSqft',
+        'Insulated roof deck',
+        'e.g. 2000',
+        'sqft',
+        'structure'
+      ),
+      F(
+        'openingDeductionSqft',
+        'Exterior opening deduction',
+        'e.g. 600',
+        'sqft',
+        'structure'
+      )
+    ),
+    row(
+      F(
+        'garageSeparationInsulationSqft',
+        'Garage separation insulation',
+        'e.g. 400',
+        'sqft',
+        'structure'
+      ),
+      F(
+        'floorInsulationSqft',
+        'Floor insulation',
+        'e.g. 800',
+        'sqft',
+        'structure'
+      )
+    ),
+    row(
+      F(
+        'insulationMaterialType',
+        'Insulation type',
+        'e.g. batt, blown, spray foam',
+        'type',
+        'structure',
+        true
+      ),
+      F(
+        'insulationRValue',
+        'Target R-value',
+        'e.g. R-21 wall, R-49 attic',
+        'R-value',
+        'structure'
+      )
+    ),
+    row(
+      F(
+        'garageInsulationIncluded',
+        'Garage insulation included',
+        'yes / no / separation only',
+        'choice',
+        'structure'
+      )
+    ),
+  ],
   painting: [
     row(
       F('wallPaintSqft', 'Walls', '1500', 'sqft', 'interior', true),
@@ -1933,6 +2094,17 @@ export function emptyQuickMeasurementInput(): Record<
     roofPitch: '',
     storyCount: '',
     drywallSqft: '',
+    exteriorWallInsulationSqft: '',
+    atticInsulationSqft: '',
+    insulatedRoofDeckSqft: '',
+    floorInsulationSqft: '',
+    garageSeparationInsulationSqft: '',
+    insulatedGarageWallSqft: '',
+    insulatedGarageCeilingSqft: '',
+    openingDeductionSqft: '',
+    insulationMaterialType: '',
+    insulationRValue: '',
+    garageInsulationIncluded: '',
     serviceCallCount: '',
     fixtureRepairCount: '',
     fixtureReplacementCount: '',

@@ -193,6 +193,32 @@ describe('plumbing equipment scope cards', () => {
     });
   });
 
+  test('infers water heater and gas connections from gas LF without vision equipment scope', () => {
+    const plan58Inventory = {
+      toilets: 3,
+      lavatories: 3,
+      showers: 2,
+      tubs: 1,
+      kitchenSinks: 1,
+    };
+    expect(
+      hydratePlumbingPlanMeasurementsFromInventory(
+        {
+          waterLineLf: '50',
+          sewerLineLf: '30',
+          gasLineLf: '40',
+        },
+        plan58Inventory
+      )
+    ).toMatchObject({
+      plumbingRoughPointCount: 10,
+      plumbingTrimHookupCount: 10,
+      plumbingFixturesHardwareCount: 10,
+      waterHeaterCount: 1,
+      gasApplianceConnectionCount: 3,
+    });
+  });
+
   test('Plan 58-style package totals near nineteen thousand', () => {
     const plan58Inventory = {
       toilets: 3,

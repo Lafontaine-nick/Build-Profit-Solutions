@@ -16,6 +16,10 @@ import {
   FRAMING_PLAN_QUICK_MEASUREMENT_KEYS,
   FRAMING_REVIEW_MEASUREMENT_KEYS,
 } from './framingPlanConvergence';
+import {
+  INSULATION_PLAN_QUICK_MEASUREMENT_KEYS,
+  INSULATION_PLAN_REVIEW_MEASUREMENT_KEYS,
+} from './insulationPlanConvergence';
 import { getTradeMeasurementSchema } from './measurementSchemas';
 import {
   TRADE_SCOPE_ALLOWLISTS,
@@ -459,7 +463,36 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
     quickMeasurementFieldKeys: ['drywallSqft'],
   }),
   stucco: STUCCO_DEFINITION,
-  insulation: scaffoldedTrade('insulation', 'Insulation'),
+  insulation: scaffoldedTrade('insulation', 'Insulation', {
+    standaloneTemplateKey: 'insulation',
+    status: 'complete',
+    scopeHint:
+      'Focus on the thermal envelope: exterior walls plus one attic or roof-deck boundary. Do not use drywall surface area as insulation quantity.',
+    missingInfo: [
+      'Exterior wall insulation area and assembly',
+      'Attic/ceiling versus insulated roof-deck boundary',
+      'Opening deductions, garage separation, and required R-values',
+    ],
+    reviewMeasurementKeys: [...INSULATION_PLAN_REVIEW_MEASUREMENT_KEYS],
+    reviewScopeKeywords: [
+      'insulation',
+      'insulated',
+      'batt',
+      'blown',
+      'spray foam',
+      'r-value',
+      'attic',
+      'thermal envelope',
+    ],
+    quickMeasurementFieldKeys: [...INSULATION_PLAN_QUICK_MEASUREMENT_KEYS],
+    scopeItems: [
+      {
+        scopeItemId: 'insulation',
+        pricingBehavior: 'CUSTOM_PRICE',
+        measurementKeys: ['exteriorWallInsulationSqft', 'atticInsulationSqft'],
+      },
+    ],
+  }),
   flooring: scaffoldedTrade('flooring', 'Flooring', {
     standaloneTemplateKey: 'flooring',
     status: 'complete',

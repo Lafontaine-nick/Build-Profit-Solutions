@@ -88,6 +88,9 @@ export type PlanFacts = {
   includeCoveredPatioSlab?: boolean | null;
   nonPaintedExteriorPercent?: number | null;
   openingsPercent?: number | null;
+  insulationMaterialType?: string | null;
+  insulationRValue?: string | null;
+  garageInsulationIncluded?: boolean | null;
   geometry?: PlanGeometryRegion[];
   fieldEvidence?: Record<string, PlanFieldEvidence>;
   warnings?: string[];

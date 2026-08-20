@@ -638,6 +638,15 @@ export function electricalScopeSyncSignature(
   parts.push(`scope:${scope}`);
   parts.push(`rough:${measurements.electricalIncludeRough ? 1 : 0}`);
   parts.push(`trim:${measurements.electricalIncludeTrim ? 1 : 0}`);
+  parts.push(
+    `floorAreaSqft:${String(measurements.floorAreaSqft ?? '').replace(/,/g, '')}`
+  );
+  parts.push(
+    `storyCount:${String(measurements.storyCount ?? '').replace(/,/g, '')}`
+  );
+  parts.push(
+    `projectComplexity:${JSON.stringify(measurements.projectComplexity ?? null)}`
+  );
   return parts.join('|');
 }
 

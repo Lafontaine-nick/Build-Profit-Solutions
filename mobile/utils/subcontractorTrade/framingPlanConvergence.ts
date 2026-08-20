@@ -11,7 +11,8 @@ export type FramingQuantityKey =
   | 'framingOpeningCount'
   | 'framingCleanupCount';
 
-export type FramingWorkflowMode = 'new_construction' | 'remodel' | 'repair_service';
+export type FramingWorkflowMode =
+  'new_construction' | 'remodel' | 'repair_service';
 
 export type FramingCardGroupId = 'shell' | 'sheathing' | 'closeout';
 
@@ -60,7 +61,7 @@ export const FRAMING_CARDS: FramingCardDefinition[] = [
     'framing',
     'framedAreaSqft',
     'Framing (lumber + labor)',
-    'Covered framed floor area — living plus garage when documented. Material is lumber/truss package; labor is rough framing crew. Sheathing is a separate card.',
+    'Covered framed floor area — living plus garage when documented. Full-shell plan pricing includes lumber, sheathing, trusses, decking, and framing labor in one package.',
     'shell',
     'CUSTOM_PRICE',
     'sqft'
@@ -87,7 +88,7 @@ export const FRAMING_CARDS: FramingCardDefinition[] = [
     'shear_sheathing',
     'sheathingSqft',
     'Sheathing / shear',
-    'Structural wall or roof sheathing (OSB/plywood) when documented. Priced by square feet, separate from lumber package.',
+    'Structural wall or roof sheathing (OSB/plywood) when documented. Full-shell plan packages include it in framing material; partial/remodel work may price it separately.',
     'sheathing',
     'CUSTOM_PRICE',
     'sqft'
@@ -104,7 +105,9 @@ export const FRAMING_CARDS: FramingCardDefinition[] = [
 ];
 
 export const FRAMING_ITEM_IDS = FRAMING_CARDS.map(card => card.itemId);
-export const FRAMING_QUANTITY_KEYS = FRAMING_CARDS.map(card => card.measurementKey);
+export const FRAMING_QUANTITY_KEYS = FRAMING_CARDS.map(
+  card => card.measurementKey
+);
 
 export const FRAMING_REVIEW_MEASUREMENT_KEYS = [
   'framedAreaSqft',
@@ -152,16 +155,43 @@ export function isShellFramingPackageBid(
   return positiveNumber(input.floorAreaSqft) != null;
 }
 
+/**
+ * A full selected-trade ground-up framing import uses the shell package as the
+ * pricing owner. Its material package already covers sheathing, so the plan
+ * sheathing measurement remains visible but must not become a second charge.
+ */
+export function shellPackageIncludesSheathing(
+  input: Record<string, unknown>
+): boolean {
+  const trade = String(
+    input.planImportTradeKey || input.selectedTrade || ''
+  ).toLowerCase();
+  const sources = input.quickMeasurementSources as
+    Record<string, string> | undefined;
+  const planFramingMeasurement =
+    sources?.framedAreaSqft &&
+    PLAN_SHELL_FRAMING_COMPONENT_SOURCES.has(sources.framedAreaSqft);
+  const planSheathingMeasurement =
+    sources?.sheathingSqft &&
+    PLAN_SHELL_FRAMING_COMPONENT_SOURCES.has(sources.sheathingSqft);
+  return (
+    isShellFramingPackageBid(input) &&
+    (input.planImportMode === 'selected_trade' ||
+      trade === 'framing' ||
+      (planFramingMeasurement && planSheathingMeasurement))
+  );
+}
+
 /** Keep contractor-entered LF/count on shell bids — only plan imports are stripped. */
 export function shouldPreserveShellFramingComponentMeasurement(
   input: Record<string, unknown>,
   key: (typeof FRAMING_SHELL_COMPONENT_MEASUREMENT_KEYS)[number]
 ): boolean {
   const overrides = input.quickMeasurementUserOverrides as
-    | Record<string, boolean>
-    | undefined;
+    Record<string, boolean> | undefined;
   if (overrides?.[key]) return true;
-  const sources = input.quickMeasurementSources as Record<string, string> | undefined;
+  const sources = input.quickMeasurementSources as
+    Record<string, string> | undefined;
   const source = sources?.[key];
   if (source === 'user_entered' || source === 'manual_override') return true;
   if (String(input[key] ?? '').trim() && !source) return true;
@@ -175,7 +205,8 @@ export function shouldStripShellFramingComponentMeasurement(
 ): boolean {
   if (!isShellFramingPackageBid(input)) return false;
   if (shouldPreserveShellFramingComponentMeasurement(input, key)) return false;
-  const sources = input.quickMeasurementSources as Record<string, string> | undefined;
+  const sources = input.quickMeasurementSources as
+    Record<string, string> | undefined;
   const source = sources?.[key];
   return Boolean(source && PLAN_SHELL_FRAMING_COMPONENT_SOURCES.has(source));
 }
@@ -198,7 +229,12 @@ export function framingScopeItemIdsForInput(
   const shellBid = isShellFramingPackageBid(input);
   const scope: string[] = [];
   if (resolveCoveredFramedAreaSqft(input) != null) scope.push('framing');
-  if (resolveFramingSheathingSqft(input) != null) scope.push('shear_sheathing');
+  if (
+    resolveFramingSheathingSqft(input) != null &&
+    !shellPackageIncludesSheathing(input)
+  ) {
+    scope.push('shear_sheathing');
+  }
   if (
     positiveNumber(input.wallFramingLf) != null &&
     (!shellBid ||
@@ -209,7 +245,10 @@ export function framingScopeItemIdsForInput(
   if (
     positiveNumber(input.framingOpeningCount) != null &&
     (!shellBid ||
-      shouldPreserveShellFramingComponentMeasurement(input, 'framingOpeningCount'))
+      shouldPreserveShellFramingComponentMeasurement(
+        input,
+        'framingOpeningCount'
+      ))
   ) {
     scope.push('openings');
   }
@@ -299,7 +338,9 @@ export function resolveFramingSheathingSqft(
   return null;
 }
 
-export function parseFramingMeasurementsFromNotes(notes: string): Record<string, number> {
+export function parseFramingMeasurementsFromNotes(
+  notes: string
+): Record<string, number> {
   const text = String(notes || '').trim();
   if (!text) return {};
   const out: Record<string, number> = {};
@@ -315,19 +356,33 @@ export function parseFramingMeasurementsFromNotes(notes: string): Record<string,
 
   assign(
     'wallFramingLf',
-    count(/(\d+(?:\.\d+)?)\s*(?:lf|linear\s*(?:ft|feet)|ft)\s*(?:of\s*)?(?:stud\s*)?wall\s*fram/i) ??
-      count(/(?:frame|framing)\s*(?:a\s*)?(\d+(?:\.\d+)?)\s*(?:lf|linear\s*(?:ft|feet)|ft)/i) ??
-      count(/(\d+(?:\.\d+)?)\s*(?:lf|linear\s*(?:ft|feet)|ft)\s*(?:stud\s*)?wall/i)
+    count(
+      /(\d+(?:\.\d+)?)\s*(?:lf|linear\s*(?:ft|feet)|ft)\s*(?:of\s*)?(?:stud\s*)?wall\s*fram/i
+    ) ??
+      count(
+        /(?:frame|framing)\s*(?:a\s*)?(\d+(?:\.\d+)?)\s*(?:lf|linear\s*(?:ft|feet)|ft)/i
+      ) ??
+      count(
+        /(\d+(?:\.\d+)?)\s*(?:lf|linear\s*(?:ft|feet)|ft)\s*(?:stud\s*)?wall/i
+      )
   );
   assign(
     'sheathingSqft',
-    count(/(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:of\s*)?(?:sheath|shear|osb|plywood)/i) ??
-      count(/(?:sheath|shear)\s*(?:panel|wall)?\s*(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft)/i)
+    count(
+      /(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:of\s*)?(?:sheath|shear|osb|plywood)/i
+    ) ??
+      count(
+        /(?:sheath|shear)\s*(?:panel|wall)?\s*(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft)/i
+      )
   );
   assign(
     'framedAreaSqft',
-    count(/(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:of\s*)?(?:framed|framing)/i) ??
-      count(/(?:framed|framing)\s*(?:area|shell)?\s*(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft)/i)
+    count(
+      /(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:of\s*)?(?:framed|framing)/i
+    ) ??
+      count(
+        /(?:framed|framing)\s*(?:area|shell)?\s*(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft)/i
+      )
   );
   assign(
     'framingOpeningCount',
@@ -362,8 +417,13 @@ function buildItemQuantities(
   for (const card of FRAMING_CARDS) {
     if (
       shellBid &&
-      (card.itemId === 'wall_framing' || card.itemId === 'openings') &&
-      !shouldPreserveShellFramingComponentMeasurement(input, card.measurementKey)
+      ((card.itemId === 'shear_sheathing' &&
+        shellPackageIncludesSheathing(input)) ||
+        ((card.itemId === 'wall_framing' || card.itemId === 'openings') &&
+          !shouldPreserveShellFramingComponentMeasurement(
+            input,
+            card.measurementKey
+          )))
     ) {
       continue;
     }
@@ -463,9 +523,7 @@ export function copyFramingQuantityFields(
   return out;
 }
 
-export function syncFramingScopeItems<
-  T extends { id: string; state?: string },
->(
+export function syncFramingScopeItems<T extends { id: string; state?: string }>(
   items: T[],
   params: {
     framingScope?: string[] | null;
@@ -474,20 +532,39 @@ export function syncFramingScopeItems<
     };
   }
 ): T[] {
-  const included = new Set(params.framingScope || []);
+  const shellIncludesSheathing = shellPackageIncludesSheathing(
+    (params.quantities || {}) as Record<string, unknown>
+  );
+  const included = new Set(
+    (params.framingScope || []).filter(
+      itemId => !(shellIncludesSheathing && itemId === 'shear_sheathing')
+    )
+  );
   const fromQuantity = new Set<string>();
   for (const card of FRAMING_CARDS) {
     const raw = params.quantities?.[card.measurementKey];
     const fromItem = params.quantities?.itemQuantities?.[card.itemId]?.quantity;
     const qty = Number(String(raw ?? fromItem ?? '').replace(/,/g, ''));
-    if (Number.isFinite(qty) && qty > 0) fromQuantity.add(card.itemId);
+    if (
+      Number.isFinite(qty) &&
+      qty > 0 &&
+      !(shellIncludesSheathing && card.itemId === 'shear_sheathing')
+    ) {
+      fromQuantity.add(card.itemId);
+    }
     if (card.measurementKey === 'framedAreaSqft' && params.quantities) {
       const framed = resolveCoveredFramedAreaSqft(
         params.quantities as Record<string, unknown>
       );
       if (framed != null && framed > 0) fromQuantity.add(card.itemId);
     }
-    if (card.measurementKey === 'sheathingSqft' && params.quantities) {
+    if (
+      card.measurementKey === 'sheathingSqft' &&
+      params.quantities &&
+      !shellPackageIncludesSheathing(
+        params.quantities as Record<string, unknown>
+      )
+    ) {
       const sheathing = resolveFramingSheathingSqft(
         params.quantities as Record<string, unknown>
       );
@@ -495,13 +572,26 @@ export function syncFramingScopeItems<
     }
   }
   const active = new Set([...included, ...fromQuantity]);
-  return items.map(item => {
-    if (!FRAMING_ITEM_IDS.includes(item.id)) return item;
-    if (!active.has(item.id)) {
-      if (item.state === 'included') return { ...item, state: 'review' };
-      return item;
+  const hiddenOnShell = new Set<string>();
+  const quantities = (params.quantities || {}) as Record<string, unknown>;
+  if (isShellFramingPackageBid(quantities)) {
+    if (shellIncludesSheathing) hiddenOnShell.add('shear_sheathing');
+    for (const key of FRAMING_SHELL_COMPONENT_MEASUREMENT_KEYS) {
+      const itemId = key === 'wallFramingLf' ? 'wall_framing' : 'openings';
+      if (!shouldPreserveShellFramingComponentMeasurement(quantities, key)) {
+        hiddenOnShell.add(itemId);
+      }
     }
-    if (item.state === 'included' || item.state === 'excluded') return item;
-    return { ...item, state: 'included' };
-  });
+  }
+  return items
+    .filter(item => !hiddenOnShell.has(item.id))
+    .map(item => {
+      if (!FRAMING_ITEM_IDS.includes(item.id)) return item;
+      if (!active.has(item.id)) {
+        if (item.state === 'included') return { ...item, state: 'review' };
+        return item;
+      }
+      if (item.state === 'included' || item.state === 'excluded') return item;
+      return { ...item, state: 'included' };
+    });
 }

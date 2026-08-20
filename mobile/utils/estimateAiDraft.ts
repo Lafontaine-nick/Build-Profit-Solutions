@@ -1,5 +1,8 @@
 import { postAiAssistantJson } from '@/utils/resolveAiBackendUrl';
-import { clearStalePricingWhenNotesUnpriced, parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
+import {
+  clearStalePricingWhenNotesUnpriced,
+  parseScopeMeasurementsFromNotes,
+} from '@/utils/scopeMeasurementParser';
 import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
 import {
   ruleKeysToTryForPackage,
@@ -47,7 +50,10 @@ import {
 } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
 import { normalizePlumbingPlanMeasurements } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
-import { hydratePlumbingPlanMeasurementsFromInventory, reconcilePlumbingEquipmentScopeMeasurements } from '@/utils/planTakeoffReviewUi';
+import {
+  hydratePlumbingPlanMeasurementsFromInventory,
+  reconcilePlumbingEquipmentScopeMeasurements,
+} from '@/utils/planTakeoffReviewUi';
 import { confirmedPaintingMeasurementTextLines } from '@/utils/subcontractorTrade/paintingPlanConvergence';
 import type {
   ElectricalPanelLocation,
@@ -75,7 +81,15 @@ import {
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import { reconcileFramingScopeMeasurements } from '@/utils/planTakeoffReviewUi';
 import type { NormalizedTradeMeasurements } from '@/utils/subcontractorTrade/types';
-import type { MeasurementSuggestion, PlanBuildingAreas, PlanFacts } from '@/utils/planMeasurementFacts';
+import type {
+  MeasurementSuggestion,
+  PlanBuildingAreas,
+  PlanFacts,
+} from '@/utils/planMeasurementFacts';
+import {
+  hydrateProjectComplexityMeasurements,
+  seedMepProjectComplexityFromPlanImport,
+} from '@/utils/projectComplexityAdjustments';
 
 export type DraftItemStatus =
   | 'confirmed'
@@ -116,9 +130,11 @@ export type EstimateRoughEstimateRange = {
   disclaimer: string;
 };
 
-export type EstimateBuilderMode = 'organize_only' | 'organize_calculate' | 'suggest_breakdown';
+export type EstimateBuilderMode =
+  'organize_only' | 'organize_calculate' | 'suggest_breakdown';
 
-export type EstimateTier = 'simple_unit' | 'room_remodel' | 'addition' | 'ground_up';
+export type EstimateTier =
+  'simple_unit' | 'room_remodel' | 'addition' | 'ground_up';
 
 export type ScopeAssumptionState = 'included' | 'excluded' | 'unsure';
 
@@ -184,7 +200,8 @@ export type ScopeItemQuantity = {
    * Present only when BUILD_AI_MEASUREMENT_SEMANTICS_V1 is enabled for new writes.
    * Legacy records without this field continue to load unchanged.
    */
-  measurementState?: import('@/utils/measurementSemantics').ScopeMeasurementState | null;
+  measurementState?:
+    import('@/utils/measurementSemantics').ScopeMeasurementState | null;
 };
 
 /** Persisted accepted-pricing metadata for Confirm Scope cards. */
@@ -240,14 +257,19 @@ export type ScopeMeasurements = {
   stuccoStories?: number | null;
   stuccoWallHeightFt?: number | null;
   /** Plan-import routing/provenance; does not imply detailed trade quantities. */
-  planImportMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode | null;
-  planImportTradeKey?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
+  planImportMode?:
+    import('@/utils/planImportTradeConfig').PlanEstimatingMode | null;
+  planImportTradeKey?:
+    import('@/utils/planImportTradeConfig').PlanTradeKey | null;
   /** Stable client fingerprint for recognizing a repeat import of the same plan. */
   planImportFingerprint?: string | null;
   planImportProvenance?: PlanImportPayload['tradeProvenance'];
   planImportMissingInfo?: string[];
-  paintScope?: Array<'walls' | 'ceilings' | 'trim' | 'doors' | 'cabinets' | 'exterior'> | null;
-  paintAreaBasis?: 'walls' | 'ceilings' | 'combined' | 'floor_area' | 'unknown' | null;
+  paintScope?: Array<
+    'walls' | 'ceilings' | 'trim' | 'doors' | 'cabinets' | 'exterior'
+  > | null;
+  paintAreaBasis?:
+    'walls' | 'ceilings' | 'combined' | 'floor_area' | 'unknown' | null;
   paintAreaNeedsConfirmation?: boolean | null;
   paintAreaSqft?: number | null;
   paintPricingMethod?: 'combined' | 'separate' | null;
@@ -256,7 +278,8 @@ export type ScopeMeasurements = {
   paintApplicationMethod?: 'brush_roll' | 'spray' | 'mixed' | null;
   paintOccupancyConfirmed?: boolean | null;
   paintApplicationMethodConfirmed?: boolean | null;
-  cabinetMeasurementMethod?: 'linear_feet' | 'doors_drawers' | 'lump_sum' | 'surface_area' | null;
+  cabinetMeasurementMethod?:
+    'linear_feet' | 'doors_drawers' | 'lump_sum' | 'surface_area' | null;
   cabinetUpperLf?: number | null;
   cabinetLowerLf?: number | null;
   cabinetTallLf?: number | null;
@@ -269,7 +292,14 @@ export type ScopeMeasurements = {
   /** Finished floor install area — separate from building/ADU sqft on addition jobs */
   flooringSqft?: number | null;
   flooringProductScope?: Array<
-    'lvp' | 'laminate' | 'engineered_hardwood' | 'solid_hardwood' | 'tile' | 'carpet' | 'sheet_vinyl_vct' | 'unknown'
+    | 'lvp'
+    | 'laminate'
+    | 'engineered_hardwood'
+    | 'solid_hardwood'
+    | 'tile'
+    | 'carpet'
+    | 'sheet_vinyl_vct'
+    | 'unknown'
   > | null;
   flooringLvpSqft?: number | null;
   flooringLaminateSqft?: number | null;
@@ -280,7 +310,8 @@ export type ScopeMeasurements = {
   flooringSheetVinylSqft?: number | null;
   floorDemoSqft?: number | null;
   floorPrepSqft?: number | null;
-  flooringExistingLvpInstallMethod?: 'floating' | 'glue_down' | 'unknown' | null;
+  flooringExistingLvpInstallMethod?:
+    'floating' | 'glue_down' | 'unknown' | null;
   flooringExistingSheetVinylType?: 'sheet_vinyl' | 'vct' | 'unknown' | null;
   flooringNewLvpInstallMethod?: 'floating' | 'glue_down' | 'unknown' | null;
   flooringNewSheetVinylType?: 'sheet_vinyl' | 'vct' | 'unknown' | null;
@@ -340,18 +371,31 @@ export type ScopeMeasurements = {
   boulderCount?: number | null;
   landscapeLightCount?: number | null;
   landscapeScope?: string[] | null;
-  landscapeClearingLevel?: 'light_clearing' | 'medium_vegetation' | 'dense_vegetation' | 'unsure' | null;
+  landscapeClearingLevel?:
+    | 'light_clearing'
+    | 'medium_vegetation'
+    | 'dense_vegetation'
+    | 'unsure'
+    | null;
   concreteScope?: string[] | null;
   concreteDemoSqft?: number | null;
-  concreteDemoThicknessBand?: 'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
-  concreteDemoThicknessBands?: Array<'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus'> | null;
+  concreteDemoThicknessBand?:
+    'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
+  concreteDemoThicknessBands?: Array<
+    'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus'
+  > | null;
   concreteDemoAreaByThickness?: Partial<
-    Record<'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus', number | null>
+    Record<
+      'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus',
+      number | null
+    >
   > | null;
   concreteDemoReinforced?: boolean | null;
   concreteDemoLimitedAccess?: boolean | null;
   concreteDemoCy?: number | null;
-  tradeScopeSelections?: Partial<Record<'concrete' | 'deck_patio' | 'hvac' | 'roofing', string[] | null>> | null;
+  tradeScopeSelections?: Partial<
+    Record<'concrete' | 'deck_patio' | 'hvac' | 'roofing', string[] | null>
+  > | null;
   roofSquares?: number | null;
   roofAreaSqft?: number | null;
   roofIceWaterShieldSqft?: number | null;
@@ -374,18 +418,40 @@ export type ScopeMeasurements = {
   roofGutterLf?: number | null;
   roofDownspoutCount?: number | null;
   drywallSqft?: number | null;
+  exteriorWallInsulationSqft?: number | null;
+  atticInsulationSqft?: number | null;
+  insulatedRoofDeckSqft?: number | null;
+  floorInsulationSqft?: number | null;
+  garageSeparationInsulationSqft?: number | null;
+  insulatedGarageWallSqft?: number | null;
+  insulatedGarageCeilingSqft?: number | null;
+  openingDeductionSqft?: number | null;
+  insulationMaterialType?: string | null;
+  insulationRValue?: string | null;
+  garageInsulationIncluded?: string | null;
   concreteSqft?: number | null;
   concreteReinforcementSqft?: number | null;
   concreteSealerSqft?: number | null;
   concreteSubgradePrepSqft?: number | null;
   concreteAreaByType?: Partial<
-    Record<'driveways' | 'sidewalks' | 'patios' | 'rv_pads' | 'walkways', number | null>
+    Record<
+      'driveways' | 'sidewalks' | 'patios' | 'rv_pads' | 'walkways',
+      number | null
+    >
   > | null;
   concreteThicknessByType?: Partial<
-    Record<'driveways' | 'sidewalks' | 'patios' | 'rv_pads' | 'walkways', number | null>
+    Record<
+      'driveways' | 'sidewalks' | 'patios' | 'rv_pads' | 'walkways',
+      number | null
+    >
   > | null;
   concreteThicknessInches?: number | null;
-  concreteDecorativeFinish?: 'integral_color' | 'exposed_aggregate' | 'basic_stamped' | 'premium_stamped' | null;
+  concreteDecorativeFinish?:
+    | 'integral_color'
+    | 'exposed_aggregate'
+    | 'basic_stamped'
+    | 'premium_stamped'
+    | null;
   complexFormingLf?: number | null;
   additionalHaulOffLoadCount?: number | null;
   concreteCy?: number | null;
@@ -438,7 +504,8 @@ export type ScopeMeasurements = {
   /** Bathroom toilet relocate — floor construction type for conditional pricing. */
   bathroomToiletRelocateFloorType?: string | null;
   /** Whether toilet relocate floor type was user-selected or AI-inferred. */
-  bathroomToiletRelocateFloorTypeSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomToiletRelocateFloorTypeSource?:
+    'user_selected' | 'ai_inferred' | null;
   /** Bathroom shower/tub rough-in — wall & floor access for valve, head, and drain lines. */
   bathroomShowerRoughAccessType?: string | null;
   /** Whether shower rough-in access was user-selected or AI-inferred. */
@@ -452,17 +519,20 @@ export type ScopeMeasurements = {
   bathroomShowerRoughFixtureTypeSource?: 'user_selected' | 'ai_inferred' | null;
   /** Remodel demolition exposes plumbing vs separate access required. */
   bathroomShowerRoughPlumbingExposed?: string | null;
-  bathroomShowerRoughPlumbingExposedSource?: 'user_selected' | 'demo_detected' | 'ai_inferred' | null;
+  bathroomShowerRoughPlumbingExposedSource?:
+    'user_selected' | 'demo_detected' | 'ai_inferred' | null;
   /** @deprecated Migrated to bathroomShowerRoughPlumbingExposed. */
   bathroomShowerRoughWallAccess?: string | null;
   /** @deprecated Migrated to bathroomShowerRoughPlumbingExposedSource. */
   bathroomShowerRoughWallAccessSource?: 'user_selected' | 'ai_inferred' | null;
   /** Wood-framed floor vs concrete slab. */
   bathroomShowerRoughFloorConstruction?: string | null;
-  bathroomShowerRoughFloorConstructionSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomShowerRoughFloorConstructionSource?:
+    'user_selected' | 'ai_inferred' | null;
   /** Same-location slab — is cutting or below-slab drain work required? */
   bathroomShowerRoughSlabWorkRequired?: string | null;
-  bathroomShowerRoughSlabWorkRequiredSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomShowerRoughSlabWorkRequiredSource?:
+    'user_selected' | 'ai_inferred' | null;
   /** Localized prime/paint scope after bath drywall repair. */
   bathroomPaintRepairScope?: string | null;
   bathroomPaintRepairScopeSource?: 'user_selected' | 'ai_inferred' | null;
@@ -471,13 +541,16 @@ export type ScopeMeasurements = {
   bathroomPaintRepairEntireRoomSource?: 'user_selected' | 'ai_inferred' | null;
   /** Wall/ceiling paintable SF for entire-room add-on on paint_repair. */
   bathroomPaintRepairEntireRoomSqft?: string | number | null;
-  bathroomPaintRepairEntireRoomSqftSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomPaintRepairEntireRoomSqftSource?:
+    'user_selected' | 'ai_inferred' | null;
   /** One-line combined drywall + texture + prime + paint assembly. */
   bathroomDrywallPaintUseCombinedAssembly?: boolean | null;
-  bathroomDrywallPaintUseCombinedAssemblySource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomDrywallPaintUseCombinedAssemblySource?:
+    'user_selected' | 'ai_inferred' | null;
   /** Interior paint mobilization — bundled vs standalone minimum. */
   bathroomInteriorPaintMobilization?: string | null;
-  bathroomInteriorPaintMobilizationSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomInteriorPaintMobilizationSource?:
+    'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintSurface?: string | null;
   bathroomInteriorPaintSurfaceSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintCondition?: string | null;
@@ -518,7 +591,14 @@ export type ScopeMeasurements = {
   /** Flooring QM — existing / install / demo scope panels. */
   flooringExistingCount?: number | null;
   flooringExistingTypes?: Array<
-    'carpet' | 'tile' | 'solid_hardwood' | 'engineered_hardwood' | 'laminate' | 'lvp' | 'sheet_vinyl_vct' | 'unknown'
+    | 'carpet'
+    | 'tile'
+    | 'solid_hardwood'
+    | 'engineered_hardwood'
+    | 'laminate'
+    | 'lvp'
+    | 'sheet_vinyl_vct'
+    | 'unknown'
   > | null;
   flooringInstallScopeCount?: number | null;
   flooringDemoScopeCount?: number | null;
@@ -529,7 +609,9 @@ export type ScopeMeasurements = {
   /** Structured, sheet-aware facts retained after plan review for planning formulas. */
   planFacts?: PlanFacts;
   /** Original metadata for accepted planning suggestions, retained after edits. */
-  quickMeasurementSuggestionMetadata?: Partial<Record<string, MeasurementSuggestion>>;
+  quickMeasurementSuggestionMetadata?: Partial<
+    Record<string, MeasurementSuggestion>
+  >;
   /** Per-field numeric confidence from the original takeoff. */
   quickMeasurementFieldConfidence?: Record<string, number>;
   /** Competing plan-pass candidates retained for contractor confirmation. */
@@ -567,7 +649,8 @@ export type ScopeMeasurements = {
     blockedFields?: string[];
   } | null;
   /** Declared vs detected living/garage reconciliation (measurement-semantics). */
-  areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
+  areaReconciliation?:
+    import('@/utils/measurementSemantics').AreaReconciliation | null;
   /**
    * Per-Quick-Measurement-field provenance: which fields were populated
    * directly from plan takeoff vs accepted from a planning estimate.
@@ -586,7 +669,10 @@ export type ScopeMeasurements = {
   /** Accepted pricing metadata keyed by checklist item id */
   pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>;
   /** Item-specific scope gap resolutions keyed by `${scopeItemId}::${componentKey}` */
-  scopeGapResolutions?: Record<string, import('@/utils/scopeReviewUi').ScopeGapResolutionRecord>;
+  scopeGapResolutions?: Record<
+    string,
+    import('@/utils/scopeReviewUi').ScopeGapResolutionRecord
+  >;
   /** Explicit pricing override confirmations (measurement-semantics). */
   pricingOverrideLog?: import('@/utils/measurementSemantics').PricingOverrideLog[];
   /** Electrical canonical Notes/Voice/Manual selections — not fake quantities. */
@@ -628,7 +714,9 @@ export type ScopeMeasurements = {
   framingOpeningCount?: number | null;
   framingCleanupCount?: number | null;
   /** Project complexity multiplier inputs — applied after regional/national base rates. */
-  projectComplexity?: import('@/utils/projectComplexityAdjustments').ProjectComplexitySettings | null;
+  projectComplexity?:
+    | import('@/utils/projectComplexityAdjustments').ProjectComplexitySettings
+    | null;
   plumbingComplexityFactors?: Array<{
     key?: string;
     label?: string;
@@ -956,7 +1044,10 @@ export function formatDraftMoney(amount: number | null | undefined): string {
   })}`;
 }
 
-export const BUILDER_MODE_LABELS: Record<EstimateBuilderMode, { title: string; subtitle: string }> = {
+export const BUILDER_MODE_LABELS: Record<
+  EstimateBuilderMode,
+  { title: string; subtitle: string }
+> = {
   organize_only: {
     title: 'Organize Only',
     subtitle: 'Keep your numbers; sort scope only',
@@ -982,7 +1073,10 @@ function stripRatePricingSubkeys(
   return Object.keys(out).length ? out : undefined;
 }
 
-export function repairDraftRatePricingFromNotes(draft: EstimateAiDraft, notes: string): EstimateAiDraft {
+export function repairDraftRatePricingFromNotes(
+  draft: EstimateAiDraft,
+  notes: string
+): EstimateAiDraft {
   const text = String(notes || draft.originalNotes || '').trim();
   if (!text) return draft;
 
@@ -997,7 +1091,9 @@ export function repairDraftRatePricingFromNotes(draft: EstimateAiDraft, notes: s
   const mergedItemQuantities = stripBathroomFalsePositiveFloorDemoQuantities(
     {
       ...stripRatePricingSubkeys(draft.scopeMeasurements?.itemQuantities),
-      ...stripRatePricingSubkeys(draft.scopeChecklist?.suggestedMeasurements?.itemQuantities),
+      ...stripRatePricingSubkeys(
+        draft.scopeChecklist?.suggestedMeasurements?.itemQuantities
+      ),
       ...(parsed.itemQuantities || {}),
     },
     draft.scopeChecklist?.templateKey,
@@ -1006,50 +1102,108 @@ export function repairDraftRatePricingFromNotes(draft: EstimateAiDraft, notes: s
   if (parsed.itemQuantities?.floor_demo && !parsed.itemQuantities?.demo) {
     delete mergedItemQuantities.demo;
   }
-  clearStalePricingWhenNotesUnpriced(mergedItemQuantities, text, parsed.itemQuantities);
+  clearStalePricingWhenNotesUnpriced(
+    mergedItemQuantities,
+    text,
+    parsed.itemQuantities
+  );
 
   let mergedScopeMeasurements: ScopeMeasurements = {
     ...(draft.scopeMeasurements || {}),
     ...parsed,
     itemQuantities: mergedItemQuantities,
   };
-  if (draft.scopeChecklist?.templateKey === 'roofing' || draft.projectType === 'roofing') {
-    const normalizedRoofing = normalizeTradeMeasurements('roofing', parsed, 'notes');
-    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(mergedScopeMeasurements, normalizedRoofing);
+  if (
+    draft.scopeChecklist?.templateKey === 'roofing' ||
+    draft.projectType === 'roofing'
+  ) {
+    const normalizedRoofing = normalizeTradeMeasurements(
+      'roofing',
+      parsed,
+      'notes'
+    );
+    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+      mergedScopeMeasurements,
+      normalizedRoofing
+    );
   }
-  if (draft.scopeChecklist?.templateKey === 'concrete' || draft.projectType === 'concrete') {
-    const normalizedConcrete = normalizeTradeMeasurements('concrete', parsed, 'notes');
-    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(mergedScopeMeasurements, normalizedConcrete);
+  if (
+    draft.scopeChecklist?.templateKey === 'concrete' ||
+    draft.projectType === 'concrete'
+  ) {
+    const normalizedConcrete = normalizeTradeMeasurements(
+      'concrete',
+      parsed,
+      'notes'
+    );
+    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+      mergedScopeMeasurements,
+      normalizedConcrete
+    );
   }
-  if (draft.scopeChecklist?.templateKey === 'flooring' || draft.projectType === 'flooring') {
-    const normalizedFlooring = normalizeTradeMeasurements('flooring', parsed, 'notes');
-    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(mergedScopeMeasurements, normalizedFlooring);
+  if (
+    draft.scopeChecklist?.templateKey === 'flooring' ||
+    draft.projectType === 'flooring'
+  ) {
+    const normalizedFlooring = normalizeTradeMeasurements(
+      'flooring',
+      parsed,
+      'notes'
+    );
+    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+      mergedScopeMeasurements,
+      normalizedFlooring
+    );
   }
-  if (draft.scopeChecklist?.templateKey === 'painting' || draft.projectType === 'painting') {
-    const normalizedPainting = normalizeTradeMeasurements('painting', parsed, 'notes');
-    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(mergedScopeMeasurements, normalizedPainting);
+  if (
+    draft.scopeChecklist?.templateKey === 'painting' ||
+    draft.projectType === 'painting'
+  ) {
+    const normalizedPainting = normalizeTradeMeasurements(
+      'painting',
+      parsed,
+      'notes'
+    );
+    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+      mergedScopeMeasurements,
+      normalizedPainting
+    );
   }
   if (
     draft.scopeChecklist?.templateKey === 'electrical' ||
     draft.projectType === 'electrical' ||
     String(draft.projectType || '').toLowerCase() === 'electrical service'
   ) {
-    const normalizedElectrical = normalizeTradeMeasurements('electrical', parsed, 'notes');
+    const normalizedElectrical = normalizeTradeMeasurements(
+      'electrical',
+      parsed,
+      'notes'
+    );
     mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
       mergedScopeMeasurements,
       normalizedElectrical
     );
   }
   if (
-    ['plumbing', 'plumbing_service'].includes(String(draft.scopeChecklist?.templateKey || '').toLowerCase()) ||
+    ['plumbing', 'plumbing_service'].includes(
+      String(draft.scopeChecklist?.templateKey || '').toLowerCase()
+    ) ||
     String(draft.projectType || '').toLowerCase() === 'plumbing'
   ) {
-    const normalizedPlumbing = normalizeTradeMeasurements('plumbing', { ...parsed, notes: text }, 'notes');
-    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(mergedScopeMeasurements, normalizedPlumbing);
+    const normalizedPlumbing = normalizeTradeMeasurements(
+      'plumbing',
+      { ...parsed, notes: text },
+      'notes'
+    );
+    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+      mergedScopeMeasurements,
+      normalizedPlumbing
+    );
   }
 
   if (__DEV__) {
-    const serverIq = draft.scopeChecklist?.suggestedMeasurements?.itemQuantities || {};
+    const serverIq =
+      draft.scopeChecklist?.suggestedMeasurements?.itemQuantities || {};
     console.log('🧮 AI draft backsplash repair', {
       server: {
         material: serverIq.backsplash__material?.quantity,
@@ -1097,7 +1251,9 @@ export async function fetchEstimateDraftFromNotes(
   }>('/estimate-draft-from-notes', { notes, savedTemplates });
 
   if (!payload?.draft) {
-    throw new Error(payload?.message || payload?.error || 'Failed to generate estimate draft');
+    throw new Error(
+      payload?.message || payload?.error || 'Failed to generate estimate draft'
+    );
   }
 
   return repairDraftRatePricingFromNotes(payload.draft, notes);
@@ -1114,7 +1270,9 @@ export async function fetchSuggestedDraftSplits(
   }>('/estimate-draft-suggest-splits', { draft, applySuggestedSplits }, 90000);
 
   if (!payload?.draft) {
-    throw new Error(payload?.message || payload?.error || 'Failed to suggest splits');
+    throw new Error(
+      payload?.message || payload?.error || 'Failed to suggest splits'
+    );
   }
 
   return syncSelectedScopePricing(payload.draft);
@@ -1132,7 +1290,11 @@ export async function fetchRoughEstimateRange(draft: EstimateAiDraft): Promise<{
   }>('/estimate-draft-rough-range', { draft }, 60000);
 
   if (!payload?.roughEstimate) {
-    throw new Error(payload?.message || payload?.error || 'Failed to generate rough budget range');
+    throw new Error(
+      payload?.message ||
+        payload?.error ||
+        'Failed to generate rough budget range'
+    );
   }
 
   return {
@@ -1141,15 +1303,19 @@ export async function fetchRoughEstimateRange(draft: EstimateAiDraft): Promise<{
   };
 }
 
-export async function fetchClarifyDraftQuestions(draft: EstimateAiDraft): Promise<ClarifyDraftResult> {
-  const payload = await postAiAssistantJson<ClarifyDraftResult & { error?: string; message?: string }>(
-    '/estimate-draft-clarify',
-    { draft },
-    60000
-  );
+export async function fetchClarifyDraftQuestions(
+  draft: EstimateAiDraft
+): Promise<ClarifyDraftResult> {
+  const payload = await postAiAssistantJson<
+    ClarifyDraftResult & { error?: string; message?: string }
+  >('/estimate-draft-clarify', { draft }, 60000);
 
   if (!payload?.questions) {
-    throw new Error(payload?.message || payload?.error || 'Failed to load clarification questions');
+    throw new Error(
+      payload?.message ||
+        payload?.error ||
+        'Failed to load clarification questions'
+    );
   }
 
   return payload;
@@ -1159,14 +1325,14 @@ export async function applyClarifyAnswersToDraft(
   draft: EstimateAiDraft,
   answers: ClarifyAnswer[]
 ): Promise<ClarifyApplyResult> {
-  const payload = await postAiAssistantJson<Partial<ClarifyApplyResult> & { error?: string; message?: string }>(
-    '/estimate-draft-clarify-apply',
-    { draft, answers },
-    90000
-  );
+  const payload = await postAiAssistantJson<
+    Partial<ClarifyApplyResult> & { error?: string; message?: string }
+  >('/estimate-draft-clarify-apply', { draft, answers }, 90000);
 
   if (!payload?.draft) {
-    throw new Error(payload?.message || payload?.error || 'Failed to apply answers');
+    throw new Error(
+      payload?.message || payload?.error || 'Failed to apply answers'
+    );
   }
 
   return {
@@ -1176,15 +1342,18 @@ export async function applyClarifyAnswersToDraft(
   };
 }
 
-export async function refineDraftWithCommand(draft: EstimateAiDraft, command: string): Promise<RefineDraftResult> {
-  const payload = await postAiAssistantJson<Partial<RefineDraftResult> & { error?: string; message?: string }>(
-    '/estimate-draft-refine',
-    { draft, command },
-    90000
-  );
+export async function refineDraftWithCommand(
+  draft: EstimateAiDraft,
+  command: string
+): Promise<RefineDraftResult> {
+  const payload = await postAiAssistantJson<
+    Partial<RefineDraftResult> & { error?: string; message?: string }
+  >('/estimate-draft-refine', { draft, command }, 90000);
 
   if (!payload?.draft) {
-    throw new Error(payload?.message || payload?.error || 'Failed to apply revision');
+    throw new Error(
+      payload?.message || payload?.error || 'Failed to apply revision'
+    );
   }
 
   return {
@@ -1236,7 +1405,9 @@ export async function fetchPhotoToScope(params: {
   projectTypeHint?: string | null;
   templateKeyHint?: string | null;
 }): Promise<PhotoToScopeResult> {
-  const payload = await postAiAssistantJson<Partial<PhotoToScopeResult> & { error?: string; message?: string }>(
+  const payload = await postAiAssistantJson<
+    Partial<PhotoToScopeResult> & { error?: string; message?: string }
+  >(
     '/photo-to-scope',
     {
       images: params.images,
@@ -1249,7 +1420,9 @@ export async function fetchPhotoToScope(params: {
   );
 
   if (payload?.error && payload.success !== true && payload.success !== false) {
-    throw new Error(payload.message || payload.error || 'Photo analysis failed');
+    throw new Error(
+      payload.message || payload.error || 'Photo analysis failed'
+    );
   }
 
   return {
@@ -1258,7 +1431,9 @@ export async function fetchPhotoToScope(params: {
     scopeText: payload.scopeText || '',
     notesBlock: payload.notesBlock || '',
     mergedNotes: payload.mergedNotes || params.existingNotes || '',
-    detections: Array.isArray(payload.detections) ? (payload.detections as PhotoScopeDetection[]) : [],
+    detections: Array.isArray(payload.detections)
+      ? (payload.detections as PhotoScopeDetection[])
+      : [],
     existingFeatures: Array.isArray(payload.existingFeatures)
       ? (payload.existingFeatures as PhotoExistingFeature[])
       : [],
@@ -1405,14 +1580,18 @@ export type PlanToMeasurementsResult = {
   lowConfidence: PlanLowConfidenceField[];
   /** Fields the AI saw on the plan but could not read (blurry/cut off). */
   unreadableFields: PlanUnreadableField[];
-  itemQuantities: Record<string, { quantity: number; unit: string; quantitySource?: string }>;
+  itemQuantities: Record<
+    string,
+    { quantity: number; unit: string; quantitySource?: string }
+  >;
   assumptions: string[];
   notesBlock: string;
   mergedNotes: string;
   /** Draft scope detections read from the plan sheets (confirm before applying). */
   scope: PlanScopeResult | null;
   /** Declared vs detected living/garage reconciliation (measurement-semantics). */
-  areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
+  areaReconciliation?:
+    import('@/utils/measurementSemantics').AreaReconciliation | null;
   estimatingMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode;
   selectedTrade?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
   tradeProvenance?: PlanImportPayload['tradeProvenance'];
@@ -1427,13 +1606,16 @@ export async function fetchPlanToMeasurements(params: {
   templateKeyHint?: string | null;
   includeScope?: boolean;
   estimatingMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode;
-  selectedTradeKey?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
+  selectedTradeKey?:
+    import('@/utils/planImportTradeConfig').PlanTradeKey | null;
 }): Promise<PlanToMeasurementsResult> {
   const takeoffRequest = resolvePaintingPlanTakeoffApiSelection({
     estimatingMode: params.estimatingMode,
     selectedTradeKey: params.selectedTradeKey,
   });
-  const payload = await postAiAssistantJson<Partial<PlanToMeasurementsResult> & { error?: string; message?: string }>(
+  const payload = await postAiAssistantJson<
+    Partial<PlanToMeasurementsResult> & { error?: string; message?: string }
+  >(
     '/plan-to-measurements',
     {
       images: params.images,
@@ -1466,7 +1648,9 @@ export async function fetchPlanToMeasurements(params: {
         ? (payload.buildingAreas as PlanBuildingAreas)
         : undefined,
     planFacts:
-      payload.planFacts && typeof payload.planFacts === 'object' ? (payload.planFacts as PlanFacts) : undefined,
+      payload.planFacts && typeof payload.planFacts === 'object'
+        ? (payload.planFacts as PlanFacts)
+        : undefined,
     fieldConfidence:
       payload.fieldConfidence && typeof payload.fieldConfidence === 'object'
         ? (payload.fieldConfidence as Record<string, number>)
@@ -1479,24 +1663,33 @@ export async function fetchPlanToMeasurements(params: {
       payload.fixtureInventory && typeof payload.fixtureInventory === 'object'
         ? (payload.fixtureInventory as Record<string, number>)
         : undefined,
-    utilityConnections: Array.isArray(payload.utilityConnections) ? payload.utilityConnections : undefined,
-    complexityFactors: Array.isArray(payload.complexityFactors) ? payload.complexityFactors : undefined,
+    utilityConnections: Array.isArray(payload.utilityConnections)
+      ? payload.utilityConnections
+      : undefined,
+    complexityFactors: Array.isArray(payload.complexityFactors)
+      ? payload.complexityFactors
+      : undefined,
     plumbingReviewStatus:
-      payload.plumbingReviewStatus && typeof payload.plumbingReviewStatus === 'object'
+      payload.plumbingReviewStatus &&
+      typeof payload.plumbingReviewStatus === 'object'
         ? payload.plumbingReviewStatus
         : undefined,
     measurementProvenance:
-      payload.measurementProvenance && typeof payload.measurementProvenance === 'object'
+      payload.measurementProvenance &&
+      typeof payload.measurementProvenance === 'object'
         ? (payload.measurementProvenance as Record<string, unknown>)
         : {},
     measurementConflicts: Array.isArray(payload.measurementConflicts)
       ? (payload.measurementConflicts as PlanMeasurementConflict[])
       : [],
     electricalValidation:
-      payload.electricalValidation && typeof payload.electricalValidation === 'object'
+      payload.electricalValidation &&
+      typeof payload.electricalValidation === 'object'
         ? (payload.electricalValidation as PlanToMeasurementsResult['electricalValidation'])
         : null,
-    lowConfidence: Array.isArray(payload.lowConfidence) ? (payload.lowConfidence as PlanLowConfidenceField[]) : [],
+    lowConfidence: Array.isArray(payload.lowConfidence)
+      ? (payload.lowConfidence as PlanLowConfidenceField[])
+      : [],
     unreadableFields: Array.isArray(payload.unreadableFields)
       ? (payload.unreadableFields as PlanUnreadableField[])
       : [],
@@ -1504,26 +1697,36 @@ export async function fetchPlanToMeasurements(params: {
       payload.itemQuantities && typeof payload.itemQuantities === 'object'
         ? (payload.itemQuantities as PlanToMeasurementsResult['itemQuantities'])
         : {},
-    assumptions: Array.isArray(payload.assumptions) ? payload.assumptions.map(String) : [],
+    assumptions: Array.isArray(payload.assumptions)
+      ? payload.assumptions.map(String)
+      : [],
     notesBlock: payload.notesBlock || '',
     mergedNotes: payload.mergedNotes || params.existingNotes || '',
     scope:
-      payload.scope && typeof payload.scope === 'object' && Array.isArray((payload.scope as PlanScopeResult).detections)
+      payload.scope &&
+      typeof payload.scope === 'object' &&
+      Array.isArray((payload.scope as PlanScopeResult).detections)
         ? (payload.scope as PlanScopeResult)
         : null,
     areaReconciliation:
-      payload.areaReconciliation && typeof payload.areaReconciliation === 'object'
+      payload.areaReconciliation &&
+      typeof payload.areaReconciliation === 'object'
         ? (payload.areaReconciliation as PlanToMeasurementsResult['areaReconciliation'])
         : null,
     estimatingMode: payload.estimatingMode || 'whole_project',
-    selectedTrade: (payload.selectedTrade as PlanToMeasurementsResult['selectedTrade']) || null,
+    selectedTrade:
+      (payload.selectedTrade as PlanToMeasurementsResult['selectedTrade']) ||
+      null,
     tradeProvenance: payload.tradeProvenance || null,
-    missingInfo: Array.isArray(payload.missingInfo) ? payload.missingInfo.map(String) : [],
+    missingInfo: Array.isArray(payload.missingInfo)
+      ? payload.missingInfo.map(String)
+      : [],
   };
 
   return hydratePaintingPlanMeasurements({
     ...result,
-    estimatingMode: params.estimatingMode || result.estimatingMode || 'whole_project',
+    estimatingMode:
+      params.estimatingMode || result.estimatingMode || 'whole_project',
     selectedTrade: params.selectedTradeKey || result.selectedTrade || null,
   });
 }
@@ -1559,7 +1762,13 @@ const PLAN_SCOPE_ID_ALIASES: Record<string, string[]> = {
   cabinets: ['cabinets_counters', 'cabinets'],
   countertops: ['cabinets_counters', 'countertops'],
   cabinets_counters: ['cabinets_counters', 'cabinets', 'countertops'],
-  windows_doors: ['windows', 'exterior_doors', 'sliding_doors', 'garage_doors', 'exterior'],
+  windows_doors: [
+    'windows',
+    'exterior_doors',
+    'sliding_doors',
+    'garage_doors',
+    'exterior',
+  ],
   windows: ['windows', 'exterior'],
   exterior_doors: ['exterior_doors', 'exterior'],
   sliding_doors: ['sliding_doors', 'exterior'],
@@ -1574,7 +1783,10 @@ const PLAN_SCOPE_ID_ALIASES: Record<string, string[]> = {
   electrical_trim: ['electrical_trim'],
 };
 
-function remapDetectionItemId(itemId: string, allowedIds: Set<string>): string | null {
+function remapDetectionItemId(
+  itemId: string,
+  allowedIds: Set<string>
+): string | null {
   if (allowedIds.has(itemId)) return itemId;
   for (const alt of PLAN_SCOPE_ID_ALIASES[itemId] || []) {
     if (allowedIds.has(alt)) return alt;
@@ -1587,7 +1799,10 @@ export function applyPhotoExistingFeaturesToDraft(
   features: PhotoExistingFeature[] | null | undefined
 ): EstimateAiDraft {
   if (!features?.length) return draft;
-  const scopeMeasurements = applyExistingFeaturesToMeasurements(draft.scopeMeasurements || {}, features);
+  const scopeMeasurements = applyExistingFeaturesToMeasurements(
+    draft.scopeMeasurements || {},
+    features
+  );
   return { ...draft, scopeMeasurements };
 }
 
@@ -1603,7 +1818,8 @@ export function applyPhotoDetectionsToDraft(
   const items = draft?.scopeChecklist?.items;
   if (!items?.length || !detections?.length) return draft;
 
-  const { items: nextItems, appliedCount } = applyScopeDetectionsToChecklistItems(items, detections);
+  const { items: nextItems, appliedCount } =
+    applyScopeDetectionsToChecklistItems(items, detections);
   if (!appliedCount) return draft;
 
   return {
@@ -1633,7 +1849,8 @@ export function applyScopeDetectionsToChecklistItems(
   const allowedIds = new Set(items.map(i => i.id));
   const byId = new Map<string, PhotoScopeDetection>();
   for (const d of detections) {
-    if (!d?.itemId || (d.confidence ?? 0) < PHOTO_DETECTION_MIN_CONFIDENCE) continue;
+    if (!d?.itemId || (d.confidence ?? 0) < PHOTO_DETECTION_MIN_CONFIDENCE)
+      continue;
     if (d.state !== 'included' && d.state !== 'excluded') continue;
     const mappedId = remapDetectionItemId(d.itemId, allowedIds);
     if (!mappedId || byId.has(mappedId)) continue;
@@ -1649,7 +1866,10 @@ export function applyScopeDetectionsToChecklistItems(
     if (item.inputType === 'choice') {
       if (item.choiceId && item.choiceId !== 'unsure') return item;
       const validChoice =
-        detection.choiceId && (item.options || []).some(o => o.id === detection.choiceId) ? detection.choiceId : null;
+        detection.choiceId &&
+        (item.options || []).some(o => o.id === detection.choiceId)
+          ? detection.choiceId
+          : null;
       if (!validChoice) return item;
       appliedLabels.push(item.label);
       return {
@@ -1691,7 +1911,8 @@ export type PlanImportPayload = {
   rooms?: PlanRoomMeasurement[];
   /** Read-only plan takeoff summary text (kept separate from editable Job notes). */
   notesBlock?: string | null;
-  areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
+  areaReconciliation?:
+    import('@/utils/measurementSemantics').AreaReconciliation | null;
   buildingAreas?: PlanBuildingAreas;
   planFacts?: PlanFacts;
   fieldConfidence?: Record<string, number>;
@@ -1744,19 +1965,20 @@ function applyPlumbingEquipmentHydrationToMeasurements(
   const hydrated = hydratePlumbingPlanMeasurementsFromInventory(
     target as Record<string, number | string>,
     payload.fixtureInventory ??
-      (target.plumbingFixtureInventory as Record<string, number> | null | undefined),
-      {
-        waterHeaterDetail:
-          payload.waterHeaterDetail ?? target.plumbingWaterHeaterDetail ?? null,
-        gasApplianceScope:
-          payload.gasApplianceScope ?? target.plumbingGasApplianceScope ?? null,
-        complexityFactors:
-          payload.complexityFactors ??
-          (target.plumbingComplexityFactors as
-            | Array<{ key?: string | null; label?: string | null }>
-            | null
-            | undefined),
-      }
+      (target.plumbingFixtureInventory as
+        Record<string, number> | null | undefined),
+    {
+      waterHeaterDetail:
+        payload.waterHeaterDetail ?? target.plumbingWaterHeaterDetail ?? null,
+      gasApplianceScope:
+        payload.gasApplianceScope ?? target.plumbingGasApplianceScope ?? null,
+      complexityFactors:
+        payload.complexityFactors ??
+        (target.plumbingComplexityFactors as
+          | Array<{ key?: string | null; label?: string | null }>
+          | null
+          | undefined),
+    }
   );
   let updated = false;
   for (const key of PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS) {
@@ -1806,8 +2028,8 @@ function rebuildFramingStructuredScopeFromMeasurements(
   }
   if (structured.itemQuantities) {
     target.itemQuantities = {
-      ...((target.itemQuantities as Record<string, unknown> | null | undefined) ||
-        {}),
+      ...((target.itemQuantities as
+        Record<string, unknown> | null | undefined) || {}),
       ...structured.itemQuantities,
     };
     updated = true;
@@ -1819,7 +2041,10 @@ function rebuildPlumbingStructuredScopeFromMeasurements(
   target: Record<string, unknown>,
   quantitySource = 'plan_detected'
 ): boolean {
-  const structured = buildPlumbingStructuredMeasurements(target, quantitySource);
+  const structured = buildPlumbingStructuredMeasurements(
+    target,
+    quantitySource
+  );
   let updated = false;
   if (structured.plumbingScope?.length) {
     target.plumbingScope = [
@@ -1832,8 +2057,8 @@ function rebuildPlumbingStructuredScopeFromMeasurements(
   }
   if (structured.itemQuantities) {
     target.itemQuantities = {
-      ...((target.itemQuantities as Record<string, unknown> | null | undefined) ||
-        {}),
+      ...((target.itemQuantities as
+        Record<string, unknown> | null | undefined) || {}),
       ...structured.itemQuantities,
     };
     updated = true;
@@ -1895,7 +2120,8 @@ function stripStalePlumbingInventoryDerivedFields(
   const hydratedFromIncoming = hydratePlumbingPlanMeasurementsFromInventory(
     { ...(payload.measurements || {}) } as Record<string, number | string>,
     payload.fixtureInventory ??
-      (target.plumbingFixtureInventory as Record<string, number> | null | undefined),
+      (target.plumbingFixtureInventory as
+        Record<string, number> | null | undefined),
     {
       waterHeaterDetail:
         payload.waterHeaterDetail ??
@@ -1913,11 +2139,13 @@ function stripStalePlumbingInventoryDerivedFields(
   );
   let updated = false;
   const itemQuantities = {
-    ...((target.itemQuantities as Record<string, { quantity?: unknown }> | null | undefined) ||
-      {}),
+    ...((target.itemQuantities as
+      Record<string, { quantity?: unknown }> | null | undefined) || {}),
   };
   for (const key of PLUMBING_INVENTORY_DERIVED_KEYS) {
-    if (plumbingDerivedQuantityStillSupported(key, target, hydratedFromIncoming)) {
+    if (
+      plumbingDerivedQuantityStillSupported(key, target, hydratedFromIncoming)
+    ) {
       continue;
     }
     if (target[key] == null || target[key] === '') continue;
@@ -1930,7 +2158,8 @@ function stripStalePlumbingInventoryDerivedFields(
   }
   if (updated) target.itemQuantities = itemQuantities;
   const pricingAcceptance = {
-    ...((target.pricingAcceptance as Record<string, unknown> | null | undefined) || {}),
+    ...((target.pricingAcceptance as
+      Record<string, unknown> | null | undefined) || {}),
   };
   let pricingChanged = false;
   for (const itemId of PLUMBING_INVENTORY_DERIVED_ITEM_IDS) {
@@ -1961,11 +2190,11 @@ function stripStalePlumbingInventoryDerivedFields(
       const card = PLUMBING_CARDS.find(entry => entry.itemId === id);
       return Boolean(
         card &&
-          plumbingDerivedQuantityStillSupported(
-            card.measurementKey,
-            target,
-            hydratedFromIncoming
-          )
+        plumbingDerivedQuantityStillSupported(
+          card.measurementKey,
+          target,
+          hydratedFromIncoming
+        )
       );
     });
     if (nextScope.length !== target.plumbingScope.length) {
@@ -1975,8 +2204,12 @@ function stripStalePlumbingInventoryDerivedFields(
   }
   const fixtureInventory =
     payload.fixtureInventory ??
-    (target.plumbingFixtureInventory as Record<string, number> | null | undefined);
-  if (!fixtureInventory || !Object.values(fixtureInventory).some(value => Number(value) > 0)) {
+    (target.plumbingFixtureInventory as
+      Record<string, number> | null | undefined);
+  if (
+    !fixtureInventory ||
+    !Object.values(fixtureInventory).some(value => Number(value) > 0)
+  ) {
     if (target.plumbingFixtureInventory) {
       target.plumbingFixtureInventory = {};
       updated = true;
@@ -1995,9 +2228,12 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
   payload: PlanImportPayload | null | undefined
 ): T {
   if (!payload) return measurements;
-  const current = measurements as T & LivePlanImportMeasurementMetadata & Record<string, unknown>;
+  const current = measurements as T &
+    LivePlanImportMeasurementMetadata &
+    Record<string, unknown>;
   let changed = false;
-  const next: T & LivePlanImportMeasurementMetadata & Record<string, unknown> = { ...current };
+  const next: T & LivePlanImportMeasurementMetadata & Record<string, unknown> =
+    { ...current };
   const samePlan =
     Boolean(current.planImportFingerprint) &&
     Boolean(payload.planImportFingerprint) &&
@@ -2008,7 +2244,9 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
     current.planImportFingerprint !== payload.planImportFingerprint;
   const confirmedFields = new Set(
     Object.entries(current.quickMeasurementSources || {})
-      .filter(([, source]) => source === 'contractor_confirmed_from_plan_review')
+      .filter(
+        ([, source]) => source === 'contractor_confirmed_from_plan_review'
+      )
       .map(([key]) => key)
   );
 
@@ -2019,14 +2257,18 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
     changed = true;
   }
 
-  if (payload.quickMeasurementSources && Object.keys(payload.quickMeasurementSources).length) {
+  if (
+    payload.quickMeasurementSources &&
+    Object.keys(payload.quickMeasurementSources).length
+  ) {
     next.quickMeasurementSources = {
       ...(current.quickMeasurementSources || {}),
       ...payload.quickMeasurementSources,
     };
     if (samePlan) {
       for (const key of confirmedFields) {
-        next.quickMeasurementSources[key] = 'contractor_confirmed_from_plan_review';
+        next.quickMeasurementSources[key] =
+          'contractor_confirmed_from_plan_review';
       }
     }
     changed = true;
@@ -2081,7 +2323,10 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
     };
     changed = true;
   }
-  if (payload.measurementProvenance && Object.keys(payload.measurementProvenance).length) {
+  if (
+    payload.measurementProvenance &&
+    Object.keys(payload.measurementProvenance).length
+  ) {
     next.measurementProvenance = {
       ...(current.measurementProvenance || {}),
       ...payload.measurementProvenance,
@@ -2096,7 +2341,8 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
   }
   if (payload.measurementConflicts !== undefined) {
     next.measurementConflicts = payload.measurementConflicts.filter(
-      conflict => !samePlan || !confirmedFields.has(String(conflict?.field || ''))
+      conflict =>
+        !samePlan || !confirmedFields.has(String(conflict?.field || ''))
     );
     changed = true;
   }
@@ -2124,6 +2370,65 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
     next.planImportFingerprint = payload.planImportFingerprint;
     changed = true;
   }
+  if (payload.planFacts || payload.buildingAreas) {
+    next.planFacts = {
+      ...(current.planFacts || {}),
+      ...(payload.planFacts || {}),
+      buildingAreas: {
+        ...(current.planFacts?.buildingAreas || {}),
+        ...(payload.buildingAreas || {}),
+        ...(payload.planFacts?.buildingAreas || {}),
+      },
+    };
+    changed = true;
+    const planStory = Number(next.planFacts?.storyCount);
+    if (
+      Number.isFinite(planStory) &&
+      planStory >= 1 &&
+      !String(next.storyCount || '').trim()
+    ) {
+      next.storyCount = String(Math.min(3, Math.round(planStory)));
+      next.quickMeasurementSources = {
+        ...(next.quickMeasurementSources || {}),
+        storyCount: 'plan_detected',
+      };
+      changed = true;
+    }
+    const planLiving = Number(next.planFacts?.buildingAreas?.totalLivingSqft);
+    const mepSelectedTradeImport =
+      next.planImportMode === 'selected_trade' &&
+      (next.planImportTradeKey === 'plumbing' ||
+        next.planImportTradeKey === 'electrical' ||
+        payload.selectedTrade === 'plumbing' ||
+        payload.selectedTrade === 'electrical');
+    if (
+      Number.isFinite(planLiving) &&
+      planLiving > 0 &&
+      !String(next.floorAreaSqft || '').trim() &&
+      !mepSelectedTradeImport
+    ) {
+      next.floorAreaSqft = String(Math.round(planLiving));
+      next.quickMeasurementSources = {
+        ...(next.quickMeasurementSources || {}),
+        floorAreaSqft: 'plan_detected',
+      };
+      changed = true;
+    }
+  }
+  if (
+    payload.selectedTrade === 'plumbing' ||
+    payload.selectedTrade === 'electrical' ||
+    payload.planFacts ||
+    payload.buildingAreas
+  ) {
+    const hydrated = hydrateProjectComplexityMeasurements(
+      next as Record<string, unknown>
+    );
+    if (hydrated !== next) {
+      Object.assign(next, hydrated);
+      changed = true;
+    }
+  }
   if (previousPlan && confirmedFields.size) {
     const overrides = { ...(current.quickMeasurementUserOverrides || {}) };
     const sources = { ...(next.quickMeasurementSources || {}) };
@@ -2132,13 +2437,19 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
     const staleItemIds = new Set<string>();
 
     for (const [itemId, entry] of Object.entries(itemQuantities)) {
-      if (entry && typeof entry === 'object' && entry.quantitySource === 'contractor_confirmed_from_plan_review') {
+      if (
+        entry &&
+        typeof entry === 'object' &&
+        entry.quantitySource === 'contractor_confirmed_from_plan_review'
+      ) {
         staleItemIds.add(itemId);
         delete itemQuantities[itemId];
       }
     }
     for (const key of confirmedFields) {
-      if (!Object.prototype.hasOwnProperty.call(payload.measurements || {}, key)) {
+      if (
+        !Object.prototype.hasOwnProperty.call(payload.measurements || {}, key)
+      ) {
         delete (next as Record<string, unknown>)[key];
       }
       delete overrides[key];
@@ -2150,7 +2461,9 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
     next.measurementProvenance = provenance;
     next.itemQuantities = itemQuantities;
     if (Array.isArray(next.electricalScope) && staleItemIds.size) {
-      next.electricalScope = next.electricalScope.filter(itemId => !staleItemIds.has(itemId));
+      next.electricalScope = next.electricalScope.filter(
+        itemId => !staleItemIds.has(itemId)
+      );
     }
     changed = true;
   }
@@ -2223,7 +2536,9 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
     if (payload.selectedTrade === 'framing') {
       const reconciled = reconcileFramingScopeMeasurements(next);
       Object.assign(next, reconciled);
-      if (rebuildFramingStructuredScopeFromMeasurements(next, 'plan_detected')) {
+      if (
+        rebuildFramingStructuredScopeFromMeasurements(next, 'plan_detected')
+      ) {
         changed = true;
       }
     }
@@ -2254,15 +2569,21 @@ export function normalizePlanRooms(
     const name = String(room?.name || '').trim();
     if (!name) continue;
     let areaSqft =
-      room?.areaSqft != null && Number.isFinite(Number(room.areaSqft)) && Number(room.areaSqft) > 0
+      room?.areaSqft != null &&
+      Number.isFinite(Number(room.areaSqft)) &&
+      Number(room.areaSqft) > 0
         ? Math.round(Number(room.areaSqft) * 10) / 10
         : null;
     const lengthFt =
-      room?.lengthFt != null && Number.isFinite(Number(room.lengthFt)) && Number(room.lengthFt) > 0
+      room?.lengthFt != null &&
+      Number.isFinite(Number(room.lengthFt)) &&
+      Number(room.lengthFt) > 0
         ? Number(room.lengthFt)
         : null;
     const widthFt =
-      room?.widthFt != null && Number.isFinite(Number(room.widthFt)) && Number(room.widthFt) > 0
+      room?.widthFt != null &&
+      Number.isFinite(Number(room.widthFt)) &&
+      Number(room.widthFt) > 0
         ? Number(room.widthFt)
         : null;
     if (areaSqft == null && lengthFt != null && widthFt != null) {
@@ -2369,7 +2690,10 @@ export function planMeasurementsToScopeMeasurements(
     }
   }
   if (detectedKeys.length) {
-    out.quickMeasurementSources = tagPlanDetectedQuickMeasurementKeys(undefined, detectedKeys);
+    out.quickMeasurementSources = tagPlanDetectedQuickMeasurementKeys(
+      undefined,
+      detectedKeys
+    );
   }
   const gross = Number(out.stuccoGrossWallSqft);
   const srcKeys = new Set(Object.keys(measurements || {}));
@@ -2379,7 +2703,9 @@ export function planMeasurementsToScopeMeasurements(
     srcKeys.has('stuccoOtherFinishDeductionSqft');
   const openings = Number(out.stuccoWindowDoorOpeningSqft) || 0;
   const totalDeductions =
-    openings + (Number(out.stuccoGarageOpeningSqft) || 0) + (Number(out.stuccoOtherFinishDeductionSqft) || 0);
+    openings +
+    (Number(out.stuccoGarageOpeningSqft) || 0) +
+    (Number(out.stuccoOtherFinishDeductionSqft) || 0);
   if (gross > 0 && hasOpeningInputs && totalDeductions >= 0) {
     const net = Math.max(0, gross - totalDeductions);
     if (!(Number(out.stuccoNetWallSqft) > 0)) {
@@ -2390,12 +2716,18 @@ export function planMeasurementsToScopeMeasurements(
       out.exteriorPaintSqft = net;
       detectedKeys.push('exteriorPaintSqft');
     }
-  } else if (Number(out.stuccoNetWallSqft) > 0 && !(Number(out.exteriorPaintSqft) > 0)) {
+  } else if (
+    Number(out.stuccoNetWallSqft) > 0 &&
+    !(Number(out.exteriorPaintSqft) > 0)
+  ) {
     out.exteriorPaintSqft = Number(out.stuccoNetWallSqft);
     detectedKeys.push('exteriorPaintSqft');
   }
   if (detectedKeys.length) {
-    out.quickMeasurementSources = tagPlanDetectedQuickMeasurementKeys(out.quickMeasurementSources, detectedKeys);
+    out.quickMeasurementSources = tagPlanDetectedQuickMeasurementKeys(
+      out.quickMeasurementSources,
+      detectedKeys
+    );
   }
   const livingForFraming = Number(out.floorAreaSqft);
   const garageForFraming = Number(out.garageSqft) || 0;
@@ -2424,7 +2756,11 @@ export function seedPlanFloorAreaItemQuantities(
   const living = Number(scopeMeasurements.floorAreaSqft);
   if (!Number.isFinite(living) || living <= 0) return scopeMeasurements;
 
-  const includedIds = new Set((draft.scopeChecklist?.items || []).filter(i => i.state === 'included').map(i => i.id));
+  const includedIds = new Set(
+    (draft.scopeChecklist?.items || [])
+      .filter(i => i.state === 'included')
+      .map(i => i.id)
+  );
   if (!includedIds.size) return scopeMeasurements;
 
   const FLOOR_AREA_ITEMS = [
@@ -2463,7 +2799,9 @@ export function seedPlanFloorAreaItemQuantities(
   for (const id of FLOOR_AREA_ITEMS) {
     if (!includedIds.has(id)) continue;
     const existing = nextIq[id];
-    const hasExistingPrimary = Boolean(existing?.quantity && Number(existing.quantity) > 0);
+    const hasExistingPrimary = Boolean(
+      existing?.quantity && Number(existing.quantity) > 0
+    );
 
     if (semanticsOn && NO_LIVING_SF_PRIMARY_SEED_KEYS.has(id)) {
       let primaryQuantity: number | null = null;
@@ -2471,44 +2809,79 @@ export function seedPlanFloorAreaItemQuantities(
       if (id === 'drywall' && Number(scopeMeasurements.drywallSqft) > 0) {
         primaryQuantity = Number(scopeMeasurements.drywallSqft);
         primaryUnit = 'surface_sqft';
-      } else if (id === 'roofing' && Number(scopeMeasurements.roofSquares) > 0) {
+      } else if (
+        id === 'roofing' &&
+        Number(scopeMeasurements.roofSquares) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.roofSquares);
         primaryUnit = 'roof_square';
-      } else if (id === 'stucco' && Number(scopeMeasurements.exteriorPaintSqft) > 0) {
+      } else if (
+        id === 'stucco' &&
+        Number(scopeMeasurements.exteriorPaintSqft) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.exteriorPaintSqft);
         primaryUnit = 'surface_sqft';
-      } else if (id === 'foundation' && Number(scopeMeasurements.concreteCy) > 0) {
+      } else if (
+        id === 'foundation' &&
+        Number(scopeMeasurements.concreteCy) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.concreteCy);
         primaryUnit = 'cy';
-      } else if (id === 'pour_flatwork' && Number(scopeMeasurements.concreteSqft) > 0) {
+      } else if (
+        id === 'pour_flatwork' &&
+        Number(scopeMeasurements.concreteSqft) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.concreteSqft);
         primaryUnit = 'sqft';
-      } else if (id === 'excavation' && Number(scopeMeasurements.excavationCy) > 0) {
+      } else if (
+        id === 'excavation' &&
+        Number(scopeMeasurements.excavationCy) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.excavationCy);
         primaryUnit = 'cy';
       } else if (id === 'cabinets' && Number(scopeMeasurements.cabinetLf) > 0) {
         primaryQuantity = Number(scopeMeasurements.cabinetLf);
         primaryUnit = 'lf';
-      } else if (id === 'countertops' && Number(scopeMeasurements.countertopSqft) > 0) {
+      } else if (
+        id === 'countertops' &&
+        Number(scopeMeasurements.countertopSqft) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.countertopSqft);
         primaryUnit = 'sqft';
-      } else if (id === 'shower_tile' && Number(scopeMeasurements.showerWallTileSqft) > 0) {
+      } else if (
+        id === 'shower_tile' &&
+        Number(scopeMeasurements.showerWallTileSqft) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.showerWallTileSqft);
         primaryUnit = 'sqft';
-      } else if (id === 'shower_floor_tile' && Number(scopeMeasurements.showerFloorTileSqft) > 0) {
+      } else if (
+        id === 'shower_floor_tile' &&
+        Number(scopeMeasurements.showerFloorTileSqft) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.showerFloorTileSqft);
         primaryUnit = 'sqft';
-      } else if (id === 'floor_tile' && Number(scopeMeasurements.bathroomFloorSqft) > 0) {
+      } else if (
+        id === 'floor_tile' &&
+        Number(scopeMeasurements.bathroomFloorSqft) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.bathroomFloorSqft);
         primaryUnit = 'floor_sqft';
-      } else if ((id === 'tile_flooring' || id === 'flooring') && Number(scopeMeasurements.flooringSqft) > 0) {
+      } else if (
+        (id === 'tile_flooring' || id === 'flooring') &&
+        Number(scopeMeasurements.flooringSqft) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.flooringSqft);
         primaryUnit = 'floor_sqft';
       } else if (hasExistingPrimary && String(existing.unit || '') !== 'sqft') {
         // Preserve non-living physical quantities already present.
         primaryQuantity = Number(existing.quantity);
-        primaryUnit = String(existing.unit || preferredPrimaryUnit(id)) as MeasurementUnit;
-      } else if (hasExistingPrimary && existing?.quantitySource === 'user_entered') {
+        primaryUnit = String(
+          existing.unit || preferredPrimaryUnit(id)
+        ) as MeasurementUnit;
+      } else if (
+        hasExistingPrimary &&
+        existing?.quantitySource === 'user_entered'
+      ) {
         primaryQuantity = Number(existing.quantity);
         primaryUnit = String(existing.unit || 'unknown') as MeasurementUnit;
       }
@@ -2529,7 +2902,8 @@ export function seedPlanFloorAreaItemQuantities(
         showerFloorTileSqft: scopeMeasurements.showerFloorTileSqft,
         bathroomFloorSqft: scopeMeasurements.bathroomFloorSqft,
         primarySourceType: 'plan_explicit',
-        primarySourceLabel: primaryQuantity != null ? 'Detected from plan' : 'Needs takeoff',
+        primarySourceLabel:
+          primaryQuantity != null ? 'Detected from plan' : 'Needs takeoff',
       });
 
       // Do not seed living SF into legacy quantity for these scopes.
@@ -2558,28 +2932,49 @@ export function seedPlanFloorAreaItemQuantities(
     let qty = living;
     let unit = 'sqft';
     if (id === 'tile_flooring' || id === 'flooring') {
-      qty = Number(scopeMeasurements.flooringSqft) > 0 ? Number(scopeMeasurements.flooringSqft) : living;
+      qty =
+        Number(scopeMeasurements.flooringSqft) > 0
+          ? Number(scopeMeasurements.flooringSqft)
+          : living;
     } else if (id === 'drywall' && Number(scopeMeasurements.drywallSqft) > 0) {
       qty = Number(scopeMeasurements.drywallSqft);
     } else if (id === 'roofing' && Number(scopeMeasurements.roofSquares) > 0) {
       qty = Number(scopeMeasurements.roofSquares);
       unit = 'squares';
-    } else if (id === 'foundation' && Number(scopeMeasurements.concreteCy) > 0) {
+    } else if (
+      id === 'foundation' &&
+      Number(scopeMeasurements.concreteCy) > 0
+    ) {
       qty = Number(scopeMeasurements.concreteCy);
       unit = 'cy';
-    } else if (id === 'excavation' && Number(scopeMeasurements.excavationCy) > 0) {
+    } else if (
+      id === 'excavation' &&
+      Number(scopeMeasurements.excavationCy) > 0
+    ) {
       qty = Number(scopeMeasurements.excavationCy);
       unit = 'cy';
     } else if (id === 'cabinets' && Number(scopeMeasurements.cabinetLf) > 0) {
       qty = Number(scopeMeasurements.cabinetLf);
       unit = 'lf';
-    } else if (id === 'countertops' && Number(scopeMeasurements.countertopSqft) > 0) {
+    } else if (
+      id === 'countertops' &&
+      Number(scopeMeasurements.countertopSqft) > 0
+    ) {
       qty = Number(scopeMeasurements.countertopSqft);
-    } else if (id === 'shower_tile' && Number(scopeMeasurements.showerWallTileSqft) > 0) {
+    } else if (
+      id === 'shower_tile' &&
+      Number(scopeMeasurements.showerWallTileSqft) > 0
+    ) {
       qty = Number(scopeMeasurements.showerWallTileSqft);
-    } else if (id === 'shower_floor_tile' && Number(scopeMeasurements.showerFloorTileSqft) > 0) {
+    } else if (
+      id === 'shower_floor_tile' &&
+      Number(scopeMeasurements.showerFloorTileSqft) > 0
+    ) {
       qty = Number(scopeMeasurements.showerFloorTileSqft);
-    } else if (id === 'floor_tile' && Number(scopeMeasurements.bathroomFloorSqft) > 0) {
+    } else if (
+      id === 'floor_tile' &&
+      Number(scopeMeasurements.bathroomFloorSqft) > 0
+    ) {
       qty = Number(scopeMeasurements.bathroomFloorSqft);
     } else if (
       id === 'excavation' ||
@@ -2609,13 +3004,16 @@ export function seedPlanFloorAreaItemQuantities(
 }
 
 /** Whether Step 3 should prefetch clarifying questions without waiting for a tap. */
-export function shouldAutoClarifyDraft(draft: EstimateAiDraft | null | undefined): boolean {
+export function shouldAutoClarifyDraft(
+  draft: EstimateAiDraft | null | undefined
+): boolean {
   if (!draft) return false;
   if (draft.noPricingDetected) return true;
   if (draft.estimateConfidence?.level === 'low') return true;
   const packages = draft.scopePackages || draft.rooms || [];
   const unpriced = packages.some(p => {
-    const price = Number(p.price ?? p.knownSubtotal ?? p.calculatedSubtotal ?? 0) || 0;
+    const price =
+      Number(p.price ?? p.knownSubtotal ?? p.calculatedSubtotal ?? 0) || 0;
     return price <= 0;
   });
   if (unpriced) return true;
@@ -2623,11 +3021,15 @@ export function shouldAutoClarifyDraft(draft: EstimateAiDraft | null | undefined
   return false;
 }
 
-export function isComplexEstimateTier(draft: EstimateAiDraft | null | undefined): boolean {
+export function isComplexEstimateTier(
+  draft: EstimateAiDraft | null | undefined
+): boolean {
   return Boolean(draft?.estimateTier && draft.estimateTier !== 'simple_unit');
 }
 
-export function aiFlowStepTotal(draft: EstimateAiDraft | null | undefined): 2 | 3 {
+export function aiFlowStepTotal(
+  draft: EstimateAiDraft | null | undefined
+): 2 | 3 {
   return isComplexEstimateTier(draft) ? 3 : 2;
 }
 
@@ -2641,7 +3043,9 @@ function overlayScopeMeasurements(
     scopeMeasurements: {
       ...(draft.scopeMeasurements || {}),
       ...scopeMeasurements,
-      planRooms: scopeMeasurements.planRooms?.length ? scopeMeasurements.planRooms : draft.scopeMeasurements?.planRooms,
+      planRooms: scopeMeasurements.planRooms?.length
+        ? scopeMeasurements.planRooms
+        : draft.scopeMeasurements?.planRooms,
       planFacts: scopeMeasurements.planFacts
         ? {
             ...(draft.scopeMeasurements?.planFacts || {}),
@@ -2676,8 +3080,12 @@ function overlayScopeMeasurements(
         ...(draft.scopeMeasurements?.quickMeasurementFieldConfidence || {}),
         ...(scopeMeasurements.quickMeasurementFieldConfidence || {}),
       },
-      measurementProvenance: scopeMeasurements.measurementProvenance || draft.scopeMeasurements?.measurementProvenance,
-      measurementConflicts: scopeMeasurements.measurementConflicts || draft.scopeMeasurements?.measurementConflicts,
+      measurementProvenance:
+        scopeMeasurements.measurementProvenance ||
+        draft.scopeMeasurements?.measurementProvenance,
+      measurementConflicts:
+        scopeMeasurements.measurementConflicts ||
+        draft.scopeMeasurements?.measurementConflicts,
       pricingAcceptance: {
         ...(draft.scopeMeasurements?.pricingAcceptance || {}),
         ...(scopeMeasurements.pricingAcceptance || {}),
@@ -2690,7 +3098,9 @@ function overlayScopeMeasurements(
  * Rebuild a Step 1 plan-import payload from a draft that already received plan
  * takeoff — used when regenerating after Back wiped the builder's local state.
  */
-export function planImportPayloadFromDraft(draft: EstimateAiDraft | null | undefined): PlanImportPayload | null {
+export function planImportPayloadFromDraft(
+  draft: EstimateAiDraft | null | undefined
+): PlanImportPayload | null {
   const sm = draft?.scopeMeasurements;
   if (!sm) return null;
   const sourceMap = sm.quickMeasurementSources || {};
@@ -2708,9 +3118,15 @@ export function planImportPayloadFromDraft(draft: EstimateAiDraft | null | undef
       source === 'fallback_multiplier'
   );
   const hasPlanFacts =
-    Boolean(sm.planFacts?.fieldEvidence && Object.keys(sm.planFacts.fieldEvidence).length) ||
+    Boolean(
+      sm.planFacts?.fieldEvidence &&
+      Object.keys(sm.planFacts.fieldEvidence).length
+    ) ||
     Boolean(sm.planFacts?.geometry && sm.planFacts.geometry.length) ||
-    Boolean(sm.planFacts?.buildingAreas && Object.keys(sm.planFacts.buildingAreas).length);
+    Boolean(
+      sm.planFacts?.buildingAreas &&
+      Object.keys(sm.planFacts.buildingAreas).length
+    );
   // Notes-derived measurements and parsed rooms are not a plan import. Only
   // restore the Step 1 plan card when the draft contains takeoff provenance.
   if (!hasPlanMeasurementSource && !hasPlanFacts) return null;
@@ -2779,26 +3195,42 @@ export function mergeTradeNormalizationIntoScopeMeasurements(
   const next: ScopeMeasurements = { ...scopeMeasurements };
   for (const [key, value] of Object.entries(normalization.measurements)) {
     if (value === undefined || value === null) continue;
-    (next as Record<string, unknown>)[key] = typeof value === 'number' ? value : String(value);
+    (next as Record<string, unknown>)[key] =
+      typeof value === 'number' ? value : String(value);
   }
   const structured = normalization.structuredMeasurements || {};
   if (structured.concreteAreaByType) {
-    next.concreteAreaByType = structured.concreteAreaByType as ScopeMeasurements['concreteAreaByType'];
+    next.concreteAreaByType =
+      structured.concreteAreaByType as ScopeMeasurements['concreteAreaByType'];
   }
   if (structured.concreteThicknessByType) {
-    next.concreteThicknessByType = structured.concreteThicknessByType as ScopeMeasurements['concreteThicknessByType'];
+    next.concreteThicknessByType =
+      structured.concreteThicknessByType as ScopeMeasurements['concreteThicknessByType'];
   }
-  if (Array.isArray(structured.concreteScope) && structured.concreteScope.length) {
+  if (
+    Array.isArray(structured.concreteScope) &&
+    structured.concreteScope.length
+  ) {
     next.concreteScope = structured.concreteScope.map(String);
   }
-  if (Array.isArray(structured.flooringProductScope) && structured.flooringProductScope.length) {
-    next.flooringProductScope = structured.flooringProductScope as ScopeMeasurements['flooringProductScope'];
+  if (
+    Array.isArray(structured.flooringProductScope) &&
+    structured.flooringProductScope.length
+  ) {
+    next.flooringProductScope =
+      structured.flooringProductScope as ScopeMeasurements['flooringProductScope'];
   }
-  if (Array.isArray(structured.flooringExistingTypes) && structured.flooringExistingTypes.length) {
-    next.flooringExistingTypes = structured.flooringExistingTypes as ScopeMeasurements['flooringExistingTypes'];
+  if (
+    Array.isArray(structured.flooringExistingTypes) &&
+    structured.flooringExistingTypes.length
+  ) {
+    next.flooringExistingTypes =
+      structured.flooringExistingTypes as ScopeMeasurements['flooringExistingTypes'];
   }
   if (structured.flooringInstallScopeCount != null) {
-    next.flooringInstallScopeCount = Number(structured.flooringInstallScopeCount);
+    next.flooringInstallScopeCount = Number(
+      structured.flooringInstallScopeCount
+    );
   }
   if (structured.flooringDemoScopeCount != null) {
     next.flooringDemoScopeCount = Number(structured.flooringDemoScopeCount);
@@ -2818,12 +3250,16 @@ export function mergeTradeNormalizationIntoScopeMeasurements(
     typeof structured.floorPrepByProduct === 'object' &&
     !Array.isArray(structured.floorPrepByProduct)
   ) {
-    next.floorPrepByProduct = structured.floorPrepByProduct as ScopeMeasurements['floorPrepByProduct'];
+    next.floorPrepByProduct =
+      structured.floorPrepByProduct as ScopeMeasurements['floorPrepByProduct'];
   }
   if (Array.isArray(structured.paintScope) && structured.paintScope.length) {
     next.paintScope = structured.paintScope as ScopeMeasurements['paintScope'];
   }
-  if (structured.paintPricingMethod === 'combined' || structured.paintPricingMethod === 'separate') {
+  if (
+    structured.paintPricingMethod === 'combined' ||
+    structured.paintPricingMethod === 'separate'
+  ) {
     next.paintPricingMethod = structured.paintPricingMethod;
   }
   if (
@@ -2844,18 +3280,28 @@ export function mergeTradeNormalizationIntoScopeMeasurements(
     next.paintOccupancyConfirmed = structured.paintOccupancyConfirmed;
   }
   if (typeof structured.paintApplicationMethodConfirmed === 'boolean') {
-    next.paintApplicationMethodConfirmed = structured.paintApplicationMethodConfirmed;
+    next.paintApplicationMethodConfirmed =
+      structured.paintApplicationMethodConfirmed;
   }
   if (typeof structured.paintAreaNeedsConfirmation === 'boolean') {
     next.paintAreaNeedsConfirmation = structured.paintAreaNeedsConfirmation;
   }
-  if (Array.isArray(structured.electricalScope) && structured.electricalScope.length) {
+  if (
+    Array.isArray(structured.electricalScope) &&
+    structured.electricalScope.length
+  ) {
     next.electricalScope = structured.electricalScope.map(String);
   }
-  if (Array.isArray(structured.plumbingScope) && structured.plumbingScope.length) {
+  if (
+    Array.isArray(structured.plumbingScope) &&
+    structured.plumbingScope.length
+  ) {
     next.plumbingScope = structured.plumbingScope.map(String);
   }
-  if (Array.isArray(structured.framingScope) && structured.framingScope.length) {
+  if (
+    Array.isArray(structured.framingScope) &&
+    structured.framingScope.length
+  ) {
     next.framingScope = structured.framingScope.map(String);
   }
   if (
@@ -2880,7 +3326,10 @@ export function mergeTradeNormalizationIntoScopeMeasurements(
   if (typeof structured.electricalConduitSpecialty === 'boolean') {
     next.electricalConduitSpecialty = structured.electricalConduitSpecialty;
   }
-  if (structured.electricalTrenchCondition === 'normal_soil' || structured.electricalTrenchCondition === 'rocky') {
+  if (
+    structured.electricalTrenchCondition === 'normal_soil' ||
+    structured.electricalTrenchCondition === 'rocky'
+  ) {
     next.electricalTrenchCondition = structured.electricalTrenchCondition;
   }
   if (
@@ -2890,7 +3339,10 @@ export function mergeTradeNormalizationIntoScopeMeasurements(
   ) {
     next.existingServiceAmperage = structured.existingServiceAmperage;
   }
-  if (structured.electricalPanelLocation === 'indoor' || structured.electricalPanelLocation === 'outdoor') {
+  if (
+    structured.electricalPanelLocation === 'indoor' ||
+    structured.electricalPanelLocation === 'outdoor'
+  ) {
     next.electricalPanelLocation = structured.electricalPanelLocation;
   }
   if (typeof structured.electricalMeterMainCombo === 'boolean') {
@@ -2951,10 +3403,16 @@ function normalizeTradePlanMeasurements(
   tradeKey: PlanTradeKey | null
 ): Record<string, number | string> {
   if (tradeKey === 'plumbing') {
-    return normalizePlumbingPlanMeasurements(measurements) as Record<string, number | string>;
+    return normalizePlumbingPlanMeasurements(measurements) as Record<
+      string,
+      number | string
+    >;
   }
   if (tradeKey === 'framing') {
-    return normalizeFramingPlanMeasurements(measurements) as Record<string, number | string>;
+    return normalizeFramingPlanMeasurements(measurements) as Record<
+      string,
+      number | string
+    >;
   }
   if (tradeKey !== 'stucco') return measurements;
   const out = { ...measurements };
@@ -3002,6 +3460,31 @@ const WHOLE_PROJECT_QUICK_MEASUREMENT_KEYS = [
 function stripWholeProjectScopeMeasurements(
   scopeMeasurements: ScopeMeasurements | null | undefined
 ): ScopeMeasurements {
+  const tradeKey = scopeMeasurements?.planImportTradeKey;
+  const preserveMepComplexity =
+    tradeKey === 'electrical' || tradeKey === 'plumbing';
+  const preserveInsulationPlanFacts = tradeKey === 'insulation';
+  const complexitySnapshot = preserveMepComplexity
+    ? {
+        planFacts: scopeMeasurements?.planFacts,
+        floorAreaSqft: scopeMeasurements?.floorAreaSqft,
+        storyCount: scopeMeasurements?.storyCount,
+        projectComplexity: scopeMeasurements?.projectComplexity,
+        floorAreaSource:
+          scopeMeasurements?.quickMeasurementSources?.floorAreaSqft,
+        storySource: scopeMeasurements?.quickMeasurementSources?.storyCount,
+      }
+    : preserveInsulationPlanFacts
+      ? {
+          planFacts: scopeMeasurements?.planFacts,
+          floorAreaSqft: scopeMeasurements?.floorAreaSqft,
+          storyCount: scopeMeasurements?.storyCount,
+          floorAreaSource:
+            scopeMeasurements?.quickMeasurementSources?.floorAreaSqft,
+          storySource:
+            scopeMeasurements?.quickMeasurementSources?.storyCount,
+        }
+      : null;
   const next: ScopeMeasurements = { ...(scopeMeasurements || {}) };
   for (const key of WHOLE_PROJECT_QUICK_MEASUREMENT_KEYS) {
     delete (next as Record<string, unknown>)[key];
@@ -3027,12 +3510,42 @@ function stripWholeProjectScopeMeasurements(
       );
     }
   }
+  if (complexitySnapshot) {
+    if (complexitySnapshot.planFacts)
+      next.planFacts = complexitySnapshot.planFacts;
+    if (complexitySnapshot.floorAreaSqft) {
+      next.floorAreaSqft = complexitySnapshot.floorAreaSqft;
+    }
+    if (complexitySnapshot.storyCount)
+      next.storyCount = complexitySnapshot.storyCount;
+    if (complexitySnapshot.projectComplexity) {
+      next.projectComplexity = complexitySnapshot.projectComplexity;
+    }
+    if (complexitySnapshot.floorAreaSource || complexitySnapshot.storySource) {
+      next.quickMeasurementSources = {
+        ...(next.quickMeasurementSources || {}),
+        ...(complexitySnapshot.floorAreaSource
+          ? { floorAreaSqft: complexitySnapshot.floorAreaSource }
+          : {}),
+        ...(complexitySnapshot.storySource
+          ? { storyCount: complexitySnapshot.storySource }
+          : {}),
+      };
+    }
+  }
   return next;
 }
 
-export function buildStuccoTradeChecklistItems(existing: ScopeChecklistItem[]): ScopeChecklistItem[] {
+export function buildStuccoTradeChecklistItems(
+  existing: ScopeChecklistItem[]
+): ScopeChecklistItem[] {
   const byId = new Map(existing.map(item => [item.id, item]));
-  const yesNo = (id: string, label: string, helperText: string, category = 'stucco'): ScopeChecklistItem => ({
+  const yesNo = (
+    id: string,
+    label: string,
+    helperText: string,
+    category = 'stucco'
+  ): ScopeChecklistItem => ({
     ...(byId.get(id) || {}),
     id,
     label,
@@ -3082,7 +3595,11 @@ export function buildStuccoTradeChecklistItems(existing: ScopeChecklistItem[]): 
       'Weather barrier / building paper',
       'Confirm whether WRB is included with this stucco bid or supplied by others.'
     ),
-    yesNo('stucco_lath', 'Metal lath', 'Confirm lath type and whether it is included in this subcontractor bid.'),
+    yesNo(
+      'stucco_lath',
+      'Metal lath',
+      'Confirm lath type and whether it is included in this subcontractor bid.'
+    ),
     yesNo(
       'stucco_base_coat',
       'Base / scratch & brown coats',
@@ -3175,11 +3692,32 @@ function standaloneFramingChecklistItems(): ScopeChecklistItem[] {
   ]);
 }
 
-function standalonePlumbingChecklistItems(mode: PlumbingWorkflowMode | null | undefined): ScopeChecklistItem[] {
+function standaloneInsulationChecklistItems(): ScopeChecklistItem[] {
+  return [
+    {
+      id: 'insulation',
+      label: 'Insulation',
+      helperText:
+        'Thermal-envelope insulation: exterior walls plus attic/ceiling or insulated roof deck. Confirm assembly and R-value before applying.',
+      category: 'Insulation',
+      state: 'unsure' as const,
+    },
+  ];
+}
+
+function standalonePlumbingChecklistItems(
+  mode: PlumbingWorkflowMode | null | undefined
+): ScopeChecklistItem[] {
   const ids =
     mode === 'service'
       ? ['service_call', 'fixture_repair', 'fixture_replace', 'drain_cleaning']
-      : ['plumbing_rough', 'plumbing_trim', 'water_line', 'sewer_line', 'gas_line'];
+      : [
+          'plumbing_rough',
+          'plumbing_trim',
+          'water_line',
+          'sewer_line',
+          'gas_line',
+        ];
   return ids.flatMap(id => {
     const card = PLUMBING_CARDS.find(item => item.itemId === id);
     if (!card) return [];
@@ -3205,8 +3743,10 @@ export function applyPlanImportToDraft(
   const planImportMode = payload.estimatingMode || 'whole_project';
   const planImportTradeKey = payload.selectedTrade || null;
   const standalonePlumbingWorkflow =
-    payload.tradeWorkflowSource === 'standalone_trade' && planImportTradeKey === 'plumbing';
-  const applyAsSelectedTrade = planImportMode === 'selected_trade' || standalonePlumbingWorkflow;
+    payload.tradeWorkflowSource === 'standalone_trade' &&
+    planImportTradeKey === 'plumbing';
+  const applyAsSelectedTrade =
+    planImportMode === 'selected_trade' || standalonePlumbingWorkflow;
   let rawMeasurements = normalizeTradePlanMeasurements(
     (payload.measurements || {}) as Record<string, number | string>,
     planImportTradeKey
@@ -3214,7 +3754,8 @@ export function applyPlanImportToDraft(
   const samePlanImport =
     Boolean(draft.scopeMeasurements?.planImportFingerprint) &&
     Boolean(payload.planImportFingerprint) &&
-    draft.scopeMeasurements?.planImportFingerprint === payload.planImportFingerprint;
+    draft.scopeMeasurements?.planImportFingerprint ===
+      payload.planImportFingerprint;
   const retainedSamePlanElectricalFields = new Set<string>();
   const repeatReviewElectricalFields = new Set<string>();
   const PLUMBING_LINE_LF_KEYS = new Set([
@@ -3223,23 +3764,34 @@ export function applyPlanImportToDraft(
     'gasLineLf',
   ]);
   if (samePlanImport) {
-    const previousMeasurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
-    const previousSources = draft.scopeMeasurements?.quickMeasurementSources || {};
+    const previousMeasurements = (draft.scopeMeasurements || {}) as Record<
+      string,
+      unknown
+    >;
+    const previousSources =
+      draft.scopeMeasurements?.quickMeasurementSources || {};
     const repeatKeys =
       planImportTradeKey === 'plumbing'
         ? new Set(PLUMBING_REVIEW_MEASUREMENT_KEYS)
-        : new Set([...ELECTRICAL_CARDS.map(card => card.measurementKey), 'serviceAmperage']);
+        : new Set([
+            ...ELECTRICAL_CARDS.map(card => card.measurementKey),
+            'serviceAmperage',
+          ]);
     for (const key of repeatKeys) {
       const incoming = rawMeasurements[key];
       const previous = previousMeasurements[key];
       const incomingNumber = Number(incoming);
       const previousNumber = Number(previous);
-      const previousWasContractorConfirmed = previousSources[key] === 'contractor_confirmed_from_plan_review';
+      const previousWasContractorConfirmed =
+        previousSources[key] === 'contractor_confirmed_from_plan_review';
       if (
         !previousWasContractorConfirmed &&
         Number.isFinite(previousNumber) &&
         previousNumber > 0 &&
-        (incoming == null || incoming === '' || !Number.isFinite(incomingNumber) || incomingNumber !== previousNumber)
+        (incoming == null ||
+          incoming === '' ||
+          !Number.isFinite(incomingNumber) ||
+          incomingNumber !== previousNumber)
       ) {
         if (
           planImportTradeKey === 'plumbing' &&
@@ -3254,7 +3806,9 @@ export function applyPlanImportToDraft(
         }
         if (
           planImportTradeKey === 'plumbing' &&
-          (PLUMBING_INVENTORY_DERIVED_KEYS as readonly string[]).includes(key) &&
+          (PLUMBING_INVENTORY_DERIVED_KEYS as readonly string[]).includes(
+            key
+          ) &&
           !plumbingSamePlanDerivedKeySupported(
             key,
             previous,
@@ -3262,9 +3816,7 @@ export function applyPlanImportToDraft(
               (payload.measurements || {}) as Record<string, number | string>,
               payload.fixtureInventory ??
                 (draft.scopeMeasurements?.plumbingFixtureInventory as
-                  | Record<string, number>
-                  | null
-                  | undefined),
+                  Record<string, number> | null | undefined),
               {
                 waterHeaterDetail:
                   payload.waterHeaterDetail ??
@@ -3311,17 +3863,35 @@ export function applyPlanImportToDraft(
             roofPitch: payload.planFacts?.roofPitch,
             storyCount: payload.planFacts?.storyCount,
           }
+        : planImportTradeKey === 'plumbing'
+          ? {
+              storyCount: payload.planFacts?.storyCount,
+            }
+          : planImportTradeKey === 'electrical'
+            ? {
+                storyCount: payload.planFacts?.storyCount,
+              }
+            : {}),
+      ...(payload.quickMeasurementSources
+        ? { quickMeasurementSources: payload.quickMeasurementSources }
         : {}),
-      ...(payload.quickMeasurementSources ? { quickMeasurementSources: payload.quickMeasurementSources } : {}),
-      ...(payload.measurementProvenance ? { measurementProvenance: payload.measurementProvenance } : {}),
+      ...(payload.measurementProvenance
+        ? { measurementProvenance: payload.measurementProvenance }
+        : {}),
     },
     'plan'
   );
-  const canonicalPlanMeasurements = tradeNormalization?.measurements || filteredPlanMeasurements;
-  let scopeMeasurements = planMeasurementsToScopeMeasurements(canonicalPlanMeasurements as Record<string, number>);
+  const canonicalPlanMeasurements =
+    tradeNormalization?.measurements || filteredPlanMeasurements;
+  let scopeMeasurements = planMeasurementsToScopeMeasurements(
+    canonicalPlanMeasurements as Record<string, number>
+  );
   if (standalonePlumbingWorkflow) {
     scopeMeasurements = {
-      ...stripScopeInputForSingleTrade((next.scopeMeasurements || {}) as Record<string, unknown>, 'plumbing'),
+      ...stripScopeInputForSingleTrade(
+        (next.scopeMeasurements || {}) as Record<string, unknown>,
+        'plumbing'
+      ),
       ...scopeMeasurements,
       tradeWorkflowSource: 'standalone_trade',
       plumbingWorkflowMode: payload.plumbingWorkflowMode || 'bathroom_remodel',
@@ -3331,15 +3901,30 @@ export function applyPlanImportToDraft(
       planImportFingerprint: null,
     } as ScopeMeasurements;
   }
-  scopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(scopeMeasurements, tradeNormalization);
+  scopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+    scopeMeasurements,
+    tradeNormalization
+  );
   if (planImportTradeKey === 'plumbing') {
-    scopeMeasurements.plumbingWorkflowMode = payload.plumbingWorkflowMode || 'new_construction';
-    scopeMeasurements.plumbingPerformerMode = payload.plumbingPerformerMode || null;
+    scopeMeasurements.plumbingWorkflowMode =
+      payload.plumbingWorkflowMode || 'new_construction';
+    scopeMeasurements.plumbingPerformerMode =
+      payload.plumbingPerformerMode || null;
+  }
+  if (
+    applyAsSelectedTrade &&
+    (planImportTradeKey === 'electrical' || planImportTradeKey === 'plumbing')
+  ) {
+    seedMepProjectComplexityFromPlanImport(
+      scopeMeasurements as Record<string, unknown>,
+      payload
+    );
   }
   if (!standalonePlumbingWorkflow) {
     scopeMeasurements.planImportMode = planImportMode;
     scopeMeasurements.planImportTradeKey = planImportTradeKey;
-    scopeMeasurements.planImportFingerprint = payload.planImportFingerprint ?? null;
+    scopeMeasurements.planImportFingerprint =
+      payload.planImportFingerprint ?? null;
     scopeMeasurements.planImportProvenance = payload.tradeProvenance || {
       source: 'plan_import',
       mode: planImportMode,
@@ -3356,9 +3941,11 @@ export function applyPlanImportToDraft(
     ? standalonePlumbingChecklistItems(payload.plumbingWorkflowMode)
     : planImportTradeKey === 'framing'
       ? standaloneFramingChecklistItems()
-      : planImportTradeKey === 'stucco'
-      ? buildStuccoTradeChecklistItems(tradeChecklistItems)
-      : tradeChecklistItems;
+      : planImportTradeKey === 'insulation'
+        ? standaloneInsulationChecklistItems()
+        : planImportTradeKey === 'stucco'
+          ? buildStuccoTradeChecklistItems(tradeChecklistItems)
+          : tradeChecklistItems;
   if (applyAsSelectedTrade && planImportTradeKey) {
     next = {
       ...next,
@@ -3376,9 +3963,14 @@ export function applyPlanImportToDraft(
                   ? 'painting'
                   : planImportTradeKey === 'framing'
                     ? 'framing'
-                    : planImportTradeKey === 'plumbing'
-                      ? 'plumbing_service'
-                      : next.scopeChecklist?.templateKey || 'plumbing_service',
+                    : planImportTradeKey === 'insulation'
+                      ? 'insulation'
+                      : planImportTradeKey === 'plumbing'
+                        ? 'plumbing_service'
+                        : planImportTradeKey === 'electrical'
+                          ? 'electrical'
+                          : next.scopeChecklist?.templateKey ||
+                            'plumbing_service',
         title:
           planImportTradeKey === 'stucco'
             ? 'Stucco / exterior finish — confirm trade scope'
@@ -3390,9 +3982,12 @@ export function applyPlanImportToDraft(
                   ? 'Painting — confirm project scope'
                   : planImportTradeKey === 'framing'
                     ? 'Framing — confirm project scope'
-                    : planImportTradeKey === 'plumbing'
-                      ? 'Plumbing — confirm project scope'
-                      : next.scopeChecklist?.title || 'Plumbing — confirm project scope',
+                    : planImportTradeKey === 'insulation'
+                      ? 'Insulation — confirm project scope'
+                      : planImportTradeKey === 'plumbing'
+                        ? 'Plumbing — confirm project scope'
+                        : next.scopeChecklist?.title ||
+                          'Plumbing — confirm project scope',
         intro:
           planImportTradeKey === 'stucco'
             ? 'Confirm the stucco system, quantities, accessories, and access included in this bid.'
@@ -3404,26 +3999,75 @@ export function applyPlanImportToDraft(
                   ? 'Confirm painting scope before pricing.'
                   : planImportTradeKey === 'framing'
                     ? 'Confirm framing scope before pricing.'
-                    : planImportTradeKey === 'plumbing'
-                    ? standalonePlumbingWorkflow
-                      ? 'Confirm the Plumbing-only scope before pricing.'
-                      : 'Confirm Plumbing scope before pricing.'
-                    : next.scopeChecklist?.intro || 'Confirm Plumbing scope before pricing.',
+                    : planImportTradeKey === 'insulation'
+                      ? 'Confirm insulation scope and thermal-envelope quantities before pricing.'
+                      : planImportTradeKey === 'plumbing'
+                        ? standalonePlumbingWorkflow
+                          ? 'Confirm the Plumbing-only scope before pricing.'
+                          : 'Confirm Plumbing scope before pricing.'
+                        : next.scopeChecklist?.intro ||
+                          'Confirm Plumbing scope before pricing.',
       },
     };
   }
-  const importedPlanFacts: PlanFacts | undefined = applyAsSelectedTrade
-    ? undefined
-    : payload.planFacts || payload.buildingAreas
-      ? {
-          ...(payload.planFacts || {}),
-          buildingAreas: {
-            ...(payload.buildingAreas || {}),
-            ...(payload.planFacts?.buildingAreas || {}),
-          },
-        }
-      : undefined;
+  const payloadBuildingAreas = {
+    ...(payload.buildingAreas || {}),
+    ...(payload.planFacts?.buildingAreas || {}),
+  };
+  const insulationLiving =
+    Number(
+      payloadBuildingAreas.totalLivingSqft ??
+        payloadBuildingAreas.mainFloorLivingSqft ??
+        (payload.planFacts as
+          | (PlanFacts & {
+              totalLivingSqft?: number | null;
+              floorAreaSqft?: number | null;
+              mainFloorAreaSqft?: number | null;
+            })
+          | undefined)?.totalLivingSqft ??
+        (payload.planFacts as
+          | (PlanFacts & {
+              totalLivingSqft?: number | null;
+              floorAreaSqft?: number | null;
+              mainFloorAreaSqft?: number | null;
+            })
+          | undefined)?.floorAreaSqft ??
+        (payload.measurements as Record<string, unknown> | undefined)
+          ?.floorAreaSqft ??
+        (payload.measurements as Record<string, unknown> | undefined)
+          ?.totalLivingSqft
+    ) || null;
+  const importedPlanFacts: PlanFacts | undefined =
+    applyAsSelectedTrade && planImportTradeKey !== 'insulation'
+      ? undefined
+      : payload.planFacts || payload.buildingAreas || insulationLiving
+        ? {
+            ...(payload.planFacts || {}),
+            buildingAreas: payloadBuildingAreas,
+          }
+        : undefined;
+  if (planImportTradeKey === 'insulation' && insulationLiving) {
+    if (!(Number(scopeMeasurements.floorAreaSqft) > 0)) {
+      scopeMeasurements.floorAreaSqft = insulationLiving;
+    }
+    const garage =
+      Number(payloadBuildingAreas.garageSqft) ||
+      Number(
+        (payload.measurements as Record<string, unknown> | undefined)
+          ?.garageSqft
+      ) ||
+      null;
+    if (garage && !(Number(scopeMeasurements.garageSqft) > 0)) {
+      scopeMeasurements.garageSqft = garage;
+    }
+  }
   if (importedPlanFacts) scopeMeasurements.planFacts = importedPlanFacts;
+  if (planImportTradeKey === 'insulation' && scopeMeasurements.planFacts) {
+    scopeMeasurements = syncMeasurementsWithSouthernUtahPlanFacts(
+      scopeMeasurements,
+      { templateKey: 'insulation' }
+    );
+  }
   if (payload.fieldConfidence && Object.keys(payload.fieldConfidence).length) {
     scopeMeasurements.quickMeasurementFieldConfidence = {
       ...payload.fieldConfidence,
@@ -3468,31 +4112,42 @@ export function applyPlanImportToDraft(
       scopeMeasurements.plumbingWaterHeaterDetail == null &&
       previousPlumbing.plumbingWaterHeaterDetail != null
     ) {
-      scopeMeasurements.plumbingWaterHeaterDetail = previousPlumbing.plumbingWaterHeaterDetail;
+      scopeMeasurements.plumbingWaterHeaterDetail =
+        previousPlumbing.plumbingWaterHeaterDetail;
     }
     if (
       scopeMeasurements.plumbingGasApplianceScope == null &&
       previousPlumbing.plumbingGasApplianceScope != null
     ) {
-      scopeMeasurements.plumbingGasApplianceScope = previousPlumbing.plumbingGasApplianceScope;
+      scopeMeasurements.plumbingGasApplianceScope =
+        previousPlumbing.plumbingGasApplianceScope;
     }
     if (
       scopeMeasurements.plumbingComplexityFactors == null &&
       previousPlumbing.plumbingComplexityFactors != null
     ) {
-      scopeMeasurements.plumbingComplexityFactors = previousPlumbing.plumbingComplexityFactors;
+      scopeMeasurements.plumbingComplexityFactors =
+        previousPlumbing.plumbingComplexityFactors;
     }
     applyPlumbingEquipmentHydrationToMeasurements(
       scopeMeasurements as Record<string, unknown>,
       {
         fixtureInventory:
-          payload.fixtureInventory ?? scopeMeasurements.plumbingFixtureInventory ?? null,
+          payload.fixtureInventory ??
+          scopeMeasurements.plumbingFixtureInventory ??
+          null,
         waterHeaterDetail:
-          payload.waterHeaterDetail ?? scopeMeasurements.plumbingWaterHeaterDetail ?? null,
+          payload.waterHeaterDetail ??
+          scopeMeasurements.plumbingWaterHeaterDetail ??
+          null,
         gasApplianceScope:
-          payload.gasApplianceScope ?? scopeMeasurements.plumbingGasApplianceScope ?? null,
+          payload.gasApplianceScope ??
+          scopeMeasurements.plumbingGasApplianceScope ??
+          null,
         complexityFactors:
-          payload.complexityFactors ?? scopeMeasurements.plumbingComplexityFactors ?? null,
+          payload.complexityFactors ??
+          scopeMeasurements.plumbingComplexityFactors ??
+          null,
       },
       { storeAsNumber: true }
     );
@@ -3509,7 +4164,9 @@ export function applyPlanImportToDraft(
     );
   }
   if (planImportTradeKey === 'framing') {
-    reconcileFramingScopeMeasurements(scopeMeasurements as Record<string, unknown>);
+    reconcileFramingScopeMeasurements(
+      scopeMeasurements as Record<string, unknown>
+    );
     rebuildFramingStructuredScopeFromMeasurements(
       scopeMeasurements as Record<string, unknown>,
       'plan_detected'
@@ -3530,7 +4187,9 @@ export function applyPlanImportToDraft(
         scopeMeasurements.quickMeasurementSources[key] = 'needs_confirmation';
         const previousEntry = previousProvenance[key];
         scopeMeasurements.measurementProvenance[key] = {
-          ...(previousEntry && typeof previousEntry === 'object' ? previousEntry : {}),
+          ...(previousEntry && typeof previousEntry === 'object'
+            ? previousEntry
+            : {}),
           value: Number(scopeMeasurements[key]),
           status: 'needs_review',
           normalizedSource: 'NEEDS_REVIEW',
@@ -3542,15 +4201,20 @@ export function applyPlanImportToDraft(
       } else if (previousSources[key]) {
         scopeMeasurements.quickMeasurementSources[key] = previousSources[key];
       }
-      if (!repeatReviewElectricalFields.has(key) && previousProvenance[key] !== undefined) {
+      if (
+        !repeatReviewElectricalFields.has(key) &&
+        previousProvenance[key] !== undefined
+      ) {
         scopeMeasurements.measurementProvenance[key] = previousProvenance[key];
       }
     }
   }
   if (payload.measurementConflicts !== undefined) {
-    scopeMeasurements.measurementConflicts = payload.measurementConflicts.filter(
-      conflict => !repeatReviewElectricalFields.has(String(conflict?.field || ''))
-    );
+    scopeMeasurements.measurementConflicts =
+      payload.measurementConflicts.filter(
+        conflict =>
+          !repeatReviewElectricalFields.has(String(conflict?.field || ''))
+      );
   }
   if (payload.electricalValidation !== undefined) {
     scopeMeasurements.electricalValidation = payload.electricalValidation;
@@ -3584,13 +4248,23 @@ export function applyPlanImportToDraft(
   }
   const rooms = applyAsSelectedTrade ? [] : normalizePlanRooms(payload.rooms);
   if (rooms.length) {
-    scopeMeasurements = applyPlanRoomsToScopeMeasurements(scopeMeasurements, rooms);
+    scopeMeasurements = applyPlanRoomsToScopeMeasurements(
+      scopeMeasurements,
+      rooms
+    );
   }
 
-  const detections = filterPlanScopesForTrade(payload.scopeDetections || [], planImportMode, planImportTradeKey);
+  const detections = filterPlanScopesForTrade(
+    payload.scopeDetections || [],
+    planImportMode,
+    planImportTradeKey
+  );
   let items = next.scopeChecklist?.items || [];
   if (detections?.length && items.length) {
-    const { items: nextItems } = applyScopeDetectionsToChecklistItems(items, detections);
+    const { items: nextItems } = applyScopeDetectionsToChecklistItems(
+      items,
+      detections
+    );
     items = nextItems;
     next = {
       ...next,
@@ -3638,22 +4312,35 @@ export function applyPlanImportToDraft(
 
   if (Object.keys(scopeMeasurements).length || rooms.length) {
     if (!applyAsSelectedTrade) {
-      scopeMeasurements = seedPlanFloorAreaItemQuantities(next, scopeMeasurements);
-      scopeMeasurements = syncMeasurementsWithSouthernUtahPlanFacts(scopeMeasurements, {
-        templateKey: next.scopeChecklist?.templateKey,
-      });
+      scopeMeasurements = seedPlanFloorAreaItemQuantities(
+        next,
+        scopeMeasurements
+      );
+      scopeMeasurements = syncMeasurementsWithSouthernUtahPlanFacts(
+        scopeMeasurements,
+        {
+          templateKey: next.scopeChecklist?.templateKey,
+        }
+      );
+      scopeMeasurements = hydrateProjectComplexityMeasurements(
+        scopeMeasurements as Record<string, unknown>
+      ) as ScopeMeasurements;
     }
     if (applyAsSelectedTrade) {
       next = {
         ...next,
-        scopeMeasurements: stripWholeProjectScopeMeasurements(next.scopeMeasurements),
+        scopeMeasurements: stripWholeProjectScopeMeasurements(
+          next.scopeMeasurements
+        ),
       };
     }
     next = overlayScopeMeasurements(next, scopeMeasurements);
   } else if (applyAsSelectedTrade) {
     next = {
       ...next,
-      scopeMeasurements: stripWholeProjectScopeMeasurements(next.scopeMeasurements),
+      scopeMeasurements: stripWholeProjectScopeMeasurements(
+        next.scopeMeasurements
+      ),
     };
     next = overlayScopeMeasurements(next, scopeMeasurements);
   }
@@ -3662,10 +4349,13 @@ export function applyPlanImportToDraft(
       next.scopeMeasurements as Record<string, unknown>,
       payload
     );
-    const syncedAfterOverlay = syncPlumbingScopeItems(next.scopeChecklist?.items || [], {
-      plumbingScope: next.scopeMeasurements.plumbingScope,
-      quantities: next.scopeMeasurements as Record<string, unknown>,
-    });
+    const syncedAfterOverlay = syncPlumbingScopeItems(
+      next.scopeChecklist?.items || [],
+      {
+        plumbingScope: next.scopeMeasurements.plumbingScope,
+        quantities: next.scopeMeasurements as Record<string, unknown>,
+      }
+    );
     next = {
       ...next,
       scopeChecklist: {
@@ -3680,10 +4370,13 @@ export function applyPlanImportToDraft(
     };
   }
   if (planImportTradeKey === 'framing' && next.scopeMeasurements) {
-    const syncedAfterOverlay = syncFramingScopeItems(next.scopeChecklist?.items || [], {
-      framingScope: next.scopeMeasurements.framingScope,
-      quantities: next.scopeMeasurements as Record<string, unknown>,
-    });
+    const syncedAfterOverlay = syncFramingScopeItems(
+      next.scopeChecklist?.items || [],
+      {
+        framingScope: next.scopeMeasurements.framingScope,
+        quantities: next.scopeMeasurements as Record<string, unknown>,
+      }
+    );
     next = {
       ...next,
       scopeChecklist: {
@@ -3722,16 +4415,22 @@ export async function applyScopeAssumptionsToDraft(
   );
 
   if (!payload?.draft) {
-    throw new Error(payload?.message || payload?.error || 'Failed to apply scope assumptions');
+    throw new Error(
+      payload?.message || payload?.error || 'Failed to apply scope assumptions'
+    );
   }
 
   return withReconciledScopePackages(
-    syncSelectedScopePricing(overlayScopeMeasurements(payload.draft, scopeMeasurements)),
+    syncSelectedScopePricing(
+      overlayScopeMeasurements(payload.draft, scopeMeasurements)
+    ),
     confirmedItems
   );
 }
 
-export function draftHasCombinedRoomPrices(draft: EstimateAiDraft | null): boolean {
+export function draftHasCombinedRoomPrices(
+  draft: EstimateAiDraft | null
+): boolean {
   return (draft?.combinedPriceRoomCount || 0) > 0;
 }
 
@@ -3751,8 +4450,15 @@ export function getScopePackageForRoom(
     const roomIsDemo = /\bdemo|removal\b/.test(normalizedRoom);
     const pkgIsDemo = /\bdemo|removal\b/.test(normalizedPkg);
     if (roomIsDemo || pkgIsDemo) return roomIsDemo && pkgIsDemo;
-    if (/\bbaseboard|trim\b/.test(normalizedRoom) && /\bbaseboard|trim\b/.test(normalizedPkg)) return true;
-    if (/\blvp|flooring|floor\b/.test(normalizedRoom) && /\blvp|flooring|floor\b/.test(normalizedPkg)) {
+    if (
+      /\bbaseboard|trim\b/.test(normalizedRoom) &&
+      /\bbaseboard|trim\b/.test(normalizedPkg)
+    )
+      return true;
+    if (
+      /\blvp|flooring|floor\b/.test(normalizedRoom) &&
+      /\blvp|flooring|floor\b/.test(normalizedPkg)
+    ) {
       return true;
     }
     return false;
@@ -3767,7 +4473,10 @@ type SelectedScopePricing = {
   ruleKey: string;
 };
 
-function selectedPricingForRuleKey(draft: EstimateAiDraft, ruleKey: string): SelectedScopePricing | null {
+function selectedPricingForRuleKey(
+  draft: EstimateAiDraft,
+  ruleKey: string
+): SelectedScopePricing | null {
   const itemQuantities = draft.scopeMeasurements?.itemQuantities || {};
   const acceptance = draft.scopeMeasurements?.pricingAcceptance?.[ruleKey];
   const base = itemQuantities[ruleKey];
@@ -3792,14 +4501,17 @@ function selectedPricingForRuleKey(draft: EstimateAiDraft, ruleKey: string): Sel
   if (!userSelected) return null;
 
   const physicalBasis =
-    base?.quantity && base.unit && !['allowance', 'lump_sum'].includes(base.unit)
+    base?.quantity &&
+    base.unit &&
+    !['allowance', 'lump_sum'].includes(base.unit)
       ? { quantity: Number(base.quantity), unit: base.unit }
       : null;
 
   if (
     acceptance &&
     Number(acceptance.totalAmount) > 0 &&
-    (acceptance.selectionStatus === 'accepted' || acceptance.selectionStatus === 'manual_adjusted')
+    (acceptance.selectionStatus === 'accepted' ||
+      acceptance.selectionStatus === 'manual_adjusted')
   ) {
     // Match Step 2: wiped Material/Labor with orphan __allowance must not stamp stale acceptance.
     if (hasSplitLegs && splitLegsEmpty) {
@@ -3809,7 +4521,8 @@ function selectedPricingForRuleKey(draft: EstimateAiDraft, ruleKey: string): Sel
     const acceptedMaterial =
       materialPrice > 0
         ? materialPrice
-        : acceptance.materialAmount != null && Number(acceptance.materialAmount) > 0
+        : acceptance.materialAmount != null &&
+            Number(acceptance.materialAmount) > 0
           ? Number(acceptance.materialAmount)
           : null;
     const acceptedLabor =
@@ -3818,12 +4531,16 @@ function selectedPricingForRuleKey(draft: EstimateAiDraft, ruleKey: string): Sel
         : acceptance.laborAmount != null && Number(acceptance.laborAmount) > 0
           ? Number(acceptance.laborAmount)
           : null;
-    const liveTotal = splitTotal > 0 ? splitTotal : Number(acceptance.totalAmount);
+    const liveTotal =
+      splitTotal > 0 ? splitTotal : Number(acceptance.totalAmount);
     // Dollar totals stored as unit "allowance" are not a takeoff qty — omit basis so Step 3
     // does not show "10,118 allowance" under finish carpentry / similar packages.
     const basis =
       physicalBasis &&
-      !(Number(physicalBasis.quantity) > 0 && Math.abs(Number(physicalBasis.quantity) - liveTotal) < 0.02)
+      !(
+        Number(physicalBasis.quantity) > 0 &&
+        Math.abs(Number(physicalBasis.quantity) - liveTotal) < 0.02
+      )
         ? physicalBasis
         : null;
     return {
@@ -3836,9 +4553,16 @@ function selectedPricingForRuleKey(draft: EstimateAiDraft, ruleKey: string): Sel
   }
 
   const allowanceTotal = Number(allowance?.quantity || 0);
-  const baseTotal = ['allowance', 'lump_sum'].includes(base?.unit || '') ? Number(base?.quantity || 0) : 0;
+  const baseTotal = ['allowance', 'lump_sum'].includes(base?.unit || '')
+    ? Number(base?.quantity || 0)
+    : 0;
   // Split legs present but empty → ignore orphan __allowance leftover.
-  const total = splitTotal > 0 ? splitTotal : hasSplitLegs && splitLegsEmpty ? 0 : allowanceTotal || baseTotal;
+  const total =
+    splitTotal > 0
+      ? splitTotal
+      : hasSplitLegs && splitLegsEmpty
+        ? 0
+        : allowanceTotal || baseTotal;
   if (!Number.isFinite(total) || total <= 0) return null;
 
   return {
@@ -3872,11 +4596,16 @@ function resolvedScopeQuantityBasis(
   draft: EstimateAiDraft,
   ruleKey: string
 ): { quantity: number; unit: string } | null {
-  const resolved = resolveChecklistItemQuantity(ruleKey, normalizeScopeMeasurements(draft.scopeMeasurements), {
-    templateKey: draft.scopeChecklist?.templateKey,
-    notes: draft.originalNotes,
-  });
-  if (resolved.quantity == null || resolved.quantity <= 0 || !resolved.unit) return null;
+  const resolved = resolveChecklistItemQuantity(
+    ruleKey,
+    normalizeScopeMeasurements(draft.scopeMeasurements),
+    {
+      templateKey: draft.scopeChecklist?.templateKey,
+      notes: draft.originalNotes,
+    }
+  );
+  if (resolved.quantity == null || resolved.quantity <= 0 || !resolved.unit)
+    return null;
   return { quantity: Number(resolved.quantity), unit: resolved.unit };
 }
 
@@ -3886,7 +4615,12 @@ function packageMoneyTotal(pkg: {
   calculatedSubtotal?: number | null;
   price?: number | null;
 }): number {
-  const candidates = [pkg.finalApprovedTotal, pkg.knownSubtotal, pkg.calculatedSubtotal, pkg.price];
+  const candidates = [
+    pkg.finalApprovedTotal,
+    pkg.knownSubtotal,
+    pkg.calculatedSubtotal,
+    pkg.price,
+  ];
   for (const value of candidates) {
     const n = Number(value);
     if (Number.isFinite(n) && n > 0) return n;
@@ -3915,7 +4649,11 @@ function isAutoCalculatedUnconfirmedPackage(
   ruleKey: string | null
 ): boolean {
   if (!(packageMoneyTotal(pkg) > 0)) return false;
-  if (pkg.priceProvidedByUser || pkg.status === 'user_provided' || pkg.priceSource === 'user_provided') {
+  if (
+    pkg.priceProvidedByUser ||
+    pkg.status === 'user_provided' ||
+    pkg.priceSource === 'user_provided'
+  ) {
     return false;
   }
   if (
@@ -3929,7 +4667,9 @@ function isAutoCalculatedUnconfirmedPackage(
     return false;
   }
 
-  const confirmedFromScope = Boolean(draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length);
+  const confirmedFromScope = Boolean(
+    draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length
+  );
 
   // Before Confirm Scope, keep AI-approved / applyEligible package prices.
   if (!confirmedFromScope) {
@@ -3953,13 +4693,18 @@ function isAutoCalculatedUnconfirmedPackage(
 }
 
 /** Drop takeoff/backend prices that never got Applied on Confirm Scope. */
-function stripUnconfirmedAutoPackagePricing<T extends EstimateDraftScopePackage>(
+function stripUnconfirmedAutoPackagePricing<
+  T extends EstimateDraftScopePackage,
+>(
   pkg: T,
   draft: EstimateAiDraft,
   base: T,
   basis: { quantity: number; unit: string } | null
 ): T {
-  const ruleKey = base.checklistItemId || lookupRuleKeyForPackage(pkg.name, pkg.scope || '') || null;
+  const ruleKey =
+    base.checklistItemId ||
+    lookupRuleKeyForPackage(pkg.name, pkg.scope || '') ||
+    null;
   if (!isAutoCalculatedUnconfirmedPackage(pkg, draft, ruleKey)) {
     return basis
       ? {
@@ -3984,7 +4729,9 @@ function stripUnconfirmedAutoPackagePricing<T extends EstimateDraftScopePackage>
     applyEligible: false,
     priceProvidedByUser: false,
     pricedFromSqftAllowances: false,
-    scopeQuantities: basis ? [{ quantity: basis.quantity, unit: basis.unit }] : pkg.scopeQuantities,
+    scopeQuantities: basis
+      ? [{ quantity: basis.quantity, unit: basis.unit }]
+      : pkg.scopeQuantities,
     budgetSplitBasis: basis ?? pkg.budgetSplitBasis ?? null,
     missingPriceItems: pkg.missingPriceItems?.length
       ? pkg.missingPriceItems
@@ -4006,7 +4753,8 @@ function shouldPreserveUserPackagePrice(
   // Partial manual split — package total is authoritative; Confirm Scope legs are a portion only.
   if (current > selected.total + 0.01) return true;
   // Same checklist row — Ask AI / manual revision wins over stale Confirm Scope sync.
-  if (pkg.checklistItemId && pkg.checklistItemId === selected.ruleKey) return true;
+  if (pkg.checklistItemId && pkg.checklistItemId === selected.ruleKey)
+    return true;
   if (!SOFT_COST_SYNC_KEYS.has(selected.ruleKey)) return false;
   return true;
 }
@@ -4015,10 +4763,18 @@ function applySelectedPricingToScopePackage(
   pkg: EstimateDraftScopePackage,
   draft: EstimateAiDraft
 ): EstimateDraftScopePackage {
-  const selected = selectedPricingForScopeName(draft, pkg.name, pkg.scope, pkg.checklistItemId);
+  const selected = selectedPricingForScopeName(
+    draft,
+    pkg.name,
+    pkg.scope,
+    pkg.checklistItemId
+  );
   // Keep a stable checklist identity; do not overwrite with a wrong regex match.
   const ruleKey =
-    pkg.checklistItemId || selected?.ruleKey || lookupRuleKeyForPackage(pkg.name, pkg.scope || '') || null;
+    pkg.checklistItemId ||
+    selected?.ruleKey ||
+    lookupRuleKeyForPackage(pkg.name, pkg.scope || '') ||
+    null;
   // When Confirm Scope already selected a price, honor its basis only (null = no
   // takeoff qty). Do not fall back to resolvedScopeQuantityBasis — that re-reads
   // dollar "allowance" itemQuantities as 10,118 lump sum under finish carpentry.
@@ -4047,7 +4803,9 @@ function applySelectedPricingToScopePackage(
       materialPrice: selected.materialPrice ?? pkg.materialPrice ?? null,
       laborPrice: selected.laborPrice ?? pkg.laborPrice ?? null,
       budgetSplitBasis: basis ?? pkg.budgetSplitBasis ?? null,
-      scopeQuantities: basis ? [{ quantity: basis.quantity, unit: basis.unit }] : undefined,
+      scopeQuantities: basis
+        ? [{ quantity: basis.quantity, unit: basis.unit }]
+        : undefined,
     };
   }
   return {
@@ -4059,25 +4817,39 @@ function applySelectedPricingToScopePackage(
     materialPrice: selected.materialPrice,
     laborPrice: selected.laborPrice,
     includesLabor: selected.laborPrice != null ? true : pkg.includesLabor,
-    includesMaterials: selected.materialPrice != null ? true : pkg.includesMaterials,
+    includesMaterials:
+      selected.materialPrice != null ? true : pkg.includesMaterials,
     priceSource: 'user_provided',
     status: 'user_provided',
-    pricingType: selected.materialPrice || selected.laborPrice ? 'split' : 'lump_sum',
-    priceIncludesLaborAndMaterials: Boolean(selected.total && !(selected.materialPrice && selected.laborPrice)),
+    pricingType:
+      selected.materialPrice || selected.laborPrice ? 'split' : 'lump_sum',
+    priceIncludesLaborAndMaterials: Boolean(
+      selected.total && !(selected.materialPrice && selected.laborPrice)
+    ),
     splitIsSuggested: false,
     priceProvidedByUser: true,
     applyEligible: true,
     budgetSplitBasis: basis,
-    scopeQuantities: basis ? [{ quantity: basis.quantity, unit: basis.unit }] : undefined,
+    scopeQuantities: basis
+      ? [{ quantity: basis.quantity, unit: basis.unit }]
+      : undefined,
     missingPriceItems: [],
   };
 }
 
-function applySelectedPricingToRoom(room: EstimateDraftRoom, draft: EstimateAiDraft): EstimateDraftRoom {
+function applySelectedPricingToRoom(
+  room: EstimateDraftRoom,
+  draft: EstimateAiDraft
+): EstimateDraftRoom {
   const checklistItemId =
     (room as { checklistItemId?: string | null }).checklistItemId ||
     lookupRuleKeyForPackage(room.name, room.scope || '');
-  const selected = selectedPricingForScopeName(draft, room.name, room.scope, checklistItemId);
+  const selected = selectedPricingForScopeName(
+    draft,
+    room.name,
+    room.scope,
+    checklistItemId
+  );
   if (!selected) {
     const asPkg = {
       name: room.name,
@@ -4096,11 +4868,18 @@ function applySelectedPricingToRoom(room: EstimateDraftRoom, draft: EstimateAiDr
       pricedFromSqftAllowances: room.pricedFromSqftAllowances,
     } as EstimateDraftScopePackage;
     const basis =
-      (checklistItemId ? resolvedScopeQuantityBasis(draft, checklistItemId) : null) ??
+      (checklistItemId
+        ? resolvedScopeQuantityBasis(draft, checklistItemId)
+        : null) ??
       room.budgetSplitBasis ??
       room.scopeQuantities?.[0] ??
       null;
-    const stripped = stripUnconfirmedAutoPackagePricing(asPkg, draft, asPkg, basis);
+    const stripped = stripUnconfirmedAutoPackagePricing(
+      asPkg,
+      draft,
+      asPkg,
+      basis
+    );
     return {
       ...room,
       price: stripped.price ?? null,
@@ -4135,7 +4914,9 @@ function applySelectedPricingToRoom(room: EstimateDraftRoom, draft: EstimateAiDr
     knownSubtotal: selected.total,
     materialPrice: selected.materialPrice,
     laborPrice: selected.laborPrice,
-    priceIncludesLaborAndMaterials: Boolean(selected.total && !(selected.materialPrice && selected.laborPrice)),
+    priceIncludesLaborAndMaterials: Boolean(
+      selected.total && !(selected.materialPrice && selected.laborPrice)
+    ),
     splitIsSuggested: false,
     priceProvidedByUser: true,
     pricedFromSqftAllowances: false,
@@ -4155,47 +4936,72 @@ function recomputeClientDraftTotals(draft: EstimateAiDraft): EstimateAiDraft {
     const amount = packageMoneyTotal(pkg);
     if (!(amount > 0)) continue;
     lineTotal += amount;
-    materialTotal += Number(pkg.materialPrice) > 0 ? Number(pkg.materialPrice) : 0;
+    materialTotal +=
+      Number(pkg.materialPrice) > 0 ? Number(pkg.materialPrice) : 0;
     laborTotal += Number(pkg.laborPrice) > 0 ? Number(pkg.laborPrice) : 0;
   }
   if (!(lineTotal > 0)) return draft;
   return {
     ...draft,
     calculatedLineItemTotal: Math.round(lineTotal * 100) / 100,
-    calculatedLaborTotal: laborTotal > 0 ? Math.round(laborTotal * 100) / 100 : draft.calculatedLaborTotal,
-    calculatedMaterialTotal: materialTotal > 0 ? Math.round(materialTotal * 100) / 100 : draft.calculatedMaterialTotal,
+    calculatedLaborTotal:
+      laborTotal > 0
+        ? Math.round(laborTotal * 100) / 100
+        : draft.calculatedLaborTotal,
+    calculatedMaterialTotal:
+      materialTotal > 0
+        ? Math.round(materialTotal * 100) / 100
+        : draft.calculatedMaterialTotal,
     calculatedTotal: Math.round(lineTotal * 100) / 100,
   };
 }
 
-export function syncSelectedScopePricing(draft: EstimateAiDraft): EstimateAiDraft {
-  if (!draft?.scopeMeasurements?.itemQuantities && !draft?.scopeMeasurements?.pricingAcceptance) {
+export function syncSelectedScopePricing(
+  draft: EstimateAiDraft
+): EstimateAiDraft {
+  if (
+    !draft?.scopeMeasurements?.itemQuantities &&
+    !draft?.scopeMeasurements?.pricingAcceptance
+  ) {
     return recomputeClientDraftTotals(draft);
   }
   const nextDraft = { ...draft };
   if (draft.scopePackages?.length) {
-    nextDraft.scopePackages = draft.scopePackages.map(pkg => applySelectedPricingToScopePackage(pkg, draft));
+    nextDraft.scopePackages = draft.scopePackages.map(pkg =>
+      applySelectedPricingToScopePackage(pkg, draft)
+    );
   }
   if (draft.rooms?.length) {
-    nextDraft.rooms = draft.rooms.map(room => applySelectedPricingToRoom(room, draft));
+    nextDraft.rooms = draft.rooms.map(room =>
+      applySelectedPricingToRoom(room, draft)
+    );
   }
   return recomputeClientDraftTotals(nextDraft);
 }
 
 /** Remove a scope package/room from the Step 3 draft and drop its Confirm Scope pricing. */
-export function removeScopePackageFromDraft(draft: EstimateAiDraft, packageName: string): EstimateAiDraft {
+export function removeScopePackageFromDraft(
+  draft: EstimateAiDraft,
+  packageName: string
+): EstimateAiDraft {
   const name = String(packageName || '').trim();
   if (!draft || !name) return draft;
 
-  const matchPkg = (pkg: { name?: string | null; scope?: string | null }) => pkg.name === name || pkg.scope === name;
+  const matchPkg = (pkg: { name?: string | null; scope?: string | null }) =>
+    pkg.name === name || pkg.scope === name;
 
-  const removed = (draft.scopePackages || []).find(matchPkg) || (draft.rooms || []).find(matchPkg) || null;
+  const removed =
+    (draft.scopePackages || []).find(matchPkg) ||
+    (draft.rooms || []).find(matchPkg) ||
+    null;
   const ruleKey =
     (removed as { checklistItemId?: string | null } | null)?.checklistItemId ||
     lookupRuleKeyForPackage(removed?.name || name, removed?.scope || '') ||
     null;
 
-  const nextScopePackages = (draft.scopePackages || []).filter(pkg => !matchPkg(pkg));
+  const nextScopePackages = (draft.scopePackages || []).filter(
+    pkg => !matchPkg(pkg)
+  );
   const nextRooms = (draft.rooms || []).filter(room => !matchPkg(room));
 
   let nextMeasurements = draft.scopeMeasurements;
@@ -4227,7 +5033,8 @@ export function removeScopePackageFromDraft(draft: EstimateAiDraft, packageName:
           ? {
               ...item,
               state: 'excluded',
-              choiceId: item.inputType === 'choice' ? 'not_in_scope' : item.choiceId,
+              choiceId:
+                item.inputType === 'choice' ? 'not_in_scope' : item.choiceId,
             }
           : item
       ),
@@ -4236,7 +5043,9 @@ export function removeScopePackageFromDraft(draft: EstimateAiDraft, packageName:
 
   const nextDraft: EstimateAiDraft = {
     ...draft,
-    scopePackages: draft.scopePackages?.length ? nextScopePackages : draft.scopePackages,
+    scopePackages: draft.scopePackages?.length
+      ? nextScopePackages
+      : draft.scopePackages,
     rooms: nextRooms,
     scopeMeasurements: nextMeasurements,
     scopeChecklist: nextChecklist,
@@ -4286,9 +5095,17 @@ export function roomIsApplyEligible(
 }
 
 /** Resolve effective room pricing for apply (respects split approval). */
-export function resolveRoomForApply(room: EstimateDraftRoom, draft: EstimateAiDraft): EstimateDraftRoom {
+export function resolveRoomForApply(
+  room: EstimateDraftRoom,
+  draft: EstimateAiDraft
+): EstimateDraftRoom {
   const applySplits = Boolean(draft.applySuggestedSplits);
-  if (room.splitIsSuggested && room.laborPrice != null && room.materialPrice != null && applySplits) {
+  if (
+    room.splitIsSuggested &&
+    room.laborPrice != null &&
+    room.materialPrice != null &&
+    applySplits
+  ) {
     return { ...room, splitApprovedByUser: true };
   }
 
@@ -4363,7 +5180,9 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
     parts.push(draft.contractScope.trim());
   }
 
-  const useChecklistScopeOrder = draft.scopeAssumptionsConfirmed || (draft.confirmedAssumptions?.length ?? 0) > 0;
+  const useChecklistScopeOrder =
+    draft.scopeAssumptionsConfirmed ||
+    (draft.confirmedAssumptions?.length ?? 0) > 0;
   if (useChecklistScopeOrder) {
     const packages = getScopePackages(draft);
     if (packages.length > 0) {
@@ -4392,29 +5211,46 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
       const label = allowance.name || allowance.description || 'Allowance';
       const rate = allowance.rate ?? allowance.amount;
       const amount =
-        rate != null ? formatDraftMoney(rate) + (allowance.unit ? ` ${allowance.unit}` : '') : allowance.unit || '';
-      const calc = allowance.calculatedAmount != null ? ` → ${formatDraftMoney(allowance.calculatedAmount)}` : '';
+        rate != null
+          ? formatDraftMoney(rate) +
+            (allowance.unit ? ` ${allowance.unit}` : '')
+          : allowance.unit || '';
+      const calc =
+        allowance.calculatedAmount != null
+          ? ` → ${formatDraftMoney(allowance.calculatedAmount)}`
+          : '';
       const detail = allowance.description?.trim();
       return [label, amount, calc, detail].filter(Boolean).join(' — ');
     });
-    parts.push(['Allowances', ...allowanceLines.map(line => `• ${line}`)].join('\n'));
+    parts.push(
+      ['Allowances', ...allowanceLines.map(line => `• ${line}`)].join('\n')
+    );
   }
 
   const inclusions = draft.inclusions || [];
   if (inclusions.length > 0) {
-    parts.push(['Inclusions', ...inclusions.map(line => `• ${line}`)].join('\n'));
+    parts.push(
+      ['Inclusions', ...inclusions.map(line => `• ${line}`)].join('\n')
+    );
   }
 
   const exclusions = draft.exclusions || [];
   if (exclusions.length > 0) {
-    parts.push(['Exclusions', ...exclusions.map(line => `• ${line}`)].join('\n'));
+    parts.push(
+      ['Exclusions', ...exclusions.map(line => `• ${line}`)].join('\n')
+    );
   }
 
   const measurementLines = confirmedPaintingMeasurementTextLines(
     draft.scopeMeasurements as Record<string, unknown> | null | undefined
   );
   if (measurementLines.length > 0) {
-    parts.push(['Confirmed measurements', ...measurementLines.map(line => `• ${line}`)].join('\n'));
+    parts.push(
+      [
+        'Confirmed measurements',
+        ...measurementLines.map(line => `• ${line}`),
+      ].join('\n')
+    );
   }
 
   return parts.filter(Boolean).join('\n\n').trim();
@@ -4422,7 +5258,8 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
 
 function laborPortion(room: EstimateDraftRoom): number {
   if (room.laborPrice != null) return room.laborPrice;
-  if (room.priceIncludesLaborAndMaterials && room.price != null) return room.price;
+  if (room.priceIncludesLaborAndMaterials && room.price != null)
+    return room.price;
   if (room.price != null) return room.price;
   return 0;
 }
@@ -4446,8 +5283,11 @@ function parsedNoteSplitForPackage(
   if (!breakdown) return null;
   if (breakdown.material <= 0 && breakdown.labor <= 0) return null;
 
-  const isSuggested = breakdown.materialSource === 'suggested' && breakdown.laborSource === 'suggested';
-  const hasApprovedPkgSplit = Number(pkg.materialPrice ?? 0) > 0 && Number(pkg.laborPrice ?? 0) > 0;
+  const isSuggested =
+    breakdown.materialSource === 'suggested' &&
+    breakdown.laborSource === 'suggested';
+  const hasApprovedPkgSplit =
+    Number(pkg.materialPrice ?? 0) > 0 && Number(pkg.laborPrice ?? 0) > 0;
   if (isSuggested && !draft.applySuggestedSplits && !hasApprovedPkgSplit) {
     return null;
   }
@@ -4470,7 +5310,10 @@ function laborDescription(
   if (pkg?.status === 'partial_pricing') {
     const priced = (pkg.pricingItems || [])
       .filter(i => i.amount != null && i.amount > 0)
-      .map(i => `• ${i.name}: ${formatDraftMoney(i.amount)}${i.status === 'rough_price' ? ' (rough)' : ''}`)
+      .map(
+        i =>
+          `• ${i.name}: ${formatDraftMoney(i.amount)}${i.status === 'rough_price' ? ' (rough)' : ''}`
+      )
       .join('\n');
     if (priced) parts.push(`\nKnown pricing from notes:\n${priced}`);
     const missing = (pkg.missingPriceItems || [])
@@ -4478,9 +5321,13 @@ function laborDescription(
       .map(m => `• ${m}`)
       .join('\n');
     if (missing) {
-      parts.push(`\nStill needs pricing (not included in line total):\n${missing}`);
+      parts.push(
+        `\nStill needs pricing (not included in line total):\n${missing}`
+      );
     }
-    parts.push('\n(Partial package — add remaining scope on Labor/Materials steps.)');
+    parts.push(
+      '\n(Partial package — add remaining scope on Labor/Materials steps.)'
+    );
   }
   if (parsedSplit) {
     parts.push(
@@ -4491,7 +5338,9 @@ function laborDescription(
   } else if (room.splitIsSuggested && room.splitApprovedByUser) {
     parts.push('\n(AI-suggested labor split — review on Labor step.)');
   } else if (room.priceIncludesLaborAndMaterials && !room.splitIsSuggested) {
-    parts.push('\n(Price from notes includes labor and materials — split on steps if needed.)');
+    parts.push(
+      '\n(Price from notes includes labor and materials — split on steps if needed.)'
+    );
   }
   return parts.join('');
 }
@@ -4507,7 +5356,11 @@ function effectiveLaborTotal(
     return parsedSplit.labor > 0 ? parsedSplit.labor : null;
   }
   if (pkg) {
-    return laborAmountForPackage(pkg, null, Boolean(draft.applySuggestedSplits));
+    return laborAmountForPackage(
+      pkg,
+      null,
+      Boolean(draft.applySuggestedSplits)
+    );
   }
   if (resolved.priceIncludesLaborAndMaterials && !resolved.splitIsSuggested) {
     const total = Number(resolved.price) || 0;
@@ -4517,12 +5370,22 @@ function effectiveLaborTotal(
   return total > 0 ? total : null;
 }
 
-function packageHasAppliedOrUserPricing(pkg: EstimateDraftScopePackage, draft: EstimateAiDraft): boolean {
-  if (pkg.priceProvidedByUser || pkg.status === 'user_provided' || pkg.priceSource === 'user_provided') {
+function packageHasAppliedOrUserPricing(
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft
+): boolean {
+  if (
+    pkg.priceProvidedByUser ||
+    pkg.status === 'user_provided' ||
+    pkg.priceSource === 'user_provided'
+  ) {
     return true;
   }
 
-  const ruleKey = pkg.checklistItemId || lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') || null;
+  const ruleKey =
+    pkg.checklistItemId ||
+    lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
+    null;
   if (!ruleKey) {
     // Off-checklist Ask AI rows (e.g. Disposal Bid) may rely on applyEligible.
     return Boolean(pkg.applyEligible);
@@ -4537,8 +5400,14 @@ function packageHasAppliedOrUserPricing(pkg: EstimateDraftScopePackage, draft: E
   );
 }
 
-function packageIsOnConfirmScopeChecklist(pkg: EstimateDraftScopePackage, draft: EstimateAiDraft): boolean {
-  const ruleKey = pkg.checklistItemId || lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') || null;
+function packageIsOnConfirmScopeChecklist(
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft
+): boolean {
+  const ruleKey =
+    pkg.checklistItemId ||
+    lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
+    null;
   if (!ruleKey) return false;
   const items = confirmScopeDisplayItemsFromDraft(draft);
   return items.some(item => item.id === ruleKey && checklistItemInScope(item));
@@ -4560,11 +5429,19 @@ function packageIsApplyEligible(
     return false;
   }
   // Apply Confirmed Only must match Step 3 — skip checklist rows without Applied pricing.
-  if (applyConfirmedOnly && draft && packageIsOnConfirmScopeChecklist(pkg, draft)) {
+  if (
+    applyConfirmedOnly &&
+    draft &&
+    packageIsOnConfirmScopeChecklist(pkg, draft)
+  ) {
     return packageHasAppliedOrUserPricing(pkg, draft);
   }
   if (pkg.applyEligible) return true;
-  if (pkg.priceProvidedByUser || pkg.status === 'user_provided' || pkg.priceSource === 'user_provided') {
+  if (
+    pkg.priceProvidedByUser ||
+    pkg.status === 'user_provided' ||
+    pkg.priceSource === 'user_provided'
+  ) {
     return true;
   }
   const amount = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0;
@@ -4572,7 +5449,9 @@ function packageIsApplyEligible(
 }
 
 function packageAllowanceAmount(pkg: EstimateDraftScopePackage): number {
-  const amount = Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0);
+  const amount = Number(
+    pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0
+  );
   return Number.isFinite(amount) && amount > 0 ? amount : 0;
 }
 
@@ -4581,13 +5460,22 @@ function packageRuleKeyForApply(pkg: {
   name?: string | null;
   scope?: string | null;
 }): string | null {
-  return pkg.checklistItemId || lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') || null;
+  return (
+    pkg.checklistItemId ||
+    lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
+    null
+  );
 }
 
 /** Scope rows for apply — synced scopePackages plus Ask AI rooms missing from scopePackages. */
-function resolveDraftPackagesForApply(draft: EstimateAiDraft, applyConfirmedOnly = false): EstimateDraftScopePackage[] {
+function resolveDraftPackagesForApply(
+  draft: EstimateAiDraft,
+  applyConfirmedOnly = false
+): EstimateDraftScopePackage[] {
   const rawPackages = [...getScopePackages(draft)];
-  const preferredDrywallIndex = rawPackages.findIndex(pkg => packageRuleKeyForApply(pkg) === 'drywall');
+  const preferredDrywallIndex = rawPackages.findIndex(
+    pkg => packageRuleKeyForApply(pkg) === 'drywall'
+  );
   const packages = rawPackages.filter((pkg, index, all) => {
     // `patch_repair` and `drywall` are sibling IDs for the same physical
     // trade. Older AI drafts can retain both packages after the checklist
@@ -4616,8 +5504,12 @@ function resolveDraftPackagesForApply(draft: EstimateAiDraft, applyConfirmedOnly
       )
       .filter(Boolean)
   );
-  const seenRuleKeys = new Set(packages.map(p => packageRuleKeyForApply(p)).filter(Boolean) as string[]);
-  const confirmedFromScope = Boolean(draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length);
+  const seenRuleKeys = new Set(
+    packages.map(p => packageRuleKeyForApply(p)).filter(Boolean) as string[]
+  );
+  const confirmedFromScope = Boolean(
+    draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length
+  );
   const merged = [...packages];
 
   for (const room of draft.rooms) {
@@ -4634,12 +5526,17 @@ function resolveDraftPackagesForApply(draft: EstimateAiDraft, applyConfirmedOnly
     if (ruleKey && seenRuleKeys.has(ruleKey)) continue;
 
     if (confirmedFromScope && applyConfirmedOnly) {
-      const userOwned = Boolean(room.priceProvidedByUser || room.packageStatus === 'user_provided');
+      const userOwned = Boolean(
+        room.priceProvidedByUser || room.packageStatus === 'user_provided'
+      );
       if (!userOwned) continue;
       // Checklist coverage comes from reconciled packages only after Confirm Scope.
       if (
         ruleKey &&
-        packageIsOnConfirmScopeChecklist({ name: room.name, scope: room.scope, checklistItemId: ruleKey }, draft)
+        packageIsOnConfirmScopeChecklist(
+          { name: room.name, scope: room.scope, checklistItemId: ruleKey },
+          draft
+        )
       ) {
         continue;
       }
@@ -4655,8 +5552,17 @@ function resolveDraftPackagesForApply(draft: EstimateAiDraft, applyConfirmedOnly
           laborPrice: room.laborPrice,
           materialPrice: room.materialPrice,
           pricingType: room.price != null ? 'lump_sum' : 'unknown',
-          includesLabor: room.priceIncludesLaborAndMaterials ? true : room.laborPrice != null ? true : null,
-          includesMaterials: room.materialPrice != null ? true : room.priceIncludesLaborAndMaterials ? true : null,
+          includesLabor: room.priceIncludesLaborAndMaterials
+            ? true
+            : room.laborPrice != null
+              ? true
+              : null,
+          includesMaterials:
+            room.materialPrice != null
+              ? true
+              : room.priceIncludesLaborAndMaterials
+                ? true
+                : null,
           priceSource: room.priceProvidedByUser ? 'user_provided' : 'missing',
           status: (room.packageStatus ||
             (room.price != null
@@ -4687,11 +5593,17 @@ function resolvePackageCostCode(
 ): string | undefined {
   if (pkg?.costCode) return String(pkg.costCode);
   if (pkg?.checklistItemId) return String(pkg.checklistItemId);
-  const ruleKey = lookupRuleKeyForPackage(name || pkg?.name || '', scope || pkg?.scope || '');
+  const ruleKey = lookupRuleKeyForPackage(
+    name || pkg?.name || '',
+    scope || pkg?.scope || ''
+  );
   return ruleKey || undefined;
 }
 
-function allowanceLineItemsFromDraft(draft: EstimateAiDraft, applyConfirmedOnly: boolean): Record<string, unknown>[] {
+function allowanceLineItemsFromDraft(
+  draft: EstimateAiDraft,
+  applyConfirmedOnly: boolean
+): Record<string, unknown>[] {
   const lines: Record<string, unknown>[] = [];
 
   for (const pkg of resolveDraftPackagesForApply(draft, applyConfirmedOnly)) {
@@ -4730,8 +5642,13 @@ function laborDescriptionForPackage(
         ? '\n(National Average budget split applied — review on Labor step.)'
         : '\n(Material/labor split from notes — review on Labor step.)'
     );
-  } else if (pkg.priceIncludesLaborAndMaterials || (pkg.includesLabor && pkg.includesMaterials)) {
-    parts.push('\n(Price from notes includes labor and materials — split on steps if needed.)');
+  } else if (
+    pkg.priceIncludesLaborAndMaterials ||
+    (pkg.includesLabor && pkg.includesMaterials)
+  ) {
+    parts.push(
+      '\n(Price from notes includes labor and materials — split on steps if needed.)'
+    );
   }
   return parts.join('');
 }
@@ -4742,17 +5659,26 @@ function budgetSplitDisplaySubtitle(
 ): string | null {
   if (!parsedSplit) return null;
   if (parsedSplit.splitIsSuggested) {
-    return type === 'material' ? 'National Average material budget split' : 'National Average labor remainder';
+    return type === 'material'
+      ? 'National Average material budget split'
+      : 'National Average labor remainder';
   }
-  return type === 'material' ? SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL : SCOPE_LABOR_PARSED_FROM_NOTES_LABEL;
+  return type === 'material'
+    ? SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL
+    : SCOPE_LABOR_PARSED_FROM_NOTES_LABEL;
 }
 
 /** True when package material/labor fields are only a suggested national split, not confirmed. */
 function packageSplitIsSuggestedOnly(pkg: EstimateDraftScopePackage): boolean {
   if (pkg.splitIsSuggested) return true;
   // Approved rough proposals store real material/labor — those are confirmed, not suggested.
-  if (pkg.priceSource === 'ai_rough_estimate' && pkg.applyEligible) return false;
-  if (pkg.priceSource === 'manual' || pkg.priceSource === 'user' || pkg.priceSource === 'user_provided') {
+  if (pkg.priceSource === 'ai_rough_estimate' && pkg.applyEligible)
+    return false;
+  if (
+    pkg.priceSource === 'manual' ||
+    pkg.priceSource === 'user' ||
+    pkg.priceSource === 'user_provided'
+  ) {
     return false;
   }
   return false;
@@ -4768,9 +5694,14 @@ function laborAmountForPackage(
   } | null,
   applySuggestedSplits = false
 ): number {
-  const pkgPrice = Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0);
+  const pkgPrice = Number(
+    pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0
+  );
 
-  if (parsedSplit && (parsedSplit.labor > 0 || (parsedSplit.material || 0) > 0)) {
+  if (
+    parsedSplit &&
+    (parsedSplit.labor > 0 || (parsedSplit.material || 0) > 0)
+  ) {
     if (parsedSplit.splitIsSuggested && !applySuggestedSplits) {
       return pkgPrice > 0 ? pkgPrice : 0;
     }
@@ -4837,9 +5768,21 @@ function materialAmountForPackage(
   return 0;
 }
 
-const PHYSICAL_LINE_ITEM_UNITS = new Set(['sqft', 'sf', 'lf', 'each', 'ea', 'cy', 'squares', 'ton', 'tons']);
+const PHYSICAL_LINE_ITEM_UNITS = new Set([
+  'sqft',
+  'sf',
+  'lf',
+  'each',
+  'ea',
+  'cy',
+  'squares',
+  'ton',
+  'tons',
+]);
 
-function physicalQuantityFromPackage(pkg: EstimateDraftScopePackage): { quantity: number; unit: string } | null {
+function physicalQuantityFromPackage(
+  pkg: EstimateDraftScopePackage
+): { quantity: number; unit: string } | null {
   const q = pkg.scopeQuantities?.[0] || pkg.budgetSplitBasis || null;
   if (!q) return null;
   const qty = Number(q.quantity);
@@ -4856,7 +5799,10 @@ function catalogUnitToLineItemUnit(unit: string): string {
   return u;
 }
 
-function laborLineItemsFromDraft(draft: EstimateAiDraft, applyConfirmedOnly: boolean): Record<string, unknown>[] {
+function laborLineItemsFromDraft(
+  draft: EstimateAiDraft,
+  applyConfirmedOnly: boolean
+): Record<string, unknown>[] {
   const lines: Record<string, unknown>[] = [];
   const applySuggestedSplits = Boolean(draft.applySuggestedSplits);
 
@@ -4868,7 +5814,11 @@ function laborLineItemsFromDraft(draft: EstimateAiDraft, applyConfirmedOnly: boo
     const total = laborAmountForPackage(pkg, parsedSplit, applySuggestedSplits);
     if (total <= 0) continue;
 
-    const splitMaterial = materialAmountForPackage(pkg, parsedSplit, applySuggestedSplits);
+    const splitMaterial = materialAmountForPackage(
+      pkg,
+      parsedSplit,
+      applySuggestedSplits
+    );
     const materialFromItems =
       splitMaterial > 0
         ? 0
@@ -4884,7 +5834,9 @@ function laborLineItemsFromDraft(draft: EstimateAiDraft, applyConfirmedOnly: boo
     const costCode = resolvePackageCostCode(pkg);
     const physical = physicalQuantityFromPackage(pkg);
     const hours = physical ? physical.quantity : 1;
-    const lineUnit = physical ? catalogUnitToLineItemUnit(physical.unit) : undefined;
+    const lineUnit = physical
+      ? catalogUnitToLineItemUnit(physical.unit)
+      : undefined;
     lines.push({
       id: newLineItemId(),
       name: pkg.name,
@@ -4905,7 +5857,9 @@ function laborLineItemsFromDraft(draft: EstimateAiDraft, applyConfirmedOnly: boo
       checklistItemId: costCode,
       priceProvidedByUser: true,
       priceIncludesLaborAndMaterials: isCombinedOnly,
-      splitIsSuggested: Boolean(parsedSplit?.splitIsSuggested || pkg.splitIsSuggested),
+      splitIsSuggested: Boolean(
+        parsedSplit?.splitIsSuggested || pkg.splitIsSuggested
+      ),
       displaySubtitle: budgetSplitDisplaySubtitle(parsedSplit, 'labor'),
       partialPricing: pkg.status === 'partial_pricing',
     });
@@ -4914,7 +5868,10 @@ function laborLineItemsFromDraft(draft: EstimateAiDraft, applyConfirmedOnly: boo
   return lines;
 }
 
-function materialLineItemsFromDraft(draft: EstimateAiDraft, applyConfirmedOnly: boolean): Record<string, unknown>[] {
+function materialLineItemsFromDraft(
+  draft: EstimateAiDraft,
+  applyConfirmedOnly: boolean
+): Record<string, unknown>[] {
   const lines: Record<string, unknown>[] = [];
   const applySuggestedSplits = Boolean(draft.applySuggestedSplits);
 
@@ -4923,8 +5880,13 @@ function materialLineItemsFromDraft(draft: EstimateAiDraft, applyConfirmedOnly: 
     if (isSoftCostScopePackage(pkg, draft)) continue;
 
     const parsedSplit = parsedNoteSplitForPackage(pkg, draft);
-    const splitMaterial = materialAmountForPackage(pkg, parsedSplit, applySuggestedSplits);
-    const splitIsSuggested = parsedSplit?.splitIsSuggested ?? Boolean(pkg.splitIsSuggested);
+    const splitMaterial = materialAmountForPackage(
+      pkg,
+      parsedSplit,
+      applySuggestedSplits
+    );
+    const splitIsSuggested =
+      parsedSplit?.splitIsSuggested ?? Boolean(pkg.splitIsSuggested);
     const costCode = resolvePackageCostCode(pkg);
     const physical = physicalQuantityFromPackage(pkg);
     const qty = physical ? physical.quantity : 1;
@@ -4957,12 +5919,24 @@ function materialLineItemsFromDraft(draft: EstimateAiDraft, applyConfirmedOnly: 
 
     if (pkg.pricingItems?.length) {
       for (const item of pkg.pricingItems) {
-        if (item.pricingType !== 'material' || item.amount == null || item.amount <= 0) continue;
-        if (applyConfirmedOnly && item.status === 'ai_suggested' && !item.approvedByUser) continue;
+        if (
+          item.pricingType !== 'material' ||
+          item.amount == null ||
+          item.amount <= 0
+        )
+          continue;
+        if (
+          applyConfirmedOnly &&
+          item.status === 'ai_suggested' &&
+          !item.approvedByUser
+        )
+          continue;
         lines.push({
           id: newLineItemId(),
           name: `${pkg.name} — ${item.name}`,
-          description: item.description || `${SCOPE_PARSED_FROM_NOTES_LABEL} (${item.status || 'confirmed'})`,
+          description:
+            item.description ||
+            `${SCOPE_PARSED_FROM_NOTES_LABEL} (${item.status || 'confirmed'})`,
           quantity: qty,
           qty,
           unit,
@@ -4984,7 +5958,9 @@ function materialLineItemsFromDraft(draft: EstimateAiDraft, applyConfirmedOnly: 
   return lines;
 }
 
-function cartItemFromMaterialLine(item: Record<string, unknown>): Record<string, unknown> {
+function cartItemFromMaterialLine(
+  item: Record<string, unknown>
+): Record<string, unknown> {
   const qty = Number(item.quantity || item.qty || 1);
   const unitPrice = Number(item.unitPrice || item.cost || 0);
   const total = Number(item.total) || qty * unitPrice;
@@ -5018,15 +5994,26 @@ export function applyDraftToEstimate(
   const draftForApply: EstimateAiDraft = {
     ...draft,
     // Never invent National Average splits on apply unless the user opted in.
-    applySuggestedSplits: options.applySuggestedSplits ?? Boolean(draft.applySuggestedSplits),
+    applySuggestedSplits:
+      options.applySuggestedSplits ?? Boolean(draft.applySuggestedSplits),
   };
 
   const projectType = draftForApply.projectType || 'other';
-  const category = PROJECT_CATEGORY_SLUGS[projectType] || PROJECT_CATEGORY_SLUGS.other;
+  const category =
+    PROJECT_CATEGORY_SLUGS[projectType] || PROJECT_CATEGORY_SLUGS.other;
   const scopeDescription = buildScopeDescription(draftForApply);
-  const laborLineItems = laborLineItemsFromDraft(draftForApply, applyConfirmedOnly);
-  const materialLineItems = materialLineItemsFromDraft(draftForApply, applyConfirmedOnly);
-  const allowanceLineItems = allowanceLineItemsFromDraft(draftForApply, applyConfirmedOnly);
+  const laborLineItems = laborLineItemsFromDraft(
+    draftForApply,
+    applyConfirmedOnly
+  );
+  const materialLineItems = materialLineItemsFromDraft(
+    draftForApply,
+    applyConfirmedOnly
+  );
+  const allowanceLineItems = allowanceLineItemsFromDraft(
+    draftForApply,
+    applyConfirmedOnly
+  );
   const materialsCart = materialLineItems.map(cartItemFromMaterialLine);
   const tradeBudgetRollup = tradeBudgetRollupFromEstimate({
     laborLineItems,
@@ -5063,7 +6050,10 @@ export function applyDraftToEstimate(
 }
 
 /** Saves scope and project context without applying labor/material pricing. */
-export function applyScopeDraftOnly(bid: Record<string, unknown>, draft: EstimateAiDraft): ApplyDraftResult {
+export function applyScopeDraftOnly(
+  bid: Record<string, unknown>,
+  draft: EstimateAiDraft
+): ApplyDraftResult {
   const scopeDescription = buildScopeDescription(draft);
   const nextBid: Record<string, unknown> = {
     ...bid,
@@ -5109,7 +6099,8 @@ export function tradeBudgetRollupFromEstimate(bid: {
   const byCode = new Map<string, TradeBudgetRollupLine>();
 
   const ensure = (rawCode: unknown, label: string): TradeBudgetRollupLine => {
-    const costCode = String(rawCode || label || 'uncategorized').trim() || 'uncategorized';
+    const costCode =
+      String(rawCode || label || 'uncategorized').trim() || 'uncategorized';
     let row = byCode.get(costCode);
     if (!row) {
       row = { costCode, label, material: 0, labor: 0, allowance: 0, total: 0 };
@@ -5122,7 +6113,10 @@ export function tradeBudgetRollupFromEstimate(bid: {
     const amount = Number(item.total ?? item.cost ?? item.unitPrice ?? 0) || 0;
     if (amount <= 0) continue;
     const label = String(item.section || item.name || 'Materials');
-    const row = ensure(item.costCode || item.sourceItemId || item.checklistItemId, label);
+    const row = ensure(
+      item.costCode || item.sourceItemId || item.checklistItemId,
+      label
+    );
     row.material += amount;
     row.total += amount;
   }
@@ -5131,32 +6125,47 @@ export function tradeBudgetRollupFromEstimate(bid: {
     const amount = Number(item.total ?? item.totalCost ?? item.rate ?? 0) || 0;
     if (amount <= 0) continue;
     const label = String(item.section || item.name || 'Labor');
-    const row = ensure(item.costCode || item.sourceItemId || item.checklistItemId, label);
+    const row = ensure(
+      item.costCode || item.sourceItemId || item.checklistItemId,
+      label
+    );
     row.labor += amount;
     row.total += amount;
   }
 
   for (const item of bid.allowanceLineItems || []) {
-    const amount = Number(item.amount ?? item.total ?? item.totalCost ?? 0) || 0;
+    const amount =
+      Number(item.amount ?? item.total ?? item.totalCost ?? 0) || 0;
     if (amount <= 0) continue;
     const label = String(item.section || item.name || 'Allowance');
-    const row = ensure(item.costCode || item.sourceItemId || item.checklistItemId, label);
+    const row = ensure(
+      item.costCode || item.sourceItemId || item.checklistItemId,
+      label
+    );
     row.allowance += amount;
     row.total += amount;
   }
 
-  return Array.from(byCode.values()).sort((a, b) => a.costCode.localeCompare(b.costCode));
+  return Array.from(byCode.values()).sort((a, b) =>
+    a.costCode.localeCompare(b.costCode)
+  );
 }
 
-export function draftHasApprovedSuggestions(draft: EstimateAiDraft | null): boolean {
+export function draftHasApprovedSuggestions(
+  draft: EstimateAiDraft | null
+): boolean {
   if (!draft) return false;
-  const approvedSplit = (draft.suggestedSplits || []).some(s => s.approvedByUser);
+  const approvedSplit = (draft.suggestedSplits || []).some(
+    s => s.approvedByUser
+  );
   const approvedRoom = (draft.rooms || []).some(r => r.splitApprovedByUser);
   return approvedSplit || approvedRoom;
 }
 
 /** Step 3 inline edits → Confirm Scope itemQuantities for back-navigation restore. */
-export function syncConfirmScopeMeasurementsFromPackages(draft: EstimateAiDraft): EstimateAiDraft {
+export function syncConfirmScopeMeasurementsFromPackages(
+  draft: EstimateAiDraft
+): EstimateAiDraft {
   if (!draft.scopePackages?.length) return draft;
 
   const itemQuantities = { ...(draft.scopeMeasurements?.itemQuantities || {}) };
@@ -5172,9 +6181,12 @@ export function syncConfirmScopeMeasurementsFromPackages(draft: EstimateAiDraft)
     ) {
       continue;
     }
-    const ruleKey = pkg.checklistItemId || lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
+    const ruleKey =
+      pkg.checklistItemId || lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
     if (!ruleKey) continue;
-    const total = Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0);
+    const total = Number(
+      pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0
+    );
     if (!(total > 0)) continue;
 
     const mat = Number(pkg.materialPrice ?? 0);
@@ -5210,9 +6222,13 @@ export function syncConfirmScopeMeasurementsFromPackages(draft: EstimateAiDraft)
   };
 }
 
-export function getScopePackagesRaw(draft: EstimateAiDraft): EstimateDraftScopePackage[] {
+export function getScopePackagesRaw(
+  draft: EstimateAiDraft
+): EstimateDraftScopePackage[] {
   if (draft.scopePackages?.length) {
-    return draft.scopePackages.map(pkg => applySelectedPricingToScopePackage(pkg, draft));
+    return draft.scopePackages.map(pkg =>
+      applySelectedPricingToScopePackage(pkg, draft)
+    );
   }
   return (draft.rooms || []).map(room =>
     applySelectedPricingToScopePackage(
@@ -5224,8 +6240,17 @@ export function getScopePackagesRaw(draft: EstimateAiDraft): EstimateDraftScopeP
         laborPrice: room.laborPrice,
         materialPrice: room.materialPrice,
         pricingType: room.price != null ? 'lump_sum' : 'unknown',
-        includesLabor: room.priceIncludesLaborAndMaterials ? true : room.laborPrice != null ? true : null,
-        includesMaterials: room.materialPrice != null ? true : room.priceIncludesLaborAndMaterials ? true : null,
+        includesLabor: room.priceIncludesLaborAndMaterials
+          ? true
+          : room.laborPrice != null
+            ? true
+            : null,
+        includesMaterials:
+          room.materialPrice != null
+            ? true
+            : room.priceIncludesLaborAndMaterials
+              ? true
+              : null,
         priceSource: room.priceProvidedByUser ? 'user_provided' : 'missing',
         status: (room.packageStatus ||
           (room.price != null
@@ -5247,13 +6272,17 @@ export function getScopePackagesRaw(draft: EstimateAiDraft): EstimateDraftScopeP
         priceIncludesLaborAndMaterials: room.priceIncludesLaborAndMaterials,
         splitIsSuggested: Boolean(room.splitIsSuggested),
         priceProvidedByUser: Boolean(room.priceProvidedByUser),
-        applyEligible: room.applyEligible ?? (room.price != null || (room.knownSubtotal || 0) > 0),
+        applyEligible:
+          room.applyEligible ??
+          (room.price != null || (room.knownSubtotal || 0) > 0),
       },
       draft
     )
   );
 }
 
-export function getScopePackages(draft: EstimateAiDraft): EstimateDraftScopePackage[] {
+export function getScopePackages(
+  draft: EstimateAiDraft
+): EstimateDraftScopePackage[] {
   return getScopePackagesForReview(draft);
 }

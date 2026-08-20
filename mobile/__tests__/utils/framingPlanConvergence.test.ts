@@ -6,6 +6,7 @@ import {
   normalizeFramingPlanMeasurements,
   parseFramingMeasurementsFromNotes,
   resolveCoveredFramedAreaSqft,
+  shellPackageIncludesSheathing,
   syncFramingScopeItems,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import { groupScopeChecklistItems } from '@/utils/estimateScopeChecklistUi';
@@ -23,9 +24,57 @@ import {
   getNationalAverageBudgetSplit,
   prepareScopeMeasurementsInputForUi,
   resolveChecklistItemQuantity,
+  resolveScopeItemSuggestedPricing,
 } from '@/utils/scopeItemQuantities';
 
 describe('framing canonical architecture', () => {
+  it('recognizes plan-derived shell measurements even without trade metadata', () => {
+    expect(
+      shellPackageIncludesSheathing({
+        floorAreaSqft: 3660,
+        garageSqft: 781,
+        framedAreaSqft: 4441,
+        sheathingSqft: 2240,
+        quickMeasurementSources: {
+          framedAreaSqft: 'plan_detected',
+          sheathingSqft: 'plan_detected',
+        },
+      })
+    ).toBe(true);
+    expect(
+      shellPackageIncludesSheathing({
+        floorAreaSqft: 900,
+        framedAreaSqft: 900,
+        sheathingSqft: 500,
+      })
+    ).toBe(false);
+  });
+
+  it('hides plan shell component cards to prevent double counting', () => {
+    const synced = syncFramingScopeItems(
+      FRAMING_CARDS.map(card => ({ id: card.itemId, state: 'unsure' })),
+      {
+        framingScope: [
+          'framing',
+          'wall_framing',
+          'openings',
+          'shear_sheathing',
+        ],
+        quantities: {
+          floorAreaSqft: 3660,
+          garageSqft: 781,
+          framedAreaSqft: 4441,
+          sheathingSqft: 2240,
+          quickMeasurementSources: {
+            framedAreaSqft: 'plan_detected',
+            sheathingSqft: 'plan_detected',
+          },
+        } as any,
+      }
+    );
+    expect(synced.map(item => item.id)).toEqual(['framing', 'cleanup']);
+  });
+
   it('defines one canonical owner for every Framing quantity', () => {
     const keys = FRAMING_CARDS.map(card => card.measurementKey);
     expect(new Set(keys).size).toBe(keys.length);
@@ -37,18 +86,18 @@ describe('framing canonical architecture', () => {
   });
 
   it('groups plan export scopes by shell, sheathing, and closeout', () => {
-    expect(FRAMING_PLAN_EXPORT_CHECKLIST_GROUPS.map(group => group.title)).toEqual([
-      'Shell framing',
-      'Sheathing',
-      'Closeout',
-    ]);
+    expect(
+      FRAMING_PLAN_EXPORT_CHECKLIST_GROUPS.map(group => group.title)
+    ).toEqual(['Shell framing', 'Sheathing', 'Closeout']);
 
-    const items = ['framing', 'wall_framing', 'shear_sheathing', 'cleanup'].map(id => ({
-      id,
-      label: id,
-      state: 'included' as const,
-      inputType: 'yes_no' as const,
-    }));
+    const items = ['framing', 'wall_framing', 'shear_sheathing', 'cleanup'].map(
+      id => ({
+        id,
+        label: id,
+        state: 'included' as const,
+        inputType: 'yes_no' as const,
+      })
+    );
     const grouped = groupScopeChecklistItems(items, 'framing');
     expect(grouped.map(group => group.title)).toEqual([
       'Shell framing',
@@ -109,8 +158,10 @@ describe('framing canonical architecture', () => {
       floorAreaSqft: 2000,
       garageSqft: 400,
       sheathingSqft: 3100,
+      planImportMode: 'selected_trade',
+      planImportTradeKey: 'framing',
     });
-    expect(structured.framingScope).toEqual(['framing', 'shear_sheathing']);
+    expect(structured.framingScope).toEqual(['framing']);
     expect(structured.itemQuantities?.framing).toMatchObject({
       quantity: 2400,
       unit: 'sqft',
@@ -118,7 +169,13 @@ describe('framing canonical architecture', () => {
 
     const normalized = normalizeTradeMeasurements(
       'framing',
-      { floorAreaSqft: 2000, garageSqft: 400, sheathingSqft: 3100 },
+      {
+        floorAreaSqft: 2000,
+        garageSqft: 400,
+        sheathingSqft: 3100,
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'framing',
+      },
       'plan'
     );
     expect(normalized.measurements.framedAreaSqft).toBe(2400);
@@ -135,13 +192,18 @@ describe('framing canonical architecture', () => {
       })),
       {
         framingScope: structured.framingScope,
-        quantities: { floorAreaSqft: 2000, garageSqft: 400, sheathingSqft: 3100 },
+        quantities: {
+          floorAreaSqft: 2000,
+          garageSqft: 400,
+          sheathingSqft: 3100,
+          planImportMode: 'selected_trade',
+          planImportTradeKey: 'framing',
+        },
       }
     );
-    expect(synced.filter(item => item.state === 'included').map(item => item.id)).toEqual([
-      'framing',
-      'shear_sheathing',
-    ]);
+    expect(
+      synced.filter(item => item.state === 'included').map(item => item.id)
+    ).toEqual(['framing']);
   });
 
   it('applies framing plan import onto a draft checklist', () => {
@@ -165,6 +227,8 @@ describe('framing canonical architecture', () => {
           floorAreaSqft: 2000,
           garageSqft: 400,
           sheathingSqft: 3200,
+          planImportMode: 'selected_trade',
+          planImportTradeKey: 'framing',
         },
         scopeDetections: [{ itemId: 'framing' }, { itemId: 'shear_sheathing' }],
         planImportFingerprint: 'plan-58-framing',
@@ -173,8 +237,10 @@ describe('framing canonical architecture', () => {
 
     expect(next.scopeChecklist?.templateKey).toBe('framing');
     expect(
-      next.scopeChecklist?.items?.filter(item => item.state === 'included').map(item => item.id)
-    ).toEqual(['framing', 'shear_sheathing']);
+      next.scopeChecklist?.items
+        ?.filter(item => item.state === 'included')
+        .map(item => item.id)
+    ).toEqual(['framing']);
     expect(Number(next.scopeMeasurements?.framedAreaSqft)).toBe(2400);
   });
 
@@ -192,7 +258,7 @@ describe('framing canonical architecture', () => {
     });
 
     expect(Number(reconciled.framedAreaSqft)).toBe(4441);
-    expect(reconciled.framingScope).toEqual(['framing', 'shear_sheathing']);
+    expect(reconciled.framingScope).toEqual(['framing']);
     expect(reconciled.quickMeasurementSources?.framedAreaSqft).toBe(
       'plan_detected'
     );
@@ -204,11 +270,7 @@ describe('framing canonical architecture', () => {
       unit: 'sqft',
       quantitySource: 'plan_detected',
     });
-    expect(reconciled.itemQuantities?.shear_sheathing).toMatchObject({
-      quantity: 2530,
-      unit: 'sqft',
-      quantitySource: 'plan_detected',
-    });
+    expect(reconciled.itemQuantities?.shear_sheathing).toBeUndefined();
   });
 
   it('does not stack wall LF or opening counts onto ground-up shell bids', () => {
@@ -228,7 +290,7 @@ describe('framing canonical architecture', () => {
       },
     });
 
-    expect(reconciled.framingScope).toEqual(['framing', 'shear_sheathing']);
+    expect(reconciled.framingScope).toEqual(['framing']);
     expect(reconciled.wallFramingLf).toBeUndefined();
     expect(reconciled.framingOpeningCount).toBeUndefined();
     expect(reconciled.itemQuantities?.wall_framing).toBeUndefined();
@@ -260,7 +322,9 @@ describe('framing canonical architecture', () => {
       defaultUnit: 'sqft',
       measurementKeys: ['framedAreaSqft', 'floorAreaSqft', 'garageSqft'],
     });
-    expect(getChecklistItemQuantityRule('shear_sheathing', 'framing')).toMatchObject({
+    expect(
+      getChecklistItemQuantityRule('shear_sheathing', 'framing')
+    ).toMatchObject({
       defaultUnit: 'sqft',
       measurementKeys: ['sheathingSqft', 'stuccoGrossWallSqft'],
     });
@@ -268,7 +332,9 @@ describe('framing canonical architecture', () => {
       material: 10,
       labor: 7.5,
     });
-    expect(getNationalAverageBudgetSplit('shear_sheathing', 'sqft')).toMatchObject({
+    expect(
+      getNationalAverageBudgetSplit('shear_sheathing', 'sqft')
+    ).toMatchObject({
       material: 2.5,
       labor: 2,
     });
@@ -325,13 +391,57 @@ describe('framing canonical architecture', () => {
         },
       }
     );
-    expect(synced.filter(item => item.state === 'included').map(item => item.id)).toEqual([
-      'framing',
-      'shear_sheathing',
-    ]);
+    expect(
+      synced.filter(item => item.state === 'included').map(item => item.id)
+    ).toEqual(['framing', 'shear_sheathing']);
     expect(
       synced.filter(item => item.state === 'unsure').map(item => item.id)
     ).toEqual(['wall_framing', 'openings', 'cleanup']);
+  });
+
+  it('keeps plan shell sheathing inside the combined framing package', () => {
+    const shell = resolveScopeItemSuggestedPricing(
+      'shear_sheathing',
+      {
+        floorAreaSqft: '3660',
+        garageSqft: '781',
+        sheathingSqft: '2530',
+        planImportMode: 'selected_trade',
+        planImportTradeKey: 'framing',
+      } as any,
+      'framing',
+      resolveChecklistItemQuantity(
+        'shear_sheathing',
+        buildNormalizedScopeMeasurementsFromInput(
+          {
+            floorAreaSqft: '3660',
+            garageSqft: '781',
+            sheathingSqft: '2530',
+            planImportMode: 'selected_trade',
+            planImportTradeKey: 'framing',
+          } as any,
+          { templateKey: 'framing' }
+        ),
+        { templateKey: 'framing' }
+      )
+    );
+    expect(shell.fill).toBeNull();
+    expect(shell.comparison).toBeNull();
+
+    const remodel = resolveScopeItemSuggestedPricing(
+      'shear_sheathing',
+      { sheathingSqft: '500' } as any,
+      'framing',
+      resolveChecklistItemQuantity(
+        'shear_sheathing',
+        buildNormalizedScopeMeasurementsFromInput(
+          { sheathingSqft: '500' } as any,
+          { templateKey: 'framing' }
+        ),
+        { templateKey: 'framing' }
+      )
+    );
+    expect(remodel.fill?.total).toBe(2250);
   });
 
   it('preserves Framing quick measurements through Confirm Scope UI round-trip', () => {
@@ -371,6 +481,8 @@ describe('framing canonical architecture', () => {
       quantity: '2530',
       unit: 'sqft',
     });
-    expect(roundTrip.quickMeasurementSources?.sheathingSqft).toBe('plan_detected');
+    expect(roundTrip.quickMeasurementSources?.sheathingSqft).toBe(
+      'plan_detected'
+    );
   });
 });
