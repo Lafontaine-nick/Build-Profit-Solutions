@@ -64,6 +64,7 @@ export type QuickMeasurementFieldKey =
   | 'roofGutterLf'
   | 'roofDownspoutCount'
   | 'drywallSqft'
+  | 'exteriorWallGrossSqft'
   | 'exteriorWallInsulationSqft'
   | 'atticInsulationSqft'
   | 'insulatedRoofDeckSqft'
@@ -444,9 +445,16 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'structure'
   ),
   drywallSqft: F('drywallSqft', 'Drywall', '800', 'sqft', 'interior'),
+  exteriorWallGrossSqft: F(
+    'exteriorWallGrossSqft',
+    'Exterior wall gross area',
+    'e.g. 2800',
+    'sqft',
+    'structure'
+  ),
   exteriorWallInsulationSqft: F(
     'exteriorWallInsulationSqft',
-    'Exterior wall insulation',
+    'Net exterior wall insulation',
     'e.g. 4500',
     'sqft',
     'structure'
@@ -2094,6 +2102,7 @@ export function emptyQuickMeasurementInput(): Record<
     roofPitch: '',
     storyCount: '',
     drywallSqft: '',
+    exteriorWallGrossSqft: '',
     exteriorWallInsulationSqft: '',
     atticInsulationSqft: '',
     insulatedRoofDeckSqft: '',

@@ -3,7 +3,7 @@
  *
  * Primary planning model:
  *   exterior walls (perimeter × height × stories)
- *   + conditioned attic/ceiling footprint (living SF)
+ *   + conditioned attic/ceiling footprint (explicit or clearly labeled suggestion)
  *   − opening deduction on exterior walls only
  *
  * Interior partitions are excluded. Garage insulation is excluded unless
@@ -11,6 +11,7 @@
  */
 
 import type { PlanFacts } from '@/utils/planMeasurementFacts';
+import type { InsulationAssembly } from '@/utils/estimateAiDraft';
 
 export const INSULATION_DEFAULT_WALL_HEIGHT_FT = 9;
 export const INSULATION_DEFAULT_OPENINGS_PERCENT = 15;
@@ -68,6 +69,7 @@ export type InsulationEnvelopeInputs = {
   storyCount?: number | null;
   openingsPercent?: number | null;
   /** Explicit overrides (contractor / takeoff). */
+  exteriorWallGrossSqft?: number | null;
   exteriorWallInsulationSqft?: number | null;
   atticInsulationSqft?: number | null;
   insulatedRoofDeckSqft?: number | null;
@@ -80,6 +82,15 @@ export type InsulationEnvelopeInputs = {
   includeGarageInsulation?: boolean;
   garageInsulationIncluded?: string | null;
   preferRoofDeckOverAttic?: boolean;
+  /** Do not use living SF as an attic proxy when a wall takeoff is explicit. */
+  suppressAtticPlanningFallback?: boolean;
+  /** Ground-up plan takeoff: never derive surfaces from living SF alone. */
+  requireExplicitSurfaceTakeoff?: boolean;
+  /** Allow a clearly labeled conditioned-ceiling suggestion for review. */
+  allowConditionedAreaCeilingSuggestion?: boolean;
+  conditionedCeilingAreaSqft?: number | null;
+  vaultedCeilingDetected?: boolean | null;
+  insulationAssemblies?: InsulationAssembly[] | null;
 };
 
 function n(value: unknown): number | null {
@@ -102,6 +113,11 @@ export function insulationEnvelopeInputsFromPlanFacts(
     n(floorAreaSqft) ||
     n(facts?.buildingAreas?.totalLivingSqft) ||
     n(facts?.buildingAreas?.mainFloorLivingSqft);
+  const conditionedCeilingArea =
+    n(facts?.buildingAreas?.totalLivingSqft) ||
+    (n(facts?.buildingAreas?.mainFloorLivingSqft) || 0) +
+      (n(facts?.buildingAreas?.upstairsLivingSqft) || 0) ||
+    null;
   const garageChoice = String(overrides?.garageInsulationIncluded || '')
     .trim()
     .toLowerCase();
@@ -114,6 +130,8 @@ export function insulationEnvelopeInputsFromPlanFacts(
     plateHeightFt: n(facts?.plateHeightFt),
     storyCount: n(facts?.storyCount) || 1,
     openingsPercent: n(facts?.openingsPercent),
+    conditionedCeilingAreaSqft: conditionedCeilingArea,
+    vaultedCeilingDetected: facts?.vaultedCeilingDetected === true,
     includeGarageInsulation:
       overrides?.includeGarageInsulation ??
       (garageChoice === 'yes' || garageChoice === 'separation only'
@@ -133,15 +151,89 @@ export function resolveInsulationEnvelopePlanningQuantity(
   raw: InsulationEnvelopeInputs
 ): InsulationEnvelopePlanningResult | null {
   const living = n(raw.floorAreaSqft) || n(raw.mainFloorLivingSqft);
-  const explicitWalls = n(raw.exteriorWallInsulationSqft);
-  const explicitAttic = n(raw.atticInsulationSqft);
-  const explicitDeck = n(raw.insulatedRoofDeckSqft);
+  const hasAssemblyModel = Array.isArray(raw.insulationAssemblies);
+  const assemblyInputRows = (raw.insulationAssemblies || []).filter(row => {
+    const sqft = n(row.sqft);
+    return Boolean(sqft && sqft > 0);
+  });
+  const isConfirmedAssemblyRow = (row: InsulationAssembly) =>
+    row.confirmed !== false && row.source !== 'calculated_from_plan';
+  const explicitNetWalls = hasAssemblyModel
+    ? assemblyInputRows
+        .filter(row => row.location === 'exterior_wall')
+        .filter(isConfirmedAssemblyRow)
+        .reduce((sum, row) => sum + (n(row.sqft) || 0), 0) || null
+    : n(raw.exteriorWallInsulationSqft);
+  const explicitGrossWalls = n(raw.exteriorWallGrossSqft);
+  const explicitOpeningDeduction = n(raw.openingDeductionSqft);
+  const explicitWalls =
+    explicitNetWalls ??
+    (explicitGrossWalls != null
+      ? Math.max(0, explicitGrossWalls - (explicitOpeningDeduction || 0))
+      : null);
+  const explicitAttic = hasAssemblyModel
+    ? assemblyInputRows
+        .filter(row => row.location === 'attic_ceiling')
+        .filter(isConfirmedAssemblyRow)
+        .reduce((sum, row) => sum + (n(row.sqft) || 0), 0) || null
+    : n(raw.atticInsulationSqft);
+  const explicitDeck = hasAssemblyModel
+    ? assemblyInputRows
+        .filter(row => row.location === 'roof_deck')
+        .filter(isConfirmedAssemblyRow)
+        .reduce((sum, row) => sum + (n(row.sqft) || 0), 0) || null
+    : n(raw.insulatedRoofDeckSqft);
+  const assemblyRows = assemblyInputRows.filter(row => {
+    const sqft = n(row.sqft);
+    return Boolean(sqft && sqft > 0) && isConfirmedAssemblyRow(row);
+  });
+  const assemblySqft = assemblyRows.reduce(
+    (sum, row) => sum + (n(row.sqft) || 0),
+    0
+  );
+  const hasUnconfirmedAtticAssembly =
+    hasAssemblyModel &&
+    assemblyInputRows.some(
+      row =>
+        row.location === 'attic_ceiling' &&
+        (row.confirmed === false || row.source === 'calculated_from_plan')
+    );
+  const hasUnconfirmedRoofDeckAssembly =
+    hasAssemblyModel &&
+    assemblyInputRows.some(
+      row =>
+        row.location === 'roof_deck' &&
+        (row.confirmed === false || row.source === 'calculated_from_plan')
+    );
+  const unconfirmedAtticSqft = assemblyInputRows
+    .filter(
+      row =>
+        row.location === 'attic_ceiling' &&
+        (row.confirmed === false || row.source === 'calculated_from_plan')
+    )
+    .reduce((sum, row) => sum + (n(row.sqft) || 0), 0) || null;
+  const unconfirmedRoofDeckSqft = assemblyInputRows
+    .filter(
+      row =>
+        row.location === 'roof_deck' &&
+        (row.confirmed === false || row.source === 'calculated_from_plan')
+    )
+    .reduce((sum, row) => sum + (n(row.sqft) || 0), 0) || null;
+  const suggestedAttic =
+    explicitAttic ??
+    unconfirmedAtticSqft ??
+    (raw.allowConditionedAreaCeilingSuggestion &&
+    !raw.vaultedCeilingDetected &&
+    explicitDeck == null
+      ? n(raw.conditionedCeilingAreaSqft)
+      : null);
   // Allow fully explicit component takeoffs without living SF.
   if (
     !living &&
     explicitWalls == null &&
     explicitAttic == null &&
-    explicitDeck == null
+    explicitDeck == null &&
+    assemblySqft <= 0
   ) {
     return null;
   }
@@ -180,7 +272,7 @@ export function resolveInsulationEnvelopePlanningQuantity(
         : 'planning_assumption';
       wallConfidence = heightLabeled ? 'medium' : 'low';
       wallFormula = `${perimeter} LF × ${height} ft × ${stories} stor${stories === 1 ? 'y' : 'ies'}`;
-    } else if (living) {
+    } else if (living && !raw.requireExplicitSurfaceTakeoff) {
       const estPerimeter = estimatedPerimeterFromLiving(living);
       exteriorWalls = Math.round(estPerimeter * height * stories);
       wallSource = 'planning_assumption';
@@ -206,7 +298,9 @@ export function resolveInsulationEnvelopePlanningQuantity(
   // --- Opening deduction (walls only) ---
   let openingDeduction = n(raw.openingDeductionSqft);
   if (openingDeduction == null) {
-    openingDeduction = Math.round(exteriorWalls * openingsPct);
+    openingDeduction = raw.requireExplicitSurfaceTakeoff
+      ? 0
+      : Math.round(exteriorWalls * openingsPct);
   }
   components.push({
     key: 'openingDeductionSqft',
@@ -227,10 +321,14 @@ export function resolveInsulationEnvelopePlanningQuantity(
   });
 
   // --- Attic vs roof deck (mutually exclusive by default) ---
-  const roofDeck = explicitDeck;
-  const preferRoofDeck = Boolean(raw.preferRoofDeckOverAttic && roofDeck);
-  let attic = explicitAttic;
-  if (!preferRoofDeck && attic == null && atticFootprint) {
+  const roofDeck = explicitDeck ?? unconfirmedRoofDeckSqft;
+  const preferRoofDeck = Boolean(
+    roofDeck && raw.preferRoofDeckOverAttic !== false
+  );
+  let attic = explicitAttic ?? suggestedAttic;
+  if (!preferRoofDeck && attic == null && atticFootprint &&
+      !raw.requireExplicitSurfaceTakeoff &&
+      !raw.suppressAtticPlanningFallback) {
     attic = Math.round(atticFootprint);
   }
   if (!preferRoofDeck && attic != null) {
@@ -240,16 +338,20 @@ export function resolveInsulationEnvelopePlanningQuantity(
       quantity: attic,
       unit: 'sqft',
       source:
-        n(raw.atticInsulationSqft) != null
+        !hasUnconfirmedAtticAssembly && n(raw.atticInsulationSqft) != null
           ? 'contractor_entered'
           : 'calculated_from_plan',
-      confidence: n(raw.atticInsulationSqft) != null ? 'high' : 'medium',
-      included: true,
+      confidence:
+        !hasUnconfirmedAtticAssembly && n(raw.atticInsulationSqft) != null
+          ? 'high'
+          : 'medium',
+      included: !hasUnconfirmedAtticAssembly,
       formula:
         n(raw.atticInsulationSqft) != null
           ? undefined
-          : 'Conditioned floor / attic footprint (living SF)',
-      contractorConfirmationRequired: true,
+          : 'Conditioned main + upper floor areas; garage and covered patio excluded',
+      contractorConfirmationRequired:
+        hasUnconfirmedAtticAssembly || n(raw.atticInsulationSqft) == null,
     });
   }
   if (preferRoofDeck && roofDeck != null) {
@@ -260,7 +362,7 @@ export function resolveInsulationEnvelopePlanningQuantity(
       unit: 'sqft',
       source: 'contractor_entered',
       confidence: 'high',
-      included: true,
+      included: !hasUnconfirmedRoofDeckAssembly,
       contractorConfirmationRequired: false,
     });
   } else if (roofDeck != null && !preferRoofDeck) {
@@ -280,6 +382,9 @@ export function resolveInsulationEnvelopePlanningQuantity(
   }
 
   // --- Optional assemblies (excluded unless provided / garage confirmed) ---
+  const garageChoice = String(raw.garageInsulationIncluded || '')
+    .trim()
+    .toLowerCase();
   const optional: Array<{
     key: InsulationEnvelopeComponentKey;
     label: string;
@@ -314,7 +419,12 @@ export function resolveInsulationEnvelopePlanningQuantity(
   for (const row of optional) {
     const qty = n(row.value);
     if (qty == null) continue;
-    const include = row.garage ? Boolean(raw.includeGarageInsulation) : true;
+    const include = row.garage
+      ? garageChoice === 'yes' ||
+        (garageChoice === 'separation only' &&
+          row.key === 'garageSeparationInsulationSqft') ||
+        (!garageChoice && Boolean(raw.includeGarageInsulation))
+      : true;
     components.push({
       key: row.key,
       label: row.label,
@@ -330,16 +440,27 @@ export function resolveInsulationEnvelopePlanningQuantity(
     });
   }
 
-  const netWalls = Math.max(0, exteriorWalls - openingDeduction);
+  // The canonical exteriorWallInsulationSqft field is already net. Opening
+  // deductions remain a separate audit component and are only subtracted from
+  // gross wall takeoffs.
+  const netWalls =
+    explicitNetWalls != null
+      ? Math.max(0, explicitNetWalls)
+      : Math.max(0, exteriorWalls - openingDeduction);
   const additions = components
     .filter(
       c =>
         c.included &&
         c.key !== 'exteriorWallInsulationSqft' &&
-        c.key !== 'openingDeductionSqft'
+        c.key !== 'openingDeductionSqft' &&
+        ((!hasAssemblyModel && assemblySqft <= 0) ||
+          !['atticInsulationSqft', 'insulatedRoofDeckSqft'].includes(c.key))
     )
     .reduce((sum, c) => sum + c.quantity, 0);
-  const total = Math.max(0, Math.round(netWalls + additions));
+  const total = Math.max(
+    0,
+    Math.round((hasAssemblyModel ? assemblySqft : netWalls) + additions)
+  );
 
   if (!(total > 0)) return null;
 
@@ -356,7 +477,10 @@ export function resolveInsulationEnvelopePlanningQuantity(
     label: 'Planning estimate',
     helper:
       'Estimated thermal-envelope area based on exterior walls and conditioned ceiling area. Verify openings, garage insulation, assembly type, and required R-values.',
-    basisLine: `Exterior walls ${netWalls.toLocaleString()} SF (after openings) + attic/ceiling ${Math.round(attic || roofDeck || 0).toLocaleString()} SF`,
+    basisLine:
+      assemblySqft > 0
+        ? `Insulation assemblies ${Math.round(assemblySqft).toLocaleString()} SF + optional floor/garage areas`
+        : `Exterior walls ${netWalls.toLocaleString()} SF (after openings) + attic/ceiling ${Math.round(attic || roofDeck || 0).toLocaleString()} SF`,
     usesThermalEnvelopeModel: true,
   };
 }

@@ -467,7 +467,7 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
     standaloneTemplateKey: 'insulation',
     status: 'complete',
     scopeHint:
-      'Focus on the thermal envelope: exterior walls plus one attic or roof-deck boundary. Do not use drywall surface area as insulation quantity.',
+      'Use the verified exterior wall insulation takeoff and opening deductions. Do not invent attic, roof-deck, or drywall-based quantities when the plan does not show them.',
     missingInfo: [
       'Exterior wall insulation area and assembly',
       'Attic/ceiling versus insulated roof-deck boundary',
@@ -489,7 +489,15 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
       {
         scopeItemId: 'insulation',
         pricingBehavior: 'CUSTOM_PRICE',
-        measurementKeys: ['exteriorWallInsulationSqft', 'atticInsulationSqft'],
+        measurementKeys: [
+          'exteriorWallGrossSqft',
+          'exteriorWallInsulationSqft',
+          'openingDeductionSqft',
+          'atticInsulationSqft',
+          'insulatedRoofDeckSqft',
+          'floorInsulationSqft',
+          'garageSeparationInsulationSqft',
+        ],
       },
     ],
   }),

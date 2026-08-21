@@ -83,7 +83,7 @@ const GLOBAL_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
   },
   insulation: {
     tier: 'takeoff_required',
-    takeoffLabel: 'thermal-envelope insulation SF',
+    takeoffLabel: 'whole-house insulation surface SF',
   },
   drywall: {
     tier: 'takeoff_required',

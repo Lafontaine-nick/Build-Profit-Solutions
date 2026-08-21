@@ -190,6 +190,13 @@ function resolveFieldState(params: {
     if (params.sourceTag === 'needs_confirmation') {
       return 'needs_confirmation';
     }
+    if (
+      params.sourceTag === 'calculated_from_components' ||
+      params.sourceTag === 'calculated_from_deductions' ||
+      params.sourceTag === 'estimated_from_formula'
+    ) {
+      return 'needs_confirmation';
+    }
     return 'confirmed';
   }
   return params.hasEstimate ? 'estimate_available' : 'needs_confirmation';
@@ -318,6 +325,9 @@ export function resolveQuickMeasurementFields(params: {
       sourceLabel:
         conflictFields.has(field.key) && !isUserOverride
           ? 'Conflicting plan takeoffs — confirm measurement'
+          : field.key === 'atticInsulationSqft' &&
+              sourceTag === 'calculated_from_components'
+            ? 'Calculated from conditioned areas · confirm'
           : estimate
             ? quickMeasurementEstimateBadgeLabel(estimate)
             : quickMeasurementSourceLabel(
@@ -530,14 +540,16 @@ export function pinQuickMeasurementFieldInGroup(
   return next;
 }
 
-/** Merge newly plan-detected keys into a source map without clobbering an accepted-suggestion tag. */
+/** Merge newly plan-detected keys without clobbering stronger provenance. */
 export function tagPlanDetectedQuickMeasurementKeys(
   existing: QuickMeasurementSourceMap | undefined,
   detectedKeys: string[]
 ): QuickMeasurementSourceMap {
   const next: QuickMeasurementSourceMap = { ...(existing || {}) };
   for (const key of detectedKeys) {
-    if (next[key] === 'user_confirmed_suggestion') continue;
+    // A calculated/suggested value must not be relabeled as plan-detected just
+    // because the hydrated measurement also exists in the plan payload.
+    if (next[key]) continue;
     next[key] = 'detected_from_plan';
   }
   return next;

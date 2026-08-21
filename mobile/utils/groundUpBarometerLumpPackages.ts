@@ -3,8 +3,9 @@
  * stucco (H33), insulation (H40), plumbing rough (H60), electrical rough (H65),
  * flooring (H51), exterior paint (national planning anchor).
  *
- * Blends 60% SHV barometer + 40% size-adjusted NAHB / national, then × state.
- * Use when takeoff is missing or notes-derived SF would overstate unit-rate pricing.
+ * Blend 60% SHV barometer + 40% size-adjusted national, then × state. Use
+ * these as planning benchmarks when takeoff is missing or notes-derived SF
+ * would overstate unit-rate pricing.
  */
 
 import {

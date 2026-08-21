@@ -225,7 +225,7 @@ describe('Step 2 benchmark + measurement-status binding', () => {
     expect(missingStatusDisplayLabel('mep_rough')).toBe(
       'Needs trade counts or installed-package pricing'
     );
-    expect(missingStatusDisplayLabel('insulation')).toBe('Needs thermal-envelope insulation SF');
+    expect(missingStatusDisplayLabel('insulation')).toBe('Needs whole-house insulation surface SF');
     expect(missingStatusDisplayLabel('drywall')).toBe('Needs wall and ceiling surface SF');
     expect(missingStatusDisplayLabel('paint_trim')).toBe('Needs paintable wall and ceiling SF');
     expect(missingStatusDisplayLabel('appliances')).toBe('Needs install pricing');

@@ -296,6 +296,7 @@ const MEASUREMENT_KEYS = new Set([
   "roofGutterLf",
   "roofDownspoutCount",
   "drywallSqft",
+  "exteriorWallGrossSqft",
   "exteriorWallInsulationSqft",
   "atticInsulationSqft",
   "insulatedRoofDeckSqft",
@@ -857,15 +858,20 @@ const INSULATION_VISION_INSTRUCTIONS = `
 Insulation takeoff rules:
 - Review wall sections, building sections, energy-code notes, insulation schedules, attic plans, roof plans, garage separation details, and exterior elevations.
 - Return explicit labeled measurements using these canonical keys:
-  exteriorWallInsulationSqft, atticInsulationSqft, insulatedRoofDeckSqft,
+  exteriorWallGrossSqft, exteriorWallInsulationSqft, atticInsulationSqft, insulatedRoofDeckSqft,
   floorInsulationSqft, garageSeparationInsulationSqft,
   insulatedGarageWallSqft, insulatedGarageCeilingSqft, openingDeductionSqft.
 - Read exterior elevations like a stucco takeoff: return elevationFaces with readable face width/height or area, windowDoorOpeningsSqft, garageOpeningsSqft, and openingsSqft when categorized totals are unavailable. Also populate measurements.openingDeductionSqft when the summed opening area is readable.
+- Treat exteriorWallGrossSqft as gross wall area before openings. Treat exteriorWallInsulationSqft as net insulated wall area after opening deductions. Never put gross area in the net key.
+- For atticInsulationSqft, inspect roof plans, reflected ceiling plans, building sections, and insulation schedules. Use a labeled conditioned ceiling/attic area or calculate it only from readable, dimensioned ceiling geometry. Exclude garages, covered patios, open-to-below areas, and vaulted areas assigned to an insulated roof deck. If living area is the only ceiling proxy, leave this measurement unavailable so the app can show a calculated suggestion for contractor confirmation.
+- Return vaultedCeilingDetected=true only when a section, ceiling plan, roof plan, or note clearly identifies vaulted/cathedral/open-to-below conditioned ceiling areas. A roof pitch alone is not enough.
+- For insulatedRoofDeckSqft, return a quantity only when the roof assembly or energy notes explicitly identify roof-deck insulation (for example spray foam or a vaulted/cathedral roof boundary). Do not substitute roof area merely because a roof plan exists.
+- For garage separation and floor insulation, calculate only from readable shared-wall/ceiling or raised-floor/crawlspace geometry. Garage area alone is never a separation quantity, and living area alone is never a floor quantity.
 - When a quantity is explicitly labeled, or directly calculated from readable labeled dimensions, put the numeric result in measurements using the canonical key. Do not leave a usable quantity only inside planFacts.
 - If the plan gives exterior perimeter, wall/plate height, stories, and opening information but not an insulation SF total, return those facts in planFacts so the app can calculate the envelope transparently.
 - If an insulation schedule, wall section, or energy-code note explicitly names the assembly, R-value, material, or garage inclusion, return insulationMaterialType, insulationRValue, and garageInsulationIncluded in planFacts with evidence. Never infer these from typical practice.
 - Attic insulation and insulated roof deck are alternative thermal boundaries by default; do not count both unless the plan explicitly requires both.
-- Do not use living SF, drywall SF, or visual proportions as insulation SF. Do not invent R-values, assembly types, garage inclusion, or material quantities.
+- Do not use living SF, drywall SF, or visual proportions as an AI-detected insulation SF. If living area is the only possible ceiling proxy, leave atticInsulationSqft unavailable and record the missing/confirmation requirement instead. Do not invent R-values, assembly types, garage inclusion, or material quantities.
 - Mark explicit quantities in explicitlyLabeled and calculated quantities in geometryDerived. Put unsupported values in unreadableFields or missingInfo.
 `;
 
@@ -930,6 +936,10 @@ function deriveInsulationMeasurementsFromPlanFacts(
   const stuccoGross = positive(next.stuccoGrossWallSqft);
   const stuccoNet = positive(next.stuccoNetWallSqft);
   const resolvedOpenings = positive(next.openingDeductionSqft) || openingDeduction;
+  if (!(positive(next.exteriorWallGrossSqft) > 0) && stuccoGross > 0) {
+    next.exteriorWallGrossSqft = roundTenth(stuccoGross);
+    derivedKeys.push("exteriorWallGrossSqft");
+  }
   if (!(positive(next.exteriorWallInsulationSqft) > 0)) {
     if (stuccoNet > 0) {
       next.exteriorWallInsulationSqft = roundTenth(stuccoNet);
@@ -971,6 +981,10 @@ function deriveInsulationMeasurementsFromPlanFacts(
   ) {
     const gross = perimeter * height * stories;
     const net = Math.max(0, gross - (resolvedOpenings || 0));
+    if (!(positive(next.exteriorWallGrossSqft) > 0)) {
+      next.exteriorWallGrossSqft = roundTenth(gross);
+      derivedKeys.push("exteriorWallGrossSqft");
+    }
     if (net > 0) {
       next.exteriorWallInsulationSqft = roundTenth(net);
       derivedKeys.push("exteriorWallInsulationSqft");
@@ -1797,6 +1811,12 @@ function sanitizePlanFacts(raw, buildingAreas = {}) {
     typeof src.includeCoveredPatioSlab === "boolean"
   ) {
     out.includeCoveredPatioSlab = src.includeCoveredPatioSlab;
+  }
+  if (
+    hasEvidence("vaultedCeilingDetected") &&
+    typeof src.vaultedCeilingDetected === "boolean"
+  ) {
+    out.vaultedCeilingDetected = src.vaultedCeilingDetected;
   }
   const geometry = sanitizeGeometry(src.geometry);
   if (geometry.length) out.geometry = geometry;

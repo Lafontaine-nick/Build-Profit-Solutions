@@ -53,6 +53,45 @@ describe('insulationEnvelopeQuantity', () => {
     expect(result!.totalInsulationEnvelopeSqft).toBe(3516);
   });
 
+  it('honors garage inclusion choices for optional garage assemblies', () => {
+    const noGarage = resolveInsulationEnvelopePlanningQuantity({
+      floorAreaSqft: 1879,
+      exteriorWallInsulationSqft: 1637,
+      atticInsulationSqft: 1879,
+      garageInsulationIncluded: 'no',
+      garageSeparationInsulationSqft: 220,
+      insulatedGarageWallSqft: 800,
+      insulatedGarageCeilingSqft: 800,
+    });
+    expect(
+      noGarage!.components
+        .filter(component => component.key.toLowerCase().includes('garage'))
+        .every(component => !component.included)
+    ).toBe(true);
+    expect(noGarage!.totalInsulationEnvelopeSqft).toBe(3516);
+
+    const separationOnly = resolveInsulationEnvelopePlanningQuantity({
+      floorAreaSqft: 1879,
+      exteriorWallInsulationSqft: 1637,
+      atticInsulationSqft: 1879,
+      garageInsulationIncluded: 'separation only',
+      garageSeparationInsulationSqft: 220,
+      insulatedGarageWallSqft: 800,
+      insulatedGarageCeilingSqft: 800,
+    });
+    expect(
+      separationOnly!.components.find(
+        component => component.key === 'garageSeparationInsulationSqft'
+      )?.included
+    ).toBe(true);
+    expect(
+      separationOnly!.components.find(
+        component => component.key === 'insulatedGarageWallSqft'
+      )?.included
+    ).toBe(false);
+    expect(separationOnly!.totalInsulationEnvelopeSqft).toBe(3736);
+  });
+
   it('does not double-count attic and roof deck', () => {
     const withAttic = resolveInsulationEnvelopePlanningQuantity({
       floorAreaSqft: 1879,
@@ -82,7 +121,101 @@ describe('insulationEnvelopeQuantity', () => {
       atticInsulationSqft: 1000,
       openingDeductionSqft: 300,
     });
-    expect(result!.totalInsulationEnvelopeSqft).toBe(2700);
+    expect(result!.totalInsulationEnvelopeSqft).toBe(3000);
+  });
+
+  it('uses the imported wall takeoff without inventing attic SF', () => {
+    const result = resolveInsulationEnvelopePlanningQuantity({
+      floorAreaSqft: 3660,
+      exteriorWallGrossSqft: 2819.2,
+      exteriorWallInsulationSqft: 2529.6,
+      openingDeductionSqft: 289.6,
+      suppressAtticPlanningFallback: true,
+    });
+    expect(result!.totalInsulationEnvelopeSqft).toBe(2530);
+    expect(result!.components.find(c => c.key === 'atticInsulationSqft')).toBeUndefined();
+  });
+
+  it('suggests conditioned ceiling area from documented plan living areas', () => {
+    const result = resolveInsulationEnvelopePlanningQuantity({
+      exteriorWallInsulationSqft: 1950.4,
+      openingDeductionSqft: 289.6,
+      conditionedCeilingAreaSqft: 3660,
+      allowConditionedAreaCeilingSuggestion: true,
+      requireExplicitSurfaceTakeoff: true,
+    });
+    const attic = result!.components.find(c => c.key === 'atticInsulationSqft');
+    expect(attic?.quantity).toBe(3660);
+    expect(attic?.source).toBe('calculated_from_plan');
+    expect(attic?.contractorConfirmationRequired).toBe(true);
+    expect(result!.totalInsulationEnvelopeSqft).toBe(5610);
+  });
+
+  it('does not suggest conditioned living area for vaulted ceilings', () => {
+    const result = resolveInsulationEnvelopePlanningQuantity({
+      exteriorWallInsulationSqft: 1950.4,
+      conditionedCeilingAreaSqft: 3660,
+      vaultedCeilingDetected: true,
+      allowConditionedAreaCeilingSuggestion: true,
+      requireExplicitSurfaceTakeoff: true,
+    });
+
+    expect(
+      result!.components.find(component => component.key === 'atticInsulationSqft')
+    ).toBeUndefined();
+    expect(result!.totalInsulationEnvelopeSqft).toBe(1950);
+  });
+
+  it('uses an explicit roof-deck boundary instead of suggesting attic SF', () => {
+    const result = resolveInsulationEnvelopePlanningQuantity({
+      exteriorWallInsulationSqft: 1950.4,
+      insulatedRoofDeckSqft: 3660,
+      conditionedCeilingAreaSqft: 3660,
+      allowConditionedAreaCeilingSuggestion: true,
+      requireExplicitSurfaceTakeoff: true,
+    });
+
+    expect(
+      result!.components.find(component => component.key === 'atticInsulationSqft')
+    ).toBeUndefined();
+    expect(
+      result!.components.find(
+        component => component.key === 'insulatedRoofDeckSqft'
+      )?.included
+    ).toBe(true);
+    expect(result!.totalInsulationEnvelopeSqft).toBe(5610);
+  });
+
+  it('does not price a calculated ceiling suggestion until confirmed', () => {
+    const result = resolveInsulationEnvelopePlanningQuantity({
+      exteriorWallInsulationSqft: 1950.4,
+      atticInsulationSqft: 3660,
+      insulationAssemblies: [
+        {
+          id: 'plan-wall',
+          materialType: 'Batt',
+          rValue: 'R-21',
+          sqft: 1950.4,
+          location: 'exterior_wall',
+          source: 'detected_from_plan',
+          confirmed: true,
+        },
+        {
+          id: 'plan-attic',
+          materialType: 'Batt',
+          rValue: 'R-30',
+          sqft: 3660,
+          location: 'attic_ceiling',
+          source: 'calculated_from_plan',
+          confirmed: false,
+        },
+      ],
+    });
+
+    expect(result!.totalInsulationEnvelopeSqft).toBe(1950);
+    expect(
+      result!.components.find(c => c.key === 'atticInsulationSqft')?.included
+    ).toBe(false);
   });
 
   it('detects drywall surface proxy quantities', () => {
@@ -119,6 +252,7 @@ describe('insulation suggested pricing', () => {
       ...emptyQuickMeasurementInput(),
       floorAreaSqft: lot.measurements.floorAreaSqft,
       garageSqft: lot.measurements.garageSqft,
+      atticInsulationSqft: '1879',
       itemQuantities: {},
       planFacts: lot.facts,
     } as any;
@@ -138,6 +272,7 @@ describe('insulation suggested pricing', () => {
       ...emptyQuickMeasurementInput(),
       floorAreaSqft: '1879',
       drywallSqft: '6577',
+      atticInsulationSqft: '1879',
       itemQuantities: {},
       planFacts: PLAN_MEASUREMENT_LOTS['41'].facts,
     } as any;

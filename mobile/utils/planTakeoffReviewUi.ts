@@ -91,7 +91,8 @@ export function measurementDisplayLabel(
   if (plumbingLabels[key]) return { label: plumbingLabels[key] };
 
   const insulationLabels: Record<string, string> = {
-    exteriorWallInsulationSqft: 'Exterior wall insulation',
+    exteriorWallGrossSqft: 'Exterior wall gross area',
+    exteriorWallInsulationSqft: 'Net exterior wall insulation',
     atticInsulationSqft: 'Attic / ceiling insulation',
     insulatedRoofDeckSqft: 'Insulated roof deck',
     floorInsulationSqft: 'Floor insulation',
@@ -797,9 +798,28 @@ export function buildPlanReviewMeasurementRowState(input: {
     userConfirmed: input.userConfirmed,
     pricingEligible,
   });
+  const displayProvenance =
+    input.tradeKey === 'insulation'
+      ? {
+          ...provenance,
+          label:
+            provenance.status === 'calculated'
+              ? 'Calculated'
+              : provenance.status === 'planning_estimate'
+                ? 'Suggested'
+                : provenance.status === 'needs_review' ||
+                    provenance.status === 'ai_inferred' ||
+                    provenance.status === 'from_plan_symbols'
+                  ? 'Needs confirmation'
+                  : provenance.status === 'ai_verified' ||
+                      provenance.status === 'plan_verified'
+                    ? 'Detected'
+                    : provenance.label,
+        }
+      : provenance;
   return {
     pricingEligible,
-    provenance,
+    provenance: displayProvenance,
     includeDefault:
       !input.hasConflict &&
       (pricingEligible ||
@@ -1579,7 +1599,7 @@ export function scopeTakeoffStatusLines(input: {
   } else if (id === 'exterior' || id === 'exterior_finishes') {
     statusLine = 'Needs exterior wall and opening takeoff';
   } else if (id === 'insulation') {
-    statusLine = 'Needs envelope surface takeoff';
+    statusLine = 'Needs whole-house insulation surface takeoff';
   } else if (id === 'drywall') {
     statusLine = 'Needs wall and ceiling takeoff';
   } else if (

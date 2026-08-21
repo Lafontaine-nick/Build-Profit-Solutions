@@ -73,6 +73,7 @@ export type PlanFacts = {
   wallHeightFt?: number | null;
   plateHeightFt?: number | null;
   ceilingHeightFt?: number | null;
+  vaultedCeilingDetected?: boolean | null;
   interiorRooms?: Array<{
     name?: string | null;
     lengthFt?: number | null;

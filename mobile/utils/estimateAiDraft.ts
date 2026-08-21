@@ -243,6 +243,7 @@ export type PlanRoomMeasurement = {
 };
 
 export type ScopeMeasurements = {
+  insulationAssemblies?: InsulationAssembly[] | null;
   stuccoGrossWallSqft?: number | null;
   stuccoWindowDoorOpeningSqft?: number | null;
   stuccoGarageOpeningSqft?: number | null;
@@ -418,6 +419,7 @@ export type ScopeMeasurements = {
   roofGutterLf?: number | null;
   roofDownspoutCount?: number | null;
   drywallSqft?: number | null;
+  exteriorWallGrossSqft?: number | null;
   exteriorWallInsulationSqft?: number | null;
   atticInsulationSqft?: number | null;
   insulatedRoofDeckSqft?: number | null;
@@ -748,6 +750,21 @@ export type EstimateDraftRoom = {
   roughPricePendingApproval?: boolean;
   pricingItems?: EstimateDraftPricingItem[];
   missingPriceItems?: string[];
+};
+
+export type InsulationAssembly = {
+  id: string;
+  materialType: string;
+  rValue: string;
+  sqft: number | string | null;
+  location?: string | null;
+  source?:
+    | 'detected_from_plan'
+    | 'calculated_from_plan'
+    | 'contractor_entered'
+    | 'parsed_from_notes'
+    | null;
+  confirmed?: boolean;
 };
 
 export type EstimateDraftPricingItem = {

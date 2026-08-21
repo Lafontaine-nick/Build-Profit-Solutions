@@ -82,6 +82,7 @@ import {
   reconcileFramingScopeMeasurements,
   reconcilePlumbingLineScopeMeasurements,
 } from '@/utils/planTakeoffReviewUi';
+import { buildInsulationAssembliesFromPlanMeasurements } from '@/utils/subcontractorTrade/insulationPlanConvergence';
 import { applySouthernUtahPlumbingPackageTakeoffDefaults } from '@/utils/southernUtahPlumbingComparables';
 import {
   ElectricalConfirmScopeAttributesPanel,
@@ -317,6 +318,7 @@ import {
   type WetAreaStepperCounts,
 } from '@/utils/planBathRooms';
 import { syncMeasurementsWithSouthernUtahPlanFacts } from '@/utils/quickMeasurementEstimates';
+import type { InsulationAssembly } from '@/utils/estimateAiDraft';
 import {
   emptyWetAreaExistingCounts,
   mergeDemoCountsWithOverrides,
@@ -9695,6 +9697,8 @@ const INSULATION_TYPE_OPTIONS = [
 ] as const;
 
 const INSULATION_R_VALUE_OPTIONS = [
+  'R-5',
+  'R-10',
   'R-13',
   'R-15',
   'R-19',
@@ -9704,6 +9708,96 @@ const INSULATION_R_VALUE_OPTIONS = [
   'R-49',
   'R-60',
 ] as const;
+
+const INSULATION_LOCATION_OPTIONS = [
+  { key: 'exterior_wall', label: 'Exterior wall' },
+  { key: 'attic_ceiling', label: 'Attic / ceiling' },
+  { key: 'roof_deck', label: 'Roof deck' },
+  { key: 'garage_separation', label: 'Garage separation' },
+  { key: 'floor', label: 'Floor' },
+] as const;
+
+type InsulationAssemblyLocation =
+  (typeof INSULATION_LOCATION_OPTIONS)[number]['key'];
+
+const INSULATION_R_VALUES_BY_MATERIAL: Record<string, readonly string[]> = {
+  batt: ['R-13', 'R-15', 'R-19', 'R-21', 'R-30', 'R-38', 'R-49'],
+  'blown-in': ['R-30', 'R-38', 'R-49', 'R-60'],
+  'spray foam': ['R-13', 'R-21', 'R-30', 'R-49', 'R-60'],
+  'rigid foam board': ['R-5', 'R-10', 'R-15', 'R-20', 'R-30'],
+  cellulose: ['R-30', 'R-38', 'R-49', 'R-60'],
+  'mineral wool': ['R-15', 'R-21', 'R-30', 'R-38'],
+};
+
+function insulationMaterialKey(materialType: string): string {
+  const value = materialType.trim().toLowerCase();
+  return (
+    Object.keys(INSULATION_R_VALUES_BY_MATERIAL).find(key =>
+      value.includes(key)
+    ) || 'batt'
+  );
+}
+
+function insulationLocationForMaterial(
+  materialType: string
+): InsulationAssemblyLocation {
+  const key = insulationMaterialKey(materialType);
+  if (key === 'blown-in' || key === 'cellulose') return 'attic_ceiling';
+  if (key === 'spray foam') return 'roof_deck';
+  return 'exterior_wall';
+}
+
+function insulationLocationForAssembly(
+  materialType: string,
+  rValue: string
+): InsulationAssemblyLocation {
+  const numericRValue = Number(rValue.match(/\d+/)?.[0] || 0);
+  if (numericRValue >= 30) {
+    return insulationMaterialKey(materialType) === 'spray foam'
+      ? 'roof_deck'
+      : 'attic_ceiling';
+  }
+  return insulationLocationForMaterial(materialType);
+}
+
+function supportedInsulationRValues(
+  materialType: string,
+  location: string | null | undefined
+): readonly string[] {
+  const values =
+    INSULATION_R_VALUES_BY_MATERIAL[insulationMaterialKey(materialType)] ||
+    INSULATION_R_VALUES_BY_MATERIAL.batt;
+  const numbers = values.map(value => Number(value.replace(/\D/g, '')));
+  const filtered =
+    location === 'attic_ceiling' || location === 'roof_deck'
+      ? values.filter((_, index) => numbers[index] >= 30)
+      : location === 'exterior_wall' || location === 'garage_separation'
+        ? values.filter((_, index) => numbers[index] <= 21)
+        : location === 'floor'
+          ? values.filter((_, index) => numbers[index] >= 15)
+          : values;
+  return filtered.length ? filtered : values;
+}
+
+function defaultInsulationRValue(
+  materialType: string,
+  location: string,
+  preferred: string
+): string {
+  const values = supportedInsulationRValues(materialType, location);
+  return (
+    values.find(value => value.toLowerCase() === preferred.toLowerCase()) ||
+    values[0] ||
+    preferred
+  );
+}
+
+function insulationLocationLabel(location: string | null | undefined): string {
+  return (
+    INSULATION_LOCATION_OPTIONS.find(option => option.key === location)?.label ||
+    'Assembly location'
+  );
+}
 
 const GARAGE_INSULATION_OPTIONS = [
   'Yes',
@@ -10153,6 +10247,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
 function InsulationAssemblyCard({
   measurements,
   onChange,
+  onAssembliesChange,
   Colors,
   darkMode,
 }: {
@@ -10164,14 +10259,371 @@ function InsulationAssemblyCard({
       | 'garageInsulationIncluded',
     value: string
   ) => void;
+  onAssembliesChange: (assemblies: InsulationAssembly[] | null) => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
 }) {
-  const groups = [
-    { key: 'insulationMaterialType' as const, label: 'Installation type', options: INSULATION_TYPE_OPTIONS },
-    { key: 'insulationRValue' as const, label: 'Target R-value', options: INSULATION_R_VALUE_OPTIONS },
-    { key: 'garageInsulationIncluded' as const, label: 'Garage inclusion', options: GARAGE_INSULATION_OPTIONS },
-  ];
+  const [expandedAssemblyId, setExpandedAssemblyId] = useState<string | null>(
+    null
+  );
+  const hasStoredAssemblies = Array.isArray(measurements.insulationAssemblies);
+  const storedAssemblies = hasStoredAssemblies
+    ? (measurements.insulationAssemblies as InsulationAssembly[])
+    : [];
+  const parseSqft = (value: unknown) => {
+    const sqft = Number(String(value ?? '').replace(/,/g, ''));
+    return Number.isFinite(sqft) && sqft > 0 ? sqft : 0;
+  };
+  const wallPlanArea = parseSqft(measurements.exteriorWallInsulationSqft);
+  const ceilingPlanArea =
+    parseSqft(measurements.insulatedRoofDeckSqft) ||
+    parseSqft(measurements.atticInsulationSqft);
+  const legacyMaterial =
+    String(measurements.insulationMaterialType || '') || 'Batt';
+  const legacyRValue = String(measurements.insulationRValue || '') || 'R-21';
+  const legacyLocation = insulationLocationForAssembly(
+    legacyMaterial,
+    legacyRValue
+  );
+  const ceilingLocation =
+    parseSqft(measurements.insulatedRoofDeckSqft) > 0
+      ? 'roof_deck'
+      : 'attic_ceiling';
+  const fallbackRows: InsulationAssembly[] = [
+    wallPlanArea > 0
+      ? {
+          id: 'insulation-assembly-wall',
+          materialType: legacyMaterial,
+          rValue: defaultInsulationRValue(
+            legacyMaterial,
+            'exterior_wall',
+            legacyRValue
+          ),
+          sqft: String(Math.round(wallPlanArea)),
+          location: 'exterior_wall',
+        }
+      : null,
+    ceilingPlanArea > 0
+      ? {
+          id: 'insulation-assembly-ceiling',
+          materialType: legacyMaterial,
+          rValue: defaultInsulationRValue(
+            legacyMaterial,
+            ceilingLocation,
+            legacyRValue
+          ),
+          sqft: String(Math.round(ceilingPlanArea)),
+          location: ceilingLocation,
+        }
+      : null,
+  ].filter((row): row is InsulationAssembly => Boolean(row));
+  const rows: InsulationAssembly[] = hasStoredAssemblies
+    ? storedAssemblies.map(row => ({
+        ...row,
+        location:
+          row.location || insulationLocationForMaterial(row.materialType),
+      }))
+    : fallbackRows.length
+      ? fallbackRows
+      : [
+          {
+            id: 'insulation-assembly-1',
+            materialType: legacyMaterial,
+            rValue: defaultInsulationRValue(
+              legacyMaterial,
+              legacyLocation,
+              legacyRValue
+            ),
+            sqft: '',
+            location: legacyLocation,
+          },
+        ];
+  const updateRows = (next: InsulationAssembly[]) => {
+    const normalized = next.filter(
+      row => row.materialType.trim() && row.rValue.trim()
+    );
+    onAssembliesChange(normalized);
+    const first = normalized[0];
+    if (first) {
+      onChange('insulationMaterialType', first.materialType);
+      onChange('insulationRValue', first.rValue);
+    } else {
+      onChange('insulationMaterialType', '');
+      onChange('insulationRValue', '');
+    }
+  };
+  const updateRow = (id: string, patch: Partial<InsulationAssembly>) => {
+    updateRows(
+      rows.map(row => {
+        if (row.id !== id) return row;
+        const confirmsQuantity =
+          patch.sqft !== undefined ||
+          patch.rValue !== undefined ||
+          patch.location !== undefined;
+        return {
+          ...row,
+          ...patch,
+          ...(confirmsQuantity
+            ? { source: 'contractor_entered' as const, confirmed: true }
+            : {}),
+        };
+      })
+    );
+  };
+  const selectedTypes = Array.from(
+    new Set(
+      rows
+        .map(row => row.materialType.trim())
+        .filter(Boolean)
+    )
+  );
+  const totalConfirmedSqft = rows.reduce(
+    (sum, row) =>
+      sum +
+      (row.confirmed === false || row.source === 'calculated_from_plan'
+        ? 0
+        : parseSqft(row.sqft)),
+    0
+  );
+  const totalNeedsConfirmationSqft = rows.reduce(
+    (sum, row) =>
+      sum +
+      (row.confirmed === false || row.source === 'calculated_from_plan'
+        ? parseSqft(row.sqft)
+        : 0),
+    0
+  );
+  const toggleType = (materialType: string) => {
+    const matching = rows.filter(
+      row => row.materialType.toLowerCase() === materialType.toLowerCase()
+    );
+    if (matching.length) {
+      if (
+        expandedAssemblyId &&
+        matching.some(row => row.id === expandedAssemblyId)
+      ) {
+        setExpandedAssemblyId(null);
+      }
+      updateRows(
+        rows.filter(
+          row => row.materialType.toLowerCase() !== materialType.toLowerCase()
+        )
+      );
+      return;
+    }
+    const id = `insulation-assembly-${Date.now()}`;
+    setExpandedAssemblyId(id);
+    updateRows([
+      ...rows,
+      {
+        id,
+        materialType,
+        rValue: defaultInsulationRValue(
+          materialType,
+          insulationLocationForMaterial(materialType),
+          legacyRValue
+        ),
+        sqft: '',
+        location: insulationLocationForMaterial(materialType),
+      },
+    ]);
+  };
+  const toggleRValue = (materialType: string, rValue: string) => {
+    const matching = rows.find(
+      row =>
+        row.materialType.toLowerCase() === materialType.toLowerCase() &&
+        row.rValue.toLowerCase() === rValue.toLowerCase()
+    );
+    if (matching) {
+      if (matching.id === expandedAssemblyId) setExpandedAssemblyId(null);
+      updateRows(rows.filter(row => row.id !== matching.id));
+      return;
+    }
+    const id = `insulation-assembly-${Date.now()}`;
+    setExpandedAssemblyId(id);
+    updateRows([
+      ...rows,
+      {
+        id,
+        materialType,
+        rValue,
+        sqft: '',
+        location: insulationLocationForAssembly(materialType, rValue),
+      },
+    ]);
+  };
+  const renderTypeOptions = () => (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ gap: 6, paddingRight: 4 }}
+    >
+      {INSULATION_TYPE_OPTIONS.map(option => {
+        const selected = selectedTypes.some(
+          type => type.toLowerCase() === option.toLowerCase()
+        );
+        return (
+          <TouchableOpacity
+            key={option}
+            onPress={() => toggleType(option)}
+            activeOpacity={0.75}
+            style={{
+              minWidth: 96,
+              alignItems: 'center',
+              paddingVertical: 7,
+              paddingHorizontal: 6,
+              borderRadius: 9,
+              borderWidth: 1,
+              borderColor: selected
+                ? '#34d399'
+                : darkMode
+                  ? 'rgba(255,255,255,0.14)'
+                  : Colors.line,
+              backgroundColor: selected
+                ? 'rgba(52,211,153,0.14)'
+                : darkMode
+                  ? '#252527'
+                  : Colors.surface2,
+            }}
+          >
+            <Text
+              style={{
+                color: selected ? '#34d399' : Colors.text,
+                fontSize: 11,
+                fontWeight: '700',
+              }}
+            >
+              {option}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
+  );
+  const renderRValueOptions = (materialType: string) => (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ gap: 6, paddingRight: 4 }}
+    >
+      {Array.from(
+        new Set(
+          [
+            ...new Set(
+              rows
+                .filter(
+                  row =>
+                    row.materialType.toLowerCase() ===
+                    materialType.toLowerCase()
+                )
+                .map(row => row.location)
+            ),
+            insulationLocationForMaterial(materialType),
+          ].flatMap(location =>
+            supportedInsulationRValues(materialType, location)
+          )
+        )
+      ).map(option => {
+        const selected = rows.some(
+          row =>
+            row.materialType.toLowerCase() === materialType.toLowerCase() &&
+            row.rValue.toLowerCase() === option.toLowerCase()
+        );
+        return (
+          <TouchableOpacity
+            key={option}
+            onPress={() => toggleRValue(materialType, option)}
+            activeOpacity={0.75}
+            style={{
+              minWidth: 54,
+              alignItems: 'center',
+              paddingVertical: 6,
+              paddingHorizontal: 8,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: selected
+                ? '#34d399'
+                : darkMode
+                  ? 'rgba(255,255,255,0.14)'
+                  : Colors.line,
+              backgroundColor: selected
+                ? 'rgba(52,211,153,0.14)'
+                : darkMode
+                  ? '#252527'
+                  : Colors.surface2,
+            }}
+          >
+            <Text
+              style={{
+                color: selected ? '#34d399' : Colors.text,
+                fontSize: 10,
+                fontWeight: '700',
+              }}
+            >
+              {option}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
+  );
+  const renderLocationOptions = (row: InsulationAssembly) => (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ gap: 6, paddingRight: 4 }}
+    >
+      {INSULATION_LOCATION_OPTIONS.map(option => {
+        const selected = row.location === option.key;
+        return (
+          <TouchableOpacity
+            key={option.key}
+            onPress={() => {
+              const nextRValue = defaultInsulationRValue(
+                row.materialType,
+                option.key,
+                row.rValue
+              );
+              updateRow(row.id, {
+                location: option.key,
+                rValue: nextRValue,
+              });
+            }}
+            activeOpacity={0.75}
+            style={{
+              minWidth: 98,
+              alignItems: 'center',
+              paddingVertical: 6,
+              paddingHorizontal: 8,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: selected
+                ? '#34d399'
+                : darkMode
+                  ? 'rgba(255,255,255,0.14)'
+                  : Colors.line,
+              backgroundColor: selected
+                ? 'rgba(52,211,153,0.14)'
+                : darkMode
+                  ? '#252527'
+                  : Colors.surface2,
+            }}
+          >
+            <Text
+              style={{
+                color: selected ? '#34d399' : Colors.text,
+                fontSize: 10,
+                fontWeight: '700',
+                textAlign: 'center',
+              }}
+            >
+              {option.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
+  );
   return (
     <View
       style={{
@@ -10179,107 +10631,368 @@ function InsulationAssemblyCard({
         marginTop: 12,
         marginHorizontal: -6,
         marginBottom: 12,
-        padding: 16,
-        borderRadius: 16,
+        padding: 12,
+        borderRadius: 14,
         borderWidth: 1,
         borderColor: darkMode ? 'rgba(255,255,255,0.14)' : Colors.line,
         backgroundColor: darkMode ? '#202022' : Colors.surface,
+        shadowColor: '#000',
+        shadowOpacity: darkMode ? 0.24 : 0.08,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 },
+        elevation: 3,
       }}
     >
-      <Text
+      <View
         style={{
-          color: Colors.text,
-          fontSize: 14,
-          fontWeight: '800',
-          textAlign: 'center',
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
         }}
       >
-        Insulation assembly
+        <View
+          style={{
+            flex: 1,
+          }}
+        >
+          <Text
+            style={{
+              color: Colors.text,
+              fontSize: 15,
+              fontWeight: '800',
+            }}
+          >
+            Insulation assemblies
+          </Text>
+          <Text
+            style={{
+              color: captionColor(darkMode, Colors),
+              fontSize: 10,
+              fontWeight: '600',
+              marginTop: 2,
+            }}
+          >
+            {rows.length} assemblies · {totalConfirmedSqft.toLocaleString()} sqft
+            {totalNeedsConfirmationSqft > 0
+              ? ` · ${totalNeedsConfirmationSqft.toLocaleString()} to confirm`
+              : ''}
+          </Text>
+        </View>
+      </View>
+      <Text
+        style={{
+          color: captionColor(darkMode, Colors),
+          fontSize: 10,
+          marginTop: 4,
+          lineHeight: 14,
+        }}
+      >
+        Tap a row to edit its R-value, location, or square feet.
       </Text>
       <Text
         style={{
           color: captionColor(darkMode, Colors),
           fontSize: 11,
-          marginTop: 4,
-          textAlign: 'center',
+          fontWeight: '700',
+          marginTop: 10,
+          marginBottom: 5,
+          letterSpacing: 0.35,
         }}
       >
-        Select the installation type and target R-value for this bid.
+        Installation type
       </Text>
-      {groups.map(group => (
-        <View key={group.key} style={{ marginTop: 16 }}>
-          <Text
-            style={{
-              color: Colors.text,
-              fontSize: 12,
-              fontWeight: '700',
-              marginBottom: 7,
-              textAlign: 'center',
-            }}
-          >
-            {group.label}
-          </Text>
+      {renderTypeOptions()}
+      {selectedTypes.map(materialType => {
+        const typeRows = rows.filter(
+          row =>
+            row.materialType.toLowerCase() === materialType.toLowerCase()
+        );
+        return (
           <View
+            key={materialType}
             style={{
-              flexDirection: 'row',
-              flexWrap: 'wrap',
-              columnGap: 8,
-              rowGap: 8,
+              marginTop: 8,
             }}
           >
-            {group.options.map(option => {
-              const selected =
-                String(measurements[group.key] || '').toLowerCase() ===
-                option.toLowerCase();
+            {typeRows.map(row => {
+              const isExpanded = expandedAssemblyId === row.id;
+              const area = String(row.sqft ?? '').trim();
+              const needsConfirmation =
+                row.confirmed === false ||
+                row.source === 'calculated_from_plan';
               return (
-                <TouchableOpacity
-                  key={option}
-                  onPress={() => onChange(group.key, selected ? '' : option)}
-                  activeOpacity={0.75}
+                <View
+                  key={row.id}
                   style={{
-                    flexBasis: group.key === 'insulationRValue' ? '30%' : '30%',
-                    flexGrow: 1,
-                    minWidth: group.key === 'insulationRValue' ? 58 : 104,
-                    minHeight: 42,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    paddingVertical: 10,
-                    paddingHorizontal: 8,
-                    borderRadius: 9,
+                    marginTop: 6,
+                    borderRadius: 10,
                     borderWidth: 1,
-                    borderColor: selected
-                      ? '#34d399'
+                    borderColor: isExpanded
+                      ? 'rgba(52,211,153,0.55)'
                       : darkMode
-                        ? 'rgba(148,163,184,0.16)'
+                        ? 'rgba(255,255,255,0.12)'
                         : Colors.line,
-                    backgroundColor: selected
-                      ? 'rgba(52,211,153,0.14)'
+                    backgroundColor: isExpanded
+                      ? darkMode
+                        ? 'rgba(52,211,153,0.035)'
+                        : 'rgba(16,185,129,0.035)'
                       : darkMode
-                        ? 'rgba(255,255,255,0.05)'
+                        ? '#252527'
                         : Colors.surface2,
+                    overflow: 'hidden',
                   }}
                 >
-                  <Text
+                  <TouchableOpacity
+                    onPress={() =>
+                      setExpandedAssemblyId(isExpanded ? null : row.id)
+                    }
+                    activeOpacity={0.75}
                     style={{
-                      color: selected ? '#34d399' : Colors.text,
-                      fontSize: 12,
-                      fontWeight: '700',
-                      textAlign: 'center',
+                      minHeight: 46,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
                     }}
                   >
-                    {option}
-                  </Text>
-                </TouchableOpacity>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <Text
+                        style={{
+                          color: Colors.text,
+                          fontSize: 11,
+                          fontWeight: '700',
+                        }}
+                      >
+                        {materialType} · {insulationLocationLabel(row.location)} ·{' '}
+                        {row.rValue}
+                      </Text>
+                      <Text
+                        style={{
+                          color: captionColor(darkMode, Colors),
+                          fontSize: 10,
+                          marginTop: 2,
+                        }}
+                      >
+                        {area
+                          ? `${area} sqft${needsConfirmation ? ' · confirm' : ''}`
+                          : 'Square feet needed'}
+                      </Text>
+                    </View>
+                    <Text
+                      style={{
+                        color: isExpanded
+                          ? '#34d399'
+                          : captionColor(darkMode, Colors),
+                        fontSize: 16,
+                        fontWeight: '400',
+                        lineHeight: 18,
+                      }}
+                    >
+                      {isExpanded ? '⌃' : '⌄'}
+                    </Text>
+                  </TouchableOpacity>
+                  {isExpanded ? (
+                    <View
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingTop: 2,
+                        paddingBottom: 9,
+                      }}
+                    >
+                      {needsConfirmation ? (
+                        <TouchableOpacity
+                          onPress={() =>
+                            updateRow(row.id, {
+                              source: 'contractor_entered',
+                              confirmed: true,
+                            })
+                          }
+                          activeOpacity={0.75}
+                          style={{
+                            alignSelf: 'flex-start',
+                            marginBottom: 8,
+                            paddingHorizontal: 9,
+                            paddingVertical: 6,
+                            borderRadius: 7,
+                            backgroundColor: 'rgba(245,158,11,0.13)',
+                            borderWidth: 1,
+                            borderColor: 'rgba(245,158,11,0.45)',
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: '#fbbf24',
+                              fontSize: 10,
+                              fontWeight: '800',
+                            }}
+                          >
+                            Use {area || 'this'} sqft
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      <Text
+                        style={{
+                          color: captionColor(darkMode, Colors),
+                          fontSize: 10,
+                          fontWeight: '700',
+                          marginBottom: 5,
+                          letterSpacing: 0.35,
+                        }}
+                      >
+                        Target R-value
+                      </Text>
+                      {renderRValueOptions(materialType)}
+                      <Text
+                        style={{
+                          color: captionColor(darkMode, Colors),
+                          fontSize: 10,
+                          fontWeight: '700',
+                          marginTop: 10,
+                          marginBottom: 5,
+                          letterSpacing: 0.35,
+                        }}
+                      >
+                        Assembly location
+                      </Text>
+                      {renderLocationOptions(row)}
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginTop: 10,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: captionColor(darkMode, Colors),
+                            fontSize: 11,
+                          }}
+                        >
+                          Square feet
+                        </Text>
+                        <View
+                          style={{
+                            width: 132,
+                            height: 36,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            borderColor: area
+                              ? 'rgba(52,211,153,0.65)'
+                              : darkMode
+                                ? 'rgba(255,255,255,0.14)'
+                                : Colors.line,
+                            backgroundColor: 'transparent',
+                          }}
+                        >
+                          <TextInput
+                            value={String(row.sqft ?? '')}
+                            onChangeText={sqft => updateRow(row.id, { sqft })}
+                            keyboardType='decimal-pad'
+                            placeholder='Enter'
+                            placeholderTextColor={captionColor(
+                              darkMode,
+                              Colors
+                            )}
+                            style={{
+                              flex: 1,
+                              color: Colors.text,
+                              paddingHorizontal: 9,
+                              paddingVertical: 4,
+                              fontSize: 14,
+                              fontWeight: '600',
+                            }}
+                          />
+                          <Text
+                            style={{
+                              color: captionColor(darkMode, Colors),
+                              fontSize: 10,
+                              fontWeight: '700',
+                              paddingRight: 8,
+                            }}
+                          >
+                            sqft
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  ) : null}
+                </View>
               );
             })}
           </View>
-        </View>
-      ))}
+        );
+      })}
+      <Text
+        style={{
+          color: captionColor(darkMode, Colors),
+          fontSize: 11,
+          fontWeight: '700',
+          marginTop: 14,
+          marginBottom: 5,
+          textAlign: 'center',
+          letterSpacing: 0.35,
+        }}
+      >
+        Garage inclusion
+      </Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {GARAGE_INSULATION_OPTIONS.map(option => {
+          const selected =
+            String(measurements.garageInsulationIncluded || '').toLowerCase() ===
+            option.toLowerCase();
+          return (
+            <TouchableOpacity
+              key={option}
+              onPress={() =>
+                onChange(
+                  'garageInsulationIncluded',
+                  selected ? '' : option
+                )
+              }
+              activeOpacity={0.75}
+              style={{
+                flex: 1,
+                minWidth: 88,
+                alignItems: 'center',
+                paddingVertical: 9,
+                paddingHorizontal: 8,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: selected
+                  ? '#34d399'
+                  : darkMode
+                    ? 'rgba(255,255,255,0.14)'
+                    : Colors.line,
+                backgroundColor: selected
+                  ? 'rgba(52,211,153,0.14)'
+                  : darkMode
+                    ? '#252527'
+                    : Colors.surface2,
+              }}
+            >
+              <Text
+                style={{
+                  color: selected ? '#34d399' : Colors.text,
+                  fontSize: 11,
+                  fontWeight: '700',
+                }}
+              >
+                {option}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
 function CollapsibleQuickMeasurements({
+  visible,
   expanded,
   onToggle,
   onDone,
@@ -10321,6 +11034,7 @@ function CollapsibleQuickMeasurements({
   electricalAttributesCommitRef,
   onElectricalAttributesPreview,
 }: {
+  visible: boolean;
   expanded: boolean;
   onToggle: () => void;
   /** Collapse Quick Measurements and settle on Plans / first precon card. */
@@ -10430,6 +11144,23 @@ function CollapsibleQuickMeasurements({
   >([]);
   const [typedMoreMeasurementPositions, setTypedMoreMeasurementPositions] =
     useState<Partial<Record<QuickMeasurementFieldKey, number>>>({});
+  const [typedMeasurementHomes, setTypedMeasurementHomes] = useState<
+    Partial<
+      Record<
+        QuickMeasurementFieldKey,
+        { homeGroup: QuickMeasurementGroupId; homeIndex: number }
+      >
+    >
+  >({});
+  const wasVisibleRef = useRef(visible);
+  useEffect(() => {
+    if (!visible && wasVisibleRef.current) {
+      setTypedMoreMeasurementKeys([]);
+      setTypedMoreMeasurementPositions({});
+      setTypedMeasurementHomes({});
+    }
+    wasVisibleRef.current = visible;
+  }, [visible]);
   const [conflictChoices, setConflictChoices] = useState<
     Record<string, PlanConflictChoice | undefined>
   >({});
@@ -11105,7 +11836,8 @@ function CollapsibleQuickMeasurements({
     }
     // Pin only after typing has moved a field out of its home section. Applying pin on
     // focus alone reorders Needs confirmation (pre-split indexes ≠ post-split indexes)
-    // and makes the yellow inputs jump / remount when tapped.
+    // and makes the yellow inputs jump / remount when tapped. Keep the recorded home
+    // position after blur too, so a user-edited field does not fall into Confirmed.
     const editingGroup =
       editingHomeGroup && Array.isArray(grouped[editingHomeGroup])
         ? grouped[editingHomeGroup]
@@ -11121,10 +11853,20 @@ function CollapsibleQuickMeasurements({
           editingHomeIndex
         )
       : grouped;
+    let positioned = pinned;
+    for (const [key, home] of Object.entries(typedMeasurementHomes)) {
+      if (!home) continue;
+      positioned = pinQuickMeasurementFieldInGroup(
+        positioned,
+        key as QuickMeasurementFieldKey,
+        home.homeGroup,
+        home.homeIndex
+      );
+    }
     // Photo/notes bathroom jobs use wet-area steppers — shower SF lives in the wet area panel.
     if (!showWetAreaFinishSteppers)
-      return { groups: pinned, wetArea: [] as typeof pinned.more };
-    return splitWetAreaQuickMeasurementFields(pinned);
+      return { groups: positioned, wetArea: [] as typeof positioned.more };
+    return splitWetAreaQuickMeasurementFields(positioned);
   }, [
     fieldResults,
     editingFieldKey,
@@ -11133,6 +11875,7 @@ function CollapsibleQuickMeasurements({
     showWetAreaFinishSteppers,
     typedMoreMeasurementKeys,
     typedMoreMeasurementPositions,
+    typedMeasurementHomes,
   ]);
   const displayGroups = groups.groups;
   const wetAreaFields = groups.wetArea;
@@ -12574,6 +13317,17 @@ function CollapsibleQuickMeasurements({
         setEditingHomeGroup(home.homeGroup);
         setEditingHomeIndex(home.homeIndex);
         setEditingVariant(home.variant);
+        setTypedMeasurementHomes(prev =>
+          prev[key]
+            ? prev
+            : {
+                ...prev,
+                [key]: {
+                  homeGroup: home.homeGroup!,
+                  homeIndex: home.homeIndex!,
+                },
+              }
+        );
         if (home.homeGroup === 'more') {
           setTypedMoreMeasurementKeys(prev =>
             prev.includes(key) ? prev : [...prev, key]
@@ -16149,6 +16903,15 @@ export default function AIEstimateScopeAssumptionsModal({
           nextMeasurements,
           { templateKey: 'insulation' }
         );
+        const planAssemblies = buildInsulationAssembliesFromPlanMeasurements(
+          nextMeasurements as Record<string, unknown>
+        );
+        if (planAssemblies?.length) {
+          nextMeasurements = {
+            ...nextMeasurements,
+            insulationAssemblies: planAssemblies,
+          };
+        }
       }
       if (
         hydratedPlanTrade === 'electrical' ||
@@ -20421,6 +21184,7 @@ export default function AIEstimateScopeAssumptionsModal({
           ) : null}
 
           <CollapsibleQuickMeasurements
+            visible={visible}
             expanded={quickMeasurementsOpen}
             onToggle={() => {
               if (quickMeasurementsOpen) {
@@ -20651,6 +21415,12 @@ export default function AIEstimateScopeAssumptionsModal({
               measurements={measurements as Record<string, unknown>}
               onChange={(key, value) =>
                 setMeasurementsSynced(prev => ({ ...prev, [key]: value }))
+              }
+              onAssembliesChange={assemblies =>
+                setMeasurementsSynced(prev => ({
+                  ...prev,
+                  insulationAssemblies: assemblies,
+                }))
               }
               Colors={Colors}
               darkMode={darkMode}

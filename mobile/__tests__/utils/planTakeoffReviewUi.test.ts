@@ -173,7 +173,7 @@ describe('plan takeoff review UI polish', () => {
       scopeTakeoffStatusLines({
         itemId: 'insulation',
         evidence: 'Standard ground-up scope for a full residential plan set',
-      }).some(l => /Needs envelope surface takeoff/i.test(l))
+      }).some(l => /Needs whole-house insulation surface takeoff/i.test(l))
     ).toBe(true);
 
     expect(

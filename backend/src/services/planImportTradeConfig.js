@@ -303,6 +303,7 @@ const TRADE_CONFIGS = {
       'Opening deductions, garage separation, and required R-values',
     ],
     reviewMeasurementKeys: [
+      'exteriorWallGrossSqft',
       'exteriorWallInsulationSqft',
       'atticInsulationSqft',
       'insulatedRoofDeckSqft',

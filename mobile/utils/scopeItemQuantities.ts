@@ -41,6 +41,7 @@ import {
   shouldPreserveShellFramingComponentMeasurement,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
+  copyInsulationAssemblyFields,
   copyInsulationScopeNumericFields,
   copyInsulationScopeTextFields,
 } from '@/utils/subcontractorTrade/insulationPlanConvergence';
@@ -173,6 +174,7 @@ import {
 import {
   insulationEnvelopeInputsFromPlanFacts,
   resolveInsulationEnvelopePlanningQuantity,
+  type InsulationEnvelopeInputs,
 } from '@/utils/insulationEnvelopeQuantity';
 import {
   resolveDraftScopeNotes,
@@ -352,7 +354,7 @@ export const DUAL_QUANTITY_FIELD_LABELS: Record<
     allowance: 'Allowance ($)',
   },
   insulation: {
-    count: 'Thermal-envelope area',
+    count: 'Whole-house insulation area',
     countUnit: 'sqft',
     allowance: 'Allowance ($)',
   },
@@ -555,6 +557,21 @@ export type NormalizedScopeMeasurements = {
   stuccoRepairAffectedSqft: number | null;
   stuccoStories: number | null;
   stuccoWallHeightFt: number | null;
+  exteriorWallGrossSqft: number | null;
+  exteriorWallInsulationSqft: number | null;
+  atticInsulationSqft: number | null;
+  insulatedRoofDeckSqft: number | null;
+  floorInsulationSqft: number | null;
+  garageSeparationInsulationSqft: number | null;
+  insulatedGarageWallSqft: number | null;
+  insulatedGarageCeilingSqft: number | null;
+  openingDeductionSqft: number | null;
+  insulationMaterialType: string | null;
+  insulationRValue: string | null;
+  garageInsulationIncluded: string | null;
+  insulationAssemblies: import('@/utils/estimateAiDraft').InsulationAssembly[] | null;
+  planFacts?: ScopeMeasurements['planFacts'];
+  quickMeasurementSources?: Record<string, string>;
   railingLf: number | null;
   baseboardLf: number | null;
   interiorDoorCount: number | null;
@@ -6446,6 +6463,29 @@ export function normalizeScopeMeasurements(
     roofGutterLf: num(measurements?.roofGutterLf),
     roofDownspoutCount: num(measurements?.roofDownspoutCount),
     drywallSqft: num(measurements?.drywallSqft),
+    exteriorWallGrossSqft: num(measurements?.exteriorWallGrossSqft),
+    exteriorWallInsulationSqft: num(
+      measurements?.exteriorWallInsulationSqft
+    ),
+    atticInsulationSqft: num(measurements?.atticInsulationSqft),
+    insulatedRoofDeckSqft: num(measurements?.insulatedRoofDeckSqft),
+    floorInsulationSqft: num(measurements?.floorInsulationSqft),
+    garageSeparationInsulationSqft: num(
+      measurements?.garageSeparationInsulationSqft
+    ),
+    insulatedGarageWallSqft: num(measurements?.insulatedGarageWallSqft),
+    insulatedGarageCeilingSqft: num(
+      measurements?.insulatedGarageCeilingSqft
+    ),
+    openingDeductionSqft: num(measurements?.openingDeductionSqft),
+    insulationMaterialType: measurements?.insulationMaterialType ?? null,
+    insulationRValue: measurements?.insulationRValue ?? null,
+    garageInsulationIncluded: measurements?.garageInsulationIncluded ?? null,
+    insulationAssemblies: copyInsulationAssemblyFields(
+      measurements as Record<string, unknown>
+    ),
+    planFacts: measurements?.planFacts,
+    quickMeasurementSources: measurements?.quickMeasurementSources,
     concreteSqft: num(measurements?.concreteSqft),
     concreteReinforcementSqft: num(measurements?.concreteReinforcementSqft),
     concreteSealerSqft: num(measurements?.concreteSealerSqft),
@@ -7105,11 +7145,15 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   insulation: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKeys: ['floorAreaSqft'],
+    measurementKeys: [
+      'exteriorWallGrossSqft',
+      'exteriorWallInsulationSqft',
+      'openingDeductionSqft',
+    ],
     requiresUserQuantity: true,
     quantityHelper:
-      'Enter thermal-envelope SF (exterior walls + attic − openings). Planning estimate when takeoff is missing — not drywall surface.',
-    missingMessage: 'Needs thermal-envelope insulation SF',
+      'Use net walls plus a confirmed attic/ceiling or insulated roof-deck SF. Do not invent missing surfaces from living area.',
+    missingMessage: 'Needs whole-house insulation surface takeoff',
   },
   drywall: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.drywall,
@@ -7381,11 +7425,15 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   insulation: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKeys: ['floorAreaSqft'],
+    measurementKeys: [
+      'exteriorWallGrossSqft',
+      'exteriorWallInsulationSqft',
+      'openingDeductionSqft',
+    ],
     requiresUserQuantity: true,
     quantityHelper:
-      'Enter thermal-envelope SF (exterior walls + attic − openings). Planning estimate when takeoff is missing — not drywall surface.',
-    missingMessage: 'Needs thermal-envelope insulation SF',
+      'Use net walls plus a confirmed attic/ceiling or insulated roof-deck SF. Do not invent missing surfaces from living area.',
+    missingMessage: 'Needs whole-house insulation surface takeoff',
   },
   drywall: {
     defaultUnit: 'sqft',
@@ -9118,6 +9166,38 @@ export function syncItemQuantitiesToMeasurementFields(
     )
       continue;
     next[field] = String(entry.quantity);
+  }
+  const insulationWalls =
+    Number(next.exteriorWallInsulationSqft) ||
+    Number(next.exteriorWallGrossSqft);
+  const insulationOpenings = Number(next.openingDeductionSqft);
+  const hasInsulationAssemblies =
+    resolvedInsulationAssemblies(next).length > 0;
+  if (insulationWalls > 0 || insulationOpenings > 0 || hasInsulationAssemblies) {
+    const envelope = resolveInsulationEnvelopePlanningQuantity(
+      insulationEnvelopeInputsFromPlanFacts(
+        next.planFacts,
+        parseScopeMeasurementInput(String(next.floorAreaSqft ?? '')),
+        {
+          ...next,
+          suppressAtticPlanningFallback:
+            insulationWalls > 0 || insulationOpenings > 0,
+        } as unknown as Partial<InsulationEnvelopeInputs>
+      )
+    );
+    if (envelope && Number(envelope.totalInsulationEnvelopeSqft) > 0) {
+      const existing = next.itemQuantities?.insulation;
+      if (!(Number(existing?.quantity) > 0)) {
+        next.itemQuantities = {
+          ...next.itemQuantities,
+          insulation: {
+            quantity: String(envelope.totalInsulationEnvelopeSqft),
+            unit: 'sqft',
+            quantitySource: 'plan_vision',
+          },
+        };
+      }
+    }
   }
   for (const card of ELECTRICAL_CARDS) {
     if (card.measurementKey === 'serviceAmperage') continue;
@@ -11983,6 +12063,7 @@ function buildGroundUpBarometerLumpPricing(
     helper: string;
     comparisonRange: { low: number; high: number };
     projectId: SouthernUtahProjectId | null;
+    pricingDetail?: string | null;
   },
   opts?: {
     basis?: { quantity: number; unit: string } | null;
@@ -12012,6 +12093,7 @@ function buildGroundUpBarometerLumpPricing(
       splitConfidence: hasSplit ? 'medium' : 'none',
       comparisonRange: lump.comparisonRange,
       basis: opts?.basis ?? null,
+      pricingDetail: lump.pricingDetail ?? null,
       impliedUnitRateLabel: livingSfRef?.impliedUnitRateLabel ?? null,
       benchmarkLivingSf: livingSfRef?.benchmarkLivingSf ?? null,
       costBuckets: hasSplit
@@ -12063,7 +12145,21 @@ function insulationAssemblyRateAdjustments(
   laborMultiplier: number;
   label: string;
 } {
-  const type = String(measurements.insulationMaterialType || '')
+  return insulationAssemblyRateAdjustmentsForValues(
+    measurements.insulationMaterialType,
+    measurements.insulationRValue
+  );
+}
+
+function insulationAssemblyRateAdjustmentsForValues(
+  materialType: unknown,
+  rValueInput: unknown
+): {
+  materialMultiplier: number;
+  laborMultiplier: number;
+  label: string;
+} {
+  const type = String(materialType || '')
     .trim()
     .toLowerCase();
   const typeRates: Record<string, [number, number]> = {
@@ -12079,7 +12175,7 @@ function insulationAssemblyRateAdjustments(
     ? typeRates[typeKey]
     : [1, 1];
   const rValue = Number(
-    String(measurements.insulationRValue || '').match(/\d{2,3}/)?.[0] || ''
+    String(rValueInput || '').match(/\d{2,3}/)?.[0] || ''
   );
   const rMaterial =
     {
@@ -12107,6 +12203,297 @@ function insulationAssemblyRateAdjustments(
   };
 }
 
+function resolvedInsulationAssemblies(
+  measurements: ScopeMeasurementsInputExtended
+): Array<{
+  materialType: string;
+  rValue: string;
+  sqft: number;
+  location: string | null;
+}> {
+  if (!Array.isArray(measurements.insulationAssemblies)) return [];
+  return measurements.insulationAssemblies
+    .map(row => ({
+      materialType: String(row.materialType || '').trim(),
+      rValue: String(row.rValue || '').trim(),
+      sqft: parseScopeMeasurementInput(String(row.sqft ?? '')),
+      location: String(row.location || '').trim() || null,
+      source: row.source,
+      confirmed: row.confirmed,
+    }))
+    .filter(
+      row =>
+        row.sqft != null &&
+        row.sqft > 0 &&
+        Boolean(row.materialType) &&
+        Boolean(row.rValue) &&
+        row.confirmed !== false &&
+        row.source !== 'calculated_from_plan'
+    ) as Array<{
+    materialType: string;
+    rValue: string;
+    sqft: number;
+    location: string | null;
+  }>;
+}
+
+function insulationRateAdjustmentsForMeasurements(
+  measurements: ScopeMeasurementsInputExtended
+): {
+  materialMultiplier: number;
+  laborMultiplier: number;
+  label: string;
+} {
+  const rows = resolvedInsulationAssemblies(measurements);
+  if (!rows.length) return insulationAssemblyRateAdjustments(measurements);
+  const totalSqft = rows.reduce((sum, row) => sum + row.sqft, 0);
+  const materialMultiplier =
+    rows.reduce(
+      (sum, row) =>
+        sum +
+        row.sqft *
+          insulationAssemblyRateAdjustmentsForValues(
+            row.materialType,
+            row.rValue
+          ).materialMultiplier,
+      0
+    ) / totalSqft;
+  const laborMultiplier =
+    rows.reduce(
+      (sum, row) =>
+        sum +
+        row.sqft *
+          insulationAssemblyRateAdjustmentsForValues(
+            row.materialType,
+            row.rValue
+          ).laborMultiplier,
+      0
+    ) / totalSqft;
+  return {
+    materialMultiplier,
+    laborMultiplier,
+    label: rows
+      .map(row => `${row.materialType} · ${row.rValue}`)
+      .join(' + '),
+  };
+}
+
+const INSULATION_COMPONENT_RATES: Record<
+  | 'insulatedRoofDeckSqft'
+  | 'floorInsulationSqft'
+  | 'garageSeparationInsulationSqft'
+  | 'insulatedGarageWallSqft'
+  | 'insulatedGarageCeilingSqft',
+  { material: number; labor: number; label: string }
+> = {
+  insulatedRoofDeckSqft: {
+    material: 2.5,
+    labor: 3.5,
+    label: 'insulated roof deck',
+  },
+  floorInsulationSqft: {
+    material: 1.15,
+    labor: 1.6,
+    label: 'floor insulation',
+  },
+  garageSeparationInsulationSqft: {
+    material: 1.5,
+    labor: 2.25,
+    label: 'garage separation',
+  },
+  insulatedGarageWallSqft: {
+    material: 1.5,
+    labor: 2.25,
+    label: 'insulated garage walls',
+  },
+  insulatedGarageCeilingSqft: {
+    material: 1.5,
+    labor: 2.25,
+    label: 'insulated garage ceiling',
+  },
+};
+
+type InsulationEnvelopePricing = {
+  material: number;
+  labor: number;
+  total: number;
+  detail: string | null;
+};
+
+function insulationAssemblyLocationRate(location: string | null) {
+  switch (location) {
+    case 'roof_deck':
+      return INSULATION_COMPONENT_RATES.insulatedRoofDeckSqft;
+    case 'floor':
+      return INSULATION_COMPONENT_RATES.floorInsulationSqft;
+    case 'garage_separation':
+      return INSULATION_COMPONENT_RATES.garageSeparationInsulationSqft;
+    default:
+      return null;
+  }
+}
+
+function insulationAssemblyLocationLabel(location: string | null): string {
+  return (
+    {
+      exterior_wall: 'exterior wall',
+      attic_ceiling: 'attic / ceiling',
+      roof_deck: 'roof deck',
+      garage_separation: 'garage separation',
+      floor: 'floor',
+    }[location || ''] || 'whole-house'
+  );
+}
+
+function priceInsulationEnvelopeComponents(params: {
+  lump: { material: number; labor: number; total: number };
+  envelope: {
+    totalInsulationEnvelopeSqft: number;
+    components: Array<{
+      key: string;
+      quantity: number;
+      included: boolean;
+    }>;
+  } | null;
+  assembly: {
+    materialMultiplier: number;
+    laborMultiplier: number;
+  };
+  assemblies?: Array<{
+    materialType: string;
+    rValue: string;
+    sqft: number;
+    location: string | null;
+  }>;
+}): InsulationEnvelopePricing {
+  const assemblies = params.assemblies || [];
+  if (!params.envelope && !assemblies.length) {
+    return {
+      material: params.lump.material,
+      labor: params.lump.labor,
+      total: params.lump.total,
+      detail: null,
+    };
+  }
+
+  const baseKeys = new Set([
+    'exteriorWallInsulationSqft',
+    'atticInsulationSqft',
+    'insulatedRoofDeckSqft',
+  ]);
+  const baseComponents = (params.envelope?.components || []).filter(
+    component => component.included && baseKeys.has(component.key)
+  );
+  const baseQuantity =
+    assemblies.length > 0
+      ? assemblies.reduce((sum, row) => sum + Math.max(0, row.sqft), 0)
+      : baseComponents.reduce(
+          (sum, component) => sum + Math.max(0, component.quantity),
+          0
+        );
+  if (!(baseQuantity > 0)) {
+    return {
+      material: params.lump.material,
+      labor: params.lump.labor,
+      total: params.lump.total,
+      detail: null,
+    };
+  }
+
+  const baseMaterialRate = params.lump.material / baseQuantity;
+  const baseLaborRate = params.lump.labor / baseQuantity;
+  let material = params.lump.material;
+  let labor = params.lump.labor;
+  const standardMaterialRate = params.lump.material / baseQuantity;
+  const standardLaborRate = params.lump.labor / baseQuantity;
+  const detail: string[] = [];
+  if (assemblies.length) {
+    material = 0;
+    labor = 0;
+    for (const row of assemblies) {
+      const rowAssembly = insulationAssemblyRateAdjustmentsForValues(
+        row.materialType,
+        row.rValue
+      );
+      const locationRate = insulationAssemblyLocationRate(row.location);
+      const rowMaterialRate = locationRate
+        ? locationRate.material * rowAssembly.materialMultiplier
+        : standardMaterialRate * rowAssembly.materialMultiplier;
+      const rowLaborRate = locationRate
+        ? locationRate.labor * rowAssembly.laborMultiplier
+        : standardLaborRate * rowAssembly.laborMultiplier;
+      material += round2(
+        row.sqft * rowMaterialRate
+      );
+      labor += round2(
+        row.sqft * rowLaborRate
+      );
+      detail.push(
+        `${Math.round(row.sqft).toLocaleString()} SF ${row.materialType} ${row.rValue} ${insulationAssemblyLocationLabel(row.location)} @ $${round2(
+          rowMaterialRate + rowLaborRate
+        ).toFixed(2)}/SF`
+      );
+    }
+  } else {
+    detail.push(
+      `${Math.round(baseQuantity).toLocaleString()} SF standard envelope @ $${round2(
+        params.lump.total / baseQuantity
+      ).toFixed(2)}/SF`
+    );
+  }
+
+  const roofDeck = params.envelope?.components.find(
+    component =>
+      component.key === 'insulatedRoofDeckSqft' && component.included
+  );
+  if (!assemblies.length && roofDeck && roofDeck.quantity > 0) {
+    const rate = INSULATION_COMPONENT_RATES.insulatedRoofDeckSqft;
+    material -= round2(roofDeck.quantity * baseMaterialRate);
+    labor -= round2(roofDeck.quantity * baseLaborRate);
+    material += round2(
+      roofDeck.quantity * rate.material * params.assembly.materialMultiplier
+    );
+    labor += round2(
+      roofDeck.quantity * rate.labor * params.assembly.laborMultiplier
+    );
+    if (!assemblies.length) {
+      detail[0] = `${Math.round(baseQuantity).toLocaleString()} SF standard envelope @ $${round2(
+        params.lump.total / baseQuantity
+      ).toFixed(2)}/SF`;
+    }
+    detail.push(
+      `${Math.round(roofDeck.quantity).toLocaleString()} SF ${rate.label} @ $${round2(
+        rate.material * params.assembly.materialMultiplier +
+          rate.labor * params.assembly.laborMultiplier
+      ).toFixed(2)}/SF`
+    );
+  }
+
+  for (const component of params.envelope?.components || []) {
+    if (!component.included || baseKeys.has(component.key)) continue;
+    const rate = INSULATION_COMPONENT_RATES[
+      component.key as keyof typeof INSULATION_COMPONENT_RATES
+    ];
+    if (!rate || !(component.quantity > 0)) continue;
+    const materialRate = rate.material * params.assembly.materialMultiplier;
+    const laborRate = rate.labor * params.assembly.laborMultiplier;
+    material += round2(component.quantity * materialRate);
+    labor += round2(component.quantity * laborRate);
+    detail.push(
+      `${Math.round(component.quantity).toLocaleString()} SF ${rate.label} @ $${round2(
+        materialRate + laborRate
+      ).toFixed(2)}/SF`
+    );
+  }
+
+  return {
+    material: round2(material),
+    labor: round2(labor),
+    total: round2(material + labor),
+    detail: detail.join(' · '),
+  };
+}
+
 export function resolveScopeItemSuggestedPricing(
   itemId: string,
   measurementsInput: ScopeMeasurementsInputExtended,
@@ -12129,6 +12516,33 @@ export function resolveScopeItemSuggestedPricing(
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
+  const hasConfirmedInsulationBoundary =
+    itemId === 'insulation' &&
+    (Array.isArray(measurementsInput.insulationAssemblies)
+      ? resolvedInsulationAssemblies(measurementsInput).some(row =>
+          ['attic_ceiling', 'roof_deck'].includes(String(row.location || ''))
+        )
+      : (Number(measurementsInput.atticInsulationSqft) > 0 &&
+          ![
+            'calculated_from_components',
+            'estimated_from_formula',
+            'needs_confirmation',
+          ].includes(
+            String(measurementsInput.quickMeasurementSources?.atticInsulationSqft)
+          )) ||
+        Number(measurementsInput.insulatedRoofDeckSqft) > 0);
+  if (
+    itemId === 'insulation' &&
+    !(
+      hasConfirmedInsulationBoundary ||
+      (['user_entered', 'manual_override'].includes(
+        String(resolved.quantitySource)
+      ) &&
+        Number(resolved.quantity) > 0)
+    )
+  ) {
+    return empty;
+  }
   if (
     String(templateKey || '').toLowerCase() === 'framing' &&
     itemId === 'shear_sheathing' &&
@@ -14366,7 +14780,7 @@ export function resolveScopeItemSuggestedPricing(
     average?.material != null &&
     average?.labor != null
   ) {
-    const assembly = insulationAssemblyRateAdjustments(measurementsInput);
+    const assembly = insulationRateAdjustmentsForMeasurements(measurementsInput);
     average = {
       ...average,
       material: round2(average.material * assembly.materialMultiplier),
@@ -14560,30 +14974,79 @@ export function resolveScopeItemSuggestedPricing(
     }
 
     if (itemId === 'insulation') {
-      const userEnvelope =
-        resolved.quantitySource === 'user_entered' &&
-        resolved.quantity != null &&
-        Number(resolved.quantity) > 0;
-      if (!userEnvelope) {
-        const lump = resolveInsulationLumpSuggestedFill({
+      const lump = resolveInsulationLumpSuggestedFill({
+        livingSf,
+        state: pricingContext?.state,
+      });
+      const assemblyRows = resolvedInsulationAssemblies(measurementsInput);
+      const assembly = insulationRateAdjustmentsForMeasurements(
+        measurementsInput
+      );
+      const legacyAssembly = insulationAssemblyRateAdjustments(measurementsInput);
+      const adjustedLegacyLump = {
+        ...lump,
+        material: round2(lump.material * legacyAssembly.materialMultiplier),
+        labor: round2(lump.labor * legacyAssembly.laborMultiplier),
+        total: round2(
+          lump.material * legacyAssembly.materialMultiplier +
+            lump.labor * legacyAssembly.laborMultiplier
+        ),
+        rateSourceLabel: legacyAssembly.label
+          ? `${lump.rateSourceLabel} · ${legacyAssembly.label}`
+          : lump.rateSourceLabel,
+      };
+      const assemblyLump = {
+        ...(assemblyRows.length ? lump : adjustedLegacyLump),
+        ...(assemblyRows.length && assembly.label
+          ? { rateSourceLabel: `${lump.rateSourceLabel} · ${assembly.label}` }
+          : {}),
+      };
+      const envelope = resolveInsulationEnvelopePlanningQuantity(
+        insulationEnvelopeInputsFromPlanFacts(
+          measurementsInput.planFacts,
           livingSf,
-          state: pricingContext?.state,
-        });
-        const assembly = insulationAssemblyRateAdjustments(measurementsInput);
-        const adjustedLump = {
-          ...lump,
-          material: round2(lump.material * assembly.materialMultiplier),
-          labor: round2(lump.labor * assembly.laborMultiplier),
-          total: round2(
-            lump.material * assembly.materialMultiplier +
-              lump.labor * assembly.laborMultiplier
-          ),
-        };
-        return buildGroundUpBarometerLumpPricing('insulation', adjustedLump, {
-          livingSf,
-          allowanceLabel: 'Installed insulation budget',
-        });
-      }
+          {
+            ...(measurementsInput as unknown as Record<string, unknown>),
+            suppressAtticPlanningFallback:
+              Number(measurementsInput.exteriorWallGrossSqft) > 0 ||
+              Number(measurementsInput.exteriorWallInsulationSqft) > 0 ||
+              Number(measurementsInput.openingDeductionSqft) > 0,
+          } as unknown as Partial<InsulationEnvelopeInputs>
+        )
+      );
+      const componentPricing = priceInsulationEnvelopeComponents({
+        lump: assemblyLump,
+        envelope,
+        assembly,
+        assemblies: assemblyRows,
+      });
+      const adjustedLump = {
+        ...assemblyLump,
+        ...componentPricing,
+        pricingDetail: componentPricing.detail,
+        helper: [
+          lump.helper,
+          assembly.label ? `Assembly: ${assembly.label}.` : null,
+          String(measurementsInput.garageInsulationIncluded || '').trim()
+            ? `Garage: ${String(
+                measurementsInput.garageInsulationIncluded
+              ).trim()}.`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(' '),
+      };
+      return buildGroundUpBarometerLumpPricing('insulation', adjustedLump, {
+        livingSf,
+        basis:
+          envelope && Number(envelope.totalInsulationEnvelopeSqft) > 0
+            ? {
+                quantity: envelope.totalInsulationEnvelopeSqft,
+                unit: 'sqft',
+              }
+            : null,
+        allowanceLabel: 'Installed insulation budget',
+      });
     }
 
     if (itemId === 'exterior_paint') {
@@ -14915,7 +15378,7 @@ export function resolveScopeItemSuggestedPricing(
       }
     }
   }
-  // Insulation: thermal envelope (exterior walls + attic − openings). Never living×3.5 / drywall.
+  // Insulation: whole-house thermal envelope from explicit surfaces only.
   if (itemId === 'insulation') {
     const livingSf = parseScopeMeasurementInput(
       measurementsInput.floorAreaSqft
@@ -16636,6 +17099,69 @@ function resolveChecklistItemQuantityCore(
       ) {
         return applyPricingReadyFlags(plumbingQuickMeasurement, itemId, ctx);
       }
+    }
+  }
+
+  const hasExplicitInsulationTakeoff =
+    itemId === 'insulation' &&
+    (Number(measurements.exteriorWallGrossSqft) > 0 ||
+      Number(measurements.exteriorWallInsulationSqft) > 0 ||
+      Number(measurements.atticInsulationSqft) > 0 ||
+      Number(measurements.insulatedRoofDeckSqft) > 0 ||
+      Number(measurements.openingDeductionSqft) > 0);
+  if (hasExplicitInsulationTakeoff) {
+    const hasWallTakeoff =
+      Number(measurements.exteriorWallGrossSqft) > 0 ||
+      Number(measurements.exteriorWallInsulationSqft) > 0;
+    const atticSource = String(
+      measurements.quickMeasurementSources?.atticInsulationSqft || ''
+    );
+    const atticIsSuggested =
+      atticSource === 'calculated_from_components' ||
+      atticSource === 'estimated_from_formula' ||
+      atticSource === 'needs_confirmation';
+    const hasCeilingBoundary =
+      (Number(measurements.atticInsulationSqft) > 0 && !atticIsSuggested) ||
+      Number(measurements.insulatedRoofDeckSqft) > 0;
+    const envelopeInputs = insulationEnvelopeInputsFromPlanFacts(
+      measurements.planFacts,
+      Number(measurements.floorAreaSqft) || null,
+      {
+        ...(measurements as unknown as InsulationEnvelopeInputs),
+        suppressAtticPlanningFallback: true,
+        requireExplicitSurfaceTakeoff: true,
+        allowConditionedAreaCeilingSuggestion: true,
+        atticInsulationSqft: atticIsSuggested
+          ? null
+          : measurements.atticInsulationSqft,
+      }
+    );
+    const hasSuggestedCeiling =
+      atticIsSuggested ||
+      (!hasCeilingBoundary &&
+        Number(envelopeInputs.conditionedCeilingAreaSqft) > 0);
+    const envelope = resolveInsulationEnvelopePlanningQuantity(
+      envelopeInputs
+    );
+    if (envelope?.totalInsulationEnvelopeSqft > 0) {
+      return {
+        quantity: envelope.totalInsulationEnvelopeSqft,
+        unit: 'sqft',
+        quantitySource: 'inferred',
+        sourceLabel: hasWallTakeoff && hasCeilingBoundary
+          ? 'Whole-house insulation · plan takeoff'
+          : hasWallTakeoff && hasSuggestedCeiling
+            ? 'Calculated conditioned ceiling area · confirm'
+            : 'Partial insulation takeoff · ceiling boundary required',
+        pricingReady: hasWallTakeoff && hasCeilingBoundary,
+        quantityHelper:
+          hasWallTakeoff && hasCeilingBoundary
+            ? rule.quantityHelper
+            : hasWallTakeoff && hasSuggestedCeiling
+              ? 'Calculated from conditioned main + upper floor areas; confirm vaulted, open-to-below, or roof-deck areas.'
+              : 'Add attic/ceiling or insulated roof-deck SF before pricing this whole-house scope.',
+        showInput: true,
+      };
     }
   }
 
@@ -18425,6 +18951,9 @@ export function scopeMeasurementsToPayload(
       parseScopeMeasurementInput
     ),
     ...copyInsulationScopeTextFields(sanitized as Record<string, unknown>),
+    insulationAssemblies: copyInsulationAssemblyFields(
+      sanitized as Record<string, unknown>
+    ),
     paintScope: sanitized.paintScope ?? null,
     wallPaintSqft: parseScopeMeasurementInput(sanitized.wallPaintSqft),
     ceilingPaintSqft: parseScopeMeasurementInput(sanitized.ceilingPaintSqft),
@@ -19170,6 +19699,9 @@ export function scopeMeasurementsInputFromPayload(
         copyInsulationScopeTextFields(payload as Record<string, unknown>)
       ).map(([key, value]) => [key, value ?? ''])
     ),
+    insulationAssemblies: copyInsulationAssemblyFields(
+      payload as Record<string, unknown>
+    ),
     railingLf: measurementFieldString(payload.railingLf),
     baseboardLf: measurementFieldString(payload.baseboardLf),
     showerWallTileSqft: measurementFieldString(payload.showerWallTileSqft),
@@ -19788,6 +20320,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   framingOpeningCount?: string | number | null;
   framingCleanupCount?: string | number | null;
   tradeScopeSelections?: ScopeMeasurements['tradeScopeSelections'];
+  insulationAssemblies?: ScopeMeasurements['insulationAssemblies'];
   planRooms?: import('@/utils/estimateAiDraft').ScopeMeasurements['planRooms'];
   flooringExistingTypes?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringExistingTypes'];
   flooringProductScope?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringProductScope'];
@@ -20385,6 +20918,7 @@ export function initialScopeMeasurementInputExtended(
     stuccoRepairAffectedSqft: pick('stuccoRepairAffectedSqft'),
     stuccoStories: pick('stuccoStories'),
     stuccoWallHeightFt: pick('stuccoWallHeightFt'),
+    exteriorWallGrossSqft: pick('exteriorWallGrossSqft'),
     exteriorWallInsulationSqft: pick('exteriorWallInsulationSqft'),
     atticInsulationSqft: pick('atticInsulationSqft'),
     insulatedRoofDeckSqft: pick('insulatedRoofDeckSqft'),
@@ -20396,6 +20930,12 @@ export function initialScopeMeasurementInputExtended(
     insulationMaterialType: pickString('insulationMaterialType'),
     insulationRValue: pickString('insulationRValue'),
     garageInsulationIncluded: pickString('garageInsulationIncluded'),
+    insulationAssemblies: copyInsulationAssemblyFields({
+      insulationAssemblies:
+        parsedFromNotes.insulationAssemblies ??
+        suggested?.insulationAssemblies ??
+        saved?.insulationAssemblies,
+    }),
     railingLf: pick('railingLf'),
     baseboardLf: pickBaseboardLf(),
     showerWallTileSqft: pick('showerWallTileSqft'),

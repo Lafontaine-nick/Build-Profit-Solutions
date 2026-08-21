@@ -206,7 +206,7 @@ const FALLBACK_MEASUREMENT_COPY: Record<
     statusDetail: 'System count not provided',
   },
   insulation: {
-    title: 'Thermal-envelope area needed',
+    title: 'Whole-house insulation area needed',
     hint: 'Add exterior wall + attic insulation SF (not drywall surface) for more accurate pricing.',
     statusDetail: 'Thermal-envelope takeoff not provided',
   },
@@ -1024,6 +1024,10 @@ export function buildSuggestedPricingCardDisplay(input: {
           block.total / Number(block.basis?.quantity)
         )}/${flooringQuantityUnit}`
       : null;
+  const insulationPricingDetailLine =
+    itemId === 'insulation' && block.pricingDetail
+      ? ` · ${block.pricingDetail}`
+      : '';
   const unitRateLine = needsServiceAmperage
     ? null
     : isFlooringLineCard
@@ -1110,7 +1114,7 @@ export function buildSuggestedPricingCardDisplay(input: {
       : isFlooringLineCard
         ? formatSuggestedSplitLine(block)
         : block.installedBudgetBenchmark || block.splitSource === 'none'
-          ? formatSuggestedSplitLine(block)
+          ? `${formatSuggestedSplitLine(block)}${insulationPricingDetailLine}`
           : lumpSumOnly
             ? 'Allowance · Flat amount'
             : `${formatSuggestedSplitLine(block)}${

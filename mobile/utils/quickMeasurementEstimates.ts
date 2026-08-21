@@ -438,7 +438,11 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<
       insulationEnvelopeInputsFromPlanFacts(
         next.planFacts,
         living,
-        next as Partial<InsulationEnvelopeInputs>
+        {
+          ...(next as Partial<InsulationEnvelopeInputs>),
+          allowConditionedAreaCeilingSuggestion: true,
+          requireExplicitSurfaceTakeoff: true,
+        }
       )
     );
     if (envelope) {
@@ -450,7 +454,8 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<
             if (
               component.key === 'atticInsulationSqft' &&
               component.source !== 'contractor_entered' &&
-              component.source !== 'detected_from_plan'
+              component.source !== 'detected_from_plan' &&
+              component.source !== 'calculated_from_plan'
             ) {
               return false;
             }
@@ -466,6 +471,25 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<
           )
         ),
       } as T;
+      const calculatedAttic = envelope.components.find(
+        component =>
+          component.key === 'atticInsulationSqft' &&
+          component.source === 'calculated_from_plan' &&
+          component.included
+      );
+      if (calculatedAttic) {
+        const currentSources =
+          (next as MeasurementLookup & {
+            quickMeasurementSources?: Record<string, string>;
+          }).quickMeasurementSources || {};
+        next = {
+          ...next,
+          quickMeasurementSources: {
+            ...currentSources,
+            atticInsulationSqft: 'calculated_from_components',
+          },
+        } as T;
+      }
     }
   }
 

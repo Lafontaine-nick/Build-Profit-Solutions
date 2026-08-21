@@ -333,7 +333,7 @@ export function missingStatusDisplayLabel(
     case 'windows_doors':
       return 'Needs window/door opening count';
     case 'insulation':
-      return 'Needs thermal-envelope insulation SF';
+      return 'Needs whole-house insulation surface takeoff';
     case 'drywall':
       return 'Needs wall and ceiling surface SF';
     case 'paint':

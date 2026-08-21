@@ -240,10 +240,10 @@ describe('suggestedPricingCardUi', () => {
     expect(getScopeQuantityFieldLabels('plumbing_rough').count).toBe('Rough-in points');
     expect(getScopeQuantityFieldLabels('electrical_rough').count).toBe('Circuits / devices / boxes');
     expect(getScopeQuantityFieldLabels('hvac').count).toBe('Systems / tons');
-    expect(getScopeQuantityFieldLabels('insulation').count).toBe('Thermal-envelope area');
+    expect(getScopeQuantityFieldLabels('insulation').count).toBe('Whole-house insulation area');
     expect(getScopeQuantityFieldLabels('appliances').count).toBe('Appliances');
     expect(pricingBasisFieldLabel('windows_doors', 'each')).toBe('Window & door openings');
-    expect(pricingBasisFieldLabel('insulation', 'sqft')).toBe('Thermal-envelope area');
+    expect(pricingBasisFieldLabel('insulation', 'sqft')).toBe('Whole-house insulation area');
     expect(pricingBasisFieldLabel('unknown_scope', 'sqft')).toBe('Area (sqft)');
   });
 
@@ -318,6 +318,22 @@ describe('suggestedPricingCardUi', () => {
         })
       )
     ).toMatch(/living SF \(does not set price\)/);
+  });
+
+  it('shows insulation component pricing details on the installed package card', () => {
+    const display = buildSuggestedPricingCardDisplay({
+      itemId: 'insulation',
+      block: block({
+        installedBudgetBenchmark: true,
+        material: 4200,
+        labor: 6100,
+        total: 10300,
+        pricingDetail: '5,610 SF standard envelope @ $1.84/SF · 400 SF floor insulation @ $2.75/SF',
+      }),
+    });
+
+    expect(display.splitLine).toMatch(/5,610 SF standard envelope/);
+    expect(display.splitLine).toMatch(/400 SF floor insulation @ \$2.75\/SF/);
   });
 
   it('uses blended SF pricing chrome for flooring install cards', () => {

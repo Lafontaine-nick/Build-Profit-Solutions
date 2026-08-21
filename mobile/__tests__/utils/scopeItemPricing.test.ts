@@ -2502,7 +2502,10 @@ describe('resolveTemplateRateForItem', () => {
   it('prices ground-up insulation on thermal envelope SF, not living×3.5 drywall surface', () => {
     const livingSf = 1879;
     const drywallProxy = Math.round(livingSf * 3.5); // 6577 — must not be used
-    const input = inputWith({ floorAreaSqft: String(livingSf) });
+    const input = inputWith({
+      floorAreaSqft: String(livingSf),
+      atticInsulationSqft: String(livingSf),
+    });
     const resolved = {
       quantity: livingSf,
       unit: 'sqft' as const,
@@ -2520,6 +2523,231 @@ describe('resolveTemplateRateForItem', () => {
     // Envelope planning without perimeter still stays well below drywall surface.
     expect(fill?.basis?.quantity).toBeLessThan(5000);
     expect(fill?.basis?.quantity).toBeGreaterThan(2500);
+  });
+
+  it('does not price a ground-up insulation scope until the ceiling boundary is confirmed', () => {
+    const input = inputWith({
+      floorAreaSqft: '1879',
+      exteriorWallInsulationSqft: '1950.4',
+      openingDeductionSqft: '289.6',
+    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'insulation',
+      input,
+      'ground_up',
+      {
+        quantity: 1950.4,
+        unit: 'sqft',
+        quantitySource: 'inferred',
+      }
+    );
+    expect(fill).toBeNull();
+  });
+
+  it('does not price plan assemblies until a calculated ceiling is confirmed', () => {
+    const input = inputWith({
+      floorAreaSqft: '3660',
+      exteriorWallInsulationSqft: '1950.4',
+      atticInsulationSqft: '3660',
+      insulationAssemblies: [
+        {
+          id: 'plan-wall',
+          materialType: 'Batt',
+          rValue: 'R-21',
+          sqft: 1950.4,
+          location: 'exterior_wall',
+          source: 'detected_from_plan',
+          confirmed: true,
+        },
+        {
+          id: 'plan-attic',
+          materialType: 'Batt',
+          rValue: 'R-30',
+          sqft: 3660,
+          location: 'attic_ceiling',
+          source: 'calculated_from_plan',
+          confirmed: false,
+        },
+      ],
+    });
+
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'insulation',
+      input,
+      'ground_up',
+      {
+        quantity: 1950.4,
+        unit: 'sqft',
+        quantitySource: 'inferred',
+      }
+    );
+
+    expect(fill).toBeNull();
+  });
+
+  it('prices roof deck, floor, and garage separation SF as separate insulation components', () => {
+    const input = inputWith({
+      floorAreaSqft: '1879',
+      exteriorWallInsulationSqft: '1637',
+      atticInsulationSqft: '1879',
+      floorInsulationSqft: '400',
+      garageSeparationInsulationSqft: '220',
+      garageInsulationIncluded: 'separation only',
+      insulationMaterialType: 'Batt',
+      insulationRValue: 'R-21',
+    });
+    const resolved = {
+      quantity: 3736,
+      unit: 'sqft' as const,
+      quantitySource: 'inferred' as const,
+    };
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'insulation',
+      input,
+      'ground_up',
+      resolved
+    );
+
+    expect(fill?.basis).toEqual({ quantity: 4136, unit: 'sqft' });
+    expect(fill?.total).toBe(9444.2);
+    expect(fill?.pricingDetail).toMatch(/400 SF floor insulation @ \$2.75\/SF/);
+    expect(fill?.pricingDetail).toMatch(
+      /220 SF garage separation @ \$3.75\/SF/
+    );
+    expect(fill?.pricingDetail).not.toMatch(/insulated garage walls/);
+    expect(fill?.rateSourceLabel).toMatch(/batt · R-21/i);
+    expect(fill?.helper).toMatch(/Garage: separation only/i);
+  });
+
+  it('prices an insulated roof deck per SF and applies installation type and R-value', () => {
+    const battInput = inputWith({
+      floorAreaSqft: '1879',
+      exteriorWallInsulationSqft: '1637',
+      insulatedRoofDeckSqft: '1879',
+      preferRoofDeckOverAttic: true,
+      insulationMaterialType: 'Batt',
+      insulationRValue: 'R-21',
+    });
+    const sprayFoamInput = inputWith({
+      ...battInput,
+      insulationMaterialType: 'Spray foam',
+      insulationRValue: 'R-49',
+    });
+    const resolved = {
+      quantity: 3516,
+      unit: 'sqft' as const,
+      quantitySource: 'inferred' as const,
+    };
+
+    const batt = resolveScopeItemSuggestedPricing(
+      'insulation',
+      battInput,
+      'ground_up',
+      resolved
+    );
+    const sprayFoam = resolveScopeItemSuggestedPricing(
+      'insulation',
+      sprayFoamInput,
+      'ground_up',
+      resolved
+    );
+
+    expect(batt.fill?.pricingDetail).toMatch(
+      /1,879 SF insulated roof deck @ \$6.00\/SF/
+    );
+    expect(batt.fill?.rateSourceLabel).toMatch(/batt · R-21/i);
+    expect(sprayFoam.fill?.rateSourceLabel).toMatch(/spray foam · R-49/i);
+    expect(sprayFoam.fill!.total).toBeGreaterThan(batt.fill!.total);
+  });
+
+  it('provides pricing for every installation type and target R-value option', () => {
+    const types = [
+      'Batt',
+      'Blown-in',
+      'Spray foam',
+      'Rigid foam board',
+      'Cellulose',
+      'Mineral wool',
+    ];
+    const rValues = ['R-13', 'R-15', 'R-19', 'R-21', 'R-30', 'R-38', 'R-49', 'R-60'];
+    const resolved = {
+      quantity: 3516,
+      unit: 'sqft' as const,
+      quantitySource: 'inferred' as const,
+    };
+
+    for (const insulationMaterialType of types) {
+      const { fill } = resolveScopeItemSuggestedPricing(
+        'insulation',
+        inputWith({
+          floorAreaSqft: '1879',
+          exteriorWallInsulationSqft: '1637',
+          atticInsulationSqft: '1879',
+          insulationMaterialType,
+          insulationRValue: 'R-21',
+        }),
+        'ground_up',
+        resolved
+      );
+      expect(fill?.total).toBeGreaterThan(0);
+      expect(fill?.rateSourceLabel).toMatch(new RegExp(insulationMaterialType, 'i'));
+    }
+
+    for (const insulationRValue of rValues) {
+      const { fill } = resolveScopeItemSuggestedPricing(
+        'insulation',
+        inputWith({
+          floorAreaSqft: '1879',
+          exteriorWallInsulationSqft: '1637',
+          atticInsulationSqft: '1879',
+          insulationMaterialType: 'Batt',
+          insulationRValue,
+        }),
+        'ground_up',
+        resolved
+      );
+      expect(fill?.total).toBeGreaterThan(0);
+      expect(fill?.rateSourceLabel).toContain(insulationRValue);
+    }
+  });
+
+  it('prices multiple insulation assemblies by each selected type, R-value, and area', () => {
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'insulation',
+      inputWith({
+        floorAreaSqft: '1879',
+        exteriorWallInsulationSqft: '2000',
+        atticInsulationSqft: '1500',
+        insulationAssemblies: [
+          {
+            id: 'walls',
+            materialType: 'Batt',
+            rValue: 'R-13',
+            sqft: '2000',
+            location: 'exterior_wall',
+          },
+          {
+            id: 'ceiling',
+            materialType: 'Spray foam',
+            rValue: 'R-30',
+            sqft: '1500',
+            location: 'roof_deck',
+          },
+        ],
+      }),
+      'ground_up',
+      {
+        quantity: 3500,
+        unit: 'sqft',
+        quantitySource: 'inferred',
+      }
+    );
+
+    expect(fill?.basis).toEqual({ quantity: 3500, unit: 'sqft' });
+    expect(fill?.pricingDetail).toMatch(/2,000 SF Batt R-13 exterior wall/);
+    expect(fill?.pricingDetail).toMatch(/1,500 SF Spray foam R-30 roof deck/);
+    expect(fill?.rateSourceLabel).toMatch(/Batt · R-13 \+ Spray foam · R-30/i);
+    expect(fill?.total).toBeGreaterThan(0);
   });
 
   it('keeps drywall notes surface takeoff (does not expand living SF when qty differs)', () => {

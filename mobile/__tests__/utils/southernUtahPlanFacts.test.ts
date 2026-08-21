@@ -125,4 +125,29 @@ describe('southernUtahPlanFacts roof footprint', () => {
     expect(priced.fill!.total).toBeLessThan(27000);
     expect(priced.fill!.total).toBeGreaterThan(15000); // not the $8.8k notes path
   });
+
+  it('suggests Plan 58 conditioned ceiling SF without marking it detected', () => {
+    const synced = syncMeasurementsWithSouthernUtahPlanFacts(
+      {
+        floorAreaSqft: '3660',
+        exteriorWallInsulationSqft: '1950.4',
+        openingDeductionSqft: '289.6',
+        planFacts: {
+          buildingAreas: {
+            totalLivingSqft: 3660,
+            mainFloorLivingSqft: 2047,
+            upstairsLivingSqft: 1613,
+            garageSqft: 781,
+            coveredPatioSqft: 297,
+          },
+          storyCount: 2,
+        },
+      } as any,
+      { templateKey: 'insulation' }
+    );
+    expect(Number(synced.atticInsulationSqft)).toBe(3660);
+    expect(synced.quickMeasurementSources?.atticInsulationSqft).toBe(
+      'calculated_from_components'
+    );
+  });
 });

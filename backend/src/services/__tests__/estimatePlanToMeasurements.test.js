@@ -929,6 +929,7 @@ describe('estimatePlanToMeasurements', () => {
         elevationFaces: [{ id: 'north', windowDoorOpeningsSqft: 289 }],
       },
     );
+    expect(result.measurements.exteriorWallGrossSqft).toBe(1926);
     expect(result.measurements.exteriorWallInsulationSqft).toBe(1637);
   });
 
@@ -936,6 +937,7 @@ describe('estimatePlanToMeasurements', () => {
     const filtered = filterPlanMeasurementsForTrade(
       {
         openingDeductionSqft: 289.6,
+        exteriorWallGrossSqft: 1926,
         exteriorWallInsulationSqft: 1637,
         stuccoWindowDoorOpeningSqft: 289.6,
         drywallSqft: 12000,
@@ -944,6 +946,7 @@ describe('estimatePlanToMeasurements', () => {
       TRADE_CONFIGS.insulation,
     );
     expect(filtered.openingDeductionSqft).toBe(289.6);
+    expect(filtered.exteriorWallGrossSqft).toBe(1926);
     expect(filtered.exteriorWallInsulationSqft).toBe(1637);
     expect(filtered.stuccoWindowDoorOpeningSqft).toBeUndefined();
     expect(filtered.drywallSqft).toBeUndefined();

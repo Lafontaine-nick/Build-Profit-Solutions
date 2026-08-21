@@ -470,4 +470,15 @@ describe('tagPlanDetectedQuickMeasurementKeys', () => {
     expect(next.roofSquares).toBe('user_confirmed_suggestion');
     expect(next.floorAreaSqft).toBe('detected_from_plan');
   });
+
+  test('preserves calculated attic provenance during plan hydration', () => {
+    const existing = {
+      atticInsulationSqft: 'calculated_from_components' as const,
+    };
+    const next = tagPlanDetectedQuickMeasurementKeys(existing, [
+      'atticInsulationSqft',
+    ]);
+
+    expect(next.atticInsulationSqft).toBe('calculated_from_components');
+  });
 });
