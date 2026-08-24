@@ -117,6 +117,21 @@ export type PlanFacts = {
   warnings?: string[];
 };
 
+/** Cover-sheet building areas are often attached at takeoff root, not inside planFacts. */
+export function mergePlanFactsWithBuildingAreas(
+  planFacts?: PlanFacts | null,
+  buildingAreas?: PlanBuildingAreas | null
+): PlanFacts | null | undefined {
+  if (!planFacts && !buildingAreas) return planFacts;
+  return {
+    ...(planFacts || {}),
+    buildingAreas: {
+      ...(planFacts?.buildingAreas || {}),
+      ...(buildingAreas || {}),
+    },
+  };
+}
+
 export type MeasurementCalculationStep = {
   label: string;
   value: number;

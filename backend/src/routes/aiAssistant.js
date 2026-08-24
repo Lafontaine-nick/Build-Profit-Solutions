@@ -15828,10 +15828,13 @@ router.post('/plan-to-measurements', async (req, res) => {
       aiRuntime,
     });
     if (process.env.NODE_ENV !== 'production') {
-      console.log('[plan-to-measurements] takeoff summary', {
+        console.log('[plan-to-measurements] takeoff summary', {
         estimatingMode: result.estimatingMode || planSelection.mode,
         selectedTrade: result.selectedTrade || planSelection.trade?.key || null,
         measurementKeys: Object.keys(result.measurements || {}),
+        exteriorWallInsulationSqft:
+          result.measurements?.exteriorWallInsulationSqft ?? null,
+        openingDeductionSqft: result.measurements?.openingDeductionSqft ?? null,
         elevationFaces: Array.isArray(result.planFacts?.elevationFaces)
           ? result.planFacts.elevationFaces.length
           : 0,

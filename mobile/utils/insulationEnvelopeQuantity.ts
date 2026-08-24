@@ -102,6 +102,10 @@ function n(value: unknown): number | null {
   return Number.isFinite(num) && num > 0 ? num : null;
 }
 
+function nearlyEqual(a: number, b: number, tolerance = 0.02): boolean {
+  return Math.abs(a - b) <= Math.max(1, Math.abs(b) * tolerance);
+}
+
 function estimatedPerimeterFromLiving(livingSf: number): number {
   return Math.round(
     INSULATION_PERIMETER_FROM_LIVING_FACTOR * Math.sqrt(livingSf)
@@ -113,9 +117,19 @@ export type InsulationCeilingBoundaryBreakdown = {
   mainFloorAtticExposureSqft: number | null;
   vaultedOpenToBelowSqft: number | null;
   roofDeckInsulationSqft: number | null;
+  pendingExclusionSqft: number | null;
   calculatedSqft: number | null;
   complete: boolean;
 };
+
+function isConfirmedCeilingBoundaryExclusion(
+  boundary: PlanCeilingBoundary,
+  key: 'vaultedOpenToBelowSqft' | 'roofDeckInsulationSqft'
+): boolean {
+  const amount = n(boundary[key]) || 0;
+  if (amount <= 0) return true;
+  return boundary.fieldEvidence?.[key]?.confidence === 'high';
+}
 
 export function insulationCeilingBoundaryBreakdownFromPlanFacts(
   facts: PlanFacts | null | undefined
@@ -126,11 +140,27 @@ export function insulationCeilingBoundaryBreakdownFromPlanFacts(
   const mainFloorAtticExposureSqft = n(boundary.mainFloorAtticExposureSqft);
   const vaultedOpenToBelowSqft = n(boundary.vaultedOpenToBelowSqft) || 0;
   const roofDeckInsulationSqft = n(boundary.roofDeckInsulationSqft) || 0;
+  const confirmedVaulted = isConfirmedCeilingBoundaryExclusion(
+    boundary,
+    'vaultedOpenToBelowSqft'
+  )
+    ? vaultedOpenToBelowSqft
+    : 0;
+  const confirmedRoofDeck = isConfirmedCeilingBoundaryExclusion(
+    boundary,
+    'roofDeckInsulationSqft'
+  )
+    ? roofDeckInsulationSqft
+    : 0;
+  const pendingExclusionSqft =
+    vaultedOpenToBelowSqft -
+    confirmedVaulted +
+    (roofDeckInsulationSqft - confirmedRoofDeck);
   const candidate =
     (upperFloorAtticSqft || 0) +
     (mainFloorAtticExposureSqft || 0) -
-    vaultedOpenToBelowSqft -
-    roofDeckInsulationSqft;
+    confirmedVaulted -
+    confirmedRoofDeck;
   return {
     upperFloorAtticSqft,
     mainFloorAtticExposureSqft,
@@ -138,10 +168,43 @@ export function insulationCeilingBoundaryBreakdownFromPlanFacts(
       vaultedOpenToBelowSqft > 0 ? vaultedOpenToBelowSqft : null,
     roofDeckInsulationSqft:
       roofDeckInsulationSqft > 0 ? roofDeckInsulationSqft : null,
-    calculatedSqft:
-      candidate > 0 ? Math.round(candidate * 10) / 10 : null,
+    pendingExclusionSqft:
+      pendingExclusionSqft > 0 ? pendingExclusionSqft : null,
+    calculatedSqft: candidate > 0 ? Math.round(candidate * 10) / 10 : null,
     complete: boundary.complete === true,
   };
+}
+
+export function resolveConditionedCeilingAreaSqft(
+  facts: PlanFacts | null | undefined,
+  floorAreaSqft?: number | null
+): number | null {
+  if (facts?.vaultedCeilingDetected === true) return null;
+
+  const boundary = insulationCeilingBoundaryBreakdownFromPlanFacts(facts);
+  if (facts?.ceilingBoundary && boundary?.calculatedSqft != null) {
+    return boundary.calculatedSqft;
+  }
+
+  const upstairs = n(facts?.buildingAreas?.upstairsLivingSqft);
+  const mainFloor = n(facts?.buildingAreas?.mainFloorLivingSqft);
+  const totalLiving =
+    n(facts?.buildingAreas?.totalLivingSqft) ?? n(floorAreaSqft);
+  const inferredUpstairs =
+    upstairs ??
+    (totalLiving != null && mainFloor != null && totalLiving > mainFloor
+      ? Math.round((totalLiving - mainFloor) * 10) / 10
+      : null);
+  const multiStory =
+    (n(facts?.storyCount) ?? 0) > 1 ||
+    inferredUpstairs != null ||
+    (mainFloor != null && totalLiving != null && mainFloor < totalLiving - 1);
+
+  if (multiStory) {
+    return inferredUpstairs;
+  }
+
+  return mainFloor || totalLiving || null;
 }
 
 export function insulationEnvelopeInputsFromPlanFacts(
@@ -154,18 +217,10 @@ export function insulationEnvelopeInputsFromPlanFacts(
     n(facts?.buildingAreas?.totalLivingSqft) ||
     n(facts?.buildingAreas?.mainFloorLivingSqft);
   const stories = Math.max(1, Math.round(n(facts?.storyCount) || 1));
-  const ceilingBoundary =
-    insulationCeilingBoundaryBreakdownFromPlanFacts(facts);
-  const boundaryCeilingArea = ceilingBoundary?.calculatedSqft;
-  const conditionedCeilingArea = facts?.ceilingBoundary
-    ? boundaryCeilingArea
-    : facts?.vaultedCeilingDetected === true
-      ? null
-      : stories > 1
-        ? n(facts?.buildingAreas?.upstairsLivingSqft)
-        : n(facts?.buildingAreas?.mainFloorLivingSqft) ||
-          n(facts?.buildingAreas?.totalLivingSqft) ||
-          null;
+  const conditionedCeilingArea = resolveConditionedCeilingAreaSqft(
+    facts,
+    living
+  );
   const garageChoice = String(overrides?.garageInsulationIncluded || '')
     .trim()
     .toLowerCase();
@@ -249,20 +304,22 @@ export function resolveInsulationEnvelopePlanningQuantity(
         row.location === 'roof_deck' &&
         (row.confirmed === false || row.source === 'calculated_from_plan')
     );
-  const unconfirmedAtticSqft = assemblyInputRows
-    .filter(
-      row =>
-        row.location === 'attic_ceiling' &&
-        (row.confirmed === false || row.source === 'calculated_from_plan')
-    )
-    .reduce((sum, row) => sum + (n(row.sqft) || 0), 0) || null;
-  const unconfirmedRoofDeckSqft = assemblyInputRows
-    .filter(
-      row =>
-        row.location === 'roof_deck' &&
-        (row.confirmed === false || row.source === 'calculated_from_plan')
-    )
-    .reduce((sum, row) => sum + (n(row.sqft) || 0), 0) || null;
+  const unconfirmedAtticSqft =
+    assemblyInputRows
+      .filter(
+        row =>
+          row.location === 'attic_ceiling' &&
+          (row.confirmed === false || row.source === 'calculated_from_plan')
+      )
+      .reduce((sum, row) => sum + (n(row.sqft) || 0), 0) || null;
+  const unconfirmedRoofDeckSqft =
+    assemblyInputRows
+      .filter(
+        row =>
+          row.location === 'roof_deck' &&
+          (row.confirmed === false || row.source === 'calculated_from_plan')
+      )
+      .reduce((sum, row) => sum + (n(row.sqft) || 0), 0) || null;
   const suggestedAttic =
     explicitAttic ??
     unconfirmedAtticSqft ??
@@ -302,6 +359,19 @@ export function resolveInsulationEnvelopePlanningQuantity(
   }
 
   const stories = Math.max(1, Math.round(n(raw.storyCount) || 1));
+  const perimeter = n(raw.exteriorPerimeterLf) || n(raw.foundationPerimeterLf);
+  const wallHeight =
+    n(raw.wallHeightFt) ||
+    n(raw.plateHeightFt) ||
+    INSULATION_DEFAULT_WALL_HEIGHT_FT;
+  const geometryGross =
+    perimeter != null
+      ? Math.round(perimeter * wallHeight * stories * 10) / 10
+      : null;
+  const explicitLooksLikeGross =
+    explicitWalls != null &&
+    geometryGross != null &&
+    nearlyEqual(explicitWalls, geometryGross);
   const atticFootprint = n(raw.mainFloorLivingSqft) || living;
   const openingsPct = Math.max(
     0,
@@ -329,15 +399,13 @@ export function resolveInsulationEnvelopePlanningQuantity(
     const heightLabeled =
       n(raw.wallHeightFt) != null || n(raw.plateHeightFt) != null;
     if (perimeter != null) {
-      exteriorWalls =
-        Math.round(perimeter * height * stories * 10) / 10;
+      exteriorWalls = Math.round(perimeter * height * stories * 10) / 10;
       wallSource = 'calculated_from_plan';
       wallConfidence = heightLabeled ? 'medium' : 'low';
       wallFormula = `${perimeter} LF × ${height} ft × ${stories} stor${stories === 1 ? 'y' : 'ies'}`;
     } else if (living && !raw.requireExplicitSurfaceTakeoff) {
       const estPerimeter = estimatedPerimeterFromLiving(living);
-      exteriorWalls =
-        Math.round(estPerimeter * height * stories * 10) / 10;
+      exteriorWalls = Math.round(estPerimeter * height * stories * 10) / 10;
       wallSource = 'planning_assumption';
       wallConfidence = 'low';
       wallFormula = `≈${estPerimeter} LF (from √living) × ${height} ft × ${stories}`;
@@ -371,23 +439,33 @@ export function resolveInsulationEnvelopePlanningQuantity(
     contractorConfirmationRequired: true,
   });
 
-  const wallInsulationQuantity =
-    explicitNetWalls != null
-      ? explicitNetWalls
+  const wallInsulationQuantity = explicitLooksLikeGross
+    ? Math.max(0, geometryGross - openingDeduction)
+    : explicitWalls != null
+      ? explicitWalls
       : Math.max(0, exteriorWalls - openingDeduction);
   components.unshift({
     key: 'exteriorWallInsulationSqft',
     label: 'Exterior wall insulation',
     quantity: wallInsulationQuantity,
     unit: 'sqft',
-    source: wallSource,
-    confidence: wallConfidence,
+    source: explicitLooksLikeGross ? 'calculated_from_plan' : wallSource,
+    confidence: explicitLooksLikeGross
+      ? n(raw.wallHeightFt) != null || n(raw.plateHeightFt) != null
+        ? 'medium'
+        : 'low'
+      : wallConfidence,
     included: true,
-    formula: wallFormula
-      ? `${wallFormula} − ${Math.round(openingDeduction).toLocaleString()} SF openings`
-      : undefined,
+    formula:
+      explicitLooksLikeGross && perimeter != null
+        ? `${perimeter} LF × ${wallHeight} ft × ${stories} stor${stories === 1 ? 'y' : 'ies'} − ${Math.round(openingDeduction).toLocaleString()} SF openings`
+        : wallFormula
+          ? `${wallFormula} − ${Math.round(openingDeduction).toLocaleString()} SF openings`
+          : undefined,
     contractorConfirmationRequired:
-      wallConfidence !== 'high' || n(raw.openingDeductionSqft) == null,
+      explicitLooksLikeGross ||
+      wallConfidence !== 'high' ||
+      n(raw.openingDeductionSqft) == null,
   });
 
   // --- Attic vs roof deck (mutually exclusive by default) ---
@@ -396,10 +474,14 @@ export function resolveInsulationEnvelopePlanningQuantity(
     roofDeck && raw.preferRoofDeckOverAttic !== false
   );
   let attic = explicitAttic ?? suggestedAttic;
-  if (!preferRoofDeck && attic == null && atticFootprint &&
-      !raw.requireExplicitSurfaceTakeoff &&
-      !raw.suppressAtticPlanningFallback &&
-      (stories === 1 || n(raw.conditionedCeilingAreaSqft) != null)) {
+  if (
+    !preferRoofDeck &&
+    attic == null &&
+    atticFootprint &&
+    !raw.requireExplicitSurfaceTakeoff &&
+    !raw.suppressAtticPlanningFallback &&
+    (stories === 1 || n(raw.conditionedCeilingAreaSqft) != null)
+  ) {
     attic = Math.round(atticFootprint);
   }
   if (!preferRoofDeck && attic != null) {

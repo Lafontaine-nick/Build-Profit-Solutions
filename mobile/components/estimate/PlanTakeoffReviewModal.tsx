@@ -36,7 +36,10 @@ import {
   uniqueUnreadablePlanFields,
   type PlanConflictChoice,
 } from '@/utils/planMeasurementConflictUi';
-import type { PlanToMeasurementsResult, PhotoScopeDetection } from '@/utils/estimateAiDraft';
+import type {
+  PlanToMeasurementsResult,
+  PhotoScopeDetection,
+} from '@/utils/estimateAiDraft';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import {
   applyPlanTakeoffButtonLabel,
@@ -88,9 +91,13 @@ import {
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import {
+  expectedInsulationGrossWallSqft,
   hydrateInsulationPlanMeasurementsFromTakeoff,
   insulationOpeningDeductionFromPlan,
+  mergeInsulationPlanFactsFromTakeoff,
 } from '@/utils/subcontractorTrade/insulationPlanConvergence';
+import { buildPlanReviewLockedProvenance } from '@/utils/planReviewMeasurementLock';
+import { mergePlanFactsWithBuildingAreas } from '@/utils/planMeasurementFacts';
 import {
   insulationCeilingBoundaryBreakdownFromPlanFacts,
   insulationEnvelopeInputsFromPlanFacts,
@@ -240,10 +247,19 @@ const PANEL_BG_DARK = 'rgba(148,163,184,0.06)';
 const PANEL_BG_LIGHT = 'rgba(148,163,184,0.05)';
 
 function isNeedsConfirmationValue(value: string | null | undefined): boolean {
-  return value === 'Needs confirmation' || value === 'Not auto-priced from detailed takeoff';
+  return (
+    value === 'Needs confirmation' ||
+    value === 'Not auto-priced from detailed takeoff'
+  );
 }
 
-function ReviewPanel({ darkMode, children }: { darkMode: boolean; children: React.ReactNode }) {
+function ReviewPanel({
+  darkMode,
+  children,
+}: {
+  darkMode: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <View
       style={{
@@ -274,20 +290,30 @@ function TradeSummaryPanel({
   return (
     <ReviewPanel darkMode={darkMode}>
       {lines.map((line, index) => (
-        <View key={`${line.label}-${index}`} style={index === 0 ? undefined : { marginTop: 12 }}>
-          <Text style={[styles.summaryLabel, { color: labelColor }]}>{line.label}</Text>
+        <View
+          key={`${line.label}-${index}`}
+          style={index === 0 ? undefined : { marginTop: 12 }}
+        >
+          <Text style={[styles.summaryLabel, { color: labelColor }]}>
+            {line.label}
+          </Text>
           <Text
             style={[
               styles.summaryValue,
               {
-                color: isNeedsConfirmationValue(line.value) ? CONFIRM_YELLOW : valueColor,
+                color: isNeedsConfirmationValue(line.value)
+                  ? CONFIRM_YELLOW
+                  : valueColor,
               },
             ]}
           >
             {line.value}
           </Text>
           {line.note ? (
-            <Text style={[styles.evidenceText, { color: labelColor }]} numberOfLines={2}>
+            <Text
+              style={[styles.evidenceText, { color: labelColor }]}
+              numberOfLines={2}
+            >
               {line.note}
             </Text>
           ) : null}
@@ -353,9 +379,15 @@ export default function PlanTakeoffReviewModal({
   const [rows, setRows] = useState<PlanReviewRow[]>([]);
   const [roomRows, setRoomRows] = useState<PlanReviewRoomRow[]>([]);
   const [scopeChecked, setScopeChecked] = useState<Record<string, boolean>>({});
-  const [conflictChoices, setConflictChoices] = useState<Record<string, PlanConflictChoice | undefined>>({});
-  const [conflictManualValues, setConflictManualValues] = useState<Record<string, string>>({});
-  const [conflictManualCommitted, setConflictManualCommitted] = useState<Record<string, boolean>>({});
+  const [conflictChoices, setConflictChoices] = useState<
+    Record<string, PlanConflictChoice | undefined>
+  >({});
+  const [conflictManualValues, setConflictManualValues] = useState<
+    Record<string, string>
+  >({});
+  const [conflictManualCommitted, setConflictManualCommitted] = useState<
+    Record<string, boolean>
+  >({});
   const [conflictChooserKey, setConflictChooserKey] = useState(0);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
@@ -380,30 +412,93 @@ export default function PlanTakeoffReviewModal({
       return hydrateFramingPlanMeasurementsFromAreas(filtered);
     }
     if (effectiveTradeKey === 'insulation') {
-      const hydrated = hydrateInsulationPlanMeasurementsFromTakeoff(
-        takeoff?.measurements || {},
-        takeoff?.planFacts
+      const insulationPlanFacts = mergeInsulationPlanFactsFromTakeoff(
+        takeoff?.planFacts,
+        takeoff?.buildingAreas,
+        takeoff?.measurements
       );
-      const calculationMeasurements = {
-        ...filtered,
-        ...(positiveString(hydrated.openingDeductionSqft)
-          ? { openingDeductionSqft: hydrated.openingDeductionSqft }
-          : {}),
-        ...(positiveString(hydrated.exteriorWallInsulationSqft)
+      const lowConfidenceOpening = (takeoff?.lowConfidence || []).find(
+        field =>
+          /opening|window|door/i.test(String(field?.field || '')) &&
+          positiveMeasurement(field?.value) != null
+      );
+      const insulationTakeoffMeasurements = {
+        ...(takeoff?.measurements || {}),
+        ...(positiveMeasurement(takeoff?.measurements?.openingDeductionSqft) ==
+          null && lowConfidenceOpening
           ? {
-              exteriorWallInsulationSqft: hydrated.exteriorWallInsulationSqft,
+              openingDeductionSqft: String(
+                positiveMeasurement(lowConfidenceOpening.value)
+              ),
             }
           : {}),
       };
+      const hydrated = hydrateInsulationPlanMeasurementsFromTakeoff(
+        insulationTakeoffMeasurements,
+        insulationPlanFacts
+      );
+      const calculationMeasurements = {
+        ...filtered,
+        ...hydrated,
+      };
+      const geometryGross = expectedInsulationGrossWallSqft(
+        insulationPlanFacts
+      );
+      const openingDeduction =
+        insulationOpeningDeductionFromPlan(
+          calculationMeasurements,
+          insulationPlanFacts
+        ) ??
+        (geometryGross != null
+          ? Math.round(geometryGross * 0.15 * 10) / 10
+          : null);
+      const hasOpeningBasis = openingDeduction != null;
+      if (
+        hasOpeningBasis &&
+        positiveMeasurement(calculationMeasurements.openingDeductionSqft) ==
+          null
+      ) {
+        calculationMeasurements.openingDeductionSqft = String(openingDeduction);
+      }
+      if (
+        geometryGross != null &&
+        openingDeduction != null &&
+        positiveMeasurement(
+          calculationMeasurements.exteriorWallInsulationSqft
+        ) == null
+      ) {
+        calculationMeasurements.exteriorWallInsulationSqft = String(
+          Math.max(
+            0,
+            Math.round((geometryGross - openingDeduction) * 10) / 10
+          )
+        );
+      }
+      if (!hasOpeningBasis) {
+        delete calculationMeasurements.exteriorWallInsulationSqft;
+      } else {
+        Object.assign(
+          calculationMeasurements,
+          hydrateInsulationPlanMeasurementsFromTakeoff(
+            calculationMeasurements,
+            insulationPlanFacts
+          )
+        );
+      }
       const envelope = resolveInsulationEnvelopePlanningQuantity(
         insulationEnvelopeInputsFromPlanFacts(
-          takeoff?.planFacts,
+          insulationPlanFacts,
           Number(
             calculationMeasurements.floorAreaSqft ??
               takeoff?.buildingAreas?.totalLivingSqft
           ),
           {
             ...calculationMeasurements,
+            exteriorPerimeterLf: insulationPlanFacts?.exteriorPerimeterLf,
+            foundationPerimeterLf: insulationPlanFacts?.foundationPerimeterLf,
+            wallHeightFt: insulationPlanFacts?.wallHeightFt,
+            plateHeightFt: insulationPlanFacts?.plateHeightFt,
+            storyCount: insulationPlanFacts?.storyCount,
             allowConditionedAreaCeilingSuggestion: true,
             requireExplicitSurfaceTakeoff: true,
           }
@@ -430,6 +525,12 @@ export default function PlanTakeoffReviewModal({
               return false;
             }
             if (
+              component.key === 'exteriorWallInsulationSqft' &&
+              !hasOpeningBasis
+            ) {
+              return false;
+            }
+            if (
               component.source === 'planning_assumption' &&
               component.key !== 'exteriorWallInsulationSqft'
             ) {
@@ -445,12 +546,28 @@ export default function PlanTakeoffReviewModal({
       const reviewMeasurements = {
         ...calculationMeasurements,
         ...suggestions,
-        ...(positiveString(calculationMeasurements.exteriorWallInsulationSqft) ==
-            null &&
-        suggestions.exteriorWallInsulationSqft == null
+        ...(positiveString(
+          calculationMeasurements.exteriorWallInsulationSqft
+        ) == null && suggestions.exteriorWallInsulationSqft == null
           ? { exteriorWallInsulationSqft: '' }
           : {}),
       };
+      const envelopeWall = envelope.components.find(
+        component => component.key === 'exteriorWallInsulationSqft'
+      );
+      const reviewWall = positiveMeasurement(
+        reviewMeasurements.exteriorWallInsulationSqft
+      );
+      if (
+        envelopeWall &&
+        reviewWall != null &&
+        envelopeWall.quantity > 0 &&
+        envelopeWall.quantity < reviewWall - 0.5
+      ) {
+        reviewMeasurements.exteriorWallInsulationSqft = String(
+          envelopeWall.quantity
+        );
+      }
       // Living and garage areas are plan context, not insulation bid
       // quantities. Opening deductions explain the net wall number but are
       // not a separate insulation scope.
@@ -465,8 +582,14 @@ export default function PlanTakeoffReviewModal({
 
   const scopeDetections = useMemo(() => {
     const detections = takeoff?.scope?.detections || [];
-    const filtered = filterPlanScopesForTrade(detections, effectiveMode, effectiveTradeKey).filter(
-      d => (d.confidence ?? 0) >= SCOPE_MIN_CONFIDENCE && (d.state === 'included' || d.state === 'excluded')
+    const filtered = filterPlanScopesForTrade(
+      detections,
+      effectiveMode,
+      effectiveTradeKey
+    ).filter(
+      d =>
+        (d.confidence ?? 0) >= SCOPE_MIN_CONFIDENCE &&
+        (d.state === 'included' || d.state === 'excluded')
     );
     if (effectiveTradeKey === 'framing') {
       return augmentFramingScopeDetections(filtered, visibleMeasurements);
@@ -513,7 +636,10 @@ export default function PlanTakeoffReviewModal({
         const ceilingBoundary =
           key === 'atticInsulationSqft'
             ? insulationCeilingBoundaryBreakdownFromPlanFacts(
-                takeoff.planFacts
+                mergePlanFactsWithBuildingAreas(
+                  takeoff.planFacts,
+                  takeoff.buildingAreas
+                )
               )
             : null;
         const ceilingBoundaryText = ceilingBoundary
@@ -524,10 +650,15 @@ export default function PlanTakeoffReviewModal({
               ceilingBoundary.mainFloorAtticExposureSqft != null
                 ? `Main-floor attic exposure ${ceilingBoundary.mainFloorAtticExposureSqft.toLocaleString()} SF`
                 : null,
-              ceilingBoundary.vaultedOpenToBelowSqft != null
+              ceilingBoundary.pendingExclusionSqft != null
+                ? `${ceilingBoundary.pendingExclusionSqft.toLocaleString()} SF exclusion pending confirmation`
+                : null,
+              ceilingBoundary.vaultedOpenToBelowSqft != null &&
+              ceilingBoundary.pendingExclusionSqft == null
                 ? `Excludes ${ceilingBoundary.vaultedOpenToBelowSqft.toLocaleString()} SF vaulted/open-to-below`
                 : null,
-              ceilingBoundary.roofDeckInsulationSqft != null
+              ceilingBoundary.roofDeckInsulationSqft != null &&
+              ceilingBoundary.pendingExclusionSqft == null
                 ? `Excludes ${ceilingBoundary.roofDeckInsulationSqft.toLocaleString()} SF roof deck`
                 : null,
               !ceilingBoundary.complete
@@ -548,21 +679,23 @@ export default function PlanTakeoffReviewModal({
             !takeoff.measurementProvenance?.[key]
             ? 'Calculated from conditioned ceiling geometry — confirm before pricing'
             : key === 'exteriorWallInsulationSqft' &&
-              insulationOpeningNeedsReview(takeoff) &&
-              !(Number(value) > 0)
+                insulationOpeningNeedsReview(takeoff) &&
+                !(Number(value) > 0)
               ? 'Opening deduction needs review — enter wall SF manually'
               : key === 'exteriorWallInsulationSqft' &&
-                Number(value) > 0 &&
-                openingDeductionSqft != null
-              ? `Net wall area after ${openingDeductionSqft.toLocaleString()} SF window/door openings`
-              : measurementSourceLabel({
-                  key,
-                  value: Number(value),
-                  livingSf,
-                  assumptions: takeoff.assumptions,
-                })
+                  Number(value) > 0 &&
+                  openingDeductionSqft != null
+                ? `Net wall area after ${openingDeductionSqft.toLocaleString()} SF window/door openings`
+                : measurementSourceLabel({
+                    key,
+                    value: Number(value),
+                    livingSf,
+                    assumptions: takeoff.assumptions,
+                  })
           : null;
-        const evidenceLabel = planFieldEvidenceLabel(takeoff.measurementProvenance?.[key]);
+        const evidenceLabel = planFieldEvidenceLabel(
+          takeoff.measurementProvenance?.[key]
+        );
         const provenanceEntry =
           takeoff.measurementProvenance?.[key] ??
           plumbingInventoryDerivedProvenance(takeoff.fixtureInventory, key);
@@ -589,17 +722,20 @@ export default function PlanTakeoffReviewModal({
               : undefined),
           fieldConfidence: takeoff.fieldConfidence?.[key] ?? null,
           hasConflict: unresolvedConflictFields.has(key),
-          reconciliationVariancePercent: areaReconciliation?.livingVariancePercent,
+          reconciliationVariancePercent:
+            areaReconciliation?.livingVariancePercent,
           validationField: takeoff.electricalValidation?.fields?.[key],
           tradeKey: effectiveTradeKey,
         });
         return {
           key,
           label: display.label,
-          subtext: [display.subtext, ceilingBoundaryText]
-            .filter(Boolean)
-            .join(' · ') || null,
-          sourceLabel: [sourceLabel, evidenceLabel].filter(Boolean).join(' · ') || null,
+          subtext:
+            [display.subtext, ceilingBoundaryText]
+              .filter(Boolean)
+              .join(' · ') || null,
+          sourceLabel:
+            [sourceLabel, evidenceLabel].filter(Boolean).join(' · ') || null,
           unit:
             effectiveTradeKey === 'plumbing'
               ? plumbingMeasurementDisplayUnit(key, meta.unit)
@@ -622,8 +758,14 @@ export default function PlanTakeoffReviewModal({
       })
       .filter(
         row =>
-          !(effectiveTradeKey === 'concrete' && CONCRETE_REVIEW_THICKNESS_KEYS.has(row.key)) &&
-          !(effectiveTradeKey === 'flooring' && FLOORING_REVIEW_ADAPTER_KEYS.has(row.key)) &&
+          !(
+            effectiveTradeKey === 'concrete' &&
+            CONCRETE_REVIEW_THICKNESS_KEYS.has(row.key)
+          ) &&
+          !(
+            effectiveTradeKey === 'flooring' &&
+            FLOORING_REVIEW_ADAPTER_KEYS.has(row.key)
+          ) &&
           !(
             effectiveTradeKey === 'flooring' &&
             row.key === 'floorAreaSqft' &&
@@ -631,7 +773,8 @@ export default function PlanTakeoffReviewModal({
           ) &&
           !(
             effectiveTradeKey === 'painting' &&
-            (row.key === 'paintAreaSqft' || row.key === 'combinedPaintableAreaSqft') &&
+            (row.key === 'paintAreaSqft' ||
+              row.key === 'combinedPaintableAreaSqft') &&
             (positiveMeasurement(visibleMeasurements.wallPaintSqft) != null ||
               positiveMeasurement(visibleMeasurements.ceilingPaintSqft) != null)
           ) &&
@@ -643,20 +786,28 @@ export default function PlanTakeoffReviewModal({
       );
     setRows(nextRows);
 
-    const nextRooms: PlanReviewRoomRow[] = (tradeReview ? [] : takeoff.rooms || [])
+    const nextRooms: PlanReviewRoomRow[] = (
+      tradeReview ? [] : takeoff.rooms || []
+    )
       .map((room, idx) => {
         const name = String(room?.name || '').trim();
         if (!name) return null;
         const lengthFt =
-          room.lengthFt != null && Number.isFinite(Number(room.lengthFt)) && Number(room.lengthFt) > 0
+          room.lengthFt != null &&
+          Number.isFinite(Number(room.lengthFt)) &&
+          Number(room.lengthFt) > 0
             ? Number(room.lengthFt)
             : null;
         const widthFt =
-          room.widthFt != null && Number.isFinite(Number(room.widthFt)) && Number(room.widthFt) > 0
+          room.widthFt != null &&
+          Number.isFinite(Number(room.widthFt)) &&
+          Number(room.widthFt) > 0
             ? Number(room.widthFt)
             : null;
         let area =
-          room.areaSqft != null && Number.isFinite(Number(room.areaSqft)) && Number(room.areaSqft) > 0
+          room.areaSqft != null &&
+          Number.isFinite(Number(room.areaSqft)) &&
+          Number(room.areaSqft) > 0
             ? Math.round(Number(room.areaSqft) * 10) / 10
             : null;
         if (area == null && lengthFt != null && widthFt != null) {
@@ -666,7 +817,8 @@ export default function PlanTakeoffReviewModal({
           key: `room:${name}`,
           hasReliableDimensions: lengthFt != null && widthFt != null,
           roomDependent: true,
-          reconciliationVariancePercent: areaReconciliation?.livingVariancePercent,
+          reconciliationVariancePercent:
+            areaReconciliation?.livingVariancePercent,
         });
         return {
           id: `${name}-${idx}`,
@@ -697,16 +849,24 @@ export default function PlanTakeoffReviewModal({
       });
     setRoomRows(nextRooms);
 
-    setScopeChecked(Object.fromEntries(scopeDetections.map(d => [d.itemId, true])));
+    setScopeChecked(
+      Object.fromEntries(scopeDetections.map(d => [d.itemId, true]))
+    );
     // Rebuild only when a new takeoff arrives, not on parent re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, takeoff, visibleMeasurements, tradeReview]);
 
   useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const shown = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
-    const hidden = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    const showEvent =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent =
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const shown = Keyboard.addListener(showEvent, () =>
+      setKeyboardVisible(true)
+    );
+    const hidden = Keyboard.addListener(hideEvent, () =>
+      setKeyboardVisible(false)
+    );
     return () => {
       shown.remove();
       hidden.remove();
@@ -762,11 +922,23 @@ export default function PlanTakeoffReviewModal({
 
   const paintingPlanSummary = useMemo(() => {
     if (effectiveTradeKey !== 'painting') return null;
-    return buildPaintingPlanReviewSummary(paintingReviewMeasurements, takeoff?.measurementProvenance);
-  }, [effectiveTradeKey, paintingReviewMeasurements, takeoff?.measurementProvenance]);
+    return buildPaintingPlanReviewSummary(
+      paintingReviewMeasurements,
+      takeoff?.measurementProvenance
+    );
+  }, [
+    effectiveTradeKey,
+    paintingReviewMeasurements,
+    takeoff?.measurementProvenance,
+  ]);
 
   const electricalConflictState = useMemo(
-    () => applyPlanConflictChoices(takeoff?.measurementConflicts || [], conflictChoices, conflictManualValues),
+    () =>
+      applyPlanConflictChoices(
+        takeoff?.measurementConflicts || [],
+        conflictChoices,
+        conflictManualValues
+      ),
     [takeoff?.measurementConflicts, conflictChoices, conflictManualValues]
   );
 
@@ -779,8 +951,17 @@ export default function PlanTakeoffReviewModal({
       const n = Number(row.value);
       if (Number.isFinite(n) && n > 0) merged[row.key] = row.value;
     }
-    return mergeElectricalConflictReadings(merged, takeoff?.measurementConflicts, electricalConflictState.resolved);
-  }, [visibleMeasurements, rows, takeoff?.measurementConflicts, electricalConflictState.resolved]);
+    return mergeElectricalConflictReadings(
+      merged,
+      takeoff?.measurementConflicts,
+      electricalConflictState.resolved
+    );
+  }, [
+    visibleMeasurements,
+    rows,
+    takeoff?.measurementConflicts,
+    electricalConflictState.resolved,
+  ]);
 
   const electricalUnreadable = useMemo(
     () => uniqueUnreadablePlanFields(takeoff?.unreadableFields),
@@ -789,14 +970,25 @@ export default function PlanTakeoffReviewModal({
 
   const electricalPlanSummary = useMemo(() => {
     if (effectiveTradeKey !== 'electrical') return null;
-    const unclassified = electricalUnreadable.find(field => field.field === 'unclassifiedFixtureCount');
-    const unclassifiedCountMatch = unclassified?.reason?.match(/^(\d+)\s+lighting/i);
-    return buildElectricalPlanReviewSummary(electricalReviewMeasurements, takeoff?.measurementProvenance, {
-      unresolvedConflictFields: electricalConflictState.unresolved.map(conflict => conflict.field),
-      unclassifiedFixtureCount: unclassifiedCountMatch ? Number(unclassifiedCountMatch[1]) : null,
-      unclassifiedFixtureNote: unclassified?.reason || null,
-      electricalValidation: takeoff?.electricalValidation,
-    });
+    const unclassified = electricalUnreadable.find(
+      field => field.field === 'unclassifiedFixtureCount'
+    );
+    const unclassifiedCountMatch =
+      unclassified?.reason?.match(/^(\d+)\s+lighting/i);
+    return buildElectricalPlanReviewSummary(
+      electricalReviewMeasurements,
+      takeoff?.measurementProvenance,
+      {
+        unresolvedConflictFields: electricalConflictState.unresolved.map(
+          conflict => conflict.field
+        ),
+        unclassifiedFixtureCount: unclassifiedCountMatch
+          ? Number(unclassifiedCountMatch[1])
+          : null,
+        unclassifiedFixtureNote: unclassified?.reason || null,
+        electricalValidation: takeoff?.electricalValidation,
+      }
+    );
   }, [
     effectiveTradeKey,
     electricalReviewMeasurements,
@@ -807,18 +999,26 @@ export default function PlanTakeoffReviewModal({
   ]);
 
   const electricalDetectedLines = useMemo(
-    () => (electricalPlanSummary ? electricalPlanReviewDetectedLines(electricalPlanSummary) : []),
+    () =>
+      electricalPlanSummary
+        ? electricalPlanReviewDetectedLines(electricalPlanSummary)
+        : [],
     [electricalPlanSummary]
   );
 
   const electricalStatusLines = useMemo(
-    () => (electricalPlanSummary ? electricalPlanReviewStatusLines(electricalPlanSummary) : []),
+    () =>
+      electricalPlanSummary
+        ? electricalPlanReviewStatusLines(electricalPlanSummary)
+        : [],
     [electricalPlanSummary]
   );
 
   const electricalReadiness = useMemo(() => {
     if (effectiveTradeKey !== 'electrical') return null;
-    const unclassified = electricalUnreadable.find(field => field.field === 'unclassifiedFixtureCount');
+    const unclassified = electricalUnreadable.find(
+      field => field.field === 'unclassifiedFixtureCount'
+    );
     const count = unclassified?.reason?.match(/^(\d+)\s+lighting/i)?.[1];
     return electricalPlanReadinessLine({
       measurements: electricalReviewMeasurements,
@@ -839,18 +1039,28 @@ export default function PlanTakeoffReviewModal({
 
   if (!visible || !takeoff) return null;
 
-  const tradeReviewKeys = new Set(getPlanTradeConfiguration(effectiveTradeKey)?.reviewMeasurementKeys || []);
-  const unreadable = uniqueUnreadablePlanFields(takeoff.unreadableFields).filter(field =>
-    tradeReview ? tradeReviewKeys.has(String(field.field || '')) || field.field === 'unclassifiedFixtureCount' : true
+  const tradeReviewKeys = new Set(
+    getPlanTradeConfiguration(effectiveTradeKey)?.reviewMeasurementKeys || []
+  );
+  const unreadable = uniqueUnreadablePlanFields(
+    takeoff.unreadableFields
+  ).filter(field =>
+    tradeReview
+      ? tradeReviewKeys.has(String(field.field || '')) ||
+        field.field === 'unclassifiedFixtureCount'
+      : true
   );
   const lowConfidence = (takeoff.lowConfidence || []).filter(field =>
     tradeReview ? tradeReviewKeys.has(String(field.field || '')) : true
   );
-  const electricalLowConfidence = effectiveTradeKey === 'electrical' ? lowConfidence : [];
+  const electricalLowConfidence =
+    effectiveTradeKey === 'electrical' ? lowConfidence : [];
   const measurementConflicts = reviewablePlanMeasurementConflicts({
     conflicts: takeoff.measurementConflicts,
     provenance: takeoff.measurementProvenance,
-  }).filter(conflict => (tradeReview ? tradeReviewKeys.has(String(conflict.field || '')) : true));
+  }).filter(conflict =>
+    tradeReview ? tradeReviewKeys.has(String(conflict.field || '')) : true
+  );
   const hasMeasurements = rows.length > 0;
   const hasRooms = roomRows.length > 0;
   const hasReadingIssues = lowConfidence.length > 0 || unreadable.length > 0;
@@ -868,30 +1078,60 @@ export default function PlanTakeoffReviewModal({
           .slice(0, 8)
       : [];
   const plumbingReviewStatus = takeoff.plumbingReviewStatus;
-  const includedCount = rows.filter(r => r.include && Number(r.value) > 0).length;
-  const includedRoomCount = roomRows.filter(r => r.include && Number(r.areaSqft) > 0).length;
-  const checkedScopeCount = scopeDetections.filter(d => scopeChecked[d.itemId]).length;
-  const canApply = tradeReview ? true : includedCount > 0 || includedRoomCount > 0 || checkedScopeCount > 0;
+  const includedCount = rows.filter(
+    r => r.include && Number(r.value) > 0
+  ).length;
+  const includedRoomCount = roomRows.filter(
+    r => r.include && Number(r.areaSqft) > 0
+  ).length;
+  const checkedScopeCount = scopeDetections.filter(
+    d => scopeChecked[d.itemId]
+  ).length;
+  const canApply = tradeReview
+    ? true
+    : includedCount > 0 || includedRoomCount > 0 || checkedScopeCount > 0;
   const tradeLabel = tradeReview
-    ? importSelection.trade?.label || getPlanTradeConfiguration(effectiveTradeKey)?.label || 'Trade'
+    ? importSelection.trade?.label ||
+      getPlanTradeConfiguration(effectiveTradeKey)?.label ||
+      'Trade'
     : null;
-  const livingSpaceCount = roomRows.filter(r => r.spaceKind === 'living').length;
-  const garageSpaceCount = roomRows.filter(r => r.spaceKind === 'garage').length;
+  const livingSpaceCount = roomRows.filter(
+    r => r.spaceKind === 'living'
+  ).length;
+  const garageSpaceCount = roomRows.filter(
+    r => r.spaceKind === 'garage'
+  ).length;
   const hasRoofQuantity =
     Number(takeoff.measurements?.roofSquares) > 0 ||
-    Number((takeoff.itemQuantities as Record<string, { quantity?: number }> | undefined)?.roofing?.quantity) > 0;
+    Number(
+      (
+        takeoff.itemQuantities as
+          | Record<string, { quantity?: number }>
+          | undefined
+      )?.roofing?.quantity
+    ) > 0;
   const hasPlanFloorAreas =
     (takeoff.rooms || []).some(r => Number(r.areaSqft) > 0) ||
     Number(takeoff.measurements?.kitchenFloorSqft) > 0 ||
     Number(takeoff.measurements?.bathroomFloorSqft) > 0 ||
     Number(takeoff.measurements?.flooringSqft) > 0;
-  const plumbingInventory = Object.entries(takeoff.fixtureInventory || {}).filter(([, value]) => Number(value) > 0);
-  const plumbingInventoryTotal = sumPlumbingFixtureInventoryPoints(takeoff.fixtureInventory);
+  const plumbingInventory = Object.entries(
+    takeoff.fixtureInventory || {}
+  ).filter(([, value]) => Number(value) > 0);
+  const plumbingInventoryTotal = sumPlumbingFixtureInventoryPoints(
+    takeoff.fixtureInventory
+  );
   const plumbingWaterHeaterDetail = takeoff.waterHeaterDetail;
   const plumbingGasApplianceScope = takeoff.gasApplianceScope;
-  const plumbingWaterHeaterLine = formatPlumbingWaterHeaterDetail(plumbingWaterHeaterDetail);
-  const plumbingGasLines = formatPlumbingGasApplianceScope(plumbingGasApplianceScope);
-  const plumbingDerivedRows = rows.filter(row => row.provenance.status === 'ai_inferred');
+  const plumbingWaterHeaterLine = formatPlumbingWaterHeaterDetail(
+    plumbingWaterHeaterDetail
+  );
+  const plumbingGasLines = formatPlumbingGasApplianceScope(
+    plumbingGasApplianceScope
+  );
+  const plumbingDerivedRows = rows.filter(
+    row => row.provenance.status === 'ai_inferred'
+  );
   const plumbingUtilityConnections = takeoff.utilityConnections || [];
   const plumbingComplexityFactors = takeoff.complexityFactors || [];
 
@@ -904,7 +1144,11 @@ export default function PlanTakeoffReviewModal({
   };
 
   const handleApply = () => {
-    const pendingManual = pendingManualConflictFields(conflictChoices, conflictManualValues, conflictManualCommitted);
+    const pendingManual = pendingManualConflictFields(
+      conflictChoices,
+      conflictManualValues,
+      conflictManualCommitted
+    );
     if (pendingManual.length) {
       Alert.alert(
         'Enter the custom count',
@@ -924,12 +1168,15 @@ export default function PlanTakeoffReviewModal({
       );
       return;
     }
-    const unresolvedFields = new Set(unresolved.map(conflict => String(conflict.field)));
+    const unresolvedFields = new Set(
+      unresolved.map(conflict => String(conflict.field))
+    );
     const values: Record<string, string> = {};
     for (const row of rows) {
       if (unresolvedFields.has(row.key)) continue;
       const n = Number(row.value);
-      if (row.include && Number.isFinite(n) && n > 0) values[row.key] = String(n);
+      if (row.include && Number.isFinite(n) && n > 0)
+        values[row.key] = String(n);
     }
     for (const [key, value] of Object.entries(resolved)) {
       values[key] = String(value);
@@ -967,7 +1214,9 @@ export default function PlanTakeoffReviewModal({
       unresolved.flatMap(conflict => {
         const field = String(conflict.field || '').trim();
         const candidateValue =
-          conflict.selectedValue ?? conflict.candidates?.find(candidate => Number(candidate?.value) > 0)?.value;
+          conflict.selectedValue ??
+          conflict.candidates?.find(candidate => Number(candidate?.value) > 0)
+            ?.value;
         if (!field || !Number.isFinite(Number(candidateValue))) return [];
         values[field] = String(candidateValue);
         const existing = takeoff.measurementProvenance?.[field];
@@ -980,7 +1229,8 @@ export default function PlanTakeoffReviewModal({
               status: 'needs_review',
               normalizedSource: 'NEEDS_REVIEW',
               pricingEligible: false,
-              reason: 'A plan conflict is still unresolved; confirm this quantity before pricing.',
+              reason:
+                'A plan conflict is still unresolved; confirm this quantity before pricing.',
             },
           ],
         ];
@@ -1002,41 +1252,34 @@ export default function PlanTakeoffReviewModal({
               status: 'needs_review',
               normalizedSource: 'NEEDS_REVIEW',
               pricingEligible: false,
-              reason: 'The plan reading confidence is too low; confirm this quantity before pricing.',
+              reason:
+                'The plan reading confidence is too low; confirm this quantity before pricing.',
             },
           ],
         ];
       })
     );
-    const retainedInsulationProvenance = Object.fromEntries(
-      rows
-        .filter(
-          row =>
-            effectiveTradeKey === 'insulation' &&
-            row.include &&
-            Number(row.value) > 0 &&
-            (row.key === 'exteriorWallInsulationSqft' ||
-              row.key === 'atticInsulationSqft')
+    const retainedPlanReviewLockProvenance = tradeReview
+      ? buildPlanReviewLockedProvenance(
+          rows
+            .filter(
+              row =>
+                row.include &&
+                Number(row.value) > 0 &&
+                !unresolvedFields.has(row.key) &&
+                !electricalLowConfidence.some(
+                  reading => String(reading.field || '') === row.key
+                )
+            )
+            .map(row => ({
+              key: row.key,
+              value: row.value,
+              include: true,
+              pricingEligible: row.pricingEligible,
+            })),
+          takeoff.measurementProvenance
         )
-        .map(row => {
-          const confirmed =
-            row.pricingEligible &&
-            row.provenance.status === 'user_confirmed';
-          return [
-            row.key,
-            {
-              ...(takeoff.measurementProvenance?.[row.key] || {}),
-              value: Number(row.value),
-              status: confirmed ? 'user_confirmed' : 'needs_review',
-              normalizedSource: confirmed ? 'USER_CONFIRMED' : 'NEEDS_REVIEW',
-              pricingEligible: confirmed,
-              reason: confirmed
-                ? 'Contractor confirmed this insulation quantity during plan review.'
-                : 'Confirm this calculated insulation quantity before pricing.',
-            },
-          ];
-        })
-    );
+      : {};
     const reviewElectricalValidation = (() => {
       const confirmedFields =
         effectiveTradeKey === 'electrical'
@@ -1047,7 +1290,8 @@ export default function PlanTakeoffReviewModal({
                   row =>
                     row.include &&
                     row.pricingEligible &&
-                    takeoff.electricalValidation?.fields?.[row.key]?.pricingEligible !== true
+                    takeoff.electricalValidation?.fields?.[row.key]
+                      ?.pricingEligible !== true
                 )
                 .map(row => row.key),
             ])
@@ -1066,7 +1310,8 @@ export default function PlanTakeoffReviewModal({
           ...(fields[field] || {}),
           status: 'needs_review',
           pricingEligible: false,
-          reason: 'The plan reading confidence is too low; confirm this quantity before pricing.',
+          reason:
+            'The plan reading confidence is too low; confirm this quantity before pricing.',
         };
         priceableFields.delete(field);
         blockedFields.add(field);
@@ -1093,7 +1338,9 @@ export default function PlanTakeoffReviewModal({
         ? (takeoff.rooms || []).map(room => ({
             name: String(room?.name || '').trim(),
             areaSqft:
-              room.areaSqft != null && Number(room.areaSqft) > 0 ? Math.round(Number(room.areaSqft) * 10) / 10 : null,
+              room.areaSqft != null && Number(room.areaSqft) > 0
+                ? Math.round(Number(room.areaSqft) * 10) / 10
+                : null,
             lengthFt: room.lengthFt ?? null,
             widthFt: room.widthFt ?? null,
           }))
@@ -1103,7 +1350,10 @@ export default function PlanTakeoffReviewModal({
               const area = Number(r.areaSqft);
               return {
                 name: r.name,
-                areaSqft: Number.isFinite(area) && area > 0 ? Math.round(area * 10) / 10 : null,
+                areaSqft:
+                  Number.isFinite(area) && area > 0
+                    ? Math.round(area * 10) / 10
+                    : null,
                 lengthFt: r.lengthFt,
                 widthFt: r.widthFt,
               };
@@ -1118,7 +1368,7 @@ export default function PlanTakeoffReviewModal({
           ...(takeoff.measurementProvenance || {}),
           ...retainedConflictProvenance,
           ...retainedLowConfidenceProvenance,
-          ...retainedInsulationProvenance,
+          ...retainedPlanReviewLockProvenance,
           ...Object.fromEntries(
             Object.entries(resolutions).map(([field, resolution]) => [
               field,
@@ -1139,7 +1389,12 @@ export default function PlanTakeoffReviewModal({
   };
 
   return (
-    <Modal visible={visible} animationType='slide' presentationStyle='fullScreen' onRequestClose={onCancel}>
+    <Modal
+      visible={visible}
+      animationType='slide'
+      presentationStyle='fullScreen'
+      onRequestClose={onCancel}
+    >
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
       <KeyboardAvoidingView
         style={{ flex: 1, backgroundColor: Colors.bg }}
@@ -1147,9 +1402,16 @@ export default function PlanTakeoffReviewModal({
         enabled={Platform.OS === 'ios'}
       >
         <View style={{ flex: 1, backgroundColor: Colors.bg }}>
-          <KeyboardPlainAccessory nativeID={KEYBOARD_ACCESSORY_IDS.aiScopeConfirmNumeric} backgroundColor={Colors.bg} />
+          <KeyboardPlainAccessory
+            nativeID={KEYBOARD_ACCESSORY_IDS.aiScopeConfirmNumeric}
+            backgroundColor={Colors.bg}
+          />
           <AIEstimateFlowHeader
-            title={tradeLabel ? `Review ${tradeLabel} Takeoff` : 'Review plan takeoff'}
+            title={
+              tradeLabel
+                ? `Review ${tradeLabel} Takeoff`
+                : 'Review plan takeoff'
+            }
             subtitle={
               tradeLabel
                 ? `Check ${tradeLabel.toLowerCase()} quantities before they fill the bid`
@@ -1160,9 +1422,14 @@ export default function PlanTakeoffReviewModal({
 
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={[styles.scrollContent, keyboardVisible ? { paddingBottom: 120 } : null]}
+            contentContainerStyle={[
+              styles.scrollContent,
+              keyboardVisible ? { paddingBottom: 120 } : null,
+            ]}
             keyboardShouldPersistTaps='always'
-            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            keyboardDismissMode={
+              Platform.OS === 'ios' ? 'interactive' : 'on-drag'
+            }
             showsVerticalScrollIndicator={false}
           >
             {measurementConflicts.length ? (
@@ -1219,14 +1486,22 @@ export default function PlanTakeoffReviewModal({
             {hasReadingIssues ? (
               <View style={styles.section}>
                 <Text style={styles.attentionEyebrow}>Needs review</Text>
-                <Text style={[styles.sectionHeading, { color: Colors.text }]}>Could not read clearly</Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
+                  Could not read clearly
+                </Text>
                 <ReviewPanel darkMode={darkMode}>
-                  <Text style={styles.attentionTitle}>Enter these quantities manually</Text>
+                  <Text style={styles.attentionTitle}>
+                    Enter these quantities manually
+                  </Text>
                   {lowConfidence.map(f => {
                     const meta = quickMeasurementFieldMeta(f.field);
                     return (
-                      <Text key={`low-${f.field}`} style={[styles.evidenceText, { color: Colors.sub }]}>
-                        {meta.label}: read {f.value} {meta.unit}, confidence too low
+                      <Text
+                        key={`low-${f.field}`}
+                        style={[styles.evidenceText, { color: Colors.sub }]}
+                      >
+                        {meta.label}: read {f.value} {meta.unit}, confidence too
+                        low
                       </Text>
                     );
                   })}
@@ -1234,8 +1509,12 @@ export default function PlanTakeoffReviewModal({
                     const meta = quickMeasurementFieldMeta(f.field);
                     const label = measurementDisplayLabel(f.field).label;
                     return (
-                      <Text key={`unread-${f.field}-${idx}`} style={[styles.evidenceText, { color: Colors.sub }]}>
-                        {meta.label !== f.field ? meta.label : label}: {f.reason}
+                      <Text
+                        key={`unread-${f.field}-${idx}`}
+                        style={[styles.evidenceText, { color: Colors.sub }]}
+                      >
+                        {meta.label !== f.field ? meta.label : label}:{' '}
+                        {f.reason}
                       </Text>
                     );
                   })}
@@ -1255,14 +1534,25 @@ export default function PlanTakeoffReviewModal({
               plumbingReviewStatus?.notFound?.length ||
               plumbingMissingItems.length) ? (
               <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>AI detection</Text>
-                <Text style={[styles.sectionHeading, { color: Colors.text }]}>Plumbing detection</Text>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  AI detection
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
+                  Plumbing detection
+                </Text>
                 <ReviewPanel darkMode={darkMode}>
                   {plumbingReviewStatus?.detected?.length ? (
                     <>
-                      <Text style={[styles.summaryLabel, { color: Colors.sub }]}>Detected</Text>
+                      <Text
+                        style={[styles.summaryLabel, { color: Colors.sub }]}
+                      >
+                        Detected
+                      </Text>
                       {plumbingReviewStatus.detected.map((item, index) => (
-                        <Text key={`plumbing-detected-${index}`} style={[styles.evidenceText, { color: Colors.text }]}>
+                        <Text
+                          key={`plumbing-detected-${index}`}
+                          style={[styles.evidenceText, { color: Colors.text }]}
+                        >
                           {item}
                         </Text>
                       ))}
@@ -1275,7 +1565,9 @@ export default function PlanTakeoffReviewModal({
                           styles.summaryLabel,
                           {
                             color: Colors.sub,
-                            marginTop: plumbingReviewStatus?.detected?.length ? 10 : 0,
+                            marginTop: plumbingReviewStatus?.detected?.length
+                              ? 10
+                              : 0,
                           },
                         ]}
                       >
@@ -1284,30 +1576,52 @@ export default function PlanTakeoffReviewModal({
                       {PLUMBING_FIXTURE_INVENTORY_ORDER.filter(
                         key => Number(takeoff.fixtureInventory?.[key]) > 0
                       ).map(key => (
-                        <Text key={`fixture-${key}`} style={[styles.evidenceText, { color: Colors.text }]}>
-                          {plumbingFixtureInventoryLabel(key)}: {takeoff.fixtureInventory?.[key]}
+                        <Text
+                          key={`fixture-${key}`}
+                          style={[styles.evidenceText, { color: Colors.text }]}
+                        >
+                          {plumbingFixtureInventoryLabel(key)}:{' '}
+                          {takeoff.fixtureInventory?.[key]}
                         </Text>
                       ))}
                       {plumbingInventoryTotal > 0 ? (
-                        <Text style={[styles.evidenceText, { color: Colors.sub, marginTop: 6 }]}>
-                          Total rough-in points: {plumbingInventoryTotal} fixtures
+                        <Text
+                          style={[
+                            styles.evidenceText,
+                            { color: Colors.sub, marginTop: 6 },
+                          ]}
+                        >
+                          Total rough-in points: {plumbingInventoryTotal}{' '}
+                          fixtures
                         </Text>
                       ) : null}
                     </>
                   ) : null}
                   {plumbingWaterHeaterLine ? (
                     <>
-                      <Text style={[styles.summaryLabel, { color: Colors.sub, marginTop: 10 }]}>
+                      <Text
+                        style={[
+                          styles.summaryLabel,
+                          { color: Colors.sub, marginTop: 10 },
+                        ]}
+                      >
                         Water heater
                       </Text>
-                      <Text style={[styles.evidenceText, { color: Colors.text }]}>
+                      <Text
+                        style={[styles.evidenceText, { color: Colors.text }]}
+                      >
                         {plumbingWaterHeaterLine}
                       </Text>
                     </>
                   ) : null}
                   {plumbingGasLines.length ? (
                     <>
-                      <Text style={[styles.summaryLabel, { color: Colors.sub, marginTop: 10 }]}>
+                      <Text
+                        style={[
+                          styles.summaryLabel,
+                          { color: Colors.sub, marginTop: 10 },
+                        ]}
+                      >
                         Gas appliances
                       </Text>
                       {plumbingGasLines.map((line, index) => (
@@ -1321,29 +1635,49 @@ export default function PlanTakeoffReviewModal({
                     </>
                   ) : null}
                   {plumbingDerivedRows.length ? (
-                    <Text style={[styles.evidenceText, { color: CONFIRM_YELLOW }]}>
-                      {plumbingDerivedRows.map(row => `${row.label} ${row.value} ${row.unit}`).join(' · ')}
-                      {' — derived from the fixture inventory; confirm before pricing.'}
+                    <Text
+                      style={[styles.evidenceText, { color: CONFIRM_YELLOW }]}
+                    >
+                      {plumbingDerivedRows
+                        .map(row => `${row.label} ${row.value} ${row.unit}`)
+                        .join(' · ')}
+                      {
+                        ' — derived from the fixture inventory; confirm before pricing.'
+                      }
                     </Text>
                   ) : null}
                   {plumbingUtilityConnections.length ? (
                     <>
-                      <Text style={[styles.summaryLabel, { color: Colors.sub, marginTop: 10 }]}>
+                      <Text
+                        style={[
+                          styles.summaryLabel,
+                          { color: Colors.sub, marginTop: 10 },
+                        ]}
+                      >
                         Utility connections / allowances
                       </Text>
                       {plumbingUtilityConnections.map((connection, index) => (
                         <Text
                           key={`utility-${connection.label}-${index}`}
-                          style={[styles.evidenceText, { color: CONFIRM_YELLOW }]}
+                          style={[
+                            styles.evidenceText,
+                            { color: CONFIRM_YELLOW },
+                          ]}
                         >
-                          {connection.label} — confirm scope/allowance; no automatic quantity
+                          {connection.label} — confirm scope/allowance; no
+                          automatic quantity
                         </Text>
                       ))}
                     </>
                   ) : null}
                   {plumbingComplexityFactors.length ? (
                     <>
-                      <Text style={[styles.summaryLabel, { color: Colors.sub, marginTop: 10 }]}>
+                      <Text
+                        style={[
+                          styles.summaryLabel,
+                          { color: Colors.sub, marginTop: 10 },
+                        ]}
+                      >
                         Complexity flags — review only
                       </Text>
                       {plumbingComplexityFactors.map((factor, index) => (
@@ -1351,31 +1685,52 @@ export default function PlanTakeoffReviewModal({
                           key={`complexity-${factor.label}-${index}`}
                           style={[styles.evidenceText, { color: Colors.sub }]}
                         >
-                          {factor.label} — does not automatically change labor pricing
+                          {factor.label} — does not automatically change labor
+                          pricing
                         </Text>
                       ))}
                     </>
                   ) : null}
                   {plumbingReviewStatus?.needsConfirmation?.length ? (
                     <>
-                      <Text style={[styles.summaryLabel, { color: CONFIRM_YELLOW, marginTop: 10 }]}>
+                      <Text
+                        style={[
+                          styles.summaryLabel,
+                          { color: CONFIRM_YELLOW, marginTop: 10 },
+                        ]}
+                      >
                         Needs confirmation
                       </Text>
-                      {plumbingReviewStatus.needsConfirmation.map((item, index) => (
-                        <Text
-                          key={`plumbing-confirm-${index}`}
-                          style={[styles.evidenceText, { color: CONFIRM_YELLOW }]}
-                        >
-                          {item}
-                        </Text>
-                      ))}
+                      {plumbingReviewStatus.needsConfirmation.map(
+                        (item, index) => (
+                          <Text
+                            key={`plumbing-confirm-${index}`}
+                            style={[
+                              styles.evidenceText,
+                              { color: CONFIRM_YELLOW },
+                            ]}
+                          >
+                            {item}
+                          </Text>
+                        )
+                      )}
                     </>
                   ) : null}
                   {plumbingReviewStatus?.notFound?.length ? (
                     <>
-                      <Text style={[styles.summaryLabel, { color: CONFIRM_RED, marginTop: 10 }]}>Not found</Text>
+                      <Text
+                        style={[
+                          styles.summaryLabel,
+                          { color: CONFIRM_RED, marginTop: 10 },
+                        ]}
+                      >
+                        Not found
+                      </Text>
                       {plumbingReviewStatus.notFound.map((item, index) => (
-                        <Text key={`plumbing-notfound-${index}`} style={[styles.evidenceText, { color: CONFIRM_RED }]}>
+                        <Text
+                          key={`plumbing-notfound-${index}`}
+                          style={[styles.evidenceText, { color: CONFIRM_RED }]}
+                        >
                           {item}
                         </Text>
                       ))}
@@ -1383,11 +1738,19 @@ export default function PlanTakeoffReviewModal({
                   ) : null}
                   {plumbingMissingItems.length ? (
                     <>
-                      <Text style={[styles.summaryLabel, { color: CONFIRM_RED, marginTop: 10 }]}>
+                      <Text
+                        style={[
+                          styles.summaryLabel,
+                          { color: CONFIRM_RED, marginTop: 10 },
+                        ]}
+                      >
                         Missing or unreadable
                       </Text>
                       {plumbingMissingItems.map((item, index) => (
-                        <Text key={`missing-plumbing-${index}`} style={[styles.evidenceText, { color: CONFIRM_RED }]}>
+                        <Text
+                          key={`missing-plumbing-${index}`}
+                          style={[styles.evidenceText, { color: CONFIRM_RED }]}
+                        >
                           {item}
                         </Text>
                       ))}
@@ -1399,8 +1762,12 @@ export default function PlanTakeoffReviewModal({
 
             {concretePlanSummary ? (
               <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>Project</Text>
-                <Text style={[styles.sectionHeading, { color: Colors.text }]}>Concrete</Text>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Project
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
+                  Concrete
+                </Text>
                 <TradeSummaryPanel
                   darkMode={darkMode}
                   labelColor={Colors.sub}
@@ -1411,8 +1778,12 @@ export default function PlanTakeoffReviewModal({
             ) : null}
             {flooringPlanSummary ? (
               <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>Project</Text>
-                <Text style={[styles.sectionHeading, { color: Colors.text }]}>Flooring</Text>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Project
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
+                  Flooring
+                </Text>
                 <TradeSummaryPanel
                   darkMode={darkMode}
                   labelColor={Colors.sub}
@@ -1423,8 +1794,12 @@ export default function PlanTakeoffReviewModal({
             ) : null}
             {paintingPlanSummary ? (
               <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>Project</Text>
-                <Text style={[styles.sectionHeading, { color: Colors.text }]}>Painting</Text>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Project
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
+                  Painting
+                </Text>
                 <TradeSummaryPanel
                   darkMode={darkMode}
                   labelColor={Colors.sub}
@@ -1435,21 +1810,35 @@ export default function PlanTakeoffReviewModal({
             ) : null}
             {hasMeasurements ? (
               <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>Takeoff</Text>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Takeoff
+                </Text>
                 <Text style={[styles.sectionHeading, { color: Colors.text }]}>
-                  {concretePlanSummary || flooringPlanSummary || paintingPlanSummary || electricalStatusLines.length
+                  {concretePlanSummary ||
+                  flooringPlanSummary ||
+                  paintingPlanSummary ||
+                  electricalStatusLines.length
                     ? 'Quantities'
                     : 'Measurements'}
                 </Text>
                 {electricalReadiness ? (
                   <ReviewPanel darkMode={darkMode}>
-                    <Text style={[styles.summaryLabel, { color: Colors.sub }]}>{electricalReadiness.label}</Text>
-                    <Text style={[styles.summaryValue, { color: Colors.text }]}>{electricalReadiness.value}</Text>
-                    <Text style={[styles.evidenceText, { color: Colors.sub }]}>{electricalReadiness.note}</Text>
+                    <Text style={[styles.summaryLabel, { color: Colors.sub }]}>
+                      {electricalReadiness.label}
+                    </Text>
+                    <Text style={[styles.summaryValue, { color: Colors.text }]}>
+                      {electricalReadiness.value}
+                    </Text>
+                    <Text style={[styles.evidenceText, { color: Colors.sub }]}>
+                      {electricalReadiness.note}
+                    </Text>
                   </ReviewPanel>
                 ) : null}
                 {rows.map(row => {
-                  const provenanceColor = planProvenanceColor(row.provenance.status, Colors);
+                  const provenanceColor = planProvenanceColor(
+                    row.provenance.status,
+                    Colors
+                  );
                   const confirmRow = !row.pricingEligible;
                   return (
                     <ReviewPanel key={row.key} darkMode={darkMode}>
@@ -1460,7 +1849,10 @@ export default function PlanTakeoffReviewModal({
                               setRow(row.key, { include: !row.include });
                               return;
                             }
-                            const prompt = planReviewCheckboxBlockedMessage(row.provenance, row);
+                            const prompt = planReviewCheckboxBlockedMessage(
+                              row.provenance,
+                              row
+                            );
                             Alert.alert(prompt.title, prompt.message, [
                               { text: 'Cancel', style: 'cancel' },
                               {
@@ -1469,10 +1861,11 @@ export default function PlanTakeoffReviewModal({
                                   setRow(row.key, {
                                     include: true,
                                     pricingEligible: true,
-                                    provenance: resolvePlanMeasurementProvenance({
-                                      key: row.key,
-                                      userConfirmed: true,
-                                    }),
+                                    provenance:
+                                      resolvePlanMeasurementProvenance({
+                                        key: row.key,
+                                        userConfirmed: true,
+                                      }),
                                   }),
                               },
                             ]);
@@ -1487,12 +1880,17 @@ export default function PlanTakeoffReviewModal({
                           />
                         </TouchableOpacity>
                         <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text style={[styles.itemTitle, { color: Colors.text }]} numberOfLines={2}>
+                          <Text
+                            style={[styles.itemTitle, { color: Colors.text }]}
+                            numberOfLines={2}
+                          >
                             {row.label}
                           </Text>
                           <Text
                             style={{
-                              color: confirmRow ? CONFIRM_YELLOW : provenanceColor,
+                              color: confirmRow
+                                ? CONFIRM_YELLOW
+                                : provenanceColor,
                               fontSize: 12,
                               fontWeight: '700',
                               marginTop: 4,
@@ -1501,7 +1899,13 @@ export default function PlanTakeoffReviewModal({
                             {row.provenance.label}
                           </Text>
                           {row.sourceLabel || row.subtext ? (
-                            <Text style={[styles.evidenceText, { color: Colors.sub }]} numberOfLines={2}>
+                            <Text
+                              style={[
+                                styles.evidenceText,
+                                { color: Colors.sub },
+                              ]}
+                              numberOfLines={2}
+                            >
                               {row.sourceLabel || row.subtext}
                             </Text>
                           ) : null}
@@ -1516,7 +1920,9 @@ export default function PlanTakeoffReviewModal({
                         style={[
                           styles.valueShell,
                           {
-                            borderColor: darkMode ? PANEL_BORDER_DARK : PANEL_BORDER_LIGHT,
+                            borderColor: darkMode
+                              ? PANEL_BORDER_DARK
+                              : PANEL_BORDER_LIGHT,
                             backgroundColor: darkMode ? '#27272a' : '#f1f5f9',
                           },
                         ]}
@@ -1538,7 +1944,9 @@ export default function PlanTakeoffReviewModal({
                           keyboardType='decimal-pad'
                           style={[styles.valueInput, { color: Colors.text }]}
                         />
-                        <Text style={[styles.unitText, { color: Colors.sub }]}>{row.unit}</Text>
+                        <Text style={[styles.unitText, { color: Colors.sub }]}>
+                          {row.unit}
+                        </Text>
                       </View>
                     </ReviewPanel>
                   );
@@ -1546,8 +1954,12 @@ export default function PlanTakeoffReviewModal({
               </View>
             ) : (
               <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>Takeoff</Text>
-                <Text style={[styles.sectionHeading, { color: Colors.text }]}>Measurements</Text>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Takeoff
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
+                  Measurements
+                </Text>
                 <ReviewPanel darkMode={darkMode}>
                   <Text style={[styles.emptyText, { color: Colors.sub }]}>
                     {effectiveTradeKey === 'plumbing'
@@ -1558,7 +1970,8 @@ export default function PlanTakeoffReviewModal({
                               ? `Confirm: ${takeoff.missingInfo.join(', ')}. `
                               : 'Review the relevant trade sheets and confirm the missing quantities. '
                           }You can still apply and enter quantities in Confirm Scope.`
-                        : takeoff.reason || 'No square footage could be read from these pages.'}
+                        : takeoff.reason ||
+                          'No square footage could be read from these pages.'}
                   </Text>
                 </ReviewPanel>
               </View>
@@ -1566,10 +1979,16 @@ export default function PlanTakeoffReviewModal({
 
             {electricalDetectedLines.length || electricalStatusLines.length ? (
               <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>Project</Text>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Project
+                </Text>
                 {electricalDetectedLines.length ? (
                   <>
-                    <Text style={[styles.sectionHeading, { color: Colors.text }]}>Detected quantities</Text>
+                    <Text
+                      style={[styles.sectionHeading, { color: Colors.text }]}
+                    >
+                      Detected quantities
+                    </Text>
                     <TradeSummaryPanel
                       darkMode={darkMode}
                       labelColor={Colors.sub}
@@ -1604,27 +2023,48 @@ export default function PlanTakeoffReviewModal({
 
             {semanticsOn && areaReconciliation ? (
               <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>Areas</Text>
-                <Text style={[styles.sectionHeading, { color: Colors.text }]}>Area reconciliation</Text>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Areas
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
+                  Area reconciliation
+                </Text>
                 <ReviewPanel darkMode={darkMode}>
-                  <Text style={[styles.reconcileBlockTitle, { color: Colors.text }]}>Living area</Text>
+                  <Text
+                    style={[styles.reconcileBlockTitle, { color: Colors.text }]}
+                  >
+                    Living area
+                  </Text>
                   <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
                     Declared: {formatSf(areaReconciliation.declaredLivingSf)} SF
                   </Text>
                   <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                    Assigned to detected rooms: approximately {formatSf(areaReconciliation.detectedLivingRoomSf)} SF
+                    Assigned to detected rooms: approximately{' '}
+                    {formatSf(areaReconciliation.detectedLivingRoomSf)} SF
                   </Text>
                   <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                    Unassigned: approximately {formatSf(areaReconciliation.unassignedLivingSf)} SF
+                    Unassigned: approximately{' '}
+                    {formatSf(areaReconciliation.unassignedLivingSf)} SF
                   </Text>
                   <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                    Variance: approximately {formatSf(areaReconciliation.livingVariancePercent)}%
+                    Variance: approximately{' '}
+                    {formatSf(areaReconciliation.livingVariancePercent)}%
                   </Text>
-                  <Text style={[styles.reconcileStatus, { color: Colors.text }]}>
-                    Status: {livingReconciliationStatusLabel(areaReconciliation)}
+                  <Text
+                    style={[styles.reconcileStatus, { color: Colors.text }]}
+                  >
+                    Status:{' '}
+                    {livingReconciliationStatusLabel(areaReconciliation)}
                   </Text>
 
-                  <Text style={[styles.reconcileBlockTitle, { color: Colors.text, marginTop: 12 }]}>Garage area</Text>
+                  <Text
+                    style={[
+                      styles.reconcileBlockTitle,
+                      { color: Colors.text, marginTop: 12 },
+                    ]}
+                  >
+                    Garage area
+                  </Text>
                   <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
                     Declared: {formatSf(areaReconciliation.declaredGarageSf)} SF
                   </Text>
@@ -1633,18 +2073,23 @@ export default function PlanTakeoffReviewModal({
                     {formatSf(areaReconciliation.detectedGarageRoomSf)} SF
                   </Text>
                   <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                    Unassigned: approximately {formatSf(areaReconciliation.unassignedGarageSf)} SF
+                    Unassigned: approximately{' '}
+                    {formatSf(areaReconciliation.unassignedGarageSf)} SF
                   </Text>
                   <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                    Variance: approximately {formatSf(areaReconciliation.garageVariancePercent)}%
+                    Variance: approximately{' '}
+                    {formatSf(areaReconciliation.garageVariancePercent)}%
                   </Text>
-                  <Text style={[styles.reconcileStatus, { color: Colors.text }]}>
-                    Status: {garageReconciliationStatusLabel(areaReconciliation)}
+                  <Text
+                    style={[styles.reconcileStatus, { color: Colors.text }]}
+                  >
+                    Status:{' '}
+                    {garageReconciliationStatusLabel(areaReconciliation)}
                   </Text>
 
                   <Text style={[styles.reconcileHint, { color: Colors.sub }]}>
-                    Room dimensions are net detected spaces and may not include bathrooms, halls, closets, wall area or
-                    circulation.
+                    Room dimensions are net detected spaces and may not include
+                    bathrooms, halls, closets, wall area or circulation.
                   </Text>
                 </ReviewPanel>
               </View>
@@ -1652,7 +2097,9 @@ export default function PlanTakeoffReviewModal({
 
             {hasRooms ? (
               <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>Spaces</Text>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Spaces
+                </Text>
                 <Text style={[styles.sectionHeading, { color: Colors.text }]}>
                   {semanticsOn
                     ? spacesDetectedTitle(roomRows.length)
@@ -1677,7 +2124,9 @@ export default function PlanTakeoffReviewModal({
                   <ReviewPanel key={room.id} darkMode={darkMode}>
                     <View style={styles.quantityHeader}>
                       <TouchableOpacity
-                        onPress={() => setRoomRow(room.id, { include: !room.include })}
+                        onPress={() =>
+                          setRoomRow(room.id, { include: !room.include })
+                        }
                         style={styles.checkbox}
                         hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                       >
@@ -1688,12 +2137,18 @@ export default function PlanTakeoffReviewModal({
                         />
                       </TouchableOpacity>
                       <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={[styles.itemTitle, { color: Colors.text }]} numberOfLines={1}>
+                        <Text
+                          style={[styles.itemTitle, { color: Colors.text }]}
+                          numberOfLines={1}
+                        >
                           {room.name}
                         </Text>
                         <Text
                           style={{
-                            color: planProvenanceColor(room.provenance.status, Colors),
+                            color: planProvenanceColor(
+                              room.provenance.status,
+                              Colors
+                            ),
                             fontSize: 12,
                             fontWeight: '700',
                             marginTop: 4,
@@ -1702,12 +2157,17 @@ export default function PlanTakeoffReviewModal({
                           {room.provenance.label}
                         </Text>
                         {room.lengthFt != null && room.widthFt != null ? (
-                          <Text style={[styles.evidenceText, { color: Colors.sub }]}>
+                          <Text
+                            style={[styles.evidenceText, { color: Colors.sub }]}
+                          >
                             {room.lengthFt}×{room.widthFt} ft
                           </Text>
                         ) : null}
                         {room.sourceLabel ? (
-                          <Text style={[styles.evidenceText, { color: Colors.sub }]} numberOfLines={2}>
+                          <Text
+                            style={[styles.evidenceText, { color: Colors.sub }]}
+                            numberOfLines={2}
+                          >
                             {room.sourceLabel}
                           </Text>
                         ) : null}
@@ -1717,7 +2177,9 @@ export default function PlanTakeoffReviewModal({
                       style={[
                         styles.valueShell,
                         {
-                          borderColor: darkMode ? PANEL_BORDER_DARK : PANEL_BORDER_LIGHT,
+                          borderColor: darkMode
+                            ? PANEL_BORDER_DARK
+                            : PANEL_BORDER_LIGHT,
                           backgroundColor: darkMode ? '#27272a' : '#f1f5f9',
                         },
                       ]}
@@ -1740,7 +2202,9 @@ export default function PlanTakeoffReviewModal({
                         placeholderTextColor={Colors.sub}
                         style={[styles.valueInput, { color: Colors.text }]}
                       />
-                      <Text style={[styles.unitText, { color: Colors.sub }]}>sqft</Text>
+                      <Text style={[styles.unitText, { color: Colors.sub }]}>
+                        sqft
+                      </Text>
                     </View>
                   </ReviewPanel>
                 ))}
@@ -1749,8 +2213,12 @@ export default function PlanTakeoffReviewModal({
 
             {scopeDetections.length ? (
               <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>Scope</Text>
-                <Text style={[styles.sectionHeading, { color: Colors.text }]}>Suggested scope</Text>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Scope
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
+                  Suggested scope
+                </Text>
                 {scopeDetections.map(d => {
                   const statusLines = scopeTakeoffStatusLines({
                     itemId: d.itemId,
@@ -1801,19 +2269,31 @@ export default function PlanTakeoffReviewModal({
                       <ReviewPanel darkMode={darkMode}>
                         <View style={styles.quantityHeader}>
                           <Ionicons
-                            name={scopeChecked[d.itemId] ? 'checkbox' : 'square-outline'}
+                            name={
+                              scopeChecked[d.itemId]
+                                ? 'checkbox'
+                                : 'square-outline'
+                            }
                             size={22}
-                            color={scopeChecked[d.itemId] ? '#22c55e' : Colors.sub}
+                            color={
+                              scopeChecked[d.itemId] ? '#22c55e' : Colors.sub
+                            }
                             style={styles.checkbox}
                           />
                           <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={[styles.itemTitle, { color: Colors.text }]} numberOfLines={2}>
+                            <Text
+                              style={[styles.itemTitle, { color: Colors.text }]}
+                              numberOfLines={2}
+                            >
                               {d.label || d.itemId}
                             </Text>
                             {statusLines.map(line => (
                               <Text
                                 key={`${d.itemId}-${line}`}
-                                style={[styles.evidenceText, { color: Colors.sub }]}
+                                style={[
+                                  styles.evidenceText,
+                                  { color: Colors.sub },
+                                ]}
                                 numberOfLines={2}
                               >
                                 {line}
@@ -1835,7 +2315,9 @@ export default function PlanTakeoffReviewModal({
                 styles.footer,
                 {
                   paddingBottom: footerBottomPad,
-                  borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                  borderTopColor: darkMode
+                    ? 'rgba(255,255,255,0.08)'
+                    : Colors.line,
                   backgroundColor: Colors.bg,
                 },
               ]}
@@ -1857,7 +2339,9 @@ export default function PlanTakeoffReviewModal({
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={onCancel} style={styles.cancelBtn}>
-                <Text style={{ color: Colors.sub, fontWeight: '700' }}>Cancel</Text>
+                <Text style={{ color: Colors.sub, fontWeight: '700' }}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
             </View>
           ) : null}

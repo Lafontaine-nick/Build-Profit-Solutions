@@ -495,6 +495,40 @@ describe('live plan-review handoff to Confirm Scope', () => {
     expect(next.measurementConflicts).toEqual([]);
   });
 
+  test('preserves insulation takeoff locks when the plan fingerprint matches', () => {
+    const next = mergeLivePlanImportIntoScopeMeasurements(
+      {
+        exteriorWallInsulationSqft: '3508.8',
+        atticInsulationSqft: '2260',
+        planImportFingerprint: 'same-plan',
+        quickMeasurementSources: {
+          exteriorWallInsulationSqft: 'contractor_confirmed_from_plan_review',
+          atticInsulationSqft: 'contractor_confirmed_from_plan_review',
+        },
+      },
+      {
+        planImportFingerprint: 'same-plan',
+        measurements: {
+          exteriorWallInsulationSqft: '2958.8',
+          atticInsulationSqft: '1613',
+        },
+        quickMeasurementSources: {
+          exteriorWallInsulationSqft: 'detected_from_plan',
+          atticInsulationSqft: 'calculated_from_components',
+        },
+      }
+    );
+
+    expect(next.exteriorWallInsulationSqft).toBe('3508.8');
+    expect(next.atticInsulationSqft).toBe('2260');
+    expect(next.quickMeasurementSources?.exteriorWallInsulationSqft).toBe(
+      'contractor_confirmed_from_plan_review'
+    );
+    expect(next.quickMeasurementSources?.atticInsulationSqft).toBe(
+      'contractor_confirmed_from_plan_review'
+    );
+  });
+
   test('merges Plumbing plan quantities into scope cards and itemQuantities', () => {
     const next = mergeLivePlanImportIntoScopeMeasurements(
       {

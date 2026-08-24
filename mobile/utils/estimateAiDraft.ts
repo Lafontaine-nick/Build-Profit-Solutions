@@ -765,6 +765,8 @@ export type InsulationAssembly = {
     | 'parsed_from_notes'
     | null;
   confirmed?: boolean;
+  /** Batt only — faced vs unfaced vapor retarder; defaults to not_sure. */
+  battFacing?: 'faced' | 'unfaced' | 'not_sure' | null;
 };
 
 export type EstimateDraftPricingItem = {

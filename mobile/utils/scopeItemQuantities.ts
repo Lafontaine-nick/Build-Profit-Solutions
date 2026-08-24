@@ -44,6 +44,9 @@ import {
   copyInsulationAssemblyFields,
   copyInsulationScopeNumericFields,
   copyInsulationScopeTextFields,
+  insulationBattFacingLabel,
+  insulationBattFacingMaterialMultiplier,
+  type InsulationBattFacing,
 } from '@/utils/subcontractorTrade/insulationPlanConvergence';
 import {
   isElectricalServicePanelItemId,
@@ -12153,7 +12156,8 @@ function insulationAssemblyRateAdjustments(
 
 function insulationAssemblyRateAdjustmentsForValues(
   materialType: unknown,
-  rValueInput: unknown
+  rValueInput: unknown,
+  battFacing?: InsulationBattFacing | null
 ): {
   materialMultiplier: number;
   laborMultiplier: number;
@@ -12191,11 +12195,16 @@ function insulationAssemblyRateAdjustmentsForValues(
     (rValue > 0
       ? Math.max(0.85, Math.min(1.7, 0.65 + rValue / 60))
       : 1);
+  const facingMaterial =
+    typeKey === 'batt'
+      ? insulationBattFacingMaterialMultiplier(battFacing)
+      : 1;
   return {
-    materialMultiplier: typeMaterial * rMaterial,
+    materialMultiplier: typeMaterial * rMaterial * facingMaterial,
     laborMultiplier: typeLabor,
     label: [
       typeKey ? typeKey : null,
+      typeKey === 'batt' ? insulationBattFacingLabel(battFacing) : null,
       rValue > 0 ? `R-${rValue}` : null,
     ]
       .filter(Boolean)
@@ -12210,6 +12219,7 @@ function resolvedInsulationAssemblies(
   rValue: string;
   sqft: number;
   location: string | null;
+  battFacing: InsulationBattFacing | null;
 }> {
   if (!Array.isArray(measurements.insulationAssemblies)) return [];
   return measurements.insulationAssemblies
@@ -12218,6 +12228,7 @@ function resolvedInsulationAssemblies(
       rValue: String(row.rValue || '').trim(),
       sqft: parseScopeMeasurementInput(String(row.sqft ?? '')),
       location: String(row.location || '').trim() || null,
+      battFacing: row.battFacing ?? null,
       source: row.source,
       confirmed: row.confirmed,
     }))
@@ -12234,6 +12245,7 @@ function resolvedInsulationAssemblies(
     rValue: string;
     sqft: number;
     location: string | null;
+    battFacing: InsulationBattFacing | null;
   }>;
 }
 
@@ -12254,7 +12266,8 @@ function insulationRateAdjustmentsForMeasurements(
         row.sqft *
           insulationAssemblyRateAdjustmentsForValues(
             row.materialType,
-            row.rValue
+            row.rValue,
+            row.battFacing
           ).materialMultiplier,
       0
     ) / totalSqft;
@@ -12265,7 +12278,8 @@ function insulationRateAdjustmentsForMeasurements(
         row.sqft *
           insulationAssemblyRateAdjustmentsForValues(
             row.materialType,
-            row.rValue
+            row.rValue,
+            row.battFacing
           ).laborMultiplier,
       0
     ) / totalSqft;
@@ -12273,7 +12287,13 @@ function insulationRateAdjustmentsForMeasurements(
     materialMultiplier,
     laborMultiplier,
     label: rows
-      .map(row => `${row.materialType} · ${row.rValue}`)
+      .map(row =>
+        insulationAssemblyRateAdjustmentsForValues(
+          row.materialType,
+          row.rValue,
+          row.battFacing
+        ).label
+      )
       .join(' + '),
   };
 }
@@ -12364,6 +12384,7 @@ function priceInsulationEnvelopeComponents(params: {
     rValue: string;
     sqft: number;
     location: string | null;
+    battFacing?: InsulationBattFacing | null;
   }>;
 }): InsulationEnvelopePricing {
   const assemblies = params.assemblies || [];
@@ -12413,7 +12434,8 @@ function priceInsulationEnvelopeComponents(params: {
     for (const row of assemblies) {
       const rowAssembly = insulationAssemblyRateAdjustmentsForValues(
         row.materialType,
-        row.rValue
+        row.rValue,
+        row.battFacing
       );
       const locationRate = insulationAssemblyLocationRate(row.location);
       const rowMaterialRate = locationRate
@@ -12428,8 +12450,11 @@ function priceInsulationEnvelopeComponents(params: {
       labor += round2(
         row.sqft * rowLaborRate
       );
+      const facingLabel = insulationBattFacingLabel(row.battFacing);
       detail.push(
-        `${Math.round(row.sqft).toLocaleString()} SF ${row.materialType} ${row.rValue} ${insulationAssemblyLocationLabel(row.location)} @ $${round2(
+        `${Math.round(row.sqft).toLocaleString()} SF ${row.materialType}${
+          facingLabel ? ` ${facingLabel.toLowerCase()}` : ''
+        } ${row.rValue} ${insulationAssemblyLocationLabel(row.location)} @ $${round2(
           rowMaterialRate + rowLaborRate
         ).toFixed(2)}/SF`
       );

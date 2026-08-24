@@ -700,6 +700,7 @@ export default function AIEstimateBuilderModal({
         darkMode={darkMode}
         disabled={busy}
         existingNotes={notes}
+        existingPlanImport={planImport}
         planReadySubtitle={planReadySubtitle}
         onApplied={handlePlanApplied}
       />

@@ -82,7 +82,20 @@ import {
   reconcileFramingScopeMeasurements,
   reconcilePlumbingLineScopeMeasurements,
 } from '@/utils/planTakeoffReviewUi';
-import { syncInsulationAssembliesWithPlanMeasurements } from '@/utils/subcontractorTrade/insulationPlanConvergence';
+import {
+  INSULATION_BATT_FACING_DEFAULT,
+  INSULATION_BATT_FACING_OPTIONS,
+  insulationAssemblyDuplicateRowIds,
+  insulationBattFacingLabel,
+  insulationMaterialTypeKey,
+  isBattInsulationMaterial,
+  isIncompleteInsulationAssembly,
+  isPricedInsulationAssembly,
+  mergeInsulationAssemblyRowsWithDrafts,
+  rowsForInsulationMaterialType,
+  syncInsulationAssembliesWithPlanMeasurements,
+  type InsulationBattFacing,
+} from '@/utils/subcontractorTrade/insulationPlanConvergence';
 import { applySouthernUtahPlumbingPackageTakeoffDefaults } from '@/utils/southernUtahPlumbingComparables';
 import {
   ElectricalConfirmScopeAttributesPanel,
@@ -10250,28 +10263,30 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   );
 });
 
-function InsulationAssemblyCard({
-  measurements,
-  onChange,
-  onAssembliesChange,
-  Colors,
-  darkMode,
-}: {
-  measurements: Record<string, unknown>;
-  onChange: (
-    key:
-      | 'insulationMaterialType'
-      | 'insulationRValue'
-      | 'garageInsulationIncluded',
-    value: string
-  ) => void;
-  onAssembliesChange: (assemblies: InsulationAssembly[] | null) => void;
-  Colors: ReturnType<typeof getColors>;
-  darkMode: boolean;
-}) {
-  const [expandedAssemblyId, setExpandedAssemblyId] = useState<string | null>(
-    null
-  );
+function insulationAssemblyRowTitle(
+  row: InsulationAssembly,
+  materialType: string
+): string {
+  const facing = insulationBattFacingLabel(row.battFacing);
+  return [
+    materialType,
+    facing,
+    insulationLocationLabel(row.location),
+    row.rValue.trim() || 'R-value not specified',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function battFacingForNewRow(materialType: string): InsulationBattFacing | null {
+  return isBattInsulationMaterial(materialType)
+    ? INSULATION_BATT_FACING_DEFAULT
+    : null;
+}
+
+function buildInsulationAssemblyRows(
+  measurements: Record<string, unknown>
+): InsulationAssembly[] {
   const hasStoredAssemblies = Array.isArray(measurements.insulationAssemblies);
   const storedAssemblies = hasStoredAssemblies
     ? (measurements.insulationAssemblies as InsulationAssembly[])
@@ -10309,6 +10324,7 @@ function InsulationAssemblyCard({
             : '',
           sqft: String(Math.round(wallPlanArea)),
           location: 'exterior_wall',
+          battFacing: battFacingForNewRow(legacyMaterial),
         }
       : null,
     ceilingPlanArea > 0
@@ -10324,37 +10340,114 @@ function InsulationAssemblyCard({
             : '',
           sqft: String(Math.round(ceilingPlanArea)),
           location: ceilingLocation,
+          battFacing: battFacingForNewRow(legacyMaterial),
         }
       : null,
   ].filter((row): row is InsulationAssembly => Boolean(row));
-  const rows: InsulationAssembly[] = hasStoredAssemblies
-    ? storedAssemblies.map(row => ({
-        ...row,
-        location:
-          row.location || insulationLocationForMaterial(row.materialType),
-      }))
-    : fallbackRows.length
-      ? fallbackRows
-      : [
-          {
-            id: 'insulation-assembly-1',
-            materialType: legacyMaterial,
-            rValue: legacyRValue
-              ? defaultInsulationRValue(
-                  legacyMaterial,
-                  legacyLocation,
-                  legacyRValue
-                )
-              : '',
-            sqft: '',
-            location: legacyLocation,
-          },
-        ];
+  if (hasStoredAssemblies) {
+    return storedAssemblies.map(row => ({
+      ...row,
+      location:
+        row.location || insulationLocationForMaterial(row.materialType),
+    }));
+  }
+  if (fallbackRows.length) return fallbackRows;
+  return [
+    {
+      id: 'insulation-assembly-1',
+      materialType: legacyMaterial,
+      rValue: legacyRValue
+        ? defaultInsulationRValue(legacyMaterial, legacyLocation, legacyRValue)
+        : '',
+      sqft: '',
+      location: legacyLocation,
+      battFacing: battFacingForNewRow(legacyMaterial),
+    },
+  ];
+}
+
+function InsulationAssemblyCard({
+  measurements,
+  onChange,
+  onAssembliesChange,
+  Colors,
+  darkMode,
+}: {
+  measurements: Record<string, unknown>;
+  onChange: (
+    key:
+      | 'insulationMaterialType'
+      | 'insulationRValue'
+      | 'garageInsulationIncluded',
+    value: string
+  ) => void;
+  onAssembliesChange: (assemblies: InsulationAssembly[] | null) => void;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+}) {
+  const [expandedAssemblyId, setExpandedAssemblyId] = useState<string | null>(
+    null
+  );
+  const [collapsedTypes, setCollapsedTypes] = useState<Set<string>>(
+    () => new Set()
+  );
+  const planMeasurementSyncKey = useMemo(
+    () =>
+      [
+        measurements.exteriorWallInsulationSqft,
+        measurements.atticInsulationSqft,
+        measurements.insulatedRoofDeckSqft,
+      ].join('|'),
+    [
+      measurements.exteriorWallInsulationSqft,
+      measurements.atticInsulationSqft,
+      measurements.insulatedRoofDeckSqft,
+    ]
+  );
+  const assemblySyncKey = useMemo(() => {
+    if (Array.isArray(measurements.insulationAssemblies)) {
+      return JSON.stringify(measurements.insulationAssemblies);
+    }
+    return [
+      measurements.exteriorWallInsulationSqft,
+      measurements.atticInsulationSqft,
+      measurements.insulatedRoofDeckSqft,
+      measurements.insulationMaterialType,
+      measurements.insulationRValue,
+    ].join('|');
+  }, [
+    measurements.insulationAssemblies,
+    measurements.exteriorWallInsulationSqft,
+    measurements.atticInsulationSqft,
+    measurements.insulatedRoofDeckSqft,
+    measurements.insulationMaterialType,
+    measurements.insulationRValue,
+  ]);
+  const [rows, setRows] = useState<InsulationAssembly[]>(() =>
+    buildInsulationAssemblyRows(measurements)
+  );
+  const measurementsRef = useRef(measurements);
+  measurementsRef.current = measurements;
+  useEffect(() => {
+    setCollapsedTypes(new Set());
+  }, [planMeasurementSyncKey]);
+  useEffect(() => {
+    const fromParent = buildInsulationAssemblyRows(measurementsRef.current);
+    setRows(prev => mergeInsulationAssemblyRowsWithDrafts(fromParent, prev));
+  }, [assemblySyncKey]);
+  const parseSqft = (value: unknown) => {
+    const sqft = Number(String(value ?? '').replace(/,/g, ''));
+    return Number.isFinite(sqft) && sqft > 0 ? sqft : 0;
+  };
+  const legacyMaterial =
+    String(measurements.insulationMaterialType || '').trim();
+  const legacyRValue = String(measurements.insulationRValue || '').trim();
   const updateRows = (next: InsulationAssembly[]) => {
+    setRows(next);
     const normalized = next.filter(
       row => row.materialType.trim() && row.rValue.trim()
     );
-    onAssembliesChange(normalized);
+    onAssembliesChange(normalized.length ? normalized : null);
     const first = normalized[0];
     if (first) {
       onChange('insulationMaterialType', first.materialType);
@@ -10371,7 +10464,8 @@ function InsulationAssemblyCard({
         const confirmsQuantity =
           patch.sqft !== undefined ||
           patch.rValue !== undefined ||
-          patch.location !== undefined;
+          patch.location !== undefined ||
+          patch.battFacing !== undefined;
         return {
           ...row,
           ...patch,
@@ -10382,13 +10476,12 @@ function InsulationAssemblyCard({
       })
     );
   };
-  const selectedTypes = Array.from(
-    new Set(
-      rows
-        .map(row => row.materialType.trim())
-        .filter(Boolean)
-    )
+  const isTypeCollapsed = (materialType: string) =>
+    collapsedTypes.has(insulationMaterialTypeKey(materialType));
+  const visibleRows = rows.filter(
+    row => !isTypeCollapsed(row.materialType)
   );
+  const hiddenRowCount = rows.length - visibleRows.length;
   const totalConfirmedSqft = rows.reduce(
     (sum, row) =>
       sum +
@@ -10405,24 +10498,59 @@ function InsulationAssemblyCard({
         : 0),
     0
   );
+  const pricedAssemblyCount = rows.filter(isPricedInsulationAssembly).length;
+  const setupAssemblyCount = rows.filter(isIncompleteInsulationAssembly).length;
+  const duplicateAssemblyIds = useMemo(
+    () => insulationAssemblyDuplicateRowIds(rows),
+    [rows]
+  );
+  const assemblySummaryParts = [
+    `${pricedAssemblyCount} priced ${
+      pricedAssemblyCount === 1 ? 'assembly' : 'assemblies'
+    }`,
+    `${totalConfirmedSqft.toLocaleString()} sqft`,
+    setupAssemblyCount > 0
+      ? `${setupAssemblyCount} need setup`
+      : null,
+    hiddenRowCount > 0 ? `${hiddenRowCount} hidden` : null,
+    totalNeedsConfirmationSqft > 0
+      ? `${totalNeedsConfirmationSqft.toLocaleString()} to confirm`
+      : null,
+  ].filter(Boolean);
+  const selectedTypes = Array.from(
+    new Set(
+      visibleRows
+        .map(row => row.materialType.trim())
+        .filter(Boolean)
+    )
+  );
   const toggleType = (materialType: string) => {
-    const matching = rows.filter(
-      row => row.materialType.toLowerCase() === materialType.toLowerCase()
-    );
-    if (matching.length) {
+    const key = insulationMaterialTypeKey(materialType);
+    const matching = rowsForInsulationMaterialType(rows, materialType);
+    if (matching.length && !isTypeCollapsed(materialType)) {
       if (
         expandedAssemblyId &&
         matching.some(row => row.id === expandedAssemblyId)
       ) {
         setExpandedAssemblyId(null);
       }
-      updateRows(
-        rows.filter(
-          row => row.materialType.toLowerCase() !== materialType.toLowerCase()
-        )
-      );
+      setCollapsedTypes(prev => new Set(prev).add(key));
       return;
     }
+    if (matching.length && isTypeCollapsed(materialType)) {
+      setCollapsedTypes(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      setExpandedAssemblyId(matching[0].id);
+      return;
+    }
+    setCollapsedTypes(prev => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
     const id = `insulation-assembly-${Date.now()}`;
     setExpandedAssemblyId(id);
     updateRows([
@@ -10433,25 +10561,46 @@ function InsulationAssemblyCard({
         rValue: '',
         sqft: '',
         location: insulationLocationForMaterial(materialType),
+        battFacing: battFacingForNewRow(materialType),
       },
     ]);
   };
-  const toggleRValue = (
-    materialType: string,
-    rValue: string,
-    location?: string | null
-  ) => {
-    const matching = rows.find(
-      row =>
-        row.materialType.toLowerCase() === materialType.toLowerCase() &&
-        row.rValue.toLowerCase() === rValue.toLowerCase() &&
-        (!location || row.location === location)
-    );
-    if (matching) {
-      if (matching.id === expandedAssemblyId) setExpandedAssemblyId(null);
-      updateRows(rows.filter(row => row.id !== matching.id));
+  const selectRowRValue = (row: InsulationAssembly, rValue: string) => {
+    if (row.rValue.trim().toLowerCase() === rValue.toLowerCase()) {
+      updateRow(row.id, { rValue: '' });
       return;
     }
+    const next = rows
+      .filter(
+        candidate =>
+          candidate.id === row.id ||
+          !(
+            !candidate.rValue.trim() &&
+            insulationMaterialTypeKey(candidate.materialType) ===
+              insulationMaterialTypeKey(row.materialType) &&
+            candidate.location === row.location
+          )
+      )
+      .map(candidate =>
+        candidate.id === row.id
+          ? {
+              ...candidate,
+              rValue,
+              location:
+                candidate.location ||
+                insulationLocationForAssembly(candidate.materialType, rValue),
+              source: 'contractor_entered' as const,
+              confirmed: true,
+            }
+          : candidate
+      );
+    updateRows(next);
+  };
+  const deleteAssemblyRow = (id: string) => {
+    if (expandedAssemblyId === id) setExpandedAssemblyId(null);
+    updateRows(rows.filter(row => row.id !== id));
+  };
+  const addAssemblyRow = (materialType: string) => {
     const id = `insulation-assembly-${Date.now()}`;
     setExpandedAssemblyId(id);
     updateRows([
@@ -10459,10 +10608,10 @@ function InsulationAssemblyCard({
       {
         id,
         materialType,
-        rValue,
+        rValue: '',
         sqft: '',
-        location:
-          location || insulationLocationForAssembly(materialType, rValue),
+        location: insulationLocationForMaterial(materialType),
+        battFacing: battFacingForNewRow(materialType),
       },
     ]);
   };
@@ -10473,9 +10622,9 @@ function InsulationAssemblyCard({
       contentContainerStyle={{ gap: 6, paddingRight: 4 }}
     >
       {INSULATION_TYPE_OPTIONS.map(option => {
-        const selected = selectedTypes.some(
-          type => type.toLowerCase() === option.toLowerCase()
-        );
+        const hasRows = rowsForInsulationMaterialType(rows, option).length > 0;
+        const hidden = hasRows && isTypeCollapsed(option);
+        const selected = hasRows;
         return (
           <TouchableOpacity
             key={option}
@@ -10488,13 +10637,18 @@ function InsulationAssemblyCard({
               paddingHorizontal: 6,
               borderRadius: 9,
               borderWidth: 1,
+              borderStyle: hidden ? 'dashed' : 'solid',
               borderColor: selected
-                ? '#34d399'
+                ? hidden
+                  ? 'rgba(245,158,11,0.55)'
+                  : '#34d399'
                 : darkMode
                   ? 'rgba(255,255,255,0.14)'
                   : Colors.line,
               backgroundColor: selected
-                ? 'rgba(52,211,153,0.14)'
+                ? hidden
+                  ? 'rgba(245,158,11,0.1)'
+                  : 'rgba(52,211,153,0.14)'
                 : darkMode
                   ? '#252527'
                   : Colors.surface2,
@@ -10502,7 +10656,11 @@ function InsulationAssemblyCard({
           >
             <Text
               style={{
-                color: selected ? '#34d399' : Colors.text,
+                color: selected
+                  ? hidden
+                    ? '#fbbf24'
+                    : '#34d399'
+                  : Colors.text,
                 fontSize: 11,
                 fontWeight: '700',
               }}
@@ -10514,26 +10672,19 @@ function InsulationAssemblyCard({
       })}
     </ScrollView>
   );
-  const renderRValueOptions = (
-    materialType: string,
-    location: string | null | undefined
-  ) => (
+  const renderRValueOptions = (row: InsulationAssembly) => (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ gap: 6, paddingRight: 4 }}
     >
-      {supportedInsulationRValues(materialType, location).map(option => {
-        const selected = rows.some(
-          row =>
-            row.materialType.toLowerCase() === materialType.toLowerCase() &&
-            row.rValue.toLowerCase() === option.toLowerCase() &&
-            row.location === location
-        );
+      {supportedInsulationRValues(row.materialType, row.location).map(option => {
+        const selected =
+          row.rValue.trim().toLowerCase() === option.toLowerCase();
         return (
           <TouchableOpacity
             key={option}
-            onPress={() => toggleRValue(materialType, option, location)}
+            onPress={() => selectRowRValue(row, option)}
             activeOpacity={0.75}
             style={{
               minWidth: 54,
@@ -10562,6 +10713,58 @@ function InsulationAssemblyCard({
               }}
             >
               {option}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
+  );
+  const renderBattFacingOptions = (row: InsulationAssembly) => (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ gap: 6, paddingRight: 4 }}
+    >
+      {INSULATION_BATT_FACING_OPTIONS.map(option => {
+        const selected = (row.battFacing || INSULATION_BATT_FACING_DEFAULT) === option.key;
+        return (
+          <TouchableOpacity
+            key={option.key}
+            onPress={() =>
+              updateRow(row.id, {
+                battFacing: option.key,
+                source: 'contractor_entered',
+                confirmed: true,
+              })
+            }
+            activeOpacity={0.75}
+            style={{
+              minWidth: 78,
+              alignItems: 'center',
+              paddingVertical: 6,
+              paddingHorizontal: 8,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: selected
+                ? '#34d399'
+                : darkMode
+                  ? 'rgba(255,255,255,0.14)'
+                  : Colors.line,
+              backgroundColor: selected
+                ? 'rgba(52,211,153,0.14)'
+                : darkMode
+                  ? '#252527'
+                  : Colors.surface2,
+            }}
+          >
+            <Text
+              style={{
+                color: selected ? '#34d399' : Colors.text,
+                fontSize: 10,
+                fontWeight: '700',
+              }}
+            >
+              {option.label}
             </Text>
           </TouchableOpacity>
         );
@@ -10677,10 +10880,7 @@ function InsulationAssemblyCard({
               marginTop: 2,
             }}
           >
-            {rows.length} assemblies · {totalConfirmedSqft.toLocaleString()} sqft
-            {totalNeedsConfirmationSqft > 0
-              ? ` · ${totalNeedsConfirmationSqft.toLocaleString()} to confirm`
-              : ''}
+            {assemblySummaryParts.join(' · ')}
           </Text>
         </View>
       </View>
@@ -10692,7 +10892,7 @@ function InsulationAssemblyCard({
           lineHeight: 14,
         }}
       >
-        Tap a row to edit its R-value, location, or square feet.
+        Tap a row to edit. Tap Done when finished, or add another assembly below.
       </Text>
       <Text
         style={{
@@ -10707,6 +10907,19 @@ function InsulationAssemblyCard({
         Installation type
       </Text>
       {renderTypeOptions()}
+      {hiddenRowCount > 0 ? (
+        <Text
+          style={{
+            color: '#fbbf24',
+            fontSize: 10,
+            marginTop: 6,
+            lineHeight: 14,
+          }}
+        >
+          Hidden installation types are still included in bid pricing. Tap the
+          dashed chip to show them again.
+        </Text>
+      ) : null}
       {selectedTypes.map(materialType => {
         const typeRows = rows.filter(
           row =>
@@ -10725,6 +10938,8 @@ function InsulationAssemblyCard({
               const needsConfirmation =
                 row.confirmed === false ||
                 row.source === 'calculated_from_plan';
+              const isIncomplete = isIncompleteInsulationAssembly(row);
+              const isDuplicate = duplicateAssemblyIds.has(row.id);
               return (
                 <View
                   key={row.id}
@@ -10734,9 +10949,13 @@ function InsulationAssemblyCard({
                     borderWidth: 1,
                     borderColor: isExpanded
                       ? 'rgba(52,211,153,0.55)'
-                      : darkMode
-                        ? 'rgba(255,255,255,0.12)'
-                        : Colors.line,
+                      : isDuplicate
+                        ? 'rgba(245,158,11,0.55)'
+                        : isIncomplete
+                          ? 'rgba(245,158,11,0.35)'
+                          : darkMode
+                            ? 'rgba(255,255,255,0.12)'
+                            : Colors.line,
                     backgroundColor: isExpanded
                       ? darkMode
                         ? 'rgba(52,211,153,0.035)'
@@ -10769,8 +10988,7 @@ function InsulationAssemblyCard({
                           fontWeight: '700',
                         }}
                       >
-                        {materialType} · {insulationLocationLabel(row.location)} ·{' '}
-                        {row.rValue}
+                        {insulationAssemblyRowTitle(row, materialType)}
                       </Text>
                       <Text
                         style={{
@@ -10782,6 +11000,8 @@ function InsulationAssemblyCard({
                         {area
                           ? `${area} sqft${needsConfirmation ? ' · confirm' : ''}`
                           : 'Square feet needed'}
+                        {isDuplicate ? ' · possible duplicate' : ''}
+                        {isIncomplete && !isDuplicate ? ' · setup needed' : ''}
                       </Text>
                     </View>
                     <Text
@@ -10836,6 +11056,20 @@ function InsulationAssemblyCard({
                           </Text>
                         </TouchableOpacity>
                       ) : null}
+                      {isDuplicate ? (
+                        <Text
+                          style={{
+                            color: '#fbbf24',
+                            fontSize: 10,
+                            marginBottom: 8,
+                            lineHeight: 14,
+                          }}
+                        >
+                          Another assembly matches this type, location, and
+                          R-value. Review before pricing to avoid
+                          double-counting.
+                        </Text>
+                      ) : null}
                       <Text
                         style={{
                           color: captionColor(darkMode, Colors),
@@ -10847,8 +11081,8 @@ function InsulationAssemblyCard({
                       >
                         Target R-value
                       </Text>
-                      {renderRValueOptions(materialType, row.location)}
-                      {!supportedInsulationRValues(materialType, row.location)
+                      {renderRValueOptions(row)}
+                      {!supportedInsulationRValues(row.materialType, row.location)
                         .length ? (
                         <Text
                           style={{
@@ -10859,6 +11093,23 @@ function InsulationAssemblyCard({
                         >
                           No compatible R-values for this material and location.
                         </Text>
+                      ) : null}
+                      {isBattInsulationMaterial(materialType) ? (
+                        <>
+                          <Text
+                            style={{
+                              color: captionColor(darkMode, Colors),
+                              fontSize: 10,
+                              fontWeight: '700',
+                              marginTop: 10,
+                              marginBottom: 5,
+                              letterSpacing: 0.35,
+                            }}
+                          >
+                            Batt facing
+                          </Text>
+                          {renderBattFacingOptions(row)}
+                        </>
                       ) : null}
                       <Text
                         style={{
@@ -10935,11 +11186,96 @@ function InsulationAssemblyCard({
                           </Text>
                         </View>
                       </View>
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          gap: 8,
+                          marginTop: 12,
+                        }}
+                      >
+                        <TouchableOpacity
+                          onPress={() => deleteAssemblyRow(row.id)}
+                          activeOpacity={0.75}
+                          style={{
+                            flex: 1,
+                            minHeight: 36,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            borderColor: 'rgba(239,68,68,0.55)',
+                            backgroundColor: 'rgba(239,68,68,0.1)',
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: '#f87171',
+                              fontSize: 12,
+                              fontWeight: '800',
+                            }}
+                          >
+                            Delete
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => {
+                            Keyboard.dismiss();
+                            setExpandedAssemblyId(null);
+                          }}
+                          activeOpacity={0.75}
+                          style={{
+                            flex: 1,
+                            minHeight: 36,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            borderColor: 'rgba(52,211,153,0.55)',
+                            backgroundColor: 'rgba(52,211,153,0.14)',
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: '#34d399',
+                              fontSize: 12,
+                              fontWeight: '800',
+                            }}
+                          >
+                            Done
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   ) : null}
                 </View>
               );
             })}
+            <TouchableOpacity
+              onPress={() => addAssemblyRow(materialType)}
+              activeOpacity={0.75}
+              style={{
+                alignSelf: 'flex-start',
+                marginTop: 8,
+                paddingHorizontal: 10,
+                paddingVertical: 7,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: darkMode
+                  ? 'rgba(255,255,255,0.14)'
+                  : Colors.line,
+                backgroundColor: darkMode ? '#252527' : Colors.surface2,
+              }}
+            >
+              <Text
+                style={{
+                  color: Colors.text,
+                  fontSize: 11,
+                  fontWeight: '700',
+                }}
+              >
+                + Add {materialType} assembly
+              </Text>
+            </TouchableOpacity>
           </View>
         );
       })}
@@ -21434,10 +21770,18 @@ export default function AIEstimateScopeAssumptionsModal({
                 setMeasurementsSynced(prev => ({ ...prev, [key]: value }))
               }
               onAssembliesChange={assemblies =>
-                setMeasurementsSynced(prev => ({
-                  ...prev,
-                  insulationAssemblies: assemblies,
-                }))
+                setMeasurementsSynced(prev => {
+                  if (
+                    JSON.stringify(prev.insulationAssemblies ?? null) ===
+                    JSON.stringify(assemblies ?? null)
+                  ) {
+                    return prev;
+                  }
+                  return {
+                    ...prev,
+                    insulationAssemblies: assemblies,
+                  };
+                })
               }
               Colors={Colors}
               darkMode={darkMode}

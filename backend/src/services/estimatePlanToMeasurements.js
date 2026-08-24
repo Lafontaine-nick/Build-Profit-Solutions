@@ -445,6 +445,79 @@ function preferElevationFacesWithOpenings(a, b) {
   return b || a || undefined;
 }
 
+function insulationOpeningEvidenceScore(payload = {}) {
+  const measurementScore =
+    positive(payload?.measurements?.openingDeductionSqft) != null ? 10 : 0;
+  const faces = Array.isArray(payload?.planFacts?.elevationFaces)
+    ? payload.planFacts.elevationFaces
+    : [];
+  const facesScore = faces.reduce((score, face) => {
+    if (positive(face?.windowDoorOpeningsSqft)) return score + 3;
+    if (positive(face?.garageOpeningsSqft)) return score + 3;
+    if (positive(face?.openingsSqft)) return score + 2;
+    return score;
+  }, 0);
+  return measurementScore + facesScore;
+}
+
+function parseVisionJsonPayload(completion) {
+  try {
+    return JSON.parse(completion?.choices?.[0]?.message?.content || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function mergeInsulationFocusedPayloads(base = {}, overlay = {}) {
+  const openingA = positive(base?.measurements?.openingDeductionSqft);
+  const openingB = positive(overlay?.measurements?.openingDeductionSqft);
+  const measurements = mergePositiveMeasurementMaps(
+    base.measurements,
+    overlay.measurements,
+  );
+  if (openingA != null || openingB != null) {
+    measurements.openingDeductionSqft = Math.max(
+      openingA || 0,
+      openingB || 0,
+    );
+  }
+  return {
+    ...base,
+    ...overlay,
+    measurements,
+    planFacts: {
+      ...(base.planFacts || {}),
+      ...(overlay.planFacts || {}),
+      ceilingBoundary: {
+        ...(base.planFacts?.ceilingBoundary || {}),
+        ...(overlay.planFacts?.ceilingBoundary || {}),
+        fieldEvidence: {
+          ...(base.planFacts?.ceilingBoundary?.fieldEvidence || {}),
+          ...(overlay.planFacts?.ceilingBoundary?.fieldEvidence || {}),
+        },
+      },
+      elevationFaces: preferElevationFacesWithOpenings(
+        base.planFacts?.elevationFaces,
+        overlay.planFacts?.elevationFaces,
+      ),
+      fieldEvidence: {
+        ...(base.planFacts?.fieldEvidence || {}),
+        ...(overlay.planFacts?.fieldEvidence || {}),
+      },
+    },
+    fieldConfidence: {
+      ...(base.fieldConfidence || {}),
+      ...(overlay.fieldConfidence || {}),
+    },
+    unreadableFields: [
+      ...(Array.isArray(base.unreadableFields) ? base.unreadableFields : []),
+      ...(Array.isArray(overlay.unreadableFields)
+        ? overlay.unreadableFields
+        : []),
+    ],
+  };
+}
+
 function deriveStuccoElevationMeasurements(measurements = {}, planFacts = {}) {
   const faces = Array.isArray(planFacts?.elevationFaces)
     ? planFacts.elevationFaces
@@ -973,19 +1046,72 @@ function deriveInsulationMeasurementsFromPlanFacts(
   const usableOpeningDeduction =
     positive(next.openingDeductionSqft) ||
     (hasOpeningEvidence && openingDeduction > 0 ? openingDeduction : null);
+  if (grossWallArea != null && usableOpeningDeduction == null) {
+    // Vision often omits elevation openings. Keep a reviewable net wall
+    // quantity from labeled geometry minus the standard 15% opening share
+    // instead of leaving the takeoff blank.
+    const assumedOpenings = roundTenth(grossWallArea * 0.15);
+    next.openingDeductionSqft = assumedOpenings;
+    derivedKeys.push("openingDeductionSqft");
+    assumptions.push(
+      `Opening deduction ${assumedOpenings.toLocaleString()} SF assumed at 15% of ${roundTenth(grossWallArea).toLocaleString()} SF labeled wall area pending elevation confirmation.`,
+    );
+  }
+  const openingForNet =
+    positive(next.openingDeductionSqft) ||
+    (hasOpeningEvidence && openingDeduction > 0 ? openingDeduction : null);
   if (
     positive(next.exteriorWallInsulationSqft) == null &&
     grossWallArea != null &&
-    usableOpeningDeduction != null
+    openingForNet != null
   ) {
     const netWallArea = Math.max(
       0,
-      grossWallArea - Number(usableOpeningDeduction),
+      grossWallArea - Number(openingForNet),
     );
     next.exteriorWallInsulationSqft = roundTenth(netWallArea);
     derivedKeys.push("exteriorWallInsulationSqft");
     assumptions.push(
       `Exterior wall insulation ${roundTenth(netWallArea).toLocaleString()} SF calculated from complete labeled wall geometry less readable opening deductions.`,
+    );
+  } else if (
+    grossWallArea != null &&
+    openingForNet != null &&
+    positive(next.exteriorWallInsulationSqft) != null &&
+    Math.abs(positive(next.exteriorWallInsulationSqft) - grossWallArea) <=
+      Math.max(25, grossWallArea * 0.02)
+  ) {
+    const netWallArea = Math.max(
+      0,
+      grossWallArea - Number(openingForNet),
+    );
+    next.exteriorWallInsulationSqft = roundTenth(netWallArea);
+    if (!derivedKeys.includes("exteriorWallInsulationSqft")) {
+      derivedKeys.push("exteriorWallInsulationSqft");
+    }
+    assumptions.push(
+      `Exterior wall insulation corrected to ${roundTenth(netWallArea).toLocaleString()} SF net after ${roundTenth(openingForNet).toLocaleString()} SF readable openings.`,
+    );
+  } else if (
+    grossWallArea == null &&
+    openingForNet != null &&
+    positive(next.exteriorWallInsulationSqft) != null &&
+    positive(next.exteriorWallInsulationSqft) > openingForNet
+  ) {
+    // Some vision responses provide the wall total and an opening deduction
+    // without enough geometry to identify the gross baseline. The insulation
+    // contract is net SF, so normalize that unqualified wall total here.
+    const netWallArea = Math.max(
+      0,
+      positive(next.exteriorWallInsulationSqft) -
+        Number(openingForNet),
+    );
+    next.exteriorWallInsulationSqft = roundTenth(netWallArea);
+    if (!derivedKeys.includes("exteriorWallInsulationSqft")) {
+      derivedKeys.push("exteriorWallInsulationSqft");
+    }
+    assumptions.push(
+      `Exterior wall insulation normalized to ${roundTenth(netWallArea).toLocaleString()} SF net after ${roundTenth(openingForNet).toLocaleString()} SF readable openings.`,
     );
   }
 
@@ -1079,6 +1205,18 @@ function validateInsulationMeasurementsAgainstPlanFacts(
     !completeWallGeometry &&
     positive(next.exteriorWallInsulationSqft) > 0
   ) {
+    delete next.exteriorWallInsulationSqft;
+    invalidKeys.push("exteriorWallInsulationSqft");
+  } else if (
+    expectedGross != null &&
+    expectedOpenings == null &&
+    positive(next.exteriorWallInsulationSqft) != null &&
+    Math.abs(
+      positive(next.exteriorWallInsulationSqft) - expectedGross,
+    ) <= Math.max(25, expectedGross * 0.02)
+  ) {
+    // A gross wall total without an opening basis is not a valid net
+    // insulation quantity. Do not let it reach pricing as if it were net.
     delete next.exteriorWallInsulationSqft;
     invalidKeys.push("exteriorWallInsulationSqft");
   }
@@ -2595,7 +2733,7 @@ async function analyzePlanForMeasurements({
   // Electrical counts are a measurement pass, not creative estimation. Keep
   // repeated imports of the same sheets stable; genuine disagreements still
   // remain as conflict candidates for contractor confirmation.
-  const planVisionTemperature = electricalSelected
+  const planVisionTemperature = electricalSelected || insulationSelected
     ? 0
     : Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15);
   const measurementsPromise = openai.chat.completions.create({
@@ -2693,9 +2831,8 @@ async function analyzePlanForMeasurements({
     : Promise.resolve(null);
   // A focused trade pass helps PDF file inputs where the general takeoff reads
   // the text layer but does not inspect graphical elevation geometry deeply.
-  const tradeVisualPromise =
-    planSelection.mode === "whole_project" || planSelection.trade
-      ? openai.chat.completions.create({
+  const createTradeVisualCompletion = () =>
+    openai.chat.completions.create({
           model: aiModels.assistant.vision,
           response_format: aiRuntime.assistant.vision.responseFormat,
           temperature: planVisionTemperature,
@@ -2764,8 +2901,34 @@ async function analyzePlanForMeasurements({
                   : compatible.map(toVisionContentPart)),
               ],
             },
-          ],
-        })
+        ],
+      });
+  const tradeVisualPromise =
+    planSelection.mode === "whole_project" || planSelection.trade
+      ? (async () => {
+          if (!insulationSelected) return createTradeVisualCompletion();
+
+          // Two focused reads in parallel: a single empty elevation pass
+          // previously wiped a valid 550 SF opening takeoff. Merge both
+          // payloads and keep the stronger opening evidence.
+          const [first, retry] = await Promise.all([
+            createTradeVisualCompletion(),
+            createTradeVisualCompletion().catch(() => null),
+          ]);
+          const merged = mergeInsulationFocusedPayloads(
+            parseVisionJsonPayload(first),
+            retry ? parseVisionJsonPayload(retry) : {},
+          );
+          return {
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify(merged),
+                },
+              },
+            ],
+          };
+        })()
       : Promise.resolve(null);
 
   const [completion, scopeResult, tradeVisualCompletion] = await Promise.all([
@@ -3670,6 +3833,21 @@ async function analyzePlanForMeasurements({
         parsed.planFacts?.elevationFaces,
       ),
     };
+    // Confidence filtering can remove a readable-but-low-confidence opening
+    // deduction from measurements. Keep it as a review-only calculation input
+    // so a gross wall quantity is not returned as net insulation SF.
+    if (!(positive(tradeMeasurementInput.openingDeductionSqft) > 0)) {
+      const lowConfidenceOpening = (lowConfidence || []).find(
+        (entry) =>
+          /opening|window|door/i.test(String(entry?.field || "")) &&
+          positive(entry?.value) > 0,
+      );
+      if (lowConfidenceOpening) {
+        tradeMeasurementInput.openingDeductionSqft = positive(
+          lowConfidenceOpening.value,
+        );
+      }
+    }
     const insulationDerived = deriveInsulationMeasurementsFromPlanFacts(
       tradeMeasurementInput,
       insulationPlanFacts,
@@ -3888,6 +4066,7 @@ module.exports = {
   mergePlanMeasurementsIntoExisting,
   mergePositiveMeasurementMaps,
   preferElevationFacesWithOpenings,
+  mergeInsulationFocusedPayloads,
   deriveStuccoElevationMeasurements,
   deriveInsulationMeasurementsFromPlanFacts,
   validateInsulationMeasurementsAgainstPlanFacts,
