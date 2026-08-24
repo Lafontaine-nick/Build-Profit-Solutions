@@ -445,16 +445,9 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'structure'
   ),
   drywallSqft: F('drywallSqft', 'Drywall', '800', 'sqft', 'interior'),
-  exteriorWallGrossSqft: F(
-    'exteriorWallGrossSqft',
-    'Exterior wall gross area',
-    'e.g. 2800',
-    'sqft',
-    'structure'
-  ),
   exteriorWallInsulationSqft: F(
     'exteriorWallInsulationSqft',
-    'Net exterior wall insulation',
+    'Exterior wall insulation',
     'e.g. 4500',
     'sqft',
     'structure'

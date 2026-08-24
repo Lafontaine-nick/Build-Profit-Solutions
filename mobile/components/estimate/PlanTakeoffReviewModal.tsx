@@ -87,7 +87,15 @@ import {
   type PlanEstimatingMode,
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
-import { hydrateInsulationPlanMeasurementsFromTakeoff } from '@/utils/subcontractorTrade/insulationPlanConvergence';
+import {
+  hydrateInsulationPlanMeasurementsFromTakeoff,
+  insulationOpeningDeductionFromPlan,
+} from '@/utils/subcontractorTrade/insulationPlanConvergence';
+import {
+  insulationCeilingBoundaryBreakdownFromPlanFacts,
+  insulationEnvelopeInputsFromPlanFacts,
+  resolveInsulationEnvelopePlanningQuantity,
+} from '@/utils/insulationEnvelopeQuantity';
 
 export type PlanReviewRow = {
   key: string;
@@ -169,6 +177,8 @@ const MEASUREMENT_SORT_ORDER: Record<string, number> = {
   concreteReinforcementSqft: 13,
   concreteSubgradePrepSqft: 14,
   complexFormingLf: 15,
+  exteriorWallInsulationSqft: 20,
+  atticInsulationSqft: 21,
   flooringLvpSqft: 30,
   flooringLaminateSqft: 31,
   flooringEngineeredHardwoodSqft: 32,
@@ -297,6 +307,22 @@ function positiveMeasurement(v: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function insulationOpeningNeedsReview(
+  takeoff: PlanToMeasurementsResult | null
+): boolean {
+  const isOpeningField = (field: unknown) =>
+    /opening|window|door/i.test(String(field || ''));
+  return (
+    [
+      ...(takeoff?.lowConfidence || []),
+      ...(takeoff?.unreadableFields || []),
+      ...(takeoff?.measurementConflicts || []),
+    ].some(item => isOpeningField(item?.field)) ||
+    takeoff?.measurementProvenance?.openingDeductionSqft?.pricingEligible ===
+      false
+  );
+}
+
 export default function PlanTakeoffReviewModal({
   visible,
   takeoff,
@@ -354,10 +380,85 @@ export default function PlanTakeoffReviewModal({
       return hydrateFramingPlanMeasurementsFromAreas(filtered);
     }
     if (effectiveTradeKey === 'insulation') {
-      return hydrateInsulationPlanMeasurementsFromTakeoff(
-        filtered,
+      const hydrated = hydrateInsulationPlanMeasurementsFromTakeoff(
+        takeoff?.measurements || {},
         takeoff?.planFacts
       );
+      const calculationMeasurements = {
+        ...filtered,
+        ...(positiveString(hydrated.openingDeductionSqft)
+          ? { openingDeductionSqft: hydrated.openingDeductionSqft }
+          : {}),
+        ...(positiveString(hydrated.exteriorWallInsulationSqft)
+          ? {
+              exteriorWallInsulationSqft: hydrated.exteriorWallInsulationSqft,
+            }
+          : {}),
+      };
+      const envelope = resolveInsulationEnvelopePlanningQuantity(
+        insulationEnvelopeInputsFromPlanFacts(
+          takeoff?.planFacts,
+          Number(
+            calculationMeasurements.floorAreaSqft ??
+              takeoff?.buildingAreas?.totalLivingSqft
+          ),
+          {
+            ...calculationMeasurements,
+            allowConditionedAreaCeilingSuggestion: true,
+            requireExplicitSurfaceTakeoff: true,
+          }
+        )
+      );
+      if (!envelope) {
+        const fallback = { ...filtered, ...calculationMeasurements };
+        delete fallback.floorAreaSqft;
+        delete fallback.garageSqft;
+        delete fallback.storyCount;
+        delete fallback.openingDeductionSqft;
+        return fallback;
+      }
+      const suggestions = Object.fromEntries(
+        envelope.components
+          .filter(component => {
+            if (
+              ![
+                'exteriorWallInsulationSqft',
+                'atticInsulationSqft',
+                'insulatedRoofDeckSqft',
+              ].includes(component.key)
+            ) {
+              return false;
+            }
+            if (
+              component.source === 'planning_assumption' &&
+              component.key !== 'exteriorWallInsulationSqft'
+            ) {
+              return false;
+            }
+            return (
+              component.quantity > 0 &&
+              positiveString(calculationMeasurements[component.key]) == null
+            );
+          })
+          .map(component => [component.key, component.quantity])
+      );
+      const reviewMeasurements = {
+        ...calculationMeasurements,
+        ...suggestions,
+        ...(positiveString(calculationMeasurements.exteriorWallInsulationSqft) ==
+            null &&
+        suggestions.exteriorWallInsulationSqft == null
+          ? { exteriorWallInsulationSqft: '' }
+          : {}),
+      };
+      // Living and garage areas are plan context, not insulation bid
+      // quantities. Opening deductions explain the net wall number but are
+      // not a separate insulation scope.
+      delete reviewMeasurements.floorAreaSqft;
+      delete reviewMeasurements.garageSqft;
+      delete reviewMeasurements.storyCount;
+      delete reviewMeasurements.openingDeductionSqft;
+      return reviewMeasurements;
     }
     return filtered;
   }, [takeoff, effectiveMode, effectiveTradeKey]);
@@ -388,7 +489,10 @@ export default function PlanTakeoffReviewModal({
     setConflictManualValues({});
     setConflictManualCommitted({});
     setConflictChooserKey(key => key + 1);
-    const livingSf = Number(visibleMeasurements?.floorAreaSqft);
+    const livingSf = Number(
+      takeoff.measurements?.floorAreaSqft ??
+        takeoff.buildingAreas?.totalLivingSqft
+    );
     const unresolvedConflictFields = new Set(
       reviewablePlanMeasurementConflicts({
         conflicts: takeoff.measurementConflicts,
@@ -406,21 +510,83 @@ export default function PlanTakeoffReviewModal({
               label: key === 'floorAreaSqft' ? 'Living area' : meta.label,
               subtext: null as string | null,
             };
+        const ceilingBoundary =
+          key === 'atticInsulationSqft'
+            ? insulationCeilingBoundaryBreakdownFromPlanFacts(
+                takeoff.planFacts
+              )
+            : null;
+        const ceilingBoundaryText = ceilingBoundary
+          ? [
+              ceilingBoundary.upperFloorAtticSqft != null
+                ? `Upper attic ${ceilingBoundary.upperFloorAtticSqft.toLocaleString()} SF`
+                : null,
+              ceilingBoundary.mainFloorAtticExposureSqft != null
+                ? `Main-floor attic exposure ${ceilingBoundary.mainFloorAtticExposureSqft.toLocaleString()} SF`
+                : null,
+              ceilingBoundary.vaultedOpenToBelowSqft != null
+                ? `Excludes ${ceilingBoundary.vaultedOpenToBelowSqft.toLocaleString()} SF vaulted/open-to-below`
+                : null,
+              ceilingBoundary.roofDeckInsulationSqft != null
+                ? `Excludes ${ceilingBoundary.roofDeckInsulationSqft.toLocaleString()} SF roof deck`
+                : null,
+              !ceilingBoundary.complete
+                ? 'Boundary requires contractor confirmation'
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' + ')
+          : null;
+        const openingDeductionSqft = insulationOpeningDeductionFromPlan(
+          takeoff.measurements,
+          takeoff.planFacts
+        );
         const sourceLabel = semanticsOn
-          ? measurementSourceLabel({
-              key,
-              value: Number(value),
-              livingSf,
-              assumptions: takeoff.assumptions,
-            })
+          ? key === 'atticInsulationSqft' &&
+            Number(value) > 0 &&
+            !(Number(takeoff.measurements?.atticInsulationSqft) > 0) &&
+            !takeoff.measurementProvenance?.[key]
+            ? 'Calculated from conditioned ceiling geometry — confirm before pricing'
+            : key === 'exteriorWallInsulationSqft' &&
+              insulationOpeningNeedsReview(takeoff) &&
+              !(Number(value) > 0)
+              ? 'Opening deduction needs review — enter wall SF manually'
+              : key === 'exteriorWallInsulationSqft' &&
+                Number(value) > 0 &&
+                openingDeductionSqft != null
+              ? `Net wall area after ${openingDeductionSqft.toLocaleString()} SF window/door openings`
+              : measurementSourceLabel({
+                  key,
+                  value: Number(value),
+                  livingSf,
+                  assumptions: takeoff.assumptions,
+                })
           : null;
         const evidenceLabel = planFieldEvidenceLabel(takeoff.measurementProvenance?.[key]);
         const provenanceEntry =
           takeoff.measurementProvenance?.[key] ??
           plumbingInventoryDerivedProvenance(takeoff.fixtureInventory, key);
+        const needsManualInsulationWall =
+          effectiveTradeKey === 'insulation' &&
+          key === 'exteriorWallInsulationSqft' &&
+          !(Number(value) > 0);
+        const needsInsulationConfirmation =
+          effectiveTradeKey === 'insulation' &&
+          key === 'atticInsulationSqft' &&
+          Number(value) > 0 &&
+          !takeoff.measurementProvenance?.[key];
+        const keepInsulationSuggestionSelected =
+          effectiveTradeKey === 'insulation' &&
+          (key === 'exteriorWallInsulationSqft' ||
+            key === 'atticInsulationSqft') &&
+          Number(value) > 0;
         const rowState = buildPlanReviewMeasurementRowState({
           key,
-          provenanceEntry,
+          provenanceEntry:
+            provenanceEntry ??
+            (needsManualInsulationWall || needsInsulationConfirmation
+              ? { pricingEligible: false }
+              : undefined),
           fieldConfidence: takeoff.fieldConfidence?.[key] ?? null,
           hasConflict: unresolvedConflictFields.has(key),
           reconciliationVariancePercent: areaReconciliation?.livingVariancePercent,
@@ -430,7 +596,9 @@ export default function PlanTakeoffReviewModal({
         return {
           key,
           label: display.label,
-          subtext: display.subtext ?? null,
+          subtext: [display.subtext, ceilingBoundaryText]
+            .filter(Boolean)
+            .join(' · ') || null,
           sourceLabel: [sourceLabel, evidenceLabel].filter(Boolean).join(' · ') || null,
           unit:
             effectiveTradeKey === 'plumbing'
@@ -441,7 +609,9 @@ export default function PlanTakeoffReviewModal({
           provenance: rowState.provenance,
           pricingEligible: rowState.pricingEligible,
           conflictValue,
-          include: conflictValue == null && rowState.includeDefault,
+          include:
+            conflictValue == null &&
+            (rowState.includeDefault || keepInsulationSuggestionSelected),
         };
       })
       .sort((a, b) => {
@@ -838,6 +1008,35 @@ export default function PlanTakeoffReviewModal({
         ];
       })
     );
+    const retainedInsulationProvenance = Object.fromEntries(
+      rows
+        .filter(
+          row =>
+            effectiveTradeKey === 'insulation' &&
+            row.include &&
+            Number(row.value) > 0 &&
+            (row.key === 'exteriorWallInsulationSqft' ||
+              row.key === 'atticInsulationSqft')
+        )
+        .map(row => {
+          const confirmed =
+            row.pricingEligible &&
+            row.provenance.status === 'user_confirmed';
+          return [
+            row.key,
+            {
+              ...(takeoff.measurementProvenance?.[row.key] || {}),
+              value: Number(row.value),
+              status: confirmed ? 'user_confirmed' : 'needs_review',
+              normalizedSource: confirmed ? 'USER_CONFIRMED' : 'NEEDS_REVIEW',
+              pricingEligible: confirmed,
+              reason: confirmed
+                ? 'Contractor confirmed this insulation quantity during plan review.'
+                : 'Confirm this calculated insulation quantity before pricing.',
+            },
+          ];
+        })
+    );
     const reviewElectricalValidation = (() => {
       const confirmedFields =
         effectiveTradeKey === 'electrical'
@@ -919,6 +1118,7 @@ export default function PlanTakeoffReviewModal({
           ...(takeoff.measurementProvenance || {}),
           ...retainedConflictProvenance,
           ...retainedLowConfidenceProvenance,
+          ...retainedInsulationProvenance,
           ...Object.fromEntries(
             Object.entries(resolutions).map(([field, resolution]) => [
               field,
@@ -1558,6 +1758,34 @@ export default function PlanTakeoffReviewModal({
                     hasRoofQuantity,
                     assumptions: takeoff.assumptions,
                     hasPlanFloorAreas,
+                    hasInsulationPrimaryTakeoff:
+                      effectiveTradeKey === 'insulation' &&
+                      rows.some(
+                        row =>
+                          row.key === 'exteriorWallInsulationSqft' &&
+                          Number(row.value) > 0
+                      ) &&
+                      rows.some(
+                        row =>
+                          row.key === 'atticInsulationSqft' &&
+                          Number(row.value) > 0
+                      ),
+                    insulationPrimaryConfirmed:
+                      effectiveTradeKey === 'insulation' &&
+                      rows.some(
+                        row =>
+                          row.key === 'exteriorWallInsulationSqft' &&
+                          Number(row.value) > 0 &&
+                          row.pricingEligible &&
+                          row.include
+                      ) &&
+                      rows.some(
+                        row =>
+                          row.key === 'atticInsulationSqft' &&
+                          Number(row.value) > 0 &&
+                          row.pricingEligible &&
+                          row.include
+                      ),
                   });
                   return (
                     <TouchableOpacity

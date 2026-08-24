@@ -1,9 +1,20 @@
 import {
   buildInsulationAssembliesFromPlanMeasurements,
   hydrateInsulationPlanMeasurementsFromTakeoff,
+  syncInsulationAssembliesWithPlanMeasurements,
 } from '@/utils/subcontractorTrade/insulationPlanConvergence';
 
 describe('insulationPlanConvergence', () => {
+  it('maps elevation-face openings into insulation opening deduction', () => {
+    const hydrated = hydrateInsulationPlanMeasurementsFromTakeoff(
+      {},
+      {
+        elevationFaces: [{ id: 'front', windowDoorOpeningsSqft: 550 }],
+      }
+    );
+    expect(hydrated.openingDeductionSqft).toBe('550');
+  });
+
   it('maps stucco opening takeoff into insulation opening deduction', () => {
     const hydrated = hydrateInsulationPlanMeasurementsFromTakeoff({
       stuccoWindowDoorOpeningSqft: '289.6',
@@ -59,5 +70,60 @@ describe('insulationPlanConvergence', () => {
         exteriorWallInsulationSqft: '1950.4',
       })
     ).toBeNull();
+  });
+
+  it('replaces stale legacy rows while preserving contractor-edited rows', () => {
+    const synced = syncInsulationAssembliesWithPlanMeasurements({
+      exteriorWallInsulationSqft: '1950.4',
+      atticInsulationSqft: '3660',
+      quickMeasurementSources: {
+        atticInsulationSqft: 'calculated_from_components',
+      },
+      insulationAssemblies: [
+        {
+          id: 'legacy-wall',
+          materialType: 'Batt',
+          rValue: 'R-21',
+          sqft: 2000,
+          location: 'exterior_wall',
+        },
+        {
+          id: 'legacy-attic',
+          materialType: 'Batt',
+          rValue: 'R-30',
+          sqft: 1500,
+          location: 'attic_ceiling',
+        },
+      ],
+    });
+    expect(synced).toMatchObject([
+      { location: 'exterior_wall', sqft: 1950.4 },
+      {
+        location: 'attic_ceiling',
+        sqft: 3660,
+        source: 'calculated_from_plan',
+        confirmed: false,
+      },
+    ]);
+
+    const preserved = syncInsulationAssembliesWithPlanMeasurements({
+      exteriorWallInsulationSqft: '1950.4',
+      atticInsulationSqft: '3660',
+      insulationAssemblies: [
+        {
+          id: 'edited-wall',
+          materialType: 'Batt',
+          rValue: 'R-21',
+          sqft: 2000,
+          location: 'exterior_wall',
+          source: 'contractor_entered',
+          confirmed: true,
+        },
+      ],
+    });
+    expect(preserved?.[0]).toMatchObject({
+      sqft: 2000,
+      source: 'contractor_entered',
+    });
   });
 });

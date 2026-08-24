@@ -232,12 +232,9 @@ export const TRADE_MEASUREMENT_SCHEMAS: Partial<
     }),
   ],
   insulation: [
-    M('exteriorWallGrossSqft', 'Exterior wall gross area', 'sqft', 'more', {
-      quickMeasurementKey: 'exteriorWallGrossSqft',
-    }),
     M(
       'exteriorWallInsulationSqft',
-      'Net exterior wall insulation',
+      'Exterior wall insulation',
       'sqft',
       'primary',
       { quickMeasurementKey: 'exteriorWallInsulationSqft' }

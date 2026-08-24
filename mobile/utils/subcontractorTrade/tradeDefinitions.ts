@@ -490,7 +490,6 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
         scopeItemId: 'insulation',
         pricingBehavior: 'CUSTOM_PRICE',
         measurementKeys: [
-          'exteriorWallGrossSqft',
           'exteriorWallInsulationSqft',
           'openingDeductionSqft',
           'atticInsulationSqft',

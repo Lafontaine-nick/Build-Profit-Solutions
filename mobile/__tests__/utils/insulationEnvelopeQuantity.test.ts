@@ -34,10 +34,111 @@ describe('insulationEnvelopeQuantity', () => {
     const walls = result!.components.find((c) => c.key === 'exteriorWallInsulationSqft');
     const attic = result!.components.find((c) => c.key === 'atticInsulationSqft');
     const openings = result!.components.find((c) => c.key === 'openingDeductionSqft');
-    expect(walls?.quantity).toBe(1926);
+    expect(walls?.quantity).toBe(1637);
     expect(attic?.quantity).toBe(1879);
     expect(openings?.quantity).toBe(289);
     expect(attic?.included).toBe(true);
+  });
+
+  it('uses only the upper conditioned level for a two-story attic suggestion', () => {
+    const facts = {
+      storyCount: 2,
+      buildingAreas: {
+        totalLivingSqft: 3660,
+        mainFloorLivingSqft: 2047,
+        upstairsLivingSqft: 1613,
+      },
+    };
+    const inputs = insulationEnvelopeInputsFromPlanFacts(facts, 3660, {
+      allowConditionedAreaCeilingSuggestion: true,
+    });
+    expect(inputs.conditionedCeilingAreaSqft).toBe(1613);
+    const result = resolveInsulationEnvelopePlanningQuantity(inputs);
+    expect(
+      result?.components.find(component => component.key === 'atticInsulationSqft')
+        ?.quantity
+    ).toBe(1613);
+  });
+
+  it('uses the measured ceiling boundary components instead of floor-area arithmetic', () => {
+    const facts = {
+      storyCount: 2,
+      buildingAreas: {
+        totalLivingSqft: 3660,
+        mainFloorLivingSqft: 2047,
+        upstairsLivingSqft: 1613,
+      },
+      ceilingBoundary: {
+        upperFloorAtticSqft: 1613,
+        mainFloorAtticExposureSqft: 647,
+        vaultedOpenToBelowSqft: 100,
+        roofDeckInsulationSqft: 0,
+        complete: true,
+      },
+    };
+    const inputs = insulationEnvelopeInputsFromPlanFacts(facts, 3660, {
+      allowConditionedAreaCeilingSuggestion: true,
+    });
+    expect(inputs.conditionedCeilingAreaSqft).toBe(2160);
+    expect(
+      resolveInsulationEnvelopePlanningQuantity(inputs)?.components.find(
+        component => component.key === 'atticInsulationSqft'
+      )?.quantity
+    ).toBe(2160);
+  });
+
+  it('preserves Plan 58 wall SF while replacing the upper-floor-only ceiling SF', () => {
+    const facts = {
+      storyCount: 2,
+      foundationPerimeterLf: 172,
+      wallHeightFt: 10.2,
+      buildingAreas: {
+        totalLivingSqft: 3660,
+        mainFloorLivingSqft: 2047,
+        upstairsLivingSqft: 1613,
+      },
+      ceilingBoundary: {
+        upperFloorAtticSqft: 1613,
+        mainFloorAtticExposureSqft: 647,
+        vaultedOpenToBelowSqft: 0,
+        roofDeckInsulationSqft: 0,
+        complete: true,
+      },
+    };
+    const result = resolveInsulationEnvelopePlanningQuantity(
+      insulationEnvelopeInputsFromPlanFacts(facts, 3660, {
+        openingDeductionSqft: 550,
+        allowConditionedAreaCeilingSuggestion: true,
+        requireExplicitSurfaceTakeoff: true,
+      })
+    );
+    expect(
+      result?.components.find(
+        component => component.key === 'exteriorWallInsulationSqft'
+      )?.quantity
+    ).toBe(2958.8);
+    expect(
+      result?.components.find(
+        component => component.key === 'atticInsulationSqft'
+      )?.quantity
+    ).toBe(2260);
+  });
+
+  it('does not create a two-story attic quantity from total living area alone', () => {
+    const inputs = insulationEnvelopeInputsFromPlanFacts(
+      {
+        storyCount: 2,
+        buildingAreas: { totalLivingSqft: 3660 },
+      },
+      3660,
+      { allowConditionedAreaCeilingSuggestion: true }
+    );
+    expect(inputs.conditionedCeilingAreaSqft).toBeNull();
+    expect(
+      resolveInsulationEnvelopePlanningQuantity(inputs)?.components.some(
+        component => component.key === 'atticInsulationSqft'
+      )
+    ).toBe(false);
   });
 
   it('excludes interior partitions and garage by default', () => {

@@ -153,7 +153,7 @@ describe('plan takeoff review UI polish', () => {
     expect(tile.join(' ').toLowerCase()).not.toBe('standard for ground-up new construction');
   });
 
-  it('shows missing-takeoff statuses for foundation, framing, insulation and drywall', () => {
+  it('shows takeoff statuses for foundation, framing, insulation and drywall', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     expect(
       scopeTakeoffStatusLines({
@@ -173,7 +173,7 @@ describe('plan takeoff review UI polish', () => {
       scopeTakeoffStatusLines({
         itemId: 'insulation',
         evidence: 'Standard ground-up scope for a full residential plan set',
-      }).some(l => /Needs whole-house insulation surface takeoff/i.test(l))
+      }).some(l => /Needs wall and ceiling takeoff/i.test(l))
     ).toBe(true);
 
     expect(
@@ -182,6 +182,22 @@ describe('plan takeoff review UI polish', () => {
         evidence: 'Standard ground-up scope for a full residential plan set',
       }).some(l => /Needs wall and ceiling takeoff/i.test(l))
     ).toBe(true);
+  });
+
+  it('distinguishes insulation review readiness from confirmation', () => {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
+    const ready = scopeTakeoffStatusLines({
+      itemId: 'insulation',
+      hasInsulationPrimaryTakeoff: true,
+    });
+    expect(ready.some(l => /ready for review/i.test(l))).toBe(true);
+
+    const confirmed = scopeTakeoffStatusLines({
+      itemId: 'insulation',
+      hasInsulationPrimaryTakeoff: true,
+      insulationPrimaryConfirmed: true,
+    });
+    expect(confirmed.some(l => /takeoff confirmed/i.test(l))).toBe(true);
   });
 
   it('keeps imported plan summary distinct and provides collapsed subtitle', () => {
@@ -954,6 +970,28 @@ describe('plan takeoff review UI polish', () => {
       label: 'From plan — confirm',
     });
     expect(row.includeDefault).toBe(true);
+  });
+
+  it('keeps a calculated insulation wall suggested while ceiling remains confirmable', () => {
+    const wall = buildPlanReviewMeasurementRowState({
+      key: 'exteriorWallInsulationSqft',
+      tradeKey: 'insulation',
+    });
+    const ceiling = buildPlanReviewMeasurementRowState({
+      key: 'atticInsulationSqft',
+      tradeKey: 'insulation',
+      provenanceEntry: { pricingEligible: false },
+    });
+
+    expect(wall).toMatchObject({
+      pricingEligible: true,
+      includeDefault: true,
+      provenance: { label: 'Suggested' },
+    });
+    expect(ceiling).toMatchObject({
+      pricingEligible: false,
+      provenance: { label: 'Needs confirmation' },
+    });
   });
 
   it('keeps a prior same-plan count visible while leaving pricing gated', () => {

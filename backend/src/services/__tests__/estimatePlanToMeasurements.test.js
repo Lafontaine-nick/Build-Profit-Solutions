@@ -20,6 +20,7 @@ const {
   mergeElectricalEvidenceSources,
   mergePlumbingFieldEvidence,
   collectUnclassifiedElectricalFixtures,
+  validateInsulationMeasurementsAgainstPlanFacts,
 } = require('../estimatePlanToMeasurements');
 const { filterPlanMeasurementsForTrade, filterPlanScopesForTrade, TRADE_CONFIGS } = require('../planImportTradeConfig');
 const shvPlanFacts = require('../testFixtures/shvPlanFacts');
@@ -107,6 +108,21 @@ describe('estimatePlanToMeasurements', () => {
         exteriorPerimeterLf: 214,
         nonPaintedExteriorPercent: 25,
         coveredPatioRoofed: true,
+        ceilingBoundary: {
+          upperFloorAtticSqft: 1613,
+          mainFloorAtticExposureSqft: 647,
+          vaultedOpenToBelowSqft: 100,
+          complete: true,
+          confidence: 'medium',
+          fieldEvidence: {
+            upperFloorAtticSqft: {
+              value: 1613,
+              sourceType: 'measured_from_geometry',
+              confidence: 'medium',
+              evidence: [{ page: 12, sheet: 'A-12', sourceText: 'ATTIC AREA' }],
+            },
+          },
+        },
         fieldEvidence: {
           storyCount: {
             value: 2,
@@ -156,6 +172,17 @@ describe('estimatePlanToMeasurements', () => {
     expect(facts.exteriorPerimeterLf).toBe(214);
     expect(facts.nonPaintedExteriorPercent).toBe(25);
     expect(facts.coveredPatioRoofed).toBeUndefined();
+    expect(facts.ceilingBoundary).toMatchObject({
+      upperFloorAtticSqft: 1613,
+      mainFloorAtticExposureSqft: 647,
+      vaultedOpenToBelowSqft: 100,
+      complete: true,
+      confidence: 'medium',
+    });
+    expect(facts.ceilingBoundary.fieldEvidence.upperFloorAtticSqft).toMatchObject({
+      value: 1613,
+      evidence: [{ page: 12, sheet: 'A-12' }],
+    });
     expect(facts.geometry).toHaveLength(1);
     expect(facts.geometry[0].id).toBe('supplied-plane');
   });
@@ -918,7 +945,7 @@ describe('estimatePlanToMeasurements', () => {
     expect(result.derivedKeys).toContain('openingDeductionSqft');
   });
 
-  test('deriveInsulationMeasurementsFromPlanFacts derives net exterior walls from perimeter', () => {
+  test('derives insulation wall SF from perimeter, height, stories, and openings', () => {
     const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
     const result = deriveInsulationMeasurementsFromPlanFacts(
       { openingDeductionSqft: 289 },
@@ -929,8 +956,107 @@ describe('estimatePlanToMeasurements', () => {
         elevationFaces: [{ id: 'north', windowDoorOpeningsSqft: 289 }],
       },
     );
-    expect(result.measurements.exteriorWallGrossSqft).toBe(1926);
+    expect(result.measurements.exteriorWallGrossSqft).toBeUndefined();
     expect(result.measurements.exteriorWallInsulationSqft).toBe(1637);
+  });
+
+  test('derives Plan 58 net wall SF without complete elevation-face coverage', () => {
+    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+    const result = deriveInsulationMeasurementsFromPlanFacts(
+      { openingDeductionSqft: 550 },
+      {
+        foundationPerimeterLf: 172,
+        wallHeightFt: 10.2,
+        storyCount: 2,
+        elevationFaces: [{ id: 'front', windowDoorOpeningsSqft: 550 }],
+      },
+    );
+    expect(result.measurements.exteriorWallInsulationSqft).toBe(2958.8);
+  });
+
+  test('does not delete a perimeter-derived wall SF when only one elevation face exists', () => {
+    const result = validateInsulationMeasurementsAgainstPlanFacts(
+      {
+        exteriorWallInsulationSqft: 2958.8,
+        openingDeductionSqft: 550,
+      },
+      {
+        foundationPerimeterLf: 172,
+        wallHeightFt: 10.2,
+        storyCount: 2,
+        elevationFaces: [{ id: 'front', windowDoorOpeningsSqft: 550 }],
+      },
+    );
+    expect(result.measurements.exteriorWallInsulationSqft).toBe(2958.8);
+    expect(result.measurements.openingDeductionSqft).toBe(550);
+  });
+
+  test('derives net insulation wall SF only from complete geometry and openings', () => {
+    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+    const result = deriveInsulationMeasurementsFromPlanFacts(
+      {},
+      {
+        foundationPerimeterLf: 214,
+        wallHeightFt: 9,
+        storyCount: 1,
+        elevationFaces: [
+          { id: 'north', areaSqft: 1000, windowDoorOpeningsSqft: 100 },
+          { id: 'south', areaSqft: 926, windowDoorOpeningsSqft: 189 },
+        ],
+      },
+    );
+    expect(result.measurements.openingDeductionSqft).toBe(289);
+    expect(result.measurements.exteriorWallInsulationSqft).toBe(1637);
+    expect(result.derivedKeys).toEqual(
+      expect.arrayContaining([
+        'openingDeductionSqft',
+        'exteriorWallInsulationSqft',
+      ]),
+    );
+  });
+
+  test('rejects incomplete single-face insulation wall and opening values', () => {
+    const result = validateInsulationMeasurementsAgainstPlanFacts(
+      {
+        exteriorWallInsulationSqft: 487.6,
+        openingDeductionSqft: 72.4,
+      },
+      {
+        elevationFaces: [
+          { id: 'front', areaSqft: 560, openingsSqft: 72.4 },
+        ],
+      },
+    );
+    expect(result.measurements.exteriorWallInsulationSqft).toBeUndefined();
+    expect(result.measurements.openingDeductionSqft).toBeUndefined();
+    expect(result.invalidKeys).toEqual(
+      expect.arrayContaining([
+        'exteriorWallInsulationSqft',
+        'openingDeductionSqft',
+      ]),
+    );
+  });
+
+  test('recalculates insulation values from complete wall geometry', () => {
+    const result = validateInsulationMeasurementsAgainstPlanFacts(
+      {
+        exteriorWallGrossSqft: 487.6,
+        exteriorWallInsulationSqft: 487.6,
+        openingDeductionSqft: 72.4,
+      },
+      {
+        foundationPerimeterLf: 214,
+        wallHeightFt: 9,
+        storyCount: 1,
+        elevationFaces: [
+          { id: 'front', areaSqft: 1000, openingsSqft: 100 },
+          { id: 'rear', areaSqft: 1000, openingsSqft: 100 },
+        ],
+      },
+    );
+    expect(result.measurements.exteriorWallGrossSqft).toBe(1926);
+    expect(result.measurements.openingDeductionSqft).toBe(200);
+    expect(result.measurements.exteriorWallInsulationSqft).toBe(1726);
   });
 
   test('insulation selected-trade filter keeps canonical envelope keys', () => {
@@ -946,7 +1072,7 @@ describe('estimatePlanToMeasurements', () => {
       TRADE_CONFIGS.insulation,
     );
     expect(filtered.openingDeductionSqft).toBe(289.6);
-    expect(filtered.exteriorWallGrossSqft).toBe(1926);
+    expect(filtered.exteriorWallGrossSqft).toBeUndefined();
     expect(filtered.exteriorWallInsulationSqft).toBe(1637);
     expect(filtered.stuccoWindowDoorOpeningSqft).toBeUndefined();
     expect(filtered.drywallSqft).toBeUndefined();

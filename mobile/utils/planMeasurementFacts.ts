@@ -58,6 +58,16 @@ export type PlanBuildingAreas = {
   roofDeckSqft?: number | null;
 };
 
+export type PlanCeilingBoundary = {
+  upperFloorAtticSqft?: number | null;
+  mainFloorAtticExposureSqft?: number | null;
+  vaultedOpenToBelowSqft?: number | null;
+  roofDeckInsulationSqft?: number | null;
+  complete?: boolean | null;
+  confidence?: PlanMeasurementConfidence;
+  fieldEvidence?: Record<string, PlanFieldEvidence>;
+};
+
 export type PlanFieldEvidence = {
   value?: number | string | boolean | null;
   sourceType: PlanMeasurementSourceType;
@@ -67,6 +77,7 @@ export type PlanFieldEvidence = {
 
 export type PlanFacts = {
   buildingAreas?: PlanBuildingAreas;
+  ceilingBoundary?: PlanCeilingBoundary | null;
   storyCount?: number | null;
   roofPitch?: string | null;
   roofWastePercent?: number | null;
@@ -81,6 +92,15 @@ export type PlanFacts = {
     areaSqft?: number | null;
     confidence?: number | null;
   }>;
+  elevationFaces?: Array<{
+    id?: string | null;
+    widthFt?: number | null;
+    heightFt?: number | null;
+    areaSqft?: number | null;
+    windowDoorOpeningsSqft?: number | null;
+    garageOpeningsSqft?: number | null;
+    openingsSqft?: number | null;
+  }> | null;
   exteriorPerimeterLf?: number | null;
   foundationPerimeterLf?: number | null;
   foundationFootprintSqft?: number | null;

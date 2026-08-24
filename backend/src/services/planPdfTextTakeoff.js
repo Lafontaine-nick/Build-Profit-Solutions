@@ -699,6 +699,16 @@ const PLUMBING_PAGE_SIGNALS = [
   },
 ];
 
+const INSULATION_PAGE_SIGNALS = [
+  { re: /\binsulation\b|\binsul\.?\b|\bthermal\b|\benergy\s*code\b/i, label: 'insulation / energy notes', score: 14 },
+  { re: /\bR-?\s*\d+\b|\bbatt\b|\bblown[-\s]?in\b|\bspray\s*foam\b|\bcellulose\b|\bmineral\s*wool\b/i, label: 'insulation assembly', score: 12 },
+  { re: /\bwall\s*section\b|\bbuilding\s*section\b|\btypical\s*wall\b/i, label: 'wall / building section', score: 11 },
+  { re: /\battic\b|\bceiling\s*plan\b|\breflected\s*ceiling\b|\bRCP\b/i, label: 'attic / ceiling plan', score: 10 },
+  { re: /\broof\s*plan\b|\broof\s*detail\b|\broof\s*section\b|\bvaulted\b|\bcathedral\b/i, label: 'roof detail', score: 9 },
+  { re: /\bexterior\s*elevation\b|\bfront\s*elevation\b|\brear\s*elevation\b|\bleft\s*elevation\b|\bright\s*elevation\b/i, label: 'exterior elevations', score: 8 },
+  { re: /\bfloor\s*plan\b|\bmain\s*floor\b|\bupper\s*floor\b|\bsecond\s*floor\b/i, label: 'floor plan', score: 5 },
+];
+
 /** Upper-level E sheets often have almost no text layer. Include the next page after a strong hit. */
 function expandElectricalRelevantPages(pages, pageCount) {
   const byPage = new Map();
@@ -1379,6 +1389,20 @@ function scorePlumbingRelevantPage(text) {
   return { score, reasons: [...new Set(reasons)] };
 }
 
+function scoreInsulationRelevantPage(text) {
+  const blob = String(text || '');
+  if (!blob.trim()) return { score: 0, reasons: [] };
+  let score = 0;
+  const reasons = [];
+  for (const signal of INSULATION_PAGE_SIGNALS) {
+    if (signal.re.test(blob)) {
+      score += signal.score;
+      reasons.push(signal.label);
+    }
+  }
+  return { score, reasons: [...new Set(reasons)] };
+}
+
 function extractRoomsFromPhrases(phrases, { sourcePage = null, sourceSheet = null } = {}) {
   const dims = [];
   const names = [];
@@ -1527,6 +1551,14 @@ async function renderPlumbingPlanPages(pdfBuffers, plumbingPages, options = {}) 
   }));
 }
 
+async function renderInsulationPlanPages(pdfBuffers, insulationPages, options = {}) {
+  const images = await renderElectricalPlanPages(pdfBuffers, insulationPages, options);
+  return images.map(image => ({
+    ...image,
+    filename: String(image.filename || '').replace(/^electrical-page-/, 'insulation-page-'),
+  }));
+}
+
 async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = {}) {
   const canvasLib = loadNodeCanvas();
   if (!canvasLib?.createCanvas) {
@@ -1649,6 +1681,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
   const paintingRelevantPages = [];
   const electricalRelevantPages = [];
   const plumbingRelevantPages = [];
+  const insulationRelevantPages = [];
   const plumbingFixtureSchedulePages = [];
   const plumbingEquipmentHintPages = [];
   const plumbingEquipmentTextChunks = [];
@@ -1685,6 +1718,14 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
         });
       }
       const plumbingPage = scorePlumbingRelevantPage(pageText);
+      const insulationPage = scoreInsulationRelevantPage(pageText);
+      if (insulationPage.score > 0) {
+        insulationRelevantPages.push({
+          page: pageNumber,
+          score: insulationPage.score,
+          reasons: insulationPage.reasons,
+        });
+      }
       const plumbingSheetId = extractPlumbingSheetId(pageText);
       if (plumbingSheetId && !plumbingPage.reasons.includes('P sheet')) {
         plumbingPage.score = Math.max(plumbingPage.score, 13);
@@ -1845,6 +1886,19 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
     plumbingRelevantPages: expandPlumbingRelevantPages(plumbingRelevantPages, pageCount)
       .sort((a, b) => b.score - a.score)
       .slice(0, 12),
+    insulationRelevantPages: [
+      ...insulationRelevantPages.sort((a, b) => b.score - a.score),
+      ...Array.from({ length: pageCount }, (_, index) => ({
+        page: index + 1,
+        score: 0,
+        reasons: ['fallback plan sheet'],
+      })).filter(
+        fallback =>
+          !insulationRelevantPages.some(
+            selected => selected.page === fallback.page,
+          ),
+      ),
+    ].slice(0, 12),
     plumbingFixtureSchedule: aggregatePlumbingFixtureScheduleInventory(plumbingFixtureSchedulePages),
     plumbingEquipmentHints: aggregatePlumbingEquipmentHints(
       plumbingEquipmentHintPages,
@@ -2013,6 +2067,7 @@ module.exports = {
   scorePaintingRelevantPage,
   scoreElectricalRelevantPage,
   scorePlumbingRelevantPage,
+  scoreInsulationRelevantPage,
   expandElectricalRelevantPages,
   expandPlumbingRelevantPages,
   ELECTRICAL_INSTANCE_TAG_SPECS,
@@ -2027,6 +2082,7 @@ module.exports = {
   shouldCollapseDuplicateFixtureViews,
   renderElectricalPlanPages,
   renderPlumbingPlanPages,
+  renderInsulationPlanPages,
   fillElectricalSheetBackground,
   toUint8Array,
   feetInchesToDecimal,

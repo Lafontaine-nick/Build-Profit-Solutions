@@ -858,17 +858,20 @@ const INSULATION_VISION_INSTRUCTIONS = `
 Insulation takeoff rules:
 - Review wall sections, building sections, energy-code notes, insulation schedules, attic plans, roof plans, garage separation details, and exterior elevations.
 - Return explicit labeled measurements using these canonical keys:
-  exteriorWallGrossSqft, exteriorWallInsulationSqft, atticInsulationSqft, insulatedRoofDeckSqft,
+  exteriorWallInsulationSqft, atticInsulationSqft, insulatedRoofDeckSqft,
   floorInsulationSqft, garageSeparationInsulationSqft,
   insulatedGarageWallSqft, insulatedGarageCeilingSqft, openingDeductionSqft.
 - Read exterior elevations like a stucco takeoff: return elevationFaces with readable face width/height or area, windowDoorOpeningsSqft, garageOpeningsSqft, and openingsSqft when categorized totals are unavailable. Also populate measurements.openingDeductionSqft when the summed opening area is readable.
-- Treat exteriorWallGrossSqft as gross wall area before openings. Treat exteriorWallInsulationSqft as net insulated wall area after opening deductions. Never put gross area in the net key.
+- Return only exteriorWallInsulationSqft as the insulation wall quantity. Keep any gross wall geometry in planFacts for audit; do not expose a second gross-wall measurement in the insulation takeoff.
 - For atticInsulationSqft, inspect roof plans, reflected ceiling plans, building sections, and insulation schedules. Use a labeled conditioned ceiling/attic area or calculate it only from readable, dimensioned ceiling geometry. Exclude garages, covered patios, open-to-below areas, and vaulted areas assigned to an insulated roof deck. If living area is the only ceiling proxy, leave this measurement unavailable so the app can show a calculated suggestion for contractor confirmation.
+- On a two-story plan, total living area is never the attic/ceiling quantity. Use only the upper-level conditioned ceiling area bordering unconditioned attic space, and subtract any open-to-below or vaulted areas. Populate buildingAreas.mainFloorLivingSqft and buildingAreas.upstairsLivingSqft when those floor totals are printed.
+- Return planFacts.ceilingBoundary when the drawings support a ceiling/attic boundary takeoff. Report upperFloorAtticSqft and mainFloorAtticExposureSqft as separate readable areas, plus vaultedOpenToBelowSqft and roofDeckInsulationSqft exclusions when present. Set complete=true only when the relevant roof/ceiling and floor-plan geometry has been reconciled. Do not use total living area as either component.
+- Determine mainFloorAtticExposureSqft by comparing the actual first- and second-floor footprints against the roof/ceiling plan. Never calculate it as main-floor living minus upstairs living; offset wings and projections must be measured from the drawings. Every returned boundary component requires fieldEvidence with page, sheet, and readable source text.
 - Return vaultedCeilingDetected=true only when a section, ceiling plan, roof plan, or note clearly identifies vaulted/cathedral/open-to-below conditioned ceiling areas. A roof pitch alone is not enough.
 - For insulatedRoofDeckSqft, return a quantity only when the roof assembly or energy notes explicitly identify roof-deck insulation (for example spray foam or a vaulted/cathedral roof boundary). Do not substitute roof area merely because a roof plan exists.
 - For garage separation and floor insulation, calculate only from readable shared-wall/ceiling or raised-floor/crawlspace geometry. Garage area alone is never a separation quantity, and living area alone is never a floor quantity.
 - When a quantity is explicitly labeled, or directly calculated from readable labeled dimensions, put the numeric result in measurements using the canonical key. Do not leave a usable quantity only inside planFacts.
-- If the plan gives exterior perimeter, wall/plate height, stories, and opening information but not an insulation SF total, return those facts in planFacts so the app can calculate the envelope transparently.
+- If the plan gives exterior perimeter, wall/plate height, stories, and opening information but not an explicit insulation SF total, return those facts in planFacts plus measurements.openingDeductionSqft. The app will calculate net exteriorWallInsulationSqft from that geometry. Do not invent wall SF from living area or a single unlabeled elevation.
 - If an insulation schedule, wall section, or energy-code note explicitly names the assembly, R-value, material, or garage inclusion, return insulationMaterialType, insulationRValue, and garageInsulationIncluded in planFacts with evidence. Never infer these from typical practice.
 - Attic insulation and insulated roof deck are alternative thermal boundaries by default; do not count both unless the plan explicitly requires both.
 - Do not use living SF, drywall SF, or visual proportions as an AI-detected insulation SF. If living area is the only possible ceiling proxy, leave atticInsulationSqft unavailable and record the missing/confirmation requirement instead. Do not invent R-values, assembly types, garage inclusion, or material quantities.
@@ -932,68 +935,155 @@ function deriveInsulationMeasurementsFromPlanFacts(
         : `Opening deduction ${roundTenth(openingDeduction).toLocaleString()} SF summed from dimensioned elevation opening areas.`,
     );
   }
-
-  const stuccoGross = positive(next.stuccoGrossWallSqft);
-  const stuccoNet = positive(next.stuccoNetWallSqft);
-  const resolvedOpenings = positive(next.openingDeductionSqft) || openingDeduction;
-  if (!(positive(next.exteriorWallGrossSqft) > 0) && stuccoGross > 0) {
-    next.exteriorWallGrossSqft = roundTenth(stuccoGross);
-    derivedKeys.push("exteriorWallGrossSqft");
-  }
-  if (!(positive(next.exteriorWallInsulationSqft) > 0)) {
-    if (stuccoNet > 0) {
-      next.exteriorWallInsulationSqft = roundTenth(stuccoNet);
-      derivedKeys.push("exteriorWallInsulationSqft");
-      assumptions.push(
-        `Exterior wall insulation ${roundTenth(stuccoNet).toLocaleString()} SF from readable elevation gross wall area minus verified openings.`,
-      );
-    } else if (stuccoGross > 0) {
-      const net = Math.max(
-        0,
-        stuccoGross - (resolvedOpenings > 0 ? resolvedOpenings : 0),
-      );
-      if (net > 0) {
-        next.exteriorWallInsulationSqft = roundTenth(net);
-        derivedKeys.push("exteriorWallInsulationSqft");
-        assumptions.push(
-          resolvedOpenings > 0
-            ? `Exterior wall insulation ${roundTenth(net).toLocaleString()} SF from readable elevation gross wall area minus verified openings.`
-            : `Exterior wall insulation ${roundTenth(net).toLocaleString()} SF from readable elevation gross wall area; opening deductions still need confirmation.`,
-        );
-      }
-    }
-  }
-
+  const completeFaceCoverage =
+    faces.length >= 2 &&
+    faces.every(face => {
+      const area =
+        positive(face?.stuccoAreaSqft) ||
+        positive(face?.areaSqft) ||
+        (() => {
+          const width = positive(face?.widthFt);
+          const height = positive(face?.heightFt);
+          return width && height ? width * height : null;
+        })();
+      return area > 0;
+    });
+  const faceGross = faces.reduce((sum, face) => {
+    const area =
+      positive(face?.stuccoAreaSqft) ||
+      positive(face?.areaSqft) ||
+      (() => {
+        const width = positive(face?.widthFt);
+        const height = positive(face?.heightFt);
+        return width && height ? width * height : null;
+      })();
+    return sum + (area || 0);
+  }, 0);
   const perimeter =
     positive(planFacts?.exteriorPerimeterLf) ||
     positive(planFacts?.foundationPerimeterLf);
   const stories = positive(planFacts?.storyCount);
-  const height = perStoryWallHeightFromPlanFacts(
-    planFacts,
-    stories > 1 ? stories : 1,
-  );
+  const wallHeight = perStoryWallHeightFromPlanFacts(planFacts, stories || 1);
+  const grossWallArea =
+    perimeter && stories && wallHeight
+      ? perimeter * wallHeight * stories
+      : completeFaceCoverage
+        ? faceGross
+        : null;
+  const usableOpeningDeduction =
+    positive(next.openingDeductionSqft) ||
+    (hasOpeningEvidence && openingDeduction > 0 ? openingDeduction : null);
   if (
-    !(positive(next.exteriorWallInsulationSqft) > 0) &&
-    perimeter &&
-    height &&
-    stories &&
-    hasOpeningEvidence
+    positive(next.exteriorWallInsulationSqft) == null &&
+    grossWallArea != null &&
+    usableOpeningDeduction != null
   ) {
-    const gross = perimeter * height * stories;
-    const net = Math.max(0, gross - (resolvedOpenings || 0));
-    if (!(positive(next.exteriorWallGrossSqft) > 0)) {
-      next.exteriorWallGrossSqft = roundTenth(gross);
-      derivedKeys.push("exteriorWallGrossSqft");
-    }
-    if (net > 0) {
-      next.exteriorWallInsulationSqft = roundTenth(net);
-      derivedKeys.push("exteriorWallInsulationSqft");
-      assumptions.push(
-        `Exterior wall insulation ${roundTenth(net).toLocaleString()} SF calculated from verified perimeter × wall height × stories minus verified openings.`,
-      );
+    const netWallArea = Math.max(
+      0,
+      grossWallArea - Number(usableOpeningDeduction),
+    );
+    next.exteriorWallInsulationSqft = roundTenth(netWallArea);
+    derivedKeys.push("exteriorWallInsulationSqft");
+    assumptions.push(
+      `Exterior wall insulation ${roundTenth(netWallArea).toLocaleString()} SF calculated from complete labeled wall geometry less readable opening deductions.`,
+    );
+  }
+
+  return { measurements: next, derivedKeys, assumptions };
+}
+
+function validateInsulationMeasurementsAgainstPlanFacts(
+  measurements = {},
+  planFacts = {},
+) {
+  const next = { ...measurements };
+  const invalidKeys = [];
+  const faces = Array.isArray(planFacts?.elevationFaces)
+    ? planFacts.elevationFaces
+    : [];
+  const faceArea = (face) =>
+    positive(face?.stuccoAreaSqft) ||
+    positive(face?.areaSqft) ||
+    (() => {
+      const width = positive(face?.widthFt);
+      const height = positive(face?.heightFt);
+      return width && height ? width * height : null;
+    })();
+  const completeFaceCoverage =
+    faces.length >= 2 && faces.every((face) => faceArea(face) > 0);
+  const faceGross = faces.reduce((sum, face) => sum + (faceArea(face) || 0), 0);
+  const faceOpenings = faces.reduce((sum, face) => {
+    const categorized =
+      positive(face?.windowDoorOpeningsSqft) ||
+      positive(face?.garageOpeningsSqft);
+    return (
+      sum +
+      (categorized || positive(face?.openingsSqft) || 0)
+    );
+  }, 0);
+  const perimeter =
+    positive(planFacts?.exteriorPerimeterLf) ||
+    positive(planFacts?.foundationPerimeterLf);
+  const stories = positive(planFacts?.storyCount);
+  const height = perStoryWallHeightFromPlanFacts(planFacts, stories > 1 ? stories : 1);
+  const completeWallGeometry = perimeter && stories && height;
+  const expectedGross = completeWallGeometry
+    ? perimeter * height * stories
+    : completeFaceCoverage
+      ? faceGross
+      : null;
+  const expectedOpenings =
+    completeFaceCoverage && faceOpenings > 0
+      ? faceOpenings
+      : completeWallGeometry
+        ? positive(next.openingDeductionSqft) ||
+          (faceOpenings > 0 ? faceOpenings : null)
+        : null;
+  const expectedNet =
+    expectedGross != null && expectedOpenings != null
+      ? Math.max(0, expectedGross - expectedOpenings)
+      : null;
+  const materiallyDifferent = (actual, expected) =>
+    actual != null &&
+    Math.abs(actual - expected) > Math.max(25, expected * 0.15);
+
+  if (expectedGross != null && completeWallGeometry) {
+    const actualGross = positive(next.exteriorWallGrossSqft);
+    if (materiallyDifferent(actualGross, expectedGross)) {
+      next.exteriorWallGrossSqft = roundTenth(expectedGross);
+      invalidKeys.push("exteriorWallGrossSqft");
     }
   }
-  return { measurements: next, derivedKeys, assumptions };
+  if (expectedOpenings != null) {
+    const actualOpenings = positive(next.openingDeductionSqft);
+    if (materiallyDifferent(actualOpenings, expectedOpenings)) {
+      next.openingDeductionSqft = roundTenth(expectedOpenings);
+      invalidKeys.push("openingDeductionSqft");
+    }
+  } else if (
+    faces.length === 1 &&
+    !completeWallGeometry &&
+    positive(next.openingDeductionSqft) > 0
+  ) {
+    delete next.openingDeductionSqft;
+    invalidKeys.push("openingDeductionSqft");
+  }
+  if (expectedNet != null) {
+    const actualNet = positive(next.exteriorWallInsulationSqft);
+    if (materiallyDifferent(actualNet, expectedNet)) {
+      next.exteriorWallInsulationSqft = roundTenth(expectedNet);
+      invalidKeys.push("exteriorWallInsulationSqft");
+    }
+  } else if (
+    faces.length === 1 &&
+    !completeWallGeometry &&
+    positive(next.exteriorWallInsulationSqft) > 0
+  ) {
+    delete next.exteriorWallInsulationSqft;
+    invalidKeys.push("exteriorWallInsulationSqft");
+  }
+
+  return { measurements: next, invalidKeys };
 }
 
 function buildSystemPrompt() {
@@ -1058,6 +1148,9 @@ Rules:
 12. notesBlock: short contractor-readable summary of Building Areas totals (room-by-room SF will be listed separately by the app).
 
 Schema:
+The numeric values in the example below are schema placeholders only. Never
+copy any example number into the response unless the same number is clearly
+printed or calculated from the submitted plan pages.
 {
   "success": true | false,
   "reason": "string | null",
@@ -1089,14 +1182,23 @@ Schema:
         "stuccoAreaSqft": 560,
         "paintAreaSqft": 0,
         "finish": "stucco",
-        "openingsSqft": 72.4,
-        "windowDoorOpeningsSqft": 72.4,
+        "openingsSqft": null,
+        "windowDoorOpeningsSqft": null,
         "garageOpeningsSqft": 0,
         "nonStuccoSqft": 0,
         "evidence": [{ "page": 8, "sheet": "A-7", "label": "FRONT ELEVATION", "sourceText": "readable face dimensions" }]
       }
     ],
     "geometry": [],
+    "ceilingBoundary": {
+      "upperFloorAtticSqft": 1613,
+      "mainFloorAtticExposureSqft": 647,
+      "vaultedOpenToBelowSqft": 0,
+      "roofDeckInsulationSqft": 0,
+      "complete": true,
+      "confidence": "medium",
+      "fieldEvidence": {}
+    },
     "fieldEvidence": {
       "storyCount": {
         "value": 2,
@@ -1717,6 +1819,47 @@ function sanitizeGeometry(raw) {
   return regions.slice(0, 100);
 }
 
+function sanitizeCeilingBoundary(rawBoundary) {
+  const src =
+    rawBoundary && typeof rawBoundary === "object" ? rawBoundary : null;
+  if (!src) return null;
+  const out = {};
+  for (const key of [
+    "upperFloorAtticSqft",
+    "mainFloorAtticExposureSqft",
+    "vaultedOpenToBelowSqft",
+    "roofDeckInsulationSqft",
+  ]) {
+    const value = positive(src[key]);
+    if (value != null && value <= 50000) {
+      out[key] = Math.round(value * 10) / 10;
+    }
+  }
+  if (typeof src.complete === "boolean") out.complete = src.complete;
+  const confidence = String(src.confidence || "");
+  if (FACT_CONFIDENCE.has(confidence)) out.confidence = confidence;
+  const fieldEvidence = {};
+  for (const [key, fact] of Object.entries(src.fieldEvidence || {})) {
+    if (!fact || typeof fact !== "object") continue;
+    const evidence = sanitizeEvidence(fact.evidence);
+    if (!evidence.length) continue;
+    fieldEvidence[String(key).slice(0, 80)] = {
+      value: ["string", "number", "boolean"].includes(typeof fact.value)
+        ? fact.value
+        : null,
+      sourceType: FACT_SOURCE_TYPES.has(String(fact.sourceType || ""))
+        ? String(fact.sourceType)
+        : "detected_from_plan",
+      confidence: FACT_CONFIDENCE.has(String(fact.confidence || ""))
+        ? String(fact.confidence)
+        : "medium",
+      evidence,
+    };
+  }
+  if (Object.keys(fieldEvidence).length) out.fieldEvidence = fieldEvidence;
+  return Object.keys(out).length ? out : null;
+}
+
 function sanitizePlanFacts(raw, buildingAreas = {}) {
   const src = raw && typeof raw === "object" ? raw : {};
   const fieldEvidence = {};
@@ -1741,6 +1884,8 @@ function sanitizePlanFacts(raw, buildingAreas = {}) {
     buildingAreas: sanitizeBuildingAreas(buildingAreas),
     fieldEvidence,
   };
+  const ceilingBoundary = sanitizeCeilingBoundary(src.ceilingBoundary);
+  if (ceilingBoundary) out.ceilingBoundary = ceilingBoundary;
   const hasEvidence = (key) => Boolean(fieldEvidence[key]?.evidence?.length);
   const storyCount = Number(src.storyCount);
   if (
@@ -2348,6 +2493,25 @@ async function analyzePlanForMeasurements({
     }
   }
 
+  let insulationSheetImages = [];
+  if (
+    insulationSelected &&
+    pdfBuffers.length &&
+    pdfTakeoff?.insulationRelevantPages?.length
+  ) {
+    try {
+      const { renderInsulationPlanPages } = require("./planPdfTextTakeoff");
+      insulationSheetImages = await renderInsulationPlanPages(
+        pdfBuffers,
+        pdfTakeoff.insulationRelevantPages,
+        { maxPages: 12, maxDimension: 4200 },
+      );
+    } catch (err) {
+      console.warn("Insulation sheet raster skipped:", err?.message || err);
+      insulationSheetImages = [];
+    }
+  }
+
   if (electricalSelected) {
     logElectricalTakeoffStage("ELECTRICAL PAGE SELECTION", {
       pages: (pdfTakeoff?.electricalRelevantPages || []).map(
@@ -2398,6 +2562,17 @@ async function analyzePlanForMeasurements({
   const plumbingVisionParts = plumbingSheetImages.length
     ? plumbingSheetImages.map(toVisionContentPart)
     : null;
+  const insulationVisionParts = insulationSheetImages.length
+    ? insulationSheetImages.map(toVisionContentPart)
+    : null;
+  if (process.env.NODE_ENV !== "production" && insulationSelected) {
+    console.debug("[insulation plan pages]", {
+      selectedPages: (pdfTakeoff?.insulationRelevantPages || []).map(
+        page => page.page,
+      ),
+      rasterizedPages: insulationSheetImages.map(page => page.page),
+    });
+  }
   const visionParts =
     electricalVisionParts ||
     plumbingVisionParts ||
@@ -2556,8 +2731,12 @@ async function analyzePlanForMeasurements({
                     planSelection.trade
                       ? `Focus only on ${planSelection.trade.label}. Inspect every relevant elevation, section, detail, schedule, and takeoff sheet in the plan file.`
                       : "Review the complete plan set for all major building scopes: structure, foundation, concrete, framing, roof, windows/doors, exterior finishes, MEP, insulation, drywall, flooring, cabinets, tile, paint, sitework, patios, and landscaping.",
-                    "For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, windowDoorOpeningsSqft, garageOpeningsSqft, and non-stucco deductions. Also populate measurements.stuccoWindowDoorOpeningSqft and measurements.stuccoGarageOpeningSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer.",
-                    "PDF text perimeter/plate/story facts (when present) support gross wall area only. Opening deductions still come from elevation drawings.",
+                    insulationSelected
+                      ? "For Insulation, return elevationFaces for every readable exterior elevation with face width/height or area and windowDoorOpeningsSqft / garageOpeningsSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer."
+                      : "For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, windowDoorOpeningsSqft, garageOpeningsSqft, and non-stucco deductions. Also populate measurements.stuccoWindowDoorOpeningSqft and measurements.stuccoGarageOpeningSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer.",
+                    insulationSelected
+                      ? "For Insulation, do not return a wall quantity from one elevation or perimeter alone. Return all complete labeled wall/opening facts so the app can calculate one net exterior-wall quantity."
+                      : "PDF text perimeter/plate/story facts (when present) support gross wall area only. Opening deductions still come from elevation drawings.",
                     insulationSelected
                       ? INSULATION_VISION_INSTRUCTIONS
                       : plumbingSelected
@@ -2570,7 +2749,7 @@ async function analyzePlanForMeasurements({
                     paintingSelected
                       ? "Return wallPaintSqft, ceilingPaintSqft, baseboardLf, interiorDoorCount, and exteriorPaintSqft when geometry or schedules support them. Add geometry-derived keys to geometryDerived. Leave occupancy, application method, and prep omitted."
                       : insulationSelected
-                        ? "Return insulation quantities only when explicitly labeled or directly calculated from labeled planFacts. Preserve the wall/attic versus roof-deck boundary distinction."
+                        ? "The attached pages are rasterized insulation-relevant sheets selected from the PDF. Inspect the actual wall sections, elevations, ceiling/attic plans, roof details, schedules, and notes in those images. Return insulation quantities only when explicitly labeled or directly calculated from readable labeled dimensions. Preserve the wall/attic versus roof-deck boundary distinction."
                         : plumbingSelected
                           ? `${plumbingSheetCountHint} Return Plumbing canonical quantities only. Add only explicit or directly measured fields to explicitlyLabeled/geometryDerived. Leave packages and unsupported values omitted.`
                           : electricalSelected
@@ -2580,6 +2759,8 @@ async function analyzePlanForMeasurements({
                 },
                 ...(electricalSelected || plumbingSelected
                   ? visionParts
+                  : insulationSelected && insulationVisionParts
+                    ? insulationVisionParts
                   : compatible.map(toVisionContentPart)),
               ],
             },
@@ -2646,6 +2827,13 @@ async function analyzePlanForMeasurements({
         focusedElectricalVisionSource = focused.measurements;
         focusedElectricalVision = electricalDebugSnapshot(focused.measurements);
         foldElectricalVisionPayload(focused);
+      }
+      if (insulationSelected && process.env.NODE_ENV !== "production") {
+        console.debug("[insulation focused pass]", {
+          measurementKeys: Object.keys(focused.measurements || {}),
+          planFactKeys: Object.keys(focused.planFacts || {}),
+          unreadableFields: focused.unreadableFields || [],
+        });
       }
       if (plumbingSelected) applyPlumbingVisionTakeoff(focused);
       if (plumbingSelected) {
@@ -2739,6 +2927,14 @@ async function analyzePlanForMeasurements({
         planFacts: {
           ...(parsed.planFacts || {}),
           ...(focused.planFacts || {}),
+          ceilingBoundary: {
+            ...(parsed.planFacts?.ceilingBoundary || {}),
+            ...(focused.planFacts?.ceilingBoundary || {}),
+            fieldEvidence: {
+              ...(parsed.planFacts?.ceilingBoundary?.fieldEvidence || {}),
+              ...(focused.planFacts?.ceilingBoundary?.fieldEvidence || {}),
+            },
+          },
           elevationFaces: preferElevationFacesWithOpenings(
             parsed.planFacts?.elevationFaces,
             focused.planFacts?.elevationFaces,
@@ -2924,6 +3120,14 @@ async function analyzePlanForMeasurements({
     {
       ...visionPlanFacts,
       ...pdfPlanFacts,
+      ceilingBoundary: {
+        ...(visionPlanFacts.ceilingBoundary || {}),
+        ...(pdfPlanFacts.ceilingBoundary || {}),
+        fieldEvidence: {
+          ...(visionPlanFacts.ceilingBoundary?.fieldEvidence || {}),
+          ...(pdfPlanFacts.ceilingBoundary?.fieldEvidence || {}),
+        },
+      },
       geometry: visionPlanFacts.geometry,
       warnings: [
         ...(visionPlanFacts.warnings || []),
@@ -3328,7 +3532,7 @@ async function analyzePlanForMeasurements({
     buildingAreas,
     areaReconciliation,
   );
-  const tradeMeasurementInput = { ...measurements };
+  let tradeMeasurementInput = { ...measurements };
   if (
     planSelection.mode === "selected_trade" &&
     planSelection.trade?.key === "roofing"
@@ -3470,8 +3674,24 @@ async function analyzePlanForMeasurements({
       tradeMeasurementInput,
       insulationPlanFacts,
     );
-    for (const [key, value] of Object.entries(insulationDerived.measurements)) {
+    const insulationValidated = validateInsulationMeasurementsAgainstPlanFacts(
+      insulationDerived.measurements,
+      insulationPlanFacts,
+    );
+    tradeMeasurementInput = insulationValidated.measurements;
+    for (const [key, value] of Object.entries(insulationValidated.measurements)) {
       if (positive(value) > 0) tradeMeasurementInput[key] = value;
+    }
+    for (const key of insulationValidated.invalidKeys) {
+      if (!parsed.unreadableFields?.some((entry) => entry?.field === key)) {
+        parsed.unreadableFields = [
+          ...(parsed.unreadableFields || []),
+          {
+            field: key,
+            reason: "AI quantity did not match complete plan evidence; review required",
+          },
+        ];
+      }
     }
     for (const key of insulationDerived.derivedKeys) {
       fieldConfidence[key] = Math.max(Number(fieldConfidence[key] || 0), 0.75);
@@ -3670,6 +3890,7 @@ module.exports = {
   preferElevationFacesWithOpenings,
   deriveStuccoElevationMeasurements,
   deriveInsulationMeasurementsFromPlanFacts,
+  validateInsulationMeasurementsAgainstPlanFacts,
   derivePaintingGeometryMeasurements,
   sanitizeRooms,
   sanitizeMeasurements,

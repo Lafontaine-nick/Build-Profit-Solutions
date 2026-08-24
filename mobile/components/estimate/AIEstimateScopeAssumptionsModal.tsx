@@ -82,7 +82,7 @@ import {
   reconcileFramingScopeMeasurements,
   reconcilePlumbingLineScopeMeasurements,
 } from '@/utils/planTakeoffReviewUi';
-import { buildInsulationAssembliesFromPlanMeasurements } from '@/utils/subcontractorTrade/insulationPlanConvergence';
+import { syncInsulationAssembliesWithPlanMeasurements } from '@/utils/subcontractorTrade/insulationPlanConvergence';
 import { applySouthernUtahPlumbingPackageTakeoffDefaults } from '@/utils/southernUtahPlumbingComparables';
 import {
   ElectricalConfirmScopeAttributesPanel,
@@ -9721,12 +9721,23 @@ type InsulationAssemblyLocation =
   (typeof INSULATION_LOCATION_OPTIONS)[number]['key'];
 
 const INSULATION_R_VALUES_BY_MATERIAL: Record<string, readonly string[]> = {
-  batt: ['R-13', 'R-15', 'R-19', 'R-21', 'R-30', 'R-38', 'R-49'],
+  batt: ['R-13', 'R-15', 'R-19', 'R-21', 'R-23', 'R-30', 'R-38', 'R-49'],
   'blown-in': ['R-30', 'R-38', 'R-49', 'R-60'],
-  'spray foam': ['R-13', 'R-21', 'R-30', 'R-49', 'R-60'],
+  'spray foam': ['R-13', 'R-21', 'R-30', 'R-38', 'R-49', 'R-60'],
   'rigid foam board': ['R-5', 'R-10', 'R-15', 'R-20', 'R-30'],
   cellulose: ['R-30', 'R-38', 'R-49', 'R-60'],
   'mineral wool': ['R-15', 'R-21', 'R-30', 'R-38'],
+};
+
+const INSULATION_R_VALUES_BY_LOCATION: Record<
+  InsulationAssemblyLocation,
+  readonly string[]
+> = {
+  exterior_wall: ['R-13', 'R-15', 'R-19', 'R-21', 'R-23'],
+  attic_ceiling: ['R-30', 'R-38', 'R-49', 'R-60'],
+  roof_deck: ['R-21', 'R-30', 'R-38', 'R-49'],
+  floor: ['R-19', 'R-21', 'R-30', 'R-38'],
+  garage_separation: ['R-13', 'R-15', 'R-19', 'R-21'],
 };
 
 function insulationMaterialKey(materialType: string): string {
@@ -9764,19 +9775,14 @@ function supportedInsulationRValues(
   materialType: string,
   location: string | null | undefined
 ): readonly string[] {
-  const values =
+  const materialValues =
     INSULATION_R_VALUES_BY_MATERIAL[insulationMaterialKey(materialType)] ||
     INSULATION_R_VALUES_BY_MATERIAL.batt;
-  const numbers = values.map(value => Number(value.replace(/\D/g, '')));
-  const filtered =
-    location === 'attic_ceiling' || location === 'roof_deck'
-      ? values.filter((_, index) => numbers[index] >= 30)
-      : location === 'exterior_wall' || location === 'garage_separation'
-        ? values.filter((_, index) => numbers[index] <= 21)
-        : location === 'floor'
-          ? values.filter((_, index) => numbers[index] >= 15)
-          : values;
-  return filtered.length ? filtered : values;
+  const locationValues =
+    INSULATION_R_VALUES_BY_LOCATION[location as InsulationAssemblyLocation];
+  return locationValues
+    ? locationValues.filter(value => materialValues.includes(value))
+    : materialValues;
 }
 
 function defaultInsulationRValue(
@@ -10279,8 +10285,8 @@ function InsulationAssemblyCard({
     parseSqft(measurements.insulatedRoofDeckSqft) ||
     parseSqft(measurements.atticInsulationSqft);
   const legacyMaterial =
-    String(measurements.insulationMaterialType || '') || 'Batt';
-  const legacyRValue = String(measurements.insulationRValue || '') || 'R-21';
+    String(measurements.insulationMaterialType || '').trim();
+  const legacyRValue = String(measurements.insulationRValue || '').trim();
   const legacyLocation = insulationLocationForAssembly(
     legacyMaterial,
     legacyRValue
@@ -10294,11 +10300,13 @@ function InsulationAssemblyCard({
       ? {
           id: 'insulation-assembly-wall',
           materialType: legacyMaterial,
-          rValue: defaultInsulationRValue(
-            legacyMaterial,
-            'exterior_wall',
-            legacyRValue
-          ),
+          rValue: legacyRValue
+            ? defaultInsulationRValue(
+                legacyMaterial,
+                'exterior_wall',
+                legacyRValue
+              )
+            : '',
           sqft: String(Math.round(wallPlanArea)),
           location: 'exterior_wall',
         }
@@ -10307,11 +10315,13 @@ function InsulationAssemblyCard({
       ? {
           id: 'insulation-assembly-ceiling',
           materialType: legacyMaterial,
-          rValue: defaultInsulationRValue(
-            legacyMaterial,
-            ceilingLocation,
-            legacyRValue
-          ),
+          rValue: legacyRValue
+            ? defaultInsulationRValue(
+                legacyMaterial,
+                ceilingLocation,
+                legacyRValue
+              )
+            : '',
           sqft: String(Math.round(ceilingPlanArea)),
           location: ceilingLocation,
         }
@@ -10329,11 +10339,13 @@ function InsulationAssemblyCard({
           {
             id: 'insulation-assembly-1',
             materialType: legacyMaterial,
-            rValue: defaultInsulationRValue(
-              legacyMaterial,
-              legacyLocation,
-              legacyRValue
-            ),
+            rValue: legacyRValue
+              ? defaultInsulationRValue(
+                  legacyMaterial,
+                  legacyLocation,
+                  legacyRValue
+                )
+              : '',
             sqft: '',
             location: legacyLocation,
           },
@@ -10418,21 +10430,22 @@ function InsulationAssemblyCard({
       {
         id,
         materialType,
-        rValue: defaultInsulationRValue(
-          materialType,
-          insulationLocationForMaterial(materialType),
-          legacyRValue
-        ),
+        rValue: '',
         sqft: '',
         location: insulationLocationForMaterial(materialType),
       },
     ]);
   };
-  const toggleRValue = (materialType: string, rValue: string) => {
+  const toggleRValue = (
+    materialType: string,
+    rValue: string,
+    location?: string | null
+  ) => {
     const matching = rows.find(
       row =>
         row.materialType.toLowerCase() === materialType.toLowerCase() &&
-        row.rValue.toLowerCase() === rValue.toLowerCase()
+        row.rValue.toLowerCase() === rValue.toLowerCase() &&
+        (!location || row.location === location)
     );
     if (matching) {
       if (matching.id === expandedAssemblyId) setExpandedAssemblyId(null);
@@ -10448,7 +10461,8 @@ function InsulationAssemblyCard({
         materialType,
         rValue,
         sqft: '',
-        location: insulationLocationForAssembly(materialType, rValue),
+        location:
+          location || insulationLocationForAssembly(materialType, rValue),
       },
     ]);
   };
@@ -10500,39 +10514,26 @@ function InsulationAssemblyCard({
       })}
     </ScrollView>
   );
-  const renderRValueOptions = (materialType: string) => (
+  const renderRValueOptions = (
+    materialType: string,
+    location: string | null | undefined
+  ) => (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ gap: 6, paddingRight: 4 }}
     >
-      {Array.from(
-        new Set(
-          [
-            ...new Set(
-              rows
-                .filter(
-                  row =>
-                    row.materialType.toLowerCase() ===
-                    materialType.toLowerCase()
-                )
-                .map(row => row.location)
-            ),
-            insulationLocationForMaterial(materialType),
-          ].flatMap(location =>
-            supportedInsulationRValues(materialType, location)
-          )
-        )
-      ).map(option => {
+      {supportedInsulationRValues(materialType, location).map(option => {
         const selected = rows.some(
           row =>
             row.materialType.toLowerCase() === materialType.toLowerCase() &&
-            row.rValue.toLowerCase() === option.toLowerCase()
+            row.rValue.toLowerCase() === option.toLowerCase() &&
+            row.location === location
         );
         return (
           <TouchableOpacity
             key={option}
-            onPress={() => toggleRValue(materialType, option)}
+            onPress={() => toggleRValue(materialType, option, location)}
             activeOpacity={0.75}
             style={{
               minWidth: 54,
@@ -10579,11 +10580,15 @@ function InsulationAssemblyCard({
           <TouchableOpacity
             key={option.key}
             onPress={() => {
-              const nextRValue = defaultInsulationRValue(
+              const supported = supportedInsulationRValues(
                 row.materialType,
-                option.key,
-                row.rValue
+                option.key
               );
+              const nextRValue = supported.some(
+                value => value.toLowerCase() === row.rValue.toLowerCase()
+              )
+                ? row.rValue
+                : '';
               updateRow(row.id, {
                 location: option.key,
                 rValue: nextRValue,
@@ -10842,7 +10847,19 @@ function InsulationAssemblyCard({
                       >
                         Target R-value
                       </Text>
-                      {renderRValueOptions(materialType)}
+                      {renderRValueOptions(materialType, row.location)}
+                      {!supportedInsulationRValues(materialType, row.location)
+                        .length ? (
+                        <Text
+                          style={{
+                            color: captionColor(darkMode, Colors),
+                            fontSize: 10,
+                            marginTop: 2,
+                          }}
+                        >
+                          No compatible R-values for this material and location.
+                        </Text>
+                      ) : null}
                       <Text
                         style={{
                           color: captionColor(darkMode, Colors),
@@ -16903,7 +16920,7 @@ export default function AIEstimateScopeAssumptionsModal({
           nextMeasurements,
           { templateKey: 'insulation' }
         );
-        const planAssemblies = buildInsulationAssembliesFromPlanMeasurements(
+        const planAssemblies = syncInsulationAssembliesWithPlanMeasurements(
           nextMeasurements as Record<string, unknown>
         );
         if (planAssemblies?.length) {

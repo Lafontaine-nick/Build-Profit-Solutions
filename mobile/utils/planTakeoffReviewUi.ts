@@ -91,8 +91,7 @@ export function measurementDisplayLabel(
   if (plumbingLabels[key]) return { label: plumbingLabels[key] };
 
   const insulationLabels: Record<string, string> = {
-    exteriorWallGrossSqft: 'Exterior wall gross area',
-    exteriorWallInsulationSqft: 'Net exterior wall insulation',
+    exteriorWallInsulationSqft: 'Exterior wall insulation',
     atticInsulationSqft: 'Attic / ceiling insulation',
     insulatedRoofDeckSqft: 'Insulated roof deck',
     floorInsulationSqft: 'Floor insulation',
@@ -1428,6 +1427,13 @@ export function measurementSourceLabel(input: {
     return null;
   }
 
+  if (
+    input.key === 'exteriorWallInsulationSqft' &&
+    !(Number(input.value) > 0)
+  ) {
+    return 'No complete wall/opening takeoff detected — enter manually';
+  }
+
   const page = input.sourcePage ?? null;
 
   if (
@@ -1518,6 +1524,10 @@ export function scopeTakeoffStatusLines(input: {
   assumptions?: string[] | null;
   /** True when plan-derived room/floor SF exists (e.g. kitchen floor, rooms from page 4). */
   hasPlanFloorAreas?: boolean;
+  /** True when both primary insulation surfaces are available for review. */
+  hasInsulationPrimaryTakeoff?: boolean;
+  /** True when both primary insulation surfaces were confirmed by the contractor. */
+  insulationPrimaryConfirmed?: boolean;
 }): string[] {
   if (!measurementSemanticsV1Enabled()) {
     return input.evidence ? [String(input.evidence)] : [];
@@ -1599,7 +1609,11 @@ export function scopeTakeoffStatusLines(input: {
   } else if (id === 'exterior' || id === 'exterior_finishes') {
     statusLine = 'Needs exterior wall and opening takeoff';
   } else if (id === 'insulation') {
-    statusLine = 'Needs whole-house insulation surface takeoff';
+    statusLine = input.insulationPrimaryConfirmed
+      ? 'Whole-house insulation takeoff confirmed'
+      : input.hasInsulationPrimaryTakeoff
+        ? 'Insulation takeoff ready for review — confirm wall and ceiling quantities'
+        : 'Needs wall and ceiling takeoff';
   } else if (id === 'drywall') {
     statusLine = 'Needs wall and ceiling takeoff';
   } else if (

@@ -9,7 +9,6 @@ import type { PlanFacts } from '@/utils/planMeasurementFacts';
 import type { InsulationAssembly } from '@/utils/estimateAiDraft';
 
 export const INSULATION_PLAN_REVIEW_MEASUREMENT_KEYS = [
-  'exteriorWallGrossSqft',
   'exteriorWallInsulationSqft',
   'atticInsulationSqft',
   'insulatedRoofDeckSqft',
@@ -27,7 +26,6 @@ export const INSULATION_PLAN_REVIEW_MEASUREMENT_KEYS = [
 ] as const;
 
 export const INSULATION_PLAN_QUICK_MEASUREMENT_KEYS = [
-  'exteriorWallGrossSqft',
   'exteriorWallInsulationSqft',
   'atticInsulationSqft',
   'insulatedRoofDeckSqft',
@@ -52,19 +50,43 @@ function positiveString(value: unknown): string | null {
   return Number.isFinite(num) && num > 0 ? String(num) : null;
 }
 
+export function insulationOpeningDeductionFromPlan(
+  measurements?: Record<string, unknown> | null,
+  planFacts?: PlanFacts | null
+): number | null {
+  const mapped = Number(measurements?.openingDeductionSqft);
+  if (Number.isFinite(mapped) && mapped > 0) return mapped;
+  const windowOpenings = Number(measurements?.stuccoWindowDoorOpeningSqft);
+  const garageOpenings = Number(measurements?.stuccoGarageOpeningSqft);
+  const stuccoTotal =
+    (windowOpenings > 0 ? windowOpenings : 0) +
+    (garageOpenings > 0 ? garageOpenings : 0);
+  if (stuccoTotal > 0) return stuccoTotal;
+  const faces = Array.isArray(planFacts?.elevationFaces)
+    ? planFacts.elevationFaces
+    : [];
+  const faceTotal = faces.reduce((sum, face) => {
+    const categorized =
+      Number(face?.windowDoorOpeningsSqft) ||
+      Number(face?.garageOpeningsSqft);
+    const openings = Number.isFinite(categorized) && categorized > 0
+      ? categorized
+      : Number(face?.openingsSqft);
+    return sum + (Number.isFinite(openings) && openings > 0 ? openings : 0);
+  }, 0);
+  return faceTotal > 0 ? faceTotal : null;
+}
+
 /** Surface insulation takeoff keys after plan review (no living-SF planning fill). */
 export function hydrateInsulationPlanMeasurementsFromTakeoff(
   measurements: Record<string, number | string>,
-  _planFacts?: PlanFacts | null
+  planFacts?: PlanFacts | null
 ): Record<string, number | string> {
   const next = { ...measurements };
   if (!positiveString(next.openingDeductionSqft)) {
-    const windowOpenings = Number(next.stuccoWindowDoorOpeningSqft);
-    const garageOpenings = Number(next.stuccoGarageOpeningSqft);
-    const total =
-      (windowOpenings > 0 ? windowOpenings : 0) +
-      (garageOpenings > 0 ? garageOpenings : 0);
-    const mapped = positiveString(total);
+    const mapped = positiveString(
+      insulationOpeningDeductionFromPlan(measurements, planFacts)
+    );
     if (mapped) next.openingDeductionSqft = mapped;
   }
   return next;
@@ -187,6 +209,39 @@ export function buildInsulationAssembliesFromPlanMeasurements(
   }
 
   return rows.length ? rows : null;
+}
+
+/**
+ * Reconciles the editable assembly model with a new plan takeoff. Legacy rows
+ * without source metadata are replaced; contractor-edited rows are preserved.
+ */
+export function syncInsulationAssembliesWithPlanMeasurements(
+  record?: Record<string, unknown> | null
+): InsulationAssembly[] | null {
+  if (!record) return null;
+  const planRows = buildInsulationAssembliesFromPlanMeasurements({
+    ...record,
+    insulationAssemblies: undefined,
+  });
+  if (!planRows?.length) return null;
+
+  const existing = copyInsulationAssemblyFields(record) || [];
+  if (!existing.length) return planRows;
+
+  const contractorRows = existing.filter(
+    row => row.source === 'contractor_entered'
+  );
+  const merged = planRows.map(planRow => {
+    const contractorRow = contractorRows.find(
+      row => row.location === planRow.location
+    );
+    return contractorRow || planRow;
+  });
+  const planLocations = new Set(planRows.map(row => row.location));
+  merged.push(
+    ...contractorRows.filter(row => !planLocations.has(row.location))
+  );
+  return merged;
 }
 
 export function copyInsulationScopeNumericFields(
