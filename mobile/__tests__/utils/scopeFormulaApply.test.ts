@@ -3,6 +3,7 @@ import {
   executeFormula,
   resolveFormulaQuantityApplyTarget,
   shouldShowFormulaQuantityButton,
+  shouldSuppressInsulationEnvelopePlanningFormula,
   shouldSkipCountertopCabinetLfFormula,
   usesAutoFlatworkSqftPricing,
 } from '@/utils/scopeFormulaRegistry';
@@ -805,6 +806,56 @@ describe('resolveFormulaQuantityApplyTarget', () => {
       shouldShowFormulaQuantityButton({
         scopeKey: 'drywall',
         formula: formula!,
+      })
+    ).toBe(false);
+  });
+
+  it('hides insulation envelope planning when confirmed plan takeoff exists', () => {
+    const formula = executeFormula('insulation_envelope_from_exterior_and_attic', {
+      floorAreaSqft: 3660,
+    });
+    expect(formula?.roundedValue).toBe(5511);
+    expect(
+      shouldShowFormulaQuantityButton({
+        scopeKey: 'insulation',
+        formula: formula!,
+      })
+    ).toBe(true);
+    const measurements = {
+      floorAreaSqft: '3660',
+      exteriorWallInsulationSqft: '2958.8',
+      atticInsulationSqft: '2260',
+      insulationAssemblies: [
+        {
+          id: 'wall',
+          materialType: 'Batt',
+          rValue: 'R-21',
+          sqft: 2958.8,
+          location: 'exterior_wall',
+          confirmed: true,
+        },
+        {
+          id: 'attic',
+          materialType: 'Batt',
+          rValue: 'R-30',
+          sqft: 2260,
+          location: 'attic_ceiling',
+          confirmed: true,
+        },
+      ],
+    };
+    expect(
+      shouldSuppressInsulationEnvelopePlanningFormula({
+        scopeKey: 'insulation',
+        formulaKey: formula!.formulaKey,
+        measurements,
+      })
+    ).toBe(true);
+    expect(
+      shouldShowFormulaQuantityButton({
+        scopeKey: 'insulation',
+        formula: formula!,
+        measurements,
       })
     ).toBe(false);
   });

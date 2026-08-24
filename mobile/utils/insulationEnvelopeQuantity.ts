@@ -175,6 +175,29 @@ export function insulationCeilingBoundaryBreakdownFromPlanFacts(
   };
 }
 
+function isMultiStoryCeilingPlanFacts(
+  facts: PlanFacts | null | undefined
+): boolean {
+  const stories = n(facts?.storyCount);
+  const upstairs = n(facts?.buildingAreas?.upstairsLivingSqft);
+  const mainFloor = n(facts?.buildingAreas?.mainFloorLivingSqft);
+  const totalLiving = n(facts?.buildingAreas?.totalLivingSqft);
+  return (
+    (stories ?? 0) > 1 ||
+    upstairs != null ||
+    (mainFloor != null && totalLiving != null && mainFloor < totalLiving - 1)
+  );
+}
+
+function hasFullCeilingBoundary(
+  boundary: PlanFacts['ceilingBoundary']
+): boolean {
+  return (
+    n(boundary?.upperFloorAtticSqft) != null &&
+    n(boundary?.mainFloorAtticExposureSqft) != null
+  );
+}
+
 export function resolveConditionedCeilingAreaSqft(
   facts: PlanFacts | null | undefined,
   floorAreaSqft?: number | null
@@ -183,6 +206,13 @@ export function resolveConditionedCeilingAreaSqft(
 
   const boundary = insulationCeilingBoundaryBreakdownFromPlanFacts(facts);
   if (facts?.ceilingBoundary && boundary?.calculatedSqft != null) {
+    if (
+      isMultiStoryCeilingPlanFacts(facts) &&
+      !hasFullCeilingBoundary(facts.ceilingBoundary) &&
+      facts.ceilingBoundary.complete !== true
+    ) {
+      return null;
+    }
     return boundary.calculatedSqft;
   }
 

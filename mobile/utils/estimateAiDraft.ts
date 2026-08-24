@@ -55,6 +55,7 @@ import {
   reconcilePlumbingEquipmentScopeMeasurements,
 } from '@/utils/planTakeoffReviewUi';
 import { confirmedPaintingMeasurementTextLines } from '@/utils/subcontractorTrade/paintingPlanConvergence';
+import { applyHydratedInsulationScopeMeasurements } from '@/utils/subcontractorTrade/insulationPlanConvergence';
 import type {
   ElectricalPanelLocation,
   ElectricalProjectCondition,
@@ -4106,6 +4107,15 @@ export function applyPlanImportToDraft(
   }
   if (payload.measurementProvenance) {
     scopeMeasurements.measurementProvenance = payload.measurementProvenance;
+  }
+  if (planImportTradeKey === 'insulation') {
+    scopeMeasurements = applyHydratedInsulationScopeMeasurements(
+      scopeMeasurements,
+      {
+        planFacts: scopeMeasurements.planFacts,
+        buildingAreas: scopeMeasurements.planFacts?.buildingAreas,
+      }
+    );
   }
   if (payload.utilityConnections !== undefined) {
     scopeMeasurements.plumbingUtilityConnections = payload.utilityConnections;

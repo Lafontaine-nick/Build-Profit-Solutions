@@ -26,7 +26,10 @@ import {
   type PlanMeasurementConfidence,
   type PlanMeasurementSourceType,
 } from '@/utils/planMeasurementFacts';
-import { enrichPlanFactsWithSouthernUtahBarometer } from '@/utils/southernUtahPlanFacts';
+import {
+  enrichPlanFactsWithSouthernUtahBarometer,
+  enrichPlanFactsWithSouthernUtahInsulationCeiling,
+} from '@/utils/southernUtahPlanFacts';
 import {
   insulationEnvelopeInputsFromPlanFacts,
   resolveInsulationEnvelopePlanningQuantity,
@@ -395,8 +398,8 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<
   T extends MeasurementLookup,
 >(measurements: T, options?: { templateKey?: string | null }): T {
   const living = n(measurements.floorAreaSqft);
-  const enriched = enrichPlanFactsWithSouthernUtahBarometer(
-    measurements.planFacts,
+  const enriched = enrichPlanFactsWithSouthernUtahInsulationCeiling(
+    enrichPlanFactsWithSouthernUtahBarometer(measurements.planFacts, living),
     living
   );
   let next: T = enriched

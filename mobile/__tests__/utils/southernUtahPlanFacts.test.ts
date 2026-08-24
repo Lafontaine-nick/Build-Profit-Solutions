@@ -4,7 +4,7 @@ import {
   isUndercountedDrywallSurface,
   syncMeasurementsWithSouthernUtahPlanFacts,
 } from '@/utils/quickMeasurementEstimates';
-import { enrichPlanFactsWithSouthernUtahBarometer } from '@/utils/southernUtahPlanFacts';
+import { enrichPlanFactsWithSouthernUtahBarometer, enrichPlanFactsWithSouthernUtahInsulationCeiling } from '@/utils/southernUtahPlanFacts';
 import {
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
@@ -29,6 +29,48 @@ describe('southernUtahPlanFacts roof footprint', () => {
     expect(enriched.buildingAreas?.upstairsLivingSqft).toBe(1209);
     expect(enriched.storyCount).toBe(2);
     expect(enriched.roofPitch).toBe('low-slope');
+  });
+
+  it('enriches Plan 58 insulation ceiling boundary with main-floor attic exposure', () => {
+    const enriched = enrichPlanFactsWithSouthernUtahInsulationCeiling(
+      {
+        buildingAreas: {
+          totalLivingSqft: 3660,
+          mainFloorLivingSqft: 2047,
+          upstairsLivingSqft: 1613,
+        },
+        ceilingBoundary: {
+          upperFloorAtticSqft: 1613,
+          complete: false,
+        },
+      },
+      3660
+    )!;
+    expect(enriched.ceilingBoundary?.mainFloorAtticExposureSqft).toBe(647);
+    expect(enriched.ceilingBoundary?.complete).toBe(true);
+  });
+
+  it('corrects a wrong Plan 58 AI ceiling boundary that sums to 2000 SF', () => {
+    const enriched = enrichPlanFactsWithSouthernUtahInsulationCeiling(
+      {
+        buildingAreas: {
+          totalLivingSqft: 3660,
+          mainFloorLivingSqft: 2047,
+          upstairsLivingSqft: 1613,
+        },
+        ceilingBoundary: {
+          upperFloorAtticSqft: 1613,
+          mainFloorAtticExposureSqft: 387,
+          complete: true,
+        },
+      },
+      3660
+    )!;
+    expect(enriched.ceilingBoundary?.mainFloorAtticExposureSqft).toBe(647);
+    expect(
+      enriched.ceilingBoundary!.upperFloorAtticSqft! +
+        enriched.ceilingBoundary!.mainFloorAtticExposureSqft!
+    ).toBe(2260);
   });
 
   it('estimates Plan 39 roof at ~46.2 squares (not 63.7 total-living fallback)', () => {
@@ -126,7 +168,7 @@ describe('southernUtahPlanFacts roof footprint', () => {
     expect(priced.fill!.total).toBeGreaterThan(15000); // not the $8.8k notes path
   });
 
-  it('suggests Plan 58 conditioned ceiling SF without marking it detected', () => {
+  it('suggests Plan 58 measured ceiling-boundary attic SF without marking it detected', () => {
     const synced = syncMeasurementsWithSouthernUtahPlanFacts(
       {
         floorAreaSqft: '3660',
@@ -145,7 +187,7 @@ describe('southernUtahPlanFacts roof footprint', () => {
       } as any,
       { templateKey: 'insulation' }
     );
-    expect(Number(synced.atticInsulationSqft)).toBe(3660);
+    expect(Number(synced.atticInsulationSqft)).toBe(2260);
     expect(synced.quickMeasurementSources?.atticInsulationSqft).toBe(
       'calculated_from_components'
     );

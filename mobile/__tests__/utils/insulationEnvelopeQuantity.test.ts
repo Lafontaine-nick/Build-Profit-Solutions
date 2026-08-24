@@ -1,6 +1,7 @@
 import {
   insulationCeilingBoundaryBreakdownFromPlanFacts,
   isDrywallSurfaceProxyQuantity,
+  resolveConditionedCeilingAreaSqft,
   resolveInsulationEnvelopePlanningQuantity,
   insulationEnvelopeInputsFromPlanFacts,
 } from '@/utils/insulationEnvelopeQuantity';
@@ -224,6 +225,32 @@ describe('insulationEnvelopeQuantity', () => {
         component => component.key === 'atticInsulationSqft'
       )?.quantity
     ).toBe(1613);
+  });
+
+  it('withholds partial multi-story ceiling boundary suggestions', () => {
+    const facts = {
+      storyCount: 2,
+      buildingAreas: {
+        totalLivingSqft: 3660,
+        mainFloorLivingSqft: 2047,
+        upstairsLivingSqft: 1613,
+      },
+      ceilingBoundary: {
+        upperFloorAtticSqft: 1613,
+        complete: false,
+      },
+    };
+    expect(resolveConditionedCeilingAreaSqft(facts, 3660)).toBeNull();
+    const inputs = insulationEnvelopeInputsFromPlanFacts(facts, 3660, {
+      allowConditionedAreaCeilingSuggestion: true,
+      requireExplicitSurfaceTakeoff: true,
+    });
+    expect(inputs.conditionedCeilingAreaSqft).toBeNull();
+    expect(
+      resolveInsulationEnvelopePlanningQuantity(inputs)?.components.some(
+        component => component.key === 'atticInsulationSqft'
+      ) ?? false
+    ).toBe(false);
   });
 
   it('merges takeoff building areas into plan facts for ceiling suggestions', () => {

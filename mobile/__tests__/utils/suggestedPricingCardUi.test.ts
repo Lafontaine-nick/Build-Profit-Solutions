@@ -404,4 +404,46 @@ describe('suggestedPricingCardUi', () => {
       )
     ).toBe(true);
   });
+
+  it('structures insulation assembly pricing into split and assembly rows', () => {
+    const display = buildSuggestedPricingCardDisplay({
+      itemId: 'insulation',
+      block: block({
+        material: 4514.04,
+        labor: 3653.16,
+        total: 8167.2,
+        materialSource: 'local_benchmark',
+        laborSource: 'local_benchmark',
+        basis: { quantity: 5218.8, unit: 'sqft' },
+        costBuckets: [
+          {
+            key: 'material',
+            label: 'Material',
+            amount: 4514.04,
+            source: 'local_benchmark',
+          },
+          {
+            key: 'labor',
+            label: 'Labor',
+            amount: 3653.16,
+            source: 'local_benchmark',
+          },
+        ],
+        pricingDetail:
+          '2,959 SF Batt R-21 exterior wall @ $1.50/SF · 2,260 SF Batt R-30 attic / ceiling @ $1.65/SF',
+        rateSourceLabel: 'Production planning rate · insulation assemblies',
+      }),
+      quantitySource: 'calculated_confirmed',
+    });
+
+    expect(display.splitLine).toBe('Material $4,514.04 · Labor $3,653.16');
+    expect(display.assemblyDetailLines).toHaveLength(2);
+    expect(display.assemblyDetailLines?.[0]).toMatchObject({
+      sqft: '2,959 SF',
+      description: 'Batt R-21 exterior wall',
+      rate: '$1.50/SF',
+      lineTotal: '$4,438.50',
+    });
+    expect(display.unitRateLine).toMatch(/Blended avg\. \$1\.5[67]\/SF/);
+  });
 });

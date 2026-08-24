@@ -8,7 +8,12 @@
 import type { PlanFacts } from '@/utils/planMeasurementFacts';
 import { mergePlanFactsWithBuildingAreas } from '@/utils/planMeasurementFacts';
 import type { InsulationAssembly } from '@/utils/estimateAiDraft';
+import type { PlanCeilingBoundary } from '@/utils/planMeasurementFacts';
 import { insulationCeilingBoundaryBreakdownFromPlanFacts } from '@/utils/insulationEnvelopeQuantity';
+import {
+  enrichPlanFactsWithSouthernUtahBarometer,
+  enrichPlanFactsWithSouthernUtahInsulationCeiling,
+} from '@/utils/southernUtahPlanFacts';
 
 export const INSULATION_PLAN_REVIEW_MEASUREMENT_KEYS = [
   'exteriorWallInsulationSqft',
@@ -79,6 +84,47 @@ export function insulationOpeningDeductionFromPlan(
   return faceTotal > 0 ? faceTotal : null;
 }
 
+/** Openings below ~8% of gross wall area are usually partial AI reads, not takeoffs. */
+export const INSULATION_MIN_CREDIBLE_OPENING_SHARE_OF_GROSS = 0.08;
+
+export function isCredibleInsulationOpeningDeduction(
+  openingSqft: number,
+  grossWallSqft?: number | null
+): boolean {
+  if (!(openingSqft > 0)) return false;
+  if (grossWallSqft == null || !(grossWallSqft > 0)) return true;
+  return (
+    openingSqft >= grossWallSqft * INSULATION_MIN_CREDIBLE_OPENING_SHARE_OF_GROSS
+  );
+}
+
+export function assumedInsulationOpeningDeductionSqft(
+  grossWallSqft: number
+): number {
+  return Math.round(grossWallSqft * 0.15 * 10) / 10;
+}
+
+/**
+ * Resolve opening deduction for review/pricing. Partial low-confidence reads
+ * (e.g. 50 SF on a 3,500 SF wall) fall back to the standard 15% share.
+ */
+export function resolveInsulationOpeningDeductionForReview(
+  measurements?: Record<string, unknown> | null,
+  planFacts?: PlanFacts | null
+): number | null {
+  const gross =
+    positiveNumber(measurements?.exteriorWallGrossSqft) ??
+    expectedInsulationGrossWallSqft(planFacts);
+  const mapped = insulationOpeningDeductionFromPlan(measurements, planFacts);
+  if (mapped != null && isCredibleInsulationOpeningDeduction(mapped, gross)) {
+    return mapped;
+  }
+  if (gross != null && gross > 0) {
+    return assumedInsulationOpeningDeductionSqft(gross);
+  }
+  return mapped;
+}
+
 function positiveNumber(value: unknown): number | null {
   const num = Number(String(value ?? '').replace(/,/g, ''));
   return Number.isFinite(num) && num > 0 ? num : null;
@@ -129,6 +175,83 @@ export function expectedInsulationGrossWallSqft(
   );
 }
 
+const INSULATION_CEILING_BOUNDARY_KEYS = [
+  'upperFloorAtticSqft',
+  'mainFloorAtticExposureSqft',
+  'vaultedOpenToBelowSqft',
+  'roofDeckInsulationSqft',
+] as const;
+
+export function hydrateInsulationCeilingBoundaryFromFieldEvidence(
+  boundary?: PlanCeilingBoundary | null
+): PlanCeilingBoundary | null | undefined {
+  if (!boundary) return boundary;
+  const out: PlanCeilingBoundary = { ...boundary };
+  let changed = false;
+  for (const key of INSULATION_CEILING_BOUNDARY_KEYS) {
+    if (positiveNumber(out[key]) != null) continue;
+    const evidenceValue = positiveNumber(boundary.fieldEvidence?.[key]?.value);
+    if (evidenceValue == null) continue;
+    out[key] = evidenceValue;
+    changed = true;
+  }
+  return changed ? out : boundary;
+}
+
+export function insulationPlanFactsWithHydratedCeilingBoundary(
+  planFacts?: PlanFacts | null
+): PlanFacts | null | undefined {
+  if (!planFacts) return planFacts;
+  const ceilingBoundary = hydrateInsulationCeilingBoundaryFromFieldEvidence(
+    planFacts.ceilingBoundary
+  );
+  if (ceilingBoundary === planFacts.ceilingBoundary) return planFacts;
+  return { ...planFacts, ceilingBoundary };
+}
+
+export function insulationAtticMateriallyDiffersFromCeilingBoundary(
+  atticSqft: number,
+  expectedSqft: number
+): boolean {
+  return Math.abs(atticSqft - expectedSqft) > Math.max(25, expectedSqft * 0.02);
+}
+
+export function isMultiStoryInsulationPlanFacts(
+  planFacts?: PlanFacts | null
+): boolean {
+  const stories = positiveNumber(planFacts?.storyCount);
+  const upstairs = positiveNumber(planFacts?.buildingAreas?.upstairsLivingSqft);
+  const mainFloor = positiveNumber(planFacts?.buildingAreas?.mainFloorLivingSqft);
+  const totalLiving = positiveNumber(planFacts?.buildingAreas?.totalLivingSqft);
+  return (
+    (stories ?? 0) > 1 ||
+    upstairs != null ||
+    (mainFloor != null && totalLiving != null && mainFloor < totalLiving - 1)
+  );
+}
+
+export function hasFullInsulationCeilingBoundary(
+  boundary?: PlanCeilingBoundary | null
+): boolean {
+  return (
+    positiveNumber(boundary?.upperFloorAtticSqft) != null &&
+    positiveNumber(boundary?.mainFloorAtticExposureSqft) != null
+  );
+}
+
+function isUpperFloorOnlyAtticProxy(
+  atticSqft: number,
+  planFacts?: PlanFacts | null
+): boolean {
+  if (!isMultiStoryInsulationPlanFacts(planFacts)) return false;
+  const upstairs = positiveNumber(planFacts?.buildingAreas?.upstairsLivingSqft);
+  const upper = positiveNumber(planFacts?.ceilingBoundary?.upperFloorAtticSqft);
+  return (
+    (upstairs != null && nearlyEqual(atticSqft, upstairs)) ||
+    (upper != null && nearlyEqual(atticSqft, upper))
+  );
+}
+
 /** Merge takeoff measurements into plan facts for insulation geometry. */
 export function mergeInsulationPlanFactsFromTakeoff(
   planFacts?: PlanFacts | null,
@@ -140,7 +263,11 @@ export function mergeInsulationPlanFactsFromTakeoff(
   const fromMeas = (key: string) => positiveNumber(measurements?.[key]);
   const pick = (key: keyof PlanFacts) =>
     fromMeas(key) ?? positiveNumber(merged[key]) ?? merged[key];
-  return {
+  const livingSf =
+    positiveNumber(measurements?.floorAreaSqft) ??
+    positiveNumber(buildingAreas?.totalLivingSqft) ??
+    positiveNumber(merged.buildingAreas?.totalLivingSqft);
+  const withGeometry = {
     ...merged,
     storyCount: pick('storyCount') as PlanFacts['storyCount'],
     foundationPerimeterLf: pick(
@@ -154,6 +281,12 @@ export function mergeInsulationPlanFactsFromTakeoff(
       fromMeas('stuccoWallHeightFt'),
     plateHeightFt: pick('plateHeightFt') as PlanFacts['plateHeightFt'],
   };
+  return insulationPlanFactsWithHydratedCeilingBoundary(
+    enrichPlanFactsWithSouthernUtahInsulationCeiling(
+      enrichPlanFactsWithSouthernUtahBarometer(withGeometry, livingSf),
+      livingSf
+    )
+  );
 }
 
 /**
@@ -169,13 +302,10 @@ export function reconcileInsulationWallMeasurementsForReview(
   if (rawWall == null) return next;
 
   const openingDeduction =
-    positiveNumber(next.openingDeductionSqft) ??
-    insulationOpeningDeductionFromPlan(measurements, planFacts);
+    resolveInsulationOpeningDeductionForReview(measurements, planFacts);
   if (openingDeduction == null) return next;
 
-  if (!positiveString(next.openingDeductionSqft)) {
-    next.openingDeductionSqft = String(openingDeduction);
-  }
+  next.openingDeductionSqft = String(openingDeduction);
 
   const expectedGross =
     positiveNumber(next.exteriorWallGrossSqft) ??
@@ -211,17 +341,105 @@ export function hydrateInsulationPlanMeasurementsFromTakeoff(
   measurements: Record<string, number | string>,
   planFacts?: PlanFacts | null
 ): Record<string, number | string> {
+  const hydratedPlanFacts =
+    insulationPlanFactsWithHydratedCeilingBoundary(planFacts);
   const withOpenings = { ...measurements };
-  if (!positiveString(withOpenings.openingDeductionSqft)) {
-    const mapped = positiveString(
-      insulationOpeningDeductionFromPlan(measurements, planFacts)
-    );
-    if (mapped) withOpenings.openingDeductionSqft = mapped;
+  const resolvedOpening = resolveInsulationOpeningDeductionForReview(
+    measurements,
+    hydratedPlanFacts
+  );
+  if (resolvedOpening != null) {
+    withOpenings.openingDeductionSqft = String(resolvedOpening);
   }
   return reconcileInsulationAtticMeasurementsForReview(
-    reconcileInsulationWallMeasurementsForReview(withOpenings, planFacts),
+    reconcileInsulationWallMeasurementsForReview(withOpenings, hydratedPlanFacts),
+    hydratedPlanFacts
+  );
+}
+
+type InsulationRepeatImportContext = {
+  planFacts?: PlanFacts | null;
+  buildingAreas?: PlanFacts['buildingAreas'] | null;
+};
+
+/** Normalize repeat-import snapshots through the same review hydration path. */
+export function canonicalizeInsulationRepeatImportMeasurements(
+  measurements: Record<string, number | string | null | undefined>,
+  context?: InsulationRepeatImportContext
+): Record<string, number | string> {
+  const normalized = Object.fromEntries(
+    Object.entries(measurements || {})
+      .filter(([, value]) => value != null && value !== '')
+      .map(([key, value]) => [key, String(value)])
+  );
+  const planFacts = mergeInsulationPlanFactsFromTakeoff(
+    context?.planFacts,
+    context?.buildingAreas,
+    normalized
+  );
+  return hydrateInsulationPlanMeasurementsFromTakeoff(normalized, planFacts);
+}
+
+/** Wall+opening plus attic when ceiling-boundary geometry expects it. */
+export function hasCompleteInsulationRepeatImportSnapshot(
+  measurements?: Record<string, number | string | null | undefined> | null,
+  context?: InsulationRepeatImportContext
+): boolean {
+  const wallSqft = Number(measurements?.exteriorWallInsulationSqft ?? 0);
+  const openingSqft = Number(measurements?.openingDeductionSqft ?? 0);
+  if (!(wallSqft > 0) || !(openingSqft > 0)) return false;
+
+  const canonical = canonicalizeInsulationRepeatImportMeasurements(
+    measurements || {},
+    context
+  );
+  const expectedAttic = Number(canonical.atticInsulationSqft ?? 0);
+  if (!(expectedAttic > 0)) return true;
+
+  const snapshotAttic = Number(measurements?.atticInsulationSqft ?? 0);
+  if (!(snapshotAttic > 0)) return false;
+  return (
+    Math.abs(snapshotAttic - expectedAttic) <=
+    Math.max(1, expectedAttic * 0.02)
+  );
+}
+
+/** Reconcile insulation takeoff keys without clobbering plan-review locks. */
+export function applyHydratedInsulationScopeMeasurements<
+  T extends Record<string, unknown>,
+>(measurements: T, context?: InsulationRepeatImportContext): T {
+  const confirmed = new Set(
+    Object.entries(
+      (measurements.quickMeasurementSources as Record<string, string>) || {}
+    )
+      .filter(([, source]) => source === 'contractor_confirmed_from_plan_review')
+      .map(([key]) => key)
+  );
+  const planFacts = mergeInsulationPlanFactsFromTakeoff(
+    context?.planFacts ?? (measurements.planFacts as PlanFacts | undefined),
+    context?.buildingAreas ??
+      (measurements.planFacts as PlanFacts | undefined)?.buildingAreas,
+    measurements as Record<string, number | string>
+  );
+  const hydrated = hydrateInsulationPlanMeasurementsFromTakeoff(
+    Object.fromEntries(
+      Object.entries(measurements)
+        .filter(([, value]) => value != null && value !== '')
+        .map(([key, value]) => [key, String(value)])
+    ),
     planFacts
   );
+  const next: T = {
+    ...measurements,
+    ...(planFacts ? { planFacts } : {}),
+  };
+  for (const key of INSULATION_SCOPE_NUMERIC_KEYS) {
+    if (confirmed.has(key)) continue;
+    const value = hydrated[key];
+    if (value == null || value === '') continue;
+    (next as Record<string, unknown>)[key] = value;
+  }
+  return next;
 }
 
 /** Prefer a complete ceiling-boundary takeoff over noisy AI attic SF. */
@@ -229,15 +447,60 @@ export function reconcileInsulationAtticMeasurementsForReview(
   measurements: Record<string, number | string>,
   planFacts?: PlanFacts | null
 ): Record<string, number | string> {
-  const boundary = insulationCeilingBoundaryBreakdownFromPlanFacts(planFacts);
+  const hydratedPlanFacts =
+    insulationPlanFactsWithHydratedCeilingBoundary(planFacts);
+  const boundary =
+    insulationCeilingBoundaryBreakdownFromPlanFacts(hydratedPlanFacts);
+  const ceiling = hydratedPlanFacts?.ceilingBoundary;
+  const hasFullBoundary = hasFullInsulationCeilingBoundary(ceiling);
+  const rawAttic = positiveNumber(measurements.atticInsulationSqft);
+
   if (
-    !planFacts?.ceilingBoundary?.complete ||
-    boundary?.calculatedSqft == null
+    boundary?.calculatedSqft == null &&
+    rawAttic != null &&
+    isUpperFloorOnlyAtticProxy(rawAttic, hydratedPlanFacts)
   ) {
+    const { atticInsulationSqft: _removed, ...rest } = measurements;
+    return rest;
+  }
+
+  if (boundary?.calculatedSqft == null) {
     return measurements;
   }
+
+  if (
+    isMultiStoryInsulationPlanFacts(hydratedPlanFacts) &&
+    !hasFullBoundary &&
+    ceiling?.complete !== true
+  ) {
+    if (rawAttic != null && isUpperFloorOnlyAtticProxy(rawAttic, hydratedPlanFacts)) {
+      const { atticInsulationSqft: _removed, ...rest } = measurements;
+      return rest;
+    }
+    return measurements;
+  }
+
   const expected = boundary.calculatedSqft;
-  const rawAttic = positiveNumber(measurements.atticInsulationSqft);
+  if (
+    isMultiStoryInsulationPlanFacts(hydratedPlanFacts) &&
+    isUpperFloorOnlyAtticProxy(expected, hydratedPlanFacts)
+  ) {
+    if (rawAttic != null && isUpperFloorOnlyAtticProxy(rawAttic, hydratedPlanFacts)) {
+      const { atticInsulationSqft: _removed, ...rest } = measurements;
+      return rest;
+    }
+    return measurements;
+  }
+  if (
+    hasFullBoundary &&
+    rawAttic != null &&
+    insulationAtticMateriallyDiffersFromCeilingBoundary(rawAttic, expected)
+  ) {
+    return {
+      ...measurements,
+      atticInsulationSqft: String(expected),
+    };
+  }
   if (rawAttic != null && nearlyEqual(rawAttic, expected)) {
     return measurements;
   }
@@ -296,11 +559,24 @@ export function insulationBattFacingLabel(
   );
 }
 
-/** Modest material-only premium for kraft/foil-faced batts. */
-export function insulationBattFacingMaterialMultiplier(
+/** Flat material-only premium for kraft/foil-faced batt insulation ($/SF). */
+export const INSULATION_BATT_FACED_MATERIAL_ADD_PER_SQFT = 0.2;
+
+/** Material-only premium for faced batt — labor is unchanged. */
+export function insulationBattFacingMaterialAddPerSqft(
   facing: InsulationBattFacing | null | undefined
 ): number {
-  return facing === 'faced' ? 1.06 : 1;
+  return facing === 'faced' ? INSULATION_BATT_FACED_MATERIAL_ADD_PER_SQFT : 0;
+}
+
+export function insulationBattFacingNeedsReview(
+  materialType: string,
+  facing: InsulationBattFacing | null | undefined
+): boolean {
+  return (
+    isBattInsulationMaterial(materialType) &&
+    (!facing || facing === 'not_sure')
+  );
 }
 
 export function detectBattFacingFromPlanText(
@@ -485,6 +761,30 @@ export function isPricedInsulationAssembly(row: InsulationAssembly): boolean {
   );
 }
 
+/** Plan-reviewed wall + ceiling/roof takeoff supersedes living-SF envelope formulas. */
+export function hasConfirmedInsulationPlanTakeoff(
+  record?: Record<string, unknown> | null
+): boolean {
+  if (!record) return false;
+  const assemblies = Array.isArray(record.insulationAssemblies)
+    ? (record.insulationAssemblies as InsulationAssembly[])
+    : [];
+  const pricedAssemblies = assemblies.filter(isPricedInsulationAssembly);
+  if (pricedAssemblies.length > 0) {
+    const hasWall = pricedAssemblies.some(
+      row => String(row.location || '') === 'exterior_wall'
+    );
+    const hasCeiling = pricedAssemblies.some(row =>
+      ['attic_ceiling', 'roof_deck'].includes(String(row.location || ''))
+    );
+    if (hasWall && hasCeiling) return true;
+  }
+  const wall = Number(record.exteriorWallInsulationSqft ?? 0);
+  const attic = Number(record.atticInsulationSqft ?? 0);
+  const roof = Number(record.insulatedRoofDeckSqft ?? 0);
+  return wall > 0 && (attic > 0 || roof > 0);
+}
+
 export function isIncompleteInsulationAssembly(
   row: InsulationAssembly
 ): boolean {
@@ -505,6 +805,141 @@ export function insulationAssemblyIdentityKey(row: InsulationAssembly): string {
     row.rValue.trim().toLowerCase(),
     facing,
   ].join('|');
+}
+
+export function insulationAssemblyNumericRValue(rValue: string): number {
+  return Number(String(rValue || '').match(/\d{2,3}/)?.[0] || 0);
+}
+
+function insulationAssemblyLocationReviewLabel(
+  location: string | null | undefined
+): string {
+  return (
+    {
+      exterior_wall: 'Exterior wall',
+      attic_ceiling: 'Attic / ceiling',
+      roof_deck: 'Roof deck',
+      garage_separation: 'Garage separation',
+      floor: 'Floor',
+    }[String(location || '').trim()] || 'Assembly'
+  );
+}
+
+export const INSULATION_ASSEMBLY_RATE_CARD_LABEL = 'National rate card';
+
+/** Production fiberglass-batt baseline for barometer-matched ground-up homes. */
+export const INSULATION_PRODUCTION_BATT_BASELINE = {
+  material: 0.8,
+  labor: 0.7,
+} as const;
+
+export const INSULATION_PRODUCTION_RATE_CARD_LABEL = 'Production planning rate';
+
+export const INSULATION_CALIBRATED_RATE_CARD_LABEL =
+  'Builder-budget calibrated rate';
+
+export type InsulationAssemblyPlanningRateTier =
+  | 'production'
+  | 'calibrated'
+  | 'national';
+
+export function insulationAssemblyRowsWithoutPricedLocation(
+  rows: InsulationAssembly[],
+  location: 'attic_ceiling' | 'roof_deck'
+): InsulationAssembly[] {
+  return rows.filter(
+    row => !(row.location === location && isPricedInsulationAssembly(row))
+  );
+}
+
+export function insulationAssemblyCeilingRoofDeckConflict(
+  rows: InsulationAssembly[]
+): { hasConflict: boolean; message: string | null } {
+  const priced = rows.filter(isPricedInsulationAssembly);
+  const hasAttic = priced.some(row => row.location === 'attic_ceiling');
+  const hasRoofDeck = priced.some(row => row.location === 'roof_deck');
+  if (!hasAttic || !hasRoofDeck) {
+    return { hasConflict: false, message: null };
+  }
+  return {
+    hasConflict: true,
+    message:
+      'Ceiling and roof-deck insulation are both in scope. Most builds insulate the ceiling below the attic or the roof deck — not both. Review before bid to avoid double-counting.',
+  };
+}
+
+type InsulationCodeMinimumRule = {
+  label: string;
+  minR: number;
+  locations: Array<NonNullable<InsulationAssembly['location']>>;
+};
+
+const INSULATION_CODE_MIN_R_BY_STATE: Record<string, InsulationCodeMinimumRule[]> =
+  {
+    UT: [
+      {
+        label: 'exterior walls',
+        minR: 21,
+        locations: ['exterior_wall'],
+      },
+      {
+        label: 'ceilings and roof assemblies',
+        minR: 38,
+        locations: ['attic_ceiling', 'roof_deck'],
+      },
+      {
+        label: 'floors over unconditioned space',
+        minR: 30,
+        locations: ['floor'],
+      },
+    ],
+  };
+
+export type InsulationAssemblyCodeUpgradeTarget = {
+  rowId: string;
+  message: string;
+  targetRValue: string;
+  location: NonNullable<InsulationAssembly['location']>;
+};
+
+export function insulationAssemblyCodeUpgradeTargets(
+  rows: InsulationAssembly[],
+  state?: string | null
+): InsulationAssemblyCodeUpgradeTarget[] {
+  const rules =
+    INSULATION_CODE_MIN_R_BY_STATE[String(state || '').trim().toUpperCase()];
+  if (!rules?.length) return [];
+
+  const stateLabel = String(state || '').trim().toUpperCase();
+  const targets: InsulationAssemblyCodeUpgradeTarget[] = [];
+  for (const row of rows.filter(isPricedInsulationAssembly)) {
+    const location = String(row.location || '').trim() as NonNullable<
+      InsulationAssembly['location']
+    >;
+    const rValue = insulationAssemblyNumericRValue(row.rValue);
+    if (!(rValue > 0)) continue;
+    for (const rule of rules) {
+      if (!rule.locations.includes(location)) continue;
+      if (rValue >= rule.minR) continue;
+      targets.push({
+        rowId: row.id,
+        location,
+        targetRValue: `R-${rule.minR}`,
+        message: `${insulationAssemblyLocationReviewLabel(location)} ${row.rValue} is below ${stateLabel} residential minimum R-${rule.minR} for ${rule.label}.`,
+      });
+      break;
+    }
+  }
+  return targets;
+}
+
+export function insulationAssemblyCodeWarnings(
+  rows: InsulationAssembly[],
+  state?: string | null
+): string[] {
+  return insulationAssemblyCodeUpgradeTargets(rows, state).map(
+    target => `${target.message} Review before bid.`
+  );
 }
 
 export function insulationAssemblyDuplicateRowIds(

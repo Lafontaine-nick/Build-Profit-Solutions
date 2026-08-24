@@ -7,7 +7,7 @@
  * footprint (e.g. Plan 39 → ~46 squares) instead of total living (~64 squares).
  */
 
-import type { PlanFacts } from '@/utils/planMeasurementFacts';
+import type { PlanCeilingBoundary, PlanFacts } from '@/utils/planMeasurementFacts';
 import {
   matchSouthernUtahProjectByLivingSf,
   type SouthernUtahProjectId,
@@ -80,6 +80,20 @@ export const SOUTHERN_UTAH_PLAN_FACTS: Record<SouthernUtahProjectId, SouthernUta
     storyCount: 2,
     roofPitch: '4:12',
     coveredPatioRoofed: true,
+  },
+};
+
+/** Measured ceiling/attic boundary takeoffs from SHV roof & floor-plan reconciliation. */
+export const SOUTHERN_UTAH_INSULATION_CEILING_BOUNDARY: Partial<
+  Record<SouthernUtahProjectId, PlanCeilingBoundary>
+> = {
+  lot58: {
+    upperFloorAtticSqft: 1613,
+    mainFloorAtticExposureSqft: 647,
+    vaultedOpenToBelowSqft: 0,
+    roofDeckInsulationSqft: 0,
+    complete: true,
+    confidence: 'medium',
   },
 };
 
@@ -163,4 +177,106 @@ export function enrichPlanFactsWithSouthernUtahBarometer(
     ],
   };
   return next;
+}
+
+/**
+ * Fill missing ceiling-boundary components for known SHV plans so two-story
+ * attic takeoffs use upper-floor ceiling + main-floor attic exposure, not
+ * upper-floor living SF alone.
+ */
+export function enrichPlanFactsWithSouthernUtahInsulationCeiling(
+  facts: PlanFacts | null | undefined,
+  livingSf?: number | null
+): PlanFacts | null {
+  const living =
+    positive(livingSf) ??
+    positive(facts?.buildingAreas?.totalLivingSqft) ??
+    null;
+  const project = matchSouthernUtahProjectByLivingSf(living);
+  if (!project) return facts ? { ...facts } : null;
+
+  const pack = SOUTHERN_UTAH_INSULATION_CEILING_BOUNDARY[project.id];
+  if (!pack) return facts ? { ...facts } : null;
+
+  const existing = facts?.ceilingBoundary;
+  const packUpper = positive(pack.upperFloorAtticSqft);
+  const packMain = positive(pack.mainFloorAtticExposureSqft);
+  const packSum =
+    packUpper != null && packMain != null ? packUpper + packMain : null;
+  const existingUpper = positive(existing?.upperFloorAtticSqft);
+  const existingMain = positive(existing?.mainFloorAtticExposureSqft);
+  const existingSum =
+    existingUpper != null || existingMain != null
+      ? (existingUpper || 0) + (existingMain || 0)
+      : null;
+  const materiallyWrongBoundary =
+    packSum != null &&
+    existingSum != null &&
+    Math.abs(existingSum - packSum) > Math.max(25, packSum * 0.02);
+
+  if (materiallyWrongBoundary && packUpper != null && packMain != null) {
+    return {
+      ...(facts || {}),
+      ceilingBoundary: {
+        ...pack,
+        vaultedOpenToBelowSqft:
+          positive(existing?.vaultedOpenToBelowSqft) ??
+          positive(pack.vaultedOpenToBelowSqft) ??
+          0,
+        roofDeckInsulationSqft:
+          positive(existing?.roofDeckInsulationSqft) ??
+          positive(pack.roofDeckInsulationSqft) ??
+          0,
+        complete: true,
+        confidence: 'medium',
+        fieldEvidence: existing?.fieldEvidence,
+      },
+      warnings: [
+        ...(facts?.warnings || []),
+        `${project.label} barometer: ceiling-boundary attic takeoff corrected to ${packSum.toLocaleString()} SF (upper ${packUpper.toLocaleString()} + main exposure ${packMain.toLocaleString()}).`,
+      ],
+    };
+  }
+
+  const upper = existingUpper ?? packUpper;
+  const main = existingMain ?? packMain;
+  const hasUpper = existingUpper != null;
+  const hasMain = existingMain != null;
+  if (hasUpper && hasMain) return facts ? { ...facts } : null;
+  if (upper == null && main == null) return facts ? { ...facts } : null;
+
+  const nextBoundary: PlanCeilingBoundary = {
+    ...pack,
+    ...(existing || {}),
+    upperFloorAtticSqft: upper,
+    mainFloorAtticExposureSqft: main,
+    vaultedOpenToBelowSqft:
+      positive(existing?.vaultedOpenToBelowSqft) ??
+      positive(pack.vaultedOpenToBelowSqft) ??
+      0,
+    roofDeckInsulationSqft:
+      positive(existing?.roofDeckInsulationSqft) ??
+      positive(pack.roofDeckInsulationSqft) ??
+      0,
+    complete:
+      hasUpper && hasMain
+        ? existing?.complete === true
+        : upper != null && main != null
+          ? true
+          : existing?.complete === true,
+    confidence: existing?.confidence || pack.confidence || 'medium',
+  };
+
+  return {
+    ...(facts || {}),
+    ceilingBoundary: nextBoundary,
+    warnings: [
+      ...(facts?.warnings || []),
+      ...(hasMain
+        ? []
+        : [
+            `${project.label} barometer: main-floor attic exposure ${main?.toLocaleString()} SF added from measured ceiling-boundary takeoff.`,
+          ]),
+    ],
+  };
 }

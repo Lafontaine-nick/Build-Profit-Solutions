@@ -8,8 +8,13 @@ import {
   resolveAllowanceEditorDefaultBasisUnit,
   resolveAllowanceEditorPricingBasis,
   resolveChecklistItemQuantity,
+  resolveInsulationAssemblyLumpBenchmarkComparison,
+  resolveInsulationAssemblyNationalRateCardComparison,
+  resolveInsulationAssemblyScopeSuggestedPricing,
   primaryQuantityForAppliedSuggestedBlock,
   resolveScopeItemSuggestedPricing,
+  resolveInsulationAssemblyRowPricing,
+  resolveInsulationAssemblyRowPricingMap,
   resolveTemplateRateForItem,
   resolveDualRatePricingDisplayFromNotes,
   type ScopeMeasurementsInputExtended,
@@ -2748,6 +2753,261 @@ describe('resolveTemplateRateForItem', () => {
     expect(fill?.pricingDetail).toMatch(/1,500 SF Spray foam R-30 roof deck/);
     expect(fill?.rateSourceLabel).toMatch(/Batt · R-13 \+ Spray foam · R-30/i);
     expect(fill?.total).toBeGreaterThan(0);
+  });
+
+  it('applies a flat faced batt material premium without changing labor', () => {
+    const baseInput = {
+      floorAreaSqft: '3660',
+      exteriorWallInsulationSqft: '1000',
+      insulationAssemblies: [
+        {
+          id: 'wall',
+          materialType: 'Batt',
+          rValue: 'R-21',
+          sqft: 1000,
+          location: 'exterior_wall',
+          confirmed: true,
+        },
+      ],
+    };
+    const resolved = {
+      quantity: 1000,
+      unit: 'sqft' as const,
+      quantitySource: 'user_entered' as const,
+    };
+    const unfaced = resolveScopeItemSuggestedPricing(
+      'insulation',
+      inputWith({
+        ...baseInput,
+        insulationAssemblies: [
+          {
+            ...baseInput.insulationAssemblies[0],
+            battFacing: 'unfaced',
+          },
+        ],
+      }),
+      'ground_up',
+      resolved
+    );
+    const faced = resolveScopeItemSuggestedPricing(
+      'insulation',
+      inputWith({
+        ...baseInput,
+        insulationAssemblies: [
+          {
+            ...baseInput.insulationAssemblies[0],
+            battFacing: 'faced',
+          },
+        ],
+      }),
+      'ground_up',
+      resolved
+    );
+
+    expect(unfaced.fill?.total).toBeGreaterThan(0);
+    expect(faced.fill?.total).toBeGreaterThan(unfaced.fill?.total ?? 0);
+    expect((faced.fill?.total ?? 0) - (unfaced.fill?.total ?? 0)).toBe(200);
+    expect(faced.fill?.labor).toBe(unfaced.fill?.labor);
+    expect(faced.fill?.material).toBe((unfaced.fill?.material ?? 0) + 200);
+    expect(faced.fill?.pricingDetail).toMatch(/faced/i);
+    expect(faced.fill?.pricingDetail).toMatch(/@ \$1\.70\/SF/);
+    expect(unfaced.fill?.pricingDetail).toMatch(/@ \$1\.50\/SF/);
+  });
+
+  it('uses national rate card for assembly rows when not on ground-up planning', () => {
+    const rows = [
+      {
+        id: 'wall',
+        materialType: 'Batt',
+        rValue: 'R-21',
+        sqft: 1000,
+        location: 'exterior_wall',
+        battFacing: 'unfaced' as const,
+        confirmed: true,
+      },
+    ];
+    const smallHome = resolveInsulationAssemblyRowPricingMap(rows, {
+      livingSf: 1200,
+    });
+    const largeHome = resolveInsulationAssemblyRowPricingMap(rows, {
+      livingSf: 6000,
+    });
+    expect(smallHome.get('wall')?.installedRate).toBe(3);
+    expect(largeHome.get('wall')?.installedRate).toBe(3);
+    expect(smallHome.get('wall')?.total).toBe(3000);
+  });
+
+  it('prices Plan 58 insulation assemblies on production baseline near the SHV bid', () => {
+    const input = inputWith({
+      floorAreaSqft: '3660',
+      insulationAssemblies: [
+        {
+          id: 'wall',
+          materialType: 'Batt',
+          rValue: 'R-21',
+          sqft: 2958.8,
+          location: 'exterior_wall',
+          battFacing: 'unfaced',
+          confirmed: true,
+        },
+        {
+          id: 'attic',
+          materialType: 'Batt',
+          rValue: 'R-30',
+          sqft: 2260,
+          location: 'attic_ceiling',
+          battFacing: 'not_sure',
+          confirmed: true,
+        },
+      ],
+    });
+    const block = resolveInsulationAssemblyScopeSuggestedPricing(
+      input,
+      { state: 'UT' },
+      'insulation'
+    );
+    const comparison = resolveInsulationAssemblyNationalRateCardComparison(
+      input,
+      { state: 'UT' },
+      'insulation'
+    );
+
+    expect(block?.total).toBeGreaterThan(8140);
+    expect(block?.total).toBeLessThan(8180);
+    expect(block?.rateSourceLabel).toMatch(/Production planning rate/i);
+    expect(comparison?.total).toBeGreaterThan(15000);
+    expect(comparison?.isComparison).toBe(true);
+    expect(comparison?.benchmarkAction).toBe('comparison_only');
+  });
+
+  it('prices individual insulation assembly rows for scope card display', () => {
+    const rows = [
+      {
+        id: 'wall',
+        materialType: 'Batt',
+        rValue: 'R-21',
+        sqft: 1000,
+        location: 'exterior_wall',
+        battFacing: 'unfaced' as const,
+        confirmed: true,
+      },
+      {
+        id: 'attic',
+        materialType: 'Batt',
+        rValue: 'R-21',
+        sqft: 1000,
+        location: 'attic_ceiling',
+        battFacing: 'faced' as const,
+        confirmed: true,
+      },
+    ];
+    const pricing = resolveInsulationAssemblyRowPricingMap(rows, {
+      livingSf: 2000,
+    });
+    const unfaced = pricing.get('wall');
+    const faced = pricing.get('attic');
+
+    expect(unfaced?.total).toBeGreaterThan(0);
+    expect(faced?.total).toBeGreaterThan(unfaced?.total ?? 0);
+    expect((faced?.total ?? 0) - (unfaced?.total ?? 0)).toBe(200);
+    expect(faced?.labor).toBe(unfaced?.labor);
+    expect(faced?.detail).toMatch(/faced/i);
+  });
+
+  it('builds insulation scope card pricing from priced assemblies', () => {
+    const input = inputWith({
+      floorAreaSqft: '3660',
+      insulationAssemblies: [
+        {
+          id: 'wall',
+          materialType: 'Batt',
+          rValue: 'R-21',
+          sqft: 2982.5,
+          location: 'exterior_wall',
+          battFacing: 'unfaced',
+          confirmed: true,
+        },
+        {
+          id: 'attic',
+          materialType: 'Batt',
+          rValue: 'R-30',
+          sqft: 2260,
+          location: 'attic_ceiling',
+          battFacing: 'not_sure',
+          confirmed: true,
+        },
+      ],
+    });
+    const block = resolveInsulationAssemblyScopeSuggestedPricing(input);
+
+    expect(block?.basis).toEqual({ quantity: 5242.5, unit: 'sqft' });
+    expect(block?.total).toBeGreaterThan(0);
+    expect(block?.pricingDetail).toMatch(/2,983 SF Batt/i);
+    expect(block?.pricingDetail).toMatch(/2,260 SF Batt/i);
+    expect(block?.helper).toMatch(/2 priced assemblies/i);
+  });
+
+  it('exposes whole-house lump benchmark as comparison-only when assemblies exist', () => {
+    const input = inputWith({
+      floorAreaSqft: '3660',
+      insulationAssemblies: [
+        {
+          id: 'wall',
+          materialType: 'Batt',
+          rValue: 'R-21',
+          sqft: 2982.5,
+          location: 'exterior_wall',
+          battFacing: 'unfaced',
+          confirmed: true,
+        },
+      ],
+    });
+    const comparison = resolveInsulationAssemblyLumpBenchmarkComparison(input, {
+      state: 'UT',
+    });
+
+    expect(comparison?.isComparison).toBe(true);
+    expect(comparison?.benchmarkAction).toBe('comparison_only');
+    expect(comparison?.total).toBeGreaterThan(0);
+    expect(comparison?.materialSource).toBe('local_benchmark');
+    expect(comparison?.helper).toMatch(/not assembly rate-card pricing/i);
+    expect(comparison?.rateSourceLabel).toMatch(/reference only/i);
+  });
+
+  it('uses priced insulation assemblies for checklist quantity', () => {
+    const resolved = resolveChecklistItemQuantity(
+      'insulation',
+      buildNormalizedScopeMeasurementsFromInput(
+        inputWith({
+          floorAreaSqft: '3660',
+          exteriorWallInsulationSqft: '5511',
+          atticInsulationSqft: '3660',
+          insulationAssemblies: [
+            {
+              id: 'wall',
+              materialType: 'Batt',
+              rValue: 'R-21',
+              sqft: 2982.5,
+              location: 'exterior_wall',
+              confirmed: true,
+            },
+            {
+              id: 'attic',
+              materialType: 'Batt',
+              rValue: 'R-30',
+              sqft: 2260,
+              location: 'attic_ceiling',
+              confirmed: true,
+            },
+          ],
+        })
+      ),
+      { templateKey: 'ground_up' }
+    );
+
+    expect(resolved.quantity).toBe(5242.5);
+    expect(resolved.pricingReady).toBe(true);
+    expect(resolved.sourceLabel).toBe('Insulation assemblies · plan takeoff');
   });
 
   it('keeps drywall notes surface takeoff (does not expand living SF when qty differs)', () => {

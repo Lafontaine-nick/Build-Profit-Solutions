@@ -1033,6 +1033,40 @@ describe('estimatePlanToMeasurements', () => {
     );
   });
 
+  test('ignores partial low-confidence opening deductions in favor of 15%', () => {
+    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+    const result = deriveInsulationMeasurementsFromPlanFacts(
+      {
+        exteriorWallInsulationSqft: 3508.8,
+        openingDeductionSqft: 50,
+      },
+      {
+        foundationPerimeterLf: 172,
+        wallHeightFt: 10.2,
+        storyCount: 2,
+      },
+    );
+    expect(result.measurements.openingDeductionSqft).toBe(526.3);
+    expect(result.measurements.exteriorWallInsulationSqft).toBe(2982.5);
+  });
+
+  test('derives attic SF from ceiling-boundary components', () => {
+    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+    const result = deriveInsulationMeasurementsFromPlanFacts(
+      {},
+      {
+        storyCount: 2,
+        ceilingBoundary: {
+          upperFloorAtticSqft: 1613,
+          mainFloorAtticExposureSqft: 647,
+          complete: true,
+        },
+      },
+    );
+    expect(result.measurements.atticInsulationSqft).toBe(2260);
+    expect(result.derivedKeys).toContain('atticInsulationSqft');
+  });
+
   test('normalizes an unqualified gross wall total when only openings are known', () => {
     const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
     const result = deriveInsulationMeasurementsFromPlanFacts(

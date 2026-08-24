@@ -45,7 +45,14 @@ import {
   copyInsulationScopeNumericFields,
   copyInsulationScopeTextFields,
   insulationBattFacingLabel,
-  insulationBattFacingMaterialMultiplier,
+  insulationBattFacingMaterialAddPerSqft,
+  INSULATION_ASSEMBLY_RATE_CARD_LABEL,
+  INSULATION_CALIBRATED_RATE_CARD_LABEL,
+  INSULATION_PRODUCTION_BATT_BASELINE,
+  INSULATION_PRODUCTION_RATE_CARD_LABEL,
+  type InsulationAssemblyPlanningRateTier,
+  insulationAssemblyCeilingRoofDeckConflict,
+  insulationAssemblyCodeWarnings,
   type InsulationBattFacing,
 } from '@/utils/subcontractorTrade/insulationPlanConvergence';
 import {
@@ -12160,6 +12167,7 @@ function insulationAssemblyRateAdjustmentsForValues(
   battFacing?: InsulationBattFacing | null
 ): {
   materialMultiplier: number;
+  materialAddPerSqft: number;
   laborMultiplier: number;
   label: string;
 } {
@@ -12187,7 +12195,7 @@ function insulationAssemblyRateAdjustmentsForValues(
       15: 0.9,
       19: 0.95,
       21: 1,
-      30: 1.15,
+      30: 1.1875,
       38: 1.3,
       49: 1.5,
       60: 1.7,
@@ -12195,12 +12203,13 @@ function insulationAssemblyRateAdjustmentsForValues(
     (rValue > 0
       ? Math.max(0.85, Math.min(1.7, 0.65 + rValue / 60))
       : 1);
-  const facingMaterial =
+  const materialAddPerSqft =
     typeKey === 'batt'
-      ? insulationBattFacingMaterialMultiplier(battFacing)
-      : 1;
+      ? insulationBattFacingMaterialAddPerSqft(battFacing)
+      : 0;
   return {
-    materialMultiplier: typeMaterial * rMaterial * facingMaterial,
+    materialMultiplier: typeMaterial * rMaterial,
+    materialAddPerSqft,
     laborMultiplier: typeLabor,
     label: [
       typeKey ? typeKey : null,
@@ -12253,6 +12262,7 @@ function insulationRateAdjustmentsForMeasurements(
   measurements: ScopeMeasurementsInputExtended
 ): {
   materialMultiplier: number;
+  materialAddPerSqft: number;
   laborMultiplier: number;
   label: string;
 } {
@@ -12271,6 +12281,18 @@ function insulationRateAdjustmentsForMeasurements(
           ).materialMultiplier,
       0
     ) / totalSqft;
+  const materialAddPerSqft =
+    rows.reduce(
+      (sum, row) =>
+        sum +
+        row.sqft *
+          insulationAssemblyRateAdjustmentsForValues(
+            row.materialType,
+            row.rValue,
+            row.battFacing
+          ).materialAddPerSqft,
+      0
+    ) / totalSqft;
   const laborMultiplier =
     rows.reduce(
       (sum, row) =>
@@ -12285,6 +12307,7 @@ function insulationRateAdjustmentsForMeasurements(
     ) / totalSqft;
   return {
     materialMultiplier,
+    materialAddPerSqft,
     laborMultiplier,
     label: rows
       .map(row =>
@@ -12353,6 +12376,112 @@ function insulationAssemblyLocationRate(location: string | null) {
   }
 }
 
+function isInsulationGroundUpPlanningTemplate(
+  templateKey?: string | null
+): boolean {
+  const key = String(templateKey || '').toLowerCase();
+  return key === 'ground_up' || key === 'insulation';
+}
+
+export function resolveInsulationAssemblyPlanningRateTier(
+  templateKey?: string | null,
+  livingSf?: number | null
+): InsulationAssemblyPlanningRateTier {
+  if (!isInsulationGroundUpPlanningTemplate(templateKey)) return 'national';
+  if (matchSouthernUtahProjectByLivingSf(livingSf)) return 'production';
+  return 'calibrated';
+}
+
+export function resolveInsulationAssemblyPlanningRateLabel(
+  tier: InsulationAssemblyPlanningRateTier
+): string {
+  switch (tier) {
+    case 'production':
+      return INSULATION_PRODUCTION_RATE_CARD_LABEL;
+    case 'calibrated':
+      return INSULATION_CALIBRATED_RATE_CARD_LABEL;
+    default:
+      return INSULATION_ASSEMBLY_RATE_CARD_LABEL;
+  }
+}
+
+type InsulationAssemblyPlanningRates = {
+  material: number;
+  labor: number;
+  tier: InsulationAssemblyPlanningRateTier;
+  label: string;
+  materialSource: PricingLegSource;
+};
+
+/** Assembly row mat/lab — production, barometer-calibrated, or national ceiling. */
+function resolveInsulationAssemblyPlanningRates(
+  pricingContext?: ScopePricingContext | null,
+  options?: {
+    templateKey?: string | null;
+    livingSf?: number | null;
+    tier?: InsulationAssemblyPlanningRateTier;
+  }
+): InsulationAssemblyPlanningRates {
+  const tier =
+    options?.tier ??
+    resolveInsulationAssemblyPlanningRateTier(
+      options?.templateKey,
+      options?.livingSf
+    );
+  const regional = regionalPricingFromContext(pricingContext);
+
+  if (tier === 'production') {
+    const base = { ...INSULATION_PRODUCTION_BATT_BASELINE };
+    const adjusted =
+      regional.multiplier === 1
+        ? base
+        : applyRegionalMultiplierToBudgetSplit(base, regional) ?? base;
+    return {
+      material: adjusted?.material ?? base.material,
+      labor: adjusted?.labor ?? base.labor,
+      tier,
+      label: INSULATION_PRODUCTION_RATE_CARD_LABEL,
+      materialSource: 'local_benchmark',
+    };
+  }
+
+  if (tier === 'national') {
+    const national = getNationalAverageBudgetSplit('insulation', 'sqft');
+    const base = {
+      material: national?.material ?? 1.25,
+      labor: national?.labor ?? 1.75,
+    };
+    const adjusted =
+      regional.multiplier === 1
+        ? base
+        : applyRegionalMultiplierToBudgetSplit(base, regional) ?? base;
+    return {
+      material: adjusted?.material ?? base.material,
+      labor: adjusted?.labor ?? base.labor,
+      tier,
+      label: INSULATION_ASSEMBLY_RATE_CARD_LABEL,
+      materialSource: 'national_average',
+    };
+  }
+
+  const { average } = regionalAdjustedNationalAverage(
+    'insulation',
+    'sqft',
+    pricingContext
+  );
+  const base = {
+    material: average?.material ?? 1.25,
+    labor: average?.labor ?? 1.75,
+  };
+  return {
+    material: base.material,
+    labor: base.labor,
+    tier,
+    label: INSULATION_CALIBRATED_RATE_CARD_LABEL,
+    materialSource: 'national_average',
+  };
+}
+
 function insulationAssemblyLocationLabel(location: string | null): string {
   return (
     {
@@ -12377,6 +12506,7 @@ function priceInsulationEnvelopeComponents(params: {
   } | null;
   assembly: {
     materialMultiplier: number;
+    materialAddPerSqft?: number;
     laborMultiplier: number;
   };
   assemblies?: Array<{
@@ -12386,6 +12516,10 @@ function priceInsulationEnvelopeComponents(params: {
     location: string | null;
     battFacing?: InsulationBattFacing | null;
   }>;
+  pricingContext?: ScopePricingContext | null;
+  templateKey?: string | null;
+  livingSf?: number | null;
+  rateTier?: InsulationAssemblyPlanningRateTier;
 }): InsulationEnvelopePricing {
   const assemblies = params.assemblies || [];
   if (!params.envelope && !assemblies.length) {
@@ -12423,10 +12557,22 @@ function priceInsulationEnvelopeComponents(params: {
 
   const baseMaterialRate = params.lump.material / baseQuantity;
   const baseLaborRate = params.lump.labor / baseQuantity;
+  const assemblyPlanningRates = resolveInsulationAssemblyPlanningRates(
+    params.pricingContext,
+    {
+      templateKey: params.templateKey,
+      livingSf: params.livingSf,
+      tier: params.rateTier,
+    }
+  );
+  const standardMaterialRate = assemblies.length
+    ? assemblyPlanningRates.material
+    : baseMaterialRate;
+  const standardLaborRate = assemblies.length
+    ? assemblyPlanningRates.labor
+    : baseLaborRate;
   let material = params.lump.material;
   let labor = params.lump.labor;
-  const standardMaterialRate = params.lump.material / baseQuantity;
-  const standardLaborRate = params.lump.labor / baseQuantity;
   const detail: string[] = [];
   if (assemblies.length) {
     material = 0;
@@ -12439,8 +12585,10 @@ function priceInsulationEnvelopeComponents(params: {
       );
       const locationRate = insulationAssemblyLocationRate(row.location);
       const rowMaterialRate = locationRate
-        ? locationRate.material * rowAssembly.materialMultiplier
-        : standardMaterialRate * rowAssembly.materialMultiplier;
+        ? locationRate.material * rowAssembly.materialMultiplier +
+          rowAssembly.materialAddPerSqft
+        : standardMaterialRate * rowAssembly.materialMultiplier +
+          rowAssembly.materialAddPerSqft;
       const rowLaborRate = locationRate
         ? locationRate.labor * rowAssembly.laborMultiplier
         : standardLaborRate * rowAssembly.laborMultiplier;
@@ -12516,6 +12664,281 @@ function priceInsulationEnvelopeComponents(params: {
     labor: round2(labor),
     total: round2(material + labor),
     detail: detail.join(' · '),
+  };
+}
+
+export type InsulationAssemblyRowPricing = {
+  sqft: number;
+  materialRate: number;
+  laborRate: number;
+  installedRate: number;
+  material: number;
+  labor: number;
+  total: number;
+  detail: string;
+};
+
+export function resolveInsulationAssemblyRowPricingMap(
+  rows: Array<{
+    id: string;
+    materialType: string;
+    rValue: string;
+    sqft: number | string | null | undefined;
+    location?: string | null;
+    battFacing?: InsulationBattFacing | null;
+    confirmed?: boolean;
+    source?: string | null;
+  }>,
+  options?: {
+    livingSf?: number | null;
+    pricingContext?: ScopePricingContext | null;
+    templateKey?: string | null;
+    rateTier?: InsulationAssemblyPlanningRateTier;
+  }
+): Map<string, InsulationAssemblyRowPricing> {
+  const pricedRows = rows
+    .map(row => ({
+      ...row,
+      sqft: parseScopeMeasurementInput(String(row.sqft ?? '')),
+    }))
+    .filter(
+      row =>
+        row.sqft > 0 &&
+        Boolean(String(row.materialType || '').trim()) &&
+        Boolean(String(row.rValue || '').trim()) &&
+        row.confirmed !== false &&
+        row.source !== 'calculated_from_plan'
+    );
+  const map = new Map<string, InsulationAssemblyRowPricing>();
+  const totalSqft = pricedRows.reduce((sum, row) => sum + row.sqft, 0);
+  if (!(totalSqft > 0)) return map;
+
+  const { material: standardMaterialRate, labor: standardLaborRate } =
+    resolveInsulationAssemblyPlanningRates(options?.pricingContext, {
+      templateKey: options?.templateKey,
+      livingSf: options?.livingSf,
+      tier: options?.rateTier,
+    });
+
+  for (const row of pricedRows) {
+    const assembly = insulationAssemblyRateAdjustmentsForValues(
+      row.materialType,
+      row.rValue,
+      row.battFacing
+    );
+    const locationRate = insulationAssemblyLocationRate(row.location ?? null);
+    const materialRate = locationRate
+      ? locationRate.material * assembly.materialMultiplier +
+        assembly.materialAddPerSqft
+      : standardMaterialRate * assembly.materialMultiplier +
+        assembly.materialAddPerSqft;
+    const laborRate = locationRate
+      ? locationRate.labor * assembly.laborMultiplier
+      : standardLaborRate * assembly.laborMultiplier;
+    const material = round2(row.sqft * materialRate);
+    const labor = round2(row.sqft * laborRate);
+    const installedRate = round2(materialRate + laborRate);
+    const facingLabel = insulationBattFacingLabel(row.battFacing);
+    map.set(row.id, {
+      sqft: row.sqft,
+      materialRate: round2(materialRate),
+      laborRate: round2(laborRate),
+      installedRate,
+      material,
+      labor,
+      total: round2(material + labor),
+      detail: `${Math.round(row.sqft).toLocaleString()} SF ${row.materialType}${
+        facingLabel ? ` ${facingLabel.toLowerCase()}` : ''
+      } ${row.rValue} ${insulationAssemblyLocationLabel(row.location ?? null)} @ $${installedRate.toFixed(2)}/SF`,
+    });
+  }
+  return map;
+}
+
+export function resolveInsulationAssemblyRowPricing(
+  row: {
+    materialType: string;
+    rValue: string;
+    sqft: number | string | null | undefined;
+    location?: string | null;
+    battFacing?: InsulationBattFacing | null;
+  },
+  pricingContext?: ScopePricingContext | null,
+  options?: { livingSf?: number | null }
+): InsulationAssemblyRowPricing | null {
+  const pricing = resolveInsulationAssemblyRowPricingMap(
+    [{ id: 'row', ...row }],
+    { livingSf: options?.livingSf, pricingContext }
+  );
+  return pricing.get('row') ?? null;
+}
+
+export function resolveInsulationAssemblyLumpBenchmarkComparison(
+  measurementsInput: ScopeMeasurementsInputExtended,
+  pricingContext?: ScopePricingContext | null
+): SuggestedPricingBlock | null {
+  const livingSf = parseScopeMeasurementInput(
+    String(measurementsInput.floorAreaSqft ?? '')
+  );
+  if (!(livingSf > 0)) return null;
+
+  const lump = resolveInsulationLumpSuggestedFill({
+    livingSf,
+    state: pricingContext?.state,
+  });
+  const livingSfLabel = Math.round(livingSf).toLocaleString();
+
+  return {
+    material: lump.material,
+    labor: lump.labor,
+    total: lump.total,
+    materialSource: 'local_benchmark',
+    laborSource: 'local_benchmark',
+    rateSourceLabel: 'Reference only · whole-house insulation lump benchmark',
+    helper: `Planning benchmark scaled to ${livingSfLabel} living SF — not assembly rate-card pricing. Assembly rows above are the bid total.`,
+    mode: 'suggested_price',
+    installedBudgetBenchmark: true,
+    isComparison: true,
+    lumpSumOnly: false,
+    comparisonRange: lump.comparisonRange,
+    benchmarkLivingSf: livingSf,
+    basis: { quantity: livingSf, unit: 'living_sqft' },
+    benchmarkAction: 'comparison_only',
+    productionStatus: 'review_required',
+    benchmarkLevel: 'component',
+    benchmarkScopeKey: 'insulation',
+  };
+}
+
+export function resolveInsulationAssemblyScopeSuggestedPricing(
+  measurementsInput: ScopeMeasurementsInputExtended,
+  pricingContext?: ScopePricingContext | null,
+  templateKey?: string | null,
+  rateTier?: InsulationAssemblyPlanningRateTier
+): SuggestedPricingBlock | null {
+  const rows = Array.isArray(measurementsInput.insulationAssemblies)
+    ? measurementsInput.insulationAssemblies
+    : [];
+  if (!rows.length) return null;
+
+  const livingSf = parseScopeMeasurementInput(
+    String(measurementsInput.floorAreaSqft ?? '')
+  );
+  const resolvedTier =
+    rateTier ??
+    resolveInsulationAssemblyPlanningRateTier(templateKey, livingSf);
+  const planningRates = resolveInsulationAssemblyPlanningRates(pricingContext, {
+    templateKey,
+    livingSf,
+    tier: resolvedTier,
+  });
+
+  const pricingMap = resolveInsulationAssemblyRowPricingMap(
+    rows.map((row, index) => ({
+      id: String(row.id || `insulation-assembly-${index + 1}`),
+      materialType: row.materialType,
+      rValue: row.rValue,
+      sqft: row.sqft,
+      location: row.location,
+      battFacing: row.battFacing,
+      confirmed: row.confirmed,
+      source: row.source,
+    })),
+    {
+      livingSf,
+      pricingContext,
+      templateKey,
+      rateTier: resolvedTier,
+    }
+  );
+  if (!pricingMap.size) return null;
+
+  let material = 0;
+  let labor = 0;
+  let total = 0;
+  let sqft = 0;
+  const details: string[] = [];
+  for (const pricing of pricingMap.values()) {
+    material += pricing.material;
+    labor += pricing.labor;
+    total += pricing.total;
+    sqft += pricing.sqft;
+    details.push(pricing.detail);
+  }
+
+  const assemblyCount = pricingMap.size;
+  const codeWarnings = insulationAssemblyCodeWarnings(rows, pricingContext?.state);
+  const ceilingRoofConflict = insulationAssemblyCeilingRoofDeckConflict(rows);
+  const reviewNotes = [
+    ceilingRoofConflict.message,
+    ...codeWarnings,
+  ].filter(Boolean);
+  const project = matchSouthernUtahProjectByLivingSf(livingSf);
+  const productionHelper =
+    resolvedTier === 'production' && project
+      ? `Aligned with ${project.label} detached insulation bids on the same thermal-envelope SF.`
+      : null;
+  return {
+    material: round2(material),
+    labor: round2(labor),
+    total: round2(total),
+    materialSource: planningRates.materialSource,
+    laborSource: planningRates.materialSource,
+    rateSourceLabel: `${planningRates.label} · insulation assemblies`,
+    helper: [
+      ...reviewNotes,
+      productionHelper,
+      `${assemblyCount} priced ${
+        assemblyCount === 1 ? 'assembly' : 'assemblies'
+      } · ${Math.round(sqft).toLocaleString()} sqft thermal envelope`,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+    mode: 'suggested_price',
+    lumpSumOnly: false,
+    basis: { quantity: round2(sqft), unit: 'sqft' },
+    pricingDetail: details.join(' · '),
+    benchmarkAction: 'price_ready',
+    productionStatus: 'review_required',
+  };
+}
+
+/** National rate-card assembly total for the same rows — comparison only. */
+export function resolveInsulationAssemblyNationalRateCardComparison(
+  measurementsInput: ScopeMeasurementsInputExtended,
+  pricingContext?: ScopePricingContext | null,
+  templateKey?: string | null
+): SuggestedPricingBlock | null {
+  const livingSf = parseScopeMeasurementInput(
+    String(measurementsInput.floorAreaSqft ?? '')
+  );
+  const primaryTier = resolveInsulationAssemblyPlanningRateTier(
+    templateKey,
+    livingSf
+  );
+  if (primaryTier === 'national') return null;
+
+  const nationalPricing = resolveInsulationAssemblyScopeSuggestedPricing(
+    measurementsInput,
+    pricingContext,
+    templateKey,
+    'national'
+  );
+  if (!nationalPricing) return null;
+
+  return {
+    ...nationalPricing,
+    materialSource: 'national_average',
+    laborSource: 'national_average',
+    rateSourceLabel:
+      'Reference only · national rate-card insulation assemblies',
+    helper:
+      'National planning ceiling for the same assemblies. The production or calibrated assembly total above is the suggested bid price.',
+    isComparison: true,
+    benchmarkAction: 'comparison_only',
+    productionStatus: 'review_required',
+    benchmarkLevel: 'component',
+    benchmarkScopeKey: 'insulation',
   };
 }
 
@@ -14808,7 +15231,10 @@ export function resolveScopeItemSuggestedPricing(
     const assembly = insulationRateAdjustmentsForMeasurements(measurementsInput);
     average = {
       ...average,
-      material: round2(average.material * assembly.materialMultiplier),
+      material: round2(
+        average.material * assembly.materialMultiplier +
+          assembly.materialAddPerSqft
+      ),
       labor: round2(average.labor * assembly.laborMultiplier),
       sourceLabel: `${average.sourceLabel || 'Insulation rate'}${
         assembly.label ? ` · ${assembly.label}` : ''
@@ -15044,6 +15470,9 @@ export function resolveScopeItemSuggestedPricing(
         envelope,
         assembly,
         assemblies: assemblyRows,
+        pricingContext,
+        templateKey,
+        livingSf,
       });
       const adjustedLump = {
         ...assemblyLump,
@@ -17134,6 +17563,32 @@ function resolveChecklistItemQuantityCore(
       Number(measurements.atticInsulationSqft) > 0 ||
       Number(measurements.insulatedRoofDeckSqft) > 0 ||
       Number(measurements.openingDeductionSqft) > 0);
+  if (itemId === 'insulation' && Array.isArray(measurements.insulationAssemblies)) {
+    const assemblyRows = resolvedInsulationAssemblies(
+      measurements as ScopeMeasurementsInputExtended
+    );
+    if (assemblyRows.length > 0) {
+      const assemblySqft = assemblyRows.reduce((sum, row) => sum + row.sqft, 0);
+      const hasWallAssembly = assemblyRows.some(
+        row => row.location === 'exterior_wall'
+      );
+      const hasCeilingAssembly = assemblyRows.some(row =>
+        ['attic_ceiling', 'roof_deck'].includes(String(row.location || ''))
+      );
+      return {
+        quantity: assemblySqft,
+        unit: 'sqft',
+        quantitySource: 'inferred',
+        sourceLabel: 'Insulation assemblies · plan takeoff',
+        pricingReady: hasWallAssembly && hasCeilingAssembly,
+        quantityHelper:
+          hasWallAssembly && hasCeilingAssembly
+            ? rule.quantityHelper
+            : 'Add a confirmed attic/ceiling or roof-deck assembly before pricing this whole-house scope.',
+        showInput: true,
+      };
+    }
+  }
   if (hasExplicitInsulationTakeoff) {
     const hasWallTakeoff =
       Number(measurements.exteriorWallGrossSqft) > 0 ||

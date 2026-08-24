@@ -87,6 +87,11 @@ import {
   INSULATION_BATT_FACING_OPTIONS,
   insulationAssemblyDuplicateRowIds,
   insulationBattFacingLabel,
+  insulationBattFacingNeedsReview,
+  insulationAssemblyCeilingRoofDeckConflict,
+  insulationAssemblyCodeUpgradeTargets,
+  insulationAssemblyRowsWithoutPricedLocation,
+  applyHydratedInsulationScopeMeasurements,
   insulationMaterialTypeKey,
   isBattInsulationMaterial,
   isIncompleteInsulationAssembly,
@@ -256,6 +261,13 @@ import {
   resolveChecklistItemQuantity,
   resolveDualRatePricingDisplayFromNotes,
   resolveScopeItemSuggestedPricing,
+  resolveInsulationAssemblyLumpBenchmarkComparison,
+  resolveInsulationAssemblyNationalRateCardComparison,
+  resolveInsulationAssemblyPlanningRateLabel,
+  resolveInsulationAssemblyPlanningRateTier,
+  resolveInsulationAssemblyRowPricingMap,
+  resolveInsulationAssemblyScopeSuggestedPricing,
+  type InsulationAssemblyRowPricing,
   isPlaceholderAllowancePricing,
   roughAllowanceSubKey,
   scopeMeasurementsPayloadForPersist,
@@ -409,6 +421,7 @@ import {
 import {
   resolveFormulaQuantityApplyTarget,
   shouldShowFormulaQuantityButton,
+  shouldSuppressInsulationEnvelopePlanningFormula,
   isFormulaQuantityApplyTargetActive,
   usesAutoFlatworkSqftPricing,
 } from '@/utils/scopeFormulaRegistry';
@@ -494,7 +507,9 @@ import {
   buildSuggestedPricingCardDisplay,
   displayPriceSourceLabel,
   includeUnconfirmedSuggestedPricingFill,
+  isInsulationAssemblyConfirmScopePricingCard,
   suggestedPricingFooterCountsAmperageConfirm,
+  type InsulationAssemblyDetailRow,
 } from '@/utils/suggestedPricingCardUi';
 import {
   insulationEnvelopeInputsFromPlanFacts,
@@ -1162,6 +1177,8 @@ function ScopeIntelligenceNotice({
   calculatedRevertLabel,
   compact = false,
   pricingAccepted = false,
+  suppressFormulaPlanning = false,
+  measurements = null,
   /** Pricing card below already shows the one status line — hide duplicate confidence. */
   pricingCardOwnsStatus = false,
 }: {
@@ -1173,6 +1190,8 @@ function ScopeIntelligenceNotice({
   calculatedRevertLabel?: string | null;
   compact?: boolean;
   pricingAccepted?: boolean;
+  suppressFormulaPlanning?: boolean;
+  measurements?: Record<string, unknown> | null;
   pricingCardOwnsStatus?: boolean;
 }) {
   const [warningExpanded, setWarningExpanded] = useState(false);
@@ -1189,7 +1208,9 @@ function ScopeIntelligenceNotice({
     : null;
   const formulaVariance =
     intelligence.formulaComparison?.variancePercent ?? null;
-  const showFormulaDetails = Boolean(formula && !calculatedActive);
+  const showFormulaDetails = Boolean(
+    formula && !calculatedActive && !suppressFormulaPlanning
+  );
   const showCalculatedRevert =
     calculatedActive &&
     Boolean(onRevertCalculatedQuantity && calculatedRevertLabel);
@@ -1408,6 +1429,7 @@ function ScopeIntelligenceNotice({
           shouldShowFormulaQuantityButton({
             scopeKey: intelligence.scopeItemKey,
             formula,
+            measurements,
           }) ? (
             <TouchableOpacity
               activeOpacity={0.85}
@@ -1636,6 +1658,144 @@ function overlaySuggestedBlockWithEditorValues(
   };
 }
 
+function InsulationAssemblyPricingBreakdown({
+  rows,
+  material,
+  labor,
+  unitRateLine,
+  darkMode,
+  Colors,
+  dividerColor,
+}: {
+  rows: InsulationAssemblyDetailRow[];
+  material: number;
+  labor: number;
+  unitRateLine: string | null;
+  darkMode: boolean;
+  Colors: ReturnType<typeof getColors>;
+  dividerColor: string;
+}) {
+  const text = pricingTextColor(darkMode, Colors);
+  const caption = pricingLabelColor(darkMode, Colors);
+
+  return (
+    <View style={{ marginTop: 10, gap: 6 }}>
+      {material > 0 ? (
+        <PricingSplitRow
+          label='Material'
+          value={formatDraftMoney(material)}
+          darkMode={darkMode}
+          Colors={Colors}
+        />
+      ) : null}
+      {labor > 0 ? (
+        <PricingSplitRow
+          label='Labor'
+          value={formatDraftMoney(labor)}
+          darkMode={darkMode}
+          Colors={Colors}
+        />
+      ) : null}
+      {rows.length ? (
+        <View
+          style={{
+            marginTop: 4,
+            paddingTop: 10,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: dividerColor,
+            gap: 8,
+          }}
+        >
+          <Text style={{ color: text, fontSize: 12, fontWeight: '700' }}>
+            Assemblies
+          </Text>
+          {rows.map(row => (
+            <View
+              key={`${row.sqft}-${row.description}-${row.rate}`}
+              style={{ gap: 2 }}
+            >
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                }}
+              >
+                <Text
+                  style={{
+                    color: text,
+                    fontSize: 13,
+                    fontWeight: '700',
+                    flexShrink: 1,
+                  }}
+                >
+                  {row.sqft || row.description}
+                </Text>
+                {row.lineTotal ? (
+                  <Text
+                    style={{
+                      color: text,
+                      fontSize: 13,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {row.lineTotal}
+                  </Text>
+                ) : null}
+              </View>
+              {row.sqft ? (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'flex-start',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: caption,
+                      fontSize: 12,
+                      lineHeight: 16,
+                      flex: 1,
+                    }}
+                  >
+                    {row.description}
+                  </Text>
+                  {row.rate ? (
+                    <Text
+                      style={{
+                        color: caption,
+                        fontSize: 12,
+                        fontWeight: '600',
+                      }}
+                    >
+                      {row.rate}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {unitRateLine ? (
+        <Text
+          style={{
+            color: caption,
+            fontSize: 12,
+            fontWeight: '600',
+            marginTop: 2,
+          }}
+        >
+          {unitRateLine}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 function SuggestedBudgetSplitRows({
   block,
   Colors,
@@ -1834,9 +1994,15 @@ function SuggestedBudgetSplitRows({
         : `Includes ${coversHint}`
       : null;
 
+  const isInsulationAssemblyCard = isInsulationAssemblyConfirmScopePricingCard(
+    itemId,
+    block
+  );
+  const insulationAssemblyRows = display.assemblyDetailLines ?? [];
+
   return (
     <View style={[styles.budgetSplitPanel, { borderTopColor: divider }]}>
-      {display.quantityLine ? (
+      {display.quantityLine && !isInsulationAssemblyCard ? (
         <Text
           style={{
             color: caption,
@@ -1886,7 +2052,17 @@ function SuggestedBudgetSplitRows({
         </View>
       ) : null}
 
-      {display.splitLine && !isFlooringLineCard ? (
+      {isInsulationAssemblyCard && insulationAssemblyRows.length ? (
+        <InsulationAssemblyPricingBreakdown
+          rows={insulationAssemblyRows}
+          material={block.material}
+          labor={block.labor}
+          unitRateLine={display.unitRateLine}
+          darkMode={darkMode}
+          Colors={Colors}
+          dividerColor={divider}
+        />
+      ) : display.splitLine && !isFlooringLineCard ? (
         <Text
           style={{
             color: caption,
@@ -1900,7 +2076,9 @@ function SuggestedBudgetSplitRows({
         </Text>
       ) : null}
 
-      {display.unitRateLine && !isFlooringLineCard ? (
+      {display.unitRateLine &&
+      !isFlooringLineCard &&
+      !isInsulationAssemblyCard ? (
         <Text style={{ color: caption, fontSize: 12, marginTop: 2 }}>
           {display.unitRateLine}
         </Text>
@@ -5084,6 +5262,15 @@ function QuantitySection({
         calculatedRevertLabel && onRevertCalculatedQuantity
           ? () => onRevertCalculatedQuantity(itemId)
           : undefined;
+      const scopeMeasurementsRecord = measurementsInput as Record<string, unknown>;
+      const suppressFormulaPlanning = Boolean(
+        intelligence.formula &&
+          shouldSuppressInsulationEnvelopePlanningFormula({
+            scopeKey: itemId,
+            formulaKey: intelligence.formula.formulaKey,
+            measurements: scopeMeasurementsRecord,
+          })
+      );
       return (
         <View
           style={[
@@ -5258,6 +5445,8 @@ function QuantitySection({
                 onUseCalculatedQuantity={onUseCalculatedQuantity}
                 onRevertCalculatedQuantity={onRevertCalculated}
                 calculatedRevertLabel={calculatedRevertLabel}
+                suppressFormulaPlanning={suppressFormulaPlanning}
+                measurements={scopeMeasurementsRecord}
               />
               {!hideSuggestion && suggestedBudgetSplit ? (
                 <SuggestedBudgetSplitRows
@@ -5758,6 +5947,40 @@ function QuantitySection({
     pricingContext,
     choiceId
   );
+  const assemblyInsulationPricing =
+    itemId === 'insulation'
+      ? resolveInsulationAssemblyScopeSuggestedPricing(
+          measurementsInput,
+          pricingContext,
+          templateKey
+        )
+      : null;
+  const insulationNationalComparison =
+    itemId === 'insulation' && assemblyInsulationPricing
+      ? resolveInsulationAssemblyNationalRateCardComparison(
+          measurementsInput,
+          pricingContext,
+          templateKey
+        )
+      : null;
+  const insulationLumpBenchmark =
+    itemId === 'insulation' &&
+    assemblyInsulationPricing &&
+    !insulationNationalComparison
+      ? resolveInsulationAssemblyLumpBenchmarkComparison(
+          measurementsInput,
+          pricingContext
+        )
+      : null;
+  const catalogSuggested = assemblyInsulationPricing
+    ? {
+        fill: assemblyInsulationPricing,
+        comparison:
+          insulationNationalComparison ??
+          insulationLumpBenchmark ??
+          initialSuggestedFromCatalog.comparison,
+      }
+    : initialSuggestedFromCatalog;
   const liveMaterial = parsePricingAmount(materialInput?.quantity);
   const liveLabor = parsePricingAmount(laborInput?.quantity);
   const liveManualTotal = (liveMaterial || 0) + (liveLabor || 0);
@@ -5782,8 +6005,8 @@ function QuantitySection({
         }
       : null;
   const initialSuggested = {
-    ...initialSuggestedFromCatalog,
-    fill: initialSuggestedFromCatalog.fill || liveManualBlock,
+    ...catalogSuggested,
+    fill: catalogSuggested.fill || liveManualBlock,
   };
   let suggestedBudgetSplit = initialSuggested.fill;
   let suggestedComparisonSplit = initialSuggested.comparison;
@@ -5813,6 +6036,13 @@ function QuantitySection({
   });
   suggestedBudgetSplit = formulaSuggested.fill;
   suggestedComparisonSplit = formulaSuggested.comparison;
+  if (assemblyInsulationPricing) {
+    suggestedBudgetSplit = assemblyInsulationPricing;
+    suggestedComparisonSplit =
+      insulationNationalComparison ??
+      insulationLumpBenchmark ??
+      suggestedComparisonSplit;
+  }
   // Countertop pricing already has one primary suggested price. Do not render
   // the older generic national-average comparison as a second Apply choice.
   if (
@@ -6041,6 +6271,18 @@ function QuantitySection({
             calculatedRevertLabel && onRevertCalculatedQuantity
               ? () => onRevertCalculatedQuantity(itemId)
               : undefined;
+          const scopeMeasurementsRecord = measurementsInput as Record<
+            string,
+            unknown
+          >;
+          const suppressFormulaPlanning = Boolean(
+            intelligence.formula &&
+              shouldSuppressInsulationEnvelopePlanningFormula({
+                scopeKey: itemId,
+                formulaKey: intelligence.formula.formulaKey,
+                measurements: scopeMeasurementsRecord,
+              })
+          );
           const showInlineSqftTakeoff =
             !hideInlineTakeoff &&
             !accepted &&
@@ -6209,6 +6451,8 @@ function QuantitySection({
                   onUseCalculatedQuantity={onUseCalculatedQuantity}
                   onRevertCalculatedQuantity={onRevertCalculated}
                   calculatedRevertLabel={calculatedRevertLabel}
+                  suppressFormulaPlanning={suppressFormulaPlanning}
+                  measurements={scopeMeasurementsRecord}
                 />
               ) : null}
               {!hideSuggestion && suggestedBudgetSplit ? (
@@ -10370,6 +10614,7 @@ function InsulationAssemblyCard({
   measurements,
   onChange,
   onAssembliesChange,
+  templateKey = null,
   Colors,
   darkMode,
 }: {
@@ -10382,6 +10627,7 @@ function InsulationAssemblyCard({
     value: string
   ) => void;
   onAssembliesChange: (assemblies: InsulationAssembly[] | null) => void;
+  templateKey?: string | null;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
 }) {
@@ -10504,11 +10750,57 @@ function InsulationAssemblyCard({
     () => insulationAssemblyDuplicateRowIds(rows),
     [rows]
   );
+  const pricingContext = React.useContext(ScopePricingContextValue);
+  const assemblyPlanningRateLabel = useMemo(
+    () =>
+      resolveInsulationAssemblyPlanningRateLabel(
+        resolveInsulationAssemblyPlanningRateTier(
+          templateKey,
+          parseScopeMeasurementInput(String(measurements.floorAreaSqft ?? ''))
+        )
+      ),
+    [templateKey, measurements.floorAreaSqft]
+  );
+  const rowPricingById = useMemo(
+    () =>
+      resolveInsulationAssemblyRowPricingMap(rows, {
+        livingSf: parseScopeMeasurementInput(
+          String(measurements.floorAreaSqft ?? '')
+        ),
+        pricingContext,
+        templateKey,
+      }),
+    [rows, measurements.floorAreaSqft, pricingContext, templateKey]
+  );
+  const assemblyPricingTotal = useMemo(
+    () =>
+      Array.from(rowPricingById.values()).reduce(
+        (sum, pricing) => sum + pricing.total,
+        0
+      ),
+    [rowPricingById]
+  );
+  const ceilingRoofConflict = useMemo(
+    () => insulationAssemblyCeilingRoofDeckConflict(rows),
+    [rows]
+  );
+  const assemblyCodeUpgradeTargets = useMemo(
+    () => insulationAssemblyCodeUpgradeTargets(rows, pricingContext?.state),
+    [rows, pricingContext?.state]
+  );
+  const removePricedAssembliesAtLocation = (
+    location: 'attic_ceiling' | 'roof_deck'
+  ) => {
+    updateRows(insulationAssemblyRowsWithoutPricedLocation(rows, location));
+  };
   const assemblySummaryParts = [
     `${pricedAssemblyCount} priced ${
       pricedAssemblyCount === 1 ? 'assembly' : 'assemblies'
     }`,
     `${totalConfirmedSqft.toLocaleString()} sqft`,
+    assemblyPricingTotal > 0
+      ? formatDraftMoney(assemblyPricingTotal)
+      : null,
     setupAssemblyCount > 0
       ? `${setupAssemblyCount} need setup`
       : null,
@@ -10595,6 +10887,11 @@ function InsulationAssemblyCard({
           : candidate
       );
     updateRows(next);
+  };
+  const upgradeAssemblyRValue = (rowId: string, targetRValue: string) => {
+    const row = rows.find(candidate => candidate.id === rowId);
+    if (!row) return;
+    selectRowRValue(row, targetRValue);
   };
   const deleteAssemblyRow = (id: string) => {
     if (expandedAssemblyId === id) setExpandedAssemblyId(null);
@@ -10882,6 +11179,15 @@ function InsulationAssemblyCard({
           >
             {assemblySummaryParts.join(' · ')}
           </Text>
+          <Text
+            style={{
+              color: captionColor(darkMode, Colors),
+              fontSize: 10,
+              marginTop: 2,
+            }}
+          >
+            {assemblyPlanningRateLabel} pricing
+          </Text>
         </View>
       </View>
       <Text
@@ -10920,6 +11226,112 @@ function InsulationAssemblyCard({
           dashed chip to show them again.
         </Text>
       ) : null}
+      {ceilingRoofConflict.hasConflict && ceilingRoofConflict.message ? (
+        <View
+          style={{
+            marginTop: 8,
+            padding: 10,
+            borderRadius: 8,
+            backgroundColor: 'rgba(245,158,11,0.1)',
+            borderWidth: 1,
+            borderColor: 'rgba(245,158,11,0.35)',
+          }}
+        >
+          <Text
+            style={{
+              color: '#fbbf24',
+              fontSize: 10,
+              lineHeight: 14,
+            }}
+          >
+            {ceilingRoofConflict.message}
+          </Text>
+          <View
+            style={{
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              gap: 6,
+              marginTop: 8,
+            }}
+          >
+            <TouchableOpacity
+              onPress={() => removePricedAssembliesAtLocation('roof_deck')}
+              activeOpacity={0.75}
+              style={{
+                paddingHorizontal: 9,
+                paddingVertical: 6,
+                borderRadius: 7,
+                backgroundColor: 'rgba(245,158,11,0.16)',
+                borderWidth: 1,
+                borderColor: 'rgba(245,158,11,0.45)',
+              }}
+            >
+              <Text style={{ color: '#fbbf24', fontSize: 10, fontWeight: '700' }}>
+                Keep attic / ceiling only
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => removePricedAssembliesAtLocation('attic_ceiling')}
+              activeOpacity={0.75}
+              style={{
+                paddingHorizontal: 9,
+                paddingVertical: 6,
+                borderRadius: 7,
+                backgroundColor: 'rgba(245,158,11,0.16)',
+                borderWidth: 1,
+                borderColor: 'rgba(245,158,11,0.45)',
+              }}
+            >
+              <Text style={{ color: '#fbbf24', fontSize: 10, fontWeight: '700' }}>
+                Keep roof deck only
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+      {assemblyCodeUpgradeTargets.map(target => (
+        <View
+          key={`${target.rowId}-${target.targetRValue}`}
+          style={{
+            marginTop: 8,
+            padding: 10,
+            borderRadius: 8,
+            backgroundColor: 'rgba(96,165,250,0.08)',
+            borderWidth: 1,
+            borderColor: 'rgba(96,165,250,0.28)',
+          }}
+        >
+          <Text
+            style={{
+              color: '#60a5fa',
+              fontSize: 10,
+              lineHeight: 14,
+            }}
+          >
+            {target.message} Review before bid.
+          </Text>
+          <TouchableOpacity
+            onPress={() =>
+              upgradeAssemblyRValue(target.rowId, target.targetRValue)
+            }
+            activeOpacity={0.75}
+            style={{
+              alignSelf: 'flex-start',
+              marginTop: 8,
+              paddingHorizontal: 9,
+              paddingVertical: 6,
+              borderRadius: 7,
+              backgroundColor: 'rgba(96,165,250,0.14)',
+              borderWidth: 1,
+              borderColor: 'rgba(96,165,250,0.4)',
+            }}
+          >
+            <Text style={{ color: '#60a5fa', fontSize: 10, fontWeight: '700' }}>
+              Upgrade to {target.targetRValue}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ))}
       {selectedTypes.map(materialType => {
         const typeRows = rows.filter(
           row =>
@@ -10940,6 +11352,11 @@ function InsulationAssemblyCard({
                 row.source === 'calculated_from_plan';
               const isIncomplete = isIncompleteInsulationAssembly(row);
               const isDuplicate = duplicateAssemblyIds.has(row.id);
+              const facingNeedsReview = insulationBattFacingNeedsReview(
+                materialType,
+                row.battFacing
+              );
+              const pricing = rowPricingById.get(row.id);
               return (
                 <View
                   key={row.id}
@@ -10998,13 +11415,46 @@ function InsulationAssemblyCard({
                         }}
                       >
                         {area
-                          ? `${area} sqft${needsConfirmation ? ' · confirm' : ''}`
+                          ? pricing
+                            ? `${formatDraftMoney(pricing.installedRate)}/SF · ${area} sqft${needsConfirmation ? ' · confirm' : ''}`
+                            : `${area} sqft${needsConfirmation ? ' · confirm' : ''}`
                           : 'Square feet needed'}
                         {isDuplicate ? ' · possible duplicate' : ''}
+                        {facingNeedsReview ? ' · review facing before bid' : ''}
                         {isIncomplete && !isDuplicate ? ' · setup needed' : ''}
                       </Text>
                     </View>
-                    <Text
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      {pricing ? (
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text
+                            style={{
+                              color: '#34d399',
+                              fontSize: 11,
+                              fontWeight: '800',
+                            }}
+                          >
+                            {formatDraftMoney(pricing.total)}
+                          </Text>
+                          <Text
+                            style={{
+                              color: captionColor(darkMode, Colors),
+                              fontSize: 9,
+                              marginTop: 1,
+                            }}
+                          >
+                            {formatDraftMoney(pricing.material)} mat +{' '}
+                            {formatDraftMoney(pricing.labor)} lab
+                          </Text>
+                        </View>
+                      ) : null}
+                      <Text
                       style={{
                         color: isExpanded
                           ? '#34d399'
@@ -11016,6 +11466,7 @@ function InsulationAssemblyCard({
                     >
                       {isExpanded ? '⌃' : '⌄'}
                     </Text>
+                    </View>
                   </TouchableOpacity>
                   {isExpanded ? (
                     <View
@@ -11025,6 +11476,45 @@ function InsulationAssemblyCard({
                         paddingBottom: 9,
                       }}
                     >
+                      {pricing ? (
+                        <View
+                          style={{
+                            marginBottom: 8,
+                            paddingHorizontal: 9,
+                            paddingVertical: 7,
+                            borderRadius: 8,
+                            backgroundColor: darkMode
+                              ? 'rgba(52,211,153,0.08)'
+                              : 'rgba(16,185,129,0.08)',
+                            borderWidth: 1,
+                            borderColor: 'rgba(52,211,153,0.22)',
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: '#34d399',
+                              fontSize: 10,
+                              fontWeight: '800',
+                            }}
+                          >
+                            {assemblyPlanningRateLabel}{' '}
+                            {formatDraftMoney(pricing.total)}
+                          </Text>
+                          <Text
+                            style={{
+                              color: captionColor(darkMode, Colors),
+                              fontSize: 10,
+                              marginTop: 2,
+                              lineHeight: 14,
+                            }}
+                          >
+                            {assemblyPlanningRateLabel} ·{' '}
+                            {formatDraftMoney(pricing.installedRate)}/SF installed
+                            · {formatDraftMoney(pricing.material)} material +{' '}
+                            {formatDraftMoney(pricing.labor)} labor
+                          </Text>
+                        </View>
+                      ) : null}
                       {needsConfirmation ? (
                         <TouchableOpacity
                           onPress={() =>
@@ -11109,6 +11599,19 @@ function InsulationAssemblyCard({
                             Batt facing
                           </Text>
                           {renderBattFacingOptions(row)}
+                          {facingNeedsReview ? (
+                            <Text
+                              style={{
+                                color: '#60a5fa',
+                                fontSize: 10,
+                                marginTop: 6,
+                                lineHeight: 14,
+                              }}
+                            >
+                              Priced at unfaced rate. Review before bid if plans
+                              specify kraft or foil facing.
+                            </Text>
+                          ) : null}
                         </>
                       ) : null}
                       <Text
@@ -17256,6 +17759,13 @@ export default function AIEstimateScopeAssumptionsModal({
           nextMeasurements,
           { templateKey: 'insulation' }
         );
+        nextMeasurements = applyHydratedInsulationScopeMeasurements(
+          nextMeasurements,
+          {
+            planFacts: nextMeasurements.planFacts,
+            buildingAreas: nextMeasurements.planFacts?.buildingAreas,
+          }
+        );
         const planAssemblies = syncInsulationAssembliesWithPlanMeasurements(
           nextMeasurements as Record<string, unknown>
         );
@@ -21766,6 +22276,7 @@ export default function AIEstimateScopeAssumptionsModal({
           {singleTradePlanImport && singleTradeKey === 'insulation' ? (
             <InsulationAssemblyCard
               measurements={measurements as Record<string, unknown>}
+              templateKey={checklist.templateKey ?? 'insulation'}
               onChange={(key, value) =>
                 setMeasurementsSynced(prev => ({ ...prev, [key]: value }))
               }

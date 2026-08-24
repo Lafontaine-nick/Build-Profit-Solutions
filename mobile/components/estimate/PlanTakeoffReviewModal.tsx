@@ -92,9 +92,11 @@ import {
 } from '@/utils/planImportTradeConfig';
 import {
   expectedInsulationGrossWallSqft,
+  hasFullInsulationCeilingBoundary,
   hydrateInsulationPlanMeasurementsFromTakeoff,
-  insulationOpeningDeductionFromPlan,
+  insulationAtticMateriallyDiffersFromCeilingBoundary,
   mergeInsulationPlanFactsFromTakeoff,
+  resolveInsulationOpeningDeductionForReview,
 } from '@/utils/subcontractorTrade/insulationPlanConvergence';
 import { buildPlanReviewLockedProvenance } from '@/utils/planReviewMeasurementLock';
 import { mergePlanFactsWithBuildingAreas } from '@/utils/planMeasurementFacts';
@@ -417,21 +419,8 @@ export default function PlanTakeoffReviewModal({
         takeoff?.buildingAreas,
         takeoff?.measurements
       );
-      const lowConfidenceOpening = (takeoff?.lowConfidence || []).find(
-        field =>
-          /opening|window|door/i.test(String(field?.field || '')) &&
-          positiveMeasurement(field?.value) != null
-      );
       const insulationTakeoffMeasurements = {
         ...(takeoff?.measurements || {}),
-        ...(positiveMeasurement(takeoff?.measurements?.openingDeductionSqft) ==
-          null && lowConfidenceOpening
-          ? {
-              openingDeductionSqft: String(
-                positiveMeasurement(lowConfidenceOpening.value)
-              ),
-            }
-          : {}),
       };
       const hydrated = hydrateInsulationPlanMeasurementsFromTakeoff(
         insulationTakeoffMeasurements,
@@ -444,14 +433,10 @@ export default function PlanTakeoffReviewModal({
       const geometryGross = expectedInsulationGrossWallSqft(
         insulationPlanFacts
       );
-      const openingDeduction =
-        insulationOpeningDeductionFromPlan(
-          calculationMeasurements,
-          insulationPlanFacts
-        ) ??
-        (geometryGross != null
-          ? Math.round(geometryGross * 0.15 * 10) / 10
-          : null);
+      const openingDeduction = resolveInsulationOpeningDeductionForReview(
+        calculationMeasurements,
+        insulationPlanFacts
+      );
       const hasOpeningBasis = openingDeduction != null;
       if (
         hasOpeningBasis &&
@@ -568,6 +553,25 @@ export default function PlanTakeoffReviewModal({
           envelopeWall.quantity
         );
       }
+      const atticBoundary = insulationCeilingBoundaryBreakdownFromPlanFacts(
+        insulationPlanFacts
+      );
+      const reviewAttic = positiveMeasurement(
+        reviewMeasurements.atticInsulationSqft
+      );
+      if (
+        atticBoundary?.calculatedSqft != null &&
+        hasFullInsulationCeilingBoundary(insulationPlanFacts?.ceilingBoundary) &&
+        (reviewAttic == null ||
+          insulationAtticMateriallyDiffersFromCeilingBoundary(
+            reviewAttic,
+            atticBoundary.calculatedSqft
+          ))
+      ) {
+        reviewMeasurements.atticInsulationSqft = String(
+          atticBoundary.calculatedSqft
+        );
+      }
       // Living and garage areas are plan context, not insulation bid
       // quantities. Opening deductions explain the net wall number but are
       // not a separate insulation scope.
@@ -668,9 +672,13 @@ export default function PlanTakeoffReviewModal({
               .filter(Boolean)
               .join(' + ')
           : null;
-        const openingDeductionSqft = insulationOpeningDeductionFromPlan(
+        const openingDeductionSqft = resolveInsulationOpeningDeductionForReview(
           takeoff.measurements,
-          takeoff.planFacts
+          mergeInsulationPlanFactsFromTakeoff(
+            takeoff.planFacts,
+            takeoff.buildingAreas,
+            takeoff.measurements
+          )
         );
         const sourceLabel = semanticsOn
           ? key === 'atticInsulationSqft' &&

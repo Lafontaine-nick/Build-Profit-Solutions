@@ -965,6 +965,17 @@ function perStoryWallHeightFromPlanFacts(planFacts = {}, stories = 1) {
   return wallHeightCandidate || plateHeightCandidate || null;
 }
 
+const INSULATION_MIN_CREDIBLE_OPENING_SHARE_OF_GROSS = 0.08;
+
+function isCredibleInsulationOpeningDeduction(openingSqft, grossWallSqft) {
+  if (!(positive(openingSqft) > 0)) return false;
+  if (!(positive(grossWallSqft) > 0)) return true;
+  return (
+    positive(openingSqft) >=
+    positive(grossWallSqft) * INSULATION_MIN_CREDIBLE_OPENING_SHARE_OF_GROSS
+  );
+}
+
 function deriveInsulationMeasurementsFromPlanFacts(
   measurements = {},
   planFacts = {},
@@ -1043,9 +1054,19 @@ function deriveInsulationMeasurementsFromPlanFacts(
       : completeFaceCoverage
         ? faceGross
         : null;
-  const usableOpeningDeduction =
+  let usableOpeningDeduction =
     positive(next.openingDeductionSqft) ||
     (hasOpeningEvidence && openingDeduction > 0 ? openingDeduction : null);
+  if (
+    grossWallArea != null &&
+    usableOpeningDeduction != null &&
+    !isCredibleInsulationOpeningDeduction(
+      usableOpeningDeduction,
+      grossWallArea,
+    )
+  ) {
+    usableOpeningDeduction = null;
+  }
   if (grossWallArea != null && usableOpeningDeduction == null) {
     // Vision often omits elevation openings. Keep a reviewable net wall
     // quantity from labeled geometry minus the standard 15% opening share
@@ -1060,14 +1081,22 @@ function deriveInsulationMeasurementsFromPlanFacts(
   const openingForNet =
     positive(next.openingDeductionSqft) ||
     (hasOpeningEvidence && openingDeduction > 0 ? openingDeduction : null);
+  const credibleOpeningForNet =
+    grossWallArea != null &&
+    openingForNet != null &&
+    !isCredibleInsulationOpeningDeduction(openingForNet, grossWallArea)
+      ? grossWallArea != null
+        ? roundTenth(grossWallArea * 0.15)
+        : null
+      : openingForNet;
   if (
     positive(next.exteriorWallInsulationSqft) == null &&
     grossWallArea != null &&
-    openingForNet != null
+    credibleOpeningForNet != null
   ) {
     const netWallArea = Math.max(
       0,
-      grossWallArea - Number(openingForNet),
+      grossWallArea - Number(credibleOpeningForNet),
     );
     next.exteriorWallInsulationSqft = roundTenth(netWallArea);
     derivedKeys.push("exteriorWallInsulationSqft");
@@ -1076,21 +1105,21 @@ function deriveInsulationMeasurementsFromPlanFacts(
     );
   } else if (
     grossWallArea != null &&
-    openingForNet != null &&
+    credibleOpeningForNet != null &&
     positive(next.exteriorWallInsulationSqft) != null &&
     Math.abs(positive(next.exteriorWallInsulationSqft) - grossWallArea) <=
       Math.max(25, grossWallArea * 0.02)
   ) {
     const netWallArea = Math.max(
       0,
-      grossWallArea - Number(openingForNet),
+      grossWallArea - Number(credibleOpeningForNet),
     );
     next.exteriorWallInsulationSqft = roundTenth(netWallArea);
     if (!derivedKeys.includes("exteriorWallInsulationSqft")) {
       derivedKeys.push("exteriorWallInsulationSqft");
     }
     assumptions.push(
-      `Exterior wall insulation corrected to ${roundTenth(netWallArea).toLocaleString()} SF net after ${roundTenth(openingForNet).toLocaleString()} SF readable openings.`,
+      `Exterior wall insulation corrected to ${roundTenth(netWallArea).toLocaleString()} SF net after ${roundTenth(credibleOpeningForNet).toLocaleString()} SF readable openings.`,
     );
   } else if (
     grossWallArea == null &&
@@ -1113,6 +1142,36 @@ function deriveInsulationMeasurementsFromPlanFacts(
     assumptions.push(
       `Exterior wall insulation normalized to ${roundTenth(netWallArea).toLocaleString()} SF net after ${roundTenth(openingForNet).toLocaleString()} SF readable openings.`,
     );
+  }
+
+  const ceilingBoundary = planFacts?.ceilingBoundary;
+  const upperAttic = positive(ceilingBoundary?.upperFloorAtticSqft);
+  const mainAtticExposure = positive(ceilingBoundary?.mainFloorAtticExposureSqft);
+  if (upperAttic != null && mainAtticExposure != null) {
+    const vaulted = positive(ceilingBoundary?.vaultedOpenToBelowSqft) || 0;
+    const vaultedConfirmed =
+      vaulted > 0 &&
+      String(ceilingBoundary?.fieldEvidence?.vaultedOpenToBelowSqft?.confidence || "") ===
+        "high";
+    const roofDeck = positive(ceilingBoundary?.roofDeckInsulationSqft) || 0;
+    const roofDeckConfirmed =
+      roofDeck > 0 &&
+      String(ceilingBoundary?.fieldEvidence?.roofDeckInsulationSqft?.confidence || "") ===
+        "high";
+    const atticTotal = Math.max(
+      0,
+      upperAttic +
+        mainAtticExposure -
+        (vaultedConfirmed ? vaulted : 0) -
+        (roofDeckConfirmed ? roofDeck : 0),
+    );
+    if (!(positive(next.atticInsulationSqft) > 0)) {
+      next.atticInsulationSqft = roundTenth(atticTotal);
+      derivedKeys.push("atticInsulationSqft");
+      assumptions.push(
+        `Attic / ceiling insulation ${roundTenth(atticTotal).toLocaleString()} SF from measured ceiling-boundary components.`,
+      );
+    }
   }
 
   return { measurements: next, derivedKeys, assumptions };

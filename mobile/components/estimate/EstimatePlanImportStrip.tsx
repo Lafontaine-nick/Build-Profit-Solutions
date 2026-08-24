@@ -53,7 +53,10 @@ import { applyRepeatedPlumbingImportConflicts } from '@/utils/planMeasurementCon
 import { tagPlanDetectedQuickMeasurementKeys } from '@/utils/quickMeasurementProvenance';
 import { tagPlanReviewLockedQuickMeasurementSources } from '@/utils/planReviewMeasurementLock';
 import {
+  canonicalizeInsulationRepeatImportMeasurements,
+  hasCompleteInsulationRepeatImportSnapshot,
   hydrateInsulationPlanMeasurementsFromTakeoff,
+  INSULATION_SCOPE_NUMERIC_KEYS,
   mergeInsulationPlanFactsFromTakeoff,
 } from '@/utils/subcontractorTrade/insulationPlanConvergence';
 
@@ -81,7 +84,7 @@ type PlanRepeatSnapshot = {
 
 // Keep repeat-read stability across the picker/modal being remounted before
 // the contractor has pressed Apply. lastGoodInsulationSnapshot only stores a
-// complete wall+opening result so a later empty vision pass cannot wipe it.
+// complete wall+opening+attic result so a later empty vision pass cannot wipe it.
 let lastPlanImportSnapshot: PlanRepeatSnapshot | null = null;
 let lastGoodInsulationSnapshot: PlanRepeatSnapshot | null = null;
 
@@ -249,15 +252,6 @@ const INSULATION_REPEAT_KEYS = [
   'openingDeductionSqft',
 ];
 
-function hasCompleteInsulationWallSnapshot(
-  measurements?: Record<string, number | string | null | undefined> | null
-): boolean {
-  return (
-    Number(measurements?.exteriorWallInsulationSqft) > 0 &&
-    Number(measurements?.openingDeductionSqft) > 0
-  );
-}
-
 function applyRepeatedInsulationImportStability(
   takeoff: PlanToMeasurementsResult,
   previous: PlanRepeatSnapshot | null,
@@ -271,33 +265,44 @@ function applyRepeatedInsulationImportStability(
     return takeoff;
   }
 
-  const currentMeasurements = takeoff.measurements || {};
-  const stabilizedMeasurements = { ...currentMeasurements };
+  const repeatContext = {
+    planFacts: takeoff.planFacts,
+    buildingAreas: takeoff.buildingAreas,
+  };
+  const canonicalCurrent = canonicalizeInsulationRepeatImportMeasurements(
+    takeoff.measurements || {},
+    repeatContext
+  );
+  const canonicalPrevious = canonicalizeInsulationRepeatImportMeasurements(
+    previous.measurements,
+    repeatContext
+  );
+  const stabilizedMeasurements = {
+    ...(takeoff.measurements || {}),
+    ...canonicalCurrent,
+  };
   const provenance = { ...(takeoff.measurementProvenance || {}) };
   const changedFields: string[] = [];
 
   for (const key of INSULATION_REPEAT_KEYS) {
-    const previousValue = Number(previous.measurements[key] ?? 0);
-    const currentValue = Number(currentMeasurements[key] ?? 0);
-    if (
-      previousValue > 0 &&
-      currentValue > 0 &&
-      Math.abs(previousValue - currentValue) <=
-        Math.max(1, Math.abs(previousValue) * 0.02)
-    ) {
-      continue;
-    }
-    if (previousValue <= 0 || previousValue === currentValue) continue;
-    // A prior wall value without an opening basis may itself be the legacy
-    // gross value. Let a later canonicalized read replace that one.
-    if (
-      key === 'exteriorWallInsulationSqft' &&
-      Number(previous.measurements.openingDeductionSqft ?? 0) <= 0
-    ) {
+    const previousValue = Number(canonicalPrevious[key] ?? 0);
+    const currentValue = Number(canonicalCurrent[key] ?? 0);
+
+    if (currentValue > 0) {
+      stabilizedMeasurements[key] = canonicalCurrent[key] as number | string;
+      if (
+        previousValue > 0 &&
+        Math.abs(previousValue - currentValue) >
+          Math.max(1, Math.abs(previousValue) * 0.02)
+      ) {
+        changedFields.push(key);
+      }
       continue;
     }
 
-    stabilizedMeasurements[key] = previous.measurements[key] as number | string;
+    if (previousValue <= 0) continue;
+
+    stabilizedMeasurements[key] = canonicalPrevious[key] as number | string;
     changedFields.push(key);
     provenance[key] = {
       ...(provenance[key] && typeof provenance[key] === 'object'
@@ -307,13 +312,18 @@ function applyRepeatedInsulationImportStability(
       status: 'needs_review',
       normalizedSource: 'NEEDS_REVIEW',
       pricingEligible: false,
-      deterministicRepeatedImportStable: false,
+      deterministicRepeatedImportStable: true,
       reason:
-        'The same imported plan produced a different insulation quantity on repeat import; the previous value was retained for review.',
+        'Repeat import dropped this insulation quantity; the prior canonical read was retained for review.',
     };
   }
 
-  if (!changedFields.length) return takeoff;
+  if (!changedFields.length) {
+    return {
+      ...takeoff,
+      measurements: stabilizedMeasurements,
+    };
+  }
   return {
     ...takeoff,
     measurements: stabilizedMeasurements,
@@ -330,22 +340,10 @@ function stabilizeInsulationTakeoff(
     takeoff.buildingAreas,
     takeoff.measurements
   );
-  const lowConfidenceOpening = (takeoff.lowConfidence || []).find(
-    field =>
-      /opening|window|door/i.test(String(field?.field || '')) &&
-      Number(field?.value) > 0
-  );
-  const measurements = {
-    ...(takeoff.measurements || {}),
-    ...(Number(takeoff.measurements?.openingDeductionSqft) <= 0 &&
-    lowConfidenceOpening
-      ? { openingDeductionSqft: String(lowConfidenceOpening.value) }
-      : {}),
-  };
   return {
     ...takeoff,
     measurements: hydrateInsulationPlanMeasurementsFromTakeoff(
-      measurements,
+      takeoff.measurements || {},
       planFacts
     ),
   };
@@ -534,16 +532,24 @@ export default function EstimatePlanImportStrip({
         const previousPlanImport =
           (previousPlanImportRef.current?.fingerprint === fingerprint &&
           (selectedTrade !== 'insulation' ||
-            hasCompleteInsulationWallSnapshot(
-              previousPlanImportRef.current.measurements
+            hasCompleteInsulationRepeatImportSnapshot(
+              previousPlanImportRef.current.measurements,
+              {
+                planFacts: preparedTakeoff.planFacts,
+                buildingAreas: preparedTakeoff.buildingAreas,
+              }
             ))
             ? previousPlanImportRef.current
             : null) ||
           persistedPrevious ||
           (lastPlanImportSnapshot?.fingerprint === fingerprint &&
           (selectedTrade !== 'insulation' ||
-            hasCompleteInsulationWallSnapshot(
-              lastPlanImportSnapshot.measurements
+            hasCompleteInsulationRepeatImportSnapshot(
+              lastPlanImportSnapshot.measurements,
+              {
+                planFacts: preparedTakeoff.planFacts,
+                buildingAreas: preparedTakeoff.buildingAreas,
+              }
             ))
             ? lastPlanImportSnapshot
             : null) ||
@@ -575,7 +581,13 @@ export default function EstimatePlanImportStrip({
         lastPlanImportSnapshot = nextPlanSnapshot;
         if (
           selectedTrade === 'insulation' &&
-          hasCompleteInsulationWallSnapshot(nextPlanSnapshot.measurements)
+          hasCompleteInsulationRepeatImportSnapshot(
+            nextPlanSnapshot.measurements,
+            {
+              planFacts: stabilized.planFacts,
+              buildingAreas: stabilized.buildingAreas,
+            }
+          )
         ) {
           lastGoodInsulationSnapshot = nextPlanSnapshot;
         }
@@ -914,6 +926,41 @@ export default function EstimatePlanImportStrip({
         }
         framingQuickSources =
           (reconciled.quickMeasurementSources as Record<string, string>) || {};
+      }
+
+      if (selection.trade?.key === 'insulation') {
+        const insulationPlanFacts = mergeInsulationPlanFactsFromTakeoff(
+          takeoff.planFacts,
+          takeoff.buildingAreas,
+          tradeMeasurements
+        );
+        const hydrated = hydrateInsulationPlanMeasurementsFromTakeoff(
+          tradeMeasurements,
+          insulationPlanFacts
+        );
+        for (const key of INSULATION_SCOPE_NUMERIC_KEYS) {
+          const value = hydrated[key];
+          if (value == null || value === '') continue;
+          tradeMeasurements[key] = String(value);
+        }
+        if (takeoff.planImportFingerprint) {
+          const appliedSnapshot = {
+            fingerprint: takeoff.planImportFingerprint,
+            measurements: { ...tradeMeasurements },
+          };
+          lastPlanImportSnapshot = appliedSnapshot;
+          if (
+            hasCompleteInsulationRepeatImportSnapshot(
+              appliedSnapshot.measurements,
+              {
+                planFacts: takeoff.planFacts,
+                buildingAreas: takeoff.buildingAreas,
+              }
+            )
+          ) {
+            lastGoodInsulationSnapshot = appliedSnapshot;
+          }
+        }
       }
 
       onApplied({

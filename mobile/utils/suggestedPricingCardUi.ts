@@ -135,7 +135,67 @@ export type SuggestedPricingCardDisplay = {
   /** Compact alternative under an already-entered current price. */
   presentation: 'full' | 'compact';
   compactLine: string | null;
+  /** Parsed assembly rows for insulation plan-takeoff cards. */
+  assemblyDetailLines: InsulationAssemblyDetailRow[] | null;
 };
+
+export type InsulationAssemblyDetailRow = {
+  sqft: string;
+  description: string;
+  rate: string;
+  lineTotal: string | null;
+};
+
+export function isInsulationAssemblyConfirmScopePricingCard(
+  itemId: string | null | undefined,
+  block: Pick<SuggestedPricingBlock, 'pricingDetail' | 'installedBudgetBenchmark'>
+): boolean {
+  if (itemId !== 'insulation') return false;
+  if (block.installedBudgetBenchmark) return false;
+  return Boolean(String(block.pricingDetail || '').trim());
+}
+
+export function parseInsulationAssemblyPricingDetailLines(
+  pricingDetail: string | null | undefined
+): string[] {
+  const raw = String(pricingDetail || '').trim();
+  if (!raw) return [];
+  return raw
+    .split(' · ')
+    .map(segment => segment.trim())
+    .filter(Boolean);
+}
+
+export function parseInsulationAssemblyDetailRow(
+  line: string
+): InsulationAssemblyDetailRow {
+  const match = line.match(/^([\d,]+ SF)\s+(.+?)\s+@\s+(\$[\d.]+\/SF)$/);
+  if (!match) {
+    return { sqft: '', description: line, rate: '', lineTotal: null };
+  }
+  const sqft = match[1];
+  const rate = match[3];
+  const sqftNum = Number(sqft.replace(/[^\d.]/g, ''));
+  const rateNum = Number(rate.replace(/[^\d.]/g, ''));
+  const lineTotal =
+    sqftNum > 0 && rateNum > 0
+      ? formatSuggestedComponentMoney(sqftNum * rateNum)
+      : null;
+  return {
+    sqft,
+    description: match[2],
+    rate,
+    lineTotal,
+  };
+}
+
+export function buildInsulationAssemblyDetailRows(
+  pricingDetail: string | null | undefined
+): InsulationAssemblyDetailRow[] {
+  return parseInsulationAssemblyPricingDetailLines(pricingDetail).map(
+    parseInsulationAssemblyDetailRow
+  );
+}
 
 /** True when current entered/applied amount differs from the suggestion. */
 export function shouldUseCompactSuggestedAlternative(params: {
@@ -1024,8 +1084,17 @@ export function buildSuggestedPricingCardDisplay(input: {
           block.total / Number(block.basis?.quantity)
         )}/${flooringQuantityUnit}`
       : null;
+  const isInsulationAssemblyCard = isInsulationAssemblyConfirmScopePricingCard(
+    itemId,
+    block
+  );
+  const insulationAssemblyDetailRows = isInsulationAssemblyCard
+    ? buildInsulationAssemblyDetailRows(block.pricingDetail)
+    : [];
   const insulationPricingDetailLine =
-    itemId === 'insulation' && block.pricingDetail
+    itemId === 'insulation' &&
+    block.pricingDetail &&
+    !isInsulationAssemblyCard
       ? ` · ${block.pricingDetail}`
       : '';
   const unitRateLine = needsServiceAmperage
@@ -1038,9 +1107,11 @@ export function buildSuggestedPricingCardDisplay(input: {
           ? interiorPaintDetails.effectiveRateLabel
           : glassDoor && glassDoorDetails
             ? `$${glassDoorDetails.perDoor.toLocaleString()}/door installed`
-            : isFallbackPricing
-              ? null
-              : formatSuggestedUnitRateLine(block);
+            : isInsulationAssemblyCard
+              ? formatInsulationAssemblyBlendedRateLine(block)
+              : isFallbackPricing
+                ? null
+                : formatSuggestedUnitRateLine(block);
 
   if (fallbackBasisLine) whyThisPriceLines.push(fallbackBasisLine);
   if (pricingSource) whyThisPriceLines.push(pricingSource);
@@ -1111,17 +1182,19 @@ export function buildSuggestedPricingCardDisplay(input: {
     displayTotal,
     splitLine: needsServiceAmperage
       ? block.helper
-      : isFlooringLineCard
+      : isInsulationAssemblyCard
         ? formatSuggestedSplitLine(block)
-        : block.installedBudgetBenchmark || block.splitSource === 'none'
-          ? `${formatSuggestedSplitLine(block)}${insulationPricingDetailLine}`
-          : lumpSumOnly
-            ? 'Allowance · Flat amount'
-            : `${formatSuggestedSplitLine(block)}${
-                block.pricingDetail && !isFramingShellLineCard
-                  ? ` · ${block.pricingDetail}`
-                  : ''
-              }`,
+        : isFlooringLineCard
+          ? formatSuggestedSplitLine(block)
+          : block.installedBudgetBenchmark || block.splitSource === 'none'
+            ? `${formatSuggestedSplitLine(block)}${insulationPricingDetailLine}`
+            : lumpSumOnly
+              ? 'Allowance · Flat amount'
+              : `${formatSuggestedSplitLine(block)}${
+                  block.pricingDetail && !isFramingShellLineCard
+                    ? ` · ${block.pricingDetail}`
+                    : ''
+                }`,
     unitRateLine:
       unitRateLine && /reference only/i.test(unitRateLine)
         ? null
@@ -1139,5 +1212,19 @@ export function buildSuggestedPricingCardDisplay(input: {
     whyThisPriceLines: [...new Set(whyThisPriceLines.filter(Boolean))],
     presentation,
     compactLine,
+    assemblyDetailLines: insulationAssemblyDetailRows.length
+      ? insulationAssemblyDetailRows
+      : null,
   };
+}
+
+function formatInsulationAssemblyBlendedRateLine(
+  block: SuggestedPricingBlock
+): string | null {
+  const qty = block.basis?.quantity;
+  const unit = block.basis?.unit;
+  if (!(qty && qty > 0) || unit !== 'sqft') return null;
+  const rate = block.total / qty;
+  if (!(rate > 0) || !Number.isFinite(rate)) return null;
+  return `Blended avg. ${formatSuggestedBlendedRateMoney(rate)}/SF across envelope`;
 }

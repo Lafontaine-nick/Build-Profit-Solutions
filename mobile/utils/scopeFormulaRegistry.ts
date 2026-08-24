@@ -1,5 +1,6 @@
 import type { NormalizedScopeMeasurements } from '@/utils/scopeItemQuantities';
 import { formatUnitLabel, getNationalAverageBudgetSplit } from '@/utils/scopeItemQuantities';
+import { hasConfirmedInsulationPlanTakeoff } from '@/utils/subcontractorTrade/insulationPlanConvergence';
 
 export type FormulaConfidence = 'high' | 'medium' | 'low';
 export type FormulaUnitCode = string;
@@ -818,12 +819,34 @@ export function usesAutoFlatworkSqftPricing(params: {
   return Boolean(areaInput && getNationalAverageBudgetSplit(params.scopeKey, 'sqft'));
 }
 
+export function shouldSuppressInsulationEnvelopePlanningFormula(params: {
+  scopeKey: string;
+  formulaKey?: string | null;
+  measurements?: Record<string, unknown> | null;
+}): boolean {
+  if (params.scopeKey !== 'insulation') return false;
+  if (params.formulaKey !== 'insulation_envelope_from_exterior_and_attic') {
+    return false;
+  }
+  return hasConfirmedInsulationPlanTakeoff(params.measurements);
+}
+
 export function shouldShowFormulaQuantityButton(params: {
   scopeKey: string;
   formula: Pick<FormulaCalculationResult, 'formulaKey' | 'inputsUsed'>;
   projectContext?: string | null;
+  measurements?: Record<string, unknown> | null;
 }): boolean {
   if (usesAutoFlatworkSqftPricing(params)) return false;
+  if (
+    shouldSuppressInsulationEnvelopePlanningFormula({
+      scopeKey: params.scopeKey,
+      formulaKey: params.formula.formulaKey,
+      measurements: params.measurements,
+    })
+  ) {
+    return false;
+  }
   // Explicit countertop sqft is already the authoritative pricing basis; do
   // not offer a second "Use calculated quantity" action for cabinet-LF math.
   if (params.scopeKey === 'countertops') return false;
