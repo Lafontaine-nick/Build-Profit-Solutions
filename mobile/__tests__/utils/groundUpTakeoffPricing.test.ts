@@ -8,7 +8,10 @@ jest.mock('@/utils/resolveAiBackendUrl', () => ({
 }));
 
 import * as benchmarkEngine from '@/utils/benchmarkEngine';
-import { clearBenchmarkCache, type BenchmarkSuggestion } from '@/utils/benchmarkEngine';
+import {
+  clearBenchmarkCache,
+  type BenchmarkSuggestion,
+} from '@/utils/benchmarkEngine';
 import {
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
@@ -20,7 +23,9 @@ import {
   SCOPE_CHECKLIST_GROUPS,
 } from '@/utils/estimateScopeChecklistUi';
 
-function inputWith(overrides: Partial<ScopeMeasurementsInputExtended>): ScopeMeasurementsInputExtended {
+function inputWith(
+  overrides: Partial<ScopeMeasurementsInputExtended>
+): ScopeMeasurementsInputExtended {
   return {
     ...emptyQuickMeasurementInput(),
     floorAreaSqft: '1879',
@@ -30,7 +35,11 @@ function inputWith(overrides: Partial<ScopeMeasurementsInputExtended>): ScopeMea
   } as ScopeMeasurementsInputExtended;
 }
 
-function stageSuggestion(scopeId: string, stageId: string, total: number): BenchmarkSuggestion {
+function stageSuggestion(
+  scopeId: string,
+  stageId: string,
+  total: number
+): BenchmarkSuggestion {
   return {
     scopeId,
     stageId,
@@ -76,7 +85,11 @@ function stageSuggestion(scopeId: string, stageId: string, total: number): Bench
       nationalWeight: 0.4,
     },
     primaryTakeoff: null,
-    benchmarkBasis: { quantity: 1879, unit: 'living_sqft', costPerUnit: total / 1879 },
+    benchmarkBasis: {
+      quantity: 1879,
+      unit: 'living_sqft',
+      costPerUnit: total / 1879,
+    },
     localSampleCount: 4,
     sourceConfidence: 'medium',
     quantityConfidence: 'low',
@@ -95,8 +108,10 @@ function stageSuggestion(scopeId: string, stageId: string, total: number): Bench
 }
 
 describe('ground-up takeoff → material/labor pricing', () => {
-  const originalSemantics = process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1;
-  const originalBenchmark = process.env.EXPO_PUBLIC_BUILD_AI_BENCHMARK_ENGINE_V1;
+  const originalSemantics =
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1;
+  const originalBenchmark =
+    process.env.EXPO_PUBLIC_BUILD_AI_BENCHMARK_ENGINE_V1;
 
   beforeEach(() => {
     clearBenchmarkCache();
@@ -105,7 +120,8 @@ describe('ground-up takeoff → material/labor pricing', () => {
   });
 
   afterEach(() => {
-    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = originalSemantics;
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 =
+      originalSemantics;
     process.env.EXPO_PUBLIC_BUILD_AI_BENCHMARK_ENGINE_V1 = originalBenchmark;
     clearBenchmarkCache();
     jest.restoreAllMocks();
@@ -114,10 +130,14 @@ describe('ground-up takeoff → material/labor pricing', () => {
   it('prices foundation from concreteCy with material + labor (not living-SF stage lump)', () => {
     jest
       .spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion')
-      .mockImplementation((id: string) => stageSuggestion(id, 'foundations', 24600));
+      .mockImplementation((id: string) =>
+        stageSuggestion(id, 'foundations', 24600)
+      );
 
     const input = inputWith({ concreteCy: '69' });
-    const resolved = resolveChecklistItemQuantity('foundation', input, { templateKey: 'ground_up' });
+    const resolved = resolveChecklistItemQuantity('foundation', input, {
+      templateKey: 'ground_up',
+    });
     expect(resolved.quantity).toBe(69);
     expect(resolved.unit).toBe('cy');
 
@@ -144,10 +164,14 @@ describe('ground-up takeoff → material/labor pricing', () => {
   it('prices excavation from excavationCy with material + labor', () => {
     jest
       .spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion')
-      .mockImplementation((id: string) => stageSuggestion(id, 'site-preconstruction', 24700));
+      .mockImplementation((id: string) =>
+        stageSuggestion(id, 'site-preconstruction', 24700)
+      );
 
     const input = inputWith({ excavationCy: '132' });
-    const resolved = resolveChecklistItemQuantity('excavation', input, { templateKey: 'ground_up' });
+    const resolved = resolveChecklistItemQuantity('excavation', input, {
+      templateKey: 'ground_up',
+    });
     expect(resolved).toMatchObject({ quantity: 132, unit: 'cy' });
 
     const { fill, comparison } = resolveScopeItemSuggestedPricing(
@@ -170,18 +194,34 @@ describe('ground-up takeoff → material/labor pricing', () => {
   it('prices cabinets LF and counters sqft separately', () => {
     jest
       .spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion')
-      .mockImplementation((id: string) => stageSuggestion(id, 'interior-finishes', 92700));
+      .mockImplementation((id: string) =>
+        stageSuggestion(id, 'interior-finishes', 92700)
+      );
 
     const input = inputWith({ cabinetLf: '100', countertopSqft: '300' });
 
-    const cabResolved = resolveChecklistItemQuantity('cabinets', input, { templateKey: 'ground_up' });
-    const cab = resolveScopeItemSuggestedPricing('cabinets', input, 'ground_up', cabResolved);
+    const cabResolved = resolveChecklistItemQuantity('cabinets', input, {
+      templateKey: 'ground_up',
+    });
+    const cab = resolveScopeItemSuggestedPricing(
+      'cabinets',
+      input,
+      'ground_up',
+      cabResolved
+    );
     expect(cab.fill?.total).toBeGreaterThan(20000);
     expect(cab.fill?.total).toBeLessThan(25000);
     expect(cab.fill!.material).toBeGreaterThan(cab.fill!.labor);
 
-    const ctrResolved = resolveChecklistItemQuantity('countertops', input, { templateKey: 'ground_up' });
-    const ctr = resolveScopeItemSuggestedPricing('countertops', input, 'ground_up', ctrResolved);
+    const ctrResolved = resolveChecklistItemQuantity('countertops', input, {
+      templateKey: 'ground_up',
+    });
+    const ctr = resolveScopeItemSuggestedPricing(
+      'countertops',
+      input,
+      'ground_up',
+      ctrResolved
+    );
     // National $60/SF nudged up by higher local countertop barometer.
     expect(ctr.fill?.total).toBeGreaterThan(18000);
     expect(ctr.fill!.material).toBeGreaterThan(0);
@@ -191,7 +231,9 @@ describe('ground-up takeoff → material/labor pricing', () => {
   it('prices wet-area tile SF with material + labor', () => {
     jest
       .spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion')
-      .mockImplementation((id: string) => stageSuggestion(id, 'interior-finishes', 92700));
+      .mockImplementation((id: string) =>
+        stageSuggestion(id, 'interior-finishes', 92700)
+      );
 
     const input = inputWith({
       bathroomFloorSqft: '300',
@@ -203,29 +245,47 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'shower_tile',
       input,
       'ground_up',
-      resolveChecklistItemQuantity('shower_tile', input, { templateKey: 'ground_up' })
+      resolveChecklistItemQuantity('shower_tile', input, {
+        templateKey: 'ground_up',
+      })
     );
     // 180 × $8 / $18 (shower wall — not generic floor labor)
-    expect(wall.fill).toMatchObject({ material: 1440, labor: 3240, total: 4680 });
+    expect(wall.fill).toMatchObject({
+      material: 1440,
+      labor: 3240,
+      total: 4680,
+    });
     expect(wall.fill?.rateSourceLabel).toMatch(/shower wall tile/i);
 
     const showerFloor = resolveScopeItemSuggestedPricing(
       'shower_floor_tile',
       input,
       'ground_up',
-      resolveChecklistItemQuantity('shower_floor_tile', input, { templateKey: 'ground_up' })
+      resolveChecklistItemQuantity('shower_floor_tile', input, {
+        templateKey: 'ground_up',
+      })
     );
     // 50 × $9 / $21
-    expect(showerFloor.fill).toMatchObject({ material: 450, labor: 1050, total: 1500 });
+    expect(showerFloor.fill).toMatchObject({
+      material: 450,
+      labor: 1050,
+      total: 1500,
+    });
 
     const bathFloor = resolveScopeItemSuggestedPricing(
       'floor_tile',
       input,
       'ground_up',
-      resolveChecklistItemQuantity('floor_tile', input, { templateKey: 'ground_up' })
+      resolveChecklistItemQuantity('floor_tile', input, {
+        templateKey: 'ground_up',
+      })
     );
     // 300 × $8 / $13 (bath floor — not shower wall labor)
-    expect(bathFloor.fill).toMatchObject({ material: 2400, labor: 3900, total: 6300 });
+    expect(bathFloor.fill).toMatchObject({
+      material: 2400,
+      labor: 3900,
+      total: 6300,
+    });
   });
 
   it('migrates legacy cabinets_counters into cabinets + countertops on ground_up', () => {
@@ -237,35 +297,57 @@ describe('ground-up takeoff → material/labor pricing', () => {
           inputType: 'yes_no',
           state: 'included',
         },
-        { id: 'drywall', label: 'Drywall', inputType: 'yes_no', state: 'included' },
+        {
+          id: 'drywall',
+          label: 'Drywall',
+          inputType: 'yes_no',
+          state: 'included',
+        },
       ] as any,
       'ground_up'
     );
-    const ids = migrated.map((i) => i.id);
+    const ids = migrated.map(i => i.id);
     expect(ids).toContain('cabinets');
     expect(ids).toContain('countertops');
     expect(ids).not.toContain('cabinets_counters');
-    expect(migrated.find((i) => i.id === 'cabinets')?.state).toBe('included');
-    expect(migrated.find((i) => i.id === 'countertops')?.state).toBe('included');
+    expect(migrated.find(i => i.id === 'cabinets')?.state).toBe('included');
+    expect(migrated.find(i => i.id === 'countertops')?.state).toBe('included');
   });
 
   it('injects Shower doors under wet area finish and prices national each rates', () => {
     const migrated = normalizeScopeChecklistItems(
       [
-        { id: 'shower_floor_tile', label: 'Shower floor tile', inputType: 'yes_no', state: 'included' },
-        { id: 'drywall', label: 'Drywall', inputType: 'yes_no', state: 'included' },
+        {
+          id: 'shower_floor_tile',
+          label: 'Shower floor tile',
+          inputType: 'yes_no',
+          state: 'included',
+        },
+        {
+          id: 'drywall',
+          label: 'Drywall',
+          inputType: 'yes_no',
+          state: 'included',
+        },
       ] as any,
       'ground_up'
     );
-    const door = migrated.find((i) => i.id === 'glass_door');
+    const door = migrated.find(i => i.id === 'glass_door');
     expect(door).toMatchObject({
       id: 'glass_door',
       label: 'Shower doors',
     });
     // Promoted with other finish children when wet tile / drywall is already Yes.
     expect(door?.state).toBe('included');
-    const wetGroup = SCOPE_CHECKLIST_GROUPS.ground_up.find((g) => g.title === 'Wet area finish');
-    expect(wetGroup?.itemIds).toEqual(['floor_tile', 'shower_tile', 'shower_floor_tile', 'glass_door']);
+    const wetGroup = SCOPE_CHECKLIST_GROUPS.ground_up.find(
+      g => g.title === 'Wet area finish'
+    );
+    expect(wetGroup?.itemIds).toEqual([
+      'floor_tile',
+      'shower_tile',
+      'shower_floor_tile',
+      'glass_door',
+    ]);
 
     const input = inputWith({ bathCount: 2, prefabBathCount: 1 } as any);
     const resolved = resolveChecklistItemQuantity('glass_door', input as any, {
@@ -273,14 +355,27 @@ describe('ground-up takeoff → material/labor pricing', () => {
     });
     // Inferred from tile + prefab when showerDoorCount is unset.
     expect(resolved).toMatchObject({ quantity: 3, unit: 'each' });
-    const priced = resolveScopeItemSuggestedPricing('glass_door', input as any, 'ground_up', resolved);
+    const priced = resolveScopeItemSuggestedPricing(
+      'glass_door',
+      input as any,
+      'ground_up',
+      resolved
+    );
     // Standard slider $835 + $615 = $1,450 each × 3
-    expect(priced.fill).toMatchObject({ material: 2505, labor: 1845, total: 4350 });
+    expect(priced.fill).toMatchObject({
+      material: 2505,
+      labor: 1845,
+      total: 4350,
+    });
 
     const twoDoorInput = inputWith({ showerDoorCount: 2, bathCount: 3 } as any);
-    const explicit = resolveChecklistItemQuantity('glass_door', twoDoorInput as any, {
-      templateKey: 'ground_up',
-    });
+    const explicit = resolveChecklistItemQuantity(
+      'glass_door',
+      twoDoorInput as any,
+      {
+        templateKey: 'ground_up',
+      }
+    );
     expect(explicit).toMatchObject({ quantity: 2, unit: 'each' });
     const pricedTwo = resolveScopeItemSuggestedPricing(
       'glass_door',
@@ -288,19 +383,32 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'ground_up',
       explicit
     );
-    expect(pricedTwo.fill).toMatchObject({ material: 1670, labor: 1230, total: 2900 });
+    expect(pricedTwo.fill).toMatchObject({
+      material: 1670,
+      labor: 1230,
+      total: 2900,
+    });
   });
 
   it('prices roofing from roofSquares with material + labor and locks Exterior Envelope to comparison', () => {
     jest
       .spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion')
-      .mockImplementation((id: string) => stageSuggestion(id, 'exterior-finishes', 52900));
+      .mockImplementation((id: string) =>
+        stageSuggestion(id, 'exterior-finishes', 52900)
+      );
 
     const input = inputWith({ roofSquares: '37.2' });
-    const resolved = resolveChecklistItemQuantity('roofing', input, { templateKey: 'ground_up' });
+    const resolved = resolveChecklistItemQuantity('roofing', input, {
+      templateKey: 'ground_up',
+    });
     expect(resolved).toMatchObject({ quantity: 37.2, unit: 'squares' });
 
-    const roofing = resolveScopeItemSuggestedPricing('roofing', input, 'ground_up', resolved);
+    const roofing = resolveScopeItemSuggestedPricing(
+      'roofing',
+      input,
+      'ground_up',
+      resolved
+    );
     // Raw national 37.2 × $575 ≈ $21.4k; barometer pulls toward ~$17k (NAHB ~$16.7k band).
     expect(roofing.fill?.basis).toEqual({ quantity: 37.2, unit: 'squares' });
     expect(roofing.fill!.total).toBeGreaterThan(15000);
@@ -320,7 +428,9 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'exterior',
       input,
       'ground_up',
-      resolveChecklistItemQuantity('exterior', input, { templateKey: 'ground_up' })
+      resolveChecklistItemQuantity('exterior', input, {
+        templateKey: 'ground_up',
+      })
     );
     expect(exterior.fill).toBeNull();
     expect(exterior.comparison?.benchmarkAction).toBe('comparison_only');
@@ -329,7 +439,9 @@ describe('ground-up takeoff → material/labor pricing', () => {
   it('prices drywall surface SF and Plan 41 interior paint installed comparable', () => {
     jest
       .spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion')
-      .mockImplementation((id: string) => stageSuggestion(id, 'interior-finishes', 92700));
+      .mockImplementation((id: string) =>
+        stageSuggestion(id, 'interior-finishes', 92700)
+      );
 
     const input = inputWith({ drywallSqft: '5469', wallPaintSqft: '5469' });
 
@@ -337,7 +449,9 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'drywall',
       input,
       'ground_up',
-      resolveChecklistItemQuantity('drywall', input, { templateKey: 'ground_up' })
+      resolveChecklistItemQuantity('drywall', input, {
+        templateKey: 'ground_up',
+      })
     );
     // National ~$2.10/SF blended with local ~$2.21/SF barometer (not old $4.50/SF).
     expect(drywall.fill?.basis).toEqual({ quantity: 5469, unit: 'sqft' });
@@ -348,7 +462,9 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'interior_paint',
       input,
       'ground_up',
-      resolveChecklistItemQuantity('interior_paint', input, { templateKey: 'ground_up' })
+      resolveChecklistItemQuantity('interior_paint', input, {
+        templateKey: 'ground_up',
+      })
     );
     // Blended Plan 41 barometer + NAHB paint — not bare national surface-SF rate.
     expect(paint.fill?.total).toBe(8900);
@@ -357,10 +473,34 @@ describe('ground-up takeoff → material/labor pricing', () => {
     expect(Number(paint.fill?.basis?.quantity)).toBe(5469);
   });
 
+  it('uses the SHV production rate card for an exact Plan 39 drywall match', () => {
+    const input = inputWith({
+      floorAreaSqft: '3098',
+      drywallSqft: '10843',
+    });
+    const drywall = resolveScopeItemSuggestedPricing(
+      'drywall',
+      input,
+      'ground_up',
+      resolveChecklistItemQuantity('drywall', input, {
+        templateKey: 'ground_up',
+      })
+    );
+
+    expect(drywall.fill?.rateSourceLabel).toMatch(
+      /Production planning rate.*Plan 39/i
+    );
+    expect(drywall.fill?.productionStatus).toBe('production_ready');
+    expect(drywall.fill?.basis).toEqual({ quantity: 10843, unit: 'sqft' });
+    expect(drywall.fill?.total).toBeCloseTo(10843 * 2.21, 2);
+  });
+
   it('suggests cleanup mat+labor national average — not Final Steps living-SF lump', () => {
     jest
       .spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion')
-      .mockImplementation((id: string) => stageSuggestion(id, 'final-steps', 1_000_000));
+      .mockImplementation((id: string) =>
+        stageSuggestion(id, 'final-steps', 1_000_000)
+      );
 
     const input = inputWith({
       itemQuantities: {
@@ -381,7 +521,9 @@ describe('ground-up takeoff → material/labor pricing', () => {
         },
       },
     });
-    const resolved = resolveChecklistItemQuantity('cleanup', input, { templateKey: 'ground_up' });
+    const resolved = resolveChecklistItemQuantity('cleanup', input, {
+      templateKey: 'ground_up',
+    });
     const { fill, comparison } = resolveScopeItemSuggestedPricing(
       'cleanup',
       input,

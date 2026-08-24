@@ -103,4 +103,30 @@ describe('planImportPayloadFromDraft', () => {
       blockedFields: ['threeWaySwitchCount'],
     });
   });
+
+  it('routes selected Drywall imports to the standalone drywall checklist', () => {
+    const next = applyPlanImportToDraft(baseDraft(), {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'drywall',
+      planImportFingerprint: 'drywall-plan',
+      measurements: {
+        floorAreaSqft: 3098,
+        drywallWallSqft: 8200,
+        drywallCeilingSqft: 3660,
+        drywallOpeningDeductionSqft: 1017,
+      },
+      scopeDetections: [
+        { itemId: 'drywall', label: 'Drywall', state: 'included' },
+      ],
+    } as PlanImportPayload);
+
+    expect(next.scopeChecklist?.templateKey).toBe('drywall');
+    expect(next.scopeChecklist?.items.map(item => item.id)).toEqual([
+      'drywall',
+      'texture',
+      'patch_repair',
+      'cleanup',
+    ]);
+    expect(next.scopeMeasurements?.drywallSqft).toBe(10843);
+  });
 });

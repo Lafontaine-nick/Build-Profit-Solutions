@@ -430,9 +430,8 @@ export default function PlanTakeoffReviewModal({
         ...filtered,
         ...hydrated,
       };
-      const geometryGross = expectedInsulationGrossWallSqft(
-        insulationPlanFacts
-      );
+      const geometryGross =
+        expectedInsulationGrossWallSqft(insulationPlanFacts);
       const openingDeduction = resolveInsulationOpeningDeductionForReview(
         calculationMeasurements,
         insulationPlanFacts
@@ -453,10 +452,7 @@ export default function PlanTakeoffReviewModal({
         ) == null
       ) {
         calculationMeasurements.exteriorWallInsulationSqft = String(
-          Math.max(
-            0,
-            Math.round((geometryGross - openingDeduction) * 10) / 10
-          )
+          Math.max(0, Math.round((geometryGross - openingDeduction) * 10) / 10)
         );
       }
       if (!hasOpeningBasis) {
@@ -553,15 +549,16 @@ export default function PlanTakeoffReviewModal({
           envelopeWall.quantity
         );
       }
-      const atticBoundary = insulationCeilingBoundaryBreakdownFromPlanFacts(
-        insulationPlanFacts
-      );
+      const atticBoundary =
+        insulationCeilingBoundaryBreakdownFromPlanFacts(insulationPlanFacts);
       const reviewAttic = positiveMeasurement(
         reviewMeasurements.atticInsulationSqft
       );
       if (
         atticBoundary?.calculatedSqft != null &&
-        hasFullInsulationCeilingBoundary(insulationPlanFacts?.ceilingBoundary) &&
+        hasFullInsulationCeilingBoundary(
+          insulationPlanFacts?.ceilingBoundary
+        ) &&
         (reviewAttic == null ||
           insulationAtticMateriallyDiffersFromCeilingBoundary(
             reviewAttic,
@@ -2258,6 +2255,21 @@ export default function PlanTakeoffReviewModal({
                       rows.some(
                         row =>
                           row.key === 'atticInsulationSqft' &&
+                          Number(row.value) > 0 &&
+                          row.pricingEligible &&
+                          row.include
+                      ),
+                    hasDrywallPrimaryTakeoff:
+                      effectiveTradeKey === 'drywall' &&
+                      rows.some(
+                        row =>
+                          row.key === 'drywallSqft' && Number(row.value) > 0
+                      ),
+                    drywallPrimaryConfirmed:
+                      effectiveTradeKey === 'drywall' &&
+                      rows.some(
+                        row =>
+                          row.key === 'drywallSqft' &&
                           Number(row.value) > 0 &&
                           row.pricingEligible &&
                           row.include

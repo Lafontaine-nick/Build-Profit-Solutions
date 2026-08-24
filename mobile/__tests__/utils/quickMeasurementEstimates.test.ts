@@ -1,8 +1,12 @@
 import {
   formatSuggestedDisplayValue,
   getQuickMeasurementEstimate,
+  syncMeasurementsWithSouthernUtahPlanFacts,
 } from '@/utils/quickMeasurementEstimates';
-import { LOT_41_PLAN_ROOMS, PLAN_MEASUREMENT_LOTS } from '@/testFixtures/planMeasurementLots';
+import {
+  LOT_41_PLAN_ROOMS,
+  PLAN_MEASUREMENT_LOTS,
+} from '@/testFixtures/planMeasurementLots';
 import {
   quickMeasurementEstimateBadgeLabel,
   quickMeasurementSourceLabel,
@@ -22,7 +26,10 @@ describe('getQuickMeasurementEstimate', () => {
   });
 
   test('roof squares uses footprint + pitch + waste, not living sqft directly', () => {
-    const estimate = getQuickMeasurementEstimate('roofSquares', FOOTPRINT_MEASUREMENTS);
+    const estimate = getQuickMeasurementEstimate(
+      'roofSquares',
+      FOOTPRINT_MEASUREMENTS
+    );
     expect(estimate).not.toBeNull();
     expect(estimate!.unit).toBe('sq');
     expect(estimate!.value).toBeGreaterThan(30);
@@ -35,21 +42,29 @@ describe('getQuickMeasurementEstimate', () => {
   });
 
   test('foundation CY includes footings, stem, and building slabs — and labels them as such', () => {
-    const estimate = getQuickMeasurementEstimate('concreteCy', FOOTPRINT_MEASUREMENTS);
+    const estimate = getQuickMeasurementEstimate(
+      'concreteCy',
+      FOOTPRINT_MEASUREMENTS
+    );
     expect(estimate).not.toBeNull();
     expect(estimate!.unit).toBe('CY');
     expect(estimate!.value).toBeGreaterThan(0);
     expect(estimate!.value).toBeLessThan(100);
     expect(estimate!.quantityLabel).toMatch(/building slabs/i);
-    expect(estimate!.assumptions.some((a) => /footing/i.test(a))).toBe(true);
-    expect(estimate!.assumptions.some((a) => /stem wall/i.test(a))).toBe(true);
-    expect(estimate!.assumptions.some((a) => /slab/i.test(a))).toBe(true);
-    expect(estimate!.assumptions.some((a) => /flatwork|driveway/i.test(a))).toBe(true);
+    expect(estimate!.assumptions.some(a => /footing/i.test(a))).toBe(true);
+    expect(estimate!.assumptions.some(a => /stem wall/i.test(a))).toBe(true);
+    expect(estimate!.assumptions.some(a => /slab/i.test(a))).toBe(true);
+    expect(estimate!.assumptions.some(a => /flatwork|driveway/i.test(a))).toBe(
+      true
+    );
     expect(estimate!.basis).toMatch(/structural plans/i);
   });
 
   test('excavation CY uses footing-trench dig, not full-footprint × 4 ft', () => {
-    const estimate = getQuickMeasurementEstimate('excavationCy', FOOTPRINT_MEASUREMENTS);
+    const estimate = getQuickMeasurementEstimate(
+      'excavationCy',
+      FOOTPRINT_MEASUREMENTS
+    );
     expect(estimate).not.toBeNull();
     expect(estimate!.unit).toBe('CY');
     expect(estimate!.value).toBeLessThan(200);
@@ -65,16 +80,25 @@ describe('getQuickMeasurementEstimate', () => {
   });
 
   test('exterior paint is derived from an estimated perimeter, not living sqft', () => {
-    const estimate = getQuickMeasurementEstimate('exteriorPaintSqft', FOOTPRINT_MEASUREMENTS);
+    const estimate = getQuickMeasurementEstimate(
+      'exteriorPaintSqft',
+      FOOTPRINT_MEASUREMENTS
+    );
     expect(estimate).not.toBeNull();
     expect(estimate!.unit).toBe('sqft');
     expect(estimate!.value).not.toBe(1879);
-    expect(estimate!.assumptions.some((a) => /wall-height|wall height/i.test(a))).toBe(true);
+    expect(
+      estimate!.assumptions.some(a => /wall-height|wall height/i.test(a))
+    ).toBe(true);
   });
 
   test('drywall and interior paint estimates never equal living-area sqft directly', () => {
-    const drywall = getQuickMeasurementEstimate('drywallSqft', { floorAreaSqft: '1879' });
-    const paint = getQuickMeasurementEstimate('wallPaintSqft', { floorAreaSqft: '1879' });
+    const drywall = getQuickMeasurementEstimate('drywallSqft', {
+      floorAreaSqft: '1879',
+    });
+    const paint = getQuickMeasurementEstimate('wallPaintSqft', {
+      floorAreaSqft: '1879',
+    });
     expect(drywall).not.toBeNull();
     expect(paint).not.toBeNull();
     expect(drywall!.value).not.toBe(1879);
@@ -84,6 +108,21 @@ describe('getQuickMeasurementEstimate', () => {
     expect(drywall!.summary).toMatch(/\d/);
     expect(drywall!.summary).not.toMatch(/suggested/i);
     expect(drywall!.basis).not.toMatch(/1,879 sqft living area ×/);
+  });
+
+  test('sync keeps a wall/ceiling drywall takeoff ahead of the living-area fallback', () => {
+    const synced = syncMeasurementsWithSouthernUtahPlanFacts(
+      {
+        floorAreaSqft: 3098,
+        drywallSqft: 4056,
+        drywallWallSqft: 8200,
+        drywallCeilingSqft: 3660,
+        drywallOpeningDeductionSqft: 1017,
+      },
+      { templateKey: 'ground_up' }
+    );
+
+    expect(synced.drywallSqft).toBe(10843);
   });
 
   test('Lot 41 room perimeters + labeled wall height keep drywall/paint as Planning estimate', () => {
@@ -100,12 +139,20 @@ describe('getQuickMeasurementEstimate', () => {
     expect(drywall.formulaId).toBe('drywall_from_room_perimeters');
     expect(drywall.sourceType).toBe('estimated_from_formula');
     expect(drywall.confidence).toBe('medium');
-    expect(quickMeasurementSourceLabel(drywall.sourceType)).toBe('Planning estimate');
+    expect(quickMeasurementSourceLabel(drywall.sourceType)).toBe(
+      'Planning estimate'
+    );
     expect(drywall.summary).toMatch(/^\d{1,3}(,\d{3})* sqft$/);
     expect(drywall.summary).not.toMatch(/\.\d/);
-    expect(drywall.calculationBreakdown.some((step) => /ceiling/i.test(step.label))).toBe(true);
-    expect(drywall.calculationBreakdown.some((step) => /wall/i.test(step.label))).toBe(true);
-    expect(paint.formulaId).toBe('interior_paint_from_drywall_surface_estimate');
+    expect(
+      drywall.calculationBreakdown.some(step => /ceiling/i.test(step.label))
+    ).toBe(true);
+    expect(
+      drywall.calculationBreakdown.some(step => /wall/i.test(step.label))
+    ).toBe(true);
+    expect(paint.formulaId).toBe(
+      'interior_paint_from_drywall_surface_estimate'
+    );
     expect(paint.sourceType).toBe('estimated_from_formula');
     expect(paint.value).toBe(drywall.value);
     expect(paint.inputsUsed.basedOnDrywallSurfaceEstimate).toBe(drywall.value);
@@ -130,9 +177,15 @@ describe('getQuickMeasurementEstimate', () => {
     )!;
     expect(paint.value).toBe(drywall.value - 200 - 40 - 24 * 7);
     expect(paint.value).toBeLessThan(drywall.value);
-    expect(paint.calculationBreakdown.some((step) => /shower/i.test(step.label))).toBe(true);
-    expect(paint.calculationBreakdown.some((step) => /backsplash/i.test(step.label))).toBe(true);
-    expect(paint.calculationBreakdown.some((step) => /cabinet/i.test(step.label))).toBe(true);
+    expect(
+      paint.calculationBreakdown.some(step => /shower/i.test(step.label))
+    ).toBe(true);
+    expect(
+      paint.calculationBreakdown.some(step => /backsplash/i.test(step.label))
+    ).toBe(true);
+    expect(
+      paint.calculationBreakdown.some(step => /cabinet/i.test(step.label))
+    ).toBe(true);
   });
 
   test('surface areas display as whole numbers; roof keeps one decimal', () => {
@@ -166,17 +219,27 @@ describe('getQuickMeasurementEstimate', () => {
     expect(estimate.confidence).toBe('medium');
     expect(estimate.inputsUsed.exteriorPerimeterLf).toBe(232);
     expect(estimate.inputsUsed.wallHeightFt).toBe(10.2);
-    expect(quickMeasurementSourceLabel(estimate.sourceType)).toBe('Footprint-based estimate');
+    expect(quickMeasurementSourceLabel(estimate.sourceType)).toBe(
+      'Footprint-based estimate'
+    );
   });
 
   test('cabinets and countertops have no formula — always Needs confirmation upstream', () => {
-    expect(getQuickMeasurementEstimate('cabinetLf', FOOTPRINT_MEASUREMENTS)).toBeNull();
-    expect(getQuickMeasurementEstimate('countertopSqft', FOOTPRINT_MEASUREMENTS)).toBeNull();
+    expect(
+      getQuickMeasurementEstimate('cabinetLf', FOOTPRINT_MEASUREMENTS)
+    ).toBeNull();
+    expect(
+      getQuickMeasurementEstimate('countertopSqft', FOOTPRINT_MEASUREMENTS)
+    ).toBeNull();
   });
 
   test('shower tile stays null until wet-area finish is tile', () => {
-    expect(getQuickMeasurementEstimate('showerWallTileSqft', FOOTPRINT_MEASUREMENTS)).toBeNull();
-    expect(getQuickMeasurementEstimate('showerFloorTileSqft', FOOTPRINT_MEASUREMENTS)).toBeNull();
+    expect(
+      getQuickMeasurementEstimate('showerWallTileSqft', FOOTPRINT_MEASUREMENTS)
+    ).toBeNull();
+    expect(
+      getQuickMeasurementEstimate('showerFloorTileSqft', FOOTPRINT_MEASUREMENTS)
+    ).toBeNull();
     expect(
       getQuickMeasurementEstimate('showerWallTileSqft', {
         ...FOOTPRINT_MEASUREMENTS,

@@ -101,10 +101,16 @@ export type SuggestedQuantitySource =
   | 'unknown';
 
 export type SuggestedPricingStatus =
-  'ready' | 'planning' | 'allowance' | 'review_required';
+  | 'ready'
+  | 'planning'
+  | 'allowance'
+  | 'review_required';
 
 export type SuggestedPricingActionType =
-  'apply_price' | 'apply_allowance' | 'use_planning_price' | 'use_suggested';
+  | 'apply_price'
+  | 'apply_allowance'
+  | 'use_planning_price'
+  | 'use_suggested';
 
 export type SuggestedPricingCardDisplay = {
   quantitySource: SuggestedQuantitySource;
@@ -148,7 +154,10 @@ export type InsulationAssemblyDetailRow = {
 
 export function isInsulationAssemblyConfirmScopePricingCard(
   itemId: string | null | undefined,
-  block: Pick<SuggestedPricingBlock, 'pricingDetail' | 'installedBudgetBenchmark'>
+  block: Pick<
+    SuggestedPricingBlock,
+    'pricingDetail' | 'installedBudgetBenchmark'
+  >
 ): boolean {
   if (itemId !== 'insulation') return false;
   if (block.installedBudgetBenchmark) return false;
@@ -269,6 +278,11 @@ const FALLBACK_MEASUREMENT_COPY: Record<
     title: 'Whole-house insulation area needed',
     hint: 'Add exterior wall + attic insulation SF (not drywall surface) for more accurate pricing.',
     statusDetail: 'Thermal-envelope takeoff not provided',
+  },
+  drywall: {
+    title: 'Wall and ceiling drywall surface needed',
+    hint: 'Add net wall + ceiling drywall SF; living area is not a drywall surface takeoff.',
+    statusDetail: 'Drywall wall/ceiling takeoff not provided',
   },
 };
 
@@ -1092,9 +1106,7 @@ export function buildSuggestedPricingCardDisplay(input: {
     ? buildInsulationAssemblyDetailRows(block.pricingDetail)
     : [];
   const insulationPricingDetailLine =
-    itemId === 'insulation' &&
-    block.pricingDetail &&
-    !isInsulationAssemblyCard
+    itemId === 'insulation' && block.pricingDetail && !isInsulationAssemblyCard
       ? ` · ${block.pricingDetail}`
       : '';
   const unitRateLine = needsServiceAmperage

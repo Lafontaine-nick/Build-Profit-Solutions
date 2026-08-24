@@ -87,7 +87,7 @@ export const TRADE_SCOPE_ALLOWLISTS: Record<SubcontractorTradeKey, string[]> = {
     ['cleanup']
   ),
   plumbing: [...PLUMBING_SCOPE_ALLOWLIST],
-  insulation: ['insulation'],
+  insulation: ['insulation', 'cleanup'],
   flooring: [
     'floor_demo',
     'floor_prep',

@@ -14,6 +14,8 @@ const {
   sanitizePlanFacts,
   reconcileLabeledLivingAreas,
   derivePaintingGeometryMeasurements,
+  deriveDrywallGeometryMeasurements,
+  normalizeDrywallPlanMeasurements,
   MIN_FIELD_CONFIDENCE,
   MEASUREMENT_KEYS,
   buildElectricalSystemPrompt,
@@ -21,89 +23,177 @@ const {
   mergePlumbingFieldEvidence,
   collectUnclassifiedElectricalFixtures,
   validateInsulationMeasurementsAgainstPlanFacts,
-} = require('../estimatePlanToMeasurements');
-const { filterPlanMeasurementsForTrade, filterPlanScopesForTrade, TRADE_CONFIGS } = require('../planImportTradeConfig');
-const shvPlanFacts = require('../testFixtures/shvPlanFacts');
+} = require("../estimatePlanToMeasurements");
+const {
+  filterPlanMeasurementsForTrade,
+  filterPlanScopesForTrade,
+  TRADE_CONFIGS,
+} = require("../planImportTradeConfig");
+const shvPlanFacts = require("../testFixtures/shvPlanFacts");
 
-describe('estimatePlanToMeasurements', () => {
-  test('merges Plumbing evidence by canonical field and retains derivation inputs', () => {
+describe("estimatePlanToMeasurements", () => {
+  test("merges Plumbing evidence by canonical field and retains derivation inputs", () => {
     expect(
       mergePlumbingFieldEvidence(
         {
           roughInPoints: {
             page: 3,
-            sheet: 'P1.1',
-            evidenceKind: 'fixture_inventory_derived',
-            derivedFrom: ['toilets'],
+            sheet: "P1.1",
+            evidenceKind: "fixture_inventory_derived",
+            derivedFrom: ["toilets"],
           },
         },
         {
           gasLineFeet: [
             {
               page: 4,
-              sheet: 'P2.1',
-              sourceText: '42 LF',
-              sourceType: 'pdf_text',
+              sheet: "P2.1",
+              sourceText: "42 LF",
+              sourceType: "pdf_text",
             },
           ],
-        }
-      )
+        },
+      ),
     ).toEqual({
       plumbingRoughPointCount: [
         {
           page: 3,
-          sheet: 'P1.1',
-          evidenceKind: 'fixture_inventory_derived',
-          derivedFrom: ['toilets'],
+          sheet: "P1.1",
+          evidenceKind: "fixture_inventory_derived",
+          derivedFrom: ["toilets"],
         },
       ],
       gasLineLf: [
         {
           page: 4,
-          sheet: 'P2.1',
-          sourceText: '42 LF',
-          sourceType: 'pdf_text',
+          sheet: "P2.1",
+          sourceText: "42 LF",
+          sourceType: "pdf_text",
         },
       ],
     });
   });
 
-  test('sanitizeRooms computes area and maps bathroom keys', () => {
+  test("exposes the canonical Drywall plan takeoff fields for selected-trade review", () => {
+    expect(TRADE_CONFIGS.drywall.status).toBe("reference");
+    expect(TRADE_CONFIGS.drywall.reviewMeasurementKeys).toEqual(
+      expect.arrayContaining([
+        "drywallSqft",
+        "drywallWallSqft",
+        "drywallCeilingSqft",
+        "drywallOpeningDeductionSqft",
+      ]),
+    );
+
+    expect(
+      filterPlanMeasurementsForTrade(
+        {
+          drywallSqft: 10843,
+          drywallWallSqft: 8200,
+          drywallCeilingSqft: 3660,
+          drywallOpeningDeductionSqft: 1017,
+          floorAreaSqft: 3660,
+          insulationRValue: "R-21",
+        },
+        "selected_trade",
+        TRADE_CONFIGS.drywall,
+      ),
+    ).toEqual({
+      drywallSqft: 10843,
+      drywallWallSqft: 8200,
+      drywallCeilingSqft: 3660,
+      drywallOpeningDeductionSqft: 1017,
+      floorAreaSqft: 3660,
+    });
+  });
+
+  test("derives selected-trade Drywall total only from supported surface components", () => {
+    expect(
+      normalizeDrywallPlanMeasurements(
+        {
+          drywallWallSqft: 8200,
+          drywallCeilingSqft: 3660,
+          drywallOpeningDeductionSqft: 1017,
+          floorAreaSqft: 3660,
+        },
+        [
+          "drywallWallSqft",
+          "drywallCeilingSqft",
+          "drywallOpeningDeductionSqft",
+        ],
+      ),
+    ).toEqual({
+      drywallWallSqft: 8200,
+      drywallCeilingSqft: 3660,
+      drywallOpeningDeductionSqft: 1017,
+      drywallSqft: 10843,
+    });
+    expect(normalizeDrywallPlanMeasurements({ drywallSqft: 3660 }, [])).toEqual(
+      {},
+    );
+  });
+
+  test("derives Drywall wall and ceiling surface from complete room geometry", () => {
+    const derived = deriveDrywallGeometryMeasurements(
+      { drywallSqft: 540, drywallOpeningDeductionSqft: 100 },
+      [
+        { name: "Great Room", lengthFt: 20, widthFt: 15, confidence: 0.9 },
+        { name: "Bedroom 1", lengthFt: 12, widthFt: 10, confidence: 0.9 },
+        { name: "Bedroom 2", lengthFt: 12, widthFt: 10, confidence: 0.9 },
+      ],
+      { wallHeightFt: 9 },
+      { buildingAreas: { totalLivingSqft: 540 } },
+    );
+
+    expect(derived.measurements).toMatchObject({
+      drywallWallSqft: 1422,
+      drywallCeilingSqft: 540,
+      drywallOpeningDeductionSqft: 100,
+      drywallSqft: 1862,
+    });
+    expect(derived.derivedKeys).toEqual([
+      "drywallWallSqft",
+      "drywallCeilingSqft",
+      "drywallSqft",
+    ]);
+  });
+
+  test("sanitizeRooms computes area and maps bathroom keys", () => {
     const rooms = sanitizeRooms([
-      { name: 'Master Bath', lengthFt: 10, widthFt: 8, confidence: 0.9 },
+      { name: "Master Bath", lengthFt: 10, widthFt: 8, confidence: 0.9 },
       {
-        name: 'Kitchen',
+        name: "Kitchen",
         areaSqft: 140,
-        measurementKey: 'kitchenFloorSqft',
+        measurementKey: "kitchenFloorSqft",
         confidence: 0.8,
       },
-      { name: 'Living', areaSqft: 200, confidence: 0.9 },
+      { name: "Living", areaSqft: 200, confidence: 0.9 },
     ]);
     expect(rooms[0].areaSqft).toBe(80);
-    expect(rooms[0].measurementKey).toBe('bathroomFloorSqft');
-    expect(rooms[1].measurementKey).toBe('kitchenFloorSqft');
+    expect(rooms[0].measurementKey).toBe("bathroomFloorSqft");
+    expect(rooms[1].measurementKey).toBe("kitchenFloorSqft");
     // Living rooms stay in notes — not mapped to whole-house floorAreaSqft
     expect(rooms[2].measurementKey).toBeNull();
   });
 
-  test('sanitizeRooms preserves bounded PDF page and sheet evidence', () => {
+  test("sanitizeRooms preserves bounded PDF page and sheet evidence", () => {
     const [room] = sanitizeRooms([
       {
-        name: 'Kitchen',
+        name: "Kitchen",
         areaSqft: 120,
         confidence: 1,
         sourcePage: 4,
-        sourceSheet: 'A1.2',
+        sourceSheet: "A1.2",
       },
     ]);
-    expect(room).toMatchObject({ sourcePage: 4, sourceSheet: 'A1.2' });
+    expect(room).toMatchObject({ sourcePage: 4, sourceSheet: "A1.2" });
   });
 
-  test('sanitizePlanFacts requires evidence and rejects fabricated geometry', () => {
+  test("sanitizePlanFacts requires evidence and rejects fabricated geometry", () => {
     const facts = sanitizePlanFacts(
       {
         storyCount: 2,
-        roofPitch: '5/12',
+        roofPitch: "5/12",
         wallHeightFt: 9,
         exteriorPerimeterLf: 214,
         nonPaintedExteriorPercent: 25,
@@ -113,49 +203,49 @@ describe('estimatePlanToMeasurements', () => {
           mainFloorAtticExposureSqft: 647,
           vaultedOpenToBelowSqft: 100,
           complete: true,
-          confidence: 'medium',
+          confidence: "medium",
           fieldEvidence: {
             upperFloorAtticSqft: {
               value: 1613,
-              sourceType: 'measured_from_geometry',
-              confidence: 'medium',
-              evidence: [{ page: 12, sheet: 'A-12', sourceText: 'ATTIC AREA' }],
+              sourceType: "measured_from_geometry",
+              confidence: "medium",
+              evidence: [{ page: 12, sheet: "A-12", sourceText: "ATTIC AREA" }],
             },
           },
         },
         fieldEvidence: {
           storyCount: {
             value: 2,
-            sourceType: 'detected_from_plan',
-            confidence: 'high',
-            evidence: [{ page: 2, sheet: 'A1.1', sourceText: 'UPPER FLOOR' }],
+            sourceType: "detected_from_plan",
+            confidence: "high",
+            evidence: [{ page: 2, sheet: "A1.1", sourceText: "UPPER FLOOR" }],
           },
           roofPitch: {
-            value: '5:12',
-            sourceType: 'detected_from_plan',
-            confidence: 'high',
-            evidence: [{ page: 5, label: 'ROOF PITCH 5:12' }],
+            value: "5:12",
+            sourceType: "detected_from_plan",
+            confidence: "high",
+            evidence: [{ page: 5, label: "ROOF PITCH 5:12" }],
           },
           exteriorPerimeterLf: {
             value: 214,
-            sourceType: 'detected_from_plan',
-            confidence: 'high',
-            evidence: [{ page: 5, sourceText: 'EXTERIOR PERIMETER 214 LF' }],
+            sourceType: "detected_from_plan",
+            confidence: "high",
+            evidence: [{ page: 5, sourceText: "EXTERIOR PERIMETER 214 LF" }],
           },
           nonPaintedExteriorPercent: {
             value: 25,
-            sourceType: 'detected_from_plan',
-            confidence: 'medium',
-            evidence: [{ page: 6, sourceText: 'STONE 25%' }],
+            sourceType: "detected_from_plan",
+            confidence: "medium",
+            evidence: [{ page: 6, sourceText: "STONE 25%" }],
           },
         },
         geometry: [
-          { id: 'invented', kind: 'roof_plane' },
+          { id: "invented", kind: "roof_plane" },
           {
-            id: 'supplied-plane',
-            kind: 'roof_plane',
+            id: "supplied-plane",
+            kind: "roof_plane",
             areaSqft: 500,
-            pitch: '5/12',
+            pitch: "5/12",
             points: [
               { x: 0, y: 0 },
               { x: 1, y: 0 },
@@ -164,10 +254,10 @@ describe('estimatePlanToMeasurements', () => {
           },
         ],
       },
-      { totalLivingSqft: 1879 }
+      { totalLivingSqft: 1879 },
     );
     expect(facts.storyCount).toBe(2);
-    expect(facts.roofPitch).toBe('5:12');
+    expect(facts.roofPitch).toBe("5:12");
     expect(facts.wallHeightFt).toBeUndefined();
     expect(facts.exteriorPerimeterLf).toBe(214);
     expect(facts.nonPaintedExteriorPercent).toBe(25);
@@ -177,103 +267,114 @@ describe('estimatePlanToMeasurements', () => {
       mainFloorAtticExposureSqft: 647,
       vaultedOpenToBelowSqft: 100,
       complete: true,
-      confidence: 'medium',
+      confidence: "medium",
     });
-    expect(facts.ceilingBoundary.fieldEvidence.upperFloorAtticSqft).toMatchObject({
+    expect(
+      facts.ceilingBoundary.fieldEvidence.upperFloorAtticSqft,
+    ).toMatchObject({
       value: 1613,
-      evidence: [{ page: 12, sheet: 'A-12' }],
+      evidence: [{ page: 12, sheet: "A-12" }],
     });
     expect(facts.geometry).toHaveLength(1);
-    expect(facts.geometry[0].id).toBe('supplied-plane');
+    expect(facts.geometry[0].id).toBe("supplied-plane");
   });
 
-  test.each(shvPlanFacts.filter(fixture => fixture.expected.floorDeltaSqft != null))(
-    'reconciles cover and floor labels for SHV Lot $lot',
-    ({ expected }) => {
-      const result = reconcileLabeledLivingAreas({
-        totalLivingSqft: expected.totalLivingSqft,
-        mainFloorLivingSqft: expected.mainFloorLivingSqft,
-        upstairsLivingSqft: expected.upstairsLivingSqft,
-      });
-      expect(result.floorDeltaSqft).toBe(expected.floorDeltaSqft);
-      expect(result.floorAreaStatus).toBe(expected.floorDeltaSqft === 0 ? 'reconciled' : 'review');
-    }
-  );
+  test.each(
+    shvPlanFacts.filter((fixture) => fixture.expected.floorDeltaSqft != null),
+  )("reconciles cover and floor labels for SHV Lot $lot", ({ expected }) => {
+    const result = reconcileLabeledLivingAreas({
+      totalLivingSqft: expected.totalLivingSqft,
+      mainFloorLivingSqft: expected.mainFloorLivingSqft,
+      upstairsLivingSqft: expected.upstairsLivingSqft,
+    });
+    expect(result.floorDeltaSqft).toBe(expected.floorDeltaSqft);
+    expect(result.floorAreaStatus).toBe(
+      expected.floorDeltaSqft === 0 ? "reconciled" : "review",
+    );
+  });
 
-  test('sanitizeRooms keeps a full labeled-room inventory including baths and closets', () => {
+  test("sanitizeRooms keeps a full labeled-room inventory including baths and closets", () => {
     const rooms = sanitizeRooms([
-      { name: 'Dining', lengthFt: 12.083, widthFt: 8.083, confidence: 0.9 },
-      { name: 'Kitchen', lengthFt: 12.083, widthFt: 14.167, confidence: 0.9 },
-      { name: 'Pantry', lengthFt: 9.167, widthFt: 4.25, confidence: 0.85 },
-      { name: 'Bed 3', lengthFt: 13.167, widthFt: 10.5, confidence: 0.9 },
+      { name: "Dining", lengthFt: 12.083, widthFt: 8.083, confidence: 0.9 },
+      { name: "Kitchen", lengthFt: 12.083, widthFt: 14.167, confidence: 0.9 },
+      { name: "Pantry", lengthFt: 9.167, widthFt: 4.25, confidence: 0.85 },
+      { name: "Bed 3", lengthFt: 13.167, widthFt: 10.5, confidence: 0.9 },
       {
-        name: 'Bed 2/Office',
+        name: "Bed 2/Office",
         lengthFt: 10.333,
         widthFt: 10.25,
         confidence: 0.9,
       },
-      { name: 'Great Room', lengthFt: 14.833, widthFt: 17.5, confidence: 0.9 },
+      { name: "Great Room", lengthFt: 14.833, widthFt: 17.5, confidence: 0.9 },
       {
-        name: 'Primary Suite',
+        name: "Primary Suite",
         lengthFt: 15.333,
         widthFt: 16.083,
         confidence: 0.9,
       },
       {
-        name: 'Primary Closet',
+        name: "Primary Closet",
         lengthFt: 11.833,
         widthFt: 5.25,
         confidence: 0.85,
       },
-      { name: 'Laundry', lengthFt: 8, widthFt: 5.25, confidence: 0.85 },
-      { name: 'Den/Bed 4', lengthFt: 10.333, widthFt: 10.25, confidence: 0.9 },
-      { name: 'Primary Bath', lengthFt: 9, widthFt: 8, confidence: 0.8 },
-      { name: 'Guest Bath', lengthFt: 7, widthFt: 5, confidence: 0.8 },
-      { name: 'Garage', lengthFt: 19.083, widthFt: 23.25, confidence: 0.9 },
-      { name: 'RV Garage', lengthFt: 12.083, widthFt: 42.417, confidence: 0.9 },
+      { name: "Laundry", lengthFt: 8, widthFt: 5.25, confidence: 0.85 },
+      { name: "Den/Bed 4", lengthFt: 10.333, widthFt: 10.25, confidence: 0.9 },
+      { name: "Primary Bath", lengthFt: 9, widthFt: 8, confidence: 0.8 },
+      { name: "Guest Bath", lengthFt: 7, widthFt: 5, confidence: 0.8 },
+      { name: "Garage", lengthFt: 19.083, widthFt: 23.25, confidence: 0.9 },
+      { name: "RV Garage", lengthFt: 12.083, widthFt: 42.417, confidence: 0.9 },
     ]);
     expect(rooms).toHaveLength(14);
-    expect(rooms.filter(r => r.measurementKey === 'bathroomFloorSqft').map(r => r.name)).toEqual([
-      'Primary Bath',
-      'Guest Bath',
-    ]);
-    expect(rooms.find(r => r.name === 'Kitchen')?.measurementKey).toBe('kitchenFloorSqft');
-    expect(rooms.find(r => r.name === 'Great Room')?.areaSqft).toBe(259.6);
-    expect(rooms.find(r => r.name === 'Garage')?.measurementKey).toBeNull();
+    expect(
+      rooms
+        .filter((r) => r.measurementKey === "bathroomFloorSqft")
+        .map((r) => r.name),
+    ).toEqual(["Primary Bath", "Guest Bath"]);
+    expect(rooms.find((r) => r.name === "Kitchen")?.measurementKey).toBe(
+      "kitchenFloorSqft",
+    );
+    expect(rooms.find((r) => r.name === "Great Room")?.areaSqft).toBe(259.6);
+    expect(rooms.find((r) => r.name === "Garage")?.measurementKey).toBeNull();
 
-    const measurements = sanitizeMeasurements({}, rooms, { totalLivingSqft: 1879, garageSqft: 994 }, []);
+    const measurements = sanitizeMeasurements(
+      {},
+      rooms,
+      { totalLivingSqft: 1879, garageSqft: 994 },
+      [],
+    );
     expect(measurements.bathroomFloorSqft).toBe(107);
     expect(measurements.kitchenFloorSqft).toBe(171.2);
     expect(measurements.floorAreaSqft).toBe(1879);
   });
 
-  test('formatNotesBlock appends full room inventory under summary notes', () => {
+  test("formatNotesBlock appends full room inventory under summary notes", () => {
     const notes = formatNotesBlock({
-      notesBlock: 'Main living area is 1879 SqFt.',
+      notesBlock: "Main living area is 1879 SqFt.",
       rooms: [
-        { name: 'Kitchen', areaSqft: 171.2 },
-        { name: 'Primary Bath', areaSqft: 72 },
-        { name: 'Bed 2', areaSqft: 105.9 },
+        { name: "Kitchen", areaSqft: 171.2 },
+        { name: "Primary Bath", areaSqft: 72 },
+        { name: "Bed 2", areaSqft: 105.9 },
       ],
       measurements: { floorAreaSqft: 1879 },
       buildingAreas: { totalLivingSqft: 1879 },
     });
-    expect(notes).toContain('Main living area is 1879 SqFt.');
-    expect(notes).toContain('Room measurements:');
-    expect(notes).toContain('- Kitchen: 171.2 sqft');
-    expect(notes).toContain('- Primary Bath: 72 sqft');
-    expect(notes).toContain('- Bed 2: 105.9 sqft');
+    expect(notes).toContain("Main living area is 1879 SqFt.");
+    expect(notes).toContain("Room measurements:");
+    expect(notes).toContain("- Kitchen: 171.2 sqft");
+    expect(notes).toContain("- Primary Bath: 72 sqft");
+    expect(notes).toContain("- Bed 2: 105.9 sqft");
   });
 
-  test('sanitizeMeasurements prefers Building Areas schedule over a single room', () => {
+  test("sanitizeMeasurements prefers Building Areas schedule over a single room", () => {
     const rooms = sanitizeRooms([
       {
-        name: 'Bath',
+        name: "Bath",
         areaSqft: 40,
-        measurementKey: 'bathroomFloorSqft',
+        measurementKey: "bathroomFloorSqft",
         confidence: 0.9,
       },
-      { name: 'Living', areaSqft: 200, confidence: 0.9 },
+      { name: "Living", areaSqft: 200, confidence: 0.9 },
     ]);
     const buildingAreas = sanitizeBuildingAreas({
       mainFloorLivingSqft: 1373,
@@ -293,7 +394,7 @@ describe('estimatePlanToMeasurements', () => {
       },
       rooms,
       buildingAreas,
-      []
+      [],
     );
     expect(buildingAreas.totalLivingSqft).toBe(2418);
     expect(measurements.floorAreaSqft).toBe(2418);
@@ -308,31 +409,33 @@ describe('estimatePlanToMeasurements', () => {
     expect(measurements.concreteSqft).toBeUndefined();
   });
 
-  test('sanitizeMeasurements keeps labeled concrete flatwork when explicitlyLabeled', () => {
-    const measurements = sanitizeMeasurements({ concreteSqft: 900, wallPaintSqft: 2400 }, [], {}, [
-      'concreteSqft',
-      'wallPaintSqft',
-    ]);
+  test("sanitizeMeasurements keeps labeled concrete flatwork when explicitlyLabeled", () => {
+    const measurements = sanitizeMeasurements(
+      { concreteSqft: 900, wallPaintSqft: 2400 },
+      [],
+      {},
+      ["concreteSqft", "wallPaintSqft"],
+    );
     expect(measurements.concreteSqft).toBe(900);
     expect(measurements.wallPaintSqft).toBe(2400);
   });
 
-  test('sanitizeMeasurements drops concrete when it duplicates deck / patio SF', () => {
+  test("sanitizeMeasurements drops concrete when it duplicates deck / patio SF", () => {
     const measurements = sanitizeMeasurements(
       { concreteSqft: 247, deckSqft: 247, floorAreaSqft: 1879 },
       [],
       { coveredPatioSqft: 247, totalLivingSqft: 1879 },
-      ['concreteSqft']
+      ["concreteSqft"],
     );
     expect(measurements.deckSqft).toBe(247);
     expect(measurements.concreteSqft).toBeUndefined();
     expect(measurements.floorAreaSqft).toBe(1879);
   });
 
-  test('mergePlanMeasurementsIntoExisting does not overwrite filled fields', () => {
+  test("mergePlanMeasurementsIntoExisting does not overwrite filled fields", () => {
     const { measurements, filled } = mergePlanMeasurementsIntoExisting(
       { floorAreaSqft: 1000, kitchenFloorSqft: null },
-      { floorAreaSqft: 900, kitchenFloorSqft: 120, bathroomFloorSqft: 45 }
+      { floorAreaSqft: 900, kitchenFloorSqft: 120, bathroomFloorSqft: 45 },
     );
     expect(measurements.floorAreaSqft).toBe(1000);
     expect(measurements.kitchenFloorSqft).toBe(120);
@@ -340,13 +443,13 @@ describe('estimatePlanToMeasurements', () => {
     expect(filled).toBe(2);
   });
 
-  test('buildItemQuantities tags plan_vision source', () => {
+  test("buildItemQuantities tags plan_vision source", () => {
     const iq = buildItemQuantities({ flooringSqft: 850, baseboardLf: 200 });
-    expect(iq.flooring.quantitySource).toBe('plan_vision');
+    expect(iq.flooring.quantitySource).toBe("plan_vision");
     expect(iq.trim.quantity).toBe(200);
   });
 
-  test('roof squares seed only the base Roofing quantity, never tear-off', () => {
+  test("roof squares seed only the base Roofing quantity, never tear-off", () => {
     const iq = buildItemQuantities({
       roofSquares: 30,
       roofDeckingReplacementSqft: 100,
@@ -356,14 +459,14 @@ describe('estimatePlanToMeasurements', () => {
 
     expect(iq.shingles_roofing).toMatchObject({
       quantity: 30,
-      unit: 'squares',
-      quantitySource: 'plan_vision',
+      unit: "squares",
+      quantitySource: "plan_vision",
     });
     expect(iq.tear_off).toBeUndefined();
     expect(iq.decking_repair).toBeUndefined();
   });
 
-  test('retains explicitly extracted Roofing accessory measurements', () => {
+  test("retains explicitly extracted Roofing accessory measurements", () => {
     const measurements = sanitizeMeasurements(
       {
         roofSquares: 30,
@@ -376,7 +479,7 @@ describe('estimatePlanToMeasurements', () => {
         roofRepairAffectedSqft: 50,
       },
       [],
-      {}
+      {},
     );
 
     expect(measurements).toMatchObject({
@@ -391,13 +494,13 @@ describe('estimatePlanToMeasurements', () => {
     });
   });
 
-  test('sanitizeFieldConfidence keeps only known keys and clamps to [0,1]', () => {
+  test("sanitizeFieldConfidence keeps only known keys and clamps to [0,1]", () => {
     const conf = sanitizeFieldConfidence({
       floorAreaSqft: 0.95,
       kitchenFloorSqft: 1.7,
       bogusKey: 0.9,
       deckSqft: -0.2,
-      garageSqft: 'not a number',
+      garageSqft: "not a number",
     });
     expect(conf.floorAreaSqft).toBe(0.95);
     expect(conf.kitchenFloorSqft).toBe(1);
@@ -406,130 +509,134 @@ describe('estimatePlanToMeasurements', () => {
     expect(conf.garageSqft).toBeUndefined();
   });
 
-  test('applyConfidenceFloor withholds low-confidence fields instead of auto-filling', () => {
+  test("applyConfidenceFloor withholds low-confidence fields instead of auto-filling", () => {
     const { measurements, lowConfidence } = applyConfidenceFloor(
       { floorAreaSqft: 2418, kitchenFloorSqft: 120, garageSqft: 483 },
-      { floorAreaSqft: 0.95, kitchenFloorSqft: MIN_FIELD_CONFIDENCE - 0.1 }
+      { floorAreaSqft: 0.95, kitchenFloorSqft: MIN_FIELD_CONFIDENCE - 0.1 },
     );
     expect(measurements.floorAreaSqft).toBe(2418);
     // No confidence reported (e.g. schedule-derived) → kept; other gating already applied
     expect(measurements.garageSqft).toBe(483);
     expect(measurements.kitchenFloorSqft).toBeUndefined();
-    expect(lowConfidence).toEqual([{ field: 'kitchenFloorSqft', value: 120, confidence: 0.5 }]);
+    expect(lowConfidence).toEqual([
+      { field: "kitchenFloorSqft", value: 120, confidence: 0.5 },
+    ]);
   });
 
-  test('mergeRoomsPreferPdf keeps PDF rooms and adds missing vision rooms', () => {
+  test("mergeRoomsPreferPdf keeps PDF rooms and adds missing vision rooms", () => {
     const merged = mergeRoomsPreferPdf(
-      [{ name: 'Kitchen', areaSqft: 194.1, confidence: 0.98 }],
+      [{ name: "Kitchen", areaSqft: 194.1, confidence: 0.98 }],
       [
-        { name: 'Kitchen', areaSqft: 171.2, confidence: 0.7 },
+        { name: "Kitchen", areaSqft: 171.2, confidence: 0.7 },
         {
-          name: 'Primary Bath',
+          name: "Primary Bath",
           areaSqft: 40,
-          measurementKey: 'bathroomFloorSqft',
+          measurementKey: "bathroomFloorSqft",
           confidence: 0.8,
         },
-      ]
+      ],
     );
-    expect(merged.find(r => r.name === 'Kitchen')?.areaSqft).toBe(194.1);
-    expect(merged.map(r => r.name)).toEqual(['Kitchen', 'Primary Bath']);
+    expect(merged.find((r) => r.name === "Kitchen")?.areaSqft).toBe(194.1);
+    expect(merged.map((r) => r.name)).toEqual(["Kitchen", "Primary Bath"]);
   });
 
-  test('pruneEnvelopeGarageRooms drops foundation combined garage envelopes', () => {
+  test("pruneEnvelopeGarageRooms drops foundation combined garage envelopes", () => {
     const rooms = pruneEnvelopeGarageRooms([
       {
-        name: 'Garage',
+        name: "Garage",
         lengthFt: 31.083,
         widthFt: 23.333,
         areaSqft: 725.8,
         confidence: 0.7,
       },
       {
-        name: 'RV Garage',
+        name: "RV Garage",
         lengthFt: 12.083,
         widthFt: 42.417,
         areaSqft: 512.5,
         confidence: 0.9,
       },
       {
-        name: 'Garage',
+        name: "Garage",
         lengthFt: 19.083,
         widthFt: 23.25,
         areaSqft: 443.7,
         confidence: 0.9,
       },
     ]);
-    expect(rooms.map(r => r.areaSqft).sort()).toEqual([443.7, 512.5]);
+    expect(rooms.map((r) => r.areaSqft).sort()).toEqual([443.7, 512.5]);
   });
 
-  test('reconcileBathroomMeasurement drops invented bath SF without bath rooms', () => {
+  test("reconcileBathroomMeasurement drops invented bath SF without bath rooms", () => {
     const unreadable = [];
     const measurements = reconcileBathroomMeasurement(
       { bathroomFloorSqft: 90, kitchenFloorSqft: 194.1 },
       [
         {
-          name: 'Kitchen',
+          name: "Kitchen",
           areaSqft: 194.1,
-          measurementKey: 'kitchenFloorSqft',
+          measurementKey: "kitchenFloorSqft",
         },
       ],
-      unreadable
+      unreadable,
     );
     expect(measurements.bathroomFloorSqft).toBeUndefined();
     expect(measurements.kitchenFloorSqft).toBe(194.1);
-    expect(unreadable[0].field).toBe('bathroomFloorSqft');
+    expect(unreadable[0].field).toBe("bathroomFloorSqft");
   });
 
-  test('reconcileBathroomMeasurement sums labeled bath rooms', () => {
+  test("reconcileBathroomMeasurement sums labeled bath rooms", () => {
     const measurements = reconcileBathroomMeasurement(
       { bathroomFloorSqft: 90 },
       [
         {
-          name: 'Primary Bath',
+          name: "Primary Bath",
           areaSqft: 72,
-          measurementKey: 'bathroomFloorSqft',
+          measurementKey: "bathroomFloorSqft",
         },
         {
-          name: 'Guest Bath',
+          name: "Guest Bath",
           areaSqft: 35,
-          measurementKey: 'bathroomFloorSqft',
+          measurementKey: "bathroomFloorSqft",
         },
       ],
-      []
+      [],
     );
     expect(measurements.bathroomFloorSqft).toBe(107);
   });
 
-  test('sanitizeUnreadableFields normalizes entries and caps reasons', () => {
+  test("sanitizeUnreadableFields normalizes entries and caps reasons", () => {
     const out = sanitizeUnreadableFields([
-      { field: 'garageSqft', reason: 'Dimension string blurry' },
-      { key: 'deckSqft' },
-      { reason: 'no field name' },
-      'garbage',
+      { field: "garageSqft", reason: "Dimension string blurry" },
+      { key: "deckSqft" },
+      { reason: "no field name" },
+      "garbage",
     ]);
     expect(out).toEqual([
-      { field: 'garageSqft', reason: 'Dimension string blurry' },
-      { field: 'deckSqft', reason: 'Not legible on the plan' },
+      { field: "garageSqft", reason: "Dimension string blurry" },
+      { field: "deckSqft", reason: "Not legible on the plan" },
     ]);
     expect(
       sanitizeUnreadableFields([
-        { field: 'serviceAmperage', reason: 'No printed amperage callout' },
-        { field: 'serviceAmperage', reason: 'No printed amperage callout' },
-      ])
-    ).toEqual([{ field: 'serviceAmperage', reason: 'No printed amperage callout' }]);
+        { field: "serviceAmperage", reason: "No printed amperage callout" },
+        { field: "serviceAmperage", reason: "No printed amperage callout" },
+      ]),
+    ).toEqual([
+      { field: "serviceAmperage", reason: "No printed amperage callout" },
+    ]);
   });
 
   const residentialPaintRooms = () =>
     sanitizeRooms([
-      { name: 'Great Room', lengthFt: 16, widthFt: 14, confidence: 0.9 },
-      { name: 'Kitchen', lengthFt: 12, widthFt: 12, confidence: 0.9 },
-      { name: 'Bed 1', lengthFt: 12, widthFt: 11, confidence: 0.9 },
-      { name: 'Bed 2', lengthFt: 11, widthFt: 10, confidence: 0.9 },
-      { name: 'Bath', lengthFt: 8, widthFt: 5, confidence: 0.9 },
-      { name: 'Garage', lengthFt: 20, widthFt: 20, confidence: 0.9 },
+      { name: "Great Room", lengthFt: 16, widthFt: 14, confidence: 0.9 },
+      { name: "Kitchen", lengthFt: 12, widthFt: 12, confidence: 0.9 },
+      { name: "Bed 1", lengthFt: 12, widthFt: 11, confidence: 0.9 },
+      { name: "Bed 2", lengthFt: 11, widthFt: 10, confidence: 0.9 },
+      { name: "Bath", lengthFt: 8, widthFt: 5, confidence: 0.9 },
+      { name: "Garage", lengthFt: 20, widthFt: 20, confidence: 0.9 },
     ]);
 
-  test('labeled painting keys survive sanitize + selected-trade filter', () => {
+  test("labeled painting keys survive sanitize + selected-trade filter", () => {
     const measurements = sanitizeMeasurements(
       {
         wallPaintSqft: 5000,
@@ -541,14 +648,18 @@ describe('estimatePlanToMeasurements', () => {
       },
       [],
       { totalLivingSqft: 2400 },
-      ['wallPaintSqft', 'ceilingPaintSqft', 'interiorDoorCount', 'baseboardLf']
+      ["wallPaintSqft", "ceilingPaintSqft", "interiorDoorCount", "baseboardLf"],
     );
     expect(measurements.wallPaintSqft).toBe(5000);
     expect(measurements.ceilingPaintSqft).toBe(2000);
     expect(measurements.interiorDoorCount).toBe(12);
     expect(measurements.baseboardLf).toBe(800);
     expect(measurements.drywallSqft).toBeUndefined();
-    const filtered = filterPlanMeasurementsForTrade(measurements, 'selected_trade', TRADE_CONFIGS.painting);
+    const filtered = filterPlanMeasurementsForTrade(
+      measurements,
+      "selected_trade",
+      TRADE_CONFIGS.painting,
+    );
     expect(filtered).toEqual({
       wallPaintSqft: 5000,
       ceilingPaintSqft: 2000,
@@ -557,7 +668,7 @@ describe('estimatePlanToMeasurements', () => {
     });
   });
 
-  test('unlabeled interior door counts in 1-80 survive sanitize; unlabeled paint SF still drops', () => {
+  test("unlabeled interior door counts in 1-80 survive sanitize; unlabeled paint SF still drops", () => {
     const measurements = sanitizeMeasurements(
       {
         interiorDoorCount: 16,
@@ -566,55 +677,61 @@ describe('estimatePlanToMeasurements', () => {
       },
       [],
       { totalLivingSqft: 3660 },
-      []
+      [],
     );
     expect(measurements.interiorDoorCount).toBe(16);
     expect(measurements.wallPaintSqft).toBeUndefined();
     expect(measurements.ceilingPaintSqft).toBeUndefined();
   });
 
-  test('derivePaintingGeometryMeasurements calculates walls/ceilings/trim from dimensioned rooms', () => {
+  test("derivePaintingGeometryMeasurements calculates walls/ceilings/trim from dimensioned rooms", () => {
     const rooms = residentialPaintRooms();
     const derived = derivePaintingGeometryMeasurements(
       { floorAreaSqft: 2000 },
       rooms,
       { wallHeightFt: 9 },
-      { buildingAreas: { totalLivingSqft: 2000 } }
+      { buildingAreas: { totalLivingSqft: 2000 } },
     );
     expect(derived.measurements.wallPaintSqft).toBe(1998);
     expect(derived.measurements.ceilingPaintSqft).toBe(2000);
     expect(derived.measurements.baseboardLf).toBe(222);
     expect(derived.measurements.cabinetRunLf).toBeUndefined();
     expect(derived.measurements.cabinetPaintSqft).toBeUndefined();
-    expect(derived.derivedKeys).toEqual(expect.arrayContaining(['wallPaintSqft', 'ceilingPaintSqft', 'baseboardLf']));
+    expect(derived.derivedKeys).toEqual(
+      expect.arrayContaining([
+        "wallPaintSqft",
+        "ceilingPaintSqft",
+        "baseboardLf",
+      ]),
+    );
     expect(derived.measurements.wallPaintSqft).not.toBe(2000);
     expect(derived.measurements.wallPaintSqft).not.toBe(6000);
   });
 
-  test('derivePaintingGeometryMeasurements does not invent walls from living SF or missing height', () => {
+  test("derivePaintingGeometryMeasurements does not invent walls from living SF or missing height", () => {
     const noRooms = derivePaintingGeometryMeasurements(
       { floorAreaSqft: 2000 },
       [],
       { wallHeightFt: 9 },
-      { buildingAreas: { totalLivingSqft: 2000 } }
+      { buildingAreas: { totalLivingSqft: 2000 } },
     );
     expect(noRooms.measurements.wallPaintSqft).toBeUndefined();
     expect(noRooms.measurements.ceilingPaintSqft).toBe(2000);
-    expect(noRooms.derivedKeys).toEqual(['ceilingPaintSqft']);
+    expect(noRooms.derivedKeys).toEqual(["ceilingPaintSqft"]);
 
     const noHeight = derivePaintingGeometryMeasurements(
       { floorAreaSqft: 2000 },
       residentialPaintRooms(),
       {},
-      { buildingAreas: { totalLivingSqft: 2000 } }
+      { buildingAreas: { totalLivingSqft: 2000 } },
     );
     expect(noHeight.measurements.wallPaintSqft).toBeUndefined();
     expect(noHeight.measurements.ceilingPaintSqft).toBe(2000);
-    expect(noHeight.derivedKeys).toContain('ceilingPaintSqft');
-    expect(noHeight.derivedKeys).not.toContain('wallPaintSqft');
+    expect(noHeight.derivedKeys).toContain("ceilingPaintSqft");
+    expect(noHeight.derivedKeys).not.toContain("wallPaintSqft");
   });
 
-  test('Lot 58 living areas fall back to 3660 ceiling SF and exclude garage/patio', () => {
+  test("Lot 58 living areas fall back to 3660 ceiling SF and exclude garage/patio", () => {
     const derived = derivePaintingGeometryMeasurements(
       { floorAreaSqft: 3660, garageSqft: 781, deckSqft: 297 },
       [],
@@ -627,7 +744,7 @@ describe('estimatePlanToMeasurements', () => {
           garageSqft: 781,
           coveredPatioSqft: 297,
         },
-      }
+      },
     );
     expect(derived.measurements.ceilingPaintSqft).toBe(3660);
     expect(derived.measurements.wallPaintSqft).toBeUndefined();
@@ -636,18 +753,22 @@ describe('estimatePlanToMeasurements', () => {
     expect(derived.measurements.exteriorPaintSqft).toBeUndefined();
     expect(derived.measurements.ceilingPaintSqft).not.toBe(4441);
     expect(derived.measurements.ceilingPaintSqft).not.toBe(3957);
-    const filtered = filterPlanMeasurementsForTrade(derived.measurements, 'selected_trade', TRADE_CONFIGS.painting);
+    const filtered = filterPlanMeasurementsForTrade(
+      derived.measurements,
+      "selected_trade",
+      TRADE_CONFIGS.painting,
+    );
     expect(filtered.ceilingPaintSqft).toBe(3660);
     expect(filtered.garageSqft).toBeUndefined();
     expect(filtered.floorAreaSqft).toBeUndefined();
   });
 
-  test('Lot 58 incomplete rooms keep 3660 ceiling SF instead of the partial room sum', () => {
+  test("Lot 58 incomplete rooms keep 3660 ceiling SF instead of the partial room sum", () => {
     const derived = derivePaintingGeometryMeasurements(
       { floorAreaSqft: 3660 },
       sanitizeRooms([
-        { name: 'Great Room', lengthFt: 16, widthFt: 14, confidence: 0.9 },
-        { name: 'Kitchen', lengthFt: 12, widthFt: 12, confidence: 0.9 },
+        { name: "Great Room", lengthFt: 16, widthFt: 14, confidence: 0.9 },
+        { name: "Kitchen", lengthFt: 12, widthFt: 12, confidence: 0.9 },
       ]),
       { wallHeightFt: 10.2 },
       {
@@ -656,25 +777,27 @@ describe('estimatePlanToMeasurements', () => {
           mainFloorLivingSqft: 2047,
           upstairsLivingSqft: 1613,
         },
-      }
+      },
     );
     expect(derived.measurements.ceilingPaintSqft).toBe(3660);
     expect(derived.measurements.ceilingPaintSqft).not.toBe(368);
     expect(derived.measurements.wallPaintSqft).toBe(1101.6);
     expect(derived.measurements.baseboardLf).toBe(108);
-    expect(derived.incompleteKeys).toEqual(expect.arrayContaining(['wallPaintSqft', 'baseboardLf']));
+    expect(derived.incompleteKeys).toEqual(
+      expect.arrayContaining(["wallPaintSqft", "baseboardLf"]),
+    );
   });
 
-  test('derivePaintingGeometryMeasurements keeps labeled paint totals and skips unlabeled cabinets', () => {
+  test("derivePaintingGeometryMeasurements keeps labeled paint totals and skips unlabeled cabinets", () => {
     const derived = derivePaintingGeometryMeasurements(
       { wallPaintSqft: 5000, ceilingPaintSqft: 2000 },
       residentialPaintRooms(),
       { wallHeightFt: 9 },
       {
         rawVisionMeasurements: { cabinetRunLf: 42, interiorDoorCount: 12 },
-        geometryDerived: ['interiorDoorCount'],
+        geometryDerived: ["interiorDoorCount"],
         buildingAreas: { totalLivingSqft: 2000 },
-      }
+      },
     );
     expect(derived.measurements.wallPaintSqft).toBe(5000);
     expect(derived.measurements.ceilingPaintSqft).toBe(2000);
@@ -682,7 +805,7 @@ describe('estimatePlanToMeasurements', () => {
     expect(derived.measurements.cabinetRunLf).toBeUndefined();
   });
 
-  test('derivePaintingGeometryMeasurements accepts unlabeled interior door counts', () => {
+  test("derivePaintingGeometryMeasurements accepts unlabeled interior door counts", () => {
     const derived = derivePaintingGeometryMeasurements(
       { floorAreaSqft: 2000 },
       residentialPaintRooms(),
@@ -690,28 +813,28 @@ describe('estimatePlanToMeasurements', () => {
       {
         rawVisionMeasurements: { interiorDoorCount: 14, wallPaintSqft: 320 },
         buildingAreas: { totalLivingSqft: 2000 },
-      }
+      },
     );
     expect(derived.measurements.interiorDoorCount).toBe(14);
     expect(derived.measurements.wallPaintSqft).toBe(1998);
-    expect(derived.derivedKeys).toContain('interiorDoorCount');
+    expect(derived.derivedKeys).toContain("interiorDoorCount");
   });
 
-  test('formatNotesBlock includes room L×W when dimensioned', () => {
+  test("formatNotesBlock includes room L×W when dimensioned", () => {
     const notes = formatNotesBlock({
-      notesBlock: 'Main living area is 650 SqFt.',
+      notesBlock: "Main living area is 650 SqFt.",
       rooms: [
-        { name: 'Kitchen', lengthFt: 12, widthFt: 12, areaSqft: 144 },
-        { name: 'Great Room', areaSqft: 224 },
+        { name: "Kitchen", lengthFt: 12, widthFt: 12, areaSqft: 144 },
+        { name: "Great Room", areaSqft: 224 },
       ],
       measurements: {},
       buildingAreas: { totalLivingSqft: 650 },
     });
-    expect(notes).toContain('- Kitchen: 12×12 ft (144 sqft)');
-    expect(notes).toContain('- Great Room: 224 sqft');
+    expect(notes).toContain("- Kitchen: 12×12 ft (144 sqft)");
+    expect(notes).toContain("- Great Room: 224 sqft");
   });
 
-  test('electrical symbol counts survive sanitize and selected-trade filter', () => {
+  test("electrical symbol counts survive sanitize and selected-trade filter", () => {
     const measurements = sanitizeMeasurements(
       {
         recessedLightCount: 34,
@@ -725,7 +848,7 @@ describe('estimatePlanToMeasurements', () => {
       },
       [],
       { totalLivingSqft: 3660 },
-      ['mainPanelCount', 'serviceAmperage']
+      ["mainPanelCount", "serviceAmperage"],
     );
     expect(measurements.recessedLightCount).toBe(34);
     expect(measurements.gfciReceptacleCount).toBe(6);
@@ -734,7 +857,11 @@ describe('estimatePlanToMeasurements', () => {
     expect(measurements.standardCircuitCount).toBeUndefined();
     expect(measurements.circuit50aCount).toBeUndefined();
     expect(measurements.wallPaintSqft).toBeUndefined();
-    const filtered = filterPlanMeasurementsForTrade(measurements, 'selected_trade', TRADE_CONFIGS.electrical);
+    const filtered = filterPlanMeasurementsForTrade(
+      measurements,
+      "selected_trade",
+      TRADE_CONFIGS.electrical,
+    );
     expect(filtered.recessedLightCount).toBe(34);
     expect(filtered.gfciReceptacleCount).toBe(6);
     expect(filtered.mainPanelCount).toBe(1);
@@ -742,36 +869,65 @@ describe('estimatePlanToMeasurements', () => {
     expect(filtered.floorAreaSqft).toBeUndefined();
   });
 
-  test('electrical plan scope detections do not auto-include rough/trim or cleanup', () => {
+  test("electrical plan scope detections do not auto-include rough/trim or cleanup", () => {
     const filtered = filterPlanScopesForTrade(
       {
         detections: [
           {
-            itemId: 'electrical_rough',
-            state: 'included',
-            label: 'Electrical rough-in',
+            itemId: "electrical_rough",
+            state: "included",
+            label: "Electrical rough-in",
           },
           {
-            itemId: 'electrical_trim',
-            state: 'included',
-            label: 'Electrical fixtures',
+            itemId: "electrical_trim",
+            state: "included",
+            label: "Electrical fixtures",
           },
-          { itemId: 'electrical', state: 'included', label: 'Electrical' },
-          { itemId: 'cleanup', state: 'included', label: 'Cleanup & disposal' },
+          { itemId: "electrical", state: "included", label: "Electrical" },
+          { itemId: "cleanup", state: "included", label: "Cleanup & disposal" },
           {
-            itemId: 'electrical_standard_receptacle',
-            state: 'included',
-            label: 'Standard receptacle',
+            itemId: "electrical_standard_receptacle",
+            state: "included",
+            label: "Standard receptacle",
           },
         ],
       },
-      'selected_trade',
-      TRADE_CONFIGS.electrical
+      "selected_trade",
+      TRADE_CONFIGS.electrical,
     );
-    expect(filtered.detections.map(row => row.itemId)).toEqual(['electrical_standard_receptacle']);
+    expect(filtered.detections.map((row) => row.itemId)).toEqual([
+      "electrical_standard_receptacle",
+    ]);
   });
 
-  test('labeled homerun counts survive electrical explicit-only sanitize', () => {
+  test("selected-trade Drywall scope keeps the base line and explicit addons", () => {
+    const filtered = filterPlanScopesForTrade(
+      {
+        detections: [
+          { itemId: "drywall", state: "included", label: "Drywall" },
+          { itemId: "hang", state: "included", label: "Hang drywall" },
+          {
+            itemId: "finish_tape",
+            state: "included",
+            label: "Tape and finish",
+          },
+          { itemId: "cleanup", state: "included", label: "Cleanup" },
+          { itemId: "roofing", state: "included", label: "Roofing" },
+        ],
+      },
+      "selected_trade",
+      TRADE_CONFIGS.drywall,
+    );
+
+    expect(filtered.detections.map((row) => row.itemId)).toEqual([
+      "drywall",
+      "hang",
+      "finish_tape",
+      "cleanup",
+    ]);
+  });
+
+  test("labeled homerun counts survive electrical explicit-only sanitize", () => {
     const measurements = sanitizeMeasurements(
       {
         standardCircuitCount: 12,
@@ -780,16 +936,16 @@ describe('estimatePlanToMeasurements', () => {
       },
       [],
       {},
-      ['standardCircuitCount', 'conduitLf']
+      ["standardCircuitCount", "conduitLf"],
     );
     expect(measurements.standardCircuitCount).toBe(12);
     expect(measurements.conduitLf).toBe(80);
     expect(measurements.recessedLightCount).toBe(24);
   });
 
-  test('electrical plan aliases survive sanitize and fold onto canonical keys', () => {
-    expect(MEASUREMENT_KEYS.has('duplexReceptacleCount')).toBe(true);
-    expect(MEASUREMENT_KEYS.has('gfciCount')).toBe(true);
+  test("electrical plan aliases survive sanitize and fold onto canonical keys", () => {
+    expect(MEASUREMENT_KEYS.has("duplexReceptacleCount")).toBe(true);
+    expect(MEASUREMENT_KEYS.has("gfciCount")).toBe(true);
     const aliased = sanitizeMeasurements(
       {
         duplexReceptacleCount: 42,
@@ -799,13 +955,15 @@ describe('estimatePlanToMeasurements', () => {
       },
       [],
       {},
-      []
+      [],
     );
     expect(aliased.duplexReceptacleCount).toBe(42);
     expect(aliased.gfciCount).toBe(6);
     expect(aliased.canLightCount).toBe(34);
     expect(aliased.serviceAmps).toBe(200);
-    const { normalizeElectricalPlanMeasurements } = require('../electricalPlanAdapter');
+    const {
+      normalizeElectricalPlanMeasurements,
+    } = require("../electricalPlanAdapter");
     const folded = sanitizeMeasurements(
       normalizeElectricalPlanMeasurements({
         duplexReceptacleCount: 42,
@@ -815,7 +973,7 @@ describe('estimatePlanToMeasurements', () => {
       }),
       [],
       {},
-      ['serviceAmperage']
+      ["serviceAmperage"],
     );
     expect(folded.standardReceptacleCount).toBe(42);
     expect(folded.gfciReceptacleCount).toBe(6);
@@ -824,7 +982,7 @@ describe('estimatePlanToMeasurements', () => {
     expect(folded.duplexReceptacleCount).toBeUndefined();
   });
 
-  test('unlabeled service amperage does not survive electrical explicit-only sanitize', () => {
+  test("unlabeled service amperage does not survive electrical explicit-only sanitize", () => {
     const measurements = sanitizeMeasurements(
       {
         mainPanelCount: 1,
@@ -833,14 +991,14 @@ describe('estimatePlanToMeasurements', () => {
       },
       [],
       {},
-      []
+      [],
     );
     expect(measurements.mainPanelCount).toBe(1);
     expect(measurements.standardReceptacleCount).toBe(50);
     expect(measurements.serviceAmperage).toBeUndefined();
   });
 
-  test('electrical system prompt requires symbol counting', () => {
+  test("electrical system prompt requires symbol counting", () => {
     const prompt = buildElectricalSystemPrompt();
     expect(prompt).toMatch(/COUNT visible device/i);
     expect(prompt).toMatch(/standardReceptacleCount/);
@@ -853,57 +1011,61 @@ describe('estimatePlanToMeasurements', () => {
     expect(prompt).not.toMatch(/NEVER estimate, round from visual proportions/);
   });
 
-  test('unclassified lighting fixtures become a review field, not a priced count', () => {
+  test("unclassified lighting fixtures become a review field, not a priced count", () => {
     const collected = collectUnclassifiedElectricalFixtures({
       measurements: {
         mainPanelCount: 1,
         unclassifiedFixtureCount: 4,
       },
       pdfTakeoff: { electricalInstanceTags: { unclassifiedFixtureCount: 4 } },
-      unreadableFields: [{ field: 'serviceAmperage', reason: 'No printed amperage callout' }],
+      unreadableFields: [
+        { field: "serviceAmperage", reason: "No printed amperage callout" },
+      ],
     });
     expect(collected.measurements.unclassifiedFixtureCount).toBeUndefined();
     expect(collected.measurements.mainPanelCount).toBe(1);
     expect(collected.unreadableFields).toEqual(
       expect.arrayContaining([
         {
-          field: 'unclassifiedFixtureCount',
-          reason: '4 lighting fixtures without a symbol legend',
+          field: "unclassifiedFixtureCount",
+          reason: "4 lighting fixtures without a symbol legend",
         },
-      ])
+      ]),
     );
   });
 
-  test('derivePaintingGeometryMeasurements takes exterior paint from painted elevation faces only', () => {
+  test("derivePaintingGeometryMeasurements takes exterior paint from painted elevation faces only", () => {
     const derived = derivePaintingGeometryMeasurements(
       { floorAreaSqft: 2400 },
       [],
       {
         elevationFaces: [
           {
-            id: 'front',
+            id: "front",
             widthFt: 40,
             heightFt: 10,
             paintAreaSqft: 320,
-            finish: 'siding',
+            finish: "siding",
           },
           {
-            id: 'rear',
+            id: "rear",
             widthFt: 40,
             heightFt: 10,
             stuccoAreaSqft: 400,
-            finish: 'stucco',
+            finish: "stucco",
           },
         ],
       },
-      { buildingAreas: { totalLivingSqft: 2400 } }
+      { buildingAreas: { totalLivingSqft: 2400 } },
     );
     expect(derived.measurements.exteriorPaintSqft).toBe(320);
     expect(derived.measurements.exteriorPaintSqft).not.toBe(2400);
   });
 
-  test('explicit R4 instance tags conflict with vision and stay out of priced measurements', () => {
-    const { omitUnresolvedElectricalConflicts } = require('../electricalPlanAdapter');
+  test("explicit R4 instance tags conflict with vision and stay out of priced measurements", () => {
+    const {
+      omitUnresolvedElectricalConflicts,
+    } = require("../electricalPlanAdapter");
     const merged = mergeElectricalEvidenceSources({
       generalMeasurements: {
         recessedLightCount: 20,
@@ -928,54 +1090,67 @@ describe('estimatePlanToMeasurements', () => {
       instanceTagMeasurements: { recessedLightCount: 48 },
     });
     expect(merged.measurements.recessedLightCount).toBe(48);
-    expect(merged.conflicts.some(row => row.field === 'recessedLightCount')).toBe(true);
-    const omitted = omitUnresolvedElectricalConflicts(merged.measurements, merged.conflicts);
+    expect(
+      merged.conflicts.some((row) => row.field === "recessedLightCount"),
+    ).toBe(true);
+    const omitted = omitUnresolvedElectricalConflicts(
+      merged.measurements,
+      merged.conflicts,
+    );
     expect(omitted.measurements.recessedLightCount).toBeUndefined();
     expect(omitted.measurements.mainPanelCount).toBe(1);
     expect(omitted.measurements.ceilingFanCount).toBe(8);
   });
 
-  test('deriveInsulationMeasurementsFromPlanFacts maps stucco elevation openings', () => {
-    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+  test("deriveInsulationMeasurementsFromPlanFacts maps stucco elevation openings", () => {
+    const {
+      deriveInsulationMeasurementsFromPlanFacts,
+    } = require("../estimatePlanToMeasurements");
     const result = deriveInsulationMeasurementsFromPlanFacts(
       { stuccoWindowDoorOpeningSqft: 289.6 },
       {},
     );
     expect(result.measurements.openingDeductionSqft).toBe(289.6);
-    expect(result.derivedKeys).toContain('openingDeductionSqft');
+    expect(result.derivedKeys).toContain("openingDeductionSqft");
   });
 
-  test('derives insulation wall SF from perimeter, height, stories, and openings', () => {
-    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+  test("derives insulation wall SF from perimeter, height, stories, and openings", () => {
+    const {
+      deriveInsulationMeasurementsFromPlanFacts,
+    } = require("../estimatePlanToMeasurements");
     const result = deriveInsulationMeasurementsFromPlanFacts(
       { openingDeductionSqft: 289 },
       {
         foundationPerimeterLf: 214,
         wallHeightFt: 9,
         storyCount: 1,
-        elevationFaces: [{ id: 'north', windowDoorOpeningsSqft: 289 }],
+        elevationFaces: [{ id: "north", windowDoorOpeningsSqft: 289 }],
       },
     );
     expect(result.measurements.exteriorWallGrossSqft).toBeUndefined();
     expect(result.measurements.exteriorWallInsulationSqft).toBe(1637);
   });
 
-  test('derives Plan 58 net wall SF without complete elevation-face coverage', () => {
-    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+  test("derives Plan 58 net wall SF without complete elevation-face coverage", () => {
+    const {
+      deriveInsulationMeasurementsFromPlanFacts,
+    } = require("../estimatePlanToMeasurements");
     const result = deriveInsulationMeasurementsFromPlanFacts(
       { openingDeductionSqft: 550 },
       {
         foundationPerimeterLf: 172,
         wallHeightFt: 10.2,
         storyCount: 2,
-        elevationFaces: [{ id: 'front', windowDoorOpeningsSqft: 550 }],
+        elevationFaces: [{ id: "front", windowDoorOpeningsSqft: 550 }],
       },
     );
     expect(result.measurements.exteriorWallInsulationSqft).toBe(2958.8);
   });
 
-  test('corrects AI gross wall SF to net when geometry and openings are known', () => {
-    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+  test("corrects AI gross wall SF to net when geometry and openings are known", () => {
+    const {
+      deriveInsulationMeasurementsFromPlanFacts,
+    } = require("../estimatePlanToMeasurements");
     const result = deriveInsulationMeasurementsFromPlanFacts(
       {
         exteriorWallInsulationSqft: 3508.8,
@@ -985,26 +1160,28 @@ describe('estimatePlanToMeasurements', () => {
         foundationPerimeterLf: 172,
         wallHeightFt: 10.2,
         storyCount: 2,
-        elevationFaces: [{ id: 'front', windowDoorOpeningsSqft: 550 }],
+        elevationFaces: [{ id: "front", windowDoorOpeningsSqft: 550 }],
       },
     );
     expect(result.measurements.exteriorWallInsulationSqft).toBe(2958.8);
-    expect(result.derivedKeys).toContain('exteriorWallInsulationSqft');
+    expect(result.derivedKeys).toContain("exteriorWallInsulationSqft");
   });
 
-  test('merges insulation focused passes and keeps the larger opening deduction', () => {
-    const { mergeInsulationFocusedPayloads } = require('../estimatePlanToMeasurements');
+  test("merges insulation focused passes and keeps the larger opening deduction", () => {
+    const {
+      mergeInsulationFocusedPayloads,
+    } = require("../estimatePlanToMeasurements");
     const merged = mergeInsulationFocusedPayloads(
       {
         measurements: {},
-        planFacts: { elevationFaces: [{ id: 'front' }] },
+        planFacts: { elevationFaces: [{ id: "front" }] },
       },
       {
         measurements: { openingDeductionSqft: 550 },
         planFacts: {
           elevationFaces: [
-            { id: 'front', windowDoorOpeningsSqft: 200 },
-            { id: 'rear', windowDoorOpeningsSqft: 350 },
+            { id: "front", windowDoorOpeningsSqft: 200 },
+            { id: "rear", windowDoorOpeningsSqft: 350 },
           ],
         },
       },
@@ -1013,8 +1190,10 @@ describe('estimatePlanToMeasurements', () => {
     expect(merged.planFacts.elevationFaces).toHaveLength(2);
   });
 
-  test('assumes 15% openings when labeled wall geometry is complete', () => {
-    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+  test("assumes 15% openings when labeled wall geometry is complete", () => {
+    const {
+      deriveInsulationMeasurementsFromPlanFacts,
+    } = require("../estimatePlanToMeasurements");
     const result = deriveInsulationMeasurementsFromPlanFacts(
       {},
       {
@@ -1027,14 +1206,16 @@ describe('estimatePlanToMeasurements', () => {
     expect(result.measurements.exteriorWallInsulationSqft).toBe(2982.5);
     expect(result.derivedKeys).toEqual(
       expect.arrayContaining([
-        'openingDeductionSqft',
-        'exteriorWallInsulationSqft',
+        "openingDeductionSqft",
+        "exteriorWallInsulationSqft",
       ]),
     );
   });
 
-  test('ignores partial low-confidence opening deductions in favor of 15%', () => {
-    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+  test("ignores partial low-confidence opening deductions in favor of 15%", () => {
+    const {
+      deriveInsulationMeasurementsFromPlanFacts,
+    } = require("../estimatePlanToMeasurements");
     const result = deriveInsulationMeasurementsFromPlanFacts(
       {
         exteriorWallInsulationSqft: 3508.8,
@@ -1050,8 +1231,10 @@ describe('estimatePlanToMeasurements', () => {
     expect(result.measurements.exteriorWallInsulationSqft).toBe(2982.5);
   });
 
-  test('derives attic SF from ceiling-boundary components', () => {
-    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+  test("derives attic SF from ceiling-boundary components", () => {
+    const {
+      deriveInsulationMeasurementsFromPlanFacts,
+    } = require("../estimatePlanToMeasurements");
     const result = deriveInsulationMeasurementsFromPlanFacts(
       {},
       {
@@ -1064,11 +1247,13 @@ describe('estimatePlanToMeasurements', () => {
       },
     );
     expect(result.measurements.atticInsulationSqft).toBe(2260);
-    expect(result.derivedKeys).toContain('atticInsulationSqft');
+    expect(result.derivedKeys).toContain("atticInsulationSqft");
   });
 
-  test('normalizes an unqualified gross wall total when only openings are known', () => {
-    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+  test("normalizes an unqualified gross wall total when only openings are known", () => {
+    const {
+      deriveInsulationMeasurementsFromPlanFacts,
+    } = require("../estimatePlanToMeasurements");
     const result = deriveInsulationMeasurementsFromPlanFacts(
       {
         exteriorWallInsulationSqft: 3508.8,
@@ -1077,10 +1262,10 @@ describe('estimatePlanToMeasurements', () => {
       {},
     );
     expect(result.measurements.exteriorWallInsulationSqft).toBe(2958.8);
-    expect(result.derivedKeys).toContain('exteriorWallInsulationSqft');
+    expect(result.derivedKeys).toContain("exteriorWallInsulationSqft");
   });
 
-  test('does not publish gross wall SF as net when openings are missing', () => {
+  test("does not publish gross wall SF as net when openings are missing", () => {
     const result = validateInsulationMeasurementsAgainstPlanFacts(
       { exteriorWallInsulationSqft: 3508.8 },
       {
@@ -1090,10 +1275,10 @@ describe('estimatePlanToMeasurements', () => {
       },
     );
     expect(result.measurements.exteriorWallInsulationSqft).toBeUndefined();
-    expect(result.invalidKeys).toContain('exteriorWallInsulationSqft');
+    expect(result.invalidKeys).toContain("exteriorWallInsulationSqft");
   });
 
-  test('does not delete a perimeter-derived wall SF when only one elevation face exists', () => {
+  test("does not delete a perimeter-derived wall SF when only one elevation face exists", () => {
     const result = validateInsulationMeasurementsAgainstPlanFacts(
       {
         exteriorWallInsulationSqft: 2958.8,
@@ -1103,15 +1288,17 @@ describe('estimatePlanToMeasurements', () => {
         foundationPerimeterLf: 172,
         wallHeightFt: 10.2,
         storyCount: 2,
-        elevationFaces: [{ id: 'front', windowDoorOpeningsSqft: 550 }],
+        elevationFaces: [{ id: "front", windowDoorOpeningsSqft: 550 }],
       },
     );
     expect(result.measurements.exteriorWallInsulationSqft).toBe(2958.8);
     expect(result.measurements.openingDeductionSqft).toBe(550);
   });
 
-  test('derives net insulation wall SF only from complete geometry and openings', () => {
-    const { deriveInsulationMeasurementsFromPlanFacts } = require('../estimatePlanToMeasurements');
+  test("derives net insulation wall SF only from complete geometry and openings", () => {
+    const {
+      deriveInsulationMeasurementsFromPlanFacts,
+    } = require("../estimatePlanToMeasurements");
     const result = deriveInsulationMeasurementsFromPlanFacts(
       {},
       {
@@ -1119,8 +1306,8 @@ describe('estimatePlanToMeasurements', () => {
         wallHeightFt: 9,
         storyCount: 1,
         elevationFaces: [
-          { id: 'north', areaSqft: 1000, windowDoorOpeningsSqft: 100 },
-          { id: 'south', areaSqft: 926, windowDoorOpeningsSqft: 189 },
+          { id: "north", areaSqft: 1000, windowDoorOpeningsSqft: 100 },
+          { id: "south", areaSqft: 926, windowDoorOpeningsSqft: 189 },
         ],
       },
     );
@@ -1128,35 +1315,33 @@ describe('estimatePlanToMeasurements', () => {
     expect(result.measurements.exteriorWallInsulationSqft).toBe(1637);
     expect(result.derivedKeys).toEqual(
       expect.arrayContaining([
-        'openingDeductionSqft',
-        'exteriorWallInsulationSqft',
+        "openingDeductionSqft",
+        "exteriorWallInsulationSqft",
       ]),
     );
   });
 
-  test('rejects incomplete single-face insulation wall and opening values', () => {
+  test("rejects incomplete single-face insulation wall and opening values", () => {
     const result = validateInsulationMeasurementsAgainstPlanFacts(
       {
         exteriorWallInsulationSqft: 487.6,
         openingDeductionSqft: 72.4,
       },
       {
-        elevationFaces: [
-          { id: 'front', areaSqft: 560, openingsSqft: 72.4 },
-        ],
+        elevationFaces: [{ id: "front", areaSqft: 560, openingsSqft: 72.4 }],
       },
     );
     expect(result.measurements.exteriorWallInsulationSqft).toBeUndefined();
     expect(result.measurements.openingDeductionSqft).toBeUndefined();
     expect(result.invalidKeys).toEqual(
       expect.arrayContaining([
-        'exteriorWallInsulationSqft',
-        'openingDeductionSqft',
+        "exteriorWallInsulationSqft",
+        "openingDeductionSqft",
       ]),
     );
   });
 
-  test('recalculates insulation values from complete wall geometry', () => {
+  test("recalculates insulation values from complete wall geometry", () => {
     const result = validateInsulationMeasurementsAgainstPlanFacts(
       {
         exteriorWallGrossSqft: 487.6,
@@ -1168,8 +1353,8 @@ describe('estimatePlanToMeasurements', () => {
         wallHeightFt: 9,
         storyCount: 1,
         elevationFaces: [
-          { id: 'front', areaSqft: 1000, openingsSqft: 100 },
-          { id: 'rear', areaSqft: 1000, openingsSqft: 100 },
+          { id: "front", areaSqft: 1000, openingsSqft: 100 },
+          { id: "rear", areaSqft: 1000, openingsSqft: 100 },
         ],
       },
     );
@@ -1178,7 +1363,7 @@ describe('estimatePlanToMeasurements', () => {
     expect(result.measurements.exteriorWallInsulationSqft).toBe(1726);
   });
 
-  test('insulation selected-trade filter keeps canonical envelope keys', () => {
+  test("insulation selected-trade filter keeps canonical envelope keys", () => {
     const filtered = filterPlanMeasurementsForTrade(
       {
         openingDeductionSqft: 289.6,
@@ -1187,7 +1372,7 @@ describe('estimatePlanToMeasurements', () => {
         stuccoWindowDoorOpeningSqft: 289.6,
         drywallSqft: 12000,
       },
-      'selected_trade',
+      "selected_trade",
       TRADE_CONFIGS.insulation,
     );
     expect(filtered.openingDeductionSqft).toBe(289.6);

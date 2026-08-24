@@ -64,6 +64,9 @@ export type QuickMeasurementFieldKey =
   | 'roofGutterLf'
   | 'roofDownspoutCount'
   | 'drywallSqft'
+  | 'drywallWallSqft'
+  | 'drywallCeilingSqft'
+  | 'drywallOpeningDeductionSqft'
   | 'exteriorWallGrossSqft'
   | 'exteriorWallInsulationSqft'
   | 'atticInsulationSqft'
@@ -144,7 +147,11 @@ export type QuickMeasurementFieldKey =
   | 'framingCleanupCount';
 
 export type QuickMeasurementGroupId =
-  'site' | 'structure' | 'interior' | 'exterior' | 'other';
+  | 'site'
+  | 'structure'
+  | 'interior'
+  | 'exterior'
+  | 'other';
 
 export type QuickMeasurementFieldDef = {
   key: QuickMeasurementFieldKey;

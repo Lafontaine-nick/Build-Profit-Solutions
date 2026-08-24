@@ -200,6 +200,22 @@ describe('plan takeoff review UI polish', () => {
     expect(confirmed.some(l => /takeoff confirmed/i.test(l))).toBe(true);
   });
 
+  it('distinguishes drywall review readiness from confirmation', () => {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
+    const ready = scopeTakeoffStatusLines({
+      itemId: 'drywall',
+      hasDrywallPrimaryTakeoff: true,
+    });
+    expect(ready.some(l => /ready for review/i.test(l))).toBe(true);
+
+    const confirmed = scopeTakeoffStatusLines({
+      itemId: 'drywall',
+      hasDrywallPrimaryTakeoff: true,
+      drywallPrimaryConfirmed: true,
+    });
+    expect(confirmed.some(l => /takeoff confirmed/i.test(l))).toBe(true);
+  });
+
   it('keeps imported plan summary distinct and provides collapsed subtitle', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     const merged = 'Customer wants LVP in living areas.\n\n--- Plan takeoff ---\nTotal living area is 1879 sqft.\n';

@@ -182,6 +182,14 @@ import {
   syncMeasurementsWithSouthernUtahPlanFacts,
 } from '@/utils/quickMeasurementEstimates';
 import {
+  DRYWALL_PRODUCTION_ASSEMBLY_BASELINE,
+  DRYWALL_PRODUCTION_RATE_CARD_LABEL,
+  drywallSurfaceFromComponents,
+  drywallSurfacePlanningQuantity,
+  hasDrywallSurfaceComponentTakeoff,
+  isProtectedDrywallQuantity,
+} from '@/utils/subcontractorTrade/drywallPlanConvergence';
+import {
   insulationEnvelopeInputsFromPlanFacts,
   resolveInsulationEnvelopePlanningQuantity,
   type InsulationEnvelopeInputs,
@@ -525,6 +533,9 @@ export type NormalizedScopeMeasurements = {
   roofGutterLf: number | null;
   roofDownspoutCount: number | null;
   drywallSqft: number | null;
+  drywallWallSqft: number | null;
+  drywallCeilingSqft: number | null;
+  drywallOpeningDeductionSqft: number | null;
   concreteSqft: number | null;
   concreteReinforcementSqft: number | null;
   concreteSealerSqft: number | null;
@@ -579,7 +590,8 @@ export type NormalizedScopeMeasurements = {
   insulationMaterialType: string | null;
   insulationRValue: string | null;
   garageInsulationIncluded: string | null;
-  insulationAssemblies: import('@/utils/estimateAiDraft').InsulationAssembly[] | null;
+  insulationAssemblies:
+    import('@/utils/estimateAiDraft').InsulationAssembly[] | null;
   planFacts?: ScopeMeasurements['planFacts'];
   quickMeasurementSources?: Record<string, string>;
   railingLf: number | null;
@@ -4750,6 +4762,7 @@ function nationalAverageMaterialBucketLabel(
 ): string {
   if (average?.materialBucketLabel) return average.materialBucketLabel;
   if (itemId === 'excavation') return 'Equipment';
+  if (itemId === 'drywall') return 'Drywall board and accessories';
   return 'Material';
 }
 
@@ -4760,6 +4773,8 @@ function nationalAverageLaborBucketLabel(
   if (average?.laborBucketLabel) return average.laborBucketLabel;
   if (average?.unit === 'allowance' || average?.unit === 'lump_sum')
     return 'Allowance';
+  if (itemId === 'drywall')
+    return 'Hang, tape, finish, and standard texture labor';
   return 'Labor';
 }
 
@@ -6299,6 +6314,14 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper: 'Enter drywall finish sqft.',
     missingMessage: 'Enter drywall sqft.',
   },
+  texture: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'drywallSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter drywall texture or specialty-finish sqft.',
+    missingMessage: 'Enter texture sqft or pricing.',
+  },
   patch_repair: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
@@ -6473,10 +6496,11 @@ export function normalizeScopeMeasurements(
     roofGutterLf: num(measurements?.roofGutterLf),
     roofDownspoutCount: num(measurements?.roofDownspoutCount),
     drywallSqft: num(measurements?.drywallSqft),
+    drywallWallSqft: num(measurements?.drywallWallSqft),
+    drywallCeilingSqft: num(measurements?.drywallCeilingSqft),
+    drywallOpeningDeductionSqft: num(measurements?.drywallOpeningDeductionSqft),
     exteriorWallGrossSqft: num(measurements?.exteriorWallGrossSqft),
-    exteriorWallInsulationSqft: num(
-      measurements?.exteriorWallInsulationSqft
-    ),
+    exteriorWallInsulationSqft: num(measurements?.exteriorWallInsulationSqft),
     atticInsulationSqft: num(measurements?.atticInsulationSqft),
     insulatedRoofDeckSqft: num(measurements?.insulatedRoofDeckSqft),
     floorInsulationSqft: num(measurements?.floorInsulationSqft),
@@ -6484,9 +6508,7 @@ export function normalizeScopeMeasurements(
       measurements?.garageSeparationInsulationSqft
     ),
     insulatedGarageWallSqft: num(measurements?.insulatedGarageWallSqft),
-    insulatedGarageCeilingSqft: num(
-      measurements?.insulatedGarageCeilingSqft
-    ),
+    insulatedGarageCeilingSqft: num(measurements?.insulatedGarageCeilingSqft),
     openingDeductionSqft: num(measurements?.openingDeductionSqft),
     insulationMaterialType: measurements?.insulationMaterialType ?? null,
     insulationRValue: measurements?.insulationRValue ?? null,
@@ -7935,7 +7957,12 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
     floor_prep: { unit: 'sqft', measurementKeys: ['floorPrepSqft'] },
     drywall: {
       unit: 'sqft',
-      measurementKeys: ['drywallSqft', 'floorAreaSqft'],
+      measurementKeys: [
+        'drywallSqft',
+        'drywallWallSqft',
+        'drywallCeilingSqft',
+        'drywallOpeningDeductionSqft',
+      ],
     },
     hang: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
     finish_tape: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
@@ -8407,6 +8434,12 @@ export function resolveSuggestAlignedEditorPricingBasis(
     livingSf &&
     livingSf > 0
   ) {
+    const componentQuantity = drywallSurfaceFromComponents(
+      measurementsInput as unknown as Record<string, unknown>
+    );
+    if (componentQuantity != null) {
+      return { quantity: componentQuantity, unit: 'sqft' };
+    }
     const drywallSf = parseScopeMeasurementInput(
       String(measurementsInput.drywallSqft ?? '')
     );
@@ -8711,6 +8744,9 @@ export function resolveAllowanceEditorPricingBasis(
         if (
           (id === 'drywall' || id === 'hang' || id === 'finish_tape') &&
           key === 'drywallSqft' &&
+          !hasDrywallSurfaceComponentTakeoff(
+            measurementsInput as unknown as Record<string, unknown>
+          ) &&
           livingSf &&
           isUndercountedDrywallSurface(quantity, livingSf) &&
           suggestAligned
@@ -9181,9 +9217,12 @@ export function syncItemQuantitiesToMeasurementFields(
     Number(next.exteriorWallInsulationSqft) ||
     Number(next.exteriorWallGrossSqft);
   const insulationOpenings = Number(next.openingDeductionSqft);
-  const hasInsulationAssemblies =
-    resolvedInsulationAssemblies(next).length > 0;
-  if (insulationWalls > 0 || insulationOpenings > 0 || hasInsulationAssemblies) {
+  const hasInsulationAssemblies = resolvedInsulationAssemblies(next).length > 0;
+  if (
+    insulationWalls > 0 ||
+    insulationOpenings > 0 ||
+    hasInsulationAssemblies
+  ) {
     const envelope = resolveInsulationEnvelopePlanningQuantity(
       insulationEnvelopeInputsFromPlanFacts(
         next.planFacts,
@@ -10879,6 +10918,33 @@ function rateSourceLabelFor(
   return 'Suggested · National Average';
 }
 
+function drywallScopeRowIncluded(
+  pricingContext: ScopePricingContext | null | undefined,
+  itemId: string
+): boolean {
+  return Boolean(
+    pricingContext?.checklistItems?.some(
+      item =>
+        item.id === itemId &&
+        String(item.state || '').toLowerCase() === 'included' &&
+        String(item.choiceId || '').toLowerCase() !== 'no'
+    )
+  );
+}
+
+function drywallAddonHasExplicitPricing(
+  resolved: Pick<
+    ResolvedItemQuantity,
+    'dualMaterial' | 'dualLabor' | 'dualAllowance'
+  >
+): boolean {
+  return [
+    resolved.dualMaterial,
+    resolved.dualLabor,
+    resolved.dualAllowance,
+  ].some(value => Number(value?.quantity) > 0);
+}
+
 function regionalPricingFromContext(
   pricingContext?: ScopePricingContext | null
 ): ResolvedRegionalPricing {
@@ -12183,12 +12249,8 @@ function insulationAssemblyRateAdjustmentsForValues(
     'mineral wool': [1.35, 1.15],
   };
   const typeKey = Object.keys(typeRates).find(key => type.includes(key));
-  const [typeMaterial, typeLabor] = typeKey
-    ? typeRates[typeKey]
-    : [1, 1];
-  const rValue = Number(
-    String(rValueInput || '').match(/\d{2,3}/)?.[0] || ''
-  );
+  const [typeMaterial, typeLabor] = typeKey ? typeRates[typeKey] : [1, 1];
+  const rValue = Number(String(rValueInput || '').match(/\d{2,3}/)?.[0] || '');
   const rMaterial =
     {
       13: 0.85,
@@ -12200,13 +12262,9 @@ function insulationAssemblyRateAdjustmentsForValues(
       49: 1.5,
       60: 1.7,
     }[rValue] ??
-    (rValue > 0
-      ? Math.max(0.85, Math.min(1.7, 0.65 + rValue / 60))
-      : 1);
+    (rValue > 0 ? Math.max(0.85, Math.min(1.7, 0.65 + rValue / 60)) : 1);
   const materialAddPerSqft =
-    typeKey === 'batt'
-      ? insulationBattFacingMaterialAddPerSqft(battFacing)
-      : 0;
+    typeKey === 'batt' ? insulationBattFacingMaterialAddPerSqft(battFacing) : 0;
   return {
     materialMultiplier: typeMaterial * rMaterial,
     materialAddPerSqft,
@@ -12310,12 +12368,13 @@ function insulationRateAdjustmentsForMeasurements(
     materialAddPerSqft,
     laborMultiplier,
     label: rows
-      .map(row =>
-        insulationAssemblyRateAdjustmentsForValues(
-          row.materialType,
-          row.rValue,
-          row.battFacing
-        ).label
+      .map(
+        row =>
+          insulationAssemblyRateAdjustmentsForValues(
+            row.materialType,
+            row.rValue,
+            row.battFacing
+          ).label
       )
       .join(' + '),
   };
@@ -12435,7 +12494,7 @@ function resolveInsulationAssemblyPlanningRates(
     const adjusted =
       regional.multiplier === 1
         ? base
-        : applyRegionalMultiplierToBudgetSplit(base, regional) ?? base;
+        : (applyRegionalMultiplierToBudgetSplit(base, regional) ?? base);
     return {
       material: adjusted?.material ?? base.material,
       labor: adjusted?.labor ?? base.labor,
@@ -12454,7 +12513,7 @@ function resolveInsulationAssemblyPlanningRates(
     const adjusted =
       regional.multiplier === 1
         ? base
-        : applyRegionalMultiplierToBudgetSplit(base, regional) ?? base;
+        : (applyRegionalMultiplierToBudgetSplit(base, regional) ?? base);
     return {
       material: adjusted?.material ?? base.material,
       labor: adjusted?.labor ?? base.labor,
@@ -12592,12 +12651,8 @@ function priceInsulationEnvelopeComponents(params: {
       const rowLaborRate = locationRate
         ? locationRate.labor * rowAssembly.laborMultiplier
         : standardLaborRate * rowAssembly.laborMultiplier;
-      material += round2(
-        row.sqft * rowMaterialRate
-      );
-      labor += round2(
-        row.sqft * rowLaborRate
-      );
+      material += round2(row.sqft * rowMaterialRate);
+      labor += round2(row.sqft * rowLaborRate);
       const facingLabel = insulationBattFacingLabel(row.battFacing);
       detail.push(
         `${Math.round(row.sqft).toLocaleString()} SF ${row.materialType}${
@@ -12616,8 +12671,7 @@ function priceInsulationEnvelopeComponents(params: {
   }
 
   const roofDeck = params.envelope?.components.find(
-    component =>
-      component.key === 'insulatedRoofDeckSqft' && component.included
+    component => component.key === 'insulatedRoofDeckSqft' && component.included
   );
   if (!assemblies.length && roofDeck && roofDeck.quantity > 0) {
     const rate = INSULATION_COMPONENT_RATES.insulatedRoofDeckSqft;
@@ -12644,9 +12698,10 @@ function priceInsulationEnvelopeComponents(params: {
 
   for (const component of params.envelope?.components || []) {
     if (!component.included || baseKeys.has(component.key)) continue;
-    const rate = INSULATION_COMPONENT_RATES[
-      component.key as keyof typeof INSULATION_COMPONENT_RATES
-    ];
+    const rate =
+      INSULATION_COMPONENT_RATES[
+        component.key as keyof typeof INSULATION_COMPONENT_RATES
+      ];
     if (!rate || !(component.quantity > 0)) continue;
     const materialRate = rate.material * params.assembly.materialMultiplier;
     const laborRate = rate.labor * params.assembly.laborMultiplier;
@@ -12867,12 +12922,14 @@ export function resolveInsulationAssemblyScopeSuggestedPricing(
   }
 
   const assemblyCount = pricingMap.size;
-  const codeWarnings = insulationAssemblyCodeWarnings(rows, pricingContext?.state);
+  const codeWarnings = insulationAssemblyCodeWarnings(
+    rows,
+    pricingContext?.state
+  );
   const ceilingRoofConflict = insulationAssemblyCeilingRoofDeckConflict(rows);
-  const reviewNotes = [
-    ceilingRoofConflict.message,
-    ...codeWarnings,
-  ].filter(Boolean);
+  const reviewNotes = [ceilingRoofConflict.message, ...codeWarnings].filter(
+    Boolean
+  );
   const project = matchSouthernUtahProjectByLivingSf(livingSf);
   const productionHelper =
     resolvedTier === 'production' && project
@@ -12964,6 +13021,19 @@ export function resolveScopeItemSuggestedPricing(
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
+  const isDrywallAddon =
+    itemId === 'hang' || itemId === 'finish_tape' || itemId === 'texture';
+  if (
+    isDrywallAddon &&
+    !drywallAddonHasExplicitPricing(resolved) &&
+    (drywallScopeRowIncluded(pricingContext, 'drywall') ||
+      (itemId !== 'hang' && drywallScopeRowIncluded(pricingContext, 'hang')))
+  ) {
+    // The base drywall rate already includes board, hang, tape, finish, and
+    // standard texture. Add-on rows require explicit pricing so they cannot
+    // silently multiply the full assembly rate.
+    return empty;
+  }
   const hasConfirmedInsulationBoundary =
     itemId === 'insulation' &&
     (Array.isArray(measurementsInput.insulationAssemblies)
@@ -12976,7 +13046,9 @@ export function resolveScopeItemSuggestedPricing(
             'estimated_from_formula',
             'needs_confirmation',
           ].includes(
-            String(measurementsInput.quickMeasurementSources?.atticInsulationSqft)
+            String(
+              measurementsInput.quickMeasurementSources?.atticInsulationSqft
+            )
           )) ||
         Number(measurementsInput.insulatedRoofDeckSqft) > 0);
   if (
@@ -14859,6 +14931,35 @@ export function resolveScopeItemSuggestedPricing(
     pricingContext
   );
   let average = averageInitial;
+  if (
+    itemId === 'drywall' &&
+    String(templateKey || '').toLowerCase() === 'ground_up'
+  ) {
+    const livingSf = parseScopeMeasurementInput(
+      measurementsInput.floorAreaSqft
+    );
+    const project = matchSouthernUtahProjectByLivingSf(livingSf);
+    if (project) {
+      const baseline = DRYWALL_PRODUCTION_ASSEMBLY_BASELINE;
+      const adjusted =
+        regional.multiplier === 1
+          ? baseline
+          : applyRegionalMultiplierToBudgetSplit(baseline, regional) ||
+            baseline;
+      average = {
+        ...(average || {}),
+        unit: 'sqft',
+        material: adjusted.material,
+        labor: adjusted.labor,
+        sourceLabel: `${DRYWALL_PRODUCTION_RATE_CARD_LABEL} · ${project.label} SHV benchmark`,
+        rateSource: 'bps_southern_utah_calibrated',
+        rateSourceReference:
+          'Installed H41 drywall benchmark converted to a wall + ceiling SF production split; state multiplier applied when available',
+        productionStatus: 'production_ready',
+        geographicBasis: 'southern_utah',
+      };
+    }
+  }
   if (isStuccoTemplate && itemId === 'stucco') {
     const systemRates: Record<
       string,
@@ -15228,7 +15329,8 @@ export function resolveScopeItemSuggestedPricing(
     average?.material != null &&
     average?.labor != null
   ) {
-    const assembly = insulationRateAdjustmentsForMeasurements(measurementsInput);
+    const assembly =
+      insulationRateAdjustmentsForMeasurements(measurementsInput);
     average = {
       ...average,
       material: round2(
@@ -15430,10 +15532,10 @@ export function resolveScopeItemSuggestedPricing(
         state: pricingContext?.state,
       });
       const assemblyRows = resolvedInsulationAssemblies(measurementsInput);
-      const assembly = insulationRateAdjustmentsForMeasurements(
-        measurementsInput
-      );
-      const legacyAssembly = insulationAssemblyRateAdjustments(measurementsInput);
+      const assembly =
+        insulationRateAdjustmentsForMeasurements(measurementsInput);
+      const legacyAssembly =
+        insulationAssemblyRateAdjustments(measurementsInput);
       const adjustedLegacyLump = {
         ...lump,
         material: round2(lump.material * legacyAssembly.materialMultiplier),
@@ -15803,18 +15905,24 @@ export function resolveScopeItemSuggestedPricing(
     (itemId === 'drywall' || itemId === 'hang' || itemId === 'finish_tape') &&
     String(templateKey || '').toLowerCase() === 'ground_up'
   ) {
+    const componentQuantity = drywallSurfaceFromComponents(
+      measurementsInput as unknown as Record<string, unknown>
+    );
+    if (componentQuantity != null) {
+      count = componentQuantity;
+      unit = 'sqft';
+    }
     const livingSf = parseScopeMeasurementInput(
       measurementsInput.floorAreaSqft
     );
-    const SURFACE_MULTIPLIER = 3.5;
-    if (livingSf && livingSf > 0) {
+    if (componentQuantity == null && livingSf && livingSf > 0) {
       const floorProxy =
         !count ||
         count <= 0 ||
         Math.abs(count - livingSf) < 0.51 ||
         isUndercountedDrywallSurface(count, livingSf);
       if (floorProxy) {
-        const surfaceSf = Math.round(livingSf * SURFACE_MULTIPLIER);
+        const surfaceSf = drywallSurfacePlanningQuantity(livingSf);
         const reframed = regionalAdjustedNationalAverage(
           itemId,
           'sqft',
@@ -17327,7 +17435,18 @@ function applyAutoDrywallSurfaceQuantity(
   const stored = measurements.itemQuantities[itemId];
   if (
     stored?.quantitySource === 'user_entered' ||
-    stored?.quantitySource === 'manual_override'
+    stored?.quantitySource === 'manual_override' ||
+    hasDrywallSurfaceComponentTakeoff(
+      measurements as unknown as Record<string, unknown>
+    ) ||
+    isProtectedDrywallQuantity(
+      measurements as unknown as Record<string, unknown>,
+      'drywallSqft'
+    ) ||
+    isProtectedDrywallQuantity(
+      measurements as unknown as Record<string, unknown>,
+      itemId
+    )
   ) {
     return resolved;
   }
@@ -17343,8 +17462,9 @@ function applyAutoDrywallSurfaceQuantity(
     isUndercountedDrywallSurface(current, living);
   if (!needsSurface) return resolved;
 
-  // Same 3.5× as surface_area_from_floor_area_benchmark (avoid importing formula registry here).
-  const surfaceSf = Math.round(living * 3.5);
+  // Same 3.5× surface fallback used by Quick Measurement, kept in the
+  // canonical drywall convergence module.
+  const surfaceSf = drywallSurfacePlanningQuantity(living);
   if (!(surfaceSf > 0)) return resolved;
 
   return {
@@ -17563,7 +17683,10 @@ function resolveChecklistItemQuantityCore(
       Number(measurements.atticInsulationSqft) > 0 ||
       Number(measurements.insulatedRoofDeckSqft) > 0 ||
       Number(measurements.openingDeductionSqft) > 0);
-  if (itemId === 'insulation' && Array.isArray(measurements.insulationAssemblies)) {
+  if (
+    itemId === 'insulation' &&
+    Array.isArray(measurements.insulationAssemblies)
+  ) {
     const assemblyRows = resolvedInsulationAssemblies(
       measurements as ScopeMeasurementsInputExtended
     );
@@ -17620,19 +17743,18 @@ function resolveChecklistItemQuantityCore(
       atticIsSuggested ||
       (!hasCeilingBoundary &&
         Number(envelopeInputs.conditionedCeilingAreaSqft) > 0);
-    const envelope = resolveInsulationEnvelopePlanningQuantity(
-      envelopeInputs
-    );
+    const envelope = resolveInsulationEnvelopePlanningQuantity(envelopeInputs);
     if (envelope?.totalInsulationEnvelopeSqft > 0) {
       return {
         quantity: envelope.totalInsulationEnvelopeSqft,
         unit: 'sqft',
         quantitySource: 'inferred',
-        sourceLabel: hasWallTakeoff && hasCeilingBoundary
-          ? 'Whole-house insulation · plan takeoff'
-          : hasWallTakeoff && hasSuggestedCeiling
-            ? 'Calculated conditioned ceiling area · confirm'
-            : 'Partial insulation takeoff · ceiling boundary required',
+        sourceLabel:
+          hasWallTakeoff && hasCeilingBoundary
+            ? 'Whole-house insulation · plan takeoff'
+            : hasWallTakeoff && hasSuggestedCeiling
+              ? 'Calculated conditioned ceiling area · confirm'
+              : 'Partial insulation takeoff · ceiling boundary required',
         pricingReady: hasWallTakeoff && hasCeilingBoundary,
         quantityHelper:
           hasWallTakeoff && hasCeilingBoundary
@@ -20168,10 +20290,13 @@ export function scopeMeasurementsInputFromPayload(
     stuccoWallHeightFt: measurementFieldString(payload.stuccoWallHeightFt),
     ...Object.fromEntries(
       Object.entries(
-        copyInsulationScopeNumericFields(payload as Record<string, unknown>, value => {
-          const n = Number(value);
-          return Number.isFinite(n) && n > 0 ? n : null;
-        })
+        copyInsulationScopeNumericFields(
+          payload as Record<string, unknown>,
+          value => {
+            const n = Number(value);
+            return Number.isFinite(n) && n > 0 ? n : null;
+          }
+        )
       ).map(([key, value]) => [key, value != null ? String(value) : ''])
     ),
     ...Object.fromEntries(
@@ -21218,12 +21343,14 @@ export function initialScopeMeasurementInputExtended(
   };
 
   const pickString = (key: QuickMeasurementFieldKey) => {
-    const parsedNoteValue = parsedFromNotes[key as keyof typeof parsedFromNotes];
+    const parsedNoteValue =
+      parsedFromNotes[key as keyof typeof parsedFromNotes];
     if (typeof parsedNoteValue === 'string' && parsedNoteValue.trim()) {
       return parsedNoteValue.trim();
     }
     const fromNotes = suggested?.[key as keyof ScopeMeasurements];
-    if (typeof fromNotes === 'string' && fromNotes.trim()) return fromNotes.trim();
+    if (typeof fromNotes === 'string' && fromNotes.trim())
+      return fromNotes.trim();
     const savedValue = saved?.[key as keyof ScopeMeasurements];
     if (typeof savedValue === 'string' && savedValue.trim()) {
       return savedValue.trim();

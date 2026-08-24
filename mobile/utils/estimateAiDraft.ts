@@ -80,6 +80,10 @@ import {
   normalizeFramingPlanMeasurements,
   syncFramingScopeItems,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
+import {
+  DRYWALL_PLAN_REVIEW_MEASUREMENT_KEYS,
+  normalizeDrywallPlanMeasurements,
+} from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import { reconcileFramingScopeMeasurements } from '@/utils/planTakeoffReviewUi';
 import type { NormalizedTradeMeasurements } from '@/utils/subcontractorTrade/types';
 import type {
@@ -420,6 +424,9 @@ export type ScopeMeasurements = {
   roofGutterLf?: number | null;
   roofDownspoutCount?: number | null;
   drywallSqft?: number | null;
+  drywallWallSqft?: number | null;
+  drywallCeilingSqft?: number | null;
+  drywallOpeningDeductionSqft?: number | null;
   exteriorWallGrossSqft?: number | null;
   exteriorWallInsulationSqft?: number | null;
   atticInsulationSqft?: number | null;
@@ -1218,6 +1225,20 @@ export function repairDraftRatePricingFromNotes(
     mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
       mergedScopeMeasurements,
       normalizedPlumbing
+    );
+  }
+  if (
+    draft.scopeChecklist?.templateKey === 'drywall' ||
+    draft.projectType === 'drywall'
+  ) {
+    const normalizedDrywall = normalizeTradeMeasurements(
+      'drywall',
+      { ...parsed, notes: text },
+      'notes'
+    );
+    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+      mergedScopeMeasurements,
+      normalizedDrywall
     );
   }
 
@@ -2490,7 +2511,8 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
 
   if (
     payload.selectedTrade === 'plumbing' ||
-    payload.selectedTrade === 'electrical'
+    payload.selectedTrade === 'electrical' ||
+    payload.selectedTrade === 'drywall'
   ) {
     const normalizationInput =
       payload.selectedTrade === 'plumbing'
@@ -3405,7 +3427,8 @@ function normalizeImportedTradeMeasurements(
     tradeKey !== 'painting' &&
     tradeKey !== 'electrical' &&
     tradeKey !== 'plumbing' &&
-    tradeKey !== 'framing'
+    tradeKey !== 'framing' &&
+    tradeKey !== 'drywall'
   )
     return null;
   return normalizeTradeMeasurements(
@@ -3430,6 +3453,12 @@ function normalizeTradePlanMeasurements(
   }
   if (tradeKey === 'framing') {
     return normalizeFramingPlanMeasurements(measurements) as Record<
+      string,
+      number | string
+    >;
+  }
+  if (tradeKey === 'drywall') {
+    return normalizeDrywallPlanMeasurements(measurements) as Record<
       string,
       number | string
     >;
@@ -3501,8 +3530,7 @@ function stripWholeProjectScopeMeasurements(
           storyCount: scopeMeasurements?.storyCount,
           floorAreaSource:
             scopeMeasurements?.quickMeasurementSources?.floorAreaSqft,
-          storySource:
-            scopeMeasurements?.quickMeasurementSources?.storyCount,
+          storySource: scopeMeasurements?.quickMeasurementSources?.storyCount,
         }
       : null;
   const next: ScopeMeasurements = { ...(scopeMeasurements || {}) };
@@ -3725,6 +3753,43 @@ function standaloneInsulationChecklistItems(): ScopeChecklistItem[] {
   ];
 }
 
+function standaloneDrywallChecklistItems(): ScopeChecklistItem[] {
+  return [
+    {
+      id: 'drywall',
+      label: 'Drywall board, hang, tape & finish',
+      helperText:
+        'Price the canonical wall + ceiling surface SF once. Standard board, hanging, taping, finishing, and texture are included unless separately confirmed.',
+      category: 'Drywall',
+      state: 'unsure' as const,
+    },
+    {
+      id: 'texture',
+      label: 'Texture / specialty finish',
+      helperText:
+        'Add only for texture or specialty finish work outside the base drywall assembly.',
+      category: 'Drywall add-ons',
+      state: 'unsure' as const,
+    },
+    {
+      id: 'patch_repair',
+      label: 'Drywall patch / repair',
+      helperText:
+        'Use affected repair SF only; do not reuse the full new-drywall surface quantity.',
+      category: 'Drywall add-ons',
+      state: 'unsure' as const,
+    },
+    {
+      id: 'cleanup',
+      label: 'Cleanup & disposal',
+      helperText:
+        'Confirm debris handling and final cleanup separately from drywall installation.',
+      category: 'Drywall add-ons',
+      state: 'unsure' as const,
+    },
+  ];
+}
+
 function standalonePlumbingChecklistItems(
   mode: PlumbingWorkflowMode | null | undefined
 ): ScopeChecklistItem[] {
@@ -3868,6 +3933,26 @@ export function applyPlanImportToDraft(
         repeatReviewElectricalFields.add(key);
       }
     }
+    if (planImportTradeKey === 'drywall') {
+      for (const key of DRYWALL_PLAN_REVIEW_MEASUREMENT_KEYS) {
+        const previous = previousMeasurements[key];
+        const previousNumber = Number(previous);
+        const incoming = rawMeasurements[key];
+        const incomingNumber = Number(incoming);
+        if (
+          Number.isFinite(previousNumber) &&
+          previousNumber > 0 &&
+          (incoming == null ||
+            incoming === '' ||
+            !Number.isFinite(incomingNumber) ||
+            incomingNumber !== previousNumber)
+        ) {
+          // Same fingerprint means the same document. Keep the prior accepted
+          // takeoff rather than allowing a weaker vision re-read to revert it.
+          rawMeasurements[key] = previous as number | string;
+        }
+      }
+    }
   }
   const filteredPlanMeasurements = filterPlanMeasurementsForTrade(
     rawMeasurements as Record<string, number>,
@@ -3963,9 +4048,11 @@ export function applyPlanImportToDraft(
       ? standaloneFramingChecklistItems()
       : planImportTradeKey === 'insulation'
         ? standaloneInsulationChecklistItems()
-        : planImportTradeKey === 'stucco'
-          ? buildStuccoTradeChecklistItems(tradeChecklistItems)
-          : tradeChecklistItems;
+        : planImportTradeKey === 'drywall'
+          ? standaloneDrywallChecklistItems()
+          : planImportTradeKey === 'stucco'
+            ? buildStuccoTradeChecklistItems(tradeChecklistItems)
+            : tradeChecklistItems;
   if (applyAsSelectedTrade && planImportTradeKey) {
     next = {
       ...next,
@@ -3985,12 +4072,14 @@ export function applyPlanImportToDraft(
                     ? 'framing'
                     : planImportTradeKey === 'insulation'
                       ? 'insulation'
-                      : planImportTradeKey === 'plumbing'
-                        ? 'plumbing_service'
-                        : planImportTradeKey === 'electrical'
-                          ? 'electrical'
-                          : next.scopeChecklist?.templateKey ||
-                            'plumbing_service',
+                      : planImportTradeKey === 'drywall'
+                        ? 'drywall'
+                        : planImportTradeKey === 'plumbing'
+                          ? 'plumbing_service'
+                          : planImportTradeKey === 'electrical'
+                            ? 'electrical'
+                            : next.scopeChecklist?.templateKey ||
+                              'plumbing_service',
         title:
           planImportTradeKey === 'stucco'
             ? 'Stucco / exterior finish — confirm trade scope'
@@ -4004,10 +4093,12 @@ export function applyPlanImportToDraft(
                     ? 'Framing — confirm project scope'
                     : planImportTradeKey === 'insulation'
                       ? 'Insulation — confirm project scope'
-                      : planImportTradeKey === 'plumbing'
-                        ? 'Plumbing — confirm project scope'
-                        : next.scopeChecklist?.title ||
-                          'Plumbing — confirm project scope',
+                      : planImportTradeKey === 'drywall'
+                        ? 'Drywall — confirm project scope'
+                        : planImportTradeKey === 'plumbing'
+                          ? 'Plumbing — confirm project scope'
+                          : next.scopeChecklist?.title ||
+                            'Plumbing — confirm project scope',
         intro:
           planImportTradeKey === 'stucco'
             ? 'Confirm the stucco system, quantities, accessories, and access included in this bid.'
@@ -4021,12 +4112,14 @@ export function applyPlanImportToDraft(
                     ? 'Confirm framing scope before pricing.'
                     : planImportTradeKey === 'insulation'
                       ? 'Confirm insulation scope and thermal-envelope quantities before pricing.'
-                      : planImportTradeKey === 'plumbing'
-                        ? standalonePlumbingWorkflow
-                          ? 'Confirm the Plumbing-only scope before pricing.'
-                          : 'Confirm Plumbing scope before pricing.'
-                        : next.scopeChecklist?.intro ||
-                          'Confirm Plumbing scope before pricing.',
+                      : planImportTradeKey === 'drywall'
+                        ? 'Confirm wall and ceiling drywall surface, finish level, add-ons, and cleanup before pricing.'
+                        : planImportTradeKey === 'plumbing'
+                          ? standalonePlumbingWorkflow
+                            ? 'Confirm the Plumbing-only scope before pricing.'
+                            : 'Confirm Plumbing scope before pricing.'
+                          : next.scopeChecklist?.intro ||
+                            'Confirm Plumbing scope before pricing.',
       },
     };
   }
@@ -4038,20 +4131,24 @@ export function applyPlanImportToDraft(
     Number(
       payloadBuildingAreas.totalLivingSqft ??
         payloadBuildingAreas.mainFloorLivingSqft ??
-        (payload.planFacts as
-          | (PlanFacts & {
-              totalLivingSqft?: number | null;
-              floorAreaSqft?: number | null;
-              mainFloorAreaSqft?: number | null;
-            })
-          | undefined)?.totalLivingSqft ??
-        (payload.planFacts as
-          | (PlanFacts & {
-              totalLivingSqft?: number | null;
-              floorAreaSqft?: number | null;
-              mainFloorAreaSqft?: number | null;
-            })
-          | undefined)?.floorAreaSqft ??
+        (
+          payload.planFacts as
+            | (PlanFacts & {
+                totalLivingSqft?: number | null;
+                floorAreaSqft?: number | null;
+                mainFloorAreaSqft?: number | null;
+              })
+            | undefined
+        )?.totalLivingSqft ??
+        (
+          payload.planFacts as
+            | (PlanFacts & {
+                totalLivingSqft?: number | null;
+                floorAreaSqft?: number | null;
+                mainFloorAreaSqft?: number | null;
+              })
+            | undefined
+        )?.floorAreaSqft ??
         (payload.measurements as Record<string, unknown> | undefined)
           ?.floorAreaSqft ??
         (payload.measurements as Record<string, unknown> | undefined)

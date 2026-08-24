@@ -54,9 +54,9 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       expect(PLAN_TRADE_CONFIGURATIONS.some(trade => trade.key === key)).toBe(
         true
       );
-      expect(PLAN_EXPORT_TRADE_CONFIGURATIONS.some(trade => trade.key === key)).toBe(
-        false
-      );
+      expect(
+        PLAN_EXPORT_TRADE_CONFIGURATIONS.some(trade => trade.key === key)
+      ).toBe(false);
     }
   });
 
@@ -95,6 +95,17 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     expect(new Set(getTradeScopeAllowlist('electrical') || []).size).toBe(
       (getTradeScopeAllowlist('electrical') || []).length
     );
+  });
+
+  it('includes cleanup as a separate insulation scope card', () => {
+    expect(getTradeScopeAllowlist('insulation')).toEqual(
+      expect.arrayContaining(['insulation', 'cleanup'])
+    );
+    const cleanup = SUBCONTRACTOR_TRADE_DEFINITIONS.insulation.scopeItems.find(
+      item => item.scopeItemId === 'cleanup'
+    );
+    expect(cleanup?.pricingBehavior).toBe('ALLOWANCE');
+    expect(cleanup?.measurementKeys).toBeUndefined();
   });
 
   it('maps Stucco pricing behavior metadata to existing behavior categories', () => {
@@ -288,7 +299,12 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       trade => trade.key === 'roofing'
     );
     expect(config?.reviewMeasurementKeys).toEqual(
-      expect.arrayContaining(['roofAreaSqft', 'roofSquares', 'roofPitch', 'storyCount'])
+      expect.arrayContaining([
+        'roofAreaSqft',
+        'roofSquares',
+        'roofPitch',
+        'storyCount',
+      ])
     );
     expect(
       filterPlanMeasurementsForTrade(
@@ -355,7 +371,13 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       trade => trade.key === 'roofing'
     );
     expect(config?.reviewMeasurementKeys).not.toEqual(
-      expect.arrayContaining(['ridgeLf', 'hipLf', 'valleyLf', 'eaveLf', 'rakeLf'])
+      expect.arrayContaining([
+        'ridgeLf',
+        'hipLf',
+        'valleyLf',
+        'eaveLf',
+        'rakeLf',
+      ])
     );
   });
 
@@ -423,7 +445,11 @@ describe('subcontractor trade architecture (Phase 0)', () => {
 
     const pricingContext = {
       checklistItems: [
-        { id: 'roofing_system', state: 'included', choiceId: 'architectural_shingles' },
+        {
+          id: 'roofing_system',
+          state: 'included',
+          choiceId: 'architectural_shingles',
+        },
       ],
     };
     const pricingItems = [
@@ -567,8 +593,12 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     );
     expect(normalized.measurements.flooringSqft).toBe(2000);
     expect(normalized.measurements.baseboardLf).toBe(200);
-    expect(normalized.structuredMeasurements?.flooringInstallScopeCount).toBe(1);
-    expect(normalized.structuredMeasurements?.flooringDemoScopeCount).toBeUndefined();
+    expect(normalized.structuredMeasurements?.flooringInstallScopeCount).toBe(
+      1
+    );
+    expect(
+      normalized.structuredMeasurements?.flooringDemoScopeCount
+    ).toBeUndefined();
   });
 
   it('filters flooring plan measurements to supported review keys only', () => {
@@ -620,7 +650,9 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     );
     expect(normalized.measurements.wallPaintSqft).toBe(5000);
     expect(normalized.measurements.ceilingPaintSqft).toBe(2000);
-    expect(normalized.structuredMeasurements?.paintPricingMethod).toBe('separate');
+    expect(normalized.structuredMeasurements?.paintPricingMethod).toBe(
+      'separate'
+    );
     expect(normalized.structuredMeasurements?.paintOccupancy).toBeUndefined();
     expect(
       SUBCONTRACTOR_TRADE_DEFINITIONS.painting.reviewScopeKeywords
@@ -669,7 +701,10 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       },
       measurementProvenance: {
         roofAreaSqft: 'FROM_PLAN',
-        roofSquares: { source: 'PLANNING_ESTIMATE', derivedFrom: ['roofAreaSqft'] },
+        roofSquares: {
+          source: 'PLANNING_ESTIMATE',
+          derivedFrom: ['roofAreaSqft'],
+        },
         roofPitch: 'FROM_PLAN',
         storyCount: 'FROM_PLAN',
       },
@@ -703,7 +738,9 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       },
       'plan'
     );
-    expect(normalized.measurementConflicts?.[0].requiresConfirmation).toBe(true);
+    expect(normalized.measurementConflicts?.[0].requiresConfirmation).toBe(
+      true
+    );
     expect(normalized.measurementProvenance?.roofSquares).toBe(
       'NEEDS_CONFIRMATION'
     );
@@ -740,7 +777,9 @@ describe('subcontractor trade architecture (Phase 0)', () => {
         unit === 'LF' ? 'lf' : 'each'
       );
     }
-    expect(roofing.options.find(option => option.id === 'decking_repair')).toMatchObject({
+    expect(
+      roofing.options.find(option => option.id === 'decking_repair')
+    ).toMatchObject({
       measurementKey: 'roofDeckingReplacementSqft',
       unit: 'sqft',
     });

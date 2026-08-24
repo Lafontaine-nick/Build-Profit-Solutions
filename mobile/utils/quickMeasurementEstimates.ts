@@ -35,6 +35,18 @@ import {
   resolveInsulationEnvelopePlanningQuantity,
   type InsulationEnvelopeInputs,
 } from '@/utils/insulationEnvelopeQuantity';
+import {
+  drywallSurfaceFromComponents,
+  drywallSurfacePlanningQuantity,
+  isProtectedDrywallQuantity,
+  isUndercountedDrywallSurface,
+} from '@/utils/subcontractorTrade/drywallPlanConvergence';
+
+export {
+  drywallSurfacePlanningQuantity,
+  isProtectedDrywallQuantity,
+  isUndercountedDrywallSurface,
+} from '@/utils/subcontractorTrade/drywallPlanConvergence';
 
 export type QuickMeasurementEstimate = MeasurementSuggestion & {
   key: QuickMeasurementFieldKey;
@@ -366,20 +378,6 @@ export function isLegacyTotalLivingRoofSquares(
   return Math.abs(roofSquares - legacy) < 0.35;
 }
 
-/**
- * True when stored drywall SF is living-area (or near it) instead of wall+ceiling
- * surface — e.g. Plan 39 4,056 SF (~1.3× living) vs ~10.8k (3.5×).
- */
-export function isUndercountedDrywallSurface(
-  drywallSqft: number,
-  livingSf: number | null | undefined
-): boolean {
-  const living = n(livingSf);
-  if (!(drywallSqft > 0) || living == null) return false;
-  if (Math.abs(drywallSqft - living) < 0.51) return true;
-  return drywallSqft / living < 2.5;
-}
-
 function asMeasurementNumber<T extends MeasurementLookup>(
   measurements: T,
   key: 'roofSquares' | 'drywallSqft' | 'wallPaintSqft',
@@ -438,15 +436,11 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<
         : 'no';
     }
     const envelope = resolveInsulationEnvelopePlanningQuantity(
-      insulationEnvelopeInputsFromPlanFacts(
-        next.planFacts,
-        living,
-        {
-          ...(next as Partial<InsulationEnvelopeInputs>),
-          allowConditionedAreaCeilingSuggestion: true,
-          requireExplicitSurfaceTakeoff: true,
-        }
-      )
+      insulationEnvelopeInputsFromPlanFacts(next.planFacts, living, {
+        ...(next as Partial<InsulationEnvelopeInputs>),
+        allowConditionedAreaCeilingSuggestion: true,
+        requireExplicitSurfaceTakeoff: true,
+      })
     );
     if (envelope) {
       const componentValues = Object.fromEntries(
@@ -482,9 +476,11 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<
       );
       if (calculatedAttic) {
         const currentSources =
-          (next as MeasurementLookup & {
-            quickMeasurementSources?: Record<string, string>;
-          }).quickMeasurementSources || {};
+          (
+            next as MeasurementLookup & {
+              quickMeasurementSources?: Record<string, string>;
+            }
+          ).quickMeasurementSources || {};
         next = {
           ...next,
           quickMeasurementSources: {
@@ -517,12 +513,32 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<
   const isGroundUp =
     String(options?.templateKey || '').toLowerCase() === 'ground_up';
   const currentDrywall = n(measurements.drywallSqft);
-  // Ground-up only: rewrite thin notes drywall SF (4,056) to living×3.5 (10,843). Leave empty for QM.
-  const formulaSurface = living != null ? Math.round(living * 3.5) : null;
+  const componentSurface = drywallSurfaceFromComponents(
+    measurements as unknown as Record<string, unknown>
+  );
+  const protectedDrywall = isProtectedDrywallQuantity(measurements);
+  // A wall/ceiling takeoff is canonical. Reconcile only stale totals; never
+  // replace a contractor-confirmed total with a formula.
+  if (
+    isGroundUp &&
+    componentSurface != null &&
+    !protectedDrywall &&
+    currentDrywall !== componentSurface
+  ) {
+    next = {
+      ...next,
+      drywallSqft: asMeasurementNumber(next, 'drywallSqft', componentSurface),
+    };
+  }
+  // Ground-up only: rewrite thin notes drywall SF to the transparent
+  // living×3.5 planning fallback when no component takeoff exists.
+  const formulaSurface = drywallSurfacePlanningQuantity(living);
   if (
     isGroundUp &&
     formulaSurface != null &&
     currentDrywall != null &&
+    componentSurface == null &&
+    !protectedDrywall &&
     isUndercountedDrywallSurface(currentDrywall, living)
   ) {
     const drywallValue = asMeasurementNumber(

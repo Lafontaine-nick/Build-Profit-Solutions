@@ -230,6 +230,19 @@ export const TRADE_MEASUREMENT_SCHEMAS: Partial<
     M('drywallSqft', 'Total drywall area', 'sqft', 'primary', {
       quickMeasurementKey: 'drywallSqft',
     }),
+    M('drywallWallSqft', 'Drywall wall surface', 'sqft', 'primary', {
+      quickMeasurementKey: 'drywallWallSqft',
+    }),
+    M('drywallCeilingSqft', 'Drywall ceiling surface', 'sqft', 'primary', {
+      quickMeasurementKey: 'drywallCeilingSqft',
+    }),
+    M(
+      'drywallOpeningDeductionSqft',
+      'Drywall opening deductions',
+      'sqft',
+      'more',
+      { quickMeasurementKey: 'drywallOpeningDeductionSqft' }
+    ),
   ],
   insulation: [
     M(

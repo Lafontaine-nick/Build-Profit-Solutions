@@ -100,6 +100,14 @@ export function measurementDisplayLabel(
   };
   if (insulationLabels[key]) return { label: insulationLabels[key] };
 
+  const drywallLabels: Record<string, string> = {
+    drywallSqft: 'Net wall + ceiling drywall surface',
+    drywallWallSqft: 'Drywall wall surface',
+    drywallCeilingSqft: 'Drywall ceiling surface',
+    drywallOpeningDeductionSqft: 'Drywall opening deductions',
+  };
+  if (drywallLabels[key]) return { label: drywallLabels[key] };
+
   const framingCard = framingCardForMeasurementKey(key);
   if (framingCard)
     return { label: framingCard.label, subtext: framingCard.helper };
@@ -1528,6 +1536,10 @@ export function scopeTakeoffStatusLines(input: {
   hasInsulationPrimaryTakeoff?: boolean;
   /** True when both primary insulation surfaces were confirmed by the contractor. */
   insulationPrimaryConfirmed?: boolean;
+  /** True when a drywall wall/ceiling surface quantity is available for review. */
+  hasDrywallPrimaryTakeoff?: boolean;
+  /** True when the contractor confirmed the drywall surface quantity. */
+  drywallPrimaryConfirmed?: boolean;
 }): string[] {
   if (!measurementSemanticsV1Enabled()) {
     return input.evidence ? [String(input.evidence)] : [];
@@ -1615,7 +1627,11 @@ export function scopeTakeoffStatusLines(input: {
         ? 'Insulation takeoff ready for review — confirm wall and ceiling quantities'
         : 'Needs wall and ceiling takeoff';
   } else if (id === 'drywall') {
-    statusLine = 'Needs wall and ceiling takeoff';
+    statusLine = input.drywallPrimaryConfirmed
+      ? 'Drywall wall and ceiling takeoff confirmed'
+      : input.hasDrywallPrimaryTakeoff
+        ? 'Drywall takeoff ready for review — confirm wall and ceiling quantity'
+        : 'Needs wall and ceiling takeoff';
   } else if (
     id === 'cabinets_counters' ||
     id === 'cabinets' ||
@@ -2428,7 +2444,8 @@ export function reconcilePlumbingEquipmentScopeMeasurements<
     if (!(targetQty > 0)) continue;
 
     const existingEntry = itemQuantities[card.itemId] as
-      { quantity?: string; unit?: string; quantitySource?: string } | undefined;
+      | { quantity?: string; unit?: string; quantitySource?: string }
+      | undefined;
     const existingQty = Number(existingEntry?.quantity);
     const acceptance = pricingAcceptance[card.itemId];
     if (
@@ -2502,7 +2519,8 @@ export function reconcilePlumbingLineScopeMeasurements<
     if (!(qmQty > 0)) continue;
 
     const existingEntry = itemQuantities[card.itemId] as
-      { quantity?: string; unit?: string; quantitySource?: string } | undefined;
+      | { quantity?: string; unit?: string; quantitySource?: string }
+      | undefined;
     const existingQty = Number(
       String(existingEntry?.quantity ?? '').replace(/,/g, '')
     );

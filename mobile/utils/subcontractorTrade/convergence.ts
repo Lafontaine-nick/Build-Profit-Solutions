@@ -40,6 +40,12 @@ import {
   shouldStripShellFramingComponentMeasurement,
 } from './framingPlanConvergence';
 import {
+  buildDrywallStructuredMeasurements,
+  DRYWALL_PLAN_REVIEW_MEASUREMENT_KEYS,
+  normalizeDrywallPlanMeasurements,
+  parseDrywallMeasurementsFromNotes,
+} from './drywallPlanConvergence';
+import {
   buildPlumbingStructuredMeasurements,
   PLUMBING_PLAN_ALIASES,
   PLUMBING_REVIEW_MEASUREMENT_KEYS,
@@ -103,6 +109,15 @@ function inputSourceToProvenance(
 }
 
 type RawMeasurementInput = Record<string, unknown>;
+
+function positiveNumber(value: unknown): number | null {
+  const parsed = Number(
+    String(value ?? '')
+      .replace(/,/g, '')
+      .trim()
+  );
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
 /**
  * Plan-derived and notes-derived measurements converge through this adapter.
@@ -499,6 +514,51 @@ export function normalizeTradeMeasurements(
         delete quickMeasurementSources[key];
         delete normalizedProvenance[key];
       }
+    }
+  }
+
+  if (tradeKey === 'drywall') {
+    const drywallInput =
+      source === 'plan'
+        ? normalizeDrywallPlanMeasurements(input)
+        : source === 'notes'
+          ? {
+              ...parseDrywallMeasurementsFromNotes(String(input.notes || '')),
+              ...input,
+            }
+          : input;
+    const quantitySource = source === 'plan' ? 'plan_detected' : 'user_entered';
+    const structured = buildDrywallStructuredMeasurements(
+      drywallInput,
+      quantitySource
+    );
+    const scalar = normalizeDrywallPlanMeasurements(drywallInput);
+    for (const [key, value] of Object.entries(scalar)) {
+      measurements[key] = value as number | string;
+      if (schemaKeys.has(key) && !existingSources[key]) {
+        quickMeasurementSources[key] = defaultProvenanceTag;
+      }
+      if (schemaKeys.has(key) && normalizedProvenance[key] == null) {
+        normalizedProvenance[key] = normalizedSource;
+      }
+    }
+    for (const key of DRYWALL_PLAN_REVIEW_MEASUREMENT_KEYS) {
+      if (measurements[key] != null) continue;
+      const value = drywallInput[key];
+      if (typeof value === 'number' || typeof value === 'string') {
+        if (positiveNumber(value) != null) measurements[key] = value;
+      }
+    }
+    structuredMeasurements = {
+      ...(structured.drywallScope
+        ? { drywallScope: structured.drywallScope }
+        : {}),
+      ...(structured.itemQuantities
+        ? { itemQuantities: structured.itemQuantities }
+        : {}),
+    };
+    if (!Object.keys(structuredMeasurements).length) {
+      structuredMeasurements = undefined;
     }
   }
 

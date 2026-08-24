@@ -296,6 +296,9 @@ const MEASUREMENT_KEYS = new Set([
   "roofGutterLf",
   "roofDownspoutCount",
   "drywallSqft",
+  "drywallWallSqft",
+  "drywallCeilingSqft",
+  "drywallOpeningDeductionSqft",
   "exteriorWallGrossSqft",
   "exteriorWallInsulationSqft",
   "atticInsulationSqft",
@@ -354,6 +357,9 @@ const LABELED_ONLY_KEYS = new Set([
   "cabinetPaintSqft",
   "exteriorPaintSqft",
   "drywallSqft",
+  "drywallWallSqft",
+  "drywallCeilingSqft",
+  "drywallOpeningDeductionSqft",
   "baseboardLf",
   "railingLf",
   "stuccoAccessAffectedSqft",
@@ -476,10 +482,7 @@ function mergeInsulationFocusedPayloads(base = {}, overlay = {}) {
     overlay.measurements,
   );
   if (openingA != null || openingB != null) {
-    measurements.openingDeductionSqft = Math.max(
-      openingA || 0,
-      openingB || 0,
-    );
+    measurements.openingDeductionSqft = Math.max(openingA || 0, openingB || 0);
   }
   return {
     ...base,
@@ -951,6 +954,16 @@ Insulation takeoff rules:
 - Mark explicit quantities in explicitlyLabeled and calculated quantities in geometryDerived. Put unsupported values in unreadableFields or missingInfo.
 `;
 
+const DRYWALL_VISION_INSTRUCTIONS = `
+Drywall takeoff rules:
+- Review floor plans, room schedules, reflected ceiling plans, interior elevations, sections, and finish schedules.
+- When selected trade is Drywall, return drywallSqft only when the plan explicitly labels a drywall surface quantity or when wall and ceiling surfaces can be calculated from readable room dimensions plus an explicit wall/plate height.
+- Prefer separate drywallWallSqft and drywallCeilingSqft when both surfaces can be supported. Use drywallOpeningDeductionSqft only for readable openings or clearly documented deductions, then calculate drywallSqft as wall plus ceiling surfaces minus deductions.
+- Add explicitly labeled quantities to explicitlyLabeled. Add quantities calculated from readable room geometry to geometryDerived and include fieldEvidence describing the source sheets or labels.
+- Do not use total living area, floor area, building footprint, visual proportions, or an arbitrary multiplier as drywallSqft. If the surface takeoff is unavailable, omit it and list the missing sheets or dimensions in unreadableFields or missingInfo.
+- Distinguish interior drywall from garage, vaulted/open-to-below, soffit, shaft, wet-area backing, and fire-rated areas when the plan documents those boundaries. Do not double-count a room or ceiling surface.
+`;
+
 function perStoryWallHeightFromPlanFacts(planFacts = {}, stories = 1) {
   let wallHeightCandidate = positive(planFacts?.wallHeightFt);
   let plateHeightCandidate = positive(planFacts?.plateHeightFt);
@@ -959,8 +972,7 @@ function perStoryWallHeightFromPlanFacts(planFacts = {}, stories = 1) {
       Math.round((plateHeightCandidate / stories) * 10) / 10;
   }
   if (stories > 1 && wallHeightCandidate > 14) {
-    wallHeightCandidate =
-      Math.round((wallHeightCandidate / stories) * 10) / 10;
+    wallHeightCandidate = Math.round((wallHeightCandidate / stories) * 10) / 10;
   }
   return wallHeightCandidate || plateHeightCandidate || null;
 }
@@ -1021,7 +1033,7 @@ function deriveInsulationMeasurementsFromPlanFacts(
   }
   const completeFaceCoverage =
     faces.length >= 2 &&
-    faces.every(face => {
+    faces.every((face) => {
       const area =
         positive(face?.stuccoAreaSqft) ||
         positive(face?.areaSqft) ||
@@ -1060,10 +1072,7 @@ function deriveInsulationMeasurementsFromPlanFacts(
   if (
     grossWallArea != null &&
     usableOpeningDeduction != null &&
-    !isCredibleInsulationOpeningDeduction(
-      usableOpeningDeduction,
-      grossWallArea,
-    )
+    !isCredibleInsulationOpeningDeduction(usableOpeningDeduction, grossWallArea)
   ) {
     usableOpeningDeduction = null;
   }
@@ -1132,8 +1141,7 @@ function deriveInsulationMeasurementsFromPlanFacts(
     // contract is net SF, so normalize that unqualified wall total here.
     const netWallArea = Math.max(
       0,
-      positive(next.exteriorWallInsulationSqft) -
-        Number(openingForNet),
+      positive(next.exteriorWallInsulationSqft) - Number(openingForNet),
     );
     next.exteriorWallInsulationSqft = roundTenth(netWallArea);
     if (!derivedKeys.includes("exteriorWallInsulationSqft")) {
@@ -1146,18 +1154,24 @@ function deriveInsulationMeasurementsFromPlanFacts(
 
   const ceilingBoundary = planFacts?.ceilingBoundary;
   const upperAttic = positive(ceilingBoundary?.upperFloorAtticSqft);
-  const mainAtticExposure = positive(ceilingBoundary?.mainFloorAtticExposureSqft);
+  const mainAtticExposure = positive(
+    ceilingBoundary?.mainFloorAtticExposureSqft,
+  );
   if (upperAttic != null && mainAtticExposure != null) {
     const vaulted = positive(ceilingBoundary?.vaultedOpenToBelowSqft) || 0;
     const vaultedConfirmed =
       vaulted > 0 &&
-      String(ceilingBoundary?.fieldEvidence?.vaultedOpenToBelowSqft?.confidence || "") ===
-        "high";
+      String(
+        ceilingBoundary?.fieldEvidence?.vaultedOpenToBelowSqft?.confidence ||
+          "",
+      ) === "high";
     const roofDeck = positive(ceilingBoundary?.roofDeckInsulationSqft) || 0;
     const roofDeckConfirmed =
       roofDeck > 0 &&
-      String(ceilingBoundary?.fieldEvidence?.roofDeckInsulationSqft?.confidence || "") ===
-        "high";
+      String(
+        ceilingBoundary?.fieldEvidence?.roofDeckInsulationSqft?.confidence ||
+          "",
+      ) === "high";
     const atticTotal = Math.max(
       0,
       upperAttic +
@@ -1201,16 +1215,16 @@ function validateInsulationMeasurementsAgainstPlanFacts(
     const categorized =
       positive(face?.windowDoorOpeningsSqft) ||
       positive(face?.garageOpeningsSqft);
-    return (
-      sum +
-      (categorized || positive(face?.openingsSqft) || 0)
-    );
+    return sum + (categorized || positive(face?.openingsSqft) || 0);
   }, 0);
   const perimeter =
     positive(planFacts?.exteriorPerimeterLf) ||
     positive(planFacts?.foundationPerimeterLf);
   const stories = positive(planFacts?.storyCount);
-  const height = perStoryWallHeightFromPlanFacts(planFacts, stories > 1 ? stories : 1);
+  const height = perStoryWallHeightFromPlanFacts(
+    planFacts,
+    stories > 1 ? stories : 1,
+  );
   const completeWallGeometry = perimeter && stories && height;
   const expectedGross = completeWallGeometry
     ? perimeter * height * stories
@@ -1270,9 +1284,8 @@ function validateInsulationMeasurementsAgainstPlanFacts(
     expectedGross != null &&
     expectedOpenings == null &&
     positive(next.exteriorWallInsulationSqft) != null &&
-    Math.abs(
-      positive(next.exteriorWallInsulationSqft) - expectedGross,
-    ) <= Math.max(25, expectedGross * 0.02)
+    Math.abs(positive(next.exteriorWallInsulationSqft) - expectedGross) <=
+      Math.max(25, expectedGross * 0.02)
   ) {
     // A gross wall total without an opening basis is not a valid net
     // insulation quantity. Do not let it reach pricing as if it were net.
@@ -1331,7 +1344,7 @@ Rules:
 8d. When the finish schedule or floor plan labels separate new flooring areas by product, prefer measurements.flooringLvpSqft, flooringTileSqft, flooringCarpetSqft, flooringLaminateSqft, flooringEngineeredHardwoodSqft, flooringSolidHardwoodSqft, and flooringSheetVinylSqft instead of rolling them into flooringSqft. Only use flooringSqft when the sheet gives one combined floor total without product breakdown.
 8e. measurements.floorDemoSqft ONLY when demolition/removal of existing flooring is explicitly labeled — never infer demo from new flooring alone. Per-type demo keys (floorDemoCarpetSqft, floorDemoTileSqft, etc.) only when explicitly labeled.
 8f. Do NOT infer floor-prep severity, existing floor type, underlayment, moisture barrier, baseboards, transitions, or quarter round unless explicitly labeled on the plan.
-9. NEVER estimate paint, drywall, or trim from living/floor area, building footprint, or an arbitrary multiplier. drywallSqft, railingLf, cabinetRunLf, and cabinetPaintSqft remain labeled-only (cabinets only when paint-grade millwork / painted cabinetry is explicit). Stucco quantities may also be calculated only from complete, clearly labeled elevation face, perimeter/height/story, or opening-dimension inputs; mark those values as plan-derived and never estimate from living area.
+9. NEVER estimate paint, drywall, or trim from living/floor area, building footprint, or an arbitrary multiplier. Except in the selected Drywall trade pass, drywallSqft, drywallWallSqft, and drywallCeilingSqft remain labeled-only; selected Drywall may use complete, readable room geometry with explicit wall/plate height and must mark those values geometryDerived. railingLf, cabinetRunLf, and cabinetPaintSqft remain labeled-only (cabinets only when paint-grade millwork / painted cabinetry is explicit). Stucco quantities may also be calculated only from complete, clearly labeled elevation face, perimeter/height/story, or opening-dimension inputs; mark those values as plan-derived and never estimate from living area.
 9a. Painting takeoff from plan geometry IS allowed when the inputs are explicit: wallPaintSqft = sum of dimensioned room perimeters × explicit wall/plate height (gross; each room's perimeter is a valid finish takeoff — do not use floorAreaSqft). ceilingPaintSqft = sum of dimensioned interior room areas when those rooms have painted ceilings. baseboardLf = sum of dimensioned room perimeters when finish/base geometry supports it. Put those keys in measurements and geometryDerived; set fieldEvidence sourceType to measured_from_geometry. If wall/plate height is not readable, omit wallPaintSqft. If room dimensions are incomplete, omit rather than guess. Never assume 9' ceilings.
 9b. Prefer separate measurements.wallPaintSqft and measurements.ceilingPaintSqft when walls and ceilings can be taken off separately. Only use measurements.paintAreaSqft when the sheet gives one combined paintable total without a wall/ceiling split. Do not collapse separate wall and ceiling areas into paintAreaSqft.
 9c. interiorDoorCount from a door schedule or reliably identifiable interior door symbols (exclude exterior doors). Prefill the count even without a schedule; do not assume every door is in the bid. Add interiorDoorCount to geometryDerived or explicitlyLabeled. cabinetRunLf / cabinetPaintSqft ONLY when painted cabinetry or paint-grade millwork is explicit — never map generic kitchen cabinet LF into painting.
@@ -1656,12 +1669,13 @@ function visionSystemPrompt(
   electricalSelected,
   plumbingSelected,
   insulationSelected,
+  drywallSelected,
 ) {
   if (electricalSelected) return buildElectricalSystemPrompt();
   if (plumbingSelected) return buildPlumbingSystemPrompt();
   return `${buildSystemPrompt()}${
     insulationSelected ? `\n${INSULATION_VISION_INSTRUCTIONS}` : ""
-  }`;
+  }${drywallSelected ? `\n${DRYWALL_VISION_INSTRUCTIONS}` : ""}`;
 }
 
 function sanitizeRooms(rawRooms) {
@@ -2268,6 +2282,139 @@ function isPatioLikeConcreteValue(concreteSqft, buildingAreas) {
   return patioValues.some((v) => Math.abs(v - concreteSqft) < 0.6);
 }
 
+function normalizeDrywallPlanMeasurements(raw = {}, supportedKeys = []) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  const allowed = new Set(supportedKeys);
+  const out = {};
+  for (const key of [
+    "drywallSqft",
+    "drywallWallSqft",
+    "drywallCeilingSqft",
+    "drywallOpeningDeductionSqft",
+  ]) {
+    if (!allowed.has(key)) continue;
+    const value = positive(src[key]);
+    if (value != null) out[key] = roundTenth(value);
+  }
+  if (out.drywallSqft == null) {
+    const walls = positive(out.drywallWallSqft) || 0;
+    const ceilings = positive(out.drywallCeilingSqft) || 0;
+    const deductions = positive(out.drywallOpeningDeductionSqft) || 0;
+    if (walls > 0 || ceilings > 0) {
+      out.drywallSqft = roundTenth(Math.max(0, walls + ceilings - deductions));
+    }
+  }
+  return out;
+}
+
+/**
+ * Drywall takeoff from dimensioned conditioned rooms + explicit wall height.
+ * Room perimeters represent both sides of interior partitions, while the
+ * ceiling total is the sum of dimensioned room areas. Opening deductions are
+ * only subtracted when they are explicitly reported by the plan pass.
+ */
+function deriveDrywallGeometryMeasurements(
+  measurements = {},
+  rooms = [],
+  planFacts = {},
+  options = {},
+) {
+  const next = { ...measurements };
+  const derivedKeys = [];
+  const assumptions = [];
+  const buildingAreas = options.buildingAreas || planFacts.buildingAreas || {};
+  const wallHeightFt =
+    explicitInteriorWallHeightFt(planFacts) ||
+    explicitInteriorWallHeightFt(options.rawPlanFacts || {});
+  const livingSqft = conditionedLivingCeilingSqft(buildingAreas);
+  const eligible = (Array.isArray(rooms) ? rooms : [])
+    .filter(
+      (room) =>
+        isPaintableInteriorRoom(room?.name) &&
+        (Number(room?.confidence) || 0) >= 0.4,
+    )
+    .map((room) => ({ room, ...roomRectangle(room) }));
+  const dimensioned = eligible.filter((entry) => entry.perimeterLf != null);
+  const withArea = eligible.filter((entry) => entry.areaSqft != null);
+  const roomAreaSqft =
+    withArea.length >= 2
+      ? withArea.reduce((sum, entry) => sum + entry.areaSqft, 0)
+      : null;
+  const roomCoverage =
+    roomAreaSqft != null && livingSqft != null && livingSqft > 0
+      ? roomAreaSqft / livingSqft
+      : null;
+  const completeEnough =
+    roomCoverage == null || roomCoverage >= ROOM_CEILING_COVERAGE_MIN;
+
+  if (
+    !(positive(next.drywallWallSqft) > 0) &&
+    wallHeightFt &&
+    dimensioned.length >= 2 &&
+    completeEnough
+  ) {
+    const wallSqft = dimensioned.reduce(
+      (sum, entry) => sum + entry.perimeterLf * wallHeightFt,
+      0,
+    );
+    const rounded = roundTenth(wallSqft);
+    if (rounded > 0) {
+      next.drywallWallSqft = rounded;
+      derivedKeys.push("drywallWallSqft");
+      assumptions.push(
+        `Drywall wall area ${rounded.toLocaleString()} SF calculated from ${dimensioned.length} dimensioned conditioned rooms × ${wallHeightFt} FT wall/plate height (gross room-perimeter method).`,
+      );
+    }
+  }
+
+  if (
+    !(positive(next.drywallCeilingSqft) > 0) &&
+    roomAreaSqft != null &&
+    completeEnough
+  ) {
+    const rounded = roundTenth(roomAreaSqft);
+    if (rounded > 0) {
+      next.drywallCeilingSqft = rounded;
+      derivedKeys.push("drywallCeilingSqft");
+      assumptions.push(
+        `Drywall ceiling area ${rounded.toLocaleString()} SF calculated from ${withArea.length} dimensioned conditioned rooms.`,
+      );
+    }
+  }
+
+  const componentTotal =
+    positive(next.drywallWallSqft) > 0 || positive(next.drywallCeilingSqft) > 0
+      ? roundTenth(
+          Math.max(
+            0,
+            (positive(next.drywallWallSqft) || 0) +
+              (positive(next.drywallCeilingSqft) || 0) -
+              (positive(next.drywallOpeningDeductionSqft) || 0),
+          ),
+        )
+      : null;
+  const existingTotal = positive(next.drywallSqft);
+  const existingLooksLikeFloorArea =
+    existingTotal != null &&
+    livingSqft != null &&
+    existingTotal / livingSqft < 2.5;
+  if (
+    componentTotal != null &&
+    (existingTotal == null || existingLooksLikeFloorArea)
+  ) {
+    const openings = positive(next.drywallOpeningDeductionSqft) || 0;
+    next.drywallSqft = componentTotal;
+    if (!derivedKeys.includes("drywallSqft")) derivedKeys.push("drywallSqft");
+    assumptions.push(
+      openings > 0
+        ? `Net drywall surface deducts ${openings.toLocaleString()} SF of documented openings.`
+        : "Net drywall surface equals calculated wall plus ceiling area; no opening deduction was documented on the plan.",
+    );
+  }
+
+  return { measurements: next, derivedKeys, assumptions };
+}
+
 function sanitizeMeasurements(
   raw,
   rooms,
@@ -2586,6 +2733,9 @@ async function analyzePlanForMeasurements({
   const insulationSelected =
     planSelection.mode === "selected_trade" &&
     planSelection.trade?.key === "insulation";
+  const drywallSelected =
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "drywall";
   const framingSelected =
     planSelection.mode === "selected_trade" &&
     planSelection.trade?.key === "framing";
@@ -2765,9 +2915,9 @@ async function analyzePlanForMeasurements({
   if (process.env.NODE_ENV !== "production" && insulationSelected) {
     console.debug("[insulation plan pages]", {
       selectedPages: (pdfTakeoff?.insulationRelevantPages || []).map(
-        page => page.page,
+        (page) => page.page,
       ),
-      rasterizedPages: insulationSheetImages.map(page => page.page),
+      rasterizedPages: insulationSheetImages.map((page) => page.page),
     });
   }
   const visionParts =
@@ -2792,9 +2942,10 @@ async function analyzePlanForMeasurements({
   // Electrical counts are a measurement pass, not creative estimation. Keep
   // repeated imports of the same sheets stable; genuine disagreements still
   // remain as conflict candidates for contractor confirmation.
-  const planVisionTemperature = electricalSelected || insulationSelected
-    ? 0
-    : Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15);
+  const planVisionTemperature =
+    electricalSelected || insulationSelected
+      ? 0
+      : Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15);
   const measurementsPromise = openai.chat.completions.create({
     model: aiModels.assistant.vision,
     response_format: aiRuntime.assistant.vision.responseFormat,
@@ -2807,6 +2958,7 @@ async function analyzePlanForMeasurements({
           electricalSelected,
           plumbingSelected,
           insulationSelected,
+          drywallSelected,
         ),
       },
       {
@@ -2892,76 +3044,82 @@ async function analyzePlanForMeasurements({
   // the text layer but does not inspect graphical elevation geometry deeply.
   const createTradeVisualCompletion = () =>
     openai.chat.completions.create({
-          model: aiModels.assistant.vision,
-          response_format: aiRuntime.assistant.vision.responseFormat,
-          temperature: planVisionTemperature,
-          max_tokens: Math.max(
-            aiRuntime.assistant.vision.maxTokens || 900,
-            2500,
-          ),
-          messages: [
+      model: aiModels.assistant.vision,
+      response_format: aiRuntime.assistant.vision.responseFormat,
+      temperature: planVisionTemperature,
+      max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 2500),
+      messages: [
+        {
+          role: "system",
+          content:
+            visionSystemPrompt(
+              electricalSelected,
+              plumbingSelected,
+              insulationSelected,
+              drywallSelected,
+            ) +
+            (planSelection.trade && !electricalSelected && !plumbingSelected
+              ? "\nThis is a focused trade takeoff pass. Prioritize measurable geometry and scope for the selected trade over general room extraction."
+              : electricalSelected
+                ? "\nThis is a focused Electrical symbol-count pass. Count devices on the attached E-sheet images."
+                : insulationSelected
+                  ? "\nThis is a focused Insulation thermal-envelope pass. Inspect wall sections, attic/roof details, insulation schedules, and garage separation details."
+                  : drywallSelected
+                    ? "\nThis is a focused Drywall surface pass. Inspect room dimensions, reflected ceiling plans, wall heights, finish schedules, and labeled wall/ceiling quantities."
+                    : plumbingSelected
+                      ? "\nThis is a focused Plumbing quantity pass. Count only readable fixtures, schedules, points, and labeled line lengths."
+                      : "\nThis is a focused general-contractor takeoff pass. Prioritize measurable quantities across every major scope category."),
+        },
+        {
+          role: "user",
+          content: [
             {
-              role: "system",
-              content:
-                visionSystemPrompt(
-                  electricalSelected,
-                  plumbingSelected,
-                  insulationSelected,
-                ) +
-                (planSelection.trade && !electricalSelected && !plumbingSelected
-                  ? "\nThis is a focused trade takeoff pass. Prioritize measurable geometry and scope for the selected trade over general room extraction."
-                  : electricalSelected
-                    ? "\nThis is a focused Electrical symbol-count pass. Count devices on the attached E-sheet images."
-                    : insulationSelected
-                      ? "\nThis is a focused Insulation thermal-envelope pass. Inspect wall sections, attic/roof details, insulation schedules, and garage separation details."
-                      : plumbingSelected
-                        ? "\nThis is a focused Plumbing quantity pass. Count only readable fixtures, schedules, points, and labeled line lengths."
-                        : "\nThis is a focused general-contractor takeoff pass. Prioritize measurable quantities across every major scope category."),
+              type: "text",
+              text: [
+                planSelection.trade
+                  ? `Focus only on ${planSelection.trade.label}. Inspect every relevant elevation, section, detail, schedule, and takeoff sheet in the plan file.`
+                  : "Review the complete plan set for all major building scopes: structure, foundation, concrete, framing, roof, windows/doors, exterior finishes, MEP, insulation, drywall, flooring, cabinets, tile, paint, sitework, patios, and landscaping.",
+                insulationSelected
+                  ? "For Insulation, return elevationFaces for every readable exterior elevation with face width/height or area and windowDoorOpeningsSqft / garageOpeningsSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer."
+                  : drywallSelected
+                    ? "For Drywall, return separate drywallWallSqft and drywallCeilingSqft when supported by labeled values or readable room geometry. Do not return a living-area proxy."
+                    : "For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, windowDoorOpeningsSqft, garageOpeningsSqft, and non-stucco deductions. Also populate measurements.stuccoWindowDoorOpeningSqft and measurements.stuccoGarageOpeningSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer.",
+                insulationSelected
+                  ? "For Insulation, do not return a wall quantity from one elevation or perimeter alone. Return all complete labeled wall/opening facts so the app can calculate one net exterior-wall quantity."
+                  : drywallSelected
+                    ? "For Drywall, do not use living area or a multiplier. If geometry is incomplete or wall height is unreadable, leave drywall quantities out and report what needs confirmation."
+                    : "PDF text perimeter/plate/story facts (when present) support gross wall area only. Opening deductions still come from elevation drawings.",
+                insulationSelected
+                  ? INSULATION_VISION_INSTRUCTIONS
+                  : drywallSelected
+                    ? DRYWALL_VISION_INSTRUCTIONS
+                    : plumbingSelected
+                      ? PLUMBING_VISION_INSTRUCTIONS
+                      : paintingSelected
+                        ? paintingVisionInstructions
+                        : electricalSelected
+                          ? ELECTRICAL_VISION_INSTRUCTIONS
+                          : "For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.",
+                paintingSelected
+                  ? "Return wallPaintSqft, ceilingPaintSqft, baseboardLf, interiorDoorCount, and exteriorPaintSqft when geometry or schedules support them. Add geometry-derived keys to geometryDerived. Leave occupancy, application method, and prep omitted."
+                  : insulationSelected
+                    ? "The attached pages are rasterized insulation-relevant sheets selected from the PDF. Inspect the actual wall sections, elevations, ceiling/attic plans, roof details, schedules, and notes in those images. Return insulation quantities only when explicitly labeled or directly calculated from readable labeled dimensions. Preserve the wall/attic versus roof-deck boundary distinction."
+                    : plumbingSelected
+                      ? `${plumbingSheetCountHint} Return Plumbing canonical quantities only. Add only explicit or directly measured fields to explicitlyLabeled/geometryDerived. Leave packages and unsupported values omitted.`
+                      : electricalSelected
+                        ? `${electricalSheetCountHint} Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.`
+                        : "Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.",
+              ].join("\n\n"),
             },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: [
-                    planSelection.trade
-                      ? `Focus only on ${planSelection.trade.label}. Inspect every relevant elevation, section, detail, schedule, and takeoff sheet in the plan file.`
-                      : "Review the complete plan set for all major building scopes: structure, foundation, concrete, framing, roof, windows/doors, exterior finishes, MEP, insulation, drywall, flooring, cabinets, tile, paint, sitework, patios, and landscaping.",
-                    insulationSelected
-                      ? "For Insulation, return elevationFaces for every readable exterior elevation with face width/height or area and windowDoorOpeningsSqft / garageOpeningsSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer."
-                      : "For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, windowDoorOpeningsSqft, garageOpeningsSqft, and non-stucco deductions. Also populate measurements.stuccoWindowDoorOpeningSqft and measurements.stuccoGarageOpeningSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer.",
-                    insulationSelected
-                      ? "For Insulation, do not return a wall quantity from one elevation or perimeter alone. Return all complete labeled wall/opening facts so the app can calculate one net exterior-wall quantity."
-                      : "PDF text perimeter/plate/story facts (when present) support gross wall area only. Opening deductions still come from elevation drawings.",
-                    insulationSelected
-                      ? INSULATION_VISION_INSTRUCTIONS
-                      : plumbingSelected
-                        ? PLUMBING_VISION_INSTRUCTIONS
-                        : paintingSelected
-                          ? paintingVisionInstructions
-                          : electricalSelected
-                            ? ELECTRICAL_VISION_INSTRUCTIONS
-                            : "For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.",
-                    paintingSelected
-                      ? "Return wallPaintSqft, ceilingPaintSqft, baseboardLf, interiorDoorCount, and exteriorPaintSqft when geometry or schedules support them. Add geometry-derived keys to geometryDerived. Leave occupancy, application method, and prep omitted."
-                      : insulationSelected
-                        ? "The attached pages are rasterized insulation-relevant sheets selected from the PDF. Inspect the actual wall sections, elevations, ceiling/attic plans, roof details, schedules, and notes in those images. Return insulation quantities only when explicitly labeled or directly calculated from readable labeled dimensions. Preserve the wall/attic versus roof-deck boundary distinction."
-                        : plumbingSelected
-                          ? `${plumbingSheetCountHint} Return Plumbing canonical quantities only. Add only explicit or directly measured fields to explicitlyLabeled/geometryDerived. Leave packages and unsupported values omitted.`
-                          : electricalSelected
-                            ? `${electricalSheetCountHint} Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.`
-                            : "Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.",
-                  ].join("\n\n"),
-                },
-                ...(electricalSelected || plumbingSelected
-                  ? visionParts
-                  : insulationSelected && insulationVisionParts
-                    ? insulationVisionParts
-                  : compatible.map(toVisionContentPart)),
-              ],
-            },
-        ],
-      });
+            ...(electricalSelected || plumbingSelected
+              ? visionParts
+              : insulationSelected && insulationVisionParts
+                ? insulationVisionParts
+                : compatible.map(toVisionContentPart)),
+          ],
+        },
+      ],
+    });
   const tradeVisualPromise =
     planSelection.mode === "whole_project" || planSelection.trade
       ? (async () => {
@@ -3384,6 +3542,47 @@ async function analyzePlanForMeasurements({
   if (plumbingSelected) {
     rawMeasurements = normalizePlumbingPlanMeasurements(parsed.measurements);
   }
+  if (drywallSelected) {
+    const drywallSupportedKeys = [
+      ...(Array.isArray(parsed.explicitlyLabeled)
+        ? parsed.explicitlyLabeled
+        : []),
+      ...(Array.isArray(parsed.geometryDerived) ? parsed.geometryDerived : []),
+    ];
+    rawMeasurements = {
+      ...rawMeasurements,
+      ...normalizeDrywallPlanMeasurements(
+        parsed.measurements,
+        drywallSupportedKeys,
+      ),
+    };
+    const drywallDerived = deriveDrywallGeometryMeasurements(
+      rawMeasurements,
+      rooms,
+      planFacts,
+      {
+        buildingAreas,
+        rawPlanFacts: visionPlanFacts,
+      },
+    );
+    rawMeasurements = drywallDerived.measurements;
+    parsed.geometryDerived = [
+      ...(Array.isArray(parsed.geometryDerived) ? parsed.geometryDerived : []),
+      ...drywallDerived.derivedKeys,
+    ];
+    parsed.assumptions = [
+      ...(Array.isArray(parsed.assumptions) ? parsed.assumptions : []),
+      ...drywallDerived.assumptions,
+    ];
+    for (const key of drywallDerived.derivedKeys) {
+      fieldConfidence[key] = Math.max(Number(fieldConfidence[key] || 0), 0.75);
+      measurementProvenance[key] = {
+        value: rawMeasurements[key],
+        source: "measured_from_geometry",
+        normalizedSource: "FROM_PLAN",
+      };
+    }
+  }
   if (electricalSelected) {
     logElectricalTakeoffStage(
       "AFTER SANITIZE",
@@ -3440,9 +3639,7 @@ async function analyzePlanForMeasurements({
     );
     rawMeasurements = insulationDerived.measurements;
     parsed.geometryDerived = [
-      ...(Array.isArray(parsed.geometryDerived)
-        ? parsed.geometryDerived
-        : []),
+      ...(Array.isArray(parsed.geometryDerived) ? parsed.geometryDerived : []),
       ...insulationDerived.derivedKeys,
     ];
     parsed.assumptions = [
@@ -3450,10 +3647,7 @@ async function analyzePlanForMeasurements({
       ...insulationDerived.assumptions,
     ];
     for (const key of insulationDerived.derivedKeys) {
-      fieldConfidence[key] = Math.max(
-        Number(fieldConfidence[key] || 0),
-        0.75,
-      );
+      fieldConfidence[key] = Math.max(Number(fieldConfidence[key] || 0), 0.75);
       measurementProvenance[key] = {
         value: rawMeasurements[key],
         source: "calculated_from_plan_facts",
@@ -3916,7 +4110,9 @@ async function analyzePlanForMeasurements({
       insulationPlanFacts,
     );
     tradeMeasurementInput = insulationValidated.measurements;
-    for (const [key, value] of Object.entries(insulationValidated.measurements)) {
+    for (const [key, value] of Object.entries(
+      insulationValidated.measurements,
+    )) {
       if (positive(value) > 0) tradeMeasurementInput[key] = value;
     }
     for (const key of insulationValidated.invalidKeys) {
@@ -3925,7 +4121,8 @@ async function analyzePlanForMeasurements({
           ...(parsed.unreadableFields || []),
           {
             field: key,
-            reason: "AI quantity did not match complete plan evidence; review required",
+            reason:
+              "AI quantity did not match complete plan evidence; review required",
           },
         ];
       }
@@ -4033,6 +4230,23 @@ async function analyzePlanForMeasurements({
       }
     }
   }
+  if (drywallSelected) {
+    if (!(positive(tradeMeasurementInput.drywallSqft) > 0)) {
+      tradeMissingInfo.unshift(
+        "Drywall surface: no readable wall/ceiling quantity or complete room dimensions with wall height",
+      );
+    }
+    if (!(positive(tradeMeasurementInput.drywallWallSqft) > 0)) {
+      tradeMissingInfo.unshift(
+        "Drywall walls: no readable wall surface quantity or complete room perimeter geometry",
+      );
+    }
+    if (!(positive(tradeMeasurementInput.drywallCeilingSqft) > 0)) {
+      tradeMissingInfo.unshift(
+        "Drywall ceilings: no readable ceiling surface quantity or complete room area geometry",
+      );
+    }
+  }
   if (electricalSelected) {
     if (!(positive(tradeMeasurementInput.mainPanelCount) > 0)) {
       tradeMissingInfo.unshift(
@@ -4130,6 +4344,7 @@ module.exports = {
   deriveInsulationMeasurementsFromPlanFacts,
   validateInsulationMeasurementsAgainstPlanFacts,
   derivePaintingGeometryMeasurements,
+  deriveDrywallGeometryMeasurements,
   sanitizeRooms,
   sanitizeMeasurements,
   sanitizeBuildingAreas,
@@ -4146,6 +4361,7 @@ module.exports = {
   mergeRoomsPreferPdf,
   pruneEnvelopeGarageRooms,
   reconcileBathroomMeasurement,
+  normalizeDrywallPlanMeasurements,
   buildSystemPrompt,
   buildElectricalSystemPrompt,
   mergeElectricalEvidenceSources,

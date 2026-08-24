@@ -20,6 +20,10 @@ import {
   INSULATION_PLAN_QUICK_MEASUREMENT_KEYS,
   INSULATION_PLAN_REVIEW_MEASUREMENT_KEYS,
 } from './insulationPlanConvergence';
+import {
+  DRYWALL_PLAN_QUICK_MEASUREMENT_KEYS,
+  DRYWALL_PLAN_REVIEW_MEASUREMENT_KEYS,
+} from './drywallPlanConvergence';
 import { getTradeMeasurementSchema } from './measurementSchemas';
 import {
   TRADE_SCOPE_ALLOWLISTS,
@@ -460,7 +464,57 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
   }),
   drywall: scaffoldedTrade('drywall', 'Drywall', {
     standaloneTemplateKey: 'drywall',
-    quickMeasurementFieldKeys: ['drywallSqft'],
+    status: 'complete',
+    scopeHint:
+      'Focus on floor plans, room schedules, reflected ceiling plans, sections, and drywall notes. Capture wall and ceiling surface area only when labeled or derived from documented room geometry; never use living area as a plan takeoff.',
+    missingInfo: [
+      'Wall and ceiling surface area',
+      'Opening deductions and vaulted or soffited areas',
+      'Garage inclusion, hang/finish scope, and texture level',
+    ],
+    reviewMeasurementKeys: [...DRYWALL_PLAN_REVIEW_MEASUREMENT_KEYS],
+    reviewScopeKeywords: [
+      'drywall',
+      'gypsum',
+      'sheetrock',
+      'hang',
+      'tape',
+      'mud',
+      'texture',
+    ],
+    quickMeasurementFieldKeys: [...DRYWALL_PLAN_QUICK_MEASUREMENT_KEYS],
+    scopeItems: [
+      {
+        scopeItemId: 'drywall',
+        pricingBehavior: 'CUSTOM_PRICE',
+        measurementKeys: [
+          'drywallSqft',
+          'drywallWallSqft',
+          'drywallCeilingSqft',
+          'drywallOpeningDeductionSqft',
+        ],
+      },
+      {
+        scopeItemId: 'hang',
+        pricingBehavior: 'SEPARATE_ADDON',
+        measurementKeys: ['drywallSqft'],
+      },
+      {
+        scopeItemId: 'finish_tape',
+        pricingBehavior: 'SEPARATE_ADDON',
+        measurementKeys: ['drywallSqft'],
+      },
+      {
+        scopeItemId: 'texture',
+        pricingBehavior: 'SEPARATE_ADDON',
+        measurementKeys: ['drywallSqft'],
+      },
+      {
+        scopeItemId: 'patch_repair',
+        pricingBehavior: 'CUSTOM_PRICE',
+        measurementKeys: ['drywallSqft'],
+      },
+    ],
   }),
   stucco: STUCCO_DEFINITION,
   insulation: scaffoldedTrade('insulation', 'Insulation', {
@@ -497,6 +551,10 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
           'floorInsulationSqft',
           'garageSeparationInsulationSqft',
         ],
+      },
+      {
+        scopeItemId: 'cleanup',
+        pricingBehavior: 'ALLOWANCE',
       },
     ],
   }),
