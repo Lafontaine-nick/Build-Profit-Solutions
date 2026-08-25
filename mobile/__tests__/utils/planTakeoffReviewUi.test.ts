@@ -12,6 +12,7 @@ import {
   buildImportedPlanSummaryText,
   buildPlanReadyJobNotesPrompt,
   ensureGroundUpPlanNotes,
+  filterPlanReviewMeasurementEntries,
   garageReconciliationStatusLabel,
   importedPlanSummaryCollapsedSubtitle,
   planImportLooksLikeGroundUp,
@@ -109,6 +110,30 @@ describe('plan takeoff review UI polish', () => {
         livingSf: 1879,
       })
     ).toBeNull();
+  });
+
+  it('uses contractor-friendly drywall takeoff labels', () => {
+    expect(measurementDisplayLabel('garageWallDrywallSqft').label).toBe(
+      'Garage walls'
+    );
+    expect(measurementDisplayLabel('garageCeilingDrywallSqft').label).toBe(
+      'Garage ceiling'
+    );
+    expect(measurementDisplayLabel('fireRatedDrywallSqft').label).toBe(
+      'Fire-rated board'
+    );
+    expect(measurementDisplayLabel('fireRatedDrywallSqft').subtext).toMatch(
+      /Type X/i
+    );
+  });
+
+  it('filters internal quick measurement metadata from review rows', () => {
+    const filtered = filterPlanReviewMeasurementEntries({
+      garageWallDrywallSqft: 1140,
+      quickMeasurementSources: { garageWallDrywallSqft: 'plan_detected' },
+      measurementProvenance: { garageWallDrywallSqft: 'FROM_PLAN' },
+    });
+    expect(filtered).toEqual({ garageWallDrywallSqft: 1140 });
   });
 
   it('shows measurement source labels when semantics enabled', () => {

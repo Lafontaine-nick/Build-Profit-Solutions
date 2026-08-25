@@ -14,6 +14,10 @@ const {
   expandPlumbingRelevantPages,
   countElectricalInstanceTagsOnPage,
   aggregateElectricalInstanceTagCounts,
+  countHvacInstanceTagsOnPage,
+  aggregateHvacInstanceTagCounts,
+  parseHvacEquipmentScheduleFromPageText,
+  aggregateHvacEquipmentHints,
   detectElectricalSheetKind,
   detectElectricalPlanLevel,
   extractSheet,
@@ -589,5 +593,79 @@ describe('planPdfTextTakeoff', () => {
     expect(page.unclassifiedFixtureCount).toBe(4);
     const aggregated = aggregateElectricalInstanceTagCounts([page]);
     expect(aggregated.unclassifiedFixtureCount).toBe(4);
+  });
+});
+
+describe('HVAC instance tags and equipment schedule', () => {
+  function scatterTags(tag, count, { x0 = 180, y0 = 900, dx = 24, dy = 20 } = {}) {
+    return Array.from({ length: count }, (_, i) => ({
+      str: tag,
+      x: x0 + (i % 11) * dx,
+      y: y0 - Math.floor(i / 11) * dy,
+    }));
+  }
+
+  test('repeated SA and RA instance tags become supply/return counts', () => {
+    const page = countHvacInstanceTagsOnPage(
+      [
+        { str: 'MECHANICAL PLAN M-1', x: 400, y: 1200 },
+        { str: 'HVAC LEGEND', x: 40, y: 180 },
+        { str: 'SA', x: 48, y: 140 },
+        ...scatterTags('SA', 12),
+        ...scatterTags('RA', 4, { x0: 260, y0: 700 }),
+      ],
+      { page: 8, sheet: 'M-1' }
+    );
+    expect(page.measurements.hvacSupplyRegisterCount).toBe(12);
+    expect(page.measurements.hvacReturnGrilleCount).toBe(4);
+    const aggregated = aggregateHvacInstanceTagCounts([page]);
+    expect(aggregated.measurements.hvacSupplyRegisterCount).toBe(12);
+    expect(aggregated.measurements.hvacReturnGrilleCount).toBe(4);
+  });
+
+  test('legend-only SA text does not inflate supply register count', () => {
+    const page = countHvacInstanceTagsOnPage([
+      { str: 'MECHANICAL PLAN M-1', x: 400, y: 1200 },
+      { str: 'HVAC LEGEND', x: 40, y: 200 },
+      { str: 'SA', x: 50, y: 160 },
+      { str: 'SUPPLY AIR DIFFUSER', x: 90, y: 160 },
+    ]);
+    expect(page.measurements.hvacSupplyRegisterCount).toBeUndefined();
+  });
+
+  test('equipment schedule text yields system count and tonnage', () => {
+    const page = parseHvacEquipmentScheduleFromPageText(
+      'MECHANICAL EQUIPMENT SCHEDULE\nRTU-1 4 TON GAS FURNACE / CONDENSER\nQTY 1',
+      { page: 9, sheet: 'M-2' }
+    );
+    expect(page.measurements.hvacSystemCount).toBe(1);
+    expect(page.measurements.hvacSystemTons).toBe(4);
+    const aggregated = aggregateHvacEquipmentHints([page]);
+    expect(aggregated.measurements.hvacSystemCount).toBe(1);
+    expect(aggregated.measurements.hvacSystemTons).toBe(4);
+  });
+
+  test('formatPdfEvidenceForVision includes HVAC instance tags', () => {
+    const evidence = formatPdfEvidenceForVision(
+      {
+        hvacRelevantPages: [{ page: 8, reasons: ['M sheet'] }],
+        hvacInstanceTags: {
+          byKey: {
+            hvacSupplyRegisterCount: {
+              value: 12,
+              tag: 'hvacSupplyRegisterCount',
+              sheets: [{ sheet: 'M-1', page: 8, count: 12 }],
+            },
+          },
+        },
+        hvacEquipmentHints: {
+          measurements: { hvacSystemTons: 4 },
+        },
+      },
+      { tradeKey: 'hvac' }
+    );
+    expect(evidence).toMatch(/HVAC instance tags/i);
+    expect(evidence).toMatch(/hvacSupplyRegisterCount: 12/);
+    expect(evidence).toMatch(/hvacSystemTons: 4/);
   });
 });

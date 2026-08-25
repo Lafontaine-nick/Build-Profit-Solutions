@@ -171,6 +171,8 @@ Rules:
 8. If unsure about an item, use state "unsure" or omit it — still return success true with whatever you can see.
 9. projectTypeHint must reflect the PHOTOS (bathroom, kitchen, roofing, flooring, painting, deck_patio, room_remodel, addition, ground_up, other).
 10. For bathroom/shower/tub photos, also return existingFeatures — EXISTING wet-area fixtures visible now (not planned new work). Use feature ids: tub, tile_shower_walls, tile_shower_pan, prefab_shower_pan, prefab_shower_enclosure, shower_door. Omit features you cannot see.
+11. For clearly visible exterior windows, swing doors, sliding/patio doors, or garage doors, state the directly visible count in scopeText using the words "window(s)", "exterior door(s)", "sliding door(s)", or the documented garage type. Count each opening once across overlapping photos; do not infer unseen openings, garage type, sizes, or quantities from house size.
+12. Do not activate framing from a visible existing opening. Reframing is separate and may be considered only when the contractor's notes explicitly say new opening, resize opening, enlarge opening, or reframe.
 
 Schema:
 {

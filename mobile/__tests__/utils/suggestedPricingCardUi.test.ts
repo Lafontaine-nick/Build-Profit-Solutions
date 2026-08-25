@@ -239,7 +239,10 @@ describe('suggestedPricingCardUi', () => {
     expect(getScopeQuantityFieldLabels('windows_doors').count).toBe('Window & door openings');
     expect(getScopeQuantityFieldLabels('plumbing_rough').count).toBe('Rough-in points');
     expect(getScopeQuantityFieldLabels('electrical_rough').count).toBe('Circuits / devices / boxes');
-    expect(getScopeQuantityFieldLabels('hvac').count).toBe('Systems / tons');
+    expect(getScopeQuantityFieldLabels('hvac').count).toBe('System count');
+    expect(getScopeQuantityFieldLabels('hvac').secondaryCount).toBe(
+      'System capacity'
+    );
     expect(getScopeQuantityFieldLabels('insulation').count).toBe('Whole-house insulation area');
     expect(getScopeQuantityFieldLabels('appliances').count).toBe('Appliances');
     expect(pricingBasisFieldLabel('windows_doors', 'each')).toBe('Window & door openings');

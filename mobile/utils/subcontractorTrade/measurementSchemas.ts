@@ -4,6 +4,11 @@ import type {
 } from './types';
 import { ELECTRICAL_CARDS } from './electricalPlanConvergence';
 import { PLUMBING_CARDS } from './plumbingPlanConvergence';
+import {
+  HVAC_CARDS,
+  HVAC_PLAN_REVIEW_MEASUREMENT_KEYS,
+} from './hvacPlanConvergence';
+import { WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS } from './windowsDoorsPlanConvergence';
 
 const M = (
   key: string,
@@ -154,7 +159,22 @@ export const TRADE_MEASUREMENT_SCHEMAS: Partial<
       }
     )
   ),
-  hvac: [],
+  hvac: [
+    ...HVAC_CARDS.map(card =>
+      M(card.measurementKey, card.label, card.unit, 'more', {
+        quickMeasurementKey: card.measurementKey,
+      })
+    ),
+    M('hvacSystemTons', 'HVAC system capacity', 'ton', 'primary', {
+      quickMeasurementKey: 'hvacSystemTons',
+    }),
+  ].filter(
+    (definition, index, all) =>
+      HVAC_PLAN_REVIEW_MEASUREMENT_KEYS.includes(
+        definition.key as (typeof HVAC_PLAN_REVIEW_MEASUREMENT_KEYS)[number]
+      ) &&
+      all.findIndex(other => other.key === definition.key) === index
+  ),
   concrete: [
     M('concreteDrivewaySqft', 'Driveway area', 'sqft', 'primary', {
       quickMeasurementKey: 'concreteDrivewaySqft',
@@ -377,7 +397,22 @@ export const TRADE_MEASUREMENT_SCHEMAS: Partial<
       quickMeasurementKey: 'exteriorPaintSqft',
     }),
   ],
-  windows_doors: [],
+  windows_doors: WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS.map(key =>
+    M(
+      key,
+      {
+        windowCount: 'Windows',
+        exteriorDoorCount: 'Exterior swing doors',
+        slidingDoorCount: 'Sliding / patio doors',
+        garageDoorSingleCount: 'Single garage doors',
+        garageDoorDoubleCount: 'Double garage doors',
+        garageDoorRvCount: 'RV / oversized garage doors',
+      }[key],
+      'each',
+      key === 'windowCount' || key === 'exteriorDoorCount' ? 'primary' : 'more',
+      { quickMeasurementKey: key }
+    )
+  ),
   electrical: [
     M('serviceAmperage', 'Service amperage', 'amp', 'primary'),
     ...ELECTRICAL_CARDS.filter(

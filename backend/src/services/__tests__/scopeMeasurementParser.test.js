@@ -739,6 +739,49 @@ describe('trade-specific scope checklists', () => {
     expect(parsed.electricalTrenching).toBe(true);
   });
 
+  test('parses Windows & doors counts and aggregates typed garage doors', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Replace 12 windows, 2 exterior swing doors, 1 sliding patio door, 1 single garage door, 1 double garage door, and 1 RV garage door.',
+      { templateKey: 'windows_doors', projectType: 'windows_doors' },
+    );
+    expect(parsed).toMatchObject({
+      windowCount: 12,
+      exteriorDoorCount: 2,
+      slidingDoorCount: 1,
+      garageDoorSingleCount: 1,
+      garageDoorDoubleCount: 1,
+      garageDoorRvCount: 1,
+    });
+    expect(parsed.itemQuantities).toMatchObject({
+      windows: { quantity: 12, unit: 'each' },
+      exterior_doors: { quantity: 2, unit: 'each' },
+      sliding_doors: { quantity: 1, unit: 'each' },
+      garage_doors: { quantity: 3, unit: 'each' },
+    });
+  });
+
+  test('does not activate framing for replacement-only window and door notes', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Replace 5 windows and 2 exterior doors; no reframing or new openings.',
+      { templateKey: 'windows_doors', projectType: 'windows_doors' },
+    );
+    expect(parsed.windowCount).toBe(5);
+    expect(parsed.exteriorDoorCount).toBe(2);
+    expect(parsed.reframingRequested).toBeUndefined();
+    expect(parsed.framingOpeningCount).toBeUndefined();
+  });
+
+  test('flags explicit reframing separately from Windows & doors counts', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Replace 3 windows and reframe 2 window openings.',
+      { templateKey: 'windows_doors', projectType: 'windows_doors' },
+    );
+    expect(parsed.windowCount).toBe(3);
+    expect(parsed.reframingRequested).toBe(true);
+    expect(parsed.framingOpeningCount).toBe(2);
+    expect(parsed.itemQuantities).not.toHaveProperty('openings');
+  });
+
   test('routes electrical notes to the electrical template', () => {
     const draft = {
       projectType: 'electrical',
@@ -757,5 +800,21 @@ describe('trade-specific scope checklists', () => {
         'cleanup',
       ])
     );
+  });
+
+  test('routes dedicated Windows & doors notes to granular opening cards', () => {
+    const draft = {
+      projectType: 'windows_doors',
+      rooms: [],
+      originalNotes: 'Replace 8 windows and 2 exterior swing doors.',
+    };
+    expect(checklistTemplateKey(draft, 'room_remodel')).toBe('windows_doors');
+    expect(CHECKLIST_TEMPLATES.windows_doors.items.map((item) => item.id)).toEqual([
+      'windows',
+      'exterior_doors',
+      'sliding_doors',
+      'garage_doors',
+      'openings',
+    ]);
   });
 });

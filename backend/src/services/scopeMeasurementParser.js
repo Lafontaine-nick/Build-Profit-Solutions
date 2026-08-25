@@ -58,6 +58,20 @@ function firstQty(text, re) {
   return m ? parseQty(m) : null;
 }
 
+function firstHvacCount(text, pattern) {
+  const patternSource = pattern instanceof RegExp ? pattern.source : pattern;
+  const match = String(text || '').match(
+    new RegExp(
+      `(?:^|\\b)(\\d[\\d,]*(?:\\.\\d+)?|one|two|three|four|five)\\s*(?:ea|each|count)?\\s*(?:${patternSource})`,
+      'i',
+    ),
+  );
+  if (!match) return null;
+  const words = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+  const count = words[match[1].toLowerCase()] || Number(match[1].replace(/,/g, ''));
+  return Number.isFinite(count) && count > 0 ? count : null;
+}
+
 function allQty(text, re) {
   const values = [];
   let m;
@@ -107,6 +121,54 @@ function splitMeasurementClauses(text) {
     .flatMap((clause) => clause.split(/,\s+(?=[a-z])/i))
     .map((clause) => clause.trim())
     .filter(Boolean);
+}
+
+const COUNT_TOKEN_RE =
+  /\b(\d[\d,]*(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\b/i;
+
+function parseCountToken(value) {
+  const words = {
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+  };
+  const normalized = String(value || '').toLowerCase();
+  const count = words[normalized] ?? Number(normalized.replace(/,/g, ''));
+  return Number.isFinite(count) && count > 0 && count <= 200
+    ? Math.round(count)
+    : null;
+}
+
+function pickOpeningCount(clauses, text, pattern) {
+  const countNearestToPattern = (value) => {
+    const patternMatch = pattern.exec(String(value || '').toLowerCase());
+    if (!patternMatch || patternMatch.index == null) return null;
+    const countRe = new RegExp(COUNT_TOKEN_RE.source, 'gi');
+    let match;
+    let nearest = null;
+    while ((match = countRe.exec(value)) !== null) {
+      const count = parseCountToken(match[1]);
+      if (count == null) continue;
+      const distance = Math.abs(match.index - patternMatch.index);
+      if (!nearest || distance < nearest.distance) {
+        nearest = { distance, count };
+      }
+    }
+    return nearest?.count ?? null;
+  };
+
+  for (const clause of clauses) {
+    const count = countNearestToPattern(clause);
+    if (count != null) return count;
+  }
+  return countNearestToPattern(text);
 }
 
 /**
@@ -366,6 +428,65 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   if (interiorDoorCountMatch) {
     const count = Number(interiorDoorCountMatch[1].replace(/,/g, ''));
     if (Number.isFinite(count) && count > 0) out.interiorDoorCount = count;
+  }
+
+  // Windows & doors notes use explicit counts only. Generic "doors" is not
+  // treated as an exterior door because it may describe interior painting.
+  const windowCount = pickOpeningCount(
+    clauses,
+    text,
+    /\b(?:windows?|window\s+units?|fenestration)\b/i,
+  );
+  const exteriorDoorCount = pickOpeningCount(
+    clauses,
+    text,
+    /\b(?:exterior|entry|front|back|side|service|swing|hinged|egress)\s+(?:swing\s+|entry\s+)?doors?\b/i,
+  );
+  const slidingDoorCount = pickOpeningCount(
+    clauses,
+    text,
+    /\b(?:sliding|patio|slider|multi[-\s]?panel)\s+doors?\b/i,
+  );
+  const garageDoorSingleCount = pickOpeningCount(
+    clauses,
+    text,
+    /\b(?:single|one[-\s]?car)\b[^.;\n]{0,25}\bgarage\s+doors?\b|\bgarage\s+doors?\b[^.;\n]{0,25}\b(?:single|one[-\s]?car)\b/i,
+  );
+  const garageDoorDoubleCount = pickOpeningCount(
+    clauses,
+    text,
+    /\b(?:double|two[-\s]?car)\b[^.;\n]{0,25}\bgarage\s+doors?\b|\bgarage\s+doors?\b[^.;\n]{0,25}\b(?:double|two[-\s]?car)\b/i,
+  );
+  const garageDoorRvCount = pickOpeningCount(
+    clauses,
+    text,
+    /\b(?:rv|oversized|extra[-\s]?wide|tall)\b[^.;\n]{0,25}\bgarage\s+doors?\b|\bgarage\s+doors?\b[^.;\n]{0,25}\b(?:rv|oversized|extra[-\s]?wide|tall)\b/i,
+  );
+  if (windowCount) out.windowCount = windowCount;
+  if (exteriorDoorCount) out.exteriorDoorCount = exteriorDoorCount;
+  if (slidingDoorCount) out.slidingDoorCount = slidingDoorCount;
+  if (garageDoorSingleCount) out.garageDoorSingleCount = garageDoorSingleCount;
+  if (garageDoorDoubleCount) out.garageDoorDoubleCount = garageDoorDoubleCount;
+  if (garageDoorRvCount) out.garageDoorRvCount = garageDoorRvCount;
+
+  const explicitReframingLanguage =
+    /\b(?:re[-\s]?frame(?:d|ing)?|new\s+(?:window|door)\s+opening|new\s+opening|resize(?:d|ing)?\s+(?:the\s+)?(?:window|door)?\s*opening|enlarge(?:d|ing)?\s+(?:the\s+)?(?:window|door)?\s*opening|modify(?:ing|ied)?\s+(?:the\s+)?(?:window|door)?\s*opening)\b/i.test(
+      text,
+    );
+  const negatedReframingLanguage =
+    /\b(?:no|not|without|exclude(?:d|s)?|excluding)\s+(?:any\s+)?(?:structural\s+)?re[-\s]?framing\b|\b(?:no|not|without)\s+(?:any\s+)?(?:new\s+)?(?:window|door)?\s*openings?\b/i.test(
+      text,
+    );
+  const reframingRequested =
+    explicitReframingLanguage && !negatedReframingLanguage;
+  if (reframingRequested) {
+    out.reframingRequested = true;
+    const framingOpeningCount = pickOpeningCount(
+      clauses,
+      text,
+      /\b(?:re[-\s]?frame|new|resize|enlarge|modify)[^.;\n]{0,45}\bopenings?\b/i,
+    );
+    if (framingOpeningCount) out.framingOpeningCount = framingOpeningCount;
   }
 
   const cabinetPaintSqft =
@@ -741,6 +862,77 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   if (out.bathroomFloorSqft && !out.sqft) out.sqft = out.bathroomFloorSqft;
   if (out.baseboardLf && !out.lf) out.lf = out.baseboardLf;
 
+  const hvacSignal =
+    /\bhvac\b|\bmechanical\b|\bfurnace\b|\bair\s*(?:handler|condition(?:er|ing))\b|\bheat\s*pump\b|\bmini[\s-]?split\b|\bductwork\b|\bthermostat\b|\bventilation\b/i;
+  const hvacText = hvacSignal.test(text)
+    ? text
+    : clauses.filter((clause) => hvacSignal.test(clause)).join(' ');
+  if (hvacText) {
+    const systemCount =
+      firstHvacCount(hvacText, '(?:hvac\\s+)?systems?') ||
+      firstHvacCount(
+        hvacText,
+        '(?:furnaces?|air\\s*handlers?|heat\\s*pumps?|mini[\\s-]?splits?)',
+      );
+    if (systemCount) out.hvacSystemCount = Math.round(systemCount);
+    const tons = firstQty(hvacText, TON_RE);
+    if (tons) out.hvacSystemTons = tons;
+    const ductworkLf = pickLfNearPattern(
+      hvacText,
+      /\b(?:ductwork|ducts?|flex\s*duct)\b/i,
+    );
+    if (ductworkLf) out.hvacDuctworkLf = ductworkLf;
+    const supplyRegisterCount = firstHvacCount(
+      hvacText,
+      '(?:supply\\s+)?(?:air\\s+)?registers?|(?:supply\\s+)?diffusers?',
+    );
+    if (supplyRegisterCount) {
+      out.hvacSupplyRegisterCount = Math.round(supplyRegisterCount);
+    }
+    const returnGrilleCount = firstHvacCount(
+      hvacText,
+      'return(?:\\s+air)?\\s+(?:grilles?|registers?)',
+    );
+    if (returnGrilleCount) {
+      out.hvacReturnGrilleCount = Math.round(returnGrilleCount);
+    }
+    const thermostatCount = firstHvacCount(hvacText, 'thermostats?');
+    if (thermostatCount) out.hvacThermostatCount = Math.round(thermostatCount);
+    const serviceCallCount = firstHvacCount(
+      hvacText,
+      '(?:hvac\\s+)?(?:service|diagnostic|maintenance)\\s+calls?',
+    );
+    if (serviceCallCount) out.hvacServiceCallCount = Math.round(serviceCallCount);
+    const replacementCount = firstHvacCount(
+      hvacText,
+      '(?:equipment|furnace|air\\s*handler|condenser|heat\\s*pump)\\s+(?:replacement|replace(?:ment)?)',
+    );
+    if (replacementCount) {
+      out.hvacEquipmentReplacementCount = Math.round(replacementCount);
+    } else if (
+      /\b(?:replace|replacement)\b/i.test(hvacText) &&
+      /\b(?:equipment|furnace|air\s*handler|condenser|heat\s*pump)\b/i.test(
+        hvacText,
+      )
+    ) {
+      out.hvacEquipmentReplacementCount = 1;
+    }
+    const refrigerantCount = firstHvacCount(
+      hvacText,
+      'refrigerant(?:\\s+(?:service|recharge|recovery))?',
+    );
+    if (refrigerantCount) out.hvacRefrigerantCount = Math.round(refrigerantCount);
+    const ventilationCount = firstHvacCount(
+      hvacText,
+      '(?:hvac\\s+)?ventilation(?:\\s+(?:system|unit|fan))?',
+    );
+    if (ventilationCount) out.hvacVentilationCount = Math.round(ventilationCount);
+    if (/\b(?:permit|inspection)\b/i.test(hvacText)) out.hvacPermitCount = 1;
+    if (/\b(?:hvac\s+)?(?:cleanup|disposal|haul[\s-]?off)\b/i.test(hvacText)) {
+      out.hvacCleanupCount = 1;
+    }
+  }
+
   const electrical = parseElectricalMeasurementsFromNotes(text);
   const electricalItemQuantities = electrical.itemQuantities || {};
   for (const [key, value] of Object.entries(electrical)) {
@@ -751,8 +943,60 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const itemAllowances = parseScopeItemAllowancesFromNotes(text, ctx);
   const itemRatePricing = parseScopeItemRatePricingFromNotes(text, out, ctx);
   const itemQuantities = { ...itemAllowances, ...itemRatePricing };
+  const openingItemMap = [
+    ['windowCount', 'windows'],
+    ['exteriorDoorCount', 'exterior_doors'],
+    ['slidingDoorCount', 'sliding_doors'],
+  ];
+  for (const [key, itemId] of openingItemMap) {
+    const quantity = Number(out[key]);
+    if (!Number.isFinite(quantity) || quantity <= 0 || itemQuantities[itemId]) {
+      continue;
+    }
+    itemQuantities[itemId] = {
+      quantity,
+      unit: 'each',
+      quantitySource: 'notes',
+    };
+  }
+  const garageDoorCount =
+    (Number(out.garageDoorSingleCount) || 0) +
+    (Number(out.garageDoorDoubleCount) || 0) +
+    (Number(out.garageDoorRvCount) || 0);
+  if (garageDoorCount > 0 && !itemQuantities.garage_doors) {
+    itemQuantities.garage_doors = {
+      quantity: garageDoorCount,
+      unit: 'each',
+      quantitySource: 'notes',
+    };
+  }
   for (const [itemId, quantity] of Object.entries(electricalItemQuantities)) {
     if (!itemQuantities[itemId]) itemQuantities[itemId] = quantity;
+  }
+  const hvacItemMap = [
+    ['hvacSystemCount', 'hvac', 'each'],
+    ['hvacSystemTons', 'hvac', 'ton'],
+    ['hvacServiceCallCount', 'service_call', 'each'],
+    ['hvacEquipmentReplacementCount', 'equipment_replace', 'each'],
+    ['hvacRefrigerantCount', 'refrigerant', 'each'],
+    ['hvacThermostatCount', 'thermostat', 'each'],
+    ['hvacDuctworkLf', 'ductwork', 'lf'],
+    ['hvacSupplyRegisterCount', 'supply_registers', 'each'],
+    ['hvacReturnGrilleCount', 'return_grilles', 'each'],
+    ['hvacVentilationCount', 'ventilation', 'each'],
+    ['hvacPermitCount', 'permits', 'each'],
+    ['hvacCleanupCount', 'cleanup', 'each'],
+  ];
+  for (const [key, itemId, unit] of hvacItemMap) {
+    const quantity = Number(out[key]);
+    if (!Number.isFinite(quantity) || quantity <= 0 || itemQuantities[itemId]) {
+      continue;
+    }
+    itemQuantities[itemId] = {
+      quantity,
+      unit,
+      quantitySource: 'notes',
+    };
   }
   if (wallDemoSqft && !itemQuantities.wall_demo) {
     itemQuantities.wall_demo = {

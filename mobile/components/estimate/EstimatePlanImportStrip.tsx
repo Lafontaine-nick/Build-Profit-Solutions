@@ -38,6 +38,10 @@ import {
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
+import {
+  applyHvacProvenanceGuardToScopeMeasurements,
+  hvacQuickMeasurementSourcesFromProvenance,
+} from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import type {
   PlumbingPerformerMode,
   PlumbingWorkflowMode,
@@ -73,7 +77,8 @@ function keepSelectedTradePlanContext(
 ): boolean {
   return (
     keepPaintingPlanGeometry(mode, tradeKey) ||
-    (mode === 'selected_trade' && tradeKey === 'insulation')
+    (mode === 'selected_trade' &&
+      (tradeKey === 'insulation' || tradeKey === 'drywall'))
   );
 }
 
@@ -606,7 +611,7 @@ export default function EstimatePlanImportStrip({
             selection.mode,
             selection.trade.key
           );
-          if (!keepPaintingPlanGeometry(selection.mode, selection.trade.key)) {
+          if (!keepSelectedTradePlanContext(selection.mode, selection.trade.key)) {
             stamped.rooms = [];
           }
           stamped.areaReconciliation = null;
@@ -765,6 +770,7 @@ export default function EstimatePlanImportStrip({
                 filterPlanMeasurementsForTrade(
                   Object.fromEntries(
                     Object.entries({
+                      ...takeoff.measurements,
                       ...values,
                       ...(selection.trade.key === 'roofing'
                         ? {
@@ -809,7 +815,8 @@ export default function EstimatePlanImportStrip({
         selection.trade?.key === 'electrical' ||
         selection.trade?.key === 'plumbing' ||
         selection.trade?.key === 'framing' ||
-        selection.trade?.key === 'drywall'
+        selection.trade?.key === 'drywall' ||
+        selection.trade?.key === 'hvac'
           ? normalizeTradeMeasurements(
               selection.trade.key,
               {
@@ -841,7 +848,8 @@ export default function EstimatePlanImportStrip({
         selection.trade?.key
       );
       const tradeRooms =
-        selection.mode === 'selected_trade' && !keepPaintingGeometry
+        selection.mode === 'selected_trade' &&
+        !keepSelectedTradePlanContext(selection.mode, selection.trade?.key)
           ? []
           : rooms;
       const tradeScopeDetections =
@@ -879,29 +887,34 @@ export default function EstimatePlanImportStrip({
         ...(metadata?.measurementProvenance || {}),
       };
       const provenanceQuickMeasurementSources =
-        selection.trade?.key === 'electrical' ||
-        selection.trade?.key === 'plumbing'
-          ? Object.fromEntries(
-              Object.entries(appliedProvenance)
-                .filter(([key]) =>
-                  Object.prototype.hasOwnProperty.call(tradeMeasurements, key)
-                )
-                .map(([key, entry]) => [
-                  key,
-                  electricalQuickMeasurementSourceFromProvenance(entry),
-                ])
+        selection.trade?.key === 'hvac'
+          ? hvacQuickMeasurementSourcesFromProvenance(
+              tradeMeasurements,
+              appliedProvenance as Record<string, unknown>
             )
-          : selection.trade?.key === 'framing'
-            ? tagFramingQuickMeasurementSourcesFromProvenance(
-                Object.fromEntries(
-                  Object.entries(tradeMeasurements).map(([key, value]) => [
+          : selection.trade?.key === 'electrical' ||
+              selection.trade?.key === 'plumbing'
+            ? Object.fromEntries(
+                Object.entries(appliedProvenance)
+                  .filter(([key]) =>
+                    Object.prototype.hasOwnProperty.call(tradeMeasurements, key)
+                  )
+                  .map(([key, entry]) => [
                     key,
-                    Number(value),
+                    electricalQuickMeasurementSourceFromProvenance(entry),
                   ])
-                ),
-                appliedProvenance as Record<string, unknown>
               )
-            : {};
+            : selection.trade?.key === 'framing'
+              ? tagFramingQuickMeasurementSourcesFromProvenance(
+                  Object.fromEntries(
+                    Object.entries(tradeMeasurements).map(([key, value]) => [
+                      key,
+                      Number(value),
+                    ])
+                  ),
+                  appliedProvenance as Record<string, unknown>
+                )
+              : {};
 
       let framingQuickSources: Record<string, string> = {};
       if (selection.trade?.key === 'framing') {
@@ -964,6 +977,27 @@ export default function EstimatePlanImportStrip({
         }
       }
 
+      const mergedQuickMeasurementSources = tagPlanDetectedQuickMeasurementKeys(
+        tagPlanReviewLockedQuickMeasurementSources(
+          appliedProvenance,
+          Object.keys(tradeMeasurements),
+          {
+            ...(normalizedTrade?.quickMeasurementSources || {}),
+            ...provenanceQuickMeasurementSources,
+            ...framingQuickSources,
+          }
+        ),
+        Object.keys(tradeMeasurements)
+      );
+      const hvacGuarded =
+        selection.trade?.key === 'hvac'
+          ? applyHvacProvenanceGuardToScopeMeasurements({
+              ...tradeMeasurements,
+              measurementProvenance: appliedProvenance,
+              quickMeasurementSources: mergedQuickMeasurementSources,
+            })
+          : null;
+
       onApplied({
         measurements: tradeMeasurements,
         planImportFingerprint: takeoff.planImportFingerprint,
@@ -986,19 +1020,12 @@ export default function EstimatePlanImportStrip({
             ? undefined
             : takeoff.planFacts,
         fieldConfidence: takeoff.fieldConfidence,
-        quickMeasurementSources: tagPlanDetectedQuickMeasurementKeys(
-          tagPlanReviewLockedQuickMeasurementSources(
-            appliedProvenance,
-            Object.keys(tradeMeasurements),
-            {
-              ...(normalizedTrade?.quickMeasurementSources || {}),
-              ...provenanceQuickMeasurementSources,
-              ...framingQuickSources,
-            }
-          ),
-          Object.keys(tradeMeasurements)
-        ),
-        measurementProvenance: appliedProvenance,
+        quickMeasurementSources:
+          (hvacGuarded?.quickMeasurementSources as Record<string, string>) ||
+          mergedQuickMeasurementSources,
+        measurementProvenance:
+          (hvacGuarded?.measurementProvenance as Record<string, unknown>) ||
+          appliedProvenance,
         measurementConflicts: unresolvedConflicts,
         electricalValidation:
           metadata?.electricalValidation ??

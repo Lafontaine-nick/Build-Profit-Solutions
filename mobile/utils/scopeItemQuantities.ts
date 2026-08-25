@@ -31,6 +31,12 @@ import {
   type PlumbingWorkflowMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
+  HVAC_CARDS,
+  copyHvacQuantityFields,
+  hvacCardForItemId,
+  hvacSystemTierBudgetSplit,
+} from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import {
   FRAMING_CARDS,
   copyFramingQuantityFields,
   framingCardForItemId,
@@ -131,6 +137,17 @@ import {
   resolvePlumbingPackageComparable,
 } from '@/utils/southernUtahPlumbingComparables';
 import {
+  hvacPackageComparableHelper,
+  hvacPlanBarometerComparisonSplit,
+  HVAC_BPS_PLANNING_PACKAGE_RANGE,
+  HVAC_NATIONAL_COMPLETE_PACKAGE_RANGE,
+  hvacUsesInstalledPackagePricing,
+  isHvacComponentScopeItemId,
+  resolveHvacInstalledPackageSuggestedTotal,
+  resolveHvacPackageComparable,
+  resolveHvacPricingEvidenceTier,
+} from '@/utils/southernUtahHvacComparables';
+import {
   barometerLabelForProjectId,
   installedBudgetLivingSfReference,
 } from '@/utils/builderBudgetLumpBlend';
@@ -182,12 +199,23 @@ import {
   syncMeasurementsWithSouthernUtahPlanFacts,
 } from '@/utils/quickMeasurementEstimates';
 import {
-  DRYWALL_PRODUCTION_ASSEMBLY_BASELINE,
-  DRYWALL_PRODUCTION_RATE_CARD_LABEL,
+  copyDrywallQuantityFields,
+  DRYWALL_INSTALLED_MATERIAL_SHARE,
+  drywallPackageSurfacePlanningQuantity,
   drywallSurfaceFromComponents,
   drywallSurfacePlanningQuantity,
   hasDrywallSurfaceComponentTakeoff,
   isProtectedDrywallQuantity,
+  resolveDrywallPackageSurfaceQuantity,
+  resolveDrywallProductionAssemblyBaseline,
+  isDrywallCompletePackageScope,
+  resolveRemodelDrywallAssemblyBaseline,
+  resolveDrywallConditionedSurfaceQuantity,
+  resolveDrywallFinishChoiceId,
+  drywallFinishLaborMultiplier,
+  drywallFinishLaborBucketLabel,
+  resolveDrywallPackageMaterialMultiplier,
+  resolveDrywallPackageLaborMultiplier,
 } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
   insulationEnvelopeInputsFromPlanFacts,
@@ -324,7 +352,13 @@ export function isDualAllowanceItem(itemId: string): boolean {
 
 export const DUAL_QUANTITY_FIELD_LABELS: Record<
   string,
-  { count: string; countUnit: string; allowance: string }
+  {
+    count: string;
+    countUnit: string;
+    allowance: string;
+    secondaryCount?: string;
+    secondaryCountUnit?: string;
+  }
 > = {
   plumbing_rough: {
     count: 'Rough-in points',
@@ -367,9 +401,11 @@ export const DUAL_QUANTITY_FIELD_LABELS: Record<
     allowance: 'Allowance ($)',
   },
   hvac: {
-    count: 'Systems / tons',
+    count: 'System count',
     countUnit: 'each',
     allowance: 'Allowance ($)',
+    secondaryCount: 'System capacity',
+    secondaryCountUnit: 'ton',
   },
   insulation: {
     count: 'Whole-house insulation area',
@@ -448,6 +484,8 @@ export function getScopeQuantityFieldLabels(itemId: string): {
   count: string;
   countUnit: string;
   allowance: string;
+  secondaryCount?: string;
+  secondaryCountUnit?: string;
 } {
   const known = DUAL_QUANTITY_FIELD_LABELS[itemId];
   if (known) return known;
@@ -545,7 +583,11 @@ export type NormalizedScopeMeasurements = {
   additionalHaulOffLoadCount: number | null;
   concreteDemoSqft: number | null;
   concreteDemoThicknessBand:
-    'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
+    | 'thin_2_3'
+    | 'standard_4'
+    | 'heavy_5_6'
+    | 'structural_7_plus'
+    | null;
   concreteDemoThicknessBands: Array<
     'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus'
   > | null;
@@ -565,6 +607,9 @@ export type NormalizedScopeMeasurements = {
   deckSqft: number | null;
   garageSqft: number | null;
   exteriorPaintSqft: number | null;
+  windowCount: number | null;
+  exteriorDoorCount: number | null;
+  slidingDoorCount: number | null;
   stuccoGrossWallSqft: number | null;
   stuccoWindowDoorOpeningSqft: number | null;
   stuccoGarageOpeningSqft: number | null;
@@ -591,7 +636,8 @@ export type NormalizedScopeMeasurements = {
   insulationRValue: string | null;
   garageInsulationIncluded: string | null;
   insulationAssemblies:
-    import('@/utils/estimateAiDraft').InsulationAssembly[] | null;
+    | import('@/utils/estimateAiDraft').InsulationAssembly[]
+    | null;
   planFacts?: ScopeMeasurements['planFacts'];
   quickMeasurementSources?: Record<string, string>;
   railingLf: number | null;
@@ -615,6 +661,8 @@ export type NormalizedScopeMeasurements = {
   garageDoorSingleCount: number | null;
   garageDoorDoubleCount: number | null;
   garageDoorRvCount: number | null;
+  framingOpeningCount: number | null;
+  reframingRequested?: boolean | null;
   measurementProvenance?: Record<string, unknown>;
   measurementConflicts?: import('@/utils/estimateAiDraft').PlanMeasurementConflict[];
   itemQuantities: Record<string, ScopeItemQuantityValue>;
@@ -643,7 +691,8 @@ export type ScopeItemQuantityValue = {
   includesCountertops?: boolean;
   /** Optional durable primary/pricing/benchmark roles (measurement-semantics). */
   measurementState?:
-    import('@/utils/measurementSemantics').ScopeMeasurementState | null;
+    | import('@/utils/measurementSemantics').ScopeMeasurementState
+    | null;
 };
 
 export type ResolvedItemQuantity = {
@@ -697,7 +746,10 @@ export type NationalAverageBudgetSplit = {
   rateSourceReference?: string;
   scopeProfileSource?: ScopeProfileSource;
   productionStatus?:
-    'production_ready' | 'review_required' | 'fallback_only' | 'disabled';
+    | 'production_ready'
+    | 'review_required'
+    | 'fallback_only'
+    | 'disabled';
   geographicBasis?: 'national' | 'state' | 'southern_utah';
   regionalMultiplier?: number;
   regionalStateCode?: string | null;
@@ -729,7 +781,10 @@ export type BenchmarkPricingCoverageStatus =
   | 'needs_review';
 
 export type BenchmarkPricingProductionStatus =
-  'production_ready' | 'review_required' | 'fallback_only' | 'disabled';
+  | 'production_ready'
+  | 'review_required'
+  | 'fallback_only'
+  | 'disabled';
 
 const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   string,
@@ -2039,7 +2094,41 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
       labor: 2200,
       sourceLabel: 'Suggested budget split · National Average · per ton',
     },
-    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.hvac,
+    // Retained for legacy pricing reads; HVAC takeoff rules no longer seed
+    // this unit from living area.
+    sqft: {
+      unit: 'sqft',
+      material: 4.5,
+      labor: 6,
+      sourceLabel: 'Suggested budget split · National Average · legacy HVAC sqft',
+    },
+  },
+  ductwork: {
+    lf: {
+      unit: 'lf',
+      material: 4.5,
+      labor: 8.5,
+      sourceLabel:
+        'Suggested budget split · National Average · HVAC ductwork per LF',
+    },
+  },
+  supply_registers: {
+    each: {
+      unit: 'each',
+      material: 85,
+      labor: 65,
+      sourceLabel:
+        'Suggested budget split · National Average · per supply register',
+    },
+  },
+  return_grilles: {
+    each: {
+      unit: 'each',
+      material: 75,
+      labor: 55,
+      sourceLabel:
+        'Suggested budget split · National Average · per return grille',
+    },
   },
   windows_doors: {
     each: {
@@ -4788,6 +4877,7 @@ function buildSuggestedPricingCostBuckets(params: {
   materialRate?: number | null;
   laborRate?: number | null;
   lumpSumOnly?: boolean;
+  laborBucketLabel?: string | null;
 }): SuggestedPricingCostBucket[] {
   if (params.lumpSumOnly) {
     return [
@@ -4854,10 +4944,9 @@ function buildSuggestedPricingCostBuckets(params: {
     });
   }
   if (params.labor > 0) {
-    const label = nationalAverageLaborBucketLabel(
-      params.itemId,
-      params.average
-    );
+    const label =
+      params.laborBucketLabel ||
+      nationalAverageLaborBucketLabel(params.itemId, params.average);
     buckets.push({
       key: costBucketKindForLabel(label),
       label,
@@ -6318,7 +6407,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKey: 'drywallSqft',
-    requiresUserQuantity: true,
+    requiresUserQuantity: false,
     quantityHelper: 'Enter drywall texture or specialty-finish sqft.',
     missingMessage: 'Enter texture sqft or pricing.',
   },
@@ -6499,6 +6588,26 @@ export function normalizeScopeMeasurements(
     drywallWallSqft: num(measurements?.drywallWallSqft),
     drywallCeilingSqft: num(measurements?.drywallCeilingSqft),
     drywallOpeningDeductionSqft: num(measurements?.drywallOpeningDeductionSqft),
+    garageWallDrywallSqft: num(measurements?.garageWallDrywallSqft),
+    garageCeilingDrywallSqft: num(measurements?.garageCeilingDrywallSqft),
+    moistureResistantDrywallSqft: num(
+      measurements?.moistureResistantDrywallSqft ??
+        measurements?.drywallMoistureResistantSqft
+    ),
+    fireRatedDrywallSqft: num(
+      measurements?.fireRatedDrywallSqft ??
+        measurements?.drywallGarageFireRatedSqft
+    ),
+    specialtyDrywallSqft: num(measurements?.specialtyDrywallSqft),
+    highCeilingDrywallSqft: num(
+      measurements?.highCeilingDrywallSqft ??
+        measurements?.drywallHighCeilingSqft
+    ),
+    vaultedCeilingDrywallSqft: num(
+      measurements?.vaultedCeilingDrywallSqft ??
+        measurements?.drywallVaultedSlopedSqft
+    ),
+    level5FinishSqft: num(measurements?.level5FinishSqft),
     exteriorWallGrossSqft: num(measurements?.exteriorWallGrossSqft),
     exteriorWallInsulationSqft: num(measurements?.exteriorWallInsulationSqft),
     atticInsulationSqft: num(measurements?.atticInsulationSqft),
@@ -6559,6 +6668,9 @@ export function normalizeScopeMeasurements(
     railingLf: num(measurements?.railingLf),
     baseboardLf: num(measurements?.baseboardLf) ?? num(measurements?.lf),
     interiorDoorCount: num(measurements?.interiorDoorCount),
+    windowCount: num(measurements?.windowCount),
+    exteriorDoorCount: num(measurements?.exteriorDoorCount),
+    slidingDoorCount: num(measurements?.slidingDoorCount),
     cabinetPaintSqft: num(measurements?.cabinetPaintSqft),
     cabinetUpperLf: num(measurements?.cabinetUpperLf),
     cabinetLowerLf: num(measurements?.cabinetLowerLf),
@@ -6625,6 +6737,13 @@ export function normalizeScopeMeasurements(
       Number(measurements.garageDoorRvCount) > 0
         ? Math.round(Number(measurements.garageDoorRvCount))
         : null,
+    framingOpeningCount:
+      measurements?.framingOpeningCount != null &&
+      Number(measurements.framingOpeningCount) > 0
+        ? Math.round(Number(measurements.framingOpeningCount))
+        : null,
+    reframingRequested:
+      measurements?.reframingRequested === true ? true : null,
     ...copyElectricalQuantityFields(
       measurements as Record<string, unknown>,
       num
@@ -6992,6 +7111,81 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
       'Enter patch SF (affected area) or room wall/ceiling SF (full room), pick paint scope above, then apply pricing. Quick measurements Paint can pre-fill room SF.',
     missingMessage: 'Enter SF and select paint scope.',
   },
+  windows_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: [
+      'windowCount',
+      'exteriorDoorCount',
+      'slidingDoorCount',
+      'garageDoorSingleCount',
+      'garageDoorDoubleCount',
+      'garageDoorRvCount',
+    ],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Window, exterior swing door, sliding door, and garage door counts. Structural reframing is separate.',
+    missingMessage: 'Enter window/door counts or pricing.',
+  },
+  windows: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'windowCount',
+    measurementKeys: ['windowCount'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Window units, frames, glazing, flashing, screens, and installation. Structural reframing and finish repair are separate.',
+    missingMessage: 'Enter window count or pricing.',
+  },
+  exterior_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'exteriorDoorCount',
+    measurementKeys: ['exteriorDoorCount'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Exterior swing door units, frames, thresholds, hardware, flashing, and installation. Not sliding, garage, or structural reframing.',
+    missingMessage: 'Enter exterior door count or pricing.',
+  },
+  sliding_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'slidingDoorCount',
+    measurementKeys: ['slidingDoorCount'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Patio / multi-panel door units, frames, hardware, flashing, and installation. Patching and structural reframing are separate.',
+    missingMessage: 'Enter sliding door count or pricing.',
+  },
+  garage_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: [
+      'garageDoorSingleCount',
+      'garageDoorDoubleCount',
+      'garageDoorRvCount',
+    ],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Garage door units, tracks, hardware, and installation, priced by single, double, or RV/oversized type. Structural reframing is separate.',
+    missingMessage: 'Enter garage door type counts or pricing.',
+  },
+  openings: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'framingOpeningCount',
+    measurementKeys: ['framingOpeningCount'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Structural reframing only for an explicitly new, resized, enlarged, or reframed opening.',
+    missingMessage: 'Enter reframed/new opening count or pricing.',
+  },
 };
 
 /** Per-product install SF from Quick measurements — not the rolled-up flooringSqft total. */
@@ -7158,21 +7352,36 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     missingMessage: 'Enter roof squares or pricing.',
   },
   windows_doors: {
-    defaultUnit: 'each',
-    allowedUnits: ['each', 'allowance', 'lump_sum', 'sqft'],
-    requiresUserQuantity: true,
-    quantityHelper: 'Enter window/door count and price material and labor.',
-    missingMessage: 'Enter window/door count or pricing.',
+    ...CHECKLIST_ITEM_QUANTITY_RULES.windows_doors,
+  },
+  windows: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.windows,
+  },
+  exterior_doors: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.exterior_doors,
+  },
+  sliding_doors: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.sliding_doors,
+  },
+  garage_doors: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.garage_doors,
+  },
+  openings: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.openings,
   },
   exterior_finishes: additionFloorAreaRule(
     'Enter exterior finish area sqft, or price with lump sum/material/labor.',
     'Enter exterior finish sqft or pricing.'
   ),
   hvac: {
-    ...additionFloorAreaRule(
-      'Enter conditioned floor sqft and price HVAC material and labor.',
-      'Enter HVAC sqft or pricing.'
-    ),
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'ton', 'allowance', 'lump_sum'],
+    measurementKeys: ['hvacSystemCount', 'hvacSystemTons'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Enter HVAC system count and labeled capacity (tons) separately — not living SF.',
+    missingMessage: 'Enter HVAC system count, capacity, or pricing.',
   },
   insulation: {
     defaultUnit: 'sqft',
@@ -7403,15 +7612,24 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   hvac: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'ton', 'allowance', 'lump_sum'],
+    measurementKeys: ['hvacSystemCount', 'hvacSystemTons'],
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Enter HVAC system count (or tons) for material and labor — not living SF.',
-    missingMessage: 'Enter HVAC system count, tons, or pricing.',
+      'Enter HVAC system count and labeled capacity (tons) separately — not living SF.',
+    missingMessage: 'Enter HVAC system count, capacity, or pricing.',
   },
   windows_doors: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'sqft', 'allowance', 'lump_sum'],
+    measurementKeys: [
+      'windowCount',
+      'exteriorDoorCount',
+      'slidingDoorCount',
+      'garageDoorSingleCount',
+      'garageDoorDoubleCount',
+      'garageDoorRvCount',
+    ],
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
@@ -7421,6 +7639,8 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   windows: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'windowCount',
+    measurementKeys: ['windowCount'],
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
@@ -7430,6 +7650,8 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   exterior_doors: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'exteriorDoorCount',
+    measurementKeys: ['exteriorDoorCount'],
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
@@ -7439,6 +7661,8 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   sliding_doors: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'slidingDoorCount',
+    measurementKeys: ['slidingDoorCount'],
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
@@ -7448,11 +7672,19 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   garage_doors: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: [
+      'garageDoorSingleCount',
+      'garageDoorDoubleCount',
+      'garageDoorRvCount',
+    ],
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
       'Set single / double / RV garage door counts — pricing is by type (double ~$2,400; double+RV ~$10,700 locally).',
     missingMessage: 'Enter garage door type counts or pricing.',
+  },
+  openings: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.openings,
   },
   insulation: {
     defaultUnit: 'sqft',
@@ -7470,10 +7702,23 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   drywall: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKeys: ['drywallSqft'],
+    measurementKeys: [
+      'drywallSqft',
+      'drywallWallSqft',
+      'drywallCeilingSqft',
+      'drywallOpeningDeductionSqft',
+      'garageWallDrywallSqft',
+      'garageCeilingDrywallSqft',
+      'moistureResistantDrywallSqft',
+      'fireRatedDrywallSqft',
+      'specialtyDrywallSqft',
+      'highCeilingDrywallSqft',
+      'vaultedCeilingDrywallSqft',
+      'level5FinishSqft',
+    ],
     requiresUserQuantity: true,
     quantityHelper:
-      'Enter wall/ceiling drywall surface sqft for material and labor.',
+      'Uses net wall + ceiling drywall surface sqft for board, hang, mud/tape, finish, and standard texture.',
     missingMessage: 'Enter drywall surface sqft or pricing.',
   },
   cabinets: {
@@ -7962,6 +8207,14 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
         'drywallWallSqft',
         'drywallCeilingSqft',
         'drywallOpeningDeductionSqft',
+        'garageWallDrywallSqft',
+        'garageCeilingDrywallSqft',
+        'moistureResistantDrywallSqft',
+        'fireRatedDrywallSqft',
+        'specialtyDrywallSqft',
+        'highCeilingDrywallSqft',
+        'vaultedCeilingDrywallSqft',
+        'level5FinishSqft',
       ],
     },
     hang: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
@@ -8434,8 +8687,9 @@ export function resolveSuggestAlignedEditorPricingBasis(
     livingSf &&
     livingSf > 0
   ) {
-    const componentQuantity = drywallSurfaceFromComponents(
-      measurementsInput as unknown as Record<string, unknown>
+    const componentQuantity = resolveDrywallPackageSurfaceQuantity(
+      measurementsInput as unknown as Record<string, unknown>,
+      { planFacts: measurementsInput.planFacts }
     );
     if (componentQuantity != null) {
       return { quantity: componentQuantity, unit: 'sqft' };
@@ -8449,7 +8703,22 @@ export function resolveSuggestAlignedEditorPricingBasis(
       Math.abs(drywallSf - livingSf) < 0.51 ||
       isUndercountedDrywallSurface(drywallSf, livingSf);
     if (needsSurface) {
-      return { quantity: Math.round(livingSf * 3.5), unit: 'sqft' };
+      const garageSf =
+        parseScopeMeasurementInput(String(measurementsInput.garageSqft ?? '')) ||
+        parseScopeMeasurementInput(
+          String(
+            measurementsInput.planFacts?.buildingAreas?.garageSqft ?? ''
+          )
+        ) ||
+        0;
+      const packageSf = drywallPackageSurfacePlanningQuantity(
+        livingSf,
+        garageSf > 0 ? garageSf : null
+      );
+      return {
+        quantity: packageSf ?? Math.round(livingSf * 3.5),
+        unit: 'sqft',
+      };
     }
     return { quantity: drywallSf, unit: 'sqft' };
   }
@@ -8647,7 +8916,8 @@ export function resolveAllowanceEditorPricingBasis(
     garageSf,
     preferredUnit,
     preferredMeasurementKeys: preferred?.measurementKeys as
-      string[] | undefined,
+      | string[]
+      | undefined,
     sumMeasurementKeys: preferred?.sumMeasurementKeys,
     defaultUnit: rule.defaultUnit,
   });
@@ -8745,7 +9015,8 @@ export function resolveAllowanceEditorPricingBasis(
           (id === 'drywall' || id === 'hang' || id === 'finish_tape') &&
           key === 'drywallSqft' &&
           !hasDrywallSurfaceComponentTakeoff(
-            measurementsInput as unknown as Record<string, unknown>
+            measurementsInput as unknown as Record<string, unknown>,
+            { planFacts: measurementsInput.planFacts }
           ) &&
           livingSf &&
           isUndercountedDrywallSurface(quantity, livingSf) &&
@@ -8764,37 +9035,41 @@ export function resolveAllowanceEditorPricingBasis(
     measurementsInput
   );
   if (fromPricingBasis) {
-    if (!(
-      fromPricingBasis.unit === 'sqft' &&
-      livingSf != null &&
-      Math.abs(fromPricingBasis.quantity - livingSf) < 0.51 &&
-      (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
-        id === 'insulation' ||
-        id === 'interior_paint' ||
-        id === 'paint' ||
-        id === 'paint_trim' ||
-        id === 'drywall' ||
-        id === 'hang' ||
-        id === 'finish_tape')
-    )) {
+    if (
+      !(
+        fromPricingBasis.unit === 'sqft' &&
+        livingSf != null &&
+        Math.abs(fromPricingBasis.quantity - livingSf) < 0.51 &&
+        (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
+          id === 'insulation' ||
+          id === 'interior_paint' ||
+          id === 'paint' ||
+          id === 'paint_trim' ||
+          id === 'drywall' ||
+          id === 'hang' ||
+          id === 'finish_tape')
+      )
+    ) {
       return fromPricingBasis;
     }
   }
   const fromRule = firstMeasurementForRule(rule, measurementsInput);
   if (fromRule) {
-    if (!(
-      fromRule.unit === 'sqft' &&
-      livingSf != null &&
-      Math.abs(fromRule.quantity - livingSf) < 0.51 &&
-      (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
-        id === 'insulation' ||
-        id === 'interior_paint' ||
-        id === 'paint' ||
-        id === 'paint_trim' ||
-        id === 'drywall' ||
-        id === 'hang' ||
-        id === 'finish_tape')
-    )) {
+    if (
+      !(
+        fromRule.unit === 'sqft' &&
+        livingSf != null &&
+        Math.abs(fromRule.quantity - livingSf) < 0.51 &&
+        (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
+          id === 'insulation' ||
+          id === 'interior_paint' ||
+          id === 'paint' ||
+          id === 'paint_trim' ||
+          id === 'drywall' ||
+          id === 'hang' ||
+          id === 'finish_tape')
+      )
+    ) {
       return fromRule;
     }
   }
@@ -8876,6 +9151,31 @@ export function getChecklistItemQuantityRule(
     rule = FRAMING_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
   } else {
     rule = CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
+  }
+  const hvacCard = hvacCardForItemId(resolvedId);
+  if (
+    hvacCard &&
+    String(templateKey || '').toLowerCase() === 'hvac'
+  ) {
+    rule = {
+      ...(rule || {}),
+      defaultUnit: hvacCard.unit,
+      allowedUnits:
+        hvacCard.itemId === 'hvac'
+          ? ['each', 'ton', 'allowance', 'lump_sum']
+          : hvacCard.unit === 'lf'
+            ? ['lf', 'allowance', 'lump_sum']
+            : ['each', 'allowance', 'lump_sum'],
+      measurementKey:
+        hvacCard.measurementKey as ScopeItemQuantityRule['measurementKey'],
+      measurementKeys:
+        hvacCard.itemId === 'hvac'
+          ? (['hvacSystemCount', 'hvacSystemTons'] as ScopeItemQuantityRule['measurementKeys'])
+          : undefined,
+      requiresUserQuantity: true,
+      quantityHelper: hvacCard.helper,
+      missingMessage: `Enter ${hvacCard.label.toLowerCase()} quantity or pricing.`,
+    };
   }
   if (!rule) return undefined;
   if (
@@ -9057,7 +9357,10 @@ export function syncDualAllowanceSqftFields(
   const sync = (
     itemId: string,
     field:
-      'backsplashSqft' | 'wallPaintSqft' | 'showerWallTileSqft' | 'flooringSqft'
+      | 'backsplashSqft'
+      | 'wallPaintSqft'
+      | 'showerWallTileSqft'
+      | 'flooringSqft'
   ) => {
     if (parseScopeMeasurementInput(String(next[field] ?? ''))) return;
     const q = sqftFromItemQuantities(input, itemId);
@@ -9294,6 +9597,19 @@ export function syncItemQuantitiesToMeasurementFields(
     ) {
       continue;
     }
+    (next as Record<string, unknown>)[card.measurementKey] = String(quantity);
+  }
+  for (const card of HVAC_CARDS) {
+    const entry = safeInput.itemQuantities?.[card.itemId];
+    if (!entry?.quantity) continue;
+    if (
+      !EXPLICIT_ITEM_QUANTITY_SOURCES.has(
+        entry.quantitySource || 'user_entered'
+      )
+    )
+      continue;
+    const quantity = Number(String(entry.quantity).replace(/,/g, ''));
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
     (next as Record<string, unknown>)[card.measurementKey] = String(quantity);
   }
   for (const card of FRAMING_CARDS) {
@@ -10269,7 +10585,10 @@ export function resolveSuggestedBudgetSplitDisplay(
 // fill, labor-only fill, and a comparison split when notes priced both legs.
 
 export type PricingLegSource =
-  'notes' | 'template' | 'local_benchmark' | 'national_average';
+  | 'notes'
+  | 'template'
+  | 'local_benchmark'
+  | 'national_average';
 
 export type ScopePricingLineItem = {
   name?: string | null;
@@ -10470,7 +10789,9 @@ export function resolveTemplateRateForItem(
 }
 
 export type SuggestedPricingMode =
-  'note_total_split' | 'fill_missing' | 'suggested_price';
+  | 'note_total_split'
+  | 'fill_missing'
+  | 'suggested_price';
 
 /** Suggested pricing block enriched with per-leg sources for the Confirm Scope UI. */
 export type SuggestedPricingBlock = {
@@ -11467,6 +11788,157 @@ export function buildPureNationalAverageComparisonBlock(params: {
     benchmarkAction: 'comparison_only',
     storedTotalExact: total,
   };
+}
+
+/** Plan H64 installed HVAC package — reference-only comparison on 1-system barometer basis. */
+export function buildHvacPlanBarometerComparisonBlock(params: {
+  livingSf?: number | null;
+  fillTotal?: number | null;
+}): SuggestedPricingBlock | null {
+  const comparable = resolveHvacPackageComparable(params.livingSf);
+  if (!comparable) return null;
+  const total = comparable.h64InstalledTotal;
+  const fillTotal = Number(params.fillTotal);
+  if (
+    Number.isFinite(fillTotal) &&
+    fillTotal > 0 &&
+    Math.abs(total - fillTotal) / fillTotal < 0.02
+  ) {
+    return null;
+  }
+  const split = hvacPlanBarometerComparisonSplit(total);
+  return {
+    material: split.material,
+    labor: split.labor,
+    total,
+    materialSource: 'local_benchmark',
+    laborSource: 'local_benchmark',
+    rateSourceLabel: `${comparable.projectLabel} H64 HVAC package`,
+    helper: `Reference only · ${hvacPackageComparableHelper(comparable)} · builder budget`,
+    mode: 'suggested_price',
+    isComparison: true,
+    basis: { quantity: 1, unit: 'each' },
+    costBuckets: [
+      {
+        key: 'material',
+        label: 'Material',
+        amount: split.material,
+        source: 'local_benchmark',
+      },
+      {
+        key: 'labor',
+        label: 'Labor',
+        amount: split.labor,
+        source: 'local_benchmark',
+      },
+    ],
+    pricingRecordId: `bps_local_hvac_h64:${comparable.projectId}`,
+    productionStatus: 'review_required',
+    benchmarkAction: 'comparison_only',
+  };
+}
+
+function buildHvacInstalledPackageSuggestedPricing(
+  measurementsInput: Record<string, unknown>,
+  _pricingContext?: ScopePricingContext | null
+): ScopeItemSuggestedPricing | null {
+  const resolved = resolveHvacInstalledPackageSuggestedTotal(measurementsInput);
+  if (!resolved) return null;
+  const { total, material, labor, comparable, tier } = resolved;
+  const helper =
+    tier === 'plan_barometer' && comparable
+      ? `Complete 1-system installed package · ${hvacPackageComparableHelper(comparable)} · includes equipment, ductwork, registers, thermostat, startup`
+      : `Complete-system planning allowance · national package ~$${HVAC_BPS_PLANNING_PACKAGE_RANGE.low.toLocaleString()}–$${HVAC_BPS_PLANNING_PACKAGE_RANGE.high.toLocaleString()}`;
+  const fill: SuggestedPricingBlock = {
+    material,
+    labor,
+    total,
+    materialSource: tier === 'plan_barometer' ? 'local_benchmark' : 'national_average',
+    laborSource: tier === 'plan_barometer' ? 'local_benchmark' : 'national_average',
+    rateSourceLabel:
+      tier === 'plan_barometer' && comparable
+        ? `${comparable.projectLabel} builder budget (H64)`
+        : 'Suggested · National Average (planning package)',
+    helper,
+    mode: 'suggested_price',
+    basis: { quantity: 1, unit: 'each' },
+    comparisonRange: HVAC_NATIONAL_COMPLETE_PACKAGE_RANGE,
+    pricingDetail:
+      tier === 'plan_barometer' && comparable
+        ? [
+            'Included in this package price',
+            'Furnace or air-handler + condenser / heat-pump equipment',
+            'Standard duct distribution, registers, returns, and thermostat',
+            'Startup / testing allowance',
+            '',
+            'Excluded unless documented separately: second system, ERV/HRV, gas lines, electrical, permits.',
+          ].join('\n')
+        : [
+            'Planning allowance only — not a verified mechanical takeoff.',
+            `Typical national complete ducted package range: $${HVAC_NATIONAL_COMPLETE_PACKAGE_RANGE.low.toLocaleString()}–$${HVAC_NATIONAL_COMPLETE_PACKAGE_RANGE.high.toLocaleString()}.`,
+          ].join('\n'),
+    costBuckets: [
+      {
+        key: 'material',
+        label: 'Material',
+        amount: material,
+        source: tier === 'plan_barometer' ? 'local_benchmark' : 'national_average',
+      },
+      {
+        key: 'labor',
+        label: 'Labor',
+        amount: labor,
+        source: tier === 'plan_barometer' ? 'local_benchmark' : 'national_average',
+      },
+    ],
+    pricingRecordId:
+      tier === 'plan_barometer' && comparable
+        ? `bps_local_hvac_h64:${comparable.projectId}`
+        : 'bps_national:hvac:package_allowance',
+    productionStatus: 'review_required',
+    benchmarkAction: 'price_ready',
+  };
+  const nationalComparison = buildPureNationalAverageComparisonBlock({
+    itemId: 'hvac',
+    basis: { quantity: 1, unit: 'each' },
+    fillTotal: total,
+  });
+  return applyProjectComplexityToSuggestedPricing(
+    'hvac',
+    measurementsInput.planImportTradeKey === 'hvac' ? 'hvac' : 'ground_up',
+    {
+      floorAreaSqft: measurementsInput.floorAreaSqft,
+      storyCount: measurementsInput.storyCount,
+      planFacts: measurementsInput.planFacts,
+      projectComplexity: measurementsInput.projectComplexity,
+      planImportMode: measurementsInput.planImportMode,
+      planImportTradeKey: measurementsInput.planImportTradeKey,
+      planImportFingerprint: measurementsInput.planImportFingerprint,
+      quickMeasurementSources: measurementsInput.quickMeasurementSources,
+      quickMeasurementUserOverrides:
+        measurementsInput.quickMeasurementUserOverrides,
+    },
+    {
+      fill,
+      comparison:
+        nationalComparison &&
+        Math.abs(nationalComparison.total - total) / total >= 0.02
+          ? nationalComparison
+          : buildHvacPlanBarometerComparisonBlock({
+              livingSf:
+                Number(measurementsInput.floorAreaSqft) ||
+                Number(
+                  (
+                    measurementsInput.planFacts as
+                      | { buildingAreas?: { totalLivingSqft?: number } }
+                      | undefined
+                  )?.buildingAreas?.totalLivingSqft
+                ) ||
+                null,
+              fillTotal: total,
+            }),
+    }
+  ) as ScopeItemSuggestedPricing;
 }
 
 function flatAllowanceCopyFor(itemId: string): {
@@ -13021,18 +13493,44 @@ export function resolveScopeItemSuggestedPricing(
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
+  if (
+    isHvacComponentScopeItemId(itemId) &&
+    hvacUsesInstalledPackagePricing(
+      measurementsInput as Record<string, unknown>
+    )
+  ) {
+    return empty;
+  }
+  if (itemId === 'hvac') {
+    const packagePricing = buildHvacInstalledPackageSuggestedPricing(
+      measurementsInput as Record<string, unknown>,
+      pricingContext
+    );
+    if (packagePricing) return packagePricing;
+  }
   const isDrywallAddon =
     itemId === 'hang' || itemId === 'finish_tape' || itemId === 'texture';
-  if (
-    isDrywallAddon &&
-    !drywallAddonHasExplicitPricing(resolved) &&
-    (drywallScopeRowIncluded(pricingContext, 'drywall') ||
-      (itemId !== 'hang' && drywallScopeRowIncluded(pricingContext, 'hang')))
-  ) {
-    // The base drywall rate already includes board, hang, tape, finish, and
-    // standard texture. Add-on rows require explicit pricing so they cannot
-    // silently multiply the full assembly rate.
-    return empty;
+  const completeDrywallPackage = isDrywallCompletePackageScope({
+    templateKey,
+    planImportMode: measurementsInput.planImportMode,
+    planImportTradeKey: measurementsInput.planImportTradeKey,
+  });
+  if (isDrywallAddon && !drywallAddonHasExplicitPricing(resolved)) {
+    if (
+      completeDrywallPackage &&
+      drywallScopeRowIncluded(pricingContext, 'drywall')
+    ) {
+      // Complete package already prices board, hang, tape, finish, and texture.
+      return empty;
+    }
+    if (
+      !completeDrywallPackage &&
+      itemId === 'texture' &&
+      drywallScopeRowIncluded(pricingContext, 'finish_tape')
+    ) {
+      // Remodel finish card includes orange-peel base; texture choice adjusts labor.
+      return empty;
+    }
   }
   const hasConfirmedInsulationBoundary =
     itemId === 'insulation' &&
@@ -13079,9 +13577,11 @@ export function resolveScopeItemSuggestedPricing(
       itemId === 'wall_framing' ? 'wallFramingLf' : 'framingOpeningCount';
     const input = measurementsInput as Record<string, unknown>;
     const sources = input.quickMeasurementSources as
-      Record<string, string> | undefined;
+      | Record<string, string>
+      | undefined;
     const overrides = input.quickMeasurementUserOverrides as
-      Record<string, boolean> | undefined;
+      | Record<string, boolean>
+      | undefined;
     const source = sources?.[measurementKey];
     const userEntered =
       source === 'user_entered' ||
@@ -13096,10 +13596,41 @@ export function resolveScopeItemSuggestedPricing(
     plumbingMeasurementKey &&
     (
       measurementsInput.quickMeasurementSources as
-        Record<string, string> | undefined
+        | Record<string, string>
+        | undefined
     )?.[plumbingMeasurementKey] === 'needs_confirmation'
   ) {
     return empty;
+  }
+  const hvacCard = hvacCardForItemId(itemId);
+  if (hvacCard) {
+    const sources = measurementsInput.quickMeasurementSources as
+      | Record<string, string>
+      | undefined;
+    const provenance = measurementsInput.measurementProvenance as
+      | Record<string, unknown>
+      | undefined;
+    const reviewKeys =
+      itemId === 'hvac'
+        ? (['hvacSystemCount', 'hvacSystemTons'] as const)
+        : ([hvacCard.measurementKey] as const);
+    const blocked = reviewKeys.some(key => {
+      const value = parseScopeMeasurementInput(
+        (measurementsInput as Record<string, unknown>)[key]
+      );
+      if (!(value != null && value > 0)) return false;
+      if (sources?.[key] === 'needs_confirmation') return true;
+      const entry = provenance?.[key];
+      if (
+        entry &&
+        typeof entry === 'object' &&
+        (entry as { pricingEligible?: boolean }).pricingEligible === false
+      ) {
+        return true;
+      }
+      return false;
+    });
+    if (blocked) return empty;
   }
   if (itemId === 'water_heater') {
     const whPricing = resolvePlumbingWaterHeaterSuggestedPricing({
@@ -14933,32 +15464,62 @@ export function resolveScopeItemSuggestedPricing(
   let average = averageInitial;
   if (
     itemId === 'drywall' &&
-    String(templateKey || '').toLowerCase() === 'ground_up'
+    completeDrywallPackage
   ) {
     const livingSf = parseScopeMeasurementInput(
       measurementsInput.floorAreaSqft
     );
-    const project = matchSouthernUtahProjectByLivingSf(livingSf);
-    if (project) {
-      const baseline = DRYWALL_PRODUCTION_ASSEMBLY_BASELINE;
-      const adjusted =
-        regional.multiplier === 1
-          ? baseline
-          : applyRegionalMultiplierToBudgetSplit(baseline, regional) ||
-            baseline;
-      average = {
-        ...(average || {}),
-        unit: 'sqft',
-        material: adjusted.material,
-        labor: adjusted.labor,
-        sourceLabel: `${DRYWALL_PRODUCTION_RATE_CARD_LABEL} · ${project.label} SHV benchmark`,
-        rateSource: 'bps_southern_utah_calibrated',
-        rateSourceReference:
-          'Installed H41 drywall benchmark converted to a wall + ceiling SF production split; state multiplier applied when available',
-        productionStatus: 'production_ready',
-        geographicBasis: 'southern_utah',
-      };
-    }
+    const packageSf = resolveDrywallPackageSurfaceQuantity(
+      measurementsInput as unknown as Record<string, unknown>,
+      { planFacts: measurementsInput.planFacts }
+    );
+    const baseline = resolveDrywallProductionAssemblyBaseline({
+      livingSf,
+      packageSurfaceSqft: packageSf,
+    });
+    const adjusted =
+      regional.multiplier === 1
+        ? baseline
+        : applyRegionalMultiplierToBudgetSplit(baseline, regional) || baseline;
+    average = {
+      ...(average || {}),
+      unit: 'sqft',
+      material: adjusted.material,
+      labor: adjusted.labor,
+      sourceLabel: baseline.sourceLabel,
+      rateSource: 'bps_southern_utah_calibrated',
+      rateSourceReference:
+        baseline.barometerTotal != null
+          ? `SHV gypsum board $${baseline.barometerTotal.toLocaleString()} ÷ ${Math.round(packageSf || 0).toLocaleString()} SF package`
+          : 'Southern Utah production gypsum-board package rate; state multiplier applied when available',
+      productionStatus: 'production_ready',
+      geographicBasis: 'southern_utah',
+    };
+  }
+  if (
+    (itemId === 'hang' || itemId === 'finish_tape') &&
+    String(templateKey || '').toLowerCase() === 'drywall' &&
+    !completeDrywallPackage
+  ) {
+    const counterpart = itemId === 'hang' ? 'finish_tape' : 'hang';
+    const scopeAlone = !drywallScopeRowIncluded(pricingContext, counterpart);
+    const split = resolveRemodelDrywallAssemblyBaseline(itemId, { scopeAlone });
+    const adjusted =
+      regional.multiplier === 1
+        ? split
+        : applyRegionalMultiplierToBudgetSplit(split, regional) || split;
+    average = {
+      ...(average || {}),
+      unit: 'sqft',
+      material: adjusted.material,
+      labor: adjusted.labor,
+      sourceLabel: split.sourceLabel,
+      rateSource: 'bps_southern_utah_calibrated',
+      rateSourceReference:
+        'Southern Utah production gypsum-board package rate split for remodel scope',
+      productionStatus: 'production_ready',
+      geographicBasis: 'southern_utah',
+    };
   }
   if (isStuccoTemplate && itemId === 'stucco') {
     const systemRates: Record<
@@ -15342,6 +15903,36 @@ export function resolveScopeItemSuggestedPricing(
         assembly.label ? ` · ${assembly.label}` : ''
       }`,
     };
+  }
+
+  if (itemId === 'hvac') {
+    const evidenceTier = resolveHvacPricingEvidenceTier(
+      measurementsInput as Record<string, unknown>
+    );
+    if (evidenceTier !== 'verified_equipment') {
+      // Package pricing handled above; do not multiply unverified counts.
+    } else {
+      const systemTons = parseScopeMeasurementInput(
+        measurementsInput.hvacSystemTons
+      );
+      const systemCount = parseScopeMeasurementInput(
+        measurementsInput.hvacSystemCount
+      );
+      const capacityTons =
+        systemTons && systemCount && systemCount > 0
+          ? systemTons / systemCount
+          : systemTons;
+      if (capacityTons && capacityTons > 0) {
+        const tier = hvacSystemTierBudgetSplit(capacityTons);
+        average = {
+          ...(average || {}),
+          unit: 'each',
+          material: tier.material,
+          labor: tier.labor,
+          sourceLabel: tier.sourceLabel,
+        };
+      }
+    }
   }
 
   let unit = average?.unit || preferredUnit;
@@ -15903,19 +16494,33 @@ export function resolveScopeItemSuggestedPricing(
   // Drywall/hang/finish: expand living SF or thin notes takeoffs (e.g. 4,056) with 3.5× surface.
   if (
     (itemId === 'drywall' || itemId === 'hang' || itemId === 'finish_tape') &&
-    String(templateKey || '').toLowerCase() === 'ground_up'
+    ['ground_up', 'drywall'].includes(String(templateKey || '').toLowerCase())
   ) {
-    const componentQuantity = drywallSurfaceFromComponents(
-      measurementsInput as unknown as Record<string, unknown>
-    );
-    if (componentQuantity != null) {
-      count = componentQuantity;
-      unit = 'sqft';
-    }
     const livingSf = parseScopeMeasurementInput(
       measurementsInput.floorAreaSqft
     );
-    if (componentQuantity == null && livingSf && livingSf > 0) {
+    const usePackageQuantity =
+      itemId === 'drywall' && completeDrywallPackage;
+    const componentQuantity = usePackageQuantity
+      ? resolveDrywallPackageSurfaceQuantity(
+          measurementsInput as unknown as Record<string, unknown>,
+          { planFacts: measurementsInput.planFacts }
+        )
+      : resolveDrywallConditionedSurfaceQuantity(
+          measurementsInput as unknown as Record<string, unknown>,
+          { planFacts: measurementsInput.planFacts }
+        );
+    const protectedDrywallQty =
+      isProtectedDrywallQuantity(
+        measurementsInput as unknown as Record<string, unknown>
+      ) ||
+      ['user_entered', 'manual_override'].includes(
+        String(resolved.quantitySource)
+      );
+    if (componentQuantity != null && !protectedDrywallQty) {
+      count = componentQuantity;
+      unit = 'sqft';
+    } else if (livingSf && livingSf > 0) {
       const floorProxy =
         !count ||
         count <= 0 ||
@@ -16342,8 +16947,8 @@ export function resolveScopeItemSuggestedPricing(
   );
   const dynamicFlooringInstall = Boolean(
     flooringInstallAverage &&
-    unit === 'sqft' &&
-    String(templateKey || '').toLowerCase() === 'flooring'
+      unit === 'sqft' &&
+      String(templateKey || '').toLowerCase() === 'flooring'
   );
   if (dynamicFlooringInstall && flooringInstallAverage) {
     average = {
@@ -16382,16 +16987,50 @@ export function resolveScopeItemSuggestedPricing(
       Array.isArray(measurementsInput.flooringExistingTypes) ||
       Array.isArray(measurementsInput.flooringProductScope)) &&
     unit === 'sqft';
-  const materialRate = decorativeFinish
+  let materialRate = decorativeFinish
     ? (template?.materialRate ?? decorativeFinish.material)
     : dynamicFloorPrep || dynamicFlooringInstall
       ? (average?.material ?? null)
       : (template?.materialRate ?? average?.material ?? null);
-  const laborRate = decorativeFinish
+  let laborRate = decorativeFinish
     ? (template?.laborRate ?? decorativeFinish.labor)
     : dynamicFloorPrep || dynamicFlooringInstall
       ? (average?.labor ?? null)
       : (template?.laborRate ?? average?.labor ?? null);
+  if (itemId === 'drywall' && count > 0) {
+    const measurementRecord = measurementsInput as Record<string, unknown>;
+    const materialMultiplier = resolveDrywallPackageMaterialMultiplier(
+      measurementRecord,
+      count,
+      {
+        planFacts:
+          measurementRecord.planFacts as Record<string, unknown> | null,
+        completePackage: true,
+      }
+    );
+    const laborMultiplier = resolveDrywallPackageLaborMultiplier(
+      measurementRecord,
+      count,
+      {
+        planFacts:
+          measurementRecord.planFacts as Record<string, unknown> | null,
+        completePackage: true,
+        checklistItems: pricingContext?.checklistItems,
+      }
+    );
+    if (materialRate != null) materialRate *= materialMultiplier;
+    if (laborRate != null) laborRate *= laborMultiplier;
+  }
+  if (itemId === 'finish_tape' && count > 0) {
+    const finishChoice = resolveDrywallFinishChoiceId(
+      measurementsInput as Record<string, unknown>,
+      pricingContext?.checklistItems
+    );
+    const finishLaborMultiplier = drywallFinishLaborMultiplier(finishChoice);
+    if (laborRate != null && finishLaborMultiplier !== 1) {
+      laborRate *= finishLaborMultiplier;
+    }
+  }
   const materialRateSource: PricingLegSource =
     dynamicFloorPrep || dynamicFlooringInstall
       ? 'national_average'
@@ -16675,8 +17314,8 @@ export function resolveScopeItemSuggestedPricing(
   ].includes(String(unit || '').toLowerCase());
   const hasPhysicalTakeoffRates = Boolean(
     isPhysicalTakeoffUnit &&
-    count > 0 &&
-    hasAnyPricingRate(materialRate, laborRate)
+      count > 0 &&
+      hasAnyPricingRate(materialRate, laborRate)
   );
   if (!template && !hasPhysicalTakeoffRates) {
     const benchmarkFill = benchmarkSuggestedPricingBlock(
@@ -16749,6 +17388,83 @@ export function resolveScopeItemSuggestedPricing(
     ? round2(segmentedFlatworkPricing.labor)
     : round2(count * (laborRate ?? 0));
   let calculatedFlatworkTotal = round2(calculatedMaterial + calculatedLabor);
+  if (
+    itemId === 'drywall' &&
+    completeDrywallPackage &&
+    unit === 'sqft' &&
+    calculatedFlatworkTotal > 0
+  ) {
+    const livingSf = parseScopeMeasurementInput(
+      measurementsInput.floorAreaSqft
+    );
+    const drywallBaseline = resolveDrywallProductionAssemblyBaseline({
+      livingSf,
+      packageSurfaceSqft: count,
+    });
+    if (
+      drywallBaseline.barometerTotal != null &&
+      drywallBaseline.barometerTotal > 0 &&
+      !isProtectedDrywallQuantity(
+        measurementsInput as unknown as Record<string, unknown>
+      ) &&
+      !['user_entered', 'manual_override'].includes(
+        String(resolved.quantitySource)
+      )
+    ) {
+      const expectedPackage = drywallPackageSurfacePlanningQuantity(
+        livingSf,
+        parseScopeMeasurementInput(String(measurementsInput.garageSqft ?? '')) ||
+          parseScopeMeasurementInput(
+            String(
+              measurementsInput.planFacts?.buildingAreas?.garageSqft ?? ''
+            )
+          ) ||
+          null
+      );
+      const matchesBarometerPackage =
+        expectedPackage != null &&
+        Math.abs(count - expectedPackage) / expectedPackage <= 0.1;
+      if (matchesBarometerPackage) {
+        calculatedMaterial = round2(
+          drywallBaseline.barometerTotal * DRYWALL_INSTALLED_MATERIAL_SHARE
+        );
+        calculatedLabor = round2(
+          drywallBaseline.barometerTotal * (1 - DRYWALL_INSTALLED_MATERIAL_SHARE)
+        );
+        const measurementRecord = measurementsInput as Record<string, unknown>;
+        const packageMaterialMultiplier = resolveDrywallPackageMaterialMultiplier(
+          measurementRecord,
+          count,
+          {
+            planFacts:
+              measurementRecord.planFacts as Record<string, unknown> | null,
+            completePackage: true,
+          }
+        );
+        if (packageMaterialMultiplier !== 1) {
+          calculatedMaterial = round2(
+            calculatedMaterial * packageMaterialMultiplier
+          );
+        }
+        const packageLaborMultiplier = resolveDrywallPackageLaborMultiplier(
+          measurementRecord,
+          count,
+          {
+            planFacts:
+              measurementRecord.planFacts as Record<string, unknown> | null,
+            completePackage: true,
+            checklistItems: pricingContext?.checklistItems,
+          }
+        );
+        if (packageLaborMultiplier !== 1) {
+          calculatedLabor = round2(calculatedLabor * packageLaborMultiplier);
+        }
+        calculatedFlatworkTotal = round2(
+          calculatedMaterial + calculatedLabor
+        );
+      }
+    }
+  }
   const repairMinimum =
     isStuccoTemplate && itemId === 'stucco_repairs'
       ? (
@@ -16895,6 +17611,20 @@ export function resolveScopeItemSuggestedPricing(
         )
       : laborRate;
   if (material + labor <= 0) return empty;
+  const drywallFinishChoice = resolveDrywallFinishChoiceId(
+    measurementsInput as Record<string, unknown>,
+    pricingContext?.checklistItems
+  );
+  const drywallLaborBucketLabel =
+    itemId === 'drywall'
+      ? drywallFinishLaborBucketLabel(drywallFinishChoice, {
+          scope: 'complete',
+        })
+      : itemId === 'finish_tape'
+        ? drywallFinishLaborBucketLabel(drywallFinishChoice, {
+            scope: 'finish_tape',
+          })
+        : null;
   let takeoffFill: SuggestedPricingBlock = {
     material,
     labor,
@@ -16942,6 +17672,7 @@ export function resolveScopeItemSuggestedPricing(
       laborSource: laborRateSource,
       materialRate: effectiveMaterialRateForBuckets,
       laborRate: effectiveLaborRate,
+      laborBucketLabel: drywallLaborBucketLabel,
     }),
     pricingRecordId: `bps_national:${itemId}:${unit}`,
     productionStatus: average?.productionStatus || 'review_required',
@@ -17020,6 +17751,33 @@ export function resolveScopeItemSuggestedPricing(
       };
     }
   }
+  if (
+    itemId === 'hvac' &&
+    ['ground_up', 'hvac'].includes(String(templateKey || '').toLowerCase()) &&
+    count > 0 &&
+    unit === 'each'
+  ) {
+    const livingSf =
+      parseScopeMeasurementInput(measurementsInput.floorAreaSqft) ||
+      Number(
+        measurementsInput.planFacts?.buildingAreas?.totalLivingSqft ??
+          measurementsInput.planFacts?.totalLivingSqft
+      ) ||
+      null;
+    const comparable = resolveHvacPackageComparable(livingSf);
+    if (comparable) {
+      takeoffFill = {
+        ...takeoffFill,
+        helper: `${hvacPackageComparableHelper(comparable)} · compare with national average below`,
+        pricingDetail: [
+          takeoffFill.pricingDetail,
+          `${comparable.projectLabel} builder budget (H64) documents ~$${comparable.h64InstalledTotal.toLocaleString()} for a complete 1-system package on this plan size.`,
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+      };
+    }
+  }
   // Comparison = pure national on the same qty/unit as fill (not living-SF stage lump).
   const nationalComparison =
     hasPhysicalTakeoffRates && concreteThicknessMultiplier === 1
@@ -17029,6 +17787,22 @@ export function resolveScopeItemSuggestedPricing(
           fillTotal: takeoffFill.total,
         })
       : null;
+  const hvacPlanComparison =
+    itemId === 'hvac'
+      ? buildHvacPlanBarometerComparisonBlock({
+          livingSf:
+            parseScopeMeasurementInput(measurementsInput.floorAreaSqft) ||
+            Number(
+              measurementsInput.planFacts?.buildingAreas?.totalLivingSqft ??
+                measurementsInput.planFacts?.totalLivingSqft
+            ) ||
+            null,
+          fillTotal: takeoffFill.total,
+        })
+      : null;
+  const comparisonBlock =
+    nationalComparison ||
+    (itemId === 'hvac' ? hvacPlanComparison : null);
   return withUserEnteredNationalBenchmarkFallback(
     itemId,
     rule,
@@ -17038,7 +17812,7 @@ export function resolveScopeItemSuggestedPricing(
     pricingContext,
     {
       fill: takeoffFill,
-      comparison: nationalComparison,
+      comparison: comparisonBlock,
     },
     options
   );
@@ -17437,7 +18211,8 @@ function applyAutoDrywallSurfaceQuantity(
     stored?.quantitySource === 'user_entered' ||
     stored?.quantitySource === 'manual_override' ||
     hasDrywallSurfaceComponentTakeoff(
-      measurements as unknown as Record<string, unknown>
+      measurements as unknown as Record<string, unknown>,
+      { planFacts: measurements.planFacts }
     ) ||
     isProtectedDrywallQuantity(
       measurements as unknown as Record<string, unknown>,
@@ -17462,14 +18237,23 @@ function applyAutoDrywallSurfaceQuantity(
     isUndercountedDrywallSurface(current, living);
   if (!needsSurface) return resolved;
 
-  // Same 3.5× surface fallback used by Quick Measurement, kept in the
+  // Same package SF fallback used by Quick Measurement, kept in the
   // canonical drywall convergence module.
-  const surfaceSf = drywallSurfacePlanningQuantity(living);
-  if (!(surfaceSf > 0)) return resolved;
+  const garageSf = Number(measurements.garageSqft);
+  const packageSf =
+    drywallPackageSurfacePlanningQuantity(
+      living,
+      Number.isFinite(garageSf) && garageSf > 0
+        ? garageSf
+        : Number(
+            measurements.planFacts?.buildingAreas?.garageSqft ?? 0
+          ) || null
+    ) ?? drywallSurfacePlanningQuantity(living);
+  if (!(packageSf > 0)) return resolved;
 
   return {
     ...resolved,
-    quantity: surfaceSf,
+    quantity: packageSf,
     unit: 'sqft',
     quantitySource:
       stored?.quantitySource === 'calculated_confirmed'
@@ -17477,7 +18261,7 @@ function applyAutoDrywallSurfaceQuantity(
         : 'inferred',
     sourceLabel: 'Calculated',
     dualCount: resolved.dualCount
-      ? { ...resolved.dualCount, quantity: surfaceSf, unit: 'sqft' }
+      ? { ...resolved.dualCount, quantity: packageSf, unit: 'sqft' }
       : resolved.dualCount,
   };
 }
@@ -18851,8 +19635,8 @@ export function checklistItemInScope(item: {
   if (item.inputType === 'choice') {
     return Boolean(
       item.choiceId &&
-      item.choiceId !== 'not_in_scope' &&
-      item.choiceId !== 'unsure'
+        item.choiceId !== 'not_in_scope' &&
+        item.choiceId !== 'unsure'
     );
   }
   return item.state === 'included';
@@ -19029,7 +19813,7 @@ export function countDraftPricingReadiness(
   if (!draft) return { ready: 0, needsMeasurement: 0 };
   const hasScopePackages = Boolean(
     (draft.scopePackages && draft.scopePackages.length > 0) ||
-    (draft.rooms && draft.rooms.length > 0)
+      (draft.rooms && draft.rooms.length > 0)
   );
   // Step 3 review always has scope packages. Prefer that count — checklist
   // "ready" counts measured items even when Confirm Scope already priced them,
@@ -19112,6 +19896,10 @@ export function scopeMeasurementsPayloadForPersist(
     options?.templateKey
   );
   extended = syncFramingQuantitiesIntoItemQuantities(
+    extended,
+    options?.templateKey
+  );
+  extended = syncHvacQuantitiesIntoItemQuantities(
     extended,
     options?.templateKey
   );
@@ -19259,6 +20047,50 @@ function syncFramingQuantitiesIntoItemQuantities(
         itemQuantities: nextQuantities,
       } as ScopeMeasurementsInputExtended)
     : extended;
+}
+
+function syncHvacQuantitiesIntoItemQuantities(
+  extended: ScopeMeasurementsInputExtended,
+  templateKey?: string | null
+): ScopeMeasurementsInputExtended {
+  const template = String(templateKey || '').toLowerCase();
+  const isHvac = template === 'hvac';
+  if (!isHvac && extended.planImportTradeKey !== 'hvac') {
+    return extended;
+  }
+  const nextQuantities = { ...(extended.itemQuantities || {}) };
+  let changed = false;
+  for (const card of HVAC_CARDS) {
+    const raw = (extended as Record<string, unknown>)[card.measurementKey];
+    const quantity = Number(String(raw ?? '').replace(/,/g, ''));
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    const existing = nextQuantities[card.itemId];
+    const existingQty = Number(
+      String(existing?.quantity ?? '').replace(/,/g, '')
+    );
+    if (Number.isFinite(existingQty) && existingQty > 0) continue;
+    const sourceTag = extended.quickMeasurementSources?.[card.measurementKey];
+    const source =
+      sourceTag === 'plan_detected' ||
+      sourceTag === 'plan_verified' ||
+      sourceTag === 'ai_verified' ||
+      sourceTag === 'contractor_confirmed_from_plan_review'
+        ? sourceTag === 'contractor_confirmed_from_plan_review'
+          ? 'contractor_confirmed_from_plan_review'
+          : 'plan_detected'
+        : sourceTag === 'needs_confirmation'
+          ? 'needs_confirmation'
+          : 'user_entered';
+    nextQuantities[card.itemId] = {
+      quantity: String(quantity),
+      unit: card.unit,
+      quantitySource: source,
+    };
+    (extended as Record<string, unknown>)[card.measurementKey] =
+      String(quantity);
+    changed = true;
+  }
+  return changed ? { ...extended, itemQuantities: nextQuantities } : extended;
 }
 
 function syncElectricalQuantitiesIntoItemQuantities(
@@ -19578,9 +20410,20 @@ export function scopeMeasurementsToPayload(
       sanitized as Record<string, unknown>,
       parseScopeMeasurementInput
     ),
+    ...copyHvacQuantityFields(
+      sanitized as Record<string, unknown>,
+      parseScopeMeasurementInput
+    ),
     ...copyElectricalConditionFields(sanitized as Record<string, unknown>),
     cabinetMeasurementMethod: sanitized.cabinetMeasurementMethod ?? null,
     interiorDoorCount: parseScopeMeasurementInput(sanitized.interiorDoorCount),
+    windowCount: parseScopeMeasurementInput(sanitized.windowCount),
+    exteriorDoorCount: parseScopeMeasurementInput(sanitized.exteriorDoorCount),
+    slidingDoorCount: parseScopeMeasurementInput(sanitized.slidingDoorCount),
+    framingOpeningCount: parseScopeMeasurementInput(
+      sanitized.framingOpeningCount
+    ),
+    reframingRequested: sanitized.reframingRequested === true ? true : null,
     cabinetPaintSqft: parseScopeMeasurementInput(sanitized.cabinetPaintSqft),
     cabinetUpperLf: parseScopeMeasurementInput(
       String(sanitized.cabinetUpperLf ?? '')
@@ -20065,6 +20908,7 @@ export function scopeMeasurementsToPayload(
     framingScope: Array.isArray(sanitized.framingScope)
       ? sanitized.framingScope
       : undefined,
+    ...copyDrywallQuantityFields(sanitized as Record<string, unknown>),
     showerWallTileSqft: parseScopeMeasurementInput(
       sanitized.showerWallTileSqft
     ),
@@ -20166,6 +21010,16 @@ export function scopeMeasurementsInputFromPayload(
     framingScope: Array.isArray(payload.framingScope)
       ? payload.framingScope
       : null,
+    ...Object.fromEntries(
+      Object.entries(
+        copyDrywallQuantityFields(payload as Record<string, unknown>)
+      ).map(([key, value]) => [key, value != null ? String(value) : ''])
+    ),
+    ...Object.fromEntries(
+      Object.entries(
+        copyHvacQuantityFields(payload as Record<string, unknown>)
+      ).map(([key, value]) => [key, value != null ? String(value) : ''])
+    ),
     ...copyElectricalConditionFields(payload as Record<string, unknown>),
     bathroomFloorSqft: measurementFieldString(
       payload.bathroomFloorSqft ?? payload.sqft
@@ -20226,7 +21080,6 @@ export function scopeMeasurementsInputFromPayload(
     ),
     roofGutterLf: measurementFieldString(payload.roofGutterLf),
     roofDownspoutCount: measurementFieldString(payload.roofDownspoutCount),
-    drywallSqft: measurementFieldString(payload.drywallSqft),
     concreteSqft: measurementFieldString(payload.concreteSqft),
     concreteReinforcementSqft: measurementFieldString(
       payload.concreteReinforcementSqft
@@ -20330,6 +21183,18 @@ export function scopeMeasurementsInputFromPayload(
       payload.paintApplicationMethodConfirmed ?? null,
     cabinetMeasurementMethod: payload.cabinetMeasurementMethod ?? null,
     interiorDoorCount: measurementFieldString(payload.interiorDoorCount),
+    windowCount: measurementFieldString(payload.windowCount),
+    exteriorDoorCount: measurementFieldString(payload.exteriorDoorCount),
+    slidingDoorCount: measurementFieldString(payload.slidingDoorCount),
+    garageDoorSingleCount: measurementFieldString(
+      payload.garageDoorSingleCount
+    ),
+    garageDoorDoubleCount: measurementFieldString(
+      payload.garageDoorDoubleCount
+    ),
+    garageDoorRvCount: measurementFieldString(payload.garageDoorRvCount),
+    framingOpeningCount: measurementFieldString(payload.framingOpeningCount),
+    reframingRequested: payload.reframingRequested === true ? true : null,
     cabinetPaintSqft: measurementFieldString(payload.cabinetPaintSqft),
     cabinetUpperLf: measurementFieldString(payload.cabinetUpperLf),
     cabinetLowerLf: measurementFieldString(payload.cabinetLowerLf),
@@ -20900,7 +21765,11 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   concreteReinforcementSqft?: string | number | null;
   concreteSealerSqft?: string | number | null;
   concreteDemoThicknessBand?:
-    'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
+    | 'thin_2_3'
+    | 'standard_4'
+    | 'heavy_5_6'
+    | 'structural_7_plus'
+    | null;
   concreteDemoReinforced?: boolean | null;
   concreteDemoLimitedAccess?: boolean | null;
   concreteDemoThicknessBands?: Array<
@@ -20975,7 +21844,8 @@ export type ScopeMeasurementsInputExtended = ReturnType<
       quantitySource?: QuantitySource;
       includesCountertops?: boolean;
       measurementState?:
-        import('@/utils/measurementSemantics').ScopeMeasurementState | null;
+        | import('@/utils/measurementSemantics').ScopeMeasurementState
+        | null;
     }
   >;
   pricingAcceptance?: Record<
@@ -20999,11 +21869,17 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   /** Bathroom floor tile install count (outside shower). */
   bathFloorTileCount?: number | null;
   showerDoorCount?: number | null;
+  windowCount?: number | null;
+  exteriorDoorCount?: number | null;
+  slidingDoorCount?: number | null;
   garageDoorSingleCount?: number | null;
   garageDoorDoubleCount?: number | null;
   garageDoorRvCount?: number | null;
+  framingOpeningCount?: number | null;
+  reframingRequested?: boolean | null;
   areaReconciliation?:
-    import('@/utils/measurementSemantics').AreaReconciliation | null;
+    | import('@/utils/measurementSemantics').AreaReconciliation
+    | null;
   pricingOverrideLog?: import('@/utils/measurementSemantics').PricingOverrideLog[];
   /** Applied stage/component benchmark keys — blocks double application. */
   appliedBenchmarkKeys?: string[];
@@ -21013,7 +21889,9 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   bathroomToiletRelocateFloorType?: string | null;
   /** Whether toilet relocate floor type was user-selected or AI-inferred. */
   bathroomToiletRelocateFloorTypeSource?:
-    'user_selected' | 'ai_inferred' | null;
+    | 'user_selected'
+    | 'ai_inferred'
+    | null;
   /** Bathroom shower/tub rough-in wall & floor access (valve, head, drain). */
   bathroomShowerRoughAccessType?: string | null;
   /** Whether shower rough-in access was user-selected or AI-inferred. */
@@ -21028,25 +21906,38 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   bathroomShowerRoughWallAccessSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomShowerRoughPlumbingExposed?: string | null;
   bathroomShowerRoughPlumbingExposedSource?:
-    'user_selected' | 'demo_detected' | 'ai_inferred' | null;
+    | 'user_selected'
+    | 'demo_detected'
+    | 'ai_inferred'
+    | null;
   bathroomShowerRoughFloorConstruction?: string | null;
   bathroomShowerRoughFloorConstructionSource?:
-    'user_selected' | 'ai_inferred' | null;
+    | 'user_selected'
+    | 'ai_inferred'
+    | null;
   bathroomShowerRoughSlabWorkRequired?: string | null;
   bathroomShowerRoughSlabWorkRequiredSource?:
-    'user_selected' | 'ai_inferred' | null;
+    | 'user_selected'
+    | 'ai_inferred'
+    | null;
   bathroomDrywallPaintUseCombinedAssemblySource?:
-    'user_selected' | 'ai_inferred' | null;
+    | 'user_selected'
+    | 'ai_inferred'
+    | null;
   bathroomPaintRepairScope?: string | null;
   bathroomPaintRepairScopeSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomPaintRepairEntireRoom?: boolean | null;
   bathroomPaintRepairEntireRoomSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomPaintRepairEntireRoomSqft?: string | number | null;
   bathroomPaintRepairEntireRoomSqftSource?:
-    'user_selected' | 'ai_inferred' | null;
+    | 'user_selected'
+    | 'ai_inferred'
+    | null;
   bathroomInteriorPaintMobilization?: string | null;
   bathroomInteriorPaintMobilizationSource?:
-    'user_selected' | 'ai_inferred' | null;
+    | 'user_selected'
+    | 'ai_inferred'
+    | null;
   bathroomInteriorPaintSurface?: string | null;
   bathroomInteriorPaintSurfaceSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintCondition?: string | null;
@@ -21061,9 +21952,11 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   >;
   quickMeasurementFieldConfidence?: Record<string, number>;
   planImportMode?:
-    import('@/utils/planImportTradeConfig').PlanEstimatingMode | null;
+    | import('@/utils/planImportTradeConfig').PlanEstimatingMode
+    | null;
   planImportTradeKey?:
-    import('@/utils/planImportTradeConfig').PlanTradeKey | null;
+    | import('@/utils/planImportTradeConfig').PlanTradeKey
+    | null;
   planImportMissingInfo?: string[];
   electricalValidation?: {
     fields?: Record<
@@ -21461,6 +22354,16 @@ export function initialScopeMeasurementInputExtended(
       saved?.tradeScopeSelections ?? suggested?.tradeScopeSelections ?? null,
     roofSquares: pick('roofSquares'),
     drywallSqft: pick('drywallSqft'),
+    drywallWallSqft: pick('drywallWallSqft'),
+    drywallCeilingSqft: pick('drywallCeilingSqft'),
+    drywallOpeningDeductionSqft: pick('drywallOpeningDeductionSqft'),
+    garageWallDrywallSqft: pick('garageWallDrywallSqft'),
+    garageCeilingDrywallSqft: pick('garageCeilingDrywallSqft'),
+    moistureResistantDrywallSqft: pick('moistureResistantDrywallSqft'),
+    fireRatedDrywallSqft: pick('fireRatedDrywallSqft'),
+    highCeilingDrywallSqft: pick('highCeilingDrywallSqft'),
+    vaultedCeilingDrywallSqft: pick('vaultedCeilingDrywallSqft'),
+    level5FinishSqft: pick('level5FinishSqft'),
     concreteSqft: pick('concreteSqft'),
     concreteReinforcementSqft: pick('concreteReinforcementSqft'),
     concreteSealerSqft: pick('concreteSealerSqft'),
@@ -21629,6 +22532,9 @@ export function initialScopeMeasurementInputExtended(
           )
         : ''),
     interiorDoorCount: pick('interiorDoorCount'),
+    windowCount: pick('windowCount'),
+    exteriorDoorCount: pick('exteriorDoorCount'),
+    slidingDoorCount: pick('slidingDoorCount'),
     cabinetPaintSqft: pick('cabinetPaintSqft'),
     itemQuantities,
     pricingAcceptance: saved?.pricingAcceptance,

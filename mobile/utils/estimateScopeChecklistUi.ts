@@ -24,6 +24,11 @@ import {
 import { PLUMBING_PLAN_EXPORT_CHECKLIST_GROUPS } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { FRAMING_PLAN_EXPORT_CHECKLIST_GROUPS } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
+  COMPLETE_DRYWALL_ASSEMBLY_HELPER,
+  COMPLETE_DRYWALL_ASSEMBLY_LABEL,
+  isDrywallCompletePackageScope,
+} from '@/utils/subcontractorTrade/drywallPlanConvergence';
+import {
   floorDemoNotesHint,
   inferChoiceFromNotes,
   inferChoicesFromNotes,
@@ -467,7 +472,50 @@ function migrateKitchenSinkDisposalSplit(
 export type KitchenScopeInferenceCtx = {
   notes?: string | null;
   measurements?: NormalizedScopeMeasurements;
+  planImportMode?: string | null;
+  planImportTradeKey?: string | null;
 };
+
+function resolveDrywallLayoutContext(
+  inferenceCtx?: KitchenScopeInferenceCtx
+): {
+  planImportMode?: string | null;
+  planImportTradeKey?: string | null;
+} {
+  const measurementRecord = inferenceCtx?.measurements as
+    | Record<string, unknown>
+    | undefined;
+  return {
+    planImportMode:
+      inferenceCtx?.planImportMode ??
+      (measurementRecord?.planImportMode as string | null | undefined) ??
+      null,
+    planImportTradeKey:
+      inferenceCtx?.planImportTradeKey ??
+      (measurementRecord?.planImportTradeKey as string | null | undefined) ??
+      null,
+  };
+}
+
+/** Re-apply drywall card layout after hydration / QM sync (plan export vs remodel). */
+export function finalizeDrywallScopeChecklistLayout(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null,
+  inferenceCtx?: KitchenScopeInferenceCtx
+): ScopeChecklistItem[] {
+  const laidOut = applyDrywallScopeCardLayout(items, templateKey, inferenceCtx);
+  const planImport = resolveDrywallLayoutContext(inferenceCtx);
+  if (
+    isDrywallCompletePackageScope({
+      templateKey,
+      planImportMode: planImport.planImportMode,
+      planImportTradeKey: planImport.planImportTradeKey,
+    })
+  ) {
+    return laidOut;
+  }
+  return stripStandaloneDrywallTextureItem(laidOut).items;
+}
 
 /** Kitchen: reinstalling appliances implies removal unless notes say already removed; combined cabinets+counters implies countertops. */
 export function applyKitchenScopeInferences(
@@ -531,6 +579,282 @@ const GROUND_UP_SOFT_COST_DEFAULT_INCLUDED = new Set([
   'plans_engineering',
   'permits',
 ]);
+
+export const DRYWALL_TEXTURE_CHOICE_OPTIONS: ScopeChecklistOption[] = [
+  { id: 'orange_peel', label: 'Orange peel — base' },
+  { id: 'knockdown', label: 'Knockdown — +10% finishing labor' },
+  { id: 'skip_trowel', label: 'Skip trowel / hand texture — +23% finishing labor' },
+  { id: 'smooth_level_4', label: 'Smooth — Level 4 — +17% finishing labor' },
+  { id: 'smooth_level_5', label: 'Smooth — Level 5 — +52% finishing labor' },
+  {
+    id: 'custom_specialty',
+    label: 'Custom / specialty — review required',
+  },
+  { id: 'unsure', label: 'Not sure yet' },
+];
+
+export function drywallFinishOptionLabel(choiceId?: string | null): string {
+  const resolved = String(choiceId || 'orange_peel').trim();
+  return (
+    DRYWALL_TEXTURE_CHOICE_OPTIONS.find(opt => opt.id === resolved)?.label ||
+    DRYWALL_TEXTURE_CHOICE_OPTIONS[0].label
+  );
+}
+
+/** Strip standalone texture card for remodel hang + finish flows. */
+export function stripStandaloneDrywallTextureItem(
+  items: ScopeChecklistItem[]
+): { items: ScopeChecklistItem[]; finishLevel: string | null } {
+  const texture = items.find(item => item.id === 'texture');
+  const finishLevel =
+    texture?.choiceId && texture.choiceId !== 'unsure'
+      ? texture.choiceId
+      : null;
+  return {
+    items: items.filter(item => item.id !== 'texture'),
+    finishLevel,
+  };
+}
+
+export function createDrywallTextureChoiceItem(
+  seed?: Partial<ScopeChecklistItem>
+): ScopeChecklistItem {
+  const choiceId = seed?.choiceId || 'orange_peel';
+  const resolvedChoice = choiceId === 'unsure' ? 'orange_peel' : choiceId;
+  return {
+    id: 'texture',
+    label: 'Drywall finish',
+    helperText:
+      'Select the finish style. The base drywall install includes standard board, mud/tape, finishing, and orange-peel texture.',
+    category: 'Drywall',
+    inputType: 'choice',
+    options: DRYWALL_TEXTURE_CHOICE_OPTIONS,
+    choiceId: resolvedChoice,
+    state:
+      seed?.state ||
+      (resolvedChoice && resolvedChoice !== 'unsure'
+        ? ('included' as const)
+        : ('unsure' as const)),
+    ...seed,
+    choiceId: resolvedChoice,
+  };
+}
+
+function ensureStandaloneDrywallTextureCard(
+  items: ScopeChecklistItem[],
+  measurements?: Record<string, unknown> | null
+): ScopeChecklistItem[] {
+  const finishLevel = String(measurements?.drywallFinishLevel || '').trim();
+  const existing = items.find(item => item.id === 'texture');
+  const choiceId =
+    (existing?.choiceId && existing.choiceId !== 'unsure'
+      ? existing.choiceId
+      : null) ||
+    (finishLevel && finishLevel !== 'unsure' ? finishLevel : null) ||
+    'orange_peel';
+  if (existing) {
+    return items.map(item =>
+      item.id === 'texture' ? createDrywallTextureChoiceItem({ ...item, choiceId }) : item
+    );
+  }
+  return [...items, createDrywallTextureChoiceItem({ choiceId })];
+}
+
+export function shouldEmbedDrywallFinishTexturePicker(
+  itemId: string,
+  templateKey?: string | null,
+  measurements?: {
+    planImportMode?: string | null;
+    planImportTradeKey?: string | null;
+  } | null
+): boolean {
+  const planImport = {
+    planImportMode:
+      measurements?.planImportMode ??
+      (measurements as Record<string, unknown> | undefined)?.planImportMode ??
+      null,
+    planImportTradeKey:
+      measurements?.planImportTradeKey ??
+      (measurements as Record<string, unknown> | undefined)?.planImportTradeKey ??
+      null,
+  };
+  if (itemId === 'drywall') {
+    return false;
+  }
+  if (itemId === 'finish_tape') {
+    return (
+      String(templateKey || '').toLowerCase() === 'drywall' &&
+      !isDrywallCompletePackageScope({
+        templateKey,
+        ...planImport,
+      })
+    );
+  }
+  return false;
+}
+
+export function shouldShowDrywallBoardMixSection(
+  itemId: string,
+  templateKey?: string | null,
+  measurements?: {
+    planImportMode?: string | null;
+    planImportTradeKey?: string | null;
+  } | null
+): boolean {
+  if (itemId !== 'drywall') return false;
+  const planImport = {
+    planImportMode:
+      measurements?.planImportMode ??
+      (measurements as Record<string, unknown> | undefined)?.planImportMode ??
+      null,
+    planImportTradeKey:
+      measurements?.planImportTradeKey ??
+      (measurements as Record<string, unknown> | undefined)?.planImportTradeKey ??
+      null,
+  };
+  return isDrywallCompletePackageScope({
+    templateKey,
+    ...planImport,
+  });
+}
+
+/** Standalone finish card sits directly under Quick measurements on plan export. */
+export function shouldPinDrywallFinishCardAfterQuickMeasurements(
+  templateKey?: string | null,
+  measurements?: {
+    planImportMode?: string | null;
+    planImportTradeKey?: string | null;
+  } | null,
+  items?: ScopeChecklistItem[]
+): boolean {
+  if (!items?.some(item => item.id === 'texture')) return false;
+  const planImport = {
+    planImportMode:
+      measurements?.planImportMode ??
+      (measurements as Record<string, unknown> | undefined)?.planImportMode ??
+      null,
+    planImportTradeKey:
+      measurements?.planImportTradeKey ??
+      (measurements as Record<string, unknown> | undefined)?.planImportTradeKey ??
+      null,
+  };
+  return isDrywallCompletePackageScope({
+    templateKey,
+    ...planImport,
+  });
+}
+
+/** True when plan or scope measurements carry a drywall package takeoff. */
+export function hasPlanDrywallPackageTakeoff(
+  measurements?: Record<string, unknown> | null
+): boolean {
+  if (!measurements) return false;
+  const total = Number(measurements.drywallSqft);
+  if (Number.isFinite(total) && total > 0) return true;
+  const wall = Number(measurements.drywallWallSqft);
+  const ceiling = Number(measurements.drywallCeilingSqft);
+  return (
+    (Number.isFinite(wall) && wall > 0) ||
+    (Number.isFinite(ceiling) && ceiling > 0)
+  );
+}
+
+/** Plan export / ground-up = one complete package; notes remodel = hang + finish cards. */
+export function applyDrywallScopeCardLayout(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null,
+  inferenceCtx?: KitchenScopeInferenceCtx
+): ScopeChecklistItem[] {
+  const measurements = inferenceCtx?.measurements;
+  const planImport = resolveDrywallLayoutContext(inferenceCtx);
+  const completePackage = isDrywallCompletePackageScope({
+    templateKey,
+    planImportMode: planImport.planImportMode,
+    planImportTradeKey: planImport.planImportTradeKey,
+  });
+
+  if (completePackage) {
+    let next = items.filter(item => !['hang', 'finish_tape'].includes(item.id));
+    const planTakeoff = hasPlanDrywallPackageTakeoff(
+      measurements as Record<string, unknown> | undefined
+    );
+    const defaultIncluded =
+      planTakeoff ||
+      (planImport.planImportMode === 'selected_trade' &&
+        planImport.planImportTradeKey === 'drywall');
+    if (!next.some(item => item.id === 'drywall')) {
+      next = [
+        {
+          id: 'drywall',
+          label: COMPLETE_DRYWALL_ASSEMBLY_LABEL,
+          helperText: COMPLETE_DRYWALL_ASSEMBLY_HELPER,
+          category: 'Drywall',
+          state: (defaultIncluded ? 'included' : 'unsure') as const,
+        },
+        ...next,
+      ];
+    } else {
+      next = next.map(item =>
+        item.id === 'drywall'
+          ? {
+              ...item,
+              label: COMPLETE_DRYWALL_ASSEMBLY_LABEL,
+              helperText: COMPLETE_DRYWALL_ASSEMBLY_HELPER,
+              category: 'Drywall',
+              state:
+                item.state === 'unsure' && defaultIncluded
+                  ? ('included' as const)
+                  : item.state,
+            }
+          : item
+      );
+    }
+    return ensureStandaloneDrywallTextureCard(
+      next,
+      measurements as Record<string, unknown> | undefined
+    );
+  }
+
+  if (String(templateKey || '').toLowerCase() !== 'drywall') return items;
+
+  let next = items.filter(item => item.id !== 'drywall');
+
+  const ensureSplitCard = (
+    id: 'hang' | 'finish_tape',
+    label: string,
+    helperText: string
+  ) => {
+    if (next.some(item => item.id === id)) {
+      next = next.map(item =>
+        item.id === id ? { ...item, label, helperText, category: 'Drywall' } : item
+      );
+      return;
+    }
+    next = [
+      ...next,
+      {
+        id,
+        label,
+        helperText,
+        category: 'Drywall',
+        state: 'unsure' as const,
+      },
+    ];
+  };
+
+  ensureSplitCard(
+    'hang',
+    'Hang drywall',
+    'Board, fasteners, and hanging labor — priced separately from tape, mud, and finish.'
+  );
+  ensureSplitCard(
+    'finish_tape',
+    'Tape / mud / finish',
+    'Joint treatment, sanding, standard finish prep, and orange-peel texture.'
+  );
+
+  return stripStandaloneDrywallTextureItem(next).items;
+}
 
 export function applyGroundUpSoftCostDefaults(
   items: ScopeChecklistItem[],
@@ -673,9 +997,18 @@ export function normalizeScopeChecklistItems(
     ),
     templateKey
   ).map(normalizeScopeChecklistItem);
+  const withDrywallInstall = applyDrywallScopeCardLayout(
+    migrated,
+    templateKey,
+    inferenceCtx
+  );
   // Do not force soft-cost Yes here — that would overwrite an intentional Not sure
   // on every reopen. Defaults are applied at checklist build / note inference time.
-  return applyKitchenScopeInferences(migrated, templateKey, inferenceCtx);
+  return applyKitchenScopeInferences(
+    withDrywallInstall,
+    templateKey,
+    inferenceCtx
+  );
 }
 
 /** Split legacy cabinets_counters and inject takeoff-priced ground-up lines. */
@@ -718,25 +1051,25 @@ function migrateGroundUpTakeoffScopeItems(
     inject(
       'windows',
       'Windows',
-      'Window count for material and labor.',
+      'Window units, frames, glazing, flashing, screens, and installation. Structural reframing, interior trim, and exterior finish repair are separate.',
       hasWindows
     );
     inject(
       'exterior_doors',
       'Exterior doors',
-      'Swing entry/exit doors including iron/specialty entry — material and install. Not sliding, garage, or site gates.',
+      'Swing entry/exit door units, frames, thresholds, hardware, flashing, and installation. Not sliding, garage, site gates, paint, or structural reframing.',
       hasExtDoors
     );
     inject(
       'sliding_doors',
       'Exterior sliding doors',
-      'Patio / multi-panel sliding doors — material and install.',
+      'Patio / multi-panel door units, frames, hardware, flashing, and installation. Patching, paint, and structural reframing are separate.',
       hasSliding
     );
     inject(
       'garage_doors',
       'Garage doors',
-      'Priced by type: single, double, or RV/oversized. Enter counts on the card.',
+      'Garage door unit, tracks, hardware, and installation, priced by single, double, or RV/oversized type. Opener, structural reframing, and finish repair require confirmation.',
       hasGarage
     );
   }
@@ -853,21 +1186,21 @@ function migrateGroundUpTakeoffScopeItems(
   ensure(
     'windows',
     'Windows',
-    'Window count for material and labor.',
+    'Window units, frames, glazing, flashing, screens, and installation. Structural reframing, interior trim, and exterior finish repair are separate.',
     'exterior',
     'exterior'
   );
   ensure(
     'exterior_doors',
     'Exterior doors',
-    'Swing entry/exit doors including iron/specialty entry — material and install. Not sliding, garage, or site gates.',
+    'Swing entry/exit door units, frames, thresholds, hardware, flashing, and installation. Not sliding, garage, site gates, paint, or structural reframing.',
     'exterior',
     'windows'
   );
   ensure(
     'sliding_doors',
     'Exterior sliding doors',
-    'Patio / multi-panel sliding doors — material and install.',
+    'Patio / multi-panel door units, frames, hardware, flashing, and installation. Patching, paint, and structural reframing are separate.',
     'exterior',
     'exterior_doors'
   );
@@ -1276,7 +1609,7 @@ export function ensureGroundUpOpeningScopeCards(
   ensure(
     'garage_doors',
     'Garage doors',
-    'Priced by type: single, double, or RV/oversized. Set counts in Quick measurements.',
+    'Garage door unit, tracks, hardware, and installation, priced by single, double, or RV/oversized type. Opener, structural reframing, and finish repair require confirmation.',
     'sliding_doors'
   );
   return next;
@@ -3054,13 +3387,21 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     },
   ],
   hvac: [
+    { title: 'System & Equipment', itemIds: ['hvac'] },
+    {
+      title: 'Distribution',
+      itemIds: ['ductwork', 'supply_registers', 'return_grilles'],
+    },
+    {
+      title: 'Controls & Ventilation',
+      itemIds: ['thermostat', 'ventilation'],
+    },
+    { title: 'Project Add-ons', itemIds: ['permits', 'cleanup'] },
     { title: 'Service', itemIds: ['service_call'] },
     {
       title: 'Equipment',
-      itemIds: ['equipment_replace', 'refrigerant', 'thermostat'],
+      itemIds: ['equipment_replace', 'refrigerant'],
     },
-    { title: 'Distribution', itemIds: ['ductwork', 'ventilation'] },
-    { title: 'Closeout', itemIds: ['permits', 'cleanup'] },
   ],
   deck_patio: [
     { title: 'Demo', itemIds: ['demo_removal'] },
@@ -3100,13 +3441,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   drywall: [
     {
       title: 'Drywall',
-      itemIds: [
-        'demo_removal',
-        'hang',
-        'finish_tape',
-        'texture',
-        'patch_repair',
-      ],
+      itemIds: ['demo_removal', 'drywall', 'texture', 'patch_repair'],
     },
     { title: 'Closeout', itemIds: ['cleanup'] },
   ],

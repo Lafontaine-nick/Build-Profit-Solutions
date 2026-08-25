@@ -182,7 +182,7 @@ export const TRADE_MEASUREMENT_REGISTRY: Record<string, TradeMeasurementProfile>
     missingQuantityBehavior: 'needs_count',
   }),
   hvac: profile('hvac', ['ton', 'ea', 'ls'], {
-    allowedPricingUnits: ['ton', 'ea', 'ls', 'living_sqft'],
+    allowedPricingUnits: ['ton', 'ea', 'ls'],
     missingQuantityBehavior: 'needs_count',
     quantityStrategy: 'installed_package',
   }),

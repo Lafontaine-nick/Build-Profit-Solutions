@@ -18,13 +18,14 @@ import {
   availablePlanConflictChoice,
   conflictChooserConfirmedLine,
   conflictEvidenceSubtitle,
-  conflictFieldLabel,
+  conflictFieldDisplay,
   formatPlanTakeoffQuantity,
   labeledConflictCandidates,
   parseManualConflictValue,
   planConflictChooserRowsKey,
   planTakeoffUnit,
   retainPlanTakeoffConflicts,
+  shortPlanTakeoffHelper,
   togglePlanConflictChoice,
   type PlanConflictChoice,
 } from '@/utils/planMeasurementConflictUi';
@@ -168,12 +169,11 @@ export const PlanTakeoffConflictChooser = React.memo(function PlanTakeoffConflic
       />
       <Text style={styles.eyebrow}>Confirm measurement</Text>
       <Text style={[styles.sectionTitle, { color: titleColor }]}>
-        Conflicting plan takeoffs
+        Resolve count differences
       </Text>
       <Text style={[styles.sectionHint, { color: captionColor }]}>
-        These readings come from different parts of the plan or separate AI
-        passes. Choose the value that matches the drawing. Green means selected
-        for this export.
+        These readings come from different plan areas or separate AI passes.
+        Pick the count that matches the drawing.
       </Text>
       {visible.map(conflict => {
         const candidates = labeledConflictCandidates(conflict);
@@ -181,7 +181,7 @@ export const PlanTakeoffConflictChooser = React.memo(function PlanTakeoffConflic
           choiceFor(conflict.field),
           candidates.map(candidate => candidate.value)
         );
-        const label = conflictFieldLabel(conflict.field);
+        const { label, subtext } = conflictFieldDisplay(conflict.field);
         const unit = planTakeoffUnit(conflict.field);
         const manualSelected = choice === 'manual';
         const entered = parseManualConflictValue(draftFor(conflict.field));
@@ -202,6 +202,11 @@ export const PlanTakeoffConflictChooser = React.memo(function PlanTakeoffConflic
             ]}
           >
             <Text style={[styles.itemTitle, { color: titleColor }]}>{label}</Text>
+            {subtext ? (
+              <Text style={[styles.itemSubtext, { color: captionColor }]}>
+                {shortPlanTakeoffHelper(subtext)}
+              </Text>
+            ) : null}
             <Text
               style={[
                 styles.itemHint,
@@ -316,28 +321,42 @@ export const PlanTakeoffConflictChooser = React.memo(function PlanTakeoffConflic
 export { applyPlanConflictChoices };
 
 const styles = StyleSheet.create({
-  section: { marginBottom: 20 },
+  section: { marginBottom: 24 },
   eyebrow: {
     color: '#fbbf24',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
-    marginBottom: 4,
+    marginBottom: 6,
   },
-  sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 6 },
-  sectionHint: { fontSize: 12, lineHeight: 17, marginBottom: 12 },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    lineHeight: 22,
+    marginBottom: 8,
+  },
+  sectionHint: { fontSize: 12, lineHeight: 18, marginBottom: 14 },
   card: {
     borderWidth: 1,
     borderRadius: 14,
-    padding: 14,
-    marginBottom: 12,
+    padding: 16,
+    marginBottom: 16,
   },
-  itemTitle: { fontSize: 16, fontWeight: '700' },
-  itemHint: {
-    fontSize: 12,
+  itemTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
+  itemSubtext: {
+    fontSize: 11,
     lineHeight: 16,
     marginTop: 4,
+    marginBottom: 10,
+  },
+  itemHint: {
+    fontSize: 12,
+    lineHeight: 17,
     marginBottom: 12,
     fontWeight: '600',
   },

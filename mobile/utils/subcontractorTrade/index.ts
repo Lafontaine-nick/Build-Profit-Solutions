@@ -10,6 +10,8 @@ export * from './electricalPlanConvergence';
 export * from './plumbingPlanConvergence';
 export * from './framingPlanConvergence';
 export * from './drywallPlanConvergence';
+export * from './windowsDoorsPlanConvergence';
+export * from './hvacPlanConvergence';
 export * from './plumbingPricingOwnership';
 export * from './electricalServicePanelPricing';
 export * from './electricalCircuitPricing';

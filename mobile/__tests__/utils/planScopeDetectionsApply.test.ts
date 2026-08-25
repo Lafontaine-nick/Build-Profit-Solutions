@@ -357,6 +357,36 @@ describe('live plan-review handoff to Confirm Scope', () => {
     });
   });
 
+  test('hydrates drywall quick measurements from total plus plan rooms', () => {
+    const next = mergeLivePlanImportIntoScopeMeasurements(
+      {
+        drywallSqft: '6263',
+        quickMeasurementSources: { drywallSqft: 'plan_detected' },
+        itemQuantities: {
+          drywall: { quantity: 6263, unit: 'sqft', quantitySource: 'plan_detected' },
+        },
+      },
+      {
+        estimatingMode: 'selected_trade',
+        selectedTrade: 'drywall',
+        measurements: { drywallSqft: '6263' },
+        rooms: [
+          { name: 'Great Room', lengthFt: 20, widthFt: 15 },
+          { name: 'Bed 1', lengthFt: 12, widthFt: 10 },
+        ],
+        planFacts: { wallHeightFt: 10 },
+      }
+    );
+
+    expect(Number(next.drywallWallSqft)).toBeGreaterThan(0);
+    expect(Number(next.drywallCeilingSqft)).toBeGreaterThan(0);
+    expect(next.drywallSqft).toBe('6263');
+    expect(next.itemQuantities?.drywall).toMatchObject({
+      quantity: 6263,
+      unit: 'sqft',
+    });
+  });
+
   test('clears stale plumbing rough/trim when the live takeoff has no fixture inventory', () => {
     const next = mergeLivePlanImportIntoScopeMeasurements(
       {

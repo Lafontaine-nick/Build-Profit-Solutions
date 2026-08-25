@@ -1449,6 +1449,99 @@ const BATHROOM_CHECKLIST_QUANTITY_RULES = {
   },
 };
 
+const HVAC_CHECKLIST_QUANTITY_RULES = {
+  hvac: {
+    defaultUnit: "each",
+    allowedUnits: ["each", "ton", "allowance", "lump_sum"],
+    measurementKeys: ["hvacSystemCount", "hvacSystemTons"],
+    requiresUserQuantity: true,
+    pricingMethod: "each",
+    quantityHelper:
+      "Enter HVAC system count (or labeled tons) — never living SF.",
+    missingMessage: "Enter HVAC system count, tons, or pricing.",
+  },
+  service_call: {
+    defaultUnit: "each",
+    allowedUnits: ["each", "allowance", "lump_sum"],
+    measurementKey: "hvacServiceCallCount",
+    requiresUserQuantity: true,
+    quantityHelper: "Enter explicit HVAC service or diagnostic visit count.",
+    missingMessage: "Enter HVAC service-call quantity or pricing.",
+  },
+  equipment_replace: {
+    defaultUnit: "each",
+    allowedUnits: ["each", "allowance", "lump_sum"],
+    measurementKey: "hvacEquipmentReplacementCount",
+    requiresUserQuantity: true,
+    quantityHelper: "Enter documented HVAC equipment replacement count.",
+    missingMessage: "Enter HVAC equipment-replacement quantity or pricing.",
+  },
+  refrigerant: {
+    defaultUnit: "each",
+    allowedUnits: ["each", "allowance", "lump_sum"],
+    measurementKey: "hvacRefrigerantCount",
+    requiresUserQuantity: true,
+    quantityHelper: "Enter documented refrigerant service quantity.",
+    missingMessage: "Enter refrigerant quantity or pricing.",
+  },
+  thermostat: {
+    defaultUnit: "each",
+    allowedUnits: ["each", "allowance", "lump_sum"],
+    measurementKey: "hvacThermostatCount",
+    requiresUserQuantity: true,
+    quantityHelper: "Enter documented thermostat count.",
+    missingMessage: "Enter thermostat quantity or pricing.",
+  },
+  ductwork: {
+    defaultUnit: "lf",
+    allowedUnits: ["lf", "allowance", "lump_sum"],
+    measurementKey: "hvacDuctworkLf",
+    requiresUserQuantity: true,
+    quantityHelper: "Enter labeled or dimensioned HVAC ductwork LF.",
+    missingMessage: "Enter ductwork LF or pricing.",
+  },
+  supply_registers: {
+    defaultUnit: "each",
+    allowedUnits: ["each", "allowance", "lump_sum"],
+    measurementKey: "hvacSupplyRegisterCount",
+    requiresUserQuantity: true,
+    quantityHelper: "Enter documented supply register or diffuser count.",
+    missingMessage: "Enter supply register count or pricing.",
+  },
+  return_grilles: {
+    defaultUnit: "each",
+    allowedUnits: ["each", "allowance", "lump_sum"],
+    measurementKey: "hvacReturnGrilleCount",
+    requiresUserQuantity: true,
+    quantityHelper: "Enter documented return grille count.",
+    missingMessage: "Enter return grille count or pricing.",
+  },
+  ventilation: {
+    defaultUnit: "each",
+    allowedUnits: ["each", "allowance", "lump_sum"],
+    measurementKey: "hvacVentilationCount",
+    requiresUserQuantity: true,
+    quantityHelper: "Enter documented HVAC ventilation equipment count.",
+    missingMessage: "Enter ventilation quantity or pricing.",
+  },
+  permits: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.permits,
+    defaultUnit: "allowance",
+    allowedUnits: ["each", "allowance", "lump_sum"],
+    measurementKey: "hvacPermitCount",
+    quantityHelper: "Enter HVAC permit / inspection allowance.",
+    missingMessage: "Enter HVAC permit / inspection pricing.",
+  },
+  cleanup: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.cleanup,
+    defaultUnit: "allowance",
+    allowedUnits: ["each", "allowance", "lump_sum"],
+    measurementKey: "hvacCleanupCount",
+    quantityHelper: "Enter HVAC cleanup / disposal allowance.",
+    missingMessage: "Enter HVAC cleanup pricing.",
+  },
+};
+
 function additionFloorAreaRule(
   quantityHelper,
   missingMessage = "Enter pricing basis or lump sum.",
@@ -1564,10 +1657,9 @@ const ADDITION_CHECKLIST_QUANTITY_RULES = {
     "Enter exterior finish area sqft, or price with lump sum/material/labor.",
     "Enter exterior finish sqft or pricing.",
   ),
-  hvac: additionFloorAreaRule(
-    "Enter conditioned floor sqft, or price HVAC with lump sum/material/labor.",
-    "Enter HVAC sqft or pricing.",
-  ),
+  hvac: {
+    ...HVAC_CHECKLIST_QUANTITY_RULES.hvac,
+  },
   insulation: {
     defaultUnit: "sqft",
     allowedUnits: ["sqft", "allowance", "lump_sum"],
@@ -1703,6 +1795,9 @@ const GROUND_UP_CHECKLIST_QUANTITY_RULES = {
     "Uses living area from the plan as MEP rough-in basis — edit if needed.",
     "Enter MEP rough-in sqft or pricing.",
   ),
+  hvac: {
+    ...HVAC_CHECKLIST_QUANTITY_RULES.hvac,
+  },
   insulation: {
     defaultUnit: "sqft",
     allowedUnits: ["sqft", "allowance", "lump_sum"],
@@ -1720,6 +1815,19 @@ const GROUND_UP_CHECKLIST_QUANTITY_RULES = {
       "drywallWallSqft",
       "drywallCeilingSqft",
       "drywallOpeningDeductionSqft",
+      "drywallGarageFireRatedSqft",
+      "drywallMoistureResistantSqft",
+      "drywallVaultedSlopedSqft",
+      "drywallHighCeilingSqft",
+      "drywallFinishLevel",
+      "garageWallDrywallSqft",
+      "garageCeilingDrywallSqft",
+      "moistureResistantDrywallSqft",
+      "fireRatedDrywallSqft",
+      "specialtyDrywallSqft",
+      "highCeilingDrywallSqft",
+      "vaultedCeilingDrywallSqft",
+      "level5FinishSqft",
       "floorAreaSqft",
     ],
     pricingBasisMeasurementKey: "floorAreaSqft",
@@ -1794,6 +1902,9 @@ function getRuleForChecklistItem(itemId, templateKey) {
   }
   if (templateKey === "painting" && PAINTING_CHECKLIST_QUANTITY_RULES[itemId]) {
     return PAINTING_CHECKLIST_QUANTITY_RULES[itemId];
+  }
+  if (templateKey === "hvac" && HVAC_CHECKLIST_QUANTITY_RULES[itemId]) {
+    return HVAC_CHECKLIST_QUANTITY_RULES[itemId];
   }
   if (
     templateKey === "electrical" &&
@@ -2875,6 +2986,7 @@ module.exports = {
   KITCHEN_CHECKLIST_QUANTITY_RULES,
   ADDITION_CHECKLIST_QUANTITY_RULES,
   GROUND_UP_CHECKLIST_QUANTITY_RULES,
+  HVAC_CHECKLIST_QUANTITY_RULES,
   normalizeScopeMeasurements,
   getRuleForChecklistItem,
   getRuleForPackage,

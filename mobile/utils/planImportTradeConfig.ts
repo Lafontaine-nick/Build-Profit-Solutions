@@ -225,7 +225,54 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
       : tradeKey === 'framing'
         ? [...FRAMING_PLAN_SCOPE_ALLOWLIST]
         : getTradeScopeAllowlist(tradeKey);
-  return allowed ? items.filter(item => allowed.includes(item.id)) : items;
+  const filtered = allowed ? items.filter(item => allowed.includes(item.id)) : items;
+  if (tradeKey !== 'windows_doors') return filtered;
+
+  const combined = filtered.find(item => item.id === 'windows_doors');
+  const cards = [
+    ['windows', 'Windows', 'Window units — material and installation.'],
+    [
+      'exterior_doors',
+      'Exterior doors',
+      'Swing entry/exit doors — material and installation. Not sliding or garage.',
+    ],
+    [
+      'sliding_doors',
+      'Sliding doors',
+      'Patio / multi-panel sliding doors — material and installation.',
+    ],
+    [
+      'garage_doors',
+      'Garage doors',
+      'Single, double, or RV/oversized garage doors — type counts required.',
+    ],
+  ] as const;
+  const combinedIndex =
+    combined ? filtered.indexOf(combined) : filtered.length;
+  const existingIds = new Set(filtered.map(item => item.id));
+  const missingCards = cards.filter(([id]) => !existingIds.has(id));
+  const withoutCombined = filtered.filter(item => item.id !== 'windows_doors');
+  const cardBase =
+    combined ||
+    ({
+      id: 'windows_doors',
+      label: 'Windows & doors',
+      inputType: 'yes_no',
+      state: 'unsure',
+      category: 'exterior',
+    } as T);
+  return [
+    ...withoutCombined.slice(0, combinedIndex),
+    ...missingCards.map(([id, label, helperText]) =>
+      ({
+        ...cardBase,
+        id,
+        label,
+        helperText,
+      } as T)
+    ),
+    ...withoutCombined.slice(combinedIndex),
+  ];
 }
 
 const WHOLE_PROJECT_QUICK_MEASUREMENT_KEYS = [
@@ -362,13 +409,14 @@ export function stripScopeInputForSingleTrade<
     }
   }
   delete next.planRooms;
-  // Insulation derives its thermal-envelope quantities from plan facts
-  // (living area, perimeter, wall height, stories, and openings).
-  if (tradeKey !== 'insulation') delete next.planFacts;
+  // Insulation and drywall derive quantities from plan facts / room geometry.
+  if (tradeKey !== 'insulation' && tradeKey !== 'drywall') delete next.planFacts;
   delete next.areaReconciliation;
-  delete next.garageDoorSingleCount;
-  delete next.garageDoorDoubleCount;
-  delete next.garageDoorRvCount;
+  if (tradeKey !== 'windows_doors') {
+    delete next.garageDoorSingleCount;
+    delete next.garageDoorDoubleCount;
+    delete next.garageDoorRvCount;
+  }
   delete next.wetAreaFinish;
   delete next.bathCount;
   delete next.tilePanBathCount;

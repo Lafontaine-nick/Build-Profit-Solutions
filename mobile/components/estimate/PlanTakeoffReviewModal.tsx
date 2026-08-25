@@ -26,12 +26,18 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import { PlanTakeoffConflictChooser } from '@/components/estimate/PlanTakeoffConflictChooser';
-import { quickMeasurementFieldMeta } from '@/utils/scopeQuickMeasurements';
+import { PlanTakeoffLowConfidenceChooser } from '@/components/estimate/PlanTakeoffLowConfidenceChooser';
+import { quickMeasurementFieldMeta, quickMeasurementFieldDef } from '@/utils/scopeQuickMeasurements';
 import {
   applyPlanConflictChoices,
   conflictResolutionProvenanceEntry,
+  filterLowConfidenceForReview,
+  filterUnreadableForReview,
+  lowConfidenceConfirmationProvenance,
+  lowConfidenceNeedsReviewProvenance,
   pendingManualConflictFields,
   planConflictChooserRowsKey,
+  planTakeoffConflictFieldSet,
   reviewablePlanMeasurementConflicts,
   uniqueUnreadablePlanFields,
   type PlanConflictChoice,
@@ -56,6 +62,7 @@ import {
   formatSf,
   garageReconciliationStatusLabel,
   livingReconciliationStatusLabel,
+  filterPlanReviewMeasurementEntries,
   measurementDisplayLabel,
   measurementSourceLabel,
   formatPlumbingGasApplianceScope,
@@ -105,6 +112,10 @@ import {
   insulationEnvelopeInputsFromPlanFacts,
   resolveInsulationEnvelopePlanningQuantity,
 } from '@/utils/insulationEnvelopeQuantity';
+import {
+  DRYWALL_PLAN_QUICK_MEASUREMENT_KEYS,
+  hydrateDrywallComponentMeasurementsFromPlanContext,
+} from '@/utils/subcontractorTrade/drywallPlanConvergence';
 
 export type PlanReviewRow = {
   key: string;
@@ -335,6 +346,18 @@ function positiveMeasurement(v: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function hydrateDrywallMeasurementsFromRooms(
+  measurements: Record<string, unknown>,
+  rooms: unknown,
+  planFacts: Record<string, unknown> | null | undefined
+) {
+  return hydrateDrywallComponentMeasurementsFromPlanContext(
+    measurements,
+    rooms,
+    planFacts
+  );
+}
+
 function insulationOpeningNeedsReview(
   takeoff: PlanToMeasurementsResult | null
 ): boolean {
@@ -350,6 +373,15 @@ function insulationOpeningNeedsReview(
       false
   );
 }
+
+const HVAC_REVIEW_MEASUREMENT_KEYS = [
+  'hvacSystemCount',
+  'hvacSystemTons',
+  'hvacDuctworkLf',
+  'hvacSupplyRegisterCount',
+  'hvacReturnGrilleCount',
+  'hvacThermostatCount',
+] as const;
 
 export default function PlanTakeoffReviewModal({
   visible,
@@ -390,6 +422,9 @@ export default function PlanTakeoffReviewModal({
   const [conflictManualCommitted, setConflictManualCommitted] = useState<
     Record<string, boolean>
   >({});
+  const [lowConfidenceAccepted, setLowConfidenceAccepted] = useState<
+    Record<string, boolean>
+  >({});
   const [conflictChooserKey, setConflictChooserKey] = useState(0);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
@@ -399,19 +434,64 @@ export default function PlanTakeoffReviewModal({
       effectiveMode,
       effectiveTradeKey
     );
-    if (effectiveTradeKey === 'plumbing') {
-      return hydratePlumbingPlanMeasurementsFromInventory(
-        filtered,
-        takeoff?.fixtureInventory,
-        {
-          waterHeaterDetail: takeoff?.waterHeaterDetail,
-          gasApplianceScope: takeoff?.gasApplianceScope,
-          complexityFactors: takeoff?.complexityFactors,
+    if (effectiveTradeKey === 'hvac') {
+      const sourceMeasurements = takeoff?.measurements || {};
+      const lowConfidenceByField = new Map(
+        (takeoff?.lowConfidence || []).map(reading => [
+          String(reading.field || '').trim(),
+          reading.value,
+        ])
+      );
+      const provenance = takeoff?.measurementProvenance || {};
+      const merged = Object.fromEntries(
+        HVAC_REVIEW_MEASUREMENT_KEYS.map(key => {
+          const direct = sourceMeasurements[key];
+          const lowConfidence = lowConfidenceByField.get(key);
+          const provenanceValue =
+            provenance[key] &&
+            typeof provenance[key] === 'object' &&
+            'value' in provenance[key]
+              ? (provenance[key] as { value?: unknown }).value
+              : undefined;
+          return [
+            key,
+            direct ?? lowConfidence ?? provenanceValue ?? '',
+          ];
+        })
+      );
+      for (const reading of takeoff?.lowConfidence || []) {
+        const field = String(reading?.field || '').trim();
+        const value = Number(reading?.value);
+        if (
+          !HVAC_REVIEW_MEASUREMENT_KEYS.includes(
+            field as (typeof HVAC_REVIEW_MEASUREMENT_KEYS)[number]
+          ) ||
+          !(Number.isFinite(value) && value > 0)
+        )
+          continue;
+        if (merged[field] == null || String(merged[field]).trim() === '') {
+          merged[field] = String(value);
         }
+      }
+      return merged;
+    }
+    if (effectiveTradeKey === 'plumbing') {
+      return filterPlanReviewMeasurementEntries(
+        hydratePlumbingPlanMeasurementsFromInventory(
+          filtered,
+          takeoff?.fixtureInventory,
+          {
+            waterHeaterDetail: takeoff?.waterHeaterDetail,
+            gasApplianceScope: takeoff?.gasApplianceScope,
+            complexityFactors: takeoff?.complexityFactors,
+          }
+        )
       );
     }
     if (effectiveTradeKey === 'framing') {
-      return hydrateFramingPlanMeasurementsFromAreas(filtered);
+      return filterPlanReviewMeasurementEntries(
+        hydrateFramingPlanMeasurementsFromAreas(filtered)
+      );
     }
     if (effectiveTradeKey === 'insulation') {
       const insulationPlanFacts = mergeInsulationPlanFactsFromTakeoff(
@@ -491,7 +571,7 @@ export default function PlanTakeoffReviewModal({
         delete fallback.garageSqft;
         delete fallback.storyCount;
         delete fallback.openingDeductionSqft;
-        return fallback;
+        return filterPlanReviewMeasurementEntries(fallback);
       }
       const suggestions = Object.fromEntries(
         envelope.components
@@ -576,9 +656,18 @@ export default function PlanTakeoffReviewModal({
       delete reviewMeasurements.garageSqft;
       delete reviewMeasurements.storyCount;
       delete reviewMeasurements.openingDeductionSqft;
-      return reviewMeasurements;
+      return filterPlanReviewMeasurementEntries(reviewMeasurements);
     }
-    return filtered;
+    if (effectiveTradeKey === 'drywall') {
+      return filterPlanReviewMeasurementEntries(
+        hydrateDrywallMeasurementsFromRooms(
+          filtered,
+          takeoff?.rooms,
+          takeoff?.planFacts
+        )
+      );
+    }
+    return filterPlanReviewMeasurementEntries(filtered);
   }, [takeoff, effectiveMode, effectiveTradeKey]);
 
   const scopeDetections = useMemo(() => {
@@ -612,6 +701,7 @@ export default function PlanTakeoffReviewModal({
     setConflictChoices({});
     setConflictManualValues({});
     setConflictManualCommitted({});
+    setLowConfidenceAccepted({});
     setConflictChooserKey(key => key + 1);
     const livingSf = Number(
       takeoff.measurements?.floorAreaSqft ??
@@ -627,12 +717,15 @@ export default function PlanTakeoffReviewModal({
       .filter(([key]) => !unresolvedConflictFields.has(key))
       .map(([key, value]) => {
         const meta = quickMeasurementFieldMeta(key);
+        const fieldDef = quickMeasurementFieldDef(
+          key as import('@/utils/scopeQuickMeasurements').QuickMeasurementFieldKey
+        );
         const conflictValue = positiveString(currentValues?.[key]);
         const display = semanticsOn
           ? measurementDisplayLabel(key, Number(value), livingSf)
           : {
               label: key === 'floorAreaSqft' ? 'Living area' : meta.label,
-              subtext: null as string | null,
+              subtext: fieldDef?.helperText ?? null,
             };
         const ceilingBoundary =
           key === 'atticInsulationSqft'
@@ -736,7 +829,7 @@ export default function PlanTakeoffReviewModal({
           key,
           label: display.label,
           subtext:
-            [display.subtext, ceilingBoundaryText]
+            [display.subtext, fieldDef?.helperText, ceilingBoundaryText]
               .filter(Boolean)
               .join(' · ') || null,
           sourceLabel:
@@ -1058,17 +1151,25 @@ export default function PlanTakeoffReviewModal({
   const lowConfidence = (takeoff.lowConfidence || []).filter(field =>
     tradeReview ? tradeReviewKeys.has(String(field.field || '')) : true
   );
-  const electricalLowConfidence =
-    effectiveTradeKey === 'electrical' ? lowConfidence : [];
   const measurementConflicts = reviewablePlanMeasurementConflicts({
     conflicts: takeoff.measurementConflicts,
     provenance: takeoff.measurementProvenance,
   }).filter(conflict =>
     tradeReview ? tradeReviewKeys.has(String(conflict.field || '')) : true
   );
+  const conflictFieldSet = planTakeoffConflictFieldSet(measurementConflicts);
+  const reviewLowConfidence = filterLowConfidenceForReview(
+    lowConfidence,
+    conflictFieldSet
+  );
+  const reviewUnreadable = filterUnreadableForReview(
+    unreadable,
+    conflictFieldSet
+  );
   const hasMeasurements = rows.length > 0;
   const hasRooms = roomRows.length > 0;
-  const hasReadingIssues = lowConfidence.length > 0 || unreadable.length > 0;
+  const hasReadingIssues =
+    reviewLowConfidence.length > 0 || reviewUnreadable.length > 0;
   const plumbingMissingItems =
     effectiveTradeKey === 'plumbing'
       ? [
@@ -1215,6 +1316,17 @@ export default function PlanTakeoffReviewModal({
         values[key] = String(n);
       }
     }
+    if (effectiveTradeKey === 'drywall') {
+      const hydrated = hydrateDrywallComponentMeasurementsFromPlanContext(
+        { ...visibleMeasurements, ...values },
+        takeoff?.rooms,
+        (takeoff?.planFacts || null) as Record<string, unknown> | null
+      );
+      for (const key of [...DRYWALL_PLAN_QUICK_MEASUREMENT_KEYS, 'drywallSqft']) {
+        const n = positiveMeasurement(hydrated[key]);
+        if (n != null) values[key] = String(n);
+      }
+    }
     const retainedConflictProvenance = Object.fromEntries(
       unresolved.flatMap(conflict => {
         const field = String(conflict.field || '').trim();
@@ -1241,29 +1353,64 @@ export default function PlanTakeoffReviewModal({
         ];
       })
     );
-    const retainedLowConfidenceProvenance = Object.fromEntries(
-      electricalLowConfidence.flatMap(reading => {
+    const confirmedLowConfidence = reviewLowConfidence.filter(
+      reading => lowConfidenceAccepted[String(reading.field || '').trim()]
+    );
+    for (const reading of confirmedLowConfidence) {
+      const field = String(reading.field || '').trim();
+      const value = Number(reading.value);
+      if (!field || !(value > 0)) continue;
+      values[field] = String(value);
+    }
+    const unconfirmedLowConfidence = filterLowConfidenceForReview(
+      reviewLowConfidence,
+      new Set([
+        ...conflictFieldSet,
+        ...confirmedLowConfidence.map(reading =>
+          String(reading.field || '').trim()
+        ),
+      ])
+    );
+    for (const reading of unconfirmedLowConfidence) {
+      const field = String(reading.field || '').trim();
+      const value = Number(reading.value);
+      if (!field || !(value > 0)) continue;
+      values[field] = String(value);
+    }
+    const electricalUnconfirmedLowConfidence =
+      effectiveTradeKey === 'electrical' ? unconfirmedLowConfidence : [];
+    const retainedLowConfidenceProvenance = Object.fromEntries([
+      ...confirmedLowConfidence.flatMap(reading => {
         const field = String(reading.field || '').trim();
         const value = Number(reading.value);
-        if (!field || !Number.isFinite(value) || value <= 0) return [];
-        values[field] = String(value);
+        if (!field || !(value > 0)) return [];
         const existing = takeoff.measurementProvenance?.[field];
         return [
           [
             field,
             {
               ...(existing && typeof existing === 'object' ? existing : {}),
-              value,
-              status: 'needs_review',
-              normalizedSource: 'NEEDS_REVIEW',
-              pricingEligible: false,
-              reason:
-                'The plan reading confidence is too low; confirm this quantity before pricing.',
+              ...lowConfidenceConfirmationProvenance(field, value),
             },
           ],
         ];
-      })
-    );
+      }),
+      ...unconfirmedLowConfidence.flatMap(reading => {
+        const field = String(reading.field || '').trim();
+        const value = Number(reading.value);
+        if (!field || !(value > 0)) return [];
+        const existing = takeoff.measurementProvenance?.[field];
+        return [
+          [
+            field,
+            {
+              ...(existing && typeof existing === 'object' ? existing : {}),
+              ...lowConfidenceNeedsReviewProvenance(field, value),
+            },
+          ],
+        ];
+      }),
+    ]);
     const retainedPlanReviewLockProvenance = tradeReview
       ? buildPlanReviewLockedProvenance(
           rows
@@ -1272,7 +1419,7 @@ export default function PlanTakeoffReviewModal({
                 row.include &&
                 Number(row.value) > 0 &&
                 !unresolvedFields.has(row.key) &&
-                !electricalLowConfidence.some(
+                !unconfirmedLowConfidence.some(
                   reading => String(reading.field || '') === row.key
                 )
             )
@@ -1290,6 +1437,9 @@ export default function PlanTakeoffReviewModal({
         effectiveTradeKey === 'electrical'
           ? new Set([
               ...Object.keys(resolved),
+              ...confirmedLowConfidence.map(reading =>
+                String(reading.field || '').trim()
+              ),
               ...rows
                 .filter(
                   row =>
@@ -1301,14 +1451,18 @@ export default function PlanTakeoffReviewModal({
                 .map(row => row.key),
             ])
           : new Set<string>();
-      if (!electricalLowConfidence.length && !confirmedFields.size) {
+      if (
+        !electricalUnconfirmedLowConfidence.length &&
+        !confirmedLowConfidence.length &&
+        !confirmedFields.size
+      ) {
         return takeoff.electricalValidation;
       }
       const validation = takeoff.electricalValidation || {};
       const fields = { ...(validation.fields || {}) };
       const priceableFields = new Set(validation.priceableFields || []);
       const blockedFields = new Set(validation.blockedFields || []);
-      for (const reading of electricalLowConfidence) {
+      for (const reading of electricalUnconfirmedLowConfidence) {
         const field = String(reading.field || '').trim();
         if (!field) continue;
         fields[field] = {
@@ -1419,7 +1573,9 @@ export default function PlanTakeoffReviewModal({
             }
             subtitle={
               tradeLabel
-                ? `Check ${tradeLabel.toLowerCase()} quantities before they fill the bid`
+                ? `Check ${
+                    tradeLabel === 'HVAC' ? 'HVAC' : tradeLabel.toLowerCase()
+                  } quantities before they fill the bid`
                 : 'Check numbers before they fill the bid'
             }
             onBack={onCancel}
@@ -1488,43 +1644,22 @@ export default function PlanTakeoffReviewModal({
               />
             ) : null}
 
-            {hasReadingIssues ? (
-              <View style={styles.section}>
-                <Text style={styles.attentionEyebrow}>Needs review</Text>
-                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
-                  Could not read clearly
-                </Text>
-                <ReviewPanel darkMode={darkMode}>
-                  <Text style={styles.attentionTitle}>
-                    Enter these quantities manually
-                  </Text>
-                  {lowConfidence.map(f => {
-                    const meta = quickMeasurementFieldMeta(f.field);
-                    return (
-                      <Text
-                        key={`low-${f.field}`}
-                        style={[styles.evidenceText, { color: Colors.sub }]}
-                      >
-                        {meta.label}: read {f.value} {meta.unit}, confidence too
-                        low
-                      </Text>
-                    );
-                  })}
-                  {unreadable.map((f, idx) => {
-                    const meta = quickMeasurementFieldMeta(f.field);
-                    const label = measurementDisplayLabel(f.field).label;
-                    return (
-                      <Text
-                        key={`unread-${f.field}-${idx}`}
-                        style={[styles.evidenceText, { color: Colors.sub }]}
-                      >
-                        {meta.label !== f.field ? meta.label : label}:{' '}
-                        {f.reason}
-                      </Text>
-                    );
-                  })}
-                </ReviewPanel>
-              </View>
+            {hasReadingIssues && effectiveTradeKey !== 'hvac' ? (
+              <PlanTakeoffLowConfidenceChooser
+                lowConfidence={reviewLowConfidence}
+                unreadable={reviewUnreadable}
+                accepted={lowConfidenceAccepted}
+                onToggleAccept={(field, _value) => {
+                  setLowConfidenceAccepted(prev => {
+                    const next = { ...prev };
+                    if (next[field]) delete next[field];
+                    else next[field] = true;
+                    return next;
+                  });
+                }}
+                darkMode={darkMode}
+                captionColor={Colors.sub}
+              />
             ) : null}
 
             {effectiveTradeKey === 'plumbing' &&
@@ -1886,8 +2021,12 @@ export default function PlanTakeoffReviewModal({
                         </TouchableOpacity>
                         <View style={{ flex: 1, minWidth: 0 }}>
                           <Text
-                            style={[styles.itemTitle, { color: Colors.text }]}
-                            numberOfLines={2}
+                            style={[
+                              styles.itemTitle,
+                              styles.measurementTitle,
+                              { color: Colors.text },
+                            ]}
+                            numberOfLines={3}
                           >
                             {row.label}
                           </Text>
@@ -2377,13 +2516,13 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 24,
   },
-  section: { marginBottom: 20 },
+  section: { marginBottom: 24 },
   mutedEyebrow: {
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   attentionEyebrow: {
     color: CONFIRM_YELLOW,
@@ -2391,17 +2530,23 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   attentionTitle: {
     color: CONFIRM_YELLOW,
     fontSize: 12,
     fontWeight: '700',
     lineHeight: 16,
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  sectionHeading: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
+  sectionHeading: {
+    fontSize: 17,
+    fontWeight: '700',
+    lineHeight: 22,
+    marginBottom: 12,
+  },
   itemTitle: { fontSize: 16, fontWeight: '700' },
+  measurementTitle: { fontSize: 15, lineHeight: 20 },
   quantityHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',

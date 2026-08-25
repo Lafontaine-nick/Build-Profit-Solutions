@@ -47,6 +47,9 @@ import {
   readConcreteScope,
 } from '@/utils/qmScopePanels/concreteRemodel';
 import {
+  applyHvacScopeMeasurements,
+  formatHvacScopeChipQuantity,
+  hvacScopeChipActive,
   roofingOptionsForIds,
   ROOFING_ACCESSORY_OPTION_IDS,
   ROOFING_DRAINAGE_OPTION_IDS,
@@ -96,10 +99,102 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   qmOptionText: { fontSize: 13, fontWeight: '600' },
+  choiceWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  choiceChipWide: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    minWidth: '47%',
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
 
 function captionColor(darkMode: boolean, Colors: Colors) {
   return darkMode ? 'rgba(245,247,250,0.82)' : Colors.sub;
+}
+
+function inactiveScopeChoiceChipStyle(darkMode: boolean, Colors: Colors) {
+  return {
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.28)' : Colors.line,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)',
+    textColor: darkMode ? '#e5e7eb' : Colors.text,
+  };
+}
+
+function simpleTradeScopePanelTitle(scopeKey: SimpleTradeScopeKey): string {
+  if (scopeKey === 'deck_patio') return 'Deck & fence scope';
+  if (scopeKey === 'hvac') return 'HVAC scope';
+  if (scopeKey === 'roofing') return 'Roofing scope';
+  return `${scopeKey} scope`;
+}
+
+function QmScopeChoiceChip({
+  label,
+  active,
+  onPress,
+  disabled,
+  darkMode,
+  Colors,
+  style,
+  quantityCaption,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  disabled?: boolean;
+  darkMode: boolean;
+  Colors: Colors;
+  style?: object;
+  quantityCaption?: string | null;
+}) {
+  const inactiveStyle = inactiveScopeChoiceChipStyle(darkMode, Colors);
+  let borderColor = inactiveStyle.borderColor;
+  let backgroundColor = inactiveStyle.backgroundColor;
+  let textColor = inactiveStyle.textColor;
+  if (active) {
+    borderColor = '#34d399';
+    backgroundColor = 'rgba(52, 211, 153, 0.12)';
+    textColor = '#34d399';
+  }
+  return (
+    <TouchableOpacity
+      activeOpacity={0.88}
+      onPress={onPress}
+      disabled={disabled}
+      style={[styles.choiceChipWide, { borderColor, backgroundColor }, style]}
+    >
+      <Text
+        style={{
+          color: textColor,
+          fontSize: 12,
+          fontWeight: active ? '800' : '600',
+          textAlign: 'center',
+        }}
+      >
+        {label}
+      </Text>
+      {quantityCaption ? (
+        <Text
+          style={{
+            color: active ? '#6ee7b7' : darkMode ? '#94a3b8' : '#64748b',
+            fontSize: 11,
+            fontWeight: '700',
+            textAlign: 'center',
+            marginTop: 4,
+          }}
+        >
+          {quantityCaption}
+        </Text>
+      ) : null}
+    </TouchableOpacity>
+  );
 }
 
 export function qmNeutralScopePanelStyle(darkMode: boolean) {
@@ -3156,22 +3251,15 @@ function QmTradeScopeOptionList({
           (canonicalSelected && !hasAlias && option.id === firstCanonicalOption);
         return (
           <React.Fragment key={option.id}>
-            <TouchableOpacity
+            <QmScopeChoiceChip
+              label={option.label}
+              active={active}
               onPress={() => onToggle(option.id, option.canonicalId)}
               disabled={applying}
-              activeOpacity={1}
-              style={[
-                styles.qmOption,
-                {
-                  borderColor: active ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                  backgroundColor: active ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
-                },
-              ]}
-            >
-              <Text style={[styles.qmOptionText, { color: active ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
-                {active ? '✓ ' : ''}{option.label}
-              </Text>
-            </TouchableOpacity>
+              darkMode={darkMode}
+              Colors={Colors}
+              style={{ minWidth: '100%' }}
+            />
             {active && option.measurementKey ? (
               <>
                 <QmSqftMeasurementRow
@@ -3710,24 +3798,45 @@ export function QmSimpleTradeScopePanels({
     const next = selected
       ? selections.filter((value) => value !== id)
       : [...selections, id];
-    setMeasurements((prev) => ({
-      ...prev,
-      tradeScopeSelections: {
-        ...(prev.tradeScopeSelections || {}),
-        [scopeKey]: next.length ? next : null,
-      },
-    }));
-    // Sync the Confirm Scope checklist in the same interaction as the
-    // selector. The effect in the parent remains as a rehydration safety net,
-    // but this prevents the new roofing card from waiting for a later render.
-    onScopeSelectionChange?.({
-      ...measurements,
-      tradeScopeSelections: {
-        ...(measurements.tradeScopeSelections || {}),
-        [scopeKey]: next.length ? next : null,
-      },
+    setMeasurements((prev) => {
+      const withSelections = {
+        ...prev,
+        tradeScopeSelections: {
+          ...(prev.tradeScopeSelections || {}),
+          [scopeKey]: next.length ? next : null,
+        },
+      };
+      const updated =
+        scopeKey === 'hvac'
+          ? (applyHvacScopeMeasurements(withSelections) as ScopeMeasurementsInputExtended)
+          : withSelections;
+      onScopeSelectionChange?.(updated);
+      return updated;
     });
   };
+
+  const activeOptions = spec.options.filter((option) => {
+    if (scopeKey === 'hvac') {
+      return hvacScopeChipActive(option, selections, measurements, spec);
+    }
+    const canonicalSelected = selections.includes(option.canonicalId);
+    const hasAlias = selections.some((value) =>
+      spec.options.some((candidate) => candidate.id === value)
+    );
+    const firstCanonicalOption = spec.options.find(
+      (candidate) => candidate.canonicalId === option.canonicalId
+    )?.id;
+    return (
+      selections.includes(option.id) ||
+      (canonicalSelected && !hasAlias && option.id === firstCanonicalOption)
+    );
+  });
+  const measurementRows = new Map<string, (typeof spec.options)[number]>();
+  for (const option of activeOptions) {
+    if (option.measurementKey && !measurementRows.has(option.measurementKey)) {
+      measurementRows.set(option.measurementKey, option);
+    }
+  }
 
   return (
     <View
@@ -3739,56 +3848,81 @@ export function QmSimpleTradeScopePanels({
         },
       ]}
     >
-      <Text style={[styles.qmPanelTitle, { color: darkMode ? '#cbd5e1' : '#475569' }]}>
-        {scopeKey === 'deck_patio' ? 'Deck & fence scope' : `${scopeKey.charAt(0).toUpperCase()}${scopeKey.slice(1)} scope`}
+      <Text style={[styles.qmPanelTitle, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
+        {simpleTradeScopePanelTitle(scopeKey)}
       </Text>
-      <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b' }]}>
+      <Text style={[styles.qmPanelCaption, { color: captionColor(darkMode, Colors) }]}>
         Select every component included in this bid. Measurements feed the corresponding pricing cards.
       </Text>
-      <View style={styles.qmOptionWrap}>
+      <View style={styles.choiceWrap}>
         {spec.options.map((option) => {
-          const canonicalSelected = selections.includes(option.canonicalId);
-          const hasAlias = selections.some((value) => spec.options.some((candidate) => candidate.id === value));
-          const firstCanonicalOption = spec.options.find((candidate) => candidate.canonicalId === option.canonicalId)?.id;
           const active =
-            selections.includes(option.id) ||
-            (canonicalSelected && !hasAlias && option.id === firstCanonicalOption);
+            scopeKey === 'hvac'
+              ? hvacScopeChipActive(option, selections, measurements, spec)
+              : (() => {
+                  const canonicalSelected = selections.includes(option.canonicalId);
+                  const hasAlias = selections.some((value) =>
+                    spec.options.some((candidate) => candidate.id === value)
+                  );
+                  const firstCanonicalOption = spec.options.find(
+                    (candidate) => candidate.canonicalId === option.canonicalId
+                  )?.id;
+                  return (
+                    selections.includes(option.id) ||
+                    (canonicalSelected && !hasAlias && option.id === firstCanonicalOption)
+                  );
+                })();
+          const quantityCaption =
+            scopeKey === 'hvac'
+              ? formatHvacScopeChipQuantity(measurements, option)
+              : option.measurementKey
+                ? (() => {
+                    const value = Number(
+                      String(
+                        (measurements as Record<string, unknown>)[option.measurementKey!] ?? ''
+                      ).replace(/,/g, '')
+                    );
+                    if (!(Number.isFinite(value) && value > 0)) return null;
+                    const unit = String(option.unit || 'each').toUpperCase();
+                    if (unit === 'LF') return `${value.toLocaleString()} LF`;
+                    if (unit === 'SQFT') return `${value.toLocaleString()} sqft`;
+                    return `${Math.round(value).toLocaleString()} each`;
+                  })()
+                : null;
           return (
-            <React.Fragment key={option.id}>
-              <TouchableOpacity
-                onPress={() => toggle(option.id, option.canonicalId)}
-                disabled={applying}
-                activeOpacity={1}
-                style={[
-                  styles.qmOption,
-                  {
-                    borderColor: active ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                    backgroundColor: active ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
-                  },
-                ]}
-              >
-                <Text style={[styles.qmOptionText, { color: active ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
-                  {active ? '✓ ' : ''}{option.label}
-                </Text>
-              </TouchableOpacity>
-              {active && option.measurementKey ? (
-                <QmSqftMeasurementRow
-                  label={`${option.label} measurement`}
-                  helperText="Enter only the quantity for this selected component."
-                  value={String((measurements as Record<string, unknown>)[option.measurementKey] || '')}
-                  placeholder="Enter"
-                  unitLabel={option.unit}
-                  onChangeText={(value) => setMeasurements((prev) => ({ ...prev, [option.measurementKey!]: value }))}
-                  applying={applying}
-                  darkMode={darkMode}
-                  Colors={Colors}
-                  highlighted
-                />
-              ) : null}
-            </React.Fragment>
+            <QmScopeChoiceChip
+              key={option.id}
+              label={option.label}
+              active={active}
+              quantityCaption={quantityCaption}
+              onPress={() => toggle(option.id, option.canonicalId)}
+              disabled={applying}
+              darkMode={darkMode}
+              Colors={Colors}
+            />
           );
         })}
       </View>
+      {Array.from(measurementRows.values()).map((option) => (
+        <QmSqftMeasurementRow
+          key={option.measurementKey}
+          label={`${option.quantityLabel || option.label} quantity`}
+          helperText={
+            option.measurementHelper ||
+            'Enter only the quantity for this selected component.'
+          }
+          value={String((measurements as Record<string, unknown>)[option.measurementKey!] || '')}
+          placeholder="Enter"
+          unitLabel={option.unit}
+          onChangeText={(value) =>
+            setMeasurements((prev) => ({ ...prev, [option.measurementKey!]: value }))
+          }
+          applying={applying}
+          darkMode={darkMode}
+          Colors={Colors}
+          highlighted
+        />
+      ))}
     </View>
   );
 }

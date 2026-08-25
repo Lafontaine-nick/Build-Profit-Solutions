@@ -9,6 +9,7 @@ type TradeOption = {
   canonicalId: string;
   measurementKey?: string;
   measurementHelper?: string;
+  quantityLabel?: string;
   unit?: string;
 };
 
@@ -29,16 +30,95 @@ const DECK_OPTIONS: TradeOption[] = [
   { id: 'stairs', label: 'Stairs', canonicalId: 'stairs', measurementKey: 'deckSqft', unit: 'sqft' },
 ];
 
+/** Equipment-type chips converge on the equipment_replace card and count. */
+export const HVAC_EQUIPMENT_OPTION_IDS = [
+  'furnace',
+  'condenser',
+  'heat_pump',
+  'mini_split',
+  'air_handler',
+] as const;
+
+const HVAC_EQUIPMENT_MEASUREMENT = {
+  measurementKey: 'hvacEquipmentReplacementCount',
+  quantityLabel: 'Equipment replacements',
+  unit: 'each',
+  measurementHelper:
+    'Enter documented equipment replacement count — not living SF.',
+} as const;
+
 const HVAC_OPTIONS: TradeOption[] = [
-  { id: 'furnace', label: 'Furnace', canonicalId: 'equipment_replace', measurementKey: 'floorAreaSqft', unit: 'sqft' },
-  { id: 'condenser', label: 'Condenser', canonicalId: 'equipment_replace', measurementKey: 'floorAreaSqft', unit: 'sqft' },
-  { id: 'heat_pump', label: 'Heat pump', canonicalId: 'equipment_replace', measurementKey: 'floorAreaSqft', unit: 'sqft' },
-  { id: 'mini_split', label: 'Mini split', canonicalId: 'equipment_replace', measurementKey: 'floorAreaSqft', unit: 'sqft' },
-  { id: 'air_handler', label: 'Air handler', canonicalId: 'equipment_replace', measurementKey: 'floorAreaSqft', unit: 'sqft' },
-  { id: 'ductwork', label: 'Ductwork', canonicalId: 'ductwork', measurementKey: 'floorAreaSqft', unit: 'sqft' },
-  { id: 'thermostat', label: 'Thermostat', canonicalId: 'thermostat', unit: 'each' },
-  { id: 'registers', label: 'Registers', canonicalId: 'ductwork', measurementKey: 'floorAreaSqft', unit: 'sqft' },
-  { id: 'returns', label: 'Returns', canonicalId: 'ductwork', measurementKey: 'floorAreaSqft', unit: 'sqft' },
+  {
+    id: 'furnace',
+    label: 'Furnace',
+    canonicalId: 'equipment_replace',
+    ...HVAC_EQUIPMENT_MEASUREMENT,
+  },
+  {
+    id: 'condenser',
+    label: 'Condenser',
+    canonicalId: 'equipment_replace',
+    ...HVAC_EQUIPMENT_MEASUREMENT,
+  },
+  {
+    id: 'heat_pump',
+    label: 'Heat pump',
+    canonicalId: 'equipment_replace',
+    ...HVAC_EQUIPMENT_MEASUREMENT,
+  },
+  {
+    id: 'mini_split',
+    label: 'Mini split',
+    canonicalId: 'equipment_replace',
+    ...HVAC_EQUIPMENT_MEASUREMENT,
+  },
+  {
+    id: 'air_handler',
+    label: 'Air handler',
+    canonicalId: 'equipment_replace',
+    ...HVAC_EQUIPMENT_MEASUREMENT,
+  },
+  {
+    id: 'ductwork',
+    label: 'Ductwork',
+    canonicalId: 'ductwork',
+    measurementKey: 'hvacDuctworkLf',
+    unit: 'LF',
+    measurementHelper: 'Enter labeled or dimensioned ductwork LF only.',
+  },
+  {
+    id: 'thermostat',
+    label: 'Thermostat',
+    canonicalId: 'thermostat',
+    measurementKey: 'hvacThermostatCount',
+    unit: 'each',
+    measurementHelper: 'Enter thermostat count.',
+  },
+  {
+    id: 'ventilation',
+    label: 'Ventilation',
+    canonicalId: 'ventilation',
+    measurementKey: 'hvacVentilationCount',
+    unit: 'each',
+    measurementHelper: 'Enter documented HVAC ventilation equipment count.',
+  },
+  // Distribution toggles — seed register/return counts when selected.
+  {
+    id: 'registers',
+    label: 'Registers',
+    canonicalId: 'supply_registers',
+    measurementKey: 'hvacSupplyRegisterCount',
+    unit: 'each',
+    measurementHelper: 'Enter documented supply register count.',
+  },
+  {
+    id: 'returns',
+    label: 'Returns',
+    canonicalId: 'return_grilles',
+    measurementKey: 'hvacReturnGrilleCount',
+    unit: 'each',
+    measurementHelper: 'Enter documented return grille count.',
+  },
 ];
 
 const ROOFING_OPTIONS: TradeOption[] = [
@@ -87,7 +167,7 @@ export const SIMPLE_TRADE_SPECS: Record<SimpleTradeScopeKey, TradeSpec> = {
   },
   hvac: {
     scopeKey: 'hvac',
-    embeddedIds: ['equipment_replace', 'ductwork', 'thermostat'],
+    embeddedIds: ['equipment_replace', 'ductwork', 'supply_registers', 'return_grilles', 'thermostat', 'ventilation'],
     options: HVAC_OPTIONS,
   },
   roofing: {
@@ -119,6 +199,140 @@ export const SIMPLE_TRADE_SPECS: Record<SimpleTradeScopeKey, TradeSpec> = {
   },
 };
 
+function positiveMeasurement(value: unknown): number | null {
+  const number = Number(String(value ?? '').replace(/,/g, '').trim());
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+/** Map plan takeoff / QM counts onto HVAC scope chip ids. */
+export function inferHvacScopeSelectionsFromMeasurements(
+  measurements: Record<string, unknown>
+): string[] {
+  const inferred: string[] = [];
+  const spec = SIMPLE_TRADE_SPECS.hvac;
+
+  for (const option of spec.options) {
+    if (option.id === 'mini_split') continue;
+    if (option.canonicalId === 'equipment_replace') continue;
+    if (!option.measurementKey) continue;
+    if (positiveMeasurement(measurements[option.measurementKey]) != null) {
+      inferred.push(option.id);
+    }
+  }
+
+  const systemCount = positiveMeasurement(measurements.hvacSystemCount);
+  const equipmentCount = positiveMeasurement(measurements.hvacEquipmentReplacementCount);
+  if ((systemCount ?? equipmentCount ?? 0) > 0) {
+    for (const id of ['furnace', 'condenser'] as const) {
+      if (!inferred.includes(id)) inferred.push(id);
+    }
+  }
+
+  return inferred;
+}
+
+export function mergeHvacScopeSelections(
+  saved: string[],
+  inferred: string[]
+): string[] {
+  const merged = [...saved];
+  for (const id of inferred) {
+    if (!merged.includes(id)) merged.push(id);
+  }
+  return merged;
+}
+
+export function formatHvacScopeChipQuantity(
+  measurements: Record<string, unknown>,
+  option: TradeOption
+): string | null {
+  if (!option.measurementKey) return null;
+  let value = positiveMeasurement(measurements[option.measurementKey]);
+  if (
+    option.canonicalId === 'equipment_replace' &&
+    value == null &&
+    (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(option.id)
+  ) {
+    value =
+      positiveMeasurement(measurements.hvacSystemCount) ??
+      positiveMeasurement(measurements.hvacEquipmentReplacementCount);
+  }
+  if (value == null) return null;
+  const unit = String(option.unit || 'each').toUpperCase();
+  const rounded = unit === 'LF' || unit === 'SQFT' ? value : Math.round(value);
+  if (unit === 'LF') return `${rounded.toLocaleString()} LF`;
+  if (unit === 'SQFT') return `${rounded.toLocaleString()} sqft`;
+  if (unit === 'A') return `${rounded}A`;
+  const eachLabel = rounded === 1 ? 'each' : 'each';
+  return `${rounded.toLocaleString()} ${eachLabel}`;
+}
+
+export function hvacScopeChipActive(
+  option: TradeOption,
+  selections: string[],
+  measurements: Record<string, unknown>,
+  spec: TradeSpec
+): boolean {
+  const canonicalSelected = selections.includes(option.canonicalId);
+  const hasAlias = selections.some((value) =>
+    spec.options.some((candidate) => candidate.id === value)
+  );
+  const firstCanonicalOption = spec.options.find(
+    (candidate) => candidate.canonicalId === option.canonicalId
+  )?.id;
+  return (
+    selections.includes(option.id) ||
+    (canonicalSelected && !hasAlias && option.id === firstCanonicalOption) ||
+    formatHvacScopeChipQuantity(measurements, option) != null
+  );
+}
+
+/** Seed HVAC canonical counts from chip selections when the user has not typed values yet. */
+export function applyHvacScopeMeasurements(
+  measurements: Record<string, unknown>
+): Record<string, unknown> {
+  const selections = selectedScope(measurements, 'hvac');
+  if (!selections.length) return measurements;
+
+  const next = { ...measurements };
+  const equipmentSelected = selections.filter((id) =>
+    (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
+  ).length;
+  if (
+    equipmentSelected > 0 &&
+    positiveMeasurement(next.hvacEquipmentReplacementCount) == null
+  ) {
+    next.hvacEquipmentReplacementCount = equipmentSelected;
+  }
+
+  if (
+    selections.includes('thermostat') &&
+    positiveMeasurement(next.hvacThermostatCount) == null
+  ) {
+    next.hvacThermostatCount = 1;
+  }
+  if (
+    selections.includes('ventilation') &&
+    positiveMeasurement(next.hvacVentilationCount) == null
+  ) {
+    next.hvacVentilationCount = 1;
+  }
+  if (
+    selections.includes('registers') &&
+    positiveMeasurement(next.hvacSupplyRegisterCount) == null
+  ) {
+    next.hvacSupplyRegisterCount = 1;
+  }
+  if (
+    selections.includes('returns') &&
+    positiveMeasurement(next.hvacReturnGrilleCount) == null
+  ) {
+    next.hvacReturnGrilleCount = 1;
+  }
+
+  return next;
+}
+
 function selectedScope(measurements: Record<string, unknown>, scopeKey: SimpleTradeScopeKey): string[] {
   const selections = measurements.tradeScopeSelections;
   return selections && typeof selections === 'object' && !Array.isArray(selections)
@@ -131,22 +345,28 @@ function selectedScope(measurements: Record<string, unknown>, scopeKey: SimpleTr
 function includedIds(spec: TradeSpec, selections: string[], measurements: Record<string, unknown>): Set<string> {
   const included = new Set<string>();
   for (const option of spec.options) {
+    const selected =
+      selections.includes(option.id) || selections.includes(option.canonicalId);
+    if (spec.scopeKey === 'hvac') {
+      if (
+        selected ||
+        formatHvacScopeChipQuantity(measurements, option) != null
+      ) {
+        included.add(option.canonicalId);
+      }
+      continue;
+    }
     // Persisted drafts may contain either the selector option ID or the
     // canonical checklist ID. Treat both forms as the same selection so a
     // roofing upgrade cannot disappear when the draft is rehydrated.
-    const selected =
-      selections.includes(option.id) || selections.includes(option.canonicalId);
     if (selected) included.add(option.canonicalId);
-    if (option.measurementKey && Number(measurements[option.measurementKey]) > 0 && selected) {
-      included.add(option.canonicalId);
-    }
   }
   return included;
 }
 
 function hydrateSimpleTrade(ctx: QmPanelHydrateContext, spec: TradeSpec): Record<string, unknown> {
   const saved = selectedScope(ctx.measurements, spec.scopeKey);
-  const inferred = spec.options
+  const inferredFromChecklist = spec.options
     .filter(
       (option, index, options) =>
         !(spec.scopeKey === 'roofing' && option.id === 'underlayment') &&
@@ -154,14 +374,28 @@ function hydrateSimpleTrade(ctx: QmPanelHydrateContext, spec: TradeSpec): Record
         ctx.checklistItems.some((item) => item.id === option.canonicalId && item.state === 'included')
     )
     .map((option) => option.id);
-  const current = saved.length ? saved : inferred;
-  return {
+  const inferredFromMeasurements =
+    spec.scopeKey === 'hvac'
+      ? inferHvacScopeSelectionsFromMeasurements(ctx.measurements)
+      : [];
+  const current =
+    spec.scopeKey === 'hvac'
+      ? saved.length
+        ? mergeHvacScopeSelections(saved, inferredFromMeasurements)
+        : inferredFromMeasurements.length
+          ? inferredFromMeasurements
+          : inferredFromChecklist
+      : saved.length
+        ? saved
+        : inferredFromChecklist;
+  const hydrated = {
     ...ctx.measurements,
     tradeScopeSelections: {
       ...(((ctx.measurements as Record<string, unknown>).tradeScopeSelections as Record<string, string[]>) || {}),
-      [spec.scopeKey]: current,
+      [spec.scopeKey]: current.length ? current : null,
     },
   };
+  return spec.scopeKey === 'hvac' ? applyHvacScopeMeasurements(hydrated) : hydrated;
 }
 
 function syncSimpleTrade(items: ScopeChecklistItem[], measurements: Record<string, unknown>, spec: TradeSpec): ScopeChecklistItem[] {

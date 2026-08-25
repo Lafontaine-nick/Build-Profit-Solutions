@@ -55,6 +55,18 @@ type ItemRateConfig = {
 };
 
 const ITEM_RATE_MEASUREMENT: Record<string, ItemRateConfig> = {
+  hvac: {
+    keys: ['hvacSystemCount', 'hvacSystemTons'],
+    units: ['each', 'ton'],
+  },
+  service_call: { key: 'hvacServiceCallCount', unit: 'each' },
+  equipment_replace: { key: 'hvacEquipmentReplacementCount', unit: 'each' },
+  refrigerant: { key: 'hvacRefrigerantCount', unit: 'each' },
+  thermostat: { key: 'hvacThermostatCount', unit: 'each' },
+  ductwork: { key: 'hvacDuctworkLf', unit: 'lf' },
+  supply_registers: { key: 'hvacSupplyRegisterCount', unit: 'each' },
+  return_grilles: { key: 'hvacReturnGrilleCount', unit: 'each' },
+  ventilation: { key: 'hvacVentilationCount', unit: 'each' },
   backsplash: { key: 'backsplashSqft', unit: 'sqft', split: true },
   paint: { key: 'wallPaintSqft', unit: 'sqft', split: true },
   shower_tile: { key: 'showerWallTileSqft', unit: 'sqft', split: true },
@@ -87,6 +99,30 @@ const ITEM_RATE_MEASUREMENT: Record<string, ItemRateConfig> = {
 };
 
 const RATE_PRICING_MATCHERS: Array<{ id: string; match: RegExp; exclude?: RegExp }> = [
+  {
+    id: 'equipment_replace',
+    match: /\b(?:hvac|mechanical|furnace|heat\s*pump|air\s*handler|condenser)\b[^.;]{0,60}\b(?:replace|replacement|install(?:ation)?)\b/i,
+  },
+  {
+    id: 'refrigerant',
+    match: /\b(?:refrigerant|freon)\s+(?:service|recharge|recovery)\b/i,
+  },
+  {
+    id: 'thermostat',
+    match: /\b(?:thermostat|controls?)\s+(?:install(?:ation)?|replacement)\b/i,
+  },
+  {
+    id: 'ductwork',
+    match: /\b(?:ductwork|ducts?|flex\s*duct)\b/i,
+  },
+  {
+    id: 'ventilation',
+    match: /\b(?:hvac|mechanical)\s+ventilation\b/i,
+  },
+  {
+    id: 'hvac',
+    match: /\b(?:hvac|mechanical)\s+(?:system|install(?:ation)?|tonnage|tons?)\b/i,
+  },
   {
     id: 'backsplash',
     match: /\b(backsplash|back\s*splash)\b/i,

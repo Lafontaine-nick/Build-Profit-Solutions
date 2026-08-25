@@ -1626,6 +1626,53 @@ const CHECKLIST_TEMPLATES = {
     ],
   },
 
+  windows_doors: {
+    title: "Windows & doors — confirm installation scope",
+    intro: "Confirm opening types and whether any structural reframing is actually included.",
+    items: [
+      {
+        id: "windows",
+        inputType: "yes_no",
+        label: "Windows",
+        helperText:
+          "Window units, frames, glazing, flashing, screens, and installation. Structural reframing and finish repair are separate.",
+        category: "exterior",
+      },
+      {
+        id: "exterior_doors",
+        inputType: "yes_no",
+        label: "Exterior swing doors",
+        helperText:
+          "Entry/exit door units, frames, thresholds, hardware, flashing, and installation. Not sliding or garage doors.",
+        category: "exterior",
+      },
+      {
+        id: "sliding_doors",
+        inputType: "yes_no",
+        label: "Sliding / patio doors",
+        helperText:
+          "Sliding or multi-panel patio door units, frames, hardware, flashing, and installation.",
+        category: "exterior",
+      },
+      {
+        id: "garage_doors",
+        inputType: "yes_no",
+        label: "Garage doors",
+        helperText:
+          "Garage door units, tracks, hardware, and installation. Confirm single, double, or RV/oversized type.",
+        category: "exterior",
+      },
+      {
+        id: "openings",
+        inputType: "yes_no",
+        label: "Structural reframing / new openings",
+        helperText:
+          "Separate framing allowance only for an explicitly new, resized, enlarged, or reframed opening.",
+        category: "structure",
+      },
+    ],
+  },
+
   addition: {
     title: "Addition / conversion — confirm scope phases",
     intro: "Mark each phase Yes if it is part of this bid.",
@@ -2138,6 +2185,8 @@ const CHECKLIST_YES_HINTS = {
   foundation: /\b(foundation|footings?|slab|stem\s+wall|crawlspace|basement)\b/,
   concrete: /\b(concrete|slab|footings?|foundation\s+pour)\b/,
   framing: /\b(fram(?:e|ing)|wall\s+framing|roof\s+framing|shell)\b/,
+  openings:
+    /\b(?:re[-\s]?frame|new\s+(?:window|door)?\s*opening|resize(?:d|ing)?\s+(?:the\s+)?(?:window|door)?\s*opening|enlarge(?:d|ing)?\s+(?:the\s+)?(?:window|door)?\s*opening)\b/,
   roof_tie_in:
     /\b(roof\s+tie[\s-]?in|tie\s+into\s+(?:the\s+)?roof|roofing\s+tie[\s-]?in|roofing)\b/,
   windows: /\bwindows?\b/,
@@ -2242,6 +2291,14 @@ function checklistTemplateKey(draft, estimateTier) {
 
   if (estimateTier === "ground_up") return "ground_up";
   if (estimateTier === "addition") return "addition";
+  const dedicatedWindowsDoorsIntent =
+    projectType === "windows_doors" ||
+    projectType === "windows_and_doors" ||
+    (/\b(?:windows?|fenestration|exterior\s+doors?|sliding\s+doors?|patio\s+doors?|garage\s+doors?)\b/i.test(
+      notes,
+    ) &&
+      !/\b(?:bath(?:room)?|shower|tub|vanity|toilet)\b/i.test(notes));
+  if (dedicatedWindowsDoorsIntent) return "windows_doors";
   if (
     estimateTier === "room_remodel" &&
     /\b(basement\s+finish(?:ing)?|finished\s+basement|interior\s+renovation|insurance\s+(?:repair|restoration)|restoration|mixed\s+repair)\b/i.test(

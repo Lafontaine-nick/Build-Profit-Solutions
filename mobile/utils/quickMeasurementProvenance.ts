@@ -540,6 +540,16 @@ export function pinQuickMeasurementFieldInGroup(
   return next;
 }
 
+const PLAN_DETECT_PRESERVED_SOURCES = new Set<QuickMeasurementSourceTag>([
+  'needs_confirmation',
+  'user_confirmed_suggestion',
+  'contractor_confirmed_from_plan_review',
+  'user_entered',
+  'calculated_from_components',
+  'calculated_from_deductions',
+  'estimated_from_formula',
+]);
+
 /** Merge newly plan-detected keys without clobbering stronger provenance. */
 export function tagPlanDetectedQuickMeasurementKeys(
   existing: QuickMeasurementSourceMap | undefined,
@@ -547,9 +557,11 @@ export function tagPlanDetectedQuickMeasurementKeys(
 ): QuickMeasurementSourceMap {
   const next: QuickMeasurementSourceMap = { ...(existing || {}) };
   for (const key of detectedKeys) {
+    const current = next[key];
     // A calculated/suggested value must not be relabeled as plan-detected just
     // because the hydrated measurement also exists in the plan payload.
-    if (next[key]) continue;
+    if (current && PLAN_DETECT_PRESERVED_SOURCES.has(current)) continue;
+    if (current) continue;
     next[key] = 'detected_from_plan';
   }
   return next;

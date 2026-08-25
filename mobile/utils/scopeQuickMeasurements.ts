@@ -20,6 +20,12 @@ export type QuickMeasurementFieldKey =
   | 'exteriorPaintSqft'
   | 'baseboardLf'
   | 'interiorDoorCount'
+  | 'windowCount'
+  | 'exteriorDoorCount'
+  | 'slidingDoorCount'
+  | 'garageDoorSingleCount'
+  | 'garageDoorDoubleCount'
+  | 'garageDoorRvCount'
   | 'cabinetPaintSqft'
   | 'cabinetUpperLf'
   | 'cabinetLowerLf'
@@ -63,10 +69,34 @@ export type QuickMeasurementFieldKey =
   | 'roofRepairAffectedSqft'
   | 'roofGutterLf'
   | 'roofDownspoutCount'
+  | 'hvacSystemCount'
+  | 'hvacSystemTons'
+  | 'hvacServiceCallCount'
+  | 'hvacEquipmentReplacementCount'
+  | 'hvacRefrigerantCount'
+  | 'hvacThermostatCount'
+  | 'hvacDuctworkLf'
+  | 'hvacSupplyRegisterCount'
+  | 'hvacReturnGrilleCount'
+  | 'hvacVentilationCount'
+  | 'hvacPermitCount'
+  | 'hvacCleanupCount'
   | 'drywallSqft'
   | 'drywallWallSqft'
   | 'drywallCeilingSqft'
   | 'drywallOpeningDeductionSqft'
+  | 'garageWallDrywallSqft'
+  | 'garageCeilingDrywallSqft'
+  | 'moistureResistantDrywallSqft'
+  | 'fireRatedDrywallSqft'
+  | 'specialtyDrywallSqft'
+  | 'highCeilingDrywallSqft'
+  | 'vaultedCeilingDrywallSqft'
+  | 'level5FinishSqft'
+  | 'drywallGarageFireRatedSqft'
+  | 'drywallMoistureResistantSqft'
+  | 'drywallVaultedSlopedSqft'
+  | 'drywallHighCeilingSqft'
   | 'exteriorWallGrossSqft'
   | 'exteriorWallInsulationSqft'
   | 'atticInsulationSqft'
@@ -292,6 +322,60 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     '6',
     'each',
     'interior'
+  ),
+  windowCount: F(
+    'windowCount',
+    'Windows',
+    'e.g. 12',
+    'each',
+    'exterior',
+    undefined,
+    'Count window units from the window schedule or readable exterior elevations.'
+  ),
+  exteriorDoorCount: F(
+    'exteriorDoorCount',
+    'Exterior swing doors',
+    'e.g. 3',
+    'each',
+    'exterior',
+    undefined,
+    'Exclude sliding/patio doors and garage doors.'
+  ),
+  slidingDoorCount: F(
+    'slidingDoorCount',
+    'Sliding / patio doors',
+    'e.g. 2',
+    'each',
+    'exterior',
+    undefined,
+    'Count sliding or multi-panel exterior door units.'
+  ),
+  garageDoorSingleCount: F(
+    'garageDoorSingleCount',
+    'Single garage doors',
+    'e.g. 1',
+    'each',
+    'exterior',
+    undefined,
+    'Use the garage door schedule or elevation; do not infer type from garage area.'
+  ),
+  garageDoorDoubleCount: F(
+    'garageDoorDoubleCount',
+    'Double garage doors',
+    'e.g. 1',
+    'each',
+    'exterior',
+    undefined,
+    'Use the garage door schedule or elevation; do not infer type from garage area.'
+  ),
+  garageDoorRvCount: F(
+    'garageDoorRvCount',
+    'RV / oversized garage doors',
+    'e.g. 1',
+    'each',
+    'exterior',
+    undefined,
+    'Count only when the larger/taller opening is documented.'
   ),
   cabinetPaintSqft: F(
     'cabinetPaintSqft',
@@ -663,6 +747,108 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'other',
     undefined,
     'Explicit plumbing cleanup/disposal only.'
+  ),
+  hvacSystemCount: F(
+    'hvacSystemCount',
+    'HVAC systems',
+    'e.g. 1',
+    'each',
+    'structure',
+    true,
+    'Count documented HVAC systems; do not use living SF.'
+  ),
+  hvacSystemTons: F(
+    'hvacSystemTons',
+    'HVAC capacity',
+    'e.g. 4',
+    'tons',
+    'structure',
+    undefined,
+    'Enter labeled system tonnage only.'
+  ),
+  hvacServiceCallCount: F(
+    'hvacServiceCallCount',
+    'HVAC service calls',
+    'e.g. 1',
+    'each',
+    'other',
+    undefined,
+    'Explicit service or diagnostic visits only.'
+  ),
+  hvacEquipmentReplacementCount: F(
+    'hvacEquipmentReplacementCount',
+    'Equipment replacements',
+    'e.g. 1',
+    'each',
+    'interior',
+    undefined,
+    'Documented furnace, air-handler, condenser, or heat-pump replacements.'
+  ),
+  hvacRefrigerantCount: F(
+    'hvacRefrigerantCount',
+    'Refrigerant service',
+    'e.g. 1',
+    'each',
+    'interior',
+    undefined,
+    'Explicit refrigerant recovery, recharge, or line-set service.'
+  ),
+  hvacThermostatCount: F(
+    'hvacThermostatCount',
+    'Thermostats',
+    'e.g. 1',
+    'each',
+    'interior'
+  ),
+  hvacDuctworkLf: F(
+    'hvacDuctworkLf',
+    'Ductwork',
+    'e.g. 120',
+    'LF',
+    'structure',
+    undefined,
+    'Enter labeled or dimensioned ductwork LF only.'
+  ),
+  hvacSupplyRegisterCount: F(
+    'hvacSupplyRegisterCount',
+    'Supply registers',
+    'e.g. 12',
+    'each',
+    'structure',
+    undefined,
+    'Count documented supply registers or diffusers.'
+  ),
+  hvacReturnGrilleCount: F(
+    'hvacReturnGrilleCount',
+    'Return grilles',
+    'e.g. 4',
+    'each',
+    'structure',
+    undefined,
+    'Count documented return air grilles.'
+  ),
+  hvacVentilationCount: F(
+    'hvacVentilationCount',
+    'HVAC ventilation',
+    'e.g. 1',
+    'each',
+    'structure',
+    undefined,
+    'Documented HVAC ventilation equipment; electrical exhaust-fan work is separate.'
+  ),
+  hvacPermitCount: F(
+    'hvacPermitCount',
+    'HVAC permits / inspections',
+    'e.g. 1',
+    'each',
+    'other'
+  ),
+  hvacCleanupCount: F(
+    'hvacCleanupCount',
+    'HVAC cleanup',
+    'e.g. 1',
+    'each',
+    'other'
   ),
   flooringSqft: F(
     'flooringSqft',
@@ -1039,6 +1225,109 @@ export const FRAMING_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
   ),
 ];
 
+export const HVAC_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
+  row(
+    F(
+      'hvacSystemCount',
+      'HVAC systems',
+      'e.g. 1',
+      'each',
+      'structure',
+      true,
+      'Count documented systems; do not infer from living area.'
+    ),
+    F(
+      'hvacSystemTons',
+      'System capacity',
+      'e.g. 4',
+      'tons',
+      'structure',
+      undefined,
+      'Use labeled tonnage only.'
+    )
+  ),
+  row(
+    F(
+      'hvacDuctworkLf',
+      'Ductwork',
+      'e.g. 120',
+      'LF',
+      'structure',
+      undefined,
+      'Use labeled or dimensioned ductwork LF only.'
+    ),
+    F(
+      'hvacSupplyRegisterCount',
+      'Supply registers',
+      'e.g. 12',
+      'each',
+      'structure',
+      undefined,
+      'Count documented supply registers or diffusers.'
+    )
+  ),
+  row(
+    F(
+      'hvacReturnGrilleCount',
+      'Return grilles',
+      'e.g. 4',
+      'each',
+      'structure',
+      undefined,
+      'Count documented return air grilles.'
+    ),
+    F(
+      'hvacThermostatCount',
+      'Thermostats',
+      'e.g. 1',
+      'each',
+      'interior'
+    )
+  ),
+  row(
+    F(
+      'hvacVentilationCount',
+      'HVAC ventilation',
+      'e.g. 1',
+      'each',
+      'structure'
+    ),
+    F(
+      'hvacEquipmentReplacementCount',
+      'Equipment replacements',
+      'e.g. 1',
+      'each',
+      'interior'
+    )
+  ),
+  row(
+    F(
+      'hvacServiceCallCount',
+      'HVAC service calls',
+      'e.g. 1',
+      'each',
+      'other'
+    ),
+    F(
+      'hvacRefrigerantCount',
+      'Refrigerant service',
+      'e.g. 1',
+      'each',
+      'interior'
+    )
+  ),
+  row(
+    F(
+      'hvacPermitCount',
+      'HVAC permits / inspections',
+      'e.g. 1',
+      'each',
+      'other'
+    ),
+    F('hvacCleanupCount', 'HVAC cleanup', 'e.g. 1', 'each', 'other')
+  ),
+];
+
 export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
   string,
   QuickMeasurementRow[]
@@ -1098,6 +1387,7 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
     ),
   ],
   framing: FRAMING_PLAN_QUICK_MEASUREMENT_ROWS,
+  hvac: HVAC_PLAN_QUICK_MEASUREMENT_ROWS,
   bathroom: [
     row(
       F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior'),
@@ -1268,7 +1558,96 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
       F('roofDownspoutCount', 'Downspouts', 'e.g. 4', 'EA', 'structure')
     ),
   ],
-  drywall: [row(F('drywallSqft', 'Drywall', '800', 'sqft', 'interior', true))],
+  drywall: [
+    row(
+      F(
+        'drywallWallSqft',
+        'Wall drywall',
+        'e.g. 8200',
+        'sqft',
+        'interior',
+        true
+      ),
+      F(
+        'drywallCeilingSqft',
+        'Ceiling drywall',
+        'e.g. 3660',
+        'sqft',
+        'interior',
+        true
+      )
+    ),
+    row(
+      F(
+        'garageWallDrywallSqft',
+        'Garage walls',
+        'e.g. 900',
+        'sqft',
+        'interior',
+        undefined,
+        'Garage wall surface SF from plan geometry.'
+      ),
+      F(
+        'garageCeilingDrywallSqft',
+        'Garage ceiling',
+        'e.g. 780',
+        'sqft',
+        'interior',
+        undefined,
+        'Garage ceiling surface SF from plan geometry.'
+      )
+    ),
+    row(
+      F(
+        'moistureResistantDrywallSqft',
+        'Moisture-resistant board',
+        'e.g. 300',
+        'sqft',
+        'interior'
+      ),
+      F(
+        'fireRatedDrywallSqft',
+        'Fire-rated board',
+        'e.g. 900',
+        'sqft',
+        'interior',
+        undefined,
+        'Garage or separation assemblies — typically 5/8" Type X.'
+      )
+    ),
+    row(
+      F(
+        'highCeilingDrywallSqft',
+        'High-ceiling drywall',
+        'e.g. 800',
+        'sqft',
+        'interior'
+      ),
+      F(
+        'vaultedCeilingDrywallSqft',
+        'Vaulted / sloped drywall',
+        'e.g. 500',
+        'sqft',
+        'interior'
+      )
+    ),
+    row(
+      F(
+        'specialtyDrywallSqft',
+        'Specialty board',
+        'e.g. 200',
+        'sqft',
+        'interior'
+      ),
+      F(
+        'level5FinishSqft',
+        'Level 5 finish area',
+        'e.g. 400',
+        'sqft',
+        'interior'
+      )
+    ),
+  ],
   insulation: [
     row(
       F(
@@ -1673,6 +2052,86 @@ export const PLUMBING_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
   ),
 ];
 
+/** Plan Export Windows & doors rows for a focused opening takeoff. */
+export const WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
+  row(
+    F(
+      'windowCount',
+      'Windows',
+      'e.g. 12',
+      'each',
+      'exterior',
+      true,
+      'Count window units from the window schedule or readable exterior elevations.'
+    ),
+    F(
+      'exteriorDoorCount',
+      'Exterior swing doors',
+      'e.g. 3',
+      'each',
+      'exterior',
+      undefined,
+      'Exclude sliding/patio doors and garage doors.'
+    )
+  ),
+  row(
+    F(
+      'slidingDoorCount',
+      'Sliding / patio doors',
+      'e.g. 2',
+      'each',
+      'exterior',
+      undefined,
+      'Count sliding or multi-panel exterior door units.'
+    ),
+    F(
+      'garageDoorSingleCount',
+      'Single garage doors',
+      'e.g. 1',
+      'each',
+      'exterior',
+      undefined,
+      'Use the garage door schedule or elevation; do not infer type from garage area.'
+    )
+  ),
+  row(
+    F(
+      'garageDoorDoubleCount',
+      'Double garage doors',
+      'e.g. 1',
+      'each',
+      'exterior',
+      undefined,
+      'Use the garage door schedule or elevation; do not infer type from garage area.'
+    ),
+    F(
+      'garageDoorRvCount',
+      'RV / oversized garage doors',
+      'e.g. 1',
+      'each',
+      'exterior',
+      undefined,
+      'Count only when the larger/taller opening is documented.'
+    )
+  ),
+];
+
+/** Notes/manual Windows & doors rows add reframing only when explicitly requested. */
+export const WINDOWS_DOORS_NOTES_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
+  ...WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS,
+  row(
+    F(
+      'framingOpeningCount',
+      'Structural reframing / new openings',
+      'e.g. 1',
+      'each',
+      'structure',
+      undefined,
+      'Use only for an explicitly new, resized, enlarged, or reframed opening. Replacement-only work stays blank.'
+    )
+  ),
+];
+
 /** Notes/manual Plumbing rows may include explicit service operations. */
 export const PLUMBING_NOTES_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
   ...SCOPE_QUICK_MEASUREMENT_ROWS.plumbing,
@@ -1722,10 +2181,14 @@ export function resolveQuickMeasurementTemplateKey(
   const tk = String(templateKey || '').toLowerCase();
   const pt = String(projectType || '').toLowerCase();
   if (tk === 'plumbing_service') return 'plumbing';
+  if (tk === 'windows_doors') return 'windows_doors';
   // Checklist template wins. projectType must not force flooring fields onto a
   // kitchen/bath remodel just because notes also mention floor tile.
   if (tk && SCOPE_QUICK_MEASUREMENT_ROWS[tk]) return tk;
   if (pt === 'new_build' || pt === 'ground_up') return 'ground_up';
+  if (pt === 'windows_doors' || pt === 'windows_and_doors') {
+    return 'windows_doors';
+  }
   if (
     pt === 'home_addition' ||
     pt === 'whole_home' ||
@@ -1792,6 +2255,9 @@ export function quickMeasurementRowsForTemplate(
   projectType?: string | null
 ): QuickMeasurementRow[] {
   const key = resolveQuickMeasurementTemplateKey(templateKey, projectType);
+  if (key === 'windows_doors') {
+    return WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS;
+  }
   return applyProjectSpecificQuickMeasurementLabels(
     SCOPE_QUICK_MEASUREMENT_ROWS[key] ||
       SCOPE_QUICK_MEASUREMENT_ROWS.room_remodel,
@@ -1880,6 +2346,8 @@ export function quickMeasurementRowsForInput(
   noteBackedKeys?: Iterable<QuickMeasurementFieldKey>,
   options?: {
     plumbingPlanImport?: boolean;
+    windowsDoorsPlanImport?: boolean;
+    windowsDoorsNotesFlow?: boolean;
     plumbingNotesFlow?: boolean;
     plumbingWorkflowMode?: PlumbingWorkflowMode | null;
   }
@@ -1895,15 +2363,19 @@ export function quickMeasurementRowsForInput(
       String(templateKey || '').toLowerCase()
     );
   const baseRows =
-    options?.plumbingPlanImport && plumbingTemplate
-      ? PLUMBING_PLAN_QUICK_MEASUREMENT_ROWS
-      : options?.plumbingNotesFlow && plumbingTemplate
-        ? options.plumbingWorkflowMode === 'service'
-          ? PLUMBING_SERVICE_QUICK_MEASUREMENT_ROWS
-          : options.plumbingWorkflowMode === 'new_construction'
-            ? PLUMBING_PLAN_QUICK_MEASUREMENT_ROWS
-            : PLUMBING_NOTES_QUICK_MEASUREMENT_ROWS
-        : quickMeasurementRowsForTemplate(templateKey, projectType);
+    options?.windowsDoorsNotesFlow
+      ? WINDOWS_DOORS_NOTES_QUICK_MEASUREMENT_ROWS
+      : options?.windowsDoorsPlanImport
+        ? WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS
+        : options?.plumbingPlanImport && plumbingTemplate
+          ? PLUMBING_PLAN_QUICK_MEASUREMENT_ROWS
+          : options?.plumbingNotesFlow && plumbingTemplate
+            ? options.plumbingWorkflowMode === 'service'
+              ? PLUMBING_SERVICE_QUICK_MEASUREMENT_ROWS
+              : options.plumbingWorkflowMode === 'new_construction'
+                ? PLUMBING_PLAN_QUICK_MEASUREMENT_ROWS
+                : PLUMBING_NOTES_QUICK_MEASUREMENT_ROWS
+            : quickMeasurementRowsForTemplate(templateKey, projectType);
   const baseKeys = new Set(baseRows.flatMap(r => r.map(f => f.key)));
   const plumbingRowsAreExplicit =
     plumbingTemplate &&
@@ -2010,6 +2482,15 @@ export function quickMeasurementFieldMeta(key: string): {
           : def.unit,
     };
   }
+  for (const rows of Object.values(SCOPE_QUICK_MEASUREMENT_ROWS)) {
+    for (const row of rows) {
+      for (const field of row) {
+        if (field.key === key) {
+          return { label: field.label, unit: field.unit };
+        }
+      }
+    }
+  }
   return { label: key, unit: '' };
 }
 
@@ -2102,6 +2583,16 @@ export function emptyQuickMeasurementInput(): Record<
     roofPitch: '',
     storyCount: '',
     drywallSqft: '',
+    drywallWallSqft: '',
+    drywallCeilingSqft: '',
+    drywallOpeningDeductionSqft: '',
+    garageWallDrywallSqft: '',
+    garageCeilingDrywallSqft: '',
+    moistureResistantDrywallSqft: '',
+    fireRatedDrywallSqft: '',
+    highCeilingDrywallSqft: '',
+    vaultedCeilingDrywallSqft: '',
+    level5FinishSqft: '',
     exteriorWallGrossSqft: '',
     exteriorWallInsulationSqft: '',
     atticInsulationSqft: '',
@@ -2129,6 +2620,18 @@ export function emptyQuickMeasurementInput(): Record<
     partsMaterialsCount: '',
     emergencyFeeCount: '',
     plumbingCleanupCount: '',
+    hvacSystemCount: '',
+    hvacSystemTons: '',
+    hvacServiceCallCount: '',
+    hvacEquipmentReplacementCount: '',
+    hvacRefrigerantCount: '',
+    hvacThermostatCount: '',
+    hvacDuctworkLf: '',
+    hvacSupplyRegisterCount: '',
+    hvacReturnGrilleCount: '',
+    hvacVentilationCount: '',
+    hvacPermitCount: '',
+    hvacCleanupCount: '',
     flooringSqft: '',
     flooringLvpSqft: '',
     flooringLaminateSqft: '',

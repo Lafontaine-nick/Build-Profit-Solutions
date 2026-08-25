@@ -78,6 +78,19 @@ export const INSULATION_ALL_PROJECT_RANGE = { low: 5500, high: 7800 } as const;
 /** ~$3/SF national × Plan 41-class thermal envelope (~3,516 SF). */
 export const INSULATION_NATIONAL_REFERENCE_TOTAL = 10548;
 
+/** H41 — Gypsum board (complete house + garage installed drywall package). */
+export const DRYWALL_INSTALLED_BY_PROJECT: Record<SouthernUtahProjectId, number> = {
+  silverLeaf: 15500,
+  lot39: 22500,
+  lot41: 18500,
+  lot49: 20500,
+  lot58: 24500,
+};
+export const DRYWALL_DETACHED_MEDIAN_TOTAL = 20500;
+export const DRYWALL_ALL_PROJECT_RANGE = { low: 18500, high: 24500 } as const;
+/** National ~$2.10/SF × Plan 41-class package (~8,858 SF house + garage). */
+export const DRYWALL_NATIONAL_REFERENCE_TOTAL = 18600;
+
 /** Exterior paint — no SHV line; national mid-market package anchor. */
 export const EXTERIOR_PAINT_NATIONAL_REFERENCE_TOTAL = 9000;
 export const EXTERIOR_PAINT_ALL_PROJECT_RANGE = { low: 6500, high: 14000 } as const;
@@ -98,6 +111,7 @@ export const FLOORING_NATIONAL_REFERENCE_TOTAL = 16911;
 const STUCCO_MATERIAL_SHARE = 0.39; // national 3.5 / 9
 const MEP_ROUGH_MATERIAL_SHARE = 0.3; // national plumbing/electrical rough mat share
 const INSULATION_MATERIAL_SHARE = 0.42; // national 1.25 / 3
+const DRYWALL_MATERIAL_SHARE = 0.41; // SHV production gypsum-board mat share
 const EXTERIOR_PAINT_MATERIAL_SHARE = 0.29; // national 0.9 / 3.15
 const FLOORING_MATERIAL_SHARE = 4 / 9; // national flooring mat / (mat+labor)
 
@@ -189,6 +203,21 @@ export function resolveInsulationLumpSuggestedFill(params: {
     range: INSULATION_ALL_PROJECT_RANGE,
     scopeNoun: 'insulation',
     materialShare: INSULATION_MATERIAL_SHARE,
+  });
+}
+
+export function resolveDrywallLumpSuggestedFill(params: {
+  livingSf?: number | null;
+  state?: string | null;
+}): GroundUpBarometerLumpFill {
+  return resolveProjectLump({
+    ...params,
+    byProject: DRYWALL_INSTALLED_BY_PROJECT,
+    median: DRYWALL_DETACHED_MEDIAN_TOTAL,
+    nationalBase: DRYWALL_NATIONAL_REFERENCE_TOTAL,
+    range: DRYWALL_ALL_PROJECT_RANGE,
+    scopeNoun: 'gypsum board',
+    materialShare: DRYWALL_MATERIAL_SHARE,
   });
 }
 

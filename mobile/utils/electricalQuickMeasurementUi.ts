@@ -60,6 +60,13 @@ export function electricalQuickMeasurementSourceFromProvenance(
   ) {
     return 'contractor_confirmed_from_plan_review';
   }
+  if (
+    status === 'needs_review' ||
+    normalized === 'NEEDS_REVIEW' ||
+    normalized === 'NEEDS_CONFIRMATION'
+  ) {
+    return 'needs_confirmation';
+  }
   if (record.pricingEligible === false || status === 'conflict') {
     return 'needs_confirmation';
   }

@@ -19,6 +19,7 @@ const {
   MIN_FIELD_CONFIDENCE,
   MEASUREMENT_KEYS,
   buildElectricalSystemPrompt,
+  buildHvacSystemPrompt,
   mergeElectricalEvidenceSources,
   mergePlumbingFieldEvidence,
   collectUnclassifiedElectricalFixtures,
@@ -32,6 +33,53 @@ const {
 const shvPlanFacts = require("../testFixtures/shvPlanFacts");
 
 describe("estimatePlanToMeasurements", () => {
+  test("supports the Windows & doors Plan Export contract without framing", () => {
+    expect(TRADE_CONFIGS.windows_doors).toMatchObject({
+      status: "reference",
+      reviewMeasurementKeys: [
+        "windowCount",
+        "exteriorDoorCount",
+        "slidingDoorCount",
+        "garageDoorSingleCount",
+        "garageDoorDoubleCount",
+        "garageDoorRvCount",
+      ],
+    });
+    expect(MEASUREMENT_KEYS.has("windowCount")).toBe(true);
+    expect(MEASUREMENT_KEYS.has("framingOpeningCount")).toBe(true);
+
+    const measurements = sanitizeMeasurements(
+      {
+        windowCount: 14,
+        exteriorDoorCount: 3,
+        slidingDoorCount: 2,
+        garageDoorSingleCount: 1,
+        garageDoorDoubleCount: 1,
+        garageDoorRvCount: 1,
+        framingOpeningCount: 18,
+      },
+      [],
+      {},
+      [],
+    );
+    expect(measurements).toMatchObject({
+      windowCount: 14,
+      exteriorDoorCount: 3,
+      slidingDoorCount: 2,
+      garageDoorSingleCount: 1,
+      garageDoorDoubleCount: 1,
+      garageDoorRvCount: 1,
+      framingOpeningCount: 18,
+    });
+    expect(buildItemQuantities(measurements)).toMatchObject({
+      windows: { quantity: 14, unit: "each" },
+      exterior_doors: { quantity: 3, unit: "each" },
+      sliding_doors: { quantity: 2, unit: "each" },
+      garage_doors: { quantity: 3, unit: "each" },
+    });
+    expect(buildItemQuantities(measurements)).not.toHaveProperty("framing");
+  });
+
   test("merges Plumbing evidence by canonical field and retains derivation inputs", () => {
     expect(
       mergePlumbingFieldEvidence(
@@ -126,7 +174,7 @@ describe("estimatePlanToMeasurements", () => {
       drywallWallSqft: 8200,
       drywallCeilingSqft: 3660,
       drywallOpeningDeductionSqft: 1017,
-      drywallSqft: 10843,
+      drywallSqft: 11860,
     });
     expect(normalizeDrywallPlanMeasurements({ drywallSqft: 3660 }, [])).toEqual(
       {},
@@ -149,13 +197,68 @@ describe("estimatePlanToMeasurements", () => {
       drywallWallSqft: 1422,
       drywallCeilingSqft: 540,
       drywallOpeningDeductionSqft: 100,
-      drywallSqft: 1862,
+      drywallSqft: 1962,
     });
     expect(derived.derivedKeys).toEqual([
       "drywallWallSqft",
       "drywallCeilingSqft",
       "drywallSqft",
     ]);
+  });
+
+  test("derives partial Drywall geometry without confidence metadata and separates garage surfaces", () => {
+    const derived = deriveDrywallGeometryMeasurements(
+      {},
+      [
+        { name: "Great Room", lengthFt: 20, widthFt: 15 },
+        { name: "Bedroom 1", lengthFt: 10, widthFt: 10 },
+        { name: "Garage", lengthFt: 22, widthFt: 24 },
+      ],
+      { plateHeightFt: 10 },
+      { buildingAreas: { mainFloorLivingSqft: 300 } },
+    );
+
+    expect(derived.measurements).toMatchObject({
+      drywallWallSqft: 1100,
+      drywallCeilingSqft: 400,
+      drywallSqft: 1500,
+      garageWallDrywallSqft: 920,
+      garageCeilingDrywallSqft: 528,
+    });
+    expect(derived.assumptions.join(" ")).toMatch(/confirm/i);
+  });
+
+  test("derives garage drywall from building schedule when garage room lacks dimensions", () => {
+    const derived = deriveDrywallGeometryMeasurements(
+      {
+        floorAreaSqft: 3660,
+        drywallWallSqft: 4918.2,
+        drywallCeilingSqft: 1345.2,
+      },
+      [{ name: "Great Room", lengthFt: 20, widthFt: 15, confidence: 0.9 }],
+      { wallHeightFt: 10.17 },
+      {
+        buildingAreas: {
+          totalLivingSqft: 3660,
+          mainFloorLivingSqft: 2047,
+          upstairsLivingSqft: 1613,
+          garageSqft: 781,
+        },
+      },
+    );
+
+    expect(derived.measurements.garageCeilingDrywallSqft).toBe(781);
+    expect(derived.measurements.garageWallDrywallSqft).toBeCloseTo(1136.9, 1);
+    expect(derived.measurements.drywallCeilingSqft).toBe(3660);
+    expect(derived.measurements.drywallWallSqft).toBe(9150);
+    expect(derived.measurements.drywallSqft).toBe(12810);
+    expect(derived.planningEstimateKeys).toEqual(
+      expect.arrayContaining([
+        "drywallWallSqft",
+        "drywallCeilingSqft",
+        "drywallSqft",
+      ]),
+    );
   });
 
   test("sanitizeRooms computes area and maps bathroom keys", () => {
@@ -1009,6 +1112,91 @@ describe("estimatePlanToMeasurements", () => {
     expect(prompt).toMatch(/electricalFieldEvidence/);
     expect(prompt).toMatch(/traceable field evidence reference/i);
     expect(prompt).not.toMatch(/NEVER estimate, round from visual proportions/);
+  });
+
+  test("HVAC plan output stays on canonical quantities and item cards", () => {
+    expect(TRADE_CONFIGS.hvac).toMatchObject({
+      status: "reference",
+      reviewMeasurementKeys: [
+        "hvacSystemCount",
+        "hvacSystemTons",
+        "hvacServiceCallCount",
+        "hvacEquipmentReplacementCount",
+        "hvacRefrigerantCount",
+        "hvacThermostatCount",
+        "hvacDuctworkLf",
+        "hvacSupplyRegisterCount",
+        "hvacReturnGrilleCount",
+        "hvacVentilationCount",
+        "hvacPermitCount",
+        "hvacCleanupCount",
+      ],
+    });
+    expect(buildHvacSystemPrompt()).toMatch(/do not infer .* HVAC pricing from living area/i);
+    const measurements = sanitizeMeasurements(
+      {
+        hvacSystemCount: 2,
+        hvacSystemTons: 5,
+        hvacThermostatCount: 2,
+        hvacDuctworkLf: 120,
+        floorAreaSqft: 2400,
+      },
+      []
+    );
+    expect(measurements).toMatchObject({
+      hvacSystemCount: 2,
+      hvacSystemTons: 5,
+      hvacThermostatCount: 2,
+      hvacDuctworkLf: 120,
+    });
+    expect(buildItemQuantities(measurements)).toMatchObject({
+      hvac: { quantity: 2, unit: "each" },
+      thermostat: { quantity: 2, unit: "each" },
+      ductwork: { quantity: 120, unit: "lf" },
+    });
+    expect(buildItemQuantities(measurements)).not.toHaveProperty("floorAreaSqft");
+  });
+
+  test("HVAC PDF text tags win over conflicting vision reads", () => {
+    const { hvacPdfTextMeasurementsFromTakeoff } = require("../hvacPlanAdapter");
+    const merged = mergeElectricalEvidenceSources({
+      generalMeasurements: {
+        hvacSupplyRegisterCount: 10,
+        hvacReturnGrilleCount: 3,
+      },
+      generalConfidence: {
+        hvacSupplyRegisterCount: 0.75,
+        hvacReturnGrilleCount: 0.7,
+      },
+      focusedMeasurements: {
+        hvacSupplyRegisterCount: 14,
+        hvacReturnGrilleCount: 3,
+      },
+      focusedConfidence: {
+        hvacSupplyRegisterCount: 0.8,
+        hvacReturnGrilleCount: 0.75,
+      },
+      instanceTagMeasurements: hvacPdfTextMeasurementsFromTakeoff({
+        hvacInstanceTags: {
+          measurements: {
+            hvacSupplyRegisterCount: 12,
+            hvacReturnGrilleCount: 4,
+            hvacThermostatCount: 1,
+          },
+        },
+        hvacEquipmentHints: {
+          measurements: { hvacSystemTons: 4, hvacSystemCount: 1 },
+        },
+      }),
+    });
+    expect(merged.measurements.hvacSupplyRegisterCount).toBe(12);
+    expect(merged.measurements.hvacReturnGrilleCount).toBe(4);
+    expect(merged.measurements.hvacThermostatCount).toBe(1);
+    expect(merged.measurements.hvacSystemTons).toBe(4);
+    expect(merged.measurements.hvacSystemCount).toBe(1);
+    expect(
+      merged.provenance.hvacSupplyRegisterCount.source,
+    ).toBe("pdf_text_instance_tags");
   });
 
   test("unclassified lighting fixtures become a review field, not a priced count", () => {

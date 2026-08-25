@@ -127,6 +127,103 @@ describe('planImportPayloadFromDraft', () => {
       'patch_repair',
       'cleanup',
     ]);
-    expect(next.scopeMeasurements?.drywallSqft).toBe(10843);
+    expect(next.scopeMeasurements?.drywallSqft).toBe(11860);
+  });
+
+  it('routes selected Insulation imports to the standalone insulation checklist with cleanup', () => {
+    const next = applyPlanImportToDraft(baseDraft(), {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'insulation',
+      planImportFingerprint: 'insulation-plan',
+      measurements: {
+        floorAreaSqft: 3660,
+        exteriorWallInsulationSqft: 1950.4,
+        openingDeductionSqft: 289.6,
+      },
+      scopeDetections: [
+        { itemId: 'insulation', label: 'Insulation', state: 'included' },
+      ],
+    } as PlanImportPayload);
+
+    expect(next.scopeChecklist?.templateKey).toBe('insulation');
+    expect(next.scopeChecklist?.items.map(item => item.id)).toEqual([
+      'insulation',
+      'cleanup',
+    ]);
+    expect(
+      Number(next.scopeMeasurements?.exteriorWallInsulationSqft)
+    ).toBeGreaterThan(0);
+  });
+
+  it('routes selected Windows & doors imports without activating framing', () => {
+    const next = applyPlanImportToDraft(baseDraft(), {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'windows_doors',
+      planImportFingerprint: 'windows-plan',
+      measurements: {
+        floorAreaSqft: 3098,
+        windowCount: 14,
+        exteriorDoorCount: 3,
+        slidingDoorCount: 2,
+        garageDoorSingleCount: 1,
+        garageDoorDoubleCount: 1,
+        garageDoorRvCount: 1,
+        framingOpeningCount: 18,
+      },
+      scopeDetections: [
+        { itemId: 'windows', label: 'Windows', state: 'included' },
+      ],
+    } as PlanImportPayload);
+
+    expect(next.scopeChecklist?.templateKey).toBe('windows_doors');
+    expect(next.scopeChecklist?.items.map(item => item.id)).toEqual([
+      'windows',
+      'exterior_doors',
+      'sliding_doors',
+      'garage_doors',
+    ]);
+    expect(next.scopeMeasurements).toMatchObject({
+      windowCount: 14,
+      exteriorDoorCount: 3,
+      slidingDoorCount: 2,
+      garageDoorSingleCount: 1,
+      garageDoorDoubleCount: 1,
+      garageDoorRvCount: 1,
+    });
+    expect(next.scopeMeasurements?.framingOpeningCount).toBeUndefined();
+    expect(next.scopeMeasurements?.itemQuantities).not.toHaveProperty('framing');
+  });
+
+  it('copies HVAC plan measurements into scopeMeasurements for Quick Measurements step 2', () => {
+    const payload: PlanImportPayload = {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'hvac',
+      planImportFingerprint: 'hvac-plan-1',
+      measurements: {
+        hvacSystemCount: 1,
+        hvacSystemTons: 4,
+        hvacSupplyRegisterCount: 12,
+        hvacReturnGrilleCount: 4,
+        hvacThermostatCount: 1,
+      },
+    };
+    const next = applyPlanImportToDraft(baseDraft(), payload);
+    expect(next.scopeMeasurements).toMatchObject({
+      hvacSystemCount: 1,
+      hvacSystemTons: 4,
+      hvacSupplyRegisterCount: 12,
+      hvacReturnGrilleCount: 4,
+      hvacThermostatCount: 1,
+      planImportTradeKey: 'hvac',
+    });
+    expect(next.scopeMeasurements?.itemQuantities).toMatchObject({
+      hvac: { quantity: 1, unit: 'each' },
+      supply_registers: { quantity: 12, unit: 'each' },
+      return_grilles: { quantity: 4, unit: 'each' },
+      thermostat: { quantity: 1, unit: 'each' },
+    });
+    expect(next.scopeMeasurements?.quickMeasurementSources?.hvacSupplyRegisterCount).toBe(
+      'needs_confirmation'
+    );
   });
 });

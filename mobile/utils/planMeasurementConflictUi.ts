@@ -1,9 +1,15 @@
-import type { PlanMeasurementConflict } from '@/utils/estimateAiDraft';
+import type {
+  PlanLowConfidenceField,
+  PlanMeasurementConflict,
+  PlanUnreadableField,
+} from '@/utils/estimateAiDraft';
+import { measurementDisplayLabel } from '@/utils/planTakeoffReviewUi';
 import { electricalCardForMeasurementKey } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { PLUMBING_CARDS } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { FRAMING_CARDS } from '@/utils/subcontractorTrade/framingPlanConvergence';
+import { hvacCardForMeasurementKey } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 
-export type PlanTakeoffUnit = 'EA' | 'LF' | 'A' | 'sqft';
+export type PlanTakeoffUnit = 'EA' | 'LF' | 'A' | 'sqft' | 'ton';
 export type PlanConflictChoice = number | 'manual';
 
 /** Canonical evidence tokens — never shown to the contractor. */
@@ -38,17 +44,46 @@ const EVIDENCE_RANK: Record<PlanEvidenceSource, number> = {
 export function planTakeoffUnit(field: string): PlanTakeoffUnit {
   if (/Amperage$/i.test(field)) return 'A';
   if (/(?:Lf|LinearFeet)$/i.test(field)) return 'LF';
+  if (/Tons$/i.test(field)) return 'ton';
   if (/Count$/i.test(field)) return 'EA';
+  const hvacCard = hvacCardForMeasurementKey(field);
+  if (hvacCard?.unit === 'ton') return 'ton';
+  if (hvacCard?.unit === 'lf') return 'LF';
   return 'sqft';
 }
 
+export function conflictFieldDisplay(field: string): {
+  label: string;
+  subtext?: string;
+} {
+  const electricalCard = electricalCardForMeasurementKey(field);
+  if (electricalCard) {
+    return { label: electricalCard.label, subtext: electricalCard.helper };
+  }
+  const plumbingCard = PLUMBING_CARDS.find(card => card.measurementKey === field);
+  if (plumbingCard) {
+    return { label: plumbingCard.label, subtext: plumbingCard.helper };
+  }
+  const framingCard = FRAMING_CARDS.find(card => card.measurementKey === field);
+  if (framingCard) {
+    return { label: framingCard.label, subtext: framingCard.helper };
+  }
+  const hvacCard = hvacCardForMeasurementKey(field);
+  if (hvacCard) {
+    return { label: hvacCard.label, subtext: hvacCard.helper };
+  }
+  if (field === 'serviceAmperage') {
+    return { label: 'Service amperage' };
+  }
+  const display = measurementDisplayLabel(field, null);
+  if (display.label !== field) {
+    return display;
+  }
+  return { label: field };
+}
+
 export function conflictFieldLabel(field: string): string {
-  return (
-    electricalCardForMeasurementKey(field)?.label ||
-    PLUMBING_CARDS.find(card => card.measurementKey === field)?.label ||
-    FRAMING_CARDS.find(card => card.measurementKey === field)?.label ||
-    (field === 'serviceAmperage' ? 'Service amperage' : field)
-  );
+  return conflictFieldDisplay(field).label;
 }
 
 export function formatPlanTakeoffQuantity(
@@ -58,6 +93,10 @@ export function formatPlanTakeoffQuantity(
   const unit = planTakeoffUnit(field);
   const n = unit === 'EA' || unit === 'A' ? Math.round(value) : value;
   if (unit === 'A') return `${n}A`;
+  if (unit === 'ton') {
+    const label = n === 1 ? 'ton' : 'tons';
+    return `${n} ${label}`;
+  }
   return `${n.toLocaleString()} ${unit}`;
 }
 
@@ -572,6 +611,13 @@ export function conflictChooserConfirmedLine(
   return `Confirmed · ${formatPlanTakeoffQuantity(field, value)}`;
 }
 
+export function conflictChooserLowConfidenceAcceptedLine(
+  field: string,
+  value: number
+): string {
+  return `AI read — confirm · ${formatPlanTakeoffQuantity(field, value)}`;
+}
+
 export function pendingManualConflictFields(
   choices: Record<string, PlanConflictChoice | undefined>,
   manualValues: Record<string, string>,
@@ -636,4 +682,212 @@ export function conflictedSuggestedItemIds(
     if (itemId) ids.add(itemId);
   }
   return ids;
+}
+
+export function planTakeoffConflictFieldSet(
+  conflicts: Array<{ field?: string | null } | null | undefined>
+): Set<string> {
+  return new Set(
+    conflicts
+      .map(conflict => String(conflict?.field || '').trim())
+      .filter(Boolean)
+  );
+}
+
+export function filterLowConfidenceForReview(
+  lowConfidence: PlanLowConfidenceField[],
+  excludedFields: Set<string>
+): PlanLowConfidenceField[] {
+  return (lowConfidence || []).filter(
+    reading => !excludedFields.has(String(reading.field || '').trim())
+  );
+}
+
+export function filterUnreadableForReview(
+  unreadable: PlanUnreadableField[],
+  excludedFields: Set<string>
+): PlanUnreadableField[] {
+  return (unreadable || []).filter(
+    field => !excludedFields.has(String(field.field || '').trim())
+  );
+}
+
+export function shortPlanTakeoffHelper(text?: string | null): string | undefined {
+  if (!text) return undefined;
+  const trimmed = String(text).trim();
+  if (!trimmed) return undefined;
+  const firstSentence = trimmed.split(/(?<=[.!?])\s+/)[0] || trimmed;
+  if (firstSentence.length <= 88) return firstSentence;
+  return `${firstSentence.slice(0, 85).trim()}…`;
+}
+
+export function lowConfidenceConfirmationProvenance(
+  field: string,
+  value: number
+): {
+  value: number;
+  status: 'user_confirmed';
+  normalizedSource: 'USER_CONFIRMED';
+  pricingEligible: true;
+  reason: string;
+} {
+  return {
+    value,
+    status: 'user_confirmed',
+    normalizedSource: 'USER_CONFIRMED',
+    pricingEligible: true,
+    reason: `Contractor accepted this low-confidence ${conflictFieldLabel(field).toLowerCase()} read during takeoff review.`,
+  };
+}
+
+export function lowConfidenceNeedsReviewProvenance(
+  field: string,
+  value: number
+): {
+  value: number;
+  status: 'needs_review';
+  normalizedSource: 'NEEDS_REVIEW';
+  pricingEligible: false;
+  reason: string;
+} {
+  return {
+    value,
+    status: 'needs_review',
+    normalizedSource: 'NEEDS_REVIEW',
+    pricingEligible: false,
+    reason:
+      'The plan reading confidence is too low; confirm this quantity before pricing.',
+  };
+}
+
+export type PendingPlanConfirmationRead = {
+  field: string;
+  value: number;
+  label: string;
+  subtext?: string;
+};
+
+/** Plan reads the contractor skipped in takeoff review — still need confirmation in QM. */
+export function pendingPlanConfirmationReads(
+  measurements: Record<string, unknown> | null | undefined,
+  allowedFields?: Set<string>
+): PendingPlanConfirmationRead[] {
+  const sources =
+    measurements?.quickMeasurementSources &&
+    typeof measurements.quickMeasurementSources === 'object'
+      ? (measurements.quickMeasurementSources as Record<string, string>)
+      : {};
+  const provenance =
+    measurements?.measurementProvenance &&
+    typeof measurements.measurementProvenance === 'object'
+      ? (measurements.measurementProvenance as Record<string, unknown>)
+      : {};
+  const out: PendingPlanConfirmationRead[] = [];
+  const seen = new Set<string>();
+  for (const [field, source] of Object.entries(sources)) {
+    if (source !== 'needs_confirmation') continue;
+    if (allowedFields?.size && !allowedFields.has(field)) continue;
+    const value = Number(measurements?.[field]);
+    if (!Number.isFinite(value) || value <= 0) continue;
+    if (seen.has(field)) continue;
+    seen.add(field);
+    const { label, subtext } = conflictFieldDisplay(field);
+    out.push({ field, value, label, subtext });
+  }
+  for (const [field, entry] of Object.entries(provenance)) {
+    if (seen.has(field)) continue;
+    if (allowedFields?.size && !allowedFields.has(field)) continue;
+    if (!entry || typeof entry !== 'object') continue;
+    const record = entry as { status?: string; normalizedSource?: string };
+    const needsReview =
+      String(record.status || '').toLowerCase() === 'needs_review' ||
+      String(record.normalizedSource || '').toUpperCase() === 'NEEDS_REVIEW';
+    if (!needsReview) continue;
+    const value = Number(
+      (record as { value?: number }).value ?? measurements?.[field]
+    );
+    if (!Number.isFinite(value) || value <= 0) continue;
+    seen.add(field);
+    const { label, subtext } = conflictFieldDisplay(field);
+    out.push({ field, value, label, subtext });
+  }
+  return out;
+}
+
+export function isPendingPlanReadConfirmed(
+  measurements: Record<string, unknown> | null | undefined,
+  field: string
+): boolean {
+  const sources =
+    measurements?.quickMeasurementSources &&
+    typeof measurements.quickMeasurementSources === 'object'
+      ? (measurements.quickMeasurementSources as Record<string, string>)
+      : {};
+  const source = sources[field];
+  if (source === 'contractor_confirmed_from_plan_review') return true;
+  if (source === 'user_entered' || source === 'user_confirmed_suggestion') {
+    return true;
+  }
+  const provenance =
+    measurements?.measurementProvenance &&
+    typeof measurements.measurementProvenance === 'object'
+      ? (measurements.measurementProvenance as Record<string, unknown>)[field]
+      : null;
+  if (!provenance || typeof provenance !== 'object') return false;
+  const record = provenance as { status?: string; normalizedSource?: string };
+  const status = String(record.status || '').toLowerCase();
+  const normalized = String(record.normalizedSource || '').toUpperCase();
+  return status === 'user_confirmed' || normalized === 'USER_CONFIRMED';
+}
+
+export function confirmPendingPlanConfirmationRead(
+  measurements: Record<string, unknown>,
+  field: string,
+  value: number
+): Record<string, unknown> {
+  const provenanceEntry = lowConfidenceConfirmationProvenance(field, value);
+  return {
+    ...measurements,
+    [field]: value,
+    quickMeasurementSources: {
+      ...((measurements.quickMeasurementSources as Record<string, string>) ||
+        {}),
+      [field]: 'contractor_confirmed_from_plan_review',
+    },
+    measurementProvenance: {
+      ...((measurements.measurementProvenance as Record<string, unknown>) ||
+        {}),
+      [field]: {
+        ...(((measurements.measurementProvenance as Record<string, unknown>) ||
+          {})[field] as Record<string, unknown>),
+        ...provenanceEntry,
+      },
+    },
+  };
+}
+
+export function unconfirmPendingPlanConfirmationRead(
+  measurements: Record<string, unknown>,
+  field: string,
+  value: number
+): Record<string, unknown> {
+  const provenanceEntry = lowConfidenceNeedsReviewProvenance(field, value);
+  return {
+    ...measurements,
+    [field]: value,
+    quickMeasurementSources: {
+      ...((measurements.quickMeasurementSources as Record<string, string>) ||
+        {}),
+      [field]: 'needs_confirmation',
+    },
+    measurementProvenance: {
+      ...((measurements.measurementProvenance as Record<string, unknown>) ||
+        {}),
+      [field]: {
+        ...(((measurements.measurementProvenance as Record<string, unknown>) ||
+          {})[field] as Record<string, unknown>),
+        ...provenanceEntry,
+      },
+    },
+  };
 }

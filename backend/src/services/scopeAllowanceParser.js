@@ -31,6 +31,41 @@ function splitAllowanceClauses(text) {
  */
 const ITEM_ALLOWANCE_MATCHERS = [
   {
+    id: 'hvac',
+    match: /\b(?:hvac|mechanical)\s+(?:system|replacement|install(?:ation)?)\b|\b(?:furnace|heat\s*pump|air\s*handler|condenser)\s+(?:replacement|install(?:ation)?)\b/i,
+    unit: 'allowance',
+  },
+  {
+    id: 'equipment_replace',
+    match: /\b(?:hvac|mechanical|furnace|heat\s*pump|air\s*handler|condenser)\b[^.;]{0,60}\b(?:replace|replacement|install(?:ation)?)\b/i,
+    unit: 'allowance',
+  },
+  {
+    id: 'service_call',
+    match: /\b(?:hvac|mechanical)\s+(?:service|diagnostic|maintenance)\s+call\b/i,
+    unit: 'allowance',
+  },
+  {
+    id: 'refrigerant',
+    match: /\b(?:refrigerant|freon)\s+(?:service|recharge|recovery|allowance)\b/i,
+    unit: 'allowance',
+  },
+  {
+    id: 'thermostat',
+    match: /\b(?:thermostat|controls?)\s+(?:install(?:ation)?|replacement|allowance)\b/i,
+    unit: 'allowance',
+  },
+  {
+    id: 'ductwork',
+    match: /\b(?:ductwork|ducts?|flex\s*duct)\s+(?:install(?:ation)?|replacement|allowance|work)\b/i,
+    unit: 'allowance',
+  },
+  {
+    id: 'ventilation',
+    match: /\b(?:hvac|mechanical)\s+ventilation\b/i,
+    unit: 'allowance',
+  },
+  {
     id: 'appliances',
     match: /\b(appliance\s+install|install\s+appliances?|appliance\s+allowance|appliance\s+hookup|reconnect\s+appliances?)\b/i,
     unit: 'allowance',

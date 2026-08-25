@@ -443,7 +443,11 @@ describe('ground-up takeoff → material/labor pricing', () => {
         stageSuggestion(id, 'interior-finishes', 92700)
       );
 
-    const input = inputWith({ drywallSqft: '5469', wallPaintSqft: '5469' });
+    const input = inputWith({
+      drywallSqft: '5469',
+      wallPaintSqft: '5469',
+      quickMeasurementSources: { drywallSqft: 'user_entered' },
+    });
 
     const drywall = resolveScopeItemSuggestedPricing(
       'drywall',
@@ -453,10 +457,10 @@ describe('ground-up takeoff → material/labor pricing', () => {
         templateKey: 'ground_up',
       })
     );
-    // National ~$2.10/SF blended with local ~$2.21/SF barometer (not old $4.50/SF).
+    // National ~$1.66/SF production baseline on explicit user takeoff (not old $4.50/SF).
     expect(drywall.fill?.basis).toEqual({ quantity: 5469, unit: 'sqft' });
-    expect(drywall.fill!.total).toBeGreaterThan(11000);
-    expect(drywall.fill!.total).toBeLessThan(14000);
+    expect(drywall.fill!.total).toBeGreaterThan(8500);
+    expect(drywall.fill!.total).toBeLessThan(12000);
 
     const paint = resolveScopeItemSuggestedPricing(
       'interior_paint',
@@ -476,23 +480,37 @@ describe('ground-up takeoff → material/labor pricing', () => {
   it('uses the SHV production rate card for an exact Plan 39 drywall match', () => {
     const input = inputWith({
       floorAreaSqft: '3098',
-      drywallSqft: '10843',
+      garageSqft: '972',
+      drywallWallSqft: '7742',
+      drywallCeilingSqft: '3101',
+      garageWallDrywallSqft: '1248',
+      garageCeilingDrywallSqft: '972',
+      planFacts: {
+        buildingAreas: {
+          totalLivingSqft: 3098,
+          mainFloorLivingSqft: 1892,
+          upstairsLivingSqft: 1209,
+          garageSqft: 972,
+        },
+      },
+    });
+    const resolved = resolveChecklistItemQuantity('drywall', input, {
+      templateKey: 'ground_up',
     });
     const drywall = resolveScopeItemSuggestedPricing(
       'drywall',
       input,
       'ground_up',
-      resolveChecklistItemQuantity('drywall', input, {
-        templateKey: 'ground_up',
-      })
+      resolved
     );
 
     expect(drywall.fill?.rateSourceLabel).toMatch(
       /Production planning rate.*Plan 39/i
     );
     expect(drywall.fill?.productionStatus).toBe('production_ready');
-    expect(drywall.fill?.basis).toEqual({ quantity: 10843, unit: 'sqft' });
-    expect(drywall.fill?.total).toBeCloseTo(10843 * 2.21, 2);
+    expect(drywall.fill?.basis?.quantity).toBeGreaterThan(13000);
+    expect(drywall.fill?.total).toBeGreaterThan(22500);
+    expect(drywall.fill?.total).toBeLessThan(23200);
   });
 
   it('suggests cleanup mat+labor national average — not Final Steps living-SF lump', () => {

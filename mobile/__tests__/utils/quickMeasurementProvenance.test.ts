@@ -481,4 +481,20 @@ describe('tagPlanDetectedQuickMeasurementKeys', () => {
 
     expect(next.atticInsulationSqft).toBe('calculated_from_components');
   });
+
+  test('preserves needs_confirmation HVAC provenance during plan hydration', () => {
+    const existing = {
+      hvacSystemCount: 'needs_confirmation' as const,
+      hvacDuctworkLf: 'needs_confirmation' as const,
+    };
+    const next = tagPlanDetectedQuickMeasurementKeys(existing, [
+      'hvacSystemCount',
+      'hvacDuctworkLf',
+      'hvacSupplyRegisterCount',
+    ]);
+
+    expect(next.hvacSystemCount).toBe('needs_confirmation');
+    expect(next.hvacDuctworkLf).toBe('needs_confirmation');
+    expect(next.hvacSupplyRegisterCount).toBe('detected_from_plan');
+  });
 });

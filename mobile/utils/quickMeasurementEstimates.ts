@@ -36,10 +36,14 @@ import {
   type InsulationEnvelopeInputs,
 } from '@/utils/insulationEnvelopeQuantity';
 import {
+  drywallPackageSurfacePlanningQuantity,
   drywallSurfaceFromComponents,
   drywallSurfacePlanningQuantity,
   isProtectedDrywallQuantity,
   isUndercountedDrywallSurface,
+  reconcileIncompleteDrywallGeometryTakeoff,
+  resolveDrywallConditionedSurfaceQuantity,
+  resolveDrywallPackageSurfaceQuantity,
 } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 
 export {
@@ -513,32 +517,112 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<
   const isGroundUp =
     String(options?.templateKey || '').toLowerCase() === 'ground_up';
   const currentDrywall = n(measurements.drywallSqft);
-  const componentSurface = drywallSurfaceFromComponents(
-    measurements as unknown as Record<string, unknown>
+  const reconciledDrywall = reconcileIncompleteDrywallGeometryTakeoff(
+    next as unknown as Record<string, unknown>,
+    { planFacts: next.planFacts as Record<string, unknown> | null }
   );
+  const componentSurface = resolveDrywallPackageSurfaceQuantity(
+    reconciledDrywall.measurements,
+    { planFacts: next.planFacts as Record<string, unknown> | null }
+  );
+  const interiorPaintSurface =
+    resolveDrywallConditionedSurfaceQuantity(reconciledDrywall.measurements, {
+      planFacts: next.planFacts as Record<string, unknown> | null,
+    }) ?? drywallSurfacePlanningQuantity(living);
   const protectedDrywall = isProtectedDrywallQuantity(measurements);
-  // A wall/ceiling takeoff is canonical. Reconcile only stale totals; never
-  // replace a contractor-confirmed total with a formula.
+  const shouldExpandDrywall =
+    !protectedDrywall ||
+    (currentDrywall != null &&
+      living != null &&
+      isUndercountedDrywallSurface(currentDrywall, living));
+  // A wall/ceiling takeoff is canonical when complete. Reconcile partial geometry
+  // to schedule ceiling + planning wall split before persisting totals.
   if (
     isGroundUp &&
     componentSurface != null &&
-    !protectedDrywall &&
+    shouldExpandDrywall &&
     currentDrywall !== componentSurface
   ) {
     next = {
       ...next,
+      ...(reconciledDrywall.reconciled
+        ? reconciledDrywall.measurements
+        : {}),
       drywallSqft: asMeasurementNumber(next, 'drywallSqft', componentSurface),
     };
+    if (reconciledDrywall.reconciled) {
+      for (const key of [
+        'drywallWallSqft',
+        'drywallCeilingSqft',
+      ] as const) {
+        const value = reconciledDrywall.measurements[key];
+        if (value != null) {
+          next = {
+            ...next,
+            [key]: asMeasurementNumber(next, key, Number(value)),
+          };
+        }
+      }
+      next = {
+        ...next,
+        quickMeasurementSources: {
+          ...(next.quickMeasurementSources || {}),
+          ...Object.fromEntries(
+            reconciledDrywall.planningEstimateKeys.map(key => [
+              key,
+              'needs_confirmation',
+            ])
+          ),
+        },
+      };
+    }
+    const currentPaint = n(measurements.wallPaintSqft);
+    if (
+      currentPaint != null &&
+      interiorPaintSurface != null &&
+      (Math.abs(currentPaint - currentDrywall) < 1 ||
+        isUndercountedDrywallSurface(currentPaint, living))
+    ) {
+      next = {
+        ...next,
+        wallPaintSqft: asMeasurementNumber(
+          next,
+          'wallPaintSqft',
+          interiorPaintSurface
+        ),
+      };
+    }
+    if (next.itemQuantities) {
+      const itemQuantities = { ...next.itemQuantities };
+      for (const itemId of ['drywall', 'hang', 'finish_tape'] as const) {
+        const entry = itemQuantities[itemId];
+        if (
+          entry &&
+          (entry.quantitySource === 'notes' ||
+            isUndercountedDrywallSurface(Number(entry.quantity), living))
+        ) {
+          delete itemQuantities[itemId];
+        }
+      }
+      next = { ...next, itemQuantities };
+    }
   }
   // Ground-up only: rewrite thin notes drywall SF to the transparent
-  // living×3.5 planning fallback when no component takeoff exists.
-  const formulaSurface = drywallSurfacePlanningQuantity(living);
+  // package planning fallback when no component takeoff exists.
+  const garageFromFacts = n(
+    (next.planFacts as PlanFacts | undefined)?.buildingAreas?.garageSqft
+  );
+  const formulaSurface =
+    drywallPackageSurfacePlanningQuantity(
+      living,
+      garageFromFacts && garageFromFacts > 0 ? garageFromFacts : null
+    ) ?? drywallSurfacePlanningQuantity(living);
   if (
     isGroundUp &&
     formulaSurface != null &&
     currentDrywall != null &&
     componentSurface == null &&
-    !protectedDrywall &&
+    shouldExpandDrywall &&
     isUndercountedDrywallSurface(currentDrywall, living)
   ) {
     const drywallValue = asMeasurementNumber(
@@ -558,7 +642,7 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<
         wallPaintSqft: asMeasurementNumber(
           next,
           'wallPaintSqft',
-          formulaSurface
+          interiorPaintSurface ?? formulaSurface
         ),
       };
     }

@@ -24,6 +24,15 @@ import {
   DRYWALL_PLAN_QUICK_MEASUREMENT_KEYS,
   DRYWALL_PLAN_REVIEW_MEASUREMENT_KEYS,
 } from './drywallPlanConvergence';
+import {
+  WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_KEYS,
+  WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+} from './windowsDoorsPlanConvergence';
+import {
+  HVAC_CARDS,
+  HVAC_PLAN_QUICK_MEASUREMENT_KEYS,
+  HVAC_PLAN_REVIEW_MEASUREMENT_KEYS,
+} from './hvacPlanConvergence';
 import { getTradeMeasurementSchema } from './measurementSchemas';
 import {
   TRADE_SCOPE_ALLOWLISTS,
@@ -174,6 +183,33 @@ const STUCCO_DEFINITION: SubcontractorTradeDefinition = {
   reviewScopeKeywords: ['stucco'],
   quickMeasurementFieldKeys: STUCCO_QUICK_MEASUREMENT_KEYS,
 };
+
+const WINDOWS_DOORS_SCOPE_ITEMS: TradeScopeItemDefinition[] = [
+  {
+    scopeItemId: 'windows',
+    pricingBehavior: 'CUSTOM_PRICE',
+    measurementKeys: ['windowCount'],
+  },
+  {
+    scopeItemId: 'exterior_doors',
+    pricingBehavior: 'CUSTOM_PRICE',
+    measurementKeys: ['exteriorDoorCount'],
+  },
+  {
+    scopeItemId: 'sliding_doors',
+    pricingBehavior: 'CUSTOM_PRICE',
+    measurementKeys: ['slidingDoorCount'],
+  },
+  {
+    scopeItemId: 'garage_doors',
+    pricingBehavior: 'CUSTOM_PRICE',
+    measurementKeys: [
+      'garageDoorSingleCount',
+      'garageDoorDoubleCount',
+      'garageDoorRvCount',
+    ],
+  },
+];
 
 const ROOFING_SCOPE_ITEMS = [
   {
@@ -339,13 +375,47 @@ const PLUMBING_DEFINITION: SubcontractorTradeDefinition = {
   quickMeasurementFieldKeys: [...PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS],
 };
 
+const HVAC_DEFINITION: SubcontractorTradeDefinition = {
+  key: 'hvac',
+  label: 'HVAC',
+  status: 'complete',
+  standaloneTemplateKey: 'hvac',
+  scopeHint:
+    'Focus on mechanical plans, equipment schedules, HVAC layouts, ductwork, ventilation, thermostats, and HVAC notes. Map only explicit system counts, tonnage, and component quantities; never infer HVAC pricing from living area.',
+  missingInfo: [
+    'System count and equipment type',
+    'System capacity / tonnage',
+    'Ductwork and ventilation quantities',
+    'Thermostat, refrigerant, service, and replacement scope',
+  ],
+  measurements: getTradeMeasurementSchema('hvac'),
+  scopeItems: HVAC_CARDS.map(card => ({
+    scopeItemId: card.itemId,
+    pricingBehavior: card.pricingBehavior,
+    measurementKeys: [card.measurementKey],
+  })),
+  allowedScopeItemIds: TRADE_SCOPE_ALLOWLISTS.hvac,
+  reviewMeasurementKeys: [...HVAC_PLAN_REVIEW_MEASUREMENT_KEYS],
+  reviewScopeKeywords: [
+    'hvac',
+    'mechanical',
+    'furnace',
+    'air handler',
+    'heat pump',
+    'duct',
+    'thermostat',
+    'ventilation',
+  ],
+  quickMeasurementFieldKeys: [...HVAC_PLAN_QUICK_MEASUREMENT_KEYS],
+};
+
 export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
   SubcontractorTradeKey,
   SubcontractorTradeDefinition
 > = {
   electrical: ELECTRICAL_DEFINITION,
   plumbing: PLUMBING_DEFINITION,
-  hvac: scaffoldedTrade('hvac', 'HVAC', { standaloneTemplateKey: 'hvac' }),
+  hvac: HVAC_DEFINITION,
   roofing: scaffoldedTrade('roofing', 'Roofing', {
     standaloneTemplateKey: 'roofing',
     reviewMeasurementKeys: [
@@ -492,6 +562,14 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
           'drywallWallSqft',
           'drywallCeilingSqft',
           'drywallOpeningDeductionSqft',
+          'garageWallDrywallSqft',
+          'garageCeilingDrywallSqft',
+          'moistureResistantDrywallSqft',
+          'fireRatedDrywallSqft',
+          'specialtyDrywallSqft',
+          'highCeilingDrywallSqft',
+          'vaultedCeilingDrywallSqft',
+          'level5FinishSqft',
         ],
       },
       {
@@ -696,7 +774,31 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
       },
     ],
   }),
-  windows_doors: scaffoldedTrade('windows_doors', 'Windows & doors'),
+  windows_doors: scaffoldedTrade('windows_doors', 'Windows & doors', {
+    standaloneTemplateKey: 'ground_up',
+    status: 'complete',
+    scopeHint:
+      'Focus on exterior elevations, window and door schedules, opening tags, and garage door details. Count only readable windows, exterior swing doors, sliding/patio doors, and garage door types; never infer openings from living area.',
+    missingInfo: [
+      'Window count and schedule/type details',
+      'Exterior swing and sliding door counts',
+      'Garage door type counts and sizes',
+      'Replacement versus new-construction scope, finishes, and hardware',
+    ],
+    reviewMeasurementKeys: [...WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS],
+    reviewScopeKeywords: [
+      'window',
+      'door',
+      'opening',
+      'garage',
+      'fenestration',
+      'exterior elevation',
+      'door schedule',
+      'window schedule',
+    ],
+    quickMeasurementFieldKeys: [...WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_KEYS],
+    scopeItems: WINDOWS_DOORS_SCOPE_ITEMS,
+  }),
 };
 
 export function getSubcontractorTradeDefinition(

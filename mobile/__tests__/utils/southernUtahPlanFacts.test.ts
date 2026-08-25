@@ -122,6 +122,7 @@ describe('southernUtahPlanFacts roof footprint', () => {
     const synced = syncMeasurementsWithSouthernUtahPlanFacts(
       {
         floorAreaSqft: '3098',
+        garageSqft: '972',
         drywallSqft: '4056',
         wallPaintSqft: '4056',
         itemQuantities: {
@@ -132,21 +133,33 @@ describe('southernUtahPlanFacts roof footprint', () => {
             totalLivingSqft: 3098,
             mainFloorLivingSqft: 1892,
             upstairsLivingSqft: 1209,
+            garageSqft: 972,
           },
           storyCount: 2,
         },
       },
       { templateKey: 'ground_up' }
     );
-    expect(Number(synced.drywallSqft)).toBe(10843);
-    expect(Number(synced.wallPaintSqft)).toBe(10843);
+    expect(Number(synced.drywallSqft)).toBeGreaterThan(13000);
+    expect(Number(synced.drywallSqft)).toBeLessThan(13100);
+    expect(Number(synced.wallPaintSqft)).toBeGreaterThan(10800);
+    expect(Number(synced.wallPaintSqft)).toBeLessThan(10900);
     expect(synced.itemQuantities?.drywall).toBeUndefined();
 
     // Notes 4,056 must not win — Confirm Scope resolves living×3.5 and ~$23k (not $8.8k).
     const notesInput = {
       ...emptyQuickMeasurementInput(),
       floorAreaSqft: '3098',
+      garageSqft: '972',
       drywallSqft: '4056',
+      planFacts: {
+        buildingAreas: {
+          totalLivingSqft: 3098,
+          mainFloorLivingSqft: 1892,
+          upstairsLivingSqft: 1209,
+          garageSqft: 972,
+        },
+      },
       itemQuantities: {
         drywall: { quantity: '4056', unit: 'sqft', quantitySource: 'notes' },
       },
@@ -154,7 +167,8 @@ describe('southernUtahPlanFacts roof footprint', () => {
     const resolved = resolveChecklistItemQuantity('drywall', notesInput as any, {
       templateKey: 'ground_up',
     });
-    expect(resolved.quantity).toBe(10843);
+    expect(resolved.quantity).toBeGreaterThan(13000);
+    expect(resolved.quantity).toBeLessThan(13100);
     expect(resolved.sourceLabel).toBe('Calculated');
 
     const priced = resolveScopeItemSuggestedPricing(

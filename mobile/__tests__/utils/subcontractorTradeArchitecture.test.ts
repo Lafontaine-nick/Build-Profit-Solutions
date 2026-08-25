@@ -25,6 +25,15 @@ import { planMeasurementsToScopeMeasurements } from '@/utils/estimateAiDraft';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import { SIMPLE_TRADE_SPECS } from '@/utils/qmScopePanels/simpleTradeRemodel';
 import { CHECKLIST_ITEM_QUANTITY_RULES } from '@/utils/scopeItemQuantities';
+import {
+  buildWindowsDoorsStructuredMeasurements,
+  WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+} from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
+import {
+  buildHvacStructuredMeasurements,
+  HVAC_PLAN_REVIEW_MEASUREMENT_KEYS,
+} from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import { quickMeasurementRowsForInput } from '@/utils/scopeQuickMeasurements';
 
 describe('subcontractor trade architecture (Phase 0)', () => {
   it('exposes exactly 12 Plan Export trades', () => {
@@ -896,5 +905,202 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       shingles_roofing: applied,
       tear_off: applied,
     });
+  });
+
+  it('declares Windows & doors cards and canonical plan measurements', () => {
+    const definition = SUBCONTRACTOR_TRADE_DEFINITIONS.windows_doors;
+    expect(definition.status).toBe('complete');
+    expect(definition.reviewMeasurementKeys).toEqual(
+      WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS
+    );
+    expect(definition.scopeItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scopeItemId: 'windows',
+          measurementKeys: ['windowCount'],
+        }),
+        expect.objectContaining({
+          scopeItemId: 'exterior_doors',
+          measurementKeys: ['exteriorDoorCount'],
+        }),
+        expect.objectContaining({
+          scopeItemId: 'sliding_doors',
+          measurementKeys: ['slidingDoorCount'],
+        }),
+        expect.objectContaining({
+          scopeItemId: 'garage_doors',
+          measurementKeys: [
+            'garageDoorSingleCount',
+            'garageDoorDoubleCount',
+            'garageDoorRvCount',
+          ],
+        }),
+      ])
+    );
+  });
+
+  it('exposes all Windows & doors counts in the focused Quick measurements panel', () => {
+    const rows = quickMeasurementRowsForInput(
+      'ground_up',
+      'ground_up',
+      {},
+      undefined,
+      { windowsDoorsPlanImport: true }
+    );
+    expect(rows.flat().map(field => field.key)).toEqual(
+      WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS
+    );
+    const notesRows = quickMeasurementRowsForInput(
+      'windows_doors',
+      'windows_doors',
+      {},
+      undefined,
+      { windowsDoorsNotesFlow: true }
+    );
+    expect(notesRows.flat().map(field => field.key)).toEqual([
+      ...WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+      'framingOpeningCount',
+    ]);
+  });
+
+  it('filters Windows & doors plan output and preserves type-aware garage quantities', () => {
+    const filtered = filterPlanMeasurementsForTrade(
+      {
+        windowCount: 14,
+        exteriorDoorCount: 3,
+        slidingDoorCount: 2,
+        garageDoorSingleCount: 1,
+        garageDoorDoubleCount: 1,
+        garageDoorRvCount: 1,
+        floorAreaSqft: 2400,
+        framingOpeningCount: 18,
+      },
+      'selected_trade',
+      'windows_doors'
+    );
+    expect(filtered).toEqual({
+      windowCount: 14,
+      exteriorDoorCount: 3,
+      slidingDoorCount: 2,
+      garageDoorSingleCount: 1,
+      garageDoorDoubleCount: 1,
+      garageDoorRvCount: 1,
+    });
+
+    const normalized = normalizeTradeMeasurements(
+      'windows_doors',
+      filtered,
+      'plan'
+    );
+    expect(normalized.measurements).toEqual(filtered);
+    expect(normalized.structuredMeasurements?.itemQuantities).toMatchObject({
+      windows: { quantity: 14, unit: 'each' },
+      exterior_doors: { quantity: 3, unit: 'each' },
+      sliding_doors: { quantity: 2, unit: 'each' },
+      garage_doors: { quantity: 3, unit: 'each' },
+    });
+    expect(
+      buildWindowsDoorsStructuredMeasurements(filtered).itemQuantities
+        .garage_doors
+    ).toMatchObject({ quantity: 3 });
+  });
+
+  it('expands a legacy combined Windows & doors card for any selected trade template', () => {
+    const filtered = filterChecklistItemsForTrade(
+      [
+        { id: 'foundation' },
+        { id: 'windows_doors', label: 'Windows & doors' },
+        { id: 'cleanup' },
+      ],
+      'selected_trade',
+      'windows_doors'
+    );
+    expect(filtered.map(item => item.id)).toEqual([
+      'windows',
+      'exterior_doors',
+      'sliding_doors',
+      'garage_doors',
+    ]);
+    expect(filtered.map(item => item.label)).toEqual([
+      'Windows',
+      'Exterior doors',
+      'Sliding doors',
+      'Garage doors',
+    ]);
+  });
+
+  it('does not activate framing from Windows & doors quantities', () => {
+    const normalized = normalizeTradeMeasurements(
+      'windows_doors',
+      { windowCount: 12, exteriorDoorCount: 2 },
+      'plan'
+    );
+    expect(normalized.measurements).not.toHaveProperty('framingOpeningCount');
+    expect(normalized.structuredMeasurements?.itemQuantities).not.toHaveProperty(
+      'framing'
+    );
+  });
+
+  it('declares HVAC cards and keeps plan quantities off living SF', () => {
+    const definition = SUBCONTRACTOR_TRADE_DEFINITIONS.hvac;
+    expect(definition.status).toBe('complete');
+    expect(definition.reviewMeasurementKeys).toEqual(
+      HVAC_PLAN_REVIEW_MEASUREMENT_KEYS
+    );
+    expect(definition.allowedScopeItemIds).toEqual([
+      'hvac',
+      'ductwork',
+      'supply_registers',
+      'return_grilles',
+      'thermostat',
+      'ventilation',
+      'permits',
+      'cleanup',
+    ]);
+
+    const filtered = filterPlanMeasurementsForTrade(
+      {
+        hvacSystemCount: 2,
+        hvacSystemTons: 5,
+        hvacDuctworkLf: 120,
+        floorAreaSqft: 2400,
+      },
+      'selected_trade',
+      'hvac'
+    );
+    expect(filtered).toEqual({
+      hvacSystemCount: 2,
+      hvacSystemTons: 5,
+      hvacDuctworkLf: 120,
+    });
+    expect(
+      buildHvacStructuredMeasurements(filtered).itemQuantities
+    ).toMatchObject({
+      hvac: { quantity: 2, unit: 'each' },
+      ductwork: { quantity: 120, unit: 'lf' },
+    });
+
+    const notes = parseScopeMeasurementsFromNotes(
+      'HVAC: 2 systems, 5 tons, 120 LF ductwork, and 2 thermostats.'
+    );
+    expect(notes).toMatchObject({
+      hvacSystemCount: 2,
+      hvacSystemTons: 5,
+      hvacDuctworkLf: 120,
+      hvacThermostatCount: 2,
+    });
+    expect(notes.itemQuantities).toMatchObject({
+      hvac: { quantity: 2, unit: 'each' },
+      ductwork: { quantity: 120, unit: 'lf' },
+    });
+  });
+
+  it('shows the HVAC quick-measurement rows for the HVAC template', () => {
+    const rows = quickMeasurementRowsForInput('hvac', 'hvac', {});
+    const keys = rows.flat().map(field => field.key);
+    expect(keys).toHaveLength(HVAC_PLAN_REVIEW_MEASUREMENT_KEYS.length);
+    expect(keys).toEqual(
+      expect.arrayContaining(HVAC_PLAN_REVIEW_MEASUREMENT_KEYS)
+    );
   });
 });

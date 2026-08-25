@@ -32,6 +32,7 @@ import {
   stripShellFramingComponentMeasurements,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import { PLUMBING_CARDS } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import { hvacCardForMeasurementKey } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 
 export type PlanReviewSpaceKind = 'living' | 'garage' | 'other';
 
@@ -70,6 +71,43 @@ export function readyStateSummary(input: {
   return bits.length ? `Ready · ${bits.join(' · ')}` : 'Ready · Plan reviewed';
 }
 
+/** Internal scope metadata — never show as a takeoff quantity row. */
+export const PLAN_REVIEW_INTERNAL_MEASUREMENT_KEYS = new Set([
+  'quickMeasurementSources',
+  'quickMeasurementUserOverrides',
+  'measurementProvenance',
+  'measurementConflicts',
+  'itemQuantities',
+  'pricingAcceptance',
+  'scopeGapResolutions',
+  'planFacts',
+  'insulationAssemblies',
+  'projectComplexity',
+  'planImportMode',
+  'planImportTradeKey',
+  'planImportFingerprint',
+  'fieldConfidence',
+]);
+
+export function isPlanReviewMeasurementScalar(
+  value: unknown
+): value is number | string {
+  return typeof value === 'number' || typeof value === 'string';
+}
+
+export function filterPlanReviewMeasurementEntries(
+  measurements: Record<string, unknown>
+): Record<string, number | string> {
+  return Object.fromEntries(
+    Object.entries(measurements || {}).filter(
+      ([key, value]) =>
+        !PLAN_REVIEW_INTERNAL_MEASUREMENT_KEYS.has(key) &&
+        isPlanReviewMeasurementScalar(value) &&
+        value !== ''
+    )
+  ) as Record<string, number | string>;
+}
+
 export function measurementDisplayLabel(
   key: string,
   value: number | null | undefined,
@@ -100,13 +138,72 @@ export function measurementDisplayLabel(
   };
   if (insulationLabels[key]) return { label: insulationLabels[key] };
 
-  const drywallLabels: Record<string, string> = {
-    drywallSqft: 'Net wall + ceiling drywall surface',
-    drywallWallSqft: 'Drywall wall surface',
-    drywallCeilingSqft: 'Drywall ceiling surface',
-    drywallOpeningDeductionSqft: 'Drywall opening deductions',
-  };
-  if (drywallLabels[key]) return { label: drywallLabels[key] };
+  const drywallLabels: Record<string, { label: string; subtext?: string | null }> =
+    {
+      drywallSqft: {
+        label: 'Total drywall package',
+        subtext: 'Net wall + ceiling surface SF',
+      },
+      drywallWallSqft: {
+        label: 'House walls',
+        subtext: 'Conditioned wall surface · suggested 1/2" board',
+      },
+      drywallCeilingSqft: {
+        label: 'House ceilings',
+        subtext: 'Conditioned ceiling surface · confirm 5/8" board',
+      },
+      garageWallDrywallSqft: {
+        label: 'Garage walls',
+        subtext: 'Garage wall surface SF',
+      },
+      garageCeilingDrywallSqft: {
+        label: 'Garage ceiling',
+        subtext: 'Garage ceiling surface SF',
+      },
+      fireRatedDrywallSqft: {
+        label: 'Fire-rated board',
+        subtext: 'Garage / rated assemblies · typically 5/8" Type X',
+      },
+      moistureResistantDrywallSqft: {
+        label: 'Moisture-resistant board',
+        subtext: 'Wet-area walls where specified',
+      },
+      drywallOpeningDeductionSqft: {
+        label: 'Opening deductions',
+        subtext: 'Window and door openings removed from wall SF',
+      },
+      highCeilingDrywallSqft: {
+        label: 'High-ceiling drywall',
+      },
+      vaultedCeilingDrywallSqft: {
+        label: 'Vaulted / sloped drywall',
+      },
+      specialtyDrywallSqft: {
+        label: 'Specialty board',
+      },
+      level5FinishSqft: {
+        label: 'Level 5 finish area',
+      },
+    };
+  if (drywallLabels[key]) return drywallLabels[key];
+
+  const hvacLabel = {
+    hvacSystemCount: 'HVAC systems',
+    hvacSystemTons: 'HVAC capacity',
+    hvacServiceCallCount: 'HVAC service calls',
+    hvacEquipmentReplacementCount: 'HVAC equipment replacements',
+    hvacRefrigerantCount: 'Refrigerant service',
+    hvacThermostatCount: 'Thermostats',
+    hvacDuctworkLf: 'HVAC ductwork',
+    hvacSupplyRegisterCount: 'Supply registers',
+    hvacReturnGrilleCount: 'Return grilles',
+    hvacVentilationCount: 'HVAC ventilation',
+    hvacPermitCount: 'HVAC permits / inspections',
+    hvacCleanupCount: 'HVAC cleanup',
+  }[key as string];
+  if (hvacLabel) return { label: hvacLabel };
+  const hvacCard = hvacCardForMeasurementKey(key);
+  if (hvacCard) return { label: hvacCard.label, subtext: hvacCard.helper };
 
   const framingCard = framingCardForMeasurementKey(key);
   if (framingCard)
@@ -833,7 +930,8 @@ export function buildPlanReviewMeasurementRowState(input: {
         input.validationField?.deterministicRepeatedImportStable === false ||
         input.tradeKey === 'electrical' ||
         input.tradeKey === 'plumbing' ||
-        input.tradeKey === 'framing'),
+        input.tradeKey === 'framing' ||
+        input.tradeKey === 'drywall'),
   };
 }
 

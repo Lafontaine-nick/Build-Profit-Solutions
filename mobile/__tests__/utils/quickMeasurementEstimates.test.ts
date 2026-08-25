@@ -122,7 +122,7 @@ describe('getQuickMeasurementEstimate', () => {
       { templateKey: 'ground_up' }
     );
 
-    expect(synced.drywallSqft).toBe(10843);
+    expect(synced.drywallSqft).toBe(11860);
   });
 
   test('Lot 41 room perimeters + labeled wall height keep drywall/paint as Planning estimate', () => {

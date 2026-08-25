@@ -108,6 +108,7 @@ const TRADE_SCOPE_ALLOWLISTS = {
     "cleanup",
   ],
   hvac: [
+    "hvac",
     "service_call",
     "equipment_replace",
     "refrigerant",

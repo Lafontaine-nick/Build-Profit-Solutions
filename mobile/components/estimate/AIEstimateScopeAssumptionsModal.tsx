@@ -78,6 +78,11 @@ import {
   syncFramingScopeItems,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
+  applyHvacProvenanceGuardToScopeMeasurements,
+  buildHvacStructuredMeasurements,
+  hvacQuickMeasurementSourcesFromProvenance,
+} from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import {
   reconcilePlumbingEquipmentScopeMeasurements,
   reconcileFramingScopeMeasurements,
   reconcilePlumbingLineScopeMeasurements,
@@ -107,6 +112,7 @@ import {
   ElectricalQuickMeasurementTakeoff,
 } from '@/components/estimate/ElectricalQuickMeasurementTakeoff';
 import { PlanTakeoffConflictChooser } from '@/components/estimate/PlanTakeoffConflictChooser';
+import { PlanTakeoffPendingConfirmationStrip } from '@/components/estimate/PlanTakeoffPendingConfirmationStrip';
 import {
   applyElectricalQuickMeasurementPatch,
   electricalConfirmScopeAttributesFromMeasurements,
@@ -153,7 +159,23 @@ import {
   WET_AREA_DERIVED_ITEM_IDS,
   scopeChecklistSummaryCounts,
   listScopeItemsNeedingConfirmation,
+  finalizeDrywallScopeChecklistLayout,
+  stripStandaloneDrywallTextureItem,
 } from '@/utils/estimateScopeChecklistUi';
+import {
+  PinnedDrywallAssemblyOptionsCard,
+  DrywallTextureSelectedLabel,
+  filterGroupedItemsWithoutPinnedTexture,
+  resolvePinnedDrywallFinishItem,
+  shouldShowPinnedDrywallAssemblyOptions,
+} from '@/components/estimate/DrywallConfirmScopePanels';
+import {
+  hydrateDrywallSpecialtyBoardMeasurements,
+  isDrywallCompletePackageScope,
+  resolveDrywallFinishChoiceId,
+  syncDrywallPackageTotalFromBoardBuckets,
+  type DrywallBoardBucketDefinition,
+} from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
   BATHROOM_SHOWER_ROUGH_FIXTURE_OPTIONS,
   BATHROOM_SHOWER_ROUGH_FLOOR_OPTIONS,
@@ -307,9 +329,11 @@ import {
 } from '@/utils/scopeQuickMeasurements';
 import {
   filterChecklistItemsForTrade,
+  getPlanTradeConfiguration,
   resolveSingleTradePlanContext,
   stripScopeInputForSingleTrade,
   tradeQuickMeasurementFieldKeys,
+  type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import {
@@ -1063,6 +1087,17 @@ function isSavedPricingBlock(
     block &&
     (block.materialSource === 'local_benchmark' ||
       block.laborSource === 'local_benchmark')
+  );
+}
+
+function shouldShowPricingComparisonBlock(
+  block: SuggestedPricingBlock | null | undefined
+): boolean {
+  if (!block) return false;
+  return (
+    isSavedPricingBlock(block) ||
+    isNationalAverageComparisonBlock(block) ||
+    Boolean(block.isComparison)
   );
 }
 
@@ -5364,13 +5399,25 @@ function QuantitySection({
                     displayResolved.dualCount.quantity,
                     fieldLabels?.countUnit || displayResolved.dualCount.unit
                   )}
-                  label={quantityRowSourceLabel}
+                  label={fieldLabels?.count || quantityRowSourceLabel}
                   pill={
                     displayResolved.quantitySource === 'notes' ? (
                       <SourcePill kind='notes' />
                     ) : undefined
                   }
                   emphasized
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {itemId === 'hvac' &&
+              Number(measurementsInput.hvacSystemTons) > 0 ? (
+                <PricingAmountRow
+                  value={formatDualCountQuantity(
+                    Number(measurementsInput.hvacSystemTons),
+                    fieldLabels?.secondaryCountUnit || 'ton'
+                  )}
+                  label={fieldLabels?.secondaryCount || 'System capacity'}
                   darkMode={darkMode}
                   Colors={Colors}
                 />
@@ -5472,7 +5519,7 @@ function QuantitySection({
                   confidenceLabel={intelligence?.pricing?.confidenceLabel}
                 />
               ) : null}
-              {isSavedPricingBlock(suggestedComparisonSplit) ? (
+              {shouldShowPricingComparisonBlock(suggestedComparisonSplit) ? (
                 <ComparisonToggle
                   block={suggestedComparisonSplit}
                   Colors={Colors}
@@ -5782,6 +5829,26 @@ function QuantitySection({
             darkMode={darkMode}
             applying={applying}
           />
+          {itemId === 'hvac' ? (
+            <PricingInputField
+              label={fieldLabels?.secondaryCount || 'System capacity'}
+              value={String(measurementsInput.hvacSystemTons ?? '')}
+              suffix={formatCountFieldSuffix(
+                fieldLabels?.secondaryCountUnit || 'ton'
+              )}
+              placeholder='0'
+              embedded
+              commitOnBlur
+              onFocus={() => focusQuantityField('hvac__capacity', 'count')}
+              onChangeText={text =>
+                onItemQuantityChange('hvac__capacity', text, 'count', 'ton')
+              }
+              onBlur={() => blurQuantityField('hvac__capacity', 'count')}
+              Colors={Colors}
+              darkMode={darkMode}
+              applying={applying}
+            />
+          ) : null}
           <PricingMatLabRow
             material={
               <PricingInputField
@@ -6477,7 +6544,7 @@ function QuantitySection({
                   confidenceLabel={intelligence?.pricing?.confidenceLabel}
                 />
               ) : null}
-              {isSavedPricingBlock(suggestedComparisonSplit) ? (
+              {shouldShowPricingComparisonBlock(suggestedComparisonSplit) ? (
                 <ComparisonToggle
                   block={suggestedComparisonSplit}
                   Colors={Colors}
@@ -6696,7 +6763,7 @@ function QuantitySection({
             confidenceLabel={intelligence?.pricing?.confidenceLabel}
           />
         ) : null}
-        {isSavedPricingBlock(suggestedComparisonSplit) ? (
+        {shouldShowPricingComparisonBlock(suggestedComparisonSplit) ? (
           <ComparisonToggle
             block={suggestedComparisonSplit}
             Colors={Colors}
@@ -6925,7 +6992,7 @@ function QuantitySection({
           hasCurrentPricing={editorMoneyTotal > 0}
         />
       ) : null}
-      {isSavedPricingBlock(suggestedComparisonSplit) ? (
+      {shouldShowPricingComparisonBlock(suggestedComparisonSplit) ? (
         <ComparisonToggle
           block={suggestedComparisonSplit}
           Colors={Colors}
@@ -9816,6 +9883,12 @@ function ChoiceRow({
           );
         })}
       </View>
+      {item.id === 'texture' && displayedChoiceId ? (
+        <DrywallTextureSelectedLabel
+          choiceId={displayedChoiceId}
+          darkMode={darkMode}
+        />
+      ) : null}
       {showToiletRelocateFloorPrompt ? (
         <View style={{ marginTop: 10 }}>
           <Text
@@ -12273,6 +12346,15 @@ function CollapsibleQuickMeasurements({
     put('exteriorPaintSqft', parsed.exteriorPaintSqft);
     put('baseboardLf', parsed.baseboardLf);
     put('interiorDoorCount', parsed.interiorDoorCount);
+    put('windowCount', parsed.windowCount);
+    put('exteriorDoorCount', parsed.exteriorDoorCount);
+    put('slidingDoorCount', parsed.slidingDoorCount);
+    put('garageDoorSingleCount', parsed.garageDoorSingleCount);
+    put('garageDoorDoubleCount', parsed.garageDoorDoubleCount);
+    put('garageDoorRvCount', parsed.garageDoorRvCount);
+    if (parsed.reframingRequested) {
+      put('framingOpeningCount', parsed.framingOpeningCount);
+    }
     put('cabinetPaintSqft', parsed.cabinetPaintSqft);
     put('cabinetRunLf', parsed.cabinetRunLf);
     put('railingLf', parsed.railingLf);
@@ -12321,6 +12403,19 @@ function CollapsibleQuickMeasurements({
     put('excavationCy', parsed.excavationCy);
     put('deckSqft', parsed.deckSqft);
     put('garageSqft', parsed.garageSqft);
+    put('hvacSystemCount', parsed.hvacSystemCount);
+    put('hvacSystemTons', parsed.hvacSystemTons);
+    put('hvacServiceCallCount', parsed.hvacServiceCallCount);
+    put(
+      'hvacEquipmentReplacementCount',
+      parsed.hvacEquipmentReplacementCount
+    );
+    put('hvacRefrigerantCount', parsed.hvacRefrigerantCount);
+    put('hvacThermostatCount', parsed.hvacThermostatCount);
+    put('hvacDuctworkLf', parsed.hvacDuctworkLf);
+    put('hvacVentilationCount', parsed.hvacVentilationCount);
+    put('hvacPermitCount', parsed.hvacPermitCount);
+    put('hvacCleanupCount', parsed.hvacCleanupCount);
 
     return { values: out, keys: noteKeys };
   }, [
@@ -12338,6 +12433,10 @@ function CollapsibleQuickMeasurements({
       noteQuickMeasurements.keys,
       {
         plumbingPlanImport: singleTradeImport && tradeKey === 'plumbing',
+        windowsDoorsPlanImport:
+          singleTradeImport && tradeKey === 'windows_doors',
+        windowsDoorsNotesFlow:
+          !singleTradeImport && quickMeasurementTemplateKey === 'windows_doors',
         plumbingNotesFlow:
           notesTradeFlow ||
           (!singleTradeImport &&
@@ -16777,6 +16876,17 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const singleTradePlanImport = planImportContext.isSingleTrade;
   const singleTradeKey = planImportContext.tradeKey;
+  const pendingPlanConfirmationAllowedFields = useMemo(() => {
+    const tradeKeyForPending =
+      (measurements.planImportTradeKey as PlanTradeKey | null | undefined) ||
+      singleTradeKey ||
+      null;
+    const trade = tradeKeyForPending
+      ? getPlanTradeConfiguration(tradeKeyForPending)
+      : null;
+    const keys = trade?.reviewMeasurementKeys;
+    return keys?.length ? new Set(keys) : undefined;
+  }, [measurements.planImportTradeKey, singleTradeKey]);
   const notesScopeSelectorVisible =
     !planImport &&
     !singleTradePlanImport &&
@@ -16818,21 +16928,36 @@ export default function AIEstimateScopeAssumptionsModal({
       measurements as Record<string, unknown>,
       checklist?.templateKey
     );
+    const drywallLayoutCtx = {
+      measurements: measurements as Record<string, unknown>,
+      planImportMode: measurements.planImportMode ?? null,
+      planImportTradeKey: measurements.planImportTradeKey ?? null,
+    };
+    const withDrywallLayout = (list: ScopeChecklistItem[]) =>
+      finalizeDrywallScopeChecklistLayout(
+        list,
+        checklist?.templateKey,
+        drywallLayoutCtx
+      );
     if (singleTradePlanImport && singleTradeKey) {
-      return filterChecklistItemsForTrade(
-        expanded,
-        'selected_trade',
-        singleTradeKey
+      return withDrywallLayout(
+        filterChecklistItemsForTrade(
+          expanded,
+          'selected_trade',
+          singleTradeKey
+        )
       );
     }
     if (notesPlumbingFlow) {
-      return expanded.filter(item => plumbingItemIds.has(item.id));
+      return withDrywallLayout(
+        expanded.filter(item => plumbingItemIds.has(item.id))
+      );
     }
     if (stuccoTradeFlow) {
-      return buildStuccoTradeChecklistItems(expanded);
+      return withDrywallLayout(buildStuccoTradeChecklistItems(expanded));
     }
     if (String(checklist?.templateKey || '').toLowerCase() !== 'flooring')
-      return expanded;
+      return withDrywallLayout(expanded);
     const description = flooringDemoDescription(
       measurements,
       scopeNotes,
@@ -16895,6 +17020,8 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.flooringTileSqft,
     measurements.flooringCarpetSqft,
     measurements.flooringSheetVinylSqft,
+    measurements.planImportMode,
+    measurements.planImportTradeKey,
     measurements.bathroomInstallVanityCount,
     measurements.bathroomInstallCounterCount,
     measurements.bathroomDemoVanityCount,
@@ -17717,11 +17844,32 @@ export default function AIEstimateScopeAssumptionsModal({
             imported[key] = String(value);
           }
         }
+        const mergedQuickMeasurementSources = {
+          ...(nextMeasurements.quickMeasurementSources || {}),
+          ...(planImport?.quickMeasurementSources || {}),
+          ...(hydratedPlanTrade === 'hvac' && planImport?.measurementProvenance
+            ? hvacQuickMeasurementSourcesFromProvenance(
+                imported,
+                planImport.measurementProvenance as Record<string, unknown>
+              )
+            : {}),
+        };
         nextMeasurements = {
           ...nextMeasurements,
           ...imported,
+          ...(planImport?.measurementProvenance
+            ? {
+                measurementProvenance: {
+                  ...(nextMeasurements.measurementProvenance || {}),
+                  ...(planImport.measurementProvenance as Record<
+                    string,
+                    unknown
+                  >),
+                },
+              }
+            : {}),
           quickMeasurementSources: tagPlanDetectedQuickMeasurementKeys(
-            nextMeasurements.quickMeasurementSources,
+            mergedQuickMeasurementSources,
             Object.keys(imported)
           ),
         };
@@ -17882,6 +18030,35 @@ export default function AIEstimateScopeAssumptionsModal({
         }
       }
       if (
+        hydratedPlanTrade === 'hvac' ||
+        hydrateTradeContext.tradeKey === 'hvac' ||
+        String(checklist.templateKey || '').toLowerCase() === 'hvac'
+      ) {
+        nextMeasurements = applyHvacProvenanceGuardToScopeMeasurements(
+          nextMeasurements as Record<string, unknown>
+        ) as typeof nextMeasurements;
+        nextMeasurements = prepareScopeMeasurementsInputForUi(
+          nextMeasurements,
+          {
+            notes: scopeNotes,
+            templateKey: checklist.templateKey,
+          }
+        );
+        const structured = buildHvacStructuredMeasurements(
+          nextMeasurements as Record<string, unknown>,
+          nextMeasurements.quickMeasurementSources || {}
+        );
+        if (Object.keys(structured.itemQuantities || {}).length) {
+          nextMeasurements = {
+            ...nextMeasurements,
+            itemQuantities: {
+              ...(nextMeasurements.itemQuantities || {}),
+              ...(structured.itemQuantities || {}),
+            },
+          };
+        }
+      }
+      if (
         String(checklist.templateKey || '').toLowerCase() === 'painting' &&
         Number(nextMeasurements.exteriorPaintSqft || 0) > 0
       ) {
@@ -18018,6 +18195,73 @@ export default function AIEstimateScopeAssumptionsModal({
           quantities: nextMeasurements as Record<string, unknown>,
         });
       }
+      const textureMigration = stripStandaloneDrywallTextureItem(normalized);
+      normalized = finalizeDrywallScopeChecklistLayout(
+        isDrywallCompletePackageScope({
+          templateKey: checklist.templateKey,
+          planImportMode: nextMeasurements.planImportMode,
+          planImportTradeKey: nextMeasurements.planImportTradeKey,
+        })
+          ? normalized
+          : textureMigration.items,
+        checklist.templateKey,
+        {
+          notes: scopeNotes,
+          measurements: {
+            ...norm,
+            planImportMode: nextMeasurements.planImportMode ?? null,
+            planImportTradeKey: nextMeasurements.planImportTradeKey ?? null,
+          },
+          planImportMode: nextMeasurements.planImportMode ?? null,
+          planImportTradeKey: nextMeasurements.planImportTradeKey ?? null,
+        }
+      );
+      const textureChoice = normalized.find(row => row.id === 'texture')?.choiceId;
+      if (!nextMeasurements.drywallFinishLevel) {
+        nextMeasurements = {
+          ...nextMeasurements,
+          drywallFinishLevel:
+            textureMigration.finishLevel ||
+            (textureChoice && textureChoice !== 'unsure'
+              ? textureChoice
+              : null) ||
+            ((hydratedPlanTrade === 'drywall' ||
+              hydrateTradeContext.tradeKey === 'drywall')
+              ? 'orange_peel'
+              : null),
+        };
+      }
+      if (
+        !nextMeasurements.drywallSheetLength &&
+        (hydratedPlanTrade === 'drywall' ||
+          hydrateTradeContext.tradeKey === 'drywall' ||
+          isDrywallCompletePackageScope({
+            templateKey: checklist.templateKey,
+            planImportMode: nextMeasurements.planImportMode,
+            planImportTradeKey: nextMeasurements.planImportTradeKey,
+          }))
+      ) {
+        nextMeasurements = {
+          ...nextMeasurements,
+          drywallSheetLength: '12ft',
+        };
+      }
+      if (
+        isDrywallCompletePackageScope({
+          templateKey: checklist.templateKey,
+          planImportMode: nextMeasurements.planImportMode,
+          planImportTradeKey: nextMeasurements.planImportTradeKey,
+        })
+      ) {
+        nextMeasurements = syncDrywallPackageTotalFromBoardBuckets(
+          hydrateDrywallSpecialtyBoardMeasurements(nextMeasurements, {
+            planFacts: nextMeasurements.planFacts as Record<string, unknown> | null,
+          }),
+          {
+            planFacts: nextMeasurements.planFacts as Record<string, unknown> | null,
+          }
+        );
+      }
       setItems(normalized);
       setMeasurementsSynced(nextMeasurements);
       const displayForHydrate = expandWetAreaDerivedScopeItems(normalized);
@@ -18062,9 +18306,11 @@ export default function AIEstimateScopeAssumptionsModal({
       let next = mergeLivePlanImportIntoScopeMeasurements(prev, planImport);
       if (
         planImport.selectedTrade === 'plumbing' ||
+        planImport.selectedTrade === 'hvac' ||
         ['plumbing', 'plumbing_service'].includes(
           String(checklist?.templateKey || '').toLowerCase()
-        )
+        ) ||
+        String(checklist?.templateKey || '').toLowerCase() === 'hvac'
       ) {
         next = prepareScopeMeasurementsInputForUi(next, {
           notes: scopeNotes,
@@ -18547,6 +18793,59 @@ export default function AIEstimateScopeAssumptionsModal({
     []
   );
 
+  const handleDrywallFinishLevelChange = useCallback(
+    (finishLevel: string) => {
+      setMeasurementsSynced(prev => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.drywall;
+        return {
+          ...prev,
+          drywallFinishLevel: finishLevel,
+          pricingAcceptance,
+        };
+      });
+    },
+    []
+  );
+
+  const handleDrywallSheetLengthChange = useCallback((sheetLength: string) => {
+    setMeasurementsSynced(prev => {
+      const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+      delete pricingAcceptance.drywall;
+      return {
+        ...prev,
+        drywallSheetLength: sheetLength,
+        pricingAcceptance,
+      };
+    });
+  }, []);
+
+  const handleDrywallBoardBucketChange = useCallback(
+    (
+      measurementKey: DrywallBoardBucketDefinition['measurementKey'],
+      sqft: number
+    ) => {
+      setMeasurementsSynced(prev => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.drywall;
+        const nextValue = sqft > 0 ? String(Math.round(sqft)) : '';
+        const next = {
+          ...prev,
+          [measurementKey]: nextValue,
+          pricingAcceptance,
+          quickMeasurementSources: {
+            ...(prev.quickMeasurementSources || {}),
+            [measurementKey]: 'user_selected',
+          },
+        };
+        return syncDrywallPackageTotalFromBoardBuckets(next, {
+          planFacts: next.planFacts as Record<string, unknown> | null,
+        });
+      });
+    },
+    []
+  );
+
   const handleBathroomToiletRelocateFloorTypeChange = useCallback(
     (floorType: BathroomToiletRelocateFloorType | null) => {
       setMeasurementsSynced(prev => {
@@ -18625,10 +18924,43 @@ export default function AIEstimateScopeAssumptionsModal({
     [displayItems, visualCtx]
   );
 
-  const groupedItems = useMemo(
-    () => groupScopeChecklistItems(displayItems, checklist?.templateKey),
-    [displayItems, checklist?.templateKey]
+  const pinnedDrywallFinishItem = useMemo(
+    () =>
+      resolvePinnedDrywallFinishItem(
+        checklist?.templateKey,
+        measurements as Record<string, unknown>,
+        displayItems
+      ),
+    [
+      checklist?.templateKey,
+      displayItems,
+      measurements,
+      measurements.planImportMode,
+      measurements.planImportTradeKey,
+    ]
   );
+
+  const pinnedDrywallAssemblyOptionsVisible = useMemo(
+    () =>
+      shouldShowPinnedDrywallAssemblyOptions(
+        checklist?.templateKey,
+        measurements as Record<string, unknown>
+      ),
+    [
+      checklist?.templateKey,
+      measurements,
+      measurements.planImportMode,
+      measurements.planImportTradeKey,
+    ]
+  );
+
+  const groupedItems = useMemo(() => {
+    const grouped = groupScopeChecklistItems(displayItems, checklist?.templateKey);
+    return filterGroupedItemsWithoutPinnedTexture(
+      grouped,
+      pinnedDrywallFinishItem
+    );
+  }, [displayItems, checklist?.templateKey, pinnedDrywallFinishItem]);
   const embedQmScopeInQuickMeasurements = useMemo(() => {
     const living =
       Number(String(measurements.floorAreaSqft || '').replace(/,/g, '')) ||
@@ -19947,8 +20279,26 @@ export default function AIEstimateScopeAssumptionsModal({
         ...(baseItemId === 'stucco_repairs' && field === 'count'
           ? { stuccoRepairAffectedSqft: quantity }
           : {}),
+        ...(itemId === 'hvac__capacity' && field === 'count'
+          ? {
+              hvacSystemTons: quantity.replace(/,/g, ''),
+              quickMeasurementSources: {
+                ...(prev.quickMeasurementSources || {}),
+                hvacSystemTons: 'user_entered' as const,
+              },
+            }
+          : {}),
         ...(field === 'count' && source === 'user_entered'
           ? (() => {
+              if (baseItemId === 'hvac') {
+                return {
+                  hvacSystemCount: quantity.replace(/,/g, ''),
+                  quickMeasurementSources: {
+                    ...(prev.quickMeasurementSources || {}),
+                    hvacSystemCount: 'user_entered' as const,
+                  },
+                };
+              }
               const card = plumbingCardForItemId(baseItemId);
               if (!card || card.unit === 'allowance') return {};
               return {
@@ -21245,7 +21595,17 @@ export default function AIEstimateScopeAssumptionsModal({
       ? electricalPreviewMeasurements
       : measurements;
 
-  const renderItem = (item: ScopeChecklistItem) => {
+  const renderItem = (
+    item: ScopeChecklistItem,
+    options?: { forcePinnedTexture?: boolean }
+  ) => {
+    if (
+      item.id === 'texture' &&
+      pinnedDrywallFinishItem &&
+      !options?.forcePinnedTexture
+    ) {
+      return null;
+    }
     if (hideDeselectedRoofingQmCard(item.id)) {
       return null;
     }
@@ -21552,6 +21912,11 @@ export default function AIEstimateScopeAssumptionsModal({
                 ...m,
                 bathroomVanityCountertopMaterialType: nextChoiceId,
               }));
+            }
+            if (item.id === 'texture' && nextChoiceId) {
+              handleDrywallFinishLevelChange(nextChoiceId);
+            } else if (item.id === 'texture' && !nextChoiceId) {
+              handleClearAcceptedPricing('drywall');
             }
             if (!nextChoiceId) {
               handleClearAcceptedPricing(item.id);
@@ -22046,6 +22411,22 @@ export default function AIEstimateScopeAssumptionsModal({
             </View>
           ) : null}
 
+          <PlanTakeoffPendingConfirmationStrip
+            measurements={measurements as Record<string, unknown>}
+            setMeasurements={updater => {
+              setMeasurementsSynced(prev => {
+                const next =
+                  typeof updater === 'function'
+                    ? updater(prev as Record<string, unknown>)
+                    : updater;
+                return next as typeof prev;
+              });
+            }}
+            allowedFields={pendingPlanConfirmationAllowedFields}
+            darkMode={darkMode}
+            captionColor={captionColor(darkMode, Colors)}
+          />
+
           <CollapsibleQuickMeasurements
             visible={visible}
             expanded={quickMeasurementsOpen}
@@ -22297,6 +22678,31 @@ export default function AIEstimateScopeAssumptionsModal({
               Colors={Colors}
               darkMode={darkMode}
             />
+          ) : null}
+
+          {pinnedDrywallFinishItem ? (
+            <View style={styles.groupSection}>
+              {renderItem(pinnedDrywallFinishItem, {
+                forcePinnedTexture: true,
+              })}
+            </View>
+          ) : null}
+
+          {pinnedDrywallAssemblyOptionsVisible ? (
+            <View style={styles.groupSection}>
+              <PinnedDrywallAssemblyOptionsCard
+                measurements={measurements as Record<string, unknown>}
+                onSheetLengthChange={handleDrywallSheetLengthChange}
+                onBoardBucketChange={handleDrywallBoardBucketChange}
+                Colors={Colors}
+                darkMode={darkMode}
+                cardStyles={{
+                  card: styles.card,
+                  choiceWrap: styles.choiceWrap,
+                  choiceChipWide: styles.choiceChipWide,
+                }}
+              />
+            </View>
           ) : null}
 
           {!isElectricalConfirmScope ||

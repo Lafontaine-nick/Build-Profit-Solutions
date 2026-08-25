@@ -46,6 +46,18 @@ import {
   parseDrywallMeasurementsFromNotes,
 } from './drywallPlanConvergence';
 import {
+  buildWindowsDoorsStructuredMeasurements,
+  normalizeWindowsDoorsPlanMeasurements,
+  WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+} from './windowsDoorsPlanConvergence';
+import {
+  buildHvacStructuredMeasurements,
+  HVAC_PLAN_ALIASES,
+  HVAC_PLAN_REVIEW_MEASUREMENT_KEYS,
+  hvacQuickMeasurementSourcesFromProvenance,
+  normalizeHvacPlanMeasurements,
+} from './hvacPlanConvergence';
+import {
   buildPlumbingStructuredMeasurements,
   PLUMBING_PLAN_ALIASES,
   PLUMBING_REVIEW_MEASUREMENT_KEYS,
@@ -554,6 +566,109 @@ export function normalizeTradeMeasurements(
         ? { drywallScope: structured.drywallScope }
         : {}),
       ...(structured.itemQuantities
+        ? { itemQuantities: structured.itemQuantities }
+        : {}),
+    };
+    if (!Object.keys(structuredMeasurements).length) {
+      structuredMeasurements = undefined;
+    }
+  }
+
+  if (tradeKey === 'windows_doors') {
+    const windowsDoorsInput =
+      source === 'plan'
+        ? normalizeWindowsDoorsPlanMeasurements(input)
+        : input;
+    const quantitySource =
+      source === 'plan' ? 'plan_detected' : 'user_entered';
+    const structured = buildWindowsDoorsStructuredMeasurements(
+      windowsDoorsInput,
+      quantitySource
+    );
+    const scalar = normalizeWindowsDoorsPlanMeasurements(windowsDoorsInput);
+    for (const [key, value] of Object.entries(scalar)) {
+      measurements[key] = value;
+      if (schemaKeys.has(key) && !existingSources[key]) {
+        quickMeasurementSources[key] = defaultProvenanceTag;
+      }
+      if (schemaKeys.has(key) && normalizedProvenance[key] == null) {
+        normalizedProvenance[key] = normalizedSource;
+      }
+    }
+    structuredMeasurements = {
+      ...(Object.keys(structured.itemQuantities).length
+        ? { itemQuantities: structured.itemQuantities }
+        : {}),
+    };
+    if (!Object.keys(structuredMeasurements).length) {
+      structuredMeasurements = undefined;
+    }
+    for (const key of WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS) {
+      if (measurements[key] != null) continue;
+      const value = windowsDoorsInput[key];
+      if (positiveNumber(value) != null) measurements[key] = value as number;
+    }
+  }
+
+  if (tradeKey === 'hvac') {
+    const hvacInput =
+      source === 'plan'
+        ? normalizeHvacPlanMeasurements(input)
+        : source === 'notes'
+          ? { ...normalizeHvacPlanMeasurements(input), ...input }
+          : input;
+    const provenanceSources = hvacQuickMeasurementSourcesFromProvenance(
+      hvacInput,
+      existingProvenance
+    );
+    for (const [key, tag] of Object.entries(provenanceSources)) {
+      if (schemaKeys.has(key)) {
+        quickMeasurementSources[key] = tag;
+      }
+    }
+    const quantitySourceMap = {
+      ...Object.fromEntries(
+        HVAC_PLAN_REVIEW_MEASUREMENT_KEYS.map(key => [
+          key,
+          quickMeasurementSources[key] || defaultProvenanceTag,
+        ])
+      ),
+    };
+    const structured = buildHvacStructuredMeasurements(
+      hvacInput,
+      quantitySourceMap
+    );
+    const scalar = normalizeHvacPlanMeasurements(hvacInput);
+    for (const [alias, canonical] of Object.entries(HVAC_PLAN_ALIASES)) {
+      if (alias !== canonical) delete measurements[alias];
+    }
+    for (const [key, value] of Object.entries(scalar)) {
+      measurements[key] = value;
+      if (schemaKeys.has(key) && !existingSources[key] && !provenanceSources[key]) {
+        quickMeasurementSources[key] = defaultProvenanceTag;
+      }
+      if (schemaKeys.has(key) && normalizedProvenance[key] == null) {
+        const provEntry = existingProvenance?.[key];
+        if (provEntry && typeof provEntry === 'object') {
+          normalizedProvenance[key] = provEntry;
+        } else if (provenanceSources[key] === 'needs_confirmation') {
+          normalizedProvenance[key] = {
+            normalizedSource: 'NEEDS_REVIEW',
+            status: 'needs_review',
+            pricingEligible: false,
+          };
+        } else {
+          normalizedProvenance[key] = normalizedSource;
+        }
+      }
+    }
+    for (const key of HVAC_PLAN_REVIEW_MEASUREMENT_KEYS) {
+      if (measurements[key] != null) continue;
+      const value = hvacInput[key];
+      if (positiveNumber(value) != null) measurements[key] = value as number;
+    }
+    structuredMeasurements = {
+      ...(Object.keys(structured.itemQuantities).length
         ? { itemQuantities: structured.itemQuantities }
         : {}),
     };

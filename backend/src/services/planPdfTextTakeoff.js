@@ -699,6 +699,49 @@ const PLUMBING_PAGE_SIGNALS = [
   },
 ];
 
+const HVAC_PAGE_SIGNALS = [
+  { re: /\bhvac\s+plan\b|\bmechanical\s+plan\b|\bmechanical\s+layout\b/i, label: 'HVAC / mechanical plan', score: 14 },
+  { re: /\bM-\d{1,2}(?:\.\d{1,2})?\b|\bsheet\s+M[-.]?\d/i, label: 'M sheet', score: 13 },
+  { re: /\bmechanical\s+(?:schedule|legend|details?)\b|\bequipment\s+schedule\b/i, label: 'mechanical schedule/details', score: 12 },
+  { re: /\bfurnace\b|\bair\s*handler\b|\bheat\s*pump\b|\bcondenser\b|\bmini[\s-]?split\b/i, label: 'HVAC equipment', score: 9 },
+  { re: /\bduct(?:work|s)?\b|\bflex\s*duct\b|\bsupply\s+air\b|\breturn\s+air\b/i, label: 'ductwork / air distribution', score: 8 },
+  { re: /\bthermostat\b|\bventilation\b|\bexhaust\s+fan\b/i, label: 'HVAC callouts', score: 6 },
+  { re: /\bHVAC\b|\bmechanical\b/i, label: 'HVAC notes', score: 5 },
+];
+
+function scoreHvacRelevantPage(pageText) {
+  const blob = String(pageText || '');
+  const reasons = [];
+  let score = 0;
+  for (const signal of HVAC_PAGE_SIGNALS) {
+    if (!signal.re.test(blob)) continue;
+    score += signal.score;
+    reasons.push(signal.label);
+  }
+  return { score, reasons };
+}
+
+function expandHvacRelevantPages(pages, pageCount) {
+  const byPage = new Map();
+  for (const page of Array.isArray(pages) ? pages : []) {
+    const pageNumber = Number(page?.page);
+    if (!Number.isInteger(pageNumber) || pageNumber < 1) continue;
+    byPage.set(pageNumber, page);
+  }
+  for (const page of [...byPage.values()]) {
+    if ((page.score || 0) < 8) continue;
+    for (const neighbor of [page.page - 1, page.page + 1]) {
+      if (neighbor < 1 || neighbor > pageCount || byPage.has(neighbor)) continue;
+      byPage.set(neighbor, {
+        page: neighbor,
+        score: Math.max(1, (page.score || 1) - 3),
+        reasons: ['adjacent mechanical sheet'],
+      });
+    }
+  }
+  return [...byPage.values()].sort((a, b) => a.page - b.page);
+}
+
 const INSULATION_PAGE_SIGNALS = [
   { re: /\binsulation\b|\binsul\.?\b|\bthermal\b|\benergy\s*code\b/i, label: 'insulation / energy notes', score: 14 },
   { re: /\bR-?\s*\d+\b|\bbatt\b|\bblown[-\s]?in\b|\bspray\s*foam\b|\bcellulose\b|\bmineral\s*wool\b/i, label: 'insulation assembly', score: 12 },
@@ -1343,6 +1386,315 @@ function aggregateElectricalInstanceTagCounts(pageResults) {
   };
 }
 
+/**
+ * Repeated HVAC instance tags on mechanical / floor sheets.
+ * Tags must appear as drawing callouts — not legend rows, notes, or tonnage labels.
+ */
+const HVAC_INSTANCE_TAG_SPECS = [
+  {
+    key: 'hvacSupplyRegisterCount',
+    id: 'SA',
+    tokenRe: /^S\.?A\.?(?:-?\d{1,2})?[A-Z]?$/i,
+    concatRe: null,
+    minInstances: 2,
+  },
+  {
+    key: 'hvacSupplyRegisterCount',
+    id: 'SD',
+    tokenRe: /^S\.?D\.?(?:-?\d{1,2})?[A-Z]?$/i,
+    concatRe: null,
+    minInstances: 2,
+  },
+  {
+    key: 'hvacReturnGrilleCount',
+    id: 'RA',
+    tokenRe: /^R\.?A\.?(?:-?\d{1,2})?[A-Z]?$/i,
+    concatRe: null,
+    minInstances: 2,
+  },
+  {
+    key: 'hvacReturnGrilleCount',
+    id: 'RG',
+    tokenRe: /^R\.?G\.?(?:-?\d{1,2})?[A-Z]?$/i,
+    concatRe: null,
+    minInstances: 2,
+  },
+  {
+    key: 'hvacThermostatCount',
+    id: 'TSTAT',
+    tokenRe: /^(?:T-?STAT|TSTAT|TS(?:-?\d{1,2})?)$/i,
+    concatRe: null,
+    minInstances: 1,
+  },
+  {
+    key: 'hvacVentilationCount',
+    id: 'ERV',
+    tokenRe: /^(?:ERV|HRV)(?:-?\d{1,2})?[A-Z]?$/i,
+    concatRe: null,
+    minInstances: 1,
+  },
+];
+
+const HVAC_EQUIPMENT_TAG_SPECS = [
+  { prefix: 'RTU', tokenRe: /^RTU(?:-?\d{1,2})?[A-Z]?$/i },
+  { prefix: 'CU', tokenRe: /^C\.?U\.?(?:-?\d{1,2})?[A-Z]?$/i },
+  { prefix: 'HP', tokenRe: /^H\.?P\.?(?:-?\d{1,2})?[A-Z]?$/i },
+];
+
+const MECHANICAL_OR_HVAC_PLAN_RE =
+  /mechanical\s+plan|hvac\s+plan|m-\d|\bduct(?:work|s)?\b|supply\s+air|return\s+air|floor\s*plan/i;
+
+const HVAC_TAG_SKIP_PAGE_RE =
+  /elevation|section|roof\s*plan|framing|terrain|site\s*plan|cover\s*sheet|structural|foundation|electrical\s+plan|lighting\s+plan/i;
+
+const HVAC_NON_INSTANCE_TAG_PHRASE_RE =
+  /\b(legend|schedule|typical|typ\.|similar|sim\.|see\s+(?:sheet|plan|note)|refer(?:\s+to)?|description|tonnage|\btons?\b|\bcfm\b)\b/i;
+
+function isHvacTagSkipPage(text) {
+  const t = String(text || '');
+  if (MECHANICAL_OR_HVAC_PLAN_RE.test(t)) return false;
+  return HVAC_TAG_SKIP_PAGE_RE.test(t);
+}
+
+function detectHvacPlanLevel(text) {
+  const t = String(text || '');
+  if (/\b(?:2nd|second|upper)\s+(?:level|floor)\b|\bupstairs\b/i.test(t)) return 'upper';
+  if (/\b(?:main|first|1st|lower|ground)\s+(?:level|floor)\b/i.test(t)) return 'main';
+  return 'unknown';
+}
+
+function detectHvacSheetKind(text) {
+  const t = String(text || '');
+  if (/mechanical\s+plan|hvac\s+plan|\bM-\d/i.test(t)) return 'mechanical';
+  if (/floor\s*plan|level\s+layout/i.test(t)) return 'floor';
+  return 'other';
+}
+
+function hvacPhraseLooksLikeNonInstance(str) {
+  const s = String(str || '').trim();
+  if (!s) return true;
+  if (s.length > 22) return true;
+  if (HVAC_NON_INSTANCE_TAG_PHRASE_RE.test(s)) return true;
+  if (/\d+\s*(?:'|\"|in(?:ch(?:es)?)?)\b/i.test(s)) return true;
+  return false;
+}
+
+function countDistinctEquipmentTags(phrases, legendBoxes, spec) {
+  const hits = [];
+  for (const phrase of Array.isArray(phrases) ? phrases : []) {
+    const str = String(phrase?.str || '').trim();
+    if (!str || hvacPhraseLooksLikeNonInstance(str)) continue;
+    if (isInsideLegendRegion(phrase, legendBoxes)) continue;
+    const tokens = str.split(/[\s,;/]+/).filter(Boolean);
+    for (const token of tokens) {
+      const compact = String(token || '').replace(/\s+/g, '');
+      if (!spec.tokenRe.test(compact)) continue;
+      hits.push({
+        x: Number(phrase.x) || 0,
+        y: Number(phrase.y) || 0,
+        count: 1,
+        str: compact,
+      });
+    }
+  }
+  return instanceCountFromTagHits(hits);
+}
+
+function deriveHvacSystemCountFromEquipmentTags(phrases, legendBoxes) {
+  const counts = HVAC_EQUIPMENT_TAG_SPECS.map(spec =>
+    countDistinctEquipmentTags(phrases, legendBoxes, spec)
+  ).filter(count => count > 0);
+  if (!counts.length) return 0;
+  return Math.max(...counts);
+}
+
+function countHvacInstanceTagsOnPage(phrases, { pageText, page = null, sheet = null } = {}) {
+  const blob = pageText || (Array.isArray(phrases) ? phrases.map(p => p.str).join(' ') : '');
+  if (isHvacTagSkipPage(blob)) {
+    return {
+      measurements: {},
+      details: {},
+      kind: 'other',
+      level: 'unknown',
+      page,
+      sheet,
+    };
+  }
+  const legendBoxes = findLegendRegions(phrases);
+  const kind = detectHvacSheetKind(blob);
+  const level = detectHvacPlanLevel(blob);
+  const sourceSheet = sheet || extractSheet(blob);
+  const measurements = {};
+  const details = {};
+  const specsByKey = new Map();
+  for (const spec of HVAC_INSTANCE_TAG_SPECS) {
+    const hits = [];
+    for (const phrase of Array.isArray(phrases) ? phrases : []) {
+      const str = String(phrase?.str || '').trim();
+      if (!str || hvacPhraseLooksLikeNonInstance(str)) continue;
+      if (isInsideLegendRegion(phrase, legendBoxes)) continue;
+      const count = countTagOccurrences(str, spec);
+      if (count < 1) continue;
+      hits.push({
+        x: Number(phrase.x) || 0,
+        y: Number(phrase.y) || 0,
+        count,
+        str,
+      });
+    }
+    const minRequired = Number.isFinite(Number(spec.minInstances)) ? Number(spec.minInstances) : 2;
+    const instanceCount = instanceCountFromTagHits(hits);
+    if (instanceCount < minRequired) continue;
+    if (!specsByKey.has(spec.key)) specsByKey.set(spec.key, []);
+    specsByKey.get(spec.key).push({ spec, instanceCount, hits });
+  }
+  for (const [key, entries] of specsByKey.entries()) {
+    const total = entries.reduce((sum, entry) => sum + entry.instanceCount, 0);
+    if (total < 1) continue;
+    measurements[key] = total;
+    details[key] = {
+      value: total,
+      tags: entries.map(entry => entry.spec.id),
+      page,
+      sheet: sourceSheet,
+      kind,
+      level,
+    };
+  }
+  const systemCount = deriveHvacSystemCountFromEquipmentTags(phrases, legendBoxes);
+  if (systemCount > 0) {
+    measurements.hvacSystemCount = systemCount;
+    details.hvacSystemCount = {
+      value: systemCount,
+      tags: HVAC_EQUIPMENT_TAG_SPECS.map(spec => spec.prefix),
+      page,
+      sheet: sourceSheet,
+      kind,
+      level,
+    };
+  }
+  return {
+    measurements,
+    details,
+    kind,
+    level,
+    page,
+    sheet: sourceSheet,
+  };
+}
+
+function pageLooksLikeHvacEquipmentSchedule(pageText, hvacPage = null) {
+  const blob = String(pageText || '');
+  if (/\b(?:equipment|mechanical)\s*schedule\b/i.test(blob)) return true;
+  const reasons = Array.isArray(hvacPage?.reasons) ? hvacPage.reasons : [];
+  if (reasons.some(reason => /schedule|mechanical/i.test(String(reason)))) return true;
+  const equipmentHits = [/\bfurnace\b/i, /\bcondenser\b/i, /\bair\s*handler\b/i, /\bheat\s*pump\b/i].filter(
+    re => re.test(blob)
+  ).length;
+  return equipmentHits >= 2 && /\b(?:ton|qty|quantity|mark)\b/i.test(blob);
+}
+
+function parseHvacEquipmentScheduleFromPageText(pageText, { page = null, sheet = null, hvacPage = null } = {}) {
+  if (!pageLooksLikeHvacEquipmentSchedule(pageText, hvacPage)) {
+    return { page, sheet, measurements: {} };
+  }
+  const blob = String(pageText || '');
+  const measurements = {};
+  const tonMatches = [...blob.matchAll(/\b(\d+(?:\.\d+)?)\s*(?:TON|TNS?)\b/gi)];
+  const tons = tonMatches
+    .map(match => Number(match[1]))
+    .filter(value => Number.isFinite(value) && value > 0 && value <= 25);
+  if (tons.length === 1) {
+    measurements.hvacSystemTons = tons[0];
+  } else if (tons.length > 1) {
+    measurements.hvacSystemTons = Math.max(...tons);
+  }
+  const qtyMatch = blob.match(/\b(?:qty|quantity)\s*[:\s]?\s*(\d{1,2})\b/i);
+  if (qtyMatch) {
+    measurements.hvacSystemCount = Number(qtyMatch[1]);
+  } else {
+    const rtuCount = (blob.match(/\bRTU(?:-|\s)?\d/gi) || []).length;
+    const cuCount = (blob.match(/\bC\.?U\.?(?:-|\s)?\d/gi) || []).length;
+    const hpCount = (blob.match(/\bH\.?P\.?(?:-|\s)?\d/gi) || []).length;
+    const systemGuess = Math.max(rtuCount, cuCount, hpCount);
+    if (systemGuess > 0) measurements.hvacSystemCount = systemGuess;
+  }
+  return { page, sheet, measurements };
+}
+
+function aggregateHvacInstanceTagCounts(pageResults) {
+  const byKey = {};
+  const keys = [
+    'hvacSupplyRegisterCount',
+    'hvacReturnGrilleCount',
+    'hvacThermostatCount',
+    'hvacVentilationCount',
+    'hvacSystemCount',
+  ];
+  for (const key of keys) {
+    const pages = (Array.isArray(pageResults) ? pageResults : [])
+      .map(result => ({
+        ...result,
+        count: Number(result?.measurements?.[key]) || 0,
+        kind: result?.kind || result?.details?.[key]?.kind,
+        level: result?.level || result?.details?.[key]?.level,
+        sheet: result?.sheet || result?.details?.[key]?.sheet,
+        page: result?.page || result?.details?.[key]?.page,
+      }))
+      .filter(result => result.count >= (key === 'hvacSystemCount' || key === 'hvacThermostatCount' || key === 'hvacVentilationCount' ? 1 : 2));
+    if (!pages.length) continue;
+    const total = sumCollapsingDuplicateFixtureViews(pages);
+    const minTotal =
+      key === 'hvacSystemCount' || key === 'hvacThermostatCount' || key === 'hvacVentilationCount'
+        ? 1
+        : 2;
+    if (total < minTotal) continue;
+    byKey[key] = {
+      value: total,
+      tag: key,
+      sourceType: 'pdf_text_instance_tags',
+      sheets: pages.map(page => ({
+        sheet: page.sheet || null,
+        page: page.page || null,
+        count: page.count,
+        kind: page.kind || 'other',
+        level: page.level || 'unknown',
+      })),
+    };
+  }
+  return {
+    measurements: Object.fromEntries(Object.entries(byKey).map(([key, entry]) => [key, entry.value])),
+    byKey,
+  };
+}
+
+function aggregateHvacEquipmentHints(pageResults) {
+  const measurements = {};
+  const pages = [];
+  for (const result of Array.isArray(pageResults) ? pageResults : []) {
+    const pageMeasurements = result?.measurements || {};
+    if (!Object.keys(pageMeasurements).length) continue;
+    pages.push({
+      page: result.page || null,
+      sheet: result.sheet || null,
+      measurements: pageMeasurements,
+    });
+    for (const [key, value] of Object.entries(pageMeasurements)) {
+      const number = Number(value);
+      if (!Number.isFinite(number) || number <= 0) continue;
+      if (key === 'hvacSystemTons') {
+        measurements[key] = Math.max(measurements[key] || 0, number);
+      } else {
+        measurements[key] = Math.max(measurements[key] || 0, Math.round(number));
+      }
+    }
+  }
+  return {
+    measurements,
+    pages,
+  };
+}
+
 function scorePaintingRelevantPage(text) {
   const blob = String(text || '');
   if (!blob.trim()) return { score: 0, reasons: [] };
@@ -1559,6 +1911,14 @@ async function renderInsulationPlanPages(pdfBuffers, insulationPages, options = 
   }));
 }
 
+async function renderHvacPlanPages(pdfBuffers, hvacPages, options = {}) {
+  const images = await renderElectricalPlanPages(pdfBuffers, hvacPages, options);
+  return images.map(image => ({
+    ...image,
+    filename: String(image.filename || '').replace(/^electrical-page-/, 'hvac-page-'),
+  }));
+}
+
 async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = {}) {
   const canvasLib = loadNodeCanvas();
   if (!canvasLib?.createCanvas) {
@@ -1681,11 +2041,14 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
   const paintingRelevantPages = [];
   const electricalRelevantPages = [];
   const plumbingRelevantPages = [];
+  const hvacRelevantPages = [];
   const insulationRelevantPages = [];
   const plumbingFixtureSchedulePages = [];
   const plumbingEquipmentHintPages = [];
   const plumbingEquipmentTextChunks = [];
   const electricalInstanceTagPages = [];
+  const hvacInstanceTagPages = [];
+  const hvacEquipmentHintPages = [];
   let pageCount = 0;
 
   for (const buf of list) {
@@ -1718,6 +2081,15 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
         });
       }
       const plumbingPage = scorePlumbingRelevantPage(pageText);
+      const hvacPage = scoreHvacRelevantPage(pageText);
+      if (hvacPage.score > 0) {
+        hvacRelevantPages.push({
+          page: pageNumber,
+          score: hvacPage.score,
+          reasons: hvacPage.reasons,
+          sheet: extractSheet(pageText),
+        });
+      }
       const insulationPage = scoreInsulationRelevantPage(pageText);
       if (insulationPage.score > 0) {
         insulationRelevantPages.push({
@@ -1797,6 +2169,47 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
             page: pageNumber,
             score: 9,
             reasons: [tagReason],
+          });
+        }
+      }
+      const hvacPageEntry = hvacRelevantPages.find(entry => entry.page === pageNumber);
+      const hvacSheetId = extractSheet(pageText);
+      const hvacInstanceTagPage = countHvacInstanceTagsOnPage(phrases, {
+        pageText,
+        page: pageNumber,
+        sheet: hvacSheetId,
+      });
+      if (Object.keys(hvacInstanceTagPage.measurements || {}).length) {
+        hvacInstanceTagPages.push(hvacInstanceTagPage);
+        const tagReason = 'HVAC instance tags';
+        if (hvacPageEntry) {
+          hvacPageEntry.score = Math.max(hvacPageEntry.score, 9);
+          hvacPageEntry.reasons = [...new Set([...(hvacPageEntry.reasons || []), tagReason])];
+        } else {
+          hvacRelevantPages.push({
+            page: pageNumber,
+            score: 9,
+            reasons: [tagReason],
+          });
+        }
+      }
+      const hvacEquipmentPage = parseHvacEquipmentScheduleFromPageText(pageText, {
+        page: pageNumber,
+        sheet: hvacSheetId,
+        hvacPage: hvacPageEntry,
+      });
+      if (Object.keys(hvacEquipmentPage.measurements || {}).length) {
+        hvacEquipmentHintPages.push(hvacEquipmentPage);
+        const scheduleReason = 'equipment schedule';
+        const existingHvac = hvacRelevantPages.find(entry => entry.page === pageNumber);
+        if (existingHvac) {
+          existingHvac.score = Math.max(existingHvac.score, 11);
+          existingHvac.reasons = [...new Set([...(existingHvac.reasons || []), scheduleReason])];
+        } else {
+          hvacRelevantPages.push({
+            page: pageNumber,
+            score: 11,
+            reasons: [scheduleReason],
           });
         }
       }
@@ -1886,6 +2299,9 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
     plumbingRelevantPages: expandPlumbingRelevantPages(plumbingRelevantPages, pageCount)
       .sort((a, b) => b.score - a.score)
       .slice(0, 12),
+    hvacRelevantPages: expandHvacRelevantPages(hvacRelevantPages, pageCount)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 12),
     insulationRelevantPages: [
       ...insulationRelevantPages.sort((a, b) => b.score - a.score),
       ...Array.from({ length: pageCount }, (_, index) => ({
@@ -1905,6 +2321,8 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
       plumbingEquipmentTextChunks
     ),
     electricalInstanceTags: aggregateElectricalInstanceTagCounts(electricalInstanceTagPages),
+    hvacInstanceTags: aggregateHvacInstanceTagCounts(hvacInstanceTagPages),
+    hvacEquipmentHints: aggregateHvacEquipmentHints(hvacEquipmentHintPages),
     pageCount,
   };
 }
@@ -2005,6 +2423,55 @@ function formatPdfEvidenceForVision(pdfTakeoff, options = {}) {
       );
     }
   }
+  if (tradeKey === 'hvac') {
+    const hvacPages = Array.isArray(pdfTakeoff.hvacRelevantPages)
+      ? pdfTakeoff.hvacRelevantPages
+      : [];
+    lines.push(
+      'HVAC-relevant sheets are dedicated M / mechanical sheets, equipment schedules, HVAC legends, duct layouts, ventilation plans, and floor plans with mechanical callouts. Count only readable equipment, thermostats, ventilation devices, and labeled ductwork; never use living SF as an HVAC quantity.'
+    );
+    if (hvacPages.length) {
+      lines.push('PDF text layer — pages that look useful for an HVAC takeoff:');
+      for (const page of hvacPages.slice(0, 8)) {
+        lines.push(
+          `- page ${page.page}: ${Array.isArray(page.reasons) ? page.reasons.join(', ') : 'mechanical plan'}`
+        );
+      }
+    }
+    const hvacTags = pdfTakeoff.hvacInstanceTags?.byKey || {};
+    const hvacTagLines = Object.entries(hvacTags)
+      .filter(([, entry]) => Number(entry?.value) > 0)
+      .map(([key, entry]) => {
+        const sheets = Array.isArray(entry.sheets)
+          ? entry.sheets
+              .map(sheet => {
+                const where = [sheet.sheet ? `sheet ${sheet.sheet}` : null, sheet.page ? `page ${sheet.page}` : null]
+                  .filter(Boolean)
+                  .join(' ');
+                return `${where || 'plan'}: ${sheet.count} ${entry.tag}`.trim();
+              })
+              .join('; ')
+          : '';
+        return `- ${key}: ${entry.value} from PDF text instance tags${sheets ? ` (${sheets})` : ''}`;
+      });
+    if (hvacTagLines.length) {
+      lines.push(
+        'PDF text layer — HVAC instance tags (each repeated tag is one device on the drawing; ignore legend/schedule/note entries):'
+      );
+      lines.push(...hvacTagLines);
+      lines.push(
+        'Prefer these instance-tag counts over symbol estimates when they disagree. Do not treat a legend definition as a quantity.'
+      );
+    }
+    const hvacSchedule = pdfTakeoff.hvacEquipmentHints?.measurements || {};
+    const scheduleLines = Object.entries(hvacSchedule)
+      .filter(([, value]) => Number(value) > 0)
+      .map(([key, value]) => `- ${key}: ${value} from equipment schedule text`);
+    if (scheduleLines.length) {
+      lines.push('PDF text layer — HVAC equipment schedule reads:');
+      lines.push(...scheduleLines);
+    }
+  }
   const electricalPages = Array.isArray(pdfTakeoff.electricalRelevantPages) ? pdfTakeoff.electricalRelevantPages : [];
   if (tradeKey === 'electrical') {
     lines.push(
@@ -2067,12 +2534,19 @@ module.exports = {
   scorePaintingRelevantPage,
   scoreElectricalRelevantPage,
   scorePlumbingRelevantPage,
+  scoreHvacRelevantPage,
   scoreInsulationRelevantPage,
   expandElectricalRelevantPages,
   expandPlumbingRelevantPages,
+  expandHvacRelevantPages,
   ELECTRICAL_INSTANCE_TAG_SPECS,
   countElectricalInstanceTagsOnPage,
   aggregateElectricalInstanceTagCounts,
+  HVAC_INSTANCE_TAG_SPECS,
+  countHvacInstanceTagsOnPage,
+  aggregateHvacInstanceTagCounts,
+  parseHvacEquipmentScheduleFromPageText,
+  aggregateHvacEquipmentHints,
   countPlumbingFixtureScheduleOnPage,
   aggregatePlumbingFixtureScheduleInventory,
   parsePlumbingEquipmentFromPageText,
@@ -2083,6 +2557,7 @@ module.exports = {
   renderElectricalPlanPages,
   renderPlumbingPlanPages,
   renderInsulationPlanPages,
+  renderHvacPlanPages,
   fillElectricalSheetBackground,
   toUint8Array,
   feetInchesToDecimal,

@@ -1,6 +1,7 @@
 import type { SubcontractorTradeKey } from './types';
 import { ELECTRICAL_SCOPE_ALLOWLIST } from './electricalPlanConvergence';
 import { PLUMBING_SCOPE_ALLOWLIST } from './plumbingPlanConvergence';
+import { HVAC_PLAN_SCOPE_ALLOWLIST } from './hvacPlanConvergence';
 
 /** Flatten scope group item ids (mirrors SCOPE_CHECKLIST_GROUPS — read-only reference). */
 function ids(...groups: string[][]): string[] {
@@ -58,12 +59,7 @@ export const TRADE_SCOPE_ALLOWLISTS: Record<SubcontractorTradeKey, string[]> = {
     ['gutters', 'downspouts'],
     ['permits', 'cleanup']
   ),
-  hvac: ids(
-    ['service_call'],
-    ['equipment_replace', 'refrigerant', 'thermostat'],
-    ['ductwork', 'ventilation'],
-    ['permits', 'cleanup']
-  ),
+  hvac: [...HVAC_PLAN_SCOPE_ALLOWLIST],
   concrete: ids(
     [
       'demo_removal',
@@ -83,7 +79,14 @@ export const TRADE_SCOPE_ALLOWLISTS: Record<SubcontractorTradeKey, string[]> = {
     'cleanup',
   ],
   drywall: ids(
-    ['demo_removal', 'hang', 'finish_tape', 'texture', 'patch_repair'],
+    [
+      'demo_removal',
+      'drywall',
+      'hang',
+      'finish_tape',
+      'texture',
+      'patch_repair',
+    ],
     ['cleanup']
   ),
   plumbing: [...PLUMBING_SCOPE_ALLOWLIST],

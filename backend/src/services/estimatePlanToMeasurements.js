@@ -54,6 +54,7 @@ const {
   FRAMING_MEASUREMENT_KEYS,
   finalizeFramingTakeoff,
 } = require("./framingPlanAdapter");
+const { hvacPdfTextMeasurementsFromTakeoff } = require("./hvacPlanAdapter");
 
 /** Temporary Lot 58 diagnosis — which pipeline stage drops Electrical counts. */
 const ELECTRICAL_DEBUG_KEYS = [
@@ -75,6 +76,18 @@ function electricalDebugSnapshot(measurements) {
     out[key] = src[key] ?? null;
   }
   return out;
+}
+
+function normalizedStringList(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string" && value.trim()) return [value];
+  if (value && typeof value === "object") return Object.keys(value);
+  return [];
+}
+
+function normalizedObjectList(value) {
+  if (Array.isArray(value)) return value;
+  return value && typeof value === "object" ? [value] : [];
 }
 
 function electricalishMeasurementKeys(measurements) {
@@ -252,6 +265,12 @@ const MEASUREMENT_KEYS = new Set([
   "ceilingPaintSqft",
   "paintAreaSqft",
   "interiorDoorCount",
+  "windowCount",
+  "exteriorDoorCount",
+  "slidingDoorCount",
+  "garageDoorSingleCount",
+  "garageDoorDoubleCount",
+  "garageDoorRvCount",
   "cabinetRunLf",
   "cabinetPaintSqft",
   "exteriorPaintSqft",
@@ -299,6 +318,19 @@ const MEASUREMENT_KEYS = new Set([
   "drywallWallSqft",
   "drywallCeilingSqft",
   "drywallOpeningDeductionSqft",
+  "drywallGarageFireRatedSqft",
+  "drywallMoistureResistantSqft",
+  "drywallVaultedSlopedSqft",
+  "drywallHighCeilingSqft",
+  "drywallFinishLevel",
+  "garageWallDrywallSqft",
+  "garageCeilingDrywallSqft",
+  "moistureResistantDrywallSqft",
+  "fireRatedDrywallSqft",
+  "specialtyDrywallSqft",
+  "highCeilingDrywallSqft",
+  "vaultedCeilingDrywallSqft",
+  "level5FinishSqft",
   "exteriorWallGrossSqft",
   "exteriorWallInsulationSqft",
   "atticInsulationSqft",
@@ -339,6 +371,18 @@ const MEASUREMENT_KEYS = new Set([
   ...FRAMING_MEASUREMENT_KEYS,
   ...ELECTRICAL_MEASUREMENT_KEYS,
   ...Object.keys(ELECTRICAL_PLAN_ALIASES),
+  "hvacSystemCount",
+  "hvacSystemTons",
+  "hvacServiceCallCount",
+  "hvacEquipmentReplacementCount",
+  "hvacRefrigerantCount",
+  "hvacThermostatCount",
+  "hvacDuctworkLf",
+  "hvacSupplyRegisterCount",
+  "hvacReturnGrilleCount",
+  "hvacVentilationCount",
+  "hvacPermitCount",
+  "hvacCleanupCount",
 ]);
 
 /**
@@ -958,11 +1002,45 @@ const DRYWALL_VISION_INSTRUCTIONS = `
 Drywall takeoff rules:
 - Review floor plans, room schedules, reflected ceiling plans, interior elevations, sections, and finish schedules.
 - When selected trade is Drywall, return drywallSqft only when the plan explicitly labels a drywall surface quantity or when wall and ceiling surfaces can be calculated from readable room dimensions plus an explicit wall/plate height.
-- Prefer separate drywallWallSqft and drywallCeilingSqft when both surfaces can be supported. Use drywallOpeningDeductionSqft only for readable openings or clearly documented deductions, then calculate drywallSqft as wall plus ceiling surfaces minus deductions.
+- Prefer separate drywallWallSqft and drywallCeilingSqft when both surfaces can be supported. Retain drywallOpeningDeductionSqft as supporting context, but calculate drywallSqft as wall plus ceiling surfaces without requiring an opening deduction.
 - Add explicitly labeled quantities to explicitlyLabeled. Add quantities calculated from readable room geometry to geometryDerived and include fieldEvidence describing the source sheets or labels.
-- Do not use total living area, floor area, building footprint, visual proportions, or an arbitrary multiplier as drywallSqft. If the surface takeoff is unavailable, omit it and list the missing sheets or dimensions in unreadableFields or missingInfo.
-- Distinguish interior drywall from garage, vaulted/open-to-below, soffit, shaft, wet-area backing, and fire-rated areas when the plan documents those boundaries. Do not double-count a room or ceiling surface.
+- Do not use total living area, floor area, building footprint, visual proportions, or an arbitrary multiplier as drywallSqft. For a selected Drywall pass, return readable dimensioned rooms with source sheet/page in rooms[] and publish supported partial geometry as NEEDS_CONFIRMATION instead of leaving every drywall field blank.
+- Distinguish interior drywall from garage/fire-rated, moisture-resistant, vaulted/sloped, high-ceiling, soffit, and shaft areas when the plan documents those boundaries. Return separate area keys for documented specialty areas and do not double-count them in the net total.
+- Capture drywall finishLevel only when the finish schedule or notes explicitly identifies Level 4, Level 5, or a specialty finish. Default residential finish is handled during scope confirmation; never guess Level 5.
 `;
+
+const WINDOWS_DOORS_VISION_INSTRUCTIONS = `
+Windows & doors takeoff rules:
+- Review every exterior elevation, window schedule, door schedule, opening schedule, floor plan, section, and relevant detail sheet.
+- Return only these canonical counts: windowCount, exteriorDoorCount, slidingDoorCount, garageDoorSingleCount, garageDoorDoubleCount, and garageDoorRvCount.
+- Count window units from a readable window schedule, opening tags, or identifiable exterior-elevation symbols. Count exterior swing/hinged doors separately from sliding or multi-panel patio doors. Exclude interior doors from exteriorDoorCount.
+- Classify garage openings by documented schedule/type or readable dimensions: single, double, and RV/oversized. Do not infer garage door type from garage area, living area, or visual proportions.
+- Count a unit once even when it appears on multiple elevations; reconcile elevations against schedules and note any unresolved duplicate or missing opening.
+- Put explicit schedule/label counts in explicitlyLabeled and counts from clearly identifiable, directly counted symbols in geometryDerived. Include fieldEvidence with sheet/page and the readable schedule, tag, symbol, or dimension used.
+- Do not invent window/door counts from typical residential layouts. If the schedule or symbols are unreadable, omit that field and list the missing sheet or field in unreadableFields or missingInfo.
+`;
+
+const HVAC_VISION_INSTRUCTIONS = `
+HVAC takeoff rules:
+- Review dedicated M / mechanical sheets, equipment schedules, HVAC legends, duct layouts, ventilation plans, floor plans with mechanical callouts, sections, and HVAC notes.
+- Return only these canonical measurements: hvacSystemCount, hvacSystemTons, hvacServiceCallCount, hvacEquipmentReplacementCount, hvacRefrigerantCount, hvacThermostatCount, hvacDuctworkLf, hvacSupplyRegisterCount, hvacReturnGrilleCount, hvacVentilationCount, hvacPermitCount, and hvacCleanupCount.
+- Count HVAC systems, furnaces, air handlers, condensers, heat pumps, or mini-splits only when the schedule, tags, or directly countable symbols support the quantity. Return tonnage only when explicitly labeled.
+- Count supply registers/diffusers and return grilles separately when documented on mechanical plans or schedules.
+- Return ductwork only when linear feet are labeled or directly dimensioned. Do not infer duct LF, system count, tonnage, or HVAC pricing from living area.
+- Count thermostats, ventilation equipment, replacement equipment, refrigerant service, permits, and cleanup only when explicitly documented. Do not count electrical bath exhaust-fan work as HVAC ventilation.
+- If a PDF text-layer block lists HVAC instance tags (for example repeated SA, RA, TSTAT, CU-1, or RTU-1 callouts), treat those as counted devices — not legend entries. Prefer those instance-tag totals over a lower symbol estimate.
+- Put schedule/label quantities in explicitlyLabeled and directly counted symbols or measured ductwork in geometryDerived. Include fieldEvidence with page, sheet, and readable source text. Omit unreadable values and list the missing field in unreadableFields or missingInfo.
+`;
+
+function buildHvacSystemPrompt() {
+  return `You are a construction estimator performing a focused HVAC takeoff from mechanical plans, equipment schedules, HVAC layouts, sections, and notes.
+
+Return ONLY valid JSON (no markdown).
+
+${HVAC_VISION_INSTRUCTIONS}
+
+Return the existing plan-takeoff JSON envelope with measurements, fieldConfidence, explicitlyLabeled, geometryDerived, unreadableFields, fieldEvidence, assumptions, and notesBlock.`;
+}
 
 function perStoryWallHeightFromPlanFacts(planFacts = {}, stories = 1) {
   let wallHeightCandidate = positive(planFacts?.wallHeightFt);
@@ -1670,12 +1748,17 @@ function visionSystemPrompt(
   plumbingSelected,
   insulationSelected,
   drywallSelected,
+  windowsDoorsSelected,
+  hvacSelected,
 ) {
   if (electricalSelected) return buildElectricalSystemPrompt();
   if (plumbingSelected) return buildPlumbingSystemPrompt();
+  if (hvacSelected) return buildHvacSystemPrompt();
   return `${buildSystemPrompt()}${
     insulationSelected ? `\n${INSULATION_VISION_INSTRUCTIONS}` : ""
-  }${drywallSelected ? `\n${DRYWALL_VISION_INSTRUCTIONS}` : ""}`;
+  }${drywallSelected ? `\n${DRYWALL_VISION_INSTRUCTIONS}` : ""}${
+    windowsDoorsSelected ? `\n${WINDOWS_DOORS_VISION_INSTRUCTIONS}` : ""
+  }`;
 }
 
 function sanitizeRooms(rawRooms) {
@@ -1721,6 +1804,11 @@ function sanitizeRooms(rawRooms) {
       measurementKey,
       confidence: Math.max(0, Math.min(1, Number(room.confidence) || 0)),
     };
+    const roomWallHeightFt =
+      positive(room.wallHeightFt) || positive(room.plateHeightFt);
+    if (roomWallHeightFt != null && roomWallHeightFt >= 7 && roomWallHeightFt <= 14) {
+      entry.wallHeightFt = roomWallHeightFt;
+    }
     if (room.source) entry.source = String(room.source).slice(0, 40);
     const sourcePage = Number(room.sourcePage);
     if (Number.isInteger(sourcePage) && sourcePage > 0 && sourcePage <= 1000) {
@@ -2291,17 +2379,32 @@ function normalizeDrywallPlanMeasurements(raw = {}, supportedKeys = []) {
     "drywallWallSqft",
     "drywallCeilingSqft",
     "drywallOpeningDeductionSqft",
+    "drywallGarageFireRatedSqft",
+    "drywallMoistureResistantSqft",
+    "drywallVaultedSlopedSqft",
+    "drywallHighCeilingSqft",
+    "drywallFinishLevel",
+    "garageWallDrywallSqft",
+    "garageCeilingDrywallSqft",
+    "moistureResistantDrywallSqft",
+    "fireRatedDrywallSqft",
+    "specialtyDrywallSqft",
+    "highCeilingDrywallSqft",
+    "vaultedCeilingDrywallSqft",
+    "level5FinishSqft",
   ]) {
     if (!allowed.has(key)) continue;
     const value = positive(src[key]);
     if (value != null) out[key] = roundTenth(value);
   }
+  if (typeof src.drywallFinishLevel === "string" && src.drywallFinishLevel.trim()) {
+    out.drywallFinishLevel = src.drywallFinishLevel.trim();
+  }
   if (out.drywallSqft == null) {
     const walls = positive(out.drywallWallSqft) || 0;
     const ceilings = positive(out.drywallCeilingSqft) || 0;
-    const deductions = positive(out.drywallOpeningDeductionSqft) || 0;
     if (walls > 0 || ceilings > 0) {
-      out.drywallSqft = roundTenth(Math.max(0, walls + ceilings - deductions));
+      out.drywallSqft = roundTenth(walls + ceilings);
     }
   }
   return out;
@@ -2313,48 +2416,149 @@ function normalizeDrywallPlanMeasurements(raw = {}, supportedKeys = []) {
  * ceiling total is the sum of dimensioned room areas. Opening deductions are
  * only subtracted when they are explicitly reported by the plan pass.
  */
+function drywallPlanningSurfaceQuantity(livingSqft) {
+  const living = positive(livingSqft);
+  return living == null ? null : Math.round(living * 3.5);
+}
+
+function isUndercountedDrywallSurface(drywallSqft, livingSqft) {
+  const living = positive(livingSqft);
+  const drywall = positive(drywallSqft);
+  if (!(drywall > 0) || living == null) return false;
+  if (Math.abs(drywall - living) < 0.51) return true;
+  return drywall / living < 2.5;
+}
+
+function resolveConditionedCeilingSqft(buildingAreas = {}, measurements = {}) {
+  const main = positive(buildingAreas.mainFloorLivingSqft);
+  const upstairs = positive(buildingAreas.upstairsLivingSqft);
+  if (main != null || upstairs != null) {
+    return roundTenth((main || 0) + (upstairs || 0));
+  }
+  return (
+    positive(buildingAreas.totalLivingSqft) ||
+    positive(measurements.floorAreaSqft) ||
+    null
+  );
+}
+
+function reconcileIncompleteDrywallGeometryTakeoff(
+  measurements = {},
+  buildingAreas = {},
+) {
+  const next = { ...measurements };
+  const assumptions = [];
+  const planningEstimateKeys = [];
+  let reconciled = false;
+  const living = resolveConditionedCeilingSqft(buildingAreas, next);
+  const scheduleCeiling = living;
+  let wall = positive(next.drywallWallSqft);
+  let ceiling = positive(next.drywallCeilingSqft);
+
+  if (
+    scheduleCeiling != null &&
+    ceiling != null &&
+    ceiling < scheduleCeiling * ROOM_CEILING_COVERAGE_MIN
+  ) {
+    assumptions.push(
+      `Ceiling drywall upgraded from ${ceiling.toLocaleString()} SF to ${scheduleCeiling.toLocaleString()} SF using labeled main + upper living areas because dimensioned rooms covered less than 70% of the conditioned ceiling footprint.`,
+    );
+    ceiling = scheduleCeiling;
+    next.drywallCeilingSqft = scheduleCeiling;
+    planningEstimateKeys.push("drywallCeilingSqft");
+    reconciled = true;
+  }
+
+  const updatedTotal = (wall || 0) + (ceiling || 0);
+  if (living != null && isUndercountedDrywallSurface(updatedTotal, living)) {
+    const planningTotal = drywallPlanningSurfaceQuantity(living);
+    if (planningTotal != null) {
+      const targetCeiling = scheduleCeiling ?? ceiling ?? living;
+      const targetWall = Math.max(wall || 0, planningTotal - targetCeiling);
+      if (
+        targetWall !== wall ||
+        targetCeiling !== ceiling ||
+        positive(next.drywallSqft) !== planningTotal
+      ) {
+        assumptions.push(
+          `House drywall upgraded to a ${planningTotal.toLocaleString()} SF planning split (${targetWall.toLocaleString()} SF walls + ${targetCeiling.toLocaleString()} SF ceilings) because readable room geometry did not cover a complete takeoff.`,
+        );
+        next.drywallWallSqft = roundTenth(targetWall);
+        next.drywallCeilingSqft = roundTenth(targetCeiling);
+        next.drywallSqft = roundTenth(planningTotal);
+        planningEstimateKeys.push(
+          "drywallWallSqft",
+          "drywallCeilingSqft",
+          "drywallSqft",
+        );
+        reconciled = true;
+      }
+    }
+  } else if (reconciled) {
+    next.drywallSqft = roundTenth(
+      (positive(next.drywallWallSqft) || 0) +
+        (positive(next.drywallCeilingSqft) || 0),
+    );
+    planningEstimateKeys.push("drywallSqft");
+  }
+
+  return {
+    measurements: next,
+    reconciled,
+    assumptions,
+    planningEstimateKeys: [...new Set(planningEstimateKeys)],
+  };
+}
+
 function deriveDrywallGeometryMeasurements(
   measurements = {},
   rooms = [],
   planFacts = {},
   options = {},
 ) {
-  const next = { ...measurements };
+  let next = { ...measurements };
   const derivedKeys = [];
   const assumptions = [];
   const buildingAreas = options.buildingAreas || planFacts.buildingAreas || {};
   const wallHeightFt =
     explicitInteriorWallHeightFt(planFacts) ||
     explicitInteriorWallHeightFt(options.rawPlanFacts || {});
-  const livingSqft = conditionedLivingCeilingSqft(buildingAreas);
-  const eligible = (Array.isArray(rooms) ? rooms : [])
+  const conditionedCeilingSqft =
+    (positive(buildingAreas.mainFloorLivingSqft) || 0) +
+    (positive(buildingAreas.upstairsLivingSqft) || 0) ||
+    null;
+  const allRooms = Array.isArray(rooms) ? rooms : [];
+  const garageRooms = allRooms
+    .filter(
+      (room) =>
+        /\bgarage\b|\brv\s*garage\b/i.test(String(room?.name || "")) &&
+        ((Number(room?.confidence) || 0) >= 0.4 ||
+          (positive(room?.lengthFt) != null && positive(room?.widthFt) != null)),
+    )
+    .map((room) => ({ room, ...roomRectangle(room) }));
+  const eligible = allRooms
     .filter(
       (room) =>
         isPaintableInteriorRoom(room?.name) &&
-        (Number(room?.confidence) || 0) >= 0.4,
+        ((Number(room?.confidence) || 0) >= 0.4 ||
+          (positive(room?.lengthFt) != null && positive(room?.widthFt) != null)),
     )
     .map((room) => ({ room, ...roomRectangle(room) }));
   const dimensioned = eligible.filter((entry) => entry.perimeterLf != null);
   const withArea = eligible.filter((entry) => entry.areaSqft != null);
   const roomAreaSqft =
-    withArea.length >= 2
+    withArea.length >= 1
       ? withArea.reduce((sum, entry) => sum + entry.areaSqft, 0)
       : null;
-  const roomCoverage =
-    roomAreaSqft != null && livingSqft != null && livingSqft > 0
-      ? roomAreaSqft / livingSqft
-      : null;
-  const completeEnough =
-    roomCoverage == null || roomCoverage >= ROOM_CEILING_COVERAGE_MIN;
-
   if (
     !(positive(next.drywallWallSqft) > 0) &&
     wallHeightFt &&
-    dimensioned.length >= 2 &&
-    completeEnough
+    dimensioned.length >= 1
   ) {
     const wallSqft = dimensioned.reduce(
-      (sum, entry) => sum + entry.perimeterLf * wallHeightFt,
+      (sum, entry) =>
+        sum +
+        entry.perimeterLf * (explicitInteriorWallHeightFt(entry.room) || wallHeightFt),
       0,
     );
     const rounded = roundTenth(wallSqft);
@@ -2362,15 +2566,23 @@ function deriveDrywallGeometryMeasurements(
       next.drywallWallSqft = rounded;
       derivedKeys.push("drywallWallSqft");
       assumptions.push(
-        `Drywall wall area ${rounded.toLocaleString()} SF calculated from ${dimensioned.length} dimensioned conditioned rooms × ${wallHeightFt} FT wall/plate height (gross room-perimeter method).`,
+        `Drywall wall area ${rounded.toLocaleString()} SF calculated from ${dimensioned.length} dimensioned conditioned rooms × explicit wall/plate height (gross room-perimeter method).`,
       );
+      if (
+        conditionedCeilingSqft != null &&
+        roomAreaSqft != null &&
+        roomAreaSqft / conditionedCeilingSqft < ROOM_CEILING_COVERAGE_MIN
+      ) {
+        assumptions.push(
+          "Wall drywall is a partial room-geometry takeoff because the readable dimensioned rooms do not cover the full conditioned plan; confirm remaining partitions and exterior-wall surfaces.",
+        );
+      }
     }
   }
 
   if (
     !(positive(next.drywallCeilingSqft) > 0) &&
-    roomAreaSqft != null &&
-    completeEnough
+    roomAreaSqft != null
   ) {
     const rounded = roundTenth(roomAreaSqft);
     if (rounded > 0) {
@@ -2379,6 +2591,70 @@ function deriveDrywallGeometryMeasurements(
       assumptions.push(
         `Drywall ceiling area ${rounded.toLocaleString()} SF calculated from ${withArea.length} dimensioned conditioned rooms.`,
       );
+      if (
+        conditionedCeilingSqft != null &&
+        roomAreaSqft < conditionedCeilingSqft * ROOM_CEILING_COVERAGE_MIN
+      ) {
+        assumptions.push(
+          "Ceiling drywall is a partial room-geometry takeoff; confirm open-to-below, stairs, vaulted areas, and any unreadable rooms.",
+        );
+      }
+    }
+  }
+  if (garageRooms.length) {
+    const garageArea = garageRooms.reduce(
+      (sum, entry) => sum + (entry.areaSqft || 0),
+      0,
+    );
+    if (
+      !(positive(next.garageCeilingDrywallSqft) > 0) &&
+      garageArea > 0
+    ) {
+      next.garageCeilingDrywallSqft = roundTenth(garageArea);
+      derivedKeys.push("garageCeilingDrywallSqft");
+      assumptions.push(
+        `Garage ceiling drywall ${next.garageCeilingDrywallSqft.toLocaleString()} SF calculated from ${garageRooms.length} dimensioned garage footprint${garageRooms.length === 1 ? "" : "s"}; confirm whether the garage ceiling is drywalled.`,
+      );
+    }
+    if (
+      !(positive(next.garageWallDrywallSqft) > 0) &&
+      wallHeightFt
+    ) {
+      const garageWallArea = garageRooms.reduce((sum, entry) => {
+        const perimeter =
+          entry.perimeterLf ||
+          (entry.areaSqft > 0 ? 4 * Math.sqrt(entry.areaSqft) : 0);
+        return sum + perimeter * wallHeightFt;
+      }, 0);
+      if (garageWallArea > 0) {
+        next.garageWallDrywallSqft = roundTenth(garageWallArea);
+        derivedKeys.push("garageWallDrywallSqft");
+        assumptions.push(
+          `Garage wall drywall ${next.garageWallDrywallSqft.toLocaleString()} SF is a gross perimeter × ${wallHeightFt} FT geometry suggestion; confirm rated/separation walls and undrywalled garage faces.`,
+        );
+      }
+    }
+  }
+
+  const scheduleGarage =
+    positive(buildingAreas.garageSqft) || positive(next.garageSqft);
+  if (scheduleGarage != null) {
+    if (!(positive(next.garageCeilingDrywallSqft) > 0)) {
+      next.garageCeilingDrywallSqft = roundTenth(scheduleGarage);
+      derivedKeys.push("garageCeilingDrywallSqft");
+      assumptions.push(
+        `Garage ceiling drywall ${next.garageCeilingDrywallSqft.toLocaleString()} SF from the labeled garage area schedule; confirm whether the garage ceiling is drywalled.`,
+      );
+    }
+    if (!(positive(next.garageWallDrywallSqft) > 0) && wallHeightFt) {
+      const garageWallArea = 4 * Math.sqrt(scheduleGarage) * wallHeightFt;
+      if (garageWallArea > 0) {
+        next.garageWallDrywallSqft = roundTenth(garageWallArea);
+        derivedKeys.push("garageWallDrywallSqft");
+        assumptions.push(
+          `Garage wall drywall ${next.garageWallDrywallSqft.toLocaleString()} SF is a square-footprint perimeter × ${wallHeightFt} FT planning estimate from the garage area schedule; confirm rated/separation walls.`,
+        );
+      }
     }
   }
 
@@ -2388,31 +2664,46 @@ function deriveDrywallGeometryMeasurements(
           Math.max(
             0,
             (positive(next.drywallWallSqft) || 0) +
-              (positive(next.drywallCeilingSqft) || 0) -
-              (positive(next.drywallOpeningDeductionSqft) || 0),
+              (positive(next.drywallCeilingSqft) || 0),
           ),
         )
       : null;
   const existingTotal = positive(next.drywallSqft);
+  const drywallFloorAreaReference =
+    conditionedCeilingSqft ?? roomAreaSqft ?? null;
   const existingLooksLikeFloorArea =
     existingTotal != null &&
-    livingSqft != null &&
-    existingTotal / livingSqft < 2.5;
+    drywallFloorAreaReference != null &&
+    existingTotal / drywallFloorAreaReference < 2.5;
   if (
     componentTotal != null &&
     (existingTotal == null || existingLooksLikeFloorArea)
   ) {
-    const openings = positive(next.drywallOpeningDeductionSqft) || 0;
     next.drywallSqft = componentTotal;
     if (!derivedKeys.includes("drywallSqft")) derivedKeys.push("drywallSqft");
     assumptions.push(
-      openings > 0
-        ? `Net drywall surface deducts ${openings.toLocaleString()} SF of documented openings.`
-        : "Net drywall surface equals calculated wall plus ceiling area; no opening deduction was documented on the plan.",
+      "Total drywall surface equals calculated wall plus ceiling area; opening geometry is retained as supporting context and is not automatically deducted.",
     );
   }
 
-  return { measurements: next, derivedKeys, assumptions };
+  const reconciled = reconcileIncompleteDrywallGeometryTakeoff(
+    next,
+    buildingAreas,
+  );
+  next = reconciled.measurements;
+  if (reconciled.reconciled) {
+    assumptions.push(...reconciled.assumptions);
+    for (const key of reconciled.planningEstimateKeys) {
+      if (!derivedKeys.includes(key)) derivedKeys.push(key);
+    }
+  }
+
+  return {
+    measurements: next,
+    derivedKeys,
+    assumptions,
+    planningEstimateKeys: reconciled.planningEstimateKeys,
+  };
 }
 
 function sanitizeMeasurements(
@@ -2566,6 +2857,9 @@ function buildItemQuantities(measurements) {
     cabinetLf: { key: "cabinets", unit: "lf" },
     countertopSqft: { key: "countertops", unit: "sqft" },
     backsplashSqft: { key: "backsplash", unit: "sqft" },
+    windowCount: { key: "windows", unit: "each" },
+    exteriorDoorCount: { key: "exterior_doors", unit: "each" },
+    slidingDoorCount: { key: "sliding_doors", unit: "each" },
     roofSquares: { key: "shingles_roofing", unit: "squares" },
     deckSqft: { key: "deck", unit: "sqft" },
     concreteSqft: { key: "concrete", unit: "sqft" },
@@ -2580,6 +2874,18 @@ function buildItemQuantities(measurements) {
     partsMaterialsCount: { key: "parts_materials", unit: "allowance" },
     emergencyFeeCount: { key: "emergency_fee", unit: "allowance" },
     plumbingCleanupCount: { key: "cleanup", unit: "allowance" },
+    hvacSystemCount: { key: "hvac", unit: "each" },
+    hvacSystemTons: { key: "hvac", unit: "ton" },
+    hvacServiceCallCount: { key: "service_call", unit: "each" },
+    hvacEquipmentReplacementCount: { key: "equipment_replace", unit: "each" },
+    hvacRefrigerantCount: { key: "refrigerant", unit: "each" },
+    hvacThermostatCount: { key: "thermostat", unit: "each" },
+    hvacDuctworkLf: { key: "ductwork", unit: "lf" },
+    hvacSupplyRegisterCount: { key: "supply_registers", unit: "each" },
+    hvacReturnGrilleCount: { key: "return_grilles", unit: "each" },
+    hvacVentilationCount: { key: "ventilation", unit: "each" },
+    hvacPermitCount: { key: "permits", unit: "each" },
+    hvacCleanupCount: { key: "cleanup", unit: "each" },
   };
   for (const [measKey, meta] of Object.entries(map)) {
     if (measurements[measKey] == null) continue;
@@ -2587,6 +2893,17 @@ function buildItemQuantities(measurements) {
     itemQuantities[meta.key] = {
       quantity: measurements[measKey],
       unit: meta.unit,
+      quantitySource: "plan_vision",
+    };
+  }
+  const garageDoorCount =
+    (Number(measurements.garageDoorSingleCount) || 0) +
+    (Number(measurements.garageDoorDoubleCount) || 0) +
+    (Number(measurements.garageDoorRvCount) || 0);
+  if (garageDoorCount > 0 && !itemQuantities.garage_doors) {
+    itemQuantities.garage_doors = {
+      quantity: garageDoorCount,
+      unit: "each",
       quantitySource: "plan_vision",
     };
   }
@@ -2736,6 +3053,12 @@ async function analyzePlanForMeasurements({
   const drywallSelected =
     planSelection.mode === "selected_trade" &&
     planSelection.trade?.key === "drywall";
+  const windowsDoorsSelected =
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "windows_doors";
+  const hvacSelected =
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "hvac";
   const framingSelected =
     planSelection.mode === "selected_trade" &&
     planSelection.trade?.key === "framing";
@@ -2859,6 +3182,25 @@ async function analyzePlanForMeasurements({
     }
   }
 
+  let hvacSheetImages = [];
+  if (
+    hvacSelected &&
+    pdfBuffers.length &&
+    pdfTakeoff?.hvacRelevantPages?.length
+  ) {
+    try {
+      const { renderHvacPlanPages } = require("./planPdfTextTakeoff");
+      hvacSheetImages = await renderHvacPlanPages(
+        pdfBuffers,
+        pdfTakeoff.hvacRelevantPages,
+        { maxPages: 12, maxDimension: 4200 },
+      );
+    } catch (err) {
+      console.warn("HVAC sheet raster skipped:", err?.message || err);
+      hvacSheetImages = [];
+    }
+  }
+
   if (electricalSelected) {
     logElectricalTakeoffStage("ELECTRICAL PAGE SELECTION", {
       pages: (pdfTakeoff?.electricalRelevantPages || []).map(
@@ -2912,6 +3254,9 @@ async function analyzePlanForMeasurements({
   const insulationVisionParts = insulationSheetImages.length
     ? insulationSheetImages.map(toVisionContentPart)
     : null;
+  const hvacVisionParts = hvacSheetImages.length
+    ? hvacSheetImages.map(toVisionContentPart)
+    : null;
   if (process.env.NODE_ENV !== "production" && insulationSelected) {
     console.debug("[insulation plan pages]", {
       selectedPages: (pdfTakeoff?.insulationRelevantPages || []).map(
@@ -2923,6 +3268,7 @@ async function analyzePlanForMeasurements({
   const visionParts =
     electricalVisionParts ||
     plumbingVisionParts ||
+    hvacVisionParts ||
     compatible.map(toVisionContentPart);
   const electricalSheetCountHint = electricalVisionParts
     ? `The attached images are Electrical sheets (pages ${
@@ -2938,6 +3284,13 @@ async function analyzePlanForMeasurements({
           .join(", ") || "P / floor-plan sheets"
       }). Build fixtureInventory from readable fixture symbols and schedules on every attached page. Derive rough-in and trim only from that inventory. Treat labeled LF on architectural sheets as partial segments that require contractor confirmation.`
     : "Prioritize P sheets, fixture schedules, riser diagrams, floor plans with fixture symbols, and site/utility plans inside the attached plan file.";
+  const hvacSheetCountHint = hvacVisionParts
+    ? `The attached images are HVAC / mechanical sheets (pages ${
+        (pdfTakeoff?.hvacRelevantPages || [])
+          .map((page) => page.page)
+          .join(", ") || "M / mechanical sheets"
+      }). Count supply registers, return grilles, thermostats, ventilation equipment, and labeled ductwork on every attached page. Reconcile equipment schedules with plan tags.`
+    : "Prioritize M sheets, equipment schedules, duct layouts, and floor plans with mechanical callouts inside the attached plan file.";
 
   // Electrical counts are a measurement pass, not creative estimation. Keep
   // repeated imports of the same sheets stable; genuine disagreements still
@@ -2959,6 +3312,8 @@ async function analyzePlanForMeasurements({
           plumbingSelected,
           insulationSelected,
           drywallSelected,
+          windowsDoorsSelected,
+          hvacSelected,
         ),
       },
       {
@@ -2973,6 +3328,15 @@ async function analyzePlanForMeasurements({
                   "Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.",
                   hintBits.length ? hintBits.join("\n\n") : "No extra context.",
                 ].join("\n\n")
+              : hvacSelected
+                ? [
+                    HVAC_VISION_INSTRUCTIONS,
+                    hvacSheetCountHint,
+                    "Return HVAC canonical quantities only. Leave living-area quantities, unsupported values, and inferred system capacities omitted.",
+                    hintBits.length
+                      ? hintBits.join("\n\n")
+                      : "No extra context.",
+                  ].join("\n\n")
               : plumbingSelected
                 ? [
                     PLUMBING_VISION_INSTRUCTIONS,
@@ -2988,6 +3352,26 @@ async function analyzePlanForMeasurements({
                         ? hintBits.join("\n\n")
                         : "No extra context.",
                     ].join("\n\n")
+                  : windowsDoorsSelected
+                    ? [
+                        WINDOWS_DOORS_VISION_INSTRUCTIONS,
+                        "Return only Windows & doors canonical counts and evidence. Leave type, finish, hardware, replacement scope, and any unreadable opening omitted.",
+                        hintBits.length
+                          ? hintBits.join("\n\n")
+                          : "No extra context.",
+                      ].join("\n\n")
+                  : drywallSelected
+                    ? [
+                        DRYWALL_VISION_INSTRUCTIONS,
+                        "Inspect every architectural floor plan, dimensioned room layout, reflected ceiling plan, section, interior elevation, wall-type schedule, and finish schedule attached.",
+                        "Return every readable drywall-relevant room in rooms[] with name, lengthFt, widthFt, areaSqft, wallHeightFt or plateHeightFt when shown, sourcePage, sourceSheet, and confidence. Include conditioned rooms and separately labeled Garage/RV Garage rooms.",
+                        "For the selected Drywall trade, calculate drywallWallSqft from readable conditioned-room perimeters multiplied by explicit wall/plate height, and drywallCeilingSqft from readable conditioned ceiling/room areas. Add those keys to geometryDerived and explain any incomplete coverage as NEEDS_CONFIRMATION.",
+                        "Do not use total living area, garage area, a multiplier, visual proportions, or an arbitrary default height as a drywall surface quantity. Use living and garage schedule areas only as context or a reasonableness check.",
+                        "Return garageWallDrywallSqft and garageCeilingDrywallSqft separately when garage geometry and height are readable. Return specialty board, vaulted/sloped, high-ceiling, and Level 5 quantities only when explicitly documented.",
+                        hintBits.length
+                          ? hintBits.join("\n\n")
+                          : "No extra context.",
+                      ].join("\n\n")
                   : [
                       "Extract Building Areas / Area Schedule totals AND every labeled room with length×width or SF from these floor plan / blueprint pages.",
                       "For Stucco / Exterior Finish, inspect every front/rear/left/right elevation and wall section. Read elevation face widths/heights, story-specific plate heights, window and door dimensions, garage door dimensions, cladding callouts, soffits, parapets, foam bands, and control joints.",
@@ -3057,8 +3441,14 @@ async function analyzePlanForMeasurements({
               plumbingSelected,
               insulationSelected,
               drywallSelected,
+              windowsDoorsSelected,
+              hvacSelected,
             ) +
-            (planSelection.trade && !electricalSelected && !plumbingSelected
+            (planSelection.trade &&
+            !electricalSelected &&
+            !plumbingSelected &&
+            !windowsDoorsSelected &&
+            !hvacSelected
               ? "\nThis is a focused trade takeoff pass. Prioritize measurable geometry and scope for the selected trade over general room extraction."
               : electricalSelected
                 ? "\nThis is a focused Electrical symbol-count pass. Count devices on the attached E-sheet images."
@@ -3066,7 +3456,11 @@ async function analyzePlanForMeasurements({
                   ? "\nThis is a focused Insulation thermal-envelope pass. Inspect wall sections, attic/roof details, insulation schedules, and garage separation details."
                   : drywallSelected
                     ? "\nThis is a focused Drywall surface pass. Inspect room dimensions, reflected ceiling plans, wall heights, finish schedules, and labeled wall/ceiling quantities."
-                    : plumbingSelected
+                    : windowsDoorsSelected
+                      ? "\nThis is a focused Windows & doors opening-count pass. Reconcile schedules and elevations; count each opening once."
+                      : hvacSelected
+                        ? "\nThis is a focused HVAC quantity pass. Count only readable mechanical equipment, thermostats, ventilation, and labeled ductwork."
+                      : plumbingSelected
                       ? "\nThis is a focused Plumbing quantity pass. Count only readable fixtures, schedules, points, and labeled line lengths."
                       : "\nThis is a focused general-contractor takeoff pass. Prioritize measurable quantities across every major scope category."),
         },
@@ -3083,16 +3477,24 @@ async function analyzePlanForMeasurements({
                   ? "For Insulation, return elevationFaces for every readable exterior elevation with face width/height or area and windowDoorOpeningsSqft / garageOpeningsSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer."
                   : drywallSelected
                     ? "For Drywall, return separate drywallWallSqft and drywallCeilingSqft when supported by labeled values or readable room geometry. Do not return a living-area proxy."
+                    : windowsDoorsSelected
+                      ? "For Windows & doors, return windowCount, exteriorDoorCount, slidingDoorCount, and garage door counts by type from schedules, tags, dimensions, or directly countable elevation symbols. Reconcile duplicate elevations."
+                      : hvacSelected
+                        ? "For HVAC, return system count, explicitly labeled tonnage, thermostats, ventilation equipment, replacements, refrigerant service, and labeled ductwork LF. Reconcile equipment schedules with plan tags and leave unknown capacity or duct lengths omitted."
                     : "For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, windowDoorOpeningsSqft, garageOpeningsSqft, and non-stucco deductions. Also populate measurements.stuccoWindowDoorOpeningSqft and measurements.stuccoGarageOpeningSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer.",
                 insulationSelected
                   ? "For Insulation, do not return a wall quantity from one elevation or perimeter alone. Return all complete labeled wall/opening facts so the app can calculate one net exterior-wall quantity."
                   : drywallSelected
-                    ? "For Drywall, do not use living area or a multiplier. If geometry is incomplete or wall height is unreadable, leave drywall quantities out and report what needs confirmation."
+                    ? "For Drywall, do not use living area or a multiplier. Return every supported partial wall/ceiling geometry quantity with geometryDerived provenance and NEEDS_CONFIRMATION evidence when coverage or wall height is incomplete; leave only the unresolved portion out."
                     : "PDF text perimeter/plate/story facts (when present) support gross wall area only. Opening deductions still come from elevation drawings.",
                 insulationSelected
                   ? INSULATION_VISION_INSTRUCTIONS
                   : drywallSelected
                     ? DRYWALL_VISION_INSTRUCTIONS
+                    : hvacSelected
+                      ? HVAC_VISION_INSTRUCTIONS
+                    : windowsDoorsSelected
+                      ? WINDOWS_DOORS_VISION_INSTRUCTIONS
                     : plumbingSelected
                       ? PLUMBING_VISION_INSTRUCTIONS
                       : paintingSelected
@@ -3102,6 +3504,8 @@ async function analyzePlanForMeasurements({
                           : "For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.",
                 paintingSelected
                   ? "Return wallPaintSqft, ceilingPaintSqft, baseboardLf, interiorDoorCount, and exteriorPaintSqft when geometry or schedules support them. Add geometry-derived keys to geometryDerived. Leave occupancy, application method, and prep omitted."
+                  : windowsDoorsSelected
+                    ? "Return only the six canonical Windows & doors counts. Use explicit schedule/label counts or directly counted symbols, record evidence, and leave undocumented type/finish/hardware details for contractor confirmation."
                   : insulationSelected
                     ? "The attached pages are rasterized insulation-relevant sheets selected from the PDF. Inspect the actual wall sections, elevations, ceiling/attic plans, roof details, schedules, and notes in those images. Return insulation quantities only when explicitly labeled or directly calculated from readable labeled dimensions. Preserve the wall/attic versus roof-deck boundary distinction."
                     : plumbingSelected
@@ -3111,7 +3515,7 @@ async function analyzePlanForMeasurements({
                         : "Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.",
               ].join("\n\n"),
             },
-            ...(electricalSelected || plumbingSelected
+            ...(electricalSelected || plumbingSelected || hvacSelected
               ? visionParts
               : insulationSelected && insulationVisionParts
                 ? insulationVisionParts
@@ -3179,6 +3583,7 @@ async function analyzePlanForMeasurements({
   let measurementConflicts = [];
   let electricalValidation = null;
   let electricalEvidenceMerged = false;
+  let hvacEvidenceMerged = false;
   let plumbingFieldEvidence = normalizePlumbingFieldEvidence(
     parsed.fieldEvidence,
   );
@@ -3197,6 +3602,9 @@ async function analyzePlanForMeasurements({
   let plumbingReviewStatus = null;
   const electricalTagMeasurements = electricalSelected
     ? instanceTagMeasurementsFromTakeoff(pdfTakeoff)
+    : {};
+  const hvacTagMeasurements = hvacSelected
+    ? hvacPdfTextMeasurementsFromTakeoff(pdfTakeoff)
     : {};
   if (tradeVisualCompletion) {
     try {
@@ -3248,7 +3656,15 @@ async function analyzePlanForMeasurements({
             focusedConfidence: focused.fieldConfidence,
             instanceTagMeasurements: electricalTagMeasurements,
           })
-        : mergeMeasurementCandidates({
+        : hvacSelected
+          ? mergeElectricalEvidenceSources({
+              generalMeasurements: parsed.measurements,
+              generalConfidence: parsed.fieldConfidence,
+              focusedMeasurements: focused.measurements,
+              focusedConfidence: focused.fieldConfidence,
+              instanceTagMeasurements: hvacTagMeasurements,
+            })
+          : mergeMeasurementCandidates({
             baseMeasurements: parsed.measurements,
             overlayMeasurements: focused.measurements,
             baseConfidence: parsed.fieldConfidence,
@@ -3257,6 +3673,7 @@ async function analyzePlanForMeasurements({
             overlayEvidence: stuccoEvidenceByField(focused.planFacts),
           });
       if (electricalSelected) electricalEvidenceMerged = true;
+      if (hvacSelected) hvacEvidenceMerged = true;
       if (electricalSelected) {
         parsed.electricalSheetEvidence = mergeElectricalSheetEvidence(
           parsed.electricalSheetEvidence,
@@ -3330,20 +3747,20 @@ async function analyzePlanForMeasurements({
         measurementProvenance,
         measurementConflicts,
         explicitlyLabeled: [
-          ...(parsed.explicitlyLabeled || []),
-          ...(focused.explicitlyLabeled || []),
+          ...normalizedStringList(parsed.explicitlyLabeled),
+          ...normalizedStringList(focused.explicitlyLabeled),
         ],
         geometryDerived: [
-          ...(parsed.geometryDerived || []),
-          ...(focused.geometryDerived || []),
+          ...normalizedStringList(parsed.geometryDerived),
+          ...normalizedStringList(focused.geometryDerived),
         ],
         inferredKeys: [
-          ...(parsed.inferredKeys || []),
-          ...(focused.inferredKeys || []),
+          ...normalizedStringList(parsed.inferredKeys),
+          ...normalizedStringList(focused.inferredKeys),
         ],
         unreadableFields: [
-          ...(parsed.unreadableFields || []),
-          ...(focused.unreadableFields || []),
+          ...normalizedObjectList(parsed.unreadableFields),
+          ...normalizedObjectList(focused.unreadableFields),
         ],
         ...(plumbingSelected
           ? {
@@ -3403,6 +3820,20 @@ async function analyzePlanForMeasurements({
       generalMeasurements: parsed.measurements,
       generalConfidence: parsed.fieldConfidence,
       instanceTagMeasurements: electricalTagMeasurements,
+    });
+    measurementProvenance = {
+      ...measurementProvenance,
+      ...mergedMeasurements.provenance,
+    };
+    measurementConflicts = mergedMeasurements.conflicts;
+    parsed.measurements = mergedMeasurements.measurements;
+  }
+
+  if (hvacSelected && !hvacEvidenceMerged) {
+    const mergedMeasurements = mergeElectricalEvidenceSources({
+      generalMeasurements: parsed.measurements,
+      generalConfidence: parsed.fieldConfidence,
+      instanceTagMeasurements: hvacTagMeasurements,
     });
     measurementProvenance = {
       ...measurementProvenance,
@@ -3542,6 +3973,27 @@ async function analyzePlanForMeasurements({
   if (plumbingSelected) {
     rawMeasurements = normalizePlumbingPlanMeasurements(parsed.measurements);
   }
+  if (hvacSelected) {
+    const normalized = {};
+    for (const key of [
+      "hvacSystemCount",
+      "hvacSystemTons",
+      "hvacServiceCallCount",
+      "hvacEquipmentReplacementCount",
+      "hvacRefrigerantCount",
+      "hvacThermostatCount",
+      "hvacDuctworkLf",
+      "hvacSupplyRegisterCount",
+      "hvacReturnGrilleCount",
+      "hvacVentilationCount",
+      "hvacPermitCount",
+      "hvacCleanupCount",
+    ]) {
+      const value = positive(parsed.measurements?.[key]);
+      if (value != null) normalized[key] = value;
+    }
+    rawMeasurements = normalized;
+  }
   if (drywallSelected) {
     const drywallSupportedKeys = [
       ...(Array.isArray(parsed.explicitlyLabeled)
@@ -3576,11 +4028,23 @@ async function analyzePlanForMeasurements({
     ];
     for (const key of drywallDerived.derivedKeys) {
       fieldConfidence[key] = Math.max(Number(fieldConfidence[key] || 0), 0.75);
-      measurementProvenance[key] = {
-        value: rawMeasurements[key],
-        source: "measured_from_geometry",
-        normalizedSource: "FROM_PLAN",
-      };
+      const isPlanningEstimate =
+        Array.isArray(drywallDerived.planningEstimateKeys) &&
+        drywallDerived.planningEstimateKeys.includes(key);
+      measurementProvenance[key] = isPlanningEstimate
+        ? {
+            value: rawMeasurements[key],
+            source: "planning_estimate",
+            normalizedSource: "NEEDS_CONFIRMATION",
+            pricingEligible: false,
+            reason:
+              "Readable room geometry did not cover a complete house takeoff; confirm this planning split before pricing.",
+          }
+        : {
+            value: rawMeasurements[key],
+            source: "measured_from_geometry",
+            normalizedSource: "FROM_PLAN",
+          };
     }
   }
   if (electricalSelected) {
@@ -3877,15 +4341,42 @@ async function analyzePlanForMeasurements({
       `Electrical instance tags from PDF text: ${instanceTagAssumption}`,
     ];
   }
+  const hvacTagAssumption = Object.entries(hvacTagMeasurements || {})
+    .filter(([, value]) => Number(value) > 0)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(", ");
+  if (hvacSelected && hvacTagAssumption) {
+    parsed.assumptions = [
+      ...(Array.isArray(parsed.assumptions) ? parsed.assumptions : []),
+      `HVAC PDF text reads: ${hvacTagAssumption}`,
+    ];
+  }
   rawMeasurements = reconcileBathroomMeasurement(
     rawMeasurements,
     rooms,
     unreadableFields,
   );
-  const { measurements, lowConfidence } = applyConfidenceFloor(
+  let { measurements, lowConfidence } = applyConfidenceFloor(
     rawMeasurements,
     fieldConfidence,
   );
+  if (hvacSelected) {
+    const {
+      applyHvacProvenanceGuard,
+      restoreHvacLowConfidenceMeasurements,
+    } = require("./hvacPlanAdapter");
+    measurements = restoreHvacLowConfidenceMeasurements(
+      measurements,
+      lowConfidence,
+    );
+    const guarded = applyHvacProvenanceGuard({
+      measurements,
+      measurementProvenance,
+      pdfTakeoff,
+    });
+    measurements = guarded.measurements;
+    measurementProvenance = guarded.measurementProvenance;
+  }
   const assumptions = [
     ...(Array.isArray(pdfTakeoff?.assumptions) ? pdfTakeoff.assumptions : []),
     ...(Array.isArray(parsed.assumptions)
@@ -4267,6 +4758,21 @@ async function analyzePlanForMeasurements({
       );
     }
   }
+  if (hvacSelected) {
+    if (
+      !(positive(tradeMeasurementInput.hvacSystemCount) > 0) &&
+      !(positive(tradeMeasurementInput.hvacSystemTons) > 0)
+    ) {
+      tradeMissingInfo.unshift(
+        "HVAC system basis: no readable system count or labeled tonnage",
+      );
+    }
+    if (!(positive(tradeMeasurementInput.hvacDuctworkLf) > 0)) {
+      tradeMissingInfo.unshift(
+        "Ductwork: no labeled ductwork LF — confirm distribution scope",
+      );
+    }
+  }
 
   return {
     success: true,
@@ -4364,6 +4870,7 @@ module.exports = {
   normalizeDrywallPlanMeasurements,
   buildSystemPrompt,
   buildElectricalSystemPrompt,
+  buildHvacSystemPrompt,
   mergeElectricalEvidenceSources,
   mergeElectricalSheetEvidence,
   mergeElectricalFieldEvidence,

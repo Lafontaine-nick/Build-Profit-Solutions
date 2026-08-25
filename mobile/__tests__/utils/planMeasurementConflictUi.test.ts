@@ -8,6 +8,10 @@ import {
   conflictEvidenceSubtitle,
   conflictFieldLabel,
   conflictedSuggestedItemIds,
+  filterLowConfidenceForReview,
+  filterUnreadableForReview,
+  planTakeoffConflictFieldSet,
+  shortPlanTakeoffHelper,
   conflictResolutionProvenanceEntry,
   formatConflictCandidateChip,
   formatPlanTakeoffQuantity,
@@ -23,6 +27,10 @@ import {
   uniqueUnreadablePlanFields,
   planConflictChooserRowsKey,
   conflictChooserConfirmedLine,
+  conflictChooserLowConfidenceAcceptedLine,
+  pendingPlanConfirmationReads,
+  confirmPendingPlanConfirmationRead,
+  isPendingPlanReadConfirmed,
 } from '@/utils/planMeasurementConflictUi';
 import type { PlanMeasurementConflict } from '@/utils/estimateAiDraft';
 
@@ -54,6 +62,8 @@ describe('planMeasurementConflictUi', () => {
     expect(planTakeoffUnit('conduitLf')).toBe('LF');
     expect(planTakeoffUnit('serviceAmperage')).toBe('A');
     expect(planTakeoffUnit('floorAreaSqft')).toBe('sqft');
+    expect(planTakeoffUnit('hvacSystemTons')).toBe('ton');
+    expect(formatPlanTakeoffQuantity('hvacSystemTons', 5)).toBe('5 tons');
     expect(formatPlanTakeoffQuantity('recessedLightCount', 40)).toBe('40 EA');
     expect(formatPlanTakeoffQuantity('recessedLightCount', 20)).toBe('20 EA');
     expect(formatPlanTakeoffQuantity('serviceAmperage', 200)).toBe('200A');
@@ -66,6 +76,44 @@ describe('planMeasurementConflictUi', () => {
     expect(conflictFieldLabel('sewerLineLf')).toBe('Sewer / drain piping');
     expect(conflictFieldLabel('waterLineLf')).toBe('Water line piping');
     expect(conflictFieldLabel('gasLineLf')).toBe('Gas piping');
+    expect(conflictFieldLabel('hvacSupplyRegisterCount')).toBe('Supply registers');
+    expect(conflictFieldLabel('hvacReturnGrilleCount')).toBe('Return grilles');
+    expect(conflictFieldLabel('hvacSystemCount')).toBe('HVAC system');
+  });
+
+  it('drops low-confidence rows that already have a conflict card', () => {
+    const excluded = planTakeoffConflictFieldSet([
+      { field: 'hvacSupplyRegisterCount' },
+      { field: 'hvacReturnGrilleCount' },
+    ]);
+    expect(
+      filterLowConfidenceForReview(
+        [
+          { field: 'hvacSupplyRegisterCount', value: 12, confidence: 0.4 },
+          { field: 'hvacSystemCount', value: 2, confidence: 0.4 },
+        ],
+        excluded
+      ).map(row => row.field)
+    ).toEqual(['hvacSystemCount']);
+    expect(
+      filterUnreadableForReview(
+        [
+          { field: 'hvacReturnGrilleCount', reason: 'Unreadable schedule' },
+          { field: 'hvacDuctworkLf', reason: 'Missing dimensions' },
+        ],
+        excluded
+      ).map(row => row.field)
+    ).toEqual(['hvacDuctworkLf']);
+  });
+
+  it('shortens long helper copy for takeoff cards', () => {
+    expect(
+      shortPlanTakeoffHelper(
+        'Count supply air registers or diffusers when documented on plans or schedules. Do not infer from living area.'
+      )
+    ).toBe(
+      'Count supply air registers or diffusers when documented on plans or schedules.'
+    );
   });
 
   it('dedupes candidate chips and keeps distinct pass values', () => {
@@ -312,6 +360,9 @@ describe('planMeasurementConflictUi', () => {
     expect(conflictChooserConfirmedLine('ceilingFanCount', 8)).toBe(
       'Confirmed · 8 EA'
     );
+    expect(
+      conflictChooserLowConfidenceAcceptedLine('hvacSystemTons', 5)
+    ).toBe('AI read — confirm · 5 tons');
   });
 
   it('keeps Enter manually pending until a custom count is entered', () => {
@@ -456,5 +507,39 @@ describe('planMeasurementConflictUi', () => {
         tradeKey: 'electrical',
       })
     ).toBe(true);
+  });
+
+  it('lists skipped low-confidence HVAC reads for the pending confirmation strip', () => {
+    const pending = pendingPlanConfirmationReads(
+      {
+        hvacSystemCount: 2,
+        hvacSupplyRegisterCount: 10,
+        quickMeasurementSources: {
+          hvacSystemCount: 'needs_confirmation',
+          hvacSupplyRegisterCount: 'needs_confirmation',
+          hvacThermostatCount: 'plan_detected',
+        },
+      },
+      new Set(['hvacSystemCount', 'hvacSupplyRegisterCount', 'hvacThermostatCount'])
+    );
+    expect(pending.map(row => row.field)).toEqual([
+      'hvacSystemCount',
+      'hvacSupplyRegisterCount',
+    ]);
+    const confirmed = confirmPendingPlanConfirmationRead(
+      {
+        hvacSystemCount: 2,
+        quickMeasurementSources: { hvacSystemCount: 'needs_confirmation' },
+      },
+      'hvacSystemCount',
+      2
+    );
+    expect(confirmed.quickMeasurementSources?.hvacSystemCount).toBe(
+      'contractor_confirmed_from_plan_review'
+    );
+    expect(isPendingPlanReadConfirmed(confirmed, 'hvacSystemCount')).toBe(true);
+    expect(
+      pendingPlanConfirmationReads(confirmed, new Set(['hvacSystemCount']))
+    ).toEqual([]);
   });
 });
