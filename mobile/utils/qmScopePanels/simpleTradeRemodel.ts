@@ -70,8 +70,125 @@ export const HVAC_EQUIPMENT_OPTION_IDS = [
 
 export const HVAC_SCOPE_EQUIPMENT_OPTION_IDS = HVAC_EQUIPMENT_OPTION_IDS;
 
+export function hvacEquipmentItemQuantityKey(optionId: string): string {
+  return `equipment_replace__${optionId}`;
+}
+
+function hasManualHvacEquipmentIntent(
+  measurements: Record<string, unknown>
+): boolean {
+  const sources =
+    (measurements.quickMeasurementSources as Record<string, string>) || {};
+  const overrides =
+    (measurements.quickMeasurementUserOverrides as Record<string, boolean>) ||
+    {};
+  if (
+    sources.hvacEquipmentReplacementCount === 'user_entered' ||
+    overrides.hvacEquipmentReplacementCount
+  ) {
+    return true;
+  }
+  const itemQuantities =
+    (measurements.itemQuantities as Record<string, unknown>) || {};
+  return HVAC_EQUIPMENT_OPTION_IDS.some(
+    id => itemQuantities[hvacEquipmentItemQuantityKey(id)] != null
+  );
+}
+
+function readHvacEquipmentTypeCount(
+  measurements: Record<string, unknown>,
+  optionId: string
+): number | null {
+  const key = hvacEquipmentItemQuantityKey(optionId);
+  const entry = (
+    measurements.itemQuantities as Record<string, { quantity?: unknown }>
+  )?.[key];
+  return positiveMeasurement(entry?.quantity);
+}
+
+function syncHvacEquipmentScopeMeasurements(
+  measurements: Record<string, unknown>
+): Record<string, unknown> {
+  const selections = selectedScope(measurements, 'hvac');
+  const equipmentIds = selections.filter(id =>
+    (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
+  );
+  let itemQuantities = {
+    ...(((measurements.itemQuantities as Record<string, unknown>) ||
+      {}) as Record<string, { quantity?: unknown; quantitySource?: string }>),
+  };
+
+  for (const id of HVAC_EQUIPMENT_OPTION_IDS) {
+    const key = hvacEquipmentItemQuantityKey(id);
+    if (!equipmentIds.includes(id) && itemQuantities[key]) {
+      const nextEntries = { ...itemQuantities };
+      delete nextEntries[key];
+      itemQuantities = nextEntries;
+    }
+  }
+
+  for (const id of equipmentIds) {
+    const key = hvacEquipmentItemQuantityKey(id);
+    if (!itemQuantities[key]) {
+      itemQuantities[key] = { quantity: 1, quantitySource: 'user_entered' };
+    }
+  }
+
+  let next: Record<string, unknown> = {
+    ...measurements,
+    itemQuantities,
+  };
+
+  if (equipmentIds.length > 0) {
+    const total = equipmentIds.reduce(
+      (sum, id) => sum + (readHvacEquipmentTypeCount(next, id) ?? 1),
+      0
+    );
+    next = markHvacFieldUserEdited(
+      next,
+      'hvacEquipmentReplacementCount',
+      String(total)
+    );
+    return next;
+  }
+
+  if (hasManualHvacEquipmentIntent(measurements)) {
+    const { hvacEquipmentReplacementCount: _removed, ...rest } = next as Record<
+      string,
+      unknown
+    > & { hvacEquipmentReplacementCount?: unknown };
+    const sources = {
+      ...(((rest.quickMeasurementSources as Record<string, string>) || {}) as Record<
+        string,
+        string
+      >),
+    };
+    delete sources.hvacEquipmentReplacementCount;
+    const overrides = {
+      ...(((rest.quickMeasurementUserOverrides as Record<string, boolean>) ||
+        {}) as Record<string, boolean>),
+    };
+    delete overrides.hvacEquipmentReplacementCount;
+    return {
+      ...rest,
+      quickMeasurementSources: sources,
+      quickMeasurementUserOverrides: overrides,
+    };
+  }
+
+  return next;
+}
+
 /** Optional HVAC scope — excluded from base package unless explicitly included. */
 export const HVAC_OPTIONAL_ADDON_OPTION_IDS = ['ventilation'] as const;
+
+/** Shown under the idle whole-house ventilation chip in Confirm Scope. */
+export const HVAC_VENTILATION_IDLE_HINT =
+  '1 each = one ERV, HRV, or whole-house fresh-air unit — not bath exhaust fans.';
+
+/** Shown on the selected ventilation card quantity row in Confirm Scope. */
+export const HVAC_VENTILATION_QUANTITY_HELPER =
+  'Enter how many units are in this bid. Price on the next step.';
 
 export const HVAC_SCOPE_DISTRIBUTION_OPTION_IDS = [
   'ductwork',
@@ -93,8 +210,7 @@ const HVAC_EQUIPMENT_MEASUREMENT = {
   measurementKey: 'hvacEquipmentReplacementCount',
   quantityLabel: 'Equipment replacements',
   unit: 'each',
-  measurementHelper:
-    'Enter documented equipment replacement count — not living SF.',
+  measurementHelper: 'Enter quantity for this equipment type.',
 } as const;
 
 const HVAC_OPTIONS: TradeOption[] = [
@@ -167,7 +283,7 @@ const HVAC_OPTIONS: TradeOption[] = [
     measurementKey: 'hvacVentilationCount',
     unit: 'each',
     measurementHelper:
-      'ERV, HRV, or dedicated fresh-air ventilation equipment shown on the plans.',
+      'Count whole-house ventilation systems — 1 ERV or HRV = 1 each. Not bath exhaust fans.',
   },
   // Distribution toggles — seed register/return counts when selected.
   {
@@ -280,6 +396,43 @@ function formatHvacQuantityCaption(value: number, unit?: string): string {
   if (normalized === 'TON' || normalized === 'TONS') return `${rounded} tons`;
   if (normalized === 'A') return `${rounded}A`;
   return `${rounded.toLocaleString()} each`;
+}
+
+/** Prefer the live field string so cleared inputs do not snap back to plan provenance. */
+function hvacPanelFieldDisplayValue(
+  measurements: Record<string, unknown>,
+  field: string
+): string {
+  if (Object.prototype.hasOwnProperty.call(measurements, field)) {
+    const raw = measurements[field];
+    if (raw === undefined || raw === null) return '';
+    return String(raw).replace(/,/g, '');
+  }
+  const coalesced = coalesceHvacFieldValue(measurements, field);
+  return coalesced == null ? '' : String(coalesced);
+}
+
+function markHvacFieldUserEdited(
+  measurements: Record<string, unknown>,
+  field: string,
+  value: string
+): Record<string, unknown> {
+  return {
+    ...measurements,
+    [field]: value,
+    quickMeasurementSources: {
+      ...((measurements.quickMeasurementSources as Record<string, string>) ||
+        {}),
+      [field]: 'user_entered',
+    },
+    quickMeasurementUserOverrides: {
+      ...((measurements.quickMeasurementUserOverrides as Record<
+        string,
+        boolean
+      >) || {}),
+      [field]: true,
+    },
+  };
 }
 
 function coalesceHvacFieldValue(
@@ -443,6 +596,9 @@ function pruneLegacyBulkEquipmentSelections(
     if (!(HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)) {
       return true;
     }
+    if (hasManualHvacEquipmentIntent(measurements)) {
+      return true;
+    }
     return hvacFieldHasTakeoffEvidence(
       measurements,
       'hvacEquipmentReplacementCount'
@@ -473,6 +629,68 @@ export function resolveHvacTradeScopeSelections(
   );
 }
 
+export const HVAC_SCOPE_EQUIPMENT_EXPAND_HIGHLIGHT = '__equipment_expand__' as const;
+
+const HVAC_MEASUREMENT_FIELD_TO_OPTION_ID: Record<string, string> = {
+  hvacSystemCount: HVAC_SYSTEMS_OPTION_ID,
+  hvacSystemTons: HVAC_CAPACITY_OPTION_ID,
+  hvacDuctworkLf: 'ductwork',
+  hvacSupplyRegisterCount: 'registers',
+  hvacReturnGrilleCount: 'returns',
+  hvacThermostatCount: 'thermostat',
+  hvacVentilationCount: 'ventilation',
+  hvacEquipmentReplacementCount: HVAC_SCOPE_EQUIPMENT_EXPAND_HIGHLIGHT,
+};
+
+/** Map a confirmed plan-read measurement key to its HVAC scope chip id. */
+export function hvacScopeOptionIdForMeasurementField(field: string): string | null {
+  return HVAC_MEASUREMENT_FIELD_TO_OPTION_ID[field] ?? null;
+}
+
+/** Persist a confirmed plan read onto the matching HVAC scope chip selection. */
+export function applyHvacScopeSelectionForConfirmedField(
+  measurements: Record<string, unknown>,
+  field: string
+): Record<string, unknown> {
+  const optionId = hvacScopeOptionIdForMeasurementField(field);
+  if (!optionId) return measurements;
+  if (optionId === HVAC_SCOPE_EQUIPMENT_EXPAND_HIGHLIGHT) {
+    return applyHvacScopeMeasurements(measurements);
+  }
+  const saved = selectedScope(measurements, 'hvac');
+  if (saved.includes(optionId)) {
+    return applyHvacScopeMeasurements(measurements);
+  }
+  const next = {
+    ...measurements,
+    tradeScopeSelections: {
+      ...((measurements.tradeScopeSelections as Record<string, string[]>) || {}),
+      hvac: [...saved, optionId],
+    },
+  };
+  return applyHvacScopeMeasurements(next);
+}
+
+export function summarizeHvacScopePanel(measurements: Record<string, unknown>): {
+  inBidCount: number;
+  needsConfirmationCount: number;
+} {
+  const selections = resolveHvacTradeScopeSelections(measurements);
+  const spec = SIMPLE_TRADE_SPECS.hvac;
+  let needsConfirmationCount = 0;
+  for (const id of selections) {
+    const option = spec.options.find(candidate => candidate.id === id);
+    if (!option) continue;
+    if (
+      hvacScopeChipReviewState(measurements, option, selections) ===
+      'needs_confirmation'
+    ) {
+      needsConfirmationCount += 1;
+    }
+  }
+  return { inBidCount: selections.length, needsConfirmationCount };
+}
+
 function finalizeHvacScopeSelections(
   measurements: Record<string, unknown>,
   selections: string[],
@@ -491,9 +709,7 @@ export function formatHvacScopeChipQuantity(
   if (!field) return null;
   if ((HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(option.id)) {
     if (!selections.includes(option.id)) return null;
-    const value =
-      positiveMeasurement(measurements.hvacEquipmentReplacementCount) ??
-      positiveMeasurement(measurements.hvacSystemCount);
+    const value = readHvacEquipmentTypeCount(measurements, option.id);
     return value == null ? null : formatHvacQuantityCaption(value, option.unit);
   }
   if (!selections.includes(option.id)) return null;
@@ -526,6 +742,13 @@ export function hvacScopeChipReviewState(
     return 'needs_confirmation';
   }
   return selections.includes(option.id) ? 'confirmed' : 'idle';
+}
+
+export function formatHvacOptionalAddOnIdleHint(
+  option: TradeOption
+): string | null {
+  if (option.id !== 'ventilation') return null;
+  return HVAC_VENTILATION_IDLE_HINT;
 }
 
 export function formatHvacOptionalAddOnChipCaption(
@@ -573,21 +796,29 @@ export function hvacScopePanelMeasurementValue(
   measurements: Record<string, unknown>
 ): string {
   if (option.id === HVAC_SYSTEMS_OPTION_ID) {
-    const value = coalesceHvacFieldValue(measurements, 'hvacSystemCount');
-    return value == null ? '' : String(value);
+    return hvacPanelFieldDisplayValue(measurements, 'hvacSystemCount');
   }
   if (option.id === HVAC_CAPACITY_OPTION_ID) {
-    const value = coalesceHvacFieldValue(measurements, 'hvacSystemTons');
-    return value == null ? '' : String(value);
+    return hvacPanelFieldDisplayValue(measurements, 'hvacSystemTons');
   }
   if (
     (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(option.id)
   ) {
-    const value = positiveMeasurement(measurements.hvacEquipmentReplacementCount);
-    return value == null ? '' : String(value);
+    if (!resolveHvacTradeScopeSelections(measurements).includes(option.id)) {
+      return '';
+    }
+    const key = hvacEquipmentItemQuantityKey(option.id);
+    const entry = (
+      measurements.itemQuantities as Record<string, { quantity?: unknown }>
+    )?.[key];
+    if (entry?.quantity !== undefined && entry?.quantity !== null) {
+      return String(entry.quantity).replace(/,/g, '');
+    }
+    const seeded = readHvacEquipmentTypeCount(measurements, option.id);
+    return seeded == null ? '1' : String(seeded);
   }
   return option.measurementKey
-    ? String(measurements[option.measurementKey] ?? '')
+    ? hvacPanelFieldDisplayValue(measurements, option.measurementKey)
     : '';
 }
 
@@ -603,21 +834,36 @@ export function applyHvacScopePanelMeasurementEdit(
   value: string
 ): Record<string, unknown> {
   if (option.id === HVAC_SYSTEMS_OPTION_ID) {
-    return { ...measurements, hvacSystemCount: value };
+    return markHvacFieldUserEdited(measurements, 'hvacSystemCount', value);
   }
   if (option.id === HVAC_CAPACITY_OPTION_ID) {
-    return { ...measurements, hvacSystemTons: value };
+    return markHvacFieldUserEdited(measurements, 'hvacSystemTons', value);
   }
   if (
     (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(option.id)
   ) {
-    return {
-      ...measurements,
-      hvacEquipmentReplacementCount: value,
+    const key = hvacEquipmentItemQuantityKey(option.id);
+    const itemQuantities = {
+      ...(((measurements.itemQuantities as Record<string, unknown>) ||
+        {}) as Record<string, { quantity?: unknown; quantitySource?: string }>),
+      [key]: {
+        ...(((
+          measurements.itemQuantities as Record<
+            string,
+            { quantity?: unknown; quantitySource?: string }
+          >
+        )?.[key] || {}) as object),
+        quantity: value,
+        quantitySource: 'user_entered',
+      },
     };
+    return syncHvacEquipmentScopeMeasurements({
+      ...measurements,
+      itemQuantities,
+    });
   }
   return option.measurementKey
-    ? { ...measurements, [option.measurementKey]: value }
+    ? markHvacFieldUserEdited(measurements, option.measurementKey, value)
     : measurements;
 }
 
@@ -643,15 +889,9 @@ export function applyHvacScopeMeasurements(
   if (!selections.length) return measurements;
 
   const next = { ...measurements };
-  const equipmentSelected = selections.filter((id) =>
+  const equipmentIds = selections.filter(id =>
     (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
-  ).length;
-  if (
-    equipmentSelected > 0 &&
-    positiveMeasurement(next.hvacEquipmentReplacementCount) == null
-  ) {
-    next.hvacEquipmentReplacementCount = equipmentSelected;
-  }
+  );
 
   if (
     selections.includes('thermostat') &&
@@ -672,7 +912,7 @@ export function applyHvacScopeMeasurements(
     next.hvacReturnGrilleCount = 1;
   }
 
-  return next;
+  return syncHvacEquipmentScopeMeasurements(next);
 }
 
 function selectedScope(measurements: Record<string, unknown>, scopeKey: SimpleTradeScopeKey): string[] {

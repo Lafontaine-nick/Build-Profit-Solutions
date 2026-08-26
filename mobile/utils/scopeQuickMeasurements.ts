@@ -834,7 +834,7 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'each',
     'structure',
     undefined,
-    'ERV, HRV, or dedicated fresh-air ventilation equipment shown on the plans.'
+    'Count whole-house ventilation systems — 1 ERV or HRV = 1 each. Not bath exhaust fans.'
   ),
   hvacPermitCount: F(
     'hvacPermitCount',

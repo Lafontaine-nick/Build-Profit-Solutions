@@ -50,12 +50,18 @@ import {
   applyHvacScopePanelMeasurementEdit,
   applyHvacScopeMeasurements,
   formatHvacOptionalAddOnChipCaption,
+  formatHvacOptionalAddOnIdleHint,
   formatHvacScopeChipQuantity,
+  HVAC_EQUIPMENT_OPTION_IDS,
   HVAC_OPTIONAL_ADDON_OPTION_IDS,
-  HVAC_SCOPE_CORE_SECTIONS,
+  HVAC_SCOPE_DISTRIBUTION_OPTION_IDS,
+  HVAC_SYSTEMS_OPTION_ID,
+  HVAC_CAPACITY_OPTION_ID,
+  HVAC_VENTILATION_QUANTITY_HELPER,
   hvacScopeChipActive,
   hvacScopeChipReviewState,
   resolveHvacTradeScopeSelections,
+  summarizeHvacScopePanel,
   hvacScopePanelMeasurementHelper,
   hvacScopePanelMeasurementValue,
   roofingOptionsForIds,
@@ -112,15 +118,189 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
   },
-  choiceChipWide: {
+  hvacScopeSelectedCard: {
+    width: '100%',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+  },
+  hvacScopeSelectedList: {
+    gap: 6,
+  },
+  hvacScopeCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  hvacScopeStatusPill: {
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    flexShrink: 0,
+  },
+  hvacScopeStatusPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  hvacScopeSelectedTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
+    flex: 1,
+  },
+  hvacScopeSelectedSubtext: {
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  hvacScopeSelectedStatus: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 8,
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+  hvacScopeQuantityPill: {
+    borderWidth: 1,
+    borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  hvacScopeRemoveButton: {
+    alignSelf: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginTop: 2,
+  },
+  hvacScopeRemoveText: {
+    color: '#f87171',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  hvacScopeSummary: {
+    fontSize: 11,
+    lineHeight: 15,
+    marginBottom: 6,
+    fontWeight: '600',
+  },
+  hvacScopeCollapseButton: {
+    borderWidth: 1,
     borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  hvacScopeIdleWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'flex-start',
+  },
+  hvacScopeEquipmentStack: {
+    flexDirection: 'column',
+    gap: 8,
+    alignItems: 'stretch',
+  },
+  hvacScopeIdleCell: {
+    width: '48%',
+    flexGrow: 0,
+    flexShrink: 0,
+    alignSelf: 'flex-start',
+  },
+  hvacScopeEquipmentCell: {
+    width: '100%',
+    alignSelf: 'stretch',
+  },
+  hvacScopeAddDivider: {
+    marginTop: 8,
+    marginBottom: 0,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  hvacScopeOptionalBlock: {
+    marginTop: 16,
+  },
+  hvacScopeSubPanelAddLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  hvacScopeSubPanelBorderless: {
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    marginBottom: 0,
+  },
+  hvacScopeSubPanelBordered: {
+    padding: 12,
+    marginTop: 8,
+    marginBottom: 0,
+  },
+  hvacScopeSubPanelTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 20,
+    marginBottom: 2,
+  },
+  hvacScopeSubPanelCaption: {
+    fontSize: 11,
+    lineHeight: 15,
+    marginBottom: 6,
+  },
+  hvacScopeSectionSeparator: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(148,163,184,0.18)',
+    paddingTop: 10,
+    marginTop: 8,
+  },
+  hvacScopeSectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  choiceChipWide: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     borderWidth: 1,
     minWidth: '47%',
     flexGrow: 1,
+    minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  choiceChipWideHvac: {
+    flexGrow: 0,
+    width: '100%',
+    alignSelf: 'stretch',
+  },
+  choiceChipStackedHvac: {
+    flexGrow: 0,
+    width: '100%',
+    minWidth: '100%',
+    alignSelf: 'stretch',
+    minHeight: 48,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  choiceChipCompact: {
+    flexGrow: 0,
+    width: '100%',
+    minHeight: 40,
+    paddingVertical: 10,
   },
 });
 
@@ -130,9 +310,18 @@ function captionColor(darkMode: boolean, Colors: Colors) {
 
 function inactiveScopeChoiceChipStyle(darkMode: boolean, Colors: Colors) {
   return {
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.28)' : Colors.line,
-    backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)',
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(100, 116, 139, 0.24)',
+    backgroundColor: darkMode ? '#252527' : '#f1f5f9',
     textColor: darkMode ? '#e5e7eb' : Colors.text,
+  };
+}
+
+function hvacScopePanelColors(darkMode: boolean, Colors: Colors) {
+  return {
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(100, 116, 139, 0.24)',
+    backgroundColor: darkMode ? '#252527' : '#f1f5f9',
+    sectionLabelColor: darkMode ? '#94a3b8' : '#64748b',
+    captionColor: captionColor(darkMode, Colors),
   };
 }
 
@@ -153,6 +342,8 @@ function QmScopeChoiceChip({
   style,
   quantityCaption,
   reviewState = 'idle',
+  compact = false,
+  stacked = false,
 }: {
   label: string;
   active: boolean;
@@ -163,6 +354,8 @@ function QmScopeChoiceChip({
   style?: object;
   quantityCaption?: string | null;
   reviewState?: 'confirmed' | 'needs_confirmation' | 'idle';
+  compact?: boolean;
+  stacked?: boolean;
 }) {
   const inactiveStyle = inactiveScopeChoiceChipStyle(darkMode, Colors);
   let borderColor = inactiveStyle.borderColor;
@@ -187,9 +380,10 @@ function QmScopeChoiceChip({
       <Text
         style={{
           color: textColor,
-          fontSize: 12,
+          fontSize: compact ? 11 : stacked ? 13 : 12,
           fontWeight: active ? '800' : '600',
           textAlign: 'center',
+          width: stacked ? '100%' : undefined,
         }}
       >
         {active && reviewState === 'confirmed' ? '✓ ' : ''}
@@ -209,6 +403,7 @@ function QmScopeChoiceChip({
             fontSize: 11,
             fontWeight: '700',
             textAlign: 'center',
+            width: stacked ? '100%' : undefined,
             marginTop: 4,
           }}
         >
@@ -439,6 +634,7 @@ export function QmSqftMeasurementRow({
   Colors,
   highlighted = false,
   keyboardType = 'decimal-pad',
+  compact = false,
 }: {
   label: string;
   helperText?: string;
@@ -453,6 +649,7 @@ export function QmSqftMeasurementRow({
   Colors: Colors;
   highlighted?: boolean;
   keyboardType?: 'decimal-pad' | 'number-pad';
+  compact?: boolean;
 }) {
   const formattedValue = (() => {
     const raw = String(value || '').replace(/,/g, '');
@@ -465,19 +662,45 @@ export function QmSqftMeasurementRow({
   })();
   return (
     <View
-      style={{
-        marginTop: 10,
-        paddingTop: 10,
-        paddingBottom: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-      }}
+      style={
+        compact
+          ? { marginTop: 4 }
+          : {
+              marginTop: 10,
+              paddingTop: 10,
+              paddingBottom: 10,
+              borderBottomWidth: 1,
+              borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+            }
+      }
     >
-      <Text style={{ color: highlighted ? '#FACC15' : darkMode ? '#F5F7FA' : Colors.text, fontSize: 13, fontWeight: '600', marginBottom: 4 }}>
-        {label}
-      </Text>
-      {helperText ? (
+      {!compact ? (
+        <Text
+          style={{
+            color: highlighted ? '#FACC15' : darkMode ? '#F5F7FA' : Colors.text,
+            fontSize: 13,
+            fontWeight: '600',
+            marginBottom: 4,
+          }}
+        >
+          {label}
+        </Text>
+      ) : null}
+      {!compact && helperText ? (
         <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 15, marginBottom: 8 }}>
+          {helperText}
+        </Text>
+      ) : null}
+      {compact && highlighted && helperText ? (
+        <Text
+          style={{
+            color: '#fbbf24',
+            fontSize: 10,
+            lineHeight: 14,
+            marginBottom: 6,
+            textAlign: 'center',
+          }}
+        >
           {helperText}
         </Text>
       ) : null}
@@ -485,12 +708,16 @@ export function QmSqftMeasurementRow({
         style={{
           flexDirection: 'row',
           alignItems: 'center',
-          borderWidth: StyleSheet.hairlineWidth,
+          borderWidth: 1,
           borderRadius: 10,
-          borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+          borderColor: highlighted
+            ? 'rgba(251, 191, 36, 0.45)'
+            : darkMode
+              ? 'rgba(148, 163, 184, 0.22)'
+              : Colors.line,
           backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : Colors.surface2,
           paddingHorizontal: 10,
-          minHeight: 38,
+          minHeight: compact ? 40 : 38,
         }}
       >
         <TextInput
@@ -3811,6 +4038,7 @@ export function QmSimpleTradeScopePanels({
   Colors: Colors;
 }) {
   const spec = simpleTradeSpec(scopeKey);
+  const [equipmentExpanded, setEquipmentExpanded] = useState(false);
   const selections =
     scopeKey === 'hvac'
       ? resolveHvacTradeScopeSelections(measurements as Record<string, unknown>)
@@ -3868,31 +4096,97 @@ export function QmSimpleTradeScopePanels({
   const optionalOptions = spec.options.filter(option => isOptionalAddOn(option.id));
   const optionById = new Map(spec.options.map(option => [option.id, option]));
 
-  const renderHvacOption = (option: (typeof spec.options)[number]) => {
+  const hvacPanelColors = hvacScopePanelColors(darkMode, Colors);
+
+  const getHvacOptionState = (option: (typeof spec.options)[number]) => {
     const active = hvacScopeChipActive(option, selections, measurements, spec);
     const reviewState = hvacScopeChipReviewState(measurements, option, selections);
     const quantityCaption =
       formatHvacScopeChipQuantity(measurements, option, selections) ??
       formatHvacOptionalAddOnChipCaption(measurements, option);
+    const measurementHelper = hvacScopePanelMeasurementHelper(measurements, option);
+    return { active, reviewState, quantityCaption, measurementHelper };
+  };
+
+  const renderHvacSelectedCard = (option: (typeof spec.options)[number]) => {
+    const { active, reviewState, quantityCaption, measurementHelper } =
+      getHvacOptionState(option);
+    const needsReview = reviewState === 'needs_confirmation';
+    const cardBorder = needsReview
+      ? 'rgba(251, 191, 36, 0.35)'
+      : hvacPanelColors.borderColor;
+    const cardBackground = darkMode ? '#252527' : '#f1f5f9';
+    const statusPillLabel = needsReview
+      ? 'Needs review'
+      : quantityCaption
+        ? 'In bid'
+        : 'Add qty';
+    const statusPillColors = needsReview
+      ? {
+          backgroundColor: 'rgba(251, 191, 36, 0.12)',
+          color: '#fbbf24',
+        }
+      : {
+          backgroundColor: darkMode
+            ? 'rgba(52, 211, 153, 0.12)'
+            : 'rgba(52, 211, 153, 0.14)',
+          color: '#34d399',
+        };
     return (
-      <View key={option.id} style={{ width: '48%' }}>
-        <QmScopeChoiceChip
-          label={option.label}
-          active={active}
-          reviewState={reviewState}
-          quantityCaption={quantityCaption}
-          onPress={() => toggle(option.id, option.canonicalId)}
-          disabled={applying}
-          darkMode={darkMode}
-          Colors={Colors}
-          style={{ width: '100%' }}
-        />
+      <View
+        key={option.id}
+        style={[
+          styles.hvacScopeSelectedCard,
+          {
+            borderColor: cardBorder,
+            backgroundColor: cardBackground,
+          },
+        ]}
+      >
+        <View style={styles.hvacScopeCardHeader}>
+          <Text
+            style={[
+              styles.hvacScopeSelectedTitle,
+              { color: darkMode ? '#f8fafc' : Colors.text },
+            ]}
+          >
+            {option.label}
+          </Text>
+          <View
+            style={[
+              styles.hvacScopeStatusPill,
+              { backgroundColor: statusPillColors.backgroundColor },
+            ]}
+          >
+            <Text
+              style={[
+                styles.hvacScopeStatusPillText,
+                { color: statusPillColors.color },
+              ]}
+            >
+              {statusPillLabel}
+            </Text>
+          </View>
+        </View>
+        {measurementHelper ? (
+          <Text
+            style={[
+              styles.hvacScopeSelectedSubtext,
+              { color: hvacPanelColors.captionColor },
+            ]}
+          >
+            {measurementHelper}
+          </Text>
+        ) : null}
         {active && option.measurementKey ? (
           <QmSqftMeasurementRow
             label={`${option.label} quantity`}
             helperText={
-              hvacScopePanelMeasurementHelper(measurements, option) ??
-              'Enter only the quantity for this selected component.'
+              needsReview
+                ? 'Low-confidence plan read — confirm before pricing.'
+                : option.id === 'ventilation'
+                  ? HVAC_VENTILATION_QUANTITY_HELPER
+                  : undefined
             }
             value={hvacScopePanelMeasurementValue(option, measurements)}
             placeholder='Enter'
@@ -3909,9 +4203,346 @@ export function QmSimpleTradeScopePanels({
             applying={applying}
             darkMode={darkMode}
             Colors={Colors}
-            highlighted={reviewState === 'needs_confirmation'}
+            highlighted={needsReview}
+            compact
           />
+        ) : quantityCaption ? (
+          <View
+            style={[
+              styles.hvacScopeQuantityPill,
+              {
+                borderColor: hvacPanelColors.borderColor,
+                backgroundColor: darkMode
+                  ? 'rgba(255,255,255,0.04)'
+                  : '#ffffff',
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: darkMode ? '#f8fafc' : Colors.text,
+                fontSize: 14,
+                fontWeight: '700',
+              }}
+            >
+              {quantityCaption}
+            </Text>
+          </View>
         ) : null}
+        <TouchableOpacity
+          onPress={() => toggle(option.id, option.canonicalId)}
+          disabled={applying}
+          activeOpacity={0.75}
+          style={styles.hvacScopeRemoveButton}
+        >
+          <Text style={styles.hvacScopeRemoveText}>Remove from bid</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderHvacStackedChip = (option: (typeof spec.options)[number]) => {
+    const { active, reviewState, quantityCaption } = getHvacOptionState(option);
+    return (
+      <View key={option.id} style={styles.hvacScopeEquipmentCell}>
+        <QmScopeChoiceChip
+          label={option.label}
+          active={active}
+          reviewState={reviewState}
+          quantityCaption={quantityCaption}
+          onPress={() => toggle(option.id, option.canonicalId)}
+          disabled={applying}
+          darkMode={darkMode}
+          Colors={Colors}
+          style={styles.choiceChipStackedHvac}
+          stacked
+        />
+      </View>
+    );
+  };
+
+  const renderHvacIdleChip = (option: (typeof spec.options)[number]) => {
+    const { active, reviewState, quantityCaption } = getHvacOptionState(option);
+    return (
+      <View key={option.id} style={styles.hvacScopeIdleCell}>
+        <QmScopeChoiceChip
+          label={option.label}
+          active={active}
+          reviewState={reviewState}
+          quantityCaption={quantityCaption}
+          onPress={() => toggle(option.id, option.canonicalId)}
+          disabled={applying}
+          darkMode={darkMode}
+          Colors={Colors}
+          style={styles.choiceChipCompact}
+          compact
+        />
+      </View>
+    );
+  };
+
+  const hvacOptionsForIds = (optionIds: readonly string[]) =>
+    optionIds
+      .map(id => optionById.get(id))
+      .filter((option): option is (typeof spec.options)[number] => Boolean(option));
+
+  const hvacSelectedForIds = (optionIds: readonly string[]) =>
+    hvacOptionsForIds(optionIds).filter(option => getHvacOptionState(option).active);
+
+  const hvacIdleForIds = (optionIds: readonly string[]) =>
+    hvacOptionsForIds(optionIds).filter(option => !getHvacOptionState(option).active);
+
+  const equipmentChipOptions = hvacOptionsForIds(HVAC_EQUIPMENT_OPTION_IDS);
+  const equipmentIdleOptions = hvacIdleForIds(HVAC_EQUIPMENT_OPTION_IDS);
+  const optionalSelected = optionalOptions.filter(option =>
+    getHvacOptionState(option).active
+  );
+  const optionalIdle = optionalOptions.filter(
+    option => !getHvacOptionState(option).active
+  );
+
+  const hvacScopeSummary =
+    scopeKey === 'hvac'
+      ? summarizeHvacScopePanel(measurements as Record<string, unknown>)
+      : null;
+
+  const hvacPanelShellStyle = {
+    borderColor: hvacPanelColors.borderColor,
+    backgroundColor: hvacPanelColors.backgroundColor,
+  };
+
+  const renderHvacAddToBidSection = (
+    idleOptions: (typeof spec.options)[number][],
+    {
+      equipmentCollapse = false,
+      optionalCaption = false,
+    }: { equipmentCollapse?: boolean; optionalCaption?: boolean } = {}
+  ) => {
+    const showEquipmentToggle =
+      equipmentCollapse && equipmentChipOptions.length > 0;
+    const showGenericIdle = !equipmentCollapse && idleOptions.length > 0;
+    if (!showEquipmentToggle && !showGenericIdle && !optionalCaption) return null;
+
+    return (
+      <View
+        style={[
+          styles.hvacScopeAddDivider,
+          {
+            borderTopColor: darkMode
+              ? 'rgba(148,163,184,0.22)'
+              : 'rgba(100,116,139,0.18)',
+          },
+        ]}
+      >
+        {showGenericIdle ? (
+          <>
+            <Text
+              style={[
+                styles.hvacScopeSubPanelAddLabel,
+                { color: hvacPanelColors.sectionLabelColor },
+              ]}
+            >
+              Add to bid
+            </Text>
+            <View style={styles.hvacScopeIdleWrap}>
+              {idleOptions.map(renderHvacIdleChip)}
+            </View>
+          </>
+        ) : null}
+        {showEquipmentToggle ? (
+          <>
+            <TouchableOpacity
+              key='equipment-toggle'
+              activeOpacity={0.85}
+              onPress={() => setEquipmentExpanded(expanded => !expanded)}
+              style={[
+                styles.hvacScopeCollapseButton,
+                {
+                  borderColor: darkMode
+                    ? 'rgba(148,163,184,0.28)'
+                    : 'rgba(100,116,139,0.24)',
+                  backgroundColor: darkMode
+                    ? 'rgba(255,255,255,0.04)'
+                    : '#ffffff',
+                  marginBottom: equipmentExpanded ? 10 : 0,
+                  marginTop: 2,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  color: darkMode ? '#e5e7eb' : Colors.text,
+                  fontSize: 13,
+                  fontWeight: '600',
+                }}
+              >
+                {equipmentExpanded
+                  ? 'Hide equipment types'
+                  : equipmentIdleOptions.length > 0
+                    ? `Add equipment · ${equipmentIdleOptions.length} types`
+                    : 'Equipment types'}
+              </Text>
+              <Text
+                style={{
+                  color: hvacPanelColors.sectionLabelColor,
+                  fontSize: 16,
+                  fontWeight: '700',
+                }}
+              >
+                {equipmentExpanded ? '⌃' : '⌄'}
+              </Text>
+            </TouchableOpacity>
+            {equipmentExpanded ? (
+              <View style={styles.hvacScopeEquipmentStack}>
+                {equipmentChipOptions.map(renderHvacStackedChip)}
+              </View>
+            ) : null}
+          </>
+        ) : null}
+        {optionalCaption && optionalIdle.length ? (
+          <View
+            style={
+              showEquipmentToggle || showGenericIdle
+                ? styles.hvacScopeOptionalBlock
+                : undefined
+            }
+          >
+            <Text
+              style={[
+                styles.hvacScopeSectionLabel,
+                {
+                  color: hvacPanelColors.sectionLabelColor,
+                  marginTop: 0,
+                  marginBottom: 6,
+                },
+              ]}
+            >
+              Optional
+            </Text>
+            <Text
+              style={[
+                styles.hvacScopeSubPanelCaption,
+                { color: hvacPanelColors.captionColor, marginBottom: 8 },
+              ]}
+            >
+              Include only when documented or explicitly in this bid.
+            </Text>
+            <View style={styles.hvacScopeEquipmentStack}>
+              {optionalIdle.map(renderHvacStackedChip)}
+            </View>
+            {(() => {
+              const optionalIdleHint = optionalIdle
+                .map(option => formatHvacOptionalAddOnIdleHint(option))
+                .find(Boolean);
+              return optionalIdleHint ? (
+                <Text
+                  style={[
+                    styles.hvacScopeSubPanelCaption,
+                    {
+                      color: hvacPanelColors.captionColor,
+                      marginTop: 8,
+                      marginBottom: 0,
+                    },
+                  ]}
+                >
+                  {optionalIdleHint}
+                </Text>
+              ) : null;
+            })()}
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
+  const renderHvacScopeSubPanel = ({
+    title,
+    caption,
+    selectedOptions,
+    idleOptions,
+    showSummary = false,
+    equipmentCollapse = false,
+    includeOptionalAddOns = false,
+    borderless = false,
+    sectionSeparator = false,
+  }: {
+    title: string;
+    caption: string;
+    selectedOptions: (typeof spec.options)[number][];
+    idleOptions: (typeof spec.options)[number][];
+    showSummary?: boolean;
+    equipmentCollapse?: boolean;
+    includeOptionalAddOns?: boolean;
+    borderless?: boolean;
+    sectionSeparator?: boolean;
+  }) => {
+    const selectedCards = [
+      ...selectedOptions,
+      ...(includeOptionalAddOns ? optionalSelected : []),
+    ];
+    const hasContent =
+      selectedCards.length ||
+      idleOptions.length ||
+      optionalIdle.length ||
+      (equipmentCollapse && equipmentChipOptions.length > 0);
+
+    if (!hasContent) return null;
+
+    return (
+      <View
+        key={title}
+        style={[
+          borderless ? null : styles.qmPanel,
+          borderless ? styles.hvacScopeSubPanelBorderless : styles.hvacScopeSubPanelBordered,
+          !borderless ? hvacPanelShellStyle : null,
+          sectionSeparator ? styles.hvacScopeSectionSeparator : null,
+        ]}
+      >
+        <Text
+          style={[
+            styles.hvacScopeSubPanelTitle,
+            { color: darkMode ? '#F5F7FA' : Colors.text },
+          ]}
+        >
+          {title}
+        </Text>
+        <Text
+          style={[
+            styles.hvacScopeSubPanelCaption,
+            { color: hvacPanelColors.captionColor },
+          ]}
+        >
+          {caption}
+        </Text>
+        {showSummary && hvacScopeSummary ? (
+          <Text
+            style={[
+              styles.hvacScopeSummary,
+              {
+                color:
+                  hvacScopeSummary.needsConfirmationCount > 0
+                    ? '#fbbf24'
+                    : hvacPanelColors.captionColor,
+              },
+            ]}
+          >
+            {hvacScopeSummary.inBidCount === 1
+              ? '1 item in bid'
+              : `${hvacScopeSummary.inBidCount} items in bid`}
+            {hvacScopeSummary.needsConfirmationCount > 0
+              ? ` · ${hvacScopeSummary.needsConfirmationCount} need confirmation`
+              : ' · ready for pricing'}
+          </Text>
+        ) : null}
+        {selectedCards.length ? (
+          <View style={styles.hvacScopeSelectedList}>
+            {selectedCards.map(renderHvacSelectedCard)}
+          </View>
+        ) : null}
+        {renderHvacAddToBidSection(idleOptions, {
+          equipmentCollapse,
+          optionalCaption: includeOptionalAddOns,
+        })}
       </View>
     );
   };
@@ -3970,6 +4601,43 @@ export function QmSimpleTradeScopePanels({
     );
   };
 
+  if (scopeKey === 'hvac') {
+    return (
+      <>
+        {renderHvacScopeSubPanel({
+          title: 'HVAC scope',
+          caption: 'System count and tonnage documented on the plans.',
+          selectedOptions: hvacSelectedForIds([
+            HVAC_SYSTEMS_OPTION_ID,
+            HVAC_CAPACITY_OPTION_ID,
+          ]),
+          idleOptions: hvacIdleForIds([
+            HVAC_SYSTEMS_OPTION_ID,
+            HVAC_CAPACITY_OPTION_ID,
+          ]),
+          showSummary: true,
+          borderless: true,
+        })}
+        {renderHvacScopeSubPanel({
+          title: 'Distribution',
+          caption: 'Ductwork, thermostats, and air devices in this bid.',
+          selectedOptions: hvacSelectedForIds(HVAC_SCOPE_DISTRIBUTION_OPTION_IDS),
+          idleOptions: hvacIdleForIds(HVAC_SCOPE_DISTRIBUTION_OPTION_IDS),
+          borderless: true,
+          sectionSeparator: true,
+        })}
+        {renderHvacScopeSubPanel({
+          title: 'Equipment & add-ons',
+          caption: 'Equipment types and optional whole-house ventilation.',
+          selectedOptions: hvacSelectedForIds(HVAC_EQUIPMENT_OPTION_IDS),
+          idleOptions: equipmentIdleOptions,
+          equipmentCollapse: true,
+          includeOptionalAddOns: true,
+        })}
+      </>
+    );
+  }
+
   return (
     <View
       style={[
@@ -3983,112 +4651,62 @@ export function QmSimpleTradeScopePanels({
       <Text style={[styles.qmPanelTitle, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
         {simpleTradeScopePanelTitle(scopeKey)}
       </Text>
-      <Text style={[styles.qmPanelCaption, { color: captionColor(darkMode, Colors) }]}>
-        {scopeKey === 'hvac'
-          ? 'Takeoff evidence selects scope here. Tap a selected item to confirm or edit its quantity.'
-          : 'Select every component included in this bid. Measurements feed the corresponding pricing cards.'}
+      <Text
+        style={[
+          styles.qmPanelCaption,
+          { color: captionColor(darkMode, Colors) },
+        ]}
+      >
+        Select every component included in this bid. Measurements feed the corresponding pricing cards.
       </Text>
-      {scopeKey === 'hvac' ? (
-        <>
-          {HVAC_SCOPE_CORE_SECTIONS.map(section => (
-            <View key={section.label || 'systems'} style={{ marginBottom: 10 }}>
-              {section.label ? (
-                <Text
-                  style={[
-                    styles.qmPanelCaption,
-                    {
-                      color: darkMode ? '#CBD5E1' : '#64748b',
-                      marginBottom: 8,
-                      fontWeight: '700',
-                    },
-                  ]}
-                >
-                  {section.label}
-                </Text>
-              ) : null}
-              <View style={styles.choiceWrap}>
-                {section.optionIds
-                  .map(id => optionById.get(id))
-                  .filter(Boolean)
-                  .map(option => renderHvacOption(option!))}
-              </View>
-            </View>
-          ))}
-          {optionalOptions.length ? (
-            <>
-              <Text
-                style={[
-                  styles.qmPanelCaption,
-                  {
-                    color: captionColor(darkMode, Colors),
-                    marginTop: 4,
-                    marginBottom: 8,
-                    fontWeight: '700',
-                  },
-                ]}
-              >
-                Optional add-ons
-              </Text>
-              <Text style={[styles.qmPanelCaption, { color: captionColor(darkMode, Colors) }]}>
-                Not part of the base HVAC package. Include only when documented or
-                explicitly in this bid.
-              </Text>
-              <View style={styles.choiceWrap}>
-                {optionalOptions.map(renderHvacOption)}
-              </View>
-            </>
-          ) : null}
-        </>
-      ) : (
-        <>
-          <View style={styles.choiceWrap}>
-            {spec.options.filter(option => !isOptionalAddOn(option.id)).map(renderOptionChip)}
-          </View>
-          {optionalOptions.length ? (
-            <>
-              <Text
-                style={[
-                  styles.qmPanelCaption,
-                  {
-                    color: captionColor(darkMode, Colors),
-                    marginTop: 4,
-                    marginBottom: 8,
-                    fontWeight: '700',
-                  },
-                ]}
-              >
-                Optional add-ons
-              </Text>
-              <View style={styles.choiceWrap}>{optionalOptions.map(renderOptionChip)}</View>
-            </>
-          ) : null}
-          {Array.from(measurementRows.values()).map((option) => (
-            <QmSqftMeasurementRow
-              key={option.measurementKey}
-              label={`${option.quantityLabel || option.label} quantity`}
-              helperText={
-                option.measurementHelper ||
-                'Enter only the quantity for this selected component.'
-              }
-              value={String(
-                (measurements as Record<string, unknown>)[option.measurementKey!] || ''
-              )}
-              placeholder='Enter'
-              unitLabel={option.unit}
-              onChangeText={(value) =>
-                setMeasurements(prev => ({
-                  ...prev,
-                  [option.measurementKey!]: value,
-                }))
-              }
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-              highlighted
-            />
-          ))}
-        </>
-      )}
+      <>
+        <View style={styles.choiceWrap}>
+          {spec.options.filter(option => !isOptionalAddOn(option.id)).map(renderOptionChip)}
+        </View>
+        {optionalOptions.length ? (
+          <>
+            <Text
+              style={[
+                styles.qmPanelCaption,
+                {
+                  color: captionColor(darkMode, Colors),
+                  marginTop: 4,
+                  marginBottom: 8,
+                  fontWeight: '700',
+                },
+              ]}
+            >
+              Optional add-ons
+            </Text>
+            <View style={styles.choiceWrap}>{optionalOptions.map(renderOptionChip)}</View>
+          </>
+        ) : null}
+        {Array.from(measurementRows.values()).map((option) => (
+          <QmSqftMeasurementRow
+            key={option.measurementKey}
+            label={`${option.quantityLabel || option.label} quantity`}
+            helperText={
+              option.measurementHelper ||
+              'Enter only the quantity for this selected component.'
+            }
+            value={String(
+              (measurements as Record<string, unknown>)[option.measurementKey!] || ''
+            )}
+            placeholder='Enter'
+            unitLabel={option.unit}
+            onChangeText={(value) =>
+              setMeasurements(prev => ({
+                ...prev,
+                [option.measurementKey!]: value,
+              }))
+            }
+            applying={applying}
+            darkMode={darkMode}
+            Colors={Colors}
+            highlighted
+          />
+        ))}
+      </>
     </View>
   );
 }

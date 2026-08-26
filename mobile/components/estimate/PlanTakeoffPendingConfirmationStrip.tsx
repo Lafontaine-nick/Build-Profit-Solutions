@@ -20,6 +20,7 @@ import {
   unconfirmPendingPlanConfirmationRead,
   type PendingPlanConfirmationRead,
 } from '@/utils/planMeasurementConflictUi';
+import { applyHvacScopeSelectionForConfirmedField } from '@/utils/qmScopePanels/simpleTradeRemodel';
 import { HVAC_PLAN_REVIEW_CANONICAL_KEYS } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 
 const SELECTED_GREEN = '#34d399';
@@ -31,6 +32,7 @@ export function PlanTakeoffPendingConfirmationStrip({
   tradeKey,
   darkMode,
   captionColor,
+  onPlanReadConfirmed,
 }: {
   measurements: Record<string, unknown>;
   setMeasurements: React.Dispatch<
@@ -40,7 +42,25 @@ export function PlanTakeoffPendingConfirmationStrip({
   tradeKey?: string | null;
   darkMode: boolean;
   captionColor: string;
+  onPlanReadConfirmed?: (field: string) => void;
 }) {
+  const commitPlanReadConfirmation = (
+    field: string,
+    value: number,
+    confirmed: boolean
+  ) => {
+    setMeasurements(prev => {
+      const base = confirmed
+        ? confirmPendingPlanConfirmationRead(prev, field, value)
+        : unconfirmPendingPlanConfirmationRead(prev, field, value);
+      return confirmed
+        ? applyHvacScopeSelectionForConfirmedField(base, field)
+        : base;
+    });
+    if (confirmed) {
+      onPlanReadConfirmed?.(field);
+    }
+  };
   const [trackedReads, setTrackedReads] = useState<
     PendingPlanConfirmationRead[]
   >([]);
@@ -170,18 +190,10 @@ export function PlanTakeoffPendingConfirmationStrip({
                   subtitle='Low-confidence plan read'
                   darkMode={darkMode}
                   onPress={() => {
-                    setMeasurements(prev =>
-                      confirmed
-                        ? unconfirmPendingPlanConfirmationRead(
-                            prev,
-                            reading.field,
-                            displayValue
-                          )
-                        : confirmPendingPlanConfirmationRead(
-                            prev,
-                            reading.field,
-                            displayValue
-                          )
+                    commitPlanReadConfirmation(
+                      reading.field,
+                      displayValue,
+                      !confirmed
                     );
                   }}
                 />
@@ -242,13 +254,7 @@ export function PlanTakeoffPendingConfirmationStrip({
                       }));
                       const value = Number(next);
                       if (Number.isFinite(value) && value > 0) {
-                        setMeasurements(prev =>
-                          confirmPendingPlanConfirmationRead(
-                            prev,
-                            reading.field,
-                            value
-                          )
-                        );
+                        commitPlanReadConfirmation(reading.field, value, true);
                       }
                     }}
                     {...aiScopeConfirmNumericKeyboardProps}

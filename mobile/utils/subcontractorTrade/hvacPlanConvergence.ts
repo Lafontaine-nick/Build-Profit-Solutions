@@ -131,7 +131,7 @@ export const HVAC_CARDS: HvacCardDefinition[] = [
     'ventilation',
     'hvacVentilationCount',
     'Whole-house ventilation',
-    'ERV, HRV, or dedicated fresh-air ventilation equipment shown on the plans.',
+    'Count whole-house ventilation systems — 1 ERV or HRV = 1 each. Not bath exhaust fans.',
     'controls'
   ),
   H(

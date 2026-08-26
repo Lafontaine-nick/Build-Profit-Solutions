@@ -1,16 +1,22 @@
 import {
   applyHvacScopeMeasurements,
   applyHvacScopePanelMeasurementEdit,
+  applyHvacScopeSelectionForConfirmedField,
   formatHvacOptionalAddOnChipCaption,
+  formatHvacOptionalAddOnIdleHint,
   formatHvacScopeChipQuantity,
+  HVAC_VENTILATION_IDLE_HINT,
   HVAC_CAPACITY_OPTION_ID,
   HVAC_EMBEDDED_QUICK_MEASUREMENT_KEYS,
   HVAC_EQUIPMENT_OPTION_IDS,
+  HVAC_SCOPE_EQUIPMENT_EXPAND_HIGHLIGHT,
   HVAC_SYSTEMS_OPTION_ID,
   hvacFieldHasTakeoffEvidence,
   hvacScopeChipReviewState,
+  hvacScopeOptionIdForMeasurementField,
   inferHvacScopeSelectionsFromMeasurements,
   resolveHvacTradeScopeSelections,
+  summarizeHvacScopePanel,
   ROOFING_ACCESSORY_OPTION_IDS,
   ROOFING_DEMO_OPTION_IDS,
   ROOFING_DRAINAGE_OPTION_IDS,
@@ -429,7 +435,13 @@ describe('simple trade QM panels', () => {
     ).toBe('2 each');
     expect(formatHvacScopeChipQuantity(measurements, furnace, [])).toBeNull();
     expect(
-      formatHvacScopeChipQuantity(measurements, furnace, ['furnace'])
+      formatHvacScopeChipQuantity(
+        {
+          itemQuantities: { equipment_replace__furnace: { quantity: 2 } },
+        },
+        furnace,
+        ['furnace']
+      )
     ).toBe('2 each');
     expect(
       formatHvacScopeChipQuantity(measurements, ductwork, ['ductwork'])
@@ -449,7 +461,7 @@ describe('simple trade QM panels', () => {
         hvac: ['furnace', 'condenser', 'thermostat', 'registers', 'returns'],
       },
     });
-    expect(seeded.hvacEquipmentReplacementCount).toBe(2);
+    expect(seeded.hvacEquipmentReplacementCount).toBe('2');
     expect(seeded.hvacThermostatCount).toBe(1);
     expect(seeded.hvacSupplyRegisterCount).toBe(1);
     expect(seeded.hvacReturnGrilleCount).toBe(1);
@@ -474,6 +486,8 @@ describe('simple trade QM panels', () => {
     expect(
       formatHvacOptionalAddOnChipCaption({ hvacVentilationCount: 1 }, option)
     ).toBe('1 each');
+    expect(formatHvacOptionalAddOnIdleHint(option)).toBe(HVAC_VENTILATION_IDLE_HINT);
+    expect(option.measurementHelper).toContain('1 ERV or HRV = 1 each');
   });
 
   it('creates a quantity row for every selected HVAC chip', () => {
@@ -525,5 +539,86 @@ describe('simple trade QM panels', () => {
       defaultUnit: 'each',
       measurementKey: 'hvacThermostatCount',
     });
+  });
+
+  it('maps confirmed plan-read fields to HVAC scope chip ids', () => {
+    expect(hvacScopeOptionIdForMeasurementField('hvacDuctworkLf')).toBe(
+      'ductwork'
+    );
+    expect(hvacScopeOptionIdForMeasurementField('hvacSystemCount')).toBe(
+      HVAC_SYSTEMS_OPTION_ID
+    );
+    expect(hvacScopeOptionIdForMeasurementField('hvacEquipmentReplacementCount')).toBe(
+      HVAC_SCOPE_EQUIPMENT_EXPAND_HIGHLIGHT
+    );
+    expect(hvacScopeOptionIdForMeasurementField('unknownField')).toBeNull();
+  });
+
+  it('selects the matching HVAC chip when a plan read is confirmed', () => {
+    const next = applyHvacScopeSelectionForConfirmedField(
+      {
+        hvacDuctworkLf: 150,
+        quickMeasurementSources: {
+          hvacDuctworkLf: 'contractor_confirmed_from_plan_review',
+        },
+      },
+      'hvacDuctworkLf'
+    );
+    expect(resolveHvacTradeScopeSelections(next)).toContain('ductwork');
+  });
+
+  it('keeps manual HVAC equipment chip selections for quantity entry', () => {
+    const next = applyHvacScopeMeasurements({
+      tradeScopeSelections: { hvac: ['furnace', 'condenser'] },
+    });
+    expect(resolveHvacTradeScopeSelections(next)).toEqual(
+      expect.arrayContaining(['furnace', 'condenser'])
+    );
+    expect(next.hvacEquipmentReplacementCount).toBe('2');
+    expect(next.itemQuantities?.equipment_replace__furnace).toMatchObject({
+      quantity: 1,
+    });
+    expect(
+      applyHvacScopePanelMeasurementEdit(next, SIMPLE_TRADE_SPECS.hvac.options.find(
+        option => option.id === 'furnace'
+      )!, '3').itemQuantities?.equipment_replace__furnace
+    ).toMatchObject({ quantity: '3' });
+    const deselected = applyHvacScopeMeasurements({
+      ...next,
+      tradeScopeSelections: { hvac: ['condenser'] },
+    });
+    expect(resolveHvacTradeScopeSelections(deselected)).not.toContain('furnace');
+    expect(deselected.itemQuantities?.equipment_replace__furnace).toBeUndefined();
+  });
+
+  it('summarizes HVAC scope panel bid status', () => {
+    expect(
+      summarizeHvacScopePanel({
+        tradeScopeSelections: { hvac: ['ductwork', 'registers'] },
+        hvacDuctworkLf: 120,
+        hvacSupplyRegisterCount: 4,
+        quickMeasurementSources: {
+          hvacDuctworkLf: 'contractor_confirmed_from_plan_review',
+          hvacSupplyRegisterCount: 'contractor_confirmed_from_plan_review',
+        },
+      })
+    ).toEqual({ inBidCount: 2, needsConfirmationCount: 0 });
+  });
+
+  it('keeps cleared HVAC panel qty editable instead of reverting to plan provenance', () => {
+    const systems = SIMPLE_TRADE_SPECS.hvac.options.find(
+      option => option.id === HVAC_SYSTEMS_OPTION_ID
+    )!;
+    const measurements = {
+      hvacSystemCount: '2',
+      measurementProvenance: {
+        hvacSystemCount: { value: 2, status: 'user_confirmed' },
+      },
+    };
+    const cleared = applyHvacScopePanelMeasurementEdit(measurements, systems, '');
+    expect(hvacScopePanelMeasurementValue(systems, cleared)).toBe('');
+    expect(cleared.quickMeasurementSources?.hvacSystemCount).toBe('user_entered');
+    const edited = applyHvacScopePanelMeasurementEdit(cleared, systems, '4');
+    expect(hvacScopePanelMeasurementValue(systems, edited)).toBe('4');
   });
 });

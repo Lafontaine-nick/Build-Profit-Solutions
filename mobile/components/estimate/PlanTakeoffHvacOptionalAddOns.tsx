@@ -49,7 +49,8 @@ export function PlanTakeoffHvacOptionalAddOns({
         <Text style={[styles.itemPrice, { color: titleColor }]}>$0</Text>
         <Text style={[styles.itemFootnote, { color: captionColor }]}>
           Tap Whole-house ventilation in Confirm Scope if this bid includes
-          ERV/HRV equipment.
+          ERV/HRV equipment. 1 each = one whole-house unit — not bath exhaust
+          fans.
         </Text>
       </View>
     </View>
