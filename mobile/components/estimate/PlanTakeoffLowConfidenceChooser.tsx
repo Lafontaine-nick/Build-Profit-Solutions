@@ -13,8 +13,9 @@ import type {
   PlanUnreadableField,
 } from '@/utils/estimateAiDraft';
 import {
-  conflictFieldDisplay,
   conflictChooserLowConfidenceAcceptedLine,
+  conflictFieldDisplay,
+  emptyPlanTakeoffReadingDisplay,
   formatPlanTakeoffQuantity,
   shortPlanTakeoffHelper,
 } from '@/utils/planMeasurementConflictUi';
@@ -59,9 +60,8 @@ export function PlanTakeoffLowConfidenceChooser({
   const panelBorder = darkMode
     ? 'rgba(148,163,184,0.28)'
     : 'rgba(100,116,139,0.24)';
-  const panelBg = darkMode
-    ? 'rgba(148,163,184,0.06)'
-    : 'rgba(148,163,184,0.05)';
+  const panelBg = darkMode ? '#252527' : '#f1f5f9';
+  const inputBg = darkMode ? 'rgba(255,255,255,0.05)' : '#ffffff';
   const titleColor = darkMode ? '#f8fafc' : '#0f172a';
 
   return (
@@ -111,6 +111,7 @@ export function PlanTakeoffLowConfidenceChooser({
                 : value;
             const hasQuantity = displayValue > 0;
             const editing = editingField === field;
+            const emptyDisplay = emptyPlanTakeoffReadingDisplay(field);
             const unitHint = formatPlanTakeoffQuantity(field, 1)
               .replace(/^1\s*/, '')
               .replace(/^1/, '');
@@ -141,7 +142,9 @@ export function PlanTakeoffLowConfidenceChooser({
                         field,
                         displayValue
                       )
-                    : 'Needs manual confirmation'}
+                    : hasQuantity
+                      ? 'Needs manual confirmation'
+                      : emptyDisplay.statusLine}
                 </Text>
                 {hasQuantity ? (
                   <ConfirmScopeChip
@@ -154,8 +157,8 @@ export function PlanTakeoffLowConfidenceChooser({
                 ) : (
                   <ConfirmScopeChip
                     selected={false}
-                    label={`Enter ${unitHint}`.trim()}
-                    subtitle='No plan read yet'
+                    label={emptyDisplay.chipLabel}
+                    subtitle={emptyDisplay.chipSubtitle}
                     darkMode={darkMode}
                     onPress={() => {
                       setEditingField(field);
@@ -191,7 +194,7 @@ export function PlanTakeoffLowConfidenceChooser({
                           styles.editShell,
                           {
                             borderColor: panelBorder,
-                            backgroundColor: darkMode ? '#27272a' : '#f1f5f9',
+                            backgroundColor: inputBg,
                           },
                         ]}
                       >

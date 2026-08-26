@@ -30,6 +30,7 @@ import {
   conflictChooserLowConfidenceAcceptedLine,
   pendingPlanConfirmationReads,
   confirmPendingPlanConfirmationRead,
+  emptyPlanTakeoffReadingDisplay,
   isPendingPlanReadConfirmed,
   resolveHvacPendingPlanConfirmationReads,
 } from '@/utils/planMeasurementConflictUi';
@@ -648,8 +649,27 @@ describe('planMeasurementConflictUi', () => {
       'hvacSupplyRegisterCount',
       'hvacReturnGrilleCount',
       'hvacThermostatCount',
-      'hvacVentilationCount',
     ]);
+  });
+
+  it('resolveHvacPendingPlanConfirmationReads includes explicit ERV/HRV ventilation awaiting review', () => {
+    expect(
+      resolveHvacPendingPlanConfirmationReads({
+        planImportTradeKey: 'hvac',
+        hvacVentilationCount: 1,
+        quickMeasurementSources: {
+          hvacVentilationCount: 'needs_confirmation',
+        },
+        measurementProvenance: {
+          hvacVentilationCount: {
+            source: 'pdf_text_instance_tags',
+            status: 'plan_verified',
+            normalizedSource: 'FROM_PLAN',
+            value: 1,
+          },
+        },
+      }).map(row => row.field)
+    ).toEqual(['hvacVentilationCount']);
   });
 
   it('resolveHvacPendingPlanConfirmationReads omits rows confirmed during takeoff review', () => {
@@ -669,8 +689,9 @@ describe('planMeasurementConflictUi', () => {
             value: 2,
           },
           hvacVentilationCount: {
-            status: 'needs_review',
-            normalizedSource: 'NEEDS_REVIEW',
+            source: 'pdf_text_instance_tags',
+            status: 'plan_verified',
+            normalizedSource: 'FROM_PLAN',
             value: 1,
           },
         },
@@ -683,15 +704,20 @@ describe('planMeasurementConflictUi', () => {
       resolveHvacPendingPlanConfirmationReads({
         planImportTradeKey: 'hvac',
         itemQuantities: {
-          ventilation: { quantity: 3, unit: 'each', quantitySource: 'plan_detected' },
+          ventilation: {
+            quantity: 3,
+            unit: 'each',
+            quantitySource: 'plan_detected',
+          },
         },
         quickMeasurementSources: {
           hvacVentilationCount: 'needs_confirmation',
         },
         measurementProvenance: {
           hvacVentilationCount: {
-            status: 'needs_review',
-            normalizedSource: 'NEEDS_REVIEW',
+            source: 'pdf_text_instance_tags',
+            status: 'plan_verified',
+            normalizedSource: 'FROM_PLAN',
             value: 3,
           },
         },
@@ -718,5 +744,60 @@ describe('planMeasurementConflictUi', () => {
     ).toEqual({
       hvacDuctworkLf: 'needs_confirmation',
     });
+  });
+
+  it('syncHvacSkippedTakeoffQuickMeasurementSources tags empty canonical HVAC rows awaiting review', () => {
+    expect(
+      syncHvacSkippedTakeoffQuickMeasurementSources({
+        measurementProvenance: {
+          hvacVentilationCount: {
+            status: 'needs_review',
+            normalizedSource: 'NEEDS_REVIEW',
+            pricingEligible: false,
+            value: 0,
+          },
+        },
+        quickMeasurementSources: {},
+      })
+    ).toEqual({});
+  });
+
+  it('does not duplicate selected HVAC chip quantities in Needs confirmation', () => {
+    const pending = resolveHvacPendingPlanConfirmationReads({
+      hvacSystemCount: 2,
+      hvacSystemTons: 5,
+      hvacDuctworkLf: 150,
+      hvacSupplyRegisterCount: 12,
+      hvacReturnGrilleCount: 8,
+      hvacThermostatCount: 2,
+      quickMeasurementSources: {
+        hvacSystemCount: 'contractor_confirmed_from_plan_review',
+        hvacSystemTons: 'contractor_confirmed_from_plan_review',
+        hvacDuctworkLf: 'contractor_confirmed_from_plan_review',
+        hvacSupplyRegisterCount: 'contractor_confirmed_from_plan_review',
+        hvacReturnGrilleCount: 'contractor_confirmed_from_plan_review',
+        hvacThermostatCount: 'contractor_confirmed_from_plan_review',
+      },
+      measurementProvenance: {
+        hvacSystemCount: { status: 'needs_review', value: 2 },
+        hvacSystemTons: { status: 'needs_review', value: 5 },
+        hvacDuctworkLf: { status: 'needs_review', value: 150 },
+        hvacSupplyRegisterCount: { status: 'needs_review', value: 12 },
+        hvacReturnGrilleCount: { status: 'needs_review', value: 8 },
+        hvacThermostatCount: { status: 'needs_review', value: 2 },
+      },
+    });
+    expect(pending.map(read => read.field)).toEqual([]);
+  });
+
+  it('emptyPlanTakeoffReadingDisplay clarifies optional whole-house ventilation', () => {
+    expect(emptyPlanTakeoffReadingDisplay('hvacVentilationCount')).toEqual({
+      statusLine: 'Not found on selected plan pages',
+      chipLabel: 'Not found on selected plan pages',
+      chipSubtitle: 'Enter quantity only if included in the HVAC bid.',
+    });
+    expect(emptyPlanTakeoffReadingDisplay('hvacThermostatCount').chipSubtitle).toBe(
+      'No plan read yet'
+    );
   });
 });

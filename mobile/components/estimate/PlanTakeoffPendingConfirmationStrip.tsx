@@ -11,6 +11,7 @@ import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPre
 import {
   confirmPendingPlanConfirmationRead,
   conflictChooserLowConfidenceAcceptedLine,
+  emptyPlanTakeoffReadingDisplay,
   formatPlanTakeoffQuantity,
   isPendingPlanReadConfirmed,
   pendingPlanConfirmationReads,
@@ -93,9 +94,8 @@ export function PlanTakeoffPendingConfirmationStrip({
   const panelBorder = darkMode
     ? 'rgba(148,163,184,0.28)'
     : 'rgba(100,116,139,0.24)';
-  const panelBg = darkMode
-    ? 'rgba(148,163,184,0.06)'
-    : 'rgba(148,163,184,0.05)';
+  const panelBg = darkMode ? '#252527' : '#f1f5f9';
+  const inputBg = darkMode ? 'rgba(255,255,255,0.05)' : '#ffffff';
   const titleColor = darkMode ? '#f8fafc' : '#0f172a';
 
   return (
@@ -126,7 +126,12 @@ export function PlanTakeoffPendingConfirmationStrip({
             editedValue > 0
               ? editedValue
               : reading.value;
+          const hasQuantity = displayValue > 0;
           const editing = editingField === reading.field;
+          const emptyDisplay = emptyPlanTakeoffReadingDisplay(reading.field);
+          const unitHint = formatPlanTakeoffQuantity(reading.field, 1)
+            .replace(/^1\s*/, '')
+            .replace(/^1/, '');
           return (
             <View
               key={reading.field}
@@ -149,34 +154,52 @@ export function PlanTakeoffPendingConfirmationStrip({
                   { color: confirmed ? SELECTED_GREEN : '#fbbf24' },
                 ]}
               >
-                {confirmed
+                {confirmed && hasQuantity
                   ? conflictChooserLowConfidenceAcceptedLine(
                       reading.field,
                       displayValue
                     )
-                  : 'Needs manual confirmation'}
+                  : hasQuantity
+                    ? 'Needs manual confirmation'
+                    : emptyDisplay.statusLine}
               </Text>
-              <ConfirmScopeChip
-                selected={confirmed}
-                label={formatPlanTakeoffQuantity(reading.field, displayValue)}
-                subtitle='Low-confidence plan read'
-                darkMode={darkMode}
-                onPress={() => {
-                  setMeasurements(prev =>
-                    confirmed
-                      ? unconfirmPendingPlanConfirmationRead(
-                          prev,
-                          reading.field,
-                          displayValue
-                        )
-                      : confirmPendingPlanConfirmationRead(
-                          prev,
-                          reading.field,
-                          displayValue
-                        )
-                  );
-                }}
-              />
+              {hasQuantity ? (
+                <ConfirmScopeChip
+                  selected={confirmed}
+                  label={formatPlanTakeoffQuantity(reading.field, displayValue)}
+                  subtitle='Low-confidence plan read'
+                  darkMode={darkMode}
+                  onPress={() => {
+                    setMeasurements(prev =>
+                      confirmed
+                        ? unconfirmPendingPlanConfirmationRead(
+                            prev,
+                            reading.field,
+                            displayValue
+                          )
+                        : confirmPendingPlanConfirmationRead(
+                            prev,
+                            reading.field,
+                            displayValue
+                          )
+                    );
+                  }}
+                />
+              ) : (
+                <ConfirmScopeChip
+                  selected={false}
+                  label={emptyDisplay.chipLabel}
+                  subtitle={emptyDisplay.chipSubtitle}
+                  darkMode={darkMode}
+                  onPress={() => {
+                    setEditingField(reading.field);
+                    setEditValues(prev => ({
+                      ...prev,
+                      [reading.field]: prev[reading.field] ?? '',
+                    }));
+                  }}
+                />
+              )}
               <TouchableOpacity
                 onPress={() => {
                   setEditingField(editing ? null : reading.field);
@@ -200,7 +223,7 @@ export function PlanTakeoffPendingConfirmationStrip({
                     styles.editShell,
                     {
                       borderColor: panelBorder,
-                      backgroundColor: darkMode ? '#27272a' : '#f1f5f9',
+                      backgroundColor: inputBg,
                     },
                   ]}
                 >

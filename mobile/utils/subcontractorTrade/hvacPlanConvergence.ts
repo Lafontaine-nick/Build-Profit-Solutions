@@ -130,8 +130,8 @@ export const HVAC_CARDS: HvacCardDefinition[] = [
   H(
     'ventilation',
     'hvacVentilationCount',
-    'Ventilation',
-    'Explicit HVAC ventilation equipment or connection count. Exhaust-fan electrical work remains separate.',
+    'Whole-house ventilation',
+    'ERV, HRV, or dedicated fresh-air ventilation equipment shown on the plans.',
     'controls'
   ),
   H(
@@ -177,6 +177,142 @@ export const HVAC_PLAN_QUICK_MEASUREMENT_KEYS = [
   'hvacThermostatCount',
   'hvacVentilationCount',
 ] as const;
+
+export const HVAC_VENTILATION_MEASUREMENT_KEY =
+  'hvacVentilationCount' as const satisfies HvacPlanReviewCanonicalKey;
+
+/** ERV/HRV/fresh-air evidence only — vision guesses and code notes do not count. */
+export function isExplicitHvacVentilationEvidence(
+  provenanceEntry: unknown,
+  options?: {
+    quickMeasurementSource?: string | null;
+    itemQuantitySource?: string | null;
+  }
+): boolean {
+  const qm = options?.quickMeasurementSource;
+  if (
+    qm === 'user_entered' ||
+    qm === 'contractor_confirmed_from_plan_review'
+  ) {
+    return true;
+  }
+  const itemSource = options?.itemQuantitySource;
+  if (
+    itemSource === 'user_entered' ||
+    itemSource === 'contractor_confirmed_from_plan_review'
+  ) {
+    return true;
+  }
+  if (!provenanceEntry || typeof provenanceEntry !== 'object') return false;
+  const record = provenanceEntry as Record<string, unknown>;
+  const source = String(record.source || '').toLowerCase();
+  const normalized = String(record.normalizedSource || '').toUpperCase();
+  const status = String(record.status || '').toLowerCase();
+  if (source === 'vision_takeoff' || source === 'general_plan_takeoff') {
+    return false;
+  }
+  if (source === 'pdf_text_instance_tags') return true;
+  if (source.includes('equipment_schedule')) return true;
+  if (
+    normalized === 'USER_CONFIRMED' ||
+    normalized === 'CONTRACTOR_CONFIRMED_FROM_PLAN_REVIEW' ||
+    normalized === 'USER_ENTERED'
+  ) {
+    return true;
+  }
+  if (status === 'user_confirmed' || status === 'user_entered') return true;
+  if (String(record.confirmedFrom || '').toUpperCase() === 'PLAN_REVIEW') {
+    return true;
+  }
+  return false;
+}
+
+/** Whole-house ventilation is optional — only surface when plans document equipment. */
+export function hasDocumentedHvacVentilationCount(
+  source: Record<string, unknown> | null | undefined
+): boolean {
+  const itemQuantities =
+    source?.itemQuantities && typeof source.itemQuantities === 'object'
+      ? (source.itemQuantities as Record<string, { quantity?: unknown; quantitySource?: string }>)
+      : {};
+  const value =
+    positiveNumber(source?.[HVAC_VENTILATION_MEASUREMENT_KEY]) ??
+    positiveNumber(itemQuantities.ventilation?.quantity);
+  if (value == null) return false;
+  const provenance =
+    source?.measurementProvenance &&
+    typeof source.measurementProvenance === 'object'
+      ? (source.measurementProvenance as Record<string, unknown>)
+      : {};
+  const sources =
+    source?.quickMeasurementSources &&
+    typeof source.quickMeasurementSources === 'object'
+      ? (source.quickMeasurementSources as Record<string, string>)
+      : {};
+  return isExplicitHvacVentilationEvidence(
+    provenance[HVAC_VENTILATION_MEASUREMENT_KEY],
+    {
+      quickMeasurementSource: sources[HVAC_VENTILATION_MEASUREMENT_KEY],
+      itemQuantitySource: itemQuantities.ventilation?.quantitySource,
+    }
+  );
+}
+
+export function stripUnverifiedHvacVentilation(
+  scopeMeasurements: Record<string, unknown>
+): Record<string, unknown> {
+  if (hasDocumentedHvacVentilationCount(scopeMeasurements)) {
+    return scopeMeasurements;
+  }
+  const next = { ...scopeMeasurements };
+  delete next[HVAC_VENTILATION_MEASUREMENT_KEY];
+  if (next.measurementProvenance && typeof next.measurementProvenance === 'object') {
+    const provenance = {
+      ...(next.measurementProvenance as Record<string, unknown>),
+    };
+    delete provenance[HVAC_VENTILATION_MEASUREMENT_KEY];
+    next.measurementProvenance = provenance;
+  }
+  if (
+    next.quickMeasurementSources &&
+    typeof next.quickMeasurementSources === 'object'
+  ) {
+    const sources = {
+      ...(next.quickMeasurementSources as Record<string, string>),
+    };
+    delete sources[HVAC_VENTILATION_MEASUREMENT_KEY];
+    next.quickMeasurementSources = sources;
+  }
+  if (next.itemQuantities && typeof next.itemQuantities === 'object') {
+    const itemQuantities = {
+      ...(next.itemQuantities as Record<string, unknown>),
+    };
+    delete itemQuantities.ventilation;
+    next.itemQuantities = itemQuantities;
+  }
+  return next;
+}
+
+export function filterHvacPlanReviewReadingsForTakeoff<
+  T extends { field: string; value: number },
+>(
+  readings: T[],
+  takeoff?: HvacPlanReviewTakeoffInput | null,
+  overrides?: Record<string, number | string | null | undefined>
+): T[] {
+  return readings.filter(reading => {
+    if (reading.field !== HVAC_VENTILATION_MEASUREMENT_KEY) return true;
+    if (positiveNumber(overrides?.[HVAC_VENTILATION_MEASUREMENT_KEY]) != null) {
+      return true;
+    }
+    if (positiveNumber(reading.value) == null) return false;
+    return hasDocumentedHvacVentilationCount({
+      hvacVentilationCount: reading.value,
+      measurementProvenance: takeoff?.measurementProvenance,
+      itemQuantities: takeoff?.itemQuantities,
+    });
+  });
+}
 
 /** Seven review-row quantities shown in Review HVAC Takeoff. */
 export const HVAC_PLAN_REVIEW_CANONICAL_KEYS = [
@@ -231,27 +367,70 @@ function itemQuantityForHvacReviewKey(
  * backend may populate (measurements, withheld low-confidence reads, provenance,
  * and structured itemQuantities).
  */
+function coalesceHvacPlanReviewReadingNumber(
+  takeoff: HvacPlanReviewTakeoffInput | null | undefined,
+  key: HvacPlanReviewCanonicalKey,
+  override?: number | string | null | undefined
+): number | null {
+  const fromOverride = positiveNumber(override);
+  if (fromOverride != null) return fromOverride;
+
+  const measurements = takeoff?.measurements || {};
+  const provenance = takeoff?.measurementProvenance || {};
+  const lowConfidenceEntry = (takeoff?.lowConfidence || []).find(
+    reading => String(reading?.field || '').trim() === key
+  );
+
+  for (const candidate of [
+    measurements[key],
+    ...(key === HVAC_VENTILATION_MEASUREMENT_KEY
+      ? []
+      : [lowConfidenceEntry?.value]),
+    provenanceMeasurementValue(provenance[key]),
+    itemQuantityForHvacReviewKey(key, takeoff?.itemQuantities),
+  ]) {
+    const parsed = positiveNumber(candidate);
+    if (parsed != null) return parsed;
+  }
+
+  return null;
+}
+
 export function resolveHvacPlanReviewMeasurements(
   takeoff: HvacPlanReviewTakeoffInput | null | undefined
 ): Record<HvacPlanReviewCanonicalKey, string> {
-  const measurements = takeoff?.measurements || {};
   const provenance = takeoff?.measurementProvenance || {};
-  const lowConfidenceByField = new Map(
-    (takeoff?.lowConfidence || []).map(reading => [
-      String(reading?.field || '').trim(),
-      reading?.value,
-    ])
-  );
   const itemQuantities = takeoff?.itemQuantities || {};
   const out = {} as Record<HvacPlanReviewCanonicalKey, string>;
 
   for (const key of HVAC_PLAN_REVIEW_CANONICAL_KEYS) {
-    const resolved =
-      positiveNumber(measurements[key]) ??
-      positiveNumber(lowConfidenceByField.get(key)) ??
-      provenanceMeasurementValue(provenance[key]) ??
-      itemQuantityForHvacReviewKey(key, itemQuantities);
+    const resolved = coalesceHvacPlanReviewReadingNumber(takeoff, key);
+    if (
+      key === HVAC_VENTILATION_MEASUREMENT_KEY &&
+      resolved != null &&
+      !hasDocumentedHvacVentilationCount({
+        hvacVentilationCount: resolved,
+        measurementProvenance: provenance,
+        itemQuantities,
+      })
+    ) {
+      out[key] = '';
+      continue;
+    }
     out[key] = resolved != null ? String(resolved) : '';
+  }
+
+  // Match legacy review-modal merge: withheld low-confidence reads still fill
+  // blank canonical rows even when measurements carry placeholder values.
+  for (const reading of takeoff?.lowConfidence || []) {
+    const field = String(reading?.field || '').trim() as HvacPlanReviewCanonicalKey;
+    if (!HVAC_PLAN_REVIEW_CANONICAL_KEYS.includes(field)) continue;
+    if (field === HVAC_VENTILATION_MEASUREMENT_KEY) continue;
+    const value = positiveNumber(reading?.value);
+    if (value == null) continue;
+    if (!out[field]?.trim()) {
+      out[field] = String(value);
+    }
   }
 
   return out;
@@ -263,20 +442,22 @@ export function buildHvacPlanReviewLowConfidenceReadings(
   overrides?: Record<string, number | string | null | undefined>
 ): Array<{ field: HvacPlanReviewCanonicalKey; value: number }> {
   const resolved = resolveHvacPlanReviewMeasurements(takeoff);
-  const lowConfidenceByField = new Map(
-    (takeoff?.lowConfidence || []).map(reading => [
-      String(reading?.field || '').trim(),
-      positiveNumber(reading?.value),
-    ])
-  );
 
   return HVAC_PLAN_REVIEW_CANONICAL_KEYS.map(key => {
-    const override = positiveNumber(overrides?.[key]);
     const value =
-      override ??
-      lowConfidenceByField.get(key) ??
+      coalesceHvacPlanReviewReadingNumber(takeoff, key, overrides?.[key]) ??
       positiveNumber(resolved[key]) ??
       0;
+    if (
+      key === HVAC_VENTILATION_MEASUREMENT_KEY &&
+      !hasDocumentedHvacVentilationCount({
+        hvacVentilationCount: value,
+        measurementProvenance: takeoff?.measurementProvenance,
+        itemQuantities: takeoff?.itemQuantities,
+      })
+    ) {
+      return { field: key, value: 0 };
+    }
     return { field: key, value };
   });
 }
@@ -291,8 +472,8 @@ export function hvacTakeoffSkippedCanonicalReadings(
   );
   return HVAC_PLAN_REVIEW_CANONICAL_KEYS.flatMap(key => {
     if (accepted[key]) return [];
-    const value = positiveNumber(byField.get(key)?.value);
-    if (value == null) return [];
+    const value = positiveNumber(byField.get(key)?.value) ?? 0;
+    if (key === HVAC_VENTILATION_MEASUREMENT_KEY && value <= 0) return [];
     return [{ field: key, value }];
   });
 }
@@ -645,9 +826,11 @@ export function applyHvacProvenanceGuardToScopeMeasurements(
   }
 
   return {
-    ...scopeMeasurements,
-    measurementProvenance: provenance,
-    quickMeasurementSources: sources,
+    ...stripUnverifiedHvacVentilation({
+      ...scopeMeasurements,
+      measurementProvenance: provenance,
+      quickMeasurementSources: sources,
+    }),
   };
 }
 
@@ -665,8 +848,12 @@ export function syncHvacSkippedTakeoffQuickMeasurementSources(
       {}),
   };
   for (const key of HVAC_PLAN_REVIEW_CANONICAL_KEYS) {
-    const value = positiveNumber(scopeMeasurements[key]);
-    if (value == null) continue;
+    if (
+      key === HVAC_VENTILATION_MEASUREMENT_KEY &&
+      positiveNumber(scopeMeasurements[key]) == null
+    ) {
+      continue;
+    }
     const entry = provenance[key];
     if (!entry || typeof entry !== 'object') continue;
     const record = entry as {

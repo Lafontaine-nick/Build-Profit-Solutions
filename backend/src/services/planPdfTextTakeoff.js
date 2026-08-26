@@ -1594,6 +1594,57 @@ function pageLooksLikeHvacEquipmentSchedule(pageText, hvacPage = null) {
   return equipmentHits >= 2 && /\b(?:ton|qty|quantity|mark)\b/i.test(blob);
 }
 
+function parseHvacVentilationFromEquipmentScheduleBlob(blob) {
+  const text = String(blob || '');
+  if (
+    !/\b(?:ERV|HRV|fresh[\s-]?air\s+ventilator|energy[\s-]?recovery\s+ventilator|heat[\s-]?recovery\s+ventilator)\b/i.test(
+      text
+    )
+  ) {
+    return null;
+  }
+
+  const excludedLineRe =
+    /\b(?:bath(?:room)?|exhaust\s+fan|dryer|range\s+hood|kitchen\s+fan)\b/i;
+  const taggedIds = new Set();
+  let qtyTotal = 0;
+  let unnumberedLines = 0;
+
+  for (const rawLine of text.split(/\n+/)) {
+    const line = rawLine.trim();
+    if (!line || excludedLineRe.test(line)) continue;
+
+    const mentionsVentilation =
+      /\b(?:ERV|HRV|fresh[\s-]?air\s+ventilator|energy[\s-]?recovery\s+ventilator|heat[\s-]?recovery\s+ventilator)\b/i.test(
+        line
+      );
+    if (!mentionsVentilation) continue;
+
+    const qtyMatch = line.match(/\b(?:qty|quantity)\s*[:\s.]?\s*(\d{1,2})\b/i);
+    if (qtyMatch) {
+      qtyTotal += Number(qtyMatch[1]);
+    }
+
+    for (const match of line.matchAll(/\b(ERV|HRV)(?:[-\s.]?(\d{1,2}))\b/gi)) {
+      taggedIds.add(`${match[1].toUpperCase()}-${match[2]}`);
+    }
+
+    if (
+      /\b(?:ERV|HRV)\b/i.test(line) &&
+      !/\b(?:ERV|HRV)(?:[-\s.]?\d{1,2})\b/i.test(line)
+    ) {
+      unnumberedLines += 1;
+    }
+  }
+
+  const tagCount = taggedIds.size;
+  const candidates = [qtyTotal, tagCount, unnumberedLines].filter(
+    value => Number.isFinite(value) && value > 0
+  );
+  if (!candidates.length) return null;
+  return Math.max(...candidates);
+}
+
 function parseHvacEquipmentScheduleFromPageText(pageText, { page = null, sheet = null, hvacPage = null } = {}) {
   if (!pageLooksLikeHvacEquipmentSchedule(pageText, hvacPage)) {
     return { page, sheet, measurements: {} };
@@ -1618,6 +1669,10 @@ function parseHvacEquipmentScheduleFromPageText(pageText, { page = null, sheet =
     const hpCount = (blob.match(/\bH\.?P\.?(?:-|\s)?\d/gi) || []).length;
     const systemGuess = Math.max(rtuCount, cuCount, hpCount);
     if (systemGuess > 0) measurements.hvacSystemCount = systemGuess;
+  }
+  const ventilationCount = parseHvacVentilationFromEquipmentScheduleBlob(blob);
+  if (ventilationCount != null) {
+    measurements.hvacVentilationCount = ventilationCount;
   }
   return { page, sheet, measurements };
 }
@@ -2546,6 +2601,7 @@ module.exports = {
   countHvacInstanceTagsOnPage,
   aggregateHvacInstanceTagCounts,
   parseHvacEquipmentScheduleFromPageText,
+  parseHvacVentilationFromEquipmentScheduleBlob,
   aggregateHvacEquipmentHints,
   countPlumbingFixtureScheduleOnPage,
   aggregatePlumbingFixtureScheduleInventory,

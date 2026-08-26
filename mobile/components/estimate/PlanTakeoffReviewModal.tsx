@@ -116,8 +116,11 @@ import {
   DRYWALL_PLAN_QUICK_MEASUREMENT_KEYS,
   hydrateDrywallComponentMeasurementsFromPlanContext,
 } from '@/utils/subcontractorTrade/drywallPlanConvergence';
+import { PlanTakeoffHvacOptionalAddOns } from '@/components/estimate/PlanTakeoffHvacOptionalAddOns';
 import {
   buildHvacPlanReviewLowConfidenceReadings,
+  filterHvacPlanReviewReadingsForTakeoff,
+  hasDocumentedHvacVentilationCount,
   hvacTakeoffSkippedCanonicalReadings,
   resolveHvacPlanReviewMeasurements,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
@@ -262,8 +265,10 @@ const CONFIRM_YELLOW = '#fbbf24';
 const CONFIRM_RED = '#ef4444';
 const PANEL_BORDER_DARK = 'rgba(148,163,184,0.28)';
 const PANEL_BORDER_LIGHT = 'rgba(100,116,139,0.24)';
-const PANEL_BG_DARK = 'rgba(148,163,184,0.06)';
-const PANEL_BG_LIGHT = 'rgba(148,163,184,0.05)';
+const PANEL_BG_DARK = '#252527';
+const PANEL_BG_LIGHT = '#f1f5f9';
+const PANEL_INPUT_BG_DARK = 'rgba(255,255,255,0.05)';
+const PANEL_INPUT_BG_LIGHT = '#ffffff';
 
 function isNeedsConfirmationValue(value: string | null | undefined): boolean {
   return (
@@ -1127,13 +1132,32 @@ export default function PlanTakeoffReviewModal({
     unreadable,
     conflictFieldSet
   );
+  const hvacReadingOverrides =
+    effectiveTradeKey === 'hvac'
+      ? {
+          ...visibleMeasurements,
+          ...Object.fromEntries(rows.map(row => [row.key, row.value])),
+        }
+      : {};
   const hvacReviewReadings =
     effectiveTradeKey === 'hvac'
-      ? buildHvacPlanReviewLowConfidenceReadings(
+      ? filterHvacPlanReviewReadingsForTakeoff(
+          buildHvacPlanReviewLowConfidenceReadings(
+            takeoff,
+            hvacReadingOverrides
+          ).filter(reading => !conflictFieldSet.has(reading.field)),
           takeoff,
-          Object.fromEntries(rows.map(row => [row.key, row.value]))
-        ).filter(reading => !conflictFieldSet.has(reading.field))
+          hvacReadingOverrides
+        )
       : [];
+  const showHvacVentilationNotIncluded =
+    effectiveTradeKey === 'hvac' &&
+    !hasDocumentedHvacVentilationCount({
+      ...hvacReadingOverrides,
+      measurementProvenance: takeoff?.measurementProvenance,
+      itemQuantities: takeoff?.itemQuantities,
+    }) &&
+    !hasDocumentedHvacVentilationCount(takeoff?.measurements || {});
   const hasMeasurements = rows.length > 0;
   const hasRooms = roomRows.length > 0;
   const hasReadingIssues =
@@ -1355,8 +1379,8 @@ export default function PlanTakeoffReviewModal({
     for (const reading of hvacUnconfirmedReadings) {
       const field = String(reading.field || '').trim();
       const value = Number(reading.value);
-      if (!field || !(value > 0)) continue;
-      values[field] = String(value);
+      if (!field) continue;
+      if (value > 0) values[field] = String(value);
     }
     // An HVAC edit is the contractor's replacement for the AI read. Reapply
     // the row values after the low-confidence pass so the edited value wins.
@@ -1392,14 +1416,18 @@ export default function PlanTakeoffReviewModal({
       ).flatMap(reading => {
         const field = String(reading.field || '').trim();
         const value = Number(reading.value);
-        if (!field || !(value > 0)) return [];
+        if (!field) return [];
+        if (effectiveTradeKey !== 'hvac' && !(value > 0)) return [];
         const existing = takeoff.measurementProvenance?.[field];
         return [
           [
             field,
             {
               ...(existing && typeof existing === 'object' ? existing : {}),
-              ...lowConfidenceNeedsReviewProvenance(field, value),
+              ...lowConfidenceNeedsReviewProvenance(
+                field,
+                value > 0 ? value : 0
+              ),
             },
           ],
         ];
@@ -2004,39 +2032,46 @@ export default function PlanTakeoffReviewModal({
               </View>
             ) : null}
             {effectiveTradeKey === 'hvac' ? (
-              <PlanTakeoffLowConfidenceChooser
-                lowConfidence={hvacReviewReadings}
-                unreadable={[]}
-                accepted={lowConfidenceAccepted}
-                includeEmptyReadings
-                onToggleAccept={(field, _value) => {
-                  setLowConfidenceAccepted(prev => {
-                    const next = { ...prev };
-                    if (next[field]) delete next[field];
-                    else next[field] = true;
-                    return next;
-                  });
-                }}
-                onEditValue={(field, value) => {
-                  setRow(field, {
-                    value,
-                    include: true,
-                    pricingEligible: true,
-                    provenance: resolvePlanMeasurementProvenance({
-                      key: field,
-                      userConfirmed: true,
-                    }),
-                  });
-                  if (Number(value) > 0) {
-                    setLowConfidenceAccepted(prev => ({
-                      ...prev,
-                      [field]: true,
-                    }));
-                  }
-                }}
-                darkMode={darkMode}
-                captionColor={Colors.sub}
-              />
+              <>
+                <PlanTakeoffLowConfidenceChooser
+                  lowConfidence={hvacReviewReadings}
+                  unreadable={[]}
+                  accepted={lowConfidenceAccepted}
+                  includeEmptyReadings
+                  onToggleAccept={(field, _value) => {
+                    setLowConfidenceAccepted(prev => {
+                      const next = { ...prev };
+                      if (next[field]) delete next[field];
+                      else next[field] = true;
+                      return next;
+                    });
+                  }}
+                  onEditValue={(field, value) => {
+                    setRow(field, {
+                      value,
+                      include: true,
+                      pricingEligible: true,
+                      provenance: resolvePlanMeasurementProvenance({
+                        key: field,
+                        userConfirmed: true,
+                      }),
+                    });
+                    if (Number(value) > 0) {
+                      setLowConfidenceAccepted(prev => ({
+                        ...prev,
+                        [field]: true,
+                      }));
+                    }
+                  }}
+                  darkMode={darkMode}
+                  captionColor={Colors.sub}
+                />
+                <PlanTakeoffHvacOptionalAddOns
+                  showVentilationNotIncluded={showHvacVentilationNotIncluded}
+                  darkMode={darkMode}
+                  captionColor={Colors.sub}
+                />
+              </>
             ) : hasMeasurements && effectiveTradeKey !== 'hvac' ? (
               <View style={styles.section}>
                 <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
@@ -2156,7 +2191,9 @@ export default function PlanTakeoffReviewModal({
                             borderColor: darkMode
                               ? PANEL_BORDER_DARK
                               : PANEL_BORDER_LIGHT,
-                            backgroundColor: darkMode ? '#27272a' : '#f1f5f9',
+                            backgroundColor: darkMode
+                              ? PANEL_INPUT_BG_DARK
+                              : PANEL_INPUT_BG_LIGHT,
                           },
                         ]}
                       >
@@ -2413,7 +2450,9 @@ export default function PlanTakeoffReviewModal({
                           borderColor: darkMode
                             ? PANEL_BORDER_DARK
                             : PANEL_BORDER_LIGHT,
-                          backgroundColor: darkMode ? '#27272a' : '#f1f5f9',
+                          backgroundColor: darkMode
+                            ? PANEL_INPUT_BG_DARK
+                            : PANEL_INPUT_BG_LIGHT,
                         },
                       ]}
                     >

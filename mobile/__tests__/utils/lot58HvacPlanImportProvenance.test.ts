@@ -184,5 +184,48 @@ describe('SHV Lot 58 HVAC plan import provenance (architectural-only regression)
       hvacReturnGrilleCount: '8',
       hvacThermostatCount: '2',
     });
+    expect(input.hvacVentilationCount).toBeFalsy();
+  });
+
+  it('drops vision-only whole-house ventilation guesses from Plan 58 takeoff', () => {
+    const draft = applyPlanImportToDraft(
+      {
+        projectTitle: 'SHV Lot 58 HVAC',
+        scopeChecklist: {
+          templateKey: 'hvac',
+          title: 'HVAC — confirm project scope',
+          intro: 'Confirm HVAC scope before pricing.',
+          items: [{ id: 'hvac', label: 'HVAC system', state: 'included' }],
+        },
+      } as any,
+      {
+        estimatingMode: 'selected_trade',
+        selectedTrade: 'hvac',
+        planImportFingerprint: 'shv-lot-58-architectural-only',
+        measurements: {
+          ...PLAN_58_VISION_HVAC_MEASUREMENTS,
+          hvacVentilationCount: 1,
+        },
+        planFacts: PLAN_MEASUREMENT_LOTS['58'].facts,
+        measurementProvenance: {
+          ...plan58VisionOnlyHvacProvenance(),
+          hvacVentilationCount: {
+            value: 1,
+            source: 'vision_takeoff',
+            normalizedSource: 'NEEDS_REVIEW',
+            status: 'needs_review',
+            pricingEligible: false,
+          },
+        },
+      }
+    );
+    const guarded = applyHvacProvenanceGuardToScopeMeasurements({
+      ...(draft.scopeMeasurements || {}),
+    });
+    expect(guarded.hvacVentilationCount).toBeUndefined();
+    expect(
+      (guarded.measurementProvenance as Record<string, unknown> | undefined)
+        ?.hvacVentilationCount
+    ).toBeUndefined();
   });
 });

@@ -1521,8 +1521,9 @@ const HVAC_CHECKLIST_QUANTITY_RULES = {
     allowedUnits: ["each", "allowance", "lump_sum"],
     measurementKey: "hvacVentilationCount",
     requiresUserQuantity: true,
-    quantityHelper: "Enter documented HVAC ventilation equipment count.",
-    missingMessage: "Enter ventilation quantity or pricing.",
+    quantityHelper:
+      "ERV, HRV, or dedicated fresh-air ventilation equipment shown on the plans.",
+    missingMessage: "Enter whole-house ventilation quantity or pricing.",
   },
   permits: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.permits,

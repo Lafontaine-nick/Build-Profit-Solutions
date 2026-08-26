@@ -30,7 +30,9 @@ import {
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import {
   applyHvacProvenanceGuardToScopeMeasurements,
+  hasDocumentedHvacVentilationCount,
   HVAC_PLAN_REVIEW_CANONICAL_KEYS,
+  HVAC_VENTILATION_MEASUREMENT_KEY,
   hvacQuickMeasurementSourcesFromProvenance,
   resolveHvacPlanReviewMeasurements,
   syncHvacSkippedTakeoffQuickMeasurementSources,
@@ -120,6 +122,17 @@ function applyRepeatedHvacImportStability(
   let changed = false;
 
   for (const key of HVAC_PLAN_REVIEW_CANONICAL_KEYS) {
+    if (
+      key === HVAC_VENTILATION_MEASUREMENT_KEY &&
+      !hasDocumentedHvacVentilationCount({
+        hvacVentilationCount: positiveRepeatImportValue(
+          previousMeasurements[key]
+        ),
+        measurementProvenance: provenance,
+      })
+    ) {
+      continue;
+    }
     const previousValue = positiveRepeatImportValue(previousMeasurements[key]);
     if (previousValue == null) continue;
     const currentValue =
@@ -710,8 +723,26 @@ export default function EstimatePlanImportStrip({
           }
           if (selection.trade.key === 'hvac') {
             const resolved = resolveHvacPlanReviewMeasurements(stabilized);
+            const lowConfidenceMeasurements = Object.fromEntries(
+              (stabilized.lowConfidence || [])
+                .map(reading => [
+                  String(reading?.field || '').trim(),
+                  reading?.value,
+                ] as const)
+                .filter(([field]) =>
+                  HVAC_PLAN_REVIEW_CANONICAL_KEYS.includes(
+                    field as (typeof HVAC_PLAN_REVIEW_CANONICAL_KEYS)[number]
+                  )
+                )
+                .map(([field, value]) => [
+                  field,
+                  positiveRepeatImportValue(value),
+                ] as const)
+                .filter((entry): entry is [string, number] => entry[1] != null)
+            );
             stamped.measurements = {
               ...stamped.measurements,
+              ...lowConfidenceMeasurements,
               ...Object.fromEntries(
                 Object.entries(resolved)
                   .filter(([, value]) => value.trim() !== '')

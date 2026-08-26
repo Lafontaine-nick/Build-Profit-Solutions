@@ -99,8 +99,8 @@ export const PlanTakeoffConflictChooser = React.memo(function PlanTakeoffConflic
     ? 'rgba(148,163,184,0.28)'
     : 'rgba(100,116,139,0.24)';
   const panelBg = darkMode
-    ? 'rgba(148,163,184,0.06)'
-    : 'rgba(148,163,184,0.05)';
+    ? '#252527'
+    : '#f1f5f9';
   const chipBorder = darkMode ? '#52525b' : '#cbd5e1';
   const titleColor = darkMode ? '#f8fafc' : '#0f172a';
 

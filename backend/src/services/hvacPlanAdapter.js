@@ -61,6 +61,7 @@ const HVAC_TAG_VERIFIED_KEYS = new Set([
   'hvacSupplyRegisterCount',
   'hvacReturnGrilleCount',
   'hvacThermostatCount',
+  'hvacVentilationCount',
 ]);
 
 const HVAC_SCHEDULE_VERIFIED_KEYS = new Set([
@@ -168,6 +169,11 @@ function applyHvacProvenanceGuard({
     };
   }
 
+  if (!deterministicKeys.has('hvacVentilationCount')) {
+    delete meas.hvacVentilationCount;
+    delete prov.hvacVentilationCount;
+  }
+
   return { measurements: meas, measurementProvenance: prov };
 }
 
@@ -180,6 +186,8 @@ function restoreHvacLowConfidenceMeasurements(measurements, lowConfidence) {
   for (const entry of lowConfidence || []) {
     const field = String(entry?.field || '').trim();
     if (!HVAC_MEASUREMENT_KEYS.includes(field)) continue;
+    // Whole-house ventilation requires explicit ERV/HRV evidence, not vision guesses.
+    if (field === 'hvacVentilationCount') continue;
     const value = positiveNumber(entry?.value);
     if (value == null) continue;
     if (positiveNumber(restored[field]) != null) continue;

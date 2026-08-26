@@ -1027,7 +1027,7 @@ HVAC takeoff rules:
 - Count HVAC systems, furnaces, air handlers, condensers, heat pumps, or mini-splits only when the schedule, tags, or directly countable symbols support the quantity. Return tonnage only when explicitly labeled.
 - Count supply registers/diffusers and return grilles separately when documented on mechanical plans or schedules.
 - Return ductwork only when linear feet are labeled or directly dimensioned. Do not infer duct LF, system count, tonnage, or HVAC pricing from living area.
-- Count thermostats, ventilation equipment, replacement equipment, refrigerant service, permits, and cleanup only when explicitly documented. Do not count electrical bath exhaust-fan work as HVAC ventilation.
+- Count thermostats, whole-house ventilation equipment (ERV, HRV, or dedicated fresh-air ventilators), replacement equipment, refrigerant service, permits, and cleanup only when explicitly documented. Do not count electrical bath exhaust-fan work, dryer vents, range hoods, or roof vents as HVAC ventilation.
 - If a PDF text-layer block lists HVAC instance tags (for example repeated SA, RA, TSTAT, CU-1, or RTU-1 callouts), treat those as counted devices — not legend entries. Prefer those instance-tag totals over a lower symbol estimate.
 - Put schedule/label quantities in explicitlyLabeled and directly counted symbols or measured ductwork in geometryDerived. Include fieldEvidence with page, sheet, and readable source text. Omit unreadable values and list the missing field in unreadableFields or missingInfo.
 `;
@@ -4376,6 +4376,9 @@ async function analyzePlanForMeasurements({
     });
     measurements = guarded.measurements;
     measurementProvenance = guarded.measurementProvenance;
+    lowConfidence = (lowConfidence || []).filter(
+      (entry) => String(entry?.field || "").trim() !== "hvacVentilationCount",
+    );
   }
   const assumptions = [
     ...(Array.isArray(pdfTakeoff?.assumptions) ? pdfTakeoff.assumptions : []),

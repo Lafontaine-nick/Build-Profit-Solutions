@@ -78,6 +78,30 @@ describe('applyHvacProvenanceGuard', () => {
     });
   });
 
+  it('keeps ERV/HRV ventilation plan-verified when PDF text tags exist', () => {
+    const pdfTakeoff = {
+      hvacRelevantPages: [{ page: 8, reasons: ['M sheet'] }],
+      hvacInstanceTags: {
+        measurements: {
+          hvacVentilationCount: 1,
+        },
+      },
+      hvacEquipmentHints: { measurements: {} },
+    };
+
+    const { measurementProvenance: guarded } = applyHvacProvenanceGuard({
+      measurements: { hvacVentilationCount: 1 },
+      measurementProvenance: {},
+      pdfTakeoff,
+    });
+
+    expect(guarded.hvacVentilationCount).toMatchObject({
+      normalizedSource: 'FROM_PLAN',
+      status: 'plan_verified',
+      pricingEligible: true,
+    });
+  });
+
   it('keeps system count plan-verified when equipment schedule documents it', () => {
     const pdfTakeoff = {
       hvacRelevantPages: [3],
@@ -105,6 +129,26 @@ describe('applyHvacProvenanceGuard', () => {
       pricingEligible: true,
     });
   });
+
+  it('discards vision-only whole-house ventilation when PDF has no ERV/HRV evidence', () => {
+    const pdfTakeoff = {
+      hvacRelevantPages: [],
+      hvacInstanceTags: { measurements: {} },
+      hvacEquipmentHints: { measurements: {} },
+    };
+
+    const { measurements, measurementProvenance } = applyHvacProvenanceGuard({
+      measurements: { hvacVentilationCount: 1, hvacSystemCount: 2 },
+      measurementProvenance: {
+        hvacVentilationCount: { source: 'vision_takeoff', value: 1 },
+      },
+      pdfTakeoff,
+    });
+
+    expect(measurements.hvacVentilationCount).toBeUndefined();
+    expect(measurementProvenance.hvacVentilationCount).toBeUndefined();
+    expect(measurements.hvacSystemCount).toBe(2);
+  });
 });
 
 describe('restoreHvacLowConfidenceMeasurements', () => {
@@ -121,5 +165,13 @@ describe('restoreHvacLowConfidenceMeasurements', () => {
       hvacSystemCount: 2,
       hvacDuctworkLf: 150,
     });
+  });
+
+  it('does not restore withheld vision guesses for whole-house ventilation', () => {
+    const restored = restoreHvacLowConfidenceMeasurements(
+      {},
+      [{ field: 'hvacVentilationCount', value: 1, confidence: 0.4 }]
+    );
+    expect(restored).toEqual({});
   });
 });

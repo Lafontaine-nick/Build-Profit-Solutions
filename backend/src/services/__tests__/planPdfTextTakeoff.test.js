@@ -645,6 +645,32 @@ describe('HVAC instance tags and equipment schedule', () => {
     expect(aggregated.measurements.hvacSystemTons).toBe(4);
   });
 
+  test('equipment schedule text yields whole-house ventilation count from ERV row', () => {
+    const page = parseHvacEquipmentScheduleFromPageText(
+      'MECHANICAL EQUIPMENT SCHEDULE\nRTU-1 4 TON GAS FURNACE / CONDENSER\nQTY 1\nERV-1 ENERGY RECOVERY VENTILATOR\nQTY 1',
+      { page: 9, sheet: 'M-2' }
+    );
+    expect(page.measurements.hvacVentilationCount).toBe(1);
+    const aggregated = aggregateHvacEquipmentHints([page]);
+    expect(aggregated.measurements.hvacVentilationCount).toBe(1);
+  });
+
+  test('equipment schedule text counts multiple HRV units', () => {
+    const page = parseHvacEquipmentScheduleFromPageText(
+      'MECHANICAL EQUIPMENT SCHEDULE\nHRV-1 MAIN LEVEL HEAT RECOVERY VENTILATOR QTY 1\nHRV-2 UPPER LEVEL HEAT RECOVERY VENTILATOR QTY 1',
+      { page: 10, sheet: 'M-2' }
+    );
+    expect(page.measurements.hvacVentilationCount).toBe(2);
+  });
+
+  test('equipment schedule text ignores bath exhaust fan rows for ventilation', () => {
+    const page = parseHvacEquipmentScheduleFromPageText(
+      'MECHANICAL EQUIPMENT SCHEDULE\nBATH EXHAUST FAN QTY 3\nERV-1 ENERGY RECOVERY VENTILATOR QTY 1',
+      { page: 10, sheet: 'M-2' }
+    );
+    expect(page.measurements.hvacVentilationCount).toBe(1);
+  });
+
   test('formatPdfEvidenceForVision includes HVAC instance tags', () => {
     const evidence = formatPdfEvidenceForVision(
       {

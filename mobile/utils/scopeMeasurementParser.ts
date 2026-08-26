@@ -1510,7 +1510,7 @@ export function parseScopeMeasurementsFromNotes(
     if (refrigerantCount) out.hvacRefrigerantCount = Math.round(refrigerantCount);
     const ventilationCount = firstHvacCount(
       hvacText,
-      '(?:hvac\\s+)?ventilation(?:\\s+(?:system|unit|fan))?'
+      '(?:ERV|HRV|fresh[\\s-]?air\\s+ventilator|energy[\\s-]?recovery\\s+ventilator|heat[\\s-]?recovery\\s+ventilator)'
     );
     if (ventilationCount) out.hvacVentilationCount = Math.round(ventilationCount);
     if (/\b(?:permit|inspection)\b/i.test(hvacText)) {

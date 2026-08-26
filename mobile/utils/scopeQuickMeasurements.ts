@@ -829,12 +829,12 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
   ),
   hvacVentilationCount: F(
     'hvacVentilationCount',
-    'HVAC ventilation',
+    'Whole-house ventilation',
     'e.g. 1',
     'each',
     'structure',
     undefined,
-    'Documented HVAC ventilation equipment; electrical exhaust-fan work is separate.'
+    'ERV, HRV, or dedicated fresh-air ventilation equipment shown on the plans.'
   ),
   hvacPermitCount: F(
     'hvacPermitCount',
@@ -1287,7 +1287,7 @@ export const HVAC_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
   row(
     F(
       'hvacVentilationCount',
-      'HVAC ventilation',
+      'Whole-house ventilation',
       'e.g. 1',
       'each',
       'structure'

@@ -406,6 +406,8 @@ import {
   shouldHideBathroomFixtureScopeCardInQmEmbed,
   BATHROOM_FIXTURES_QM_EMBEDDED_IDS,
   expandBathroomFixtureScopeDisplayItems,
+  HVAC_EMBEDDED_QUICK_MEASUREMENT_KEYS,
+  simpleTradePanelFor,
 } from '@/utils/qmScopePanels';
 import {
   QmBathroomFixturesPanels,
@@ -14768,6 +14770,7 @@ function CollapsibleQuickMeasurements({
     'deckSqft',
     'railingLf',
     'roofSquares',
+    ...HVAC_EMBEDDED_QUICK_MEASUREMENT_KEYS,
   ]);
   const stuccoEmbeddedMeasurementKeys = new Set<QuickMeasurementFieldKey>([
     'stuccoGrossWallSqft',
@@ -18068,6 +18071,14 @@ export default function AIEstimateScopeAssumptionsModal({
             },
           };
         }
+        nextMeasurements = simpleTradePanelFor('hvac').hydrateMeasurements({
+          templateKey: 'hvac',
+          wholeHomeLayout: false,
+          notes: scopeNotes,
+          hasSitePhotos,
+          measurements: nextMeasurements as Record<string, unknown>,
+          checklistItems: sourceItems,
+        }) as typeof nextMeasurements;
       }
       if (
         String(checklist.templateKey || '').toLowerCase() === 'painting' &&

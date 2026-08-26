@@ -6,8 +6,11 @@ import {
   hvacSystemTierBudgetSplit,
   HVAC_PLAN_EXPORT_SCOPE_ITEM_IDS,
   buildHvacPlanReviewLowConfidenceReadings,
+  filterHvacPlanReviewReadingsForTakeoff,
   hvacTakeoffSkippedCanonicalReadings,
+  isExplicitHvacVentilationEvidence,
   resolveHvacPlanReviewMeasurements,
+  stripUnverifiedHvacVentilation,
   snapHvacTonnageTier,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
@@ -234,8 +237,60 @@ describe('hvacPlanConvergence', () => {
       hvacSupplyRegisterCount: '10',
       hvacReturnGrilleCount: '8',
       hvacThermostatCount: '2',
-      hvacVentilationCount: '1',
+      hvacVentilationCount: '',
     });
+  });
+
+  it('resolveHvacPlanReviewMeasurements keeps explicit ERV/HRV ventilation reads', () => {
+    expect(
+      resolveHvacPlanReviewMeasurements({
+        measurements: { hvacVentilationCount: 1 },
+        measurementProvenance: {
+          hvacVentilationCount: {
+            source: 'pdf_text_instance_tags',
+            normalizedSource: 'FROM_PLAN',
+            status: 'plan_verified',
+            value: 1,
+          },
+        },
+      }).hvacVentilationCount
+    ).toBe('1');
+  });
+
+  it('resolveHvacPlanReviewMeasurements backfills withheld low-confidence reads when measurements carry placeholders', () => {
+    expect(
+      resolveHvacPlanReviewMeasurements({
+        measurements: {
+          hvacSystemCount: 'needs_confirmation',
+          hvacThermostatCount: '',
+        },
+        lowConfidence: [
+          { field: 'hvacSystemCount', value: 2, confidence: 0.42 },
+          { field: 'hvacThermostatCount', value: 2, confidence: 0.38 },
+          { field: 'hvacDuctworkLf', value: 150, confidence: 0.35 },
+        ],
+      })
+    ).toEqual({
+      hvacSystemCount: '2',
+      hvacSystemTons: '',
+      hvacDuctworkLf: '150',
+      hvacSupplyRegisterCount: '',
+      hvacReturnGrilleCount: '',
+      hvacThermostatCount: '2',
+      hvacVentilationCount: '',
+    });
+  });
+
+  it('buildHvacPlanReviewLowConfidenceReadings uses resolved visible measurements as overrides', () => {
+    expect(
+      buildHvacPlanReviewLowConfidenceReadings(
+        {
+          measurements: {},
+          lowConfidence: [{ field: 'hvacThermostatCount', value: 2, confidence: 0.4 }],
+        },
+        { hvacThermostatCount: '2' }
+      ).find(row => row.field === 'hvacThermostatCount')
+    ).toEqual({ field: 'hvacThermostatCount', value: 2 });
   });
 
   it('buildHvacPlanReviewLowConfidenceReadings merges low-confidence and resolved measurements for all review rows', () => {
@@ -260,20 +315,135 @@ describe('hvacPlanConvergence', () => {
       { field: 'hvacSupplyRegisterCount', value: 10 },
       { field: 'hvacReturnGrilleCount', value: 0 },
       { field: 'hvacThermostatCount', value: 0 },
-      { field: 'hvacVentilationCount', value: 1 },
+      { field: 'hvacVentilationCount', value: 0 },
     ]);
+  });
+
+  it('buildHvacPlanReviewLowConfidenceReadings keeps explicit ERV/HRV ventilation rows', () => {
+    expect(
+      buildHvacPlanReviewLowConfidenceReadings({
+        measurements: { hvacVentilationCount: 1 },
+        measurementProvenance: {
+          hvacVentilationCount: {
+            source: 'pdf_text_equipment_schedule',
+            normalizedSource: 'FROM_PLAN',
+            status: 'plan_verified',
+            value: 1,
+          },
+        },
+      }).find(row => row.field === 'hvacVentilationCount')
+    ).toEqual({ field: 'hvacVentilationCount', value: 1 });
   });
 
   it('hvacTakeoffSkippedCanonicalReadings returns unaccepted canonical rows for Step 2', () => {
     const readings = buildHvacPlanReviewLowConfidenceReadings({
       measurements: { hvacSystemCount: 2 },
-      lowConfidence: [{ field: 'hvacVentilationCount', value: 1 }],
+      lowConfidence: [{ field: 'hvacDuctworkLf', value: 150 }],
     });
     expect(
       hvacTakeoffSkippedCanonicalReadings(readings, {
         hvacSystemCount: true,
       }).map(row => row.field)
-    ).toEqual(['hvacVentilationCount']);
+    ).toEqual([
+      'hvacSystemTons',
+      'hvacDuctworkLf',
+      'hvacSupplyRegisterCount',
+      'hvacReturnGrilleCount',
+      'hvacThermostatCount',
+    ]);
+  });
+
+  it('hvacTakeoffSkippedCanonicalReadings includes unaccepted rows without a plan read', () => {
+    const readings = buildHvacPlanReviewLowConfidenceReadings({
+      measurements: { hvacThermostatCount: 2 },
+    });
+    expect(
+      hvacTakeoffSkippedCanonicalReadings(readings, {}).map(row => [
+        row.field,
+        row.value,
+      ])
+    ).toEqual(
+      expect.arrayContaining([['hvacThermostatCount', 2]])
+    );
+    expect(
+      hvacTakeoffSkippedCanonicalReadings(readings, {}).map(row => row.field)
+    ).not.toContain('hvacVentilationCount');
+  });
+
+  it('filterHvacPlanReviewReadingsForTakeoff omits optional ventilation without a plan read', () => {
+    const readings = buildHvacPlanReviewLowConfidenceReadings({
+      measurements: { hvacThermostatCount: 2, hvacVentilationCount: 1 },
+      measurementProvenance: {
+        hvacVentilationCount: {
+          source: 'vision_takeoff',
+          normalizedSource: 'NEEDS_REVIEW',
+          status: 'needs_review',
+          value: 1,
+        },
+      },
+    });
+    expect(
+      filterHvacPlanReviewReadingsForTakeoff(readings, {
+        measurements: { hvacVentilationCount: 1 },
+        measurementProvenance: readings.length
+          ? {
+              hvacVentilationCount: {
+                source: 'vision_takeoff',
+                normalizedSource: 'NEEDS_REVIEW',
+                status: 'needs_review',
+                value: 1,
+              },
+            }
+          : {},
+      }).map(row => row.field)
+    ).not.toContain('hvacVentilationCount');
+
+    const explicit = buildHvacPlanReviewLowConfidenceReadings({
+      measurements: { hvacVentilationCount: 1 },
+      measurementProvenance: {
+        hvacVentilationCount: {
+          source: 'pdf_text_instance_tags',
+          normalizedSource: 'FROM_PLAN',
+          status: 'plan_verified',
+          value: 1,
+        },
+      },
+    });
+    expect(
+      filterHvacPlanReviewReadingsForTakeoff(explicit, {
+        measurements: { hvacVentilationCount: 1 },
+        measurementProvenance: {
+          hvacVentilationCount: {
+            source: 'pdf_text_instance_tags',
+            normalizedSource: 'FROM_PLAN',
+            status: 'plan_verified',
+            value: 1,
+          },
+        },
+      }).map(row => row.field)
+    ).toContain('hvacVentilationCount');
+  });
+
+  it('stripUnverifiedHvacVentilation removes vision-only ventilation quantities', () => {
+    expect(
+      stripUnverifiedHvacVentilation({
+        hvacVentilationCount: 1,
+        measurementProvenance: {
+          hvacVentilationCount: {
+            source: 'vision_takeoff',
+            normalizedSource: 'NEEDS_REVIEW',
+            status: 'needs_review',
+            value: 1,
+          },
+        },
+        quickMeasurementSources: {
+          hvacVentilationCount: 'needs_confirmation',
+        },
+        itemQuantities: {
+          ventilation: { quantity: 1, unit: 'each', quantitySource: 'plan_detected' },
+        },
+      }).hvacVentilationCount
+    ).toBeUndefined();
   });
 
   it('applyHvacProvenanceGuard keeps needs_review ahead of deterministic HVAC tags', () => {

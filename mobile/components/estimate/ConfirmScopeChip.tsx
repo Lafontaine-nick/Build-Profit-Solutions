@@ -97,12 +97,12 @@ const styles = StyleSheet.create({
     backgroundColor: SELECTED_BG,
   },
   chipIdleDark: {
-    borderColor: '#52525b',
-    backgroundColor: '#27272a',
+    borderColor: 'rgba(148, 163, 184, 0.28)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   chipIdleLight: {
     borderColor: '#cbd5e1',
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#ffffff',
   },
   label: { fontSize: 13, fontWeight: '700', textAlign: 'center' },
   subtitle: { fontSize: 11, fontWeight: '600', marginTop: 2, textAlign: 'center' },

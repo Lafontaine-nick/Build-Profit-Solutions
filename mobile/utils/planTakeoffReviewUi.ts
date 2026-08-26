@@ -197,7 +197,7 @@ export function measurementDisplayLabel(
     hvacDuctworkLf: 'HVAC ductwork',
     hvacSupplyRegisterCount: 'Supply registers',
     hvacReturnGrilleCount: 'Return grilles',
-    hvacVentilationCount: 'HVAC ventilation',
+    hvacVentilationCount: 'Whole-house ventilation',
     hvacPermitCount: 'HVAC permits / inspections',
     hvacCleanupCount: 'HVAC cleanup',
   }[key as string];

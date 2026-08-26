@@ -47,9 +47,17 @@ import {
   readConcreteScope,
 } from '@/utils/qmScopePanels/concreteRemodel';
 import {
+  applyHvacScopePanelMeasurementEdit,
   applyHvacScopeMeasurements,
+  formatHvacOptionalAddOnChipCaption,
   formatHvacScopeChipQuantity,
+  HVAC_OPTIONAL_ADDON_OPTION_IDS,
+  HVAC_SCOPE_CORE_SECTIONS,
   hvacScopeChipActive,
+  hvacScopeChipReviewState,
+  resolveHvacTradeScopeSelections,
+  hvacScopePanelMeasurementHelper,
+  hvacScopePanelMeasurementValue,
   roofingOptionsForIds,
   ROOFING_ACCESSORY_OPTION_IDS,
   ROOFING_DRAINAGE_OPTION_IDS,
@@ -144,6 +152,7 @@ function QmScopeChoiceChip({
   Colors,
   style,
   quantityCaption,
+  reviewState = 'idle',
 }: {
   label: string;
   active: boolean;
@@ -153,12 +162,17 @@ function QmScopeChoiceChip({
   Colors: Colors;
   style?: object;
   quantityCaption?: string | null;
+  reviewState?: 'confirmed' | 'needs_confirmation' | 'idle';
 }) {
   const inactiveStyle = inactiveScopeChoiceChipStyle(darkMode, Colors);
   let borderColor = inactiveStyle.borderColor;
   let backgroundColor = inactiveStyle.backgroundColor;
   let textColor = inactiveStyle.textColor;
-  if (active) {
+  if (active && reviewState === 'needs_confirmation') {
+    borderColor = '#fbbf24';
+    backgroundColor = 'rgba(251, 191, 36, 0.12)';
+    textColor = '#fbbf24';
+  } else if (active) {
     borderColor = '#34d399';
     backgroundColor = 'rgba(52, 211, 153, 0.12)';
     textColor = '#34d399';
@@ -178,12 +192,20 @@ function QmScopeChoiceChip({
           textAlign: 'center',
         }}
       >
+        {active && reviewState === 'confirmed' ? '✓ ' : ''}
         {label}
       </Text>
       {quantityCaption ? (
         <Text
           style={{
-            color: active ? '#6ee7b7' : darkMode ? '#94a3b8' : '#64748b',
+            color:
+              active && reviewState === 'needs_confirmation'
+                ? '#fcd34d'
+                : active
+                  ? '#6ee7b7'
+                  : darkMode
+                    ? '#94a3b8'
+                    : '#64748b',
             fontSize: 11,
             fontWeight: '700',
             textAlign: 'center',
@@ -465,8 +487,8 @@ export function QmSqftMeasurementRow({
           alignItems: 'center',
           borderWidth: StyleSheet.hairlineWidth,
           borderRadius: 10,
-          borderColor: darkMode ? 'rgba(255,255,255,0.16)' : Colors.line,
-          backgroundColor: darkMode ? '#111111' : Colors.surface,
+          borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+          backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : Colors.surface2,
           paddingHorizontal: 10,
           minHeight: 38,
         }}
@@ -3789,7 +3811,10 @@ export function QmSimpleTradeScopePanels({
   Colors: Colors;
 }) {
   const spec = simpleTradeSpec(scopeKey);
-  const selections = measurements.tradeScopeSelections?.[scopeKey] || [];
+  const selections =
+    scopeKey === 'hvac'
+      ? resolveHvacTradeScopeSelections(measurements as Record<string, unknown>)
+      : measurements.tradeScopeSelections?.[scopeKey] || [];
   const toggle = (id: string, _canonicalId: string) => {
     // Selections are option IDs, not canonical checklist IDs. Multiple
     // options may intentionally converge on one checklist item (for example,
@@ -3837,6 +3862,113 @@ export function QmSimpleTradeScopePanels({
       measurementRows.set(option.measurementKey, option);
     }
   }
+  const isOptionalAddOn = (optionId: string) =>
+    scopeKey === 'hvac' &&
+    (HVAC_OPTIONAL_ADDON_OPTION_IDS as readonly string[]).includes(optionId);
+  const optionalOptions = spec.options.filter(option => isOptionalAddOn(option.id));
+  const optionById = new Map(spec.options.map(option => [option.id, option]));
+
+  const renderHvacOption = (option: (typeof spec.options)[number]) => {
+    const active = hvacScopeChipActive(option, selections, measurements, spec);
+    const reviewState = hvacScopeChipReviewState(measurements, option, selections);
+    const quantityCaption =
+      formatHvacScopeChipQuantity(measurements, option, selections) ??
+      formatHvacOptionalAddOnChipCaption(measurements, option);
+    return (
+      <View key={option.id} style={{ width: '48%' }}>
+        <QmScopeChoiceChip
+          label={option.label}
+          active={active}
+          reviewState={reviewState}
+          quantityCaption={quantityCaption}
+          onPress={() => toggle(option.id, option.canonicalId)}
+          disabled={applying}
+          darkMode={darkMode}
+          Colors={Colors}
+          style={{ width: '100%' }}
+        />
+        {active && option.measurementKey ? (
+          <QmSqftMeasurementRow
+            label={`${option.label} quantity`}
+            helperText={
+              hvacScopePanelMeasurementHelper(measurements, option) ??
+              'Enter only the quantity for this selected component.'
+            }
+            value={hvacScopePanelMeasurementValue(option, measurements)}
+            placeholder='Enter'
+            unitLabel={option.unit}
+            onChangeText={value =>
+              setMeasurements(prev =>
+                applyHvacScopePanelMeasurementEdit(
+                  prev,
+                  option,
+                  value
+                ) as ScopeMeasurementsInputExtended
+              )
+            }
+            applying={applying}
+            darkMode={darkMode}
+            Colors={Colors}
+            highlighted={reviewState === 'needs_confirmation'}
+          />
+        ) : null}
+      </View>
+    );
+  };
+
+  const renderOptionChip = (option: (typeof spec.options)[number]) => {
+    const active =
+      scopeKey === 'hvac'
+        ? hvacScopeChipActive(option, selections, measurements, spec)
+        : (() => {
+            const canonicalSelected = selections.includes(option.canonicalId);
+            const hasAlias = selections.some((value) =>
+              spec.options.some((candidate) => candidate.id === value)
+            );
+            const firstCanonicalOption = spec.options.find(
+              (candidate) => candidate.canonicalId === option.canonicalId
+            )?.id;
+            return (
+              selections.includes(option.id) ||
+              (canonicalSelected && !hasAlias && option.id === firstCanonicalOption)
+            );
+          })();
+    const quantityCaption =
+      scopeKey === 'hvac'
+        ? formatHvacScopeChipQuantity(measurements, option, selections) ??
+          formatHvacOptionalAddOnChipCaption(measurements, option)
+        : option.measurementKey
+          ? (() => {
+              const value = Number(
+                String(
+                  (measurements as Record<string, unknown>)[option.measurementKey!] ?? ''
+                ).replace(/,/g, '')
+              );
+              if (!(Number.isFinite(value) && value > 0)) return null;
+              const unit = String(option.unit || 'each').toUpperCase();
+              if (unit === 'LF') return `${value.toLocaleString()} LF`;
+              if (unit === 'SQFT') return `${value.toLocaleString()} sqft`;
+              return `${Math.round(value).toLocaleString()} each`;
+            })()
+          : null;
+    return (
+      <QmScopeChoiceChip
+        key={option.id}
+        label={option.label}
+        active={active}
+        reviewState={
+          scopeKey === 'hvac'
+            ? hvacScopeChipReviewState(measurements, option, selections)
+            : 'idle'
+        }
+        quantityCaption={quantityCaption}
+        onPress={() => toggle(option.id, option.canonicalId)}
+        disabled={applying}
+        darkMode={darkMode}
+        Colors={Colors}
+      />
+    );
+  };
 
   return (
     <View
@@ -3852,77 +3984,111 @@ export function QmSimpleTradeScopePanels({
         {simpleTradeScopePanelTitle(scopeKey)}
       </Text>
       <Text style={[styles.qmPanelCaption, { color: captionColor(darkMode, Colors) }]}>
-        Select every component included in this bid. Measurements feed the corresponding pricing cards.
+        {scopeKey === 'hvac'
+          ? 'Takeoff evidence selects scope here. Tap a selected item to confirm or edit its quantity.'
+          : 'Select every component included in this bid. Measurements feed the corresponding pricing cards.'}
       </Text>
-      <View style={styles.choiceWrap}>
-        {spec.options.map((option) => {
-          const active =
-            scopeKey === 'hvac'
-              ? hvacScopeChipActive(option, selections, measurements, spec)
-              : (() => {
-                  const canonicalSelected = selections.includes(option.canonicalId);
-                  const hasAlias = selections.some((value) =>
-                    spec.options.some((candidate) => candidate.id === value)
-                  );
-                  const firstCanonicalOption = spec.options.find(
-                    (candidate) => candidate.canonicalId === option.canonicalId
-                  )?.id;
-                  return (
-                    selections.includes(option.id) ||
-                    (canonicalSelected && !hasAlias && option.id === firstCanonicalOption)
-                  );
-                })();
-          const quantityCaption =
-            scopeKey === 'hvac'
-              ? formatHvacScopeChipQuantity(measurements, option)
-              : option.measurementKey
-                ? (() => {
-                    const value = Number(
-                      String(
-                        (measurements as Record<string, unknown>)[option.measurementKey!] ?? ''
-                      ).replace(/,/g, '')
-                    );
-                    if (!(Number.isFinite(value) && value > 0)) return null;
-                    const unit = String(option.unit || 'each').toUpperCase();
-                    if (unit === 'LF') return `${value.toLocaleString()} LF`;
-                    if (unit === 'SQFT') return `${value.toLocaleString()} sqft`;
-                    return `${Math.round(value).toLocaleString()} each`;
-                  })()
-                : null;
-          return (
-            <QmScopeChoiceChip
-              key={option.id}
-              label={option.label}
-              active={active}
-              quantityCaption={quantityCaption}
-              onPress={() => toggle(option.id, option.canonicalId)}
-              disabled={applying}
+      {scopeKey === 'hvac' ? (
+        <>
+          {HVAC_SCOPE_CORE_SECTIONS.map(section => (
+            <View key={section.label || 'systems'} style={{ marginBottom: 10 }}>
+              {section.label ? (
+                <Text
+                  style={[
+                    styles.qmPanelCaption,
+                    {
+                      color: darkMode ? '#CBD5E1' : '#64748b',
+                      marginBottom: 8,
+                      fontWeight: '700',
+                    },
+                  ]}
+                >
+                  {section.label}
+                </Text>
+              ) : null}
+              <View style={styles.choiceWrap}>
+                {section.optionIds
+                  .map(id => optionById.get(id))
+                  .filter(Boolean)
+                  .map(option => renderHvacOption(option!))}
+              </View>
+            </View>
+          ))}
+          {optionalOptions.length ? (
+            <>
+              <Text
+                style={[
+                  styles.qmPanelCaption,
+                  {
+                    color: captionColor(darkMode, Colors),
+                    marginTop: 4,
+                    marginBottom: 8,
+                    fontWeight: '700',
+                  },
+                ]}
+              >
+                Optional add-ons
+              </Text>
+              <Text style={[styles.qmPanelCaption, { color: captionColor(darkMode, Colors) }]}>
+                Not part of the base HVAC package. Include only when documented or
+                explicitly in this bid.
+              </Text>
+              <View style={styles.choiceWrap}>
+                {optionalOptions.map(renderHvacOption)}
+              </View>
+            </>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <View style={styles.choiceWrap}>
+            {spec.options.filter(option => !isOptionalAddOn(option.id)).map(renderOptionChip)}
+          </View>
+          {optionalOptions.length ? (
+            <>
+              <Text
+                style={[
+                  styles.qmPanelCaption,
+                  {
+                    color: captionColor(darkMode, Colors),
+                    marginTop: 4,
+                    marginBottom: 8,
+                    fontWeight: '700',
+                  },
+                ]}
+              >
+                Optional add-ons
+              </Text>
+              <View style={styles.choiceWrap}>{optionalOptions.map(renderOptionChip)}</View>
+            </>
+          ) : null}
+          {Array.from(measurementRows.values()).map((option) => (
+            <QmSqftMeasurementRow
+              key={option.measurementKey}
+              label={`${option.quantityLabel || option.label} quantity`}
+              helperText={
+                option.measurementHelper ||
+                'Enter only the quantity for this selected component.'
+              }
+              value={String(
+                (measurements as Record<string, unknown>)[option.measurementKey!] || ''
+              )}
+              placeholder='Enter'
+              unitLabel={option.unit}
+              onChangeText={(value) =>
+                setMeasurements(prev => ({
+                  ...prev,
+                  [option.measurementKey!]: value,
+                }))
+              }
+              applying={applying}
               darkMode={darkMode}
               Colors={Colors}
+              highlighted
             />
-          );
-        })}
-      </View>
-      {Array.from(measurementRows.values()).map((option) => (
-        <QmSqftMeasurementRow
-          key={option.measurementKey}
-          label={`${option.quantityLabel || option.label} quantity`}
-          helperText={
-            option.measurementHelper ||
-            'Enter only the quantity for this selected component.'
-          }
-          value={String((measurements as Record<string, unknown>)[option.measurementKey!] || '')}
-          placeholder="Enter"
-          unitLabel={option.unit}
-          onChangeText={(value) =>
-            setMeasurements((prev) => ({ ...prev, [option.measurementKey!]: value }))
-          }
-          applying={applying}
-          darkMode={darkMode}
-          Colors={Colors}
-          highlighted
-        />
-      ))}
+          ))}
+        </>
+      )}
     </View>
   );
 }

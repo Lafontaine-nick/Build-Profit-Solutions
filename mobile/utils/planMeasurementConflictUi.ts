@@ -8,8 +8,10 @@ import { electricalCardForMeasurementKey } from '@/utils/subcontractorTrade/elec
 import { PLUMBING_CARDS } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { FRAMING_CARDS } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import {
+  hasDocumentedHvacVentilationCount,
   hvacCardForMeasurementKey,
   HVAC_PLAN_REVIEW_CANONICAL_KEYS,
+  HVAC_VENTILATION_MEASUREMENT_KEY,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 
 export type PlanTakeoffUnit = 'EA' | 'LF' | 'A' | 'sqft' | 'ton';
@@ -101,6 +103,29 @@ export function formatPlanTakeoffQuantity(
     return `${n} ${label}`;
   }
   return `${n.toLocaleString()} ${unit}`;
+}
+
+/** Copy for takeoff rows with no plan quantity — blank can be the correct answer. */
+export function emptyPlanTakeoffReadingDisplay(field: string): {
+  statusLine: string;
+  chipLabel: string;
+  chipSubtitle: string;
+} {
+  if (field === 'hvacVentilationCount') {
+    return {
+      statusLine: 'Not found on selected plan pages',
+      chipLabel: 'Not found on selected plan pages',
+      chipSubtitle: 'Enter quantity only if included in the HVAC bid.',
+    };
+  }
+  const unitHint = formatPlanTakeoffQuantity(field, 1)
+    .replace(/^1\s*/, '')
+    .replace(/^1/, '');
+  return {
+    statusLine: 'Needs manual confirmation',
+    chipLabel: `Enter ${unitHint}`.trim(),
+    chipSubtitle: 'No plan read yet',
+  };
 }
 
 export function normalizePlanEvidenceSource(
@@ -847,6 +872,30 @@ function hvacPendingMeasurementValue(
     : null;
 }
 
+function hvacPendingReadNeedsStep2Review(
+  measurements: Record<string, unknown> | null | undefined,
+  field: string,
+  provenanceEntry: unknown
+): boolean {
+  const sources =
+    measurements?.quickMeasurementSources &&
+    typeof measurements.quickMeasurementSources === 'object'
+      ? (measurements.quickMeasurementSources as Record<string, string>)
+      : {};
+  if (sources[field] === 'needs_confirmation') return true;
+  if (!provenanceEntry || typeof provenanceEntry !== 'object') return false;
+  const record = provenanceEntry as {
+    status?: string;
+    normalizedSource?: string;
+    pricingEligible?: boolean;
+  };
+  return (
+    String(record.status || '').toLowerCase() === 'needs_review' ||
+    String(record.normalizedSource || '').toUpperCase() === 'NEEDS_REVIEW' ||
+    record.pricingEligible === false
+  );
+}
+
 /** HVAC plan reads skipped in takeoff review — surface again at the top of Step 2. */
 export function resolveHvacPendingPlanConfirmationReads(
   measurements: Record<string, unknown> | null | undefined
@@ -859,14 +908,36 @@ export function resolveHvacPendingPlanConfirmationReads(
   const out: PendingPlanConfirmationRead[] = [];
   for (const field of HVAC_PLAN_REVIEW_CANONICAL_KEYS) {
     if (isPendingPlanReadConfirmed(measurements, field)) continue;
+    const provenanceEntry = provenance[field];
     const value = resolveHvacPendingMeasurementValue(
       measurements,
       field,
-      provenance[field]
+      provenanceEntry
     );
-    if (value == null) continue;
+    if (
+      field === HVAC_VENTILATION_MEASUREMENT_KEY &&
+      value == null
+    ) {
+      continue;
+    }
+    if (
+      field === HVAC_VENTILATION_MEASUREMENT_KEY &&
+      !hasDocumentedHvacVentilationCount({
+        ...(measurements || {}),
+        hvacVentilationCount: value ?? 0,
+        measurementProvenance: provenance,
+      })
+    ) {
+      continue;
+    }
+    if (
+      value == null &&
+      !hvacPendingReadNeedsStep2Review(measurements, field, provenanceEntry)
+    ) {
+      continue;
+    }
     const { label, subtext } = conflictFieldDisplay(field);
-    out.push({ field, value, label, subtext });
+    out.push({ field, value: value ?? 0, label, subtext });
   }
   return out;
 }
