@@ -29,6 +29,10 @@ import {
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
 } from './windowsDoorsPlanConvergence';
 import {
+  GARAGE_DOORS_PLAN_QUICK_MEASUREMENT_KEYS,
+  GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+} from './garageDoorsPlanConvergence';
+import {
   HVAC_CARDS,
   HVAC_PLAN_QUICK_MEASUREMENT_KEYS,
   HVAC_PLAN_REVIEW_MEASUREMENT_KEYS,
@@ -57,6 +61,7 @@ export const PLAN_EXPORT_TRADE_KEYS: SubcontractorTradeKey[] = [
   'flooring',
   'painting',
   'windows_doors',
+  'garage_doors',
 ];
 
 const STUCCO_REVIEW_MEASUREMENT_KEYS = [
@@ -201,13 +206,9 @@ const WINDOWS_DOORS_SCOPE_ITEMS: TradeScopeItemDefinition[] = [
     measurementKeys: ['slidingDoorCount'],
   },
   {
-    scopeItemId: 'garage_doors',
+    scopeItemId: 'interior_doors',
     pricingBehavior: 'CUSTOM_PRICE',
-    measurementKeys: [
-      'garageDoorSingleCount',
-      'garageDoorDoubleCount',
-      'garageDoorRvCount',
-    ],
+    measurementKeys: ['interiorDoorCount'],
   },
 ];
 
@@ -778,11 +779,11 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
     standaloneTemplateKey: 'ground_up',
     status: 'complete',
     scopeHint:
-      'Focus on exterior elevations, window and door schedules, opening tags, and garage door details. Count only readable windows, exterior swing doors, sliding/patio doors, and garage door types; never infer openings from living area.',
+      'Focus on exterior elevations, window and door schedules, and opening tags. Count windows, exterior swing/French openings, explicit sliding/multi-slide units only, and interior door openings. Do not count hinged patio/French doors as sliders. Garage doors are a separate trade.',
     missingInfo: [
       'Window count and schedule/type details',
       'Exterior swing and sliding door counts',
-      'Garage door type counts and sizes',
+      'Interior door count from the door schedule',
       'Replacement versus new-construction scope, finishes, and hardware',
     ],
     reviewMeasurementKeys: [...WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS],
@@ -790,7 +791,6 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
       'window',
       'door',
       'opening',
-      'garage',
       'fenestration',
       'exterior elevation',
       'door schedule',
@@ -798,6 +798,41 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
     ],
     quickMeasurementFieldKeys: [...WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_KEYS],
     scopeItems: WINDOWS_DOORS_SCOPE_ITEMS,
+  }),
+  garage_doors: scaffoldedTrade('garage_doors', 'Garage doors', {
+    standaloneTemplateKey: 'ground_up',
+    status: 'complete',
+    scopeHint:
+      'Focus on the garage door schedule, front elevation, and opener notes. Count single, double, and RV/oversized doors by documented type or readable size — never garage SF. Count openers only when labeled.',
+    missingInfo: [
+      'Garage door type counts and sizes',
+      'Opener count and horsepower if specified',
+      'Insulation, glass, and upgrade options',
+    ],
+    reviewMeasurementKeys: [...GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS],
+    reviewScopeKeywords: [
+      'garage door',
+      'overhead door',
+      'opener',
+      'rv garage',
+    ],
+    quickMeasurementFieldKeys: [...GARAGE_DOORS_PLAN_QUICK_MEASUREMENT_KEYS],
+    scopeItems: [
+      {
+        scopeItemId: 'garage_doors',
+        pricingBehavior: 'CUSTOM_PRICE',
+        measurementKeys: [
+          'garageDoorSingleCount',
+          'garageDoorDoubleCount',
+          'garageDoorRvCount',
+        ],
+      },
+      {
+        scopeItemId: 'garage_door_openers',
+        pricingBehavior: 'CUSTOM_PRICE',
+        measurementKeys: ['garageDoorOpenerCount'],
+      },
+    ],
   }),
 };
 

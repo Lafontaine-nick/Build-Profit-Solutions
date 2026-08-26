@@ -15,6 +15,7 @@ const PLAN_EXPORT_TRADE_KEYS = [
   "flooring",
   "painting",
   "windows_doors",
+  "garage_doors",
 ];
 
 const TRADE_SCOPE_ALLOWLISTS = {
@@ -197,9 +198,10 @@ const TRADE_SCOPE_ALLOWLISTS = {
     "windows",
     "exterior_doors",
     "sliding_doors",
-    "garage_doors",
+    "interior_doors",
     "windows_doors",
   ],
+  garage_doors: ["garage_doors", "garage_door_openers"],
 };
 
 function getTradeScopeAllowlist(tradeKey) {

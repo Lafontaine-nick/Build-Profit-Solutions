@@ -15,6 +15,7 @@ import {
   tradeQuickMeasurementFieldKeys,
 } from '@/utils/planImportTradeConfig';
 import {
+  getChecklistItemQuantityRule,
   normalizeScopeMeasurements,
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
@@ -26,7 +27,18 @@ import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser'
 import { SIMPLE_TRADE_SPECS } from '@/utils/qmScopePanels/simpleTradeRemodel';
 import { CHECKLIST_ITEM_QUANTITY_RULES } from '@/utils/scopeItemQuantities';
 import {
+  augmentWindowsDoorsScopeDetections,
   buildWindowsDoorsStructuredMeasurements,
+  classifyOpeningSizeTier,
+  formatOpeningDetailLines,
+  seedWindowsDoorsReviewMeasurements,
+  hydrateWindowsDoorsPlanReviewMeasurements,
+  openingSizeMixFromRows,
+  parseOpeningSizeCode,
+  resolveWindowsDoorsReviewTier,
+  syncWindowsDoorsScopeItems,
+  windowsDoorsReviewProvenanceLabel,
+  windowsDoorsReviewSelectionAppearance,
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
 import {
@@ -36,7 +48,7 @@ import {
 import { quickMeasurementRowsForInput } from '@/utils/scopeQuickMeasurements';
 
 describe('subcontractor trade architecture (Phase 0)', () => {
-  it('exposes exactly 12 Plan Export trades', () => {
+  it('exposes Plan Export trades including Garage doors', () => {
     expect(PLAN_EXPORT_TRADE_KEYS).toEqual([
       'electrical',
       'plumbing',
@@ -50,8 +62,11 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       'flooring',
       'painting',
       'windows_doors',
+      'garage_doors',
     ]);
-    expect(PLAN_EXPORT_TRADE_CONFIGURATIONS).toHaveLength(12);
+    expect(PLAN_EXPORT_TRADE_CONFIGURATIONS).toHaveLength(
+      PLAN_EXPORT_TRADE_KEYS.length
+    );
     expect(PLAN_EXPORT_TRADE_CONFIGURATIONS.map(t => t.key)).toEqual(
       PLAN_EXPORT_TRADE_KEYS
     );
@@ -928,13 +943,14 @@ describe('subcontractor trade architecture (Phase 0)', () => {
           measurementKeys: ['slidingDoorCount'],
         }),
         expect.objectContaining({
-          scopeItemId: 'garage_doors',
-          measurementKeys: [
-            'garageDoorSingleCount',
-            'garageDoorDoubleCount',
-            'garageDoorRvCount',
-          ],
+          scopeItemId: 'interior_doors',
+          measurementKeys: ['interiorDoorCount'],
         }),
+      ])
+    );
+    expect(definition.scopeItems).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scopeItemId: 'garage_doors' }),
       ])
     );
   });
@@ -969,6 +985,7 @@ describe('subcontractor trade architecture (Phase 0)', () => {
         windowCount: 14,
         exteriorDoorCount: 3,
         slidingDoorCount: 2,
+        interiorDoorCount: 12,
         garageDoorSingleCount: 1,
         garageDoorDoubleCount: 1,
         garageDoorRvCount: 1,
@@ -982,9 +999,7 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       windowCount: 14,
       exteriorDoorCount: 3,
       slidingDoorCount: 2,
-      garageDoorSingleCount: 1,
-      garageDoorDoubleCount: 1,
-      garageDoorRvCount: 1,
+      interiorDoorCount: 12,
     });
 
     const normalized = normalizeTradeMeasurements(
@@ -997,12 +1012,71 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       windows: { quantity: 14, unit: 'each' },
       exterior_doors: { quantity: 3, unit: 'each' },
       sliding_doors: { quantity: 2, unit: 'each' },
-      garage_doors: { quantity: 3, unit: 'each' },
+      interior_doors: { quantity: 12, unit: 'each' },
     });
     expect(
       buildWindowsDoorsStructuredMeasurements(filtered).itemQuantities
-        .garage_doors
-    ).toMatchObject({ quantity: 3 });
+    ).not.toHaveProperty('garage_doors');
+  });
+
+  it('includes sliding and interior door cards when plan counts exist', () => {
+    const items = syncWindowsDoorsScopeItems(
+      [
+        { id: 'windows', state: 'unsure' },
+        { id: 'exterior_doors', state: 'unsure' },
+        { id: 'sliding_doors', state: 'unsure' },
+        { id: 'interior_doors', state: 'unsure' },
+      ],
+      { windowCount: 15, exteriorDoorCount: 3, slidingDoorCount: 2, interiorDoorCount: 10 }
+    );
+    expect(items.map(item => [item.id, item.state])).toEqual([
+      ['windows', 'included'],
+      ['exterior_doors', 'included'],
+      ['sliding_doors', 'included'],
+      ['interior_doors', 'included'],
+    ]);
+    expect(
+      augmentWindowsDoorsScopeDetections([], {
+        windowCount: 15,
+        slidingDoorCount: 2,
+        interiorDoorCount: 10,
+      }).map(row => row.itemId)
+    ).toEqual(['windows', 'sliding_doors', 'interior_doors']);
+  });
+
+  it('declares Garage doors as its own Plan Export trade', () => {
+    const definition = SUBCONTRACTOR_TRADE_DEFINITIONS.garage_doors;
+    expect(definition.status).toBe('complete');
+    expect(definition.reviewMeasurementKeys).toEqual([
+      'garageDoorSingleCount',
+      'garageDoorDoubleCount',
+      'garageDoorRvCount',
+      'garageDoorOpenerCount',
+    ]);
+    const filtered = filterPlanMeasurementsForTrade(
+      {
+        windowCount: 14,
+        garageDoorSingleCount: 1,
+        garageDoorDoubleCount: 1,
+        garageDoorRvCount: 1,
+        garageDoorOpenerCount: 2,
+      },
+      'selected_trade',
+      'garage_doors'
+    );
+    expect(filtered).toEqual({
+      garageDoorSingleCount: 1,
+      garageDoorDoubleCount: 1,
+      garageDoorRvCount: 1,
+      garageDoorOpenerCount: 2,
+    });
+    expect(
+      normalizeTradeMeasurements('garage_doors', filtered, 'plan')
+        .structuredMeasurements?.itemQuantities
+    ).toMatchObject({
+      garage_doors: { quantity: 3, unit: 'each' },
+      garage_door_openers: { quantity: 2, unit: 'each' },
+    });
   });
 
   it('expands a legacy combined Windows & doors card for any selected trade template', () => {
@@ -1019,13 +1093,13 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       'windows',
       'exterior_doors',
       'sliding_doors',
-      'garage_doors',
+      'interior_doors',
     ]);
     expect(filtered.map(item => item.label)).toEqual([
       'Windows',
       'Exterior doors',
       'Sliding doors',
-      'Garage doors',
+      'Interior doors',
     ]);
   });
 
@@ -1039,6 +1113,255 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     expect(normalized.structuredMeasurements?.itemQuantities).not.toHaveProperty(
       'framing'
     );
+  });
+
+  it('always lists the four Windows & doors Plan Review count rows', () => {
+    expect(hydrateWindowsDoorsPlanReviewMeasurements({})).toEqual({
+      windowCount: '',
+      exteriorDoorCount: '',
+      slidingDoorCount: '',
+      interiorDoorCount: '',
+    });
+    expect(
+      hydrateWindowsDoorsPlanReviewMeasurements({
+        windowCount: 8,
+        floorAreaSqft: 2400,
+      })
+    ).toMatchObject({
+      windowCount: 8,
+      exteriorDoorCount: '',
+    });
+    expect(
+      hydrateWindowsDoorsPlanReviewMeasurements(
+        {},
+        {
+          windows: [
+            { sizeCode: '3050', quantity: 4 },
+            { sizeCode: '4040', quantity: 6 },
+            { sizeCode: '5050', quantity: 2 },
+          ],
+          exteriorDoors: [{ type: 'entry', quantity: 3 }],
+        }
+      )
+    ).toEqual({
+      windowCount: 12,
+      exteriorDoorCount: 3,
+      slidingDoorCount: '',
+      interiorDoorCount: '',
+    });
+  });
+
+  it('seeds Windows & doors Review cards from low-confidence takeoff counts', () => {
+    expect(
+      hydrateWindowsDoorsPlanReviewMeasurements(
+        seedWindowsDoorsReviewMeasurements(
+          {},
+          {
+            lowConfidence: [
+              { field: 'windowCount', value: 15 },
+              { field: 'exteriorDoorCount', value: 3 },
+              { field: 'interiorDoorCount', value: 10 },
+            ],
+          }
+        )
+      )
+    ).toEqual({
+      windowCount: 15,
+      exteriorDoorCount: 3,
+      slidingDoorCount: '',
+      interiorDoorCount: 10,
+    });
+  });
+
+  it('does not treat hinged French/patio leaves as sliding doors on Plan 58', () => {
+    expect(
+      hydrateWindowsDoorsPlanReviewMeasurements(
+        {
+          windowCount: 15,
+          exteriorDoorCount: 2,
+          slidingDoorCount: 2,
+          interiorDoorCount: 10,
+        },
+        {
+          exteriorDoors: [{ type: 'entry', quantity: 2 }],
+          slidingDoors: [{ type: 'slider', quantity: 2 }],
+        }
+      )
+    ).toEqual({
+      windowCount: 15,
+      exteriorDoorCount: 3,
+      slidingDoorCount: '',
+      interiorDoorCount: 10,
+    });
+  });
+
+  it('adds a distinct marked French opening instead of capping exterior swing at three', () => {
+    expect(
+      hydrateWindowsDoorsPlanReviewMeasurements(
+        { exteriorDoorCount: 3, slidingDoorCount: 1 },
+        {
+          exteriorDoors: [
+            { mark: 'D1', type: 'entry', quantity: 1 },
+            { mark: 'D2', type: 'entry', quantity: 1 },
+            { mark: 'D3', type: 'entry', quantity: 1 },
+          ],
+          slidingDoors: [{ mark: 'D4', type: 'french patio', quantity: 1 }],
+        }
+      )
+    ).toEqual({
+      windowCount: '',
+      exteriorDoorCount: 4,
+      slidingDoorCount: '',
+      interiorDoorCount: '',
+    });
+  });
+
+  it('labels Windows & doors Review rows as schedule, plan-derived, or not found', () => {
+    expect(
+      resolveWindowsDoorsReviewTier({
+        value: 13,
+        scheduleDocumented: true,
+        provenanceEntry: {
+          source: 'detected_from_plan',
+          evidenceKind: 'schedule',
+        },
+      })
+    ).toBe('verified');
+    expect(
+      resolveWindowsDoorsReviewTier({
+        value: 12,
+        provenanceEntry: {
+          source: 'detected_from_plan',
+        },
+      })
+    ).toBe('plan_derived');
+    expect(
+      resolveWindowsDoorsReviewTier({
+        value: 17,
+        provenanceEntry: {
+          source: 'calculated_from_symbols',
+          normalizedSource: 'NEEDS_CONFIRMATION',
+        },
+      })
+    ).toBe('plan_derived');
+    expect(resolveWindowsDoorsReviewTier({ value: '' })).toBe('not_found');
+    expect(windowsDoorsReviewProvenanceLabel('verified')).toBe('From schedule');
+    expect(windowsDoorsReviewProvenanceLabel('plan_derived')).toBe(
+      'From plans · Confirm'
+    );
+    expect(windowsDoorsReviewProvenanceLabel('not_found')).toBe(
+      'Not found · Enter manually'
+    );
+    expect(
+      windowsDoorsReviewSelectionAppearance({
+        include: true,
+        tier: 'not_found',
+        colors: { sub: '#888' },
+      })
+    ).toMatchObject({ icon: 'square-outline', color: '#888' });
+    expect(
+      windowsDoorsReviewSelectionAppearance({
+        include: true,
+        tier: 'plan_derived',
+        colors: { sub: '#888' },
+      }).color
+    ).toBe('#fbbf24');
+  });
+
+  it('parses window size codes and assigns pricing tiers without requiring a dimension box', () => {
+    expect(parseOpeningSizeCode('3050')).toEqual({
+      widthIn: 36,
+      heightIn: 60,
+      sizeCode: '3050',
+    });
+    expect(
+      classifyOpeningSizeTier('windows', { widthFt: 3, heightFt: 5 })
+    ).toBe('standard');
+    expect(
+      classifyOpeningSizeTier('windows', { widthFt: 6, heightFt: 6 })
+    ).toBe('oversized');
+    expect(
+      formatOpeningDetailLines([
+        { sizeCode: '3050', quantity: 6 },
+        { sizeCode: '3060', quantity: 8 },
+        { sizeCode: '4040', quantity: 4 },
+      ])
+    ).toEqual(['6 × 3050', '8 × 3060', '4 × 4040']);
+    expect(
+      openingSizeMixFromRows(
+        'windows',
+        [
+          { sizeCode: '3050', quantity: 6 },
+          { sizeCode: '4040', quantity: 4 },
+        ],
+        10
+      )
+    ).toEqual({
+      standard: 6,
+      medium: 4,
+      large: 0,
+      oversized: 0,
+    });
+  });
+
+  it('keeps Windows & doors Confirm Scope units on each, never living SF', () => {
+    const livingOnly = normalizeScopeMeasurements({
+      floorAreaSqft: 2400,
+      garageSqft: 600,
+      itemQuantities: {},
+    });
+    for (const itemId of [
+      'windows',
+      'exterior_doors',
+      'sliding_doors',
+      'interior_doors',
+    ] as const) {
+      for (const templateKey of ['windows_doors', 'ground_up'] as const) {
+        const resolved = resolveChecklistItemQuantity(itemId, livingOnly, {
+          templateKey,
+        });
+        expect({ itemId, templateKey, unit: resolved.unit }).toEqual({
+          itemId,
+          templateKey,
+          unit: 'each',
+        });
+        expect(resolved.dualCount?.unit).not.toBe('sqft');
+        expect(resolved.quantity).toBeNull();
+      }
+    }
+
+    const counted = normalizeScopeMeasurements({
+      windowCount: 12,
+      exteriorDoorCount: 2,
+      slidingDoorCount: 1,
+      garageDoorDoubleCount: 1,
+      interiorDoorCount: 8,
+      floorAreaSqft: 2400,
+      itemQuantities: {},
+    });
+    expect(
+      resolveChecklistItemQuantity('windows', counted, {
+        templateKey: 'windows_doors',
+      })
+    ).toMatchObject({ quantity: 12, unit: 'each' });
+    expect(
+      resolveChecklistItemQuantity('exterior_doors', counted, {
+        templateKey: 'windows_doors',
+      })
+    ).toMatchObject({ quantity: 2, unit: 'each' });
+    expect(
+      resolveChecklistItemQuantity('interior_doors', counted, {
+        templateKey: 'windows_doors',
+      })
+    ).toMatchObject({ quantity: 8, unit: 'each' });
+    expect(
+      getChecklistItemQuantityRule('exterior_doors', 'windows_doors')
+        ?.defaultUnit
+    ).toBe('each');
+    expect(
+      getChecklistItemQuantityRule('interior_doors', 'windows_doors')
+        ?.defaultUnit
+    ).toBe('each');
   });
 
   it('declares HVAC cards and keeps plan quantities off living SF', () => {

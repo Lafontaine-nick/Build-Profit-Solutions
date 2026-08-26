@@ -1,5 +1,5 @@
 /**
- * Ground-up MEP / exterior trades: counts for MEP; windows can plan from living SF.
+ * Ground-up MEP / exterior trades: counts for MEP and window/door openings.
  */
 jest.mock('@/utils/resolveAiBackendUrl', () => ({
   resolveAiBaseUrl: () => 'http://localhost:3001',
@@ -175,7 +175,7 @@ describe('ground-up MEP / exterior count gates', () => {
     expect(sqft?.unit).toBe('sqft');
   });
 
-  it('prices windows/doors from living SF when opening count is missing', () => {
+  it('does not price windows/doors from living SF when opening count is missing', () => {
     const measurements = inputWith({});
     const windows = resolveScopeItemSuggestedPricing(
       'windows_doors',
@@ -183,10 +183,7 @@ describe('ground-up MEP / exterior count gates', () => {
       'ground_up',
       resolveChecklistItemQuantity('windows_doors', measurements, { templateKey: 'ground_up' })
     );
-    expect(windows.fill?.basis).toEqual({ quantity: 1879, unit: 'sqft' });
-    expect(windows.fill!.material).toBeGreaterThan(0);
-    expect(windows.fill!.labor).toBeGreaterThan(0);
-    expect(windows.fill!.total).toBeGreaterThan(5000);
+    expect(windows.fill).toBeFalsy();
   });
 
   it('prices excavation from planning CY when excavationCy is missing', () => {

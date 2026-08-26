@@ -13,7 +13,8 @@ export type SubcontractorTradeKey =
   | 'insulation'
   | 'flooring'
   | 'painting'
-  | 'windows_doors';
+  | 'windows_doors'
+  | 'garage_doors';
 
 /** Legacy plan-import keys retained for persisted drafts — not shown in Plan Export menu. */
 export type LegacyPlanTradeKey =

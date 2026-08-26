@@ -124,9 +124,10 @@ export const TRADE_SCOPE_ALLOWLISTS: Record<SubcontractorTradeKey, string[]> = {
     'windows',
     'exterior_doors',
     'sliding_doors',
-    'garage_doors',
+    'interior_doors',
     'windows_doors',
   ],
+  garage_doors: ['garage_doors', 'garage_door_openers'],
 };
 
 export function getTradeScopeAllowlist(

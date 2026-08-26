@@ -84,18 +84,14 @@ describe('ground-up exterior trades', () => {
     expect(fill?.rateSourceLabel).toMatch(/Blended national/i);
   });
 
-  it('prices windows from living SF when window count is missing', () => {
+  it('does not price windows from living SF when window count is missing', () => {
     const input = inputWith({});
     const resolved = resolveChecklistItemQuantity('windows', input, { templateKey: 'ground_up' });
     expect(resolved.quantity).toBeNull();
+    expect(resolved.unit).toBe('each');
 
     const { fill } = resolveScopeItemSuggestedPricing('windows', input, 'ground_up', resolved);
-    expect(fill?.basis).toEqual({ quantity: 1879, unit: 'sqft' });
-    expect(fill?.material).toBeGreaterThan(0);
-    expect(fill?.labor).toBeGreaterThan(0);
-    // Windows bid median ~$12k / living SF for Lot 41-sized homes.
-    expect(fill!.total).toBeGreaterThan(6000);
-    expect(fill!.total).toBeLessThan(12000);
+    expect(fill).toBeFalsy();
   });
 
   it('prices windows from opening count when provided', () => {

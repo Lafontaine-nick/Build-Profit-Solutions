@@ -18,6 +18,11 @@ import {
   matchSouthernUtahProjectByLivingSf,
   type SouthernUtahProjectId,
 } from '@/utils/southernUtahPaintTrimComparables';
+import type {
+  OpeningSizeMix,
+  OpeningSizeTier,
+} from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
+import { openingSizeMixSummary } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
 
 export type GarageDoorType = 'single' | 'double' | 'rv';
 
@@ -290,5 +295,86 @@ export function resolveSlidingDoorsLumpSuggestedFill(params: {
     comparisonRange: { ...SLIDING_DOORS_ALL_PROJECT_RANGE },
     projectId: project && projectTotal != null ? project.id : null,
     scopeKey: 'sliding_doors',
+  };
+}
+
+/** Size-tier multipliers on the mid-market each allowance. */
+export const OPENING_SIZE_TIER_MULTIPLIERS: Record<
+  'windows' | 'exterior_doors' | 'sliding_doors',
+  Record<OpeningSizeTier, number>
+> = {
+  windows: {
+    standard: 1,
+    medium: 1.2,
+    large: 1.65,
+    oversized: 2.4,
+  },
+  exterior_doors: {
+    standard: 1,
+    medium: 1.2,
+    large: 1.55,
+    oversized: 2.1,
+  },
+  sliding_doors: {
+    standard: 1,
+    medium: 1.35,
+    large: 1.85,
+    oversized: 2.6,
+  },
+};
+
+export function resolveOpeningSizeTierSuggestedPricing(params: {
+  itemId: 'windows' | 'exterior_doors' | 'sliding_doors';
+  quantity: number;
+  mix?: OpeningSizeMix | null;
+  location?: { state?: string | null } | null;
+}): {
+  material: number;
+  labor: number;
+  total: number;
+  quantity: number;
+  unit: 'each';
+  sourceLabel: string;
+  helper: string;
+} | null {
+  const quantity = Math.round(Number(params.quantity) || 0);
+  if (quantity <= 0) return null;
+  const base = EXTERIOR_OPENING_NATIONAL_RATES[params.itemId];
+  const multipliers = OPENING_SIZE_TIER_MULTIPLIERS[params.itemId];
+  const mix = params.mix || {
+    standard: quantity,
+    medium: 0,
+    large: 0,
+    oversized: 0,
+  };
+  const mixTotal =
+    mix.standard + mix.medium + mix.large + mix.oversized || quantity;
+  const scale = quantity / mixTotal;
+  let material = 0;
+  let labor = 0;
+  (['standard', 'medium', 'large', 'oversized'] as OpeningSizeTier[]).forEach(
+    tier => {
+      const count = mix[tier] * scale;
+      if (!(count > 0)) return;
+      material += base.material * multipliers[tier] * count;
+      labor += base.labor * multipliers[tier] * count;
+    }
+  );
+  const scaled = scaleSplitLumpForState(material, labor, params.location);
+  const mixLabel = openingSizeMixSummary(mix);
+  const sized =
+    mix.medium + mix.large + mix.oversized > 0
+      ? mixLabel
+      : 'Standard size allowance — confirm if picture or oversized units are on the plans';
+  const stateSuffix =
+    scaled.stateCode && scaled.multiplier !== 1 ? ` · ${scaled.stateCode}` : '';
+  return {
+    material: scaled.material,
+    labor: scaled.labor,
+    total: scaled.total,
+    quantity,
+    unit: 'each',
+    sourceLabel: `Suggested budget split · National Average · size-tier each${stateSuffix}`,
+    helper: sized || base.sourceLabel,
   };
 }

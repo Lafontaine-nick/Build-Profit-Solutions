@@ -249,6 +249,16 @@ const FALLBACK_MEASUREMENT_COPY: Record<
     hint: 'Planning package available — add sliding / patio door count for per-door pricing.',
     statusDetail: 'Sliding door count not provided',
   },
+  interior_doors: {
+    title: 'Interior door count needed',
+    hint: 'Add the interior door count from the door schedule.',
+    statusDetail: 'Interior door count not provided',
+  },
+  garage_door_openers: {
+    title: 'Garage door opener count needed',
+    hint: 'Count openers only when labeled or specified.',
+    statusDetail: 'Garage door opener count not provided',
+  },
   garage_doors: {
     title: 'Garage door types needed',
     hint: 'Set single, double, and/or RV garage door counts — pricing differs by type.',

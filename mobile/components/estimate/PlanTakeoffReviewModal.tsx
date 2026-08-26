@@ -124,6 +124,22 @@ import {
   hvacTakeoffSkippedCanonicalReadings,
   resolveHvacPlanReviewMeasurements,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import {
+  formatOpeningDetailLines,
+  hydrateWindowsDoorsPlanReviewMeasurements,
+  seedWindowsDoorsReviewMeasurements,
+  openingScheduleIsDocumented,
+  openingScheduleRowsForMeasurementKey,
+  openingSchedulesFromPlanFacts,
+  openingSizeMixFromRows,
+  openingSizeMixSummary,
+  resolveWindowsDoorsReviewTier,
+  windowsDoorsReviewProvenanceLabel,
+  windowsDoorsReviewSelectionAppearance,
+  augmentWindowsDoorsScopeDetections,
+  windowsDoorsMeasurementKeyForScopeItem,
+} from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
+import { hydrateGarageDoorsPlanReviewMeasurements } from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
 
 export type PlanReviewRow = {
   key: string;
@@ -228,6 +244,13 @@ const MEASUREMENT_SORT_ORDER: Record<string, number> = {
   paintAreaSqft: 47,
   combinedPaintableAreaSqft: 48,
   interiorDoorCount: 49,
+  windowCount: 70,
+  exteriorDoorCount: 71,
+  slidingDoorCount: 72,
+  garageDoorSingleCount: 73,
+  garageDoorDoubleCount: 74,
+  garageDoorRvCount: 75,
+  garageDoorOpenerCount: 76,
   cabinetRunLf: 52,
   cabinetPaintSqft: 53,
   kitchenFloorSqft: 50,
@@ -425,6 +448,9 @@ export default function PlanTakeoffReviewModal({
     Record<string, boolean>
   >({});
   const [lowConfidenceAccepted, setLowConfidenceAccepted] = useState<
+    Record<string, boolean>
+  >({});
+  const [expandedOpeningDetails, setExpandedOpeningDetails] = useState<
     Record<string, boolean>
   >({});
   const [conflictChooserKey, setConflictChooserKey] = useState(0);
@@ -631,8 +657,29 @@ export default function PlanTakeoffReviewModal({
         )
       );
     }
+    if (effectiveTradeKey === 'windows_doors') {
+      return hydrateWindowsDoorsPlanReviewMeasurements(
+        seedWindowsDoorsReviewMeasurements(filtered, takeoff),
+        openingSchedulesFromPlanFacts(takeoff?.planFacts)
+      );
+    }
+    if (effectiveTradeKey === 'garage_doors') {
+      return hydrateGarageDoorsPlanReviewMeasurements(
+        filtered,
+        openingSchedulesFromPlanFacts(takeoff?.planFacts)
+      );
+    }
     return filterPlanReviewMeasurementEntries(filtered);
   }, [takeoff, effectiveMode, effectiveTradeKey]);
+
+  const windowsDoorsOpeningSchedules = useMemo(
+    () =>
+      effectiveTradeKey === 'windows_doors' ||
+      effectiveTradeKey === 'garage_doors'
+        ? openingSchedulesFromPlanFacts(takeoff?.planFacts)
+        : null,
+    [effectiveTradeKey, takeoff?.planFacts]
+  );
 
   const scopeDetections = useMemo(() => {
     const detections = takeoff?.scope?.detections || [];
@@ -647,6 +694,9 @@ export default function PlanTakeoffReviewModal({
     );
     if (effectiveTradeKey === 'framing') {
       return augmentFramingScopeDetections(filtered, visibleMeasurements);
+    }
+    if (effectiveTradeKey === 'windows_doors') {
+      return augmentWindowsDoorsScopeDetections(filtered, visibleMeasurements);
     }
     return filtered;
   }, [takeoff, effectiveMode, effectiveTradeKey, visibleMeasurements]);
@@ -758,9 +808,27 @@ export default function PlanTakeoffReviewModal({
         const evidenceLabel = planFieldEvidenceLabel(
           takeoff.measurementProvenance?.[key]
         );
+        const openingRows = openingScheduleRowsForMeasurementKey(
+          key,
+          windowsDoorsOpeningSchedules
+        );
+        const scheduleDocumented = openingScheduleIsDocumented(openingRows);
+        const scheduleFilledCount =
+          (effectiveTradeKey === 'windows_doors' ||
+            effectiveTradeKey === 'garage_doors') &&
+          Number(value) > 0 &&
+          !(Number(takeoff.measurements?.[key]) > 0) &&
+          scheduleDocumented;
         const provenanceEntry =
           takeoff.measurementProvenance?.[key] ??
-          plumbingInventoryDerivedProvenance(takeoff.fixtureInventory, key);
+          plumbingInventoryDerivedProvenance(takeoff.fixtureInventory, key) ??
+          (scheduleFilledCount
+            ? {
+                source: 'detected_from_plan',
+                evidenceKind: 'schedule',
+                normalizedSource: 'FROM_PLAN',
+              }
+            : undefined);
         const needsManualInsulationWall =
           effectiveTradeKey === 'insulation' &&
           key === 'exteriorWallInsulationSqft' &&
@@ -789,6 +857,34 @@ export default function PlanTakeoffReviewModal({
           validationField: takeoff.electricalValidation?.fields?.[key],
           tradeKey: effectiveTradeKey,
         });
+        const openingCountTrade =
+          effectiveTradeKey === 'windows_doors' ||
+          effectiveTradeKey === 'garage_doors';
+        const windowsDoorsTier = openingCountTrade
+            ? resolveWindowsDoorsReviewTier({
+                value,
+                provenanceEntry,
+                scheduleDocumented,
+              })
+            : null;
+        const windowsDoorsProvenance = windowsDoorsTier
+          ? {
+              ...rowState.provenance,
+              status:
+                windowsDoorsTier === 'not_found'
+                  ? ('needs_review' as const)
+                  : windowsDoorsTier === 'plan_derived'
+                    ? ('from_plan_symbols' as const)
+                    : ('plan_verified' as const),
+              label: windowsDoorsReviewProvenanceLabel(windowsDoorsTier),
+              confidence:
+                windowsDoorsTier === 'verified'
+                  ? ('high' as const)
+                  : windowsDoorsTier === 'plan_derived'
+                    ? ('medium' as const)
+                    : ('low' as const),
+            }
+          : rowState.provenance;
         return {
           key,
           label: display.label,
@@ -801,17 +897,23 @@ export default function PlanTakeoffReviewModal({
           unit:
             effectiveTradeKey === 'plumbing'
               ? plumbingMeasurementDisplayUnit(key, meta.unit)
-              : meta.unit,
+              : openingCountTrade
+                ? 'each'
+                : meta.unit,
           value: String(value),
           confidence: takeoff.fieldConfidence?.[key] ?? null,
-          provenance: rowState.provenance,
-          pricingEligible: rowState.pricingEligible,
+          provenance: windowsDoorsProvenance,
+          pricingEligible: windowsDoorsTier
+            ? windowsDoorsTier === 'verified'
+            : rowState.pricingEligible,
           conflictValue,
           include:
             conflictValue == null &&
-            (effectiveTradeKey === 'hvac'
-              ? Number(value) > 0
-              : rowState.includeDefault || keepInsulationSuggestionSelected),
+            (openingCountTrade
+              ? windowsDoorsTier != null && windowsDoorsTier !== 'not_found'
+              : effectiveTradeKey === 'hvac'
+                ? Number(value) > 0
+                : rowState.includeDefault || keepInsulationSuggestionSelected),
         };
       })
       .sort((a, b) => {
@@ -2104,6 +2206,23 @@ export default function PlanTakeoffReviewModal({
                     Colors
                   );
                   const confirmRow = !row.pricingEligible;
+                  const windowsDoorsTier =
+                    effectiveTradeKey === 'windows_doors' ||
+                    effectiveTradeKey === 'garage_doors'
+                      ? !(Number(row.value) > 0)
+                        ? 'not_found'
+                        : row.provenance.status === 'user_confirmed' ||
+                            row.provenance.status === 'plan_verified'
+                          ? 'verified'
+                          : 'plan_derived'
+                      : null;
+                  const windowsDoorsAppearance = windowsDoorsTier
+                    ? windowsDoorsReviewSelectionAppearance({
+                        include: row.include,
+                        tier: windowsDoorsTier,
+                        colors: Colors,
+                      })
+                    : null;
                   return (
                     <ReviewPanel key={row.key} darkMode={darkMode}>
                       <View style={styles.quantityHeader}>
@@ -2111,6 +2230,13 @@ export default function PlanTakeoffReviewModal({
                           onPress={() => {
                             if (row.pricingEligible) {
                               setRow(row.key, { include: !row.include });
+                              return;
+                            }
+                            if (
+                              (effectiveTradeKey === 'windows_doors' ||
+                                effectiveTradeKey === 'garage_doors') &&
+                              !(Number(row.value) > 0)
+                            ) {
                               return;
                             }
                             const prompt = planReviewCheckboxBlockedMessage(
@@ -2138,9 +2264,15 @@ export default function PlanTakeoffReviewModal({
                           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                         >
                           <Ionicons
-                            name={row.include ? 'checkbox' : 'square-outline'}
+                            name={
+                              windowsDoorsAppearance?.icon ||
+                              (row.include ? 'checkbox' : 'square-outline')
+                            }
                             size={22}
-                            color={row.include ? '#22c55e' : Colors.sub}
+                            color={
+                              windowsDoorsAppearance?.color ||
+                              (row.include ? '#22c55e' : Colors.sub)
+                            }
                           />
                         </TouchableOpacity>
                         <View style={{ flex: 1, minWidth: 0 }}>
@@ -2156,9 +2288,11 @@ export default function PlanTakeoffReviewModal({
                           </Text>
                           <Text
                             style={{
-                              color: confirmRow
-                                ? CONFIRM_YELLOW
-                                : provenanceColor,
+                              color:
+                                windowsDoorsAppearance?.color ||
+                                (confirmRow
+                                  ? CONFIRM_YELLOW
+                                  : provenanceColor),
                               fontSize: 12,
                               fontWeight: '700',
                               marginTop: 4,
@@ -2218,6 +2352,94 @@ export default function PlanTakeoffReviewModal({
                           {row.unit}
                         </Text>
                       </View>
+                      {effectiveTradeKey === 'windows_doors' ||
+                      effectiveTradeKey === 'garage_doors'
+                        ? (() => {
+                            const scheduleRows =
+                              openingScheduleRowsForMeasurementKey(
+                                row.key,
+                                windowsDoorsOpeningSchedules
+                              );
+                            const detailLines =
+                              formatOpeningDetailLines(scheduleRows);
+                            if (!detailLines.length) return null;
+                            const mixKind =
+                              row.key === 'windowCount'
+                                ? 'windows'
+                                : row.key === 'exteriorDoorCount'
+                                  ? 'exterior_doors'
+                                  : row.key === 'slidingDoorCount'
+                                    ? 'sliding_doors'
+                                    : null;
+                            const mixSummary = mixKind
+                              ? openingSizeMixSummary(
+                                  openingSizeMixFromRows(
+                                    mixKind,
+                                    scheduleRows,
+                                    Number(row.value)
+                                  )
+                                )
+                              : null;
+                            const expanded =
+                              expandedOpeningDetails[row.key] === true;
+                            return (
+                              <View style={{ marginTop: 10 }}>
+                                {mixSummary ? (
+                                  <Text
+                                    style={[
+                                      styles.evidenceText,
+                                      { color: Colors.sub },
+                                    ]}
+                                  >
+                                    {mixSummary}
+                                  </Text>
+                                ) : null}
+                                <TouchableOpacity
+                                  onPress={() =>
+                                    setExpandedOpeningDetails(prev => ({
+                                      ...prev,
+                                      [row.key]: !expanded,
+                                    }))
+                                  }
+                                  hitSlop={{
+                                    top: 6,
+                                    bottom: 6,
+                                    left: 4,
+                                    right: 4,
+                                  }}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.evidenceText,
+                                      {
+                                        color: CONFIRM_YELLOW,
+                                        fontWeight: '700',
+                                        marginTop: mixSummary ? 4 : 0,
+                                      },
+                                    ]}
+                                  >
+                                    {expanded
+                                      ? 'Hide opening details'
+                                      : 'Opening details'}
+                                  </Text>
+                                </TouchableOpacity>
+                                {expanded
+                                  ? detailLines.map(line => (
+                                      <Text
+                                        key={line}
+                                        style={[
+                                          styles.evidenceText,
+                                          { color: Colors.text, marginTop: 4 },
+                                        ]}
+                                      >
+                                        {line}
+                                      </Text>
+                                    ))
+                                  : null}
+                              </View>
+                            );
+                          })()
+                        : null}
                     </ReviewPanel>
                   );
                 })}
@@ -2492,6 +2714,13 @@ export default function PlanTakeoffReviewModal({
                   Suggested scope
                 </Text>
                 {scopeDetections.map(d => {
+                  const openingKey = windowsDoorsMeasurementKeyForScopeItem(
+                    d.itemId
+                  );
+                  const openingConflict =
+                    effectiveTradeKey === 'windows_doors' &&
+                    openingKey != null &&
+                    conflictFieldSet.has(openingKey);
                   const statusLines = scopeTakeoffStatusLines({
                     itemId: d.itemId,
                     evidence: d.evidence,
@@ -2541,6 +2770,38 @@ export default function PlanTakeoffReviewModal({
                           row.pricingEligible &&
                           row.include
                       ),
+                    hasOpeningCount:
+                      effectiveTradeKey === 'windows_doors' &&
+                      openingKey != null &&
+                      rows.some(
+                        row =>
+                          row.key === openingKey &&
+                          Number(row.value) > 0 &&
+                          row.include
+                      ),
+                    openingConflict,
+                    openingDetectedCount: (() => {
+                      if (
+                        effectiveTradeKey !== 'windows_doors' ||
+                        !openingKey ||
+                        openingConflict
+                      ) {
+                        return null;
+                      }
+                      const included = rows.find(
+                        row =>
+                          row.key === openingKey &&
+                          Number(row.value) > 0 &&
+                          row.include
+                      );
+                      if (included) return Math.round(Number(included.value));
+                      const measured = Number(
+                        takeoff.measurements?.[openingKey]
+                      );
+                      return Number.isFinite(measured) && measured > 0
+                        ? Math.round(measured)
+                        : null;
+                    })(),
                   });
                   return (
                     <TouchableOpacity

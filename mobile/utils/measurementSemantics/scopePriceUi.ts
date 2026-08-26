@@ -62,6 +62,7 @@ export const STAGE_COVERS_SCOPE_KEYS: Record<string, string[]> = {
     'exterior_doors',
     'sliding_doors',
     'garage_doors',
+    'garage_door_openers',
     'windows_doors',
     'stucco',
   ],
@@ -108,6 +109,7 @@ export const STAGE_SEPARATE_TRADE_SCOPE_KEYS: Record<string, string[]> = {
     'exterior_doors',
     'sliding_doors',
     'garage_doors',
+    'garage_door_openers',
     'windows_doors',
     'stucco',
     'exterior_paint',
@@ -328,8 +330,12 @@ export function missingStatusDisplayLabel(
       return 'Needs exterior door count';
     case 'sliding_doors':
       return 'Needs sliding door count';
+    case 'interior_doors':
+      return 'Needs interior door count';
     case 'garage_doors':
       return 'Needs garage door type counts (single / double / RV)';
+    case 'garage_door_openers':
+      return 'Needs garage door opener count';
     case 'windows_doors':
       return 'Needs window/door opening count';
     case 'insulation':
@@ -578,7 +584,9 @@ export function coversLabelList(stageId: string): string {
     windows: 'windows',
     exterior_doors: 'exterior doors',
     sliding_doors: 'sliding doors',
+    interior_doors: 'interior doors',
     garage_doors: 'garage doors',
+    garage_door_openers: 'garage door openers',
     windows_doors: 'windows / doors',
     mep_rough: 'MEP rough-in',
     plumbing_rough: 'plumbing rough-in',

@@ -38,6 +38,13 @@ import {
   hvacSystemTierBudgetSplit,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
+  isWindowsDoorsCountScopeItemId,
+  openingScheduleRowsForMeasurementKey,
+  openingSchedulesFromPlanFacts,
+  openingSizeMixFromRows,
+} from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
+import { isGarageDoorsCountScopeItemId } from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
+import {
   FRAMING_CARDS,
   copyFramingQuantityFields,
   framingCardForItemId,
@@ -168,6 +175,7 @@ import {
   normalizeGarageDoorCounts,
   resolveExteriorDoorsLumpSuggestedFill,
   resolveGarageDoorSuggestedPricing,
+  resolveOpeningSizeTierSuggestedPricing,
   resolveSlidingDoorsLumpSuggestedFill,
   totalGarageDoorCount,
 } from '@/utils/exteriorOpeningsPricing';
@@ -395,6 +403,16 @@ export const DUAL_QUANTITY_FIELD_LABELS: Record<
   },
   garage_doors: {
     count: 'Garage door count (from types)',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  garage_door_openers: {
+    count: 'Garage door opener count',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  interior_doors: {
+    count: 'Interior door count',
     countUnit: 'each',
     allowance: 'Allowance ($)',
   },
@@ -664,6 +682,7 @@ export type NormalizedScopeMeasurements = {
   garageDoorSingleCount: number | null;
   garageDoorDoubleCount: number | null;
   garageDoorRvCount: number | null;
+  garageDoorOpenerCount: number | null;
   framingOpeningCount: number | null;
   reframingRequested?: boolean | null;
   measurementProvenance?: Record<string, unknown>;
@@ -2230,6 +2249,24 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
   },
   sliding_doors: {
     each: EXTERIOR_OPENING_NATIONAL_RATES.sliding_doors,
+  },
+  interior_doors: {
+    each: {
+      unit: 'each',
+      material: 180,
+      labor: 170,
+      sourceLabel:
+        'Suggested budget split · National Average · interior prehung door (builder grade)',
+    },
+  },
+  garage_door_openers: {
+    each: {
+      unit: 'each',
+      material: 350,
+      labor: 200,
+      sourceLabel:
+        'Suggested budget split · National Average · garage door opener',
+    },
   },
   plumbing_rough: {
     each: NATIONAL_AVERAGE_BUDGET_SPLITS.plumbing_rough,
@@ -6633,6 +6670,101 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
       'Uses the exterior paint surface area for standard exterior prep and masking.',
     missingMessage: 'Enter exterior paint sqft.',
   },
+  windows_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: [
+      'windowCount',
+      'exteriorDoorCount',
+      'slidingDoorCount',
+      'interiorDoorCount',
+    ],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Window, exterior swing door, sliding/patio door, and interior door counts. Garage doors are a separate trade.',
+    missingMessage: 'Enter window/door counts or pricing.',
+  },
+  windows: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'windowCount',
+    measurementKeys: ['windowCount'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Window units, frames, glazing, flashing, screens, and installation. Structural reframing and finish repair are separate.',
+    missingMessage: 'Enter window count or pricing.',
+  },
+  exterior_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'exteriorDoorCount',
+    measurementKeys: ['exteriorDoorCount'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Exterior swing door units, frames, thresholds, hardware, flashing, and installation. Not sliding, garage, or structural reframing.',
+    missingMessage: 'Enter exterior door count or pricing.',
+  },
+  sliding_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'slidingDoorCount',
+    measurementKeys: ['slidingDoorCount'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Patio / multi-panel door units, frames, hardware, flashing, and installation. Patching and structural reframing are separate.',
+    missingMessage: 'Enter sliding door count or pricing.',
+  },
+  garage_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: [
+      'garageDoorSingleCount',
+      'garageDoorDoubleCount',
+      'garageDoorRvCount',
+    ],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Garage door units, tracks, hardware, and installation, priced by single, double, or RV/oversized type. Structural reframing is separate.',
+    missingMessage: 'Enter garage door type counts or pricing.',
+  },
+  interior_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'interiorDoorCount',
+    measurementKeys: ['interiorDoorCount'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Interior door units, frames, and hardware from the door schedule. Paint and casing are separate.',
+    missingMessage: 'Enter interior door count or pricing.',
+  },
+  garage_door_openers: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'garageDoorOpenerCount',
+    measurementKeys: ['garageDoorOpenerCount'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Count garage door openers only when labeled or specified. Do not assume one opener per door.',
+    missingMessage: 'Enter garage door opener count or pricing.',
+  },
+  openings: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'framingOpeningCount',
+    measurementKeys: ['framingOpeningCount'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Structural reframing only for an explicitly new, resized, enlarged, or reframed opening.',
+    missingMessage: 'Enter reframed/new opening count or pricing.',
+  },
   excavation: {
     defaultUnit: 'cy',
     allowedUnits: ['cy', 'sqft', 'lf', 'allowance', 'lump_sum'],
@@ -6888,6 +7020,11 @@ export function normalizeScopeMeasurements(
       measurements?.garageDoorRvCount != null &&
       Number(measurements.garageDoorRvCount) > 0
         ? Math.round(Number(measurements.garageDoorRvCount))
+        : null,
+    garageDoorOpenerCount:
+      measurements?.garageDoorOpenerCount != null &&
+      Number(measurements.garageDoorOpenerCount) > 0
+        ? Math.round(Number(measurements.garageDoorOpenerCount))
         : null,
     framingOpeningCount:
       measurements?.framingOpeningCount != null &&
@@ -7270,14 +7407,12 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
       'windowCount',
       'exteriorDoorCount',
       'slidingDoorCount',
-      'garageDoorSingleCount',
-      'garageDoorDoubleCount',
-      'garageDoorRvCount',
+      'interiorDoorCount',
     ],
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Window, exterior swing door, sliding door, and garage door counts. Structural reframing is separate.',
+      'Window, exterior swing door, sliding/patio door, and interior door counts. Garage doors are a separate trade.',
     missingMessage: 'Enter window/door counts or pricing.',
   },
   windows: {
@@ -7326,6 +7461,28 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper:
       'Garage door units, tracks, hardware, and installation, priced by single, double, or RV/oversized type. Structural reframing is separate.',
     missingMessage: 'Enter garage door type counts or pricing.',
+  },
+  interior_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'interiorDoorCount',
+    measurementKeys: ['interiorDoorCount'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Interior door units, frames, and hardware from the door schedule. Paint and casing are separate.',
+    missingMessage: 'Enter interior door count or pricing.',
+  },
+  garage_door_openers: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'garageDoorOpenerCount',
+    measurementKeys: ['garageDoorOpenerCount'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Count garage door openers only when labeled or specified. Do not assume one opener per door.',
+    missingMessage: 'Enter garage door opener count or pricing.',
   },
   openings: {
     defaultUnit: 'each',
@@ -7517,6 +7674,12 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   },
   garage_doors: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.garage_doors,
+  },
+  interior_doors: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.interior_doors,
+  },
+  garage_door_openers: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.garage_door_openers,
   },
   openings: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.openings,
@@ -7773,14 +7936,12 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   },
   windows_doors: {
     defaultUnit: 'each',
-    allowedUnits: ['each', 'sqft', 'allowance', 'lump_sum'],
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
     measurementKeys: [
       'windowCount',
       'exteriorDoorCount',
       'slidingDoorCount',
-      'garageDoorSingleCount',
-      'garageDoorDoubleCount',
-      'garageDoorRvCount',
+      'interiorDoorCount',
     ],
     requiresUserQuantity: true,
     dualAllowanceField: true,
@@ -7790,13 +7951,13 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   },
   windows: {
     defaultUnit: 'each',
-    allowedUnits: ['each', 'sqft', 'allowance', 'lump_sum'],
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
     measurementKey: 'windowCount',
     measurementKeys: ['windowCount'],
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Enter window count for material and labor — planning from living SF when count is missing.',
+      'Enter window count for material and labor. Do not use living SF as a substitute for counts.',
     missingMessage: 'Enter window count or pricing.',
   },
   exterior_doors: {
@@ -7834,6 +7995,28 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper:
       'Set single / double / RV garage door counts — pricing is by type (double ~$2,400; double+RV ~$10,700 locally).',
     missingMessage: 'Enter garage door type counts or pricing.',
+  },
+  interior_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'interiorDoorCount',
+    measurementKeys: ['interiorDoorCount'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Interior door units, frames, and hardware from the door schedule. Paint and casing are separate.',
+    missingMessage: 'Enter interior door count or pricing.',
+  },
+  garage_door_openers: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'garageDoorOpenerCount',
+    measurementKeys: ['garageDoorOpenerCount'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Count garage door openers only when labeled or specified. Do not assume one opener per door.',
+    missingMessage: 'Enter garage door opener count or pricing.',
   },
   openings: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.openings,
@@ -8569,6 +8752,24 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
     island: { unit: 'lf', measurementKeys: ['cabinetLf'] },
     plumbing: { unit: 'each' },
     electrical: { unit: 'each' },
+    windows: { unit: 'each', measurementKeys: ['windowCount'] },
+    exterior_doors: { unit: 'each', measurementKeys: ['exteriorDoorCount'] },
+    sliding_doors: { unit: 'each', measurementKeys: ['slidingDoorCount'] },
+    interior_doors: { unit: 'each', measurementKeys: ['interiorDoorCount'] },
+    garage_doors: {
+      unit: 'each',
+      measurementKeys: [
+        'garageDoorSingleCount',
+        'garageDoorDoubleCount',
+        'garageDoorRvCount',
+      ],
+      sumMeasurementKeys: true,
+    },
+    garage_door_openers: {
+      unit: 'each',
+      measurementKeys: ['garageDoorOpenerCount'],
+    },
+    windows_doors: { unit: 'each', measurementKeys: ['windowCount'] },
     hvac: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     walls_moving: { unit: 'lf' },
     equipment_replace: { unit: 'each' },
@@ -8625,11 +8826,20 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<
     finish_tape: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
     cabinets: { unit: 'lf', measurementKeys: ['cabinetLf'] },
     countertops: { unit: 'sqft', measurementKeys: ['countertopSqft'] },
-    windows_doors: { unit: 'each' },
-    windows: { unit: 'each' },
-    exterior_doors: { unit: 'each' },
-    sliding_doors: { unit: 'each' },
-    garage_doors: { unit: 'each' },
+    windows_doors: { unit: 'each', measurementKeys: ['windowCount'] },
+    windows: { unit: 'each', measurementKeys: ['windowCount'] },
+    exterior_doors: { unit: 'each', measurementKeys: ['exteriorDoorCount'] },
+    sliding_doors: { unit: 'each', measurementKeys: ['slidingDoorCount'] },
+    interior_doors: { unit: 'each', measurementKeys: ['interiorDoorCount'] },
+    garage_doors: {
+      unit: 'each',
+      measurementKeys: [
+        'garageDoorSingleCount',
+        'garageDoorDoubleCount',
+        'garageDoorRvCount',
+      ],
+      sumMeasurementKeys: true,
+    },
     mep_rough: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     plumbing_rough: { unit: 'each' },
     electrical_rough: { unit: 'each' },
@@ -8644,6 +8854,29 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<
     paint_trim: { unit: 'sqft', measurementKeys: ['wallPaintSqft'] },
     interior_paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft'] },
     exterior_paint: { unit: 'sqft', measurementKeys: ['exteriorPaintSqft'] },
+  },
+  windows_doors: {
+    windows: { unit: 'each', measurementKeys: ['windowCount'] },
+    exterior_doors: { unit: 'each', measurementKeys: ['exteriorDoorCount'] },
+    sliding_doors: { unit: 'each', measurementKeys: ['slidingDoorCount'] },
+    interior_doors: { unit: 'each', measurementKeys: ['interiorDoorCount'] },
+    windows_doors: { unit: 'each', measurementKeys: ['windowCount'] },
+    openings: { unit: 'each', measurementKeys: ['framingOpeningCount'] },
+  },
+  garage_doors: {
+    garage_doors: {
+      unit: 'each',
+      measurementKeys: [
+        'garageDoorSingleCount',
+        'garageDoorDoubleCount',
+        'garageDoorRvCount',
+      ],
+      sumMeasurementKeys: true,
+    },
+    garage_door_openers: {
+      unit: 'each',
+      measurementKeys: ['garageDoorOpenerCount'],
+    },
   },
   framing: {
     framing: {
@@ -8990,7 +9223,12 @@ export function resolveSuggestAlignedEditorPricingBasis(
     if (countQty && countQty > 0 && countUnit === 'each') {
       return { quantity: countQty, unit: 'each' };
     }
-    if (livingSf && livingSf > 0) return { quantity: livingSf, unit: 'sqft' };
+    const windowCount = parseScopeMeasurementInput(
+      String(measurementsInput.windowCount ?? '')
+    );
+    if (windowCount && windowCount > 0) {
+      return { quantity: windowCount, unit: 'each' };
+    }
     return null;
   }
 
@@ -9272,7 +9510,10 @@ export function getChecklistItemQuantityRule(
   const resolvedId = itemId === 'shower_bench_curb' ? 'shower_bench' : itemId;
   let rule: ScopeItemQuantityRule | undefined;
   if (
-    (templateKey === 'ground_up' || templateKey === 'stucco') &&
+    (templateKey === 'ground_up' ||
+      templateKey === 'stucco' ||
+      templateKey === 'windows_doors' ||
+      templateKey === 'garage_doors') &&
     GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId]
   ) {
     rule = GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
@@ -16325,32 +16566,6 @@ export function resolveScopeItemSuggestedPricing(
       }
     }
   }
-  // Windows: prefer count; otherwise plan from living SF × calibrated $/SF.
-  if (
-    (!count || count <= 0) &&
-    (itemId === 'windows' || itemId === 'windows_doors') &&
-    String(templateKey || '').toLowerCase() === 'ground_up'
-  ) {
-    const livingSf = parseScopeMeasurementInput(
-      measurementsInput.floorAreaSqft
-    );
-    if (livingSf && livingSf > 0) {
-      const reframed = regionalAdjustedNationalAverage(
-        itemId === 'windows_doors' ? 'windows' : itemId,
-        'sqft',
-        pricingContext
-      );
-      if (
-        reframed.average?.material != null &&
-        reframed.average?.labor != null
-      ) {
-        count = livingSf;
-        unit = 'sqft';
-        average = reframed.average;
-      }
-    }
-  }
-
   // Ground-up barometer lumps — SHV Lots 39/41/49/58 + national (not × inflated notes SF).
   if (String(templateKey || '').toLowerCase() === 'ground_up') {
     const livingSf = parseScopeMeasurementInput(
@@ -16597,38 +16812,81 @@ export function resolveScopeItemSuggestedPricing(
     });
   }
 
-  // Garage doors: type-based package (single / double / RV), scaled by state.
   if (
-    itemId === 'garage_doors' &&
-    String(templateKey || '').toLowerCase() === 'ground_up'
+    count > 0 &&
+    (itemId === 'windows' ||
+      itemId === 'exterior_doors' ||
+      itemId === 'sliding_doors')
   ) {
-    let counts = normalizeGarageDoorCounts(measurementsInput);
-    if (totalGarageDoorCount(counts) <= 0) {
-      const inferred = inferDefaultGarageDoorCounts(
-        parseScopeMeasurementInput(measurementsInput.garageSqft)
-      );
-      if (inferred) counts = inferred;
+    const measurementKey =
+      itemId === 'windows'
+        ? 'windowCount'
+        : itemId === 'exterior_doors'
+          ? 'exteriorDoorCount'
+          : 'slidingDoorCount';
+    const rows = openingScheduleRowsForMeasurementKey(
+      measurementKey,
+      openingSchedulesFromPlanFacts(
+        measurementsInput.planFacts as {
+          openingSchedules?: import('@/utils/subcontractorTrade/windowsDoorsPlanConvergence').OpeningSchedules;
+        } | null
+      )
+    );
+    if (rows.length) {
+      const mix = openingSizeMixFromRows(itemId, rows, count);
+      const sizedPkg = resolveOpeningSizeTierSuggestedPricing({
+        itemId,
+        quantity: count,
+        mix,
+        location: { state: pricingContext?.state },
+      });
+      if (sizedPkg) {
+        return {
+          fill: {
+            material: sizedPkg.material,
+            labor: sizedPkg.labor,
+            total: sizedPkg.total,
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+            rateSourceLabel: sizedPkg.sourceLabel,
+            helper: sizedPkg.helper,
+            mode: 'suggested_price',
+            basis: { quantity: sizedPkg.quantity, unit: 'each' },
+            splitSource: 'source',
+            splitConfidence:
+              mix.medium + mix.large + mix.oversized > 0 ? 'high' : 'medium',
+          },
+          comparison: null,
+        };
+      }
     }
-    const garagePkg = resolveGarageDoorSuggestedPricing(counts, {
-      state: pricingContext?.state,
-    });
-    if (garagePkg) {
-      return {
-        fill: {
-          material: garagePkg.material,
-          labor: garagePkg.labor,
-          total: garagePkg.total,
-          materialSource: 'national_average',
-          laborSource: 'national_average',
-          rateSourceLabel: garagePkg.sourceLabel,
-          helper: garagePkg.helper,
-          mode: 'suggested_price',
-          basis: { quantity: garagePkg.quantity, unit: 'each' },
-          splitSource: 'source',
-          splitConfidence: 'high',
-        },
-        comparison: null,
-      };
+  }
+
+  // Garage doors: type-based package (single / double / RV), scaled by state.
+  if (itemId === 'garage_doors') {
+    const counts = normalizeGarageDoorCounts(measurementsInput);
+    if (totalGarageDoorCount(counts) > 0) {
+      const garagePkg = resolveGarageDoorSuggestedPricing(counts, {
+        state: pricingContext?.state,
+      });
+      if (garagePkg) {
+        return {
+          fill: {
+            material: garagePkg.material,
+            labor: garagePkg.labor,
+            total: garagePkg.total,
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+            rateSourceLabel: garagePkg.sourceLabel,
+            helper: garagePkg.helper,
+            mode: 'suggested_price',
+            basis: { quantity: garagePkg.quantity, unit: 'each' },
+            splitSource: 'source',
+            splitConfidence: 'high',
+          },
+          comparison: null,
+        };
+      }
     }
   }
   // Excavation: plan shallow pad + footing trench CY from living SF when CY takeoff is missing.
@@ -18138,13 +18396,23 @@ export function overlayDualRatePricingDisplay(
       })
     | null =
     resolved.dualCount ??
-    (resolved.quantity != null && resolved.unit === 'sqft'
+    (resolved.quantity != null &&
+    resolved.unit === 'sqft' &&
+    String(rule.defaultUnit || '').toLowerCase() !== 'each'
       ? {
           quantity: resolved.quantity,
           unit: 'sqft' as const,
           quantitySource: resolved.quantitySource || ('inferred' as const),
         }
       : null);
+
+  if (
+    countEntry &&
+    String(countEntry.unit || '').toLowerCase() === 'sqft' &&
+    String(rule.defaultUnit || '').toLowerCase() === 'each'
+  ) {
+    countEntry = null;
+  }
 
   if (!countEntry && rule.measurementKey && measurements[rule.measurementKey]) {
     countEntry = {
@@ -18274,15 +18542,29 @@ function resolveDualAllowanceQuantity(
     };
   }
   if (!countEntry && Array.isArray(rule.measurementKeys)) {
-    const quantity = rule.measurementKeys
-      .map(key => measurements[key])
-      .find(value => value != null && value > 0);
-    if (quantity) {
-      countEntry = {
-        quantity,
-        unit: rule.defaultUnit,
-        quantitySource: 'inferred',
-      };
+    if (itemId === 'garage_doors') {
+      const doors = rule.measurementKeys.reduce((sum, key) => {
+        const value = Number(measurements[key]);
+        return Number.isFinite(value) && value > 0 ? sum + value : sum;
+      }, 0);
+      if (doors > 0) {
+        countEntry = {
+          quantity: doors,
+          unit: rule.defaultUnit,
+          quantitySource: 'inferred',
+        };
+      }
+    } else {
+      const quantity = rule.measurementKeys
+        .map(key => measurements[key])
+        .find(value => value != null && value > 0);
+      if (quantity) {
+        countEntry = {
+          quantity,
+          unit: rule.defaultUnit,
+          quantitySource: 'inferred',
+        };
+      }
     }
   }
   if (!countEntry && itemId === 'floor_demo' && measurements.floorAreaSqft) {
@@ -19333,29 +19615,18 @@ function resolveChecklistItemQuantityCore(
   }
 
   if (itemId === 'garage_doors') {
-    let counts = {
+    const counts = {
       single: measurements.garageDoorSingleCount ?? 0,
       double: measurements.garageDoorDoubleCount ?? 0,
       rv: measurements.garageDoorRvCount ?? 0,
     };
-    if (totalGarageDoorCount(counts) <= 0) {
-      const inferred = inferDefaultGarageDoorCounts(measurements.garageSqft);
-      if (inferred) counts = inferred;
-    }
     const doors = totalGarageDoorCount(counts);
     if (doors > 0) {
-      const explicit =
-        (measurements.garageDoorSingleCount ?? 0) +
-          (measurements.garageDoorDoubleCount ?? 0) +
-          (measurements.garageDoorRvCount ?? 0) >
-        0;
       return {
         quantity: doors,
         unit: 'each',
-        quantitySource: explicit ? 'user_entered' : 'inferred',
-        sourceLabel: explicit
-          ? sourceLabel('user_entered')
-          : 'Assumed 1 double garage door from garage SF',
+        quantitySource: 'user_entered',
+        sourceLabel: sourceLabel('user_entered'),
         pricingReady: true,
         quantityHelper: rule.quantityHelper,
         showInput: true,
@@ -19408,7 +19679,7 @@ export function resolveChecklistItemQuantity(
     notes?: string | null;
   } = {}
 ): ResolvedItemQuantity {
-  return applyAutoDrywallSurfaceQuantity(
+  const resolved = applyAutoDrywallSurfaceQuantity(
     itemId,
     measurements,
     applyAutoFramingCoveredSfQuantity(
@@ -19423,6 +19694,70 @@ export function resolveChecklistItemQuantity(
     ),
     ctx
   );
+  if (isGarageDoorsCountScopeItemId(itemId)) {
+    const garageCount =
+      itemId === 'garage_door_openers'
+        ? Number(measurements.garageDoorOpenerCount)
+        : (Number(measurements.garageDoorSingleCount) || 0) +
+          (Number(measurements.garageDoorDoubleCount) || 0) +
+          (Number(measurements.garageDoorRvCount) || 0);
+    if (Number.isFinite(garageCount) && garageCount > 0) {
+      return {
+        ...resolved,
+        quantity: garageCount,
+        unit: 'each',
+        dualCount: { quantity: garageCount, unit: 'each' },
+        pricingReady: true,
+      };
+    }
+    return resolved;
+  }
+  if (!isWindowsDoorsCountScopeItemId(itemId)) return resolved;
+  const openingCount =
+    itemId === 'exterior_doors'
+      ? Number(measurements.exteriorDoorCount)
+      : itemId === 'sliding_doors'
+        ? Number(measurements.slidingDoorCount)
+        : itemId === 'interior_doors'
+          ? Number(measurements.interiorDoorCount)
+          : itemId === 'windows_doors'
+            ? (Number(measurements.windowCount) || 0) +
+              (Number(measurements.exteriorDoorCount) || 0) +
+              (Number(measurements.slidingDoorCount) || 0) +
+              (Number(measurements.interiorDoorCount) || 0)
+            : Number(measurements.windowCount);
+  if (Number.isFinite(openingCount) && openingCount > 0) {
+    return {
+      ...resolved,
+      quantity: openingCount,
+      unit: 'each',
+      dualCount: { quantity: openingCount, unit: 'each' },
+      pricingReady: true,
+      quantitySource:
+        resolved.quantitySource === 'missing'
+          ? 'inferred'
+          : resolved.quantitySource,
+    };
+  }
+  if (
+    resolved.quantity != null &&
+    resolved.quantity > 0 &&
+    String(resolved.unit || '').toLowerCase() !== 'sqft'
+  ) {
+    return {
+      ...resolved,
+      unit: 'each',
+      dualCount: { quantity: resolved.quantity, unit: 'each' },
+    };
+  }
+  return {
+    ...resolved,
+    quantity: null,
+    unit: 'each',
+    dualCount: undefined,
+    quantitySource: 'missing',
+    pricingReady: false,
+  };
 }
 
 /** Package name patterns → checklist quantity rule key (mirrors backend catalog).
@@ -21225,6 +21560,11 @@ export function scopeMeasurementsToPayload(
       Number(sanitized.garageDoorRvCount) > 0
         ? Math.round(Number(sanitized.garageDoorRvCount))
         : null,
+    garageDoorOpenerCount:
+      sanitized.garageDoorOpenerCount != null &&
+      Number(sanitized.garageDoorOpenerCount) > 0
+        ? Math.round(Number(sanitized.garageDoorOpenerCount))
+        : null,
     baseboardLf: parseScopeMeasurementInput(sanitized.baseboardLf),
     ...copyPlumbingQuantityFields(sanitized as Record<string, unknown>),
     plumbingScope: Array.isArray(sanitized.plumbingScope)
@@ -21519,6 +21859,9 @@ export function scopeMeasurementsInputFromPayload(
       payload.garageDoorDoubleCount
     ),
     garageDoorRvCount: measurementFieldString(payload.garageDoorRvCount),
+    garageDoorOpenerCount: measurementFieldString(
+      payload.garageDoorOpenerCount
+    ),
     framingOpeningCount: measurementFieldString(payload.framingOpeningCount),
     reframingRequested: payload.reframingRequested === true ? true : null,
     cabinetPaintSqft: measurementFieldString(payload.cabinetPaintSqft),
@@ -21974,6 +22317,11 @@ export function scopeMeasurementsInputFromPayload(
       payload.garageDoorRvCount != null && Number(payload.garageDoorRvCount) > 0
         ? Math.round(Number(payload.garageDoorRvCount))
         : null,
+    garageDoorOpenerCount:
+      payload.garageDoorOpenerCount != null &&
+      Number(payload.garageDoorOpenerCount) > 0
+        ? Math.round(Number(payload.garageDoorOpenerCount))
+        : null,
     itemQuantities,
     pricingAcceptance: payload.pricingAcceptance,
     scopeGapResolutions: payload.scopeGapResolutions,
@@ -22201,6 +22549,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   garageDoorSingleCount?: number | null;
   garageDoorDoubleCount?: number | null;
   garageDoorRvCount?: number | null;
+  garageDoorOpenerCount?: number | null;
   framingOpeningCount?: number | null;
   reframingRequested?: boolean | null;
   areaReconciliation?:
@@ -23189,6 +23538,8 @@ export function initialScopeMeasurementInputExtended(
       saved?.garageDoorDoubleCount ?? suggested?.garageDoorDoubleCount ?? null,
     garageDoorRvCount:
       saved?.garageDoorRvCount ?? suggested?.garageDoorRvCount ?? null,
+    garageDoorOpenerCount:
+      saved?.garageDoorOpenerCount ?? suggested?.garageDoorOpenerCount ?? null,
     planFacts: saved?.planFacts || suggested?.planFacts,
     quickMeasurementSources: saved?.quickMeasurementSources,
     quickMeasurementUserOverrides: saved?.quickMeasurementUserOverrides,

@@ -115,6 +115,13 @@ export type PlanFacts = {
   geometry?: PlanGeometryRegion[];
   fieldEvidence?: Record<string, PlanFieldEvidence>;
   warnings?: string[];
+  openingSchedules?: {
+    windows?: Array<Record<string, unknown>>;
+    exteriorDoors?: Array<Record<string, unknown>>;
+    slidingDoors?: Array<Record<string, unknown>>;
+    interiorDoors?: Array<Record<string, unknown>>;
+    garageDoors?: Array<Record<string, unknown>>;
+  } | null;
 };
 
 /** Cover-sheet building areas are often attached at takeoff root, not inside planFacts. */

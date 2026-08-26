@@ -165,6 +165,7 @@ describe('planImportPayloadFromDraft', () => {
         windowCount: 14,
         exteriorDoorCount: 3,
         slidingDoorCount: 2,
+        interiorDoorCount: 10,
         garageDoorSingleCount: 1,
         garageDoorDoubleCount: 1,
         garageDoorRvCount: 1,
@@ -180,16 +181,25 @@ describe('planImportPayloadFromDraft', () => {
       'windows',
       'exterior_doors',
       'sliding_doors',
-      'garage_doors',
+      'interior_doors',
     ]);
+    expect(
+      next.scopeChecklist?.items.find(item => item.id === 'windows')?.state
+    ).toBe('included');
+    expect(
+      next.scopeChecklist?.items.find(item => item.id === 'sliding_doors')
+        ?.state
+    ).toBe('included');
+    expect(
+      next.scopeChecklist?.items.find(item => item.id === 'interior_doors')
+        ?.state
+    ).toBe('included');
     expect(next.scopeMeasurements).toMatchObject({
       windowCount: 14,
       exteriorDoorCount: 3,
       slidingDoorCount: 2,
-      garageDoorSingleCount: 1,
-      garageDoorDoubleCount: 1,
-      garageDoorRvCount: 1,
     });
+    expect(next.scopeMeasurements?.garageDoorSingleCount).toBeUndefined();
     expect(next.scopeMeasurements?.framingOpeningCount).toBeUndefined();
     expect(next.scopeMeasurements?.itemQuantities).not.toHaveProperty('framing');
   });

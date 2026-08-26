@@ -85,6 +85,8 @@ import {
   hvacQuickMeasurementSourcesFromProvenance,
   syncHvacSkippedTakeoffQuickMeasurementSources,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import { isWindowsDoorsCountScopeItemId, syncWindowsDoorsScopeItems } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
+import { syncGarageDoorsScopeItems } from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
 import {
   reconcilePlumbingEquipmentScopeMeasurements,
   reconcileFramingScopeMeasurements,
@@ -5430,7 +5432,10 @@ function QuantitySection({
                 <PricingAmountRow
                   value={formatDualCountQuantity(
                     displayResolved.dualCount.quantity,
-                    fieldLabels?.countUnit || displayResolved.dualCount.unit
+                    isWindowsDoorsCountScopeItemId(itemId)
+                      ? 'each'
+                      : fieldLabels?.countUnit ||
+                        displayResolved.dualCount.unit
                   )}
                   label={fieldLabels?.count || quantityRowSourceLabel}
                   pill={
@@ -5693,6 +5698,7 @@ function QuantitySection({
             'windows_doors',
             'exterior_doors',
             'sliding_doors',
+            'interior_doors',
             'garage_doors',
             'plumbing_rough',
             'electrical_rough',
@@ -5849,9 +5855,15 @@ function QuantitySection({
           <PricingInputField
             label={fieldLabels?.count || 'Quantity'}
             value={countInput?.quantity ?? ''}
-            suffix={formatCountFieldSuffix(
-              fieldLabels?.countUnit || resolved.dualCount?.unit || 'each'
-            )}
+            suffix={
+              isWindowsDoorsCountScopeItemId(itemId)
+                ? 'each'
+                : formatCountFieldSuffix(
+                    fieldLabels?.countUnit ||
+                      resolved.dualCount?.unit ||
+                      'each'
+                  )
+            }
             placeholder='0'
             embedded
             commitOnBlur
@@ -12477,6 +12489,8 @@ function CollapsibleQuickMeasurements({
         plumbingPlanImport: singleTradeImport && tradeKey === 'plumbing',
         windowsDoorsPlanImport:
           singleTradeImport && tradeKey === 'windows_doors',
+        garageDoorsPlanImport:
+          singleTradeImport && tradeKey === 'garage_doors',
         windowsDoorsNotesFlow:
           !singleTradeImport && quickMeasurementTemplateKey === 'windows_doors',
         plumbingNotesFlow:
@@ -17598,6 +17612,18 @@ export default function AIEstimateScopeAssumptionsModal({
           quantities: currentMeasurements as Record<string, unknown>,
         });
       }
+      if (currentTemplate === 'windows_doors') {
+        return syncWindowsDoorsScopeItems(
+          currentItems,
+          currentMeasurements as Record<string, unknown>
+        );
+      }
+      if (currentTemplate === 'garage_doors') {
+        return syncGarageDoorsScopeItems(
+          currentItems,
+          currentMeasurements as Record<string, unknown>
+        );
+      }
       if (currentTemplate !== 'electrical') return currentItems;
       return syncElectricalScopeItems(currentItems, {
         electricalScope: currentMeasurements.electricalScope,
@@ -18256,6 +18282,26 @@ export default function AIEstimateScopeAssumptionsModal({
           framingScope: nextMeasurements.framingScope,
           quantities: nextMeasurements as Record<string, unknown>,
         });
+      }
+      if (
+        String(checklist.templateKey || '').toLowerCase() === 'windows_doors' ||
+        hydratedPlanTrade === 'windows_doors' ||
+        hydrateTradeContext.tradeKey === 'windows_doors'
+      ) {
+        normalized = syncWindowsDoorsScopeItems(
+          normalized,
+          nextMeasurements as Record<string, unknown>
+        );
+      }
+      if (
+        String(checklist.templateKey || '').toLowerCase() === 'garage_doors' ||
+        hydratedPlanTrade === 'garage_doors' ||
+        hydrateTradeContext.tradeKey === 'garage_doors'
+      ) {
+        normalized = syncGarageDoorsScopeItems(
+          normalized,
+          nextMeasurements as Record<string, unknown>
+        );
       }
       const textureMigration = stripStandaloneDrywallTextureItem(normalized);
       normalized = finalizeDrywallScopeChecklistLayout(
@@ -19619,6 +19665,44 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.garageSqft,
   ]);
 
+  useEffect(() => {
+    if (String(checklist?.templateKey || '').toLowerCase() !== 'windows_doors')
+      return;
+    startTransition(() => {
+      setItems(prev =>
+        syncWindowsDoorsScopeItems(
+          prev,
+          measurements as Record<string, unknown>
+        )
+      );
+    });
+  }, [
+    checklist?.templateKey,
+    measurements.windowCount,
+    measurements.exteriorDoorCount,
+    measurements.slidingDoorCount,
+    measurements.interiorDoorCount,
+  ]);
+
+  useEffect(() => {
+    if (String(checklist?.templateKey || '').toLowerCase() !== 'garage_doors')
+      return;
+    startTransition(() => {
+      setItems(prev =>
+        syncGarageDoorsScopeItems(
+          prev,
+          measurements as Record<string, unknown>
+        )
+      );
+    });
+  }, [
+    checklist?.templateKey,
+    measurements.garageDoorSingleCount,
+    measurements.garageDoorDoubleCount,
+    measurements.garageDoorRvCount,
+    measurements.garageDoorOpenerCount,
+  ]);
+
   // Quick measurements Paint / shower tile → paint_repair count when scope is selected.
   useEffect(() => {
     if (String(checklist?.templateKey || '').toLowerCase() !== 'bathroom')
@@ -20278,11 +20362,20 @@ export default function AIEstimateScopeAssumptionsModal({
     }
     setMeasurementsSynced(prev => {
       const previousEntry = prev.itemQuantities[itemId];
+      const resolvedUnit =
+        isWindowsDoorsCountScopeItemId(baseItemId) &&
+        field === 'count' &&
+        !['allowance', 'lump_sum'].includes(
+          String(unit || '').toLowerCase()
+        )
+          ? 'each'
+          : unit ||
+            (rule?.dualAllowanceField ? 'each' : rule.defaultUnit);
       const itemQuantities = {
         ...prev.itemQuantities,
         [itemId]: {
           quantity,
-          unit: unit || (rule?.dualAllowanceField ? 'each' : rule.defaultUnit),
+          unit: resolvedUnit,
           quantitySource: source,
           ...(source === 'calculated_confirmed' && calculatedRevertFrom
             ? {

@@ -1612,6 +1612,12 @@ export function ensureGroundUpOpeningScopeCards(
     'Garage door unit, tracks, hardware, and installation, priced by single, double, or RV/oversized type. Opener, structural reframing, and finish repair require confirmation.',
     'sliding_doors'
   );
+  ensure(
+    'garage_door_openers',
+    'Garage door openers',
+    'Count openers only when labeled or specified. Do not assume one opener per door.',
+    'garage_doors'
+  );
   return next;
 }
 
@@ -1627,6 +1633,7 @@ export function applyGroundUpStageHostDemotions(
     'exterior_doors',
     'sliding_doors',
     'garage_doors',
+    'garage_door_openers',
     'windows_doors',
     'stucco',
   ];
@@ -2987,7 +2994,11 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
     'Patio / multi-panel sliding doors — material and install. Large multi-panel packages vary widely.',
   garage_doors:
     'Priced by type: single (~$1,800), double (~$2,400), RV (~$8,300). Double+RV ≈ $10,700 locally.',
-  windows_doors: 'Opening count for material and labor.',
+  garage_door_openers:
+    'Count openers only when labeled or specified. Do not assume one opener per door.',
+  interior_doors:
+    'Interior door units, frames, and hardware. Paint and casing are separate.',
+  windows_doors: 'Window, exterior swing, sliding/patio, and interior door counts. Garage doors are a separate trade.',
   excavation: 'Excavation CY for material and labor.',
   landscaping:
     'Landscaping, exterior site walls, fences & gates package. Not driveway flatwork or iron entry doors.',
@@ -3284,6 +3295,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
         'exterior_doors',
         'sliding_doors',
         'garage_doors',
+        'garage_door_openers',
         'stucco',
       ],
     },

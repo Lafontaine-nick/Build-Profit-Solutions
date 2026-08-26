@@ -326,6 +326,43 @@ describe('plan takeoff review UI polish', () => {
     ).toBe('Apply to bid');
   });
 
+  it('labels Windows & doors suggested scope as confirm, not blank Needs count', () => {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
+    expect(
+      scopeTakeoffStatusLines({
+        itemId: 'interior_doors',
+        evidence: '12 interior doors from plan',
+        openingConflict: true,
+      })
+    ).toEqual(['12 detected · Needs confirmation']);
+
+    expect(
+      scopeTakeoffStatusLines({
+        itemId: 'exterior_doors',
+        evidence: 'Exterior doors are shown on the floor plans and elevations.',
+        openingConflict: true,
+      })
+    ).toEqual([
+      'Exterior doors are shown on the floor plans and elevations.',
+      'AI found conflicting counts · Confirm above',
+    ]);
+
+    expect(
+      scopeTakeoffStatusLines({
+        itemId: 'windows',
+        evidence: 'Detected from plan',
+        hasOpeningCount: true,
+      })
+    ).toEqual(['Detected from plan']);
+
+    expect(
+      scopeTakeoffStatusLines({
+        itemId: 'sliding_doors',
+        evidence: 'Count only explicit sliding units',
+      }).some(line => /Needs count/i.test(line))
+    ).toBe(true);
+  });
+
   it('does not force room totals to declared living area', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     const recon = buildAreaReconciliation({
@@ -1083,6 +1120,44 @@ describe('plan takeoff review UI polish', () => {
         },
         pricingEligible: false,
       }).aiVerified
+    ).toBe(false);
+  });
+
+  it('treats Windows & doors schedule counts as verified and elevation counts as confirmable', () => {
+    expect(
+      planReviewProvenanceFlags({
+        key: 'windowCount',
+        provenanceEntry: {
+          source: 'detected_from_plan',
+          evidenceKind: 'schedule',
+        },
+      })
+    ).toMatchObject({
+      hasExplicitPlanSource: true,
+      fromPlanSymbols: false,
+    });
+    expect(
+      planReviewProvenanceFlags({
+        key: 'windowCount',
+        provenanceEntry: {
+          source: 'calculated_from_symbols',
+          evidenceKind: 'elevation_symbols',
+          normalizedSource: 'NEEDS_CONFIRMATION',
+        },
+      })
+    ).toMatchObject({
+      hasExplicitPlanSource: false,
+      fromPlanSymbols: true,
+    });
+    expect(
+      buildPlanReviewMeasurementRowState({
+        key: 'exteriorDoorCount',
+        tradeKey: 'windows_doors',
+        provenanceEntry: {
+          source: 'calculated_from_symbols',
+          pricingEligible: false,
+        },
+      }).includeDefault
     ).toBe(false);
   });
 });

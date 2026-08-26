@@ -51,6 +51,11 @@ import {
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
 } from './windowsDoorsPlanConvergence';
 import {
+  buildGarageDoorsStructuredMeasurements,
+  GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+  normalizeGarageDoorsPlanMeasurements,
+} from './garageDoorsPlanConvergence';
+import {
   buildHvacStructuredMeasurements,
   HVAC_PLAN_ALIASES,
   HVAC_PLAN_REVIEW_MEASUREMENT_KEYS,
@@ -606,6 +611,42 @@ export function normalizeTradeMeasurements(
     for (const key of WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS) {
       if (measurements[key] != null) continue;
       const value = windowsDoorsInput[key];
+      if (positiveNumber(value) != null) measurements[key] = value as number;
+    }
+  }
+
+  if (tradeKey === 'garage_doors') {
+    const garageInput =
+      source === 'plan'
+        ? normalizeGarageDoorsPlanMeasurements(input)
+        : input;
+    const quantitySource =
+      source === 'plan' ? 'plan_detected' : 'user_entered';
+    const structured = buildGarageDoorsStructuredMeasurements(
+      garageInput,
+      quantitySource
+    );
+    const scalar = normalizeGarageDoorsPlanMeasurements(garageInput);
+    for (const [key, value] of Object.entries(scalar)) {
+      measurements[key] = value;
+      if (schemaKeys.has(key) && !existingSources[key]) {
+        quickMeasurementSources[key] = defaultProvenanceTag;
+      }
+      if (schemaKeys.has(key) && normalizedProvenance[key] == null) {
+        normalizedProvenance[key] = normalizedSource;
+      }
+    }
+    structuredMeasurements = {
+      ...(Object.keys(structured.itemQuantities).length
+        ? { itemQuantities: structured.itemQuantities }
+        : {}),
+    };
+    if (!Object.keys(structuredMeasurements).length) {
+      structuredMeasurements = undefined;
+    }
+    for (const key of GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS) {
+      if (measurements[key] != null) continue;
+      const value = garageInput[key];
       if (positiveNumber(value) != null) measurements[key] = value as number;
     }
   }

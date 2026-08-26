@@ -33,6 +33,11 @@ import {
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
 import { PLUMBING_CARDS } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { hvacCardForMeasurementKey } from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import {
+  WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+  isWindowsDoorsCountScopeItemId,
+} from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
+import { GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS } from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
 
 export type PlanReviewSpaceKind = 'living' | 'garage' | 'other';
 
@@ -186,6 +191,20 @@ export function measurementDisplayLabel(
       },
     };
   if (drywallLabels[key]) return drywallLabels[key];
+
+  const windowsDoorsLabels: Record<string, string> = {
+    windowCount: 'Windows',
+    exteriorDoorCount: 'Exterior swing doors',
+    slidingDoorCount: 'Sliding / patio doors',
+    interiorDoorCount: 'Interior doors',
+    garageDoorSingleCount: 'Single garage doors',
+    garageDoorDoubleCount: 'Double garage doors',
+    garageDoorRvCount: 'RV / oversized garage doors',
+    garageDoorOpenerCount: 'Garage door openers',
+  };
+  if (windowsDoorsLabels[key]) {
+    return { label: windowsDoorsLabels[key], subtext: 'Count · each' };
+  }
 
   const hvacLabel = {
     hvacSystemCount: 'HVAC systems',
@@ -577,6 +596,14 @@ function applicationLabel(value: unknown): string {
   return 'Needs confirmation';
 }
 
+const WINDOWS_DOORS_PLAN_REVIEW_KEYS = new Set(
+  WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS
+);
+
+const GARAGE_DOORS_PLAN_REVIEW_KEYS = new Set(
+  GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS
+);
+
 const PAINTING_PLAN_REVIEW_KEYS = new Set([
   'wallPaintSqft',
   'ceilingPaintSqft',
@@ -732,6 +759,21 @@ export function planReviewProvenanceFlags(input: {
   const electricalKey = ELECTRICAL_PLAN_REVIEW_KEYS.has(input.key);
   const plumbingKey = PLUMBING_PLAN_REVIEW_KEYS.has(input.key);
   const framingKey = FRAMING_PLAN_REVIEW_KEYS.has(input.key);
+  const windowsDoorsKey =
+    WINDOWS_DOORS_PLAN_REVIEW_KEYS.has(input.key) ||
+    GARAGE_DOORS_PLAN_REVIEW_KEYS.has(input.key);
+  const fromSchedule =
+    windowsDoorsKey &&
+    (source.includes('schedule') ||
+      evidenceKind === 'schedule' ||
+      evidenceKind === 'explicit_label');
+  const fromOpeningSymbols =
+    windowsDoorsKey &&
+    (evidenceKind === 'elevation_symbols' ||
+      evidenceKind === 'plan_count' ||
+      source.includes('calculated_from_symbols') ||
+      source.includes('elevation') ||
+      source.includes('needs_confirmation'));
   const incomplete =
     paintingKey &&
     typeof input.provenanceEntry === 'object' &&
@@ -834,7 +876,10 @@ export function planReviewProvenanceFlags(input: {
         (electricalKey &&
           !aiInferred &&
           !aiVerified &&
-          (fromInstanceTags || (fromPlan && !electricalReview)))),
+          (fromInstanceTags || (fromPlan && !electricalReview))) ||
+        (windowsDoorsKey &&
+          !fromOpeningSymbols &&
+          (fromSchedule || fromPlan))),
     hasReliableDimensions:
       !input.hasConflict &&
       (input.key === 'kitchenFloorSqft' ||
@@ -845,7 +890,7 @@ export function planReviewProvenanceFlags(input: {
       input.key === 'bathroomFloorSqft' ||
       incomplete ||
       electricalReview,
-    fromPlanSymbols: !input.hasConflict && fromPlanSymbols,
+    fromPlanSymbols: !input.hasConflict && (fromPlanSymbols || fromOpeningSymbols),
     aiVerified: !input.hasConflict && aiVerified,
     aiInferred: !input.hasConflict && aiInferred,
   };
@@ -926,6 +971,8 @@ export function buildPlanReviewMeasurementRowState(input: {
     provenance: displayProvenance,
     includeDefault:
       !input.hasConflict &&
+      input.tradeKey !== 'windows_doors' &&
+      input.tradeKey !== 'garage_doors' &&
       (pricingEligible ||
         input.validationField?.deterministicRepeatedImportStable === false ||
         input.tradeKey === 'electrical' ||
@@ -1625,6 +1672,35 @@ function isGenericGroundUpEvidence(evidence: string): boolean {
   );
 }
 
+function detectedCountFromScopeEvidence(evidence: string): number | null {
+  const match = String(evidence || '')
+    .trim()
+    .match(/^(\d+)\b/);
+  if (!match) return null;
+  const count = Number(match[1]);
+  return Number.isFinite(count) && count > 0 ? Math.round(count) : null;
+}
+
+function windowsDoorsSuggestedScopeStatusLine(input: {
+  hasOpeningCount?: boolean;
+  openingConflict?: boolean;
+  openingDetectedCount?: number | null;
+  evidence?: string | null;
+}): string | null {
+  if (input.hasOpeningCount) return null;
+  const detected =
+    Number(input.openingDetectedCount) > 0
+      ? Math.round(Number(input.openingDetectedCount))
+      : detectedCountFromScopeEvidence(String(input.evidence || ''));
+  if (detected != null) {
+    return `${detected} detected · Needs confirmation`;
+  }
+  if (input.openingConflict) {
+    return 'AI found conflicting counts · Confirm above';
+  }
+  return null;
+}
+
 export function scopeTakeoffStatusLines(input: {
   itemId: string;
   evidence?: string | null;
@@ -1640,6 +1716,12 @@ export function scopeTakeoffStatusLines(input: {
   hasDrywallPrimaryTakeoff?: boolean;
   /** True when the contractor confirmed the drywall surface quantity. */
   drywallPrimaryConfirmed?: boolean;
+  /** True when the opening count for this Windows & doors card is confirmed. */
+  hasOpeningCount?: boolean;
+  /** True when Review still has unresolved AI counts for this opening. */
+  openingConflict?: boolean;
+  /** Plan/AI quantity that still needs a Review choice or confirm. */
+  openingDetectedCount?: number | null;
 }): string[] {
   if (!measurementSemanticsV1Enabled()) {
     return input.evidence ? [String(input.evidence)] : [];
@@ -1740,6 +1822,23 @@ export function scopeTakeoffStatusLines(input: {
     statusLine = 'Needs cabinet LF/count and countertop SF';
   } else if (id === 'appliances') {
     statusLine = 'Needs appliance count';
+  } else if (isWindowsDoorsCountScopeItemId(id)) {
+    const openingStatus = windowsDoorsSuggestedScopeStatusLine({
+      hasOpeningCount: input.hasOpeningCount,
+      openingConflict: input.openingConflict,
+      openingDetectedCount: input.openingDetectedCount,
+      evidence,
+    });
+    if (openingStatus) {
+      statusLine = openingStatus;
+      if (/^\d+\s+.+\bfrom plan\b/i.test(lines[0] || '')) {
+        lines.shift();
+      }
+    } else if (!input.hasOpeningCount) {
+      statusLine = measurementStatusLabel(status);
+    }
+  } else if (input.hasOpeningCount) {
+    statusLine = null;
   } else if (
     status === 'needs_takeoff' ||
     status === 'needs_structural_takeoff' ||

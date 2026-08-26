@@ -5,6 +5,7 @@ const {
   sanitizeFieldConfidence,
   sanitizeUnreadableFields,
   applyConfidenceFloor,
+  applyWindowsDoorsPlanTakeoff,
   mergePlanMeasurementsIntoExisting,
   buildItemQuantities,
   formatNotesBlock,
@@ -40,9 +41,7 @@ describe("estimatePlanToMeasurements", () => {
         "windowCount",
         "exteriorDoorCount",
         "slidingDoorCount",
-        "garageDoorSingleCount",
-        "garageDoorDoubleCount",
-        "garageDoorRvCount",
+        "interiorDoorCount",
       ],
     });
     expect(MEASUREMENT_KEYS.has("windowCount")).toBe(true);
@@ -53,6 +52,7 @@ describe("estimatePlanToMeasurements", () => {
         windowCount: 14,
         exteriorDoorCount: 3,
         slidingDoorCount: 2,
+        interiorDoorCount: 12,
         garageDoorSingleCount: 1,
         garageDoorDoubleCount: 1,
         garageDoorRvCount: 1,
@@ -66,6 +66,7 @@ describe("estimatePlanToMeasurements", () => {
       windowCount: 14,
       exteriorDoorCount: 3,
       slidingDoorCount: 2,
+      interiorDoorCount: 12,
       garageDoorSingleCount: 1,
       garageDoorDoubleCount: 1,
       garageDoorRvCount: 1,
@@ -75,10 +76,268 @@ describe("estimatePlanToMeasurements", () => {
       windows: { quantity: 14, unit: "each" },
       exterior_doors: { quantity: 3, unit: "each" },
       sliding_doors: { quantity: 2, unit: "each" },
+      interior_doors: { quantity: 12, unit: "each" },
       garage_doors: { quantity: 3, unit: "each" },
     });
     expect(buildItemQuantities(measurements)).not.toHaveProperty("framing");
   });
+
+  test("Windows & doors plan takeoff keeps schedule counts verified and elevation counts confirmable", () => {
+    const { measurements: withheld } = applyConfidenceFloor(
+      { windowCount: 17, exteriorDoorCount: 3 },
+      { windowCount: 0.5, exteriorDoorCount: 0.92 },
+    );
+    expect(withheld.windowCount).toBeUndefined();
+
+    const restored = applyWindowsDoorsPlanTakeoff({
+      measurements: withheld,
+      lowConfidence: [
+        { field: "windowCount", value: 17, confidence: 0.5 },
+      ],
+      rawVisionMeasurements: { windowCount: 17, exteriorDoorCount: 3 },
+      explicitlyLabeled: ["exteriorDoorCount"],
+      geometryDerived: ["windowCount"],
+      measurementProvenance: {},
+    });
+    expect(restored.measurements).toMatchObject({
+      windowCount: 17,
+      exteriorDoorCount: 3,
+    });
+    expect(restored.measurementProvenance.windowCount).toMatchObject({
+      source: "calculated_from_symbols",
+      normalizedSource: "NEEDS_CONFIRMATION",
+      pricingEligible: false,
+    });
+    expect(restored.measurementProvenance.exteriorDoorCount).toMatchObject({
+      source: "calculated_from_symbols",
+      normalizedSource: "NEEDS_CONFIRMATION",
+      pricingEligible: false,
+    });
+  });
+
+  test("Windows & doors takeoff still puts elevation counts on Review when confidence is low", () => {
+    const restored = applyWindowsDoorsPlanTakeoff({
+      measurements: {},
+      lowConfidence: [
+        { field: "windowCount", value: 15, confidence: 0.22 },
+        { field: "exteriorDoorCount", value: 3, confidence: 0.22 },
+        { field: "interiorDoorCount", value: 10, confidence: 0.18 },
+      ],
+      rawVisionMeasurements: {
+        windowCount: 15,
+        exteriorDoorCount: 3,
+        interiorDoorCount: 10,
+      },
+      geometryDerived: ["windowCount", "exteriorDoorCount", "interiorDoorCount"],
+    });
+    expect(restored.measurements).toMatchObject({
+      windowCount: 15,
+      exteriorDoorCount: 3,
+      interiorDoorCount: 10,
+    });
+    expect(restored.measurementProvenance.windowCount.normalizedSource).toBe(
+      "NEEDS_CONFIRMATION",
+    );
+  });
+
+  test("Windows & doors takeoff fills canonical counts from opening schedules", () => {
+    const restored = applyWindowsDoorsPlanTakeoff({
+      measurements: {},
+      lowConfidence: [],
+      rawVisionMeasurements: {},
+      explicitlyLabeled: [],
+      geometryDerived: [],
+      measurementProvenance: {},
+      openingSchedules: {
+        windows: [
+          { sizeCode: "3050", quantity: 4 },
+          { sizeCode: "4040", quantity: 6 },
+          { sizeCode: "5050", quantity: 2 },
+        ],
+        exteriorDoors: [{ type: "entry", quantity: 2 }],
+        slidingDoors: [{ type: "slider", quantity: 2, widthFt: 6, heightFt: 7 }],
+      },
+    });
+    expect(restored.measurements).toMatchObject({
+      windowCount: 12,
+      exteriorDoorCount: 2,
+      slidingDoorCount: 2,
+    });
+    expect(restored.measurementProvenance.windowCount).toMatchObject({
+      source: "detected_from_plan",
+      evidenceKind: "schedule",
+      pricingEligible: true,
+    });
+  });
+
+  test("Lot 58 hinged French/patio leaves are exterior swing units, not sliding doors", () => {
+    const restored = applyWindowsDoorsPlanTakeoff({
+      measurements: {
+        windowCount: 15,
+        exteriorDoorCount: 3,
+        slidingDoorCount: 2,
+        interiorDoorCount: 10,
+      },
+      lowConfidence: [],
+      rawVisionMeasurements: {
+        windowCount: 15,
+        exteriorDoorCount: 3,
+        slidingDoorCount: 2,
+        interiorDoorCount: 10,
+      },
+      explicitlyLabeled: [],
+      geometryDerived: [
+        "windowCount",
+        "exteriorDoorCount",
+        "slidingDoorCount",
+        "interiorDoorCount",
+      ],
+      measurementProvenance: {},
+      openingSchedules: {
+        windows: [{ sizeCode: "3050", quantity: 15 }],
+        exteriorDoors: [
+          { type: "entry", quantity: 2 },
+          { type: "french patio", quantity: 1 },
+        ],
+        slidingDoors: [{ type: "french patio", quantity: 2 }],
+        interiorDoors: [{ type: "interior", quantity: 10 }],
+      },
+    });
+    expect(restored.measurements.windowCount).toBe(15);
+    expect(restored.measurements.exteriorDoorCount).toBe(3);
+    expect(restored.measurements.slidingDoorCount).toBeUndefined();
+    expect(restored.openingSchedules.slidingDoors).toBeUndefined();
+    expect(restored.measurementProvenance.interiorDoorCount).toMatchObject({
+      normalizedSource: "NEEDS_CONFIRMATION",
+      pricingEligible: false,
+    });
+  });
+
+  test("double hinged patio door without a swing rollup becomes one exterior unit", () => {
+    const restored = applyWindowsDoorsPlanTakeoff({
+      measurements: { slidingDoorCount: 2 },
+      rawVisionMeasurements: { slidingDoorCount: 2 },
+      openingSchedules: {
+        slidingDoors: [{ type: "double hinged patio", quantity: 2 }],
+      },
+    });
+    expect(restored.measurements.slidingDoorCount).toBeUndefined();
+    expect(restored.measurements.exteriorDoorCount).toBe(1);
+  });
+
+  test("a distinct marked French opening is added even when three swing doors already exist", () => {
+    const restored = applyWindowsDoorsPlanTakeoff({
+      measurements: { exteriorDoorCount: 3, slidingDoorCount: 1 },
+      rawVisionMeasurements: { exteriorDoorCount: 3, slidingDoorCount: 1 },
+      openingSchedules: {
+        exteriorDoors: [
+          { mark: "D1", type: "entry", quantity: 1 },
+          { mark: "D2", type: "entry", quantity: 1 },
+          { mark: "D3", type: "entry", quantity: 1 },
+        ],
+        slidingDoors: [{ mark: "D4", type: "french patio", quantity: 1 }],
+      },
+    });
+    expect(restored.measurements.slidingDoorCount).toBeUndefined();
+    expect(restored.measurements.exteriorDoorCount).toBe(4);
+  });
+
+  test("the same marked French opening is not counted twice across buckets", () => {
+    const restored = applyWindowsDoorsPlanTakeoff({
+      measurements: { exteriorDoorCount: 3, slidingDoorCount: 2 },
+      rawVisionMeasurements: { exteriorDoorCount: 3, slidingDoorCount: 2 },
+      openingSchedules: {
+        exteriorDoors: [
+          { mark: "D1", type: "entry", quantity: 1 },
+          { mark: "D2", type: "entry", quantity: 1 },
+          { mark: "D3", type: "french", quantity: 1 },
+        ],
+        slidingDoors: [{ mark: "D3", type: "french patio", quantity: 2 }],
+      },
+    });
+    expect(restored.measurements.slidingDoorCount).toBeUndefined();
+    expect(restored.measurements.exteriorDoorCount).toBe(3);
+  });
+
+  test("unlabeled qty-2 slider rows are one swing opening, not two sliders", () => {
+    const restored = applyWindowsDoorsPlanTakeoff({
+      measurements: { exteriorDoorCount: 2, slidingDoorCount: 2 },
+      rawVisionMeasurements: { exteriorDoorCount: 2, slidingDoorCount: 2 },
+      geometryDerived: ["exteriorDoorCount", "slidingDoorCount"],
+      openingSchedules: {
+        exteriorDoors: [{ type: "entry", quantity: 2 }],
+        slidingDoors: [{ type: "slider", quantity: 2 }],
+      },
+    });
+    expect(restored.measurements.slidingDoorCount).toBeUndefined();
+    expect(restored.measurements.exteriorDoorCount).toBe(3);
+    expect(restored.measurementProvenance.exteriorDoorCount.normalizedSource).toBe(
+      "NEEDS_CONFIRMATION",
+    );
+  });
+
+  test("partial inferred window schedules do not reduce a higher elevation count", () => {
+    const restored = applyWindowsDoorsPlanTakeoff({
+      measurements: { windowCount: 15 },
+      rawVisionMeasurements: { windowCount: 15 },
+      geometryDerived: ["windowCount"],
+      openingSchedules: {
+        windows: [{ type: "window", quantity: 12 }],
+      },
+    });
+    expect(restored.measurements.windowCount).toBe(15);
+    expect(restored.measurementProvenance.windowCount.normalizedSource).toBe(
+      "NEEDS_CONFIRMATION",
+    );
+  });
+
+  test("sanitizePlanFacts keeps opening schedule marks and sizes", () => {
+    const facts = sanitizePlanFacts({
+      openingSchedules: {
+        windows: [
+          { mark: "W1", quantity: 4, widthIn: 36, heightIn: 60 },
+          { mark: "W2", qty: 6, type: "picture" },
+        ],
+        garageDoors: [{ type: "double", widthFt: 16, heightFt: 8, quantity: 1 }],
+      },
+    });
+    expect(facts.openingSchedules).toMatchObject({
+      windows: [
+        { mark: "W1", quantity: 4, widthIn: 36, heightIn: 60 },
+        { mark: "W2", quantity: 6, type: "picture" },
+      ],
+      garageDoors: [{ type: "double", widthFt: 16, heightFt: 8, quantity: 1 }],
+    });
+  });
+
+  test("sanitizePlanFacts moves hinged patio rows out of the sliding schedule", () => {
+    const facts = sanitizePlanFacts({
+      openingSchedules: {
+        exteriorDoors: [{ type: "entry", quantity: 3 }],
+        slidingDoors: [{ type: "french patio", quantity: 2 }],
+      },
+    });
+    expect(facts.openingSchedules.slidingDoors).toBeUndefined();
+    expect(facts.openingSchedules.exteriorDoors).toEqual([
+      { type: "entry", quantity: 3 },
+      { type: "french patio", quantity: 1 },
+    ]);
+  });
+
+  test("sanitizePlanFacts keeps window size codes from schedules", () => {
+    const facts = sanitizePlanFacts({
+      openingSchedules: {
+        windows: [{ mark: "W1", quantity: 6, sizeCode: "3050", type: "single-hung" }],
+      },
+    });
+    expect(facts.openingSchedules.windows[0]).toMatchObject({
+      mark: "W1",
+      quantity: 6,
+      sizeCode: "3050",
+      type: "single-hung",
+    });
+  });
+
 
   test("merges Plumbing evidence by canonical field and retains derivation inputs", () => {
     expect(

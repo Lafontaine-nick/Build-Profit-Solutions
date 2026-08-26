@@ -91,8 +91,15 @@ import {
 } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+  classifyWindowsDoorsPlanMeasurements,
   normalizeWindowsDoorsPlanMeasurements,
+  syncWindowsDoorsScopeItems,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
+import {
+  GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+  normalizeGarageDoorsPlanMeasurements,
+  syncGarageDoorsScopeItems,
+} from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
 import {
   applyHvacProvenanceGuardToScopeMeasurements,
   buildHvacStructuredMeasurements,
@@ -401,6 +408,7 @@ export type ScopeMeasurements = {
   garageDoorSingleCount?: number | null;
   garageDoorDoubleCount?: number | null;
   garageDoorRvCount?: number | null;
+  garageDoorOpenerCount?: number | null;
   cabinetPaintSqft?: number | null;
   railingLf?: number | null;
   landscapeSqft?: number | null;
@@ -1336,9 +1344,6 @@ export function repairDraftRatePricingFromNotes(
       'windowCount',
       'exteriorDoorCount',
       'slidingDoorCount',
-      'garageDoorSingleCount',
-      'garageDoorDoubleCount',
-      'garageDoorRvCount',
     ].some(key => Number(parsed[key as keyof typeof parsed]) > 0)
   ) {
     const normalizedWindowsDoors = normalizeTradeMeasurements(
@@ -1349,6 +1354,26 @@ export function repairDraftRatePricingFromNotes(
     mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
       mergedScopeMeasurements,
       normalizedWindowsDoors
+    );
+  }
+  if (
+    draft.scopeChecklist?.templateKey === 'garage_doors' ||
+    draft.projectType === 'garage_doors' ||
+    [
+      'garageDoorSingleCount',
+      'garageDoorDoubleCount',
+      'garageDoorRvCount',
+      'garageDoorOpenerCount',
+    ].some(key => Number(parsed[key as keyof typeof parsed]) > 0)
+  ) {
+    const normalizedGarageDoors = normalizeTradeMeasurements(
+      'garage_doors',
+      { ...parsed, notes: text },
+      'notes'
+    );
+    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+      mergedScopeMeasurements,
+      normalizedGarageDoors
     );
   }
 
@@ -1919,13 +1944,13 @@ const PLAN_SCOPE_ID_ALIASES: Record<string, string[]> = {
     'windows',
     'exterior_doors',
     'sliding_doors',
-    'garage_doors',
+    'interior_doors',
     'exterior',
   ],
   windows: ['windows', 'exterior'],
   exterior_doors: ['exterior_doors', 'exterior'],
   sliding_doors: ['sliding_doors', 'exterior'],
-  garage_doors: ['garage_doors', 'exterior'],
+  garage_doors: ['garage_doors', 'garage_door_openers', 'exterior'],
   concrete: ['foundation', 'concrete'],
   pour_foundation: ['foundation', 'pour_foundation'],
   pour_flatwork: ['pour_flatwork'],
@@ -3615,6 +3640,7 @@ function normalizeImportedTradeMeasurements(
     tradeKey !== 'framing' &&
     tradeKey !== 'drywall' &&
     tradeKey !== 'windows_doors' &&
+    tradeKey !== 'garage_doors' &&
     tradeKey !== 'hvac'
   )
     return null;
@@ -3652,6 +3678,12 @@ function normalizeTradePlanMeasurements(
   }
   if (tradeKey === 'windows_doors') {
     return normalizeWindowsDoorsPlanMeasurements(measurements) as Record<
+      string,
+      number | string
+    >;
+  }
+  if (tradeKey === 'garage_doors') {
+    return normalizeGarageDoorsPlanMeasurements(measurements) as Record<
       string,
       number | string
     >;
@@ -4063,6 +4095,12 @@ export function applyPlanImportToDraft(
     (payload.measurements || {}) as Record<string, number | string>,
     planImportTradeKey
   );
+  if (planImportTradeKey === 'windows_doors') {
+    rawMeasurements = classifyWindowsDoorsPlanMeasurements(
+      rawMeasurements,
+      payload.planFacts?.openingSchedules
+    ).measurements as Record<string, number | string>;
+  }
   const samePlanImport =
     Boolean(draft.scopeMeasurements?.planImportFingerprint) &&
     Boolean(payload.planImportFingerprint) &&
@@ -4087,6 +4125,8 @@ export function applyPlanImportToDraft(
         ? new Set(PLUMBING_REVIEW_MEASUREMENT_KEYS)
         : planImportTradeKey === 'windows_doors'
           ? new Set(WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS)
+          : planImportTradeKey === 'garage_doors'
+            ? new Set(GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS)
           : planImportTradeKey === 'hvac'
             ? new Set(HVAC_PLAN_REVIEW_MEASUREMENT_KEYS)
         : new Set([
@@ -4357,6 +4397,8 @@ export function applyPlanImportToDraft(
                         ? 'hvac'
                         : planImportTradeKey === 'windows_doors'
                           ? 'windows_doors'
+                        : planImportTradeKey === 'garage_doors'
+                          ? 'garage_doors'
                         : planImportTradeKey === 'plumbing'
                           ? 'plumbing_service'
                           : planImportTradeKey === 'electrical'
@@ -4382,6 +4424,8 @@ export function applyPlanImportToDraft(
                           ? 'HVAC — confirm project scope'
                         : planImportTradeKey === 'windows_doors'
                           ? 'Windows & doors — confirm installation scope'
+                        : planImportTradeKey === 'garage_doors'
+                          ? 'Garage doors — confirm installation scope'
                         : planImportTradeKey === 'plumbing'
                           ? 'Plumbing — confirm project scope'
                           : next.scopeChecklist?.title ||
@@ -4404,7 +4448,9 @@ export function applyPlanImportToDraft(
                       : planImportTradeKey === 'hvac'
                         ? 'Confirm HVAC systems, capacity, distribution, add-ons, and cleanup before pricing.'
                         : planImportTradeKey === 'windows_doors'
-                          ? 'Confirm window, door, garage door, and separate reframing quantities before pricing.'
+                          ? 'Confirm windows, exterior swing/French openings, explicit sliding units, and interior doors before pricing. Garage doors are a separate trade.'
+                        : planImportTradeKey === 'garage_doors'
+                          ? 'Confirm garage door type counts and openers before pricing.'
                         : planImportTradeKey === 'plumbing'
                           ? standalonePlumbingWorkflow
                             ? 'Confirm the Plumbing-only scope before pricing.'
@@ -4746,6 +4792,34 @@ export function applyPlanImportToDraft(
           intro: 'Confirm framing scope before pricing.',
           items: [],
         }),
+        items: syncedItems,
+      },
+    };
+  }
+  if (planImportTradeKey === 'windows_doors') {
+    const syncedItems = syncWindowsDoorsScopeItems(
+      items,
+      scopeMeasurements as Record<string, unknown>
+    );
+    items = syncedItems;
+    next = {
+      ...next,
+      scopeChecklist: {
+        ...next.scopeChecklist!,
+        items: syncedItems,
+      },
+    };
+  }
+  if (planImportTradeKey === 'garage_doors') {
+    const syncedItems = syncGarageDoorsScopeItems(
+      items,
+      scopeMeasurements as Record<string, unknown>
+    );
+    items = syncedItems;
+    next = {
+      ...next,
+      scopeChecklist: {
+        ...next.scopeChecklist!,
         items: syncedItems,
       },
     };

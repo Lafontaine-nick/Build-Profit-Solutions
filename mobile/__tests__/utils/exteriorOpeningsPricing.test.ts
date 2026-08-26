@@ -13,6 +13,7 @@ import {
   inferDefaultGarageDoorCounts,
   resolveExteriorDoorsLumpSuggestedFill,
   resolveGarageDoorSuggestedPricing,
+  resolveOpeningSizeTierSuggestedPricing,
   resolveSlidingDoorsLumpSuggestedFill,
 } from '@/utils/exteriorOpeningsPricing';
 import {
@@ -89,13 +90,14 @@ describe('exterior openings split + garage door types', () => {
     expect(pkg?.total).toBe(10700);
   });
 
-  it('infers one double when garage SF is present and types are unset', () => {
+  it('infers a double-door type from garage SF but does not auto-count garage doors', () => {
     expect(inferDefaultGarageDoorCounts(994)).toEqual({ single: 0, double: 1, rv: 0 });
     const input = inputWith({});
     const resolved = resolveChecklistItemQuantity('garage_doors', input, { templateKey: 'ground_up' });
-    expect(resolved).toMatchObject({ quantity: 1, unit: 'each' });
+    expect(resolved.unit).toBe('each');
+    expect(resolved.quantity).toBeNull();
     const { fill } = resolveScopeItemSuggestedPricing('garage_doors', input, 'ground_up', resolved);
-    expect(fill?.total).toBe(2400);
+    expect(fill).toBeFalsy();
   });
 
   it('prices explicit double + RV from type counts', () => {
@@ -207,5 +209,22 @@ describe('exterior openings split + garage door types', () => {
     // National ~$2,500 × 2 blended with local ~$4,000/ea
     expect(slidingPriced.fill!.total).toBeGreaterThan(5000);
     expect(slidingPriced.fill!.total).toBeLessThan(10000);
+  });
+
+  it('prices extracted window size codes above a flat standard each', () => {
+    const pkg = resolveOpeningSizeTierSuggestedPricing({
+      itemId: 'windows',
+      quantity: 10,
+      mix: { standard: 6, medium: 0, large: 0, oversized: 4 },
+    });
+    const standard = resolveOpeningSizeTierSuggestedPricing({
+      itemId: 'windows',
+      quantity: 10,
+      mix: { standard: 10, medium: 0, large: 0, oversized: 0 },
+    });
+    expect(standard?.total).toBe(7250);
+    expect(pkg!.total).toBeGreaterThan(standard!.total);
+    expect(pkg!.helper).toMatch(/6 standard/i);
+    expect(pkg!.helper).toMatch(/4 oversized/i);
   });
 });

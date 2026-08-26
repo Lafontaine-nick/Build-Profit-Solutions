@@ -271,6 +271,7 @@ const MEASUREMENT_KEYS = new Set([
   "garageDoorSingleCount",
   "garageDoorDoubleCount",
   "garageDoorRvCount",
+  "garageDoorOpenerCount",
   "cabinetRunLf",
   "cabinetPaintSqft",
   "exteriorPaintSqft",
@@ -1009,15 +1010,49 @@ Drywall takeoff rules:
 - Capture drywall finishLevel only when the finish schedule or notes explicitly identifies Level 4, Level 5, or a specialty finish. Default residential finish is handled during scope confirmation; never guess Level 5.
 `;
 
+const WINDOWS_DOORS_COUNT_KEYS = [
+  "windowCount",
+  "exteriorDoorCount",
+  "slidingDoorCount",
+  "interiorDoorCount",
+];
+
+const GARAGE_DOORS_COUNT_KEYS = [
+  "garageDoorSingleCount",
+  "garageDoorDoubleCount",
+  "garageDoorRvCount",
+  "garageDoorOpenerCount",
+];
+
+const OPENING_COUNT_RESTORE_KEYS = [
+  ...WINDOWS_DOORS_COUNT_KEYS,
+  ...GARAGE_DOORS_COUNT_KEYS,
+];
+
 const WINDOWS_DOORS_VISION_INSTRUCTIONS = `
 Windows & doors takeoff rules:
-- Review every exterior elevation, window schedule, door schedule, opening schedule, floor plan, section, and relevant detail sheet.
-- Return only these canonical counts: windowCount, exteriorDoorCount, slidingDoorCount, garageDoorSingleCount, garageDoorDoubleCount, and garageDoorRvCount.
-- Count window units from a readable window schedule, opening tags, or identifiable exterior-elevation symbols. Count exterior swing/hinged doors separately from sliding or multi-panel patio doors. Exclude interior doors from exteriorDoorCount.
-- Classify garage openings by documented schedule/type or readable dimensions: single, double, and RV/oversized. Do not infer garage door type from garage area, living area, or visual proportions.
-- Count a unit once even when it appears on multiple elevations; reconcile elevations against schedules and note any unresolved duplicate or missing opening.
-- Put explicit schedule/label counts in explicitlyLabeled and counts from clearly identifiable, directly counted symbols in geometryDerived. Include fieldEvidence with sheet/page and the readable schedule, tag, symbol, or dimension used.
-- Do not invent window/door counts from typical residential layouts. If the schedule or symbols are unreadable, omit that field and list the missing sheet or field in unreadableFields or missingInfo.
+- This trade is fenestration and doors only — never return garage door counts here. Garage doors are a separate trade.
+- Perform an opening takeoff. The contractor should only type a count when the drawings genuinely do not provide a readable schedule, tag, or countable opening.
+- Extraction hierarchy: (1) window/door schedules, (2) floor-plan tags and opening symbols, (3) exterior elevations, (4) cross-check between sheets.
+- Count OPENING UNITS, not individual door leaves or slider panels. A double front entry is 1 exterior swing unit. A double hinged/French patio door is 1 exterior swing unit. A single personnel door is 1 exterior swing unit. A 2-leaf or 3-panel slider is 1 sliding unit.
+- Return these canonical counts: windowCount; exteriorDoorCount (hinged/swing/French/double exterior doors, including doors that open to a patio); slidingDoorCount (ONLY doors explicitly shown as sliding, multi-slide, bypass, or patio-slider units); interiorDoorCount (interior swing/pocket/bifold OPENINGS — bedrooms, baths, closets, laundry, pantry, and similar — exclude exterior and garage).
+- Do NOT classify a hinged French/double door as a sliding/patio door because it leads to a patio. Swing arcs, inswing/outswing, or French/double callouts are exteriorDoorCount. Two leaves of one French opening are not 2 sliding doors.
+- slidingDoorCount requires a sliding symbol, track, multi-slide, bypass, or an explicit slider callout. Patio adjacency alone is not enough.
+- Count each physical opening once. Deduplicate the same door across the door schedule, floor-plan tags, and elevations using mark/tag, size, and type — not by assuming a typical exterior-door total.
+- ALWAYS return windowCount, exteriorDoorCount, and interiorDoorCount in measurements when those openings are visible on floor plans or elevations — even if there is NO window/door schedule. Put those symbol counts in geometryDerived. Blank Review cards are a failed takeoff. Do not omit windows or swing doors because a schedule is missing.
+- Return slidingDoorCount only for true sliders (track, multi-slide, bypass, or an explicit slider callout). If no slider is visible, omit slidingDoorCount. Never type a hinged/French/patio door as a slider.
+- Put a readable window/door schedule or instance-tag total in explicitlyLabeled. If there is no door schedule, keep interiorDoorCount in geometryDerived — never invent a typical-house interior count or treat a guessed total as a schedule.
+- Only populate planFacts.openingSchedules rows when a mark, size code, or labeled dimension is readable. Do not invent a partial schedule, and do not reduce elevation/floor-plan counts to match one.
+- Do not invent a typical house layout from living area. Omit a field only when that opening type is truly unreadable on every sheet.
+`;
+
+const GARAGE_DOORS_VISION_INSTRUCTIONS = `
+Garage doors takeoff rules:
+- This trade is garage doors and openers only — do not return window, swing, sliding, or interior door counts.
+- Review the garage door schedule, front elevation, and opener notes. Count each door once.
+- Return garageDoorSingleCount, garageDoorDoubleCount, and garageDoorRvCount by documented type or readable width/height. Never infer type from garage SF or living SF.
+- Return garageDoorOpenerCount only when openers are labeled or specified. Do not assume one opener per door.
+- Put schedule totals in explicitlyLabeled and elevation-symbol counts in geometryDerived. Populate planFacts.openingSchedules.garageDoors with type, quantity, and width/height when readable.
 `;
 
 const HVAC_VISION_INSTRUCTIONS = `
@@ -1749,6 +1784,7 @@ function visionSystemPrompt(
   insulationSelected,
   drywallSelected,
   windowsDoorsSelected,
+  garageDoorsSelected,
   hvacSelected,
 ) {
   if (electricalSelected) return buildElectricalSystemPrompt();
@@ -1758,7 +1794,7 @@ function visionSystemPrompt(
     insulationSelected ? `\n${INSULATION_VISION_INSTRUCTIONS}` : ""
   }${drywallSelected ? `\n${DRYWALL_VISION_INSTRUCTIONS}` : ""}${
     windowsDoorsSelected ? `\n${WINDOWS_DOORS_VISION_INSTRUCTIONS}` : ""
-  }`;
+  }${garageDoorsSelected ? `\n${GARAGE_DOORS_VISION_INSTRUCTIONS}` : ""}`;
 }
 
 function sanitizeRooms(rawRooms) {
@@ -1993,6 +2029,498 @@ function applyConfidenceFloor(measurements, fieldConfidence) {
     kept[key] = value;
   }
   return { measurements: kept, lowConfidence };
+}
+
+function windowsDoorsBoundedCount(value) {
+  const count = Math.round(Number(value));
+  return Number.isFinite(count) && count >= 1 && count <= 200 ? count : null;
+}
+
+function sanitizeOpeningSizeCode(value) {
+  const text = String(value || "")
+    .trim()
+    .replace(/\s+/g, "");
+  if (/^\d{3,4}$/.test(text)) return text.slice(0, 4);
+  return "";
+}
+
+function sanitizeOpeningInches(value) {
+  const inches = Number(value);
+  if (!Number.isFinite(inches) || inches < 10 || inches > 240) return null;
+  return Math.round(inches);
+}
+
+function sanitizeOpeningScheduleRows(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const mark = String(row.mark || row.tag || row.id || "")
+        .trim()
+        .slice(0, 24);
+      const quantity = windowsDoorsBoundedCount(
+        row.quantity ?? row.qty ?? row.count,
+      );
+      const type = String(row.type || row.kind || row.operation || "")
+        .trim()
+        .slice(0, 40);
+      const sizeCode = sanitizeOpeningSizeCode(
+        row.sizeCode || row.callout || row.size,
+      );
+      const widthIn = sanitizeOpeningInches(row.widthIn);
+      const heightIn = sanitizeOpeningInches(row.heightIn);
+      const widthFt = positive(row.widthFt);
+      const heightFt = positive(row.heightFt);
+      const configuration = String(row.configuration || row.panels || "")
+        .trim()
+        .slice(0, 40);
+      const notes = String(row.notes || (!sizeCode && row.size) || "")
+        .trim()
+        .slice(0, 80);
+      if (!mark && quantity == null && !type && !sizeCode) return null;
+      const entry = {};
+      if (mark) entry.mark = mark;
+      if (quantity != null) entry.quantity = quantity;
+      if (type) entry.type = type;
+      if (sizeCode) entry.sizeCode = sizeCode;
+      if (widthIn != null) entry.widthIn = widthIn;
+      if (heightIn != null) entry.heightIn = heightIn;
+      if (widthFt != null && widthFt <= 40) entry.widthFt = roundTenth(widthFt);
+      if (heightFt != null && heightFt <= 24)
+        entry.heightFt = roundTenth(heightFt);
+      if (configuration) entry.configuration = configuration;
+      if (notes) entry.notes = notes;
+      return Object.keys(entry).length ? entry : null;
+    })
+    .filter(Boolean)
+    .slice(0, 80);
+}
+
+function openingScheduleText(row) {
+  return `${row?.type || ""} ${row?.notes || ""} ${row?.configuration || ""} ${
+    row?.mark || ""
+  } ${row?.callout || ""} ${row?.size || ""}`.toLowerCase();
+}
+
+function hasSliderMechanics(text) {
+  return /\b(multi[-\s]?slide|bypass|track|nana\s*wall|folding[-\s]?slide)\b/.test(
+    String(text || ""),
+  );
+}
+
+function hasHingedSwingLanguage(text) {
+  return /\b(french|hinged|hinge|inswing|outswing|swing|pivot|active leaf|inactive leaf)\b/.test(
+    String(text || ""),
+  );
+}
+
+function isExplicitSlidingDoor(text) {
+  const blob = String(text || "").toLowerCase();
+  if (
+    (hasHingedSwingLanguage(blob) || /\b(patio|garden)\b/.test(blob)) &&
+    !hasSliderMechanics(blob)
+  ) {
+    return false;
+  }
+  return hasSliderMechanics(blob) || /\b(slid(?:e|er|ing))\b/.test(blob);
+}
+
+function slidingRowWidthFt(row) {
+  const widthFt = Number(row?.widthFt);
+  if (Number.isFinite(widthFt) && widthFt > 0) return widthFt;
+  const widthIn = Number(row?.widthIn);
+  if (Number.isFinite(widthIn) && widthIn >= 10) return widthIn / 12;
+  return 0;
+}
+
+function looksLikeMisclassifiedSlidingRow(row) {
+  const text = openingScheduleText(row);
+  if (hasSliderMechanics(text)) return false;
+  if (hasHingedSwingLanguage(text) || /\b(patio|garden)\b/.test(text)) {
+    return true;
+  }
+  if (
+    /\b(double|pair|leaf|leaves)\b/.test(text) &&
+    !/\bslid/.test(text)
+  ) {
+    return true;
+  }
+  const qty = windowsDoorsBoundedCount(row?.quantity) ?? 1;
+  const unlabeled =
+    !String(row?.mark || "").trim() &&
+    !row?.sizeCode &&
+    !(slidingRowWidthFt(row) > 0);
+  return (
+    unlabeled &&
+    qty === 2 &&
+    slidingRowWidthFt(row) < 5 &&
+    /\bslid/.test(text)
+  );
+}
+
+function openingUnitQuantity(row) {
+  const qty = windowsDoorsBoundedCount(row?.quantity) ?? 1;
+  const text = openingScheduleText(row);
+  if (hasSliderMechanics(text)) return qty;
+  if (
+    /\b(french|double|pair|two[-\s]?leaf|2[-\s]?leaf|leaves|patio)\b/.test(text) &&
+    qty === 2
+  ) {
+    return 1;
+  }
+  if (looksLikeMisclassifiedSlidingRow(row) && qty === 2 && /\bslid/.test(text)) {
+    return 1;
+  }
+  return qty;
+}
+
+function openingScheduleIsDocumented(rows) {
+  if (!Array.isArray(rows) || !rows.length) return false;
+  const tagged = rows.filter(
+    (row) =>
+      Boolean(String(row?.mark || "").trim()) ||
+      Boolean(row?.sizeCode) ||
+      row?.widthIn != null ||
+      row?.widthFt != null,
+  );
+  if (!tagged.length) return false;
+  if (tagged.some((row) => String(row?.mark || "").trim())) return true;
+  const sizeCodes = new Set(
+    tagged.map((row) => String(row?.sizeCode || "").trim()).filter(Boolean),
+  );
+  return tagged.length >= 2 || sizeCodes.size >= 2;
+}
+
+function openingMarkKey(row) {
+  const mark = String(row?.mark || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  return mark || null;
+}
+
+function openingSizeKey(row) {
+  const code = String(row?.sizeCode || "")
+    .replace(/\D/g, "")
+    .slice(0, 4);
+  if (code.length === 4) return `code:${code}`;
+  const widthFt =
+    Number(row?.widthFt) ||
+    (Number(row?.widthIn) > 0 ? Number(row.widthIn) / 12 : 0);
+  const heightFt =
+    Number(row?.heightFt) ||
+    (Number(row?.heightIn) > 0 ? Number(row.heightIn) / 12 : 0);
+  if (widthFt > 0 && heightFt > 0) {
+    return `dim:${Math.round(widthFt * 4) / 4}x${Math.round(heightFt * 4) / 4}`;
+  }
+  return null;
+}
+
+function swingOpeningFamily(row) {
+  const text = openingScheduleText(row);
+  if (isExplicitSlidingDoor(text)) return "slider";
+  if (/\b(french|patio|garden)\b/.test(text)) return "french_patio";
+  if (/\b(personnel|service|man[- ]?door)\b/.test(text)) return "personnel";
+  return "swing";
+}
+
+function isUnlabeledOpening(row) {
+  return !openingMarkKey(row) && !openingSizeKey(row);
+}
+
+function samePhysicalSwingOpening(a, b) {
+  const markA = openingMarkKey(a);
+  const markB = openingMarkKey(b);
+  if (markA && markB) return markA === markB;
+  const sizeA = openingSizeKey(a);
+  const sizeB = openingSizeKey(b);
+  if (sizeA && sizeB && sizeA === sizeB) {
+    const familyA = swingOpeningFamily(a);
+    const familyB = swingOpeningFamily(b);
+    return familyA === familyB || familyA === "swing" || familyB === "swing";
+  }
+  return false;
+}
+
+function alreadyCountedSwingOpening(moved, existingRows) {
+  if (!Array.isArray(existingRows) || !existingRows.length) return false;
+  if (existingRows.some((row) => samePhysicalSwingOpening(row, moved))) {
+    return true;
+  }
+  if (
+    isUnlabeledOpening(moved) &&
+    swingOpeningFamily(moved) === "french_patio" &&
+    existingRows.some((row) => swingOpeningFamily(row) === "french_patio")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function reclassifyFenestrationOpeningSchedules(raw) {
+  if (!raw || typeof raw !== "object") return raw || null;
+  const slidingSource = Array.isArray(raw.slidingDoors) ? raw.slidingDoors : [];
+  const slidingKeep = [];
+  const moved = [];
+  for (const row of slidingSource) {
+    if (looksLikeMisclassifiedSlidingRow(row)) {
+      moved.push({ ...row, quantity: openingUnitQuantity(row) });
+    } else {
+      slidingKeep.push({ ...row, quantity: openingUnitQuantity(row) });
+    }
+  }
+  const exteriorExisting = (
+    Array.isArray(raw.exteriorDoors) ? raw.exteriorDoors : []
+  ).map((row) => ({ ...row, quantity: openingUnitQuantity(row) }));
+  const exterior = [...exteriorExisting];
+  for (const row of moved) {
+    if (alreadyCountedSwingOpening(row, exteriorExisting)) continue;
+    exterior.push(row);
+  }
+  const out = { ...raw };
+  if (exterior.length) out.exteriorDoors = exterior;
+  else delete out.exteriorDoors;
+  if (slidingKeep.length) out.slidingDoors = slidingKeep;
+  else delete out.slidingDoors;
+  return Object.keys(out).length ? out : null;
+}
+
+function hadMisclassifiedSliding(raw) {
+  const rows = Array.isArray(raw?.slidingDoors) ? raw.slidingDoors : [];
+  return rows.some((row) => looksLikeMisclassifiedSlidingRow(row));
+}
+
+function sanitizeOpeningSchedules(raw) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  const out = {};
+  const windows = sanitizeOpeningScheduleRows(src.windows);
+  const exteriorDoors = sanitizeOpeningScheduleRows(
+    src.exteriorDoors || src.doors,
+  );
+  const slidingDoors = sanitizeOpeningScheduleRows(src.slidingDoors);
+  const interiorDoors = sanitizeOpeningScheduleRows(src.interiorDoors);
+  const garageDoors = sanitizeOpeningScheduleRows(src.garageDoors);
+  if (windows.length) out.windows = windows;
+  if (exteriorDoors.length) out.exteriorDoors = exteriorDoors;
+  if (slidingDoors.length) out.slidingDoors = slidingDoors;
+  if (interiorDoors.length) out.interiorDoors = interiorDoors;
+  if (garageDoors.length) out.garageDoors = garageDoors;
+  const classified = reclassifyFenestrationOpeningSchedules(out);
+  return classified && Object.keys(classified).length ? classified : null;
+}
+
+/**
+ * Keep readable Windows & doors counts even when confidence is below the
+ * global floor. Schedule totals stay verified; elevation/symbol counts stay
+ * plan-derived and require confirmation instead of being blanked.
+ */
+function openingScheduleQuantityTotal(key, schedules) {
+  const map = {
+    windowCount: schedules?.windows,
+    exteriorDoorCount: schedules?.exteriorDoors,
+    slidingDoorCount: schedules?.slidingDoors,
+    interiorDoorCount: schedules?.interiorDoors,
+    garageDoors: schedules?.garageDoors,
+  };
+  let rows = map[key];
+  if (key === "garageDoorSingleCount" || key === "garageDoorDoubleCount" || key === "garageDoorRvCount") {
+    rows = Array.isArray(schedules?.garageDoors) ? schedules.garageDoors : [];
+    rows = rows.filter((row) => {
+      const blob = `${row?.type || ""} ${row?.notes || ""} ${row?.mark || ""}`.toLowerCase();
+      const widthFt = Number(row?.widthFt) || Number(row?.widthIn) / 12 || 0;
+      const heightFt = Number(row?.heightFt) || Number(row?.heightIn) / 12 || 0;
+      if (key === "garageDoorRvCount") return /rv|oversize|tall/.test(blob) || heightFt >= 10;
+      if (key === "garageDoorDoubleCount") return /double/.test(blob) || (widthFt >= 14 && widthFt < 20);
+      return /single/.test(blob) || (widthFt > 0 && widthFt < 12);
+    });
+    if (!rows.length && key === "garageDoorDoubleCount") {
+      rows = Array.isArray(schedules?.garageDoors) ? schedules.garageDoors : [];
+    }
+  }
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const total = rows.reduce((sum, row) => {
+    const qty = windowsDoorsBoundedCount(row?.quantity);
+    return sum + (qty != null ? qty : 1);
+  }, 0);
+  return windowsDoorsBoundedCount(total);
+}
+
+function applyWindowsDoorsPlanTakeoff({
+  measurements = {},
+  lowConfidence = [],
+  rawVisionMeasurements = {},
+  explicitlyLabeled = [],
+  geometryDerived = [],
+  measurementProvenance = {},
+  openingSchedules = null,
+} = {}) {
+  const rawScheduleRows = {
+    windows: sanitizeOpeningScheduleRows(openingSchedules?.windows),
+    exteriorDoors: sanitizeOpeningScheduleRows(
+      openingSchedules?.exteriorDoors || openingSchedules?.doors,
+    ),
+    slidingDoors: sanitizeOpeningScheduleRows(openingSchedules?.slidingDoors),
+    interiorDoors: sanitizeOpeningScheduleRows(openingSchedules?.interiorDoors),
+    garageDoors: sanitizeOpeningScheduleRows(openingSchedules?.garageDoors),
+  };
+  const slidingScalar = windowsDoorsBoundedCount(
+    measurements.slidingDoorCount ?? rawVisionMeasurements?.slidingDoorCount,
+  );
+  const needsScalarSlidingReclass =
+    !hadMisclassifiedSliding(rawScheduleRows) &&
+    slidingScalar === 2 &&
+    !rawScheduleRows.slidingDoors.length;
+  const droppedMisclassifiedSliding =
+    hadMisclassifiedSliding(rawScheduleRows) || needsScalarSlidingReclass;
+  const classifiedInput = {
+    ...Object.fromEntries(
+      Object.entries(rawScheduleRows).filter(([, rows]) => rows.length),
+    ),
+    ...(needsScalarSlidingReclass
+      ? { slidingDoors: [{ type: "slider", quantity: 2 }] }
+      : {}),
+  };
+  const classifiedSchedules =
+    reclassifyFenestrationOpeningSchedules(classifiedInput) || null;
+
+  const next = { ...measurements };
+  const vision = { ...rawVisionMeasurements };
+  if (droppedMisclassifiedSliding) {
+    const slidingTotal = openingScheduleQuantityTotal(
+      "slidingDoorCount",
+      classifiedSchedules,
+    );
+    if (slidingTotal == null) {
+      delete next.slidingDoorCount;
+      delete vision.slidingDoorCount;
+    } else {
+      next.slidingDoorCount = slidingTotal;
+      vision.slidingDoorCount = slidingTotal;
+    }
+    const exteriorTotal = openingScheduleQuantityTotal(
+      "exteriorDoorCount",
+      classifiedSchedules,
+    );
+    const currentExterior = windowsDoorsBoundedCount(next.exteriorDoorCount);
+    if (
+      exteriorTotal != null &&
+      (currentExterior == null || exteriorTotal > currentExterior)
+    ) {
+      next.exteriorDoorCount = exteriorTotal;
+      vision.exteriorDoorCount = exteriorTotal;
+    }
+  }
+  const provenance = { ...measurementProvenance };
+  const labeled = new Set(
+    (Array.isArray(explicitlyLabeled) ? explicitlyLabeled : []).map((key) =>
+      String(key || "").trim(),
+    ),
+  );
+  const derived = new Set(
+    (Array.isArray(geometryDerived) ? geometryDerived : []).map((key) =>
+      String(key || "").trim(),
+    ),
+  );
+  const lowByField = new Map(
+    (Array.isArray(lowConfidence) ? lowConfidence : [])
+      .filter((entry) => {
+        if (!OPENING_COUNT_RESTORE_KEYS.includes(entry?.field)) return false;
+        if (
+          droppedMisclassifiedSliding &&
+          entry?.field === "slidingDoorCount" &&
+          openingScheduleQuantityTotal("slidingDoorCount", classifiedSchedules) ==
+            null
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .map((entry) => [entry.field, entry]),
+  );
+  const assumptions = [];
+  if (droppedMisclassifiedSliding) {
+    assumptions.push(
+      "Hinged/French/patio swing openings counted as exterior swing units, not sliding doors.",
+    );
+  }
+
+  for (const key of OPENING_COUNT_RESTORE_KEYS) {
+    const low = lowByField.get(key);
+    const scheduleCount = openingScheduleQuantityTotal(
+      key,
+      classifiedSchedules,
+    );
+    const documented = openingScheduleIsDocumented(
+      key === "windowCount"
+        ? classifiedSchedules?.windows
+        : key === "exteriorDoorCount"
+          ? classifiedSchedules?.exteriorDoors
+          : key === "slidingDoorCount"
+            ? classifiedSchedules?.slidingDoors
+            : key === "interiorDoorCount"
+              ? classifiedSchedules?.interiorDoors
+              : null,
+    );
+    const visionCount =
+      windowsDoorsBoundedCount(next[key]) ??
+      windowsDoorsBoundedCount(low?.value) ??
+      windowsDoorsBoundedCount(vision?.[key]);
+    let count = visionCount ?? scheduleCount;
+    if (documented && scheduleCount != null) {
+      if (visionCount != null && visionCount > scheduleCount && derived.has(key)) {
+        count = visionCount;
+      } else {
+        count = scheduleCount;
+      }
+    } else if (visionCount != null && scheduleCount != null) {
+      count = Math.max(visionCount, scheduleCount);
+    }
+    if (count == null) continue;
+    const existing = provenance[key] && typeof provenance[key] === "object"
+      ? provenance[key]
+      : {};
+    const fromSchedule =
+      documented &&
+      key !== "interiorDoorCount" &&
+      (existing.evidenceKind === "schedule" ||
+        existing.evidenceKind === "explicit_label" ||
+        scheduleCount === count);
+    next[key] = count;
+    if (fromSchedule) {
+      provenance[key] = {
+        ...existing,
+        value: count,
+        source: existing.source || "detected_from_plan",
+        normalizedSource: "FROM_PLAN",
+        evidenceKind: "schedule",
+        pricingEligible: true,
+      };
+      assumptions.push(`${key} ${count} EA from schedule or tagged quantity.`);
+    } else {
+      provenance[key] = {
+        ...existing,
+        value: count,
+        source: existing.source || "calculated_from_symbols",
+        normalizedSource: "NEEDS_CONFIRMATION",
+        evidenceKind: existing.evidenceKind || "elevation_symbols",
+        pricingEligible: false,
+      };
+      assumptions.push(
+        key === "interiorDoorCount"
+          ? `${key} ${count} EA counted from plans — confirm interior openings room by room.`
+          : `${key} ${count} EA counted from plans/elevations — confirm.`,
+      );
+    }
+  }
+
+  if (droppedMisclassifiedSliding && next.slidingDoorCount == null) {
+    delete provenance.slidingDoorCount;
+  }
+
+  return {
+    measurements: next,
+    measurementProvenance: provenance,
+    assumptions,
+    openingSchedules: classifiedSchedules,
+  };
 }
 
 function sanitizeBuildingAreas(raw) {
@@ -2318,6 +2846,8 @@ function sanitizePlanFacts(raw, buildingAreas = {}) {
     .filter(Boolean)
     .slice(0, 10);
   if (warnings.length) out.warnings = warnings;
+  const openingSchedules = sanitizeOpeningSchedules(src.openingSchedules);
+  if (openingSchedules) out.openingSchedules = openingSchedules;
   return out;
 }
 
@@ -2740,6 +3270,14 @@ function sanitizeMeasurements(
       if (count >= 1 && count <= 80) out[key] = count;
       continue;
     }
+    if (
+      WINDOWS_DOORS_COUNT_KEYS.includes(key) ||
+      GARAGE_DOORS_COUNT_KEYS.includes(key)
+    ) {
+      const count = Math.round(v);
+      if (count >= 1 && count <= 200) out[key] = count;
+      continue;
+    }
     if (LABELED_ONLY_KEYS.has(key) && !labeled.has(key)) continue;
     // Concrete flatwork requires explicit label — covered patio must not land here
     if (CONCRETE_EXPLICIT_KEYS.has(key) && !labeled.has(key)) continue;
@@ -2907,6 +3445,26 @@ function buildItemQuantities(measurements) {
       quantitySource: "plan_vision",
     };
   }
+  if (
+    Number(measurements.garageDoorOpenerCount) > 0 &&
+    !itemQuantities.garage_door_openers
+  ) {
+    itemQuantities.garage_door_openers = {
+      quantity: measurements.garageDoorOpenerCount,
+      unit: "each",
+      quantitySource: "plan_vision",
+    };
+  }
+  if (
+    Number(measurements.interiorDoorCount) > 0 &&
+    !itemQuantities.interior_doors
+  ) {
+    itemQuantities.interior_doors = {
+      quantity: measurements.interiorDoorCount,
+      unit: "each",
+      quantitySource: "plan_vision",
+    };
+  }
   return itemQuantities;
 }
 
@@ -3056,6 +3614,9 @@ async function analyzePlanForMeasurements({
   const windowsDoorsSelected =
     planSelection.mode === "selected_trade" &&
     planSelection.trade?.key === "windows_doors";
+  const garageDoorsSelected =
+    planSelection.mode === "selected_trade" &&
+    planSelection.trade?.key === "garage_doors";
   const hvacSelected =
     planSelection.mode === "selected_trade" &&
     planSelection.trade?.key === "hvac";
@@ -3313,6 +3874,7 @@ async function analyzePlanForMeasurements({
           insulationSelected,
           drywallSelected,
           windowsDoorsSelected,
+          garageDoorsSelected,
           hvacSelected,
         ),
       },
@@ -3355,7 +3917,15 @@ async function analyzePlanForMeasurements({
                   : windowsDoorsSelected
                     ? [
                         WINDOWS_DOORS_VISION_INSTRUCTIONS,
-                        "Return only Windows & doors canonical counts and evidence. Leave type, finish, hardware, replacement scope, and any unreadable opening omitted.",
+                        "Return only Windows & doors canonical counts and evidence. Do not return garage door counts.",
+                        hintBits.length
+                          ? hintBits.join("\n\n")
+                          : "No extra context.",
+                      ].join("\n\n")
+                  : garageDoorsSelected
+                    ? [
+                        GARAGE_DOORS_VISION_INSTRUCTIONS,
+                        "Return only garage door type counts and opener count when labeled.",
                         hintBits.length
                           ? hintBits.join("\n\n")
                           : "No extra context.",
@@ -3442,12 +4012,14 @@ async function analyzePlanForMeasurements({
               insulationSelected,
               drywallSelected,
               windowsDoorsSelected,
+              garageDoorsSelected,
               hvacSelected,
             ) +
             (planSelection.trade &&
             !electricalSelected &&
             !plumbingSelected &&
             !windowsDoorsSelected &&
+            !garageDoorsSelected &&
             !hvacSelected
               ? "\nThis is a focused trade takeoff pass. Prioritize measurable geometry and scope for the selected trade over general room extraction."
               : electricalSelected
@@ -3457,7 +4029,9 @@ async function analyzePlanForMeasurements({
                   : drywallSelected
                     ? "\nThis is a focused Drywall surface pass. Inspect room dimensions, reflected ceiling plans, wall heights, finish schedules, and labeled wall/ceiling quantities."
                     : windowsDoorsSelected
-                      ? "\nThis is a focused Windows & doors opening-count pass. Reconcile schedules and elevations; count each opening once."
+                      ? "\nThis is a focused Windows & doors opening-count pass. Reconcile schedules and elevations; count each opening once. Do not count garage doors."
+                      : garageDoorsSelected
+                        ? "\nThis is a focused Garage doors pass. Count single, double, and RV doors from the schedule or elevation; count openers only when labeled."
                       : hvacSelected
                         ? "\nThis is a focused HVAC quantity pass. Count only readable mechanical equipment, thermostats, ventilation, and labeled ductwork."
                       : plumbingSelected
@@ -3478,7 +4052,9 @@ async function analyzePlanForMeasurements({
                   : drywallSelected
                     ? "For Drywall, return separate drywallWallSqft and drywallCeilingSqft when supported by labeled values or readable room geometry. Do not return a living-area proxy."
                     : windowsDoorsSelected
-                      ? "For Windows & doors, return windowCount, exteriorDoorCount, slidingDoorCount, and garage door counts by type from schedules, tags, dimensions, or directly countable elevation symbols. Reconcile duplicate elevations."
+                      ? "For Windows & doors, take off windows, exterior swing/French doors, explicit sliding doors only, and interior door openings. Always return those counts when openings are visible on the drawings, even without a schedule. Count units not leaves. Do not count garage doors."
+                      : garageDoorsSelected
+                        ? "For Garage doors, return single/double/RV counts and opener count when labeled. Never infer type from garage SF."
                       : hvacSelected
                         ? "For HVAC, return system count, explicitly labeled tonnage, thermostats, ventilation equipment, replacements, refrigerant service, and labeled ductwork LF. Reconcile equipment schedules with plan tags and leave unknown capacity or duct lengths omitted."
                     : "For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, windowDoorOpeningsSqft, garageOpeningsSqft, and non-stucco deductions. Also populate measurements.stuccoWindowDoorOpeningSqft and measurements.stuccoGarageOpeningSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer.",
@@ -3495,6 +4071,8 @@ async function analyzePlanForMeasurements({
                       ? HVAC_VISION_INSTRUCTIONS
                     : windowsDoorsSelected
                       ? WINDOWS_DOORS_VISION_INSTRUCTIONS
+                    : garageDoorsSelected
+                      ? GARAGE_DOORS_VISION_INSTRUCTIONS
                     : plumbingSelected
                       ? PLUMBING_VISION_INSTRUCTIONS
                       : paintingSelected
@@ -3505,7 +4083,9 @@ async function analyzePlanForMeasurements({
                 paintingSelected
                   ? "Return wallPaintSqft, ceilingPaintSqft, baseboardLf, interiorDoorCount, and exteriorPaintSqft when geometry or schedules support them. Add geometry-derived keys to geometryDerived. Leave occupancy, application method, and prep omitted."
                   : windowsDoorsSelected
-                    ? "Return only the six canonical Windows & doors counts. Use explicit schedule/label counts or directly counted symbols, record evidence, and leave undocumented type/finish/hardware details for contractor confirmation."
+                    ? "Return window, exterior swing, explicit sliding, and interior door unit counts plus planFacts.openingSchedules. Do not return garage door counts. Do not treat hinged French/patio doors as sliders."
+                  : garageDoorsSelected
+                    ? "Return garage door type counts and opener count when labeled, plus planFacts.openingSchedules.garageDoors."
                   : insulationSelected
                     ? "The attached pages are rasterized insulation-relevant sheets selected from the PDF. Inspect the actual wall sections, elevations, ceiling/attic plans, roof details, schedules, and notes in those images. Return insulation quantities only when explicitly labeled or directly calculated from readable labeled dimensions. Preserve the wall/attic versus roof-deck boundary distinction."
                     : plumbingSelected
@@ -4360,6 +4940,34 @@ async function analyzePlanForMeasurements({
     rawMeasurements,
     fieldConfidence,
   );
+  {
+    const windowsDoorsTakeoff = applyWindowsDoorsPlanTakeoff({
+      measurements,
+      lowConfidence,
+      rawVisionMeasurements: parsed.measurements,
+      explicitlyLabeled: parsed.explicitlyLabeled,
+      geometryDerived: parsed.geometryDerived,
+      measurementProvenance,
+      openingSchedules:
+        parsed.planFacts?.openingSchedules ||
+        planFacts?.openingSchedules ||
+        null,
+    });
+    measurements = windowsDoorsTakeoff.measurements;
+    measurementProvenance = windowsDoorsTakeoff.measurementProvenance;
+    if (windowsDoorsTakeoff.openingSchedules && planFacts) {
+      planFacts.openingSchedules = windowsDoorsTakeoff.openingSchedules;
+    }
+    if (windowsDoorsTakeoff.assumptions.length) {
+      parsed.assumptions = [
+        ...(Array.isArray(parsed.assumptions) ? parsed.assumptions : []),
+        ...windowsDoorsTakeoff.assumptions,
+      ];
+    }
+    lowConfidence = (lowConfidence || []).filter(
+      (entry) => !OPENING_COUNT_RESTORE_KEYS.includes(String(entry?.field || "")),
+    );
+  }
   if (hvacSelected) {
     const {
       applyHvacProvenanceGuard,
@@ -4865,6 +5473,7 @@ module.exports = {
   sanitizeUnreadableFields,
   collectUnclassifiedElectricalFixtures,
   applyConfidenceFloor,
+  applyWindowsDoorsPlanTakeoff,
   buildItemQuantities,
   formatNotesBlock,
   mergeRoomsPreferPdf,

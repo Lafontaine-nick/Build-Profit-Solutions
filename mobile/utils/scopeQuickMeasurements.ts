@@ -26,6 +26,7 @@ export type QuickMeasurementFieldKey =
   | 'garageDoorSingleCount'
   | 'garageDoorDoubleCount'
   | 'garageDoorRvCount'
+  | 'garageDoorOpenerCount'
   | 'cabinetPaintSqft'
   | 'cabinetUpperLf'
   | 'cabinetLowerLf'
@@ -339,7 +340,7 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'each',
     'exterior',
     undefined,
-    'Exclude sliding/patio doors and garage doors.'
+    'Count hinged/French exterior openings as units, not leaves. Exclude explicit sliders and garage doors.'
   ),
   slidingDoorCount: F(
     'slidingDoorCount',
@@ -348,7 +349,7 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'each',
     'exterior',
     undefined,
-    'Count sliding or multi-panel exterior door units.'
+    'Count only explicit sliding, multi-slide, or bypass units — not hinged French/patio doors.'
   ),
   garageDoorSingleCount: F(
     'garageDoorSingleCount',
@@ -376,6 +377,15 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'exterior',
     undefined,
     'Count only when the larger/taller opening is documented.'
+  ),
+  garageDoorOpenerCount: F(
+    'garageDoorOpenerCount',
+    'Garage door openers',
+    'e.g. 2',
+    'each',
+    'exterior',
+    undefined,
+    'Count only when openers are labeled or specified.'
   ),
   cabinetPaintSqft: F(
     'cabinetPaintSqft',
@@ -2071,7 +2081,7 @@ export const WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = 
       'each',
       'exterior',
       undefined,
-      'Exclude sliding/patio doors and garage doors.'
+      'Count hinged/French exterior openings as units, not leaves. Exclude explicit sliders and garage doors.'
     )
   ),
   row(
@@ -2082,11 +2092,34 @@ export const WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = 
       'each',
       'exterior',
       undefined,
-      'Count sliding or multi-panel exterior door units.'
+      'Count only explicit sliding, multi-slide, or bypass units — not hinged French/patio doors.'
     ),
+    F(
+      'interiorDoorCount',
+      'Interior doors',
+      'e.g. 12',
+      'each',
+      'interior',
+      undefined,
+      'Count interior openings (including closets). Confirm if there is no door schedule.'
+    )
+  ),
+];
+
+export const GARAGE_DOORS_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
+  row(
     F(
       'garageDoorSingleCount',
       'Single garage doors',
+      'e.g. 1',
+      'each',
+      'exterior',
+      true,
+      'Use the garage door schedule or elevation; do not infer type from garage area.'
+    ),
+    F(
+      'garageDoorDoubleCount',
+      'Double garage doors',
       'e.g. 1',
       'each',
       'exterior',
@@ -2096,15 +2129,6 @@ export const WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = 
   ),
   row(
     F(
-      'garageDoorDoubleCount',
-      'Double garage doors',
-      'e.g. 1',
-      'each',
-      'exterior',
-      undefined,
-      'Use the garage door schedule or elevation; do not infer type from garage area.'
-    ),
-    F(
       'garageDoorRvCount',
       'RV / oversized garage doors',
       'e.g. 1',
@@ -2112,6 +2136,15 @@ export const WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = 
       'exterior',
       undefined,
       'Count only when the larger/taller opening is documented.'
+    ),
+    F(
+      'garageDoorOpenerCount',
+      'Garage door openers',
+      'e.g. 2',
+      'each',
+      'exterior',
+      undefined,
+      'Count only when openers are labeled or specified.'
     )
   ),
 ];
@@ -2182,6 +2215,7 @@ export function resolveQuickMeasurementTemplateKey(
   const pt = String(projectType || '').toLowerCase();
   if (tk === 'plumbing_service') return 'plumbing';
   if (tk === 'windows_doors') return 'windows_doors';
+  if (tk === 'garage_doors') return 'garage_doors';
   // Checklist template wins. projectType must not force flooring fields onto a
   // kitchen/bath remodel just because notes also mention floor tile.
   if (tk && SCOPE_QUICK_MEASUREMENT_ROWS[tk]) return tk;
@@ -2257,6 +2291,9 @@ export function quickMeasurementRowsForTemplate(
   const key = resolveQuickMeasurementTemplateKey(templateKey, projectType);
   if (key === 'windows_doors') {
     return WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS;
+  }
+  if (key === 'garage_doors') {
+    return GARAGE_DOORS_PLAN_QUICK_MEASUREMENT_ROWS;
   }
   return applyProjectSpecificQuickMeasurementLabels(
     SCOPE_QUICK_MEASUREMENT_ROWS[key] ||
@@ -2347,6 +2384,7 @@ export function quickMeasurementRowsForInput(
   options?: {
     plumbingPlanImport?: boolean;
     windowsDoorsPlanImport?: boolean;
+    garageDoorsPlanImport?: boolean;
     windowsDoorsNotesFlow?: boolean;
     plumbingNotesFlow?: boolean;
     plumbingWorkflowMode?: PlumbingWorkflowMode | null;
@@ -2367,6 +2405,8 @@ export function quickMeasurementRowsForInput(
       ? WINDOWS_DOORS_NOTES_QUICK_MEASUREMENT_ROWS
       : options?.windowsDoorsPlanImport
         ? WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS
+        : options?.garageDoorsPlanImport
+          ? GARAGE_DOORS_PLAN_QUICK_MEASUREMENT_ROWS
         : options?.plumbingPlanImport && plumbingTemplate
           ? PLUMBING_PLAN_QUICK_MEASUREMENT_ROWS
           : options?.plumbingNotesFlow && plumbingTemplate
