@@ -80,7 +80,9 @@ import {
 import {
   applyHvacProvenanceGuardToScopeMeasurements,
   buildHvacStructuredMeasurements,
+  HVAC_PLAN_REVIEW_CANONICAL_KEYS,
   hvacQuickMeasurementSourcesFromProvenance,
+  syncHvacSkippedTakeoffQuickMeasurementSources,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
   reconcilePlumbingEquipmentScopeMeasurements,
@@ -16881,6 +16883,9 @@ export default function AIEstimateScopeAssumptionsModal({
       (measurements.planImportTradeKey as PlanTradeKey | null | undefined) ||
       singleTradeKey ||
       null;
+    if (tradeKeyForPending === 'hvac') {
+      return new Set<string>(HVAC_PLAN_REVIEW_CANONICAL_KEYS);
+    }
     const trade = tradeKeyForPending
       ? getPlanTradeConfiguration(tradeKeyForPending)
       : null;
@@ -18037,6 +18042,12 @@ export default function AIEstimateScopeAssumptionsModal({
         nextMeasurements = applyHvacProvenanceGuardToScopeMeasurements(
           nextMeasurements as Record<string, unknown>
         ) as typeof nextMeasurements;
+        nextMeasurements = {
+          ...nextMeasurements,
+          quickMeasurementSources: syncHvacSkippedTakeoffQuickMeasurementSources(
+            nextMeasurements as Record<string, unknown>
+          ),
+        };
         nextMeasurements = prepareScopeMeasurementsInputForUi(
           nextMeasurements,
           {
@@ -18312,6 +18323,20 @@ export default function AIEstimateScopeAssumptionsModal({
         ) ||
         String(checklist?.templateKey || '').toLowerCase() === 'hvac'
       ) {
+        if (
+          planImport.selectedTrade === 'hvac' ||
+          String(checklist?.templateKey || '').toLowerCase() === 'hvac'
+        ) {
+          next = applyHvacProvenanceGuardToScopeMeasurements(
+            next as Record<string, unknown>
+          ) as typeof next;
+          next = {
+            ...next,
+            quickMeasurementSources: syncHvacSkippedTakeoffQuickMeasurementSources(
+              next as Record<string, unknown>
+            ),
+          };
+        }
         next = prepareScopeMeasurementsInputForUi(next, {
           notes: scopeNotes,
           templateKey: checklist?.templateKey,
@@ -22423,6 +22448,7 @@ export default function AIEstimateScopeAssumptionsModal({
               });
             }}
             allowedFields={pendingPlanConfirmationAllowedFields}
+            tradeKey={singleTradeKey}
             darkMode={darkMode}
             captionColor={captionColor(darkMode, Colors)}
           />

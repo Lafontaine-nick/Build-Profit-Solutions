@@ -1,16 +1,25 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import {
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { ConfirmScopeChip } from '@/components/estimate/ConfirmScopeChip';
+import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
 import {
   confirmPendingPlanConfirmationRead,
   conflictChooserLowConfidenceAcceptedLine,
   formatPlanTakeoffQuantity,
   isPendingPlanReadConfirmed,
   pendingPlanConfirmationReads,
+  resolveHvacPendingPlanConfirmationReads,
   shortPlanTakeoffHelper,
   unconfirmPendingPlanConfirmationRead,
   type PendingPlanConfirmationRead,
 } from '@/utils/planMeasurementConflictUi';
+import { HVAC_PLAN_REVIEW_CANONICAL_KEYS } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 
 const SELECTED_GREEN = '#34d399';
 
@@ -18,6 +27,7 @@ export function PlanTakeoffPendingConfirmationStrip({
   measurements,
   setMeasurements,
   allowedFields,
+  tradeKey,
   darkMode,
   captionColor,
 }: {
@@ -26,16 +36,40 @@ export function PlanTakeoffPendingConfirmationStrip({
     React.SetStateAction<Record<string, unknown>>
   >;
   allowedFields?: Set<string>;
+  tradeKey?: string | null;
   darkMode: boolean;
   captionColor: string;
 }) {
-  const pending = useMemo(
-    () => pendingPlanConfirmationReads(measurements, allowedFields),
-    [measurements, allowedFields]
-  );
   const [trackedReads, setTrackedReads] = useState<
     PendingPlanConfirmationRead[]
   >([]);
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const pending = useMemo(() => {
+    const effectiveTradeKey =
+      tradeKey ||
+      (typeof measurements.planImportTradeKey === 'string'
+        ? measurements.planImportTradeKey
+        : null);
+    const isHvacPlanImport =
+      effectiveTradeKey === 'hvac' ||
+      (allowedFields &&
+        HVAC_PLAN_REVIEW_CANONICAL_KEYS.some(key => allowedFields.has(key)));
+    if (isHvacPlanImport) {
+      return resolveHvacPendingPlanConfirmationReads(measurements);
+    }
+    return pendingPlanConfirmationReads(measurements, allowedFields);
+  }, [measurements, allowedFields, tradeKey]);
+  const displayReads = useMemo(() => {
+    const byField = new Map<string, PendingPlanConfirmationRead>();
+    for (const read of trackedReads) {
+      byField.set(read.field, read);
+    }
+    for (const read of pending) {
+      byField.set(read.field, read);
+    }
+    return Array.from(byField.values());
+  }, [pending, trackedReads]);
 
   useEffect(() => {
     if (!pending.length) return;
@@ -49,12 +83,12 @@ export function PlanTakeoffPendingConfirmationStrip({
   }, [pending]);
 
   const allConfirmed =
-    trackedReads.length > 0 &&
-    trackedReads.every(read =>
+    displayReads.length > 0 &&
+    displayReads.every(read =>
       isPendingPlanReadConfirmed(measurements, read.field)
     );
 
-  if (!trackedReads.length || allConfirmed) return null;
+  if (!displayReads.length || allConfirmed) return null;
 
   const panelBorder = darkMode
     ? 'rgba(148,163,184,0.28)'
@@ -71,17 +105,28 @@ export function PlanTakeoffPendingConfirmationStrip({
         Unverified plan reads
       </Text>
       <Text style={[styles.hint, { color: captionColor }]}>
-        {trackedReads.length === 1
+        {displayReads.length === 1
           ? 'One quantity from plan takeoff still needs confirmation.'
-          : `${trackedReads.length} quantities from plan takeoff still need confirmation.`}{' '}
+          : `${displayReads.length} quantities from plan takeoff still need confirmation.`}{' '}
         Accept each count below or edit it in Quick measurements.
       </Text>
       <View style={styles.cardList}>
-        {trackedReads.map(reading => {
+        {displayReads.map(reading => {
           const confirmed = isPendingPlanReadConfirmed(
             measurements,
             reading.field
           );
+          const editedValue =
+            editValues[reading.field] == null
+              ? null
+              : Number(editValues[reading.field]);
+          const displayValue =
+            editedValue != null &&
+            Number.isFinite(editedValue) &&
+            editedValue > 0
+              ? editedValue
+              : reading.value;
+          const editing = editingField === reading.field;
           return (
             <View
               key={reading.field}
@@ -107,13 +152,13 @@ export function PlanTakeoffPendingConfirmationStrip({
                 {confirmed
                   ? conflictChooserLowConfidenceAcceptedLine(
                       reading.field,
-                      reading.value
+                      displayValue
                     )
                   : 'Needs manual confirmation'}
               </Text>
               <ConfirmScopeChip
                 selected={confirmed}
-                label={formatPlanTakeoffQuantity(reading.field, reading.value)}
+                label={formatPlanTakeoffQuantity(reading.field, displayValue)}
                 subtitle='Low-confidence plan read'
                 darkMode={darkMode}
                 onPress={() => {
@@ -122,16 +167,81 @@ export function PlanTakeoffPendingConfirmationStrip({
                       ? unconfirmPendingPlanConfirmationRead(
                           prev,
                           reading.field,
-                          reading.value
+                          displayValue
                         )
                       : confirmPendingPlanConfirmationRead(
                           prev,
                           reading.field,
-                          reading.value
+                          displayValue
                         )
                   );
                 }}
               />
+              <TouchableOpacity
+                onPress={() => {
+                  setEditingField(editing ? null : reading.field);
+                  if (!editing) {
+                    setEditValues(prev => ({
+                      ...prev,
+                      [reading.field]: String(displayValue),
+                    }));
+                  }
+                }}
+                activeOpacity={0.75}
+                style={styles.editButton}
+              >
+                <Text style={styles.editButtonText}>
+                  {editing ? 'Done editing' : 'Edit quantity'}
+                </Text>
+              </TouchableOpacity>
+              {editing ? (
+                <View
+                  style={[
+                    styles.editShell,
+                    {
+                      borderColor: panelBorder,
+                      backgroundColor: darkMode ? '#27272a' : '#f1f5f9',
+                    },
+                  ]}
+                >
+                  <TextInput
+                    value={
+                      editValues[reading.field] ?? String(displayValue)
+                    }
+                    autoFocus
+                    selectTextOnFocus
+                    returnKeyType='done'
+                    onSubmitEditing={() => setEditingField(null)}
+                    onChangeText={next => {
+                      setEditValues(prev => ({
+                        ...prev,
+                        [reading.field]: next,
+                      }));
+                      const value = Number(next);
+                      if (Number.isFinite(value) && value > 0) {
+                        setMeasurements(prev =>
+                          confirmPendingPlanConfirmationRead(
+                            prev,
+                            reading.field,
+                            value
+                          )
+                        );
+                      }
+                    }}
+                    {...aiScopeConfirmNumericKeyboardProps}
+                    keyboardType='decimal-pad'
+                    style={[
+                      styles.editInput,
+                      { color: darkMode ? '#f8fafc' : '#0f172a' },
+                    ]}
+                  />
+                  <Text style={[styles.editUnit, { color: captionColor }]}>
+                    {formatPlanTakeoffQuantity(reading.field, 1)
+                      .replace(/^1\s*/, '')
+                      .replace(/^1/, '')}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           );
         })}
@@ -179,5 +289,37 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginBottom: 12,
     fontWeight: '600',
+  },
+  editButton: {
+    alignSelf: 'center',
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  editButtonText: {
+    color: '#34d399',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  editShell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    minHeight: 44,
+    marginTop: 4,
+    paddingHorizontal: 12,
+  },
+  editInput: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    paddingVertical: 8,
+    textAlign: 'center',
+  },
+  editUnit: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginLeft: 6,
   },
 });

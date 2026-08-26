@@ -31,7 +31,9 @@ import {
   pendingPlanConfirmationReads,
   confirmPendingPlanConfirmationRead,
   isPendingPlanReadConfirmed,
+  resolveHvacPendingPlanConfirmationReads,
 } from '@/utils/planMeasurementConflictUi';
+import { syncHvacSkippedTakeoffQuickMeasurementSources } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import type { PlanMeasurementConflict } from '@/utils/estimateAiDraft';
 
 function conflict(
@@ -514,17 +516,25 @@ describe('planMeasurementConflictUi', () => {
       {
         hvacSystemCount: 2,
         hvacSupplyRegisterCount: 10,
+        hvacVentilationCount: 1,
         quickMeasurementSources: {
           hvacSystemCount: 'needs_confirmation',
           hvacSupplyRegisterCount: 'needs_confirmation',
+          hvacVentilationCount: 'needs_confirmation',
           hvacThermostatCount: 'plan_detected',
         },
       },
-      new Set(['hvacSystemCount', 'hvacSupplyRegisterCount', 'hvacThermostatCount'])
+      new Set([
+        'hvacSystemCount',
+        'hvacSupplyRegisterCount',
+        'hvacVentilationCount',
+        'hvacThermostatCount',
+      ])
     );
     expect(pending.map(row => row.field)).toEqual([
       'hvacSystemCount',
       'hvacSupplyRegisterCount',
+      'hvacVentilationCount',
     ]);
     const confirmed = confirmPendingPlanConfirmationRead(
       {
@@ -541,5 +551,172 @@ describe('planMeasurementConflictUi', () => {
     expect(
       pendingPlanConfirmationReads(confirmed, new Set(['hvacSystemCount']))
     ).toEqual([]);
+    expect(
+      pendingPlanConfirmationReads(
+        {
+          hvacSystemCount: 2,
+          quickMeasurementSources: {
+            hvacSystemCount: 'needs_confirmation',
+          },
+          measurementProvenance: {
+            hvacSystemCount: {
+              status: 'user_confirmed',
+              normalizedSource: 'USER_CONFIRMED',
+              value: 2,
+            },
+          },
+        },
+        new Set(['hvacSystemCount'])
+      )
+    ).toEqual([]);
+  });
+
+  it('resolveHvacPendingPlanConfirmationReads includes canonical HVAC rows tagged plan_detected with needs_review provenance', () => {
+    expect(
+      resolveHvacPendingPlanConfirmationReads({
+        planImportTradeKey: 'hvac',
+        hvacSystemCount: 2,
+        hvacVentilationCount: 1,
+        quickMeasurementSources: {
+          hvacSystemCount: 'detected_from_plan',
+          hvacVentilationCount: 'plan_verified',
+        },
+        measurementProvenance: {
+          hvacSystemCount: {
+            status: 'needs_review',
+            normalizedSource: 'NEEDS_REVIEW',
+            pricingEligible: false,
+            value: 2,
+          },
+          hvacVentilationCount: {
+            source: 'pdf_text_instance_tags',
+            status: 'needs_review',
+            normalizedSource: 'NEEDS_REVIEW',
+            pricingEligible: false,
+            value: 1,
+          },
+        },
+      }).map(row => row.field)
+    ).toEqual(['hvacSystemCount', 'hvacVentilationCount']);
+  });
+
+  it('resolveHvacPendingPlanConfirmationReads returns all unconfirmed canonical HVAC rows skipped in takeoff', () => {
+    const measurements = {
+      planImportTradeKey: 'hvac',
+      hvacSystemCount: 2,
+      hvacSystemTons: 5,
+      hvacDuctworkLf: 180,
+      hvacSupplyRegisterCount: 14,
+      hvacReturnGrilleCount: 4,
+      hvacThermostatCount: 2,
+      hvacVentilationCount: 1,
+      quickMeasurementSources: {
+        hvacSystemCount: 'needs_confirmation',
+        hvacSystemTons: 'needs_confirmation',
+        hvacDuctworkLf: 'needs_confirmation',
+        hvacSupplyRegisterCount: 'needs_confirmation',
+        hvacReturnGrilleCount: 'needs_confirmation',
+        hvacThermostatCount: 'needs_confirmation',
+        hvacVentilationCount: 'needs_confirmation',
+      },
+      measurementProvenance: Object.fromEntries(
+        [
+          'hvacSystemCount',
+          'hvacSystemTons',
+          'hvacDuctworkLf',
+          'hvacSupplyRegisterCount',
+          'hvacReturnGrilleCount',
+          'hvacThermostatCount',
+          'hvacVentilationCount',
+        ].map(field => [
+          field,
+          {
+            status: 'needs_review',
+            normalizedSource: 'NEEDS_REVIEW',
+            pricingEligible: false,
+            value: 1,
+          },
+        ])
+      ),
+    };
+    expect(
+      resolveHvacPendingPlanConfirmationReads(measurements).map(row => row.field)
+    ).toEqual([
+      'hvacSystemCount',
+      'hvacSystemTons',
+      'hvacDuctworkLf',
+      'hvacSupplyRegisterCount',
+      'hvacReturnGrilleCount',
+      'hvacThermostatCount',
+      'hvacVentilationCount',
+    ]);
+  });
+
+  it('resolveHvacPendingPlanConfirmationReads omits rows confirmed during takeoff review', () => {
+    expect(
+      resolveHvacPendingPlanConfirmationReads({
+        planImportTradeKey: 'hvac',
+        hvacSystemCount: 2,
+        hvacVentilationCount: 1,
+        quickMeasurementSources: {
+          hvacSystemCount: 'contractor_confirmed_from_plan_review',
+          hvacVentilationCount: 'needs_confirmation',
+        },
+        measurementProvenance: {
+          hvacSystemCount: {
+            status: 'user_confirmed',
+            normalizedSource: 'USER_CONFIRMED',
+            value: 2,
+          },
+          hvacVentilationCount: {
+            status: 'needs_review',
+            normalizedSource: 'NEEDS_REVIEW',
+            value: 1,
+          },
+        },
+      }).map(row => row.field)
+    ).toEqual(['hvacVentilationCount']);
+  });
+
+  it('resolveHvacPendingPlanConfirmationReads resolves values from itemQuantities when measurement keys are empty', () => {
+    expect(
+      resolveHvacPendingPlanConfirmationReads({
+        planImportTradeKey: 'hvac',
+        itemQuantities: {
+          ventilation: { quantity: 3, unit: 'each', quantitySource: 'plan_detected' },
+        },
+        quickMeasurementSources: {
+          hvacVentilationCount: 'needs_confirmation',
+        },
+        measurementProvenance: {
+          hvacVentilationCount: {
+            status: 'needs_review',
+            normalizedSource: 'NEEDS_REVIEW',
+            value: 3,
+          },
+        },
+      }).map(row => [row.field, row.value])
+    ).toEqual([['hvacVentilationCount', 3]]);
+  });
+
+  it('syncHvacSkippedTakeoffQuickMeasurementSources tags canonical needs_review HVAC rows', () => {
+    expect(
+      syncHvacSkippedTakeoffQuickMeasurementSources({
+        hvacDuctworkLf: 150,
+        measurementProvenance: {
+          hvacDuctworkLf: {
+            status: 'needs_review',
+            normalizedSource: 'NEEDS_REVIEW',
+            pricingEligible: false,
+            value: 150,
+          },
+        },
+        quickMeasurementSources: {
+          hvacDuctworkLf: 'detected_from_plan',
+        },
+      })
+    ).toEqual({
+      hvacDuctworkLf: 'needs_confirmation',
+    });
   });
 });

@@ -29,6 +29,13 @@ import {
 } from '@/utils/planImportRunner';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import {
+  applyHvacProvenanceGuardToScopeMeasurements,
+  HVAC_PLAN_REVIEW_CANONICAL_KEYS,
+  hvacQuickMeasurementSourcesFromProvenance,
+  resolveHvacPlanReviewMeasurements,
+  syncHvacSkippedTakeoffQuickMeasurementSources,
+} from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import {
   PLAN_EXPORT_TRADE_CONFIGURATIONS,
   PLAN_TRADE_CONFIGURATIONS,
   filterPlanMeasurementsForTrade,
@@ -38,10 +45,6 @@ import {
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
-import {
-  applyHvacProvenanceGuardToScopeMeasurements,
-  hvacQuickMeasurementSourcesFromProvenance,
-} from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import type {
   PlumbingPerformerMode,
   PlumbingWorkflowMode,
@@ -92,6 +95,67 @@ type PlanRepeatSnapshot = {
 // complete wall+opening+attic result so a later empty vision pass cannot wipe it.
 let lastPlanImportSnapshot: PlanRepeatSnapshot | null = null;
 let lastGoodInsulationSnapshot: PlanRepeatSnapshot | null = null;
+
+function positiveRepeatImportValue(value: unknown): number | null {
+  const parsed = Number(String(value ?? '').replace(/,/g, '').trim());
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
+ * A repeat AI pass must not erase an HVAC read from the same document. Keep the
+ * prior value visible, but mark it for confirmation because the new pass did
+ * not reproduce it.
+ */
+function applyRepeatedHvacImportStability(
+  takeoff: PlanToMeasurementsResult,
+  previous: PlanRepeatSnapshot | null,
+  fingerprint: string
+): PlanToMeasurementsResult {
+  if (!previous || previous.fingerprint !== fingerprint) return takeoff;
+
+  const currentMeasurements = { ...(takeoff.measurements || {}) };
+  const previousMeasurements = previous.measurements || {};
+  const provenance = { ...(takeoff.measurementProvenance || {}) };
+  const currentResolved = resolveHvacPlanReviewMeasurements(takeoff);
+  let changed = false;
+
+  for (const key of HVAC_PLAN_REVIEW_CANONICAL_KEYS) {
+    const previousValue = positiveRepeatImportValue(previousMeasurements[key]);
+    if (previousValue == null) continue;
+    const currentValue =
+      positiveRepeatImportValue(currentMeasurements[key]) ??
+      positiveRepeatImportValue(currentResolved[key]);
+    if (currentValue != null) continue;
+
+    currentMeasurements[key] = previousMeasurements[key];
+    const existing = provenance[key];
+    provenance[key] = {
+      ...(existing && typeof existing === 'object' ? existing : {}),
+      value: previousValue,
+      source:
+        existing &&
+        typeof existing === 'object' &&
+        typeof (existing as { source?: unknown }).source === 'string'
+          ? (existing as { source: string }).source
+          : 'previous_same_plan_import',
+      normalizedSource: 'NEEDS_REVIEW',
+      status: 'needs_review',
+      pricingEligible: false,
+      deterministicRepeatedImportStable: false,
+      reason:
+        'The same imported plan did not reproduce this HVAC quantity; confirm it before pricing.',
+    };
+    changed = true;
+  }
+
+  return changed
+    ? {
+        ...takeoff,
+        measurements: currentMeasurements,
+        measurementProvenance: provenance,
+      }
+    : takeoff;
+}
 
 function planImportFingerprint(
   pages: Array<{ base64: string; mimeType: string; name?: string }>,
@@ -522,16 +586,18 @@ export default function EstimatePlanImportStrip({
           preparedTakeoff.measurements
         );
         const persistedPrevious =
-          existingPlanImport?.planImportFingerprint === fingerprint &&
-          existingPlanImport.selectedTrade === 'insulation'
+          existingPlanImport?.planImportFingerprint === fingerprint
             ? {
                 fingerprint,
-                // Canonicalize values restored from the parent as well, so an
-                // older gross-wall import cannot become the stable value.
-                measurements: hydrateInsulationPlanMeasurementsFromTakeoff(
-                  persistedMeasurements,
-                  persistedPlanFacts
-                ),
+                measurements:
+                  existingPlanImport.selectedTrade === 'insulation'
+                    ? // Canonicalize values restored from the parent as well, so an
+                      // older gross-wall import cannot become the stable value.
+                      hydrateInsulationPlanMeasurementsFromTakeoff(
+                        persistedMeasurements,
+                        persistedPlanFacts
+                      )
+                    : persistedMeasurements,
               }
             : null;
         const previousPlanImport =
@@ -561,10 +627,18 @@ export default function EstimatePlanImportStrip({
           (lastGoodInsulationSnapshot?.fingerprint === fingerprint
             ? lastGoodInsulationSnapshot
             : null);
+        const hvacStabilized =
+          selectedTrade === 'hvac'
+            ? applyRepeatedHvacImportStability(
+                preparedTakeoff,
+                previousPlanImport,
+                fingerprint
+              )
+            : preparedTakeoff;
         const afterRepeatStability = applyRepeatedPlumbingImportConflicts(
           applyRepeatedElectricalImportStability(
             applyRepeatedInsulationImportStability(
-              preparedTakeoff,
+              hvacStabilized,
               previousPlanImport,
               fingerprint
             ),
@@ -580,7 +654,16 @@ export default function EstimatePlanImportStrip({
             : afterRepeatStability;
         const nextPlanSnapshot = {
           fingerprint,
-          measurements: { ...(stabilized.measurements || {}) },
+          measurements: {
+            ...(stabilized.measurements || {}),
+            ...(selectedTrade === 'hvac'
+              ? Object.fromEntries(
+                  Object.entries(resolveHvacPlanReviewMeasurements(stabilized))
+                    .filter(([, value]) => positiveRepeatImportValue(value) != null)
+                    .map(([key, value]) => [key, Number(value)])
+                )
+              : {}),
+          },
         };
         previousPlanImportRef.current = nextPlanSnapshot;
         lastPlanImportSnapshot = nextPlanSnapshot;
@@ -622,6 +705,17 @@ export default function EstimatePlanImportStrip({
                 stabilized.scope.detections,
                 selection.mode,
                 selection.trade.key
+              ),
+            };
+          }
+          if (selection.trade.key === 'hvac') {
+            const resolved = resolveHvacPlanReviewMeasurements(stabilized);
+            stamped.measurements = {
+              ...stamped.measurements,
+              ...Object.fromEntries(
+                Object.entries(resolved)
+                  .filter(([, value]) => value.trim() !== '')
+                  .map(([key, value]) => [key, Number(value)])
               ),
             };
           }
@@ -753,6 +847,7 @@ export default function EstimatePlanImportStrip({
         plumbingReviewStatus?: PlanToMeasurementsResult['plumbingReviewStatus'];
         waterHeaterDetail?: PlanToMeasurementsResult['waterHeaterDetail'];
         gasApplianceScope?: PlanToMeasurementsResult['gasApplianceScope'];
+        quickMeasurementSources?: PlanToMeasurementsResult['quickMeasurementSources'];
       }
     ) => {
       const takeoff = planReview;
@@ -985,6 +1080,7 @@ export default function EstimatePlanImportStrip({
             ...(normalizedTrade?.quickMeasurementSources || {}),
             ...provenanceQuickMeasurementSources,
             ...framingQuickSources,
+            ...(metadata?.quickMeasurementSources || {}),
           }
         ),
         Object.keys(tradeMeasurements)
@@ -995,6 +1091,17 @@ export default function EstimatePlanImportStrip({
               ...tradeMeasurements,
               measurementProvenance: appliedProvenance,
               quickMeasurementSources: mergedQuickMeasurementSources,
+            })
+          : null;
+      const hvacQuickMeasurementSources =
+        selection.trade?.key === 'hvac' && hvacGuarded
+          ? syncHvacSkippedTakeoffQuickMeasurementSources({
+              ...tradeMeasurements,
+              measurementProvenance:
+                hvacGuarded.measurementProvenance || appliedProvenance,
+              quickMeasurementSources:
+                hvacGuarded.quickMeasurementSources ||
+                mergedQuickMeasurementSources,
             })
           : null;
 
@@ -1021,6 +1128,7 @@ export default function EstimatePlanImportStrip({
             : takeoff.planFacts,
         fieldConfidence: takeoff.fieldConfidence,
         quickMeasurementSources:
+          hvacQuickMeasurementSources ||
           (hvacGuarded?.quickMeasurementSources as Record<string, string>) ||
           mergedQuickMeasurementSources,
         measurementProvenance:

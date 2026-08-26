@@ -7,7 +7,10 @@ import { measurementDisplayLabel } from '@/utils/planTakeoffReviewUi';
 import { electricalCardForMeasurementKey } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { PLUMBING_CARDS } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { FRAMING_CARDS } from '@/utils/subcontractorTrade/framingPlanConvergence';
-import { hvacCardForMeasurementKey } from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import {
+  hvacCardForMeasurementKey,
+  HVAC_PLAN_REVIEW_CANONICAL_KEYS,
+} from '@/utils/subcontractorTrade/hvacPlanConvergence';
 
 export type PlanTakeoffUnit = 'EA' | 'LF' | 'A' | 'sqft' | 'ton';
 export type PlanConflictChoice = number | 'manual';
@@ -787,6 +790,7 @@ export function pendingPlanConfirmationReads(
   for (const [field, source] of Object.entries(sources)) {
     if (source !== 'needs_confirmation') continue;
     if (allowedFields?.size && !allowedFields.has(field)) continue;
+    if (isPendingPlanReadConfirmed(measurements, field)) continue;
     const value = Number(measurements?.[field]);
     if (!Number.isFinite(value) || value <= 0) continue;
     if (seen.has(field)) continue;
@@ -812,6 +816,81 @@ export function pendingPlanConfirmationReads(
     out.push({ field, value, label, subtext });
   }
   return out;
+}
+
+function hvacProvenanceNeedsReview(entry: unknown): boolean {
+  if (!entry || typeof entry !== 'object') return false;
+  const record = entry as {
+    status?: string;
+    normalizedSource?: string;
+    pricingEligible?: boolean;
+  };
+  return (
+    String(record.status || '').toLowerCase() === 'needs_review' ||
+    String(record.normalizedSource || '').toUpperCase() === 'NEEDS_REVIEW' ||
+    record.pricingEligible === false
+  );
+}
+
+function hvacPendingMeasurementValue(
+  measurements: Record<string, unknown> | null | undefined,
+  field: string,
+  provenanceEntry: unknown
+): number | null {
+  const direct = Number(measurements?.[field]);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  if (!provenanceEntry || typeof provenanceEntry !== 'object') return null;
+  const record = provenanceEntry as { value?: unknown; selectedValue?: unknown };
+  const fromProvenance = Number(record.value ?? record.selectedValue);
+  return Number.isFinite(fromProvenance) && fromProvenance > 0
+    ? fromProvenance
+    : null;
+}
+
+/** HVAC plan reads skipped in takeoff review — surface again at the top of Step 2. */
+export function resolveHvacPendingPlanConfirmationReads(
+  measurements: Record<string, unknown> | null | undefined
+): PendingPlanConfirmationRead[] {
+  const provenance =
+    measurements?.measurementProvenance &&
+    typeof measurements.measurementProvenance === 'object'
+      ? (measurements.measurementProvenance as Record<string, unknown>)
+      : {};
+  const out: PendingPlanConfirmationRead[] = [];
+  for (const field of HVAC_PLAN_REVIEW_CANONICAL_KEYS) {
+    if (isPendingPlanReadConfirmed(measurements, field)) continue;
+    const value = resolveHvacPendingMeasurementValue(
+      measurements,
+      field,
+      provenance[field]
+    );
+    if (value == null) continue;
+    const { label, subtext } = conflictFieldDisplay(field);
+    out.push({ field, value, label, subtext });
+  }
+  return out;
+}
+
+function resolveHvacPendingMeasurementValue(
+  measurements: Record<string, unknown> | null | undefined,
+  field: string,
+  provenanceEntry: unknown
+): number | null {
+  const direct = hvacPendingMeasurementValue(
+    measurements,
+    field,
+    provenanceEntry
+  );
+  if (direct != null) return direct;
+  const card = hvacCardForMeasurementKey(field);
+  if (!card?.itemId) return null;
+  const entry = (
+    measurements?.itemQuantities as
+      | Record<string, { quantity?: unknown } | undefined>
+      | undefined
+  )?.[card.itemId];
+  const quantity = Number(entry?.quantity);
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
 }
 
 export function isPendingPlanReadConfirmed(

@@ -178,6 +178,125 @@ export const HVAC_PLAN_QUICK_MEASUREMENT_KEYS = [
   'hvacVentilationCount',
 ] as const;
 
+/** Seven review-row quantities shown in Review HVAC Takeoff. */
+export const HVAC_PLAN_REVIEW_CANONICAL_KEYS = [
+  'hvacSystemCount',
+  'hvacSystemTons',
+  'hvacDuctworkLf',
+  'hvacSupplyRegisterCount',
+  'hvacReturnGrilleCount',
+  'hvacThermostatCount',
+  'hvacVentilationCount',
+] as const;
+
+export type HvacPlanReviewCanonicalKey =
+  (typeof HVAC_PLAN_REVIEW_CANONICAL_KEYS)[number];
+
+export type HvacPlanReviewTakeoffInput = {
+  measurements?: Record<string, unknown> | null;
+  lowConfidence?: Array<{ field?: string | null; value?: unknown }> | null;
+  measurementProvenance?: Record<string, unknown> | null;
+  itemQuantities?: Record<
+    string,
+    { quantity?: unknown; unit?: string | null } | undefined
+  > | null;
+};
+
+function provenanceMeasurementValue(entry: unknown): number | null {
+  if (!entry || typeof entry !== 'object') return null;
+  const record = entry as Record<string, unknown>;
+  return (
+    positiveNumber(record.value) ?? positiveNumber(record.selectedValue)
+  );
+}
+
+function itemQuantityForHvacReviewKey(
+  key: HvacPlanReviewCanonicalKey,
+  itemQuantities: HvacPlanReviewTakeoffInput['itemQuantities']
+): number | null {
+  const card = hvacCardForMeasurementKey(key);
+  if (!card?.itemId) return null;
+  const entry = itemQuantities?.[card.itemId];
+  const quantity = positiveNumber(entry?.quantity);
+  if (quantity == null) return null;
+  if (card.itemId === 'hvac') {
+    if (key === 'hvacSystemCount' && entry?.unit === 'ton') return null;
+    if (key === 'hvacSystemTons' && entry?.unit === 'each') return null;
+  }
+  return quantity;
+}
+
+/**
+ * Resolve the seven HVAC plan-review quantities from every takeoff source the
+ * backend may populate (measurements, withheld low-confidence reads, provenance,
+ * and structured itemQuantities).
+ */
+export function resolveHvacPlanReviewMeasurements(
+  takeoff: HvacPlanReviewTakeoffInput | null | undefined
+): Record<HvacPlanReviewCanonicalKey, string> {
+  const measurements = takeoff?.measurements || {};
+  const provenance = takeoff?.measurementProvenance || {};
+  const lowConfidenceByField = new Map(
+    (takeoff?.lowConfidence || []).map(reading => [
+      String(reading?.field || '').trim(),
+      reading?.value,
+    ])
+  );
+  const itemQuantities = takeoff?.itemQuantities || {};
+  const out = {} as Record<HvacPlanReviewCanonicalKey, string>;
+
+  for (const key of HVAC_PLAN_REVIEW_CANONICAL_KEYS) {
+    const resolved =
+      positiveNumber(measurements[key]) ??
+      positiveNumber(lowConfidenceByField.get(key)) ??
+      provenanceMeasurementValue(provenance[key]) ??
+      itemQuantityForHvacReviewKey(key, itemQuantities);
+    out[key] = resolved != null ? String(resolved) : '';
+  }
+
+  return out;
+}
+
+/** Build the seven HVAC takeoff review rows from low-confidence reads and resolved measurements. */
+export function buildHvacPlanReviewLowConfidenceReadings(
+  takeoff: HvacPlanReviewTakeoffInput | null | undefined,
+  overrides?: Record<string, number | string | null | undefined>
+): Array<{ field: HvacPlanReviewCanonicalKey; value: number }> {
+  const resolved = resolveHvacPlanReviewMeasurements(takeoff);
+  const lowConfidenceByField = new Map(
+    (takeoff?.lowConfidence || []).map(reading => [
+      String(reading?.field || '').trim(),
+      positiveNumber(reading?.value),
+    ])
+  );
+
+  return HVAC_PLAN_REVIEW_CANONICAL_KEYS.map(key => {
+    const override = positiveNumber(overrides?.[key]);
+    const value =
+      override ??
+      lowConfidenceByField.get(key) ??
+      positiveNumber(resolved[key]) ??
+      0;
+    return { field: key, value };
+  });
+}
+
+/** Canonical HVAC reads the contractor skipped in takeoff — surface again in Step 2. */
+export function hvacTakeoffSkippedCanonicalReadings(
+  readings: Array<{ field: string; value: number }>,
+  accepted: Record<string, boolean>
+): Array<{ field: HvacPlanReviewCanonicalKey; value: number }> {
+  const byField = new Map(
+    readings.map(reading => [String(reading.field || '').trim(), reading])
+  );
+  return HVAC_PLAN_REVIEW_CANONICAL_KEYS.flatMap(key => {
+    if (accepted[key]) return [];
+    const value = positiveNumber(byField.get(key)?.value);
+    if (value == null) return [];
+    return [{ field: key, value }];
+  });
+}
+
 /** All HVAC quick-measurement keys persisted through Confirm Scope round-trips. */
 export const HVAC_QUANTITY_KEYS = [
   ...HVAC_PLAN_REVIEW_MEASUREMENT_KEYS,
@@ -397,7 +516,9 @@ function isDeterministicHvacProvenance(entry: unknown): boolean {
   }
   if (
     normalized === 'CONTRACTOR_CONFIRMED_FROM_PLAN_REVIEW' ||
-    String(record.confirmedFrom || '').toUpperCase() === 'PLAN_REVIEW'
+    normalized === 'USER_CONFIRMED' ||
+    String(record.confirmedFrom || '').toUpperCase() === 'PLAN_REVIEW' ||
+    String(record.status || '').toLowerCase() === 'user_confirmed'
   ) {
     return true;
   }
@@ -427,7 +548,9 @@ function provenanceEntryToQuickMeasurementSource(
   if (
     confirmedFrom === 'USER_CONFIRMED' ||
     confirmedFrom === 'PLAN_REVIEW' ||
-    normalized === 'CONTRACTOR_CONFIRMED_FROM_PLAN_REVIEW'
+    normalized === 'CONTRACTOR_CONFIRMED_FROM_PLAN_REVIEW' ||
+    normalized === 'USER_CONFIRMED' ||
+    status === 'user_confirmed'
   ) {
     return 'contractor_confirmed_from_plan_review';
   }
@@ -487,18 +610,20 @@ export function applyHvacProvenanceGuardToScopeMeasurements(
     const value = positiveNumber(scopeMeasurements[key]);
     if (value == null) continue;
     const entry = provenance[key];
-    if (isDeterministicHvacProvenance(entry)) {
-      sources[key] = provenanceEntryToQuickMeasurementSource(entry);
-      continue;
-    }
     if (deterministic.has(key)) continue;
     if (
       entry &&
       typeof entry === 'object' &&
-      String((entry as Record<string, unknown>).normalizedSource || '').toUpperCase() ===
-        'NEEDS_REVIEW'
+      (String((entry as Record<string, unknown>).status || '').toLowerCase() ===
+        'needs_review' ||
+        String((entry as Record<string, unknown>).normalizedSource || '')
+          .toUpperCase() === 'NEEDS_REVIEW')
     ) {
       sources[key] = 'needs_confirmation';
+      continue;
+    }
+    if (isDeterministicHvacProvenance(entry)) {
+      sources[key] = provenanceEntryToQuickMeasurementSource(entry);
       continue;
     }
     if (
@@ -524,4 +649,38 @@ export function applyHvacProvenanceGuardToScopeMeasurements(
     measurementProvenance: provenance,
     quickMeasurementSources: sources,
   };
+}
+
+/** Force needs_confirmation QM tags for canonical HVAC rows still awaiting review. */
+export function syncHvacSkippedTakeoffQuickMeasurementSources(
+  scopeMeasurements: Record<string, unknown>
+): Record<string, string> {
+  const provenance =
+    scopeMeasurements.measurementProvenance &&
+    typeof scopeMeasurements.measurementProvenance === 'object'
+      ? (scopeMeasurements.measurementProvenance as Record<string, unknown>)
+      : {};
+  const sources = {
+    ...((scopeMeasurements.quickMeasurementSources as Record<string, string>) ||
+      {}),
+  };
+  for (const key of HVAC_PLAN_REVIEW_CANONICAL_KEYS) {
+    const value = positiveNumber(scopeMeasurements[key]);
+    if (value == null) continue;
+    const entry = provenance[key];
+    if (!entry || typeof entry !== 'object') continue;
+    const record = entry as {
+      status?: string;
+      normalizedSource?: string;
+      pricingEligible?: boolean;
+    };
+    const needsReview =
+      String(record.status || '').toLowerCase() === 'needs_review' ||
+      String(record.normalizedSource || '').toUpperCase() === 'NEEDS_REVIEW' ||
+      record.pricingEligible === false;
+    if (needsReview) {
+      sources[key] = 'needs_confirmation';
+    }
+  }
+  return sources;
 }

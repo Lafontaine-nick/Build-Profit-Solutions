@@ -5,6 +5,9 @@ import {
   hvacQuickMeasurementSourcesFromProvenance,
   hvacSystemTierBudgetSplit,
   HVAC_PLAN_EXPORT_SCOPE_ITEM_IDS,
+  buildHvacPlanReviewLowConfidenceReadings,
+  hvacTakeoffSkippedCanonicalReadings,
+  resolveHvacPlanReviewMeasurements,
   snapHvacTonnageTier,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
@@ -195,5 +198,102 @@ describe('hvacPlanConvergence', () => {
       'hvacSystemCount',
       'hvacDuctworkLf',
     ]);
+  });
+
+  it('resolveHvacPlanReviewMeasurements prefers numeric measurements but falls back to low-confidence and provenance', () => {
+    expect(
+      resolveHvacPlanReviewMeasurements({
+        measurements: {
+          hvacSystemCount: '',
+          hvacSystemTons: 'needs_confirmation',
+        },
+        lowConfidence: [
+          { field: 'hvacSystemCount', value: 2 },
+          { field: 'hvacSystemTons', value: 5 },
+          { field: 'hvacDuctworkLf', value: 150 },
+          { field: 'hvacVentilationCount', value: 1 },
+        ],
+        measurementProvenance: {
+          hvacSupplyRegisterCount: {
+            value: 10,
+            normalizedSource: 'NEEDS_REVIEW',
+          },
+          hvacReturnGrilleCount: {
+            value: 8,
+            normalizedSource: 'NEEDS_REVIEW',
+          },
+        },
+        itemQuantities: {
+          thermostat: { quantity: 2, unit: 'each' },
+        },
+      })
+    ).toEqual({
+      hvacSystemCount: '2',
+      hvacSystemTons: '5',
+      hvacDuctworkLf: '150',
+      hvacSupplyRegisterCount: '10',
+      hvacReturnGrilleCount: '8',
+      hvacThermostatCount: '2',
+      hvacVentilationCount: '1',
+    });
+  });
+
+  it('buildHvacPlanReviewLowConfidenceReadings merges low-confidence and resolved measurements for all review rows', () => {
+    expect(
+      buildHvacPlanReviewLowConfidenceReadings({
+        measurements: { hvacSystemCount: 2 },
+        lowConfidence: [
+          { field: 'hvacDuctworkLf', value: 150 },
+          { field: 'hvacVentilationCount', value: 1 },
+        ],
+        measurementProvenance: {
+          hvacSupplyRegisterCount: {
+            value: 10,
+            normalizedSource: 'NEEDS_REVIEW',
+          },
+        },
+      })
+    ).toEqual([
+      { field: 'hvacSystemCount', value: 2 },
+      { field: 'hvacSystemTons', value: 0 },
+      { field: 'hvacDuctworkLf', value: 150 },
+      { field: 'hvacSupplyRegisterCount', value: 10 },
+      { field: 'hvacReturnGrilleCount', value: 0 },
+      { field: 'hvacThermostatCount', value: 0 },
+      { field: 'hvacVentilationCount', value: 1 },
+    ]);
+  });
+
+  it('hvacTakeoffSkippedCanonicalReadings returns unaccepted canonical rows for Step 2', () => {
+    const readings = buildHvacPlanReviewLowConfidenceReadings({
+      measurements: { hvacSystemCount: 2 },
+      lowConfidence: [{ field: 'hvacVentilationCount', value: 1 }],
+    });
+    expect(
+      hvacTakeoffSkippedCanonicalReadings(readings, {
+        hvacSystemCount: true,
+      }).map(row => row.field)
+    ).toEqual(['hvacVentilationCount']);
+  });
+
+  it('applyHvacProvenanceGuard keeps needs_review ahead of deterministic HVAC tags', () => {
+    const guarded = applyHvacProvenanceGuardToScopeMeasurements({
+      hvacVentilationCount: 1,
+      measurementProvenance: {
+        hvacVentilationCount: {
+          source: 'pdf_text_instance_tags',
+          normalizedSource: 'NEEDS_REVIEW',
+          status: 'needs_review',
+          pricingEligible: false,
+          value: 1,
+        },
+      },
+      quickMeasurementSources: {
+        hvacVentilationCount: 'plan_verified',
+      },
+    });
+    expect(guarded.quickMeasurementSources).toEqual({
+      hvacVentilationCount: 'needs_confirmation',
+    });
   });
 });

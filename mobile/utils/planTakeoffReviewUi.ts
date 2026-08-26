@@ -1583,6 +1583,8 @@ export function measurementSourceLabel(input: {
     });
   }
 
+  if (!(Number(input.value) > 0)) return null;
+
   return formatPlanSourceLabel({
     kind: 'plan_generic',
     page: page ?? undefined,

@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
 import { ConfirmScopeChip } from '@/components/estimate/ConfirmScopeChip';
 import type {
   PlanLowConfidenceField,
@@ -7,7 +14,6 @@ import type {
 } from '@/utils/estimateAiDraft';
 import {
   conflictFieldDisplay,
-  conflictChooserConfirmedLine,
   conflictChooserLowConfidenceAcceptedLine,
   formatPlanTakeoffQuantity,
   shortPlanTakeoffHelper,
@@ -23,6 +29,8 @@ export function PlanTakeoffLowConfidenceChooser({
   unreadable,
   accepted,
   onToggleAccept,
+  onEditValue,
+  includeEmptyReadings = false,
   darkMode,
   captionColor,
 }: {
@@ -30,11 +38,22 @@ export function PlanTakeoffLowConfidenceChooser({
   unreadable: PlanUnreadableField[];
   accepted: Record<string, boolean>;
   onToggleAccept: (field: string, value: number) => void;
+  onEditValue?: (field: string, value: string) => void;
+  includeEmptyReadings?: boolean;
   darkMode: boolean;
   captionColor: string;
 }) {
-  const total = lowConfidence.length + unreadable.length;
+  const visibleLowConfidence = includeEmptyReadings
+    ? lowConfidence.filter(reading => String(reading.field || '').trim())
+    : lowConfidence.filter(reading => {
+        const field = String(reading.field || '').trim();
+        const value = Number(reading.value);
+        return Boolean(field) && value > 0;
+      });
+  const total = visibleLowConfidence.length + unreadable.length;
   const [expanded, setExpanded] = useState(true);
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
   if (!total) return null;
 
   const panelBorder = darkMode
@@ -75,12 +94,26 @@ export function PlanTakeoffLowConfidenceChooser({
       ) : null}
       {expanded ? (
         <View style={styles.cardList}>
-          {lowConfidence.map(reading => {
+          {visibleLowConfidence.map(reading => {
             const field = String(reading.field || '').trim();
             const value = Number(reading.value);
-            if (!field || !(value > 0)) return null;
+            if (!field) return null;
+            if (!(value > 0) && !includeEmptyReadings) return null;
             const { label, subtext } = conflictFieldDisplay(field);
             const confirmed = Boolean(accepted[field]);
+            const editedValue =
+              editValues[field] == null ? null : Number(editValues[field]);
+            const displayValue =
+              editedValue != null &&
+              Number.isFinite(editedValue) &&
+              editedValue > 0
+                ? editedValue
+                : value;
+            const hasQuantity = displayValue > 0;
+            const editing = editingField === field;
+            const unitHint = formatPlanTakeoffQuantity(field, 1)
+              .replace(/^1\s*/, '')
+              .replace(/^1/, '');
             return (
               <View
                 key={`low-${field}`}
@@ -103,17 +136,94 @@ export function PlanTakeoffLowConfidenceChooser({
                     { color: confirmed ? SELECTED_GREEN : '#fbbf24' },
                   ]}
                 >
-                  {confirmed
-                    ? conflictChooserLowConfidenceAcceptedLine(field, value)
+                  {confirmed && hasQuantity
+                    ? conflictChooserLowConfidenceAcceptedLine(
+                        field,
+                        displayValue
+                      )
                     : 'Needs manual confirmation'}
                 </Text>
-                <ConfirmScopeChip
-                  selected={confirmed}
-                  label={formatPlanTakeoffQuantity(field, value)}
-                  subtitle='Low-confidence plan read'
-                  darkMode={darkMode}
-                  onPress={() => onToggleAccept(field, value)}
-                />
+                {hasQuantity ? (
+                  <ConfirmScopeChip
+                    selected={confirmed}
+                    label={formatPlanTakeoffQuantity(field, displayValue)}
+                    subtitle='Low-confidence plan read'
+                    darkMode={darkMode}
+                    onPress={() => onToggleAccept(field, displayValue)}
+                  />
+                ) : (
+                  <ConfirmScopeChip
+                    selected={false}
+                    label={`Enter ${unitHint}`.trim()}
+                    subtitle='No plan read yet'
+                    darkMode={darkMode}
+                    onPress={() => {
+                      setEditingField(field);
+                      setEditValues(prev => ({
+                        ...prev,
+                        [field]: prev[field] ?? '',
+                      }));
+                    }}
+                  />
+                )}
+                {onEditValue ? (
+                  <>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setEditingField(editing ? null : field);
+                        if (!editing) {
+                          setEditValues(prev => ({
+                            ...prev,
+                            [field]: String(displayValue),
+                          }));
+                        }
+                      }}
+                      activeOpacity={0.75}
+                      style={styles.editButton}
+                    >
+                      <Text style={styles.editButtonText}>
+                        {editing ? 'Done editing' : 'Edit quantity'}
+                      </Text>
+                    </TouchableOpacity>
+                    {editing ? (
+                      <View
+                        style={[
+                          styles.editShell,
+                          {
+                            borderColor: panelBorder,
+                            backgroundColor: darkMode ? '#27272a' : '#f1f5f9',
+                          },
+                        ]}
+                      >
+                        <TextInput
+                          value={editValues[field] ?? String(displayValue)}
+                          autoFocus
+                          selectTextOnFocus
+                          returnKeyType='done'
+                          onSubmitEditing={() => setEditingField(null)}
+                          onChangeText={next => {
+                            setEditValues(prev => ({
+                              ...prev,
+                              [field]: next,
+                            }));
+                            onEditValue(field, next);
+                          }}
+                          {...aiScopeConfirmNumericKeyboardProps}
+                          keyboardType='decimal-pad'
+                          style={[
+                            styles.editInput,
+                            { color: darkMode ? '#f8fafc' : '#0f172a' },
+                          ]}
+                        />
+                        <Text style={[styles.editUnit, { color: captionColor }]}>
+                          {formatPlanTakeoffQuantity(field, 1)
+                            .replace(/^1\s*/, '')
+                            .replace(/^1/, '')}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </>
+                ) : null}
               </View>
             );
           })}
@@ -204,5 +314,37 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 16,
     fontWeight: '600',
+  },
+  editButton: {
+    alignSelf: 'center',
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  editButtonText: {
+    color: '#34d399',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  editShell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    minHeight: 44,
+    marginTop: 4,
+    paddingHorizontal: 12,
+  },
+  editInput: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    paddingVertical: 8,
+    textAlign: 'center',
+  },
+  editUnit: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginLeft: 6,
   },
 });
