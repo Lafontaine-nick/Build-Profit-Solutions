@@ -4051,21 +4051,19 @@ export function QmSimpleTradeScopePanels({
     const next = selected
       ? selections.filter((value) => value !== id)
       : [...selections, id];
-    setMeasurements((prev) => {
-      const withSelections = {
-        ...prev,
-        tradeScopeSelections: {
-          ...(prev.tradeScopeSelections || {}),
-          [scopeKey]: next.length ? next : null,
-        },
-      };
-      const updated =
-        scopeKey === 'hvac'
-          ? (applyHvacScopeMeasurements(withSelections) as ScopeMeasurementsInputExtended)
-          : withSelections;
-      onScopeSelectionChange?.(updated);
-      return updated;
-    });
+    const withSelections = {
+      ...measurements,
+      tradeScopeSelections: {
+        ...(measurements.tradeScopeSelections || {}),
+        [scopeKey]: next.length ? next : null,
+      },
+    };
+    const updated =
+      scopeKey === 'hvac'
+        ? (applyHvacScopeMeasurements(withSelections) as ScopeMeasurementsInputExtended)
+        : withSelections;
+    setMeasurements(updated);
+    onScopeSelectionChange?.(updated);
   };
 
   const activeOptions = spec.options.filter((option) => {

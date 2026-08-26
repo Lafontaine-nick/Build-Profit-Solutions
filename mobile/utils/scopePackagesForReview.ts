@@ -21,6 +21,7 @@ import {
   BATHROOM_FIXTURES_QM_EMBEDDED_IDS,
 } from '@/utils/qmScopePanels/bathroomFixtures';
 import {
+  expandHvacEquipmentScopeDisplayItems,
   getQmEmbeddedScopeIds,
   isPhotoNotesScopeJob,
   syncQmPanelScopeItems,
@@ -56,6 +57,12 @@ const INTERIOR_FINISH_CHILD_IDS = new Set([
   'shower_floor_tile',
   'appliances',
 ]);
+const HVAC_PACKAGE_COMPONENT_IDS = new Set([
+  'ductwork',
+  'supply_registers',
+  'return_grilles',
+  'thermostat',
+]);
 
 /**
  * Expand checklist rows for Confirm Scope UI and Applied-pricing totals.
@@ -90,6 +97,7 @@ export function buildConfirmScopeDisplayItems(
     expanded = ensureGroundUpFlatworkScopeCard(expanded);
     expanded = ensureGroundUpOpeningScopeCards(expanded);
   }
+  expanded = expandHvacEquipmentScopeDisplayItems(expanded, measurements);
   if (String(templateKey || '').toLowerCase() === 'flooring') {
     const existingTypes = Array.isArray(measurements.flooringExistingTypes)
       ? measurements.flooringExistingTypes
@@ -195,6 +203,50 @@ function isConfirmScopeReviewRowSelected(
   return bathroomFixtureScopeCardVisible(item.id, measurements, displayItems);
 }
 
+/** The complete HVAC package owns standard distribution and controls in Step 3. */
+function isHvacComponentAbsorbedByAppliedPackage(
+  item: ScopeChecklistItem,
+  displayItems: ScopeChecklistItem[],
+  measurements: Record<string, unknown>,
+  templateKey?: string | null
+): boolean {
+  if (String(templateKey || '').toLowerCase() !== 'hvac') return false;
+  if (!HVAC_PACKAGE_COMPONENT_IDS.has(item.id)) return false;
+  const packageItem = displayItems.find((candidate) => candidate.id === 'hvac');
+  if (!packageItem || !checklistItemInScope(packageItem)) return false;
+  const itemQuantities =
+    measurements.itemQuantities &&
+    typeof measurements.itemQuantities === 'object' &&
+    !Array.isArray(measurements.itemQuantities)
+      ? (measurements.itemQuantities as Record<
+          string,
+          { quantity?: unknown; unit?: unknown; quantitySource?: unknown }
+        >)
+      : {};
+  const numberValue = (value: unknown) => {
+    const parsed = Number(String(value ?? '').replace(/[$,\s]/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const hasAppliedMoney = ['material', 'labor', 'allowance'].some((part) => {
+    const entry = itemQuantities[`hvac__${part}`];
+    return (
+      numberValue(entry?.quantity) > 0 &&
+      (entry?.quantitySource === 'user_entered' ||
+        entry?.quantitySource === 'manual_override')
+    );
+  });
+  const acceptance =
+    measurements.pricingAcceptance &&
+    typeof measurements.pricingAcceptance === 'object'
+      ? (measurements.pricingAcceptance as Record<string, unknown>).hvac
+      : null;
+  const direct = itemQuantities.hvac;
+  const hasDirectAllowance =
+    numberValue(direct?.quantity) > 0 &&
+    ['allowance', 'lump_sum'].includes(String(direct?.unit || '').toLowerCase());
+  return Boolean(hasAppliedMoney || hasDirectAllowance || acceptance);
+}
+
 /** Roofing system choice card owns install pricing — hide legacy shingles row. */
 function shouldHideDuplicateRoofingShinglesRow(
   itemId: string,
@@ -237,6 +289,16 @@ export function flattenConfirmScopeVisibleRows(
     if (ctx.forStep3Review) {
       if (item.id === 'wet_area_install') return false;
       if (!isConfirmScopeReviewRowSelected(item, displayItems, ctx.measurements)) return false;
+      if (
+        isHvacComponentAbsorbedByAppliedPackage(
+          item,
+          displayItems,
+          ctx.measurements,
+          ctx.templateKey
+        )
+      ) {
+        return false;
+      }
       if (item.derivedFrom === 'wet_area_install') {
         const parent = displayItems.find((row) => row.id === 'wet_area_install');
         if (!parent || !checklistItemInScope(parent)) return false;

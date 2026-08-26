@@ -182,6 +182,32 @@ describe('scopePackagesForReview', () => {
     expect(matched).toBe(step3Ids.length);
   });
 
+  it('does not ask for separate HVAC component prices when the package is applied', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'hvac', label: 'HVAC system', state: 'included', inputType: 'yes_no' },
+      { id: 'ductwork', label: 'Ductwork', state: 'included', inputType: 'yes_no' },
+      { id: 'supply_registers', label: 'Supply registers', state: 'included', inputType: 'yes_no' },
+      { id: 'return_grilles', label: 'Return grilles', state: 'included', inputType: 'yes_no' },
+      { id: 'thermostat', label: 'Thermostat', state: 'included', inputType: 'yes_no' },
+      { id: 'condenser', label: 'Condenser', state: 'included', inputType: 'yes_no' },
+    ];
+    const measurements = {
+      itemQuantities: {
+        hvac: { quantity: 2, unit: 'each', quantitySource: 'user_entered' },
+        hvac__material: { quantity: 11000, unit: 'allowance', quantitySource: 'user_entered' },
+        hvac__labor: { quantity: 8000, unit: 'allowance', quantitySource: 'user_entered' },
+      },
+    };
+
+    const rows = flattenConfirmScopeVisibleRows(items, {
+      templateKey: 'hvac',
+      measurements,
+      forStep3Review: true,
+    });
+
+    expect(rows.map((row) => row.id)).toEqual(['hvac', 'condenser']);
+  });
+
   it('applyDraftToEstimate scope text matches Step 3 selected rows (PDF export source)', () => {
     const checklistItems = bathroomChecklistFromGroups().map((item) => {
       if (item.id === 'demo' || item.id === 'cleanup') {

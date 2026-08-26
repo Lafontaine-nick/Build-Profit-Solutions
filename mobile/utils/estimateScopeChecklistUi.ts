@@ -3387,7 +3387,18 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     },
   ],
   hvac: [
-    { title: 'System & Equipment', itemIds: ['hvac'] },
+    {
+      title: 'System & Equipment',
+      itemIds: [
+        'hvac',
+        'furnace',
+        'condenser',
+        'heat_pump',
+        'mini_split',
+        'air_handler',
+        'equipment_replace',
+      ],
+    },
     {
       title: 'Distribution',
       itemIds: ['ductwork', 'supply_registers', 'return_grilles'],
@@ -3400,7 +3411,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Service', itemIds: ['service_call'] },
     {
       title: 'Equipment',
-      itemIds: ['equipment_replace', 'refrigerant'],
+      itemIds: ['refrigerant'],
     },
   ],
   deck_patio: [

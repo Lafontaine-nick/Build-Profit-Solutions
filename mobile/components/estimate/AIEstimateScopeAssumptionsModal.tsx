@@ -80,6 +80,7 @@ import {
 import {
   applyHvacProvenanceGuardToScopeMeasurements,
   buildHvacStructuredMeasurements,
+  HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS,
   HVAC_PLAN_REVIEW_CANONICAL_KEYS,
   hvacQuickMeasurementSourcesFromProvenance,
   syncHvacSkippedTakeoffQuickMeasurementSources,
@@ -1884,13 +1885,14 @@ function SuggestedBudgetSplitRows({
   const [flooringTransitionBreakdownOpen, setFlooringTransitionBreakdownOpen] =
     useState(false);
   const isFramingShellLineCard = itemId === 'framing';
-  const framingPackageLines = isFramingShellLineCard
-    ? String(block.pricingDetail || '')
-        .split('\n')
-        .filter(Boolean)
-    : [];
-  const [framingPackageBreakdownOpen, setFramingPackageBreakdownOpen] =
-    useState(false);
+  const isHvacPackageLineCard = itemId === 'hvac';
+  const packageBreakdownLines =
+    isFramingShellLineCard || isHvacPackageLineCard
+      ? String(block.pricingDetail || '')
+          .split('\n')
+          .filter(Boolean)
+      : [];
+  const [packageBreakdownOpen, setPackageBreakdownOpen] = useState(false);
   const flooringTransitionDisplayLines = isFlooringLineCard
     ? flooringConfirmScopeIncludedLines(itemId || '', block.pricingDetail, {
         rateSourceLabel: block.rateSourceLabel,
@@ -2041,7 +2043,9 @@ function SuggestedBudgetSplitRows({
 
   return (
     <View style={[styles.budgetSplitPanel, { borderTopColor: divider }]}>
-      {display.quantityLine && !isInsulationAssemblyCard ? (
+      {display.quantityLine &&
+      !isInsulationAssemblyCard &&
+      !isHvacPackageLineCard ? (
         <Text
           style={{
             color: caption,
@@ -2074,6 +2078,20 @@ function SuggestedBudgetSplitRows({
       >
         {displayTotal}
       </Text>
+
+      {isHvacPackageLineCard && display.quantityLine ? (
+        <Text
+          style={{
+            color: caption,
+            fontSize: 13,
+            fontWeight: '600',
+            marginTop: 6,
+            lineHeight: 18,
+          }}
+        >
+          {display.quantityLine}
+        </Text>
+      ) : null}
 
       {isFlooringLineCard && flooringTransitionDisplayLines.length ? (
         <View style={{ marginTop: 8, gap: 3 }}>
@@ -2118,29 +2136,40 @@ function SuggestedBudgetSplitRows({
       {display.unitRateLine &&
       !isFlooringLineCard &&
       !isInsulationAssemblyCard ? (
-        <Text style={{ color: caption, fontSize: 12, marginTop: 2 }}>
+        <Text
+          style={{
+            color: caption,
+            fontSize: 12,
+            marginTop: isHvacPackageLineCard ? 4 : 2,
+          }}
+        >
           {display.unitRateLine}
         </Text>
       ) : null}
 
-      {isFramingShellLineCard && framingPackageLines.length ? (
+      {(isFramingShellLineCard || isHvacPackageLineCard) &&
+      packageBreakdownLines.length ? (
         <>
           <TouchableOpacity
-            onPress={() => setFramingPackageBreakdownOpen(open => !open)}
+            onPress={() => setPackageBreakdownOpen(open => !open)}
             activeOpacity={0.75}
-            style={{ marginTop: 8, alignSelf: 'flex-start' }}
+            style={{ marginTop: 10, alignSelf: 'flex-start' }}
           >
             <Text style={{ color: '#22c55e', fontSize: 12, fontWeight: '700' }}>
-              {framingPackageBreakdownOpen
-                ? 'Hide package breakdown'
-                : 'View included package breakdown'}
+              {packageBreakdownOpen
+                ? isHvacPackageLineCard
+                  ? "Hide what's included"
+                  : 'Hide package breakdown'
+                : isHvacPackageLineCard
+                  ? "What's included"
+                  : 'View included package breakdown'}
             </Text>
           </TouchableOpacity>
-          {framingPackageBreakdownOpen ? (
-            <View style={{ marginTop: 8, gap: 4 }}>
-              {framingPackageLines.map(line => (
+          {packageBreakdownOpen ? (
+            <View style={{ marginTop: 8, gap: 6 }}>
+              {packageBreakdownLines.map(line => (
                 <Text
-                  key={`framing-package-${line}`}
+                  key={`${itemId}-package-${line}`}
                   style={{ color: caption, fontSize: 12, lineHeight: 17 }}
                 >
                   {line}
@@ -6485,7 +6514,13 @@ function QuantitySection({
             <>
               {showInlineSqftTakeoff ? (
                 inlineSqftTakeoff
-              ) : resolved.quantity != null && resolved.quantity > 0 ? (
+              ) : resolved.quantity != null &&
+                resolved.quantity > 0 &&
+                !(
+                  itemId === 'hvac' &&
+                  !hideSuggestion &&
+                  Boolean(suggestedBudgetSplit?.displayQuantityLine)
+                ) ? (
                 <PricingAmountRow
                   value={formatResolvedQuantityDisplay(
                     resolved.quantity ?? 0,
@@ -11960,6 +11995,7 @@ function CollapsibleQuickMeasurements({
   notesScopeSelectorVisible = false,
   notesTradeMode = 'whole_project',
   onNotesTradeModeChange,
+  onHvacScopeSelectionChange,
   Colors,
   darkMode,
   applying,
@@ -12047,6 +12083,8 @@ function CollapsibleQuickMeasurements({
   notesScopeSelectorVisible?: boolean;
   notesTradeMode?: NotesScopeMode;
   onNotesTradeModeChange?: (mode: NotesScopeMode) => void;
+  /** Sync HVAC Quick Measurement selections into Step 3 scope cards. */
+  onHvacScopeSelectionChange?: (measurements: Record<string, unknown>) => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
@@ -16269,6 +16307,7 @@ function CollapsibleQuickMeasurements({
                   scopeKey='hvac'
                   measurements={measurements}
                   setMeasurements={setMeasurements}
+                  onScopeSelectionChange={onHvacScopeSelectionChange}
                   applying={applying}
                   darkMode={darkMode}
                   Colors={Colors}
@@ -17020,6 +17059,7 @@ export default function AIEstimateScopeAssumptionsModal({
     stuccoTradeFlow,
     measurements.flooringExistingTypes,
     measurements.itemQuantities,
+    measurements.tradeScopeSelections,
     measurements.flooringProductScope,
     measurements.flooringLvpSqft,
     measurements.flooringLaminateSqft,
@@ -18168,7 +18208,7 @@ export default function AIEstimateScopeAssumptionsModal({
       normalized = syncQmPanelScopeItems(
         normalized,
         {
-          templateKey: checklist.templateKey,
+          templateKey: singleTradeKey || checklist.templateKey,
           wholeHomeLayout: false,
         },
         nextMeasurements
@@ -18311,7 +18351,7 @@ export default function AIEstimateScopeAssumptionsModal({
     // keyboard opens) remounts the inputs and drops focus. `draftScopeRestoreKey` is the stable
     // content signature that captures the data this effect actually reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, draftScopeRestoreKey, checklist?.templateKey]);
+  }, [visible, draftScopeRestoreKey, checklist?.templateKey, singleTradeKey]);
 
   useEffect(() => {
     if (
@@ -19059,6 +19099,20 @@ export default function AIEstimateScopeAssumptionsModal({
   ]);
   const qmScopeEmbeddedInQuickMeasurements = useCallback(
     (itemId: string) => {
+      // Equipment types and whole-house ventilation are add-on pricing
+      // cards. Keep them visible on Confirm Scope even though quantities are
+      // entered in the HVAC Quick Measurements panel.
+      if (
+        (String(checklist?.templateKey || '').toLowerCase() === 'hvac' ||
+          singleTradeKey === 'hvac') &&
+        (itemId === 'equipment_replace' ||
+          itemId === 'ventilation' ||
+          (HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS as readonly string[]).includes(
+            itemId
+          ))
+      ) {
+        return false;
+      }
       // Roofing Quick Measurements are only a selector/takeoff surface. Their
       // selected components still need independent Confirm Scope pricing cards.
       if (String(checklist?.templateKey || '').toLowerCase() === 'roofing') {
@@ -19077,7 +19131,26 @@ export default function AIEstimateScopeAssumptionsModal({
       if (BATHROOM_FIXTURES_QM_EMBEDDED_IDS.has(itemId)) return false;
       return true;
     },
-    [checklist?.templateKey, qmEmbeddedScopeIds, measurements, items]
+    [checklist?.templateKey, qmEmbeddedScopeIds, measurements, items, singleTradeKey]
+  );
+  const syncHvacQmScopeItems = useCallback(
+    (nextMeasurements: Record<string, unknown>) => {
+      setItems(prev => {
+        const next = syncQmPanelScopeItems(
+          prev,
+          {
+            templateKey: singleTradeKey || checklist?.templateKey,
+            wholeHomeLayout: false,
+          },
+          nextMeasurements
+        );
+        const unchanged =
+          next.length === prev.length &&
+          next.every((item, index) => item === prev[index]);
+        return unchanged ? prev : next;
+      });
+    },
+    [checklist?.templateKey, singleTradeKey]
   );
   const hideIncludedStuccoComponentCards = useMemo(() => {
     if (
@@ -19411,7 +19484,7 @@ export default function AIEstimateScopeAssumptionsModal({
 
   useEffect(() => {
     const templateKey = String(
-      checklist?.templateKey || draft?.projectType || ''
+      singleTradeKey || checklist?.templateKey || draft?.projectType || ''
     ).toLowerCase();
     if (!['deck_patio', 'hvac', 'roofing'].includes(templateKey)) return;
     setItems(prev =>
@@ -19423,6 +19496,7 @@ export default function AIEstimateScopeAssumptionsModal({
     );
   }, [
     checklist?.templateKey,
+    singleTradeKey,
     draft?.projectType,
     measurements.tradeScopeSelections,
     measurements.concreteSqft,
@@ -20219,6 +20293,15 @@ export default function AIEstimateScopeAssumptionsModal({
             : {}),
         },
       };
+      if (
+        (HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS as readonly string[]).includes(
+          itemId
+        )
+      ) {
+        itemQuantities[`equipment_replace__${itemId}`] = {
+          ...itemQuantities[itemId],
+        };
+      }
 
       if (rule?.dualAllowanceField && field === 'count') {
         const allowanceKey = roughAllowanceSubKey(itemId);
@@ -22492,6 +22575,7 @@ export default function AIEstimateScopeAssumptionsModal({
             notes={scopeNotes}
             includedScopeKeys={scopeAssemblyContext.activeScopeKeys}
             onSummaryChange={setQuickMeasurementSummary}
+            onHvacScopeSelectionChange={syncHvacQmScopeItems}
             electricalQuantityEditingRef={electricalQmQuantityEditingRef}
             electricalAttributesCommitRef={electricalAttributesCommitRef}
             onElectricalAttributesPreview={previewElectricalAttributes}

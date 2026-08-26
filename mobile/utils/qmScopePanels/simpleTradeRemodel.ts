@@ -59,7 +59,7 @@ const DECK_OPTIONS: TradeOption[] = [
   { id: 'stairs', label: 'Stairs', canonicalId: 'stairs', measurementKey: 'deckSqft', unit: 'sqft' },
 ];
 
-/** Equipment-type chips converge on the equipment_replace card and count. */
+/** Equipment-type chips map to priced Confirm Scope cards (furnace, condenser, …). */
 export const HVAC_EQUIPMENT_OPTION_IDS = [
   'furnace',
   'condenser',
@@ -132,6 +132,7 @@ function syncHvacEquipmentScopeMeasurements(
     if (!itemQuantities[key]) {
       itemQuantities[key] = { quantity: 1, quantitySource: 'user_entered' };
     }
+    itemQuantities[id] = { ...itemQuantities[key] };
   }
 
   let next: Record<string, unknown> = {
@@ -217,7 +218,7 @@ const HVAC_OPTIONS: TradeOption[] = [
   {
     id: HVAC_SYSTEMS_OPTION_ID,
     label: 'HVAC systems',
-    canonicalId: 'equipment_replace',
+    canonicalId: 'hvac',
     measurementKey: 'hvacSystemCount',
     unit: 'each',
     measurementHelper: 'Enter documented HVAC system count from the plans.',
@@ -225,7 +226,7 @@ const HVAC_OPTIONS: TradeOption[] = [
   {
     id: HVAC_CAPACITY_OPTION_ID,
     label: 'HVAC capacity',
-    canonicalId: 'equipment_replace',
+    canonicalId: 'hvac',
     measurementKey: 'hvacSystemTons',
     unit: 'ton',
     measurementHelper: 'Enter documented system tonnage from the plans.',
@@ -233,31 +234,31 @@ const HVAC_OPTIONS: TradeOption[] = [
   {
     id: 'furnace',
     label: 'Furnace',
-    canonicalId: 'equipment_replace',
+    canonicalId: 'furnace',
     ...HVAC_EQUIPMENT_MEASUREMENT,
   },
   {
     id: 'condenser',
     label: 'Condenser',
-    canonicalId: 'equipment_replace',
+    canonicalId: 'condenser',
     ...HVAC_EQUIPMENT_MEASUREMENT,
   },
   {
     id: 'heat_pump',
     label: 'Heat pump',
-    canonicalId: 'equipment_replace',
+    canonicalId: 'heat_pump',
     ...HVAC_EQUIPMENT_MEASUREMENT,
   },
   {
     id: 'mini_split',
     label: 'Mini split',
-    canonicalId: 'equipment_replace',
+    canonicalId: 'mini_split',
     ...HVAC_EQUIPMENT_MEASUREMENT,
   },
   {
     id: 'air_handler',
     label: 'Air handler',
-    canonicalId: 'equipment_replace',
+    canonicalId: 'air_handler',
     ...HVAC_EQUIPMENT_MEASUREMENT,
   },
   {
@@ -350,7 +351,19 @@ export const SIMPLE_TRADE_SPECS: Record<SimpleTradeScopeKey, TradeSpec> = {
   },
   hvac: {
     scopeKey: 'hvac',
-    embeddedIds: ['equipment_replace', 'ductwork', 'supply_registers', 'return_grilles', 'thermostat', 'ventilation'],
+    embeddedIds: [
+      'furnace',
+      'condenser',
+      'heat_pump',
+      'mini_split',
+      'air_handler',
+      'equipment_replace',
+      'ductwork',
+      'supply_registers',
+      'return_grilles',
+      'thermostat',
+      'ventilation',
+    ],
     options: HVAC_OPTIONS,
   },
   roofing: {
@@ -587,16 +600,21 @@ function pruneLegacyBulkEquipmentSelections(
   selections: string[]
 ): string[] {
   return selections.filter(id => {
+    const isEquipment = (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(
+      id
+    );
+    // Typed chip quantities are contractor intent. Do not drop them because the
+    // shared replacement count looks like an unconfirmed plan read.
+    if (isEquipment && hasManualHvacEquipmentIntent(measurements)) {
+      return true;
+    }
     const option = SIMPLE_TRADE_SPECS.hvac.options.find(
       candidate => candidate.id === id
     );
     if (option && hvacOptionIsPendingTakeoffRead(measurements, option)) {
       return false;
     }
-    if (!(HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)) {
-      return true;
-    }
-    if (hasManualHvacEquipmentIntent(measurements)) {
+    if (!isEquipment) {
       return true;
     }
     return hvacFieldHasTakeoffEvidence(
@@ -984,10 +1002,72 @@ function syncSimpleTrade(items: ScopeChecklistItem[], measurements: Record<strin
   });
   for (const id of included) {
     if (!next.some((item) => item.id === id)) {
-      next = [...next, { id, label: id, inputType: 'yes_no', state: 'included', category: 'general', noteBacked: true }];
+      const option = spec.options.find(candidate => candidate.canonicalId === id || candidate.id === id);
+      next = [
+        ...next,
+        {
+          id,
+          label: option?.label || id,
+          helperText:
+            spec.scopeKey === 'hvac' &&
+            (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
+              ? 'Additional / replacement equipment. Not part of the complete HVAC system package.'
+              : undefined,
+          inputType: 'yes_no',
+          state: 'included',
+          category: spec.scopeKey === 'hvac' ? 'System & Equipment' : 'general',
+          noteBacked: true,
+        },
+      ];
     }
   }
-  return next;
+  return spec.scopeKey === 'hvac' ? expandHvacEquipmentScopeDisplayItems(next, measurements) : next;
+}
+
+const HVAC_EQUIPMENT_SCOPE_LABELS: Record<string, string> = {
+  furnace: 'Furnace',
+  condenser: 'Condenser',
+  heat_pump: 'Heat pump',
+  mini_split: 'Mini split',
+  air_handler: 'Air handler',
+};
+
+/** Confirm Scope priced cards for selected HVAC equipment types. */
+export function expandHvacEquipmentScopeDisplayItems(
+  items: ScopeChecklistItem[],
+  measurements: Record<string, unknown>
+): ScopeChecklistItem[] {
+  const selections = resolveHvacTradeScopeSelections(measurements);
+  const selectedIds = (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).filter(id =>
+    selections.includes(id)
+  );
+  const withoutEquipmentTypes = items.filter(
+    item => !(HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(item.id)
+  );
+  const cards: ScopeChecklistItem[] = selectedIds.map(id => {
+    const existing = items.find(item => item.id === id);
+    return {
+      ...(existing || {}),
+      id,
+      label: HVAC_EQUIPMENT_SCOPE_LABELS[id] || id,
+      helperText:
+        'Additional / replacement equipment. Not part of the complete HVAC system package.',
+      inputType: 'yes_no',
+      state: 'included',
+      category: 'System & Equipment',
+      noteBacked: true,
+    };
+  });
+  if (!cards.length) return withoutEquipmentTypes;
+  const hvacIdx = withoutEquipmentTypes.findIndex(item => item.id === 'hvac');
+  if (hvacIdx >= 0) {
+    return [
+      ...withoutEquipmentTypes.slice(0, hvacIdx + 1),
+      ...cards,
+      ...withoutEquipmentTypes.slice(hvacIdx + 1),
+    ];
+  }
+  return [...cards, ...withoutEquipmentTypes];
 }
 
 export function simpleTradePanelFor(scopeKey: SimpleTradeScopeKey): QmPanelDefinition {

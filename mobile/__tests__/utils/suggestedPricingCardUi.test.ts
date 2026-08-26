@@ -449,4 +449,31 @@ describe('suggestedPricingCardUi', () => {
     });
     expect(display.unitRateLine).toMatch(/Blended avg\. \$1\.5[67]\/SF/);
   });
+
+  it('keeps HVAC package details off the split line', () => {
+    const display = buildSuggestedPricingCardDisplay({
+      itemId: 'hvac',
+      block: block({
+        material: 11000,
+        labor: 8000,
+        total: 19000,
+        basis: { quantity: 2, unit: 'each' },
+        displayQuantityLine: '2 systems · 5 tons',
+        displayUnitRateLabel: '$9,500/system',
+        pricingDetail:
+          'Included: equipment, ductwork, registers, returns, thermostat, and startup.\nExcluded: ERV/HRV, gas lines, electrical, and permits unless added separately.',
+        costBuckets: [
+          { key: 'material', label: 'Material', amount: 11000, source: 'national_average' },
+          { key: 'labor', label: 'Labor', amount: 8000, source: 'national_average' },
+        ],
+      }),
+      quantitySource: 'user',
+      hasPrimaryTakeoff: true,
+    });
+
+    expect(display.quantityLine).toBe('2 systems · 5 tons');
+    expect(display.unitRateLine).toBe('$9,500/system');
+    expect(display.splitLine).toBe('Material $11,000 · Labor $8,000');
+    expect(display.splitLine).not.toMatch(/Included:/);
+  });
 });

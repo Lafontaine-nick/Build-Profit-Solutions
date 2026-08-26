@@ -1056,6 +1056,8 @@ export function buildSuggestedPricingCardDisplay(input: {
 
   const quantityLine = block.installedBudgetBenchmark
     ? formatInstalledBudgetQuantityLine(block)
+    : block.displayQuantityLine
+      ? block.displayQuantityLine
     : showerRough && showerCtx
       ? formatShowerRoughQuantityProvenanceLine(showerCtx, quantitySource)
       : interiorPaint && interiorPaintCtx
@@ -1085,6 +1087,7 @@ export function buildSuggestedPricingCardDisplay(input: {
     : formatCompactSuggestedLine(block.total);
   const isFlooringLineCard = isFlooringConfirmScopePricingCard(itemId);
   const isFramingShellLineCard = itemId === 'framing';
+  const isHvacPackageLineCard = itemId === 'hvac';
   const isFlooringLinearFootCard =
     itemId === 'trim' || itemId === 'quarter_round';
   const flooringQuantityUnit = isFlooringLinearFootCard
@@ -1111,6 +1114,8 @@ export function buildSuggestedPricingCardDisplay(input: {
       : '';
   const unitRateLine = needsServiceAmperage
     ? null
+    : block.displayUnitRateLabel
+      ? block.displayUnitRateLabel
     : isFlooringLineCard
       ? null
       : showerRough && showerCtx
@@ -1202,8 +1207,17 @@ export function buildSuggestedPricingCardDisplay(input: {
             ? `${formatSuggestedSplitLine(block)}${insulationPricingDetailLine}`
             : lumpSumOnly
               ? 'Allowance · Flat amount'
-              : `${formatSuggestedSplitLine(block)}${
-                  block.pricingDetail && !isFramingShellLineCard
+              : `${
+                  isHvacPackageLineCard
+                    ? String(formatSuggestedSplitLine(block) || '').replace(
+                        /^Estimated planning split · /,
+                        ''
+                      )
+                    : formatSuggestedSplitLine(block)
+                }${
+                  block.pricingDetail &&
+                  !isFramingShellLineCard &&
+                  !isHvacPackageLineCard
                     ? ` · ${block.pricingDetail}`
                     : ''
                 }`,

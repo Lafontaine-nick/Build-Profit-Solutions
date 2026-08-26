@@ -8,6 +8,7 @@ import {
   hvacH64InstalledForProject,
   resolveHvacPackageComparable,
 } from '@/utils/southernUtahHvacComparables';
+import { buildSuggestedPricingCardDisplay } from '@/utils/suggestedPricingCardUi';
 
 describe('southernUtahHvacComparables', () => {
   it('matches Plan 58 living SF to the H64 ~$18,500 package', () => {
@@ -45,15 +46,16 @@ describe('HVAC suggested pricing comparisons', () => {
       'hvac',
       input,
       'hvac',
-      resolved
+      resolved,
+      { state: 'UT' }
     );
 
     expect(pricing.fill?.total).toBe(18500);
-    expect(pricing.fill?.basis).toMatchObject({ quantity: 1, unit: 'each' });
-    expect(pricing.fill?.helper).toMatch(/Plan 58 H64 HVAC package ~\$18,500/i);
+    expect(pricing.fill?.basis).toMatchObject({ quantity: 2, unit: 'each' });
+    expect(pricing.fill?.helper).toMatch(/Plan 58 H64 complete HVAC package ~\$18,500/i);
     expect(pricing.fill?.helper).toMatch(/includes equipment, ductwork, registers, thermostat/i);
     expect(pricing.comparison).toMatchObject({
-      total: 16000,
+      total: 21000,
       rateSourceLabel: 'National average comparison',
       isComparison: true,
     });
@@ -114,10 +116,10 @@ describe('HVAC suggested pricing comparisons', () => {
       resolved
     );
 
-    expect(pricing.fill?.total).toBeGreaterThan(20000);
-    expect(pricing.fill?.helper).toMatch(/Plan 58 H64 HVAC package ~\$18,500/i);
+    expect(pricing.fill?.total).toBe(19000);
+    expect(pricing.fill?.helper).toMatch(/2 complete HVAC systems/i);
     expect(pricing.comparison).toMatchObject({
-      total: 32000,
+      total: 21000,
       rateSourceLabel: 'National average comparison',
       isComparison: true,
     });
@@ -130,7 +132,7 @@ describe('HVAC suggested pricing comparisons', () => {
       fillTotal: 26400,
     });
     expect(comparison).toMatchObject({
-      total: 32000,
+      total: 21000,
       materialSource: 'national_average',
       laborSource: 'national_average',
     });
@@ -140,12 +142,198 @@ describe('HVAC suggested pricing comparisons', () => {
     const comparison = buildHvacPlanBarometerComparisonBlock({
       livingSf: 3660,
       fillTotal: 26400,
+      pricingContext: { state: 'UT' },
     });
     expect(comparison).toMatchObject({
       total: 18500,
       basis: { quantity: 1, unit: 'each' },
       rateSourceLabel: 'Plan 58 H64 HVAC package',
       isComparison: true,
+    });
+  });
+
+  it('prices an unanchored HVAC count instead of leaving the system card unpriced', () => {
+    const input = {
+      hvacSystemCount: '2',
+      hvacSystemTons: '5',
+      itemQuantities: {},
+      quickMeasurementSources: {
+        hvacSystemCount: 'needs_confirmation',
+        hvacSystemTons: 'needs_confirmation',
+      },
+      planImportTradeKey: 'hvac',
+    } as const;
+    const resolved = resolveChecklistItemQuantity('hvac', input, {
+      templateKey: 'hvac',
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'hvac',
+      input,
+      'hvac',
+      resolved
+    );
+
+    expect(pricing.fill).toMatchObject({
+      total: 19000,
+      basis: { quantity: 2, unit: 'each' },
+    });
+    expect(pricing.fill?.helper).toMatch(/2 complete HVAC systems/i);
+    const display = buildSuggestedPricingCardDisplay({
+      itemId: 'hvac',
+      block: pricing.fill!,
+    });
+    expect(display.quantityLine).toBe('2 systems · 5 tons');
+    expect(display.unitRateLine).toBe('$9,500/system');
+    expect(display.splitLine).toBe('Material $11,000 · Labor $8,000');
+    expect(display.splitLine).not.toMatch(/Included:/);
+  });
+
+  it('keeps Utah comparables opt-in for national customers', () => {
+    const input = {
+      floorAreaSqft: '3660',
+      hvacSystemCount: '2',
+      hvacSystemTons: '5',
+      itemQuantities: {},
+      quickMeasurementSources: {
+        hvacSystemCount: 'needs_confirmation',
+        hvacSystemTons: 'needs_confirmation',
+      },
+      planImportTradeKey: 'hvac',
+    } as const;
+    const resolved = resolveChecklistItemQuantity('hvac', input, {
+      templateKey: 'hvac',
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'hvac',
+      input,
+      'hvac',
+      resolved,
+      { state: 'TX' }
+    );
+
+    expect(pricing.fill).toMatchObject({ total: 18050 });
+    expect(pricing.fill?.helper).not.toMatch(/Plan 58/i);
+  });
+
+  it.each([
+    { systems: 1, tons: 3, total: 10500 },
+    { systems: 1, tons: 5, total: 14700 },
+    { systems: 2, tons: 5, total: 19000 },
+    { systems: 2, tons: 7, total: 21800 },
+    { systems: 3, tons: 10, total: 32800 },
+    { systems: 3, tons: 12, total: 35600 },
+  ])(
+    'keeps national package pricing logical for $systems systems / $tons tons',
+    ({ systems, tons, total }) => {
+      const input = {
+        hvacSystemCount: String(systems),
+        hvacSystemTons: String(tons),
+        itemQuantities: {},
+        quickMeasurementSources: {
+          hvacSystemCount: 'needs_confirmation',
+          hvacSystemTons: 'needs_confirmation',
+        },
+        planImportTradeKey: 'hvac',
+      } as const;
+      const resolved = resolveChecklistItemQuantity('hvac', input, {
+        templateKey: 'hvac',
+      });
+      const pricing = resolveScopeItemSuggestedPricing(
+        'hvac',
+        input,
+        'hvac',
+        resolved
+      );
+
+      expect(pricing.fill).toMatchObject({
+        total,
+        basis: { quantity: systems, unit: 'each' },
+      });
+    }
+  );
+
+  it('uses equipment-type rates when replacement chips identify the equipment', () => {
+    const input = {
+      hvacEquipmentReplacementCount: '2',
+      itemQuantities: {
+        equipment_replace: {
+          quantity: '2',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+        equipment_replace__furnace: {
+          quantity: 1,
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+        equipment_replace__condenser: {
+          quantity: 1,
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+      },
+      planImportTradeKey: 'hvac',
+    } as const;
+    const resolved = resolveChecklistItemQuantity('equipment_replace', input, {
+      templateKey: 'hvac',
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'equipment_replace',
+      input,
+      'hvac',
+      resolved
+    );
+
+    expect(pricing.fill).toMatchObject({
+      total: 12000,
+      basis: { quantity: '2', unit: 'each' },
+    });
+    expect(pricing.fill?.rateSourceLabel).toMatch(/furnace replacement/i);
+  });
+
+  it('prices HVAC equipment replacement and whole-house ventilation add-ons', () => {
+    const input = {
+      hvacEquipmentReplacementCount: '2',
+      hvacVentilationCount: '1',
+      itemQuantities: {
+        equipment_replace: {
+          quantity: '2',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+        ventilation: {
+          quantity: '1',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+      },
+      planImportTradeKey: 'hvac',
+    } as const;
+
+    const equipment = resolveScopeItemSuggestedPricing(
+      'equipment_replace',
+      input,
+      'hvac',
+      resolveChecklistItemQuantity('equipment_replace', input, {
+        templateKey: 'hvac',
+      })
+    );
+    const ventilation = resolveScopeItemSuggestedPricing(
+      'ventilation',
+      input,
+      'hvac',
+      resolveChecklistItemQuantity('ventilation', input, {
+        templateKey: 'hvac',
+      })
+    );
+
+    expect(equipment.fill).toMatchObject({
+      total: 18000,
+      basis: { quantity: '2', unit: 'each' },
+    });
+    expect(ventilation.fill).toMatchObject({
+      total: 3500,
+      basis: { quantity: '1', unit: 'each' },
     });
   });
 });

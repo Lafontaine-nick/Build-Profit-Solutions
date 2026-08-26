@@ -2,6 +2,7 @@ import {
   applyHvacScopeMeasurements,
   applyHvacScopePanelMeasurementEdit,
   applyHvacScopeSelectionForConfirmedField,
+  expandHvacEquipmentScopeDisplayItems,
   formatHvacOptionalAddOnChipCaption,
   formatHvacOptionalAddOnIdleHint,
   formatHvacScopeChipQuantity,
@@ -27,7 +28,12 @@ import {
   roofingOptionsForIds,
   simpleTradePanelFor,
 } from '@/utils/qmScopePanels/simpleTradeRemodel';
-import { getChecklistItemQuantityRule } from '@/utils/scopeItemQuantities';
+import {
+  getChecklistItemQuantityRule,
+  resolveChecklistItemQuantity,
+  resolveScopeItemSuggestedPricing,
+} from '@/utils/scopeItemQuantities';
+import { filterChecklistItemsForTrade } from '@/utils/planImportTradeConfig';
 
 describe('simple trade QM panels', () => {
   it('defines the three remaining simple-trade templates', () => {
@@ -42,7 +48,7 @@ describe('simple trade QM panels', () => {
       'landscaping'
     );
     expect(SIMPLE_TRADE_SPECS.hvac.options.find((option) => option.id === 'furnace')?.canonicalId).toBe(
-      'equipment_replace'
+      'furnace'
     );
     expect(SIMPLE_TRADE_SPECS.roofing.options.find((option) => option.id === 'shingles')?.canonicalId).toBe(
       'shingles_roofing'
@@ -186,7 +192,7 @@ describe('simple trade QM panels', () => {
         }),
         expect.objectContaining({
           id: 'furnace',
-          canonicalId: 'equipment_replace',
+          canonicalId: 'furnace',
           measurementKey: 'hvacEquipmentReplacementCount',
           unit: 'each',
         }),
@@ -526,6 +532,38 @@ describe('simple trade QM panels', () => {
     expect(selected.find(item => item.id === 'equipment_replace')?.state).toBe('excluded');
   });
 
+  it('promotes selected HVAC equipment types into priced Confirm Scope cards', () => {
+    const panel = simpleTradePanelFor('hvac');
+    const selected = panel.syncScopeItems(
+      [
+        { id: 'hvac', state: 'included' as const },
+        { id: 'equipment_replace', state: 'excluded' as const },
+        { id: 'ventilation', state: 'excluded' as const },
+      ],
+      {
+        tradeScopeSelections: {
+          hvac: ['furnace', 'condenser', 'ventilation'],
+        },
+        itemQuantities: {
+          equipment_replace__furnace: { quantity: 1 },
+          equipment_replace__condenser: { quantity: 1 },
+        },
+        hvacEquipmentReplacementCount: 2,
+        hvacVentilationCount: 1,
+      }
+    );
+    expect(selected.find(item => item.id === 'furnace')?.state).toBe('included');
+    expect(selected.find(item => item.id === 'condenser')?.state).toBe(
+      'included'
+    );
+    expect(selected.find(item => item.id === 'equipment_replace')?.state).toBe(
+      'excluded'
+    );
+    expect(selected.find(item => item.id === 'ventilation')?.state).toBe(
+      'included'
+    );
+  });
+
   it('uses canonical HVAC quantity rules for scoped cards', () => {
     expect(getChecklistItemQuantityRule('ductwork', 'hvac')).toMatchObject({
       defaultUnit: 'lf',
@@ -534,6 +572,9 @@ describe('simple trade QM panels', () => {
     expect(getChecklistItemQuantityRule('equipment_replace', 'hvac')).toMatchObject({
       defaultUnit: 'each',
       measurementKey: 'hvacEquipmentReplacementCount',
+    });
+    expect(getChecklistItemQuantityRule('furnace', 'hvac')).toMatchObject({
+      defaultUnit: 'each',
     });
     expect(getChecklistItemQuantityRule('thermostat', 'hvac')).toMatchObject({
       defaultUnit: 'each',
@@ -620,5 +661,58 @@ describe('simple trade QM panels', () => {
     expect(cleared.quickMeasurementSources?.hvacSystemCount).toBe('user_entered');
     const edited = applyHvacScopePanelMeasurementEdit(cleared, systems, '4');
     expect(hvacScopePanelMeasurementValue(systems, edited)).toBe('4');
+  });
+
+  it('inserts priced furnace and condenser Confirm Scope cards from equipment chips', () => {
+    const measurements = {
+      tradeScopeSelections: { hvac: ['furnace', 'condenser'] },
+      itemQuantities: {
+        'equipment_replace__furnace': { quantity: 1, unit: 'each', quantitySource: 'user_entered' },
+        'equipment_replace__condenser': { quantity: 1, unit: 'each', quantitySource: 'user_entered' },
+      },
+    };
+    const display = filterChecklistItemsForTrade(
+      expandHvacEquipmentScopeDisplayItems(
+        [{ id: 'hvac', label: 'HVAC system', state: 'included' }],
+        measurements
+      ),
+      'selected_trade',
+      'hvac'
+    );
+    expect(display.map(item => item.id)).toEqual(['hvac', 'furnace', 'condenser']);
+    expect(display.find(item => item.id === 'furnace')).toMatchObject({
+      label: 'Furnace',
+      state: 'included',
+    });
+    expect(display.find(item => item.id === 'condenser')).toMatchObject({
+      label: 'Condenser',
+      state: 'included',
+    });
+
+    const furnaceQty = resolveChecklistItemQuantity('furnace', measurements as any, {
+      templateKey: 'hvac',
+    });
+    const condenserQty = resolveChecklistItemQuantity(
+      'condenser',
+      measurements as any,
+      { templateKey: 'hvac' }
+    );
+    expect(furnaceQty).toMatchObject({ quantity: 1, unit: 'each', pricingReady: true });
+    expect(condenserQty).toMatchObject({ quantity: 1, unit: 'each', pricingReady: true });
+
+    const furnacePrice = resolveScopeItemSuggestedPricing(
+      'furnace',
+      measurements as any,
+      'hvac',
+      furnaceQty
+    );
+    const condenserPrice = resolveScopeItemSuggestedPricing(
+      'condenser',
+      measurements as any,
+      'hvac',
+      condenserQty
+    );
+    expect(furnacePrice.fill?.total).toBe(6000);
+    expect(condenserPrice.fill?.total).toBe(6000);
   });
 });

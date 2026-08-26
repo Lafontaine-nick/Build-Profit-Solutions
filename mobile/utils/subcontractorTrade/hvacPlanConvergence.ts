@@ -150,9 +150,19 @@ export const HVAC_CARDS: HvacCardDefinition[] = [
   ),
 ];
 
-/** Plan export / selected-trade HVAC scope — excludes standalone service & replacement lines. */
+export const HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS = [
+  'furnace',
+  'condenser',
+  'heat_pump',
+  'mini_split',
+  'air_handler',
+] as const;
+
+/** Plan export / selected-trade HVAC scope. Equipment types are priced add-on cards. */
 export const HVAC_PLAN_EXPORT_SCOPE_ITEM_IDS = [
   'hvac',
+  ...HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS,
+  'equipment_replace',
   'ductwork',
   'supply_registers',
   'return_grilles',
@@ -507,12 +517,14 @@ const HVAC_TONNAGE_TIER_RATES: Record<
   HvacTonnageTier,
   { material: number; labor: number }
 > = {
-  2: { material: 6200, labor: 5800 },
-  2.5: { material: 6800, labor: 6400 },
-  3: { material: 7400, labor: 7000 },
-  3.5: { material: 8000, labor: 7500 },
-  4: { material: 8500, labor: 7500 },
-  5: { material: 9800, labor: 9200 },
+  // Production/new-construction planning rates, not retail replacement rates.
+  // Equipment is the larger share of these complete installed package amounts.
+  2: { material: 5500, labor: 4000 },
+  2.5: { material: 5800, labor: 4200 },
+  3: { material: 6200, labor: 4300 },
+  3.5: { material: 6800, labor: 4700 },
+  4: { material: 7400, labor: 5100 },
+  5: { material: 8800, labor: 5900 },
 };
 
 /** Snap documented tonnage to the nearest standard residential system size. */

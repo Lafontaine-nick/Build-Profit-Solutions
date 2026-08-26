@@ -32,6 +32,7 @@ import {
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
   HVAC_CARDS,
+  HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS,
   copyHvacQuantityFields,
   hvacCardForItemId,
   hvacSystemTierBudgetSplit,
@@ -141,6 +142,8 @@ import {
   hvacPlanBarometerComparisonSplit,
   HVAC_BPS_PLANNING_PACKAGE_RANGE,
   HVAC_NATIONAL_COMPLETE_PACKAGE_RANGE,
+  HVAC_NATIONAL_MULTI_SYSTEM_PACKAGE_RANGE,
+  isSouthernUtahPricingLocation,
   hvacUsesInstalledPackagePricing,
   isHvacComponentScopeItemId,
   resolveHvacInstalledPackageSuggestedTotal,
@@ -2081,10 +2084,11 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
   hvac: {
     each: {
       unit: 'each',
-      // New-construction full system (equip + duct + install). Prior $10k/system
-      // pulled the 60/40 blend ~$4k under Plan 39 / detached mid HVAC packages.
-      material: 8500,
-      labor: 7500,
+      // National production/new-construction planning baseline for one
+      // complete installed system. Multi-system package pricing is resolved
+      // by the HVAC package model with a shared-mobilization adjustment.
+      material: 6200,
+      labor: 4300,
       sourceLabel:
         'Suggested budget split · National Average · per HVAC system',
     },
@@ -2128,6 +2132,78 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
       labor: 55,
       sourceLabel:
         'Suggested budget split · National Average · per return grille',
+    },
+  },
+  equipment_replace: {
+    each: {
+      unit: 'each',
+      material: 5500,
+      labor: 3500,
+      sourceLabel:
+        'Suggested budget split · National Average · HVAC equipment replacement',
+    },
+  },
+  furnace: {
+    each: {
+      unit: 'each',
+      material: 3800,
+      labor: 2200,
+      sourceLabel:
+        'Suggested budget split · National Average · furnace replacement',
+    },
+  },
+  condenser: {
+    each: {
+      unit: 'each',
+      material: 3900,
+      labor: 2100,
+      sourceLabel:
+        'Suggested budget split · National Average · condenser replacement',
+    },
+  },
+  heat_pump: {
+    each: {
+      unit: 'each',
+      material: 5500,
+      labor: 3000,
+      sourceLabel:
+        'Suggested budget split · National Average · heat-pump replacement',
+    },
+  },
+  mini_split: {
+    each: {
+      unit: 'each',
+      material: 5000,
+      labor: 2500,
+      sourceLabel:
+        'Suggested budget split · National Average · mini-split replacement',
+    },
+  },
+  air_handler: {
+    each: {
+      unit: 'each',
+      material: 3500,
+      labor: 2000,
+      sourceLabel:
+        'Suggested budget split · National Average · air-handler replacement',
+    },
+  },
+  thermostat: {
+    each: {
+      unit: 'each',
+      material: 175,
+      labor: 225,
+      sourceLabel:
+        'Suggested budget split · National Average · thermostat supply and install',
+    },
+  },
+  ventilation: {
+    each: {
+      unit: 'each',
+      material: 2000,
+      labor: 1500,
+      sourceLabel:
+        'Suggested budget split · National Average · ERV/HRV whole-house ventilation',
     },
   },
   windows_doors: {
@@ -2184,6 +2260,37 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
       sourceLabel:
         'Suggested budget split · National Average · electrical rough per living SF',
     },
+  },
+};
+
+const HVAC_EQUIPMENT_REPLACEMENT_RATES: Record<
+  string,
+  { material: number; labor: number; label: string }
+> = {
+  furnace: {
+    material: 3800,
+    labor: 2200,
+    label: 'furnace replacement',
+  },
+  condenser: {
+    material: 3900,
+    labor: 2100,
+    label: 'condenser replacement',
+  },
+  heat_pump: {
+    material: 5500,
+    labor: 3000,
+    label: 'heat-pump replacement',
+  },
+  mini_split: {
+    material: 5000,
+    labor: 2500,
+    label: 'mini-split replacement',
+  },
+  air_handler: {
+    material: 3500,
+    labor: 2000,
+    label: 'air-handler replacement',
   },
 };
 
@@ -5846,6 +5953,51 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     quantityHelper: 'Price thermostat by count with material and labor.',
     missingMessage: 'Enter thermostat pricing.',
+  },
+  furnace: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    defaultQuantity: 1,
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Additional / replacement furnace. Not included in the complete HVAC system package.',
+    missingMessage: 'Enter furnace quantity.',
+  },
+  condenser: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    defaultQuantity: 1,
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Additional / replacement condenser. Not included in the complete HVAC system package.',
+    missingMessage: 'Enter condenser quantity.',
+  },
+  heat_pump: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    defaultQuantity: 1,
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Additional / replacement heat pump. Not included in the complete HVAC system package.',
+    missingMessage: 'Enter heat pump quantity.',
+  },
+  mini_split: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    defaultQuantity: 1,
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Additional / replacement mini split. Not included in the complete HVAC system package.',
+    missingMessage: 'Enter mini-split quantity.',
+  },
+  air_handler: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    defaultQuantity: 1,
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Additional / replacement air handler. Not included in the complete HVAC system package.',
+    missingMessage: 'Enter air-handler quantity.',
   },
   backsplash: {
     defaultUnit: 'sqft',
@@ -10816,6 +10968,10 @@ export type SuggestedPricingBlock = {
   splitSource?: 'source' | 'estimated' | 'none';
   splitConfidence?: 'high' | 'medium' | 'low' | 'none';
   comparisonRange?: { low: number; high: number } | null;
+  /** Optional card-specific quantity context (for example, HVAC total tons). */
+  displayQuantityLine?: string | null;
+  /** Optional card-specific effective rate wording. */
+  displayUnitRateLabel?: string | null;
   /** Display-only implied $/paintable SF from an installed comparable. */
   impliedUnitRateLabel?: string | null;
   basis?: { quantity: number; unit: string } | null;
@@ -11314,6 +11470,77 @@ function regionalAdjustedNationalAverage(
   };
 }
 
+function hvacEquipmentReplacementAverage(
+  measurementsInput: Record<string, unknown>,
+  regional: ResolvedRegionalPricing
+): NationalAverageBudgetSplit {
+  const itemQuantities =
+    (measurementsInput.itemQuantities as Record<string, unknown>) || {};
+  const typed = Object.entries(itemQuantities).filter(([key, entry]) => {
+    const quantity = parseScopeMeasurementInput(
+      String((entry as { quantity?: unknown })?.quantity ?? '')
+    );
+    return key.startsWith('equipment_replace__') && quantity != null && quantity > 0;
+  });
+  const generic = { material: 5500, labor: 3500 };
+  let material = 0;
+  let labor = 0;
+  const labels: string[] = [];
+
+  for (const [key, entry] of typed) {
+    const optionId = key.slice('equipment_replace__'.length);
+    const rate = HVAC_EQUIPMENT_REPLACEMENT_RATES[optionId] || {
+      ...generic,
+      label: 'HVAC equipment replacement',
+    };
+    const quantity = parseScopeMeasurementInput(
+      String((entry as { quantity?: unknown })?.quantity ?? '')
+    ) || 0;
+    material += quantity * rate.material;
+    labor += quantity * rate.labor;
+    labels.push(`${quantity} ${rate.label}`);
+  }
+
+  const requestedCount = parseScopeMeasurementInput(
+    String(measurementsInput.hvacEquipmentReplacementCount ?? '')
+  );
+  const typedCount = typed.reduce((sum, [, entry]) => {
+    return (
+      sum +
+      (parseScopeMeasurementInput(
+        String((entry as { quantity?: unknown })?.quantity ?? '')
+      ) || 0)
+    );
+  }, 0);
+  const untypedCount = Math.max(0, (requestedCount || typedCount) - typedCount);
+  if (untypedCount > 0 || typed.length === 0) {
+    const fallbackCount = typed.length === 0 ? requestedCount || 1 : untypedCount;
+    material += fallbackCount * generic.material;
+    labor += fallbackCount * generic.labor;
+    if (typed.length === 0) labels.push('standard HVAC equipment replacement');
+    else if (untypedCount > 0) labels.push(`${untypedCount} unspecified HVAC replacement`);
+  }
+
+  const basisCount = requestedCount || typedCount || 1;
+  const base = {
+    unit: 'each' as const,
+    material: material / basisCount,
+    labor: labor / basisCount,
+    sourceLabel: 'Suggested budget split · National Average · HVAC equipment replacement',
+  };
+  const adjusted =
+    regional.multiplier === 1
+      ? base
+      : applyRegionalMultiplierToBudgetSplit(base, regional) || base;
+  return {
+    unit: 'each',
+    material: round2(adjusted.material),
+    labor: round2(adjusted.labor),
+    sourceLabel: `Suggested budget split · National Average · ${labels.join(', ')}`,
+    geographicBasis: regional.geographicBasis || 'national',
+  };
+}
+
 /** True when Confirm Scope comparison is pure national (eligible to Apply / Use this pricing). */
 export function isNationalAverageComparisonBlock(
   block:
@@ -11790,11 +12017,13 @@ export function buildPureNationalAverageComparisonBlock(params: {
   };
 }
 
-/** Plan H64 installed HVAC package — reference-only comparison on 1-system barometer basis. */
+/** Plan H64 installed HVAC package — Utah-only reference comparison. */
 export function buildHvacPlanBarometerComparisonBlock(params: {
   livingSf?: number | null;
   fillTotal?: number | null;
+  pricingContext?: ScopePricingContext | null;
 }): SuggestedPricingBlock | null {
+  if (!isSouthernUtahPricingLocation(params.pricingContext)) return null;
   const comparable = resolveHvacPackageComparable(params.livingSf);
   if (!comparable) return null;
   const total = comparable.h64InstalledTotal;
@@ -11840,15 +12069,58 @@ export function buildHvacPlanBarometerComparisonBlock(params: {
 
 function buildHvacInstalledPackageSuggestedPricing(
   measurementsInput: Record<string, unknown>,
-  _pricingContext?: ScopePricingContext | null
+  pricingContext?: ScopePricingContext | null
 ): ScopeItemSuggestedPricing | null {
-  const resolved = resolveHvacInstalledPackageSuggestedTotal(measurementsInput);
+  const resolved = resolveHvacInstalledPackageSuggestedTotal(
+    measurementsInput,
+    pricingContext
+  );
   if (!resolved) return null;
-  const { total, material, labor, comparable, tier } = resolved;
+  const { comparable, tier } = resolved;
+  const basisQuantity = resolved.basisQuantity ?? 1;
+  const regional =
+    tier === 'plan_barometer'
+      ? null
+      : regionalPricingFromContext(pricingContext);
+  const baseSplit = {
+    unit: 'each' as const,
+    material: resolved.material,
+    labor: resolved.labor,
+    sourceLabel: 'Suggested budget split · National Average · HVAC package',
+  };
+  const adjustedSplit =
+    regional && regional.multiplier !== 1
+      ? applyRegionalMultiplierToBudgetSplit(
+          baseSplit,
+          regional
+        ) || baseSplit
+      : baseSplit;
+  const material = round2(adjustedSplit.material);
+  const labor = round2(adjustedSplit.labor);
+  const total = round2(material + labor);
+  const comparisonRange =
+    basisQuantity > 1
+      ? HVAC_NATIONAL_MULTI_SYSTEM_PACKAGE_RANGE
+      : HVAC_NATIONAL_COMPLETE_PACKAGE_RANGE;
+  const totalTons = Number(
+    String(measurementsInput.hvacSystemTons ?? '').replace(/,/g, '')
+  );
+  const displayQuantityLine =
+    totalTons > 0
+      ? `${basisQuantity} ${basisQuantity === 1 ? 'system' : 'systems'} · ${totalTons.toLocaleString()} tons`
+      : `${basisQuantity} ${basisQuantity === 1 ? 'system' : 'systems'}`;
+  const displayUnitRateLabel =
+    tier === 'plan_barometer'
+      ? null
+      : `$${(total / basisQuantity).toLocaleString(undefined, {
+          maximumFractionDigits: 0,
+        })}/system`;
   const helper =
     tier === 'plan_barometer' && comparable
-      ? `Complete 1-system installed package · ${hvacPackageComparableHelper(comparable)} · includes equipment, ductwork, registers, thermostat, startup`
-      : `Complete-system planning allowance · national package ~$${HVAC_BPS_PLANNING_PACKAGE_RANGE.low.toLocaleString()}–$${HVAC_BPS_PLANNING_PACKAGE_RANGE.high.toLocaleString()}`;
+      ? `Complete builder package · ${hvacPackageComparableHelper(comparable)} · includes equipment, ductwork, registers, thermostat, startup`
+      : basisQuantity > 1
+        ? `${basisQuantity} complete HVAC systems · planning estimate · includes standard equipment, ductwork, registers, thermostat, and startup`
+        : `Complete-system planning allowance · national package ~$${HVAC_BPS_PLANNING_PACKAGE_RANGE.low.toLocaleString()}–$${HVAC_BPS_PLANNING_PACKAGE_RANGE.high.toLocaleString()}`;
   const fill: SuggestedPricingBlock = {
     material,
     labor,
@@ -11861,21 +12133,20 @@ function buildHvacInstalledPackageSuggestedPricing(
         : 'Suggested · National Average (planning package)',
     helper,
     mode: 'suggested_price',
-    basis: { quantity: 1, unit: 'each' },
-    comparisonRange: HVAC_NATIONAL_COMPLETE_PACKAGE_RANGE,
+    basis: { quantity: basisQuantity, unit: 'each' },
+    comparisonRange,
+    displayQuantityLine,
+    displayUnitRateLabel,
     pricingDetail:
       tier === 'plan_barometer' && comparable
         ? [
-            'Included in this package price',
-            'Furnace or air-handler + condenser / heat-pump equipment',
-            'Standard duct distribution, registers, returns, and thermostat',
-            'Startup / testing allowance',
-            '',
-            'Excluded unless documented separately: second system, ERV/HRV, gas lines, electrical, permits.',
+            'Included: equipment, ductwork, registers, returns, thermostat, and startup.',
+            'Excluded: ERV/HRV, gas lines, electrical, and permits unless added separately.',
           ].join('\n')
         : [
-            'Planning allowance only — not a verified mechanical takeoff.',
-            `Typical national complete ducted package range: $${HVAC_NATIONAL_COMPLETE_PACKAGE_RANGE.low.toLocaleString()}–$${HVAC_NATIONAL_COMPLETE_PACKAGE_RANGE.high.toLocaleString()}.`,
+            'Included: equipment, ductwork, registers, returns, thermostat, and startup.',
+            'Excluded: ERV/HRV, gas lines, electrical, and permits unless added separately.',
+            `Typical national range: $${comparisonRange.low.toLocaleString()}–$${comparisonRange.high.toLocaleString()}.`,
           ].join('\n'),
     costBuckets: [
       {
@@ -11900,7 +12171,7 @@ function buildHvacInstalledPackageSuggestedPricing(
   };
   const nationalComparison = buildPureNationalAverageComparisonBlock({
     itemId: 'hvac',
-    basis: { quantity: 1, unit: 'each' },
+    basis: { quantity: basisQuantity, unit: 'each' },
     fillTotal: total,
   });
   return applyProjectComplexityToSuggestedPricing(
@@ -11936,6 +12207,7 @@ function buildHvacInstalledPackageSuggestedPricing(
                 ) ||
                 null,
               fillTotal: total,
+              pricingContext,
             }),
     }
   ) as ScopeItemSuggestedPricing;
@@ -13496,7 +13768,8 @@ export function resolveScopeItemSuggestedPricing(
   if (
     isHvacComponentScopeItemId(itemId) &&
     hvacUsesInstalledPackagePricing(
-      measurementsInput as Record<string, unknown>
+      measurementsInput as Record<string, unknown>,
+      pricingContext
     )
   ) {
     return empty;
@@ -15462,6 +15735,30 @@ export function resolveScopeItemSuggestedPricing(
     pricingContext
   );
   let average = averageInitial;
+  if (itemId === 'equipment_replace' && preferredUnit === 'each') {
+    average = hvacEquipmentReplacementAverage(
+      measurementsInput as Record<string, unknown>,
+      regional
+    );
+  }
+  if (
+    (HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS as readonly string[]).includes(itemId) &&
+    preferredUnit === 'each'
+  ) {
+    const rate = HVAC_EQUIPMENT_REPLACEMENT_RATES[itemId];
+    if (rate) {
+      const base = {
+        unit: 'each' as const,
+        material: rate.material,
+        labor: rate.labor,
+        sourceLabel: `Suggested budget split · National Average · ${rate.label}`,
+      };
+      average =
+        regional.multiplier === 1
+          ? base
+          : applyRegionalMultiplierToBudgetSplit(base, regional) || base;
+    }
+  }
   if (
     itemId === 'drywall' &&
     completeDrywallPackage
@@ -15907,7 +16204,8 @@ export function resolveScopeItemSuggestedPricing(
 
   if (itemId === 'hvac') {
     const evidenceTier = resolveHvacPricingEvidenceTier(
-      measurementsInput as Record<string, unknown>
+      measurementsInput as Record<string, unknown>,
+      pricingContext
     );
     if (evidenceTier !== 'verified_equipment') {
       // Package pricing handled above; do not multiply unverified counts.
@@ -17764,14 +18062,16 @@ export function resolveScopeItemSuggestedPricing(
           measurementsInput.planFacts?.totalLivingSqft
       ) ||
       null;
-    const comparable = resolveHvacPackageComparable(livingSf);
+    const comparable = isSouthernUtahPricingLocation(pricingContext)
+      ? resolveHvacPackageComparable(livingSf)
+      : null;
     if (comparable) {
       takeoffFill = {
         ...takeoffFill,
         helper: `${hvacPackageComparableHelper(comparable)} · compare with national average below`,
         pricingDetail: [
           takeoffFill.pricingDetail,
-          `${comparable.projectLabel} builder budget (H64) documents ~$${comparable.h64InstalledTotal.toLocaleString()} for a complete 1-system package on this plan size.`,
+          `${comparable.projectLabel} builder budget (H64) documents ~$${comparable.h64InstalledTotal.toLocaleString()} for the complete package on this plan size.`,
         ]
           .filter(Boolean)
           .join('\n\n'),
@@ -17798,6 +18098,7 @@ export function resolveScopeItemSuggestedPricing(
             ) ||
             null,
           fillTotal: takeoffFill.total,
+          pricingContext,
         })
       : null;
   const comparisonBlock =
@@ -18430,6 +18731,31 @@ function resolveChecklistItemQuantityCore(
     measurements,
     ctx.templateKey
   );
+  if ((HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS as readonly string[]).includes(itemId)) {
+    const typed =
+      parseStoredItemQuantity(
+        measurements,
+        `equipment_replace__${itemId}`
+      ) || parseStoredItemQuantity(measurements, itemId);
+    const quantity =
+      typed?.quantity != null ? Number(typed.quantity) : 1;
+    if (Number.isFinite(quantity) && quantity > 0) {
+      return applyPricingReadyFlags(
+        {
+          quantity,
+          unit: 'each',
+          quantitySource: typed?.quantitySource || 'user_entered',
+          sourceLabel: 'HVAC equipment type · Confirm Scope',
+          pricingReady: true,
+          quantityHelper: rule.quantityHelper,
+          showInput: true,
+        },
+        itemId,
+        ctx
+      );
+    }
+  }
+
   if (plumbingQuickMeasurement) {
     const override = measurements.itemQuantities[itemId];
     if (

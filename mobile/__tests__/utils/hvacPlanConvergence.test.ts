@@ -56,7 +56,13 @@ describe('hvacPlanConvergence', () => {
   it('limits plan export scope to new-construction distribution cards', () => {
     expect(HVAC_PLAN_EXPORT_SCOPE_ITEM_IDS).not.toContain('service_call');
     expect(HVAC_PLAN_EXPORT_SCOPE_ITEM_IDS).toEqual(
-      expect.arrayContaining(['supply_registers', 'return_grilles'])
+      expect.arrayContaining([
+        'supply_registers',
+        'return_grilles',
+        'furnace',
+        'condenser',
+        'equipment_replace',
+      ])
     );
   });
 

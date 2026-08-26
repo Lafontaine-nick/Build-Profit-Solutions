@@ -120,10 +120,10 @@ export const SOUTHERN_UTAH_LOCAL_INSTALLED_UNIT_RATES: Record<
   },
   'hvac:each': {
     unit: 'each',
-    // Align with Plan 39/58 H64 (~$18.5k); prior $17.5k mid was fine but national
-    // $10k/system was dragging Confirm Scope suggests to ~$14.5k.
+    // Retained as a Utah builder-budget reference; national HVAC pricing is
+    // resolved by the production package model before this rate is considered.
     installed: 18500,
-    note: 'Detached HVAC package mid (Plan 39/58 H64 band, 1 system)',
+    note: 'Detached HVAC package mid (Plan 39/58 H64 band)',
   },
   'hvac:sqft': {
     unit: 'sqft',
