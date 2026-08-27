@@ -480,10 +480,20 @@ export function AcceptedPricingSummary({
           </Text>
         </TouchableOpacity>
       ) : null}
-      <View style={[styles.actionLinksRow, !secondaryAction && !onClearPricing && styles.actionLinksRowSingle]}>
-        <TouchableOpacity onPress={onEditPricing} activeOpacity={0.7} accessibilityRole="button">
-          <Text style={styles.editLink}>Edit</Text>
-        </TouchableOpacity>
+      <View
+        style={[
+          styles.actionLinksRow,
+          (hideEditLink || !onClearPricing) &&
+            !secondaryAction &&
+            styles.actionLinksRowSingle,
+          hideEditLink && onClearPricing ? styles.actionLinksRowEnd : null,
+        ]}
+      >
+        {!hideEditLink ? (
+          <TouchableOpacity onPress={onEditPricing} activeOpacity={0.7} accessibilityRole="button">
+            <Text style={styles.editLink}>Edit</Text>
+          </TouchableOpacity>
+        ) : null}
         {onClearPricing ? (
           <TouchableOpacity
             onPress={onClearPricing}

@@ -3635,6 +3635,109 @@ export function createCustomScopeItem(label: string): ScopeChecklistItem {
   };
 }
 
+const CUSTOM_SCOPE_ITEM_PLACEHOLDERS: Record<string, string> = {
+  concrete: 'e.g. curb & gutter, pump truck',
+  landscaping: 'e.g. boulder placement, drip irrigation',
+  stucco: 'e.g. foam band trim, control joints',
+  electrical: 'e.g. EV charger, subpanel',
+  plumbing: 'e.g. hose bib, water softener',
+  plumbing_service: 'e.g. hose bib, water softener',
+  hvac: 'e.g. duct reroute, mini-split',
+  roofing: 'e.g. cricket, skylight curb',
+  framing: 'e.g. shear wall, beam pocket',
+  drywall: 'e.g. sound batts, bulkhead',
+  insulation: 'e.g. rim joist, soundproofing',
+  flooring: 'e.g. stair treads, transition strips',
+  painting: 'e.g. accent wall, cabinet touch-up',
+  windows_doors: 'e.g. pet door, sidelite',
+  garage_doors: 'e.g. opener upgrade, weather seal',
+  bathroom: 'e.g. heated floor, niche shelf',
+  kitchen: 'e.g. pot filler, under-cabinet lights',
+  ground_up: 'e.g. garage apron, porch cap',
+  deck_patio: 'e.g. pergola footings, railing',
+  excavation: 'e.g. utility trench, over-excavation',
+  room_remodel: 'e.g. built-in shelving, patch drywall',
+  addition: 'e.g. tie-in flashing, temp wall',
+  cabinets: 'e.g. pantry pull-outs, crown molding',
+};
+
+const DEFAULT_CUSTOM_SCOPE_ITEM_PLACEHOLDER =
+  'e.g. owner-requested work, misc allowance';
+
+const CUSTOM_SCOPE_NOTES_TRADE_PATTERNS: Array<{
+  key: string;
+  patterns: RegExp[];
+}> = [
+  {
+    key: 'concrete',
+    patterns: [/\bconcrete\b/i, /\bflatwork\b/i, /\bfooting/i, /\bslab\b/i],
+  },
+  {
+    key: 'landscaping',
+    patterns: [/\blandscap/i, /\birrigation\b/i, /\bsod\b/i, /\bturf\b/i],
+  },
+  { key: 'stucco', patterns: [/\bstucco\b/i, /\bexterior\s+finish/i] },
+  { key: 'electrical', patterns: [/\belectrical\b/i, /\bpanel\b/i, /\bwiring\b/i] },
+  { key: 'plumbing', patterns: [/\bplumb/i, /\bdrain\b/i, /\bwater\s+heater/i] },
+  { key: 'hvac', patterns: [/\bhvac\b/i, /\bduct\b/i, /\bmini[\s-]?split/i] },
+  { key: 'roofing', patterns: [/\broof/i, /\bshingle/i] },
+  { key: 'framing', patterns: [/\bframing\b/i, /\btruss/i, /\bsheathing/i] },
+  { key: 'drywall', patterns: [/\bdrywall\b/i, /\btexture\b/i] },
+  { key: 'insulation', patterns: [/\binsulation\b/i, /\battic\b/i, /\bbatt/i] },
+  { key: 'flooring', patterns: [/\bflooring\b/i, /\blvp\b/i, /\btile\s+floor/i] },
+  { key: 'painting', patterns: [/\bpaint/i, /\bcoating/i] },
+  {
+    key: 'windows_doors',
+    patterns: [/\bwindow/i, /\bdoor\b/i, /\bopening/i],
+  },
+  { key: 'garage_doors', patterns: [/\bgarage\s+door/i] },
+  { key: 'bathroom', patterns: [/\bbath/i, /\bshower/i, /\btoilet/i] },
+  { key: 'kitchen', patterns: [/\bkitchen/i, /\bcabinet/i, /\bcountertop/i] },
+];
+
+export type CustomScopePlaceholderContext = {
+  templateKey?: string | null;
+  planImportTradeKey?: string | null;
+  selectedTrade?: string | null;
+  notes?: string | null;
+};
+
+function customScopePlaceholderKey(
+  ctx: CustomScopePlaceholderContext
+): string | null {
+  const tradeKey = String(
+    ctx.planImportTradeKey || ctx.selectedTrade || ''
+  ).toLowerCase();
+  if (tradeKey && CUSTOM_SCOPE_ITEM_PLACEHOLDERS[tradeKey]) return tradeKey;
+
+  const templateKey = String(ctx.templateKey || '').toLowerCase();
+  if (templateKey && CUSTOM_SCOPE_ITEM_PLACEHOLDERS[templateKey]) {
+    return templateKey;
+  }
+
+  const notes = String(ctx.notes || '');
+  if (notes.trim()) {
+    for (const entry of CUSTOM_SCOPE_NOTES_TRADE_PATTERNS) {
+      if (entry.patterns.some(pattern => pattern.test(notes))) {
+        return entry.key;
+      }
+    }
+  }
+
+  return null;
+}
+
+/** Placeholder examples for the New scope item composer — matched to trade/template/notes. */
+export function resolveCustomScopeItemPlaceholder(
+  ctx: CustomScopePlaceholderContext = {}
+): string {
+  const key = customScopePlaceholderKey(ctx);
+  return (
+    (key && CUSTOM_SCOPE_ITEM_PLACEHOLDERS[key]) ||
+    DEFAULT_CUSTOM_SCOPE_ITEM_PLACEHOLDER
+  );
+}
+
 export type ScopeItemNeedingConfirmation = {
   itemId: string;
   label: string;

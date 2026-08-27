@@ -1,4 +1,5 @@
 import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
+import { resolveCustomScopeItemPlaceholder } from '@/utils/estimateScopeChecklistUi';
 import {
   buildNormalizedScopeMeasurementsFromInput,
   DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE,
@@ -8,6 +9,10 @@ import {
   resolveAllowanceEditorDefaultBasisUnit,
   resolveAllowanceEditorPricingBasis,
   resolveChecklistItemQuantity,
+  isCustomScopePricingApplied,
+  resolveCustomScopeDraftPricing,
+  customScopeEditorRateValue,
+  looksLikeCustomScopeUnitRate,
   resolveInsulationAssemblyLumpBenchmarkComparison,
   resolveInsulationAssemblyNationalRateCardComparison,
   resolveInsulationAssemblyScopeSuggestedPricing,
@@ -3642,5 +3647,114 @@ describe('custom scope item pricing units', () => {
       pricingReady: true,
       dualAllowance: { quantity: 1000, unit: 'allowance' },
     });
+  });
+
+  it('treats custom scope as applied only after explicit acceptance', () => {
+    expect(
+      isCustomScopePricingApplied('custom_4', {
+        custom_4: { selectionStatus: 'accepted', totalAmount: 500 },
+      })
+    ).toBe(true);
+    expect(
+      isCustomScopePricingApplied('custom_4', undefined)
+    ).toBe(false);
+    expect(isCustomScopePricingApplied('windows', {})).toBe(false);
+  });
+
+  it('scales per-unit mat/lab rates by takeoff quantity for custom scope totals', () => {
+    expect(
+      resolveCustomScopeDraftPricing({
+        materialValue: 5,
+        laborValue: 7,
+        basisQuantity: 1000,
+      })
+    ).toMatchObject({
+      material: 5000,
+      labor: 7000,
+      total: 12000,
+      treatedAsRates: true,
+    });
+
+    const resolved = resolveChecklistItemQuantity(
+      'custom_5',
+      {
+        itemQuantities: {
+          custom_5: { quantity: 1000, unit: 'sqft', quantitySource: 'user_entered' },
+          custom_5__material: { quantity: 5, unit: 'allowance' },
+          custom_5__labor: { quantity: 7, unit: 'allowance' },
+        },
+      } as any,
+      { templateKey: 'landscaping' }
+    );
+    expect(resolved).toMatchObject({
+      pricingReady: true,
+      dualMaterial: { quantity: 5000, unit: 'allowance' },
+      dualLabor: { quantity: 7000, unit: 'allowance' },
+    });
+  });
+
+  it('keeps stored job totals when mat/lab already exceed rate heuristics', () => {
+    expect(
+      resolveCustomScopeDraftPricing({
+        materialValue: 400,
+        laborValue: 600,
+        basisQuantity: 1000,
+      })
+    ).toMatchObject({
+      material: 400,
+      labor: 600,
+      total: 1000,
+      treatedAsRates: false,
+    });
+  });
+
+  it('converts applied job totals back to editor rates', () => {
+    expect(customScopeEditorRateValue(5000, 1000)).toBe('5');
+    expect(customScopeEditorRateValue(5, 1000)).toBe('5');
+    expect(customScopeEditorRateValue(1200, null)).toBe('1200');
+    expect(looksLikeCustomScopeUnitRate(5, 1000)).toBe(true);
+    expect(looksLikeCustomScopeUnitRate(5000, 1000)).toBe(false);
+  });
+
+  it('scales a single mat/lab rate independently for draft totals', () => {
+    expect(
+      resolveCustomScopeDraftPricing({
+        materialValue: 5,
+        laborValue: '',
+        basisQuantity: 1000,
+      })
+    ).toMatchObject({
+      material: 5000,
+      labor: 0,
+      total: 5000,
+      treatedAsRates: true,
+    });
+  });
+
+  it('uses trade-aware placeholder examples for custom scope composer', () => {
+    expect(
+      resolveCustomScopeItemPlaceholder({
+        templateKey: 'concrete',
+      })
+    ).toBe('e.g. curb & gutter, pump truck');
+    expect(
+      resolveCustomScopeItemPlaceholder({
+        templateKey: 'ground_up',
+        planImportTradeKey: 'concrete',
+      })
+    ).toBe('e.g. curb & gutter, pump truck');
+    expect(
+      resolveCustomScopeItemPlaceholder({
+        templateKey: 'bathroom',
+      })
+    ).toBe('e.g. heated floor, niche shelf');
+    expect(
+      resolveCustomScopeItemPlaceholder({
+        notes: 'Concrete flatwork for driveway and sidewalk.',
+      })
+    ).toBe('e.g. curb & gutter, pump truck');
+    expect(resolveCustomScopeItemPlaceholder({})).toBe(
+      'e.g. owner-requested work, misc allowance'
+    );
   });
 });

@@ -19143,6 +19143,85 @@ export function customScopePricingModeLabel(
   return `Use ${formatUnitLabel(unit)}`;
 }
 
+export function isCustomScopePricingApplied(
+  itemId: string,
+  pricingAcceptance?: Record<
+    string,
+    { selectionStatus?: string | null }
+  > | null
+): boolean {
+  if (!String(itemId || '').startsWith('custom_')) return false;
+  const status = pricingAcceptance?.[itemId]?.selectionStatus;
+  return status === 'accepted' || status === 'manual_adjusted';
+}
+
+/** True when a stored custom-scope amount is a per-unit rate, not a job total. */
+export function looksLikeCustomScopeUnitRate(
+  value: number,
+  basisQuantity: number
+): boolean {
+  return value > 0 && value <= 100 && value < basisQuantity;
+}
+
+function customScopeBasisQuantity(
+  basisQuantity: number | null | undefined
+): number | null {
+  return Number.isFinite(basisQuantity) && Number(basisQuantity) > 1
+    ? Number(basisQuantity)
+    : null;
+}
+
+/** Convert stored mat/lab to job totals when the value is a per-unit rate. */
+export function scaleCustomScopeStoredAmount(
+  rawValue: unknown,
+  basisQuantity: number | null | undefined
+): number {
+  const raw = parseCustomScopeMoney(rawValue);
+  const basisQty = customScopeBasisQuantity(basisQuantity);
+  if (!basisQty || raw <= 0) return raw;
+  if (looksLikeCustomScopeUnitRate(raw, basisQty)) {
+    return Math.round(raw * basisQty * 100) / 100;
+  }
+  return raw;
+}
+
+/** Rate shown in the editor — divides applied job totals back into $/unit. */
+export function customScopeEditorRateValue(
+  storedValue: unknown,
+  basisQuantity: number | null | undefined
+): string {
+  const raw = parseCustomScopeMoney(storedValue);
+  if (raw <= 0) return String(storedValue ?? '').replace(/,/g, '') || '';
+  const basisQty = customScopeBasisQuantity(basisQuantity);
+  if (!basisQty) return String(raw);
+  if (looksLikeCustomScopeUnitRate(raw, basisQty)) return String(raw);
+  return String(Math.round((raw / basisQty) * 100) / 100);
+}
+
+/** Job totals for custom scope — scales per-unit mat/lab by takeoff qty when present. */
+export function resolveCustomScopeDraftPricing(params: {
+  materialValue: unknown;
+  laborValue: unknown;
+  basisQuantity: number | null | undefined;
+}): {
+  material: number;
+  labor: number;
+  total: number;
+  treatedAsRates: boolean;
+} {
+  const basisQty = customScopeBasisQuantity(params.basisQuantity);
+  const rawMaterial = parseCustomScopeMoney(params.materialValue);
+  const rawLabor = parseCustomScopeMoney(params.laborValue);
+  const material = scaleCustomScopeStoredAmount(rawMaterial, basisQty);
+  const labor = scaleCustomScopeStoredAmount(rawLabor, basisQty);
+  const treatedAsRates = Boolean(
+    basisQty &&
+      ((rawMaterial > 0 && looksLikeCustomScopeUnitRate(rawMaterial, basisQty)) ||
+        (rawLabor > 0 && looksLikeCustomScopeUnitRate(rawLabor, basisQty)))
+  );
+  return { material, labor, total: material + labor, treatedAsRates };
+}
+
 function resolveCustomScopeChecklistItemQuantity(
   itemId: string,
   measurements: NormalizedScopeMeasurements
@@ -19150,24 +19229,25 @@ function resolveCustomScopeChecklistItemQuantity(
   const itemInput = measurements.itemQuantities?.[itemId];
   const materialKey = `${itemId}__material`;
   const laborKey = `${itemId}__labor`;
-  const materialAmount = parseCustomScopeMoney(
-    measurements.itemQuantities?.[materialKey]?.quantity
-  );
-  const laborAmount = parseCustomScopeMoney(
-    measurements.itemQuantities?.[laborKey]?.quantity
-  );
   const storedUnit = itemInput?.unit;
-  const unit =
-    storedUnit === 'each' || storedUnit === 'allowance'
-      ? 'sqft'
-      : resolveCustomScopePricingUnit(storedUnit);
   const basisQty = parseCustomScopeMoney(itemInput?.quantity);
+  const scaled = resolveCustomScopeDraftPricing({
+    materialValue: measurements.itemQuantities?.[materialKey]?.quantity,
+    laborValue: measurements.itemQuantities?.[laborKey]?.quantity,
+    basisQuantity: basisQty,
+  });
+  const materialAmount = scaled.material;
+  const laborAmount = scaled.labor;
   const lumpTotal = materialAmount + laborAmount;
   const legacyLumpOnly =
     (storedUnit === 'allowance' || storedUnit === 'each') &&
     basisQty > 0 &&
     lumpTotal <= 0;
   const hasPricing = lumpTotal > 0 || legacyLumpOnly;
+  const unit =
+    storedUnit === 'each' || storedUnit === 'allowance'
+      ? 'sqft'
+      : resolveCustomScopePricingUnit(storedUnit);
 
   return {
     quantity: legacyLumpOnly && basisQty > 0 ? basisQty : null,
@@ -20632,6 +20712,18 @@ export function countScopePricingReadiness(
     if (!checklistItemInScope(item)) continue;
     if (isPainting && skippedPaintingIds.has(item.id)) continue;
     if (String(item.id || '').startsWith('custom_')) {
+      const applied = isCustomScopePricingApplied(
+        item.id,
+        (
+          measurements as {
+            pricingAcceptance?: Record<string, { selectionStatus?: string }>;
+          }
+        )?.pricingAcceptance
+      );
+      if (!applied) {
+        needsMeasurement += 1;
+        continue;
+      }
       const base = measurements.itemQuantities?.[item.id];
       const allowance = measurements.itemQuantities?.[`${item.id}__allowance`];
       const material = measurements.itemQuantities?.[`${item.id}__material`];

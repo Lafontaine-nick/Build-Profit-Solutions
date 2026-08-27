@@ -28,6 +28,7 @@ import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { Typography } from '@/constants/Typography';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import AIEstimateDisclaimer from '@/components/estimate/AIEstimateDisclaimer';
 import {
@@ -145,6 +146,7 @@ import {
   checklistDisplayLabel,
   choiceIdsToScopeState,
   createCustomScopeItem,
+  resolveCustomScopeItemPlaceholder,
   groupScopeChecklistItems,
   initialScopeGroupCollapse,
   isCustomScopeChecklistItem,
@@ -291,6 +293,9 @@ import {
   hasFlooringProductTakeoff,
   isNationalAverageComparisonBlock,
   initialScopeMeasurementInputExtended,
+  isCustomScopePricingApplied,
+  resolveCustomScopeDraftPricing,
+  customScopeEditorRateValue,
   isDualAllowanceItem,
   overlayDualRatePricingDisplay,
   prepareScopeMeasurementsInputForUi,
@@ -3053,21 +3058,12 @@ function PricingInputField({
       >
         {activePrefix ? (
           <Text
-            style={{
-              color: isEmptyValue
-                ? placeholderColor
-                : captionColor(darkMode, Colors),
-              fontSize: 15,
-              fontWeight: '700',
-              lineHeight: 20,
-              ...(Platform.OS === 'android'
-                ? {
-                    includeFontPadding: false,
-                    textAlignVertical: 'center' as const,
-                  }
-                : null),
-              marginTop: Platform.OS === 'ios' ? 1 : 0,
-            }}
+            style={[
+              styles.pricingCurrencyPrefix,
+              {
+                color: isEmptyValue ? placeholderColor : Colors.text,
+              },
+            ]}
           >
             {activePrefix}
           </Text>
@@ -3099,9 +3095,11 @@ function PricingInputField({
           {...scopeNumericInputProps}
           editable={!applying && !readOnly}
           style={[
-            styles.pricingInput,
-            { color: Colors.text },
-            isEmptyValue && !embedded
+            activePrefix ? styles.pricingInputPrefixed : styles.pricingInput,
+            {
+              color: isEmptyValue ? placeholderColor : Colors.text,
+            },
+            isEmptyValue && !embedded && !activePrefix
               ? {
                   flex: 0,
                   width: Math.min(
@@ -3263,6 +3261,7 @@ function CustomScopeItemComposer({
   onAdd,
   onCancel,
   applying,
+  placeholder,
   Colors,
   darkMode,
 }: {
@@ -3271,6 +3270,7 @@ function CustomScopeItemComposer({
   onAdd: () => void;
   onCancel: () => void;
   applying: boolean;
+  placeholder: string;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
 }) {
@@ -3303,7 +3303,7 @@ function CustomScopeItemComposer({
       <TextInput
         value={label}
         onChangeText={onChangeLabel}
-        placeholder='e.g. exterior trim, heated floor'
+        placeholder={placeholder}
         placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'}
         returnKeyType='done'
         blurOnSubmit
@@ -3579,21 +3579,30 @@ function CustomScopePricingSection({
     basis && Number.isFinite(basis.quantity) && basis.quantity > 0
       ? basis
       : null;
-  const moneyTotal = (material: string, labor: string) => {
-    const materialNumber = Number(String(material || '').replace(/,/g, ''));
-    const laborNumber = Number(String(labor || '').replace(/,/g, ''));
-    const total =
-      (Number.isFinite(materialNumber) && materialNumber > 0
-        ? materialNumber
-        : 0) +
-      (Number.isFinite(laborNumber) && laborNumber > 0 ? laborNumber : 0);
+  const draftPricing = resolveCustomScopeDraftPricing({
+    materialValue,
+    laborValue,
+    basisQuantity: validBasis?.quantity,
+  });
+  const materialEditorValue = validBasis
+    ? customScopeEditorRateValue(materialValue, validBasis.quantity)
+    : materialValue;
+  const laborEditorValue = validBasis
+    ? customScopeEditorRateValue(laborValue, validBasis.quantity)
+    : laborValue;
+  const syncAllowanceTotal = (material: string, labor: string) => {
+    const total = resolveCustomScopeDraftPricing({
+      materialValue: material,
+      laborValue: labor,
+      basisQuantity: validBasis?.quantity,
+    }).total;
     return total > 0 ? String(Math.round(total * 100) / 100) : '';
   };
   const handleMaterialChange = (text: string) => {
     onItemQuantityChange(materialKey, text, 'count', 'allowance', 'user_entered');
     onItemQuantityChange(
       allowanceKey,
-      moneyTotal(text, laborValue),
+      syncAllowanceTotal(text, laborEditorValue),
       'count',
       'allowance',
       'user_entered'
@@ -3603,14 +3612,16 @@ function CustomScopePricingSection({
     onItemQuantityChange(laborKey, text, 'count', 'allowance', 'user_entered');
     onItemQuantityChange(
       allowanceKey,
-      moneyTotal(materialValue, text),
+      syncAllowanceTotal(materialEditorValue, text),
       'count',
       'allowance',
       'user_entered'
     );
   };
-  const splitTotal = moneyTotal(materialValue, laborValue);
-  const hasSplitPricing = Boolean(splitTotal);
+  const draftTotalAmount = draftPricing.total;
+  const matLabUnitLabel = validBasis
+    ? ` · $/${formatUnitLabel(selectedUnit)}`
+    : '';
   const norm = buildNormFromInput(
     measurementsInput,
     null,
@@ -3619,10 +3630,9 @@ function CustomScopePricingSection({
   const resolved = resolveChecklistItemQuantity(itemId, norm, {
     templateKey,
   });
-  const accepted = scopeShowsConfirmScopeAppliedPricing(
+  const accepted = isCustomScopePricingApplied(
     itemId,
-    measurementsInput,
-    templateKey
+    measurementsInput.pricingAcceptance
   );
   const intelligence = resolveScopeItemIntelligence({
     scopeKey: itemId,
@@ -3685,7 +3695,9 @@ function CustomScopePricingSection({
             { color: captionColor(darkMode, Colors), marginBottom: 0 },
           ]}
         >
-          Enter material and labor. Add a quantity when you want $/unit rates.
+          {validBasis
+            ? `Enter $/${formatUnitLabel(selectedUnit)} rates for material and labor. Total updates below.`
+            : 'Enter material and labor. Add a quantity when you want $/unit rates.'}
         </Text>
         <CustomScopeUnitToggle
           selectedUnit={selectedUnit}
@@ -3726,14 +3738,10 @@ function CustomScopePricingSection({
         <PricingMatLabRow
           material={
             <PricingInputField
-              key={`custom-material-${selectedUnit}-${validBasis ? 'rate' : 'total'}`}
-              label='Material'
-              value={materialValue}
-              helper={unitRateHelper(materialValue, validBasis)}
-              basis={validBasis}
+              label={`Material${matLabUnitLabel}`}
+              value={materialEditorValue}
               prefix='$'
-              placeholder={validBasis ? `$/${formatUnitLabel(selectedUnit)}` : '0'}
-              defaultInputMode='total'
+              placeholder='0'
               embedded
               onFocus={() => onItemQuantityFocus(materialKey)}
               onChangeText={handleMaterialChange}
@@ -3745,14 +3753,10 @@ function CustomScopePricingSection({
           }
           labor={
             <PricingInputField
-              key={`custom-labor-${selectedUnit}-${validBasis ? 'rate' : 'total'}`}
-              label='Labor'
-              value={laborValue}
-              helper={unitRateHelper(laborValue, validBasis)}
-              basis={validBasis}
+              label={`Labor${matLabUnitLabel}`}
+              value={laborEditorValue}
               prefix='$'
-              placeholder={validBasis ? `$/${formatUnitLabel(selectedUnit)}` : '0'}
-              defaultInputMode='total'
+              placeholder='0'
               embedded
               onFocus={() => onItemQuantityFocus(laborKey)}
               onChangeText={handleLaborChange}
@@ -3763,7 +3767,7 @@ function CustomScopePricingSection({
             />
           }
         />
-        {splitTotal ? (
+        {draftTotalAmount > 0 ? (
           <View
             style={[
               styles.pricingEditorTotalRow,
@@ -3790,12 +3794,13 @@ function CustomScopePricingSection({
                 fontWeight: '800',
               }}
             >
-              {formatDraftMoney(Number(splitTotal))}
+              {formatDraftMoney(draftTotalAmount)}
             </Text>
           </View>
         ) : null}
       </PricingEditorPanel>
-      {hasSplitPricing ? (
+      {parsePricingAmount(materialEditorValue) > 0 &&
+      parsePricingAmount(laborEditorValue) > 0 ? (
         <TouchableOpacity
           activeOpacity={0.85}
           disabled={applying}
@@ -7748,11 +7753,7 @@ function YesNoRow({
   const isCustom = isCustomScopeItem(item);
   const customPricingApplied =
     isCustom &&
-    scopeShowsConfirmScopeAppliedPricing(
-      item.id,
-      measurementsInput,
-      templateKey
-    );
+    isCustomScopePricingApplied(item.id, measurementsInput.pricingAcceptance);
   let helper = isCustom
     ? 'Added manually. Enter material and labor; optional sqft, LF, or CY basis.'
     : checklistDisplayHelper(item, templateKey);
@@ -17331,6 +17332,22 @@ export default function AIEstimateScopeAssumptionsModal({
   const { templateItems: templateDisplayItems, customItems: customScopeItems } =
     useMemo(() => partitionScopeChecklistItems(displayItems), [displayItems]);
 
+  const customScopeItemPlaceholder = useMemo(
+    () =>
+      resolveCustomScopeItemPlaceholder({
+        templateKey: checklist?.templateKey,
+        planImportTradeKey:
+          measurements.planImportTradeKey ?? planImport?.selectedTrade ?? null,
+        notes: scopeNotes,
+      }),
+    [
+      checklist?.templateKey,
+      measurements.planImportTradeKey,
+      planImport?.selectedTrade,
+      scopeNotes,
+    ]
+  );
+
   const enrichedPricingContext = useMemo(
     () =>
       displayItems.length
@@ -22699,28 +22716,37 @@ export default function AIEstimateScopeAssumptionsModal({
   const handleSaveCustomScopePricing = useCallback(
     (itemId: string) => {
       setMeasurementsSynced(prev => {
-        const material = parsePricingAmount(
-          prev.itemQuantities?.[`${itemId}__material`]?.quantity
+        const basisQty = parsePricingAmount(
+          prev.itemQuantities?.[itemId]?.quantity
         );
-        const labor = parsePricingAmount(
-          prev.itemQuantities?.[`${itemId}__labor`]?.quantity
-        );
-        const lumpTotal = material + labor;
+        const scaled = resolveCustomScopeDraftPricing({
+          materialValue: prev.itemQuantities?.[`${itemId}__material`]?.quantity,
+          laborValue: prev.itemQuantities?.[`${itemId}__labor`]?.quantity,
+          basisQuantity: basisQty > 0 ? basisQty : null,
+        });
+        const { material, labor, total: lumpTotal } = scaled;
         if (!(lumpTotal > 0)) return prev;
 
         const itemQuantities = { ...(prev.itemQuantities || {}) };
-        const stampUserEntered = (key: string) => {
+        const persistScaled = (key: string, amount: number) => {
           const entry = itemQuantities[key];
           if (!entry) return;
           itemQuantities[key] = {
             ...entry,
+            quantity: String(Math.round(amount * 100) / 100),
             quantitySource: 'user_entered',
           };
         };
-        stampUserEntered(itemId);
-        stampUserEntered(`${itemId}__material`);
-        stampUserEntered(`${itemId}__labor`);
-        stampUserEntered(`${itemId}__allowance`);
+        persistScaled(`${itemId}__material`, material);
+        persistScaled(`${itemId}__labor`, labor);
+        persistScaled(`${itemId}__allowance`, lumpTotal);
+        const itemEntry = itemQuantities[itemId];
+        if (itemEntry) {
+          itemQuantities[itemId] = {
+            ...itemEntry,
+            quantitySource: 'user_entered',
+          };
+        }
 
         return {
           ...prev,
@@ -23370,6 +23396,7 @@ export default function AIEstimateScopeAssumptionsModal({
                   setShowCustomItemInput(false);
                   setCustomItemLabel('');
                 }}
+                placeholder={customScopeItemPlaceholder}
                 applying={applying}
                 Colors={Colors}
                 darkMode={darkMode}
@@ -24262,6 +24289,7 @@ const styles = StyleSheet.create({
   pricingInputRowEmbedded: {
     minHeight: 40,
     paddingHorizontal: 8,
+    gap: 2,
   },
   budgetSplitHeader: {
     flexDirection: 'row',
@@ -24392,6 +24420,31 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 10,
     minHeight: 44,
+  },
+  pricingInputPrefixed: {
+    flex: 1,
+    textAlign: 'left',
+    paddingLeft: 0,
+    paddingRight: 0,
+    margin: 0,
+    height: undefined,
+    minHeight: 20,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    fontSize: 15,
+    fontFamily: Typography.fonts.secondary,
+    fontWeight: '700',
+    ...(Platform.OS === 'android'
+      ? { lineHeight: 20, textAlignVertical: 'center' as const, includeFontPadding: false }
+      : null),
+  },
+  pricingCurrencyPrefix: {
+    fontSize: 15,
+    fontFamily: Typography.fonts.secondary,
+    fontWeight: '700',
+    lineHeight: 20,
+    ...(Platform.OS === 'android'
+      ? { includeFontPadding: false, textAlignVertical: 'center' as const }
+      : null),
   },
   pricingInput: {
     flex: 1,
