@@ -12,23 +12,23 @@ describe('aiConfig', () => {
     expect(getAiProvider()).toBe(DEFAULT_PROVIDER);
     expect(getAiModels()).toEqual({
       assistant: {
-        router: 'gpt-4o-mini',
-        response: 'gpt-4o',
-        estimate: 'gpt-4o',
-        vision: 'gpt-4o',
+        router: 'gpt-5.6-luna',
+        response: 'gpt-5.6-terra',
+        estimate: 'gpt-5.6-terra',
+        vision: 'gpt-5.6-terra',
         transcription: 'whisper-1',
       },
       dashboard: {
-        summary: 'gpt-4o-mini',
+        summary: 'gpt-5.6-luna',
       },
       ocr: {
-        receipt: 'gpt-4o',
+        receipt: 'gpt-5.6-terra',
       },
       leadScoring: {
-        scoring: 'gpt-4',
-        insights: 'gpt-4',
-        followUp: 'gpt-4',
-        prioritize: 'gpt-4',
+        scoring: 'gpt-5.6-luna',
+        insights: 'gpt-5.6-luna',
+        followUp: 'gpt-5.6-luna',
+        prioritize: 'gpt-5.6-luna',
       },
     });
     expect(getAiRuntimeSettings()).toEqual({

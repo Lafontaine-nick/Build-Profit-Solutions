@@ -21,6 +21,21 @@ services:
         value: https://build-profit-solutions-mobile.vercel.app
       - key: OPENAI_API_KEY
         sync: false
+      # AI models — Terra for estimate/vision; Luna for routing and lightweight tasks
+      - key: AI_MODEL_ASSISTANT_ESTIMATE
+        value: gpt-5.6-terra
+      - key: AI_MODEL_ASSISTANT_VISION
+        value: gpt-5.6-terra
+      - key: AI_MODEL_ASSISTANT_RESPONSE
+        value: gpt-5.6-terra
+      - key: AI_MODEL_ASSISTANT_ROUTER
+        value: gpt-5.6-luna
+      - key: AI_MODEL_DASHBOARD_SUMMARY
+        value: gpt-5.6-luna
+      - key: AI_MODEL_OCR_RECEIPT
+        value: gpt-5.6-terra
+      - key: AI_MODEL_LEAD_SCORING
+        value: gpt-5.6-luna
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET

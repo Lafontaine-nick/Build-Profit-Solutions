@@ -4,23 +4,23 @@ const DEFAULT_PROVIDER = 'openai';
 
 const MODEL_DEFAULTS = Object.freeze({
   assistant: Object.freeze({
-    router: 'gpt-4o-mini',
-    response: 'gpt-4o',
-    estimate: 'gpt-4o',
-    vision: 'gpt-4o',
+    router: 'gpt-5.6-luna',
+    response: 'gpt-5.6-terra',
+    estimate: 'gpt-5.6-terra',
+    vision: 'gpt-5.6-terra',
     transcription: 'whisper-1',
   }),
   dashboard: Object.freeze({
-    summary: 'gpt-4o-mini',
+    summary: 'gpt-5.6-luna',
   }),
   ocr: Object.freeze({
-    receipt: 'gpt-4o',
+    receipt: 'gpt-5.6-terra',
   }),
   leadScoring: Object.freeze({
-    scoring: 'gpt-4',
-    insights: 'gpt-4',
-    followUp: 'gpt-4',
-    prioritize: 'gpt-4',
+    scoring: 'gpt-5.6-luna',
+    insights: 'gpt-5.6-luna',
+    followUp: 'gpt-5.6-luna',
+    prioritize: 'gpt-5.6-luna',
   }),
 });
 
