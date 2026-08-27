@@ -9,7 +9,6 @@ import {
   HVAC_PLAN_REVIEW_MEASUREMENT_KEYS,
 } from './hvacPlanConvergence';
 import { WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS } from './windowsDoorsPlanConvergence';
-import { GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS } from './garageDoorsPlanConvergence';
 
 const M = (
   key: string,
@@ -409,20 +408,6 @@ export const TRADE_MEASUREMENT_SCHEMAS: Partial<
       }[key],
       'each',
       key === 'windowCount' || key === 'exteriorDoorCount' ? 'primary' : 'more',
-      { quickMeasurementKey: key }
-    )
-  ),
-  garage_doors: GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS.map(key =>
-    M(
-      key,
-      {
-        garageDoorSingleCount: 'Single garage doors',
-        garageDoorDoubleCount: 'Double garage doors',
-        garageDoorRvCount: 'RV / oversized garage doors',
-        garageDoorOpenerCount: 'Garage door openers',
-      }[key],
-      'each',
-      key === 'garageDoorOpenerCount' ? 'more' : 'primary',
       { quickMeasurementKey: key }
     )
   ),

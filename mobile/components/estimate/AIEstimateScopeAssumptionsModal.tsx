@@ -3380,22 +3380,28 @@ const NotesScopeSelector = React.memo(function NotesScopeSelector({
     setOptimisticMode(mode);
   }, [mode]);
 
+  const panelStyle = qmNeutralScopePanelStyle(darkMode);
+
   return (
     <View
       style={{
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: Colors.line,
-        padding: 10,
+        borderColor: panelStyle.borderColor,
+        backgroundColor: panelStyle.backgroundColor,
+        padding: 14,
         marginBottom: 12,
+        gap: 12,
       }}
     >
       <Text
         style={{
-          color: Colors.text,
-          fontSize: 12,
+          color: panelStyle.titleColor,
+          fontSize: 11,
           fontWeight: '800',
-          marginBottom: 7,
+          letterSpacing: 0.6,
+          textTransform: 'uppercase',
+          marginBottom: 2,
         }}
       >
         Notes estimate scope
@@ -12521,7 +12527,9 @@ function CollapsibleQuickMeasurements({
   const quickMeasurementTemplateKey = stuccoTradeFlow
     ? 'stucco'
     : notesTradeFlow && tradeKey === 'plumbing'
-      ? 'plumbing_service'
+      ? notesTradeMode === 'plumbing_service'
+        ? 'plumbing_service'
+        : 'plumbing'
       : singleTradeImport && tradeKey
         ? String(tradeKey)
         : effectiveTemplateKey;
@@ -17200,6 +17208,27 @@ export default function AIEstimateScopeAssumptionsModal({
     () => new Set(PLUMBING_CARDS.map(card => card.itemId)),
     []
   );
+  const notesPlumbingPricingTemplateKey =
+    effectiveNotesTradeMode === 'plumbing_service'
+      ? 'plumbing_service'
+      : 'plumbing';
+  const scopeCardTemplateKey = useCallback(
+    (itemId: string) => {
+      if (notesPlumbingFlow && plumbingItemIds.has(itemId)) {
+        return notesPlumbingPricingTemplateKey;
+      }
+      return checklist?.templateKey ?? null;
+    },
+    [
+      notesPlumbingFlow,
+      plumbingItemIds,
+      notesPlumbingPricingTemplateKey,
+      checklist?.templateKey,
+    ]
+  );
+  const scopePricingTemplateKey = notesPlumbingFlow
+    ? notesPlumbingPricingTemplateKey
+    : checklist?.templateKey ?? null;
   const wholeProjectFlow =
     planImport?.estimatingMode === 'whole_project' ||
     ['ground_up', 'whole_project'].includes(
@@ -17857,7 +17886,9 @@ export default function AIEstimateScopeAssumptionsModal({
       ).toLowerCase();
       if (
         currentTemplate === 'plumbing' ||
-        currentTemplate === 'plumbing_service'
+        currentTemplate === 'plumbing_service' ||
+        (notesPlumbingFlow &&
+          currentMeasurements.tradeWorkflowSource === 'standalone_trade')
       ) {
         return syncPlumbingScopeItems(currentItems, {
           plumbingScope: currentMeasurements.plumbingScope,
@@ -17888,7 +17919,7 @@ export default function AIEstimateScopeAssumptionsModal({
         quantities: currentMeasurements as Partial<Record<string, unknown>>,
       });
     },
-    [checklist?.templateKey]
+    [checklist?.templateKey, notesPlumbingFlow]
   );
 
   useEffect(() => {
@@ -19885,6 +19916,7 @@ export default function AIEstimateScopeAssumptionsModal({
 
   useEffect(() => {
     if (
+      !notesPlumbingFlow &&
       !['plumbing', 'plumbing_service'].includes(
         String(checklist?.templateKey || '').toLowerCase()
       )
@@ -19899,6 +19931,7 @@ export default function AIEstimateScopeAssumptionsModal({
       );
     });
   }, [
+    notesPlumbingFlow,
     checklist?.templateKey,
     measurements.plumbingScope,
     measurements.serviceCallCount,
@@ -20174,6 +20207,7 @@ export default function AIEstimateScopeAssumptionsModal({
       );
       if (isStale()) return [];
       const item = displayItems[index];
+      const cardTemplateKey = scopeCardTemplateKey(item.id);
       if (!checklistItemInScope(item)) continue;
       if (hideDeselectedRoofingQmCard(item.id)) continue;
       if (hideDuplicateRoofingBaseCard(item.id)) continue;
@@ -20235,7 +20269,7 @@ export default function AIEstimateScopeAssumptionsModal({
         scopeShowsConfirmScopeAppliedPricing(
           item.id,
           measurements,
-          checklist?.templateKey
+          cardTemplateKey
         )
       ) {
         continue;
@@ -20250,20 +20284,20 @@ export default function AIEstimateScopeAssumptionsModal({
       }
       const resolved = resolveChecklistItemQuantity(item.id, normMeasurements, {
         choiceId: item.choiceId,
-        templateKey: checklist?.templateKey,
+        templateKey: cardTemplateKey,
         notes: scopeNotes,
       });
       const initialSuggested = resolveScopeItemSuggestedPricing(
         item.id,
         measurements,
-        checklist?.templateKey,
+        cardTemplateKey,
         resolved,
         enrichedPricingContext,
         item.choiceId
       );
       const intelligence = resolveScopeItemIntelligence({
         scopeKey: item.id,
-        templateKey: checklist?.templateKey,
+        templateKey: cardTemplateKey,
         notes: scopeNotes,
         measurements: normMeasurements,
         resolved,
@@ -20278,7 +20312,7 @@ export default function AIEstimateScopeAssumptionsModal({
       const suggested = resolveFormulaTargetSuggestedPricing({
         itemId: item.id,
         measurementsInput: measurements,
-        templateKey: checklist?.templateKey,
+        templateKey: cardTemplateKey,
         resolved,
         pricingContext: enrichedPricingContext,
         intelligence,
@@ -22541,7 +22575,7 @@ export default function AIEstimateScopeAssumptionsModal({
       ) : (
         <MemoizedYesNoRow
           item={item}
-          templateKey={checklist?.templateKey}
+          templateKey={scopeCardTemplateKey(item.id)}
           originalNotes={scopeNotes}
           onSetState={state => {
             setItems(prev => {
@@ -23365,13 +23399,9 @@ export default function AIEstimateScopeAssumptionsModal({
               <TouchableOpacity
                 style={[
                   styles.addScopeItemBtn,
+                  estimateFlowCardStyle(Colors, darkMode),
                   {
-                    borderColor: darkMode
-                      ? 'rgba(148, 163, 184, 0.22)'
-                      : Colors.line,
-                    backgroundColor: darkMode
-                      ? 'rgba(255,255,255,0.02)'
-                      : Colors.surface2,
+                    backgroundColor: darkMode ? '#202022' : Colors.surface,
                   },
                 ]}
                 onPress={() => setShowCustomItemInput(true)}
@@ -23789,9 +23819,7 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 4,
     marginBottom: 12,
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 14,
   },
   customItemCard: {
     gap: 10,

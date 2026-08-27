@@ -148,7 +148,13 @@ import {
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
   windowsDoorsTakeoffQuickMeasurementSources,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
-import { hydrateGarageDoorsPlanReviewMeasurements } from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
+import { hydrateGarageDoorsPlanReviewMeasurements,
+  GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+  augmentGarageDoorsScopeDetections,
+  garageDoorsMeasurementKeysForScopeItem,
+  garageDoorsTakeoffQuickMeasurementSources,
+  seedGarageDoorsReviewMeasurements,
+} from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
 
 export type PlanReviewRow = {
   key: string;
@@ -680,8 +686,9 @@ export default function PlanTakeoffReviewModal({
     }
     if (effectiveTradeKey === 'garage_doors') {
       return hydrateGarageDoorsPlanReviewMeasurements(
-        filtered,
-        openingSchedulesFromPlanFacts(takeoff?.planFacts)
+        seedGarageDoorsReviewMeasurements(filtered, takeoff),
+        openingSchedulesFromPlanFacts(takeoff?.planFacts),
+        takeoff?.rooms
       );
     }
     return filterPlanReviewMeasurementEntries(filtered);
@@ -712,6 +719,9 @@ export default function PlanTakeoffReviewModal({
     }
     if (effectiveTradeKey === 'windows_doors') {
       return augmentWindowsDoorsScopeDetections(filtered, visibleMeasurements);
+    }
+    if (effectiveTradeKey === 'garage_doors') {
+      return augmentGarageDoorsScopeDetections(filtered, visibleMeasurements);
     }
     return filtered;
   }, [takeoff, effectiveMode, effectiveTradeKey, visibleMeasurements]);
@@ -1723,7 +1733,7 @@ export default function PlanTakeoffReviewModal({
             }),
           ])
         : undefined;
-    const windowsDoorsConfirmedKeys = new Set([
+    const openingCountConfirmedKeys = new Set([
       ...Object.keys(resolutions),
       ...Object.keys(lowConfidenceAccepted).filter(
         key => lowConfidenceAccepted[key]
@@ -1731,9 +1741,15 @@ export default function PlanTakeoffReviewModal({
       ...rows
         .filter(
           row =>
-            WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS.includes(
-              row.key as (typeof WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS)[number]
-            ) &&
+            (effectiveTradeKey === 'windows_doors'
+              ? WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS.includes(
+                  row.key as (typeof WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS)[number]
+                )
+              : effectiveTradeKey === 'garage_doors'
+                ? GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS.includes(
+                    row.key as (typeof GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS)[number]
+                  )
+                : false) &&
             row.include &&
             row.pricingEligible &&
             (row.provenance.status === 'user_confirmed' ||
@@ -1741,13 +1757,18 @@ export default function PlanTakeoffReviewModal({
         )
         .map(row => row.key),
     ]);
-    const windowsDoorsQuickMeasurementSourcesFromReview =
+    const openingCountQuickMeasurementSourcesFromReview =
       effectiveTradeKey === 'windows_doors'
         ? windowsDoorsTakeoffQuickMeasurementSources({
             values,
-            confirmedKeys: windowsDoorsConfirmedKeys,
+            confirmedKeys: openingCountConfirmedKeys,
           })
-        : undefined;
+        : effectiveTradeKey === 'garage_doors'
+          ? garageDoorsTakeoffQuickMeasurementSources({
+              values,
+              confirmedKeys: openingCountConfirmedKeys,
+            })
+          : undefined;
     onApply(
       values,
       scopeDetections.map(d => ({
@@ -1778,11 +1799,11 @@ export default function PlanTakeoffReviewModal({
         waterHeaterDetail: takeoff.waterHeaterDetail,
         gasApplianceScope: takeoff.gasApplianceScope,
         ...(hvacQuickMeasurementSourcesFromReview ||
-        windowsDoorsQuickMeasurementSourcesFromReview
+        openingCountQuickMeasurementSourcesFromReview
           ? {
               quickMeasurementSources: {
                 ...(hvacQuickMeasurementSourcesFromReview || {}),
-                ...(windowsDoorsQuickMeasurementSourcesFromReview || {}),
+                ...(openingCountQuickMeasurementSourcesFromReview || {}),
               },
             }
           : {}),
@@ -2278,7 +2299,8 @@ export default function PlanTakeoffReviewModal({
                       })
                     : null;
                   const needsSingleOpeningConfirmation =
-                    effectiveTradeKey === 'windows_doors' &&
+                    (effectiveTradeKey === 'windows_doors' ||
+                      effectiveTradeKey === 'garage_doors') &&
                     windowsDoorsTier === 'plan_derived' &&
                     Number(row.value) > 0 &&
                     !row.pricingEligible;
@@ -2351,6 +2373,7 @@ export default function PlanTakeoffReviewModal({
                                   effectiveTradeKey === 'garage_doors') &&
                                 !(Number(row.value) > 0)
                               ) {
+                                setRow(row.key, { include: !row.include });
                                 return;
                               }
                               const prompt = planReviewCheckboxBlockedMessage(
@@ -2975,13 +2998,23 @@ export default function PlanTakeoffReviewModal({
                   Suggested scope
                 </Text>
                 {scopeDetections.map(d => {
-                  const openingKey = windowsDoorsMeasurementKeyForScopeItem(
-                    d.itemId
-                  );
+                  const openingKeys =
+                    effectiveTradeKey === 'windows_doors'
+                      ? (() => {
+                          const key = windowsDoorsMeasurementKeyForScopeItem(
+                            d.itemId
+                          );
+                          return key ? [key] : [];
+                        })()
+                      : effectiveTradeKey === 'garage_doors'
+                        ? garageDoorsMeasurementKeysForScopeItem(d.itemId)
+                        : [];
+                  const isOpeningCountTrade =
+                    effectiveTradeKey === 'windows_doors' ||
+                    effectiveTradeKey === 'garage_doors';
                   const openingConflict =
-                    effectiveTradeKey === 'windows_doors' &&
-                    openingKey != null &&
-                    conflictFieldSet.has(openingKey);
+                    isOpeningCountTrade &&
+                    openingKeys.some(key => conflictFieldSet.has(key));
                   const statusLines = scopeTakeoffStatusLines({
                     itemId: d.itemId,
                     evidence: d.evidence,
@@ -3032,36 +3065,44 @@ export default function PlanTakeoffReviewModal({
                           row.include
                       ),
                     hasOpeningCount:
-                      effectiveTradeKey === 'windows_doors' &&
-                      openingKey != null &&
-                      rows.some(
-                        row =>
-                          row.key === openingKey &&
-                          Number(row.value) > 0 &&
-                          row.include
+                      isOpeningCountTrade &&
+                      openingKeys.length > 0 &&
+                      openingKeys.some(key =>
+                        rows.some(
+                          row =>
+                            row.key === key &&
+                            Number(row.value) > 0 &&
+                            row.include
+                        )
                       ),
                     openingConflict,
                     openingDetectedCount: (() => {
                       if (
-                        effectiveTradeKey !== 'windows_doors' ||
-                        !openingKey ||
+                        !isOpeningCountTrade ||
+                        !openingKeys.length ||
                         openingConflict
                       ) {
                         return null;
                       }
-                      const included = rows.find(
-                        row =>
-                          row.key === openingKey &&
-                          Number(row.value) > 0 &&
-                          row.include
-                      );
-                      if (included) return Math.round(Number(included.value));
-                      const measured = Number(
-                        takeoff.measurements?.[openingKey]
-                      );
-                      return Number.isFinite(measured) && measured > 0
-                        ? Math.round(measured)
-                        : null;
+                      const includedTotal = openingKeys.reduce((sum, key) => {
+                        const included = rows.find(
+                          row =>
+                            row.key === key &&
+                            Number(row.value) > 0 &&
+                            row.include
+                        );
+                        return included
+                          ? sum + Math.round(Number(included.value))
+                          : sum;
+                      }, 0);
+                      if (includedTotal > 0) return includedTotal;
+                      const measuredTotal = openingKeys.reduce((sum, key) => {
+                        const measured = Number(takeoff.measurements?.[key]);
+                        return Number.isFinite(measured) && measured > 0
+                          ? sum + Math.round(measured)
+                          : sum;
+                      }, 0);
+                      return measuredTotal > 0 ? measuredTotal : null;
                     })(),
                   });
                   return (

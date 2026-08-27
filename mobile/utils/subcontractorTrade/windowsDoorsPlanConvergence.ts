@@ -386,10 +386,10 @@ export function windowsDoorsReviewSelectionAppearance(input: {
   tier: WindowsDoorsReviewTier;
   colors: { sub: string };
 }): { icon: 'checkbox' | 'square-outline'; color: string } {
-  if (input.tier === 'not_found' || !input.include) {
+  if (!input.include) {
     return { icon: 'square-outline', color: input.colors.sub };
   }
-  if (input.tier === 'plan_derived') {
+  if (input.tier === 'not_found' || input.tier === 'plan_derived') {
     return { icon: 'checkbox', color: '#fbbf24' };
   }
   return { icon: 'checkbox', color: '#22c55e' };
@@ -948,6 +948,62 @@ function rowQuantity(row: OpeningScheduleRow): number {
   return positiveCount(row.quantity) || 1;
 }
 
+export type GarageDoorTypeBucket = 'single' | 'double' | 'rv';
+
+const GARAGE_DOOR_BUCKET_BY_MEASUREMENT_KEY: Partial<
+  Record<string, GarageDoorTypeBucket>
+> = {
+  garageDoorSingleCount: 'single',
+  garageDoorDoubleCount: 'double',
+  garageDoorRvCount: 'rv',
+};
+
+/** One physical garage door maps to exactly one pricing bucket (RV first, then double, then single). */
+export function classifyGarageDoorTypeFromRow(
+  row: OpeningScheduleRow
+): GarageDoorTypeBucket | null {
+  const blob =
+    `${row.type || ''} ${row.notes || ''} ${row.mark || ''} ${row.configuration || ''}`.toLowerCase();
+  const dims = resolveOpeningDimensions(row);
+  const widthFt = dims?.widthFt ?? 0;
+  const heightFt = dims?.heightFt ?? 0;
+  if (
+    /\brv\b|oversize|oversized|extra[-\s]?wide|high[-\s]?lift|tall|rv\s*garage/.test(
+      blob
+    ) ||
+    heightFt >= 10 ||
+    widthFt >= 20
+  ) {
+    return 'rv';
+  }
+  if (
+    /\bdouble\b|two[-\s]?car|2[-\s]?car/.test(blob) ||
+    widthFt >= 14
+  ) {
+    return 'double';
+  }
+  if (
+    /\bsingle\b|one[-\s]?car|1[-\s]?car/.test(blob) ||
+    (widthFt > 0 && widthFt < 14)
+  ) {
+    return 'single';
+  }
+  return null;
+}
+
+export function tallyGarageDoorTypesFromSchedule(
+  schedules?: OpeningSchedules | null
+): { single: number; double: number; rv: number; unclassified: number } {
+  const tallies = { single: 0, double: 0, rv: 0, unclassified: 0 };
+  for (const row of schedules?.garageDoors || []) {
+    const bucket = classifyGarageDoorTypeFromRow(row);
+    const qty = rowQuantity(row);
+    if (bucket) tallies[bucket] += qty;
+    else tallies.unclassified += qty;
+  }
+  return tallies;
+}
+
 export function openingScheduleRowsForMeasurementKey(
   key: string,
   schedules?: OpeningSchedules | null
@@ -961,25 +1017,18 @@ export function openingScheduleRowsForMeasurementKey(
   if (key === 'interiorDoorCount') return classified.interiorDoors || [];
   const garage = classified.garageDoors || [];
   if (!garage.length) return [];
-  const matching = garage.filter(row => {
-    const blob =
-      `${row.type || ''} ${row.notes || ''} ${row.mark || ''}`.toLowerCase();
-    const dims = resolveOpeningDimensions(row);
-    const widthFt = dims?.widthFt ?? 0;
-    const heightFt = dims?.heightFt ?? 0;
-    if (key === 'garageDoorRvCount') {
-      return /rv|oversize|tall/.test(blob) || heightFt >= 10;
-    }
-    if (key === 'garageDoorDoubleCount') {
-      return /double/.test(blob) || (widthFt >= 14 && widthFt < 20);
-    }
-    if (key === 'garageDoorSingleCount') {
-      return /single/.test(blob) || (widthFt > 0 && widthFt < 12);
-    }
-    return false;
-  });
-  if (matching.length) return matching;
-  if (key === 'garageDoorDoubleCount') return garage;
+  const bucket = GARAGE_DOOR_BUCKET_BY_MEASUREMENT_KEY[key];
+  if (bucket) {
+    const matching = garage.filter(
+      row => classifyGarageDoorTypeFromRow(row) === bucket
+    );
+    if (matching.length) return matching;
+    const anyClassified = garage.some(
+      row => classifyGarageDoorTypeFromRow(row) != null
+    );
+    if (!anyClassified && bucket === 'double') return garage;
+    return [];
+  }
   return [];
 }
 

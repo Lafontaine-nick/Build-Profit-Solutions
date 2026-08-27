@@ -37,7 +37,9 @@ import {
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
   isWindowsDoorsCountScopeItemId,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
-import { GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS } from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
+import { GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+  isGarageDoorsCountScopeItemId,
+} from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
 
 export type PlanReviewSpaceKind = 'living' | 'garage' | 'other';
 
@@ -1822,7 +1824,10 @@ export function scopeTakeoffStatusLines(input: {
     statusLine = 'Needs cabinet LF/count and countertop SF';
   } else if (id === 'appliances') {
     statusLine = 'Needs appliance count';
-  } else if (isWindowsDoorsCountScopeItemId(id)) {
+  } else if (
+    isWindowsDoorsCountScopeItemId(id) ||
+    isGarageDoorsCountScopeItemId(id)
+  ) {
     const openingStatus = windowsDoorsSuggestedScopeStatusLine({
       hasOpeningCount: input.hasOpeningCount,
       openingConflict: input.openingConflict,

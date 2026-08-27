@@ -4828,6 +4828,21 @@ export function applyPlanImportToDraft(
     };
   }
   if (planImportTradeKey === 'garage_doors') {
+    const reconciled = normalizeGarageDoorsPlanMeasurements(
+      scopeMeasurements as Record<string, unknown>,
+      {
+        rooms: scopeMeasurements.planRooms || rooms,
+        openingSchedules:
+          scopeMeasurements.planFacts?.openingSchedules ?? null,
+      }
+    );
+    for (const key of GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS) {
+      if (reconciled[key] != null) {
+        (scopeMeasurements as Record<string, unknown>)[key] = reconciled[key];
+      } else {
+        delete (scopeMeasurements as Record<string, unknown>)[key];
+      }
+    }
     const syncedItems = syncGarageDoorsScopeItems(
       items,
       scopeMeasurements as Record<string, unknown>

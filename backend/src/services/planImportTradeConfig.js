@@ -502,9 +502,9 @@ const TRADE_CONFIGS = {
   garage_doors: {
     key: "garage_doors",
     label: "Garage doors",
-    status: "reference",
+    status: "stub",
     scopeHint:
-      "Focus on the garage door schedule, front elevation, and opener notes. Count single, double, and RV/oversized doors by documented type or readable size — never garage SF.",
+      "Legacy single-trade import key — use whole-project / GC scope for garage doors on new estimates.",
     missingInfo: [
       "Garage door type counts and sizes",
       "Opener count if specified",

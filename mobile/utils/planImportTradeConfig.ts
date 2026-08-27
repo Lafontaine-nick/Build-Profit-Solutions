@@ -52,6 +52,29 @@ function subcontractorDefinitionToPlanConfig(
 
 const LEGACY_PLAN_TRADE_CONFIGURATIONS: PlanTradeConfiguration[] = [
   {
+    key: 'garage_doors',
+    label: 'Garage doors',
+    status: 'stub',
+    scopeHint:
+      'Legacy single-trade import key — use Whole project / GC scope for garage doors on new estimates.',
+    missingInfo: [
+      'Garage door type counts and sizes',
+      'Opener count if specified',
+    ],
+    reviewMeasurementKeys: [
+      'garageDoorSingleCount',
+      'garageDoorDoubleCount',
+      'garageDoorRvCount',
+      'garageDoorOpenerCount',
+    ],
+    reviewScopeKeywords: [
+      'garage door',
+      'overhead door',
+      'opener',
+      'rv garage',
+    ],
+  },
+  {
     key: 'cabinets',
     label: 'Cabinets',
     status: 'stub',
@@ -164,7 +187,8 @@ export function tradeQuickMeasurementFieldKeys(
   if (def?.quickMeasurementFieldKeys?.length) {
     return def.quickMeasurementFieldKeys;
   }
-  return [];
+  const config = getPlanTradeConfiguration(tradeKey || '');
+  return config?.reviewMeasurementKeys || [];
 }
 
 /** Plan-detected Electrical packages stay confirmation-only until the contractor selects them. */

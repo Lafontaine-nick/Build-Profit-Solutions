@@ -141,7 +141,7 @@ function positiveNumber(value: unknown): number | null {
  * Phase 0: passthrough only — does not recalculate derived fields or invoke pricing.
  */
 export function normalizeTradeMeasurements(
-  tradeKey: SubcontractorTradeKey,
+  tradeKey: SubcontractorTradeKey | 'garage_doors',
   input: RawMeasurementInput,
   source: TradeMeasurementInputSource = 'plan'
 ): NormalizedTradeMeasurements {

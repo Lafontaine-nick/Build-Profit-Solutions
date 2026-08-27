@@ -128,7 +128,6 @@ export const TRADE_SCOPE_ALLOWLISTS: Record<SubcontractorTradeKey, string[]> = {
     'trim_finish',
     'windows_doors',
   ],
-  garage_doors: ['garage_doors', 'garage_door_openers'],
 };
 
 export function getTradeScopeAllowlist(

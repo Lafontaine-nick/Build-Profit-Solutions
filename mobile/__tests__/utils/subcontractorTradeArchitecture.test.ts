@@ -12,6 +12,7 @@ import {
   filterChecklistItemsForTrade,
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
+  getPlanTradeConfiguration,
   tradeQuickMeasurementFieldKeys,
 } from '@/utils/planImportTradeConfig';
 import {
@@ -37,6 +38,7 @@ import {
   seedWindowsDoorsReviewMeasurements,
   hydrateWindowsDoorsPlanReviewMeasurements,
   openingSizeMixFromRows,
+  classifyGarageDoorTypeFromRow,
   parseOpeningSizeCode,
   resolveWindowsDoorsReviewTier,
   syncWindowsDoorsScopeItems,
@@ -46,13 +48,21 @@ import {
   windowsDoorsTakeoffQuickMeasurementSources,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
 import {
+  augmentGarageDoorsScopeDetections,
+  garageDoorsMeasurementKeysForScopeItem,
+  garageDoorsTakeoffQuickMeasurementSources,
+  reconcileGarageDoorTypeCounts,
+  seedGarageDoorsReviewMeasurements,
+  syncGarageDoorsScopeItems,
+} from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
+import {
   buildHvacStructuredMeasurements,
   HVAC_PLAN_REVIEW_MEASUREMENT_KEYS,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import { quickMeasurementRowsForInput } from '@/utils/scopeQuickMeasurements';
 
 describe('subcontractor trade architecture (Phase 0)', () => {
-  it('exposes Plan Export trades including Garage doors', () => {
+  it('exposes Plan Export trades without Garage doors', () => {
     expect(PLAN_EXPORT_TRADE_KEYS).toEqual([
       'electrical',
       'plumbing',
@@ -66,7 +76,6 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       'flooring',
       'painting',
       'windows_doors',
-      'garage_doors',
     ]);
     expect(PLAN_EXPORT_TRADE_CONFIGURATIONS).toHaveLength(
       PLAN_EXPORT_TRADE_KEYS.length
@@ -77,7 +86,7 @@ describe('subcontractor trade architecture (Phase 0)', () => {
   });
 
   it('keeps legacy plan trade keys for persisted draft compatibility', () => {
-    const legacyKeys = ['cabinets', 'landscaping', 'other'];
+    const legacyKeys = ['garage_doors', 'cabinets', 'landscaping', 'other'];
     for (const key of legacyKeys) {
       expect(PLAN_TRADE_CONFIGURATIONS.some(trade => trade.key === key)).toBe(
         true
@@ -1058,15 +1067,7 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     ).toEqual(['windows', 'sliding_doors', 'interior_doors']);
   });
 
-  it('declares Garage doors as its own Plan Export trade', () => {
-    const definition = SUBCONTRACTOR_TRADE_DEFINITIONS.garage_doors;
-    expect(definition.status).toBe('complete');
-    expect(definition.reviewMeasurementKeys).toEqual([
-      'garageDoorSingleCount',
-      'garageDoorDoubleCount',
-      'garageDoorRvCount',
-      'garageDoorOpenerCount',
-    ]);
+  it('keeps garage door helpers for legacy imports and GC scope', () => {
     const filtered = filterPlanMeasurementsForTrade(
       {
         windowCount: 14,
@@ -1090,6 +1091,93 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     ).toMatchObject({
       garage_doors: { quantity: 3, unit: 'each' },
       garage_door_openers: { quantity: 2, unit: 'each' },
+    });
+    expect(
+      syncGarageDoorsScopeItems(
+        [
+          { id: 'garage_doors', state: 'unknown' },
+          { id: 'garage_door_openers', state: 'unknown' },
+        ],
+        filtered
+      ).map(item => [item.id, item.state])
+    ).toEqual([
+      ['garage_doors', 'included'],
+      ['garage_door_openers', 'included'],
+    ]);
+    expect(
+      augmentGarageDoorsScopeDetections([], filtered).map(row => row.itemId)
+    ).toEqual(['garage_doors', 'garage_door_openers']);
+    expect(garageDoorsMeasurementKeysForScopeItem('garage_doors')).toEqual([
+      'garageDoorSingleCount',
+      'garageDoorDoubleCount',
+      'garageDoorRvCount',
+    ]);
+    expect(
+      garageDoorsTakeoffQuickMeasurementSources({
+        values: filtered,
+        confirmedKeys: ['garageDoorSingleCount'],
+      })
+    ).toMatchObject({
+      garageDoorSingleCount: 'contractor_confirmed_from_plan_review',
+      garageDoorDoubleCount: 'needs_confirmation',
+    });
+    expect(
+      seedGarageDoorsReviewMeasurements(
+        {},
+        {
+          lowConfidence: [{ field: 'garageDoorRvCount', value: 1 }],
+        }
+      )
+    ).toMatchObject({ garageDoorRvCount: 1 });
+    expect(PLAN_EXPORT_TRADE_CONFIGURATIONS.some(t => t.key === 'garage_doors')).toBe(
+      false
+    );
+    expect(getPlanTradeConfiguration('garage_doors')?.reviewMeasurementKeys).toEqual([
+      'garageDoorSingleCount',
+      'garageDoorDoubleCount',
+      'garageDoorRvCount',
+      'garageDoorOpenerCount',
+    ]);
+  });
+
+  it('reclassifies mis-typed garage doors when the plan labels an RV bay', () => {
+    expect(
+      classifyGarageDoorTypeFromRow({
+        type: 'Overhead',
+        widthFt: 10,
+        heightFt: 8,
+      })
+    ).toBe('single');
+    expect(
+      classifyGarageDoorTypeFromRow({
+        type: 'RV garage door',
+        widthFt: 10,
+        heightFt: 8,
+      })
+    ).toBe('rv');
+    expect(
+      classifyGarageDoorTypeFromRow({
+        type: 'Double',
+        widthFt: 16,
+        heightFt: 7,
+      })
+    ).toBe('double');
+    expect(
+      reconcileGarageDoorTypeCounts(
+        {
+          garageDoorSingleCount: 1,
+          garageDoorDoubleCount: 1,
+        },
+        {
+          rooms: [
+            { name: 'Garage', areaSqft: 443.7 },
+            { name: 'RV Garage', areaSqft: 512.5 },
+          ],
+        }
+      )
+    ).toEqual({
+      garageDoorDoubleCount: 1,
+      garageDoorRvCount: 1,
     });
   });
 
@@ -1425,6 +1513,13 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     expect(
       windowsDoorsReviewSelectionAppearance({
         include: true,
+        tier: 'not_found',
+        colors: { sub: '#888' },
+      })
+    ).toMatchObject({ icon: 'checkbox', color: '#fbbf24' });
+    expect(
+      windowsDoorsReviewSelectionAppearance({
+        include: false,
         tier: 'not_found',
         colors: { sub: '#888' },
       })

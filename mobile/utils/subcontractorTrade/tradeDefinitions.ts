@@ -29,10 +29,6 @@ import {
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
 } from './windowsDoorsPlanConvergence';
 import {
-  GARAGE_DOORS_PLAN_QUICK_MEASUREMENT_KEYS,
-  GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
-} from './garageDoorsPlanConvergence';
-import {
   HVAC_CARDS,
   HVAC_PLAN_QUICK_MEASUREMENT_KEYS,
   HVAC_PLAN_REVIEW_MEASUREMENT_KEYS,
@@ -61,7 +57,6 @@ export const PLAN_EXPORT_TRADE_KEYS: SubcontractorTradeKey[] = [
   'flooring',
   'painting',
   'windows_doors',
-  'garage_doors',
 ];
 
 const STUCCO_REVIEW_MEASUREMENT_KEYS = [
@@ -809,41 +804,6 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
     ],
     quickMeasurementFieldKeys: [...WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_KEYS],
     scopeItems: WINDOWS_DOORS_SCOPE_ITEMS,
-  }),
-  garage_doors: scaffoldedTrade('garage_doors', 'Garage doors', {
-    standaloneTemplateKey: 'ground_up',
-    status: 'complete',
-    scopeHint:
-      'Focus on the garage door schedule, front elevation, and opener notes. Count single, double, and RV/oversized doors by documented type or readable size — never garage SF. Count openers only when labeled.',
-    missingInfo: [
-      'Garage door type counts and sizes',
-      'Opener count and horsepower if specified',
-      'Insulation, glass, and upgrade options',
-    ],
-    reviewMeasurementKeys: [...GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS],
-    reviewScopeKeywords: [
-      'garage door',
-      'overhead door',
-      'opener',
-      'rv garage',
-    ],
-    quickMeasurementFieldKeys: [...GARAGE_DOORS_PLAN_QUICK_MEASUREMENT_KEYS],
-    scopeItems: [
-      {
-        scopeItemId: 'garage_doors',
-        pricingBehavior: 'CUSTOM_PRICE',
-        measurementKeys: [
-          'garageDoorSingleCount',
-          'garageDoorDoubleCount',
-          'garageDoorRvCount',
-        ],
-      },
-      {
-        scopeItemId: 'garage_door_openers',
-        pricingBehavior: 'CUSTOM_PRICE',
-        measurementKeys: ['garageDoorOpenerCount'],
-      },
-    ],
   }),
 };
 

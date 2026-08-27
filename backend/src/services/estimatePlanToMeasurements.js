@@ -1057,6 +1057,7 @@ Garage doors takeoff rules:
 - This trade is garage doors and openers only — do not return window, swing, sliding, or interior door counts.
 - Review the garage door schedule, front elevation, and opener notes. Count each door once.
 - Return garageDoorSingleCount, garageDoorDoubleCount, and garageDoorRvCount by documented type or readable width/height. Never infer type from garage SF or living SF.
+- When the floor plan labels separate "Garage" and "RV Garage" bays, count the RV bay door as garageDoorRvCount — never garageDoorSingleCount. RV doors are often tall (10'+ height) even when the opening width looks like a single-car width.
 - Return garageDoorOpenerCount only when openers are labeled or specified. Do not assume one opener per door.
 - Put schedule totals in explicitlyLabeled and elevation-symbol counts in geometryDerived. Populate planFacts.openingSchedules.garageDoors with type, quantity, and width/height when readable.
 `;
@@ -2528,6 +2529,96 @@ function reconcileOpeningEvidence(raw) {
  * global floor. Schedule totals stay verified; elevation/symbol counts stay
  * plan-derived and require confirmation instead of being blanked.
  */
+function classifyGarageDoorTypeFromRow(row) {
+  const blob =
+    `${row?.type || ""} ${row?.notes || ""} ${row?.mark || ""} ${row?.configuration || ""}`.toLowerCase();
+  const widthFt =
+    Number(row?.widthFt) ||
+    (Number(row?.widthIn) > 0 ? Number(row.widthIn) / 12 : 0) ||
+    0;
+  const heightFt =
+    Number(row?.heightFt) ||
+    (Number(row?.heightIn) > 0 ? Number(row.heightIn) / 12 : 0) ||
+    0;
+  if (
+    /\brv\b|oversize|oversized|extra[-\s]?wide|high[-\s]?lift|tall|rv\s*garage/.test(
+      blob,
+    ) ||
+    heightFt >= 10 ||
+    widthFt >= 20
+  ) {
+    return "rv";
+  }
+  if (/\bdouble\b|two[-\s]?car|2[-\s]?car/.test(blob) || widthFt >= 14) {
+    return "double";
+  }
+  if (
+    /\bsingle\b|one[-\s]?car|1[-\s]?car/.test(blob) ||
+    (widthFt > 0 && widthFt < 14)
+  ) {
+    return "single";
+  }
+  return null;
+}
+
+function tallyGarageDoorTypesFromSchedule(schedules) {
+  const tallies = { single: 0, double: 0, rv: 0, unclassified: 0 };
+  for (const row of schedules?.garageDoors || []) {
+    const bucket = classifyGarageDoorTypeFromRow(row);
+    const qty = windowsDoorsBoundedCount(row?.quantity) ?? 1;
+    if (bucket) tallies[bucket] += qty;
+    else tallies.unclassified += qty;
+  }
+  return tallies;
+}
+
+function countRvGarageRooms(rooms) {
+  return (Array.isArray(rooms) ? rooms : []).filter((room) =>
+    /\brv\s*garage\b/i.test(String(room?.name || "")),
+  ).length;
+}
+
+function reconcileGarageDoorTypeCounts(measurements, { rooms, openingSchedules } = {}) {
+  let single = windowsDoorsBoundedCount(measurements?.garageDoorSingleCount) || 0;
+  let double = windowsDoorsBoundedCount(measurements?.garageDoorDoubleCount) || 0;
+  let rv = windowsDoorsBoundedCount(measurements?.garageDoorRvCount) || 0;
+  const opener = windowsDoorsBoundedCount(measurements?.garageDoorOpenerCount);
+
+  const scheduleTallies = tallyGarageDoorTypesFromSchedule(openingSchedules);
+  const scheduleTotal =
+    scheduleTallies.single +
+    scheduleTallies.double +
+    scheduleTallies.rv +
+    scheduleTallies.unclassified;
+  if (scheduleTotal > 0 && scheduleTallies.unclassified === 0) {
+    single = scheduleTallies.single;
+    double = scheduleTallies.double;
+    rv = scheduleTallies.rv;
+  } else if (scheduleTallies.rv > rv) {
+    const need = scheduleTallies.rv - rv;
+    const fromSingle = Math.min(single, need);
+    single -= fromSingle;
+    rv += fromSingle;
+  }
+
+  const rvGarageRooms = countRvGarageRooms(rooms);
+  if (rvGarageRooms > 0 && rv === 0 && single > 0) {
+    const transfer = Math.min(single, rvGarageRooms);
+    single -= transfer;
+    rv += transfer;
+  }
+
+  const out = { ...(measurements || {}) };
+  for (const key of GARAGE_DOORS_COUNT_KEYS) {
+    delete out[key];
+  }
+  if (single > 0) out.garageDoorSingleCount = single;
+  if (double > 0) out.garageDoorDoubleCount = double;
+  if (rv > 0) out.garageDoorRvCount = rv;
+  if (opener != null) out.garageDoorOpenerCount = opener;
+  return out;
+}
+
 function openingScheduleQuantityTotal(key, schedules) {
   const map = {
     windowCount: schedules?.windows,
@@ -2543,19 +2634,23 @@ function openingScheduleQuantityTotal(key, schedules) {
     key === "garageDoorRvCount"
   ) {
     rows = Array.isArray(schedules?.garageDoors) ? schedules.garageDoors : [];
-    rows = rows.filter((row) => {
-      const blob =
-        `${row?.type || ""} ${row?.notes || ""} ${row?.mark || ""}`.toLowerCase();
-      const widthFt = Number(row?.widthFt) || Number(row?.widthIn) / 12 || 0;
-      const heightFt = Number(row?.heightFt) || Number(row?.heightIn) / 12 || 0;
-      if (key === "garageDoorRvCount")
-        return /rv|oversize|tall/.test(blob) || heightFt >= 10;
-      if (key === "garageDoorDoubleCount")
-        return /double/.test(blob) || (widthFt >= 14 && widthFt < 20);
-      return /single/.test(blob) || (widthFt > 0 && widthFt < 12);
-    });
-    if (!rows.length && key === "garageDoorDoubleCount") {
-      rows = Array.isArray(schedules?.garageDoors) ? schedules.garageDoors : [];
+    const bucketByKey = {
+      garageDoorSingleCount: "single",
+      garageDoorDoubleCount: "double",
+      garageDoorRvCount: "rv",
+    };
+    const bucket = bucketByKey[key];
+    rows = rows.filter((row) => classifyGarageDoorTypeFromRow(row) === bucket);
+    if (!rows.length) {
+      const garageRows = Array.isArray(schedules?.garageDoors)
+        ? schedules.garageDoors
+        : [];
+      const anyClassified = garageRows.some(
+        (row) => classifyGarageDoorTypeFromRow(row) != null,
+      );
+      if (!anyClassified && key === "garageDoorDoubleCount") {
+        rows = garageRows;
+      }
     }
   }
   if (!Array.isArray(rows) || !rows.length) return null;
@@ -5287,6 +5382,23 @@ async function analyzePlanForMeasurements({
       (entry) =>
         !OPENING_COUNT_RESTORE_KEYS.includes(String(entry?.field || "")),
     );
+    const garageReconciled = reconcileGarageDoorTypeCounts(measurements, {
+      rooms,
+      openingSchedules: planFacts?.openingSchedules || null,
+    });
+    let garageTypesAdjusted = false;
+    for (const key of GARAGE_DOORS_COUNT_KEYS) {
+      const before = measurements[key];
+      if (garageReconciled[key] != null) measurements[key] = garageReconciled[key];
+      else delete measurements[key];
+      if (before !== measurements[key]) garageTypesAdjusted = true;
+    }
+    if (garageTypesAdjusted) {
+      parsed.assumptions = [
+        ...(Array.isArray(parsed.assumptions) ? parsed.assumptions : []),
+        "Garage door type counts reconciled from RV Garage room labels and schedule dimensions.",
+      ];
+    }
   }
   if (hvacSelected) {
     const {

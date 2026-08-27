@@ -38,6 +38,10 @@ import {
   syncHvacSkippedTakeoffQuickMeasurementSources,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
+  GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+  garageDoorsMeasurementKeysForScopeItem,
+} from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
+import {
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
   windowsDoorsMeasurementKeyForScopeItem,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
@@ -1132,22 +1136,33 @@ export default function EstimatePlanImportStrip({
         Object.keys(tradeMeasurements)
       );
       const quickMeasurementSourcesWithDeselectedOpenings =
-        selection.trade?.key === 'windows_doors'
+        selection.trade?.key === 'windows_doors' ||
+        selection.trade?.key === 'garage_doors'
           ? (() => {
+              const reviewKeys =
+                selection.trade?.key === 'garage_doors'
+                  ? GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS
+                  : WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS;
               const selectedOpeningKeys = new Set(
                 tradeScopeDetections
                   .filter(d => d.state === 'included')
-                  .map(d => windowsDoorsMeasurementKeyForScopeItem(d.itemId))
-                  .filter(Boolean)
+                  .flatMap(d =>
+                    selection.trade?.key === 'garage_doors'
+                      ? garageDoorsMeasurementKeysForScopeItem(d.itemId)
+                      : (() => {
+                          const key = windowsDoorsMeasurementKeyForScopeItem(
+                            d.itemId
+                          );
+                          return key ? [key] : [];
+                        })()
+                  )
               );
-              const pendingOpeningKeys =
-                WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS.filter(
-                  key =>
-                    Number(tradeMeasurements[key]) > 0 &&
-                    (!selectedOpeningKeys.has(key) ||
-                      mergedQuickMeasurementSources[key] ===
-                        'needs_confirmation')
-                );
+              const pendingOpeningKeys = reviewKeys.filter(
+                key =>
+                  Number(tradeMeasurements[key]) > 0 &&
+                  (!selectedOpeningKeys.has(key) ||
+                    mergedQuickMeasurementSources[key] === 'needs_confirmation')
+              );
               return {
                 ...mergedQuickMeasurementSources,
                 ...Object.fromEntries(
@@ -1157,12 +1172,17 @@ export default function EstimatePlanImportStrip({
             })()
           : mergedQuickMeasurementSources;
       const measurementProvenanceWithDeselectedOpenings =
-        selection.trade?.key === 'windows_doors'
+        selection.trade?.key === 'windows_doors' ||
+        selection.trade?.key === 'garage_doors'
           ? (() => {
+              const reviewKeys =
+                selection.trade?.key === 'garage_doors'
+                  ? GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS
+                  : WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS;
               const next = {
                 ...(appliedProvenance as Record<string, unknown>),
               };
-              for (const key of WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS) {
+              for (const key of reviewKeys) {
                 if (
                   quickMeasurementSourcesWithDeselectedOpenings[key] !==
                     'needs_confirmation' ||
