@@ -1119,6 +1119,26 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     ]);
   });
 
+  it('keeps manually added custom scope items during selected-trade filtering', () => {
+    const filtered = filterChecklistItemsForTrade(
+      [
+        { id: 'windows' },
+        { id: 'custom_123', label: 'Exterior trim' },
+        { id: 'cleanup' },
+      ],
+      'selected_trade',
+      'windows_doors'
+    );
+    expect(filtered.map(item => item.id)).toEqual([
+      'windows',
+      'custom_123',
+      'exterior_doors',
+      'sliding_doors',
+      'interior_doors',
+      'trim_finish',
+    ]);
+  });
+
   it('does not activate framing from Windows & doors quantities', () => {
     const normalized = normalizeTradeMeasurements(
       'windows_doors',

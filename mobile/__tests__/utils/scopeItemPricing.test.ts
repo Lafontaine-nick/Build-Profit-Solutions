@@ -3590,3 +3590,57 @@ describe('allowance split apply pricing', () => {
     expect(demo.fill).toMatchObject({ material: 100, labor: 250, total: 350 });
   });
 });
+
+describe('custom scope item pricing units', () => {
+  it('resolves cy quantity basis for custom scope lines', () => {
+    const cyResolved = resolveChecklistItemQuantity(
+      'custom_1',
+      {
+        itemQuantities: {
+          custom_1: { quantity: 12, unit: 'cy', quantitySource: 'user_entered' },
+          custom_1__material: { quantity: 2400, unit: 'allowance' },
+          custom_1__labor: { quantity: 1800, unit: 'allowance' },
+        },
+      } as any,
+      { templateKey: 'landscaping' }
+    );
+    expect(cyResolved).toMatchObject({
+      unit: 'cy',
+      pricingReady: true,
+      dualCount: { quantity: 12, unit: 'cy' },
+    });
+  });
+
+  it('requires material and labor totals for new custom scope pricing', () => {
+    const splitResolved = resolveChecklistItemQuantity(
+      'custom_2',
+      {
+        itemQuantities: {
+          custom_2: { quantity: '', unit: 'sqft', quantitySource: 'user_entered' },
+          custom_2__material: { quantity: 400, unit: 'allowance' },
+          custom_2__labor: { quantity: 600, unit: 'allowance' },
+        },
+      } as any,
+      { templateKey: 'landscaping' }
+    );
+    expect(splitResolved).toMatchObject({
+      unit: 'sqft',
+      pricingReady: true,
+    });
+
+    const lumpOnlyResolved = resolveChecklistItemQuantity(
+      'custom_3',
+      {
+        itemQuantities: {
+          custom_3: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+      } as any,
+      { templateKey: 'landscaping' }
+    );
+    expect(lumpOnlyResolved).toMatchObject({
+      unit: 'allowance',
+      pricingReady: true,
+      dualAllowance: { quantity: 1000, unit: 'allowance' },
+    });
+  });
+});

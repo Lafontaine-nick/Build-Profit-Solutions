@@ -27,8 +27,23 @@ describe('scopeCardAccentForItem', () => {
 
   test('Not sure adds softer card surface in dark mode', () => {
     const accent = scopeCardAccentForItem('secondary', unsureYesNo, true);
-    expect(accent.backgroundColor).toBeTruthy();
+    expect(accent.backgroundColor).toBe('#202022');
     expect(accent.borderColor).toBeTruthy();
+  });
+
+  test('QM-backed included cards keep full-opacity standard surface', () => {
+    const accent = scopeCardAccentForItem(
+      'primary',
+      {
+        state: 'included',
+        inputType: 'choice',
+        choiceId: 'unsure',
+        noteBacked: true,
+      },
+      true
+    );
+    expect(accent.opacity).toBe(1);
+    expect(accent.backgroundColor).toBe('#202022');
   });
 
   test('excluded cards stay muted', () => {

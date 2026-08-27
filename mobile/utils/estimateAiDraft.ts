@@ -31,7 +31,10 @@ import {
   hydratePaintingPlanMeasurements,
   resolvePaintingPlanTakeoffApiSelection,
 } from '@/utils/hydratePaintingPlanMeasurements';
-import { stripBathroomFalsePositiveFloorDemoQuantities } from '@/utils/estimateScopeChecklistUi';
+import {
+  isCustomScopeChecklistItem,
+  stripBathroomFalsePositiveFloorDemoQuantities,
+} from '@/utils/estimateScopeChecklistUi';
 import { syncMeasurementsWithSouthernUtahPlanFacts } from '@/utils/quickMeasurementEstimates';
 import {
   getScopePackagesForReview,
@@ -3966,7 +3969,8 @@ export function buildStuccoTradeChecklistItems(
       'Confirm stone, brick, siding, panels, or wood accents excluded from stucco area.'
     ),
   ];
-  return items;
+  const customItems = existing.filter(isCustomScopeChecklistItem);
+  return customItems.length ? [...items, ...customItems] : items;
 }
 
 function standaloneFramingChecklistItems(): ScopeChecklistItem[] {

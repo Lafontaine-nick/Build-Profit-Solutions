@@ -19118,6 +19118,83 @@ function plumbingStoredQuantityLooksLikeDollarTotal(
   return false;
 }
 
+function parseCustomScopeMoney(value: unknown): number {
+  const amount = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
+export const CUSTOM_SCOPE_PRICING_UNITS = ['sqft', 'lf', 'cy'] as const;
+
+export type CustomScopePricingUnit = (typeof CUSTOM_SCOPE_PRICING_UNITS)[number];
+
+/** Physical quantity basis for custom scope — not lump-sum allowance. */
+export function resolveCustomScopePricingUnit(
+  unit: string | null | undefined
+): CustomScopePricingUnit {
+  if (unit === 'lf' || unit === 'cy') {
+    return unit;
+  }
+  return 'sqft';
+}
+
+export function customScopePricingModeLabel(
+  unit: CustomScopePricingUnit
+): string {
+  return `Use ${formatUnitLabel(unit)}`;
+}
+
+function resolveCustomScopeChecklistItemQuantity(
+  itemId: string,
+  measurements: NormalizedScopeMeasurements
+): ResolvedItemQuantity {
+  const itemInput = measurements.itemQuantities?.[itemId];
+  const materialKey = `${itemId}__material`;
+  const laborKey = `${itemId}__labor`;
+  const materialAmount = parseCustomScopeMoney(
+    measurements.itemQuantities?.[materialKey]?.quantity
+  );
+  const laborAmount = parseCustomScopeMoney(
+    measurements.itemQuantities?.[laborKey]?.quantity
+  );
+  const storedUnit = itemInput?.unit;
+  const unit =
+    storedUnit === 'each' || storedUnit === 'allowance'
+      ? 'sqft'
+      : resolveCustomScopePricingUnit(storedUnit);
+  const basisQty = parseCustomScopeMoney(itemInput?.quantity);
+  const lumpTotal = materialAmount + laborAmount;
+  const legacyLumpOnly =
+    (storedUnit === 'allowance' || storedUnit === 'each') &&
+    basisQty > 0 &&
+    lumpTotal <= 0;
+  const hasPricing = lumpTotal > 0 || legacyLumpOnly;
+
+  return {
+    quantity: legacyLumpOnly && basisQty > 0 ? basisQty : null,
+    unit: legacyLumpOnly ? 'allowance' : unit,
+    quantitySource:
+      itemInput?.quantitySource ||
+      (basisQty > 0 || hasPricing ? 'user_entered' : 'missing'),
+    sourceLabel: hasPricing ? 'User entered' : 'Needs pricing',
+    pricingReady: hasPricing,
+    showInput: true,
+    dualCount:
+      !legacyLumpOnly && basisQty > 0
+        ? { quantity: basisQty, unit }
+        : undefined,
+    dualMaterial:
+      materialAmount > 0
+        ? { quantity: materialAmount, unit: 'allowance' }
+        : undefined,
+    dualLabor:
+      laborAmount > 0 ? { quantity: laborAmount, unit: 'allowance' } : undefined,
+    dualAllowance:
+      legacyLumpOnly && basisQty > 0
+        ? { quantity: basisQty, unit: 'allowance' }
+        : undefined,
+  };
+}
+
 function resolveChecklistItemQuantityCore(
   itemId: string,
   measurements: NormalizedScopeMeasurements,
@@ -19130,14 +19207,7 @@ function resolveChecklistItemQuantityCore(
   const choiceId = ctx.choiceId ?? null;
   const explicitRule = getChecklistItemQuantityRule(itemId, ctx.templateKey);
   if (!explicitRule && String(itemId).startsWith('custom_')) {
-    return {
-      quantity: null,
-      unit: 'lump_sum',
-      quantitySource: 'missing',
-      sourceLabel: 'Needs measurement',
-      pricingReady: false,
-      showInput: false,
-    };
+    return resolveCustomScopeChecklistItemQuantity(itemId, measurements);
   }
   const rule = explicitRule ?? DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE;
 

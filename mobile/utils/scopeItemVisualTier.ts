@@ -318,13 +318,21 @@ export function scopeItemIsUnsure(
   return item.inputType === 'multi_choice' && ids.length === 1 && ids[0] === 'unsure';
 }
 
-/** Card chrome — all Not sure rows share the same subdued look (shower bench, floor demo, etc.). */
+/** Card chrome — one surface color on Confirm Scope; tier/unsure only adjusts opacity. */
 export function scopeCardAccentForItem(
   tier: ScopeItemVisualTier,
-  item: Pick<ScopeChecklistItem, 'state' | 'choiceId' | 'inputType' | 'choiceIds'>,
+  item: Pick<
+    ScopeChecklistItem,
+    'state' | 'choiceId' | 'inputType' | 'choiceIds' | 'noteBacked'
+  >,
   darkMode: boolean,
   measuredSelection = false
 ): ScopeCardAccent {
+  const standardSurface = darkMode ? '#202022' : 'rgba(248, 250, 252, 0.96)';
+  const standardBorder = darkMode
+    ? 'rgba(148, 163, 184, 0.12)'
+    : 'rgba(148, 163, 184, 0.22)';
+
   if (tier === 'muted' || itemIsExcluded(item as ScopeChecklistItem)) {
     return { opacity: SCOPE_ITEM_TIER_OPACITY.muted };
   }
@@ -337,21 +345,27 @@ export function scopeCardAccentForItem(
       borderColor: '#fbbf24',
     };
   }
-  if (scopeItemIsUnsure(item)) {
+  const qmBackedIncluded =
+    item.state === 'included' && item.noteBacked === true;
+  if (scopeItemIsUnsure(item) && !qmBackedIncluded) {
     return {
       opacity: SCOPE_ITEM_UNSURE_OPACITY,
-      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.10)' : 'rgba(248, 250, 252, 0.96)',
-      borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.22)',
+      backgroundColor: standardSurface,
+      borderColor: standardBorder,
     };
   }
   if (tier === 'secondary') {
     return {
       opacity: 1,
-      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.10)' : 'rgba(248, 250, 252, 0.96)',
-      borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.22)',
+      backgroundColor: standardSurface,
+      borderColor: standardBorder,
     };
   }
-  return { opacity: SCOPE_ITEM_TIER_OPACITY[tier] };
+  return {
+    opacity: SCOPE_ITEM_TIER_OPACITY[tier],
+    backgroundColor: standardSurface,
+    borderColor: standardBorder,
+  };
 }
 
 /** @deprecated Use scopeCardAccentForItem */

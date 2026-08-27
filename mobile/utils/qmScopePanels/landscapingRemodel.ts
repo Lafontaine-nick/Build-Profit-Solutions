@@ -220,6 +220,36 @@ const LANDSCAPING_SCOPE_ITEM_LABELS: Record<string, string> = {
   landscape_boulders: 'Decorative boulders',
 };
 
+const LANDSCAPE_CLEARING_CHOICE_IDS = new Set([
+  'light_clearing',
+  'medium_vegetation',
+  'dense_vegetation',
+]);
+
+function resolveDemoClearingChoiceId(
+  item: Pick<ScopeChecklistItem, 'choiceId'>,
+  measurements: Record<string, unknown>
+): string | null | undefined {
+  const level = String(measurements.landscapeClearingLevel || '');
+  if (level && LANDSCAPE_CLEARING_CHOICE_IDS.has(level)) return level;
+  return item.choiceId;
+}
+
+function landscapingQmScopeItemPatch(
+  item: ScopeChecklistItem,
+  measurements: Record<string, unknown>
+): Partial<ScopeChecklistItem> {
+  const patch: Partial<ScopeChecklistItem> = {
+    state: 'included',
+    noteBacked: true,
+  };
+  if (item.id === 'demo_clearing') {
+    patch.inputType = 'choice';
+    patch.choiceId = resolveDemoClearingChoiceId(item, measurements);
+  }
+  return patch;
+}
+
 export function syncLandscapingQmScopeItems(
   items: ScopeChecklistItem[],
   measurements: Record<string, unknown>
@@ -236,9 +266,17 @@ export function syncLandscapingQmScopeItems(
     }
     if (LANDSCAPING_QM_SYNC_SCOPE_IDS.has(item.id)) {
       if (included.has(item.id)) {
-        if (item.state === 'included' && item.noteBacked === true) return item;
+        const patch = landscapingQmScopeItemPatch(item, measurements);
+        if (
+          item.state === 'included' &&
+          item.noteBacked === true &&
+          (item.id !== 'demo_clearing' ||
+            item.choiceId === patch.choiceId)
+        ) {
+          return item;
+        }
         changed = true;
-        return { ...item, state: 'included' as const, noteBacked: true };
+        return { ...item, ...patch };
       }
       if (item.state === 'included' && item.noteBacked === true) {
         changed = true;

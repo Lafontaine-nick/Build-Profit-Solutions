@@ -364,6 +364,19 @@ describe('Stucco plan import', () => {
     expect(pricing.fill?.labor).toBe(850);
   });
 
+  it('preserves manually added custom scope items', () => {
+    const items = buildStuccoTradeChecklistItems([
+      {
+        id: 'custom_123',
+        label: 'Exterior trim',
+        inputType: 'yes_no',
+        state: 'included',
+        category: 'custom',
+      },
+    ]);
+    expect(items.some(item => item.id === 'custom_123')).toBe(true);
+  });
+
   it('keeps repair as a separate add-on card with an affected-area quantity', () => {
     const items = buildStuccoTradeChecklistItems([]);
     const system = items.find(item => item.id === 'stucco');

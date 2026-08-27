@@ -204,13 +204,6 @@ export function inferPricingModel(
   return acceptance.lumpSumOnly ? 'flat_allowance' : 'manual';
 }
 
-function hasMeaningfulPhysicalQuantity(resolved: ResolvedItemQuantity): boolean {
-  const unit = String(resolved.unit || '').toLowerCase();
-  if (unit === 'allowance' || unit === 'lump_sum') return false;
-  const qty = Number(resolved.dualCount?.quantity ?? resolved.quantity ?? 0);
-  return qty > 0 && qty < 100000;
-}
-
 export function buildAcceptanceFromSuggestedBlock(block: SuggestedPricingBlock): ScopePricingAcceptanceMetadata {
   const pricingSourceKind = pricingSourceKindFromBlock(block);
   const pricingSourceLabel = pricingSourceLabelFromBlock(block);
@@ -233,6 +226,39 @@ export function buildAcceptanceFromSuggestedBlock(block: SuggestedPricingBlock):
     totalAmount: block.total,
     benchmarkProvenance: block.benchmarkProvenance,
   };
+}
+
+/** Applied Confirm Scope card for manually added custom scope lines. */
+export function buildAcceptanceFromCustomScopePricing(params: {
+  material: number;
+  labor: number;
+  total: number;
+  lumpSumOnly?: boolean;
+}): ScopePricingAcceptanceMetadata {
+  return {
+    selectionStatus: 'accepted',
+    pricingSourceLabel: 'User entered',
+    pricingSourceKind: 'user_entered',
+    pricingTypeLabel: pricingTypeLabelFromContext({
+      lumpSumOnly: params.lumpSumOnly ?? false,
+      hasMaterial: params.material > 0,
+      hasLabor: params.labor > 0,
+    }),
+    geographicBasis: geographicBasisFromSourceKind('user_entered'),
+    originalPricingSourceLabel: 'User entered',
+    rateSourceLabel: 'User entered',
+    lumpSumOnly: params.lumpSumOnly ?? false,
+    materialAmount: params.material > 0 ? params.material : undefined,
+    laborAmount: params.labor > 0 ? params.labor : undefined,
+    totalAmount: params.total,
+  };
+}
+
+function hasMeaningfulPhysicalQuantity(resolved: ResolvedItemQuantity): boolean {
+  const unit = String(resolved.unit || '').toLowerCase();
+  if (unit === 'allowance' || unit === 'lump_sum') return false;
+  const qty = Number(resolved.dualCount?.quantity ?? resolved.quantity ?? 0);
+  return qty > 0 && qty < 100000;
 }
 
 /** Drop primary count/allowance on item id when it only existed for cleared pricing. */

@@ -147,7 +147,9 @@ import {
   createCustomScopeItem,
   groupScopeChecklistItems,
   initialScopeGroupCollapse,
+  isCustomScopeChecklistItem,
   mergeScopeProgressIntoDraft,
+  partitionScopeChecklistItems,
   applyKitchenScopeInferences,
   hydrateScopeChecklistFromNotes,
   applyMeasuredStuccoScopeInferences,
@@ -276,6 +278,7 @@ import {
   allowanceSplitSubKey,
   checklistItemInScope,
   countScopePricingReadiness,
+  CUSTOM_SCOPE_PRICING_UNITS,
   getScopeQuantityFieldLabels,
   pricingBasisFieldLabel,
   formatUnitLabel,
@@ -293,6 +296,7 @@ import {
   prepareScopeMeasurementsInputForUi,
   primaryQuantityForAppliedSuggestedBlock,
   resolveChecklistItemQuantity,
+  resolveCustomScopePricingUnit,
   resolveDualRatePricingDisplayFromNotes,
   resolveScopeItemSuggestedPricing,
   resolveInsulationAssemblyLumpBenchmarkComparison,
@@ -466,6 +470,7 @@ import {
 import { AcceptedPricingSummary } from '@/components/estimate/AcceptedPricingSummary';
 import {
   buildAcceptanceFromSuggestedBlock,
+  buildAcceptanceFromCustomScopePricing,
   clearAcceptedScopeItemPricing,
   finalizeScopePricingAfterEditorClose,
   hasAcceptedScopePricing,
@@ -3223,7 +3228,7 @@ function scopeCardStyle(
   tier: ReturnType<typeof scopeItemVisualTier>,
   item: Pick<
     ScopeChecklistItem,
-    'state' | 'choiceId' | 'inputType' | 'choiceIds'
+    'state' | 'choiceId' | 'inputType' | 'choiceIds' | 'noteBacked'
   >,
   Colors: ReturnType<typeof getColors>,
   darkMode: boolean,
@@ -3249,8 +3254,108 @@ function scopeCardStyle(
 }
 
 function isCustomScopeItem(item: ScopeChecklistItem): boolean {
+  return isCustomScopeChecklistItem(item);
+}
+
+function CustomScopeItemComposer({
+  label,
+  onChangeLabel,
+  onAdd,
+  onCancel,
+  applying,
+  Colors,
+  darkMode,
+}: {
+  label: string;
+  onChangeLabel: (text: string) => void;
+  onAdd: () => void;
+  onCancel: () => void;
+  applying: boolean;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+}) {
+  const trimmed = label.trim();
   return (
-    item.category === 'custom' || String(item.id || '').startsWith('custom_')
+    <View
+      style={[
+        styles.card,
+        estimateFlowCardStyle(Colors, darkMode),
+        {
+          backgroundColor: darkMode ? '#202022' : Colors.surface,
+        },
+      ]}
+    >
+      <ScopeItemTitleRow
+        label='New scope item'
+        darkMode={darkMode}
+        Colors={Colors}
+      />
+      <Text
+        style={{
+          color: captionColor(darkMode, Colors),
+          fontSize: 11,
+          marginTop: 3,
+          lineHeight: 15,
+        }}
+      >
+        Describe work not covered by the template. You can price it after adding.
+      </Text>
+      <TextInput
+        value={label}
+        onChangeText={onChangeLabel}
+        placeholder='e.g. exterior trim, heated floor'
+        placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'}
+        returnKeyType='done'
+        blurOnSubmit
+        onSubmitEditing={() => {
+          if (label.trim()) onAdd();
+        }}
+        editable={!applying}
+        style={[
+          styles.customRenameInput,
+          {
+            alignSelf: 'stretch',
+            marginTop: 10,
+            color: Colors.text,
+            borderColor: darkMode
+              ? 'rgba(148, 163, 184, 0.16)'
+              : Colors.line,
+            backgroundColor: darkMode
+              ? 'rgba(255,255,255,0.05)'
+              : Colors.surface2,
+          },
+        ]}
+      />
+      <View style={styles.customComposerActions}>
+        <TouchableOpacity
+          onPress={onCancel}
+          disabled={applying}
+          activeOpacity={0.75}
+          style={styles.customComposerCancelBtn}
+        >
+          <Text
+            style={{
+              color: captionColor(darkMode, Colors),
+              fontSize: 13,
+              fontWeight: '700',
+            }}
+          >
+            Cancel
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.customComposerAddBtn,
+            !trimmed && { opacity: 0.45 },
+          ]}
+          onPress={onAdd}
+          disabled={applying || !trimmed}
+          activeOpacity={0.88}
+        >
+          <Text style={styles.customComposerAddBtnText}>Add to scope</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 }
 
@@ -3355,19 +3460,86 @@ function customScopePricingTotal(
   return Number.isFinite(total) && total > 0 ? total : 0;
 }
 
+function CustomScopeUnitToggle({
+  selectedUnit,
+  onSelect,
+  Colors,
+  darkMode,
+  applying,
+}: {
+  selectedUnit: ReturnType<typeof resolveCustomScopePricingUnit>;
+  onSelect: (unit: ReturnType<typeof resolveCustomScopePricingUnit>) => void;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+  applying: boolean;
+}) {
+  return (
+    <View style={[styles.customPricingModeLinks, styles.customScopeUnitRow]}>
+      {CUSTOM_SCOPE_PRICING_UNITS.map(unit => {
+        const active = selectedUnit === unit;
+        return (
+          <TouchableOpacity
+            key={unit}
+            activeOpacity={0.75}
+            disabled={applying || active}
+            onPress={() => onSelect(unit)}
+            style={[
+              styles.customPricingModeChip,
+              styles.pricingEntryModeChip,
+              {
+                borderColor: active
+                  ? '#22c55e'
+                  : darkMode
+                    ? 'rgba(148, 163, 184, 0.2)'
+                    : Colors.line,
+                backgroundColor: active
+                  ? darkMode
+                    ? 'rgba(34, 197, 94, 0.12)'
+                    : 'rgba(34, 197, 94, 0.08)'
+                  : darkMode
+                    ? 'rgba(255,255,255,0.03)'
+                    : 'transparent',
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: active
+                  ? '#22c55e'
+                  : darkMode
+                    ? 'rgba(255,255,255,0.72)'
+                    : Colors.sub,
+                fontSize: 11,
+                fontWeight: '800',
+              }}
+            >
+              {formatUnitLabel(unit)}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
 function CustomScopePricingSection({
   itemId,
+  itemLabel,
+  templateKey,
   inScope,
   measurementsInput,
   onItemQuantityChange,
   onItemQuantityBlur,
   onItemQuantityFocus,
   onSavePricing,
+  onClearAcceptedPricing,
   Colors,
   darkMode,
   applying,
 }: {
   itemId: string;
+  itemLabel: string;
+  templateKey?: string | null;
   inScope: boolean;
   measurementsInput: ScopeMeasurementsInputExtended;
   onItemQuantityChange: (
@@ -3381,11 +3553,12 @@ function CustomScopePricingSection({
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onSavePricing?: () => void;
+  onClearAcceptedPricing?: () => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
 }) {
-  const [pricingEditorOpen, setPricingEditorOpen] = useState(true);
+  const [pricingEditorOpen, setPricingEditorOpen] = useState(false);
   if (!inScope) return null;
   const itemInput = measurementsInput.itemQuantities[itemId];
   const materialKey = `${itemId}__material`;
@@ -3395,16 +3568,13 @@ function CustomScopePricingSection({
     measurementsInput.itemQuantities[materialKey]?.quantity ?? '';
   const laborValue = measurementsInput.itemQuantities[laborKey]?.quantity ?? '';
   const selectedUnit =
-    itemInput?.unit === 'lf' || itemInput?.unit === 'allowance'
-      ? itemInput.unit
-      : 'sqft';
-  const basis =
-    selectedUnit === 'sqft' || selectedUnit === 'lf'
-      ? {
-          quantity: Number(String(itemInput?.quantity || '').replace(/,/g, '')),
-          unit: selectedUnit,
-        }
-      : null;
+    itemInput?.unit === 'allowance' || itemInput?.unit === 'each'
+      ? 'sqft'
+      : resolveCustomScopePricingUnit(itemInput?.unit);
+  const basis = {
+    quantity: Number(String(itemInput?.quantity || '').replace(/,/g, '')),
+    unit: selectedUnit,
+  };
   const validBasis =
     basis && Number.isFinite(basis.quantity) && basis.quantity > 0
       ? basis
@@ -3420,86 +3590,75 @@ function CustomScopePricingSection({
     return total > 0 ? String(Math.round(total * 100) / 100) : '';
   };
   const handleMaterialChange = (text: string) => {
-    onItemQuantityChange(materialKey, text, 'count', 'allowance');
+    onItemQuantityChange(materialKey, text, 'count', 'allowance', 'user_entered');
     onItemQuantityChange(
       allowanceKey,
       moneyTotal(text, laborValue),
       'count',
-      'allowance'
+      'allowance',
+      'user_entered'
     );
   };
   const handleLaborChange = (text: string) => {
-    onItemQuantityChange(laborKey, text, 'count', 'allowance');
+    onItemQuantityChange(laborKey, text, 'count', 'allowance', 'user_entered');
     onItemQuantityChange(
       allowanceKey,
       moneyTotal(materialValue, text),
       'count',
-      'allowance'
+      'allowance',
+      'user_entered'
     );
   };
   const splitTotal = moneyTotal(materialValue, laborValue);
-  const hasBasis = selectedUnit !== 'allowance' && Boolean(validBasis);
-  const hasSplitPricing = hasBasis && Boolean(splitTotal);
-  const totalOnlyAmount =
-    selectedUnit === 'allowance'
-      ? Number(String(itemInput?.quantity || '').replace(/,/g, ''))
-      : 0;
-  const hasTotalOnlyPricing =
-    selectedUnit === 'allowance' &&
-    Number.isFinite(totalOnlyAmount) &&
-    totalOnlyAmount > 0;
-  const showEditor =
-    pricingEditorOpen || (!hasSplitPricing && !hasTotalOnlyPricing);
+  const hasSplitPricing = Boolean(splitTotal);
+  const norm = buildNormFromInput(
+    measurementsInput,
+    null,
+    templateKey
+  );
+  const resolved = resolveChecklistItemQuantity(itemId, norm, {
+    templateKey,
+  });
+  const accepted = scopeShowsConfirmScopeAppliedPricing(
+    itemId,
+    measurementsInput,
+    templateKey
+  );
+  const intelligence = resolveScopeItemIntelligence({
+    scopeKey: itemId,
+    templateKey,
+    measurements: norm,
+    resolved,
+    pricingAcceptance: measurementsInput.pricingAcceptance,
+    itemQuantities: measurementsInput.itemQuantities,
+    pricingAccepted: accepted,
+  });
+  const acceptedDisplay = accepted
+    ? resolveAcceptedPricingDisplay({
+        itemId,
+        resolved,
+        acceptance: measurementsInput.pricingAcceptance?.[itemId],
+        intelligence,
+      })
+    : null;
+  const showEditor = !accepted || pricingEditorOpen;
 
-  if (!showEditor) {
+  if (!showEditor && accepted && acceptedDisplay) {
     return (
       <View
         style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}
       >
-        {hasTotalOnlyPricing ? (
-          <PricingSplitRow
-            label='Total'
-            value={formatDraftMoney(totalOnlyAmount)}
-            darkMode={darkMode}
-            Colors={Colors}
-          />
-        ) : null}
-        {hasSplitPricing && validBasis ? (
-          <>
-            <PricingSplitRow
-              label={`Total ${formatUnitLabel(validBasis.unit)}`}
-              value={`${validBasis.quantity.toLocaleString()} ${formatUnitLabel(validBasis.unit)}`}
-              darkMode={darkMode}
-              Colors={Colors}
-            />
-            {materialValue ? (
-              <PricingSplitRow
-                label='Material'
-                value={formatDraftMoney(Number(materialValue))}
-                helper={unitRateHelper(materialValue, validBasis)}
-                darkMode={darkMode}
-                Colors={Colors}
-              />
-            ) : null}
-            {laborValue ? (
-              <PricingSplitRow
-                label='Labor'
-                value={formatDraftMoney(Number(laborValue))}
-                helper={unitRateHelper(laborValue, validBasis)}
-                darkMode={darkMode}
-                Colors={Colors}
-              />
-            ) : null}
-            <PricingSplitRow
-              label='Total'
-              value={formatDraftMoney(Number(splitTotal))}
-              darkMode={darkMode}
-              Colors={Colors}
-            />
-          </>
-        ) : null}
-        <ScopePricingSecondaryActions
-          edit={<EditQuantityLink onPress={() => setPricingEditorOpen(true)} />}
+        <AcceptedPricingSummary
+          display={acceptedDisplay}
+          intelligence={intelligence}
+          scopeKey={itemId}
+          scopeItemLabel={itemLabel}
+          resolved={resolved}
+          Colors={Colors}
+          darkMode={darkMode}
+          onEditPricing={() => setPricingEditorOpen(true)}
+          onClearPricing={() => setPricingEditorOpen(true)}
+          hideEditLink
         />
       </View>
     );
@@ -3509,173 +3668,134 @@ function CustomScopePricingSection({
     <View
       style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}
     >
-      <TouchableOpacity
-        activeOpacity={0.75}
-        onPress={() =>
-          (hasSplitPricing || hasTotalOnlyPricing) &&
-          setPricingEditorOpen(false)
-        }
+      <Text
+        style={{
+          color: Colors.text,
+          fontSize: 12,
+          fontWeight: '800',
+          marginBottom: 8,
+        }}
       >
+        Price this item
+      </Text>
+      <PricingEditorPanel Colors={Colors} darkMode={darkMode}>
         <Text
-          style={{
-            color: '#fbbf24',
-            fontSize: 11,
-            fontWeight: '700',
-            marginBottom: 6,
-          }}
+          style={[
+            styles.pricingEditorHelper,
+            { color: captionColor(darkMode, Colors), marginBottom: 0 },
+          ]}
         >
-          Edit
+          Enter material and labor. Add a quantity when you want $/unit rates.
         </Text>
-        <Text
-          style={{
-            color: captionColor(darkMode, Colors),
-            fontSize: 11,
-            marginBottom: 4,
-            lineHeight: 15,
-          }}
-        >
-          Enter a quantity basis, then material and labor totals.
-        </Text>
-        {hasSplitPricing || hasTotalOnlyPricing ? (
-          <Text
-            style={{
-              color: '#60a5fa',
-              fontSize: 11,
-              fontWeight: '700',
-              marginBottom: 8,
-            }}
-          >
-            Tap card to collapse
-          </Text>
-        ) : null}
-      </TouchableOpacity>
-      <View style={styles.customPricingModeLinks}>
-        {(['sqft', 'lf', 'allowance'] as const).map(unit => {
-          const active = selectedUnit === unit;
-          const label =
-            unit === 'allowance' ? 'Use total' : `Use ${formatUnitLabel(unit)}`;
-          return (
-            <TouchableOpacity
-              key={unit}
-              activeOpacity={0.75}
-              disabled={applying || active}
-              onPress={() =>
-                onItemQuantityChange(
-                  itemId,
-                  unit === 'allowance' ? '' : (itemInput?.quantity ?? ''),
-                  'count',
-                  unit
-                )
-              }
-              style={[
-                styles.customPricingModeChip,
-                {
-                  borderColor: active
-                    ? '#22c55e'
-                    : darkMode
-                      ? 'rgba(148, 163, 184, 0.24)'
-                      : Colors.line,
-                  backgroundColor: active
-                    ? darkMode
-                      ? 'rgba(34, 197, 94, 0.12)'
-                      : 'rgba(34, 197, 94, 0.08)'
-                    : 'transparent',
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  color: active ? '#22c55e' : '#60a5fa',
-                  fontSize: 11,
-                  fontWeight: '700',
-                }}
-              >
-                {label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-      <PricingInputField
-        label={
-          selectedUnit === 'allowance'
-            ? 'Lump sum / total'
-            : `Total ${formatUnitLabel(selectedUnit)}`
-        }
-        value={itemInput?.quantity ?? ''}
-        prefix={selectedUnit === 'allowance' ? '$' : undefined}
-        suffix={
-          selectedUnit === 'allowance'
-            ? undefined
-            : formatUnitLabel(selectedUnit)
-        }
-        placeholder={
-          selectedUnit === 'allowance'
-            ? 'Enter total'
-            : `Enter ${formatUnitLabel(selectedUnit)}`
-        }
-        onFocus={() => onItemQuantityFocus(itemId)}
-        onChangeText={text =>
-          onItemQuantityChange(itemId, text, 'count', selectedUnit)
-        }
-        onBlur={() => onItemQuantityBlur(itemId)}
-        Colors={Colors}
-        darkMode={darkMode}
-        applying={applying}
-      />
-      {selectedUnit !== 'allowance' ? (
-        <>
-          <PricingInputField
-            key={`custom-material-${selectedUnit}-${validBasis ? 'rate' : 'total'}`}
-            label='Material'
-            value={materialValue}
-            helper={unitRateHelper(materialValue, validBasis)}
-            basis={validBasis}
-            prefix='$'
-            placeholder={
-              validBasis
-                ? `Material $/${formatUnitLabel(selectedUnit)}`
-                : 'Material total'
-            }
-            defaultInputMode={validBasis ? 'rate' : 'total'}
-            onFocus={() => onItemQuantityFocus(materialKey)}
-            onChangeText={handleMaterialChange}
-            onBlur={() => onItemQuantityBlur(materialKey)}
-            Colors={Colors}
-            darkMode={darkMode}
-            applying={applying}
-          />
-          <PricingInputField
-            key={`custom-labor-${selectedUnit}-${validBasis ? 'rate' : 'total'}`}
-            label='Labor'
-            value={laborValue}
-            helper={unitRateHelper(laborValue, validBasis)}
-            basis={validBasis}
-            prefix='$'
-            placeholder={
-              validBasis
-                ? `Labor $/${formatUnitLabel(selectedUnit)}`
-                : 'Labor total'
-            }
-            defaultInputMode={validBasis ? 'rate' : 'total'}
-            onFocus={() => onItemQuantityFocus(laborKey)}
-            onChangeText={handleLaborChange}
-            onBlur={() => onItemQuantityBlur(laborKey)}
-            Colors={Colors}
-            darkMode={darkMode}
-            applying={applying}
-          />
-          {splitTotal ? (
-            <PricingSplitRow
-              label='Total'
-              value={formatDraftMoney(Number(splitTotal))}
-              darkMode={darkMode}
+        <CustomScopeUnitToggle
+          selectedUnit={selectedUnit}
+          onSelect={unit =>
+            onItemQuantityChange(
+              itemId,
+              itemInput?.quantity ?? '',
+              'count',
+              unit,
+              'user_entered'
+            )
+          }
+          Colors={Colors}
+          darkMode={darkMode}
+          applying={applying}
+        />
+        <PricingInputField
+          label='Quantity'
+          value={itemInput?.quantity ?? ''}
+          suffix={formatUnitLabel(selectedUnit)}
+          placeholder='Optional'
+          embedded
+          onFocus={() => onItemQuantityFocus(itemId)}
+          onChangeText={text =>
+            onItemQuantityChange(
+              itemId,
+              text,
+              'count',
+              selectedUnit,
+              'user_entered'
+            )
+          }
+          onBlur={() => onItemQuantityBlur(itemId)}
+          Colors={Colors}
+          darkMode={darkMode}
+          applying={applying}
+        />
+        <PricingMatLabRow
+          material={
+            <PricingInputField
+              key={`custom-material-${selectedUnit}-${validBasis ? 'rate' : 'total'}`}
+              label='Material'
+              value={materialValue}
+              helper={unitRateHelper(materialValue, validBasis)}
+              basis={validBasis}
+              prefix='$'
+              placeholder={validBasis ? `$/${formatUnitLabel(selectedUnit)}` : '0'}
+              defaultInputMode='total'
+              embedded
+              onFocus={() => onItemQuantityFocus(materialKey)}
+              onChangeText={handleMaterialChange}
+              onBlur={() => onItemQuantityBlur(materialKey)}
               Colors={Colors}
+              darkMode={darkMode}
+              applying={applying}
             />
-          ) : null}
-        </>
-      ) : null}
-      {hasSplitPricing || hasTotalOnlyPricing ? (
+          }
+          labor={
+            <PricingInputField
+              key={`custom-labor-${selectedUnit}-${validBasis ? 'rate' : 'total'}`}
+              label='Labor'
+              value={laborValue}
+              helper={unitRateHelper(laborValue, validBasis)}
+              basis={validBasis}
+              prefix='$'
+              placeholder={validBasis ? `$/${formatUnitLabel(selectedUnit)}` : '0'}
+              defaultInputMode='total'
+              embedded
+              onFocus={() => onItemQuantityFocus(laborKey)}
+              onChangeText={handleLaborChange}
+              onBlur={() => onItemQuantityBlur(laborKey)}
+              Colors={Colors}
+              darkMode={darkMode}
+              applying={applying}
+            />
+          }
+        />
+        {splitTotal ? (
+          <View
+            style={[
+              styles.pricingEditorTotalRow,
+              {
+                borderTopColor: darkMode
+                  ? 'rgba(148, 163, 184, 0.18)'
+                  : Colors.line,
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: captionColor(darkMode, Colors),
+                fontSize: 12,
+                fontWeight: '600',
+              }}
+            >
+              Total
+            </Text>
+            <Text
+              style={{
+                color: darkMode ? '#F5F7FA' : Colors.text,
+                fontSize: 15,
+                fontWeight: '800',
+              }}
+            >
+              {formatDraftMoney(Number(splitTotal))}
+            </Text>
+          </View>
+        ) : null}
+      </PricingEditorPanel>
+      {hasSplitPricing ? (
         <TouchableOpacity
           activeOpacity={0.85}
           disabled={applying}
@@ -3684,11 +3804,11 @@ function CustomScopePricingSection({
             setTimeout(() => {
               Keyboard.dismiss();
               onSavePricing?.();
-            }, 180);
+            }, 120);
           }}
           style={[styles.savePricingBtn, applying && styles.primaryBtnDisabled]}
         >
-          <Text style={styles.savePricingBtnText}>Save pricing</Text>
+          <Text style={styles.savePricingBtnText}>Apply pricing</Text>
         </TouchableOpacity>
       ) : null}
     </View>
@@ -7626,8 +7746,15 @@ function YesNoRow({
   const measuredSelection = scopeItemHasMeasuredSelection(item, visualCtx);
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
   const isCustom = isCustomScopeItem(item);
+  const customPricingApplied =
+    isCustom &&
+    scopeShowsConfirmScopeAppliedPricing(
+      item.id,
+      measurementsInput,
+      templateKey
+    );
   let helper = isCustom
-    ? 'Added manually. Price as total, sqft, or LF.'
+    ? 'Added manually. Enter material and labor; optional sqft, LF, or CY basis.'
     : checklistDisplayHelper(item, templateKey);
   if (
     !isCustom &&
@@ -8043,14 +8170,16 @@ function YesNoRow({
                     Custom
                   </Text>
                 </View>
-                <TouchableOpacity
-                  onPress={() => setRenaming(true)}
-                  disabled={applying}
-                  activeOpacity={0.75}
-                  style={styles.customIconBtn}
-                >
-                  <Ionicons name='pencil-outline' size={15} color='#60a5fa' />
-                </TouchableOpacity>
+                {!customPricingApplied ? (
+                  <TouchableOpacity
+                    onPress={() => setRenaming(true)}
+                    disabled={applying}
+                    activeOpacity={0.75}
+                    style={styles.customIconBtn}
+                  >
+                    <Ionicons name='pencil-outline' size={15} color='#60a5fa' />
+                  </TouchableOpacity>
+                ) : null}
                 {onDelete ? (
                   <TouchableOpacity
                     onPress={onDelete}
@@ -9158,12 +9287,19 @@ function YesNoRow({
       {isCustom ? (
         <CustomScopePricingSection
           itemId={item.id}
+          itemLabel={item.label}
+          templateKey={templateKey}
           inScope={displayedState === 'included'}
           measurementsInput={measurementsInput}
           onItemQuantityChange={onItemQuantityChange}
           onItemQuantityBlur={onItemQuantityBlur}
           onItemQuantityFocus={onItemQuantityFocus}
           onSavePricing={onSaveCustomPricing}
+          onClearAcceptedPricing={
+            onClearAcceptedPricing
+              ? () => onClearAcceptedPricing(item.id)
+              : undefined
+          }
           Colors={Colors}
           darkMode={darkMode}
           applying={applying}
@@ -16882,6 +17018,8 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [measurements, electricalPreviewMeasurements]);
   const scrollRef = useRef<ScrollView>(null);
   const scrollContentRef = useRef<View>(null);
+  const customScopeSectionRef = useRef<View>(null);
+  const pendingCustomItemScrollRef = useRef<string | null>(null);
   const scrollOffsetYRef = useRef(0);
   const quickMeasurementsRef = useRef<View>(null);
   const pendingQmDoneScrollRef = useRef(false);
@@ -17104,11 +17242,18 @@ export default function AIEstimateScopeAssumptionsModal({
     }
     if (notesPlumbingFlow) {
       return withDrywallLayout(
-        expanded.filter(item => plumbingItemIds.has(item.id))
+        expanded.filter(
+          item =>
+            plumbingItemIds.has(item.id) || isCustomScopeChecklistItem(item)
+        )
       );
     }
     if (stuccoTradeFlow) {
-      return withDrywallLayout(buildStuccoTradeChecklistItems(expanded));
+      const customOnly = expanded.filter(isCustomScopeChecklistItem);
+      return withDrywallLayout([
+        ...buildStuccoTradeChecklistItems(expanded),
+        ...customOnly,
+      ]);
     }
     if (String(checklist?.templateKey || '').toLowerCase() !== 'flooring')
       return withDrywallLayout(expanded);
@@ -17182,6 +17327,9 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.bathroomDemoVanityCount,
     measurements.bathroomDemoCounterCount,
   ]);
+
+  const { templateItems: templateDisplayItems, customItems: customScopeItems } =
+    useMemo(() => partitionScopeChecklistItems(displayItems), [displayItems]);
 
   const enrichedPricingContext = useMemo(
     () =>
@@ -19185,12 +19333,15 @@ export default function AIEstimateScopeAssumptionsModal({
   );
 
   const groupedItems = useMemo(() => {
-    const grouped = groupScopeChecklistItems(displayItems, checklist?.templateKey);
+    const grouped = groupScopeChecklistItems(
+      templateDisplayItems,
+      checklist?.templateKey
+    );
     return filterGroupedItemsWithoutPinnedTexture(
       grouped,
       pinnedDrywallFinishItem
     );
-  }, [displayItems, checklist?.templateKey, pinnedDrywallFinishItem]);
+  }, [templateDisplayItems, checklist?.templateKey, pinnedDrywallFinishItem]);
   const embedQmScopeInQuickMeasurements = useMemo(() => {
     const living =
       Number(String(measurements.floorAreaSqft || '').replace(/,/g, '')) ||
@@ -21938,7 +22089,11 @@ export default function AIEstimateScopeAssumptionsModal({
     ) {
       return null;
     }
-    if (String(checklist?.templateKey || '').toLowerCase() === 'landscaping') {
+    const customScopeCard = isCustomScopeItem(item);
+    if (
+      !customScopeCard &&
+      String(checklist?.templateKey || '').toLowerCase() === 'landscaping'
+    ) {
       const landscapingItemActive =
         isLandscapingQmScopeItemActive(
           item.id,
@@ -21949,7 +22104,10 @@ export default function AIEstimateScopeAssumptionsModal({
         return null;
       }
     }
-    if (String(checklist?.templateKey || '').toLowerCase() === 'concrete') {
+    if (
+      !customScopeCard &&
+      String(checklist?.templateKey || '').toLowerCase() === 'concrete'
+    ) {
       const concreteItemActive =
         isConcreteQmScopeItemActive(
           item.id,
@@ -22421,7 +22579,9 @@ export default function AIEstimateScopeAssumptionsModal({
               : undefined
           }
           onSaveCustomPricing={
-            isCustomScopeItem(item) ? persistScopeProgressNow : undefined
+            isCustomScopeItem(item)
+              ? () => handleSaveCustomScopePricing(item.id)
+              : undefined
           }
           onBathroomToiletRelocateFloorTypeChange={
             handleBathroomToiletRelocateFloorTypeChange
@@ -22524,7 +22684,10 @@ export default function AIEstimateScopeAssumptionsModal({
             singleTradeKey
           )
         : notesPlumbingFlow
-          ? baseItems.filter(item => plumbingItemIds.has(item.id))
+          ? baseItems.filter(
+              item =>
+                plumbingItemIds.has(item.id) || isCustomScopeChecklistItem(item)
+            )
           : baseItems;
     const confirmItems = finalizeWetAreaInstallScopeFromMeasurements(
       scopeChecklistItemsForPersist(tradeFilteredItems),
@@ -22533,15 +22696,79 @@ export default function AIEstimateScopeAssumptionsModal({
     onConfirm(confirmItems, payload);
   };
 
+  const handleSaveCustomScopePricing = useCallback(
+    (itemId: string) => {
+      setMeasurementsSynced(prev => {
+        const material = parsePricingAmount(
+          prev.itemQuantities?.[`${itemId}__material`]?.quantity
+        );
+        const labor = parsePricingAmount(
+          prev.itemQuantities?.[`${itemId}__labor`]?.quantity
+        );
+        const lumpTotal = material + labor;
+        if (!(lumpTotal > 0)) return prev;
+
+        const itemQuantities = { ...(prev.itemQuantities || {}) };
+        const stampUserEntered = (key: string) => {
+          const entry = itemQuantities[key];
+          if (!entry) return;
+          itemQuantities[key] = {
+            ...entry,
+            quantitySource: 'user_entered',
+          };
+        };
+        stampUserEntered(itemId);
+        stampUserEntered(`${itemId}__material`);
+        stampUserEntered(`${itemId}__labor`);
+        stampUserEntered(`${itemId}__allowance`);
+
+        return {
+          ...prev,
+          itemQuantities,
+          pricingAcceptance: {
+            ...(prev.pricingAcceptance || {}),
+            [itemId]: buildAcceptanceFromCustomScopePricing({
+              material,
+              labor,
+              total: lumpTotal,
+              lumpSumOnly: false,
+            }),
+          },
+        };
+      });
+      setTimeout(() => persistScopeProgressNow(), 0);
+    },
+    [persistScopeProgressNow, setMeasurementsSynced]
+  );
+
   const handleAddCustomItem = () => {
     const trimmed = customItemLabel.trim();
     if (!trimmed) return;
     hapticTap();
-    setItems(prev => [...prev, createCustomScopeItem(trimmed)]);
+    const newItem = createCustomScopeItem(trimmed);
+    pendingCustomItemScrollRef.current = newItem.id;
+    setItems(prev => [...prev, newItem]);
     setCustomItemLabel('');
     setShowCustomItemInput(false);
-    setCollapsedGroups(prev => ({ ...prev, ['Other']: false }));
+    setTimeout(() => persistScopeProgressNow(), 0);
   };
+
+  useEffect(() => {
+    const itemId = pendingCustomItemScrollRef.current;
+    if (!itemId) return;
+    const node = itemRefs.current[itemId] ?? customScopeSectionRef.current;
+    const content = scrollContentRef.current;
+    if (!node || !content) return;
+    pendingCustomItemScrollRef.current = null;
+    requestAnimationFrame(() => {
+      node.measureLayout(content, (_x, y) => {
+        scrollRef.current?.scrollTo({
+          y: Math.max(0, y - 12),
+          animated: true,
+        });
+      });
+    });
+  }, [customScopeItems]);
 
   const handleBack = () => {
     commitElectricalAttributes();
@@ -22611,7 +22838,7 @@ export default function AIEstimateScopeAssumptionsModal({
         style={{ flex: 1 }}
         contentContainerStyle={{
           paddingHorizontal: 16,
-          paddingBottom: insets.bottom + (showCustomItemInput ? 260 : 200),
+          paddingBottom: insets.bottom + 220,
         }}
         keyboardShouldPersistTaps='always'
         delayContentTouches={false}
@@ -23097,6 +23324,59 @@ export default function AIEstimateScopeAssumptionsModal({
               ))
             : null}
 
+          <View ref={customScopeSectionRef} collapsable={false}>
+            {customScopeItems.length ? (
+              <View style={styles.groupSection}>
+                {customScopeItems.map(item => (
+                  <React.Fragment key={item.id}>
+                    {renderItem(item)}
+                  </React.Fragment>
+                ))}
+              </View>
+            ) : null}
+
+            {!showCustomItemInput ? (
+              <TouchableOpacity
+                style={[
+                  styles.addScopeItemBtn,
+                  {
+                    borderColor: darkMode
+                      ? 'rgba(148, 163, 184, 0.22)'
+                      : Colors.line,
+                    backgroundColor: darkMode
+                      ? 'rgba(255,255,255,0.02)'
+                      : Colors.surface2,
+                  },
+                ]}
+                onPress={() => setShowCustomItemInput(true)}
+                disabled={applying}
+                activeOpacity={0.75}
+              >
+                <Ionicons name='add-circle-outline' size={18} color='#22c55e' />
+                <Text
+                  style={{ color: '#22c55e', fontSize: 13, fontWeight: '700' }}
+                >
+                  Add scope item
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {showCustomItemInput ? (
+              <CustomScopeItemComposer
+                label={customItemLabel}
+                onChangeLabel={setCustomItemLabel}
+                onAdd={handleAddCustomItem}
+                onCancel={() => {
+                  setShowCustomItemInput(false);
+                  setCustomItemLabel('');
+                }}
+                applying={applying}
+                Colors={Colors}
+                darkMode={darkMode}
+              />
+            ) : null}
+          </View>
+
           {step2AppliedEstimateTotal > 0 ? (
             <BenchmarkReasonablenessCard
               value={benchmarkReasonableness}
@@ -23119,120 +23399,6 @@ export default function AIEstimateScopeAssumptionsModal({
                   : null
               }
             />
-          ) : null}
-
-          <TouchableOpacity
-            style={[
-              styles.addScopeItemBtn,
-              {
-                borderColor: darkMode
-                  ? 'rgba(148, 163, 184, 0.22)'
-                  : Colors.line,
-                backgroundColor: darkMode
-                  ? 'rgba(255,255,255,0.02)'
-                  : Colors.surface2,
-              },
-            ]}
-            onPress={() => {
-              setShowCustomItemInput(open => {
-                const next = !open;
-                if (next) {
-                  setTimeout(
-                    () => scrollRef.current?.scrollToEnd({ animated: true }),
-                    120
-                  );
-                }
-                return next;
-              });
-            }}
-            disabled={applying}
-            activeOpacity={0.75}
-          >
-            <Ionicons name='add-circle-outline' size={18} color='#22c55e' />
-            <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '700' }}>
-              Add scope item
-            </Text>
-          </TouchableOpacity>
-
-          {showCustomItemInput ? (
-            <View
-              style={[
-                styles.customItemCard,
-                estimateFlowCardStyle(Colors, darkMode),
-              ]}
-            >
-              <View style={styles.customItemHeader}>
-                <Text
-                  style={{
-                    color: Colors.text,
-                    fontSize: 14,
-                    fontWeight: '800',
-                  }}
-                >
-                  Custom scope item
-                </Text>
-                <Text
-                  style={{
-                    color: captionColor(darkMode, Colors),
-                    fontSize: 11,
-                    lineHeight: 16,
-                  }}
-                >
-                  Add work the AI or template missed. You can price it after
-                  adding.
-                </Text>
-              </View>
-              <View style={styles.customItemInputRow}>
-                <TextInput
-                  value={customItemLabel}
-                  onChangeText={setCustomItemLabel}
-                  placeholder='e.g. heated floor, transition strip'
-                  placeholderTextColor={
-                    darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'
-                  }
-                  returnKeyType='done'
-                  blurOnSubmit
-                  onFocus={() =>
-                    setTimeout(
-                      () => scrollRef.current?.scrollToEnd({ animated: true }),
-                      80
-                    )
-                  }
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                  editable={!applying}
-                  style={[
-                    styles.customItemInput,
-                    {
-                      color: Colors.text,
-                      borderColor: darkMode
-                        ? 'rgba(148, 163, 184, 0.16)'
-                        : Colors.line,
-                      backgroundColor: darkMode
-                        ? 'rgba(255,255,255,0.05)'
-                        : Colors.surface2,
-                    },
-                  ]}
-                />
-                <TouchableOpacity
-                  style={[
-                    styles.customItemAddBtn,
-                    !customItemLabel.trim() && { opacity: 0.45 },
-                  ]}
-                  onPress={handleAddCustomItem}
-                  disabled={applying || !customItemLabel.trim()}
-                >
-                  <Text
-                    style={{
-                      color: '#0f172a',
-                      fontWeight: '800',
-                      fontSize: 12,
-                    }}
-                  >
-                    Add
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
           ) : null}
         </View>
       </ScrollView>
@@ -23627,6 +23793,29 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 10,
   },
+  customComposerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 12,
+  },
+  customComposerCancelBtn: {
+    paddingHorizontal: 4,
+    paddingVertical: 10,
+  },
+  customComposerAddBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#22c55e',
+    borderRadius: 10,
+    paddingVertical: 12,
+  },
+  customComposerAddBtnText: {
+    color: '#0f172a',
+    fontWeight: '800',
+    fontSize: 13,
+  },
   groupHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -23707,9 +23896,13 @@ const styles = StyleSheet.create({
   },
   customPricingModeChip: {
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderRadius: 999,
     borderWidth: 1,
+  },
+  customScopeUnitRow: {
+    flexWrap: 'nowrap',
+    marginBottom: 0,
   },
   pricingEntryModeChip: {
     flex: 1,
@@ -23717,6 +23910,8 @@ const styles = StyleSheet.create({
   },
   savePricingBtn: {
     marginTop: 10,
+    alignSelf: 'stretch',
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 10,

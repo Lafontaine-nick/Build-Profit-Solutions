@@ -244,6 +244,7 @@ export function AcceptedPricingSummary({
   darkMode,
   onEditPricing,
   onClearPricing,
+  hideEditLink = false,
   onScopeGapResolutionsChange,
   onScopeGapPriceSeparately,
   onScopeGapIncludeInParentPrice,
@@ -263,6 +264,8 @@ export function AcceptedPricingSummary({
   onEditPricing: () => void;
   /** Clears applied price and restores the original Suggest / Apply card. */
   onClearPricing?: () => void;
+  /** Hide the green Edit link (e.g. custom scope uses Change pricing only). */
+  hideEditLink?: boolean;
   onScopeGapResolutionsChange?: (next: ScopeGapResolutionsMap) => void;
   onScopeGapPriceSeparately?: (
     componentKey: string,
@@ -634,6 +637,9 @@ const styles = StyleSheet.create({
   },
   actionLinksRowSingle: {
     justifyContent: 'flex-start',
+  },
+  actionLinksRowEnd: {
+    justifyContent: 'flex-end',
   },
   editLink: {
     color: '#22c55e',

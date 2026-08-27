@@ -226,7 +226,13 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
       : tradeKey === 'framing'
         ? [...FRAMING_PLAN_SCOPE_ALLOWLIST]
         : getTradeScopeAllowlist(tradeKey);
-  const filtered = allowed ? items.filter(item => allowed.includes(item.id)) : items;
+  const filtered = allowed
+    ? items.filter(
+        item =>
+          allowed.includes(item.id) ||
+          String(item.id || '').startsWith('custom_')
+      )
+    : items;
   if (tradeKey === 'garage_doors') {
     const garage = filtered.find(item => item.id === 'garage_doors');
     const cards = [

@@ -3602,6 +3602,26 @@ export function initialScopeGroupCollapse(
   return collapsed;
 }
 
+export function isCustomScopeChecklistItem(
+  item: Pick<ScopeChecklistItem, 'id' | 'category'>
+): boolean {
+  return (
+    item.category === 'custom' || String(item.id || '').startsWith('custom_')
+  );
+}
+
+export function partitionScopeChecklistItems(
+  items: ScopeChecklistItem[]
+): { templateItems: ScopeChecklistItem[]; customItems: ScopeChecklistItem[] } {
+  const templateItems: ScopeChecklistItem[] = [];
+  const customItems: ScopeChecklistItem[] = [];
+  for (const item of items) {
+    if (isCustomScopeChecklistItem(item)) customItems.push(item);
+    else templateItems.push(item);
+  }
+  return { templateItems, customItems };
+}
+
 export function createCustomScopeItem(label: string): ScopeChecklistItem {
   const trimmed = label.trim();
   const id = `custom_${Date.now()}`;
@@ -3609,7 +3629,7 @@ export function createCustomScopeItem(label: string): ScopeChecklistItem {
     id,
     inputType: 'yes_no',
     label: trimmed,
-    helperText: 'Added manually. Price as total, sqft, or LF.',
+    helperText: 'Added manually. Enter material and labor; optional sqft, LF, or CY basis.',
     state: 'included',
     category: 'custom',
   };
