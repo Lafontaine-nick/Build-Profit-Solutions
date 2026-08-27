@@ -45,7 +45,6 @@ export default function AIEstimateGeneratingOverlay({ visible, phase, steps }: P
           ]}
         >
           <View style={styles.headerRow}>
-            <ActivityIndicator size="small" color={accent} />
             <Text style={[styles.title, { color: Colors.text }]}>Building your draft</Text>
           </View>
           <Text style={[styles.subtitle, { color: Colors.sub }]}>
@@ -106,14 +105,11 @@ const styles = StyleSheet.create({
     maxWidth: 360,
     borderRadius: 18,
     borderWidth: 1,
-    paddingHorizontal: 20,
-    paddingVertical: 22,
+    paddingHorizontal: 22,
+    paddingVertical: 26,
   },
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   title: {
     fontSize: 18,
@@ -123,10 +119,10 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 13,
     lineHeight: 18,
-    marginBottom: 18,
+    marginBottom: 20,
   },
   stepList: {
-    gap: 12,
+    gap: 14,
   },
   stepRow: {
     flexDirection: 'row',
@@ -141,7 +137,7 @@ const styles = StyleSheet.create({
   },
   stepLabel: {
     flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 21,
   },
 });

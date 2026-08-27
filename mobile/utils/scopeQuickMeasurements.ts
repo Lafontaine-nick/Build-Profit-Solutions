@@ -2357,9 +2357,13 @@ export function hasQuickMeasurementValue(value: unknown): boolean {
 export function resolveQuickMeasurementDisplayValue(
   key: QuickMeasurementFieldKey,
   measurements: Partial<Record<QuickMeasurementFieldKey, string | undefined>>,
-  noteValues: Partial<Record<QuickMeasurementFieldKey, string>> = {}
+  noteValues: Partial<Record<QuickMeasurementFieldKey, string>> = {},
+  userOverrides: Partial<Record<QuickMeasurementFieldKey, boolean>> = {}
 ): string {
   const raw = measurements[key];
+  if (userOverrides[key]) {
+    return String(raw ?? '');
+  }
   if (raw != null && String(raw).trim() !== '') {
     return String(raw);
   }
@@ -2494,7 +2498,9 @@ export function countFilledQuickMeasurements(
     const value = resolveQuickMeasurementDisplayValue(
       field.key,
       measurements,
-      noteValues
+      noteValues,
+      (measurements as { quickMeasurementUserOverrides?: Partial<Record<QuickMeasurementFieldKey, boolean>> })
+        .quickMeasurementUserOverrides
     );
     if (hasQuickMeasurementValue(value)) filled += 1;
   }

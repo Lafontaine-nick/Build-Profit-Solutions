@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { ClarifyAnswer, ClarifyQuestionItem } from '@/utils/estimateAiDraft';
+import ReliableFlowPress from '@/components/estimate/ReliableFlowPress';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
 type Colors = {
@@ -238,11 +239,15 @@ export default function AIEstimateClarifyQuestionsCard({
               backgroundColor: darkMode ? 'rgba(96, 165, 250, 0.08)' : 'rgba(59, 130, 246, 0.06)',
             }}
           >
-            <TouchableOpacity
-              activeOpacity={0.85}
+            <ReliableFlowPress
               onPress={() => setExpanded(true)}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 8 }}
-              accessibilityRole="button"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                flex: 1,
+                paddingRight: 8,
+              }}
               accessibilityLabel="Show clarifying questions"
             >
               <MaterialIcons name="live-help" size={15} color="#60a5fa" />
@@ -252,7 +257,7 @@ export default function AIEstimateClarifyQuestionsCard({
                   : `${count} question${count === 1 ? '' : 's'}`}
               </Text>
               <Text style={{ color: '#60a5fa', fontSize: 13, fontWeight: '600' }}>Show</Text>
-            </TouchableOpacity>
+            </ReliableFlowPress>
             <TouchableOpacity activeOpacity={0.75} disabled={applying} onPress={onDismiss} hitSlop={8}>
               <Text style={{ color: Colors.sub, fontSize: 13, fontWeight: '600' }}>Dismiss</Text>
             </TouchableOpacity>

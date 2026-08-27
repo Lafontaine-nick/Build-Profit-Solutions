@@ -10,6 +10,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import ReliableFlowPress from '@/components/estimate/ReliableFlowPress';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
 type Colors = {
@@ -30,6 +31,8 @@ type Props = {
   showPricingNudge?: boolean;
   onSubmitCommand: (command: string) => void;
   onDismissSummary?: () => void;
+  /** `hero` — compact FAB in card corner; expanded panel inline. `inline` — full-width collapsed bar. */
+  variant?: 'inline' | 'hero';
 };
 
 const EXAMPLE_CHIPS = [
@@ -49,6 +52,7 @@ export default function AIEstimateRefineCommandBar({
   showPricingNudge = false,
   onSubmitCommand,
   onDismissSummary,
+  variant = 'inline',
 }: Props) {
   const [command, setCommand] = useState('');
   /** Collapsed by default — keep Step 3 focused on the scope list. */
@@ -64,26 +68,36 @@ export default function AIEstimateRefineCommandBar({
     setCommand('');
   };
 
-  return (
-    <View style={{ marginBottom: 12 }}>
-      {hasSummary ? (
-        <View style={styles.summaryBanner}>
-          <MaterialIcons name="check-circle" size={14} color="#22c55e" style={{ marginTop: 1 }} />
-          <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, flex: 1 }}>
-            {lastCommand ? `“${lastCommand}” · ` : ''}
-            {(appliedSummary || []).slice(0, 2).join(' · ')}
-            {(appliedSummary || []).length > 2 ? ` · +${(appliedSummary || []).length - 2} more` : ''}
-          </Text>
-          {onDismissSummary ? (
-            <TouchableOpacity activeOpacity={0.75} onPress={onDismissSummary} hitSlop={8}>
-              <MaterialIcons name="close" size={15} color={Colors.sub} />
-            </TouchableOpacity>
-          ) : null}
-        </View>
+  const summaryBanner = hasSummary ? (
+    <View style={[styles.summaryBanner, variant === 'hero' ? { marginTop: 12, marginBottom: 0 } : null]}>
+      <MaterialIcons name="check-circle" size={14} color="#22c55e" style={{ marginTop: 1 }} />
+      <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, flex: 1 }}>
+        {lastCommand ? `“${lastCommand}” · ` : ''}
+        {(appliedSummary || []).slice(0, 2).join(' · ')}
+        {(appliedSummary || []).length > 2 ? ` · +${(appliedSummary || []).length - 2} more` : ''}
+      </Text>
+      {onDismissSummary ? (
+        <TouchableOpacity activeOpacity={0.75} onPress={onDismissSummary} hitSlop={8}>
+          <MaterialIcons name="close" size={15} color={Colors.sub} />
+        </TouchableOpacity>
       ) : null}
+    </View>
+  ) : null;
 
-      {expanded ? (
-        <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: 0 })}>
+  const expandedPanel = expanded ? (
+        <View
+          style={
+            variant === 'hero'
+              ? [
+                  styles.heroPanel,
+                  {
+                    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
+                    backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                  },
+                ]
+              : estimateFlowCardStyle(Colors, darkMode, { marginBottom: 0 })
+          }
+        >
           <View style={styles.titleRow}>
             <View style={styles.titleLeft}>
               <View
@@ -214,46 +228,64 @@ export default function AIEstimateRefineCommandBar({
             </ScrollView>
           ) : null}
         </View>
-      ) : (
-        <TouchableOpacity
-          activeOpacity={0.88}
+  ) : null;
+
+  if (variant === 'hero') {
+    return (
+      <>
+        {!expanded ? (
+          <View style={styles.heroFabAnchor}>
+            <ReliableFlowPress
+              onPress={() => setExpanded(true)}
+              style={[
+                styles.heroFab,
+                {
+                  backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.14)' : 'rgba(34, 197, 94, 0.1)',
+                  borderColor: darkMode ? 'rgba(34, 197, 94, 0.35)' : 'rgba(34, 197, 94, 0.28)',
+                },
+              ]}
+              accessibilityLabel="Ask AI to change prices or scope"
+            >
+              <MaterialIcons name="auto-fix-high" size={22} color="#22c55e" />
+            </ReliableFlowPress>
+          </View>
+        ) : null}
+        {!expanded ? summaryBanner : null}
+        {expandedPanel}
+      </>
+    );
+  }
+
+  return (
+    <View style={{ marginBottom: 12 }}>
+      {summaryBanner}
+      {expandedPanel}
+      {!expanded ? (
+        <ReliableFlowPress
           onPress={() => setExpanded(true)}
-          style={[
-            styles.collapsedBar,
-            {
-              borderColor: darkMode ? 'rgba(34, 197, 94, 0.38)' : 'rgba(34, 197, 94, 0.32)',
-              backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
-            },
-          ]}
-          accessibilityRole="button"
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingVertical: 10,
+            paddingHorizontal: 12,
+            borderRadius: 12,
+            backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.06)',
+          }}
           accessibilityLabel="Open Ask AI to change prices or scope"
         >
-          <View
-            style={[
-              styles.iconBadge,
-              {
-                backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.22)' : 'rgba(34, 197, 94, 0.16)',
-              },
-            ]}
-          >
-            <MaterialIcons name="auto-fix-high" size={17} color="#22c55e" />
-          </View>
-          <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
-            <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }} numberOfLines={1}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 8 }}>
+            <MaterialIcons name="auto-fix-high" size={15} color="#22c55e" />
+            <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '600', flexShrink: 1 }}>
               Ask AI
             </Text>
-            <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, marginTop: 2 }} numberOfLines={2}>
-              {showPricingNudge
-                ? 'Set a missing price or edit scope in plain English'
-                : 'Set prices, add scope, or fix a line in plain English'}
+            <Text style={{ color: Colors.sub, fontSize: 12, flexShrink: 1 }} numberOfLines={1}>
+              {showPricingNudge ? 'Set a missing price' : 'Change prices or scope'}
             </Text>
           </View>
-          <View style={styles.openPill}>
-            <Text style={styles.openPillText}>Open</Text>
-            <MaterialIcons name="chevron-right" size={16} color="#052e16" />
-          </View>
-        </TouchableOpacity>
-      )}
+          <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '600' }}>Show</Text>
+        </ReliableFlowPress>
+      ) : null}
     </View>
   );
 }
@@ -328,6 +360,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 7,
     borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  heroFabAnchor: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    zIndex: 2,
+  },
+  heroFab: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  heroPanel: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
   },
 });

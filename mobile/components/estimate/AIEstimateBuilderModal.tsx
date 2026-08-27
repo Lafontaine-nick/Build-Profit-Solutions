@@ -23,6 +23,10 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import { aiFlowCardBackground } from '@/utils/estimateFlowCardStyle';
+import {
+  buildPlanImportSteps,
+  type AiGeneratePhaseId,
+} from '@/utils/aiEstimateGeneratingUi';
 import AIEstimateGeneratingOverlay from '@/components/estimate/AIEstimateGeneratingOverlay';
 import AIEstimateDisclaimer from '@/components/estimate/AIEstimateDisclaimer';
 import EstimateVoiceDictationButton from '@/components/estimate/EstimateVoiceDictationButton';
@@ -52,7 +56,6 @@ import type {
   PlumbingPerformerMode,
   PlumbingWorkflowMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
-import type { AiGeneratePhaseId } from '@/utils/aiEstimateGeneratingUi';
 
 type Props = {
   visible: boolean;
@@ -150,7 +153,13 @@ export default function AIEstimateBuilderModal({
   const [extrasExpanded, setExtrasExpanded] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [localGenerating, setLocalGenerating] = useState(false);
-  const busy = generating || localGenerating;
+  const [planImportBusy, setPlanImportBusy] = useState(false);
+  const [planImportPhase, setPlanImportPhase] =
+    useState<AiGeneratePhaseId | null>(null);
+  const planImportSteps = useMemo(() => buildPlanImportSteps(), []);
+  const busy = generating || localGenerating || planImportBusy;
+  const overlayPhase = planImportBusy ? planImportPhase : generatingPhase;
+  const overlaySteps = planImportBusy ? planImportSteps : generatingSteps;
   const semanticsOn = measurementSemanticsV1Enabled();
 
   useEffect(() => {
@@ -199,6 +208,8 @@ export default function AIEstimateBuilderModal({
     if (!visible) {
       setKeyboardVisible(false);
       setLocalGenerating(false);
+      setPlanImportBusy(false);
+      setPlanImportPhase(null);
     }
     wasVisibleRef.current = visible;
   }, [
@@ -648,6 +659,8 @@ export default function AIEstimateBuilderModal({
             existingPlanImport={planImport}
             planReadySubtitle={planReadySubtitle}
             embedded
+            onImportingChange={setPlanImportBusy}
+            onImportPhaseChange={setPlanImportPhase}
             onApplied={handlePlanApplied}
           />
 
@@ -1102,8 +1115,8 @@ export default function AIEstimateBuilderModal({
         {body}
         <AIEstimateGeneratingOverlay
           visible={busy}
-          phase={generatingPhase}
-          steps={generatingSteps}
+          phase={overlayPhase}
+          steps={overlaySteps}
         />
       </View>
     );
@@ -1121,8 +1134,8 @@ export default function AIEstimateBuilderModal({
         {body}
         <AIEstimateGeneratingOverlay
           visible={busy}
-          phase={generatingPhase}
-          steps={generatingSteps}
+          phase={overlayPhase}
+          steps={overlaySteps}
         />
       </View>
     </Modal>

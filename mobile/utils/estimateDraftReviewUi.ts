@@ -3,6 +3,7 @@ import { SCOPE_PARSED_FROM_NOTES_LABEL } from '@/constants/scopeNoteSourceLabels
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
 import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
 import { draftHasApplyablePricing, formatDisplayUnit, proposalTotalForScopeName } from '@/utils/estimateAiDraftPricing';
+import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import {
   resolveScopePackageBudgetBreakdown,
   type BudgetSplitSource,
@@ -346,6 +347,37 @@ export function getCompactProjectSummary(draft: EstimateAiDraft): string {
 }
 
 export function getCompactStillNeeded(draft: EstimateAiDraft, max = 5): { items: string[]; overflow: number } {
+  const scopeConfirmed = Boolean(
+    draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length
+  );
+
+  if (scopeConfirmed) {
+    const merged: string[] = [];
+    const seen = new Set<string>();
+    const add = (s: string) => {
+      const k = s.trim().toLowerCase();
+      if (!k || seen.has(k)) return;
+      seen.add(k);
+      merged.push(s.trim());
+    };
+
+    for (const pkg of getScopePackagesForReview(draft)) {
+      if (!scopePackageNeedsManualPrice(pkg, draft)) continue;
+      const name = String(pkg.name || pkg.scope || 'Scope item').trim();
+      add(`Pricing for ${name}`);
+    }
+
+    if (!draft.customerName) add('Customer name');
+    if (!draft.projectAddress) add('Project address');
+    for (const m of draft.missingInfo || []) {
+      if (/payment/i.test(m)) add('Payment terms');
+      if (/permit/i.test(m)) add('Permit responsibility');
+    }
+
+    const grouped = groupGenericMissingScopeItems(normalizeStillNeededItems(draft, merged));
+    return { items: grouped.slice(0, max), overflow: Math.max(0, grouped.length - max) };
+  }
+
   const raw =
     draft.stillNeededReview?.length ? draft.stillNeededReview : getStillNeededList(draft);
   const needsReview = draft.needsReviewItems?.length ? draft.needsReviewItems : draft.missingInfo || [];

@@ -1,5 +1,6 @@
 export type AiGeneratePhaseId =
   | 'reading_notes'
+  | 'reading_plan'
   | 'analyzing_photos'
   | 'applying_plan'
   | 'building_scope'
@@ -7,11 +8,17 @@ export type AiGeneratePhaseId =
 
 export const AI_GENERATE_PHASE_LABELS: Record<AiGeneratePhaseId, string> = {
   reading_notes: 'Reading notes…',
+  reading_plan: 'Reading plan…',
   analyzing_photos: 'Analyzing site photos…',
   applying_plan: 'Applying plan measurements…',
   building_scope: 'Building scope…',
   finalizing: 'Almost ready…',
 };
+
+/** Step 1 plan takeoff — same overlay card as Generate. */
+export function buildPlanImportSteps(): AiGeneratePhaseId[] {
+  return ['reading_plan', 'building_scope', 'finalizing'];
+}
 
 export function buildAiGenerateSteps(options: {
   hasPhotos?: boolean;

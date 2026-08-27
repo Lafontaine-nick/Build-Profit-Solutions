@@ -23,6 +23,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import {
+  ScrollView as GestureScrollView,
+  TouchableOpacity as GestureTouchableOpacity,
+} from 'react-native-gesture-handler';
+import ReliableFlowPress from '@/components/estimate/ReliableFlowPress';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -577,6 +582,8 @@ type Props = {
     items: ScopeChecklistItem[],
     measurements?: ScopeMeasurements
   ) => void;
+  /** Fires immediately on Continue tap so the footer can show a spinner before heavy sync. */
+  onConfirmBegin?: () => void;
   onScopeOnly?: (measurements?: ScopeMeasurements) => void;
   /** Persist in-progress scope without API round-trip (e.g. when navigating to review/pricing). */
   onPersistProgress?: (
@@ -631,6 +638,15 @@ function hapticTap() {
   if (Platform.OS !== 'web') {
     Haptics.selectionAsync();
   }
+}
+
+/** Yield one frame + post-gesture slot before heavy confirm-scope writes. */
+function deferConfirmScopeHeavyWork(run: () => void) {
+  requestAnimationFrame(() => {
+    InteractionManager.runAfterInteractions(() => {
+      startTransition(run);
+    });
+  });
 }
 
 function inputShellStyle(
@@ -1855,6 +1871,47 @@ function InsulationAssemblyPricingBreakdown({
   );
 }
 
+function SuggestedPricingApplyButton({
+  label,
+  onPress,
+  style,
+  textStyle,
+}: {
+  label: string;
+  onPress?: () => void;
+  style: object;
+  textStyle: object;
+}) {
+  const onPressRef = useRef(onPress);
+  onPressRef.current = onPress;
+  const applyLockRef = useRef(false);
+
+  if (!onPress) return null;
+
+  const fireApply = () => {
+    if (applyLockRef.current || !onPressRef.current) return;
+    applyLockRef.current = true;
+    hapticTap();
+    onPressRef.current();
+    setTimeout(() => {
+      applyLockRef.current = false;
+    }, 400);
+  };
+
+  return (
+    <GestureTouchableOpacity
+      onPressIn={fireApply}
+      activeOpacity={0.82}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityLabel={label}
+      accessibilityRole='button'
+      style={[style, { zIndex: 2 }]}
+    >
+      <Text style={textStyle}>{label}</Text>
+    </GestureTouchableOpacity>
+  );
+}
+
 function SuggestedBudgetSplitRows({
   block,
   Colors,
@@ -2008,17 +2065,12 @@ function SuggestedBudgetSplitRows({
           </Text>
         </View>
         {canWritePrice && writeActionLabel ? (
-          <TouchableOpacity
-            activeOpacity={0.75}
+          <SuggestedPricingApplyButton
+            label={writeActionLabel}
             onPress={onUsePricing}
             style={styles.compactSuggestedBtn}
-            accessibilityLabel={writeActionLabel}
-            accessibilityRole='button'
-          >
-            <Text style={styles.compactSuggestedBtnText}>
-              {writeActionLabel}
-            </Text>
-          </TouchableOpacity>
+            textStyle={styles.compactSuggestedBtnText}
+          />
         ) : null}
       </View>
     );
@@ -2310,27 +2362,20 @@ function SuggestedBudgetSplitRows({
       ) : null}
 
       {canWritePrice && actionLabel ? (
-        <TouchableOpacity
-          activeOpacity={0.75}
+        <SuggestedPricingApplyButton
+          label={actionLabel}
           onPress={onUsePricing}
           style={
             isNationalComparison
               ? styles.useComparisonPricingBtn
               : styles.useSuggestedPricingBtn
           }
-          accessibilityLabel={actionLabel}
-          accessibilityRole='button'
-        >
-          <Text
-            style={
-              isNationalComparison
-                ? styles.useComparisonPricingBtnText
-                : styles.useSuggestedPricingBtnText
-            }
-          >
-            {actionLabel}
-          </Text>
-        </TouchableOpacity>
+          textStyle={
+            isNationalComparison
+              ? styles.useComparisonPricingBtnText
+              : styles.useSuggestedPricingBtnText
+          }
+        />
       ) : null}
     </View>
   );
@@ -10456,14 +10501,21 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   /** Labor-only project complexity multiplier for MEP plan hints. */
   laborComplexityMultiplier?: number;
 }) {
-  const isFloorPrepField = field.key === 'floorPrepSqft';
-  const [floorPrepDraft, setFloorPrepDraft] = useState(value);
-  const [floorPrepEditing, setFloorPrepEditing] = useState(false);
+  const isInsulationPresetField = Boolean(insulationOptions);
+  const usesNumericEditDraft = !isInsulationPresetField;
+  const [numericDraft, setNumericDraft] = useState('');
+  const [numericEditing, setNumericEditing] = useState(false);
   useEffect(() => {
-    if (!floorPrepEditing) setFloorPrepDraft(value);
-  }, [value, floorPrepEditing]);
+    if (!numericEditing) {
+      setNumericDraft(String(value ?? '').replace(/,/g, ''));
+    }
+  }, [value, numericEditing]);
   const inputValue =
-    isFloorPrepField && floorPrepEditing ? floorPrepDraft : value;
+    usesNumericEditDraft && numericEditing ? numericDraft : value;
+  const textInputValue =
+    usesNumericEditDraft && numericEditing
+      ? numericDraft
+      : formatMeasurementDisplay(inputValue);
   const unitLabel =
     field.key === 'stuccoStories'
       ? Number(String(inputValue).replace(/,/g, '')) === 1
@@ -10474,23 +10526,24 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
       : field.unit;
   const handleInputFocus = () => {
     onQuantityEditFocus?.();
-    if (isFloorPrepField) {
-      setFloorPrepDraft(value);
-      setFloorPrepEditing(true);
+    if (usesNumericEditDraft) {
+      setNumericDraft(String(value ?? '').replace(/,/g, ''));
+      setNumericEditing(true);
     }
     onFocus?.();
   };
   const handleInputChange = (nextValue: string) => {
-    if (isFloorPrepField) {
-      setFloorPrepDraft(nextValue);
+    const cleaned = nextValue.replace(/,/g, '');
+    if (usesNumericEditDraft) {
+      setNumericDraft(cleaned);
     } else {
-      onChangeText(nextValue);
+      onChangeText(cleaned);
     }
   };
   const handleInputBlur = () => {
-    if (isFloorPrepField) {
-      onChangeText(floorPrepDraft);
-      setFloorPrepEditing(false);
+    if (usesNumericEditDraft) {
+      onChangeText(numericDraft);
+      setNumericEditing(false);
     }
     onBlur?.();
     onQuantityEditBlur?.();
@@ -10647,7 +10700,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
         >
           <TextInput
             nativeID={`quick-measurement-${field.key}`}
-            value={formatMeasurementDisplay(inputValue)}
+            value={textInputValue}
             onChangeText={handleInputChange}
             onFocus={handleInputFocus}
             onBlur={handleInputBlur}
@@ -10822,7 +10875,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
         >
           <TextInput
             nativeID={`quick-measurement-${field.key}`}
-            value={formatMeasurementDisplay(inputValue)}
+            value={textInputValue}
             onChangeText={handleInputChange}
             onFocus={handleInputFocus}
             onBlur={handleInputBlur}
@@ -14930,7 +14983,8 @@ function CollapsibleQuickMeasurements({
           : resolveQuickMeasurementDisplayValue(
               field.key,
               measurements,
-              noteQuickMeasurements.values
+              noteQuickMeasurements.values,
+              measurements.quickMeasurementUserOverrides
             );
     const typed = String(measurements[field.key] ?? '').trim() !== '';
     const fromNotes =
@@ -16950,6 +17004,7 @@ export default function AIEstimateScopeAssumptionsModal({
   onBack,
   onClose,
   onConfirm,
+  onConfirmBegin,
   onScopeOnly,
   onPersistProgress,
   pricingContext = null,
@@ -20593,25 +20648,27 @@ export default function AIEstimateScopeAssumptionsModal({
     (rows: UnconfirmedSuggestedPricing[]) => {
       if (!rows.length) return;
       hapticTap();
-      selectedPricingRef.current = {
-        ...selectedPricingRef.current,
-        ...Object.fromEntries(rows.map(row => [row.itemId, row.block])),
-      };
-      setMeasurementsSynced(prev => {
-        const { measurements, clearedSelectedOwners } =
-          mergeSuggestedPricingBlocksIntoMeasurements(
-            prev,
-            rows,
-            checklist?.templateKey
-          );
-        if (clearedSelectedOwners.length) {
-          const selected = { ...selectedPricingRef.current };
-          for (const owner of clearedSelectedOwners) delete selected[owner];
-          selectedPricingRef.current = selected;
-        }
-        return measurements;
+      deferConfirmScopeHeavyWork(() => {
+        selectedPricingRef.current = {
+          ...selectedPricingRef.current,
+          ...Object.fromEntries(rows.map(row => [row.itemId, row.block])),
+        };
+        setMeasurementsSynced(prev => {
+          const { measurements, clearedSelectedOwners } =
+            mergeSuggestedPricingBlocksIntoMeasurements(
+              prev,
+              rows,
+              checklist?.templateKey
+            );
+          if (clearedSelectedOwners.length) {
+            const selected = { ...selectedPricingRef.current };
+            for (const owner of clearedSelectedOwners) delete selected[owner];
+            selectedPricingRef.current = selected;
+          }
+          return measurements;
+        });
+        setTimeout(() => persistScopeProgressNow(), 0);
       });
-      setTimeout(() => persistScopeProgressNow(), 0);
     },
     [checklist?.templateKey, persistScopeProgressNow, setMeasurementsSynced]
   );
@@ -21151,6 +21208,7 @@ export default function AIEstimateScopeAssumptionsModal({
       measurementPatch?: Partial<ScopeMeasurementsInputExtended>
     ) => {
       hapticTap();
+      deferConfirmScopeHeavyWork(() => {
       const currentMeasurements = measurementPatch
         ? { ...measurementsRef.current, ...measurementPatch }
         : measurementsRef.current;
@@ -21426,6 +21484,7 @@ export default function AIEstimateScopeAssumptionsModal({
         setElectricalPreviewMeasurements(null);
       }
       setTimeout(() => persistScopeProgressNow(), 0);
+      });
     },
     [
       checklist?.templateKey,
@@ -21459,6 +21518,7 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const handleApplySuggestedPricing = useCallback(
     (itemId: string, block: SuggestedPricingBlock) => {
+      const currentMeasurements = measurementsRef.current;
       const scheduleApply = (
         applyBlock: SuggestedPricingBlock,
         overrideConfirmed = false,
@@ -21491,13 +21551,13 @@ export default function AIEstimateScopeAssumptionsModal({
           /national\s*average/i.test(String(block.rateSourceLabel || ''))) &&
         (scopeHasCommittedConfirmScopePrice({
           itemId,
-          itemQuantities: measurements.itemQuantities,
-          pricingAcceptance: measurements.pricingAcceptance,
+          itemQuantities: currentMeasurements.itemQuantities,
+          pricingAcceptance: currentMeasurements.pricingAcceptance,
         }) ||
           hasAcceptedScopePricing(
             itemId,
-            measurements.itemQuantities,
-            measurements.pricingAcceptance
+            currentMeasurements.itemQuantities,
+            currentMeasurements.pricingAcceptance
           ))
       ) {
         return;
@@ -21510,7 +21570,7 @@ export default function AIEstimateScopeAssumptionsModal({
         block.benchmarkAction === 'benchmark_only';
       if (
         applyingStageBenchmark &&
-        stageHasAcceptedTradePricing(stageKey, measurements.pricingAcceptance)
+        stageHasAcceptedTradePricing(stageKey, currentMeasurements.pricingAcceptance)
       ) {
         Alert.alert(
           'Planning comparison only',
@@ -21527,7 +21587,7 @@ export default function AIEstimateScopeAssumptionsModal({
         isTradePrice &&
         stageHasAcceptedBenchmarkPricing(
           stageKey,
-          measurements.pricingAcceptance
+          currentMeasurements.pricingAcceptance
         )
       ) {
         Alert.alert(
@@ -21551,7 +21611,7 @@ export default function AIEstimateScopeAssumptionsModal({
         measurementSemanticsV1Enabled() &&
         appKey &&
         block.benchmarkAction === 'benchmark_only' &&
-        (measurements.appliedBenchmarkKeys || []).includes(appKey)
+        (currentMeasurements.appliedBenchmarkKeys || []).includes(appKey)
       ) {
         Alert.alert(
           'Already applied',
@@ -21606,7 +21666,7 @@ export default function AIEstimateScopeAssumptionsModal({
       if (
         itemId === 'floor_demo' &&
         isCustomFlooringDemoPriceBlock(block) &&
-        !measurements.flooringDemoIncludesSubstratePrep
+        !currentMeasurements.flooringDemoIncludesSubstratePrep
       ) {
         Alert.alert(
           'Does this demolition price include final substrate preparation?',
@@ -21631,7 +21691,7 @@ export default function AIEstimateScopeAssumptionsModal({
       }
 
       if (itemId === 'floor_prep') {
-        const overlap = evaluateFlooringDemoPrepOverlap(measurements);
+        const overlap = evaluateFlooringDemoPrepOverlap(currentMeasurements);
         if (overlap.blockAutoApply) {
           Alert.alert('Possible duplicate scope', overlap.message, [
             { text: 'OK', style: 'cancel' },
@@ -21644,6 +21704,21 @@ export default function AIEstimateScopeAssumptionsModal({
         scheduleApply(block);
         return;
       }
+
+      const needsExplicitDialog =
+        unitMismatch ||
+        Boolean(validation?.requiresExplicitOverride) ||
+        (evidence &&
+          (evidence.priceConfidence === 'low' ||
+            evidence.quantityConfidence === 'low'));
+
+      // Card Apply is already an explicit action — skip a second dialog for
+      // temporary planning allowances that only need an audit trail.
+      if (isTemporary && !needsExplicitDialog) {
+        scheduleApply(block, true);
+        return;
+      }
+
       const detail = isTemporary
         ? 'This is a temporary planning allowance. Detailed takeoff or a current quote is still required before final bidding.'
         : unitMismatch
@@ -22703,45 +22778,49 @@ export default function AIEstimateScopeAssumptionsModal({
   const handleConfirm = () => {
     if (applying || items.length === 0) return;
 
-    commitElectricalAttributes();
     // Do not auto-apply remaining suggestions — Applied pricing is what Continue
     // carries to Step 3. Unpriced scopes stay available to price on review.
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
-    const payload = scopeMeasurementsPayloadForCurrentState();
-    if (__DEV__) {
-      const q = payload.itemQuantities || {};
-      console.log('[scope-pricing] confirm payload', {
-        flooring: q.flooring,
-        material: q.flooring__material,
-        labor: q.flooring__labor,
-        allowance: q.flooring__allowance,
-        appliedTotal: step2AppliedEstimateTotal,
-      });
-    }
-    // Persist display-only cards (flatwork / openings) that were Yes'd in UI.
-    const baseItems = scopeItemsForCurrentMeasurements(
-      displayItems.length ? displayItems : items
-    );
-    const tradeFilteredItems =
-      singleTradePlanImport && singleTradeKey
-        ? filterChecklistItemsForTrade(
-            baseItems,
-            'selected_trade',
-            singleTradeKey
-          )
-        : notesPlumbingFlow
-          ? baseItems.filter(
-              item =>
-                plumbingItemIds.has(item.id) || isCustomScopeChecklistItem(item)
+    onConfirmBegin?.();
+    deferConfirmScopeHeavyWork(() => {
+      commitElectricalAttributes();
+      const payload = scopeMeasurementsPayloadForCurrentState();
+      if (__DEV__) {
+        const q = payload.itemQuantities || {};
+        console.log('[scope-pricing] confirm payload', {
+          flooring: q.flooring,
+          material: q.flooring__material,
+          labor: q.flooring__labor,
+          allowance: q.flooring__allowance,
+          appliedTotal: step2AppliedEstimateTotal,
+        });
+      }
+      // Persist display-only cards (flatwork / openings) that were Yes'd in UI.
+      const baseItems = scopeItemsForCurrentMeasurements(
+        displayItems.length ? displayItems : items
+      );
+      const tradeFilteredItems =
+        singleTradePlanImport && singleTradeKey
+          ? filterChecklistItemsForTrade(
+              baseItems,
+              'selected_trade',
+              singleTradeKey
             )
-          : baseItems;
-    const confirmItems = finalizeWetAreaInstallScopeFromMeasurements(
-      scopeChecklistItemsForPersist(tradeFilteredItems),
-      payload
-    );
-    onConfirm(confirmItems, payload);
+          : notesPlumbingFlow
+            ? baseItems.filter(
+                item =>
+                  plumbingItemIds.has(item.id) ||
+                  isCustomScopeChecklistItem(item)
+              )
+            : baseItems;
+      const confirmItems = finalizeWetAreaInstallScopeFromMeasurements(
+        scopeChecklistItemsForPersist(tradeFilteredItems),
+        payload
+      );
+      onConfirm(confirmItems, payload);
+    });
   };
 
   const handleSaveCustomScopePricing = useCallback(
@@ -22890,7 +22969,7 @@ export default function AIEstimateScopeAssumptionsModal({
         onBack={handleBack}
       />
 
-      <ScrollView
+      <GestureScrollView
         ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={{
@@ -23450,7 +23529,7 @@ export default function AIEstimateScopeAssumptionsModal({
             />
           ) : null}
         </View>
-      </ScrollView>
+      </GestureScrollView>
 
       <View
         style={[
@@ -23479,18 +23558,17 @@ export default function AIEstimateScopeAssumptionsModal({
             </Text>
           </Text>
         ) : null}
-        <TouchableOpacity
+        <ReliableFlowPress
           style={[styles.primaryBtn, applying && styles.primaryBtnDisabled]}
           onPress={handleConfirm}
           disabled={applying}
-          activeOpacity={0.88}
         >
           {applying ? (
             <ActivityIndicator color='#0f172a' />
           ) : (
             <Text style={styles.primaryBtnText}>Continue to review</Text>
           )}
-        </TouchableOpacity>
+        </ReliableFlowPress>
 
         {isElectricalConfirmScope && quickMeasurementsOpen ? (
           <View style={styles.bulkSuggestedPricingLink}>

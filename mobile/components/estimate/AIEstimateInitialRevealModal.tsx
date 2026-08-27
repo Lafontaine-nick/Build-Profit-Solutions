@@ -1,14 +1,16 @@
-import React, { useCallback, useEffect, useMemo, useState, memo, startTransition } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, memo, startTransition } from 'react';
 import {
   Modal,
   View,
   Text,
-  Pressable,
-  ScrollView,
   StyleSheet,
   StatusBar,
   Platform,
 } from 'react-native';
+import {
+  ScrollView as GestureScrollView,
+  TouchableOpacity as GestureTouchableOpacity,
+} from 'react-native-gesture-handler';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
@@ -23,14 +25,18 @@ import { scopePackagePricedAmount } from '@/utils/estimateDraftReviewUi';
 import {
   countInitialRevealAttentionItems,
   draftNeedsScopeConfirmation,
+  getInitialRevealConfirmItems,
   getInitialRevealDisplayTitle,
   getInitialRevealHeroDisplay,
+  getInitialRevealPlanningDisclaimer,
   getInitialRevealPrimaryCtaLabel,
-  getInitialRevealPriorityItems,
+  getInitialRevealScopeMetaLabel,
   getInitialRevealStatusLabel,
   getInitialRevealTagline,
   getInitialRevealTotals,
   getInitialRevealUnderstoodBullets,
+  shouldDefaultExpandInitialRevealScope,
+  shouldShowInitialRevealWhatWeFound,
 } from '@/utils/estimateInitialRevealUi';
 import { estimateFlowCardStyle, estimateFlowDividerColor, aiFlowCardBackground } from '@/utils/estimateFlowCardStyle';
 import { BRAND_FRAME_GRADIENT_END, BRAND_FRAME_GRADIENT_START } from '@/constants/brandFrameGradient';
@@ -68,6 +74,52 @@ function fireHaptic(style: Haptics.ImpactFeedbackStyle) {
   void Haptics.impactAsync(style).catch(() => {});
 }
 
+function ReliablePress({
+  onPress,
+  disabled,
+  children,
+  style,
+  accessibilityLabel,
+  accessibilityRole = 'button',
+  accessibilityState,
+}: {
+  onPress: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+  style?: object | object[];
+  accessibilityLabel?: string;
+  accessibilityRole?: 'button' | 'link';
+  accessibilityState?: { expanded?: boolean };
+}) {
+  const onPressRef = useRef(onPress);
+  onPressRef.current = onPress;
+  const lockRef = useRef(false);
+
+  const fire = () => {
+    if (disabled || lockRef.current) return;
+    lockRef.current = true;
+    fireHaptic(Haptics.ImpactFeedbackStyle.Light);
+    onPressRef.current();
+    setTimeout(() => {
+      lockRef.current = false;
+    }, 400);
+  };
+
+  return (
+    <GestureTouchableOpacity
+      onPressIn={fire}
+      disabled={disabled}
+      activeOpacity={0.82}
+      accessibilityRole={accessibilityRole}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={accessibilityState}
+      style={style}
+    >
+      {children}
+    </GestureTouchableOpacity>
+  );
+}
+
 function AIEstimateInitialRevealModal({
   visible,
   draft,
@@ -84,6 +136,10 @@ function AIEstimateInitialRevealModal({
   const Colors = useMemo(() => getColors(theme), [theme]);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [confirmListExpanded, setConfirmListExpanded] = useState(false);
+  const [bidDetailsExpanded, setBidDetailsExpanded] = useState(false);
+  const scopeDefaultAppliedRef = useRef(false);
+
+  const PRICING_PREVIEW_COUNT = 3;
 
   const viewModel = useMemo(() => {
     if (!draft) return null;
@@ -91,21 +147,25 @@ function AIEstimateInitialRevealModal({
     const attentionCount = countInitialRevealAttentionItems(draft);
     const totals = getInitialRevealTotals(draft, markupPct);
     const needsScopeConfirmation = draftNeedsScopeConfirmation(draft);
-    const allConfirmItems = getInitialRevealPriorityItems(draft, 50).items;
-    const previewItems = getInitialRevealPriorityItems(draft, 3).items;
+    const confirmBuckets = getInitialRevealConfirmItems(draft);
+    const tagline = getInitialRevealTagline(draft);
+    const understood = getInitialRevealUnderstoodBullets(draft, 2);
 
     return {
       attentionCount,
       status: getInitialRevealStatusLabel(draft, attentionCount),
       totals,
-      understood: getInitialRevealUnderstoodBullets(draft, 2),
-      allConfirmItems,
-      previewItems,
+      understood,
+      confirmBuckets,
+      showWhatWeFound: shouldShowInitialRevealWhatWeFound(understood, tagline),
       displayTitle: getInitialRevealDisplayTitle(draft),
-      tagline: getInitialRevealTagline(draft),
+      tagline,
       needsScopeConfirmation,
       primaryCta: getInitialRevealPrimaryCtaLabel(attentionCount, needsScopeConfirmation),
       hero: getInitialRevealHeroDisplay(totals, needsScopeConfirmation),
+      scopeMetaLabel: getInitialRevealScopeMetaLabel(totals.scopeItemCount),
+      planningDisclaimer: getInitialRevealPlanningDisclaimer(totals, attentionCount),
+      defaultScopeExpanded: shouldDefaultExpandInitialRevealScope(totals.scopeItemCount),
       scopePreview: getScopePackagesForReview(draft).slice(0, 6).map((pkg) => {
         const name = String(pkg.name || pkg.scope || 'Scope item').trim();
         const amount = scopePackagePricedAmount(pkg, draft);
@@ -114,6 +174,15 @@ function AIEstimateInitialRevealModal({
     };
   }, [draft, markupPct]);
 
+  const visiblePricingItems = viewModel
+    ? confirmListExpanded
+      ? viewModel.confirmBuckets.pricingScope
+      : viewModel.confirmBuckets.pricingScope.slice(0, PRICING_PREVIEW_COUNT)
+    : [];
+  const hiddenPricingCount = viewModel
+    ? Math.max(0, viewModel.confirmBuckets.pricingScope.length - visiblePricingItems.length)
+    : 0;
+
   const brandAccent = darkMode ? BRAND_ACCENT : BRAND_ACCENT_LIGHT;
   const flowCardStyle = useMemo(
     () => estimateFlowCardStyle(Colors, darkMode),
@@ -121,21 +190,23 @@ function AIEstimateInitialRevealModal({
   );
   const dividerColor = estimateFlowDividerColor(darkMode);
   const flowCardBg = aiFlowCardBackground(darkMode, Colors.surface2);
-  const hiddenConfirmCount = viewModel
-    ? Math.max(0, viewModel.allConfirmItems.length - viewModel.previewItems.length)
-    : 0;
-  const visibleConfirmItems = viewModel
-    ? confirmListExpanded
-      ? viewModel.allConfirmItems
-      : viewModel.previewItems
-    : [];
 
   useEffect(() => {
     if (visible) {
       setConfirmListExpanded(false);
+      setBidDetailsExpanded(false);
+      scopeDefaultAppliedRef.current = false;
       setDetailsExpanded(false);
     }
   }, [visible]);
+
+  useEffect(() => {
+    if (!visible || !viewModel || scopeDefaultAppliedRef.current) return;
+    scopeDefaultAppliedRef.current = true;
+    if (viewModel.defaultScopeExpanded) {
+      setDetailsExpanded(true);
+    }
+  }, [visible, viewModel]);
 
   const handleBack = useCallback(() => {
     fireHaptic(Haptics.ImpactFeedbackStyle.Light);
@@ -143,7 +214,6 @@ function AIEstimateInitialRevealModal({
   }, [onBack]);
 
   const handlePrimary = useCallback(() => {
-    fireHaptic(Haptics.ImpactFeedbackStyle.Light);
     if (viewModel?.needsScopeConfirmation && onConfirmScope) {
       onConfirmScope();
       return;
@@ -152,12 +222,10 @@ function AIEstimateInitialRevealModal({
   }, [viewModel?.needsScopeConfirmation, onConfirmScope, onOpenDetailedReview]);
 
   const handleDetailed = useCallback(() => {
-    fireHaptic(Haptics.ImpactFeedbackStyle.Light);
     onOpenDetailedReview();
   }, [onOpenDetailedReview]);
 
   const handleExpandConfirm = useCallback(() => {
-    fireHaptic(Haptics.ImpactFeedbackStyle.Light);
     startTransition(() => setConfirmListExpanded(true));
   }, []);
 
@@ -165,8 +233,11 @@ function AIEstimateInitialRevealModal({
     startTransition(() => setConfirmListExpanded(false));
   }, []);
 
+  const handleToggleBidDetails = useCallback(() => {
+    startTransition(() => setBidDetailsExpanded((v) => !v));
+  }, []);
+
   const handleToggleScope = useCallback(() => {
-    fireHaptic(Haptics.ImpactFeedbackStyle.Light);
     startTransition(() => setDetailsExpanded((v) => !v));
   }, []);
 
@@ -194,11 +265,12 @@ function AIEstimateInitialRevealModal({
           onBack={handleBack}
         />
 
-        <ScrollView
+        <GestureScrollView
           style={styles.scroll}
           contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollPaddingBottom }]}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
+          delayContentTouches={false}
         >
           {!viewModel ? (
             <Text style={{ color: Colors.sub, fontSize: 14 }}>No draft to show.</Text>
@@ -220,7 +292,7 @@ function AIEstimateInitialRevealModal({
                     </Text>
                   </View>
                   <Text style={[styles.metaText, { color: Colors.sub }]}>
-                    {viewModel.totals.scopeItemCount} items
+                    {viewModel.scopeMetaLabel}
                   </Text>
                 </View>
 
@@ -245,6 +317,11 @@ function AIEstimateInitialRevealModal({
                   {viewModel.hero.amountText}
                 </Text>
                 <Text style={[styles.heroHint, { color: Colors.sub }]}>{viewModel.hero.hint}</Text>
+                {viewModel.planningDisclaimer ? (
+                  <Text style={[styles.planningDisclaimer, { color: Colors.sub }]}>
+                    {viewModel.planningDisclaimer}
+                  </Text>
+                ) : null}
 
                 {viewModel.hero.hasAmount &&
                 (viewModel.totals.material != null ||
@@ -280,31 +357,16 @@ function AIEstimateInitialRevealModal({
               </LinearGradient>
 
               {!viewModel.needsScopeConfirmation ? (
-                <View style={styles.modeToggleRow}>
-                  <View
-                    style={[
-                      styles.modePill,
-                      {
-                        backgroundColor: darkMode ? 'rgba(0, 166, 255, 0.1)' : 'rgba(0, 166, 255, 0.08)',
-                        borderColor: darkMode ? 'rgba(0, 166, 255, 0.28)' : 'rgba(0, 166, 255, 0.22)',
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.modePillText, { color: brandAccent }]}>Quick review</Text>
-                  </View>
-                  <Pressable
-                    onPress={handleDetailed}
-                    style={({ pressed }) => [
-                      styles.modePill,
-                      { borderColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line },
-                      pressed && styles.pressed,
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel="Open detailed review"
-                  >
-                    <Text style={[styles.modePillText, { color: Colors.sub }]}>Detailed review</Text>
-                  </Pressable>
-                </View>
+                <ReliablePress
+                  onPress={handleDetailed}
+                  style={styles.detailedReviewLink}
+                  accessibilityLabel="Open detailed review"
+                >
+                  <Text style={[styles.detailedReviewLinkText, { color: brandAccent }]}>
+                    Open detailed review
+                  </Text>
+                  <MaterialIcons name="arrow-forward" size={16} color={brandAccent} />
+                </ReliablePress>
               ) : null}
 
               <View
@@ -314,7 +376,7 @@ function AIEstimateInitialRevealModal({
                   { padding: 0, backgroundColor: flowCardBg },
                 ]}
               >
-                {viewModel.understood.length > 0 ? (
+                {viewModel.showWhatWeFound ? (
                   <View style={styles.block}>
                     <Text style={[styles.blockTitle, { color: Colors.text }]}>What we found</Text>
                     {viewModel.understood.map((line) => (
@@ -325,11 +387,11 @@ function AIEstimateInitialRevealModal({
                   </View>
                 ) : null}
 
-                {visibleConfirmItems.length > 0 ? (
+                {visiblePricingItems.length > 0 ? (
                   <View
                     style={[
                       styles.block,
-                      viewModel.understood.length > 0 && styles.blockBorder,
+                      viewModel.showWhatWeFound && styles.blockBorder,
                       { borderTopColor: dividerColor },
                     ]}
                   >
@@ -341,7 +403,7 @@ function AIEstimateInitialRevealModal({
                         </View>
                       ) : null}
                     </View>
-                    {visibleConfirmItems.map((item, index) => (
+                    {visiblePricingItems.map((item, index) => (
                       <View key={`${item}-${index}`} style={styles.checkRow}>
                         <View style={[styles.checkDot, { borderColor: '#fbbf24' }]} />
                         <Text style={[styles.checkText, { color: Colors.text }]} numberOfLines={2}>
@@ -349,30 +411,80 @@ function AIEstimateInitialRevealModal({
                         </Text>
                       </View>
                     ))}
-                    {!confirmListExpanded && hiddenConfirmCount > 0 ? (
-                      <Pressable
+                    {!confirmListExpanded && hiddenPricingCount > 0 ? (
+                      <ReliablePress
                         onPress={handleExpandConfirm}
-                        style={({ pressed }) => [styles.moreLink, pressed && styles.pressed]}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Show ${hiddenConfirmCount} more items`}
-                        hitSlop={8}
+                        style={styles.moreLink}
+                        accessibilityLabel={`Show ${hiddenPricingCount} more pricing items`}
                       >
-                        <Text style={[styles.moreLinkText, { color: brandAccent }]}>+{hiddenConfirmCount} more</Text>
-                      </Pressable>
+                        <Text style={[styles.moreLinkText, { color: brandAccent }]}>
+                          +{hiddenPricingCount} more
+                        </Text>
+                      </ReliablePress>
                     ) : null}
-                    {confirmListExpanded && viewModel.allConfirmItems.length > 3 ? (
-                      <Pressable
+                    {confirmListExpanded &&
+                    viewModel.confirmBuckets.pricingScope.length > PRICING_PREVIEW_COUNT ? (
+                      <ReliablePress
                         onPress={handleCollapseConfirm}
-                        style={({ pressed }) => [styles.moreLink, pressed && styles.pressed]}
-                        accessibilityRole="button"
-                        accessibilityLabel="Show fewer items"
-                        hitSlop={8}
+                        style={styles.moreLink}
+                        accessibilityLabel="Show fewer pricing items"
                       >
                         <Text style={[styles.moreLinkText, { color: Colors.sub, fontWeight: '600' }]}>
                           Show less
                         </Text>
-                      </Pressable>
+                      </ReliablePress>
                     ) : null}
+                  </View>
+                ) : null}
+
+                {viewModel.confirmBuckets.bidDetails.length > 0 ? (
+                  <View
+                    style={[
+                      styles.block,
+                      styles.blockBorder,
+                      { borderTopColor: dividerColor },
+                    ]}
+                  >
+                    <ReliablePress
+                      onPress={handleToggleBidDetails}
+                      style={styles.scopeHeader}
+                      accessibilityLabel="Bid details to confirm"
+                      accessibilityState={{ expanded: bidDetailsExpanded }}
+                    >
+                      <View style={[styles.blockTitleRow, { marginBottom: 0 }]}>
+                        <Text style={[styles.blockTitle, { color: Colors.text }]}>Bid details</Text>
+                        <View
+                          style={[
+                            styles.countPill,
+                            { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' },
+                          ]}
+                        >
+                          <Text style={[styles.countPillText, { color: Colors.sub }]}>
+                            {viewModel.confirmBuckets.bidDetails.length}
+                          </Text>
+                        </View>
+                      </View>
+                      <MaterialIcons
+                        name={bidDetailsExpanded ? 'expand-less' : 'expand-more'}
+                        size={22}
+                        color={Colors.sub}
+                      />
+                    </ReliablePress>
+                    {bidDetailsExpanded
+                      ? viewModel.confirmBuckets.bidDetails.map((item, index) => (
+                          <View key={`bid-${item}-${index}`} style={styles.checkRow}>
+                            <View
+                              style={[
+                                styles.checkDot,
+                                { borderColor: darkMode ? 'rgba(255,255,255,0.28)' : Colors.line },
+                              ]}
+                            />
+                            <Text style={[styles.checkText, { color: Colors.sub }]} numberOfLines={2}>
+                              {item}
+                            </Text>
+                          </View>
+                        ))
+                      : null}
                   </View>
                 ) : null}
 
@@ -384,12 +496,11 @@ function AIEstimateInitialRevealModal({
                       { borderTopColor: dividerColor },
                     ]}
                   >
-                    <Pressable
+                    <ReliablePress
                       onPress={handleToggleScope}
-                      style={({ pressed }) => [styles.scopeHeader, pressed && styles.pressed]}
-                      accessibilityRole="button"
+                      style={styles.scopeHeader}
+                      accessibilityLabel="Scope items"
                       accessibilityState={{ expanded: detailsExpanded }}
-                      hitSlop={4}
                     >
                       <Text style={[styles.blockTitle, { color: Colors.text }]}>
                         Scope · {viewModel.totals.scopeItemCount || viewModel.scopePreview.length} items
@@ -399,16 +510,28 @@ function AIEstimateInitialRevealModal({
                         size={22}
                         color={Colors.sub}
                       />
-                    </Pressable>
+                    </ReliablePress>
                     {detailsExpanded
                       ? viewModel.scopePreview.map(({ name, amount }) => (
                           <View key={name} style={styles.scopeRow}>
                             <Text style={[styles.scopeName, { color: Colors.text }]} numberOfLines={1}>
                               {name}
                             </Text>
-                            <Text style={[styles.scopeAmount, { color: amount > 0 ? brandAccent : Colors.sub }]}>
-                              {amount > 0 ? formatDraftMoney(amount) : '—'}
-                            </Text>
+                            <View style={styles.scopeAmountWrap}>
+                              {amount <= 0 ? (
+                                <View style={styles.needsPricePill}>
+                                  <Text style={styles.needsPricePillText}>Needs price</Text>
+                                </View>
+                              ) : null}
+                              <Text
+                                style={[
+                                  styles.scopeAmount,
+                                  { color: amount > 0 ? brandAccent : Colors.sub },
+                                ]}
+                              >
+                                {amount > 0 ? formatDraftMoney(amount) : '—'}
+                              </Text>
+                            </View>
                           </View>
                         ))
                       : null}
@@ -417,7 +540,7 @@ function AIEstimateInitialRevealModal({
               </View>
             </>
           )}
-        </ScrollView>
+        </GestureScrollView>
 
         <View
           style={[
@@ -429,15 +552,14 @@ function AIEstimateInitialRevealModal({
             },
           ]}
         >
-          <Pressable
+          <ReliablePress
             disabled={!draft}
             onPress={handlePrimary}
-            style={({ pressed }) => [
+            style={[
               styles.primaryBtn,
-              {
-                opacity: draft ? (pressed ? 0.88 : 1) : 0.55,
-              },
+              { opacity: draft ? 1 : 0.55 },
             ]}
+            accessibilityLabel={viewModel?.primaryCta ?? 'Continue'}
           >
             <Text style={styles.primaryBtnText}>{viewModel?.primaryCta ?? 'Continue'}</Text>
             <MaterialIcons
@@ -445,16 +567,16 @@ function AIEstimateInitialRevealModal({
               size={22}
               color="#0f172a"
             />
-          </Pressable>
+          </ReliablePress>
 
           <View style={styles.secondaryRow}>
-            <Pressable onPress={onRegenerate} style={({ pressed }) => pressed && styles.pressed} hitSlop={8}>
+            <ReliablePress onPress={onRegenerate} style={styles.secondaryPress} accessibilityLabel="Edit notes">
               <Text style={[styles.secondaryText, { color: Colors.sub }]}>Edit notes</Text>
-            </Pressable>
+            </ReliablePress>
             <Text style={[styles.secondaryDot, { color: Colors.sub }]}>·</Text>
-            <Pressable onPress={onClose} style={({ pressed }) => pressed && styles.pressed} hitSlop={8}>
+            <ReliablePress onPress={onClose} style={styles.secondaryPress} accessibilityLabel="Close">
               <Text style={[styles.secondaryText, { color: Colors.sub }]}>Close</Text>
-            </Pressable>
+            </ReliablePress>
           </View>
         </View>
       </View>
@@ -551,6 +673,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 4,
   },
+  planningDisclaimer: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 6,
+    lineHeight: 17,
+    opacity: 0.88,
+  },
   statsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -574,21 +703,17 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
   },
-  modeToggleRow: {
+  detailedReviewLink: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
     marginBottom: 14,
     marginHorizontal: -8,
+    paddingVertical: 4,
   },
-  modePill: {
-    flex: 1,
-    borderRadius: 999,
-    paddingVertical: 9,
-    alignItems: 'center',
-    borderWidth: 1,
-  },
-  modePillText: {
-    fontSize: 13,
+  detailedReviewLinkText: {
+    fontSize: 14,
     fontWeight: '700',
   },
   contentCard: {
@@ -676,6 +801,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  scopeAmountWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
+  },
+  needsPricePill: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(251, 191, 36, 0.14)',
+  },
+  needsPricePillText: {
+    color: '#fbbf24',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
   scopeAmount: {
     fontSize: 14,
     fontWeight: '800',
@@ -707,6 +850,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
+  },
+  secondaryPress: {
+    paddingVertical: 6,
+    paddingHorizontal: 4,
   },
   secondaryText: {
     fontSize: 14,

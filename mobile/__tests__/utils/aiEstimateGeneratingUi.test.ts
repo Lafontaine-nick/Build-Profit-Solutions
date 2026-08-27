@@ -1,6 +1,7 @@
 import {
   AI_GENERATE_PHASE_LABELS,
   buildAiGenerateSteps,
+  buildPlanImportSteps,
   aiGeneratePhaseIndex,
   aiGeneratePhaseLabel,
 } from '@/utils/aiEstimateGeneratingUi';
@@ -24,6 +25,15 @@ describe('aiEstimateGeneratingUi', () => {
       'applying_plan',
       'finalizing',
     ]);
+  });
+
+  it('builds plan import takeoff steps', () => {
+    expect(buildPlanImportSteps()).toEqual([
+      'reading_plan',
+      'building_scope',
+      'finalizing',
+    ]);
+    expect(aiGeneratePhaseLabel('reading_plan')).toBe('Reading plan…');
   });
 
   it('resolves phase labels and indexes', () => {

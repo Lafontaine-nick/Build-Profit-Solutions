@@ -251,7 +251,8 @@ export function resolveQuickMeasurementFields(params: {
     const displayValue = resolveQuickMeasurementDisplayValue(
       field.key,
       params.measurements,
-      noteValues
+      noteValues,
+      params.userOverrides
     );
     const filled = hasQuickMeasurementValue(displayValue);
     const typed = String(params.measurements[field.key] ?? '').trim() !== '';

@@ -30,6 +30,7 @@ import {
 } from '@/utils/planImportRunner';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import { aiFlowCardBackground } from '@/utils/estimateFlowCardStyle';
+import type { AiGeneratePhaseId } from '@/utils/aiEstimateGeneratingUi';
 import {
   applyHvacProvenanceGuardToScopeMeasurements,
   hasDocumentedHvacVentilationCount,
@@ -519,6 +520,8 @@ type Props = {
   onApplied: (result: PlanImportApplyResult) => void;
   /** Tighter layout inside Build with AI accordion (no duplicate headers). */
   embedded?: boolean;
+  onImportingChange?: (importing: boolean) => void;
+  onImportPhaseChange?: (phase: AiGeneratePhaseId | null) => void;
 };
 
 export default function EstimatePlanImportStrip({
@@ -538,8 +541,18 @@ export default function EstimatePlanImportStrip({
   onPlumbingPerformerModeChange,
   onApplied,
   embedded = false,
+  onImportingChange,
+  onImportPhaseChange,
 }: Props) {
   const [importing, setImporting] = useState(false);
+  const updateImporting = useCallback(
+    (next: boolean) => {
+      setImporting(next);
+      onImportingChange?.(next);
+      if (!next) onImportPhaseChange?.(null);
+    },
+    [onImportingChange, onImportPhaseChange]
+  );
   const previousPlanImportRef = useRef<PlanRepeatSnapshot | null>(null);
   const [planReview, setPlanReview] = useState<PlanReviewState | null>(null);
   const [showImportChooser, setShowImportChooser] = useState(false);
@@ -599,7 +612,8 @@ export default function EstimatePlanImportStrip({
       pages: Array<{ base64: string; mimeType: string; name?: string }>
     ) => {
       if (!pages.length || disabled) return;
-      setImporting(true);
+      updateImporting(true);
+      onImportPhaseChange?.('reading_plan');
       try {
         const takeoff = await runPlanTakeoff(pages, {
           existingNotes,
@@ -609,6 +623,7 @@ export default function EstimatePlanImportStrip({
           selectedTradeKey: selectedTrade,
         });
         if (!takeoff) return;
+        onImportPhaseChange?.('building_scope');
         const hydrated = hydratePaintingPlanMeasurements({
           ...takeoff,
           estimatingMode,
@@ -798,6 +813,7 @@ export default function EstimatePlanImportStrip({
             };
           }
         }
+        onImportPhaseChange?.('finalizing');
         setPlanReview({
           ...stamped,
           planImportFingerprint: fingerprint,
@@ -816,7 +832,7 @@ export default function EstimatePlanImportStrip({
           e instanceof Error ? e.message : 'Try again with a clearer image.'
         );
       } finally {
-        setImporting(false);
+        updateImporting(false);
       }
     },
     [
@@ -826,6 +842,8 @@ export default function EstimatePlanImportStrip({
       projectTypeHint,
       estimatingMode,
       selectedTrade,
+      updateImporting,
+      onImportPhaseChange,
     ]
   );
 

@@ -7,10 +7,12 @@ import {
   Platform,
   StyleSheet,
   StatusBar,
-  ScrollView,
   ActivityIndicator,
   Switch,
 } from 'react-native';
+import {
+  ScrollView as GestureScrollView,
+} from 'react-native-gesture-handler';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,7 +32,6 @@ import AIEstimateDraftReviewPricingActions from '@/components/estimate/AIEstimat
 import AIEstimateDraftReviewCompact from '@/components/estimate/AIEstimateDraftReviewCompact';
 import AIEstimateDraftReviewDetails from '@/components/estimate/AIEstimateDraftReviewDetails';
 import AIEstimateClarifyQuestionsCard from '@/components/estimate/AIEstimateClarifyQuestionsCard';
-import AIEstimateRefineCommandBar from '@/components/estimate/AIEstimateRefineCommandBar';
 import type { ClarifyAnswer, ClarifyQuestionItem } from '@/utils/estimateAiDraft';
 import {
   dedupeDraftWarnings,
@@ -38,6 +39,11 @@ import {
   isScopeOnlyDraft,
 } from '@/utils/estimateDraftReviewUi';
 import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
+import ReliableFlowPress from '@/components/estimate/ReliableFlowPress';
+import {
+  computeStep3ReviewTotals,
+  formatStep3ReviewFooterTotal,
+} from '@/utils/estimateDraftReviewStep3Ui';
 
 type Props = {
   visible: boolean;
@@ -177,6 +183,11 @@ export default function AIEstimateDraftReviewModal({
     draftHasUnpricedScope(draft) ||
     (showUseSavedPricing && !draft?.savedPricingApplySummary);
   const scopeHasPricing = draftHasApplyablePricing(draft);
+  const step3Totals = useMemo(
+    () => (draft ? computeStep3ReviewTotals(draft, markupPct) : null),
+    [draft, markupPct]
+  );
+  const footerTotalLabel = step3Totals ? formatStep3ReviewFooterTotal(step3Totals) : null;
   const warnings = draft ? dedupeDraftWarnings(draft) : [];
   const needsReview = draft?.needsReviewItems?.length
     ? draft.needsReviewItems
@@ -187,8 +198,11 @@ export default function AIEstimateDraftReviewModal({
     : footerExpanded
       ? 280 + insets.bottom
       : onToggleSaveToPricingLibrary
-        ? 132 + insets.bottom
+        ? 120 + insets.bottom
         : 88 + insets.bottom;
+  const showFooterTotal =
+    Boolean(footerTotalLabel) &&
+    !(step3Totals?.heroAmount != null && step3Totals.heroAmount > 0);
   const clarifyCard =
     onSubmitClarifyAnswers &&
     onDismissClarify &&
@@ -205,21 +219,9 @@ export default function AIEstimateDraftReviewModal({
         onDismissApplied={onDismissClarifyApplied}
       />
     ) : null;
-  const refineBar = onSubmitRefineCommand ? (
-    <AIEstimateRefineCommandBar
-      Colors={Colors}
-      darkMode={darkMode}
-      busy={busy && !refining}
-      refining={refining}
-      appliedSummary={refineAppliedSummary}
-      lastCommand={refineLastCommand}
-      showPricingNudge={Boolean(
-        clarifyAppliedSummary?.some((line) => /\b(LF|sqft|CY|squares|tons|each)\b/i.test(line))
-      )}
-      onSubmitCommand={onSubmitRefineCommand}
-      onDismissSummary={onDismissRefineSummary}
-    />
-  ) : null;
+  const refinePricingNudge = Boolean(
+    clarifyAppliedSummary?.some((line) => /\b(LF|sqft|CY|squares|tons|each)\b/i.test(line))
+  );
   if (!visible) return null;
 
   const body = (
@@ -231,7 +233,7 @@ export default function AIEstimateDraftReviewModal({
             ? draft?.scopeAssumptionsConfirmed && isComplexEstimateTier(draft)
               ? 'Scope confirmed — review suggested pricing'
               : 'Scope found — add pricing or save draft'
-            : 'Confirm scope and pricing before applying'
+            : 'Final check before applying to your bid'
         }
         step={aiFlowStepTotal(draft)}
         stepTotal={aiFlowStepTotal(draft)}
@@ -241,12 +243,13 @@ export default function AIEstimateDraftReviewModal({
         onBack={handleBack}
       />
 
-      <ScrollView
+      <GestureScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, paddingBottom: footerScrollPadding }}
+        keyboardShouldPersistTaps="always"
+        delayContentTouches={false}
+        showsVerticalScrollIndicator={false}
       >
-        {draft ? clarifyCard : null}
-        {draft ? refineBar : null}
         {!draft ? (
           <Text style={{ color: Colors.sub, fontSize: 14 }}>No draft to review.</Text>
         ) : scopeOnly ? (
@@ -307,33 +310,25 @@ export default function AIEstimateDraftReviewModal({
               darkMode={darkMode}
               busy={busy}
               confStyle={confStyle}
-              onRegenerate={onRegenerate}
               onPriceScopeItem={onPriceScopeItem}
               onUpdateScopeBudgetSplit={onUpdateScopeBudgetSplit}
               onRemoveScopeItem={onRemoveScopeItem}
               markupPct={markupPct}
-              showDetailsContent={
-                <AIEstimateDraftReviewDetails
-                  draft={draft}
-                  Colors={Colors}
-                  darkMode={darkMode}
-                  busy={busy}
-                  warnings={warnings}
-                  needsReview={needsReview}
-                  clarifyQuestions={clarifyCard ? null : clarifyQuestions}
-                  onApplyScopeOnly={onApplyScopeOnly}
-                  onClarifyMissing={onClarifyMissing}
-                  onRequestRoughRange={onRequestRoughRange}
-                  roughRangeLoading={roughRangeLoading}
-                  markupPct={markupPct}
-                  onUpdateProjectComplexity={onUpdateProjectComplexity}
-                />
-              }
+              onSubmitRefineCommand={onSubmitRefineCommand}
+              refining={refining}
+              refineAppliedSummary={refineAppliedSummary}
+              refineLastCommand={refineLastCommand}
+              onDismissRefineSummary={onDismissRefineSummary}
+              showRefinePricingNudge={refinePricingNudge}
             />
+            {step3Totals &&
+            (step3Totals.missingPriceCount > 0 || step3Totals.partialCount > 0)
+              ? clarifyCard
+              : null}
           </>
         )}
 
-      </ScrollView>
+      </GestureScrollView>
 
       <View
         style={{
@@ -346,6 +341,18 @@ export default function AIEstimateDraftReviewModal({
           gap: 10,
         }}
       >
+        {!scopeOnly && showFooterTotal ? (
+          <Text
+            style={{
+              color: Colors.sub,
+              fontSize: 12,
+              fontWeight: '600',
+              textAlign: 'center',
+            }}
+          >
+            Estimated bid {footerTotalLabel}
+          </Text>
+        ) : null}
         {!scopeOnly ? (
           footerExpanded ? (
             <TouchableOpacity
@@ -376,7 +383,7 @@ export default function AIEstimateDraftReviewModal({
           )
         ) : null}
 
-        {!scopeOnly && onToggleSaveToPricingLibrary ? (
+        {footerExpanded && !scopeOnly && onToggleSaveToPricingLibrary ? (
           <View
             style={{
               flexDirection: 'row',
@@ -421,11 +428,11 @@ export default function AIEstimateDraftReviewModal({
         {!scopeOnly || scopeHasPricing ? <AIEstimateDisclaimer variant="compact" /> : null}
 
         {scopeOnly && scopeHasPricing ? (
-          <TouchableOpacity
-            activeOpacity={0.88}
+          <ReliableFlowPress
             disabled={!draft || busy}
             onPress={onApply}
             style={[styles.primaryBtn, (!draft || busy) && styles.primaryBtnDisabled]}
+            accessibilityLabel="Apply to Estimate"
           >
             {applying ? (
               <ActivityIndicator color="#0f172a" />
@@ -435,13 +442,13 @@ export default function AIEstimateDraftReviewModal({
                 <Text style={styles.primaryBtnText}>Apply to Estimate</Text>
               </>
             )}
-          </TouchableOpacity>
+          </ReliableFlowPress>
         ) : scopeOnly && onApplyScopeOnly ? (
-          <TouchableOpacity
-            activeOpacity={0.88}
+          <ReliableFlowPress
             disabled={!draft || busy}
             onPress={onApplyScopeOnly}
             style={[styles.primaryBtn, (!draft || busy) && styles.primaryBtnDisabled]}
+            accessibilityLabel="Save Scope Draft"
           >
             {applying ? (
               <ActivityIndicator color="#0f172a" />
@@ -451,13 +458,13 @@ export default function AIEstimateDraftReviewModal({
                 <Text style={styles.primaryBtnText}>Save Scope Draft</Text>
               </>
             )}
-          </TouchableOpacity>
+          </ReliableFlowPress>
         ) : onApplyConfirmedOnly ? (
-          <TouchableOpacity
-            activeOpacity={0.88}
+          <ReliableFlowPress
             disabled={!draft || busy}
             onPress={onApplyConfirmedOnly}
             style={[styles.primaryBtn, (!draft || busy) && styles.primaryBtnDisabled]}
+            accessibilityLabel="Apply Confirmed Only"
           >
             {applying ? (
               <ActivityIndicator color="#0f172a" />
@@ -467,13 +474,13 @@ export default function AIEstimateDraftReviewModal({
                 <Text style={styles.primaryBtnText}>Apply Confirmed Only</Text>
               </>
             )}
-          </TouchableOpacity>
+          </ReliableFlowPress>
         ) : (
-          <TouchableOpacity
-            activeOpacity={0.88}
+          <ReliableFlowPress
             disabled={!draft || busy}
             onPress={onApply}
             style={[styles.primaryBtn, (!draft || busy) && styles.primaryBtnDisabled]}
+            accessibilityLabel="Apply to Estimate"
           >
             {applying ? (
               <ActivityIndicator color="#0f172a" />
@@ -483,7 +490,7 @@ export default function AIEstimateDraftReviewModal({
                 <Text style={styles.primaryBtnText}>Apply to Estimate</Text>
               </>
             )}
-          </TouchableOpacity>
+          </ReliableFlowPress>
         )}
 
         {footerExpanded && onApplyWithApproved ? (

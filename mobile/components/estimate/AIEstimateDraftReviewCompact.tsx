@@ -22,23 +22,28 @@ import {
   dedupeMissingPriceSuggestions,
   formatScopeQuantity,
   getCompactProjectSummary,
-  getUniformStatusLabel,
-  pendingProposalCalculatedTotal,
   resolveScopePackageBudgetBreakdown,
   type ScopePackageBudgetBreakdown,
   scopePackageNeedsManualPrice,
   scopePackagePricingHint,
   scopePackagePricedAmount,
-  sumLiveScopePackageTotals,
   SCOPE_LIST_DEFAULT_LIMIT,
   shouldHidePerRowStatus,
 } from '@/utils/estimateDraftReviewUi';
-import { sumStep3ReviewBudgetTotals } from '@/utils/benchmarkReasonablenessContext';
-import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import type { EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
 import { estimateFlowCardStyle, estimateFlowDividerColor } from '@/utils/estimateFlowCardStyle';
+import {
+  computeStep3ReviewTotals,
+  getStep3ReviewPlanningDisclaimer,
+  getStep3ReviewScopeMetaLabel,
+  getStep3ReviewStatusBadge,
+  shouldDefaultShowAllStep3ScopeItems,
+} from '@/utils/estimateDraftReviewStep3Ui';
+import { getInitialRevealDisplayTitle } from '@/utils/estimateInitialRevealUi';
+import ReliableFlowPress from '@/components/estimate/ReliableFlowPress';
 import ScopeBudgetBreakdownPanel from '@/components/estimate/ScopeBudgetBreakdownPanel';
+import AIEstimateRefineCommandBar from '@/components/estimate/AIEstimateRefineCommandBar';
 
 type Colors = {
   text: string;
@@ -64,13 +69,25 @@ type Props = {
   ) => void;
   onRemoveScopeItem?: (packageName: string) => void;
   markupPct?: number;
-  onRegenerate: () => void;
-  showDetailsContent: React.ReactNode;
+  onSubmitRefineCommand?: (command: string) => void;
+  refining?: boolean;
+  refineAppliedSummary?: string[] | null;
+  refineLastCommand?: string | null;
+  onDismissRefineSummary?: () => void;
+  showRefinePricingNudge?: boolean;
 };
 
-const flowCard = (Colors: Colors, darkMode: boolean) =>
-  estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 });
+const flowCard = (Colors: Colors, darkMode: boolean) => ({
+  ...estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 }),
+  marginHorizontal: -8,
+});
 const flowDivider = (darkMode: boolean) => estimateFlowDividerColor(darkMode);
+
+const STEP3_STATUS_COLORS = {
+  ready: { bg: 'rgba(34, 197, 94, 0.14)', color: '#4ade80' },
+  review: { bg: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24' },
+  partial: { bg: 'rgba(45, 255, 196, 0.1)', color: '#2DFFC4' },
+};
 
 function formatUnitLabel(unit: string | null | undefined) {
   const normalized = String(unit || '').toLowerCase();
@@ -86,6 +103,44 @@ function parseMoneyInput(text: string) {
 
 function roundedMoney(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function HeroStatChip({
+  label,
+  value,
+  Colors,
+  darkMode,
+}: {
+  label: string;
+  value: string;
+  Colors: Colors;
+  darkMode: boolean;
+}) {
+  return (
+    <View
+      style={{
+        borderRadius: 12,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        minWidth: 96,
+        backgroundColor: darkMode ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.7)',
+      }}
+    >
+      <Text
+        style={{
+          color: Colors.sub,
+          fontSize: 11,
+          fontWeight: '700',
+          textTransform: 'uppercase',
+          letterSpacing: 0.4,
+          marginBottom: 2,
+        }}
+      >
+        {label}
+      </Text>
+      <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>{value}</Text>
+    </View>
+  );
 }
 
 function PriceRow({
@@ -393,17 +448,25 @@ export default function AIEstimateDraftReviewCompact({
   onUpdateScopeBudgetSplit,
   onRemoveScopeItem,
   markupPct = 0,
-  onRegenerate,
-  showDetailsContent,
+  onSubmitRefineCommand,
+  refining = false,
+  refineAppliedSummary,
+  refineLastCommand,
+  onDismissRefineSummary,
+  showRefinePricingNudge = false,
 }: Props) {
-  const [showDetails, setShowDetails] = useState(false);
-  const [showAllScope, setShowAllScope] = useState(
-    () => Boolean(draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length)
-  );
+  const [showRoughSuggestions, setShowRoughSuggestions] = useState(false);
+  const [showAllScope, setShowAllScope] = useState(() => {
+    const count = getScopePackagesForReview(draft).length;
+    return (
+      Boolean(draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length) ||
+      shouldDefaultShowAllStep3ScopeItems(count)
+    );
+  });
   const [editingPricingFor, setEditingPricingFor] = useState<string | null>(null);
   const [expandedBudgetSplits, setExpandedBudgetSplits] = useState<Record<string, true>>({});
   const scopePackages = getScopePackagesForReview(draft);
-  const appliedScopeBreakdown = useMemo(() => sumStep3ReviewBudgetTotals(draft), [draft]);
+  const step3Totals = useMemo(() => computeStep3ReviewTotals(draft, markupPct), [draft, markupPct]);
   if (__DEV__) {
     const q = draft.scopeMeasurements?.itemQuantities || {};
     const pkg = scopePackages.find((p) => /flooring|lvp/i.test(`${p.name || ''} ${p.scope || ''}`));
@@ -422,24 +485,22 @@ export default function AIEstimateDraftReviewCompact({
       });
     }
   }
-  const hasPricing = draftHasApplyablePricing(draft);
-  const statedTotal = draft.statedTotal ?? draft.totalValidation?.statedTotal;
-  const pendingTotal = pendingProposalCalculatedTotal(draft);
-  const liveScopeTotal = sumLiveScopePackageTotals(draft);
-  // Match Confirm Scope "Applied pricing" after scope confirmation.
-  const calculatedTotal =
-    appliedScopeBreakdown && appliedScopeBreakdown.total > 0
-      ? appliedScopeBreakdown.total
-      : liveScopeTotal > 0
-        ? liveScopeTotal
-        : draft.calculatedLineItemTotal ??
-          draft.calculatedTotal ??
-          draft.totalValidation?.calculatedLineItemsTotal ??
-          (pendingTotal > 0 ? pendingTotal : null);
-  const partialCount = scopePackages.filter((p) => p.status === 'partial_pricing').length;
-  const missingPriceCount = scopePackages.filter((p) => scopePackageNeedsManualPrice(p, draft)).length;
-  const hideRowStatus = shouldHidePerRowStatus(scopePackages);
-  const uniformStatusLabel = getUniformStatusLabel(scopePackages);
+  const {
+    heroAmount,
+    heroLabel,
+    material: materialTotal,
+    labor: laborTotal,
+    allowance: allowanceTotal,
+    calculatedTotal,
+    estimatedBidWithMarkup,
+    statedTotal,
+    scopeItemCount,
+  } = step3Totals;
+  const statusBadge = getStep3ReviewStatusBadge(step3Totals);
+  const statusStyle = STEP3_STATUS_COLORS[statusBadge.tone];
+  const planningDisclaimer = getStep3ReviewPlanningDisclaimer(step3Totals);
+  const displayTitle = getInitialRevealDisplayTitle(draft);
+  const normalizedMarkupPct = Math.max(0, Number(markupPct) || 0);
   const visibleScope = showAllScope
     ? scopePackages
     : scopePackages.slice(0, SCOPE_LIST_DEFAULT_LIMIT);
@@ -449,75 +510,15 @@ export default function AIEstimateDraftReviewCompact({
     6
   );
   const hasRoughOnScope = scopePackages.some((p) => p.status === 'rough_price');
-  const scopeBudgetTotals = appliedScopeBreakdown
-    ? {
-        material: appliedScopeBreakdown.material,
-        labor: appliedScopeBreakdown.labor,
-        allowance: appliedScopeBreakdown.allowance,
-        coveredTotal: appliedScopeBreakdown.total,
-      }
-    : scopePackages.reduce(
-    (sum, pkg) => {
-      const isSoftCost = isSoftCostScopePackage(pkg, draft);
-      const breakdown = isSoftCost ? null : resolveScopePackageBudgetBreakdown(pkg, draft);
-      const numericAmount = scopePackagePricedAmount(pkg, draft);
-      if (numericAmount <= 0) return sum;
-      // Soft costs only in Allowances. Unsplit trades count as Labor (same as apply-to-bid).
-      if (isSoftCost || !breakdown) {
-        return isSoftCost
-          ? { ...sum, allowance: sum.allowance + numericAmount }
-          : { ...sum, labor: sum.labor + numericAmount };
-      }
-      const material = Math.min(breakdown.material, numericAmount);
-      const labor = Math.min(breakdown.labor, Math.max(0, numericAmount - material));
-      const allowance = Math.max(0, numericAmount - material - labor);
-      return {
-        material: sum.material + material,
-        labor: sum.labor + labor,
-        allowance: sum.allowance + allowance,
-        coveredTotal: sum.coveredTotal + numericAmount,
-      };
-    },
-    { material: 0, labor: 0, allowance: 0, coveredTotal: 0 }
-  );
-  // Only use live scope buckets — never mix in stale draft.calculatedMaterialTotal
-  // (that double-counted against unsplit packages already rolled into Labor).
-  const materialTotal =
-    scopeBudgetTotals.material > 0 ? roundedMoney(scopeBudgetTotals.material) : null;
-  const laborTotal = scopeBudgetTotals.labor > 0 ? roundedMoney(scopeBudgetTotals.labor) : null;
-  const allowanceTotal =
-    scopeBudgetTotals.allowance > 0 ? roundedMoney(scopeBudgetTotals.allowance) : null;
-  const directSubtotal =
-    calculatedTotal != null && calculatedTotal > 0
-      ? calculatedTotal
-      : materialTotal != null || laborTotal != null || allowanceTotal != null
-        ? roundedMoney((materialTotal || 0) + (laborTotal || 0) + (allowanceTotal || 0))
-        : null;
-  const normalizedMarkupPct = Math.max(0, Number(markupPct) || 0);
-  const estimatedBidWithMarkup =
-    directSubtotal != null && directSubtotal > 0 && normalizedMarkupPct > 0
-      ? roundedMoney(directSubtotal * (1 + normalizedMarkupPct / 100))
-      : null;
+  const hideRowStatus = shouldHidePerRowStatus(scopePackages);
+  const showHeroStats =
+    heroAmount != null &&
+    (materialTotal != null || laborTotal != null || allowanceTotal != null);
   const showTotalsCard =
-    (calculatedTotal != null && calculatedTotal > 0) ||
-    allowanceTotal != null ||
-    statedTotal != null;
-
-  const heroTotal =
-    statedTotal != null && statedTotal > 0
-      ? statedTotal
-      : calculatedTotal != null && calculatedTotal > 0
-        ? calculatedTotal
-        : null;
-  const heroTotalLabel =
-    statedTotal != null && statedTotal > 0 ? 'Bid total in notes' : 'Calculated total';
-  const statusLine = uniformStatusLabel
-    ? uniformStatusLabel
-    : partialCount > 0
-      ? `${partialCount} item${partialCount === 1 ? '' : 's'} need more pricing`
-      : missingPriceCount > 0
-        ? `${missingPriceCount} item${missingPriceCount === 1 ? '' : 's'} still need a price`
-        : null;
+    !showHeroStats &&
+    ((calculatedTotal != null && calculatedTotal > 0) ||
+      allowanceTotal != null ||
+      (statedTotal != null && statedTotal > 0));
 
   const confirmRemoveScopeItem = (packageName: string) => {
     Alert.alert(
@@ -602,53 +603,117 @@ export default function AIEstimateDraftReviewCompact({
   return (
     <>
       <View style={flowCard(Colors, darkMode)}>
-        <View style={{ marginBottom: 4 }}>
-          <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600' }} numberOfLines={1}>
-            {getCompactProjectSummary(draft)}
-            {scopePackages.length > 0 ? ` · ${scopePackages.length} items` : ''}
-          </Text>
-          {heroTotal != null ? (
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
-              <Text style={{ color: '#22c55e', fontSize: 26, fontWeight: '700', letterSpacing: -0.4 }}>
-                {formatDraftMoney(heroTotal)}
+        <View style={{ marginBottom: 4, position: 'relative' }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 8,
+              paddingRight: onSubmitRefineCommand ? 52 : 0,
+            }}
+          >
+            <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
+              <Text style={[styles.statusBadgeText, { color: statusStyle.color }]}>
+                {statusBadge.label}
               </Text>
-              {draft.totalMatches === true ? (
-                <MaterialIcons name="check-circle" size={16} color="#22c55e" />
-              ) : null}
             </View>
-          ) : null}
-          {heroTotal != null ? (
-            <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>{heroTotalLabel}</Text>
+            {scopeItemCount > 0 ? (
+              <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600' }}>
+                {getStep3ReviewScopeMetaLabel(scopeItemCount)}
+              </Text>
+            ) : null}
+          </View>
+
+          <Text
+            style={{ color: Colors.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.3 }}
+            numberOfLines={2}
+          >
+            {displayTitle}
+          </Text>
+          {getCompactProjectSummary(draft) !== displayTitle ? (
+            <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4 }} numberOfLines={2}>
+              {getCompactProjectSummary(draft)}
+            </Text>
           ) : null}
           {draft.projectAddress ? (
             <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4 }} numberOfLines={1}>
               {draft.projectAddress}
             </Text>
           ) : null}
-          {draft.estimateConfidence ? (
+
+          {heroAmount != null ? (
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 12 }}>
+              <Text style={{ color: '#22c55e', fontSize: 36, fontWeight: '900', letterSpacing: -0.8 }}>
+                {formatDraftMoney(heroAmount)}
+              </Text>
+              {draft.totalMatches === true ? (
+                <MaterialIcons name="check-circle" size={18} color="#22c55e" />
+              ) : null}
+            </View>
+          ) : null}
+          {heroAmount != null ? (
+            <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginTop: 4 }}>
+              {heroLabel}
+            </Text>
+          ) : null}
+          {planningDisclaimer ? (
+            <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 6, lineHeight: 17 }}>
+              {planningDisclaimer}
+            </Text>
+          ) : null}
+
+          {showHeroStats ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
+              {materialTotal != null ? (
+                <HeroStatChip
+                  label="Materials"
+                  value={formatDraftMoney(materialTotal)}
+                  Colors={Colors}
+                  darkMode={darkMode}
+                />
+              ) : null}
+              {laborTotal != null ? (
+                <HeroStatChip
+                  label="Labor"
+                  value={formatDraftMoney(laborTotal)}
+                  Colors={Colors}
+                  darkMode={darkMode}
+                />
+              ) : null}
+              {allowanceTotal != null ? (
+                <HeroStatChip
+                  label="Allowances"
+                  value={formatDraftMoney(allowanceTotal)}
+                  Colors={Colors}
+                  darkMode={darkMode}
+                />
+              ) : null}
+            </View>
+          ) : null}
+
+          {draft.estimateConfidence && statusBadge.tone !== 'ready' ? (
             <Text
-              style={{ color: confStyle.color, fontSize: 11, fontWeight: '600', marginTop: 8 }}
+              style={{ color: confStyle.color, fontSize: 11, fontWeight: '600', marginTop: 10 }}
               numberOfLines={2}
             >
               {draft.estimateConfidence.label}
-              <Text style={{ color: Colors.sub, fontWeight: '500' }}>
-                {' · '}
-                {hasPricing
-                  ? draft.estimateConfidence.summary
-                  : 'Confirm items below, then add or apply pricing.'}
-              </Text>
             </Text>
           ) : null}
-          {statusLine ? (
-            <Text
-              style={{
-                color: darkMode ? 'rgba(148, 163, 184, 0.85)' : Colors.sub,
-                fontSize: 11,
-                marginTop: 6,
-              }}
-            >
-              {statusLine}
-            </Text>
+
+          {onSubmitRefineCommand ? (
+            <AIEstimateRefineCommandBar
+              variant="hero"
+              Colors={Colors}
+              darkMode={darkMode}
+              busy={busy && !refining}
+              refining={refining}
+              appliedSummary={refineAppliedSummary}
+              lastCommand={refineLastCommand}
+              showPricingNudge={showRefinePricingNudge}
+              onSubmitCommand={onSubmitRefineCommand}
+              onDismissSummary={onDismissRefineSummary}
+            />
           ) : null}
         </View>
 
@@ -895,18 +960,18 @@ export default function AIEstimateDraftReviewCompact({
           );
         })}
         {hiddenScopeCount > 0 && !showAllScope ? (
-          <TouchableOpacity activeOpacity={0.88} onPress={() => setShowAllScope(true)} style={{ marginTop: 8 }}>
+          <ReliableFlowPress onPress={() => setShowAllScope(true)} style={{ marginTop: 8 }}>
             <Text style={{ color: Colors.sub, fontSize: 13, fontWeight: '600', textAlign: 'center' }}>
               Show all {scopePackages.length} items
             </Text>
-          </TouchableOpacity>
+          </ReliableFlowPress>
         ) : null}
         {showAllScope && hiddenScopeCount > 0 ? (
-          <TouchableOpacity activeOpacity={0.88} onPress={() => setShowAllScope(false)} style={{ marginTop: 8 }}>
+          <ReliableFlowPress onPress={() => setShowAllScope(false)} style={{ marginTop: 8 }}>
             <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', textAlign: 'center' }}>
               Show less
             </Text>
-          </TouchableOpacity>
+          </ReliableFlowPress>
         ) : null}
       </View>
 
@@ -949,57 +1014,61 @@ export default function AIEstimateDraftReviewCompact({
       ) : null}
 
       {roughSuggestionLines.length > 0 || hasRoughOnScope ? (
+        statusBadge.tone !== 'ready' ? (
         <View
           style={{
             ...flowCard(Colors, darkMode),
-            borderColor: darkMode ? 'rgba(251, 191, 36, 0.22)' : 'rgba(251, 191, 36, 0.28)',
-            backgroundColor: 'transparent',
+            marginTop: 12,
           }}
         >
-          <Text style={{ color: darkMode ? 'rgba(251,191,36,0.9)' : '#d97706', fontSize: 13, fontWeight: '800', marginBottom: 6 }}>
-            AI price suggestions
-          </Text>
-          <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18, marginBottom: 8 }}>
-            {draft.pricingMemoryMissingMessage ||
-              'Rates for items still missing template pricing — review before applying to your bid.'}
-          </Text>
-          {roughSuggestionLines.map((line, i) => (
-            <Text key={`sug-${i}`} style={{ color: Colors.text, fontSize: 12, marginBottom: 4 }}>
-              • {line}
+          <ReliableFlowPress
+            onPress={() => setShowRoughSuggestions((v) => !v)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+            accessibilityLabel={
+              showRoughSuggestions ? 'Hide template rate notes' : 'Show template rate notes'
+            }
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 8 }}>
+              <MaterialIcons name="info-outline" size={15} color="#fbbf24" />
+              <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '600', flexShrink: 1 }}>
+                Template rates used for planning
+              </Text>
+            </View>
+            <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600' }}>
+              {showRoughSuggestions ? 'Hide' : 'Show'}
             </Text>
-          ))}
+          </ReliableFlowPress>
+          {showRoughSuggestions ? (
+            <View style={{ marginTop: 10 }}>
+              {roughSuggestionLines.map((line, i) => (
+                <Text key={`sug-${i}`} style={{ color: Colors.sub, fontSize: 12, marginBottom: 4, lineHeight: 17 }}>
+                  {line}
+                </Text>
+              ))}
+            </View>
+          ) : null}
         </View>
+        ) : null
       ) : null}
-
-      <View
-        style={{
-          marginTop: 4,
-          marginBottom: showDetails ? 10 : 4,
-          flexDirection: 'row',
-          justifyContent: 'center',
-          alignItems: 'center',
-          gap: 16,
-        }}
-      >
-        <TouchableOpacity activeOpacity={0.88} onPress={() => setShowDetails((v) => !v)}>
-          <Text style={{ color: Colors.sub, fontSize: 13, fontWeight: '600' }}>
-            {showDetails ? 'Hide details' : 'View details'}
-          </Text>
-        </TouchableOpacity>
-        <Text style={{ color: flowDivider(darkMode), fontSize: 13 }}>·</Text>
-        <TouchableOpacity activeOpacity={0.88} disabled={busy} onPress={onRegenerate}>
-          <Text style={{ color: Colors.sub, fontSize: 13, fontWeight: '600' }}>
-            Edit notes
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {showDetails ? showDetailsContent : null}
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
   pricingInputCard: {
     marginTop: 8,
     borderRadius: 12,

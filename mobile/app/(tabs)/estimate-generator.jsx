@@ -24,6 +24,10 @@ import {
   useWindowDimensions,
   Switch,
 } from 'react-native';
+import {
+  ScrollView as GestureScrollView,
+  TouchableOpacity as GestureTouchableOpacity,
+} from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Dimensions } from 'react-native';
@@ -5425,6 +5429,7 @@ export default function EstimateGeneratorScreen() {
   const customerDebounceRefs = useRef({});
   const mainScrollRef = useRef(null);
   const mainScrollYRef = useRef(0);
+  const aiEntryPressLockRef = useRef(false);
   const customerNameBlockRef = useRef(null);
   const customerPhoneBlockRef = useRef(null);
   const customerCompanyBlockRef = useRef(null);
@@ -5893,6 +5898,18 @@ export default function EstimateGeneratorScreen() {
     setShowAiInitialRevealModal(true);
   }, []);
 
+  const openAiDraftReviewDirect = useCallback(() => {
+    setShowAiInitialRevealModal(false);
+    InteractionManager.runAfterInteractions(() => {
+      setShowAiDraftReviewModal(true);
+    });
+  }, []);
+
+  const openAiDraftReviewAfterScope = useCallback(() => {
+    // Always land on Initial estimate first — shows the pricing hero after scope confirm.
+    openAiDraftReviewEntry();
+  }, [openAiDraftReviewEntry]);
+
   const openAiDraftReviewDetailed = useCallback(() => {
     setShowAiInitialRevealModal(false);
     InteractionManager.runAfterInteractions(() => {
@@ -5928,9 +5945,9 @@ export default function EstimateGeneratorScreen() {
   const resumeDraftReviewAfterPricingModal = useCallback(() => {
     if (aiDraftReviewResumeRef.current) {
       aiDraftReviewResumeRef.current = false;
-      openAiDraftReviewEntry();
+      openAiDraftReviewAfterScope(aiDraft);
     }
-  }, [openAiDraftReviewEntry]);
+  }, [aiDraft, openAiDraftReviewAfterScope]);
 
   const prefetchClarifyForDraft = useCallback(async (draft) => {
     if (!draft || !shouldAutoClarifyDraft(draft)) return;
@@ -5955,7 +5972,7 @@ export default function EstimateGeneratorScreen() {
         draftHasApplyablePricing(syncedDraft) && !draftHasUnpricedScope(syncedDraft);
 
       if (skipPricing || notePricingComplete) {
-        openAiDraftReviewEntry();
+        openAiDraftReviewAfterScope(syncedDraft);
         prefetchClarifyForDraft(syncedDraft);
         return;
       }
@@ -6000,12 +6017,12 @@ export default function EstimateGeneratorScreen() {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           }
         } else {
-          openAiDraftReviewEntry();
+          openAiDraftReviewAfterScope(syncedDraft);
           prefetchClarifyForDraft(syncedDraft);
         }
       } catch (e) {
         console.warn('advanceComplexDraftAfterScope rough pricing failed', e);
-        openAiDraftReviewEntry();
+        openAiDraftReviewAfterScope(syncedDraft);
         prefetchClarifyForDraft(syncedDraft);
       } finally {
         setAiDraftRoughLoading(false);
@@ -6017,6 +6034,7 @@ export default function EstimateGeneratorScreen() {
       bid,
       syncDraftWithLatestScopeMeasurements,
       prefetchClarifyForDraft,
+      openAiDraftReviewAfterScope,
     ]
   );
 
@@ -6248,9 +6266,14 @@ export default function EstimateGeneratorScreen() {
     });
   }, [aiDraftFromAssistant, aiDraftNotes, aiLastPlanImport, aiPhotoDetections, aiPhotoExistingFeatures, aiSitePhotos, syncDraftWithLatestScopeMeasurements]);
 
+  const handleConfirmScopeAssumptionsBegin = useCallback(() => {
+    setAiScopeAssumptionsApplying(true);
+  }, []);
+
   const handleConfirmScopeAssumptions = useCallback(
     async (confirmedItems, scopeMeasurements) => {
-      if (!aiDraft || aiScopeAssumptionsApplying) return;
+      if (!aiDraft) return;
+      setAiScopeAssumptionsApplying(true);
       latestScopeMeasurementsRef.current = scopeMeasurements || latestScopeMeasurementsRef.current;
       const routedDraft =
         scopeMeasurements?.tradeWorkflowSource === 'standalone_trade'
@@ -6279,7 +6302,6 @@ export default function EstimateGeneratorScreen() {
         });
       }
       setAiDraft(draftForScope);
-      setAiScopeAssumptionsApplying(true);
       let enriched;
       try {
         enriched = syncDraftWithLatestScopeMeasurements(
@@ -6313,7 +6335,7 @@ export default function EstimateGeneratorScreen() {
         openAiDraftReviewEntry();
       }
     },
-    [aiDraft, aiDraftNotes, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope, syncDraftWithLatestScopeMeasurements]
+    [aiDraft, aiDraftNotes, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope, syncDraftWithLatestScopeMeasurements, openAiDraftReviewEntry]
   );
 
   const handleScopeAssumptionsScopeOnly = useCallback(async (scopeMeasurements) => {
@@ -6352,9 +6374,9 @@ export default function EstimateGeneratorScreen() {
       await advanceComplexDraftAfterScope(enriched, { skipPricing: true });
     } catch (e) {
       console.warn('advanceComplexDraftAfterScope scope-only failed', e);
-      openAiDraftReviewEntry();
+      openAiDraftReviewAfterScope(enriched);
     }
-  }, [aiDraft, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope]);
+  }, [aiDraft, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope, openAiDraftReviewAfterScope]);
 
   const handleSuggestMissingPrices = useCallback(async () => {
     if (!aiDraft || aiDraftSuggestingMissing) return;
@@ -10260,6 +10282,11 @@ export default function EstimateGeneratorScreen() {
   }, [bid, calc, step, currentEstimateStepMeta, estimateStepFields, estimateAssistantBrief, estimateTrustSignals, estimateVariantPreviews, guidedStepIndex, readinessState, isEstimateReady, shouldGateAdvanced, nextStepLabel, completedChecklistCount, checklistTotal, setupProgressPct, markupLow, healthScore, estimateChecklist, missingEstimateItems, activeProjects, estimates, projectLiveMetrics]);
 
   const openEstimateCopilot = useCallback((prompt = '') => {
+    if (aiEntryPressLockRef.current) return;
+    aiEntryPressLockRef.current = true;
+    setTimeout(() => {
+      aiEntryPressLockRef.current = false;
+    }, 400);
     if (prompt) {
       setEstimateAiInitialQuestion(prompt);
     } else {
@@ -10271,6 +10298,11 @@ export default function EstimateGeneratorScreen() {
 
   /** Empty bid: open paste-notes flow directly (skip AI Assistant landing). */
   const openBuildWithAiDirect = useCallback(() => {
+    if (aiEntryPressLockRef.current) return;
+    aiEntryPressLockRef.current = true;
+    setTimeout(() => {
+      aiEntryPressLockRef.current = false;
+    }, 400);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setAiDraftFromAssistant(false);
     setShowAIAssistant(false);
@@ -23887,7 +23919,7 @@ export default function EstimateGeneratorScreen() {
         />
       )}
       <EstimatesMainKeyboardWrapper {...estimatesMainKeyboardWrapperProps}>
-        <ScrollView
+        <GestureScrollView
           ref={mainScrollRef}
           onScroll={(e) => {
             mainScrollYRef.current = e.nativeEvent.contentOffset.y;
@@ -23903,6 +23935,7 @@ export default function EstimateGeneratorScreen() {
           ]}
           showsVerticalScrollIndicator={false}
           {...KEYBOARD_SCROLL_DEFAULTS}
+          delayContentTouches={false}
           automaticallyAdjustContentInsets={false}
           {...estimatesMainScrollIosProps}
           style={{ backgroundColor: darkMode ? '#000000' : Colors.bg }}
@@ -24310,11 +24343,9 @@ export default function EstimateGeneratorScreen() {
             </Text>
           ) : null}
           {bidHasLineItems ? (
-            <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                openEstimateCopilot('');
-              }}
+            <GestureTouchableOpacity
+              onPressIn={() => openEstimateCopilot('')}
+              activeOpacity={0.88}
               style={s.aiFloating}
               accessibilityRole="button"
               accessibilityLabel={t('assistant.aiAssistant')}
@@ -24323,10 +24354,11 @@ export default function EstimateGeneratorScreen() {
               <Text style={[s.aiFloatingText, s.aiFloatingTextOn]} numberOfLines={1}>
                 {t('assistant.aiAssistant')}
               </Text>
-            </Pressable>
+            </GestureTouchableOpacity>
           ) : (
-            <Pressable
-              onPress={openBuildWithAiDirect}
+            <GestureTouchableOpacity
+              onPressIn={openBuildWithAiDirect}
+              activeOpacity={0.88}
               style={[
                 s.aiBuildPill,
                 {
@@ -24348,7 +24380,7 @@ export default function EstimateGeneratorScreen() {
               <Text style={s.aiBuildText} numberOfLines={1}>
                 {t('estimate.buildWithAi')}
               </Text>
-            </Pressable>
+            </GestureTouchableOpacity>
           )}
         </View>
       )}
@@ -24494,7 +24526,7 @@ export default function EstimateGeneratorScreen() {
           </>
         )}
         </WebPageShell>
-        </ScrollView>
+        </GestureScrollView>
       </EstimatesMainKeyboardWrapper>
 
       {shouldShowFirstEstimateWalkthrough &&
@@ -25166,6 +25198,7 @@ export default function EstimateGeneratorScreen() {
           }
         }}
         onConfirm={handleConfirmScopeAssumptions}
+        onConfirmBegin={handleConfirmScopeAssumptionsBegin}
         onScopeOnly={handleScopeAssumptionsScopeOnly}
         onPersistProgress={handlePersistScopeProgress}
         pricingContext={aiScopePricingContext}

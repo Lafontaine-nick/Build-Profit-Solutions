@@ -30,10 +30,31 @@ function roundedMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+const REVEAL_BID_DETAIL =
+  /customer name|project address|client name|email|phone|permit responsibility|license|start date|payment terms|labor vs material breakdown/i;
+const REVEAL_LOW_PRIORITY = REVEAL_BID_DETAIL;
+const REVEAL_HIGH_PRIORITY = /pricing for|price needed|missing price|please check|measurement|quantity/i;
+
 /** Plain-language labels for review / confidence copy (display only). */
 export function plainLanguageReviewItem(text: string): string {
   let s = String(text || '').trim();
   if (!s) return s;
+
+  if (
+    /overall bid total|room lump sum|\$\/sqft rates with square/i.test(s)
+  ) {
+    return 'Pricing total not found in notes';
+  }
+  if (/labor vs material breakdown/i.test(s)) {
+    return 'Labor vs material breakdown';
+  }
+  if (/permit responsibility not mentioned/i.test(s)) {
+    return 'Permit responsibility not mentioned';
+  }
+  if (/^pricing for /i.test(s)) {
+    return s.replace(/^pricing for /i, 'Price needed for ');
+  }
+
   s = s.replace(/\bhigh-confidence extraction\b/gi, 'Ready');
   s = s.replace(/\blow-confidence quantity\b/gi, 'Please check quantity');
   s = s.replace(/\bpricing gap\b/gi, 'Price needed');
@@ -42,6 +63,77 @@ export function plainLanguageReviewItem(text: string): string {
   s = s.replace(/\bneeds review\b/gi, 'Please check');
   s = s.replace(/\bmissing price\b/gi, 'Price needed');
   return s;
+}
+
+export function isInitialRevealBidDetailItem(text: string): boolean {
+  return REVEAL_BID_DETAIL.test(String(text || ''));
+}
+
+export type InitialRevealConfirmBuckets = {
+  pricingScope: string[];
+  bidDetails: string[];
+};
+
+export function splitInitialRevealConfirmItems(
+  items: string[]
+): InitialRevealConfirmBuckets {
+  const pricingScope: string[] = [];
+  const bidDetails: string[] = [];
+  for (const item of items) {
+    const plain = plainLanguageReviewItem(item);
+    if (isInitialRevealBidDetailItem(item)) {
+      bidDetails.push(plain);
+    } else {
+      pricingScope.push(plain);
+    }
+  }
+  return { pricingScope, bidDetails };
+}
+
+/** All confirm items split into pricing/scope vs bid admin details. */
+export function getInitialRevealConfirmItems(
+  draft: EstimateAiDraft
+): InitialRevealConfirmBuckets {
+  const { items } = getCompactStillNeeded(draft, 50);
+  const prioritized = [...items].sort(
+    (a, b) => revealItemPriority(a) - revealItemPriority(b)
+  );
+  return splitInitialRevealConfirmItems(prioritized);
+}
+
+export function getInitialRevealScopeMetaLabel(count: number): string {
+  if (count <= 0) return '';
+  return count === 1 ? '1 scope item' : `${count} scope items`;
+}
+
+export function shouldDefaultExpandInitialRevealScope(scopeItemCount: number): boolean {
+  return scopeItemCount > 0 && scopeItemCount <= 8;
+}
+
+export function getInitialRevealPlanningDisclaimer(
+  totals: InitialRevealTotals,
+  attentionCount: number
+): string | null {
+  if (totals.heroTotal == null || totals.heroTotal <= 0) return null;
+  if (attentionCount === 0) return null;
+  return 'Planning estimate — refine on detailed review';
+}
+
+export function shouldShowInitialRevealWhatWeFound(
+  understood: string[],
+  tagline: string | null
+): boolean {
+  if (understood.length === 0) return false;
+  if (!tagline) return true;
+  const norm = (value: string) =>
+    value.trim().toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ');
+  const tagNorm = norm(tagline);
+  return understood.some((line) => {
+    const lineNorm = norm(line);
+    if (!lineNorm || lineNorm === tagNorm) return false;
+    if (lineNorm.includes(tagNorm) || tagNorm.includes(lineNorm)) return false;
+    return true;
+  });
 }
 
 export function getInitialRevealStatusLabel(
@@ -79,9 +171,6 @@ export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
   }
   return 'Your project';
 }
-
-const REVEAL_LOW_PRIORITY = /customer name|project address|client name|email|phone|permit responsibility|license/i;
-const REVEAL_HIGH_PRIORITY = /pricing for|price needed|missing price|please check|measurement|quantity/i;
 
 function revealItemPriority(text: string): number {
   if (REVEAL_HIGH_PRIORITY.test(text)) return 0;
@@ -276,7 +365,9 @@ export function getInitialRevealPrimaryCtaLabel(
     return 'Confirm scope';
   }
   if (attentionCount > 0) {
-    return attentionCount === 1 ? 'Review 1 item' : `Review ${attentionCount} items`;
+    return attentionCount === 1
+      ? 'Continue to review · 1 to check'
+      : `Continue to review · ${attentionCount} to check`;
   }
   return 'Review & apply estimate';
 }

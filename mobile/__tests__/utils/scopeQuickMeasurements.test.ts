@@ -127,6 +127,14 @@ describe('scopeQuickMeasurements', () => {
         { drywallSqft: '1000' }
       )
     ).toBe('1000');
+    expect(
+      resolveQuickMeasurementDisplayValue(
+        'cabinetPaintSqft',
+        { cabinetPaintSqft: '' },
+        { cabinetPaintSqft: '200' },
+        { cabinetPaintSqft: true }
+      )
+    ).toBe('');
   });
 
   it('keeps addition quick measurement rows stable while typing', () => {
