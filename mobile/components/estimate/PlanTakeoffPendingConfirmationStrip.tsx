@@ -33,6 +33,7 @@ export function PlanTakeoffPendingConfirmationStrip({
   darkMode,
   captionColor,
   onPlanReadConfirmed,
+  includeUnresolvedConflicts = false,
 }: {
   measurements: Record<string, unknown>;
   setMeasurements: React.Dispatch<
@@ -43,6 +44,7 @@ export function PlanTakeoffPendingConfirmationStrip({
   darkMode: boolean;
   captionColor: string;
   onPlanReadConfirmed?: (field: string) => void;
+  includeUnresolvedConflicts?: boolean;
 }) {
   const commitPlanReadConfirmation = (
     field: string,
@@ -53,9 +55,19 @@ export function PlanTakeoffPendingConfirmationStrip({
       const base = confirmed
         ? confirmPendingPlanConfirmationRead(prev, field, value)
         : unconfirmPendingPlanConfirmationRead(prev, field, value);
-      return confirmed
-        ? applyHvacScopeSelectionForConfirmedField(base, field)
+      const resolved = confirmed && includeUnresolvedConflicts
+        ? {
+            ...base,
+            measurementConflicts: Array.isArray(base.measurementConflicts)
+              ? base.measurementConflicts.filter(
+                  conflict => String(conflict?.field || '') !== field
+                )
+              : base.measurementConflicts,
+          }
         : base;
+      return confirmed
+        ? applyHvacScopeSelectionForConfirmedField(resolved, field)
+        : resolved;
     });
     if (confirmed) {
       onPlanReadConfirmed?.(field);
@@ -79,8 +91,17 @@ export function PlanTakeoffPendingConfirmationStrip({
     if (isHvacPlanImport) {
       return resolveHvacPendingPlanConfirmationReads(measurements);
     }
-    return pendingPlanConfirmationReads(measurements, allowedFields);
-  }, [measurements, allowedFields, tradeKey]);
+    return pendingPlanConfirmationReads(
+      measurements,
+      allowedFields,
+      includeUnresolvedConflicts
+    );
+  }, [
+    measurements,
+    allowedFields,
+    tradeKey,
+    includeUnresolvedConflicts,
+  ]);
   const displayReads = useMemo(() => {
     const byField = new Map<string, PendingPlanConfirmationRead>();
     for (const read of trackedReads) {

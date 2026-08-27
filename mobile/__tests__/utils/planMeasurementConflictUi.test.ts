@@ -33,6 +33,8 @@ import {
   emptyPlanTakeoffReadingDisplay,
   isPendingPlanReadConfirmed,
   resolveHvacPendingPlanConfirmationReads,
+  shouldSuppressPlanReviewQuickMeasurementField,
+  windowsDoorsPlanReviewFieldSet,
 } from '@/utils/planMeasurementConflictUi';
 import { syncHvacSkippedTakeoffQuickMeasurementSources } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import type { PlanMeasurementConflict } from '@/utils/estimateAiDraft';
@@ -570,6 +572,76 @@ describe('planMeasurementConflictUi', () => {
         new Set(['hvacSystemCount'])
       )
     ).toEqual([]);
+  });
+
+  it('suppresses Windows & doors QM rows when already in conflict or pending strips', () => {
+    const allowed = windowsDoorsPlanReviewFieldSet();
+    expect(
+      shouldSuppressPlanReviewQuickMeasurementField('windowCount', {
+        windowCount: 18,
+        measurementConflicts: [
+          {
+            field: 'windowCount',
+            requiresConfirmation: true,
+            candidates: [{ value: 18 }, { value: 15 }],
+          },
+        ],
+      }, { allowedFields: allowed })
+    ).toBe(true);
+    expect(
+      shouldSuppressPlanReviewQuickMeasurementField('windowCount', {
+        windowCount: 18,
+        quickMeasurementSources: { windowCount: 'needs_confirmation' },
+      }, { allowedFields: allowed })
+    ).toBe(true);
+    expect(
+      shouldSuppressPlanReviewQuickMeasurementField(
+        'windowCount',
+        confirmPendingPlanConfirmationRead(
+          {
+            windowCount: 15,
+            quickMeasurementSources: { windowCount: 'needs_confirmation' },
+          },
+          'windowCount',
+          15
+        ),
+        { allowedFields: allowed }
+      )
+    ).toBe(false);
+    expect(
+      shouldSuppressPlanReviewQuickMeasurementField('slidingDoorCount', {
+        slidingDoorCount: '',
+      }, { allowedFields: allowed })
+    ).toBe(false);
+  });
+
+  it('promotes Windows & doors conflict values into the single pending strip', () => {
+    const pending = pendingPlanConfirmationReads(
+      {
+        windowCount: 15,
+        exteriorDoorCount: 4,
+        measurementConflicts: [
+          {
+            field: 'windowCount',
+            requiresConfirmation: true,
+            selectedValue: 15,
+            candidates: [{ value: 15 }, { value: 12 }],
+          },
+          {
+            field: 'exteriorDoorCount',
+            requiresConfirmation: true,
+            selectedValue: 4,
+            candidates: [{ value: 4 }, { value: 3 }],
+          },
+        ],
+      },
+      windowsDoorsPlanReviewFieldSet(),
+      true
+    );
+    expect(pending.map(row => [row.field, row.value])).toEqual([
+      ['windowCount', 15],
+      ['exteriorDoorCount', 4],
+    ]);
   });
 
   it('resolveHvacPendingPlanConfirmationReads includes canonical HVAC rows tagged plan_detected with needs_review provenance', () => {

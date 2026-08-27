@@ -1016,7 +1016,9 @@ export default function PlanTakeoffReviewModal({
     setRoomRows(nextRooms);
 
     setScopeChecked(
-      Object.fromEntries(scopeDetections.map(d => [d.itemId, true]))
+      Object.fromEntries(
+        scopeDetections.map(d => [d.itemId, true])
+      )
     );
     // Rebuild only when a new takeoff arrives, not on parent re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps

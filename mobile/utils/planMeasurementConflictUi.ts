@@ -13,6 +13,7 @@ import {
   HVAC_PLAN_REVIEW_CANONICAL_KEYS,
   HVAC_VENTILATION_MEASUREMENT_KEY,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
+import { WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
 
 export type PlanTakeoffUnit = 'EA' | 'LF' | 'A' | 'sqft' | 'ton';
 export type PlanConflictChoice = number | 'manual';
@@ -798,7 +799,8 @@ export type PendingPlanConfirmationRead = {
 /** Plan reads the contractor skipped in takeoff review — still need confirmation in QM. */
 export function pendingPlanConfirmationReads(
   measurements: Record<string, unknown> | null | undefined,
-  allowedFields?: Set<string>
+  allowedFields?: Set<string>,
+  includeUnresolvedConflicts = false
 ): PendingPlanConfirmationRead[] {
   const sources =
     measurements?.quickMeasurementSources &&
@@ -840,7 +842,77 @@ export function pendingPlanConfirmationReads(
     const { label, subtext } = conflictFieldDisplay(field);
     out.push({ field, value, label, subtext });
   }
+  if (includeUnresolvedConflicts) {
+    const conflicts = Array.isArray(measurements?.measurementConflicts)
+      ? (measurements.measurementConflicts as Array<{
+          field?: string | null;
+          requiresConfirmation?: boolean;
+          selectedValue?: unknown;
+          candidates?: Array<{ value?: unknown }>;
+        }>)
+      : [];
+    for (const conflict of conflicts) {
+      const field = String(conflict.field || '').trim();
+      if (!field || conflict.requiresConfirmation === false) continue;
+      if (allowedFields?.size && !allowedFields.has(field)) continue;
+      if (seen.has(field) || isPendingPlanReadConfirmed(measurements, field)) {
+        continue;
+      }
+      const candidate =
+        Number(conflict.selectedValue) > 0
+          ? Number(conflict.selectedValue)
+          : Number(
+              conflict.candidates?.find(
+                option => Number(option?.value) > 0
+              )?.value
+            );
+      if (!Number.isFinite(candidate) || candidate <= 0) continue;
+      const { label, subtext } = conflictFieldDisplay(field);
+      out.push({ field, value: candidate, label, subtext });
+      seen.add(field);
+    }
+  }
   return out;
+}
+
+/** Opening-count fields already surfaced in Step 2 conflict/pending strips — hide from QM rows. */
+export function shouldSuppressPlanReviewQuickMeasurementField(
+  field: string | null | undefined,
+  measurements: Record<string, unknown> | null | undefined,
+  options?: {
+    allowedFields?: Set<string>;
+    conflicts?: Array<
+      Pick<PlanMeasurementConflict, 'field' | 'requiresConfirmation'>
+    > | null;
+  }
+): boolean {
+  const key = String(field || '').trim();
+  if (!key) return false;
+  if (options?.allowedFields?.size && !options.allowedFields.has(key)) {
+    return false;
+  }
+  const conflictRows =
+    options?.conflicts ??
+    (Array.isArray(measurements?.measurementConflicts)
+      ? (measurements?.measurementConflicts as Array<
+          Pick<PlanMeasurementConflict, 'field' | 'requiresConfirmation'>
+        >)
+      : []);
+  const unresolved = new Set(
+    conflictRows
+      .filter(row => row?.requiresConfirmation !== false)
+      .map(row => String(row?.field || '').trim())
+      .filter(Boolean)
+  );
+  if (unresolved.has(key)) return true;
+  if (isPendingPlanReadConfirmed(measurements, key)) return false;
+  return pendingPlanConfirmationReads(measurements, options?.allowedFields).some(
+    read => read.field === key
+  );
+}
+
+export function windowsDoorsPlanReviewFieldSet(): Set<string> {
+  return new Set(WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS);
 }
 
 function hvacProvenanceNeedsReview(entry: unknown): boolean {

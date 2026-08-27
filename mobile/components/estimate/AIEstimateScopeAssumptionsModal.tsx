@@ -85,7 +85,7 @@ import {
   hvacQuickMeasurementSourcesFromProvenance,
   syncHvacSkippedTakeoffQuickMeasurementSources,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
-import { isWindowsDoorsCountScopeItemId, syncWindowsDoorsScopeItems } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
+import { isWindowsDoorsCountScopeItemId, syncWindowsDoorsScopeItems, WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
 import { syncGarageDoorsScopeItems } from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
 import {
   reconcilePlumbingEquipmentScopeMeasurements,
@@ -131,6 +131,8 @@ import {
   conflictResolutionProvenanceEntry,
   parseManualConflictValue,
   shouldConfirmScopeShowPlanConflict,
+  shouldSuppressPlanReviewQuickMeasurementField,
+  windowsDoorsPlanReviewFieldSet,
   type PlanConflictChoice,
 } from '@/utils/planMeasurementConflictUi';
 import {
@@ -12756,6 +12758,9 @@ function CollapsibleQuickMeasurements({
   const hvacQmJob =
     !wholeHomeLayout &&
     String(effectiveTemplateKey || '').toLowerCase() === 'hvac';
+  const windowsDoorsPlanImport =
+    (singleTradeImport && tradeKey === 'windows_doors') ||
+    String(effectiveTemplateKey || '').toLowerCase() === 'windows_doors';
   const roofingQmJob =
     !wholeHomeLayout &&
     String(effectiveTemplateKey || '').toLowerCase() === 'roofing';
@@ -12911,6 +12916,17 @@ function CollapsibleQuickMeasurements({
       templateKey,
     ]
   );
+  const windowsDoorsSuppressedQuickMeasurementFields = useMemo(() => {
+    if (!windowsDoorsPlanImport) return new Set<string>();
+    return new Set(
+      WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS.filter(key =>
+        shouldSuppressPlanReviewQuickMeasurementField(key, measurements, {
+          allowedFields: windowsDoorsPlanReviewFieldSet(),
+          conflicts: measurementConflicts,
+        })
+      )
+    );
+  }, [windowsDoorsPlanImport, measurements, measurementConflicts]);
   for (const conflict of measurements.measurementConflicts || []) {
     const field = String(conflict?.field || '');
     if (field && !originalConflictsRef.current[field]) {
@@ -14862,6 +14878,8 @@ function CollapsibleQuickMeasurements({
     flooringInstallSqft > Number(measurements.flooringSqft || 0);
   const shouldRenderGeneralResult = (result: QuickMeasurementFieldResult) =>
     !(
+      (windowsDoorsPlanImport &&
+        windowsDoorsSuppressedQuickMeasurementFields.has(result.key)) ||
       (kitchenQmJob && kitchenEmbeddedMeasurementKeys.has(result.key)) ||
       (flooringQmJob && flooringEmbeddedMeasurementKeys.has(result.key)) ||
       (landscapingQmJob &&
@@ -15690,34 +15708,38 @@ function CollapsibleQuickMeasurements({
             </View>
           ) : null}
           <PlanTakeoffConflictChooser
-            conflicts={measurementConflicts}
-            choices={conflictChoices}
-            manualValues={conflictManualValues}
-            keepResolvedCards
-            onChoose={(field, choice) => {
-              if (choice == null) {
-                setConflictChoices(prev => {
-                  const next = { ...prev };
-                  delete next[field];
-                  return next;
-                });
-                clearConflictQuantity(field);
-                return;
-              }
-              setConflictChoices(prev => ({ ...prev, [field]: choice }));
-              if (typeof choice === 'number') {
-                commitConflictQuantity(field, choice);
-              }
-            }}
-            onManualChange={(field, value) => {
-              setConflictManualValues(prev => ({ ...prev, [field]: value }));
-            }}
-            onManualSubmit={(field, value) => {
-              const n = parseManualConflictValue(value);
-              if (n != null) {
-                commitConflictQuantity(field, n, true);
-              }
-            }}
+            {...(windowsDoorsPlanImport
+              ? { conflicts: [] }
+              : {
+                  conflicts: measurementConflicts,
+                  choices: conflictChoices,
+                  manualValues: conflictManualValues,
+                  keepResolvedCards: true,
+                  onChoose: (field: string, choice: PlanConflictChoice | null) => {
+                    if (choice == null) {
+                      setConflictChoices(prev => {
+                        const next = { ...prev };
+                        delete next[field];
+                        return next;
+                      });
+                      clearConflictQuantity(field);
+                      return;
+                    }
+                    setConflictChoices(prev => ({ ...prev, [field]: choice }));
+                    if (typeof choice === 'number') {
+                      commitConflictQuantity(field, choice);
+                    }
+                  },
+                  onManualChange: (field: string, value: string) => {
+                    setConflictManualValues(prev => ({ ...prev, [field]: value }));
+                  },
+                  onManualSubmit: (field: string, value: string) => {
+                    const n = parseManualConflictValue(value);
+                    if (n != null) {
+                      commitConflictQuantity(field, n, true);
+                    }
+                  },
+                })}
             darkMode={darkMode}
             captionColor={captionColor(darkMode, Colors)}
           />
@@ -22636,6 +22658,9 @@ export default function AIEstimateScopeAssumptionsModal({
             }}
             allowedFields={pendingPlanConfirmationAllowedFields}
             tradeKey={singleTradeKey}
+            includeUnresolvedConflicts={
+              singleTradePlanImport && singleTradeKey === 'windows_doors'
+            }
             darkMode={darkMode}
             captionColor={captionColor(darkMode, Colors)}
           />
