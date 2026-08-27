@@ -13,12 +13,7 @@ export type WindowsDoorsQuantityKey =
   | 'interiorDoorCount';
 
 export const WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS: WindowsDoorsQuantityKey[] =
-  [
-    'windowCount',
-    'exteriorDoorCount',
-    'slidingDoorCount',
-    'interiorDoorCount',
-  ];
+  ['windowCount', 'exteriorDoorCount', 'slidingDoorCount', 'interiorDoorCount'];
 
 export const WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_KEYS: WindowsDoorsQuantityKey[] =
   [...WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS];
@@ -100,7 +95,12 @@ export function normalizeWindowsDoorsPlanMeasurements(
 export function buildWindowsDoorsStructuredMeasurements(
   input: Record<string, unknown> = {},
   quantitySource: 'plan_detected' | 'user_entered' = 'plan_detected'
-): { itemQuantities: Record<string, { quantity: number; unit: 'each'; quantitySource: string }> } {
+): {
+  itemQuantities: Record<
+    string,
+    { quantity: number; unit: 'each'; quantitySource: string }
+  >;
+} {
   const measurements = normalizeWindowsDoorsPlanMeasurements(input);
   const itemQuantities: Record<
     string,
@@ -233,7 +233,10 @@ export function seedWindowsDoorsReviewMeasurements(
   measurements: Record<string, unknown> = {},
   takeoff?: {
     lowConfidence?: Array<{ field?: string | null; value?: unknown }> | null;
-    measurementProvenance?: Record<string, { value?: unknown } | unknown> | null;
+    measurementProvenance?: Record<
+      string,
+      { value?: unknown } | unknown
+    > | null;
     itemQuantities?: Record<string, { quantity?: unknown } | undefined> | null;
   } | null
 ): Record<string, unknown> {
@@ -298,6 +301,36 @@ export function isWindowsDoorsPlanReviewKey(key: string): boolean {
   return WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS.includes(
     key as WindowsDoorsQuantityKey
   );
+}
+
+/** Unconfirmed takeoff counts stay pending in Step 2 even if suggested scope stays checked. */
+export function windowsDoorsTakeoffQuickMeasurementSources(input: {
+  values?: Record<string, unknown> | null;
+  confirmedKeys?: Iterable<string> | null;
+}): Partial<
+  Record<
+    WindowsDoorsQuantityKey,
+    'needs_confirmation' | 'contractor_confirmed_from_plan_review'
+  >
+> {
+  const confirmed = new Set(
+    [...(input.confirmedKeys || [])]
+      .map(key => String(key || '').trim())
+      .filter(Boolean)
+  );
+  const out: Partial<
+    Record<
+      WindowsDoorsQuantityKey,
+      'needs_confirmation' | 'contractor_confirmed_from_plan_review'
+    >
+  > = {};
+  for (const key of WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS) {
+    if (positiveCount(input.values?.[key]) == null) continue;
+    out[key] = confirmed.has(key)
+      ? 'contractor_confirmed_from_plan_review'
+      : 'needs_confirmation';
+  }
+  return out;
 }
 
 export type WindowsDoorsReviewTier = 'verified' | 'plan_derived' | 'not_found';
@@ -386,7 +419,187 @@ export type OpeningSchedules = {
   garageDoors?: OpeningScheduleRow[];
 };
 
-function openingScheduleText(row: OpeningScheduleRow | null | undefined): string {
+export type OpeningEvidenceCategory =
+  'window' | 'exterior_swing' | 'sliding' | 'interior';
+
+export type OpeningEvidenceSource =
+  'schedule' | 'floor_plan' | 'elevation' | 'section';
+
+export type InteriorOpeningSubtype =
+  'room' | 'bath' | 'closet' | 'laundry' | 'pantry' | 'other';
+
+export type OpeningEvidenceEntry = {
+  id?: string;
+  category: OpeningEvidenceCategory;
+  source: OpeningEvidenceSource;
+  mark?: string;
+  level?: string;
+  location?: string;
+  type?: string;
+  interiorSubtype?: InteriorOpeningSubtype;
+  sheet?: string;
+  page?: number;
+  sourceText?: string;
+  sizeCode?: string;
+  widthIn?: number;
+  heightIn?: number;
+  widthFt?: number;
+  heightFt?: number;
+  confidence?: number;
+};
+
+export type OpeningEvidenceReconciliation = {
+  duplicates?: Array<{
+    duplicateId?: string;
+    canonicalId?: string;
+    reason?: string;
+  }>;
+  sourceCounts?: Record<string, Record<string, number>>;
+  uniqueCounts?: Partial<Record<OpeningEvidenceCategory, number>>;
+  interiorBreakdown?: Partial<Record<InteriorOpeningSubtype, number>>;
+  variance?: Record<string, Record<string, number>>;
+};
+
+const OPENING_EVIDENCE_CATEGORIES = new Set<OpeningEvidenceCategory>([
+  'window',
+  'exterior_swing',
+  'sliding',
+  'interior',
+]);
+const OPENING_EVIDENCE_SOURCES = new Set<OpeningEvidenceSource>([
+  'schedule',
+  'floor_plan',
+  'elevation',
+  'section',
+]);
+
+const OPENING_EVIDENCE_KEY_BY_MEASUREMENT: Record<
+  WindowsDoorsQuantityKey,
+  OpeningEvidenceCategory
+> = {
+  windowCount: 'window',
+  exteriorDoorCount: 'exterior_swing',
+  slidingDoorCount: 'sliding',
+  interiorDoorCount: 'interior',
+};
+
+export function openingEvidenceFromPlanFacts(planFacts?: unknown): {
+  entries: OpeningEvidenceEntry[];
+  reconciliation: OpeningEvidenceReconciliation | null;
+} {
+  if (!planFacts || typeof planFacts !== 'object') {
+    return { entries: [], reconciliation: null };
+  }
+  const facts = planFacts as {
+    openingEvidence?: unknown;
+    openingReconciliation?: unknown;
+  };
+  const entries = Array.isArray(facts.openingEvidence)
+    ? (facts.openingEvidence as OpeningEvidenceEntry[]).filter(
+        entry =>
+          entry &&
+          typeof entry === 'object' &&
+          OPENING_EVIDENCE_CATEGORIES.has(
+            String(entry.category) as OpeningEvidenceCategory
+          ) &&
+          OPENING_EVIDENCE_SOURCES.has(
+            String(entry.source) as OpeningEvidenceSource
+          )
+      )
+    : [];
+  const reconciliation =
+    facts.openingReconciliation &&
+    typeof facts.openingReconciliation === 'object'
+      ? (facts.openingReconciliation as OpeningEvidenceReconciliation)
+      : null;
+  return { entries, reconciliation };
+}
+
+export function openingEvidenceRowsForMeasurementKey(
+  key: string,
+  planFacts?: unknown
+): OpeningEvidenceEntry[] {
+  const category =
+    OPENING_EVIDENCE_KEY_BY_MEASUREMENT[key as WindowsDoorsQuantityKey];
+  if (!category) return [];
+  return openingEvidenceFromPlanFacts(planFacts).entries.filter(
+    entry => entry.category === category
+  );
+}
+
+function titleCaseEvidenceToken(value: string): string {
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, letter => letter.toUpperCase());
+}
+
+export function openingEvidenceSummaryLines(
+  key: string,
+  planFacts?: unknown
+): { lines: string[]; warning?: string } {
+  const category =
+    OPENING_EVIDENCE_KEY_BY_MEASUREMENT[key as WindowsDoorsQuantityKey];
+  if (!category) return { lines: [] };
+  const { entries, reconciliation } = openingEvidenceFromPlanFacts(planFacts);
+  const rows = entries.filter(entry => entry.category === category);
+  if (!rows.length) return { lines: [] };
+  const uniqueCount = reconciliation?.uniqueCounts?.[category] ?? rows.length;
+  const lines = [
+    `${uniqueCount} unique opening${uniqueCount === 1 ? '' : 's'} evidenced`,
+  ];
+  const sheets = [...new Set(rows.map(row => row.sheet).filter(Boolean))];
+  if (sheets.length) lines.push(`Sheets: ${sheets.join(', ')}`);
+  if (category === 'interior') {
+    const breakdown = reconciliation?.interiorBreakdown || {};
+    const parts = Object.entries(breakdown)
+      .filter(([, count]) => Number(count) > 0)
+      .map(([subtype, count]) => `${titleCaseEvidenceToken(subtype)} ${count}`);
+    if (parts.length) lines.push(`Interior mix: ${parts.join(' · ')}`);
+  }
+  const variance = reconciliation?.variance?.[category];
+  if (variance && Object.keys(variance).length > 1) {
+    const sourceValues = Object.entries(variance)
+      .map(([source, count]) => `${titleCaseEvidenceToken(source)} ${count}`)
+      .join(' vs ');
+    return {
+      lines,
+      warning: `Source counts disagree: ${sourceValues}. Confirm before pricing.`,
+    };
+  }
+  return { lines };
+}
+
+export function openingEvidenceDetailLines(
+  key: string,
+  planFacts?: unknown
+): string[] {
+  return openingEvidenceRowsForMeasurementKey(key, planFacts)
+    .slice(0, 60)
+    .map(entry => {
+      const identity =
+        entry.location ||
+        entry.mark ||
+        entry.sizeCode ||
+        entry.type ||
+        'Opening';
+      const level = entry.level ? `${entry.level} · ` : '';
+      const type = entry.interiorSubtype
+        ? titleCaseEvidenceToken(entry.interiorSubtype)
+        : entry.type;
+      const descriptor = type && type !== identity ? ` · ${type}` : '';
+      const size = entry.sizeCode ? ` · ${entry.sizeCode}` : '';
+      const source = entry.sheet
+        ? ` · ${entry.sheet}${entry.page ? ` p.${entry.page}` : ''}`
+        : entry.page
+          ? ` · p.${entry.page}`
+          : '';
+      return `${level}${identity}${descriptor}${size}${source}`;
+    });
+}
+
+function openingScheduleText(
+  row: OpeningScheduleRow | null | undefined
+): string {
   return `${row?.type || ''} ${row?.notes || ''} ${row?.configuration || ''} ${
     row?.mark || ''
   } ${row?.callout || ''} ${row?.size || ''}`.toLowerCase();
@@ -394,13 +607,12 @@ function openingScheduleText(row: OpeningScheduleRow | null | undefined): string
 
 export function isExplicitSlidingDoor(text: string): boolean {
   const blob = String(text || '').toLowerCase();
-  if (
-    (hasHingedSwingLanguage(blob) || /\b(patio|garden)\b/.test(blob)) &&
-    !hasSliderMechanics(blob)
-  ) {
-    return false;
-  }
-  return hasSliderMechanics(blob) || /\b(slid(?:e|er|ing))\b/.test(blob);
+  const hasSlideLanguage =
+    hasSliderMechanics(blob) ||
+    /\b(slid(?:e|er|ing)s?|pocket\s+door)\b/.test(blob);
+  if (!hasSlideLanguage) return false;
+  if (hasHingedSwingLanguage(blob) && !hasSliderMechanics(blob)) return false;
+  return true;
 }
 
 function hasSliderMechanics(text: string): boolean {
@@ -427,7 +639,7 @@ export function looksLikeMisclassifiedSlidingRow(
   row: OpeningScheduleRow | null | undefined
 ): boolean {
   const text = openingScheduleText(row);
-  if (hasSliderMechanics(text)) return false;
+  if (hasSliderMechanics(text) || isExplicitSlidingDoor(text)) return false;
   if (hasHingedSwingLanguage(text) || /\b(patio|garden)\b/.test(text)) {
     return true;
   }
@@ -440,37 +652,44 @@ export function looksLikeMisclassifiedSlidingRow(
     !row?.sizeCode &&
     !(slidingRowWidthFt(row) > 0);
   return (
-    unlabeled &&
-    qty === 2 &&
-    slidingRowWidthFt(row) < 5 &&
-    /\bslid/.test(text)
+    unlabeled && qty === 2 && slidingRowWidthFt(row) < 5 && /\bslid/.test(text)
   );
 }
 
 function openingUnitQuantity(row: OpeningScheduleRow): number {
   const qty = positiveCount(row.quantity) || 1;
   const text = openingScheduleText(row);
-  if (hasSliderMechanics(text)) return qty;
+  if (hasSliderMechanics(text) || isExplicitSlidingDoor(text)) return qty;
   if (
-    /\b(french|double|pair|two[-\s]?leaf|2[-\s]?leaf|leaves|patio)\b/.test(text) &&
+    /\b(french|double|pair|two[-\s]?leaf|2[-\s]?leaf|leaves|patio)\b/.test(
+      text
+    ) &&
     qty === 2
   ) {
     return 1;
   }
-  if (looksLikeMisclassifiedSlidingRow(row) && qty === 2 && /\bslid/.test(text)) {
+  if (
+    looksLikeMisclassifiedSlidingRow(row) &&
+    qty === 2 &&
+    /\bslid/.test(text)
+  ) {
     return 1;
   }
   return qty;
 }
 
-function openingMarkKey(row: OpeningScheduleRow | null | undefined): string | null {
+function openingMarkKey(
+  row: OpeningScheduleRow | null | undefined
+): string | null {
   const mark = String(row?.mark || '')
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '');
   return mark || null;
 }
 
-function openingSizeKey(row: OpeningScheduleRow | null | undefined): string | null {
+function openingSizeKey(
+  row: OpeningScheduleRow | null | undefined
+): string | null {
   const code = String(row?.sizeCode || '')
     .replace(/\D/g, '')
     .slice(0, 4);
@@ -497,7 +716,9 @@ function swingOpeningFamily(
   return 'swing';
 }
 
-function isUnlabeledOpening(row: OpeningScheduleRow | null | undefined): boolean {
+function isUnlabeledOpening(
+  row: OpeningScheduleRow | null | undefined
+): boolean {
   return !openingMarkKey(row) && !openingSizeKey(row);
 }
 
@@ -561,7 +782,9 @@ export function reclassifyFenestrationOpeningSchedules(
   }
   return {
     ...schedules,
-    ...(exterior.length ? { exteriorDoors: exterior } : { exteriorDoors: undefined }),
+    ...(exterior.length
+      ? { exteriorDoors: exterior }
+      : { exteriorDoors: undefined }),
     ...(slidingKeep.length
       ? { slidingDoors: slidingKeep }
       : { slidingDoors: undefined }),
@@ -576,21 +799,11 @@ export function classifyWindowsDoorsPlanMeasurements(
   schedules: OpeningSchedules | null;
 } {
   const originalSliding = schedules?.slidingDoors || [];
-  const slidingCount = positiveCount(measurements.slidingDoorCount);
-  const needsScalarSlidingReclass =
-    slidingCount === 2 && !originalSliding.length;
-  const inputSchedules = needsScalarSlidingReclass
-    ? {
-        ...(schedules || {}),
-        slidingDoors: [{ type: 'slider', quantity: 2 }],
-      }
-    : schedules;
-  const classifiedSchedules =
-    reclassifyFenestrationOpeningSchedules(inputSchedules);
+  const classifiedSchedules = reclassifyFenestrationOpeningSchedules(schedules);
   const next = { ...normalizeWindowsDoorsPlanMeasurements(measurements) };
-  const shouldReclass =
-    originalSliding.some(row => looksLikeMisclassifiedSlidingRow(row)) ||
-    needsScalarSlidingReclass;
+  const shouldReclass = originalSliding.some(row =>
+    looksLikeMisclassifiedSlidingRow(row)
+  );
   if (shouldReclass) {
     const sliding = openingScheduleQuantityTotal(
       'slidingDoorCount',
@@ -703,7 +916,8 @@ export function classifyOpeningSizeTier(
     if (dims.heightFt >= 7.5) return 'medium';
     return 'standard';
   }
-  if (area >= 40 || (dims.widthFt >= 6 && dims.heightFt >= 6)) return 'oversized';
+  if (area >= 40 || (dims.widthFt >= 6 && dims.heightFt >= 6))
+    return 'oversized';
   if (area >= 25 || dims.widthFt >= 5) return 'large';
   if (area >= 16 || dims.widthFt >= 4 || dims.heightFt >= 6) return 'medium';
   return 'standard';
@@ -737,7 +951,8 @@ export function openingScheduleRowsForMeasurementKey(
   key: string,
   schedules?: OpeningSchedules | null
 ): OpeningScheduleRow[] {
-  const classified = reclassifyFenestrationOpeningSchedules(schedules) || schedules;
+  const classified =
+    reclassifyFenestrationOpeningSchedules(schedules) || schedules;
   if (!classified) return [];
   if (key === 'windowCount') return classified.windows || [];
   if (key === 'exteriorDoorCount') return classified.exteriorDoors || [];
@@ -746,7 +961,8 @@ export function openingScheduleRowsForMeasurementKey(
   const garage = classified.garageDoors || [];
   if (!garage.length) return [];
   const matching = garage.filter(row => {
-    const blob = `${row.type || ''} ${row.notes || ''} ${row.mark || ''}`.toLowerCase();
+    const blob =
+      `${row.type || ''} ${row.notes || ''} ${row.mark || ''}`.toLowerCase();
     const dims = resolveOpeningDimensions(row);
     const widthFt = dims?.widthFt ?? 0;
     const heightFt = dims?.heightFt ?? 0;
@@ -794,15 +1010,15 @@ export function openingScheduleQuantityTotal(
   return total > 0 ? total : null;
 }
 
-export function formatOpeningDetailLines(
-  rows: OpeningScheduleRow[]
-): string[] {
+export function formatOpeningDetailLines(rows: OpeningScheduleRow[]): string[] {
   const grouped = new Map<string, number>();
   for (const row of rows) {
     const label = formatOpeningSizeLabel(row);
     grouped.set(label, (grouped.get(label) || 0) + rowQuantity(row));
   }
-  return [...grouped.entries()].map(([label, quantity]) => `${quantity} × ${label}`);
+  return [...grouped.entries()].map(
+    ([label, quantity]) => `${quantity} × ${label}`
+  );
 }
 
 export function emptyOpeningSizeMix(): OpeningSizeMix {
@@ -834,7 +1050,9 @@ export function openingSizeMixFromRows(
 }
 
 export function openingSizeMixSummary(mix: OpeningSizeMix): string | null {
-  const parts = (['standard', 'medium', 'large', 'oversized'] as OpeningSizeTier[])
+  const parts = (
+    ['standard', 'medium', 'large', 'oversized'] as OpeningSizeTier[]
+  )
     .filter(tier => mix[tier] > 0)
     .map(tier => `${mix[tier]} ${tier}`);
   return parts.length ? `Pricing mix · ${parts.join(' · ')}` : null;

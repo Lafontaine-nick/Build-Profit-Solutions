@@ -10,12 +10,14 @@ import { ConfirmScopeChip } from '@/components/estimate/ConfirmScopeChip';
 import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
 import {
   confirmPendingPlanConfirmationRead,
-  conflictChooserLowConfidenceAcceptedLine,
+  conflictChooserConfirmedLine,
   emptyPlanTakeoffReadingDisplay,
   formatPlanTakeoffQuantity,
-  isPendingPlanReadConfirmed,
+  pendingPlanConfirmationCandidateValues,
   pendingPlanConfirmationReads,
+  pendingPlanConfirmationSelectedValue,
   resolveHvacPendingPlanConfirmationReads,
+  resolvePendingPlanConfirmationDisplayValue,
   shortPlanTakeoffHelper,
   unconfirmPendingPlanConfirmationRead,
   type PendingPlanConfirmationRead,
@@ -46,16 +48,20 @@ export function PlanTakeoffPendingConfirmationStrip({
   onPlanReadConfirmed?: (field: string) => void;
   includeUnresolvedConflicts?: boolean;
 }) {
-  const commitPlanReadConfirmation = (
-    field: string,
-    value: number,
-    confirmed: boolean
-  ) => {
+  const [trackedReads, setTrackedReads] = useState<
+    PendingPlanConfirmationRead[]
+  >([]);
+  const [localSelections, setLocalSelections] = useState<
+    Record<string, number | null>
+  >({});
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
+
+  const commitPlanReadConfirmation = (field: string, value: number) => {
+    setLocalSelections(prev => ({ ...prev, [field]: value }));
     setMeasurements(prev => {
-      const base = confirmed
-        ? confirmPendingPlanConfirmationRead(prev, field, value)
-        : unconfirmPendingPlanConfirmationRead(prev, field, value);
-      const resolved = confirmed && includeUnresolvedConflicts
+      const base = confirmPendingPlanConfirmationRead(prev, field, value);
+      const resolved = includeUnresolvedConflicts
         ? {
             ...base,
             measurementConflicts: Array.isArray(base.measurementConflicts)
@@ -65,19 +71,17 @@ export function PlanTakeoffPendingConfirmationStrip({
               : base.measurementConflicts,
           }
         : base;
-      return confirmed
-        ? applyHvacScopeSelectionForConfirmedField(resolved, field)
-        : resolved;
+      return applyHvacScopeSelectionForConfirmedField(resolved, field);
     });
-    if (confirmed) {
-      onPlanReadConfirmed?.(field);
-    }
+    onPlanReadConfirmed?.(field);
   };
-  const [trackedReads, setTrackedReads] = useState<
-    PendingPlanConfirmationRead[]
-  >([]);
-  const [editingField, setEditingField] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<Record<string, string>>({});
+
+  const clearPlanReadConfirmation = (field: string, value: number) => {
+    setLocalSelections(prev => ({ ...prev, [field]: null }));
+    setMeasurements(prev =>
+      unconfirmPendingPlanConfirmationRead(prev, field, value)
+    );
+  };
   const pending = useMemo(() => {
     const effectiveTradeKey =
       tradeKey ||
@@ -96,12 +100,7 @@ export function PlanTakeoffPendingConfirmationStrip({
       allowedFields,
       includeUnresolvedConflicts
     );
-  }, [
-    measurements,
-    allowedFields,
-    tradeKey,
-    includeUnresolvedConflicts,
-  ]);
+  }, [measurements, allowedFields, tradeKey, includeUnresolvedConflicts]);
   const displayReads = useMemo(() => {
     const byField = new Map<string, PendingPlanConfirmationRead>();
     for (const read of trackedReads) {
@@ -124,13 +123,7 @@ export function PlanTakeoffPendingConfirmationStrip({
     });
   }, [pending]);
 
-  const allConfirmed =
-    displayReads.length > 0 &&
-    displayReads.every(read =>
-      isPendingPlanReadConfirmed(measurements, read.field)
-    );
-
-  if (!displayReads.length || allConfirmed) return null;
+  if (!displayReads.length) return null;
 
   const panelBorder = darkMode
     ? 'rgba(148,163,184,0.28)'
@@ -153,26 +146,28 @@ export function PlanTakeoffPendingConfirmationStrip({
       </Text>
       <View style={styles.cardList}>
         {displayReads.map(reading => {
-          const confirmed = isPendingPlanReadConfirmed(
-            measurements,
-            reading.field
-          );
           const editedValue =
             editValues[reading.field] == null
               ? null
               : Number(editValues[reading.field]);
-          const displayValue =
-            editedValue != null &&
-            Number.isFinite(editedValue) &&
-            editedValue > 0
-              ? editedValue
-              : reading.value;
+          const displayValue = resolvePendingPlanConfirmationDisplayValue(
+            measurements,
+            reading,
+            editedValue
+          );
           const hasQuantity = displayValue > 0;
+          const candidateValues = pendingPlanConfirmationCandidateValues(
+            measurements,
+            reading
+          );
+          const selectedValue = pendingPlanConfirmationSelectedValue(
+            measurements,
+            reading.field,
+            localSelections[reading.field]
+          );
+          const confirmed = selectedValue != null;
           const editing = editingField === reading.field;
           const emptyDisplay = emptyPlanTakeoffReadingDisplay(reading.field);
-          const unitHint = formatPlanTakeoffQuantity(reading.field, 1)
-            .replace(/^1\s*/, '')
-            .replace(/^1/, '');
           return (
             <View
               key={reading.field}
@@ -196,28 +191,32 @@ export function PlanTakeoffPendingConfirmationStrip({
                 ]}
               >
                 {confirmed && hasQuantity
-                  ? conflictChooserLowConfidenceAcceptedLine(
-                      reading.field,
-                      displayValue
-                    )
+                  ? conflictChooserConfirmedLine(reading.field, selectedValue)
                   : hasQuantity
                     ? 'Needs manual confirmation'
                     : emptyDisplay.statusLine}
               </Text>
               {hasQuantity ? (
-                <ConfirmScopeChip
-                  selected={confirmed}
-                  label={formatPlanTakeoffQuantity(reading.field, displayValue)}
-                  subtitle='Low-confidence plan read'
-                  darkMode={darkMode}
-                  onPress={() => {
-                    commitPlanReadConfirmation(
-                      reading.field,
-                      displayValue,
-                      !confirmed
-                    );
-                  }}
-                />
+                <View style={styles.optionWrap}>
+                  {candidateValues.map((value, index) => (
+                    <ConfirmScopeChip
+                      key={`${reading.field}-${value}`}
+                      selected={selectedValue === value}
+                      label={formatPlanTakeoffQuantity(reading.field, value)}
+                      subtitle={
+                        index === 0 ? 'AI plan read' : 'Other AI plan read'
+                      }
+                      darkMode={darkMode}
+                      onPress={() => {
+                        if (selectedValue === value) {
+                          clearPlanReadConfirmation(reading.field, value);
+                          return;
+                        }
+                        commitPlanReadConfirmation(reading.field, value);
+                      }}
+                    />
+                  ))}
+                </View>
               ) : (
                 <ConfirmScopeChip
                   selected={false}
@@ -261,9 +260,7 @@ export function PlanTakeoffPendingConfirmationStrip({
                   ]}
                 >
                   <TextInput
-                    value={
-                      editValues[reading.field] ?? String(displayValue)
-                    }
+                    value={editValues[reading.field] ?? String(displayValue)}
                     autoFocus
                     selectTextOnFocus
                     returnKeyType='done'
@@ -275,7 +272,7 @@ export function PlanTakeoffPendingConfirmationStrip({
                       }));
                       const value = Number(next);
                       if (Number.isFinite(value) && value > 0) {
-                        commitPlanReadConfirmation(reading.field, value, true);
+                        commitPlanReadConfirmation(reading.field, value);
                       }
                     }}
                     {...aiScopeConfirmNumericKeyboardProps}
@@ -301,7 +298,7 @@ export function PlanTakeoffPendingConfirmationStrip({
 }
 
 const styles = StyleSheet.create({
-  wrap: { marginBottom: 16 },
+  wrap: { marginBottom: 16, marginHorizontal: -8 },
   eyebrow: {
     color: '#fbbf24',
     fontSize: 11,
@@ -318,6 +315,7 @@ const styles = StyleSheet.create({
   },
   hint: { fontSize: 12, lineHeight: 18, marginBottom: 12 },
   cardList: { gap: 16 },
+  optionWrap: { gap: 8 },
   card: {
     borderWidth: 1,
     borderRadius: 14,

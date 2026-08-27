@@ -1039,8 +1039,14 @@ Windows & doors takeoff rules:
 - Do NOT classify a hinged French/double door as a sliding/patio door because it leads to a patio. Swing arcs, inswing/outswing, or French/double callouts are exteriorDoorCount. Two leaves of one French opening are not 2 sliding doors.
 - slidingDoorCount requires a sliding symbol, track, multi-slide, bypass, or an explicit slider callout. Patio adjacency alone is not enough.
 - Count each physical opening once. Deduplicate the same door across the door schedule, floor-plan tags, and elevations using mark/tag, size, and type — not by assuming a typical exterior-door total.
+- Return planFacts.openingEvidence as one row per physical opening, not one grouped row per size. Each row must include category (window, exterior_swing, sliding, or interior), source (schedule, floor_plan, elevation, or section), sheet/page, and a short location such as "main east wall" or "upper Bedroom 3". Include mark, sizeCode/dimensions, operation/type, and interiorSubtype when readable. If the same opening appears on multiple sheets, repeat it with the same mark or location so the app can reconcile it; do not invent an instance when its location or source is not readable.
+- For interior openings, set interiorSubtype to room, bath, closet, laundry, pantry, or other only when documented. Exclude garage doors and exterior openings from the interior inventory.
+- The openingEvidence shape is: { id, category, source, mark, level, location, type, interiorSubtype, sheet, page, sourceText, sizeCode, widthIn, heightIn, confidence }. Use one row per physical opening; source rows that describe the same opening should share the mark or the same level/location/size identity.
 - ALWAYS return windowCount, exteriorDoorCount, and interiorDoorCount in measurements when those openings are visible on floor plans or elevations — even if there is NO window/door schedule. Put those symbol counts in geometryDerived. Blank Review cards are a failed takeoff. Do not omit windows or swing doors because a schedule is missing.
 - Return slidingDoorCount only for true sliders (track, multi-slide, bypass, or an explicit slider callout). If no slider is visible, omit slidingDoorCount. Never type a hinged/French/patio door as a slider.
+- On a covered-patio plan, count every distinct sliding opening. A great-room slider and a primary-suite slider are 2 slidingDoorCount units even when they share the same patio. Do not collapse two separate sliders into 1.
+- A two-story house can have sliding openings on more than one level. Count each physical slider once; do not assume there is only one patio slider.
+- When returning openingEvidence, tag true sliders as category sliding (not exterior_swing) and include type text such as "multi-slide", "sliding patio", or "bypass".
 - Put a readable window/door schedule or instance-tag total in explicitlyLabeled. If there is no door schedule, keep interiorDoorCount in geometryDerived — never invent a typical-house interior count or treat a guessed total as a schedule.
 - Only populate planFacts.openingSchedules rows when a mark, size code, or labeled dimension is readable. Do not invent a partial schedule, and do not reduce elevation/floor-plan counts to match one.
 - Do not invent a typical house layout from living area. Omit a field only when that opening type is truly unreadable on every sheet.
@@ -1842,7 +1848,11 @@ function sanitizeRooms(rawRooms) {
     };
     const roomWallHeightFt =
       positive(room.wallHeightFt) || positive(room.plateHeightFt);
-    if (roomWallHeightFt != null && roomWallHeightFt >= 7 && roomWallHeightFt <= 14) {
+    if (
+      roomWallHeightFt != null &&
+      roomWallHeightFt >= 7 &&
+      roomWallHeightFt <= 14
+    ) {
       entry.wallHeightFt = roomWallHeightFt;
     }
     if (room.source) entry.source = String(room.source).slice(0, 40);
@@ -2115,13 +2125,20 @@ function hasHingedSwingLanguage(text) {
 
 function isExplicitSlidingDoor(text) {
   const blob = String(text || "").toLowerCase();
-  if (
-    (hasHingedSwingLanguage(blob) || /\b(patio|garden)\b/.test(blob)) &&
-    !hasSliderMechanics(blob)
-  ) {
-    return false;
-  }
-  return hasSliderMechanics(blob) || /\b(slid(?:e|er|ing))\b/.test(blob);
+  const hasSlideLanguage =
+    hasSliderMechanics(blob) ||
+    /\b(slid(?:e|er|ing)s?|pocket\s+door)\b/.test(blob);
+  if (!hasSlideLanguage) return false;
+  if (hasHingedSwingLanguage(blob) && !hasSliderMechanics(blob)) return false;
+  return true;
+}
+
+function resolveOpeningEvidenceCategory(category, type, location, sourceText) {
+  const initial = String(category || "").trim().toLowerCase();
+  if (initial !== "exterior_swing") return initial;
+  const blob = `${type || ""} ${sourceText || ""} ${location || ""}`.toLowerCase();
+  if (isExplicitSlidingDoor(blob)) return "sliding";
+  return initial;
 }
 
 function slidingRowWidthFt(row) {
@@ -2134,14 +2151,11 @@ function slidingRowWidthFt(row) {
 
 function looksLikeMisclassifiedSlidingRow(row) {
   const text = openingScheduleText(row);
-  if (hasSliderMechanics(text)) return false;
+  if (hasSliderMechanics(text) || isExplicitSlidingDoor(text)) return false;
   if (hasHingedSwingLanguage(text) || /\b(patio|garden)\b/.test(text)) {
     return true;
   }
-  if (
-    /\b(double|pair|leaf|leaves)\b/.test(text) &&
-    !/\bslid/.test(text)
-  ) {
+  if (/\b(double|pair|leaf|leaves)\b/.test(text) && !/\bslid/.test(text)) {
     return true;
   }
   const qty = windowsDoorsBoundedCount(row?.quantity) ?? 1;
@@ -2150,24 +2164,27 @@ function looksLikeMisclassifiedSlidingRow(row) {
     !row?.sizeCode &&
     !(slidingRowWidthFt(row) > 0);
   return (
-    unlabeled &&
-    qty === 2 &&
-    slidingRowWidthFt(row) < 5 &&
-    /\bslid/.test(text)
+    unlabeled && qty === 2 && slidingRowWidthFt(row) < 5 && /\bslid/.test(text)
   );
 }
 
 function openingUnitQuantity(row) {
   const qty = windowsDoorsBoundedCount(row?.quantity) ?? 1;
   const text = openingScheduleText(row);
-  if (hasSliderMechanics(text)) return qty;
+  if (hasSliderMechanics(text) || isExplicitSlidingDoor(text)) return qty;
   if (
-    /\b(french|double|pair|two[-\s]?leaf|2[-\s]?leaf|leaves|patio)\b/.test(text) &&
+    /\b(french|double|pair|two[-\s]?leaf|2[-\s]?leaf|leaves|patio)\b/.test(
+      text,
+    ) &&
     qty === 2
   ) {
     return 1;
   }
-  if (looksLikeMisclassifiedSlidingRow(row) && qty === 2 && /\bslid/.test(text)) {
+  if (
+    looksLikeMisclassifiedSlidingRow(row) &&
+    qty === 2 &&
+    /\bslid/.test(text)
+  ) {
     return 1;
   }
   return qty;
@@ -2307,6 +2324,205 @@ function sanitizeOpeningSchedules(raw) {
   return classified && Object.keys(classified).length ? classified : null;
 }
 
+const OPENING_EVIDENCE_CATEGORIES = new Set([
+  "window",
+  "exterior_swing",
+  "sliding",
+  "interior",
+]);
+const OPENING_EVIDENCE_SOURCES = new Set([
+  "schedule",
+  "floor_plan",
+  "elevation",
+  "section",
+]);
+const INTERIOR_OPENING_SUBTYPES = new Set([
+  "room",
+  "bath",
+  "closet",
+  "laundry",
+  "pantry",
+  "other",
+]);
+
+function sanitizeOpeningEvidence(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const category = String(item.category || item.kind || "")
+        .trim()
+        .toLowerCase();
+      if (!OPENING_EVIDENCE_CATEGORIES.has(category)) return null;
+      const source = String(item.source || item.sourceType || "")
+        .trim()
+        .toLowerCase();
+      if (!OPENING_EVIDENCE_SOURCES.has(source)) return null;
+      const id = String(item.id || item.instanceId || "")
+        .trim()
+        .slice(0, 40);
+      const mark = String(item.mark || item.tag || "")
+        .trim()
+        .slice(0, 24);
+      const level = String(item.level || item.story || "")
+        .trim()
+        .slice(0, 30);
+      const location = String(item.location || item.room || "")
+        .trim()
+        .slice(0, 80);
+      const type = String(item.type || item.operation || "")
+        .trim()
+        .slice(0, 40);
+      const subtype = String(item.interiorSubtype || item.subtype || "")
+        .trim()
+        .toLowerCase();
+      const sheet = String(item.sheet || item.sourceSheet || "")
+        .trim()
+        .slice(0, 20);
+      const page = Number(item.page ?? item.sourcePage);
+      const sourceText = String(item.sourceText || item.label || "")
+        .trim()
+        .slice(0, 160);
+      const resolvedCategory = resolveOpeningEvidenceCategory(
+        category,
+        type,
+        location,
+        sourceText,
+      );
+      const entry = { category: resolvedCategory, source };
+      const sizeCode = sanitizeOpeningSizeCode(
+        item.sizeCode || item.callout || item.size,
+      );
+      const widthIn = sanitizeOpeningInches(item.widthIn);
+      const heightIn = sanitizeOpeningInches(item.heightIn);
+      const widthFt = positive(item.widthFt);
+      const heightFt = positive(item.heightFt);
+      const confidence = Number(item.confidence);
+      if (id) entry.id = id;
+      if (mark) entry.mark = mark;
+      if (level) entry.level = level;
+      if (location) entry.location = location;
+      if (type) entry.type = type;
+      if (category === "interior" && INTERIOR_OPENING_SUBTYPES.has(subtype))
+        entry.interiorSubtype = subtype;
+      if (sheet) entry.sheet = sheet;
+      if (Number.isInteger(page) && page > 0 && page <= 1000) entry.page = page;
+      if (sourceText) entry.sourceText = sourceText;
+      if (sizeCode) entry.sizeCode = sizeCode;
+      if (widthIn != null) entry.widthIn = widthIn;
+      if (heightIn != null) entry.heightIn = heightIn;
+      if (widthFt != null && widthFt <= 40) entry.widthFt = roundTenth(widthFt);
+      if (heightFt != null && heightFt <= 24)
+        entry.heightFt = roundTenth(heightFt);
+      if (Number.isFinite(confidence))
+        entry.confidence = Math.max(0, Math.min(1, confidence));
+      if (entry.category === "interior" && subtype && !entry.interiorSubtype)
+        entry.interiorSubtype = "other";
+      const hasIdentity = entry.mark || entry.location || entry.sizeCode;
+      const hasSource = entry.sheet || entry.page || entry.sourceText;
+      return hasIdentity && hasSource ? entry : null;
+    })
+    .filter(Boolean)
+    .slice(0, 240);
+}
+
+function isCoarsePatioSlidingLocation(location) {
+  const blob = String(location || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (!blob) return true;
+  if (
+    /\b(living|great|family|primary|master|suite|bedroom|kitchen|dining|nook|den|office|flex|loft|bonus)\b/.test(
+      blob,
+    )
+  ) {
+    return false;
+  }
+  return /\b(patio|porch|deck|lanai|veranda|rear|back)\b/.test(blob);
+}
+
+function openingEvidenceIdentity(entry) {
+  const category = String(entry?.category || "");
+  const mark = String(entry?.mark || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  if (mark) return `${category}:mark:${mark}`;
+  const location = String(entry?.location || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  const level = String(entry?.level || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  const size = openingSizeKey(entry);
+  const type = String(entry?.type || entry?.interiorSubtype || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (!location || !level || (!size && !type)) return null;
+  if (category === "sliding" && isCoarsePatioSlidingLocation(location)) {
+    return null;
+  }
+  return `${category}:location:${level}|${location}|${size || type}`;
+}
+
+function reconcileOpeningEvidence(raw) {
+  const entries = sanitizeOpeningEvidence(raw);
+  const unique = [];
+  const duplicates = [];
+  const identityToIndex = new Map();
+  for (const entry of entries) {
+    const identity = openingEvidenceIdentity(entry);
+    if (!identity || !identityToIndex.has(identity)) {
+      identityToIndex.set(
+        identity || `unmatched:${unique.length}`,
+        unique.length,
+      );
+      unique.push(entry);
+      continue;
+    }
+    const canonicalIndex = identityToIndex.get(identity);
+    duplicates.push({
+      duplicateId: entry.id || `${entry.category}-${duplicates.length + 1}`,
+      canonicalId:
+        unique[canonicalIndex].id ||
+        `${unique[canonicalIndex].category}-${canonicalIndex + 1}`,
+      reason: entry.mark ? "matching_mark" : "matching_location_size",
+    });
+  }
+  const sourceCounts = {};
+  for (const entry of entries) {
+    sourceCounts[entry.category] ||= {};
+    sourceCounts[entry.category][entry.source] =
+      (sourceCounts[entry.category][entry.source] || 0) + 1;
+  }
+  const uniqueCounts = {};
+  const interiorBreakdown = {};
+  for (const entry of unique) {
+    uniqueCounts[entry.category] = (uniqueCounts[entry.category] || 0) + 1;
+    if (entry.category === "interior") {
+      const subtype = entry.interiorSubtype || "other";
+      interiorBreakdown[subtype] = (interiorBreakdown[subtype] || 0) + 1;
+    }
+  }
+  const variance = {};
+  for (const [category, counts] of Object.entries(sourceCounts)) {
+    const values = Object.values(counts);
+    if (values.length > 1 && new Set(values).size > 1) {
+      variance[category] = counts;
+    }
+  }
+  return {
+    entries: unique,
+    duplicates: duplicates.slice(0, 120),
+    sourceCounts,
+    uniqueCounts,
+    interiorBreakdown,
+    variance,
+  };
+}
+
 /**
  * Keep readable Windows & doors counts even when confidence is below the
  * global floor. Schedule totals stay verified; elevation/symbol counts stay
@@ -2321,14 +2537,21 @@ function openingScheduleQuantityTotal(key, schedules) {
     garageDoors: schedules?.garageDoors,
   };
   let rows = map[key];
-  if (key === "garageDoorSingleCount" || key === "garageDoorDoubleCount" || key === "garageDoorRvCount") {
+  if (
+    key === "garageDoorSingleCount" ||
+    key === "garageDoorDoubleCount" ||
+    key === "garageDoorRvCount"
+  ) {
     rows = Array.isArray(schedules?.garageDoors) ? schedules.garageDoors : [];
     rows = rows.filter((row) => {
-      const blob = `${row?.type || ""} ${row?.notes || ""} ${row?.mark || ""}`.toLowerCase();
+      const blob =
+        `${row?.type || ""} ${row?.notes || ""} ${row?.mark || ""}`.toLowerCase();
       const widthFt = Number(row?.widthFt) || Number(row?.widthIn) / 12 || 0;
       const heightFt = Number(row?.heightFt) || Number(row?.heightIn) / 12 || 0;
-      if (key === "garageDoorRvCount") return /rv|oversize|tall/.test(blob) || heightFt >= 10;
-      if (key === "garageDoorDoubleCount") return /double/.test(blob) || (widthFt >= 14 && widthFt < 20);
+      if (key === "garageDoorRvCount")
+        return /rv|oversize|tall/.test(blob) || heightFt >= 10;
+      if (key === "garageDoorDoubleCount")
+        return /double/.test(blob) || (widthFt >= 14 && widthFt < 20);
       return /single/.test(blob) || (widthFt > 0 && widthFt < 12);
     });
     if (!rows.length && key === "garageDoorDoubleCount") {
@@ -2343,6 +2566,37 @@ function openingScheduleQuantityTotal(key, schedules) {
   return windowsDoorsBoundedCount(total);
 }
 
+function hydrateSlidingCountFromOpeningEvidence(
+  next,
+  provenance,
+  derived,
+  assumptions,
+  openingReconciliation,
+) {
+  const current = windowsDoorsBoundedCount(next.slidingDoorCount);
+  const slidingEvidence = windowsDoorsBoundedCount(
+    openingReconciliation?.uniqueCounts?.sliding,
+  );
+  if (slidingEvidence == null || slidingEvidence <= 0) return;
+  if (current != null && current >= slidingEvidence) return;
+  next.slidingDoorCount = slidingEvidence;
+  derived.add("slidingDoorCount");
+  provenance.slidingDoorCount = {
+    ...(provenance.slidingDoorCount &&
+    typeof provenance.slidingDoorCount === "object"
+      ? provenance.slidingDoorCount
+      : {}),
+    value: slidingEvidence,
+    source: "calculated_from_symbols",
+    normalizedSource: "NEEDS_CONFIRMATION",
+    evidenceKind: "opening_evidence",
+    pricingEligible: false,
+  };
+  assumptions.push(
+    `slidingDoorCount ${slidingEvidence} EA reconciled from opening-by-opening plan evidence — confirm.`,
+  );
+}
+
 function applyWindowsDoorsPlanTakeoff({
   measurements = {},
   lowConfidence = [],
@@ -2351,6 +2605,7 @@ function applyWindowsDoorsPlanTakeoff({
   geometryDerived = [],
   measurementProvenance = {},
   openingSchedules = null,
+  openingReconciliation = null,
 } = {}) {
   const rawScheduleRows = {
     windows: sanitizeOpeningScheduleRows(openingSchedules?.windows),
@@ -2361,23 +2616,10 @@ function applyWindowsDoorsPlanTakeoff({
     interiorDoors: sanitizeOpeningScheduleRows(openingSchedules?.interiorDoors),
     garageDoors: sanitizeOpeningScheduleRows(openingSchedules?.garageDoors),
   };
-  const slidingScalar = windowsDoorsBoundedCount(
-    measurements.slidingDoorCount ?? rawVisionMeasurements?.slidingDoorCount,
+  const droppedMisclassifiedSliding = hadMisclassifiedSliding(rawScheduleRows);
+  const classifiedInput = Object.fromEntries(
+    Object.entries(rawScheduleRows).filter(([, rows]) => rows.length),
   );
-  const needsScalarSlidingReclass =
-    !hadMisclassifiedSliding(rawScheduleRows) &&
-    slidingScalar === 2 &&
-    !rawScheduleRows.slidingDoors.length;
-  const droppedMisclassifiedSliding =
-    hadMisclassifiedSliding(rawScheduleRows) || needsScalarSlidingReclass;
-  const classifiedInput = {
-    ...Object.fromEntries(
-      Object.entries(rawScheduleRows).filter(([, rows]) => rows.length),
-    ),
-    ...(needsScalarSlidingReclass
-      ? { slidingDoors: [{ type: "slider", quantity: 2 }] }
-      : {}),
-  };
   const classifiedSchedules =
     reclassifyFenestrationOpeningSchedules(classifiedInput) || null;
 
@@ -2426,8 +2668,10 @@ function applyWindowsDoorsPlanTakeoff({
         if (
           droppedMisclassifiedSliding &&
           entry?.field === "slidingDoorCount" &&
-          openingScheduleQuantityTotal("slidingDoorCount", classifiedSchedules) ==
-            null
+          openingScheduleQuantityTotal(
+            "slidingDoorCount",
+            classifiedSchedules,
+          ) == null
         ) {
           return false;
         }
@@ -2465,7 +2709,11 @@ function applyWindowsDoorsPlanTakeoff({
       windowsDoorsBoundedCount(vision?.[key]);
     let count = visionCount ?? scheduleCount;
     if (documented && scheduleCount != null) {
-      if (visionCount != null && visionCount > scheduleCount && derived.has(key)) {
+      if (
+        visionCount != null &&
+        visionCount > scheduleCount &&
+        derived.has(key)
+      ) {
         count = visionCount;
       } else {
         count = scheduleCount;
@@ -2474,9 +2722,10 @@ function applyWindowsDoorsPlanTakeoff({
       count = Math.max(visionCount, scheduleCount);
     }
     if (count == null) continue;
-    const existing = provenance[key] && typeof provenance[key] === "object"
-      ? provenance[key]
-      : {};
+    const existing =
+      provenance[key] && typeof provenance[key] === "object"
+        ? provenance[key]
+        : {};
     const fromSchedule =
       documented &&
       key !== "interiorDoorCount" &&
@@ -2514,6 +2763,14 @@ function applyWindowsDoorsPlanTakeoff({
   if (droppedMisclassifiedSliding && next.slidingDoorCount == null) {
     delete provenance.slidingDoorCount;
   }
+
+  hydrateSlidingCountFromOpeningEvidence(
+    next,
+    provenance,
+    derived,
+    assumptions,
+    openingReconciliation,
+  );
 
   return {
     measurements: next,
@@ -2711,6 +2968,17 @@ function sanitizePlanFacts(raw, buildingAreas = {}) {
     buildingAreas: sanitizeBuildingAreas(buildingAreas),
     fieldEvidence,
   };
+  const openingEvidence = reconcileOpeningEvidence(src.openingEvidence);
+  if (openingEvidence.entries.length) {
+    out.openingEvidence = openingEvidence.entries;
+    out.openingReconciliation = {
+      duplicates: openingEvidence.duplicates,
+      sourceCounts: openingEvidence.sourceCounts,
+      uniqueCounts: openingEvidence.uniqueCounts,
+      interiorBreakdown: openingEvidence.interiorBreakdown,
+      variance: openingEvidence.variance,
+    };
+  }
   const ceilingBoundary = sanitizeCeilingBoundary(src.ceilingBoundary);
   if (ceilingBoundary) out.ceilingBoundary = ceilingBoundary;
   const hasEvidence = (key) => Boolean(fieldEvidence[key]?.evidence?.length);
@@ -2927,7 +3195,10 @@ function normalizeDrywallPlanMeasurements(raw = {}, supportedKeys = []) {
     const value = positive(src[key]);
     if (value != null) out[key] = roundTenth(value);
   }
-  if (typeof src.drywallFinishLevel === "string" && src.drywallFinishLevel.trim()) {
+  if (
+    typeof src.drywallFinishLevel === "string" &&
+    src.drywallFinishLevel.trim()
+  ) {
     out.drywallFinishLevel = src.drywallFinishLevel.trim();
   }
   if (out.drywallSqft == null) {
@@ -3055,15 +3326,15 @@ function deriveDrywallGeometryMeasurements(
     explicitInteriorWallHeightFt(options.rawPlanFacts || {});
   const conditionedCeilingSqft =
     (positive(buildingAreas.mainFloorLivingSqft) || 0) +
-    (positive(buildingAreas.upstairsLivingSqft) || 0) ||
-    null;
+      (positive(buildingAreas.upstairsLivingSqft) || 0) || null;
   const allRooms = Array.isArray(rooms) ? rooms : [];
   const garageRooms = allRooms
     .filter(
       (room) =>
         /\bgarage\b|\brv\s*garage\b/i.test(String(room?.name || "")) &&
         ((Number(room?.confidence) || 0) >= 0.4 ||
-          (positive(room?.lengthFt) != null && positive(room?.widthFt) != null)),
+          (positive(room?.lengthFt) != null &&
+            positive(room?.widthFt) != null)),
     )
     .map((room) => ({ room, ...roomRectangle(room) }));
   const eligible = allRooms
@@ -3071,7 +3342,8 @@ function deriveDrywallGeometryMeasurements(
       (room) =>
         isPaintableInteriorRoom(room?.name) &&
         ((Number(room?.confidence) || 0) >= 0.4 ||
-          (positive(room?.lengthFt) != null && positive(room?.widthFt) != null)),
+          (positive(room?.lengthFt) != null &&
+            positive(room?.widthFt) != null)),
     )
     .map((room) => ({ room, ...roomRectangle(room) }));
   const dimensioned = eligible.filter((entry) => entry.perimeterLf != null);
@@ -3088,7 +3360,8 @@ function deriveDrywallGeometryMeasurements(
     const wallSqft = dimensioned.reduce(
       (sum, entry) =>
         sum +
-        entry.perimeterLf * (explicitInteriorWallHeightFt(entry.room) || wallHeightFt),
+        entry.perimeterLf *
+          (explicitInteriorWallHeightFt(entry.room) || wallHeightFt),
       0,
     );
     const rounded = roundTenth(wallSqft);
@@ -3110,10 +3383,7 @@ function deriveDrywallGeometryMeasurements(
     }
   }
 
-  if (
-    !(positive(next.drywallCeilingSqft) > 0) &&
-    roomAreaSqft != null
-  ) {
+  if (!(positive(next.drywallCeilingSqft) > 0) && roomAreaSqft != null) {
     const rounded = roundTenth(roomAreaSqft);
     if (rounded > 0) {
       next.drywallCeilingSqft = rounded;
@@ -3136,20 +3406,14 @@ function deriveDrywallGeometryMeasurements(
       (sum, entry) => sum + (entry.areaSqft || 0),
       0,
     );
-    if (
-      !(positive(next.garageCeilingDrywallSqft) > 0) &&
-      garageArea > 0
-    ) {
+    if (!(positive(next.garageCeilingDrywallSqft) > 0) && garageArea > 0) {
       next.garageCeilingDrywallSqft = roundTenth(garageArea);
       derivedKeys.push("garageCeilingDrywallSqft");
       assumptions.push(
         `Garage ceiling drywall ${next.garageCeilingDrywallSqft.toLocaleString()} SF calculated from ${garageRooms.length} dimensioned garage footprint${garageRooms.length === 1 ? "" : "s"}; confirm whether the garage ceiling is drywalled.`,
       );
     }
-    if (
-      !(positive(next.garageWallDrywallSqft) > 0) &&
-      wallHeightFt
-    ) {
+    if (!(positive(next.garageWallDrywallSqft) > 0) && wallHeightFt) {
       const garageWallArea = garageRooms.reduce((sum, entry) => {
         const perimeter =
           entry.perimeterLf ||
@@ -3762,6 +4026,31 @@ async function analyzePlanForMeasurements({
     }
   }
 
+  // Architectural PDFs often contain the sliding-door evidence only as tiny
+  // graphical symbols. Send the relevant sheets as raster images so vision
+  // can inspect tracks/panels instead of relying on the PDF text layer.
+  let windowsDoorsSheetImages = [];
+  if (windowsDoorsSelected && pdfBuffers.length) {
+    try {
+      const { renderWindowsDoorsPlanPages } = require("./planPdfTextTakeoff");
+      const selectedPages =
+        pdfTakeoff?.windowsDoorsRelevantPages?.length
+          ? pdfTakeoff.windowsDoorsRelevantPages
+          : Array.from(
+              { length: Math.min(Number(pdfTakeoff?.pageCount) || 0, 8) },
+              (_, index) => ({ page: index + 1 }),
+            );
+      windowsDoorsSheetImages = await renderWindowsDoorsPlanPages(
+        pdfBuffers,
+        selectedPages,
+        { maxPages: 8, maxDimension: 4200 },
+      );
+    } catch (err) {
+      console.warn("Windows & doors sheet raster skipped:", err?.message || err);
+      windowsDoorsSheetImages = [];
+    }
+  }
+
   if (electricalSelected) {
     logElectricalTakeoffStage("ELECTRICAL PAGE SELECTION", {
       pages: (pdfTakeoff?.electricalRelevantPages || []).map(
@@ -3818,6 +4107,9 @@ async function analyzePlanForMeasurements({
   const hvacVisionParts = hvacSheetImages.length
     ? hvacSheetImages.map(toVisionContentPart)
     : null;
+  const windowsDoorsVisionParts = windowsDoorsSheetImages.length
+    ? windowsDoorsSheetImages.map(toVisionContentPart)
+    : null;
   if (process.env.NODE_ENV !== "production" && insulationSelected) {
     console.debug("[insulation plan pages]", {
       selectedPages: (pdfTakeoff?.insulationRelevantPages || []).map(
@@ -3830,6 +4122,7 @@ async function analyzePlanForMeasurements({
     electricalVisionParts ||
     plumbingVisionParts ||
     hvacVisionParts ||
+    windowsDoorsVisionParts ||
     compatible.map(toVisionContentPart);
   const electricalSheetCountHint = electricalVisionParts
     ? `The attached images are Electrical sheets (pages ${
@@ -3899,66 +4192,66 @@ async function analyzePlanForMeasurements({
                       ? hintBits.join("\n\n")
                       : "No extra context.",
                   ].join("\n\n")
-              : plumbingSelected
-                ? [
-                    PLUMBING_VISION_INSTRUCTIONS,
-                    "Return canonical Plumbing quantities only. Leave packages, living-area quantities, and unsupported/inferred values omitted.",
-                    hintBits.length
-                      ? hintBits.join("\n\n")
-                      : "No extra context.",
-                  ].join("\n\n")
-                : insulationSelected
+                : plumbingSelected
                   ? [
-                      INSULATION_VISION_INSTRUCTIONS,
+                      PLUMBING_VISION_INSTRUCTIONS,
+                      "Return canonical Plumbing quantities only. Leave packages, living-area quantities, and unsupported/inferred values omitted.",
                       hintBits.length
                         ? hintBits.join("\n\n")
                         : "No extra context.",
                     ].join("\n\n")
-                  : windowsDoorsSelected
+                  : insulationSelected
                     ? [
-                        WINDOWS_DOORS_VISION_INSTRUCTIONS,
-                        "Return only Windows & doors canonical counts and evidence. Do not return garage door counts.",
+                        INSULATION_VISION_INSTRUCTIONS,
                         hintBits.length
                           ? hintBits.join("\n\n")
                           : "No extra context.",
                       ].join("\n\n")
-                  : garageDoorsSelected
-                    ? [
-                        GARAGE_DOORS_VISION_INSTRUCTIONS,
-                        "Return only garage door type counts and opener count when labeled.",
-                        hintBits.length
-                          ? hintBits.join("\n\n")
-                          : "No extra context.",
-                      ].join("\n\n")
-                  : drywallSelected
-                    ? [
-                        DRYWALL_VISION_INSTRUCTIONS,
-                        "Inspect every architectural floor plan, dimensioned room layout, reflected ceiling plan, section, interior elevation, wall-type schedule, and finish schedule attached.",
-                        "Return every readable drywall-relevant room in rooms[] with name, lengthFt, widthFt, areaSqft, wallHeightFt or plateHeightFt when shown, sourcePage, sourceSheet, and confidence. Include conditioned rooms and separately labeled Garage/RV Garage rooms.",
-                        "For the selected Drywall trade, calculate drywallWallSqft from readable conditioned-room perimeters multiplied by explicit wall/plate height, and drywallCeilingSqft from readable conditioned ceiling/room areas. Add those keys to geometryDerived and explain any incomplete coverage as NEEDS_CONFIRMATION.",
-                        "Do not use total living area, garage area, a multiplier, visual proportions, or an arbitrary default height as a drywall surface quantity. Use living and garage schedule areas only as context or a reasonableness check.",
-                        "Return garageWallDrywallSqft and garageCeilingDrywallSqft separately when garage geometry and height are readable. Return specialty board, vaulted/sloped, high-ceiling, and Level 5 quantities only when explicitly documented.",
-                        hintBits.length
-                          ? hintBits.join("\n\n")
-                          : "No extra context.",
-                      ].join("\n\n")
-                  : [
-                      "Extract Building Areas / Area Schedule totals AND every labeled room with length×width or SF from these floor plan / blueprint pages.",
-                      "For Stucco / Exterior Finish, inspect every front/rear/left/right elevation and wall section. Read elevation face widths/heights, story-specific plate heights, window and door dimensions, garage door dimensions, cladding callouts, soffits, parapets, foam bands, and control joints.",
-                      "Calculate gross exterior wall SF only from readable elevation face dimensions or a readable perimeter plus story-specific heights. PDF perimeter/plate facts (when provided) replace living-SF guesses for GROSS only — you must still return window/door opening SF and garage opening SF from the elevations. Subtract only readable opening and non-stucco finish deductions. Never use living SF, floor SF, ridge height, or visual proportions as wall area.",
-                      "Include all bedrooms, baths, kitchen, dining, great room/living, laundry, pantry, closets, garage/RV garage, patio/porch — not just a few key rooms.",
-                      "Pair each room label with the dimension string printed for that room only — never swap Kitchen/Den/Bedroom/Garage/RV dims.",
-                      "Use floor-plan sheets for room L×W, not foundation overall garage envelopes. Each bath needs its own readable L×W; otherwise omit bathroomFloorSqft.",
-                      "Photos of printed sheets are OK — read the title-block square footage table carefully.",
-                      "Only report numbers you can actually read. If a value is blurry or illegible, omit it and list it in unreadableFields — never guess.",
-                      paintingSelected
-                        ? paintingVisionInstructions
-                        : "Do not invent paint, drywall, or trim quantities. If a Stucco quantity is unavailable, list the exact missing sheet/measurement in unreadableFields or missingInfo.",
-                      "Covered patio / roof deck → deckSqft. Garage schedule → garageSqft. Never map patio to concrete flatwork.",
-                      hintBits.length
-                        ? hintBits.join("\n\n")
-                        : "No extra context.",
-                    ].join("\n\n"),
+                    : windowsDoorsSelected
+                      ? [
+                          WINDOWS_DOORS_VISION_INSTRUCTIONS,
+                          "Return only Windows & doors canonical counts and evidence. Do not return garage door counts.",
+                          hintBits.length
+                            ? hintBits.join("\n\n")
+                            : "No extra context.",
+                        ].join("\n\n")
+                      : garageDoorsSelected
+                        ? [
+                            GARAGE_DOORS_VISION_INSTRUCTIONS,
+                            "Return only garage door type counts and opener count when labeled.",
+                            hintBits.length
+                              ? hintBits.join("\n\n")
+                              : "No extra context.",
+                          ].join("\n\n")
+                        : drywallSelected
+                          ? [
+                              DRYWALL_VISION_INSTRUCTIONS,
+                              "Inspect every architectural floor plan, dimensioned room layout, reflected ceiling plan, section, interior elevation, wall-type schedule, and finish schedule attached.",
+                              "Return every readable drywall-relevant room in rooms[] with name, lengthFt, widthFt, areaSqft, wallHeightFt or plateHeightFt when shown, sourcePage, sourceSheet, and confidence. Include conditioned rooms and separately labeled Garage/RV Garage rooms.",
+                              "For the selected Drywall trade, calculate drywallWallSqft from readable conditioned-room perimeters multiplied by explicit wall/plate height, and drywallCeilingSqft from readable conditioned ceiling/room areas. Add those keys to geometryDerived and explain any incomplete coverage as NEEDS_CONFIRMATION.",
+                              "Do not use total living area, garage area, a multiplier, visual proportions, or an arbitrary default height as a drywall surface quantity. Use living and garage schedule areas only as context or a reasonableness check.",
+                              "Return garageWallDrywallSqft and garageCeilingDrywallSqft separately when garage geometry and height are readable. Return specialty board, vaulted/sloped, high-ceiling, and Level 5 quantities only when explicitly documented.",
+                              hintBits.length
+                                ? hintBits.join("\n\n")
+                                : "No extra context.",
+                            ].join("\n\n")
+                          : [
+                              "Extract Building Areas / Area Schedule totals AND every labeled room with length×width or SF from these floor plan / blueprint pages.",
+                              "For Stucco / Exterior Finish, inspect every front/rear/left/right elevation and wall section. Read elevation face widths/heights, story-specific plate heights, window and door dimensions, garage door dimensions, cladding callouts, soffits, parapets, foam bands, and control joints.",
+                              "Calculate gross exterior wall SF only from readable elevation face dimensions or a readable perimeter plus story-specific heights. PDF perimeter/plate facts (when provided) replace living-SF guesses for GROSS only — you must still return window/door opening SF and garage opening SF from the elevations. Subtract only readable opening and non-stucco finish deductions. Never use living SF, floor SF, ridge height, or visual proportions as wall area.",
+                              "Include all bedrooms, baths, kitchen, dining, great room/living, laundry, pantry, closets, garage/RV garage, patio/porch — not just a few key rooms.",
+                              "Pair each room label with the dimension string printed for that room only — never swap Kitchen/Den/Bedroom/Garage/RV dims.",
+                              "Use floor-plan sheets for room L×W, not foundation overall garage envelopes. Each bath needs its own readable L×W; otherwise omit bathroomFloorSqft.",
+                              "Photos of printed sheets are OK — read the title-block square footage table carefully.",
+                              "Only report numbers you can actually read. If a value is blurry or illegible, omit it and list it in unreadableFields — never guess.",
+                              paintingSelected
+                                ? paintingVisionInstructions
+                                : "Do not invent paint, drywall, or trim quantities. If a Stucco quantity is unavailable, list the exact missing sheet/measurement in unreadableFields or missingInfo.",
+                              "Covered patio / roof deck → deckSqft. Garage schedule → garageSqft. Never map patio to concrete flatwork.",
+                              hintBits.length
+                                ? hintBits.join("\n\n")
+                                : "No extra context.",
+                            ].join("\n\n"),
           },
           ...visionParts,
         ],
@@ -3972,7 +4265,10 @@ async function analyzePlanForMeasurements({
         try {
           const { analyzePlanForScope } = require("./estimatePlanToScope");
           return await analyzePlanForScope({
-            pages: compatible,
+            pages:
+              windowsDoorsSelected && windowsDoorsSheetImages.length
+                ? windowsDoorsSheetImages
+                : compatible,
             toVisionContentPart,
             existingNotes,
             templateKeyHint,
@@ -4032,11 +4328,11 @@ async function analyzePlanForMeasurements({
                       ? "\nThis is a focused Windows & doors opening-count pass. Reconcile schedules and elevations; count each opening once. Do not count garage doors."
                       : garageDoorsSelected
                         ? "\nThis is a focused Garage doors pass. Count single, double, and RV doors from the schedule or elevation; count openers only when labeled."
-                      : hvacSelected
-                        ? "\nThis is a focused HVAC quantity pass. Count only readable mechanical equipment, thermostats, ventilation, and labeled ductwork."
-                      : plumbingSelected
-                      ? "\nThis is a focused Plumbing quantity pass. Count only readable fixtures, schedules, points, and labeled line lengths."
-                      : "\nThis is a focused general-contractor takeoff pass. Prioritize measurable quantities across every major scope category."),
+                        : hvacSelected
+                          ? "\nThis is a focused HVAC quantity pass. Count only readable mechanical equipment, thermostats, ventilation, and labeled ductwork."
+                          : plumbingSelected
+                            ? "\nThis is a focused Plumbing quantity pass. Count only readable fixtures, schedules, points, and labeled line lengths."
+                            : "\nThis is a focused general-contractor takeoff pass. Prioritize measurable quantities across every major scope category."),
         },
         {
           role: "user",
@@ -4055,9 +4351,9 @@ async function analyzePlanForMeasurements({
                       ? "For Windows & doors, take off windows, exterior swing/French doors, explicit sliding doors only, and interior door openings. Always return those counts when openings are visible on the drawings, even without a schedule. Count units not leaves. Do not count garage doors."
                       : garageDoorsSelected
                         ? "For Garage doors, return single/double/RV counts and opener count when labeled. Never infer type from garage SF."
-                      : hvacSelected
-                        ? "For HVAC, return system count, explicitly labeled tonnage, thermostats, ventilation equipment, replacements, refrigerant service, and labeled ductwork LF. Reconcile equipment schedules with plan tags and leave unknown capacity or duct lengths omitted."
-                    : "For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, windowDoorOpeningsSqft, garageOpeningsSqft, and non-stucco deductions. Also populate measurements.stuccoWindowDoorOpeningSqft and measurements.stuccoGarageOpeningSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer.",
+                        : hvacSelected
+                          ? "For HVAC, return system count, explicitly labeled tonnage, thermostats, ventilation equipment, replacements, refrigerant service, and labeled ductwork LF. Reconcile equipment schedules with plan tags and leave unknown capacity or duct lengths omitted."
+                          : "For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, windowDoorOpeningsSqft, garageOpeningsSqft, and non-stucco deductions. Also populate measurements.stuccoWindowDoorOpeningSqft and measurements.stuccoGarageOpeningSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer.",
                 insulationSelected
                   ? "For Insulation, do not return a wall quantity from one elevation or perimeter alone. Return all complete labeled wall/opening facts so the app can calculate one net exterior-wall quantity."
                   : drywallSelected
@@ -4069,33 +4365,36 @@ async function analyzePlanForMeasurements({
                     ? DRYWALL_VISION_INSTRUCTIONS
                     : hvacSelected
                       ? HVAC_VISION_INSTRUCTIONS
-                    : windowsDoorsSelected
-                      ? WINDOWS_DOORS_VISION_INSTRUCTIONS
-                    : garageDoorsSelected
-                      ? GARAGE_DOORS_VISION_INSTRUCTIONS
-                    : plumbingSelected
-                      ? PLUMBING_VISION_INSTRUCTIONS
-                      : paintingSelected
-                        ? paintingVisionInstructions
-                        : electricalSelected
-                          ? ELECTRICAL_VISION_INSTRUCTIONS
-                          : "For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.",
+                      : windowsDoorsSelected
+                        ? WINDOWS_DOORS_VISION_INSTRUCTIONS
+                        : garageDoorsSelected
+                          ? GARAGE_DOORS_VISION_INSTRUCTIONS
+                          : plumbingSelected
+                            ? PLUMBING_VISION_INSTRUCTIONS
+                            : paintingSelected
+                              ? paintingVisionInstructions
+                              : electricalSelected
+                                ? ELECTRICAL_VISION_INSTRUCTIONS
+                                : "For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.",
                 paintingSelected
                   ? "Return wallPaintSqft, ceilingPaintSqft, baseboardLf, interiorDoorCount, and exteriorPaintSqft when geometry or schedules support them. Add geometry-derived keys to geometryDerived. Leave occupancy, application method, and prep omitted."
                   : windowsDoorsSelected
                     ? "Return window, exterior swing, explicit sliding, and interior door unit counts plus planFacts.openingSchedules. Do not return garage door counts. Do not treat hinged French/patio doors as sliders."
-                  : garageDoorsSelected
-                    ? "Return garage door type counts and opener count when labeled, plus planFacts.openingSchedules.garageDoors."
-                  : insulationSelected
-                    ? "The attached pages are rasterized insulation-relevant sheets selected from the PDF. Inspect the actual wall sections, elevations, ceiling/attic plans, roof details, schedules, and notes in those images. Return insulation quantities only when explicitly labeled or directly calculated from readable labeled dimensions. Preserve the wall/attic versus roof-deck boundary distinction."
-                    : plumbingSelected
-                      ? `${plumbingSheetCountHint} Return Plumbing canonical quantities only. Add only explicit or directly measured fields to explicitlyLabeled/geometryDerived. Leave packages and unsupported values omitted.`
-                      : electricalSelected
-                        ? `${electricalSheetCountHint} Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.`
-                        : "Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.",
+                    : garageDoorsSelected
+                      ? "Return garage door type counts and opener count when labeled, plus planFacts.openingSchedules.garageDoors."
+                      : insulationSelected
+                        ? "The attached pages are rasterized insulation-relevant sheets selected from the PDF. Inspect the actual wall sections, elevations, ceiling/attic plans, roof details, schedules, and notes in those images. Return insulation quantities only when explicitly labeled or directly calculated from readable labeled dimensions. Preserve the wall/attic versus roof-deck boundary distinction."
+                        : plumbingSelected
+                          ? `${plumbingSheetCountHint} Return Plumbing canonical quantities only. Add only explicit or directly measured fields to explicitlyLabeled/geometryDerived. Leave packages and unsupported values omitted.`
+                          : electricalSelected
+                            ? `${electricalSheetCountHint} Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.`
+                            : "Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.",
               ].join("\n\n"),
             },
-            ...(electricalSelected || plumbingSelected || hvacSelected
+            ...(electricalSelected ||
+            plumbingSelected ||
+            hvacSelected ||
+            windowsDoorsSelected
               ? visionParts
               : insulationSelected && insulationVisionParts
                 ? insulationVisionParts
@@ -4245,13 +4544,13 @@ async function analyzePlanForMeasurements({
               instanceTagMeasurements: hvacTagMeasurements,
             })
           : mergeMeasurementCandidates({
-            baseMeasurements: parsed.measurements,
-            overlayMeasurements: focused.measurements,
-            baseConfidence: parsed.fieldConfidence,
-            overlayConfidence: focused.fieldConfidence,
-            baseEvidence: stuccoEvidenceByField(parsed.planFacts),
-            overlayEvidence: stuccoEvidenceByField(focused.planFacts),
-          });
+              baseMeasurements: parsed.measurements,
+              overlayMeasurements: focused.measurements,
+              baseConfidence: parsed.fieldConfidence,
+              overlayConfidence: focused.fieldConfidence,
+              baseEvidence: stuccoEvidenceByField(parsed.planFacts),
+              overlayEvidence: stuccoEvidenceByField(focused.planFacts),
+            });
       if (electricalSelected) electricalEvidenceMerged = true;
       if (hvacSelected) hvacEvidenceMerged = true;
       if (electricalSelected) {
@@ -4304,6 +4603,14 @@ async function analyzePlanForMeasurements({
         planFacts: {
           ...(parsed.planFacts || {}),
           ...(focused.planFacts || {}),
+          openingEvidence: [
+            ...(Array.isArray(parsed.planFacts?.openingEvidence)
+              ? parsed.planFacts.openingEvidence
+              : []),
+            ...(Array.isArray(focused.planFacts?.openingEvidence)
+              ? focused.planFacts.openingEvidence
+              : []),
+          ],
           ceilingBoundary: {
             ...(parsed.planFacts?.ceilingBoundary || {}),
             ...(focused.planFacts?.ceilingBoundary || {}),
@@ -4511,6 +4818,14 @@ async function analyzePlanForMeasurements({
     {
       ...visionPlanFacts,
       ...pdfPlanFacts,
+      openingEvidence: [
+        ...(Array.isArray(visionPlanFacts.openingEvidence)
+          ? visionPlanFacts.openingEvidence
+          : []),
+        ...(Array.isArray(pdfPlanFacts.openingEvidence)
+          ? pdfPlanFacts.openingEvidence
+          : []),
+      ],
       ceilingBoundary: {
         ...(visionPlanFacts.ceilingBoundary || {}),
         ...(pdfPlanFacts.ceilingBoundary || {}),
@@ -4952,6 +5267,10 @@ async function analyzePlanForMeasurements({
         parsed.planFacts?.openingSchedules ||
         planFacts?.openingSchedules ||
         null,
+      openingReconciliation:
+        planFacts?.openingReconciliation ||
+        parsed.planFacts?.openingReconciliation ||
+        null,
     });
     measurements = windowsDoorsTakeoff.measurements;
     measurementProvenance = windowsDoorsTakeoff.measurementProvenance;
@@ -4965,7 +5284,8 @@ async function analyzePlanForMeasurements({
       ];
     }
     lowConfidence = (lowConfidence || []).filter(
-      (entry) => !OPENING_COUNT_RESTORE_KEYS.includes(String(entry?.field || "")),
+      (entry) =>
+        !OPENING_COUNT_RESTORE_KEYS.includes(String(entry?.field || "")),
     );
   }
   if (hvacSelected) {
@@ -5466,6 +5786,8 @@ module.exports = {
   sanitizeMeasurements,
   sanitizeBuildingAreas,
   sanitizePlanFacts,
+  sanitizeOpeningEvidence,
+  reconcileOpeningEvidence,
   sanitizeEvidence,
   sanitizeGeometry,
   reconcileLabeledLivingAreas,

@@ -6,6 +6,8 @@ const {
   sanitizeUnreadableFields,
   applyConfidenceFloor,
   applyWindowsDoorsPlanTakeoff,
+  sanitizeOpeningEvidence,
+  reconcileOpeningEvidence,
   mergePlanMeasurementsIntoExisting,
   buildItemQuantities,
   formatNotesBlock,
@@ -91,9 +93,7 @@ describe("estimatePlanToMeasurements", () => {
 
     const restored = applyWindowsDoorsPlanTakeoff({
       measurements: withheld,
-      lowConfidence: [
-        { field: "windowCount", value: 17, confidence: 0.5 },
-      ],
+      lowConfidence: [{ field: "windowCount", value: 17, confidence: 0.5 }],
       rawVisionMeasurements: { windowCount: 17, exteriorDoorCount: 3 },
       explicitlyLabeled: ["exteriorDoorCount"],
       geometryDerived: ["windowCount"],
@@ -128,7 +128,11 @@ describe("estimatePlanToMeasurements", () => {
         exteriorDoorCount: 3,
         interiorDoorCount: 10,
       },
-      geometryDerived: ["windowCount", "exteriorDoorCount", "interiorDoorCount"],
+      geometryDerived: [
+        "windowCount",
+        "exteriorDoorCount",
+        "interiorDoorCount",
+      ],
     });
     expect(restored.measurements).toMatchObject({
       windowCount: 15,
@@ -155,7 +159,9 @@ describe("estimatePlanToMeasurements", () => {
           { sizeCode: "5050", quantity: 2 },
         ],
         exteriorDoors: [{ type: "entry", quantity: 2 }],
-        slidingDoors: [{ type: "slider", quantity: 2, widthFt: 6, heightFt: 7 }],
+        slidingDoors: [
+          { type: "slider", quantity: 2, widthFt: 6, heightFt: 7 },
+        ],
       },
     });
     expect(restored.measurements).toMatchObject({
@@ -259,7 +265,7 @@ describe("estimatePlanToMeasurements", () => {
     expect(restored.measurements.exteriorDoorCount).toBe(3);
   });
 
-  test("unlabeled qty-2 slider rows are one swing opening, not two sliders", () => {
+  test("unlabeled qty-2 slider rows stay as two sliding openings", () => {
     const restored = applyWindowsDoorsPlanTakeoff({
       measurements: { exteriorDoorCount: 2, slidingDoorCount: 2 },
       rawVisionMeasurements: { exteriorDoorCount: 2, slidingDoorCount: 2 },
@@ -269,11 +275,34 @@ describe("estimatePlanToMeasurements", () => {
         slidingDoors: [{ type: "slider", quantity: 2 }],
       },
     });
-    expect(restored.measurements.slidingDoorCount).toBeUndefined();
-    expect(restored.measurements.exteriorDoorCount).toBe(3);
-    expect(restored.measurementProvenance.exteriorDoorCount.normalizedSource).toBe(
-      "NEEDS_CONFIRMATION",
-    );
+    expect(restored.measurements.slidingDoorCount).toBe(2);
+    expect(restored.measurements.exteriorDoorCount).toBe(2);
+  });
+
+  test("scalar slidingDoorCount of 2 without a schedule is not collapsed to one swing door", () => {
+    const restored = applyWindowsDoorsPlanTakeoff({
+      measurements: { exteriorDoorCount: 2, slidingDoorCount: 2 },
+      rawVisionMeasurements: { exteriorDoorCount: 2, slidingDoorCount: 2 },
+      geometryDerived: ["exteriorDoorCount", "slidingDoorCount"],
+    });
+    expect(restored.measurements.slidingDoorCount).toBe(2);
+    expect(restored.measurements.exteriorDoorCount).toBe(2);
+  });
+
+  test("Lot 39 keeps two sliding patio openings instead of collapsing them to one", () => {
+    const restored = applyWindowsDoorsPlanTakeoff({
+      measurements: { exteriorDoorCount: 2, slidingDoorCount: 1 },
+      rawVisionMeasurements: { exteriorDoorCount: 2, slidingDoorCount: 1 },
+      geometryDerived: ["exteriorDoorCount", "slidingDoorCount"],
+      openingReconciliation: {
+        uniqueCounts: { sliding: 2, exterior_swing: 2, window: 18 },
+      },
+    });
+    expect(restored.measurements.slidingDoorCount).toBe(2);
+    expect(restored.measurementProvenance.slidingDoorCount).toMatchObject({
+      evidenceKind: "opening_evidence",
+      normalizedSource: "NEEDS_CONFIRMATION",
+    });
   });
 
   test("partial inferred window schedules do not reduce a higher elevation count", () => {
@@ -291,6 +320,215 @@ describe("estimatePlanToMeasurements", () => {
     );
   });
 
+  test("sanitizes opening evidence and builds a conservative Lot 58 reconciliation", () => {
+    const raw = [
+      {
+        id: "w-main-1",
+        category: "window",
+        source: "floor_plan",
+        mark: "W1",
+        level: "main",
+        location: "east wall",
+        sizeCode: "3050",
+        sheet: "A1.1",
+        page: 4,
+        sourceText: "W1",
+      },
+      {
+        id: "w-elev-1",
+        category: "window",
+        source: "elevation",
+        mark: "W1",
+        level: "main",
+        location: "east wall",
+        sizeCode: "3050",
+        sheet: "A4.1",
+        page: 8,
+        sourceText: "W1",
+      },
+      {
+        id: "w-main-2",
+        category: "window",
+        source: "floor_plan",
+        level: "main",
+        location: "west wall",
+        sizeCode: "3050",
+        sheet: "A1.1",
+        page: 4,
+        sourceText: "3050",
+      },
+      {
+        id: "d-main-1",
+        category: "exterior_swing",
+        source: "floor_plan",
+        mark: "D1",
+        level: "main",
+        location: "front entry",
+        type: "double hinged",
+        sheet: "A1.1",
+        page: 4,
+        sourceText: "D1",
+      },
+      {
+        id: "i-bed-1",
+        category: "interior",
+        source: "floor_plan",
+        level: "upper",
+        location: "Bedroom 3",
+        interiorSubtype: "room",
+        sheet: "A1.2",
+        page: 5,
+        sourceText: "door swing",
+      },
+      {
+        id: "i-bed-1-bad",
+        category: "interior",
+        source: "floor_plan",
+        level: "upper",
+        location: "Bedroom 3",
+        interiorSubtype: "room",
+        sheet: "A1.2",
+        page: 5,
+        sourceText: "duplicate view",
+      },
+      {
+        id: "invalid",
+        category: "garage",
+        source: "floor_plan",
+        sheet: "A1.1",
+        page: 4,
+      },
+    ];
+    expect(sanitizeOpeningEvidence(raw)).toHaveLength(6);
+    const reconciliation = reconcileOpeningEvidence(raw);
+    expect(reconciliation.uniqueCounts).toMatchObject({
+      window: 2,
+      exterior_swing: 1,
+      interior: 1,
+    });
+    expect(reconciliation.duplicates).toHaveLength(2);
+    expect(reconciliation.interiorBreakdown).toMatchObject({ room: 1 });
+  });
+
+  test("does not deduplicate repeated same-size openings without location or mark", () => {
+    const reconciliation = reconcileOpeningEvidence([
+      {
+        category: "window",
+        source: "floor_plan",
+        sizeCode: "3050",
+        sheet: "A1.1",
+        page: 4,
+        sourceText: "east window",
+      },
+      {
+        category: "window",
+        source: "floor_plan",
+        sizeCode: "3050",
+        sheet: "A1.1",
+        page: 4,
+        sourceText: "west window",
+      },
+    ]);
+    expect(reconciliation.entries).toHaveLength(2);
+    expect(reconciliation.duplicates).toHaveLength(0);
+  });
+
+  test("does not merge two unmarked patio sliders that only share a coarse patio location", () => {
+    const reconciliation = reconcileOpeningEvidence([
+      {
+        id: "s-living",
+        category: "sliding",
+        source: "floor_plan",
+        level: "main",
+        location: "covered patio",
+        type: "slider",
+        sheet: "A-1",
+        page: 4,
+        sourceText: "living to covered patio",
+      },
+      {
+        id: "s-primary",
+        category: "sliding",
+        source: "floor_plan",
+        level: "main",
+        location: "covered patio",
+        type: "slider",
+        sheet: "A-1",
+        page: 4,
+        sourceText: "primary suite to covered patio",
+      },
+    ]);
+    expect(reconciliation.uniqueCounts).toMatchObject({ sliding: 2 });
+    expect(reconciliation.duplicates).toHaveLength(0);
+  });
+
+  test("reclassifies mislabeled exterior_swing opening evidence as sliding when type is explicit", () => {
+    const reconciliation = reconcileOpeningEvidence([
+      {
+        category: "exterior_swing",
+        source: "floor_plan",
+        level: "main",
+        location: "covered patio",
+        type: "multi-slide patio door",
+        sheet: "A1.1",
+        page: 4,
+        sourceText: "sliding patio to covered patio",
+      },
+    ]);
+    expect(reconciliation.entries[0].category).toBe("sliding");
+    expect(reconciliation.uniqueCounts).toMatchObject({ sliding: 1 });
+  });
+
+  test("hydrates slidingDoorCount from opening reconciliation when scalar count is missing", () => {
+    const restored = applyWindowsDoorsPlanTakeoff({
+      measurements: { exteriorDoorCount: 2, windowCount: 14 },
+      lowConfidence: [],
+      rawVisionMeasurements: { exteriorDoorCount: 2, windowCount: 14 },
+      explicitlyLabeled: [],
+      geometryDerived: ["windowCount", "exteriorDoorCount"],
+      measurementProvenance: {},
+      openingReconciliation: {
+        uniqueCounts: { sliding: 1, window: 14, exterior_swing: 2 },
+      },
+    });
+    expect(restored.measurements.slidingDoorCount).toBe(1);
+    expect(restored.measurementProvenance.slidingDoorCount).toMatchObject({
+      normalizedSource: "NEEDS_CONFIRMATION",
+      evidenceKind: "opening_evidence",
+      pricingEligible: false,
+    });
+  });
+
+  test("persists reconciled opening evidence in sanitized plan facts", () => {
+    const facts = sanitizePlanFacts({
+      openingEvidence: [
+        {
+          category: "interior",
+          source: "floor_plan",
+          level: "main",
+          location: "Kitchen pantry",
+          interiorSubtype: "pantry",
+          sheet: "A1.1",
+          page: 4,
+        },
+        {
+          category: "interior",
+          source: "elevation",
+          level: "main",
+          location: "Kitchen pantry",
+          interiorSubtype: "pantry",
+          sheet: "A4.1",
+          page: 8,
+        },
+      ],
+    });
+    expect(facts.openingEvidence).toHaveLength(1);
+    expect(facts.openingReconciliation).toMatchObject({
+      uniqueCounts: { interior: 1 },
+      interiorBreakdown: { pantry: 1 },
+    });
+  });
+
   test("sanitizePlanFacts keeps opening schedule marks and sizes", () => {
     const facts = sanitizePlanFacts({
       openingSchedules: {
@@ -298,7 +536,9 @@ describe("estimatePlanToMeasurements", () => {
           { mark: "W1", quantity: 4, widthIn: 36, heightIn: 60 },
           { mark: "W2", qty: 6, type: "picture" },
         ],
-        garageDoors: [{ type: "double", widthFt: 16, heightFt: 8, quantity: 1 }],
+        garageDoors: [
+          { type: "double", widthFt: 16, heightFt: 8, quantity: 1 },
+        ],
       },
     });
     expect(facts.openingSchedules).toMatchObject({
@@ -327,7 +567,9 @@ describe("estimatePlanToMeasurements", () => {
   test("sanitizePlanFacts keeps window size codes from schedules", () => {
     const facts = sanitizePlanFacts({
       openingSchedules: {
-        windows: [{ mark: "W1", quantity: 6, sizeCode: "3050", type: "single-hung" }],
+        windows: [
+          { mark: "W1", quantity: 6, sizeCode: "3050", type: "single-hung" },
+        ],
       },
     });
     expect(facts.openingSchedules.windows[0]).toMatchObject({
@@ -337,7 +579,6 @@ describe("estimatePlanToMeasurements", () => {
       type: "single-hung",
     });
   });
-
 
   test("merges Plumbing evidence by canonical field and retains derivation inputs", () => {
     expect(
@@ -1391,7 +1632,9 @@ describe("estimatePlanToMeasurements", () => {
         "hvacCleanupCount",
       ],
     });
-    expect(buildHvacSystemPrompt()).toMatch(/do not infer .* HVAC pricing from living area/i);
+    expect(buildHvacSystemPrompt()).toMatch(
+      /do not infer .* HVAC pricing from living area/i,
+    );
     const measurements = sanitizeMeasurements(
       {
         hvacSystemCount: 2,
@@ -1400,7 +1643,7 @@ describe("estimatePlanToMeasurements", () => {
         hvacDuctworkLf: 120,
         floorAreaSqft: 2400,
       },
-      []
+      [],
     );
     expect(measurements).toMatchObject({
       hvacSystemCount: 2,
@@ -1413,11 +1656,15 @@ describe("estimatePlanToMeasurements", () => {
       thermostat: { quantity: 2, unit: "each" },
       ductwork: { quantity: 120, unit: "lf" },
     });
-    expect(buildItemQuantities(measurements)).not.toHaveProperty("floorAreaSqft");
+    expect(buildItemQuantities(measurements)).not.toHaveProperty(
+      "floorAreaSqft",
+    );
   });
 
   test("HVAC PDF text tags win over conflicting vision reads", () => {
-    const { hvacPdfTextMeasurementsFromTakeoff } = require("../hvacPlanAdapter");
+    const {
+      hvacPdfTextMeasurementsFromTakeoff,
+    } = require("../hvacPlanAdapter");
     const merged = mergeElectricalEvidenceSources({
       generalMeasurements: {
         hvacSupplyRegisterCount: 10,
@@ -1453,9 +1700,9 @@ describe("estimatePlanToMeasurements", () => {
     expect(merged.measurements.hvacThermostatCount).toBe(1);
     expect(merged.measurements.hvacSystemTons).toBe(4);
     expect(merged.measurements.hvacSystemCount).toBe(1);
-    expect(
-      merged.provenance.hvacSupplyRegisterCount.source,
-    ).toBe("pdf_text_instance_tags");
+    expect(merged.provenance.hvacSupplyRegisterCount.source).toBe(
+      "pdf_text_instance_tags",
+    );
   });
 
   test("unclassified lighting fixtures become a review field, not a priced count", () => {

@@ -9,6 +9,7 @@ const {
   formatPdfEvidenceForVision,
   scorePaintingRelevantPage,
   scoreElectricalRelevantPage,
+  scoreWindowsDoorsRelevantPage,
   scorePlumbingRelevantPage,
   expandElectricalRelevantPages,
   expandPlumbingRelevantPages,
@@ -68,6 +69,15 @@ describe('planPdfTextTakeoff', () => {
       garageSqft: 994,
       coveredPatioSqft: 247,
     });
+  });
+
+  test('selects floor plans and elevations for Windows & doors visual review', () => {
+    expect(
+      scoreWindowsDoorsRelevantPage('SHV Lot 49 FLOOR LAYOUT')
+    ).toMatchObject({ score: 12, reasons: ['floor plan'] });
+    expect(
+      scoreWindowsDoorsRelevantPage('SHV Lot 49 BACK ELEVATION')
+    ).toMatchObject({ score: 12, reasons: ['elevation'] });
   });
 
   test('Lot 58 floor Living Area callouts survive CAD junk between label and SF', () => {

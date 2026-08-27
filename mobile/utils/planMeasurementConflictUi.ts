@@ -66,7 +66,9 @@ export function conflictFieldDisplay(field: string): {
   if (electricalCard) {
     return { label: electricalCard.label, subtext: electricalCard.helper };
   }
-  const plumbingCard = PLUMBING_CARDS.find(card => card.measurementKey === field);
+  const plumbingCard = PLUMBING_CARDS.find(
+    card => card.measurementKey === field
+  );
   if (plumbingCard) {
     return { label: plumbingCard.label, subtext: plumbingCard.helper };
   }
@@ -504,14 +506,20 @@ export function applyRepeatedPlumbingImportConflicts<
   if (!previous || previous.fingerprint !== fingerprint) return takeoff;
   const measurements = { ...(takeoff.measurements || {}) };
   const conflicts = [...(takeoff.measurementConflicts || [])];
-  const conflictFields = new Set(conflicts.map(conflict => String(conflict.field || '')));
+  const conflictFields = new Set(
+    conflicts.map(conflict => String(conflict.field || ''))
+  );
   const provenance = { ...(takeoff.measurementProvenance || {}) };
   let changed = false;
 
   for (const field of PLUMBING_TAKEOFF_LF_CONFLICT_KEYS) {
     const previousValue = Number(previous.measurements[field]);
     const incomingValue = Number(measurements[field]);
-    if (!(previousValue > 0) || !(incomingValue > 0) || previousValue === incomingValue) {
+    if (
+      !(previousValue > 0) ||
+      !(incomingValue > 0) ||
+      previousValue === incomingValue
+    ) {
       continue;
     }
     if (conflictFields.has(field)) continue;
@@ -545,7 +553,9 @@ export function applyRepeatedPlumbingImportConflicts<
       ...existing,
       value: incomingValue,
       alternatives: [
-        ...((Array.isArray(existing.alternatives) ? existing.alternatives : []) as Array<{
+        ...((Array.isArray(existing.alternatives)
+          ? existing.alternatives
+          : []) as Array<{
           value?: unknown;
           source?: string;
         }>),
@@ -741,7 +751,9 @@ export function filterUnreadableForReview(
   );
 }
 
-export function shortPlanTakeoffHelper(text?: string | null): string | undefined {
+export function shortPlanTakeoffHelper(
+  text?: string | null
+): string | undefined {
   if (!text) return undefined;
   const trimmed = String(text).trim();
   if (!trimmed) return undefined;
@@ -794,7 +806,42 @@ export type PendingPlanConfirmationRead = {
   value: number;
   label: string;
   subtext?: string;
+  alternativeValues?: number[];
 };
+
+/** Active quantity for a pending card — measurements win over stale read metadata. */
+export function resolvePendingPlanConfirmationDisplayValue(
+  measurements: Record<string, unknown> | null | undefined,
+  reading: Pick<PendingPlanConfirmationRead, 'field' | 'value'>,
+  editedValue?: number | null
+): number {
+  if (editedValue != null && Number.isFinite(editedValue) && editedValue > 0) {
+    return editedValue;
+  }
+  const fromMeasurement = Number(measurements?.[reading.field]);
+  if (Number.isFinite(fromMeasurement) && fromMeasurement > 0) {
+    return fromMeasurement;
+  }
+  return reading.value;
+}
+
+export function pendingPlanConfirmationCandidateValues(
+  measurements: Record<string, unknown> | null | undefined,
+  reading: PendingPlanConfirmationRead
+): number[] {
+  const activeValue = resolvePendingPlanConfirmationDisplayValue(
+    measurements,
+    reading
+  );
+  return [
+    reading.value,
+    ...(reading.alternativeValues || []),
+    activeValue,
+  ].filter(
+    (value, index, values) =>
+      Number.isFinite(value) && value > 0 && values.indexOf(value) === index
+  );
+}
 
 /** Plan reads the contractor skipped in takeoff review — still need confirmation in QM. */
 export function pendingPlanConfirmationReads(
@@ -814,6 +861,35 @@ export function pendingPlanConfirmationReads(
       : {};
   const out: PendingPlanConfirmationRead[] = [];
   const seen = new Set<string>();
+  const conflicts = includeUnresolvedConflicts
+    ? Array.isArray(measurements?.measurementConflicts)
+      ? (measurements.measurementConflicts as Array<{
+          field?: string | null;
+          requiresConfirmation?: boolean;
+          selectedValue?: unknown;
+          candidates?: Array<{ value?: unknown }>;
+        }>)
+      : []
+    : [];
+  const alternativeValuesFor = (field: string, currentValue: number) => {
+    const conflict = conflicts.find(
+      row =>
+        String(row?.field || '').trim() === field &&
+        row?.requiresConfirmation !== false
+    );
+    if (!conflict) return [];
+    const values = [
+      Number(conflict.selectedValue),
+      ...(conflict.candidates || []).map(option => Number(option?.value)),
+    ];
+    return values.filter(
+      (value, index) =>
+        Number.isFinite(value) &&
+        value > 0 &&
+        value !== currentValue &&
+        values.indexOf(value) === index
+    );
+  };
   for (const [field, source] of Object.entries(sources)) {
     if (source !== 'needs_confirmation') continue;
     if (allowedFields?.size && !allowedFields.has(field)) continue;
@@ -823,7 +899,14 @@ export function pendingPlanConfirmationReads(
     if (seen.has(field)) continue;
     seen.add(field);
     const { label, subtext } = conflictFieldDisplay(field);
-    out.push({ field, value, label, subtext });
+    const alternativeValues = alternativeValuesFor(field, value);
+    out.push({
+      field,
+      value,
+      label,
+      subtext,
+      ...(alternativeValues.length ? { alternativeValues } : {}),
+    });
   }
   for (const [field, entry] of Object.entries(provenance)) {
     if (seen.has(field)) continue;
@@ -840,17 +923,16 @@ export function pendingPlanConfirmationReads(
     if (!Number.isFinite(value) || value <= 0) continue;
     seen.add(field);
     const { label, subtext } = conflictFieldDisplay(field);
-    out.push({ field, value, label, subtext });
+    const alternativeValues = alternativeValuesFor(field, value);
+    out.push({
+      field,
+      value,
+      label,
+      subtext,
+      ...(alternativeValues.length ? { alternativeValues } : {}),
+    });
   }
   if (includeUnresolvedConflicts) {
-    const conflicts = Array.isArray(measurements?.measurementConflicts)
-      ? (measurements.measurementConflicts as Array<{
-          field?: string | null;
-          requiresConfirmation?: boolean;
-          selectedValue?: unknown;
-          candidates?: Array<{ value?: unknown }>;
-        }>)
-      : [];
     for (const conflict of conflicts) {
       const field = String(conflict.field || '').trim();
       if (!field || conflict.requiresConfirmation === false) continue;
@@ -862,13 +944,28 @@ export function pendingPlanConfirmationReads(
         Number(conflict.selectedValue) > 0
           ? Number(conflict.selectedValue)
           : Number(
-              conflict.candidates?.find(
-                option => Number(option?.value) > 0
-              )?.value
+              conflict.candidates?.find(option => Number(option?.value) > 0)
+                ?.value
             );
       if (!Number.isFinite(candidate) || candidate <= 0) continue;
       const { label, subtext } = conflictFieldDisplay(field);
-      out.push({ field, value: candidate, label, subtext });
+      const alternativeValues = [
+        candidate,
+        ...(conflict.candidates || []).map(option => Number(option?.value)),
+      ].filter(
+        (option, index, values) =>
+          Number.isFinite(option) &&
+          option > 0 &&
+          values.indexOf(option) === index &&
+          option !== candidate
+      );
+      out.push({
+        field,
+        value: candidate,
+        label,
+        subtext,
+        ...(alternativeValues.length ? { alternativeValues } : {}),
+      });
       seen.add(field);
     }
   }
@@ -906,9 +1003,10 @@ export function shouldSuppressPlanReviewQuickMeasurementField(
   );
   if (unresolved.has(key)) return true;
   if (isPendingPlanReadConfirmed(measurements, key)) return false;
-  return pendingPlanConfirmationReads(measurements, options?.allowedFields).some(
-    read => read.field === key
-  );
+  return pendingPlanConfirmationReads(
+    measurements,
+    options?.allowedFields
+  ).some(read => read.field === key);
 }
 
 export function windowsDoorsPlanReviewFieldSet(): Set<string> {
@@ -937,7 +1035,10 @@ function hvacPendingMeasurementValue(
   const direct = Number(measurements?.[field]);
   if (Number.isFinite(direct) && direct > 0) return direct;
   if (!provenanceEntry || typeof provenanceEntry !== 'object') return null;
-  const record = provenanceEntry as { value?: unknown; selectedValue?: unknown };
+  const record = provenanceEntry as {
+    value?: unknown;
+    selectedValue?: unknown;
+  };
   const fromProvenance = Number(record.value ?? record.selectedValue);
   return Number.isFinite(fromProvenance) && fromProvenance > 0
     ? fromProvenance
@@ -986,10 +1087,7 @@ export function resolveHvacPendingPlanConfirmationReads(
       field,
       provenanceEntry
     );
-    if (
-      field === HVAC_VENTILATION_MEASUREMENT_KEY &&
-      value == null
-    ) {
+    if (field === HVAC_VENTILATION_MEASUREMENT_KEY && value == null) {
       continue;
     }
     if (
@@ -1036,6 +1134,25 @@ function resolveHvacPendingMeasurementValue(
   return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
 }
 
+/** Chip highlight: local tap wins; otherwise only a confirmed source. */
+export function pendingPlanConfirmationSelectedValue(
+  measurements: Record<string, unknown> | null | undefined,
+  field: string,
+  localSelection?: number | null
+): number | null {
+  if (localSelection === null) return null;
+  if (
+    localSelection != null &&
+    Number.isFinite(localSelection) &&
+    localSelection > 0
+  ) {
+    return localSelection;
+  }
+  if (!isPendingPlanReadConfirmed(measurements, field)) return null;
+  const current = Number(measurements?.[field]);
+  return Number.isFinite(current) && current > 0 ? current : null;
+}
+
 export function isPendingPlanReadConfirmed(
   measurements: Record<string, unknown> | null | undefined,
   field: string
@@ -1046,6 +1163,7 @@ export function isPendingPlanReadConfirmed(
       ? (measurements.quickMeasurementSources as Record<string, string>)
       : {};
   const source = sources[field];
+  if (source === 'needs_confirmation') return false;
   if (source === 'contractor_confirmed_from_plan_review') return true;
   if (source === 'user_entered' || source === 'user_confirmed_suggestion') {
     return true;

@@ -309,6 +309,70 @@ describe('applyPlanImportToDraft', () => {
 });
 
 describe('live plan-review handoff to Confirm Scope', () => {
+  test('keeps deselected Windows & doors counts pending on same-plan reapply', () => {
+    const next = mergeLivePlanImportIntoScopeMeasurements(
+      {
+        windowCount: '12',
+        exteriorDoorCount: '3',
+        slidingDoorCount: '1',
+        interiorDoorCount: '10',
+        quickMeasurementSources: {
+          windowCount: 'contractor_confirmed_from_plan_review',
+          exteriorDoorCount: 'contractor_confirmed_from_plan_review',
+          slidingDoorCount: 'contractor_confirmed_from_plan_review',
+          interiorDoorCount: 'contractor_confirmed_from_plan_review',
+        },
+        measurementProvenance: {
+          windowCount: { status: 'user_confirmed', value: 12 },
+          exteriorDoorCount: { status: 'user_confirmed', value: 3 },
+          slidingDoorCount: { status: 'user_confirmed', value: 1 },
+          interiorDoorCount: { status: 'user_confirmed', value: 10 },
+        },
+        planImportFingerprint: 'lot-49',
+      },
+      {
+        estimatingMode: 'selected_trade',
+        selectedTrade: 'windows_doors',
+        planImportFingerprint: 'lot-49',
+        measurements: {
+          windowCount: '12',
+          exteriorDoorCount: '3',
+          slidingDoorCount: '1',
+          interiorDoorCount: '10',
+        },
+        quickMeasurementSources: {
+          windowCount: 'contractor_confirmed_from_plan_review',
+          exteriorDoorCount: 'needs_confirmation',
+          slidingDoorCount: 'contractor_confirmed_from_plan_review',
+          interiorDoorCount: 'needs_confirmation',
+        },
+        measurementProvenance: {
+          exteriorDoorCount: {
+            status: 'needs_review',
+            normalizedSource: 'NEEDS_REVIEW',
+            value: 3,
+          },
+          interiorDoorCount: {
+            status: 'needs_review',
+            normalizedSource: 'NEEDS_REVIEW',
+            value: 10,
+          },
+        },
+      }
+    );
+
+    expect(next.quickMeasurementSources).toMatchObject({
+      windowCount: 'contractor_confirmed_from_plan_review',
+      exteriorDoorCount: 'needs_confirmation',
+      slidingDoorCount: 'contractor_confirmed_from_plan_review',
+      interiorDoorCount: 'needs_confirmation',
+    });
+    expect(next.measurementProvenance).toMatchObject({
+      exteriorDoorCount: { status: 'needs_review' },
+      interiorDoorCount: { status: 'needs_review' },
+    });
+  });
+
   test('hydrates plumbing equipment cards from fixture inventory and equipment metadata', () => {
     const next = mergeLivePlanImportIntoScopeMeasurements(
       {

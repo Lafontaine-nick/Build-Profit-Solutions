@@ -29,10 +29,13 @@ import {
   conflictChooserConfirmedLine,
   conflictChooserLowConfidenceAcceptedLine,
   pendingPlanConfirmationReads,
+  pendingPlanConfirmationCandidateValues,
   confirmPendingPlanConfirmationRead,
+  pendingPlanConfirmationSelectedValue,
   emptyPlanTakeoffReadingDisplay,
   isPendingPlanReadConfirmed,
   resolveHvacPendingPlanConfirmationReads,
+  resolvePendingPlanConfirmationDisplayValue,
   shouldSuppressPlanReviewQuickMeasurementField,
   windowsDoorsPlanReviewFieldSet,
 } from '@/utils/planMeasurementConflictUi';
@@ -81,7 +84,9 @@ describe('planMeasurementConflictUi', () => {
     expect(conflictFieldLabel('sewerLineLf')).toBe('Sewer / drain piping');
     expect(conflictFieldLabel('waterLineLf')).toBe('Water line piping');
     expect(conflictFieldLabel('gasLineLf')).toBe('Gas piping');
-    expect(conflictFieldLabel('hvacSupplyRegisterCount')).toBe('Supply registers');
+    expect(conflictFieldLabel('hvacSupplyRegisterCount')).toBe(
+      'Supply registers'
+    );
     expect(conflictFieldLabel('hvacReturnGrilleCount')).toBe('Return grilles');
     expect(conflictFieldLabel('hvacSystemCount')).toBe('HVAC system');
   });
@@ -365,9 +370,9 @@ describe('planMeasurementConflictUi', () => {
     expect(conflictChooserConfirmedLine('ceilingFanCount', 8)).toBe(
       'Confirmed · 8 EA'
     );
-    expect(
-      conflictChooserLowConfidenceAcceptedLine('hvacSystemTons', 5)
-    ).toBe('AI read — confirm · 5 tons');
+    expect(conflictChooserLowConfidenceAcceptedLine('hvacSystemTons', 5)).toBe(
+      'AI read — confirm · 5 tons'
+    );
   });
 
   it('keeps Enter manually pending until a custom count is entered', () => {
@@ -552,6 +557,31 @@ describe('planMeasurementConflictUi', () => {
     );
     expect(isPendingPlanReadConfirmed(confirmed, 'hvacSystemCount')).toBe(true);
     expect(
+      pendingPlanConfirmationSelectedValue(
+        {
+          windowCount: 15,
+          quickMeasurementSources: { windowCount: 'needs_confirmation' },
+        },
+        'windowCount'
+      )
+    ).toBeNull();
+    expect(
+      pendingPlanConfirmationSelectedValue(
+        {
+          windowCount: 15,
+          quickMeasurementSources: { windowCount: 'needs_confirmation' },
+        },
+        'windowCount',
+        14
+      )
+    ).toBe(14);
+    expect(
+      pendingPlanConfirmationSelectedValue(confirmed, 'hvacSystemCount')
+    ).toBe(2);
+    expect(
+      pendingPlanConfirmationSelectedValue(confirmed, 'hvacSystemCount', null)
+    ).toBeNull();
+    expect(
       pendingPlanConfirmationReads(confirmed, new Set(['hvacSystemCount']))
     ).toEqual([]);
     expect(
@@ -571,28 +601,148 @@ describe('planMeasurementConflictUi', () => {
         },
         new Set(['hvacSystemCount'])
       )
-    ).toEqual([]);
+    ).toEqual([
+      expect.objectContaining({
+        field: 'hvacSystemCount',
+        value: 2,
+      }),
+    ]);
+  });
+
+  it('surfaces deselected Windows & doors scopes in Step 2 even after takeoff Accept', () => {
+    const allowed = windowsDoorsPlanReviewFieldSet();
+    const pending = pendingPlanConfirmationReads(
+      {
+        windowCount: 18,
+        interiorDoorCount: 12,
+        exteriorDoorCount: 3,
+        quickMeasurementSources: {
+          windowCount: 'needs_confirmation',
+          interiorDoorCount: 'needs_confirmation',
+          exteriorDoorCount: 'needs_confirmation',
+        },
+        measurementProvenance: {
+          windowCount: {
+            status: 'user_confirmed',
+            normalizedSource: 'USER_CONFIRMED',
+            value: 18,
+          },
+          interiorDoorCount: {
+            status: 'user_confirmed',
+            normalizedSource: 'USER_CONFIRMED',
+            value: 12,
+          },
+          exteriorDoorCount: {
+            status: 'needs_review',
+            normalizedSource: 'NEEDS_REVIEW',
+            value: 3,
+          },
+        },
+        measurementConflicts: [
+          {
+            field: 'exteriorDoorCount',
+            requiresConfirmation: true,
+            selectedValue: 3,
+            candidates: [{ value: 3 }, { value: 1 }],
+          },
+        ],
+      },
+      allowed,
+      true
+    );
+    expect(pending.map(row => row.field).sort()).toEqual([
+      'exteriorDoorCount',
+      'interiorDoorCount',
+      'windowCount',
+    ]);
+  });
+
+  it('lists every unconfirmed Windows & doors takeoff count in Step 2', () => {
+    const pending = pendingPlanConfirmationReads(
+      {
+        windowCount: 15,
+        interiorDoorCount: 12,
+        exteriorDoorCount: 3,
+        slidingDoorCount: 1,
+        quickMeasurementSources: {
+          windowCount: 'needs_confirmation',
+          interiorDoorCount: 'needs_confirmation',
+          exteriorDoorCount: 'needs_confirmation',
+          slidingDoorCount: 'needs_confirmation',
+        },
+        measurementConflicts: [
+          {
+            field: 'windowCount',
+            requiresConfirmation: true,
+            selectedValue: 15,
+            candidates: [{ value: 15 }, { value: 14 }],
+          },
+          {
+            field: 'interiorDoorCount',
+            requiresConfirmation: true,
+            selectedValue: 12,
+            candidates: [{ value: 12 }, { value: 10 }],
+          },
+        ],
+      },
+      windowsDoorsPlanReviewFieldSet(),
+      true
+    );
+    expect(pending.map(row => row.field).sort()).toEqual([
+      'exteriorDoorCount',
+      'interiorDoorCount',
+      'slidingDoorCount',
+      'windowCount',
+    ]);
+    expect(
+      shouldSuppressPlanReviewQuickMeasurementField(
+        'exteriorDoorCount',
+        {
+          exteriorDoorCount: 3,
+          quickMeasurementSources: { exteriorDoorCount: 'needs_confirmation' },
+        },
+        { allowedFields: windowsDoorsPlanReviewFieldSet() }
+      )
+    ).toBe(true);
+    expect(
+      shouldSuppressPlanReviewQuickMeasurementField(
+        'slidingDoorCount',
+        {
+          slidingDoorCount: 1,
+          quickMeasurementSources: { slidingDoorCount: 'needs_confirmation' },
+        },
+        { allowedFields: windowsDoorsPlanReviewFieldSet() }
+      )
+    ).toBe(true);
   });
 
   it('suppresses Windows & doors QM rows when already in conflict or pending strips', () => {
     const allowed = windowsDoorsPlanReviewFieldSet();
     expect(
-      shouldSuppressPlanReviewQuickMeasurementField('windowCount', {
-        windowCount: 18,
-        measurementConflicts: [
-          {
-            field: 'windowCount',
-            requiresConfirmation: true,
-            candidates: [{ value: 18 }, { value: 15 }],
-          },
-        ],
-      }, { allowedFields: allowed })
+      shouldSuppressPlanReviewQuickMeasurementField(
+        'windowCount',
+        {
+          windowCount: 18,
+          measurementConflicts: [
+            {
+              field: 'windowCount',
+              requiresConfirmation: true,
+              candidates: [{ value: 18 }, { value: 15 }],
+            },
+          ],
+        },
+        { allowedFields: allowed }
+      )
     ).toBe(true);
     expect(
-      shouldSuppressPlanReviewQuickMeasurementField('windowCount', {
-        windowCount: 18,
-        quickMeasurementSources: { windowCount: 'needs_confirmation' },
-      }, { allowedFields: allowed })
+      shouldSuppressPlanReviewQuickMeasurementField(
+        'windowCount',
+        {
+          windowCount: 18,
+          quickMeasurementSources: { windowCount: 'needs_confirmation' },
+        },
+        { allowedFields: allowed }
+      )
     ).toBe(true);
     expect(
       shouldSuppressPlanReviewQuickMeasurementField(
@@ -609,9 +759,13 @@ describe('planMeasurementConflictUi', () => {
       )
     ).toBe(false);
     expect(
-      shouldSuppressPlanReviewQuickMeasurementField('slidingDoorCount', {
-        slidingDoorCount: '',
-      }, { allowedFields: allowed })
+      shouldSuppressPlanReviewQuickMeasurementField(
+        'slidingDoorCount',
+        {
+          slidingDoorCount: '',
+        },
+        { allowedFields: allowed }
+      )
     ).toBe(false);
   });
 
@@ -620,6 +774,10 @@ describe('planMeasurementConflictUi', () => {
       {
         windowCount: 15,
         exteriorDoorCount: 4,
+        quickMeasurementSources: {
+          windowCount: 'needs_confirmation',
+          exteriorDoorCount: 'needs_confirmation',
+        },
         measurementConflicts: [
           {
             field: 'windowCount',
@@ -642,6 +800,36 @@ describe('planMeasurementConflictUi', () => {
       ['windowCount', 15],
       ['exteriorDoorCount', 4],
     ]);
+    expect(pending.map(row => row.alternativeValues)).toEqual([[12], [3]]);
+  });
+
+  it('uses the confirmed measurement value for pending card selection state', () => {
+    const reading = {
+      field: 'exteriorDoorCount',
+      value: 1,
+      label: 'Exterior swing doors',
+      alternativeValues: [3],
+    };
+    expect(
+      resolvePendingPlanConfirmationDisplayValue(
+        confirmPendingPlanConfirmationRead(
+          { exteriorDoorCount: 1 },
+          'exteriorDoorCount',
+          3
+        ),
+        reading
+      )
+    ).toBe(3);
+    expect(
+      pendingPlanConfirmationCandidateValues(
+        confirmPendingPlanConfirmationRead(
+          { exteriorDoorCount: 1 },
+          'exteriorDoorCount',
+          3
+        ),
+        reading
+      )
+    ).toEqual([1, 3]);
   });
 
   it('resolveHvacPendingPlanConfirmationReads includes canonical HVAC rows tagged plan_detected with needs_review provenance', () => {
@@ -713,7 +901,9 @@ describe('planMeasurementConflictUi', () => {
       ),
     };
     expect(
-      resolveHvacPendingPlanConfirmationReads(measurements).map(row => row.field)
+      resolveHvacPendingPlanConfirmationReads(measurements).map(
+        row => row.field
+      )
     ).toEqual([
       'hvacSystemCount',
       'hvacSystemTons',
@@ -868,8 +1058,8 @@ describe('planMeasurementConflictUi', () => {
       chipLabel: 'Not found on selected plan pages',
       chipSubtitle: 'Enter quantity only if included in the HVAC bid.',
     });
-    expect(emptyPlanTakeoffReadingDisplay('hvacThermostatCount').chipSubtitle).toBe(
-      'No plan read yet'
-    );
+    expect(
+      emptyPlanTakeoffReadingDisplay('hvacThermostatCount').chipSubtitle
+    ).toBe('No plan read yet');
   });
 });

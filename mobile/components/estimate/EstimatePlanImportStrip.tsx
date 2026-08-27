@@ -38,6 +38,10 @@ import {
   syncHvacSkippedTakeoffQuickMeasurementSources,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
+  WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+  windowsDoorsMeasurementKeyForScopeItem,
+} from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
+import {
   PLAN_EXPORT_TRADE_CONFIGURATIONS,
   PLAN_TRADE_CONFIGURATIONS,
   filterPlanMeasurementsForTrade,
@@ -58,7 +62,7 @@ import {
   reconcileFramingScopeMeasurements,
   tagFramingQuickMeasurementSourcesFromProvenance,
 } from '@/utils/planTakeoffReviewUi';
-import { applyRepeatedPlumbingImportConflicts } from '@/utils/planMeasurementConflictUi';
+import { applyRepeatedPlumbingImportConflicts, lowConfidenceNeedsReviewProvenance } from '@/utils/planMeasurementConflictUi';
 import { tagPlanDetectedQuickMeasurementKeys } from '@/utils/quickMeasurementProvenance';
 import { tagPlanReviewLockedQuickMeasurementSources } from '@/utils/planReviewMeasurementLock';
 import {
@@ -99,7 +103,11 @@ let lastPlanImportSnapshot: PlanRepeatSnapshot | null = null;
 let lastGoodInsulationSnapshot: PlanRepeatSnapshot | null = null;
 
 function positiveRepeatImportValue(value: unknown): number | null {
-  const parsed = Number(String(value ?? '').replace(/,/g, '').trim());
+  const parsed = Number(
+    String(value ?? '')
+      .replace(/,/g, '')
+      .trim()
+  );
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
@@ -672,7 +680,9 @@ export default function EstimatePlanImportStrip({
             ...(selectedTrade === 'hvac'
               ? Object.fromEntries(
                   Object.entries(resolveHvacPlanReviewMeasurements(stabilized))
-                    .filter(([, value]) => positiveRepeatImportValue(value) != null)
+                    .filter(
+                      ([, value]) => positiveRepeatImportValue(value) != null
+                    )
                     .map(([key, value]) => [key, Number(value)])
                 )
               : {}),
@@ -707,7 +717,9 @@ export default function EstimatePlanImportStrip({
             selection.mode,
             selection.trade.key
           );
-          if (!keepSelectedTradePlanContext(selection.mode, selection.trade.key)) {
+          if (
+            !keepSelectedTradePlanContext(selection.mode, selection.trade.key)
+          ) {
             stamped.rooms = [];
           }
           stamped.areaReconciliation = null;
@@ -725,19 +737,22 @@ export default function EstimatePlanImportStrip({
             const resolved = resolveHvacPlanReviewMeasurements(stabilized);
             const lowConfidenceMeasurements = Object.fromEntries(
               (stabilized.lowConfidence || [])
-                .map(reading => [
-                  String(reading?.field || '').trim(),
-                  reading?.value,
-                ] as const)
+                .map(
+                  reading =>
+                    [
+                      String(reading?.field || '').trim(),
+                      reading?.value,
+                    ] as const
+                )
                 .filter(([field]) =>
                   HVAC_PLAN_REVIEW_CANONICAL_KEYS.includes(
                     field as (typeof HVAC_PLAN_REVIEW_CANONICAL_KEYS)[number]
                   )
                 )
-                .map(([field, value]) => [
-                  field,
-                  positiveRepeatImportValue(value),
-                ] as const)
+                .map(
+                  ([field, value]) =>
+                    [field, positiveRepeatImportValue(value)] as const
+                )
                 .filter((entry): entry is [string, number] => entry[1] != null)
             );
             stamped.measurements = {
@@ -1116,6 +1131,55 @@ export default function EstimatePlanImportStrip({
         ),
         Object.keys(tradeMeasurements)
       );
+      const quickMeasurementSourcesWithDeselectedOpenings =
+        selection.trade?.key === 'windows_doors'
+          ? (() => {
+              const selectedOpeningKeys = new Set(
+                tradeScopeDetections
+                  .filter(d => d.state === 'included')
+                  .map(d => windowsDoorsMeasurementKeyForScopeItem(d.itemId))
+                  .filter(Boolean)
+              );
+              const pendingOpeningKeys =
+                WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS.filter(
+                  key =>
+                    Number(tradeMeasurements[key]) > 0 &&
+                    (!selectedOpeningKeys.has(key) ||
+                      mergedQuickMeasurementSources[key] ===
+                        'needs_confirmation')
+                );
+              return {
+                ...mergedQuickMeasurementSources,
+                ...Object.fromEntries(
+                  pendingOpeningKeys.map(key => [key, 'needs_confirmation'])
+                ),
+              };
+            })()
+          : mergedQuickMeasurementSources;
+      const measurementProvenanceWithDeselectedOpenings =
+        selection.trade?.key === 'windows_doors'
+          ? (() => {
+              const next = {
+                ...(appliedProvenance as Record<string, unknown>),
+              };
+              for (const key of WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS) {
+                if (
+                  quickMeasurementSourcesWithDeselectedOpenings[key] !==
+                    'needs_confirmation' ||
+                  !(Number(tradeMeasurements[key]) > 0)
+                ) {
+                  continue;
+                }
+                const value = Number(tradeMeasurements[key]);
+                const existing = next[key];
+                next[key] = {
+                  ...(existing && typeof existing === 'object' ? existing : {}),
+                  ...lowConfidenceNeedsReviewProvenance(key, value),
+                };
+              }
+              return next;
+            })()
+          : appliedProvenance;
       const hvacGuarded =
         selection.trade?.key === 'hvac'
           ? applyHvacProvenanceGuardToScopeMeasurements({
@@ -1161,10 +1225,10 @@ export default function EstimatePlanImportStrip({
         quickMeasurementSources:
           hvacQuickMeasurementSources ||
           (hvacGuarded?.quickMeasurementSources as Record<string, string>) ||
-          mergedQuickMeasurementSources,
+          quickMeasurementSourcesWithDeselectedOpenings,
         measurementProvenance:
           (hvacGuarded?.measurementProvenance as Record<string, unknown>) ||
-          appliedProvenance,
+          measurementProvenanceWithDeselectedOpenings,
         measurementConflicts: unresolvedConflicts,
         electricalValidation:
           metadata?.electricalValidation ??

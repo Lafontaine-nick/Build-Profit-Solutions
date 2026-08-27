@@ -1810,6 +1810,26 @@ function scoreInsulationRelevantPage(text) {
   return { score, reasons: [...new Set(reasons)] };
 }
 
+function scoreWindowsDoorsRelevantPage(text) {
+  const blob = String(text || '');
+  if (!blob.trim()) return { score: 0, reasons: [] };
+  const reasons = [];
+  let score = 0;
+  if (/\b(?:floor\s+layout|floor\s+plan|architectural\s+plan)\b/i.test(blob)) {
+    score += 12;
+    reasons.push('floor plan');
+  }
+  if (/\b(?:front|back|left|right)\s+elevation\b/i.test(blob)) {
+    score += 12;
+    reasons.push('elevation');
+  }
+  if (/\b(?:window|door|patio|opening)\b/i.test(blob)) {
+    score += 4;
+    reasons.push('opening labels');
+  }
+  return { score, reasons: [...new Set(reasons)] };
+}
+
 function extractRoomsFromPhrases(phrases, { sourcePage = null, sourceSheet = null } = {}) {
   const dims = [];
   const names = [];
@@ -2098,6 +2118,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
   const plumbingRelevantPages = [];
   const hvacRelevantPages = [];
   const insulationRelevantPages = [];
+  const windowsDoorsRelevantPages = [];
   const plumbingFixtureSchedulePages = [];
   const plumbingEquipmentHintPages = [];
   const plumbingEquipmentTextChunks = [];
@@ -2151,6 +2172,14 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
           page: pageNumber,
           score: insulationPage.score,
           reasons: insulationPage.reasons,
+        });
+      }
+      const windowsDoorsPage = scoreWindowsDoorsRelevantPage(pageText);
+      if (windowsDoorsPage.score > 0) {
+        windowsDoorsRelevantPages.push({
+          page: pageNumber,
+          score: windowsDoorsPage.score,
+          reasons: windowsDoorsPage.reasons,
         });
       }
       const plumbingSheetId = extractPlumbingSheetId(pageText);
@@ -2370,6 +2399,9 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
           ),
       ),
     ].slice(0, 12),
+    windowsDoorsRelevantPages: windowsDoorsRelevantPages
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8),
     plumbingFixtureSchedule: aggregatePlumbingFixtureScheduleInventory(plumbingFixtureSchedulePages),
     plumbingEquipmentHints: aggregatePlumbingEquipmentHints(
       plumbingEquipmentHintPages,
@@ -2587,6 +2619,7 @@ module.exports = {
   extractPlanTakeoffFromPdfBuffers,
   formatPdfEvidenceForVision,
   scorePaintingRelevantPage,
+  scoreWindowsDoorsRelevantPage,
   scoreElectricalRelevantPage,
   scorePlumbingRelevantPage,
   scoreHvacRelevantPage,
@@ -2611,6 +2644,7 @@ module.exports = {
   detectElectricalPlanLevel,
   shouldCollapseDuplicateFixtureViews,
   renderElectricalPlanPages,
+  renderWindowsDoorsPlanPages: renderElectricalPlanPages,
   renderPlumbingPlanPages,
   renderInsulationPlanPages,
   renderHvacPlanPages,

@@ -25,14 +25,19 @@ import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPre
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
+import { ConfirmScopeChip } from '@/components/estimate/ConfirmScopeChip';
 import { PlanTakeoffConflictChooser } from '@/components/estimate/PlanTakeoffConflictChooser';
 import { PlanTakeoffLowConfidenceChooser } from '@/components/estimate/PlanTakeoffLowConfidenceChooser';
-import { quickMeasurementFieldMeta, quickMeasurementFieldDef } from '@/utils/scopeQuickMeasurements';
+import {
+  quickMeasurementFieldMeta,
+  quickMeasurementFieldDef,
+} from '@/utils/scopeQuickMeasurements';
 import {
   applyPlanConflictChoices,
   conflictResolutionProvenanceEntry,
   filterLowConfidenceForReview,
   filterUnreadableForReview,
+  formatPlanTakeoffQuantity,
   lowConfidenceConfirmationProvenance,
   lowConfidenceNeedsReviewProvenance,
   pendingManualConflictFields,
@@ -126,8 +131,10 @@ import {
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
   formatOpeningDetailLines,
+  openingEvidenceDetailLines,
   hydrateWindowsDoorsPlanReviewMeasurements,
   seedWindowsDoorsReviewMeasurements,
+  openingEvidenceSummaryLines,
   openingScheduleIsDocumented,
   openingScheduleRowsForMeasurementKey,
   openingSchedulesFromPlanFacts,
@@ -138,6 +145,8 @@ import {
   windowsDoorsReviewSelectionAppearance,
   augmentWindowsDoorsScopeDetections,
   windowsDoorsMeasurementKeyForScopeItem,
+  WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+  windowsDoorsTakeoffQuickMeasurementSources,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
 import { hydrateGarageDoorsPlanReviewMeasurements } from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
 
@@ -450,6 +459,12 @@ export default function PlanTakeoffReviewModal({
   const [lowConfidenceAccepted, setLowConfidenceAccepted] = useState<
     Record<string, boolean>
   >({});
+  const [openingManualFields, setOpeningManualFields] = useState<
+    Record<string, boolean>
+  >({});
+  const [openingManualValues, setOpeningManualValues] = useState<
+    Record<string, string>
+  >({});
   const [expandedOpeningDetails, setExpandedOpeningDetails] = useState<
     Record<string, boolean>
   >({});
@@ -716,6 +731,8 @@ export default function PlanTakeoffReviewModal({
     setConflictManualValues({});
     setConflictManualCommitted({});
     setLowConfidenceAccepted({});
+    setOpeningManualFields({});
+    setOpeningManualValues({});
     setConflictChooserKey(key => key + 1);
     const livingSf = Number(
       takeoff.measurements?.floorAreaSqft ??
@@ -861,12 +878,12 @@ export default function PlanTakeoffReviewModal({
           effectiveTradeKey === 'windows_doors' ||
           effectiveTradeKey === 'garage_doors';
         const windowsDoorsTier = openingCountTrade
-            ? resolveWindowsDoorsReviewTier({
-                value,
-                provenanceEntry,
-                scheduleDocumented,
-              })
-            : null;
+          ? resolveWindowsDoorsReviewTier({
+              value,
+              provenanceEntry,
+              scheduleDocumented,
+            })
+          : null;
         const windowsDoorsProvenance = windowsDoorsTier
           ? {
               ...rowState.provenance,
@@ -1016,9 +1033,7 @@ export default function PlanTakeoffReviewModal({
     setRoomRows(nextRooms);
 
     setScopeChecked(
-      Object.fromEntries(
-        scopeDetections.map(d => [d.itemId, true])
-      )
+      Object.fromEntries(scopeDetections.map(d => [d.itemId, true]))
     );
     // Rebuild only when a new takeoff arrives, not on parent re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1420,7 +1435,10 @@ export default function PlanTakeoffReviewModal({
         takeoff?.rooms,
         (takeoff?.planFacts || null) as Record<string, unknown> | null
       );
-      for (const key of [...DRYWALL_PLAN_QUICK_MEASUREMENT_KEYS, 'drywallSqft']) {
+      for (const key of [
+        ...DRYWALL_PLAN_QUICK_MEASUREMENT_KEYS,
+        'drywallSqft',
+      ]) {
         const n = positiveMeasurement(hydrated[key]);
         if (n != null) values[key] = String(n);
       }
@@ -1452,9 +1470,7 @@ export default function PlanTakeoffReviewModal({
       })
     );
     const hvacLowConfidenceSource =
-      effectiveTradeKey === 'hvac'
-        ? hvacReviewReadings
-        : reviewLowConfidence;
+      effectiveTradeKey === 'hvac' ? hvacReviewReadings : reviewLowConfidence;
     const confirmedLowConfidence = hvacLowConfidenceSource.filter(
       reading => lowConfidenceAccepted[String(reading.field || '').trim()]
     );
@@ -1514,7 +1530,7 @@ export default function PlanTakeoffReviewModal({
           ],
         ];
       }),
-      ...((effectiveTradeKey === 'hvac'
+      ...(effectiveTradeKey === 'hvac'
         ? hvacUnconfirmedReadings
         : unconfirmedLowConfidence
       ).flatMap(reading => {
@@ -1535,7 +1551,7 @@ export default function PlanTakeoffReviewModal({
             },
           ],
         ];
-      })),
+      }),
     ]);
     const hvacReviewProvenance =
       effectiveTradeKey === 'hvac'
@@ -1696,7 +1712,9 @@ export default function PlanTakeoffReviewModal({
             ...confirmedLowConfidence.flatMap(reading => {
               const field = String(reading.field || '').trim();
               if (!field) return [];
-              return [[field, 'contractor_confirmed_from_plan_review'] as const];
+              return [
+                [field, 'contractor_confirmed_from_plan_review'] as const,
+              ];
             }),
             ...hvacUnconfirmedReadings.flatMap(reading => {
               const field = String(reading.field || '').trim();
@@ -1705,9 +1723,37 @@ export default function PlanTakeoffReviewModal({
             }),
           ])
         : undefined;
+    const windowsDoorsConfirmedKeys = new Set([
+      ...Object.keys(resolutions),
+      ...Object.keys(lowConfidenceAccepted).filter(
+        key => lowConfidenceAccepted[key]
+      ),
+      ...rows
+        .filter(
+          row =>
+            WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS.includes(
+              row.key as (typeof WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS)[number]
+            ) &&
+            row.include &&
+            row.pricingEligible &&
+            (row.provenance.status === 'user_confirmed' ||
+              row.provenance.status === 'plan_verified')
+        )
+        .map(row => row.key),
+    ]);
+    const windowsDoorsQuickMeasurementSourcesFromReview =
+      effectiveTradeKey === 'windows_doors'
+        ? windowsDoorsTakeoffQuickMeasurementSources({
+            values,
+            confirmedKeys: windowsDoorsConfirmedKeys,
+          })
+        : undefined;
     onApply(
       values,
-      scopeDetections.filter(d => scopeChecked[d.itemId]),
+      scopeDetections.map(d => ({
+        ...d,
+        state: scopeChecked[d.itemId] ? 'included' : 'excluded',
+      })),
       rooms,
       {
         measurementProvenance: {
@@ -1731,8 +1777,14 @@ export default function PlanTakeoffReviewModal({
         plumbingReviewStatus: takeoff.plumbingReviewStatus,
         waterHeaterDetail: takeoff.waterHeaterDetail,
         gasApplianceScope: takeoff.gasApplianceScope,
-        ...(hvacQuickMeasurementSourcesFromReview
-          ? { quickMeasurementSources: hvacQuickMeasurementSourcesFromReview }
+        ...(hvacQuickMeasurementSourcesFromReview ||
+        windowsDoorsQuickMeasurementSourcesFromReview
+          ? {
+              quickMeasurementSources: {
+                ...(hvacQuickMeasurementSourcesFromReview || {}),
+                ...(windowsDoorsQuickMeasurementSourcesFromReview || {}),
+              },
+            }
           : {}),
       }
     );
@@ -2225,135 +2277,298 @@ export default function PlanTakeoffReviewModal({
                         colors: Colors,
                       })
                     : null;
+                  const needsSingleOpeningConfirmation =
+                    effectiveTradeKey === 'windows_doors' &&
+                    windowsDoorsTier === 'plan_derived' &&
+                    Number(row.value) > 0 &&
+                    !row.pricingEligible;
+                  const openingManualEditing = Boolean(
+                    openingManualFields[row.key]
+                  );
+                  const openingManualValue =
+                    openingManualValues[row.key] ?? row.value;
+                  const openingManualNumber = Number(openingManualValue);
+                  const openingManualValid =
+                    Number.isFinite(openingManualNumber) &&
+                    openingManualNumber > 0;
+                  const commitOpeningManualValue = () => {
+                    if (!openingManualValid) {
+                      Alert.alert(
+                        'Enter the custom count',
+                        'Type a quantity, then tap Use this count.'
+                      );
+                      return;
+                    }
+                    setRow(row.key, {
+                      value: String(openingManualNumber),
+                      include: true,
+                      pricingEligible: true,
+                      provenance: resolvePlanMeasurementProvenance({
+                        key: row.key,
+                        userConfirmed: true,
+                      }),
+                    });
+                    setOpeningManualFields(prev => ({
+                      ...prev,
+                      [row.key]: false,
+                    }));
+                  };
                   return (
                     <ReviewPanel key={row.key} darkMode={darkMode}>
-                      <View style={styles.quantityHeader}>
-                        <TouchableOpacity
-                          onPress={() => {
-                            if (row.pricingEligible) {
-                              setRow(row.key, { include: !row.include });
-                              return;
-                            }
-                            if (
-                              (effectiveTradeKey === 'windows_doors' ||
-                                effectiveTradeKey === 'garage_doors') &&
-                              !(Number(row.value) > 0)
-                            ) {
-                              return;
-                            }
-                            const prompt = planReviewCheckboxBlockedMessage(
-                              row.provenance,
-                              row
-                            );
-                            Alert.alert(prompt.title, prompt.message, [
-                              { text: 'Cancel', style: 'cancel' },
-                              {
-                                text: prompt.confirmLabel,
-                                onPress: () =>
-                                  setRow(row.key, {
-                                    include: true,
-                                    pricingEligible: true,
-                                    provenance:
-                                      resolvePlanMeasurementProvenance({
-                                        key: row.key,
-                                        userConfirmed: true,
-                                      }),
-                                  }),
-                              },
-                            ]);
-                          }}
-                          style={styles.checkbox}
-                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                        >
-                          <Ionicons
-                            name={
-                              windowsDoorsAppearance?.icon ||
-                              (row.include ? 'checkbox' : 'square-outline')
-                            }
-                            size={22}
-                            color={
-                              windowsDoorsAppearance?.color ||
-                              (row.include ? '#22c55e' : Colors.sub)
-                            }
-                          />
-                        </TouchableOpacity>
-                        <View style={{ flex: 1, minWidth: 0 }}>
+                      {needsSingleOpeningConfirmation ? (
+                        <>
                           <Text
                             style={[
                               styles.itemTitle,
                               styles.measurementTitle,
                               { color: Colors.text },
                             ]}
-                            numberOfLines={3}
                           >
                             {row.label}
                           </Text>
                           <Text
-                            style={{
-                              color:
-                                windowsDoorsAppearance?.color ||
-                                (confirmRow
-                                  ? CONFIRM_YELLOW
-                                  : provenanceColor),
-                              fontSize: 12,
-                              fontWeight: '700',
-                              marginTop: 4,
-                            }}
+                            style={[
+                              styles.openingUnitLabel,
+                              { color: Colors.sub },
+                            ]}
                           >
-                            {row.provenance.label}
+                            Count · each
                           </Text>
-                          {row.sourceLabel || row.subtext ? (
+                          <Text style={styles.openingStatus}>
+                            AI plan read — confirm before pricing
+                          </Text>
+                        </>
+                      ) : (
+                        <View style={styles.quantityHeader}>
+                          <TouchableOpacity
+                            onPress={() => {
+                              if (row.pricingEligible) {
+                                setRow(row.key, { include: !row.include });
+                                return;
+                              }
+                              if (
+                                (effectiveTradeKey === 'windows_doors' ||
+                                  effectiveTradeKey === 'garage_doors') &&
+                                !(Number(row.value) > 0)
+                              ) {
+                                return;
+                              }
+                              const prompt = planReviewCheckboxBlockedMessage(
+                                row.provenance,
+                                row
+                              );
+                              Alert.alert(prompt.title, prompt.message, [
+                                { text: 'Cancel', style: 'cancel' },
+                                {
+                                  text: prompt.confirmLabel,
+                                  onPress: () =>
+                                    setRow(row.key, {
+                                      include: true,
+                                      pricingEligible: true,
+                                      provenance:
+                                        resolvePlanMeasurementProvenance({
+                                          key: row.key,
+                                          userConfirmed: true,
+                                        }),
+                                    }),
+                                },
+                              ]);
+                            }}
+                            style={styles.checkbox}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          >
+                            <Ionicons
+                              name={
+                                windowsDoorsAppearance?.icon ||
+                                (row.include ? 'checkbox' : 'square-outline')
+                              }
+                              size={22}
+                              color={
+                                windowsDoorsAppearance?.color ||
+                                (row.include ? '#22c55e' : Colors.sub)
+                              }
+                            />
+                          </TouchableOpacity>
+                          <View style={{ flex: 1, minWidth: 0 }}>
                             <Text
                               style={[
-                                styles.evidenceText,
-                                { color: Colors.sub },
+                                styles.itemTitle,
+                                styles.measurementTitle,
+                                { color: Colors.text },
                               ]}
-                              numberOfLines={2}
+                              numberOfLines={3}
                             >
-                              {row.sourceLabel || row.subtext}
+                              {row.label}
                             </Text>
-                          ) : null}
-                          {row.conflictValue != null ? (
-                            <Text style={styles.conflictText}>
-                              Replaces your {row.conflictValue} {row.unit}
+                            <Text
+                              style={{
+                                color:
+                                  windowsDoorsAppearance?.color ||
+                                  (confirmRow
+                                    ? CONFIRM_YELLOW
+                                    : provenanceColor),
+                                fontSize: 12,
+                                fontWeight: '700',
+                                marginTop: 4,
+                              }}
+                            >
+                              {row.provenance.label}
                             </Text>
+                            {row.sourceLabel || row.subtext ? (
+                              <Text
+                                style={[
+                                  styles.evidenceText,
+                                  { color: Colors.sub },
+                                ]}
+                                numberOfLines={2}
+                              >
+                                {row.sourceLabel || row.subtext}
+                              </Text>
+                            ) : null}
+                            {row.conflictValue != null ? (
+                              <Text style={styles.conflictText}>
+                                Replaces your {row.conflictValue} {row.unit}
+                              </Text>
+                            ) : null}
+                          </View>
+                        </View>
+                      )}
+                      {needsSingleOpeningConfirmation ? (
+                        <View style={styles.openingConfirmationWrap}>
+                          <View style={styles.optionWrap}>
+                            <ConfirmScopeChip
+                              selected={false}
+                              label={`Accept ${formatPlanTakeoffQuantity(row.key, Number(row.value))}`}
+                              subtitle='AI plan read'
+                              darkMode={darkMode}
+                              onPress={() =>
+                                setRow(row.key, {
+                                  include: true,
+                                  pricingEligible: true,
+                                  provenance: resolvePlanMeasurementProvenance({
+                                    key: row.key,
+                                    userConfirmed: true,
+                                  }),
+                                })
+                              }
+                            />
+                            <ConfirmScopeChip
+                              selected={openingManualEditing}
+                              label='Enter manually'
+                              subtitle={null}
+                              darkMode={darkMode}
+                              onPress={() => {
+                                setOpeningManualFields(prev => ({
+                                  ...prev,
+                                  [row.key]: !openingManualEditing,
+                                }));
+                                setOpeningManualValues(prev => ({
+                                  ...prev,
+                                  [row.key]: prev[row.key] ?? row.value,
+                                }));
+                              }}
+                            />
+                          </View>
+                          {openingManualEditing ? (
+                            <View style={styles.manualWrap}>
+                              <View
+                                style={[
+                                  styles.valueShell,
+                                  styles.manualInputRow,
+                                  {
+                                    borderColor: darkMode
+                                      ? PANEL_BORDER_DARK
+                                      : PANEL_BORDER_LIGHT,
+                                    backgroundColor: darkMode
+                                      ? PANEL_INPUT_BG_DARK
+                                      : PANEL_INPUT_BG_LIGHT,
+                                  },
+                                ]}
+                              >
+                                <TextInput
+                                  value={openingManualValue}
+                                  autoFocus
+                                  selectTextOnFocus
+                                  returnKeyType='done'
+                                  onSubmitEditing={commitOpeningManualValue}
+                                  onChangeText={value =>
+                                    setOpeningManualValues(prev => ({
+                                      ...prev,
+                                      [row.key]: value,
+                                    }))
+                                  }
+                                  {...aiScopeConfirmNumericKeyboardProps}
+                                  keyboardType='decimal-pad'
+                                  style={[
+                                    styles.valueInput,
+                                    { color: Colors.text },
+                                  ]}
+                                />
+                                <Text
+                                  style={[
+                                    styles.unitText,
+                                    { color: Colors.sub },
+                                  ]}
+                                >
+                                  {row.unit}
+                                </Text>
+                              </View>
+                              <TouchableOpacity
+                                onPress={commitOpeningManualValue}
+                                activeOpacity={0.7}
+                                style={[
+                                  styles.useCount,
+                                  {
+                                    borderColor: '#34d399',
+                                    backgroundColor: 'rgba(52, 211, 153, 0.12)',
+                                  },
+                                ]}
+                              >
+                                <Text style={styles.useCountText}>
+                                  Use this count
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
                           ) : null}
                         </View>
-                      </View>
-                      <View
-                        style={[
-                          styles.valueShell,
-                          {
-                            borderColor: darkMode
-                              ? PANEL_BORDER_DARK
-                              : PANEL_BORDER_LIGHT,
-                            backgroundColor: darkMode
-                              ? PANEL_INPUT_BG_DARK
-                              : PANEL_INPUT_BG_LIGHT,
-                          },
-                        ]}
-                      >
-                        <TextInput
-                          value={row.value}
-                          onChangeText={t =>
-                            setRow(row.key, {
-                              value: t,
-                              provenance: resolvePlanMeasurementProvenance({
-                                key: row.key,
-                                userConfirmed: true,
-                              }),
-                              pricingEligible: true,
-                              include: true,
-                            })
-                          }
-                          {...aiScopeConfirmNumericKeyboardProps}
-                          keyboardType='decimal-pad'
-                          style={[styles.valueInput, { color: Colors.text }]}
-                        />
-                        <Text style={[styles.unitText, { color: Colors.sub }]}>
-                          {row.unit}
-                        </Text>
-                      </View>
+                      ) : (
+                        <View
+                          style={[
+                            styles.valueShell,
+                            {
+                              borderColor: darkMode
+                                ? PANEL_BORDER_DARK
+                                : PANEL_BORDER_LIGHT,
+                              backgroundColor: darkMode
+                                ? PANEL_INPUT_BG_DARK
+                                : PANEL_INPUT_BG_LIGHT,
+                            },
+                          ]}
+                        >
+                          <TextInput
+                            value={row.value}
+                            onChangeText={t =>
+                              setRow(row.key, {
+                                value: t,
+                                provenance: resolvePlanMeasurementProvenance({
+                                  key: row.key,
+                                  userConfirmed: true,
+                                }),
+                                pricingEligible: true,
+                                include: true,
+                              })
+                            }
+                            {...aiScopeConfirmNumericKeyboardProps}
+                            keyboardType='decimal-pad'
+                            style={[styles.valueInput, { color: Colors.text }]}
+                          />
+                          <Text
+                            style={[styles.unitText, { color: Colors.sub }]}
+                          >
+                            {row.unit}
+                          </Text>
+                        </View>
+                      )}
                       {effectiveTradeKey === 'windows_doors' ||
                       effectiveTradeKey === 'garage_doors'
                         ? (() => {
@@ -2364,7 +2579,27 @@ export default function PlanTakeoffReviewModal({
                               );
                             const detailLines =
                               formatOpeningDetailLines(scheduleRows);
-                            if (!detailLines.length) return null;
+                            const evidenceSummary =
+                              effectiveTradeKey === 'windows_doors'
+                                ? openingEvidenceSummaryLines(
+                                    row.key,
+                                    takeoff?.planFacts
+                                  )
+                                : { lines: [] as string[] };
+                            const evidenceDetailLines =
+                              effectiveTradeKey === 'windows_doors'
+                                ? openingEvidenceDetailLines(
+                                    row.key,
+                                    takeoff?.planFacts
+                                  )
+                                : [];
+                            if (
+                              !detailLines.length &&
+                              !evidenceSummary.lines.length &&
+                              !evidenceSummary.warning
+                            ) {
+                              return null;
+                            }
                             const mixKind =
                               row.key === 'windowCount'
                                 ? 'windows'
@@ -2394,6 +2629,27 @@ export default function PlanTakeoffReviewModal({
                                     ]}
                                   >
                                     {mixSummary}
+                                  </Text>
+                                ) : null}
+                                {evidenceSummary.lines.map(line => (
+                                  <Text
+                                    key={`evidence-${line}`}
+                                    style={[
+                                      styles.evidenceText,
+                                      { color: Colors.sub, marginTop: 4 },
+                                    ]}
+                                  >
+                                    {line}
+                                  </Text>
+                                ))}
+                                {evidenceSummary.warning ? (
+                                  <Text
+                                    style={[
+                                      styles.evidenceText,
+                                      { color: CONFIRM_YELLOW, marginTop: 4 },
+                                    ]}
+                                  >
+                                    {evidenceSummary.warning}
                                   </Text>
                                 ) : null}
                                 <TouchableOpacity
@@ -2426,9 +2682,12 @@ export default function PlanTakeoffReviewModal({
                                   </Text>
                                 </TouchableOpacity>
                                 {expanded
-                                  ? detailLines.map(line => (
+                                  ? [
+                                      ...detailLines,
+                                      ...evidenceDetailLines,
+                                    ].map((line, index) => (
                                       <Text
-                                        key={line}
+                                        key={`${line}-${index}`}
                                         style={[
                                           styles.evidenceText,
                                           { color: Colors.text, marginTop: 4 },
@@ -2953,6 +3212,25 @@ const styles = StyleSheet.create({
     color: CONFIRM_YELLOW,
   },
   evidenceText: { fontSize: 11.5, marginTop: 3, lineHeight: 17 },
+  openingConfirmationWrap: { marginTop: 12 },
+  openingUnitLabel: { fontSize: 12, marginTop: 4 },
+  openingStatus: {
+    color: CONFIRM_YELLOW,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 12,
+  },
+  optionWrap: { gap: 8 },
+  manualWrap: { marginTop: 8 },
+  manualInputRow: { marginTop: 0 },
+  useCount: {
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 8,
+    marginTop: 8,
+    paddingVertical: 9,
+  },
+  useCountText: { color: '#34d399', fontSize: 12, fontWeight: '700' },
   valueShell: {
     flexDirection: 'row',
     alignItems: 'center',

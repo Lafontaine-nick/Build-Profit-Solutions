@@ -122,6 +122,33 @@ export type PlanFacts = {
     interiorDoors?: Array<Record<string, unknown>>;
     garageDoors?: Array<Record<string, unknown>>;
   } | null;
+  openingEvidence?: Array<{
+    id?: string;
+    category?: 'window' | 'exterior_swing' | 'sliding' | 'interior';
+    source?: 'schedule' | 'floor_plan' | 'elevation' | 'section';
+    mark?: string;
+    level?: string;
+    location?: string;
+    type?: string;
+    interiorSubtype?:
+      'room' | 'bath' | 'closet' | 'laundry' | 'pantry' | 'other';
+    sheet?: string;
+    page?: number;
+    sourceText?: string;
+    sizeCode?: string;
+    widthIn?: number;
+    heightIn?: number;
+    widthFt?: number;
+    heightFt?: number;
+    confidence?: number;
+  }>;
+  openingReconciliation?: {
+    duplicates?: Array<Record<string, unknown>>;
+    sourceCounts?: Record<string, Record<string, number>>;
+    uniqueCounts?: Record<string, number>;
+    interiorBreakdown?: Record<string, number>;
+    variance?: Record<string, Record<string, number>>;
+  };
 };
 
 /** Cover-sheet building areas are often attached at takeoff root, not inside planFacts. */

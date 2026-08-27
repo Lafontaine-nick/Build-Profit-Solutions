@@ -31,6 +31,9 @@ import {
   buildWindowsDoorsStructuredMeasurements,
   classifyOpeningSizeTier,
   formatOpeningDetailLines,
+  openingEvidenceDetailLines,
+  openingEvidenceRowsForMeasurementKey,
+  openingEvidenceSummaryLines,
   seedWindowsDoorsReviewMeasurements,
   hydrateWindowsDoorsPlanReviewMeasurements,
   openingSizeMixFromRows,
@@ -40,6 +43,7 @@ import {
   windowsDoorsReviewProvenanceLabel,
   windowsDoorsReviewSelectionAppearance,
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
+  windowsDoorsTakeoffQuickMeasurementSources,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
 import {
   buildHvacStructuredMeasurements,
@@ -1027,7 +1031,12 @@ describe('subcontractor trade architecture (Phase 0)', () => {
         { id: 'sliding_doors', state: 'unsure' },
         { id: 'interior_doors', state: 'unsure' },
       ],
-      { windowCount: 15, exteriorDoorCount: 3, slidingDoorCount: 2, interiorDoorCount: 10 }
+      {
+        windowCount: 15,
+        exteriorDoorCount: 3,
+        slidingDoorCount: 2,
+        interiorDoorCount: 10,
+      }
     );
     expect(items.map(item => [item.id, item.state])).toEqual([
       ['windows', 'included'],
@@ -1110,9 +1119,44 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       'plan'
     );
     expect(normalized.measurements).not.toHaveProperty('framingOpeningCount');
-    expect(normalized.structuredMeasurements?.itemQuantities).not.toHaveProperty(
-      'framing'
-    );
+    expect(
+      normalized.structuredMeasurements?.itemQuantities
+    ).not.toHaveProperty('framing');
+  });
+
+  it('marks unconfirmed Windows & doors takeoff counts as pending confirmation', () => {
+    expect(
+      windowsDoorsTakeoffQuickMeasurementSources({
+        values: {
+          windowCount: 15,
+          interiorDoorCount: 12,
+          exteriorDoorCount: 3,
+          slidingDoorCount: 1,
+        },
+        confirmedKeys: [],
+      })
+    ).toEqual({
+      windowCount: 'needs_confirmation',
+      interiorDoorCount: 'needs_confirmation',
+      exteriorDoorCount: 'needs_confirmation',
+      slidingDoorCount: 'needs_confirmation',
+    });
+    expect(
+      windowsDoorsTakeoffQuickMeasurementSources({
+        values: {
+          windowCount: 15,
+          interiorDoorCount: 12,
+          exteriorDoorCount: 3,
+          slidingDoorCount: 1,
+        },
+        confirmedKeys: ['windowCount', 'slidingDoorCount'],
+      })
+    ).toMatchObject({
+      windowCount: 'contractor_confirmed_from_plan_review',
+      slidingDoorCount: 'contractor_confirmed_from_plan_review',
+      exteriorDoorCount: 'needs_confirmation',
+      interiorDoorCount: 'needs_confirmation',
+    });
   });
 
   it('always lists the four Windows & doors Plan Review count rows', () => {
@@ -1173,6 +1217,22 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     });
   });
 
+  it('keeps a scalar slidingDoorCount of 2 when there is no schedule', () => {
+    expect(
+      hydrateWindowsDoorsPlanReviewMeasurements({
+        windowCount: 18,
+        exteriorDoorCount: 2,
+        slidingDoorCount: 2,
+        interiorDoorCount: 12,
+      })
+    ).toEqual({
+      windowCount: 18,
+      exteriorDoorCount: 2,
+      slidingDoorCount: 2,
+      interiorDoorCount: 12,
+    });
+  });
+
   it('does not treat hinged French/patio leaves as sliding doors on Plan 58', () => {
     expect(
       hydrateWindowsDoorsPlanReviewMeasurements(
@@ -1184,7 +1244,7 @@ describe('subcontractor trade architecture (Phase 0)', () => {
         },
         {
           exteriorDoors: [{ type: 'entry', quantity: 2 }],
-          slidingDoors: [{ type: 'slider', quantity: 2 }],
+          slidingDoors: [{ type: 'french patio', quantity: 2 }],
         }
       )
     ).toEqual({
@@ -1193,6 +1253,89 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       slidingDoorCount: '',
       interiorDoorCount: 10,
     });
+  });
+
+  it('keeps two explicit sliders on a covered-patio plan', () => {
+    expect(
+      hydrateWindowsDoorsPlanReviewMeasurements(
+        {
+          windowCount: 18,
+          exteriorDoorCount: 2,
+          slidingDoorCount: 2,
+          interiorDoorCount: 12,
+        },
+        {
+          exteriorDoors: [{ type: 'entry', quantity: 2 }],
+          slidingDoors: [{ type: 'slider', quantity: 2 }],
+        }
+      )
+    ).toEqual({
+      windowCount: 18,
+      exteriorDoorCount: 2,
+      slidingDoorCount: 2,
+      interiorDoorCount: 12,
+    });
+  });
+
+  it('summarizes opening evidence and interior door categories for review', () => {
+    const planFacts = {
+      openingEvidence: [
+        {
+          id: 'w1-plan',
+          category: 'window',
+          source: 'floor_plan',
+          mark: 'W1',
+          sheet: 'A1.1',
+        },
+        {
+          id: 'w1-elevation',
+          category: 'window',
+          source: 'elevation',
+          mark: 'W1',
+          sheet: 'A4.1',
+        },
+        {
+          id: 'i1',
+          category: 'interior',
+          source: 'floor_plan',
+          location: 'Bedroom 3',
+          interiorSubtype: 'room',
+          sheet: 'A1.2',
+        },
+        {
+          id: 'i2',
+          category: 'interior',
+          source: 'floor_plan',
+          location: 'Hall bath',
+          interiorSubtype: 'bath',
+          sheet: 'A1.2',
+        },
+      ],
+      openingReconciliation: {
+        uniqueCounts: { window: 1, interior: 2 },
+        interiorBreakdown: { room: 1, bath: 1 },
+        variance: { window: { floor_plan: 1, elevation: 2 } },
+      },
+    };
+    expect(
+      openingEvidenceRowsForMeasurementKey('windowCount', planFacts)
+    ).toHaveLength(2);
+    expect(openingEvidenceSummaryLines('interiorDoorCount', planFacts)).toEqual(
+      {
+        lines: [
+          '2 unique openings evidenced',
+          'Sheets: A1.2',
+          'Interior mix: Room 1 · Bath 1',
+        ],
+      }
+    );
+    expect(
+      openingEvidenceSummaryLines('windowCount', planFacts).warning
+    ).toContain('Source counts disagree');
+    expect(openingEvidenceDetailLines('interiorDoorCount', planFacts)).toEqual([
+      'Bedroom 3 · Room · A1.2',
+      'Hall bath · Bath · A1.2',
+    ]);
   });
 
   it('adds a distinct marked French opening instead of capping exterior swing at three', () => {

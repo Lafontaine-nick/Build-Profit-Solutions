@@ -2442,6 +2442,11 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
       )
       .map(([key]) => key)
   );
+  const deselectedFields = new Set(
+    Object.entries(payload.quickMeasurementSources || {})
+      .filter(([, source]) => source === 'needs_confirmation')
+      .map(([key]) => key)
+  );
 
   for (const [key, value] of Object.entries(payload.measurements || {})) {
     if (value == null || value === '') continue;
@@ -2460,6 +2465,7 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
     };
     if (samePlan) {
       for (const key of confirmedFields) {
+        if (deselectedFields.has(key)) continue;
         next.quickMeasurementSources[key] =
           'contractor_confirmed_from_plan_review';
       }
@@ -2526,6 +2532,7 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
     };
     if (samePlan) {
       for (const key of confirmedFields) {
+        if (deselectedFields.has(key)) continue;
         const previous = current.measurementProvenance?.[key];
         if (previous !== undefined) next.measurementProvenance[key] = previous;
       }
@@ -2535,7 +2542,9 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
   if (payload.measurementConflicts !== undefined) {
     next.measurementConflicts = payload.measurementConflicts.filter(
       conflict =>
-        !samePlan || !confirmedFields.has(String(conflict?.field || ''))
+        !samePlan ||
+        !confirmedFields.has(String(conflict?.field || '')) ||
+        deselectedFields.has(String(conflict?.field || ''))
     );
     changed = true;
   }
