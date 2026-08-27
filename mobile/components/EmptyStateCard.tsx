@@ -1,46 +1,88 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
 interface EmptyStateCardProps {
+  /** Manual estimate walkthrough (Steps 1–10). */
   onPress: () => void;
+  /** Primary path — Build with AI modal. */
+  onBuildWithAi?: () => void;
   subtitle?: string;
 }
 
-export default function EmptyStateCard({ onPress, subtitle }: EmptyStateCardProps) {
+export default function EmptyStateCard({
+  onPress,
+  onBuildWithAi,
+  subtitle,
+}: EmptyStateCardProps) {
+  const aiFirst = Boolean(onBuildWithAi);
+
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={['rgba(34, 197, 94, 0.15)', 'rgba(34, 211, 238, 0.15)']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+        colors={['rgba(45, 255, 196, 0.14)', 'rgba(0, 166, 255, 0.1)']}
+        start={{ x: 0.05, y: 0.15 }}
+        end={{ x: 0.95, y: 0.85 }}
         style={styles.card}
       >
         <View style={styles.content}>
-          <View style={styles.iconContainer}>
-            <MaterialIcons name="description" size={32} color="#22c55e" />
-          </View>
-          <Text style={styles.title}>Create your first estimate</Text>
-          <Text style={styles.body}>
-            Start with scope, labor, and materials.{'\n'}
-            We'll help you protect profit as you go.
-          </Text>
-          {subtitle && (
-            <Text style={styles.subtitle}>{subtitle}</Text>
-          )}
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              onPress();
-            }}
-            activeOpacity={0.8}
-            style={styles.button}
+          <LinearGradient
+            colors={['#2DFFC4', '#00A6FF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.iconCircle}
           >
-            <MaterialIcons name="add" size={20} color="#000000" />
-            <Text style={styles.buttonText}>New Estimate</Text>
-          </TouchableOpacity>
+            <MaterialIcons name="auto-awesome" size={28} color="#0f172a" />
+          </LinearGradient>
+          <Text style={styles.title}>
+            {aiFirst ? 'Build your first estimate with AI' : 'Create your first estimate'}
+          </Text>
+          <Text style={styles.body}>
+            {aiFirst
+              ? 'Paste job notes, add photos, or import a plan.\nAI drafts scope for you to review.'
+              : "Start with scope, labor, and materials.\nWe'll help you protect profit as you go."}
+          </Text>
+          {subtitle && !aiFirst ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+
+          {aiFirst ? (
+            <>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  onBuildWithAi?.();
+                }}
+                activeOpacity={0.88}
+                style={styles.primaryButton}
+              >
+                <MaterialIcons name="auto-awesome" size={20} color="#0f172a" />
+                <Text style={styles.primaryButtonText}>Build with AI</Text>
+              </TouchableOpacity>
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onPress();
+                }}
+                style={({ pressed }) => [styles.manualLink, pressed && { opacity: 0.7 }]}
+                hitSlop={8}
+              >
+                <Text style={styles.manualLinkText}>Start manually instead</Text>
+              </Pressable>
+            </>
+          ) : (
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                onPress();
+              }}
+              activeOpacity={0.8}
+              style={styles.primaryButton}
+            >
+              <MaterialIcons name="add" size={20} color="#0f172a" />
+              <Text style={styles.primaryButtonText}>New Estimate</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </LinearGradient>
     </View>
@@ -54,47 +96,42 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     alignSelf: 'stretch',
     paddingHorizontal: 0,
-    paddingVertical: 40,
+    paddingVertical: 24,
   },
   card: {
     borderRadius: 20,
-    padding: 2,
+    padding: 1,
     alignSelf: 'stretch',
     width: '100%',
-    shadowColor: '#22c55e',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 8,
   },
   content: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 18,
-    padding: 32,
+    backgroundColor: '#141416',
+    borderRadius: 19,
+    padding: 28,
     alignItems: 'center',
   },
-  iconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(34, 197, 94, 0.2)',
+  iconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 18,
   },
   title: {
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#f9fafb',
-    marginBottom: 12,
+    marginBottom: 10,
     textAlign: 'center',
+    letterSpacing: -0.3,
   },
   body: {
     fontSize: 15,
     color: '#cbd5e1',
     lineHeight: 22,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   subtitle: {
     fontSize: 13,
@@ -103,7 +140,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontStyle: 'italic',
   },
-  button: {
+  primaryButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -111,17 +148,22 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 24,
     borderRadius: 12,
-    marginTop: 24,
+    marginTop: 22,
     gap: 8,
-    shadowColor: '#22c55e',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
+    alignSelf: 'stretch',
   },
-  buttonText: {
-    color: '#000000',
+  primaryButtonText: {
+    color: '#0f172a',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
+  },
+  manualLink: {
+    marginTop: 14,
+    paddingVertical: 6,
+  },
+  manualLinkText: {
+    color: '#94a3b8',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

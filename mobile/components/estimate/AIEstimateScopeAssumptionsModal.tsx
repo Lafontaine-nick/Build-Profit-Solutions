@@ -15832,20 +15832,22 @@ function CollapsibleQuickMeasurements({
               {quickMeasurementSummaryLine(headerSummary)}
             </Text>
           ) : null}
-          <Text
-            style={{
-              color:
-                headerSummary.needsConfirmation > 0
-                  ? '#fbbf24'
-                  : captionColor(darkMode, Colors),
-              fontSize: 11,
-              marginTop: 2,
-              minHeight: 28,
-              fontWeight: headerSummary.needsConfirmation > 0 ? '700' : '400',
-            }}
-          >
-            {subtitle}
-          </Text>
+          {expanded ? (
+            <Text
+              style={{
+                color:
+                  headerSummary.needsConfirmation > 0
+                    ? '#fbbf24'
+                    : captionColor(darkMode, Colors),
+                fontSize: 11,
+                marginTop: 2,
+                minHeight: 28,
+                fontWeight: headerSummary.needsConfirmation > 0 ? '700' : '400',
+              }}
+            >
+              {subtitle}
+            </Text>
+          ) : null}
         </View>
         <Ionicons
           name={expanded ? 'chevron-up' : 'chevron-down'}
@@ -16975,8 +16977,7 @@ export default function AIEstimateScopeAssumptionsModal({
     useState<ScopeMeasurementsInputExtended | null>(null);
   const deferredMeasurements = useDeferredValue(measurements);
   const [quickMeasurementsOpen, setQuickMeasurementsOpen] = useState(true);
-  // Confirm Scope reuses this modal instance — reopening must restore QM expanded
-  // even when hydration short-circuits (e.g. plan import before checklist is ready).
+  // Confirm Scope reuses this modal instance — open Quick measurements on each entry.
   useEffect(() => {
     if (visible) setQuickMeasurementsOpen(true);
   }, [visible]);
@@ -18662,10 +18663,6 @@ export default function AIEstimateScopeAssumptionsModal({
       setItems(normalized);
       setMeasurementsSynced(nextMeasurements);
       const displayForHydrate = expandWetAreaDerivedScopeItems(normalized);
-      // Quick Measurements are the primary input surface for Confirm Scope.
-      // Keep them open on every hydrated session so the user can immediately
-      // review or correct the takeoff.
-      setQuickMeasurementsOpen(true);
       setCustomItemLabel('');
       setShowCustomItemInput(false);
       const grouped = groupScopeChecklistItems(
@@ -22898,7 +22895,7 @@ export default function AIEstimateScopeAssumptionsModal({
         style={{ flex: 1 }}
         contentContainerStyle={{
           paddingHorizontal: 16,
-          paddingBottom: insets.bottom + 220,
+          paddingBottom: insets.bottom + 168,
         }}
         keyboardShouldPersistTaps='always'
         delayContentTouches={false}
@@ -22911,7 +22908,7 @@ export default function AIEstimateScopeAssumptionsModal({
         }}
       >
         <View ref={scrollContentRef} collapsable={false}>
-          <AIEstimateDisclaimer variant='review' />
+          <AIEstimateDisclaimer variant='compact' />
           <Text
             style={{
               color: captionColor(darkMode, Colors),
@@ -22921,10 +22918,7 @@ export default function AIEstimateScopeAssumptionsModal({
               lineHeight: 17,
             }}
           >
-            {noteSummary.fromNotes > 0
-              ? `${scopeLinkedToNotesSummary(noteSummary.fromNotes)} · `
-              : ''}
-            {summary.included} included
+            {summary.included} in scope
             {summary.needsMeasurement > 0 ? (
               <>
                 {' · '}
@@ -22935,13 +22929,11 @@ export default function AIEstimateScopeAssumptionsModal({
                   {summary.needsMeasurement} need measurements
                 </Text>
               </>
-            ) : (
-              ' · 0 need measurements'
-            )}
+            ) : null}
             {summary.unsure > 0 ? (
               <>
                 {' · '}
-                {summary.unsure} not sure
+                {summary.unsure} unsure
               </>
             ) : null}
           </Text>
@@ -23472,6 +23464,21 @@ export default function AIEstimateScopeAssumptionsModal({
           },
         ]}
       >
+        {step2AppliedEstimateTotal > 0 ? (
+          <Text
+            style={{
+              color: Colors.sub,
+              fontSize: 12,
+              textAlign: 'center',
+              marginBottom: 8,
+            }}
+          >
+            Applied so far{' '}
+            <Text style={{ color: Colors.text, fontWeight: '700' }}>
+              {formatDraftMoney(step2AppliedEstimateTotal)}
+            </Text>
+          </Text>
+        ) : null}
         <TouchableOpacity
           style={[styles.primaryBtn, applying && styles.primaryBtnDisabled]}
           onPress={handleConfirm}
@@ -23631,11 +23638,39 @@ export default function AIEstimateScopeAssumptionsModal({
         ) : null}
 
         {onScopeOnly ? (
-          <TouchableOpacity
-            onPress={handleScopeOnly}
-            disabled={applying}
-            activeOpacity={0.88}
-          >
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            <TouchableOpacity
+              onPress={handleScopeOnly}
+              disabled={applying}
+              activeOpacity={0.88}
+            >
+              <Text
+                style={{
+                  color: Colors.sub,
+                  fontWeight: '600',
+                  fontSize: 13,
+                  textAlign: 'center',
+                }}
+              >
+                Save scope only
+              </Text>
+            </TouchableOpacity>
+            <Text style={{ color: Colors.sub, opacity: 0.45 }}>·</Text>
+            <TouchableOpacity onPress={handleClose} disabled={applying}>
+              <Text
+                style={{
+                  color: Colors.sub,
+                  fontWeight: '600',
+                  fontSize: 13,
+                  textAlign: 'center',
+                }}
+              >
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity onPress={handleClose} disabled={applying}>
             <Text
               style={{
                 color: Colors.sub,
@@ -23644,23 +23679,10 @@ export default function AIEstimateScopeAssumptionsModal({
                 textAlign: 'center',
               }}
             >
-              Save scope only
+              Cancel
             </Text>
           </TouchableOpacity>
-        ) : null}
-
-        <TouchableOpacity onPress={handleClose} disabled={applying}>
-          <Text
-            style={{
-              color: Colors.sub,
-              fontWeight: '600',
-              fontSize: 13,
-              textAlign: 'center',
-            }}
-          >
-            Cancel
-          </Text>
-        </TouchableOpacity>
+        )}
       </View>
     </View>
   );

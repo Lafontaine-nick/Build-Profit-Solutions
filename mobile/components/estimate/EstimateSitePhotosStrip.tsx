@@ -65,6 +65,8 @@ type Props = {
   /** Lets parent remind on Generate when photos exist but Detect hasn't run. */
   onPhotoStateChange?: (state: SitePhotoState) => void;
   onPhotosChange?: (photos: SitePhoto[]) => void;
+  /** Tighter layout inside Build with AI accordion. */
+  embedded?: boolean;
 };
 
 const MAX_PHOTOS = 4;
@@ -100,6 +102,7 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
     onNotesMerged,
     onPhotoStateChange,
     onPhotosChange,
+    embedded = false,
   },
   ref
 ) {
@@ -297,24 +300,43 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
   const atLimit = photos.length >= MAX_PHOTOS;
 
   return (
-    <View style={{ marginBottom: 14 }}>
+    <View
+      style={{
+        marginBottom: embedded ? 0 : 14,
+        paddingTop: embedded ? 12 : 0,
+        borderTopWidth: embedded ? 1 : 0,
+        borderTopColor: embedded
+          ? darkMode
+            ? 'rgba(148, 163, 184, 0.12)'
+            : Colors.line
+          : 'transparent',
+      }}
+    >
       <View
         style={{
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'space-between',
-          marginBottom: 8,
+          marginBottom: embedded ? 6 : 8,
         }}
       >
-        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>Site photos</Text>
+        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
+          Site photos
+        </Text>
         <Text style={{ color: Colors.sub, fontSize: 11 }}>
           Optional · up to {MAX_PHOTOS}
         </Text>
       </View>
 
-      <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, marginBottom: 10 }}>
-        Add room photos — AI detects finishes and likely scope (not measurements or prices).
-      </Text>
+      {!embedded ? (
+        <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, marginBottom: 10 }}>
+          Add room photos — AI detects finishes and likely scope (not measurements or prices).
+        </Text>
+      ) : (
+        <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 15, marginBottom: 8 }}>
+          Finishes and likely scope only — not measurements or prices.
+        </Text>
+      )}
 
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: photos.length ? 10 : 0 }}>
         <TouchableOpacity

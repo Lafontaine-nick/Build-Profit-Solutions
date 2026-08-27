@@ -22,6 +22,8 @@ import { useAuth } from '@clerk/clerk-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
+import { aiFlowCardBackground } from '@/utils/estimateFlowCardStyle';
+import AIEstimateGeneratingOverlay from '@/components/estimate/AIEstimateGeneratingOverlay';
 import AIEstimateDisclaimer from '@/components/estimate/AIEstimateDisclaimer';
 import EstimateVoiceDictationButton from '@/components/estimate/EstimateVoiceDictationButton';
 import EstimateSitePhotosStrip, {
@@ -50,10 +52,13 @@ import type {
   PlumbingPerformerMode,
   PlumbingWorkflowMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import type { AiGeneratePhaseId } from '@/utils/aiEstimateGeneratingUi';
 
 type Props = {
   visible: boolean;
   generating?: boolean;
+  generatingPhase?: AiGeneratePhaseId | null;
+  generatingSteps?: AiGeneratePhaseId[];
   initialNotes?: string;
   /** Restore plan takeoff when reopening Step 1 after Confirm Scope Back. */
   initialPlanImport?: PlanImportPayload | null;
@@ -96,6 +101,8 @@ function contractorIntentNotes(notes: string): string {
 export default function AIEstimateBuilderModal({
   visible,
   generating = false,
+  generatingPhase = null,
+  generatingSteps = [],
   initialNotes = '',
   initialPlanImport = null,
   initialPhotoDetections = [],
@@ -140,6 +147,7 @@ export default function AIEstimateBuilderModal({
   const [plumbingPerformerMode, setPlumbingPerformerMode] =
     useState<PlumbingPerformerMode | null>(null);
   const [planSummaryExpanded, setPlanSummaryExpanded] = useState(false);
+  const [extrasExpanded, setExtrasExpanded] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [localGenerating, setLocalGenerating] = useState(false);
   const busy = generating || localGenerating;
@@ -154,6 +162,11 @@ export default function AIEstimateBuilderModal({
       })
       .catch(() => undefined);
   }, [getToken, visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    setExtrasExpanded(Boolean(initialPlanImport) || initialSitePhotos.length > 0);
+  }, [visible, initialPlanImport, initialSitePhotos.length]);
 
   const wasVisibleRef = useRef(false);
   useEffect(() => {
@@ -435,6 +448,22 @@ export default function AIEstimateBuilderModal({
     selectedPlanTrade,
   ]);
 
+  const extrasAccordionSubtitle = useMemo(() => {
+    const bits: string[] = [];
+    if (hasPlanImport) {
+      bits.push(
+        selectedPlanTrade ? `${selectedPlanTrade.label} plan ready` : 'Plan ready'
+      );
+    }
+    if (photoState.photoCount > 0) {
+      bits.push(
+        `${photoState.photoCount} photo${photoState.photoCount === 1 ? '' : 's'}`
+      );
+    }
+    if (bits.length) return bits.join(' · ');
+    return 'Optional — import a plan or add room photos';
+  }, [hasPlanImport, selectedPlanTrade, photoState.photoCount]);
+
   const runGenerate = async () => {
     const trimmed = notes.trim();
     const canRun = Boolean(trimmed || (semanticsOn && hasPlanImport));
@@ -538,8 +567,8 @@ export default function AIEstimateBuilderModal({
 
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub;
   const inputShell = {
-    backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : Colors.surface2,
-    borderColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line,
+    backgroundColor: aiFlowCardBackground(darkMode, Colors.surface2),
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
   };
   const footerBottomPad = Math.max(insets.bottom, 16);
 
@@ -556,7 +585,7 @@ export default function AIEstimateBuilderModal({
     }
   };
 
-  const notesMinHeight = embedded ? 360 : 320;
+  const notesMinHeight = embedded ? 220 : 200;
   const showNotesEditor = notesEditing || !notes.trim();
 
   const notesField = (
@@ -570,220 +599,140 @@ export default function AIEstimateBuilderModal({
         }}
       >
         {hasExistingDraft
-          ? 'Draft saved — continue to Confirm scope, or regenerate to rebuild from notes and plan.'
-          : 'Type, paste, dictate, add site photos, or import plans — AI drafts scope for review.'}
+          ? 'Draft saved — continue or regenerate from your notes and plan.'
+          : 'Paste or dictate job notes — AI drafts scope for review.'}
       </Text>
 
-      {false && !hasPlanImport ? (
-        <View
-          style={{
-            borderRadius: 14,
+      <Pressable
+        onPress={() => setExtrasExpanded(v => !v)}
+        style={({ pressed }) => [
+          {
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderRadius: 12,
             borderWidth: 1,
-            borderColor: Colors.line,
-            backgroundColor: darkMode
-              ? 'rgba(255,255,255,0.035)'
-              : Colors.surface2,
-            padding: 12,
-            marginBottom: 14,
-          }}
-        >
-          <Text
-            style={{
-              color: Colors.text,
-              fontSize: 13,
-              fontWeight: '800',
-              marginBottom: 8,
-            }}
-          >
-            Notes estimate scope
+            borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+            backgroundColor: aiFlowCardBackground(darkMode, Colors.surface2),
+            paddingHorizontal: 14,
+            paddingVertical: 12,
+            marginBottom: extrasExpanded ? 12 : 14,
+            opacity: pressed ? 0.85 : 1,
+          },
+        ]}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: extrasExpanded }}
+      >
+        <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+          <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
+            Plan or site photos
           </Text>
-          <View style={{ gap: 7 }}>
-            {[
-              ['whole_project', 'Whole Project / General Contractor'],
-              ['plumbing_only', 'Single Trade / Plumbing Only'],
-            ].map(([id, label]) => {
-              const active =
-                id === 'plumbing_only' ? plumbingOnly : !plumbingOnly;
-              return (
-                <TouchableOpacity
-                  key={id}
-                  disabled={busy}
-                  onPress={() => {
-                    const nextPlumbingOnly = id === 'plumbing_only';
-                    setPlumbingOnly(nextPlumbingOnly);
-                    if (!nextPlumbingOnly) {
-                      setPlumbingPerformerMode(null);
-                      setPlumbingWorkflowMode('bathroom_remodel');
-                    }
-                  }}
-                  style={{
-                    borderRadius: 10,
-                    borderWidth: 1,
-                    borderColor: active ? '#22c55e' : Colors.line,
-                    backgroundColor: active
-                      ? 'rgba(34,197,94,0.12)'
-                      : 'transparent',
-                    paddingHorizontal: 11,
-                    paddingVertical: 8,
-                  }}
+          <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+            {extrasAccordionSubtitle}
+          </Text>
+        </View>
+        <MaterialIcons
+          name={extrasExpanded ? 'expand-less' : 'expand-more'}
+          size={22}
+          color={Colors.sub}
+        />
+      </Pressable>
+
+      {extrasExpanded ? (
+        <>
+          <EstimatePlanImportStrip
+            Colors={Colors}
+            darkMode={darkMode}
+            disabled={busy}
+            existingNotes={notes}
+            existingPlanImport={planImport}
+            planReadySubtitle={planReadySubtitle}
+            embedded
+            onApplied={handlePlanApplied}
+          />
+
+          <EstimateSitePhotosStrip
+            ref={photosStripRef}
+            Colors={Colors}
+            darkMode={darkMode}
+            disabled={busy}
+            embedded
+            existingNotes={notes}
+            initialPhotos={sitePhotos}
+            initialHasAnalyzed={photoState.hasAnalyzed}
+            onNotesMerged={handlePhotoNotesMerged}
+            onPhotoStateChange={setPhotoState}
+            onPhotosChange={next => {
+              setSitePhotos(next);
+              onSitePhotosChange?.(next);
+            }}
+          />
+
+          {semanticsOn && importedPlanSummary ? (
+            <View style={{ marginBottom: 16 }}>
+              <TouchableOpacity
+                onPress={() => setPlanSummaryExpanded(v => !v)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: planSummaryExpanded ? 8 : 0,
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+                  <Text
+                    style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}
+                  >
+                    Imported plan summary
+                  </Text>
+                  {!planSummaryExpanded && importedPlanCollapsedSubtitle ? (
+                    <Text
+                      style={{ color: Colors.sub, fontSize: 12, marginTop: 3 }}
+                      numberOfLines={1}
+                    >
+                      {importedPlanCollapsedSubtitle}
+                    </Text>
+                  ) : null}
+                </View>
+                <MaterialIcons
+                  name={planSummaryExpanded ? 'expand-less' : 'expand-more'}
+                  size={22}
+                  color={Colors.sub}
+                />
+              </TouchableOpacity>
+              {planSummaryExpanded ? (
+                <View
+                  style={[
+                    styles.notesInput,
+                    inputShell,
+                    {
+                      opacity: 0.95,
+                    },
+                  ]}
                 >
                   <Text
                     style={{
-                      color: Colors.text,
+                      color: Colors.sub,
                       fontSize: 12,
-                      fontWeight: '700',
+                      lineHeight: 17,
+                      marginBottom: 8,
                     }}
                   >
-                    {label}
+                    Read-only. Structured plan measurements stay authoritative —
+                    editing Job notes below does not change imported numbers unless
+                    you re-run plan import.
                   </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-          {plumbingOnly ? (
-            <>
-              <Text
-                style={{
-                  color: Colors.text,
-                  fontSize: 12,
-                  fontWeight: '700',
-                  marginTop: 10,
-                  marginBottom: 6,
-                }}
-              >
-                Plumbing mode
-              </Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {(
-                  [
-                    ['bathroom_remodel', 'Bathroom Remodel'],
-                    ['service', 'Service'],
-                    ['new_construction', 'New Construction'],
-                  ] as Array<[PlumbingWorkflowMode, string]>
-                ).map(([mode, label]) => (
-                  <TouchableOpacity
-                    key={mode}
-                    disabled={busy}
-                    onPress={() => setPlumbingWorkflowMode(mode)}
-                    style={{
-                      borderRadius: 15,
-                      borderWidth: 1,
-                      borderColor:
-                        plumbingWorkflowMode === mode ? '#22c55e' : Colors.line,
-                      backgroundColor:
-                        plumbingWorkflowMode === mode
-                          ? 'rgba(34,197,94,0.12)'
-                          : 'transparent',
-                      paddingHorizontal: 9,
-                      paddingVertical: 6,
-                    }}
+                  <Text
+                    style={{ color: Colors.text, fontSize: 14, lineHeight: 20 }}
                   >
-                    <Text
-                      style={{
-                        color: Colors.text,
-                        fontSize: 11,
-                        fontWeight: '700',
-                      }}
-                    >
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </>
-          ) : null}
-        </View>
-      ) : null}
-
-      <EstimatePlanImportStrip
-        Colors={Colors}
-        darkMode={darkMode}
-        disabled={busy}
-        existingNotes={notes}
-        existingPlanImport={planImport}
-        planReadySubtitle={planReadySubtitle}
-        onApplied={handlePlanApplied}
-      />
-
-      <EstimateSitePhotosStrip
-        ref={photosStripRef}
-        Colors={Colors}
-        darkMode={darkMode}
-        disabled={busy}
-        existingNotes={notes}
-        initialPhotos={sitePhotos}
-        initialHasAnalyzed={photoState.hasAnalyzed}
-        onNotesMerged={handlePhotoNotesMerged}
-        onPhotoStateChange={setPhotoState}
-        onPhotosChange={next => {
-          setSitePhotos(next);
-          onSitePhotosChange?.(next);
-        }}
-      />
-
-      {semanticsOn && importedPlanSummary ? (
-        <View style={{ marginBottom: 16 }}>
-          <TouchableOpacity
-            onPress={() => setPlanSummaryExpanded(v => !v)}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: planSummaryExpanded ? 8 : 0,
-            }}
-            activeOpacity={0.7}
-          >
-            <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
-              <Text
-                style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}
-              >
-                Imported plan summary
-              </Text>
-              {!planSummaryExpanded && importedPlanCollapsedSubtitle ? (
-                <Text
-                  style={{ color: Colors.sub, fontSize: 12, marginTop: 3 }}
-                  numberOfLines={1}
-                >
-                  {importedPlanCollapsedSubtitle}
-                </Text>
+                    {importedPlanSummary}
+                  </Text>
+                </View>
               ) : null}
             </View>
-            <MaterialIcons
-              name={planSummaryExpanded ? 'expand-less' : 'expand-more'}
-              size={22}
-              color={Colors.sub}
-            />
-          </TouchableOpacity>
-          {planSummaryExpanded ? (
-            <View
-              style={[
-                styles.notesInput,
-                inputShell,
-                {
-                  opacity: 0.95,
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  color: Colors.sub,
-                  fontSize: 12,
-                  lineHeight: 17,
-                  marginBottom: 8,
-                }}
-              >
-                Read-only. Structured plan measurements stay authoritative —
-                editing Job notes below does not change imported numbers unless
-                you re-run plan import.
-              </Text>
-              <Text
-                style={{ color: Colors.text, fontSize: 14, lineHeight: 20 }}
-              >
-                {importedPlanSummary}
-              </Text>
-            </View>
           ) : null}
-        </View>
+        </>
       ) : null}
 
       <View
@@ -820,7 +769,7 @@ export default function AIEstimateBuilderModal({
           onBlur={() => {
             if (notes.trim()) setNotesEditing(false);
           }}
-          placeholder='Example: Josh whole-home remodel — master bath $14,750 (materials $6,900 / labor $7,850), kitchen $23,400 lump sum, guest bath 420 sqft tile $4/sqft + labor $5.75/sqft...'
+          placeholder='Bathroom remodel — shower tile, vanity, plumbing, demo. Include sizes, materials, or lump sums if you have them.'
           placeholderTextColor={placeholderColor}
           style={[
             styles.notesInput,
@@ -1120,6 +1069,7 @@ export default function AIEstimateBuilderModal({
               : 'Notes, photos, or plans'
           }
           step={1}
+          stepTotal={3}
           fromAssistant={fromAssistant}
           omitTopSafeArea={embedded}
           disabled={busy}
@@ -1150,6 +1100,11 @@ export default function AIEstimateBuilderModal({
         ]}
       >
         {body}
+        <AIEstimateGeneratingOverlay
+          visible={busy}
+          phase={generatingPhase}
+          steps={generatingSteps}
+        />
       </View>
     );
   }
@@ -1162,7 +1117,14 @@ export default function AIEstimateBuilderModal({
       onRequestClose={handleBack}
     >
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
-      <View style={{ flex: 1, backgroundColor: Colors.bg }}>{body}</View>
+      <View style={{ flex: 1, backgroundColor: Colors.bg }}>
+        {body}
+        <AIEstimateGeneratingOverlay
+          visible={busy}
+          phase={generatingPhase}
+          steps={generatingSteps}
+        />
+      </View>
     </Modal>
   );
 }

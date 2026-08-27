@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -28,6 +29,7 @@ import {
   takePlanPhoto,
 } from '@/utils/planImportRunner';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
+import { aiFlowCardBackground } from '@/utils/estimateFlowCardStyle';
 import {
   applyHvacProvenanceGuardToScopeMeasurements,
   hasDocumentedHvacVentilationCount,
@@ -515,6 +517,8 @@ type Props = {
   onPlumbingWorkflowModeChange?: (mode: PlumbingWorkflowMode) => void;
   onPlumbingPerformerModeChange?: (mode: PlumbingPerformerMode | null) => void;
   onApplied: (result: PlanImportApplyResult) => void;
+  /** Tighter layout inside Build with AI accordion (no duplicate headers). */
+  embedded?: boolean;
 };
 
 export default function EstimatePlanImportStrip({
@@ -533,17 +537,19 @@ export default function EstimatePlanImportStrip({
   onPlumbingWorkflowModeChange,
   onPlumbingPerformerModeChange,
   onApplied,
+  embedded = false,
 }: Props) {
   const [importing, setImporting] = useState(false);
   const previousPlanImportRef = useRef<PlanRepeatSnapshot | null>(null);
   const [planReview, setPlanReview] = useState<PlanReviewState | null>(null);
   const [showImportChooser, setShowImportChooser] = useState(false);
-  const [estimatingMode, setEstimatingMode] = useState<PlanEstimatingMode>(
-    forcedTradeKey ? 'selected_trade' : 'whole_project'
-  );
+  const [estimatingMode, setEstimatingMode] = useState<
+    PlanEstimatingMode | null
+  >(forcedTradeKey ? 'selected_trade' : 'whole_project');
   const [selectedTrade, setSelectedTrade] = useState<PlanTradeKey | null>(
     forcedTradeKey
   );
+  const lastTradeTapRef = useRef<{ key: PlanTradeKey; at: number } | null>(null);
   const planReady = Boolean(planReadySubtitle?.trim());
   const routingLocked = Boolean(forcedTradeKey);
   const showPlanRouting =
@@ -559,12 +565,34 @@ export default function EstimatePlanImportStrip({
   }, [forcedTradeKey]);
 
   const updateRouting = (
-    nextMode: PlanEstimatingMode,
+    nextMode: PlanEstimatingMode | null,
     nextTrade: PlanTradeKey | null
   ) => {
     setEstimatingMode(nextMode);
     setSelectedTrade(nextTrade);
   };
+
+  const handleTradePress = useCallback(
+    (tradeKey: PlanTradeKey) => {
+      if (routingLocked) return;
+
+      const now = Date.now();
+      const lastTap = lastTradeTapRef.current;
+      if (
+        selectedTrade === tradeKey &&
+        lastTap?.key === tradeKey &&
+        now - lastTap.at < 350
+      ) {
+        lastTradeTapRef.current = null;
+        updateRouting('selected_trade', null);
+        return;
+      }
+
+      lastTradeTapRef.current = { key: tradeKey, at: now };
+      updateRouting('selected_trade', tradeKey);
+    },
+    [routingLocked, selectedTrade]
+  );
 
   const executeTakeoff = useCallback(
     async (
@@ -852,6 +880,13 @@ export default function EstimatePlanImportStrip({
       return;
     }
     if (plumbingPlanDisabled) return;
+    if (!estimatingMode) {
+      Alert.alert(
+        'Select an option',
+        'Choose whole project or single trade before importing the plan.'
+      );
+      return;
+    }
     if (estimatingMode === 'selected_trade' && !selectedTrade) {
       Alert.alert(
         'Select a trade',
@@ -1312,87 +1347,205 @@ export default function EstimatePlanImportStrip({
         : 1,
   };
 
-  return (
-    <View style={{ marginBottom: 16 }}>
-      <Text
-        style={{
-          color: Colors.text,
-          fontSize: 14,
-          fontWeight: '700',
-          marginBottom: 4,
-        }}
-      >
-        Plans
-      </Text>
-      <Text
-        style={{
-          color: Colors.sub,
-          fontSize: 12,
-          lineHeight: 16,
-          marginBottom: 10,
-        }}
-      >
-        Import a floor-plan PDF or photos — AI fills measurements and drafts
-        scope for you to review.
-      </Text>
-      {showPlanRouting ? (
-        <>
+  const tradeOptions = routingLocked
+    ? PLAN_EXPORT_TRADE_CONFIGURATIONS.filter(trade => trade.key === forcedTradeKey)
+    : PLAN_EXPORT_TRADE_CONFIGURATIONS;
+
+  const selectedTradeLabel =
+    PLAN_EXPORT_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)
+      ?.label ||
+    PLAN_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)?.label ||
+    null;
+
+  const importButton = (
+    <TouchableOpacity
+      onPress={openPicker}
+      disabled={
+        importing || disabled || (plumbingPlanDisabled && showPlanRouting)
+      }
+      activeOpacity={0.75}
+      style={[
+        {
+          flexDirection: 'row',
+          alignItems: 'flex-start',
+          gap: 10,
+          padding: planReady ? 14 : 10,
+          paddingHorizontal: planReady ? 14 : 12,
+        },
+        cardShell,
+      ]}
+    >
+      {importing ? (
+        <ActivityIndicator
+          size='small'
+          color='#22c55e'
+          style={{ marginTop: 2 }}
+        />
+      ) : (
+        <Ionicons
+          name={planReady ? 'checkmark-circle' : 'map-outline'}
+          size={planReady ? 24 : 18}
+          color={planReady ? '#38d39f' : '#22c55e'}
+          style={{ marginTop: planReady ? 0 : 1 }}
+        />
+      )}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text
+          style={{
+            color: Colors.text,
+            fontSize: planReady ? 15 : 13,
+            fontWeight: planReady ? '800' : '700',
+          }}
+        >
+          {importing
+            ? 'Reading plan…'
+            : planReady
+              ? 'Plan ready to generate'
+              : 'Import from plan'}
+        </Text>
+        {planReady && planReadySubtitle ? (
           <Text
             style={{
-              color: Colors.text,
+              color: '#38d39f',
               fontSize: 13,
               fontWeight: '700',
-              marginBottom: 6,
+              marginTop: 4,
             }}
           >
-            What are you estimating?
+            {planReadySubtitle}
           </Text>
-          <View style={{ gap: 8, marginBottom: 10 }}>
-            {!routingLocked ? (
-              <TouchableOpacity
-                onPress={() => {
-                  updateRouting('whole_project', null);
-                }}
-                style={{
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor:
-                    estimatingMode === 'whole_project'
-                      ? '#22c55e'
-                      : Colors.line,
-                  backgroundColor:
-                    estimatingMode === 'whole_project'
-                      ? 'rgba(34,197,94,0.12)'
-                      : 'transparent',
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                }}
-              >
-                <Text
-                  style={{
-                    color: Colors.text,
-                    fontSize: 12,
-                    fontWeight: '700',
-                  }}
-                >
-                  Whole Project / General Contractor
-                </Text>
-                <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
-                  Estimate multiple trades from the full plan set.
-                </Text>
-              </TouchableOpacity>
-            ) : null}
+        ) : null}
+        <Text
+          style={{
+            color: Colors.sub,
+            fontSize: planReady ? 12 : 11,
+            lineHeight: planReady ? 17 : 16,
+            marginTop: planReady ? 6 : 2,
+            fontWeight: '400',
+          }}
+        >
+          {plumbingPlanDisabled
+            ? 'Notes and photos are used for this Plumbing mode.'
+            : planReady
+              ? semanticsOn
+                ? 'Tap Generate Estimate Draft below — job notes are optional. Tap here to import a different plan.'
+                : 'Review Job notes, then Generate. Tap here to import a different plan.'
+              : embedded && showPlanRouting
+                ? estimatingMode === 'selected_trade' && !selectedTrade
+                  ? 'Pick a trade below, then choose your plan file.'
+                  : 'Photo, library pages, or PDF — you review before Generate.'
+                : 'Photo, library pages, or PDF — you review before Generate'}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+
+  const planRoutingPanel = showPlanRouting ? (
+    <View
+      style={
+        embedded
+          ? {
+              marginTop: 10,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: darkMode
+                ? 'rgba(148, 163, 184, 0.12)'
+                : Colors.line,
+              backgroundColor: aiFlowCardBackground(darkMode, Colors.surface2),
+              padding: 12,
+            }
+          : undefined
+      }
+    >
+      {!embedded ? (
+        <Text
+          style={{
+            color: Colors.text,
+            fontSize: 13,
+            fontWeight: '700',
+            marginBottom: 6,
+          }}
+        >
+          What are you estimating?
+        </Text>
+      ) : null}
+      {embedded ? (
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+          {!routingLocked ? (
             <TouchableOpacity
               onPress={() => {
+                if (estimatingMode === 'whole_project') {
+                  updateRouting(null, null);
+                } else {
+                  updateRouting('whole_project', null);
+                }
+              }}
+              style={{
+                flex: 1,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor:
+                  estimatingMode === 'whole_project' ? '#22c55e' : Colors.line,
+                backgroundColor:
+                  estimatingMode === 'whole_project'
+                    ? 'rgba(34,197,94,0.12)'
+                    : 'transparent',
+                paddingVertical: 10,
+                alignItems: 'center',
+              }}
+            >
+              <Text
+                style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}
+              >
+                Whole project
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            onPress={() => {
+              if (estimatingMode === 'selected_trade') {
+                updateRouting(null, null);
+              } else {
                 updateRouting('selected_trade', forcedTradeKey);
+              }
+            }}
+            style={{
+              flex: routingLocked ? 1 : 1,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor:
+                estimatingMode === 'selected_trade' ? '#22c55e' : Colors.line,
+              backgroundColor:
+                estimatingMode === 'selected_trade'
+                  ? 'rgba(34,197,94,0.12)'
+                  : 'transparent',
+              paddingVertical: 10,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>
+              {routingLocked ? 'Plumbing only' : 'Single trade'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={{ gap: 8, marginBottom: 10 }}>
+          {!routingLocked ? (
+            <TouchableOpacity
+              onPress={() => {
+                if (estimatingMode === 'whole_project') {
+                  updateRouting(null, null);
+                } else {
+                  updateRouting('whole_project', null);
+                }
               }}
               style={{
                 borderRadius: 12,
                 borderWidth: 1,
                 borderColor:
-                  estimatingMode === 'selected_trade' ? '#22c55e' : Colors.line,
+                  estimatingMode === 'whole_project' ? '#22c55e' : Colors.line,
                 backgroundColor:
-                  estimatingMode === 'selected_trade'
+                  estimatingMode === 'whole_project'
                     ? 'rgba(34,197,94,0.12)'
                     : 'transparent',
                 paddingHorizontal: 12,
@@ -1402,283 +1555,308 @@ export default function EstimatePlanImportStrip({
               <Text
                 style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}
               >
-                {routingLocked
-                  ? 'Single Trade / Plumbing Only'
-                  : 'Single Trade / Subcontractor'}
+                Whole Project / General Contractor
               </Text>
+              {estimatingMode === 'whole_project' ? (
+                <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
+                  Estimate multiple trades from the full plan set.
+                </Text>
+              ) : null}
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            onPress={() => {
+              if (estimatingMode === 'selected_trade') {
+                updateRouting(null, null);
+              } else {
+                updateRouting('selected_trade', forcedTradeKey);
+              }
+            }}
+            style={{
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor:
+                estimatingMode === 'selected_trade' ? '#22c55e' : Colors.line,
+              backgroundColor:
+                estimatingMode === 'selected_trade'
+                  ? 'rgba(34,197,94,0.12)'
+                  : 'transparent',
+              paddingHorizontal: 12,
+              paddingVertical: 10,
+            }}
+          >
+            <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>
+              {routingLocked
+                ? 'Single Trade / Plumbing Only'
+                : 'Single Trade / Subcontractor'}
+            </Text>
+            {estimatingMode === 'selected_trade' ? (
               <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
                 {routingLocked
                   ? 'Import plan quantities for the Plumbing-only estimate.'
                   : 'Build an estimate for one trade only.'}
               </Text>
-            </TouchableOpacity>
-          </View>
-          {estimatingMode === 'selected_trade' ? (
-            <>
-              <Text
-                style={{
-                  color: Colors.text,
-                  fontSize: 13,
-                  fontWeight: '700',
-                  marginBottom: 6,
-                }}
-              >
-                Select your trade
+            ) : null}
+          </TouchableOpacity>
+        </View>
+      )}
+      {estimatingMode === 'selected_trade' ? (
+        <>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'baseline',
+              justifyContent: 'space-between',
+              marginBottom: 8,
+            }}
+          >
+            <Text
+              style={{
+                color: Colors.text,
+                fontSize: embedded ? 12 : 13,
+                fontWeight: '700',
+              }}
+            >
+              Select your trade
+            </Text>
+            {embedded && selectedTradeLabel ? (
+              <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '700' }}>
+                {selectedTradeLabel}
               </Text>
+            ) : null}
+          </View>
+          {(() => {
+            const tradeGrid = (
               <View
                 style={{
                   flexDirection: 'row',
                   flexWrap: 'wrap',
-                  gap: 6,
-                  marginBottom: 10,
+                  gap: 8,
                 }}
               >
-                {(routingLocked
-                  ? PLAN_EXPORT_TRADE_CONFIGURATIONS.filter(
-                      trade => trade.key === forcedTradeKey
-                    )
-                  : PLAN_EXPORT_TRADE_CONFIGURATIONS
-                ).map(trade => (
-                  <TouchableOpacity
-                    key={trade.key}
-                    onPress={() => updateRouting('selected_trade', trade.key)}
-                    style={{
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor:
-                        selectedTrade === trade.key ? '#22c55e' : Colors.line,
-                      backgroundColor:
-                        selectedTrade === trade.key
+                {tradeOptions.map(trade => {
+                  const selected = selectedTrade === trade.key;
+                  return (
+                    <TouchableOpacity
+                      key={trade.key}
+                      onPress={() => handleTradePress(trade.key)}
+                      style={{
+                        width: '48%',
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: selected ? '#22c55e' : Colors.line,
+                        backgroundColor: selected
                           ? 'rgba(34,197,94,0.12)'
                           : 'transparent',
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: Colors.text,
-                        fontSize: 11,
-                        fontWeight: '700',
+                        paddingHorizontal: 8,
+                        paddingVertical: embedded ? 10 : 8,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: embedded ? 44 : 40,
                       }}
                     >
-                      {trade.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                      <Text
+                        style={{
+                          color: Colors.text,
+                          fontSize: 12,
+                          fontWeight: '700',
+                          textAlign: 'center',
+                        }}
+                        numberOfLines={2}
+                      >
+                        {trade.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
-            </>
-          ) : null}
-          {estimatingMode === 'selected_trade' && !selectedTrade ? (
-            <Text style={{ color: '#fbbf24', fontSize: 11, marginBottom: 10 }}>
-              Select a trade before importing the plan.
-            </Text>
-          ) : null}
-          {selectedTrade ? (
-            <Text
-              style={{
-                color: Colors.sub,
-                fontSize: 11,
-                lineHeight: 15,
-                marginBottom: 10,
-              }}
-            >
-              {selectedTrade === 'electrical'
-                ? 'Electrical plan selected — symbol and schedule counts map onto the existing Electrical cards. Confirm the takeoff before it fills the bid.'
-                : `${PLAN_EXPORT_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)?.label || PLAN_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)?.label || 'Trade'} plan selected — we will focus on relevant sheets and quantities.`}
-            </Text>
-          ) : null}
-          {false && selectedTrade === 'plumbing' ? (
-            <View
-              style={{
-                borderTopWidth: 1,
-                borderTopColor: Colors.line,
-                paddingTop: 10,
-                marginBottom: 10,
-              }}
-            >
-              <Text
-                style={{
-                  color: Colors.text,
-                  fontSize: 12,
-                  fontWeight: '700',
-                  marginBottom: 6,
-                }}
+            );
+            return embedded ? (
+              <ScrollView
+                style={{ maxHeight: 220 }}
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
               >
-                Plumbing scope
-              </Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {(
-                  [
-                    ['bathroom_remodel', 'Bathroom Remodel'],
-                    ['new_construction', 'New Construction'],
-                    ['service', 'Service'],
-                  ] as Array<[PlumbingWorkflowMode, string]>
-                ).map(([mode, label]) => (
-                  <TouchableOpacity
-                    key={mode}
-                    disabled={disabled}
-                    onPress={() => onPlumbingWorkflowModeChange?.(mode)}
-                    style={{
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor:
-                        plumbingWorkflowMode === mode ? '#22c55e' : Colors.line,
-                      backgroundColor:
-                        plumbingWorkflowMode === mode
-                          ? 'rgba(34,197,94,0.12)'
-                          : 'transparent',
-                      paddingHorizontal: 9,
-                      paddingVertical: 6,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: Colors.text,
-                        fontSize: 11,
-                        fontWeight: '700',
-                      }}
-                    >
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <Text
-                style={{
-                  color: Colors.text,
-                  fontSize: 12,
-                  fontWeight: '700',
-                  marginTop: 10,
-                  marginBottom: 6,
-                }}
-              >
-                Performer
-              </Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {(
-                  [
-                    ['self_performed', 'I do the work'],
-                    ['subcontracted', 'I hire a plumber'],
-                    ['existing_quote', 'Existing quote'],
-                  ] as Array<[PlumbingPerformerMode, string]>
-                ).map(([mode, label]) => (
-                  <TouchableOpacity
-                    key={mode}
-                    disabled={disabled}
-                    onPress={() => onPlumbingPerformerModeChange?.(mode)}
-                    style={{
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor:
-                        plumbingPerformerMode === mode
-                          ? '#22c55e'
-                          : Colors.line,
-                      backgroundColor:
-                        plumbingPerformerMode === mode
-                          ? 'rgba(34,197,94,0.12)'
-                          : 'transparent',
-                      paddingHorizontal: 9,
-                      paddingVertical: 6,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: Colors.text,
-                        fontSize: 11,
-                        fontWeight: '700',
-                      }}
-                    >
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          ) : null}
+                {tradeGrid}
+              </ScrollView>
+            ) : (
+              tradeGrid
+            );
+          })()}
         </>
       ) : null}
-      <TouchableOpacity
-        onPress={openPicker}
-        disabled={
-          importing || disabled || (plumbingPlanDisabled && showPlanRouting)
-        }
-        activeOpacity={0.75}
-        style={[
-          {
-            flexDirection: 'row',
-            alignItems: 'flex-start',
-            gap: 10,
-            padding: planReady ? 14 : 10,
-            paddingHorizontal: planReady ? 14 : 12,
-          },
-          cardShell,
-        ]}
-      >
-        {importing ? (
-          <ActivityIndicator
-            size='small'
-            color='#22c55e'
-            style={{ marginTop: 2 }}
-          />
-        ) : (
-          <Ionicons
-            name={planReady ? 'checkmark-circle' : 'map-outline'}
-            size={planReady ? 24 : 18}
-            color={planReady ? '#38d39f' : '#22c55e'}
-            style={{ marginTop: planReady ? 0 : 1 }}
-          />
-        )}
-        <View style={{ flex: 1, minWidth: 0 }}>
+      {!embedded && estimatingMode === 'selected_trade' && !selectedTrade ? (
+        <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 10 }}>
+          Select a trade before importing the plan.
+        </Text>
+      ) : null}
+      {!embedded && selectedTrade ? (
+        <Text
+          style={{
+            color: Colors.sub,
+            fontSize: 11,
+            lineHeight: 15,
+            marginTop: 10,
+          }}
+        >
+          {selectedTrade === 'electrical'
+            ? 'Electrical plan selected — symbol and schedule counts map onto the existing Electrical cards. Confirm the takeoff before it fills the bid.'
+            : `${selectedTradeLabel || 'Trade'} plan selected — we will focus on relevant sheets and quantities.`}
+        </Text>
+      ) : null}
+      {false && selectedTrade === 'plumbing' ? (
+        <View
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: Colors.line,
+            paddingTop: 10,
+            marginTop: 10,
+          }}
+        >
           <Text
             style={{
               color: Colors.text,
-              fontSize: planReady ? 15 : 13,
-              fontWeight: planReady ? '800' : '700',
+              fontSize: 12,
+              fontWeight: '700',
+              marginBottom: 6,
             }}
           >
-            {importing
-              ? 'Reading plan…'
-              : planReady
-                ? 'Plan ready to generate'
-                : 'Import from plan'}
+            Plumbing scope
           </Text>
-          {planReady && planReadySubtitle ? (
-            <Text
-              style={{
-                color: '#38d39f',
-                fontSize: 13,
-                fontWeight: '700',
-                marginTop: 4,
-              }}
-            >
-              {planReadySubtitle}
-            </Text>
-          ) : null}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {(
+              [
+                ['bathroom_remodel', 'Bathroom Remodel'],
+                ['new_construction', 'New Construction'],
+                ['service', 'Service'],
+              ] as Array<[PlumbingWorkflowMode, string]>
+            ).map(([mode, label]) => (
+              <TouchableOpacity
+                key={mode}
+                disabled={disabled}
+                onPress={() => onPlumbingWorkflowModeChange?.(mode)}
+                style={{
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor:
+                    plumbingWorkflowMode === mode ? '#22c55e' : Colors.line,
+                  backgroundColor:
+                    plumbingWorkflowMode === mode
+                      ? 'rgba(34,197,94,0.12)'
+                      : 'transparent',
+                  paddingHorizontal: 9,
+                  paddingVertical: 6,
+                }}
+              >
+                <Text
+                  style={{
+                    color: Colors.text,
+                    fontSize: 11,
+                    fontWeight: '700',
+                  }}
+                >
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
           <Text
             style={{
-              color: planReady ? Colors.sub : Colors.sub,
-              fontSize: planReady ? 12 : 11,
-              lineHeight: planReady ? 17 : 16,
-              marginTop: planReady ? 6 : 2,
-              fontWeight: '400',
+              color: Colors.text,
+              fontSize: 12,
+              fontWeight: '700',
+              marginTop: 10,
+              marginBottom: 6,
             }}
           >
-            {plumbingPlanDisabled
-              ? 'Notes and photos are used for this Plumbing mode.'
-              : planReady
-                ? semanticsOn
-                  ? 'Tap Generate Estimate Draft below — job notes are optional. Tap here to import a different plan.'
-                  : 'Review Job notes, then Generate. Tap here to import a different plan.'
-                : 'Photo, library pages, or PDF — you review before Generate'}
+            Performer
           </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {(
+              [
+                ['self_performed', 'I do the work'],
+                ['subcontracted', 'I hire a plumber'],
+                ['existing_quote', 'Existing quote'],
+              ] as Array<[PlumbingPerformerMode, string]>
+            ).map(([mode, label]) => (
+              <TouchableOpacity
+                key={mode}
+                disabled={disabled}
+                onPress={() => onPlumbingPerformerModeChange?.(mode)}
+                style={{
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor:
+                    plumbingPerformerMode === mode ? '#22c55e' : Colors.line,
+                  backgroundColor:
+                    plumbingPerformerMode === mode
+                      ? 'rgba(34,197,94,0.12)'
+                      : 'transparent',
+                  paddingHorizontal: 9,
+                  paddingVertical: 6,
+                }}
+              >
+                <Text
+                  style={{
+                    color: Colors.text,
+                    fontSize: 11,
+                    fontWeight: '700',
+                  }}
+                >
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
-      </TouchableOpacity>
+      ) : null}
+    </View>
+  ) : null;
+
+  return (
+    <View style={{ marginBottom: embedded ? 12 : 16 }}>
+      {!embedded ? (
+        <>
+          <Text
+            style={{
+              color: Colors.text,
+              fontSize: 14,
+              fontWeight: '700',
+              marginBottom: 4,
+            }}
+          >
+            Plans
+          </Text>
+          <Text
+            style={{
+              color: Colors.sub,
+              fontSize: 12,
+              lineHeight: 16,
+              marginBottom: 10,
+            }}
+          >
+            Import a floor-plan PDF or photos — AI fills measurements and drafts
+            scope for you to review.
+          </Text>
+        </>
+      ) : null}
+      {embedded ? (
+        <>
+          {importButton}
+          {planRoutingPanel}
+        </>
+      ) : (
+        <>
+          {planRoutingPanel}
+          {importButton}
+        </>
+      )}
 
       <PlanTakeoffReviewModal
         visible={planReview != null}
         takeoff={planReview}
-        estimatingMode={estimatingMode}
+        estimatingMode={estimatingMode ?? undefined}
         selectedTrade={selectedTrade}
         currentValues={{}}
         onApply={handleApply}

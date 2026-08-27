@@ -44,10 +44,12 @@ import EstimateTemplatePickerModal from '../../components/estimate/EstimateTempl
 import SaveAsTemplateModal from '../../components/estimate/SaveAsTemplateModal';
 import AIEstimateBuilderModal from '../../components/estimate/AIEstimateBuilderModal';
 import AIEstimateDraftReviewModal from '../../components/estimate/AIEstimateDraftReviewModal';
+import AIEstimateInitialRevealModal from '../../components/estimate/AIEstimateInitialRevealModal';
 import AIEstimatePricingProposalModal from '../../components/estimate/AIEstimatePricingProposalModal';
 import AIEstimatePricingFallbackModal from '../../components/estimate/AIEstimatePricingFallbackModal';
 import AIEstimateManualPricingModal from '../../components/estimate/AIEstimateManualPricingModal';
 import AIEstimateScopeAssumptionsModal from '../../components/estimate/AIEstimateScopeAssumptionsModal';
+import { buildAiGenerateSteps } from '../../utils/aiEstimateGeneratingUi';
 import {
   applyPricingProposalToDraft,
   buildProposalFromMissingSuggestions,
@@ -5275,9 +5277,12 @@ export default function EstimateGeneratorScreen() {
   });
   const [showAiBuilderModal, setShowAiBuilderModal] = useState(false);
   const [showAiDraftReviewModal, setShowAiDraftReviewModal] = useState(false);
+  const [showAiInitialRevealModal, setShowAiInitialRevealModal] = useState(false);
   const [aiDraftNotes, setAiDraftNotes] = useState('');
   const [aiDraft, setAiDraft] = useState(null);
   const [aiDraftGenerating, setAiDraftGenerating] = useState(false);
+  const [aiDraftGeneratingPhase, setAiDraftGeneratingPhase] = useState(null);
+  const [aiDraftGeneratingSteps, setAiDraftGeneratingSteps] = useState([]);
   const [aiDraftApplying, setAiDraftApplying] = useState(false);
   const [aiDraftRoughLoading, setAiDraftRoughLoading] = useState(false);
   const [aiDraftSuggestingSplits, setAiDraftSuggestingSplits] = useState(false);
@@ -5341,6 +5346,10 @@ export default function EstimateGeneratorScreen() {
       scopeMeasurements: mergedMeasurements,
     });
   }, []);
+  const aiDraftSyncedForReview = useMemo(
+    () => (aiDraft ? syncDraftWithLatestScopeMeasurements(aiDraft) : null),
+    [aiDraft, syncDraftWithLatestScopeMeasurements]
+  );
   /** Ask AI refine/clarify — persist pricing into scope snapshot before sync. */
   const applyAskAiDraftResult = useCallback(
     (draft) => {
@@ -5879,20 +5888,49 @@ export default function EstimateGeneratorScreen() {
     [savedBidTemplates, bid, aiDraftNotes]
   );
 
+  const openAiDraftReviewEntry = useCallback(() => {
+    setShowAiDraftReviewModal(false);
+    setShowAiInitialRevealModal(true);
+  }, []);
+
+  const openAiDraftReviewDetailed = useCallback(() => {
+    setShowAiInitialRevealModal(false);
+    InteractionManager.runAfterInteractions(() => {
+      setShowAiDraftReviewModal(true);
+    });
+  }, []);
+
+  const handleInitialRevealClose = useCallback(() => {
+    setShowAiInitialRevealModal(false);
+  }, []);
+
+  const handleInitialRevealConfirmScope = useCallback(() => {
+    setShowAiInitialRevealModal(false);
+    InteractionManager.runAfterInteractions(() => {
+      setShowAiScopeAssumptionsModal(true);
+    });
+  }, []);
+
+  const handleInitialRevealRegenerate = useCallback(() => {
+    setShowAiInitialRevealModal(false);
+    setShowAiBuilderModal(true);
+  }, []);
+
   /** After complex-job scope is confirmed, run saved pricing then rough pricing. */
   const pauseDraftReviewForPricingModal = useCallback(() => {
-    if (showAiDraftReviewModal) {
+    if (showAiDraftReviewModal || showAiInitialRevealModal) {
       aiDraftReviewResumeRef.current = true;
       setShowAiDraftReviewModal(false);
+      setShowAiInitialRevealModal(false);
     }
-  }, [showAiDraftReviewModal]);
+  }, [showAiDraftReviewModal, showAiInitialRevealModal]);
 
   const resumeDraftReviewAfterPricingModal = useCallback(() => {
     if (aiDraftReviewResumeRef.current) {
       aiDraftReviewResumeRef.current = false;
-      setShowAiDraftReviewModal(true);
+      openAiDraftReviewEntry();
     }
-  }, []);
+  }, [openAiDraftReviewEntry]);
 
   const prefetchClarifyForDraft = useCallback(async (draft) => {
     if (!draft || !shouldAutoClarifyDraft(draft)) return;
@@ -5917,7 +5955,7 @@ export default function EstimateGeneratorScreen() {
         draftHasApplyablePricing(syncedDraft) && !draftHasUnpricedScope(syncedDraft);
 
       if (skipPricing || notePricingComplete) {
-        setShowAiDraftReviewModal(true);
+        openAiDraftReviewEntry();
         prefetchClarifyForDraft(syncedDraft);
         return;
       }
@@ -5962,12 +6000,12 @@ export default function EstimateGeneratorScreen() {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           }
         } else {
-          setShowAiDraftReviewModal(true);
+          openAiDraftReviewEntry();
           prefetchClarifyForDraft(syncedDraft);
         }
       } catch (e) {
         console.warn('advanceComplexDraftAfterScope rough pricing failed', e);
-        setShowAiDraftReviewModal(true);
+        openAiDraftReviewEntry();
         prefetchClarifyForDraft(syncedDraft);
       } finally {
         setAiDraftRoughLoading(false);
@@ -5989,6 +6027,22 @@ export default function EstimateGeneratorScreen() {
       aiLastPlanImport ||
       planImportPayloadFromDraft(aiDraft) ||
       null;
+    const hasPhotos =
+      (Array.isArray(photoDetections) && photoDetections.length > 0) ||
+      (Array.isArray(sitePhotos) && sitePhotos.length > 0);
+    const hasPlanImport = Boolean(
+      effectivePlanImport &&
+        (Object.keys(effectivePlanImport.measurements || {}).length ||
+          effectivePlanImport.rooms?.length ||
+          effectivePlanImport.scopeDetections?.length ||
+          effectivePlanImport.planFacts ||
+          effectivePlanImport.buildingAreas ||
+          effectivePlanImport.tradeWorkflowSource === 'standalone_trade')
+    );
+    const generateSteps = buildAiGenerateSteps({ hasPhotos, hasPlanImport });
+    const advanceGeneratePhase = (phaseId) => setAiDraftGeneratingPhase(phaseId);
+    setAiDraftGeneratingSteps(generateSteps);
+    advanceGeneratePhase(generateSteps[0]);
     setAiDraftGenerating(true);
     setAiDraftNotes(notes);
     setAiPhotoDetections(Array.isArray(photoDetections) ? photoDetections : []);
@@ -5998,6 +6052,7 @@ export default function EstimateGeneratorScreen() {
       latestScopeMeasurementsRef.current = null;
     AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
     setShowAiScopeAssumptionsModal(false);
+    setShowAiInitialRevealModal(false);
     setShowAiDraftReviewModal(false);
     setShowAiSavedPricingModal(false);
     setAiClarifyQuestions(null);
@@ -6025,9 +6080,15 @@ export default function EstimateGeneratorScreen() {
             notes,
             planImportLooksLikeGroundUp(effectivePlanImport)
           );
+      advanceGeneratePhase('building_scope');
       let draft = await fetchEstimateDraftFromNotes(notesForDraft, templates);
       // Photo detections apply directly to the Step 2 checklist (structured vision
       // output, not notes-regex re-parsing) — only fills items still "unsure".
+      if (photoDetections?.length || photoExistingFeatures?.length) {
+        if (generateSteps.includes('analyzing_photos')) {
+          advanceGeneratePhase('analyzing_photos');
+        }
+      }
       if (photoDetections?.length) {
         draft = applyPhotoDetectionsToDraft(draft, photoDetections);
       }
@@ -6043,6 +6104,9 @@ export default function EstimateGeneratorScreen() {
         effectivePlanImport?.buildingAreas ||
         effectivePlanImport?.tradeWorkflowSource === 'standalone_trade'
       ) {
+        if (generateSteps.includes('applying_plan')) {
+          advanceGeneratePhase('applying_plan');
+        }
         if (effectivePlanImport) setAiLastPlanImport(effectivePlanImport);
         draft = applyPlanImportToDraft(draft, effectivePlanImport);
         if (draft.scopeMeasurements) {
@@ -6091,6 +6155,7 @@ export default function EstimateGeneratorScreen() {
       }
       const draftTitle = `${draft.projectTitle || ''} ${draft.customerName || ''}`.toLowerCase();
       setAiSaveToPricingLibrary(!/\b(test|demo|sample|example)\b/.test(draftTitle));
+      advanceGeneratePhase('finalizing');
       setAiDraft(draft);
       setShowAiBuilderModal(false);
       AsyncStorage.setItem(
@@ -6109,9 +6174,10 @@ export default function EstimateGeneratorScreen() {
       ).catch((e) => console.warn('persist AI draft after generate failed', e));
 
       if (isComplexEstimateTier(draft)) {
-        setShowAiScopeAssumptionsModal(true);
+        openAiDraftReviewEntry();
+        prefetchClarifyForDraft(draft);
       } else {
-        setShowAiDraftReviewModal(true);
+        openAiDraftReviewEntry();
         prefetchClarifyForDraft(draft);
         const { draft: draftWithProposal, hasProposal } = await applySavedPricingToDraftState(draft, {
           autoApply: false,
@@ -6134,6 +6200,8 @@ export default function EstimateGeneratorScreen() {
       );
     } finally {
       setAiDraftGenerating(false);
+      setAiDraftGeneratingPhase(null);
+      setAiDraftGeneratingSteps([]);
     }
   }, [
     aiDraft,
@@ -6242,7 +6310,7 @@ export default function EstimateGeneratorScreen() {
         await advanceComplexDraftAfterScope(enriched, { skipPricing: true });
       } catch (e) {
         console.warn('advanceComplexDraftAfterScope failed', e);
-        setShowAiDraftReviewModal(true);
+        openAiDraftReviewEntry();
       }
     },
     [aiDraft, aiDraftNotes, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope, syncDraftWithLatestScopeMeasurements]
@@ -6284,7 +6352,7 @@ export default function EstimateGeneratorScreen() {
       await advanceComplexDraftAfterScope(enriched, { skipPricing: true });
     } catch (e) {
       console.warn('advanceComplexDraftAfterScope scope-only failed', e);
-      setShowAiDraftReviewModal(true);
+      openAiDraftReviewEntry();
     }
   }, [aiDraft, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope]);
 
@@ -6395,7 +6463,7 @@ export default function EstimateGeneratorScreen() {
 
   const savedPricingModalOpenRef = useRef(false);
   useEffect(() => {
-    if (!showAiDraftReviewModal || !aiDraft) {
+    if ((!showAiInitialRevealModal && !showAiDraftReviewModal) || !aiDraft) {
       setAiSavedTemplateMatchesAvailable(false);
       return;
     }
@@ -6412,7 +6480,7 @@ export default function EstimateGeneratorScreen() {
     return () => {
       cancelled = true;
     };
-  }, [showAiDraftReviewModal, aiDraft, savedBidTemplates, syncDraftWithLatestScopeMeasurements]);
+  }, [showAiInitialRevealModal, showAiDraftReviewModal, aiDraft, savedBidTemplates, syncDraftWithLatestScopeMeasurements]);
 
   useEffect(() => {
     const opening = showAiSavedPricingModal && !savedPricingModalOpenRef.current;
@@ -6547,6 +6615,11 @@ export default function EstimateGeneratorScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   }, [reopenConfirmScopeFromReview]);
+
+  const handleInitialRevealBack = useCallback(() => {
+    setShowAiInitialRevealModal(false);
+    setShowAiBuilderModal(true);
+  }, []);
 
   const handlePriceScopeItemFromPricingModal = useCallback(
     (scopeName) => {
@@ -10202,6 +10275,7 @@ export default function EstimateGeneratorScreen() {
     setAiDraftFromAssistant(false);
     setShowAIAssistant(false);
     setShowAiScopeAssumptionsModal(false);
+    setShowAiInitialRevealModal(false);
     setShowAiDraftReviewModal(false);
     setAiDraft(null);
     setAiDraftNotes('');
@@ -10213,7 +10287,7 @@ export default function EstimateGeneratorScreen() {
     setShowAiBuilderModal(true);
   }, []);
 
-  const aiFlowOverlayActive = showAiBuilderModal || showAiScopeAssumptionsModal || showAiDraftReviewModal;
+  const aiFlowOverlayActive = showAiBuilderModal || showAiScopeAssumptionsModal || showAiInitialRevealModal || showAiDraftReviewModal;
 
   /** Empty bid + assistant open: skip blank chat landing and go straight to paste-notes. */
   useEffect(() => {
@@ -10221,6 +10295,7 @@ export default function EstimateGeneratorScreen() {
       showAIAssistant &&
       !bidHasLineItems &&
       !showAiBuilderModal &&
+      !showAiInitialRevealModal &&
       !showAiDraftReviewModal &&
       !aiDraftGenerating &&
       !aiDraftApplying
@@ -10232,6 +10307,7 @@ export default function EstimateGeneratorScreen() {
     showAIAssistant,
     bidHasLineItems,
     showAiBuilderModal,
+    showAiInitialRevealModal,
     showAiDraftReviewModal,
     aiDraftGenerating,
     aiDraftApplying,
@@ -13755,6 +13831,7 @@ export default function EstimateGeneratorScreen() {
     setAiSavedPricingProposal(null);
     setAiRoughPricingProposal(null);
     setShowAiBuilderModal(false);
+    setShowAiInitialRevealModal(false);
     setShowAiDraftReviewModal(false);
     setShowAiSavedPricingModal(false);
     setShowAiRoughPricingModal(false);
@@ -23846,8 +23923,8 @@ export default function EstimateGeneratorScreen() {
               Estimates
             </Text>
             <Text style={{ color: Colors.sub, fontSize: 14, marginTop: 6 }}>
-              {isFirstTime && (!bid.title || bid.title === 'Untitled Bid') && estimates.length === 0 && savedEstimates.length === 0
-                ? 'Create your first estimate to get started.'
+              {shouldShowEstimateEmptyState
+                ? 'Paste notes or import a plan — AI drafts scope for you.'
                 : 'Build, review, and submit your bid'}
             </Text>
           </View>
@@ -24024,6 +24101,7 @@ export default function EstimateGeneratorScreen() {
       </View>
 
       {/* Step Section Card with Icons */}
+      {!shouldShowEstimateEmptyState ? (
       <View style={[s.wideContainer, { marginTop: 12, opacity: firstEstimateWalkthroughUiActive ? 0.38 : 1 }]}>
         <LinearGradient
           colors={['#2DFFC4', '#00A6FF']}
@@ -24215,9 +24293,10 @@ export default function EstimateGeneratorScreen() {
           </View>
         </LinearGradient>
       </View>
+      ) : null}
 
       {/* Build with AI (empty bid) or AI Assistant (populated) — pill under stepper */}
-      {step !== 8 && !firstEstimateWalkthroughUiActive && (
+      {step !== 8 && !firstEstimateWalkthroughUiActive && !shouldShowEstimateEmptyState && (
         <View
           style={[
             s.wideContainer,
@@ -24275,24 +24354,11 @@ export default function EstimateGeneratorScreen() {
       )}
       
         {/* Step Content */}
-        {(() => {
-          // Check if we should show empty state
-          const hasNoEstimates = estimates.length === 0 && savedEstimates.length === 0;
-          const hasEmptyBid = (!bid.title || bid.title === 'Untitled Bid') && 
-                              (!bid.customerName || bid.customerName === '') && 
-                              (!bid.materialLineItems || bid.materialLineItems.length === 0) && 
-                              (!bid.laborLineItems || bid.laborLineItems.length === 0) && 
-                              materialsCart.length === 0 &&
-                              (!calc?.total || calc.total === 0);
-          const shouldShowEmpty =
-            isFirstTime && isLoaded && hasNoEstimates && hasEmptyBid && !firstEstimateWalkthroughTourActive;
-
-          return shouldShowEmpty;
-        })() ? (
+        {shouldShowEstimateEmptyState ? (
           <View style={s.wideContainer}>
           <EmptyStateCard
             onPress={ensureBidReadyForFirstEstimateWalkthrough}
-            subtitle="Create your first estimate to get started."
+            onBuildWithAi={openBuildWithAiDirect}
           />
           </View>
         ) : (
@@ -25014,6 +25080,7 @@ export default function EstimateGeneratorScreen() {
           setEstimateAiInitialQuestion('');
           setShowAiBuilderModal(false);
           setShowAiScopeAssumptionsModal(false);
+          setShowAiInitialRevealModal(false);
           setShowAiDraftReviewModal(false);
           setAiDraftFromAssistant(false);
         }}
@@ -25025,6 +25092,7 @@ export default function EstimateGeneratorScreen() {
         onBuildWithAi={() => {
           setAiDraftFromAssistant(true);
           setShowAiScopeAssumptionsModal(false);
+          setShowAiInitialRevealModal(false);
           setShowAiDraftReviewModal(false);
           setAiDraft(null);
           setAiDraftNotes('');
@@ -25040,6 +25108,8 @@ export default function EstimateGeneratorScreen() {
       <AIEstimateBuilderModal
         visible={showAiBuilderModal}
         generating={aiDraftGenerating}
+        generatingPhase={aiDraftGeneratingPhase}
+        generatingSteps={aiDraftGeneratingSteps}
         initialNotes={aiDraftNotes}
         initialPlanImport={aiBuilderInitialPlanImport}
         initialPhotoDetections={aiPhotoDetections}
@@ -25064,11 +25134,7 @@ export default function EstimateGeneratorScreen() {
         onContinueDraft={() => {
           if (aiDraftGenerating || !aiDraft) return;
           setShowAiBuilderModal(false);
-          if (isComplexEstimateTier(aiDraft)) {
-            reopenConfirmScopeFromReview();
-          } else {
-            setShowAiDraftReviewModal(true);
-          }
+          openAiDraftReviewEntry();
         }}
         onPlanImportChange={(next) => {
           setAiLastPlanImport(next || null);
@@ -25106,9 +25172,21 @@ export default function EstimateGeneratorScreen() {
         hasSitePhotos={aiSitePhotos.length > 0}
       />
 
+      <AIEstimateInitialRevealModal
+        visible={showAiInitialRevealModal}
+        draft={aiDraftSyncedForReview}
+        markupPct={Number(bid?.markupPct) || 0}
+        fromAssistant={aiDraftFromAssistant}
+        onBack={handleInitialRevealBack}
+        onClose={handleInitialRevealClose}
+        onOpenDetailedReview={openAiDraftReviewDetailed}
+        onConfirmScope={handleInitialRevealConfirmScope}
+        onRegenerate={handleInitialRevealRegenerate}
+      />
+
       <AIEstimateDraftReviewModal
         visible={showAiDraftReviewModal}
-        draft={syncDraftWithLatestScopeMeasurements(aiDraft)}
+        draft={aiDraftSyncedForReview}
         applying={aiDraftApplying}
         suggestingSplits={aiDraftSuggestingSplits}
         clarifying={aiDraftClarifying}
@@ -25138,7 +25216,7 @@ export default function EstimateGeneratorScreen() {
             if (isComplexEstimateTier(aiDraft)) {
               reopenConfirmScopeFromReview();
             } else {
-              setShowAiBuilderModal(true);
+              setShowAiInitialRevealModal(true);
             }
           }
         }}
@@ -25152,6 +25230,7 @@ export default function EstimateGeneratorScreen() {
           }
         }}
         onRegenerate={() => {
+          setShowAiInitialRevealModal(false);
           setShowAiDraftReviewModal(false);
           setShowAiBuilderModal(true);
         }}

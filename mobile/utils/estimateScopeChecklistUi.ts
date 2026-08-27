@@ -55,6 +55,10 @@ import {
 } from '@/utils/planBathRooms';
 import type { WetAreaDemoCounts } from '@/utils/wetAreaExistingDemo';
 import { anyDemoWetAreaActive } from '@/utils/wetAreaExistingDemo';
+import {
+  scopeChecklistNoteSummary,
+  scopeItemVisualContextFromMeasurements,
+} from '@/utils/scopeItemVisualTier';
 
 const GARBAGE_DISPOSAL_CHOICE_OPTIONS: ScopeChecklistOption[] = [
   { id: 'reuse_install', label: 'Reuse / install' },
@@ -3587,17 +3591,39 @@ function itemNeedsMeasurement(
   return resolved.showInput && !resolved.pricingReady;
 }
 
-/** All scope groups start expanded on Confirm Scope — users can still collapse manually. */
+/** Collapse quiet secondary groups; expand groups that need review or measurements. */
 export function initialScopeGroupCollapse(
   grouped: Array<{ title: string; items: ScopeChecklistItem[] }>,
-  _measurements: NormalizedScopeMeasurements,
-  _templateKey?: string | null,
-  _notes?: string | null
+  measurements: NormalizedScopeMeasurements,
+  templateKey?: string | null,
+  notes?: string | null
 ): Record<string, boolean> {
+  const visualCtx = scopeItemVisualContextFromMeasurements(
+    measurements,
+    templateKey,
+    notes
+  );
   const collapsed: Record<string, boolean> = {};
   for (const group of grouped) {
     if (!group.title) continue;
-    collapsed[group.title] = false;
+    const needsAttention = group.items.some(item => {
+      if (itemNeedsMeasurement(item, measurements, templateKey, notes)) {
+        return true;
+      }
+      if (item.state === 'unsure') return true;
+      if (item.inputType === 'choice') {
+        return !item.choiceId || item.choiceId === 'unsure';
+      }
+      if (item.inputType === 'multi_choice') {
+        const ids = item.choiceIds ?? [];
+        return !ids.length || (ids.length === 1 && ids.includes('unsure'));
+      }
+      return false;
+    });
+    const noteSummary = scopeChecklistNoteSummary(group.items, visualCtx);
+    const allSecondary =
+      noteSummary.fromNotes === 0 && noteSummary.toConfirm === group.items.length;
+    collapsed[group.title] = !needsAttention && allSecondary;
   }
   return collapsed;
 }

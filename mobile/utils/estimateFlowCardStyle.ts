@@ -1,5 +1,12 @@
 import type { ViewStyle } from 'react-native';
 
+/** Solid card fill shared across Build with AI → Initial Reveal → Confirm Scope. */
+export const AI_FLOW_CARD_BG_DARK = '#202022';
+
+export function aiFlowCardBackground(darkMode: boolean, lightFallback: string) {
+  return darkMode ? AI_FLOW_CARD_BG_DARK : lightFallback;
+}
+
 type FlowCardColors = {
   line: string;
   surface2: string;
