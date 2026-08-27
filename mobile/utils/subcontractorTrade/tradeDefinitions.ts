@@ -210,6 +210,17 @@ const WINDOWS_DOORS_SCOPE_ITEMS: TradeScopeItemDefinition[] = [
     pricingBehavior: 'CUSTOM_PRICE',
     measurementKeys: ['interiorDoorCount'],
   },
+  {
+    scopeItemId: 'trim_finish',
+    pricingBehavior: 'SEPARATE_ADDON',
+    measurementKeys: [
+      'trimFinishLf',
+      'windowCount',
+      'exteriorDoorCount',
+      'slidingDoorCount',
+      'interiorDoorCount',
+    ],
+  },
 ];
 
 const ROOFING_SCOPE_ITEMS = [

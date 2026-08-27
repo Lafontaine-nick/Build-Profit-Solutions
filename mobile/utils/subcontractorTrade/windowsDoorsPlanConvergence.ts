@@ -24,6 +24,7 @@ export const WINDOWS_DOORS_PLAN_SCOPE_ALLOWLIST = [
   'exterior_doors',
   'sliding_doors',
   'interior_doors',
+  'trim_finish',
 ] as const;
 
 export const WINDOWS_DOORS_COUNT_SCOPE_ITEM_IDS = [

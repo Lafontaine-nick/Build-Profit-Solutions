@@ -22,7 +22,6 @@ import type {
   OpeningSizeMix,
   OpeningSizeTier,
 } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
-import { openingSizeMixSummary } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
 
 export type GarageDoorType = 'single' | 'double' | 'rv';
 
@@ -36,9 +35,10 @@ export type GarageDoorCounts = {
 export const EXTERIOR_OPENING_NATIONAL_RATES = {
   windows: {
     unit: 'each' as const,
-    material: 450,
+    material: 465,
     labor: 275,
-    sourceLabel: 'Suggested budget split · National Average · per window (mid-market vinyl/low-E)',
+    sourceLabel:
+      'Suggested budget split · National Average · standard window (~$740/ea installed)',
   },
   /** Living-SF planning when window count is missing (legacy windows_doors $/SF). */
   windows_sqft: {
@@ -49,17 +49,77 @@ export const EXTERIOR_OPENING_NATIONAL_RATES = {
   },
   exterior_doors: {
     unit: 'each' as const,
-    material: 1400,
-    labor: 900,
-    sourceLabel: 'Suggested budget split · National Average · exterior swing door (mid-market)',
+    material: 1000,
+    labor: 650,
+    sourceLabel:
+      'Suggested budget split · National Average · standard exterior swing door (~$1,650/ea installed)',
   },
   sliding_doors: {
     unit: 'each' as const,
-    material: 1700,
-    labor: 800,
-    sourceLabel: 'Suggested budget split · National Average · sliding patio door (mid-market)',
+    material: 2200,
+    labor: 1200,
+    sourceLabel:
+      'Suggested budget split · National Average · standard 2-panel patio door (~$3,400/ea installed)',
   },
 } as const;
+
+export function openingStandardEachTotal(
+  itemId: 'windows' | 'exterior_doors' | 'sliding_doors'
+): number {
+  const base = EXTERIOR_OPENING_NATIONAL_RATES[itemId];
+  return base.material + base.labor;
+}
+
+/** Human-readable size tier labels for pricing helpers. */
+export const OPENING_SIZE_TIER_LABELS: Record<
+  'windows' | 'exterior_doors' | 'sliding_doors',
+  Record<OpeningSizeTier, string>
+> = {
+  windows: {
+    standard: 'standard',
+    medium: 'medium',
+    large: 'large',
+    oversized: 'oversized',
+  },
+  exterior_doors: {
+    standard: 'standard entry',
+    medium: 'upgraded / glass',
+    large: 'large / tall entry',
+    oversized: 'double / specialty',
+  },
+  sliding_doors: {
+    standard: '2-panel standard',
+    medium: 'large opening',
+    large: 'wide multi-panel',
+    oversized: 'oversized multi-panel',
+  },
+};
+
+export function formatOpeningSizeMixHelper(
+  itemId: 'windows' | 'exterior_doors' | 'sliding_doors',
+  mix: OpeningSizeMix
+): string | null {
+  const labels = OPENING_SIZE_TIER_LABELS[itemId];
+  const parts = (
+    ['standard', 'medium', 'large', 'oversized'] as OpeningSizeTier[]
+  )
+    .filter(tier => mix[tier] > 0)
+    .map(tier => `${mix[tier]} ${labels[tier]}`);
+  return parts.length ? `Size mix · ${parts.join(' · ')}` : null;
+}
+
+export function openingStandardTierHelper(
+  itemId: 'windows' | 'exterior_doors' | 'sliding_doors'
+): string {
+  const each = openingStandardEachTotal(itemId);
+  if (itemId === 'exterior_doors') {
+    return `Standard entry door allowance (~$${each.toLocaleString()}/ea). Plan dimensions upgrade tiers automatically — confirm double, glass, or specialty units.`;
+  }
+  if (itemId === 'sliding_doors') {
+    return `Standard patio door allowance (~$${each.toLocaleString()}/ea). Wider or multi-panel units price higher when sizes are on the plan.`;
+  }
+  return `Standard window allowance (~$${each.toLocaleString()}/ea). Larger units price higher when sizes are on the plan schedule.`;
+}
 
 /**
  * Garage door installed packages.
@@ -311,9 +371,9 @@ export const OPENING_SIZE_TIER_MULTIPLIERS: Record<
   },
   exterior_doors: {
     standard: 1,
-    medium: 1.2,
-    large: 1.55,
-    oversized: 2.1,
+    medium: 1.52,
+    large: 1.82,
+    oversized: 2.42,
   },
   sliding_doors: {
     standard: 1,
@@ -361,11 +421,11 @@ export function resolveOpeningSizeTierSuggestedPricing(params: {
     }
   );
   const scaled = scaleSplitLumpForState(material, labor, params.location);
-  const mixLabel = openingSizeMixSummary(mix);
+  const mixLabel = formatOpeningSizeMixHelper(params.itemId, mix);
   const sized =
     mix.medium + mix.large + mix.oversized > 0
       ? mixLabel
-      : 'Standard size allowance — confirm if picture or oversized units are on the plans';
+      : openingStandardTierHelper(params.itemId);
   const stateSuffix =
     scaled.stateCode && scaled.multiplier !== 1 ? ` · ${scaled.stateCode}` : '';
   return {

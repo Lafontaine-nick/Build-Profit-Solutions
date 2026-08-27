@@ -29,6 +29,10 @@ import {
   isDrywallCompletePackageScope,
 } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 import {
+  OPENING_TRIM_FINISH_SCOPE_HELPER,
+  TRIM_FINISH_CHOICE_OPTIONS,
+} from '@/utils/windowsDoorsTrimFinishPricing';
+import {
   floorDemoNotesHint,
   inferChoiceFromNotes,
   inferChoicesFromNotes,
@@ -226,6 +230,14 @@ const CHOICE_ITEM_CONFIG: Record<
       { id: 'dense_vegetation', label: 'Dense vegetation clearing' },
       { id: 'unsure', label: 'Not sure' },
     ],
+  },
+  trim_finish: {
+    label: 'Opening trim & finish',
+    helperText: OPENING_TRIM_FINISH_SCOPE_HELPER,
+    options: TRIM_FINISH_CHOICE_OPTIONS.map(option => ({
+      id: option.id,
+      label: option.label,
+    })),
   },
 };
 
@@ -1051,19 +1063,19 @@ function migrateGroundUpTakeoffScopeItems(
     inject(
       'windows',
       'Windows',
-      'Window units, frames, glazing, flashing, screens, and installation. Structural reframing, interior trim, and exterior finish repair are separate.',
+      'Window units, frames, glazing, flashing, screens, shimming, and standard installation. Casing, jamb extensions, stool/apron, and finish are on the Opening trim & finish add-on.',
       hasWindows
     );
     inject(
       'exterior_doors',
       'Exterior doors',
-      'Swing entry/exit door units, frames, thresholds, hardware, flashing, and installation. Not sliding, garage, site gates, paint, or structural reframing.',
+      'Swing entry/exit door units, frames, thresholds, weatherstripping, flashing, and standard installation. Decorative casing and finish are on the Opening trim & finish add-on.',
       hasExtDoors
     );
     inject(
       'sliding_doors',
       'Exterior sliding doors',
-      'Patio / multi-panel door units, frames, hardware, flashing, and installation. Patching, paint, and structural reframing are separate.',
+      'Patio / multi-panel door units, frames, hardware, flashing, and standard installation. Exterior casing and finish are on the Opening trim & finish add-on.',
       hasSliding
     );
     inject(
@@ -2987,17 +2999,19 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
     'Plumbing rough-in points (supply/drain/vent) for material and labor.',
   electrical_rough: 'Circuits / boxes / devices for material and labor.',
   hvac: 'System count (or tons) for material and labor — not living SF.',
-  windows: 'Window count for material and labor.',
+  windows:
+    'Window units, frames, glazing, flashing, shimming, and standard installation. Casing and finish are on the Opening trim & finish add-on.',
   exterior_doors:
-    'Swing entry/exit doors including iron/specialty entry — material and install. Not sliding, garage, or site gates.',
+    'Swing entry/exit doors including iron/specialty entry — unit, frame, threshold, weatherstripping, flashing, and standard install. Not sliding, garage, or site gates.',
   sliding_doors:
-    'Patio / multi-panel sliding doors — material and install. Large multi-panel packages vary widely.',
+    'Patio / multi-panel sliding doors — unit, frame, hardware, flashing, and standard install. Exterior casing and finish are on the Opening trim & finish add-on.',
   garage_doors:
     'Priced by type: single (~$1,800), double (~$2,400), RV (~$8,300). Double+RV ≈ $10,700 locally.',
   garage_door_openers:
     'Count openers only when labeled or specified. Do not assume one opener per door.',
   interior_doors:
-    'Interior door units, frames, and hardware. Paint and casing are separate.',
+    'Prehung interior door units, jambs, hinges, and standard hardware install. Casing and finish are on the Opening trim & finish add-on.',
+  trim_finish: OPENING_TRIM_FINISH_SCOPE_HELPER,
   windows_doors: 'Window, exterior swing, sliding/patio, and interior door counts. Garage doors are a separate trade.',
   excavation: 'Excavation CY for material and labor.',
   landscaping:
@@ -3016,7 +3030,7 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   exterior_paint:
     'Exterior paint application for siding, stucco, soffit, and fascia. Prep, masking, heavy repairs, access work, and specialty coatings are separate.',
   interior_trim:
-    'Finish trim, interior doors, door hardware & shelving package until detailed takeoff.',
+    'Whole-house finish carpentry package — baseboard, crown, and general trim. Opening-specific casing is on Opening trim & finish under Windows & doors.',
   plumbing_trim:
     'Set fixtures and finish connections — excludes toilet/vanity when those are separate scope lines.',
   plumbing_fixtures_hardware:
@@ -3234,6 +3248,16 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   ],
   plumbing_service: PLUMBING_PLAN_EXPORT_CHECKLIST_GROUPS,
   framing: FRAMING_PLAN_EXPORT_CHECKLIST_GROUPS,
+  windows_doors: [
+    {
+      title: 'Openings',
+      itemIds: ['windows', 'exterior_doors', 'sliding_doors', 'interior_doors'],
+    },
+    {
+      title: 'Add-ons',
+      itemIds: ['trim_finish', 'openings'],
+    },
+  ],
   addition: [
     {
       title: 'Preconstruction',
@@ -3296,6 +3320,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
         'sliding_doors',
         'garage_doors',
         'garage_door_openers',
+        'trim_finish',
         'stucco',
       ],
     },

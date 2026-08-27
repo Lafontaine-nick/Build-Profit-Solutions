@@ -950,8 +950,13 @@ describe('subcontractor trade architecture (Phase 0)', () => {
           scopeItemId: 'interior_doors',
           measurementKeys: ['interiorDoorCount'],
         }),
+        expect.objectContaining({
+          scopeItemId: 'trim_finish',
+          pricingBehavior: 'SEPARATE_ADDON',
+        }),
       ])
     );
+    expect(getTradeScopeAllowlist('windows_doors')).toContain('trim_finish');
     expect(definition.scopeItems).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ scopeItemId: 'garage_doors' }),
@@ -1103,12 +1108,14 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       'exterior_doors',
       'sliding_doors',
       'interior_doors',
+      'trim_finish',
     ]);
     expect(filtered.map(item => item.label)).toEqual([
       'Windows',
       'Exterior doors',
       'Sliding doors',
       'Interior doors',
+      'Opening trim & finish',
     ]);
   });
 

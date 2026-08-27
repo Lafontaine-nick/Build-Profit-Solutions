@@ -404,6 +404,10 @@ export type ScopeMeasurements = {
   windowCount?: number | null;
   exteriorDoorCount?: number | null;
   slidingDoorCount?: number | null;
+  /** Manual LF override for opening trim & finish takeoff. */
+  trimFinishLf?: number | null;
+  /** When true, suggested opening trim pricing includes field paint/stain labor. */
+  trimFinishFieldPaintIncluded?: boolean | null;
   /** Garage door schedule counts by type. */
   garageDoorSingleCount?: number | null;
   garageDoorDoubleCount?: number | null;

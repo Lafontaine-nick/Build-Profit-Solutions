@@ -1654,6 +1654,22 @@ const ADDITION_CHECKLIST_QUANTITY_RULES = {
       "Enter window/door count, or use lump sum/material/labor if count is unknown.",
     missingMessage: "Enter window/door count or pricing.",
   },
+  trim_finish: {
+    defaultUnit: "lf",
+    allowedUnits: ["lf", "allowance", "lump_sum"],
+    measurementKeys: [
+      "trimFinishLf",
+      "windowCount",
+      "exteriorDoorCount",
+      "slidingDoorCount",
+      "interiorDoorCount",
+    ],
+    requiresUserQuantity: true,
+    pricingMethod: "lf",
+    quantityHelper:
+      "Opening-specific casing and trim. Jamb extensions, stools, and aprons included where applicable. Whole-house trim and wall painting excluded.",
+    missingMessage: "Select trim coverage/grade and confirm LF or pricing.",
+  },
   exterior_finishes: additionFloorAreaRule(
     "Enter exterior finish area sqft, or price with lump sum/material/labor.",
     "Enter exterior finish sqft or pricing.",

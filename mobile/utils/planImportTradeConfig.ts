@@ -13,6 +13,7 @@ import {
   FRAMING_PLAN_QUICK_MEASUREMENT_KEYS,
   FRAMING_PLAN_SCOPE_ALLOWLIST,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
+import { OPENING_TRIM_FINISH_SCOPE_HELPER } from '@/utils/windowsDoorsTrimFinishPricing';
 
 export type PlanEstimatingMode = 'whole_project' | 'selected_trade';
 
@@ -282,7 +283,12 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
     [
       'interior_doors',
       'Interior doors',
-      'Interior door units, frames, and hardware from the door schedule. Paint and casing are separate.',
+      'Prehung interior door units, jambs, hinges, and standard hardware install. Casing and finish are on the Opening trim & finish add-on.',
+    ],
+    [
+      'trim_finish',
+      'Opening trim & finish',
+      OPENING_TRIM_FINISH_SCOPE_HELPER,
     ],
   ] as const;
   const combinedIndex =
@@ -301,12 +307,15 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
     } as T);
   return [
     ...withoutCombined.slice(0, combinedIndex),
-    ...missingCards.map(([id, label, helperText]) =>
+    ...    missingCards.map(([id, label, helperText]) =>
       ({
         ...cardBase,
         id,
         label,
         helperText,
+        ...(id === 'trim_finish'
+          ? { inputType: 'choice' as const, state: 'unsure' as const }
+          : {}),
       } as T)
     ),
     ...withoutCombined.slice(combinedIndex),

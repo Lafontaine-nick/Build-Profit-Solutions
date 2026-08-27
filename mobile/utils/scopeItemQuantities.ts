@@ -180,6 +180,13 @@ import {
   totalGarageDoorCount,
 } from '@/utils/exteriorOpeningsPricing';
 import {
+  deriveTrimFinishLfFromMeasurements,
+  OPENING_TRIM_FINISH_PLANNING_LF_LABEL,
+  OPENING_TRIM_FINISH_SCOPE_HELPER,
+  resolveTrimFinishFieldPaintIncluded,
+  resolveTrimFinishSuggestedPricing,
+} from '@/utils/windowsDoorsTrimFinishPricing';
+import {
   isBathroomVanityCountertopScope,
   resolveBathroomVanityCountertopMaterialType,
   resolveBathroomVanityCountertopSuggestedPricing,
@@ -414,6 +421,11 @@ export const DUAL_QUANTITY_FIELD_LABELS: Record<
   interior_doors: {
     count: 'Interior door count',
     countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  trim_finish: {
+    count: OPENING_TRIM_FINISH_PLANNING_LF_LABEL,
+    countUnit: 'lf',
     allowance: 'Allowance ($)',
   },
   doors: {
@@ -2257,6 +2269,15 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
       labor: 170,
       sourceLabel:
         'Suggested budget split · National Average · interior prehung door (builder grade)',
+    },
+  },
+  trim_finish: {
+    lf: {
+      unit: 'lf',
+      material: 2.75,
+      labor: 3.5,
+      sourceLabel:
+        'Suggested budget split · National Average · paint-grade opening casing · install only',
     },
   },
   garage_door_openers: {
@@ -6693,7 +6714,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Window units, frames, glazing, flashing, screens, and installation. Structural reframing and finish repair are separate.',
+      'Window units and standard install. Count × national size tier when plan schedule dimensions are available (~$740/ea standard). Trim on Opening trim & finish add-on.',
     missingMessage: 'Enter window count or pricing.',
   },
   exterior_doors: {
@@ -6704,7 +6725,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Exterior swing door units, frames, thresholds, hardware, flashing, and installation. Not sliding, garage, or structural reframing.',
+      'Exterior swing / French entry doors — standard ~$1,650/ea. Upgraded, glass, and double units price higher when plan sizes are available. Trim on Opening trim & finish add-on.',
     missingMessage: 'Enter exterior door count or pricing.',
   },
   sliding_doors: {
@@ -6715,7 +6736,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Patio / multi-panel door units, frames, hardware, flashing, and installation. Patching and structural reframing are separate.',
+      'Sliding / patio doors — standard 2-panel ~$3,400/ea. Large and multi-panel units price higher when plan sizes are available. Trim on Opening trim & finish add-on.',
     missingMessage: 'Enter sliding door count or pricing.',
   },
   garage_doors: {
@@ -6740,8 +6761,24 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Interior door units, frames, and hardware from the door schedule. Paint and casing are separate.',
+      'Prehung interior door units, jambs, hinges, and standard hardware install. Casing and finish are on the Opening trim & finish add-on.',
     missingMessage: 'Enter interior door count or pricing.',
+  },
+  trim_finish: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'trimFinishLf',
+    measurementKeys: [
+      'trimFinishLf',
+      'windowCount',
+      'exteriorDoorCount',
+      'slidingDoorCount',
+      'interiorDoorCount',
+    ],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper: OPENING_TRIM_FINISH_SCOPE_HELPER,
+    missingMessage: 'Select trim coverage/grade and confirm LF or pricing.',
   },
   garage_door_openers: {
     defaultUnit: 'each',
@@ -7423,7 +7460,7 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Window units, frames, glazing, flashing, screens, and installation. Structural reframing and finish repair are separate.',
+      'Window units and standard install. Count × national size tier when plan schedule dimensions are available (~$740/ea standard). Trim on Opening trim & finish add-on.',
     missingMessage: 'Enter window count or pricing.',
   },
   exterior_doors: {
@@ -7434,7 +7471,7 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Exterior swing door units, frames, thresholds, hardware, flashing, and installation. Not sliding, garage, or structural reframing.',
+      'Exterior swing / French entry doors — standard ~$1,650/ea. Upgraded, glass, and double units price higher when plan sizes are available. Trim on Opening trim & finish add-on.',
     missingMessage: 'Enter exterior door count or pricing.',
   },
   sliding_doors: {
@@ -7445,7 +7482,7 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Patio / multi-panel door units, frames, hardware, flashing, and installation. Patching and structural reframing are separate.',
+      'Sliding / patio doors — standard 2-panel ~$3,400/ea. Large and multi-panel units price higher when plan sizes are available. Trim on Opening trim & finish add-on.',
     missingMessage: 'Enter sliding door count or pricing.',
   },
   garage_doors: {
@@ -7470,8 +7507,24 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Interior door units, frames, and hardware from the door schedule. Paint and casing are separate.',
+      'Prehung interior door units, jambs, hinges, and standard hardware install. Casing and finish are on the Opening trim & finish add-on.',
     missingMessage: 'Enter interior door count or pricing.',
+  },
+  trim_finish: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'trimFinishLf',
+    measurementKeys: [
+      'trimFinishLf',
+      'windowCount',
+      'exteriorDoorCount',
+      'slidingDoorCount',
+      'interiorDoorCount',
+    ],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper: OPENING_TRIM_FINISH_SCOPE_HELPER,
+    missingMessage: 'Select trim coverage/grade and confirm LF or pricing.',
   },
   garage_door_openers: {
     defaultUnit: 'each',
@@ -7677,6 +7730,9 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   },
   interior_doors: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.interior_doors,
+  },
+  trim_finish: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.trim_finish,
   },
   garage_door_openers: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.garage_door_openers,
@@ -8004,8 +8060,24 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Interior door units, frames, and hardware from the door schedule. Paint and casing are separate.',
+      'Prehung interior door units, jambs, hinges, and standard hardware install. Casing and finish are on the Opening trim & finish add-on.',
     missingMessage: 'Enter interior door count or pricing.',
+  },
+  trim_finish: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'trimFinishLf',
+    measurementKeys: [
+      'trimFinishLf',
+      'windowCount',
+      'exteriorDoorCount',
+      'slidingDoorCount',
+      'interiorDoorCount',
+    ],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper: OPENING_TRIM_FINISH_SCOPE_HELPER,
+    missingMessage: 'Select trim coverage/grade and confirm LF or pricing.',
   },
   garage_door_openers: {
     defaultUnit: 'each',
@@ -8860,6 +8932,16 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<
     exterior_doors: { unit: 'each', measurementKeys: ['exteriorDoorCount'] },
     sliding_doors: { unit: 'each', measurementKeys: ['slidingDoorCount'] },
     interior_doors: { unit: 'each', measurementKeys: ['interiorDoorCount'] },
+    trim_finish: {
+      unit: 'lf',
+      measurementKeys: [
+        'trimFinishLf',
+        'windowCount',
+        'exteriorDoorCount',
+        'slidingDoorCount',
+        'interiorDoorCount',
+      ],
+    },
     windows_doors: { unit: 'each', measurementKeys: ['windowCount'] },
     openings: { unit: 'each', measurementKeys: ['framingOpeningCount'] },
   },
@@ -16812,6 +16894,50 @@ export function resolveScopeItemSuggestedPricing(
     });
   }
 
+  if (itemId === 'trim_finish') {
+    const choice = String(choiceId || '');
+    if (!choice || choice === 'not_in_scope' || choice === 'unsure') {
+      return empty;
+    }
+    const manualLf = Number(measurementsInput.trimFinishLf);
+    const derivedLf = deriveTrimFinishLfFromMeasurements(
+      measurementsInput as Record<string, unknown>,
+      choice
+    );
+    const lf =
+      Number.isFinite(manualLf) && manualLf > 0
+        ? manualLf
+        : resolved.quantity != null && resolved.quantity > 0
+          ? resolved.quantity
+          : derivedLf;
+    if (lf == null || lf <= 0) return empty;
+    const pkg = resolveTrimFinishSuggestedPricing({
+      choiceId: choice,
+      linearFeet: lf,
+      fieldFinishIncluded: resolveTrimFinishFieldPaintIncluded({
+        choiceId: choice,
+        stored: measurementsInput.trimFinishFieldPaintIncluded,
+      }),
+    });
+    if (!pkg) return empty;
+    return {
+      fill: {
+        material: pkg.material,
+        labor: pkg.labor,
+        total: pkg.total,
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: pkg.sourceLabel,
+        helper: pkg.helper,
+        mode: 'suggested_price',
+        basis: { quantity: lf, unit: 'lf' },
+        splitSource: 'source',
+        splitConfidence: derivedLf === lf ? 'medium' : 'high',
+      },
+      comparison: null,
+    };
+  }
+
   if (
     count > 0 &&
     (itemId === 'windows' ||
@@ -16832,33 +16958,40 @@ export function resolveScopeItemSuggestedPricing(
         } | null
       )
     );
-    if (rows.length) {
-      const mix = openingSizeMixFromRows(itemId, rows, count);
-      const sizedPkg = resolveOpeningSizeTierSuggestedPricing({
-        itemId,
-        quantity: count,
-        mix,
-        location: { state: pricingContext?.state },
-      });
-      if (sizedPkg) {
-        return {
-          fill: {
-            material: sizedPkg.material,
-            labor: sizedPkg.labor,
-            total: sizedPkg.total,
-            materialSource: 'national_average',
-            laborSource: 'national_average',
-            rateSourceLabel: sizedPkg.sourceLabel,
-            helper: sizedPkg.helper,
-            mode: 'suggested_price',
-            basis: { quantity: sizedPkg.quantity, unit: 'each' },
-            splitSource: 'source',
-            splitConfidence:
-              mix.medium + mix.large + mix.oversized > 0 ? 'high' : 'medium',
-          },
-          comparison: null,
+    const mix = rows.length
+      ? openingSizeMixFromRows(itemId, rows, count)
+      : {
+          standard: count,
+          medium: 0,
+          large: 0,
+          oversized: 0,
         };
-      }
+    const sizedPkg = resolveOpeningSizeTierSuggestedPricing({
+      itemId,
+      quantity: count,
+      mix,
+      location: { state: pricingContext?.state },
+    });
+    if (sizedPkg) {
+      return {
+        fill: {
+          material: sizedPkg.material,
+          labor: sizedPkg.labor,
+          total: sizedPkg.total,
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: sizedPkg.sourceLabel,
+          helper: sizedPkg.helper,
+          mode: 'suggested_price',
+          basis: { quantity: sizedPkg.quantity, unit: 'each' },
+          splitSource: 'source',
+          splitConfidence:
+            rows.length && mix.medium + mix.large + mix.oversized > 0
+              ? 'high'
+              : 'medium',
+        },
+        comparison: null,
+      };
     }
   }
 
@@ -19712,6 +19845,53 @@ export function resolveChecklistItemQuantity(
     }
     return resolved;
   }
+  if (itemId === 'trim_finish') {
+    const choiceId = String(ctx.choiceId || '');
+    if (
+      !choiceId ||
+      choiceId === 'not_in_scope' ||
+      choiceId === 'unsure'
+    ) {
+      return resolved;
+    }
+    const manualLf = Number(measurements.trimFinishLf);
+    const fromItem = Number(
+      (
+        measurements.itemQuantities as
+          | Record<string, { quantity?: unknown } | undefined>
+          | undefined
+      )?.trim_finish?.quantity
+    );
+    const derived = deriveTrimFinishLfFromMeasurements(
+      measurements as Record<string, unknown>,
+      choiceId
+    );
+    const lf =
+      Number.isFinite(manualLf) && manualLf > 0
+        ? manualLf
+        : Number.isFinite(fromItem) && fromItem > 0
+          ? fromItem
+          : derived;
+    if (lf != null && lf > 0) {
+      return {
+        ...resolved,
+        quantity: lf,
+        unit: 'lf',
+        dualCount: { quantity: lf, unit: 'lf' },
+        pricingReady: true,
+        quantitySource:
+          lf === derived ? 'inferred' : resolved.quantitySource ?? 'user_entered',
+      };
+    }
+    return {
+      ...resolved,
+      quantity: null,
+      unit: 'lf',
+      dualCount: undefined,
+      quantitySource: 'missing',
+      pricingReady: false,
+    };
+  }
   if (!isWindowsDoorsCountScopeItemId(itemId)) return resolved;
   const openingCount =
     itemId === 'exterior_doors'
@@ -20034,6 +20214,10 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\b(?:exterior|entry|iron)\s+doors?\b/i, key: 'exterior_doors' },
   // Combined legacy label before bare "windows".
   { test: /\bwindows?\s*(?:&|and|\/)\s*doors?\b/i, key: 'windows_doors' },
+  {
+    test: /\btrim\s*&?\s*finish\b|\b(?:window|door)\s+casing\b|\bstool\s*(?:\/|and)?\s*apron\b/i,
+    key: 'trim_finish',
+  },
   { test: /\bwindows?\b/i, key: 'windows' },
   { test: /\b(?:interior|french)\s+doors?\b|\bdoor\b/i, key: 'windows_doors' },
   { test: /\bplant|\bshrub/i, key: 'plants' },
@@ -22567,6 +22751,9 @@ export type ScopeMeasurementsInputExtended = ReturnType<
     | 'user_selected'
     | 'ai_inferred'
     | null;
+  /** Opening trim & finish — include field paint/stain labor in suggested pricing. */
+  trimFinishFieldPaintIncluded?: boolean | null;
+  trimFinishLf?: string | number | null;
   /** Bathroom shower/tub rough-in wall & floor access (valve, head, drain). */
   bathroomShowerRoughAccessType?: string | null;
   /** Whether shower rough-in access was user-selected or AI-inferred. */

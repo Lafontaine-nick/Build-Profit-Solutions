@@ -86,6 +86,10 @@ import {
   syncHvacSkippedTakeoffQuickMeasurementSources,
 } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import { isWindowsDoorsCountScopeItemId, syncWindowsDoorsScopeItems, WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS } from '@/utils/subcontractorTrade/windowsDoorsPlanConvergence';
+import {
+  describeTrimFinishLfDerivation,
+  resolveTrimFinishFieldPaintIncluded,
+} from '@/utils/windowsDoorsTrimFinishPricing';
 import { syncGarageDoorsScopeItems } from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
 import {
   reconcilePlumbingEquipmentScopeMeasurements,
@@ -118,6 +122,7 @@ import {
 } from '@/components/estimate/ElectricalQuickMeasurementTakeoff';
 import { PlanTakeoffConflictChooser } from '@/components/estimate/PlanTakeoffConflictChooser';
 import { PlanTakeoffPendingConfirmationStrip } from '@/components/estimate/PlanTakeoffPendingConfirmationStrip';
+import { OpeningTrimFinishChoiceSection } from '@/components/estimate/OpeningTrimFinishChoiceSection';
 import {
   applyElectricalQuickMeasurementPatch,
   electricalConfirmScopeAttributesFromMeasurements,
@@ -5070,6 +5075,10 @@ function QuantitySection({
 
   if (rule.dualAllowanceField) {
     const fieldLabels = getScopeQuantityFieldLabels(itemId);
+    const trimFinishLfDerivation =
+      itemId === 'trim_finish'
+        ? describeTrimFinishLfDerivation(measurementsInput, choiceId)
+        : null;
     const allowanceKey = roughAllowanceSubKey(itemId);
     const materialKey = `${itemId}__material`;
     const laborKey = `${itemId}__labor`;
@@ -5449,6 +5458,40 @@ function QuantitySection({
                   darkMode={darkMode}
                   Colors={Colors}
                 />
+              ) : null}
+              {trimFinishLfDerivation ? (
+                <>
+                  <Text
+                    style={{
+                      color: captionColor(darkMode, Colors),
+                      fontSize: 11,
+                      marginTop: 4,
+                      lineHeight: 15,
+                    }}
+                  >
+                    {trimFinishLfDerivation.openingSummary}
+                  </Text>
+                  <Text
+                    style={{
+                      color: captionColor(darkMode, Colors),
+                      fontSize: 10,
+                      marginTop: 2,
+                      lineHeight: 14,
+                    }}
+                  >
+                    {trimFinishLfDerivation.breakdownLine}
+                  </Text>
+                  <Text
+                    style={{
+                      color: captionColor(darkMode, Colors),
+                      fontSize: 10,
+                      marginTop: 2,
+                      lineHeight: 14,
+                    }}
+                  >
+                    {trimFinishLfDerivation.planningNote}
+                  </Text>
+                </>
               ) : null}
               {itemId === 'hvac' &&
               Number(measurementsInput.hvacSystemTons) > 0 ? (
@@ -9726,6 +9769,8 @@ function ChoiceRow({
   pricingEditorRequest,
   onPricingEditorRequestHandled,
   onBathroomToiletRelocateFloorTypeChange,
+  onTrimFinishFieldPaintIncludedChange,
+  onTrimFinishChoiceChange,
   visualCtx,
   Colors,
   darkMode,
@@ -9739,6 +9784,8 @@ function ChoiceRow({
   onBathroomToiletRelocateFloorTypeChange?: (
     floorType: BathroomToiletRelocateFloorType | null
   ) => void;
+  onTrimFinishFieldPaintIncludedChange?: (included: boolean) => void;
+  onTrimFinishChoiceChange?: (choiceId: string | null) => void;
   measurementsInput: ScopeMeasurementsInputExtended;
   onItemQuantityChange: (
     itemId: string,
@@ -9837,6 +9884,11 @@ function ChoiceRow({
     String(templateKey || '').toLowerCase() === 'bathroom';
   const storedToiletRelocateFloor =
     measurementsInput.bathroomToiletRelocateFloorType ?? null;
+  const trimFinishFieldPaintIncluded = resolveTrimFinishFieldPaintIncluded({
+    choiceId: displayedChoiceId,
+    stored: measurementsInput.trimFinishFieldPaintIncluded,
+  });
+  const inactiveStyle = inactiveChoiceChipStyle(darkMode, Colors);
 
   return (
     <View
@@ -9866,15 +9918,33 @@ function ChoiceRow({
           {helper}
         </Text>
       ) : null}
-      <View style={styles.choiceWrap}>
-        {(item.options || []).map(opt => {
+      {item.id === 'trim_finish' ? (
+        <OpeningTrimFinishChoiceSection
+          choiceId={displayedChoiceId}
+          fieldFinishIncluded={trimFinishFieldPaintIncluded}
+          onChoiceChange={choiceId => {
+            optimisticChoiceRef.current = choiceId;
+            setOptimisticChoiceId(choiceId);
+            onTrimFinishChoiceChange?.(choiceId);
+          }}
+          onFieldFinishIncludedChange={included =>
+            onTrimFinishFieldPaintIncludedChange?.(included)
+          }
+          inactiveChipStyle={inactiveStyle}
+          captionColor={captionColor(darkMode, Colors)}
+          darkMode={darkMode}
+          styles={styles}
+        />
+      ) : (
+        <View style={styles.choiceWrap}>
+          {(item.options || []).map(opt => {
           const active = displayedChoiceId === opt.id;
           const isUnsure = opt.id === 'unsure';
           const isExcluded = opt.id === 'not_in_scope';
-          const inactiveStyle = inactiveChoiceChipStyle(darkMode, Colors);
-          let borderColor = inactiveStyle.borderColor;
-          let backgroundColor = inactiveStyle.backgroundColor;
-          let textColor = inactiveStyle.textColor;
+          const chipInactiveStyle = inactiveChoiceChipStyle(darkMode, Colors);
+          let borderColor = chipInactiveStyle.borderColor;
+          let backgroundColor = chipInactiveStyle.backgroundColor;
+          let textColor = chipInactiveStyle.textColor;
 
           if (active) {
             if (isUnsure) {
@@ -9936,6 +10006,7 @@ function ChoiceRow({
           );
         })}
       </View>
+      )}
       {item.id === 'texture' && displayedChoiceId ? (
         <DrywallTextureSelectedLabel
           choiceId={displayedChoiceId}
@@ -19009,6 +19080,21 @@ export default function AIEstimateScopeAssumptionsModal({
     []
   );
 
+  const handleTrimFinishFieldPaintIncludedChange = useCallback(
+    (included: boolean) => {
+      setMeasurementsSynced(prev => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.trim_finish;
+        return {
+          ...prev,
+          trimFinishFieldPaintIncluded: included,
+          pricingAcceptance,
+        };
+      });
+    },
+    []
+  );
+
   const plumbingDemoScopeKey = useMemo(
     () =>
       items
@@ -22188,6 +22274,43 @@ export default function AIEstimateScopeAssumptionsModal({
           }}
           onBathroomToiletRelocateFloorTypeChange={
             handleBathroomToiletRelocateFloorTypeChange
+          }
+          onTrimFinishChoiceChange={nextChoiceId => {
+            setItems(prev =>
+              prev.map(row =>
+                row.id === item.id
+                  ? {
+                      ...row,
+                      choiceId: nextChoiceId,
+                      state: nextChoiceId
+                        ? choiceIdToState(nextChoiceId)
+                        : ('unsure' as const),
+                    }
+                  : row
+              )
+            );
+            if (!nextChoiceId) {
+              handleClearAcceptedPricing('trim_finish');
+              setMeasurementsSynced(m => ({
+                ...m,
+                trimFinishFieldPaintIncluded: null,
+              }));
+              return;
+            }
+            handleClearAcceptedPricing('trim_finish');
+            if (
+              nextChoiceId === 'not_in_scope' ||
+              nextChoiceId === 'unsure' ||
+              nextChoiceId?.endsWith('_unfinished')
+            ) {
+              setMeasurementsSynced(m => ({
+                ...m,
+                trimFinishFieldPaintIncluded: null,
+              }));
+            }
+          }}
+          onTrimFinishFieldPaintIncludedChange={
+            handleTrimFinishFieldPaintIncludedChange
           }
           onBathroomShowerRoughFixtureTypeChange={
             handleBathroomShowerRoughFixtureTypeChange

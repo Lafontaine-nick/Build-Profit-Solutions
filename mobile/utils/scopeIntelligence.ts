@@ -530,10 +530,20 @@ const SCOPE_UNIT_REGISTRY: Record<string, ScopeRegistryEntry> = {
     alternateUnits: ['allowance', 'lump_sum'],
     requiredMeasurementTypes: ['window_count'],
   }),
-  doors: ENTRY('openings', ['each'], ['door_count', 'opening_count'], ['allowance_amount'], {
+  interior_doors: ENTRY('openings', ['each'], ['door_count', 'opening_count'], ['allowance_amount'], {
     alternateUnits: ['allowance', 'lump_sum'],
     requiredMeasurementTypes: ['door_count'],
   }),
+  trim_finish: ENTRY(
+    'finish_carpentry',
+    ['lf'],
+    ['linear_length'],
+    ['window_count', 'door_count', 'opening_count'],
+    {
+      alternateUnits: ['allowance', 'lump_sum'],
+      requiredMeasurementTypes: ['linear_length'],
+    }
+  ),
 
   // Interiors
   insulation: ENTRY(

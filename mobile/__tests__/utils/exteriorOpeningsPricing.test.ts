@@ -7,10 +7,12 @@ import {
   EXTERIOR_DOORS_INSTALLED_BY_PROJECT,
   EXTERIOR_DOORS_NATIONAL_PACKAGE_TOTAL,
   GARAGE_DOOR_TYPE_RATES,
+  OPENING_SIZE_TIER_MULTIPLIERS,
   SLIDING_DOORS_DETACHED_MEDIAN_TOTAL,
   SLIDING_DOORS_INSTALLED_BY_PROJECT,
   SLIDING_DOORS_NATIONAL_PACKAGE_TOTAL,
   inferDefaultGarageDoorCounts,
+  openingStandardEachTotal,
   resolveExteriorDoorsLumpSuggestedFill,
   resolveGarageDoorSuggestedPricing,
   resolveOpeningSizeTierSuggestedPricing,
@@ -188,9 +190,9 @@ describe('exterior openings split + garage door types', () => {
       'ground_up',
       doorResolved
     );
-    // National ~$2,300 × 2, barometer nudges toward ~$2,500/ea
-    expect(doorPriced.fill!.total).toBeGreaterThan(4000);
-    expect(doorPriced.fill!.total).toBeLessThan(6000);
+    // National ~$1,650 × 2 standard entry doors (count path — not barometer blend)
+    expect(doorPriced.fill!.total).toBe(3300);
+    expect(doorPriced.fill?.helper).toMatch(/standard entry/i);
 
     const slidingInput = inputWith({
       itemQuantities: {
@@ -206,9 +208,9 @@ describe('exterior openings split + garage door types', () => {
       'ground_up',
       slidingResolved
     );
-    // National ~$2,500 × 2 blended with local ~$4,000/ea
-    expect(slidingPriced.fill!.total).toBeGreaterThan(5000);
-    expect(slidingPriced.fill!.total).toBeLessThan(10000);
+    // National ~$3,400 × 2 standard patio doors (count path — not barometer blend)
+    expect(slidingPriced.fill!.total).toBe(6800);
+    expect(slidingPriced.fill?.helper).toMatch(/patio door/i);
   });
 
   it('prices extracted window size codes above a flat standard each', () => {
@@ -222,9 +224,33 @@ describe('exterior openings split + garage door types', () => {
       quantity: 10,
       mix: { standard: 10, medium: 0, large: 0, oversized: 0 },
     });
-    expect(standard?.total).toBe(7250);
+    expect(standard?.total).toBe(7400);
     expect(pkg!.total).toBeGreaterThan(standard!.total);
     expect(pkg!.helper).toMatch(/6 standard/i);
     expect(pkg!.helper).toMatch(/4 oversized/i);
+  });
+
+  it('prices exterior swing doors by planning size tier', () => {
+    const standard = openingStandardEachTotal('exterior_doors');
+    expect(standard).toBe(1650);
+    const base = resolveOpeningSizeTierSuggestedPricing({
+      itemId: 'exterior_doors',
+      quantity: 1,
+      mix: { standard: 1, medium: 0, large: 0, oversized: 0 },
+    });
+    const upgraded = resolveOpeningSizeTierSuggestedPricing({
+      itemId: 'exterior_doors',
+      quantity: 1,
+      mix: { standard: 0, medium: 1, large: 0, oversized: 0 },
+    });
+    const specialty = resolveOpeningSizeTierSuggestedPricing({
+      itemId: 'exterior_doors',
+      quantity: 1,
+      mix: { standard: 0, medium: 0, large: 0, oversized: 1 },
+    });
+    expect(base?.total).toBe(1650);
+    expect(upgraded?.total).toBe(Math.round(1650 * OPENING_SIZE_TIER_MULTIPLIERS.exterior_doors.medium));
+    expect(specialty?.total).toBe(Math.round(1650 * OPENING_SIZE_TIER_MULTIPLIERS.exterior_doors.oversized));
+    expect(upgraded?.helper).toMatch(/upgraded \/ glass/i);
   });
 });

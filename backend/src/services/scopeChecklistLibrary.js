@@ -1635,7 +1635,7 @@ const CHECKLIST_TEMPLATES = {
         inputType: "yes_no",
         label: "Windows",
         helperText:
-          "Window units, frames, glazing, flashing, screens, and installation. Structural reframing and finish repair are separate.",
+          "Window units, frames, glazing, flashing, shimming, and standard installation. Casing and finish are on the Trim & finish add-on.",
         category: "exterior",
       },
       {
@@ -1643,7 +1643,7 @@ const CHECKLIST_TEMPLATES = {
         inputType: "yes_no",
         label: "Exterior swing doors",
         helperText:
-          "Entry/exit door units, frames, thresholds, hardware, flashing, and installation. Not sliding or garage doors.",
+          "Entry/exit door units, frames, thresholds, weatherstripping, flashing, and standard installation. Casing and finish are on the Trim & finish add-on.",
         category: "exterior",
       },
       {
@@ -1651,7 +1651,7 @@ const CHECKLIST_TEMPLATES = {
         inputType: "yes_no",
         label: "Sliding / patio doors",
         helperText:
-          "Sliding or multi-panel patio door units, frames, hardware, flashing, and installation.",
+          "Sliding or multi-panel patio door units, frames, hardware, flashing, and standard installation. Exterior casing and finish are on the Trim & finish add-on.",
         category: "exterior",
       },
       {
@@ -1661,6 +1661,35 @@ const CHECKLIST_TEMPLATES = {
         helperText:
           "Garage door units, tracks, hardware, and installation. Confirm single, double, or RV/oversized type.",
         category: "exterior",
+      },
+      {
+        id: "interior_doors",
+        inputType: "yes_no",
+        label: "Interior doors",
+        helperText:
+          "Prehung interior door units, jambs, hinges, and standard hardware install. Casing and finish are on the Trim & finish add-on.",
+        category: "interior",
+      },
+      {
+        id: "trim_finish",
+        inputType: "choice",
+        label: "Opening trim & finish",
+        helperText:
+          "Opening-specific casing and trim. Jamb extensions, stools, and aprons included where applicable. Whole-house trim and wall painting excluded.",
+        options: [
+          { id: "interior_paint_grade", label: "Interior · paint-grade" },
+          { id: "interior_stain_grade", label: "Interior · stain-grade" },
+          { id: "interior_unfinished", label: "Interior · unfinished" },
+          { id: "exterior_paint_grade", label: "Exterior · paint-grade" },
+          { id: "exterior_stain_grade", label: "Exterior · stain-grade" },
+          { id: "exterior_unfinished", label: "Exterior · unfinished" },
+          { id: "both_paint_grade", label: "Interior + exterior · paint-grade" },
+          { id: "both_stain_grade", label: "Interior + exterior · stain-grade" },
+          { id: "both_unfinished", label: "Interior + exterior · unfinished" },
+          { id: "not_in_scope", label: "Not in this bid" },
+          { id: "unsure", label: "Not sure yet" },
+        ],
+        category: "finish",
       },
       {
         id: "openings",
@@ -2192,6 +2221,8 @@ const CHECKLIST_YES_HINTS = {
   windows: /\bwindows?\b/,
   exterior_doors: /\b(exterior\s+doors?|entry\s+doors?|iron\s+doors?)\b/,
   sliding_doors: /\b(sliding\s+doors?|patio\s+doors?|sliders?)\b/,
+  trim_finish:
+    /\btrim\s*&?\s*finish\b|\b(?:window|door)\s+casing\b|\bstool\s*(?:\/|and)?\s*apron\b/i,
   garage_doors: /\bgarage\s+doors?\b/,
   windows_doors:
     /\b(?:windows?|exterior\s+doors?|entry\s+doors?|sliding\s+doors?|patio\s+doors?|sliders?)\b/,
