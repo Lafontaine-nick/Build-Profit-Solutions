@@ -83,6 +83,17 @@ function extractLanIpv4(src: string): string | null {
  * while `EXPO_PUBLIC_AI_API_URL` can still point at a local backend (AI only).
  */
 let cachedBackendRestApiBaseUrl: string | null = null;
+let lastLoggedBackendRestApiBaseUrl: string | null = null;
+
+function logBackendRestApiResolution(u: string, label: string, meta?: Record<string, unknown>) {
+  if (!__DEV__ || lastLoggedBackendRestApiBaseUrl === u) return;
+  lastLoggedBackendRestApiBaseUrl = u;
+  if (meta) {
+    console.log(`🔧 Backend REST API: ${label} →`, u, meta);
+  } else {
+    console.log(`🔧 Backend REST API: ${label} →`, u);
+  }
+}
 
 /** Resolved once per Metro session for stable hosts; LAN URLs re-resolve (DHCP IP changes). */
 export function resolveBackendRestApiBaseUrl(): string {
@@ -264,7 +275,7 @@ function resolveBackendRestApiBaseUrlUncached(): string {
   // but `app.config.js` bakes `extra.apiBaseUrl` (defaults to Render when unset).
   if (primary) {
     const u = ensureApiSuffix(primary);
-    console.log('🔧 Backend REST API: env|extra.apiBaseUrl →', u, {
+    logBackendRestApiResolution(u, 'env|extra.apiBaseUrl', {
       fromProcessEnv: Boolean(envApi),
       fromAppConfigExtra: Boolean(extraApi),
     });

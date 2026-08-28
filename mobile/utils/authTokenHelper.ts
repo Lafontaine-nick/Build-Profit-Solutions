@@ -85,6 +85,23 @@ export async function clearAuthToken(): Promise<void> {
   }
 }
 
+const STORAGE_READ_TIMEOUT_MS = 3000;
+
+async function readStoredAuthToken(): Promise<string | null> {
+  try {
+    return await Promise.race([
+      (async () =>
+        (await AsyncStorage.getItem('auth_token')) ||
+        (await AsyncStorage.getItem('authToken')))(),
+      new Promise<string | null>((resolve) =>
+        setTimeout(() => resolve(null), STORAGE_READ_TIMEOUT_MS)
+      ),
+    ]);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Get authentication token with fallback to Clerk
  * This is a helper that can be used in components
@@ -114,15 +131,14 @@ export async function getAuthTokenWithFallback(getClerkToken?: () => Promise<str
   if (getClerkToken) {
     const clerkToken = await getClerkToken();
     if (clerkToken && !isExpired(clerkToken)) {
-      await syncClerkTokenToAsyncStorage(clerkToken);
+      // Never block API calls on AsyncStorage writes — setItem can hang on device.
+      void syncClerkTokenToAsyncStorage(clerkToken).catch(() => {});
       return clerkToken;
     }
   }
-  
+
   // Legacy fallback for non-Clerk/dev flows.
-  const token =
-    (await AsyncStorage.getItem('auth_token')) ||
-    (await AsyncStorage.getItem('authToken'));
+  const token = await readStoredAuthToken();
   if (token && !isExpired(token)) return token;
 
   return null;

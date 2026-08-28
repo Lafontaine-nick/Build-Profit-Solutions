@@ -19,6 +19,7 @@ const {
   guessTemplateKey,
 } = require('./estimatePhotoToScope');
 const { CHECKLIST_TEMPLATES } = require('./scopeChecklistLibrary');
+const { createOpenAiChatCompletion } = require('../utils/openaiChatCompletionParams');
 
 /**
  * Map common cross-template ids onto the active checklist when the model (or an
@@ -509,7 +510,7 @@ async function analyzePlanForScope({
     );
   }
 
-  const completion = await openai.chat.completions.create({
+  const completion = await createOpenAiChatCompletion(openai, {
     model: aiModels.assistant.vision,
     response_format: aiRuntime.assistant.vision.responseFormat,
     temperature: Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15),

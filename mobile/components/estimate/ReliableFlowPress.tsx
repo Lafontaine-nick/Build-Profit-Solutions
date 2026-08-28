@@ -12,11 +12,17 @@ type Props = {
   accessibilityRole?: 'button' | 'link';
   accessibilityState?: { expanded?: boolean; disabled?: boolean };
   activeOpacity?: number;
+  /** Touch feedback strength — Apply CTAs use medium. */
+  haptic?: 'light' | 'medium' | 'none';
 };
 
-function fireHaptic() {
+function fireHaptic(strength: 'light' | 'medium' = 'light') {
   if (Platform.OS === 'web') return;
-  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  const style =
+    strength === 'medium'
+      ? Haptics.ImpactFeedbackStyle.Medium
+      : Haptics.ImpactFeedbackStyle.Light;
+  void Haptics.impactAsync(style).catch(() => {});
 }
 
 /** First-tap-safe press for buttons inside AI flow scroll views. */
@@ -29,6 +35,7 @@ export default function ReliableFlowPress({
   accessibilityRole = 'button',
   accessibilityState,
   activeOpacity = 0.82,
+  haptic = 'light',
 }: Props) {
   const onPressRef = useRef(onPress);
   onPressRef.current = onPress;
@@ -37,12 +44,12 @@ export default function ReliableFlowPress({
   const fire = useCallback(() => {
     if (disabled || lockRef.current) return;
     lockRef.current = true;
-    fireHaptic();
+    if (haptic !== 'none') fireHaptic(haptic);
     onPressRef.current();
     setTimeout(() => {
       lockRef.current = false;
-    }, 400);
-  }, [disabled]);
+    }, 280);
+  }, [disabled, haptic]);
 
   return (
     <GestureTouchableOpacity

@@ -317,6 +317,7 @@ import {
   resolveInsulationAssemblyScopeSuggestedPricing,
   type InsulationAssemblyRowPricing,
   isPlaceholderAllowancePricing,
+  isPricingLibraryTemplateBlock,
   roughAllowanceSubKey,
   scopeMeasurementsPayloadForPersist,
   shouldSuppressSuggestedPricingAfterApply,
@@ -454,6 +455,7 @@ import {
 import {
   estimateFlowCardStyle,
   estimateFlowDividerColor,
+  estimateFlowScopeCardAlignStyle,
 } from '@/utils/estimateFlowCardStyle';
 import {
   SCOPE_ITEM_TIER_OPACITY,
@@ -535,6 +537,8 @@ import {
   benchmarkStageForScopeKey,
   coversLabelList,
   FOOTER_PLANNING_BENCHMARK_INFO,
+  footerScrollToPricingButtonLabel,
+  footerSuggestedPricingPendingHint,
   footerSuggestedPricingSummary,
   scopeHasCommittedConfirmScopePrice,
   isGrossFlooringDerivedFromLiving,
@@ -560,7 +564,9 @@ import {
   buildSuggestedPricingCardDisplay,
   displayPriceSourceLabel,
   includeUnconfirmedSuggestedPricingFill,
+  isConfirmScopePlanningBenchmarkRow,
   isInsulationAssemblyConfirmScopePricingCard,
+  shouldIncludeConfirmScopeBulkApplyRow,
   suggestedPricingFooterCountsAmperageConfirm,
   type InsulationAssemblyDetailRow,
 } from '@/utils/suggestedPricingCardUi';
@@ -577,14 +583,12 @@ type Props = {
   applying?: boolean;
   fromAssistant?: boolean;
   onBack: () => void;
-  onClose: () => void;
   onConfirm: (
     items: ScopeChecklistItem[],
     measurements?: ScopeMeasurements
   ) => void;
   /** Fires immediately on Continue tap so the footer can show a spinner before heavy sync. */
   onConfirmBegin?: () => void;
-  onScopeOnly?: (measurements?: ScopeMeasurements) => void;
   /** Persist in-progress scope without API round-trip (e.g. when navigating to review/pricing). */
   onPersistProgress?: (
     items: ScopeChecklistItem[],
@@ -647,6 +651,21 @@ function deferConfirmScopeHeavyWork(run: () => void) {
       startTransition(run);
     });
   });
+}
+
+/** Faster path for per-card Apply — skips InteractionManager (adds noticeable lag). */
+function deferConfirmScopeApplyWork(run: () => void) {
+  requestAnimationFrame(() => {
+    startTransition(run);
+  });
+}
+
+function hapticApplyCommitted() {
+  if (Platform.OS !== 'web') {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+      () => {}
+    );
+  }
 }
 
 function inputShellStyle(
@@ -1123,11 +1142,7 @@ function isNationalAveragePricingBlock(
 function isSavedPricingBlock(
   block: SuggestedPricingBlock | null | undefined
 ): boolean {
-  return Boolean(
-    block &&
-    (block.materialSource === 'local_benchmark' ||
-      block.laborSource === 'local_benchmark')
-  );
+  return isPricingLibraryTemplateBlock(block);
 }
 
 function shouldShowPricingComparisonBlock(
@@ -1882,33 +1897,19 @@ function SuggestedPricingApplyButton({
   style: object;
   textStyle: object;
 }) {
-  const onPressRef = useRef(onPress);
-  onPressRef.current = onPress;
-  const applyLockRef = useRef(false);
-
   if (!onPress) return null;
 
-  const fireApply = () => {
-    if (applyLockRef.current || !onPressRef.current) return;
-    applyLockRef.current = true;
-    hapticTap();
-    onPressRef.current();
-    setTimeout(() => {
-      applyLockRef.current = false;
-    }, 400);
-  };
-
   return (
-    <GestureTouchableOpacity
-      onPressIn={fireApply}
-      activeOpacity={0.82}
-      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+    <ReliableFlowPress
+      onPress={onPress}
+      haptic='medium'
       accessibilityLabel={label}
       accessibilityRole='button'
+      activeOpacity={0.88}
       style={[style, { zIndex: 2 }]}
     >
       <Text style={textStyle}>{label}</Text>
-    </GestureTouchableOpacity>
+    </ReliableFlowPress>
   );
 }
 
@@ -2471,8 +2472,9 @@ function ScopePricingSecondaryActions({
   edit,
 }: {
   compare?: React.ReactNode;
-  edit: React.ReactNode;
+  edit?: React.ReactNode;
 }) {
+  if (!compare && !edit) return null;
   if (!compare) {
     return (
       <View
@@ -2538,7 +2540,7 @@ function ComparisonToggle({
 
   if (isNationalComparison) {
     return (
-      <View style={editAction ? undefined : { marginTop: 8 }}>
+      <View style={{ marginTop: 8 }}>
         <SuggestedBudgetSplitRows
           block={block}
           Colors={Colors}
@@ -2548,7 +2550,6 @@ function ComparisonToggle({
           forceCompact
           {...cardProps}
         />
-        {editAction ? <ScopePricingSecondaryActions edit={editAction} /> : null}
       </View>
     );
   }
@@ -2625,6 +2626,13 @@ function ComparisonToggle({
   );
 }
 
+/** Saved pricing is library-backed — Apply only; manual edit lives on Review. */
+function shouldSuppressScopePricingEdit(
+  primaryBlock: SuggestedPricingBlock | null | undefined
+): boolean {
+  return isSavedPricingBlock(primaryBlock);
+}
+
 function EditQuantityLink({
   onPress,
   label = 'Edit',
@@ -2643,6 +2651,15 @@ function EditQuantityLink({
       onPress={onPress}
     />
   );
+}
+
+function scopePricingEditAction(
+  primaryBlock: SuggestedPricingBlock | null | undefined,
+  onPress: () => void,
+  stretch?: boolean
+): React.ReactNode {
+  if (shouldSuppressScopePricingEdit(primaryBlock)) return null;
+  return <EditQuantityLink onPress={onPress} stretch={stretch} />;
 }
 
 /** Edit chrome with Done at the top so collapse stays reachable above the sticky footer. */
@@ -2927,6 +2944,83 @@ function PricingEntryModeToggle({
   );
 }
 
+function PricingRateModeToggle({
+  mode,
+  onChange,
+  unitLabel,
+  Colors,
+  darkMode,
+  applying,
+}: {
+  mode: 'total' | 'rate';
+  onChange: (next: 'total' | 'rate') => void;
+  unitLabel: string;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+  applying: boolean;
+}) {
+  const rateLabel = `$/${unitLabel}`;
+  const options = [
+    { id: 'total' as const, label: 'Total' },
+    { id: 'rate' as const, label: rateLabel },
+  ];
+  return (
+    <View
+      style={styles.pricingRateModeToggleRow}
+      accessibilityRole='tablist'
+      accessibilityLabel='Material or labor entry mode'
+    >
+      {options.map(opt => {
+        const active = mode === opt.id;
+        return (
+          <TouchableOpacity
+            key={opt.id}
+            activeOpacity={0.75}
+            disabled={applying}
+            onPress={() => onChange(opt.id)}
+            accessibilityRole='tab'
+            accessibilityState={{ selected: active }}
+            accessibilityLabel={
+              opt.id === 'total'
+                ? 'Enter total dollar amount'
+                : `Enter price per ${unitLabel}`
+            }
+            style={[
+              styles.pricingRateModeChip,
+              {
+                borderColor: active
+                  ? '#22c55e'
+                  : darkMode
+                    ? 'rgba(148, 163, 184, 0.24)'
+                    : Colors.line,
+                backgroundColor: active
+                  ? darkMode
+                    ? 'rgba(34, 197, 94, 0.12)'
+                    : 'rgba(22, 197, 94, 0.08)'
+                  : 'transparent',
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: active
+                  ? '#22c55e'
+                  : darkMode
+                    ? 'rgba(255,255,255,0.72)'
+                    : Colors.sub,
+                fontSize: 10,
+                fontWeight: '700',
+              }}
+            >
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
 function PricingInputField({
   label,
   value,
@@ -2936,6 +3030,9 @@ function PricingInputField({
   suffix,
   placeholder = '0',
   defaultInputMode = 'total',
+  inputMode: controlledInputMode,
+  onInputModeChange,
+  hideRateModeToggle = false,
   onFocus,
   onChangeText,
   onBlur,
@@ -2954,6 +3051,10 @@ function PricingInputField({
   suffix?: string;
   placeholder?: string;
   defaultInputMode?: 'total' | 'rate';
+  /** When set with onInputModeChange, mat/lab fields share one total vs $/unit toggle. */
+  inputMode?: 'total' | 'rate';
+  onInputModeChange?: (mode: 'total' | 'rate') => void;
+  hideRateModeToggle?: boolean;
   onFocus: () => void;
   onChangeText: (text: string) => void;
   onBlur: () => void;
@@ -2967,9 +3068,14 @@ function PricingInputField({
   /** Keep the native field stable while parent pricing state recalculates. */
   commitOnBlur?: boolean;
 }) {
-  const [inputMode, setInputMode] = useState<'total' | 'rate'>(
+  const [internalInputMode, setInternalInputMode] = useState<'total' | 'rate'>(
     defaultInputMode
   );
+  const inputMode = controlledInputMode ?? internalInputMode;
+  const setInputMode = (next: 'total' | 'rate') => {
+    onInputModeChange?.(next);
+    if (controlledInputMode == null) setInternalInputMode(next);
+  };
   const [rateDraft, setRateDraft] = useState('');
   const [rateEditing, setRateEditing] = useState(false);
   const [totalDraft, setTotalDraft] = useState(value);
@@ -2998,6 +3104,13 @@ function PricingInputField({
     inputMode === 'rate' && Number.isFinite(amount) && amount > 0
       ? `Total ${formatDraftMoney(amount)}`
       : helper;
+  const unitLabel = basis ? formatUnitLabel(basis.unit) : 'unit';
+  const fieldPlaceholder =
+    supportsRateMode && inputMode === 'rate'
+      ? `$/${unitLabel}`
+      : supportsRateMode
+        ? '0'
+        : placeholder;
   const isEmptyValue = !String(displayValue || '').trim();
   useEffect(() => {
     if (inputMode === 'rate' && !rateEditing) {
@@ -3059,35 +3172,25 @@ function PricingInputField({
               : Colors.sub,
             fontSize: embedded ? 11 : 12,
             fontWeight: '700',
+            flex: hideRateModeToggle ? 1 : undefined,
             flexShrink: 1,
           }}
         >
           {label}
         </Text>
-        {supportsRateMode ? (
-          <TouchableOpacity
-            activeOpacity={0.75}
-            onPress={() =>
-              setInputMode(mode => (mode === 'total' ? 'rate' : 'total'))
-            }
-            style={[
-              styles.rateModeToggle,
-              {
-                borderColor: darkMode
-                  ? 'rgba(34, 197, 94, 0.3)'
-                  : 'rgba(22, 163, 74, 0.24)',
-                backgroundColor: darkMode
-                  ? 'rgba(34, 197, 94, 0.08)'
-                  : 'rgba(22, 163, 74, 0.08)',
-              },
-            ]}
-          >
-            <Text style={{ color: '#22c55e', fontSize: 10, fontWeight: '700' }}>
-              {inputMode === 'total'
-                ? `$/${formatUnitLabel(basis!.unit)}`
-                : 'Total'}
-            </Text>
-          </TouchableOpacity>
+        {supportsRateMode && !hideRateModeToggle ? (
+          <PricingRateModeToggle
+            mode={inputMode}
+            onChange={next => {
+              setRateEditing(false);
+              setTotalEditing(false);
+              setInputMode(next);
+            }}
+            unitLabel={unitLabel}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying ?? false}
+          />
         ) : null}
       </View>
       <View
@@ -3134,7 +3237,7 @@ function PricingInputField({
             }
             onBlur();
           }}
-          placeholder={placeholder}
+          placeholder={fieldPlaceholder}
           placeholderTextColor={placeholderColor}
           keyboardType='decimal-pad'
           {...scopeNumericInputProps}
@@ -4186,6 +4289,9 @@ function MaterialLaborSplitEditor({
   const userEditedRatesRef = useRef(false);
   const [basisFocused, setBasisFocused] = useState(false);
   const [basisDraft, setBasisDraft] = useState(pricingBasisValue);
+  const [matLabInputMode, setMatLabInputMode] = useState<'total' | 'rate'>(
+    'total'
+  );
 
   const effectiveBasisQty =
     parseMoneyAmount(basisFocused ? basisDraft : pricingBasisValue) ||
@@ -4778,6 +4884,9 @@ function MaterialLaborSplitEditor({
       : null;
 
   const showTakeoffBasis = entryMode === 'takeoff' && !splitTotalOnly;
+  const sharedMatLabRateMode = Boolean(
+    editorBasis?.quantity && editorBasis.quantity > 0
+  );
 
   return (
     <>
@@ -4830,6 +4939,30 @@ function MaterialLaborSplitEditor({
           applying={applying}
         />
       ) : null}
+      {sharedMatLabRateMode ? (
+        <View style={styles.pricingMatLabModeRow}>
+          <Text
+            style={{
+              color: captionColor(darkMode, Colors),
+              fontSize: 11,
+              fontWeight: '600',
+              flex: 1,
+              flexShrink: 1,
+              paddingRight: 8,
+            }}
+          >
+            Material & labor pricing
+          </Text>
+          <PricingRateModeToggle
+            mode={matLabInputMode}
+            onChange={setMatLabInputMode}
+            unitLabel={basisUnitLabel}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying}
+          />
+        </View>
+      ) : null}
       <PricingMatLabRow
         material={
           <PricingInputField
@@ -4840,6 +4973,11 @@ function MaterialLaborSplitEditor({
             prefix='$'
             placeholder={editorBasis ? `$/${basisUnitLabel}` : '0'}
             defaultInputMode='total'
+            inputMode={sharedMatLabRateMode ? matLabInputMode : undefined}
+            onInputModeChange={
+              sharedMatLabRateMode ? setMatLabInputMode : undefined
+            }
+            hideRateModeToggle={sharedMatLabRateMode}
             embedded
             onFocus={() => focusQuantityField(materialKey)}
             onChangeText={handleMaterialChange}
@@ -4858,6 +4996,11 @@ function MaterialLaborSplitEditor({
             prefix='$'
             placeholder={editorBasis ? `$/${basisUnitLabel}` : '0'}
             defaultInputMode='total'
+            inputMode={sharedMatLabRateMode ? matLabInputMode : undefined}
+            onInputModeChange={
+              sharedMatLabRateMode ? setMatLabInputMode : undefined
+            }
+            hideRateModeToggle={sharedMatLabRateMode}
             embedded
             onFocus={() => focusQuantityField(laborKey)}
             onChangeText={handleLaborChange}
@@ -5812,30 +5955,32 @@ function QuantitySection({
                       measurementsInput.pricingAcceptance
                     )
                   }
-                  editAction={
-                    itemId === 'electrical' ? (
-                      <EditQuantityLink
-                        onPress={() => setPricingEditorOpen(true)}
-                        stretch
-                      />
-                    ) : (
-                      <EditQuantityLink onPress={openPricingEditor} stretch />
-                    )
-                  }
+                  editAction={scopePricingEditAction(
+                    suggestedBudgetSplit,
+                    () =>
+                      itemId === 'electrical'
+                        ? setPricingEditorOpen(true)
+                        : openPricingEditor(),
+                    true
+                  )}
                 />
-              ) : (
+              ) : scopePricingEditAction(
+                  suggestedBudgetSplit,
+                  () =>
+                    itemId === 'electrical'
+                      ? setPricingEditorOpen(true)
+                      : openPricingEditor()
+                ) ? (
                 <ScopePricingSecondaryActions
-                  edit={
-                    itemId === 'electrical' ? (
-                      <EditQuantityLink
-                        onPress={() => setPricingEditorOpen(true)}
-                      />
-                    ) : (
-                      <EditQuantityLink onPress={openPricingEditor} />
-                    )
-                  }
+                  edit={scopePricingEditAction(
+                    suggestedBudgetSplit,
+                    () =>
+                      itemId === 'electrical'
+                        ? setPricingEditorOpen(true)
+                        : openPricingEditor()
+                  )}
                 />
-              )}
+              ) : null}
             </>
           )}
         </View>
@@ -6044,20 +6189,21 @@ function QuantitySection({
                 ) || null
               }
               confidenceLabel={planningIntelligence?.pricing?.confidenceLabel}
-              editAction={
-                <EditQuantityLink
-                  onPress={() => setPricingEditorOpen(true)}
-                  stretch
-                />
-              }
+              editAction={scopePricingEditAction(
+                planningFill,
+                () => setPricingEditorOpen(true),
+                true
+              )}
             />
-          ) : (
+          ) : scopePricingEditAction(planningFill, () =>
+              setPricingEditorOpen(true)
+            ) ? (
             <ScopePricingSecondaryActions
-              edit={
-                <EditQuantityLink onPress={() => setPricingEditorOpen(true)} />
-              }
+              edit={scopePricingEditAction(planningFill, () =>
+                setPricingEditorOpen(true)
+              )}
             />
-          )}
+          ) : null}
         </View>
       );
     }
@@ -6848,30 +6994,32 @@ function QuantitySection({
                       measurementsInput.pricingAcceptance
                     )
                   }
-                  editAction={
-                    itemId === 'electrical' ? (
-                      <EditQuantityLink
-                        onPress={() => setPricingEditorOpen(true)}
-                        stretch
-                      />
-                    ) : (
-                      <EditQuantityLink onPress={openPricingEditor} stretch />
-                    )
-                  }
+                  editAction={scopePricingEditAction(
+                    suggestedBudgetSplit,
+                    () =>
+                      itemId === 'electrical'
+                        ? setPricingEditorOpen(true)
+                        : openPricingEditor(),
+                    true
+                  )}
                 />
-              ) : (
+              ) : scopePricingEditAction(
+                  suggestedBudgetSplit,
+                  () =>
+                    itemId === 'electrical'
+                      ? setPricingEditorOpen(true)
+                      : openPricingEditor()
+                ) ? (
                 <ScopePricingSecondaryActions
-                  edit={
-                    itemId === 'electrical' ? (
-                      <EditQuantityLink
-                        onPress={() => setPricingEditorOpen(true)}
-                      />
-                    ) : (
-                      <EditQuantityLink onPress={openPricingEditor} />
-                    )
-                  }
+                  edit={scopePricingEditAction(
+                    suggestedBudgetSplit,
+                    () =>
+                      itemId === 'electrical'
+                        ? setPricingEditorOpen(true)
+                        : openPricingEditor()
+                  )}
                 />
-              )}
+              ) : null}
             </>
           );
         })()}
@@ -7052,20 +7200,21 @@ function QuantitySection({
               ) || null
             }
             confidenceLabel={intelligence?.pricing?.confidenceLabel}
-            editAction={
-              <EditQuantityLink
-                onPress={() => setPricingEditorOpen(true)}
-                stretch
-              />
-            }
+            editAction={scopePricingEditAction(
+              suggestedBudgetSplit,
+              () => setPricingEditorOpen(true),
+              true
+            )}
           />
-        ) : (
+        ) : scopePricingEditAction(suggestedBudgetSplit, () =>
+            setPricingEditorOpen(true)
+          ) ? (
           <ScopePricingSecondaryActions
-            edit={
-              <EditQuantityLink onPress={() => setPricingEditorOpen(true)} />
-            }
+            edit={scopePricingEditAction(suggestedBudgetSplit, () =>
+              setPricingEditorOpen(true)
+            )}
           />
-        )}
+        ) : null}
       </View>
     );
   }
@@ -17002,10 +17151,8 @@ export default function AIEstimateScopeAssumptionsModal({
   applying = false,
   fromAssistant = false,
   onBack,
-  onClose,
   onConfirm,
   onConfirmBegin,
-  onScopeOnly,
   onPersistProgress,
   pricingContext = null,
   hasSitePhotos = false,
@@ -20575,7 +20722,7 @@ export default function AIEstimateScopeAssumptionsModal({
       ) {
         continue;
       }
-      if (
+      const hasCommittedPricing =
         scopeHasCommittedConfirmScopePrice({
           itemId: row.itemId,
           itemQuantities: pricingFooterMeasurements.itemQuantities,
@@ -20585,18 +20732,15 @@ export default function AIEstimateScopeAssumptionsModal({
           row.itemId,
           pricingFooterMeasurements.itemQuantities,
           pricingFooterMeasurements.pricingAcceptance
-        )
-      ) {
+        );
+      if (hasCommittedPricing) {
         continue;
       }
-      // National / comparison rows are never "price ready".
       if (
-        row.block.isComparison ||
-        row.block.benchmarkAction === 'comparison_only' ||
-        row.block.benchmarkAction === 'included_in_stage' ||
-        /national\s*average\s*comparison/i.test(
-          String(row.block.rateSourceLabel || '')
-        )
+        !shouldIncludeConfirmScopeBulkApplyRow({
+          block: row.block,
+          hasCommittedPricing,
+        })
       ) {
         continue;
       }
@@ -20604,22 +20748,11 @@ export default function AIEstimateScopeAssumptionsModal({
         needsAmperageConfirmCount += 1;
         continue;
       }
-      const isBenchmark =
-        row.block.laborSource === 'local_benchmark' ||
-        Boolean(row.block.benchmarkEvidence);
-      const action = row.block.benchmarkAction;
-      if (
-        measurementSemanticsV1Enabled() &&
-        (action === 'benchmark_only' ||
-          (isBenchmark &&
-            !row.block.benchmarkEvidence?.quantityRoles?.primaryTakeoff
-              ?.quantity))
-      ) {
+      if (isConfirmScopePlanningBenchmarkRow(row.block)) {
         benchmarkOnlyCount += 1;
-      } else {
-        readyCount += 1;
-        readyRows.push(row);
       }
+      readyCount += 1;
+      readyRows.push(row);
     }
     return {
       readyCount,
@@ -20642,6 +20775,12 @@ export default function AIEstimateScopeAssumptionsModal({
     benchmarkOnlyCount: suggestedPricingFooterBreakdown.benchmarkOnlyCount,
     needsMeasurementCount:
       suggestedPricingFooterBreakdown.needsMeasurementCount,
+  });
+  const scrollToPricingLabel = footerScrollToPricingButtonLabel(
+    suggestedPricingFooterBreakdown.readyCount
+  );
+  const pricingPendingHint = footerSuggestedPricingPendingHint({
+    needsMeasurementCount: suggestedPricingFooterBreakdown.needsMeasurementCount,
   });
 
   const applySuggestedPricingBlocks = useCallback(
@@ -21207,8 +21346,7 @@ export default function AIEstimateScopeAssumptionsModal({
       replaceStageKey?: string | null,
       measurementPatch?: Partial<ScopeMeasurementsInputExtended>
     ) => {
-      hapticTap();
-      deferConfirmScopeHeavyWork(() => {
+      deferConfirmScopeApplyWork(() => {
       const currentMeasurements = measurementPatch
         ? { ...measurementsRef.current, ...measurementPatch }
         : measurementsRef.current;
@@ -21484,6 +21622,7 @@ export default function AIEstimateScopeAssumptionsModal({
         setElectricalPreviewMeasurements(null);
       }
       setTimeout(() => persistScopeProgressNow(), 0);
+      hapticApplyCommitted();
       });
     },
     [
@@ -21826,66 +21965,12 @@ export default function AIEstimateScopeAssumptionsModal({
     );
   }, [scopeItemsNeedingConfirmation, scrollToScopeItem]);
 
-  const handleUseAllSuggestedPricing = useCallback(() => {
-    // Only apply rows the footer counted as ready — never national comparisons
-    // or scopes that already have committed pricing.
+  const handleScrollToReadyPricing = useCallback(() => {
     const rows = suggestedPricingFooterBreakdown.readyRows;
     if (!rows.length) return;
-
-    const needsReview = rows.filter(({ itemId, block }) => {
-      const evidence = block.benchmarkEvidence;
-      if (!evidence) return false;
-      const unitMismatch = Boolean(
-        evidence.primaryTakeoff?.unit &&
-        evidence.primaryTakeoff.unit !== evidence.benchmarkBasis.unit
-      );
-      const validation = measurementValidationRequiredForBenchmark()
-        ? validatePricingBasis({
-            itemId,
-            primaryQuantity: evidence.primaryTakeoff?.quantity,
-            primaryUnit: evidence.primaryTakeoff?.unit,
-            pricingQuantity: evidence.blendedBenchmark.appliedQuantity,
-            pricingUnit: evidence.blendedBenchmark.unit,
-            rate: evidence.blendedBenchmark.rate,
-            rateUnit: evidence.blendedBenchmark.unit,
-            calculatedTotal: block.total,
-            measurementStatus: missingStatusForScope(itemId),
-            selectedSource: 'local_benchmark',
-          })
-        : null;
-      return Boolean(
-        evidence.priceConfidence === 'low' ||
-        evidence.quantityConfidence === 'low' ||
-        unitMismatch ||
-        validation?.requiresExplicitOverride
-      );
-    });
-
-    if (!needsReview.length) {
-      applySuggestedPricingBlocks(rows);
-      return;
-    }
-
-    const reviewNames = needsReview
-      .slice(0, 3)
-      .map(row => row.label || row.itemId.replace(/_/g, ' '))
-      .join(', ');
-    const more =
-      needsReview.length > 3 ? ` (+${needsReview.length - 3} more)` : '';
-    Alert.alert(
-      'Apply all suggested prices?',
-      `${rows.length} price${rows.length === 1 ? '' : 's'} will be applied. ${
-        needsReview.length
-      } planning estimate${needsReview.length === 1 ? '' : 's'} (${reviewNames}${more}) still need review later — you can edit any price after applying.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Apply all',
-          onPress: () => applySuggestedPricingBlocks(rows),
-        },
-      ]
-    );
-  }, [applySuggestedPricingBlocks, suggestedPricingFooterBreakdown.readyRows]);
+    hapticTap();
+    scrollToScopeItem(rows[0].itemId);
+  }, [scrollToScopeItem, suggestedPricingFooterBreakdown.readyRows]);
 
   const scrollToFirstScopeAfterQmDone = useCallback(() => {
     const content = scrollContentRef.current;
@@ -22912,18 +22997,6 @@ export default function AIEstimateScopeAssumptionsModal({
     onBack();
   };
 
-  const handleClose = () => {
-    commitElectricalAttributes();
-    persistScopeProgressNow();
-    onClose();
-  };
-
-  const handleScopeOnly = () => {
-    commitElectricalAttributes();
-    persistScopeProgressNow();
-    onScopeOnly?.(scopeMeasurementsPayloadForCurrentState());
-  };
-
   if (!visible || !draft || !checklist) return null;
 
   const scopeGroupsToRender =
@@ -23469,6 +23542,7 @@ export default function AIEstimateScopeAssumptionsModal({
             {!showCustomItemInput ? (
               <TouchableOpacity
                 style={[
+                  estimateFlowScopeCardAlignStyle(),
                   styles.addScopeItemBtn,
                   estimateFlowCardStyle(Colors, darkMode),
                   {
@@ -23543,21 +23617,6 @@ export default function AIEstimateScopeAssumptionsModal({
           },
         ]}
       >
-        {step2AppliedEstimateTotal > 0 ? (
-          <Text
-            style={{
-              color: Colors.sub,
-              fontSize: 12,
-              textAlign: 'center',
-              marginBottom: 8,
-            }}
-          >
-            Applied so far{' '}
-            <Text style={{ color: Colors.text, fontWeight: '700' }}>
-              {formatDraftMoney(step2AppliedEstimateTotal)}
-            </Text>
-          </Text>
-        ) : null}
         <ReliableFlowPress
           style={[styles.primaryBtn, applying && styles.primaryBtnDisabled]}
           onPress={handleConfirm}
@@ -23588,73 +23647,93 @@ export default function AIEstimateScopeAssumptionsModal({
           </View>
         ) : null}
 
-        {suggestedPricingFooterSummary ||
+        {scrollToPricingLabel ||
+        suggestedPricingFooterSummary ||
         footerQuickMeasurementSummary.needsConfirmation > 0 ? (
-          <View
-            style={[
-              styles.bulkSuggestedPricingLink,
-              quickMeasurementsOpen ? { minHeight: 28 } : null,
-            ]}
-          >
-            {suggestedPricingFooterSummary ? (
-              <TouchableOpacity
-                onPress={
-                  suggestedPricingFooterBreakdown.readyCount > 0
-                    ? handleUseAllSuggestedPricing
-                    : () =>
-                        Alert.alert(
-                          'Confirm measurements',
-                          'Choose a quantity for each conflicting takeoff before those cards can price.'
-                        )
-                }
-                disabled={
-                  applying ||
-                  (suggestedPricingFooterBreakdown.readyCount === 0 &&
-                    (suggestedPricingFooterBreakdown.needsMeasurementCount ||
-                      0) === 0)
-                }
-                activeOpacity={0.75}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                }}
-                accessibilityLabel={suggestedPricingFooterSummary}
-              >
-                <Text
+          <View style={styles.bulkSuggestedPricingBlock}>
+            {scrollToPricingLabel ? (
+              <>
+                <ReliableFlowPress
                   style={[
-                    styles.bulkSuggestedPricingBtnText,
-                    (suggestedPricingFooterBreakdown.needsMeasurementCount ||
-                      0) > 0 && suggestedPricingFooterBreakdown.readyCount === 0
-                      ? { color: '#fbbf24' }
-                      : null,
+                    styles.bulkApplyBtn,
+                    darkMode ? styles.bulkApplyBtnDark : styles.bulkApplyBtnLight,
+                    applying && styles.primaryBtnDisabled,
                   ]}
+                  onPress={handleScrollToReadyPricing}
+                  disabled={applying}
+                  accessibilityLabel={`Scroll to ${scrollToPricingLabel}`}
                 >
-                  {suggestedPricingFooterSummary}
-                </Text>
+                  <Ionicons name='arrow-down' size={18} color='#22c55e' />
+                  <Text style={styles.bulkApplyBtnText}>{scrollToPricingLabel}</Text>
+                </ReliableFlowPress>
+                {pricingPendingHint ? (
+                  <Text
+                    style={[
+                      styles.bulkApplyHint,
+                      { color: darkMode ? 'rgba(255,255,255,0.55)' : Colors.sub },
+                    ]}
+                  >
+                    {pricingPendingHint}
+                  </Text>
+                ) : null}
                 {measurementSemanticsV1Enabled() &&
                 suggestedPricingFooterBreakdown.benchmarkOnlyCount > 0 ? (
-                  <TouchableOpacity
+                  <ReliableFlowPress
+                    style={styles.bulkApplyInfoLink}
                     onPress={() =>
                       Alert.alert(
                         'Pricing readiness',
                         FOOTER_PLANNING_BENCHMARK_INFO
                       )
                     }
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    accessibilityLabel='Pricing readiness info'
+                    disabled={applying}
+                    accessibilityLabel='Planning estimate info'
+                    accessibilityRole='link'
                   >
                     <Ionicons
                       name='information-circle-outline'
-                      size={16}
-                      color='#22c55e'
+                      size={15}
+                      color={darkMode ? 'rgba(255,255,255,0.55)' : Colors.sub}
                     />
-                  </TouchableOpacity>
+                    <Text
+                      style={[
+                        styles.bulkApplyHint,
+                        { color: darkMode ? 'rgba(255,255,255,0.55)' : Colors.sub },
+                      ]}
+                    >
+                      Some are planning estimates until you add a takeoff
+                    </Text>
+                  </ReliableFlowPress>
                 ) : null}
-              </TouchableOpacity>
+              </>
+            ) : suggestedPricingFooterSummary ? (
+              <ReliableFlowPress
+                style={[
+                  styles.bulkApplyBtn,
+                  styles.bulkApplyBtnWarning,
+                  applying && styles.primaryBtnDisabled,
+                ]}
+                onPress={() =>
+                  Alert.alert(
+                    'Confirm measurements',
+                    'Choose a quantity for each conflicting takeoff before those cards can price.'
+                  )
+                }
+                disabled={applying}
+                accessibilityLabel={suggestedPricingFooterSummary}
+              >
+                <Ionicons name='alert-circle-outline' size={18} color='#fbbf24' />
+                <Text style={[styles.bulkApplyBtnText, { color: '#fbbf24' }]}>
+                  {suggestedPricingFooterSummary}
+                </Text>
+              </ReliableFlowPress>
             ) : footerQuickMeasurementSummary.needsConfirmation > 0 ? (
-              <TouchableOpacity
+              <ReliableFlowPress
+                style={[
+                  styles.bulkApplyBtn,
+                  styles.bulkApplyBtnWarning,
+                  applying && styles.primaryBtnDisabled,
+                ]}
                 onPress={() =>
                   Alert.alert(
                     'Pricing readiness',
@@ -23684,83 +23763,20 @@ export default function AIEstimateScopeAssumptionsModal({
                   )
                 }
                 disabled={applying}
-                activeOpacity={0.75}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                }}
                 accessibilityLabel={`${footerQuickMeasurementSummary.needsConfirmation} measurements need confirmation`}
               >
-                <Text
-                  style={[
-                    styles.bulkSuggestedPricingBtnText,
-                    { color: '#fbbf24' },
-                  ]}
-                >
+                <Ionicons name='alert-circle-outline' size={18} color='#fbbf24' />
+                <Text style={[styles.bulkApplyBtnText, { color: '#fbbf24' }]}>
                   {`${footerQuickMeasurementSummary.needsConfirmation} measurement${
                     footerQuickMeasurementSummary.needsConfirmation === 1
                       ? ''
                       : 's'
                   } need confirmation`}
                 </Text>
-                <Ionicons
-                  name='information-circle-outline'
-                  size={16}
-                  color='#fbbf24'
-                />
-              </TouchableOpacity>
+              </ReliableFlowPress>
             ) : null}
           </View>
         ) : null}
-
-        {onScopeOnly ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-            <TouchableOpacity
-              onPress={handleScopeOnly}
-              disabled={applying}
-              activeOpacity={0.88}
-            >
-              <Text
-                style={{
-                  color: Colors.sub,
-                  fontWeight: '600',
-                  fontSize: 13,
-                  textAlign: 'center',
-                }}
-              >
-                Save scope only
-              </Text>
-            </TouchableOpacity>
-            <Text style={{ color: Colors.sub, opacity: 0.45 }}>·</Text>
-            <TouchableOpacity onPress={handleClose} disabled={applying}>
-              <Text
-                style={{
-                  color: Colors.sub,
-                  fontWeight: '600',
-                  fontSize: 13,
-                  textAlign: 'center',
-                }}
-              >
-                Cancel
-              </Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <TouchableOpacity onPress={handleClose} disabled={applying}>
-            <Text
-              style={{
-                color: Colors.sub,
-                fontWeight: '600',
-                fontSize: 13,
-                textAlign: 'center',
-              }}
-            >
-              Cancel
-            </Text>
-          </TouchableOpacity>
-        )}
       </View>
     </View>
   );
@@ -24081,20 +24097,20 @@ const styles = StyleSheet.create({
   useSuggestedPricingBtn: {
     marginTop: 10,
     alignSelf: 'stretch',
-    minHeight: 44,
-    borderRadius: 10,
+    minHeight: 48,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(34, 197, 94, 0.14)',
     borderWidth: 1,
     borderColor: 'rgba(34, 197, 94, 0.35)',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
   useSuggestedPricingBtnText: {
     color: '#22c55e',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '800',
   },
   /** Secondary opt-in for national comparison (distinct from green Apply). */
   useComparisonPricingBtn: {
@@ -24329,17 +24345,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   compactSuggestedBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    minHeight: 40,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(34, 197, 94, 0.35)',
     backgroundColor: 'rgba(34, 197, 94, 0.14)',
   },
   compactSuggestedBtnText: {
     color: '#22c55e',
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '800',
   },
   doneEditingBtn: {
     marginTop: 10,
@@ -24398,6 +24417,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     alignItems: 'flex-start',
+  },
+  pricingMatLabModeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 2,
   },
   pricingMatLabCol: {
     flex: 1,
@@ -24540,6 +24567,18 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
   },
+  pricingRateModeToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 0,
+  },
+  pricingRateModeChip: {
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
   pricingInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -24617,6 +24656,52 @@ const styles = StyleSheet.create({
   bulkSuggestedPricingLink: {
     alignItems: 'center',
     paddingVertical: 4,
+  },
+  bulkSuggestedPricingBlock: {
+    width: '100%',
+    gap: 6,
+  },
+  bulkApplyBtn: {
+    minHeight: 44,
+    width: '100%',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  bulkApplyBtnDark: {
+    borderColor: 'rgba(34, 197, 94, 0.55)',
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+  },
+  bulkApplyBtnLight: {
+    borderColor: 'rgba(34, 197, 94, 0.65)',
+    backgroundColor: 'rgba(34, 197, 94, 0.08)',
+  },
+  bulkApplyBtnWarning: {
+    borderColor: 'rgba(251, 191, 36, 0.55)',
+    backgroundColor: 'rgba(251, 191, 36, 0.08)',
+  },
+  bulkApplyBtnText: {
+    color: '#22c55e',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  bulkApplyHint: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  bulkApplyInfoLink: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
   },
   bulkSuggestedPricingBtnText: {
     color: '#22c55e',

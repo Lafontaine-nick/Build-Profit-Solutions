@@ -21,6 +21,7 @@ import {
   resolveInsulationAssemblyRowPricing,
   resolveInsulationAssemblyRowPricingMap,
   resolveTemplateRateForItem,
+  templateRateSourceLabel,
   resolveDualRatePricingDisplayFromNotes,
   type ScopeMeasurementsInputExtended,
   type ScopePricingContext,
@@ -1512,7 +1513,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
     });
     expect(fill?.materialSource).toBe('template');
     expect(fill?.laborSource).toBe('template');
-    expect(fill?.rateSourceLabel).toContain('Saved pricing');
+    expect(fill?.rateSourceLabel).toContain('From saved template');
   });
 
   it('includes national average comparison when saved library pricing is the fill', () => {
@@ -2405,6 +2406,20 @@ describe('resolveScopeItemSuggestedPricing', () => {
   });
 });
 
+describe('templateRateSourceLabel', () => {
+  it('labels pricing library, bid, and saved template origins distinctly', () => {
+    expect(
+      templateRateSourceLabel({ origin: 'pricing_library', source: 'Pricing library' })
+    ).toBe('Saved pricing');
+    expect(templateRateSourceLabel({ origin: 'bid', source: 'Kitchen repaint' })).toBe(
+      'From this bid'
+    );
+    expect(
+      templateRateSourceLabel({ origin: 'saved_template', source: 'Painting job' })
+    ).toBe('From saved template · Painting job');
+  });
+});
+
 describe('resolveTemplateRateForItem', () => {
   it('matches saved line items within the same trade family and unit', () => {
     const ctx: ScopePricingContext = {
@@ -2424,6 +2439,7 @@ describe('resolveTemplateRateForItem', () => {
       materialRate: 5.5,
       laborRate: 3.25,
       source: 'LVP Floors',
+      origin: 'saved_template',
     });
   });
 
@@ -2451,6 +2467,7 @@ describe('resolveTemplateRateForItem', () => {
       materialRate: 3,
       laborRate: 4,
       source: 'Nick',
+      origin: 'saved_template',
     });
   });
 

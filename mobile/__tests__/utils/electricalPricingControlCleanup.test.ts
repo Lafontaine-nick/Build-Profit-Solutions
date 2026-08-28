@@ -457,7 +457,7 @@ describe('electrical pricing-control cleanup', () => {
       benchmarkOnlyCount: 0,
       needsMeasurementCount: 1,
     });
-    expect(footer).toMatch(/10 prices ready/);
+    expect(footer).toMatch(/10 prices ready to apply/);
     expect(footer).toMatch(/1 to confirm/);
   });
 
@@ -502,7 +502,7 @@ describe('electrical pricing-control cleanup', () => {
         benchmarkOnlyCount: 0,
         needsMeasurementCount: 1,
       })
-    ).toMatch(/11 prices ready/);
+    ).toMatch(/11 prices ready to apply/);
     expect(
       footerSuggestedPricingSummary({
         readyCount: 11,

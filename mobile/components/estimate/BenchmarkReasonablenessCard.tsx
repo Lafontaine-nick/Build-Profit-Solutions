@@ -7,7 +7,7 @@ import type { BenchmarkReasonableness } from '@/utils/benchmarkEngine';
 import type { ConfirmScopeAppliedPricingBreakdown, ConfirmScopeAppliedPricingLine } from '@/utils/benchmarkReasonablenessContext';
 import ConfirmScopeAppliedPricingSummary from '@/components/estimate/ConfirmScopeAppliedPricingSummary';
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
-import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
+import { estimateFlowCardStyle, estimateFlowScopeCardAlignStyle } from '@/utils/estimateFlowCardStyle';
 
 type Props = {
   /** Full benchmark payload — enables variance + Compare. */
@@ -65,6 +65,7 @@ export default function BenchmarkReasonablenessCard({
         } planning baseline`;
 
   const cardStyle = [
+    !embedded ? estimateFlowScopeCardAlignStyle() : null,
     estimateFlowCardStyle(Colors, darkMode, { marginBottom: embedded ? 8 : 14 }),
     styles.cardPad,
   ];

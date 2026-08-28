@@ -7,6 +7,7 @@
  */
 
 const { CHECKLIST_TEMPLATES, checklistTemplateKey } = require('./scopeChecklistLibrary');
+const { createOpenAiChatCompletion } = require('../utils/openaiChatCompletionParams');
 
 const MAX_IMAGES = 4;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -409,7 +410,7 @@ async function runVisionPass({
   existingNotes,
   includeNotes,
 }) {
-  const completion = await openai.chat.completions.create({
+  const completion = await createOpenAiChatCompletion(openai, {
     model: aiModels.assistant.vision,
     response_format: aiRuntime.assistant.vision.responseFormat,
     temperature: aiRuntime.assistant.vision.temperature,

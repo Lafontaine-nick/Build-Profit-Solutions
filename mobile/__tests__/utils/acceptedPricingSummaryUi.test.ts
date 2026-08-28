@@ -1167,9 +1167,22 @@ describe('acceptedPricingSummaryUi', () => {
     expect(pricingSourceLabelFromBlock(suggestedBlock())).toBe('National average');
     expect(
       pricingSourceLabelFromBlock(
-        suggestedBlock({ materialSource: 'template', laborSource: 'template', templateName: 'My saved bid' })
+        suggestedBlock({
+          materialSource: 'template',
+          laborSource: 'template',
+          rateSourceLabel: 'Saved pricing',
+        })
       )
     ).toBe('Saved pricing');
+    expect(
+      pricingSourceLabelFromBlock(
+        suggestedBlock({
+          materialSource: 'template',
+          laborSource: 'template',
+          rateSourceLabel: 'From this bid',
+        })
+      )
+    ).toBe('From this bid');
   });
 
   it('uses pricing intelligence confidence for national average', () => {

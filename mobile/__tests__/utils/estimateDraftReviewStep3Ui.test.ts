@@ -2,11 +2,15 @@ import {
   computeStep3ReviewTotals,
   formatStep3ReviewFooterTotal,
   getStep3ReviewHeroAmount,
+  getStep3ReviewHeroMarkupSubline,
   getStep3ReviewPlanningDisclaimer,
   getStep3ReviewScopeMetaLabel,
   getStep3ReviewStatusBadge,
   shouldDefaultShowAllStep3ScopeItems,
+  shouldShowStep3ClarifyQuestions,
 } from '@/utils/estimateDraftReviewStep3Ui';
+import { isMarkupOnlyRefineResult } from '@/utils/estimateAiDraft';
+import { shouldShowStep3FinishPricingCard, shouldShowStep3TemplateRatesCard } from '@/utils/estimateDraftReviewUi';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 
 describe('estimateDraftReviewStep3Ui', () => {
@@ -65,6 +69,28 @@ describe('estimateDraftReviewStep3Ui', () => {
       .toEqual({ label: 'Pricing ready', tone: 'ready' });
   });
 
+  it('shows scope subtotal and markup under hero', () => {
+    expect(getStep3ReviewHeroMarkupSubline(20, 40308.66, null)).toBe(
+      '$40,308.66 scope · 20% markup'
+    );
+    expect(getStep3ReviewHeroMarkupSubline(15, 40308.66, 8500)).toBeNull();
+  });
+
+  it('detects markup-only Ask AI refine', () => {
+    expect(
+      isMarkupOnlyRefineResult({
+        markupPct: 20,
+        appliedSummary: ['Markup set to 20% (scope prices unchanged)'],
+      })
+    ).toBe(true);
+    expect(
+      isMarkupOnlyRefineResult({
+        markupPct: 20,
+        appliedSummary: ['Markup set to 20%', 'Walls: $5,025'],
+      })
+    ).toBe(false);
+  });
+
   it('computes totals and formats footer total', () => {
     const draft = {
       statedTotal: 8500,
@@ -79,5 +105,32 @@ describe('estimateDraftReviewStep3Ui', () => {
     expect(totals.scopeItemCount).toBeGreaterThan(0);
     expect(totals.missingPriceCount).toBeGreaterThan(0);
     expect(formatStep3ReviewFooterTotal(totals)).toBe('$8,500');
+  });
+
+  it('hides Finish pricing card after Confirm Scope', () => {
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopePackages: [{ name: 'Plumbing', status: 'missing_price' }],
+    } as EstimateAiDraft;
+    expect(shouldShowStep3FinishPricingCard(draft)).toBe(false);
+    expect(
+      shouldShowStep3FinishPricingCard({
+        scopePackages: [{ name: 'Plumbing', status: 'missing_price' }],
+      } as EstimateAiDraft)
+    ).toBe(true);
+  });
+
+  it('hides template rates and clarify cards after Confirm Scope', () => {
+    const draft = { scopeAssumptionsConfirmed: true } as EstimateAiDraft;
+    expect(
+      shouldShowStep3TemplateRatesCard(draft, {
+        roughSuggestionLineCount: 2,
+        hasRoughOnScope: true,
+        pricingReady: false,
+      })
+    ).toBe(false);
+    expect(
+      shouldShowStep3ClarifyQuestions(draft, { missingPriceCount: 1, partialCount: 0 })
+    ).toBe(false);
   });
 });

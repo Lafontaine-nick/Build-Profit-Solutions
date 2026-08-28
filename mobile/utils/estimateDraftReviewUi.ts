@@ -3,6 +3,7 @@ import { SCOPE_PARSED_FROM_NOTES_LABEL } from '@/constants/scopeNoteSourceLabels
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
 import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
 import { draftHasApplyablePricing, formatDisplayUnit, proposalTotalForScopeName } from '@/utils/estimateAiDraftPricing';
+import { displayPriceSourceLabel } from '@/utils/suggestedPricingCardUi';
 import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import {
   resolveScopePackageBudgetBreakdown,
@@ -10,11 +11,13 @@ import {
   type ItemBudgetBreakdown,
 } from '@/utils/scopeBudgetBreakdown';
 import {
+  isPaintingAddonCoveredByAppliedSurfacePricing,
   resolveAppliedConfirmScopePackageAmount,
   resolveConfirmScopePackagePricingAcceptance,
   resolveNationalAverageScopePackageAmount,
 } from '@/utils/appliedScopePackagePricing';
 import type { ScopePricingAcceptanceMetadata } from '@/utils/acceptedPricingSummaryUi';
+import { lookupRuleKeyForPackage } from '@/utils/scopeItemQuantities';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 
 export type ScopePackageBudgetBreakdown = ItemBudgetBreakdown;
@@ -49,6 +52,41 @@ export function isScopeOnlyDraft(draft: EstimateAiDraft | null): boolean {
 export function draftHasUnpricedScope(draft: EstimateAiDraft | null): boolean {
   if (!draft) return false;
   return getScopePackages(draft).some((p) => scopePackageNeedsManualPrice(p, draft));
+}
+
+/** Step 3 review — hide Finish pricing once Confirm Scope is done (pricing lives on scope rows + Ask AI). */
+export function shouldShowStep3FinishPricingCard(
+  draft: EstimateAiDraft | null | undefined,
+  options?: { showUseSavedPricing?: boolean }
+): boolean {
+  if (!draft) return false;
+  if (draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length) {
+    return false;
+  }
+  return (
+    draftHasUnpricedScope(draft) ||
+    Boolean(options?.showUseSavedPricing && !draft.savedPricingApplySummary)
+  );
+}
+
+export function isStep3ScopeConfirmed(
+  draft: EstimateAiDraft | null | undefined
+): boolean {
+  return Boolean(draft?.scopeAssumptionsConfirmed || draft?.confirmedAssumptions?.length);
+}
+
+/** Step 3 — hide template-rate nudge after Confirm Scope (rates already applied on rows). */
+export function shouldShowStep3TemplateRatesCard(
+  draft: EstimateAiDraft | null | undefined,
+  options: {
+    roughSuggestionLineCount: number;
+    hasRoughOnScope: boolean;
+    pricingReady: boolean;
+  }
+): boolean {
+  if (!draft || isStep3ScopeConfirmed(draft)) return false;
+  if (options.pricingReady) return false;
+  return options.roughSuggestionLineCount > 0 || options.hasRoughOnScope;
 }
 
 /** Effective priced amount for a scope row — includes Confirm Scope budget splits. */
@@ -111,6 +149,14 @@ export function scopePackageNeedsManualPrice(
   if (scopePackagePricedAmount(pkg, draft) > 0) return false;
   // Cleared to $0 or never priced — allow add/edit again (except explicitly confirmed rows).
   if (pkg.status === 'confirmed') return false;
+  const ruleKey =
+    pkg.checklistItemId ||
+    pkg.costCode ||
+    lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
+    null;
+  if (ruleKey && draft && isPaintingAddonCoveredByAppliedSurfacePricing(ruleKey, draft)) {
+    return false;
+  }
   return true;
 }
 
@@ -252,7 +298,9 @@ function pricingAcceptanceSourceLabel(
   const label = String(acceptance.pricingSourceLabel || '').trim();
   if (label) return label;
   if (acceptance.pricingSourceKind === 'national_average') return 'National average';
-  if (acceptance.pricingSourceKind === 'saved_rate') return 'Saved pricing';
+  if (acceptance.pricingSourceKind === 'saved_rate') {
+    return displayPriceSourceLabel(acceptance.pricingSourceLabel) || 'Saved pricing';
+  }
   if (acceptance.pricingSourceKind === 'local_benchmark') return 'Local benchmark';
   return 'Applied';
 }
@@ -365,13 +413,6 @@ export function getCompactStillNeeded(draft: EstimateAiDraft, max = 5): { items:
       if (!scopePackageNeedsManualPrice(pkg, draft)) continue;
       const name = String(pkg.name || pkg.scope || 'Scope item').trim();
       add(`Pricing for ${name}`);
-    }
-
-    if (!draft.customerName) add('Customer name');
-    if (!draft.projectAddress) add('Project address');
-    for (const m of draft.missingInfo || []) {
-      if (/payment/i.test(m)) add('Payment terms');
-      if (/permit/i.test(m)) add('Permit responsibility');
     }
 
     const grouped = groupGenericMissingScopeItems(normalizeStillNeededItems(draft, merged));

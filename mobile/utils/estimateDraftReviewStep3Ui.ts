@@ -165,6 +165,21 @@ export function getStep3ReviewStatusBadge(totals: Pick<
   return { label: 'Pricing ready', tone: 'ready' };
 }
 
+/** Subline under Step 3 hero — scope subtotal vs markup % (matches Initial Reveal). */
+export function getStep3ReviewHeroMarkupSubline(
+  markupPct: number,
+  calculatedTotal: number | null | undefined,
+  statedTotal?: number | null
+): string | null {
+  if (statedTotal != null && statedTotal > 0) return null;
+  const subtotal = Number(calculatedTotal);
+  const pct = Math.max(0, Number(markupPct) || 0);
+  if (!(subtotal > 0) || !(pct > 0)) return null;
+  const rounded = Math.round(pct * 10) / 10;
+  const pctLabel = Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  return `${formatDraftMoney(subtotal)} scope · ${pctLabel}% markup`;
+}
+
 export function getStep3ReviewHeroAmount(params: {
   statedTotal?: number | null;
   calculatedTotal?: number | null;
@@ -194,6 +209,16 @@ export function getStep3ReviewPlanningDisclaimer(
   if (totals.heroAmount == null || totals.heroAmount <= 0) return null;
   if (totals.missingPriceCount === 0 && totals.partialCount === 0) return null;
   return 'Planning estimate — refine before sending';
+}
+
+/** Step 3 — hide AI clarify strip after Confirm Scope (use Ask AI on scope rows instead). */
+export function shouldShowStep3ClarifyQuestions(
+  draft: EstimateAiDraft | null | undefined,
+  totals: Pick<Step3ReviewTotals, 'missingPriceCount' | 'partialCount'> | null | undefined
+): boolean {
+  if (!draft || !totals) return false;
+  if (draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length) return false;
+  return totals.missingPriceCount > 0 || totals.partialCount > 0;
 }
 
 export function formatStep3ReviewFooterTotal(totals: Step3ReviewTotals): string | null {

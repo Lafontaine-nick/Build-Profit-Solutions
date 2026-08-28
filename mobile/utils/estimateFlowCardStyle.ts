@@ -1,4 +1,4 @@
-import type { ViewStyle } from 'react-native';
+import { StyleSheet, type ViewStyle } from 'react-native';
 
 /** Solid card fill shared across Build with AI → Initial Reveal → Confirm Scope. */
 export const AI_FLOW_CARD_BG_DARK = '#202022';
@@ -37,6 +37,184 @@ export function estimateFlowCardStyle(
   };
 }
 
+/** Negative horizontal inset so cards align with Confirm Scope scope rows (scroll padding 16 − 8). */
+export function estimateFlowScopeCardAlignStyle(): ViewStyle {
+  return { marginHorizontal: -8 };
+}
+
+/** Solid primary CTAs — Continue to review, Generate Estimate Draft, Apply. */
+export const ESTIMATE_FLOW_GREEN = '#22c55e';
+/** Selection chips — Paint Scope, trade picks (Confirm scope). */
+export const ESTIMATE_FLOW_CHIP_GREEN = '#34d399';
+export const ESTIMATE_FLOW_CHIP_GREEN_BG = 'rgba(52, 211, 153, 0.12)';
+export const ESTIMATE_FLOW_BLUE = '#60a5fa';
+
 export function estimateFlowDividerColor(darkMode: boolean) {
   return darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.2)';
+}
+
+type Step1AccentTone = 'green' | 'blue' | 'neutral';
+
+/** Step 1 import cards — plan (green), photos (blue), notes (neutral). */
+export function estimateStep1AccentCardStyle(
+  Colors: FlowCardColors,
+  darkMode: boolean,
+  tone: Step1AccentTone,
+  options?: { active?: boolean }
+): ViewStyle {
+  if (tone === 'green') {
+    return {
+      borderRadius: 14,
+      borderWidth: options?.active ? 1.5 : 1,
+      borderColor: options?.active
+        ? 'rgba(56,211,159,0.5)'
+        : darkMode
+          ? 'rgba(148,163,184,0.25)'
+          : Colors.line,
+      backgroundColor: options?.active
+        ? darkMode
+          ? 'rgba(56,211,159,0.12)'
+          : 'rgba(34,197,94,0.08)'
+        : darkMode
+          ? 'rgba(34,197,94,0.08)'
+          : 'rgba(34,197,94,0.06)',
+    };
+  }
+  if (tone === 'blue') {
+    return {
+      borderRadius: 14,
+      borderWidth: options?.active ? 1.5 : 1,
+      borderColor: options?.active
+        ? 'rgba(96,165,250,0.55)'
+        : darkMode
+          ? 'rgba(148,163,184,0.25)'
+          : Colors.line,
+      backgroundColor: options?.active
+        ? darkMode
+          ? 'rgba(59,130,246,0.14)'
+          : 'rgba(59,130,246,0.08)'
+        : darkMode
+          ? 'rgba(59,130,246,0.08)'
+          : 'rgba(59,130,246,0.05)',
+    };
+  }
+  return {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+    backgroundColor: aiFlowCardBackground(darkMode, Colors.surface2),
+    ...(darkMode
+      ? {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.18,
+          shadowRadius: 12,
+          elevation: 3,
+        }
+      : {}),
+  };
+}
+
+export function estimateStep1ActionButtonStyle(
+  darkMode: boolean,
+  Colors: FlowCardColors,
+  options?: { disabled?: boolean }
+): ViewStyle {
+  return {
+    flex: 1,
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+    opacity: options?.disabled ? 0.45 : 1,
+  };
+}
+
+/** Selected toggle — tinted fill + accent ring (Whole project, trades, etc.). */
+export function estimateStep1ActionButtonSelectedStyle(
+  darkMode: boolean,
+  accent: 'green' | 'blue'
+): ViewStyle {
+  if (accent === 'green') {
+    return {
+      borderWidth: 1,
+      borderColor: ESTIMATE_FLOW_CHIP_GREEN,
+      backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+    };
+  }
+  return {
+    borderWidth: 1,
+    borderColor: 'rgba(96, 165, 250, 0.5)',
+    backgroundColor: darkMode ? 'rgba(96, 165, 250, 0.16)' : 'rgba(59, 130, 246, 0.12)',
+  };
+}
+
+/** Borderless secondary action — e.g. Dictate under Job notes. */
+export function estimateStep1GhostActionStyle(
+  darkMode: boolean,
+  options?: { disabled?: boolean }
+): ViewStyle {
+  return {
+    flex: 1,
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+    opacity: options?.disabled ? 0.45 : 1,
+  };
+}
+
+/** Step 1 input cards — same shell as Review draft; green ring when ready. */
+export function estimateStep1InputCardStyle(
+  Colors: FlowCardColors,
+  darkMode: boolean,
+  options?: { marginBottom?: number; ready?: boolean }
+): ViewStyle {
+  return {
+    ...estimateFlowCardStyle(Colors, darkMode, { marginBottom: options?.marginBottom }),
+    ...(options?.ready
+      ? {
+          borderWidth: 1.5,
+          borderColor: 'rgba(34, 197, 94, 0.35)',
+        }
+      : {}),
+  };
+}
+
+/** Muted vs active icon tint — matches Camera (green) / Library (blue) actions. */
+export function estimateStep1ActionIconColor(
+  selected: boolean,
+  accent: 'green' | 'blue',
+  darkMode: boolean
+): string {
+  if (selected) return accent === 'green' ? '#22c55e' : '#60a5fa';
+  return darkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.75)';
+}
+
+export function estimateStep1IconBadgeStyle(darkMode: boolean, tone: 'green' | 'blue' = 'green'): ViewStyle {
+  return {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor:
+      tone === 'blue'
+        ? darkMode
+          ? 'rgba(96, 165, 250, 0.12)'
+          : 'rgba(59, 130, 246, 0.1)'
+        : darkMode
+          ? 'rgba(34, 197, 94, 0.14)'
+          : 'rgba(34, 197, 94, 0.1)',
+  };
 }

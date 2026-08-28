@@ -8,6 +8,7 @@ const {
   getOpenAiApiKey,
   hasValidOpenAiKey,
 } = require('../config/aiConfig');
+const { normalizeOpenAiChatCompletionParams } = require('../utils/openaiChatCompletionParams');
 const ENABLE_MOCK_OCR = process.env.ENABLE_MOCK_OCR === 'true';
 const aiModels = getAiModels();
 const aiRuntime = getAiRuntimeSettings();
@@ -82,7 +83,8 @@ async function runReceiptVisionExtraction(client, imageBase64, multerMimeType) {
   const mime =
     multerMimeType && String(multerMimeType).startsWith('image/') ? multerMimeType : 'image/jpeg';
 
-  const buildPayload = (useJsonObjectFormat) => ({
+  const buildPayload = (useJsonObjectFormat) =>
+    normalizeOpenAiChatCompletionParams({
     model: aiModels.ocr.receipt,
     temperature: aiRuntime.ocr.receipt.temperature,
     max_tokens: aiRuntime.ocr.receipt.maxTokens,

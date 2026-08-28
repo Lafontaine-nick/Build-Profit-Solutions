@@ -20,6 +20,8 @@ import {
   suggestedActionLabel,
   suggestedCardTitle,
   includeUnconfirmedSuggestedPricingFill,
+  isConfirmScopePlanningBenchmarkRow,
+  shouldIncludeConfirmScopeBulkApplyRow,
 } from '@/utils/suggestedPricingCardUi';
 import { benchmarkActionButtonLabel, missingStatusDisplayLabel } from '@/utils/measurementSemantics/scopePriceUi';
 import { SCOPE_PARSED_FROM_NOTES_LABEL } from '@/constants/scopeNoteSourceLabels';
@@ -224,6 +226,17 @@ describe('suggestedPricingCardUi', () => {
       })
     ).toBe('Saved pricing');
     expect(displayPriceSourceLabel('Saved pricing')).toBe('Saved pricing');
+    expect(displayPriceSourceLabel('From this bid')).toBe('From this bid');
+    expect(displayPriceSourceLabel('From saved template · Painting job')).toBe(
+      'From saved template · Painting job'
+    );
+    expect(
+      suggestedCardTitle({
+        materialSource: 'template',
+        laborSource: 'template',
+        rateSourceLabel: 'From this bid',
+      })
+    ).toBe('Suggested pricing');
   });
 
   it('hides redundant each suffix on count fields', () => {
@@ -475,5 +488,75 @@ describe('suggestedPricingCardUi', () => {
     expect(display.unitRateLine).toBe('$9,500/system');
     expect(display.splitLine).toBe('Material $11,000 · Labor $8,000');
     expect(display.splitLine).not.toMatch(/Included:/);
+  });
+});
+
+describe('shouldIncludeConfirmScopeBulkApplyRow', () => {
+  it('includes planning benchmarks and price-ready rows', () => {
+    expect(
+      shouldIncludeConfirmScopeBulkApplyRow({
+        block: block({ benchmarkAction: 'benchmark_only' }),
+        hasCommittedPricing: false,
+      })
+    ).toBe(true);
+    expect(
+      shouldIncludeConfirmScopeBulkApplyRow({
+        block: block({ benchmarkAction: 'price_ready' }),
+        hasCommittedPricing: false,
+      })
+    ).toBe(true);
+  });
+
+  it('includes national average comparison when no committed price exists', () => {
+    expect(
+      shouldIncludeConfirmScopeBulkApplyRow({
+        block: block({
+          isComparison: true,
+          benchmarkAction: 'comparison_only',
+          rateSourceLabel: 'National Average Comparison',
+          pricingRecordId: 'bps_national_comparison:painting',
+        }),
+        hasCommittedPricing: false,
+      })
+    ).toBe(true);
+  });
+
+  it('excludes stage-included, amperage, and committed national rows', () => {
+    expect(
+      shouldIncludeConfirmScopeBulkApplyRow({
+        block: block({ benchmarkAction: 'included_in_stage' }),
+        hasCommittedPricing: false,
+      })
+    ).toBe(false);
+    expect(
+      shouldIncludeConfirmScopeBulkApplyRow({
+        block: block({ needsServiceAmperage: true }),
+        hasCommittedPricing: false,
+      })
+    ).toBe(false);
+    expect(
+      shouldIncludeConfirmScopeBulkApplyRow({
+        block: block({
+          isComparison: true,
+          benchmarkAction: 'comparison_only',
+          rateSourceLabel: 'National Average Comparison',
+        }),
+        hasCommittedPricing: true,
+      })
+    ).toBe(false);
+  });
+});
+
+describe('isConfirmScopePlanningBenchmarkRow', () => {
+  it('flags benchmark-only rows when measurement semantics are enabled', () => {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
+    expect(
+      isConfirmScopePlanningBenchmarkRow(
+        block({
+          benchmarkAction: 'benchmark_only',
+          materialSource: 'local_benchmark',
+        })
+      )
+    ).toBe(true);
   });
 });

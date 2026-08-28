@@ -4,11 +4,10 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  TextInput,
-  Platform,
   Alert,
   ActionSheetIOS,
   Pressable,
+  Keyboard,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
@@ -29,12 +28,14 @@ import {
   scopePackagePricedAmount,
   SCOPE_LIST_DEFAULT_LIMIT,
   shouldHidePerRowStatus,
+  shouldShowStep3TemplateRatesCard,
 } from '@/utils/estimateDraftReviewUi';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import type { EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
 import { estimateFlowCardStyle, estimateFlowDividerColor } from '@/utils/estimateFlowCardStyle';
 import {
   computeStep3ReviewTotals,
+  getStep3ReviewHeroMarkupSubline,
   getStep3ReviewPlanningDisclaimer,
   getStep3ReviewScopeMetaLabel,
   getStep3ReviewStatusBadge,
@@ -43,7 +44,10 @@ import {
 import { getInitialRevealDisplayTitle } from '@/utils/estimateInitialRevealUi';
 import ReliableFlowPress from '@/components/estimate/ReliableFlowPress';
 import ScopeBudgetBreakdownPanel from '@/components/estimate/ScopeBudgetBreakdownPanel';
-import AIEstimateRefineCommandBar from '@/components/estimate/AIEstimateRefineCommandBar';
+import {
+  Step3ScopeAllowancePricingEditor,
+  Step3ScopePricingEditor,
+} from '@/components/estimate/ScopePricingEditor';
 
 type Colors = {
   text: string;
@@ -69,12 +73,6 @@ type Props = {
   ) => void;
   onRemoveScopeItem?: (packageName: string) => void;
   markupPct?: number;
-  onSubmitRefineCommand?: (command: string) => void;
-  refining?: boolean;
-  refineAppliedSummary?: string[] | null;
-  refineLastCommand?: string | null;
-  onDismissRefineSummary?: () => void;
-  showRefinePricingNudge?: boolean;
 };
 
 const flowCard = (Colors: Colors, darkMode: boolean) => ({
@@ -88,18 +86,6 @@ const STEP3_STATUS_COLORS = {
   review: { bg: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24' },
   partial: { bg: 'rgba(45, 255, 196, 0.1)', color: '#2DFFC4' },
 };
-
-function formatUnitLabel(unit: string | null | undefined) {
-  const normalized = String(unit || '').toLowerCase();
-  if (normalized === 'sqft' || normalized === 'sf') return 'sqft';
-  if (normalized === 'lf' || normalized === 'linear foot' || normalized === 'linear feet') return 'LF';
-  return normalized || 'unit';
-}
-
-function parseMoneyInput(text: string) {
-  const value = Number(String(text || '').replace(/[$,\s]/g, ''));
-  return Number.isFinite(value) ? value : 0;
-}
 
 function roundedMoney(value: number): number {
   return Math.round(value * 100) / 100;
@@ -164,113 +150,6 @@ function PriceRow({
   );
 }
 
-function ScopeSplitPricingInput({
-  label,
-  amount,
-  basis,
-  Colors,
-  darkMode,
-  busy,
-  onAmountChange,
-}: {
-  label: string;
-  amount: number;
-  basis?: ScopePackageBudgetBreakdown['basis'];
-  Colors: Colors;
-  darkMode: boolean;
-  busy: boolean;
-  onAmountChange: (amount: number) => void;
-}) {
-  const [inputMode, setInputMode] = useState<'total' | 'rate'>('total');
-  const supportsRateMode = Boolean(basis?.quantity && basis.quantity > 0);
-  const unitLabel = formatUnitLabel(basis?.unit);
-  const rate = supportsRateMode ? Math.round((amount / basis!.quantity) * 100) / 100 : 0;
-  const displayValue = inputMode === 'rate' ? String(rate || '') : String(amount || '');
-  const helper =
-    inputMode === 'rate'
-      ? `Total ${formatDraftMoney(amount || 0)}`
-      : supportsRateMode
-        ? `$${rate || 0} / ${unitLabel}`
-        : null;
-
-  const handleChangeText = (text: string) => {
-    const value = parseMoneyInput(text);
-    onAmountChange(inputMode === 'rate' && basis?.quantity ? Math.round(value * basis.quantity * 100) / 100 : value);
-  };
-
-  return (
-    <View
-      style={[
-        styles.pricingInputCard,
-        {
-          borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
-          backgroundColor: darkMode ? 'rgba(255,255,255,0.035)' : 'rgba(248,250,252,0.9)',
-        },
-      ]}
-    >
-      <View style={styles.pricingInputHeader}>
-        <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '700' }}>{label}</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-          {helper ? (
-            <View
-              style={[
-                styles.rateChip,
-                {
-                  borderColor: darkMode ? 'rgba(96, 165, 250, 0.28)' : 'rgba(59, 130, 246, 0.24)',
-                  backgroundColor: darkMode ? 'rgba(96, 165, 250, 0.09)' : 'rgba(59, 130, 246, 0.08)',
-                },
-              ]}
-            >
-              <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700' }}>{helper}</Text>
-            </View>
-          ) : null}
-          {supportsRateMode ? (
-            <TouchableOpacity
-              activeOpacity={0.75}
-              disabled={busy}
-              onPress={() => setInputMode((mode) => (mode === 'total' ? 'rate' : 'total'))}
-              style={[
-                styles.rateModeToggle,
-                {
-                  borderColor: darkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(22, 163, 74, 0.24)',
-                  backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(22, 163, 74, 0.08)',
-                },
-              ]}
-            >
-              <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '700' }}>
-                {inputMode === 'total' ? `Edit $/${unitLabel}` : 'Edit total'}
-              </Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      </View>
-      <View
-        style={[
-          styles.pricingInputRow,
-          {
-            borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line,
-            backgroundColor: darkMode ? 'rgba(255,255,255,0.045)' : '#fff',
-          },
-        ]}
-      >
-        <Text style={[styles.pricingCurrency, { color: Colors.sub }]}>$</Text>
-        <TextInput
-          value={displayValue}
-          onChangeText={handleChangeText}
-          placeholder="0"
-          placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'}
-          keyboardType="decimal-pad"
-          editable={!busy}
-          style={[styles.pricingInput, { color: Colors.text }]}
-        />
-        {inputMode === 'rate' ? (
-          <Text style={[styles.pricingUnitSuffix, { color: Colors.sub }]}>/{unitLabel}</Text>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
 function emptyBudgetBreakdown(
   pkg: {
     price?: number | null;
@@ -322,107 +201,6 @@ function emptyBudgetBreakdown(
   };
 }
 
-function ScopeSplitPricingEditor({
-  packageName,
-  breakdown,
-  Colors,
-  darkMode,
-  busy,
-  onUpdateScopeBudgetSplit,
-}: {
-  packageName: string;
-  breakdown: ScopePackageBudgetBreakdown;
-  Colors: Colors;
-  darkMode: boolean;
-  busy: boolean;
-  onUpdateScopeBudgetSplit: (
-    packageName: string,
-    material: number,
-    labor: number,
-    basis?: ScopePackageBudgetBreakdown['basis']
-  ) => void;
-}) {
-  const material = Number(breakdown.material) || 0;
-  const labor = Number(breakdown.labor) || 0;
-  const total = Math.round((material + labor) * 100) / 100;
-  const handleMaterialChange = (nextMaterial: number) => {
-    onUpdateScopeBudgetSplit(packageName, nextMaterial, labor, breakdown.basis);
-  };
-  const handleLaborChange = (nextLabor: number) => {
-    onUpdateScopeBudgetSplit(packageName, material, nextLabor, breakdown.basis);
-  };
-  return (
-    <View style={{ marginTop: 8 }}>
-      <ScopeSplitPricingInput
-        label="Material"
-        amount={material}
-        basis={breakdown.basis}
-        Colors={Colors}
-        darkMode={darkMode}
-        busy={busy}
-        onAmountChange={handleMaterialChange}
-      />
-      <ScopeSplitPricingInput
-        label="Labor"
-        amount={labor}
-        basis={breakdown.basis}
-        Colors={Colors}
-        darkMode={darkMode}
-        busy={busy}
-        onAmountChange={handleLaborChange}
-      />
-      <View
-        style={{
-          marginTop: 10,
-          flexDirection: 'row',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-        }}
-      >
-        <Text style={{ color: Colors.sub, fontSize: 13, fontWeight: '600' }}>Total</Text>
-        <Text style={{ color: '#22c55e', fontSize: 16, fontWeight: '800' }}>
-          {formatDraftMoney(total)}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-/** Soft-cost packages: single lump-sum allowance — never Material/Labor. */
-function ScopeAllowancePricingEditor({
-  packageName,
-  amount,
-  Colors,
-  darkMode,
-  busy,
-  onUpdateScopeBudgetSplit,
-}: {
-  packageName: string;
-  amount: number;
-  Colors: Colors;
-  darkMode: boolean;
-  busy: boolean;
-  onUpdateScopeBudgetSplit: (
-    packageName: string,
-    material: number,
-    labor: number,
-    basis?: ScopePackageBudgetBreakdown['basis']
-  ) => void;
-}) {
-  return (
-    <View style={{ marginTop: 8 }}>
-      <ScopeSplitPricingInput
-        label="Allowance"
-        amount={amount}
-        Colors={Colors}
-        darkMode={darkMode}
-        busy={busy}
-        onAmountChange={(next) => onUpdateScopeBudgetSplit(packageName, 0, Math.max(0, next))}
-      />
-    </View>
-  );
-}
-
 function softCostPackageAmount(pkg: {
   price?: number | null;
   knownSubtotal?: number | null;
@@ -448,12 +226,6 @@ export default function AIEstimateDraftReviewCompact({
   onUpdateScopeBudgetSplit,
   onRemoveScopeItem,
   markupPct = 0,
-  onSubmitRefineCommand,
-  refining = false,
-  refineAppliedSummary,
-  refineLastCommand,
-  onDismissRefineSummary,
-  showRefinePricingNudge = false,
 }: Props) {
   const [showRoughSuggestions, setShowRoughSuggestions] = useState(false);
   const [showAllScope, setShowAllScope] = useState(() => {
@@ -465,6 +237,9 @@ export default function AIEstimateDraftReviewCompact({
   });
   const [editingPricingFor, setEditingPricingFor] = useState<string | null>(null);
   const [expandedBudgetSplits, setExpandedBudgetSplits] = useState<Record<string, true>>({});
+  const [liveSplitByPackage, setLiveSplitByPackage] = useState<
+    Record<string, { material: number; labor: number }>
+  >({});
   const scopePackages = getScopePackagesForReview(draft);
   const step3Totals = useMemo(() => computeStep3ReviewTotals(draft, markupPct), [draft, markupPct]);
   if (__DEV__) {
@@ -499,6 +274,11 @@ export default function AIEstimateDraftReviewCompact({
   const statusBadge = getStep3ReviewStatusBadge(step3Totals);
   const statusStyle = STEP3_STATUS_COLORS[statusBadge.tone];
   const planningDisclaimer = getStep3ReviewPlanningDisclaimer(step3Totals);
+  const heroMarkupSubline = getStep3ReviewHeroMarkupSubline(
+    markupPct,
+    calculatedTotal,
+    statedTotal
+  );
   const displayTitle = getInitialRevealDisplayTitle(draft);
   const normalizedMarkupPct = Math.max(0, Number(markupPct) || 0);
   const visibleScope = showAllScope
@@ -510,6 +290,11 @@ export default function AIEstimateDraftReviewCompact({
     6
   );
   const hasRoughOnScope = scopePackages.some((p) => p.status === 'rough_price');
+  const showTemplateRatesCard = shouldShowStep3TemplateRatesCard(draft, {
+    roughSuggestionLineCount: roughSuggestionLines.length,
+    hasRoughOnScope,
+    pricingReady: statusBadge.tone === 'ready',
+  });
   const hideRowStatus = shouldHidePerRowStatus(scopePackages);
   const showHeroStats =
     heroAmount != null &&
@@ -603,14 +388,14 @@ export default function AIEstimateDraftReviewCompact({
   return (
     <>
       <View style={flowCard(Colors, darkMode)}>
-        <View style={{ marginBottom: 4, position: 'relative' }}>
+        <View style={{ marginBottom: 4 }}>
           <View
             style={{
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'space-between',
               marginBottom: 8,
-              paddingRight: onSubmitRefineCommand ? 52 : 0,
+              gap: 8,
             }}
           >
             <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
@@ -618,11 +403,24 @@ export default function AIEstimateDraftReviewCompact({
                 {statusBadge.label}
               </Text>
             </View>
-            {scopeItemCount > 0 ? (
-              <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600' }}>
-                {getStep3ReviewScopeMetaLabel(scopeItemCount)}
-              </Text>
-            ) : null}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                gap: 8,
+                flexShrink: 1,
+              }}
+            >
+              {scopeItemCount > 0 ? (
+                <Text
+                  style={{ color: Colors.sub, fontSize: 12, fontWeight: '600' }}
+                  numberOfLines={1}
+                >
+                  {getStep3ReviewScopeMetaLabel(scopeItemCount)}
+                </Text>
+              ) : null}
+            </View>
           </View>
 
           <Text
@@ -655,6 +453,11 @@ export default function AIEstimateDraftReviewCompact({
           {heroAmount != null ? (
             <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginTop: 4 }}>
               {heroLabel}
+            </Text>
+          ) : null}
+          {heroMarkupSubline ? (
+            <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginTop: 2 }}>
+              {heroMarkupSubline}
             </Text>
           ) : null}
           {planningDisclaimer ? (
@@ -701,20 +504,6 @@ export default function AIEstimateDraftReviewCompact({
             </Text>
           ) : null}
 
-          {onSubmitRefineCommand ? (
-            <AIEstimateRefineCommandBar
-              variant="hero"
-              Colors={Colors}
-              darkMode={darkMode}
-              busy={busy && !refining}
-              refining={refining}
-              appliedSummary={refineAppliedSummary}
-              lastCommand={refineLastCommand}
-              showPricingNudge={showRefinePricingNudge}
-              onSubmitCommand={onSubmitRefineCommand}
-              onDismissSummary={onDismissRefineSummary}
-            />
-          ) : null}
         </View>
 
         <View
@@ -739,13 +528,19 @@ export default function AIEstimateDraftReviewCompact({
           const needsPrice = scopePackageNeedsManualPrice(pkg, draft);
           const isEditingPricing = editingPricingFor === pkg.name;
           const canEditInline = Boolean(onUpdateScopeBudgetSplit);
-          const showBudgetSplit =
-            Boolean(budgetBreakdown) &&
-            (isEditingPricing || Boolean(expandedBudgetSplits[pkg.name]));
+          const liveSplit = isEditingPricing ? liveSplitByPackage[pkg.name] : undefined;
+          const liveSplitTotal =
+            liveSplit != null ? roundedMoney(liveSplit.material + liveSplit.labor) : null;
+          const rowAmount =
+            liveSplitTotal != null && liveSplitTotal > 0 ? formatDraftMoney(liveSplitTotal) : amount;
           const editorBreakdown =
             isEditingPricing && canEditInline && !isSoftCost
               ? emptyBudgetBreakdown(pkg, resolvedBreakdown)
               : null;
+          const showBudgetSplit =
+            Boolean(budgetBreakdown) &&
+            !isEditingPricing &&
+            Boolean(expandedBudgetSplits[pkg.name]);
           const showAllowanceEditor = isEditingPricing && canEditInline && isSoftCost;
           const showStatus =
             !hideRowStatus &&
@@ -758,15 +553,29 @@ export default function AIEstimateDraftReviewCompact({
             if (canEditInline) {
               setEditingPricingFor(pkg.name);
               if (!isSoftCost) {
-                setExpandedBudgetSplits((current) => ({ ...current, [pkg.name]: true }));
+                const seedBreakdown = emptyBudgetBreakdown(pkg, resolvedBreakdown);
+                setLiveSplitByPackage((current) => ({
+                  ...current,
+                  [pkg.name]: {
+                    material: Number(seedBreakdown.material) || 0,
+                    labor: Number(seedBreakdown.labor) || 0,
+                  },
+                }));
               }
               return;
             }
             onPriceScopeItem?.(pkg.name);
           };
           const collapseBudgetSplit = () => {
+            Keyboard.dismiss();
             setEditingPricingFor((current) => (current === pkg.name ? null : current));
             setExpandedBudgetSplits((current) => {
+              if (!current[pkg.name]) return current;
+              const next = { ...current };
+              delete next[pkg.name];
+              return next;
+            });
+            setLiveSplitByPackage((current) => {
               if (!current[pkg.name]) return current;
               const next = { ...current };
               delete next[pkg.name];
@@ -824,7 +633,7 @@ export default function AIEstimateDraftReviewCompact({
                 </View>
                 <View style={{ alignItems: 'flex-end', flexShrink: 0, flexDirection: 'row', gap: 2 }}>
                   <View style={{ alignItems: 'flex-end' }}>
-                    {amount ? (
+                    {rowAmount ? (
                       <TouchableOpacity
                         activeOpacity={budgetBreakdown ? 0.75 : 1}
                         disabled={!budgetBreakdown}
@@ -847,7 +656,7 @@ export default function AIEstimateDraftReviewCompact({
                             letterSpacing: -0.2,
                           }}
                         >
-                          {amount}
+                          {rowAmount}
                         </Text>
                         {budgetBreakdown ? (
                           <MaterialIcons
@@ -926,35 +735,33 @@ export default function AIEstimateDraftReviewCompact({
                 />
               ) : null}
               {(editorBreakdown || showAllowanceEditor) && onUpdateScopeBudgetSplit ? (
-                <>
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    disabled={busy}
-                    onPress={collapseBudgetSplit}
-                    style={{ marginTop: 10 }}
-                  >
-                    <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600' }}>Done</Text>
-                  </TouchableOpacity>
-                  {showAllowanceEditor ? (
-                    <ScopeAllowancePricingEditor
-                      packageName={pkg.name}
-                      amount={softCostPackageAmount(pkg)}
-                      Colors={Colors}
-                      darkMode={darkMode}
-                      busy={busy}
-                      onUpdateScopeBudgetSplit={onUpdateScopeBudgetSplit}
-                    />
-                  ) : editorBreakdown ? (
-                    <ScopeSplitPricingEditor
-                      packageName={pkg.name}
-                      breakdown={editorBreakdown}
-                      Colors={Colors}
-                      darkMode={darkMode}
-                      busy={busy}
-                      onUpdateScopeBudgetSplit={onUpdateScopeBudgetSplit}
-                    />
-                  ) : null}
-                </>
+                showAllowanceEditor ? (
+                  <Step3ScopeAllowancePricingEditor
+                    packageName={pkg.name}
+                    amount={softCostPackageAmount(pkg)}
+                    Colors={Colors}
+                    darkMode={darkMode}
+                    busy={busy}
+                    onDone={collapseBudgetSplit}
+                    onUpdateScopeBudgetSplit={onUpdateScopeBudgetSplit}
+                  />
+                ) : editorBreakdown ? (
+                  <Step3ScopePricingEditor
+                    packageName={pkg.name}
+                    breakdown={editorBreakdown}
+                    Colors={Colors}
+                    darkMode={darkMode}
+                    busy={busy}
+                    onDone={collapseBudgetSplit}
+                    onUpdateScopeBudgetSplit={onUpdateScopeBudgetSplit}
+                    onLiveSplitChange={(material, labor) => {
+                      setLiveSplitByPackage((current) => ({
+                        ...current,
+                        [pkg.name]: { material, labor },
+                      }));
+                    }}
+                  />
+                ) : null
               ) : null}
             </Pressable>
           );
@@ -1013,8 +820,7 @@ export default function AIEstimateDraftReviewCompact({
         </View>
       ) : null}
 
-      {roughSuggestionLines.length > 0 || hasRoughOnScope ? (
-        statusBadge.tone !== 'ready' ? (
+      {showTemplateRatesCard ? (
         <View
           style={{
             ...flowCard(Colors, darkMode),
@@ -1052,7 +858,6 @@ export default function AIEstimateDraftReviewCompact({
             </View>
           ) : null}
         </View>
-        ) : null
       ) : null}
     </>
   );
@@ -1068,64 +873,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.2,
-  },
-  pricingInputCard: {
-    marginTop: 8,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 10,
-  },
-  pricingInputHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  rateChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  rateModeToggle: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  pricingInputRow: {
-    minHeight: 42,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  pricingCurrency: {
-    fontSize: 15,
-    fontWeight: '700',
-    lineHeight: 20,
-    includeFontPadding: false,
-  },
-  pricingInput: {
-    flex: 1,
-    margin: 0,
-    paddingHorizontal: 0,
-    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
-    fontSize: 15,
-    fontWeight: '700',
-    lineHeight: 20,
-    ...(Platform.OS === 'android'
-      ? { textAlignVertical: 'center' as const, includeFontPadding: false }
-      : null),
-  },
-  pricingUnitSuffix: {
-    fontSize: 12,
-    fontWeight: '600',
-    lineHeight: 20,
-    minWidth: 44,
-    includeFontPadding: false,
   },
 });

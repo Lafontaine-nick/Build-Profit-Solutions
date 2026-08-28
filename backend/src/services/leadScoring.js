@@ -1,4 +1,5 @@
 const { createOpenAiClient, getAiModels, getAiRuntimeSettings } = require('../config/aiConfig');
+const { createOpenAiChatCompletion } = require('../utils/openaiChatCompletionParams');
 
 class LeadScoringService {
   constructor() {
@@ -20,7 +21,7 @@ class LeadScoringService {
       this.ensureClient();
       const prompt = this.buildScoringPrompt(leadData);
       
-      const response = await this.openai.chat.completions.create({
+      const response = await createOpenAiChatCompletion(this.openai, {
         model: this.aiModels.leadScoring.scoring,
         messages: [
           {
@@ -148,7 +149,7 @@ class LeadScoringService {
         }
       `;
 
-      const response = await this.openai.chat.completions.create({
+      const response = await createOpenAiChatCompletion(this.openai, {
         model: this.aiModels.leadScoring.insights,
         messages: [
           {
@@ -194,7 +195,7 @@ class LeadScoringService {
         }
       `;
 
-      const response = await this.openai.chat.completions.create({
+      const response = await createOpenAiChatCompletion(this.openai, {
         model: this.aiModels.leadScoring.followUp,
         messages: [
           {
@@ -238,7 +239,7 @@ class LeadScoringService {
         }
       `;
 
-      const response = await this.openai.chat.completions.create({
+      const response = await createOpenAiChatCompletion(this.openai, {
         model: this.aiModels.leadScoring.prioritize,
         messages: [
           {

@@ -10,7 +10,6 @@ import {
   StyleSheet,
   StatusBar,
   Keyboard,
-  KeyboardAvoidingView,
   ScrollView,
   ActivityIndicator,
   Alert,
@@ -22,7 +21,7 @@ import { useAuth } from '@clerk/clerk-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
-import { aiFlowCardBackground } from '@/utils/estimateFlowCardStyle';
+import { aiFlowCardBackground, estimateStep1InputCardStyle, ESTIMATE_FLOW_GREEN } from '@/utils/estimateFlowCardStyle';
 import {
   buildPlanImportSteps,
   type AiGeneratePhaseId,
@@ -45,6 +44,7 @@ import type {
 } from '@/utils/estimateAiDraft';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import { syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
+import { useKeyboard } from '@/services/MobileOptimization';
 import {
   buildImportedPlanSummaryText,
   buildPlanReadyJobNotesPrompt,
@@ -89,7 +89,8 @@ type Props = {
     photoDetections?: PhotoScopeDetection[],
     planImport?: PlanImportPayload | null,
     sitePhotos?: SitePhotoAttachment[],
-    photoExistingFeatures?: PhotoExistingFeature[]
+    photoExistingFeatures?: PhotoExistingFeature[],
+    authToken?: string | null
   ) => void;
 };
 
@@ -129,6 +130,8 @@ export default function AIEstimateBuilderModal({
   const Colors = useMemo(() => getColors(theme), [theme]);
   const photosStripRef = useRef<EstimateSitePhotosStripHandle>(null);
   const notesInputRef = useRef<TextInput>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const { keyboardHeight, isKeyboardVisible } = useKeyboard();
   const [notes, setNotes] = useState('');
   /** View mode lets the page scroll without focusing the notes field (photo-detect blocks). */
   const [notesEditing, setNotesEditing] = useState(false);
@@ -150,10 +153,10 @@ export default function AIEstimateBuilderModal({
   const [plumbingPerformerMode, setPlumbingPerformerMode] =
     useState<PlumbingPerformerMode | null>(null);
   const [planSummaryExpanded, setPlanSummaryExpanded] = useState(false);
-  const [extrasExpanded, setExtrasExpanded] = useState(false);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [notesFocused, setNotesFocused] = useState(false);
   const [localGenerating, setLocalGenerating] = useState(false);
   const [planImportBusy, setPlanImportBusy] = useState(false);
+  const authTokenRef = useRef<string | null>(null);
   const [planImportPhase, setPlanImportPhase] =
     useState<AiGeneratePhaseId | null>(null);
   const planImportSteps = useMemo(() => buildPlanImportSteps(), []);
@@ -166,16 +169,12 @@ export default function AIEstimateBuilderModal({
     if (!visible) return;
     void getToken()
       .then(token => {
+        authTokenRef.current = token || null;
         if (token) return syncClerkTokenToAsyncStorage(token);
         return undefined;
       })
       .catch(() => undefined);
   }, [getToken, visible]);
-
-  useEffect(() => {
-    if (!visible) return;
-    setExtrasExpanded(Boolean(initialPlanImport) || initialSitePhotos.length > 0);
-  }, [visible, initialPlanImport, initialSitePhotos.length]);
 
   const wasVisibleRef = useRef(false);
   useEffect(() => {
@@ -183,7 +182,8 @@ export default function AIEstimateBuilderModal({
       // Reset only when the modal opens — not when initialNotes identity changes mid-session
       // (that was wiping planImport after Apply to bid).
       setNotes(initialNotes || '');
-      setNotesEditing(!(initialNotes || '').trim());
+      setNotesEditing(false);
+      Keyboard.dismiss();
       setPhotoDetections(initialPhotoDetections || []);
       setPhotoExistingFeatures(initialPhotoExistingFeatures || []);
       setSitePhotos(initialSitePhotos || []);
@@ -206,7 +206,7 @@ export default function AIEstimateBuilderModal({
       setPlanSummaryExpanded(false);
     }
     if (!visible) {
-      setKeyboardVisible(false);
+      setNotesFocused(false);
       setLocalGenerating(false);
       setPlanImportBusy(false);
       setPlanImportPhase(null);
@@ -231,26 +231,6 @@ export default function AIEstimateBuilderModal({
     const id = requestAnimationFrame(() => notesInputRef.current?.focus());
     return () => cancelAnimationFrame(id);
   }, [notesEditing]);
-
-  useEffect(() => {
-    if (!visible || Platform.OS === 'web') return undefined;
-
-    const showEvent =
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent =
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSub = Keyboard.addListener(showEvent, () =>
-      setKeyboardVisible(true)
-    );
-    const hideSub = Keyboard.addListener(hideEvent, () =>
-      setKeyboardVisible(false)
-    );
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, [visible]);
 
   const handleBack = () => {
     if (busy) return;
@@ -459,26 +439,33 @@ export default function AIEstimateBuilderModal({
     selectedPlanTrade,
   ]);
 
-  const extrasAccordionSubtitle = useMemo(() => {
-    const bits: string[] = [];
-    if (hasPlanImport) {
-      bits.push(
-        selectedPlanTrade ? `${selectedPlanTrade.label} plan ready` : 'Plan ready'
-      );
-    }
-    if (photoState.photoCount > 0) {
-      bits.push(
-        `${photoState.photoCount} photo${photoState.photoCount === 1 ? '' : 's'}`
-      );
-    }
-    if (bits.length) return bits.join(' · ');
-    return 'Optional — import a plan or add room photos';
-  }, [hasPlanImport, selectedPlanTrade, photoState.photoCount]);
-
   const runGenerate = async () => {
     const trimmed = notes.trim();
     const canRun = Boolean(trimmed || (semanticsOn && hasPlanImport));
-    if (!canRun || busy) return;
+    if (!canRun || busy) {
+      if (__DEV__ && busy) {
+        console.log('🤖 Generate skipped — already busy');
+      }
+      return;
+    }
+    if (__DEV__) {
+      console.warn('🤖 Generate tapped — starting draft request');
+    }
+    let token = authTokenRef.current;
+    if (!token) {
+      token = await Promise.race([
+        getToken(),
+        new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 8000)),
+      ]);
+      authTokenRef.current = token;
+    }
+    if (!token) {
+      Alert.alert(
+        'Sign in required',
+        'Could not get your session token. Sign out and sign back in, then try again.'
+      );
+      return;
+    }
     setLocalGenerating(true);
     Keyboard.dismiss();
     if (Platform.OS !== 'web') {
@@ -507,17 +494,27 @@ export default function AIEstimateBuilderModal({
             plumbingPerformerMode,
           }
         : planImport;
-      await Promise.resolve(
-        onGenerate(
-          notesForGenerate,
-          photoDetections,
-          routePlanImport,
-          sitePhotos,
-          photoExistingFeatures
-        )
+      await onGenerate(
+        notesForGenerate,
+        photoDetections,
+        routePlanImport,
+        sitePhotos,
+        photoExistingFeatures,
+        authTokenRef.current
       );
     } catch {
+      /* parent shows Alert on failure */
+    } finally {
       setLocalGenerating(false);
+    }
+  };
+
+  const handleCancelGenerating = () => {
+    setLocalGenerating(false);
+    if (onBack) {
+      onBack();
+    } else {
+      onClose();
     }
   };
 
@@ -582,6 +579,18 @@ export default function AIEstimateBuilderModal({
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
   };
   const footerBottomPad = Math.max(insets.bottom, 16);
+  const keyboardUp = isKeyboardVisible || notesFocused;
+  const scrollBottomPad = keyboardUp
+    ? Math.max(keyboardHeight, Platform.OS === 'ios' ? 320 : 280) + 24
+    : 24;
+
+  const scrollNotesIntoView = () => {
+    if (Platform.OS === 'web') return;
+    const delay = Platform.OS === 'ios' ? 120 : 80;
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, delay);
+  };
 
   if (!visible) return null;
 
@@ -591,13 +600,19 @@ export default function AIEstimateBuilderModal({
   const dismissNotesEditing = () => {
     notesInputRef.current?.blur();
     Keyboard.dismiss();
+    setNotesFocused(false);
     if (notes.trim()) {
       setNotesEditing(false);
     }
   };
 
   const notesMinHeight = embedded ? 220 : 200;
-  const showNotesEditor = notesEditing || !notes.trim();
+  /** Keep TextInput mounted while focused — empty notes start in editor mode without notesEditing. */
+  const showNotesEditor = notesEditing || !notes.trim() || notesFocused;
+  const notesInputShellStyle = {
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+  };
 
   const notesField = (
     <>
@@ -606,7 +621,7 @@ export default function AIEstimateBuilderModal({
           color: Colors.sub,
           fontSize: 13,
           lineHeight: 18,
-          marginBottom: 14,
+          marginBottom: 10,
         }}
       >
         {hasExistingDraft
@@ -614,200 +629,180 @@ export default function AIEstimateBuilderModal({
           : 'Paste or dictate job notes — AI drafts scope for review.'}
       </Text>
 
-      <Pressable
-        onPress={() => setExtrasExpanded(v => !v)}
-        style={({ pressed }) => [
-          {
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
-            backgroundColor: aiFlowCardBackground(darkMode, Colors.surface2),
-            paddingHorizontal: 14,
-            paddingVertical: 12,
-            marginBottom: extrasExpanded ? 12 : 14,
-            opacity: pressed ? 0.85 : 1,
-          },
-        ]}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: extrasExpanded }}
-      >
-        <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
-          <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
-            Plan or site photos
-          </Text>
-          <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
-            {extrasAccordionSubtitle}
-          </Text>
-        </View>
-        <MaterialIcons
-          name={extrasExpanded ? 'expand-less' : 'expand-more'}
-          size={22}
-          color={Colors.sub}
+      <View>
+        <EstimatePlanImportStrip
+          Colors={Colors}
+          darkMode={darkMode}
+          disabled={busy}
+          existingNotes={notes}
+          existingPlanImport={planImport}
+          planReadySubtitle={planReadySubtitle}
+          embedded
+          onImportingChange={setPlanImportBusy}
+          onImportPhaseChange={setPlanImportPhase}
+          onApplied={handlePlanApplied}
         />
-      </Pressable>
 
-      {extrasExpanded ? (
-        <>
-          <EstimatePlanImportStrip
-            Colors={Colors}
-            darkMode={darkMode}
-            disabled={busy}
-            existingNotes={notes}
-            existingPlanImport={planImport}
-            planReadySubtitle={planReadySubtitle}
-            embedded
-            onImportingChange={setPlanImportBusy}
-            onImportPhaseChange={setPlanImportPhase}
-            onApplied={handlePlanApplied}
-          />
+        <EstimateSitePhotosStrip
+          ref={photosStripRef}
+          Colors={Colors}
+          darkMode={darkMode}
+          disabled={busy}
+          embedded
+          existingNotes={notes}
+          initialPhotos={sitePhotos}
+          initialHasAnalyzed={photoState.hasAnalyzed}
+          onNotesMerged={handlePhotoNotesMerged}
+          onPhotoStateChange={setPhotoState}
+          onPhotosChange={next => {
+            setSitePhotos(next);
+            onSitePhotosChange?.(next);
+          }}
+        />
 
-          <EstimateSitePhotosStrip
-            ref={photosStripRef}
-            Colors={Colors}
-            darkMode={darkMode}
-            disabled={busy}
-            embedded
-            existingNotes={notes}
-            initialPhotos={sitePhotos}
-            initialHasAnalyzed={photoState.hasAnalyzed}
-            onNotesMerged={handlePhotoNotesMerged}
-            onPhotoStateChange={setPhotoState}
-            onPhotosChange={next => {
-              setSitePhotos(next);
-              onSitePhotosChange?.(next);
-            }}
-          />
-
-          {semanticsOn && importedPlanSummary ? (
-            <View style={{ marginBottom: 16 }}>
-              <TouchableOpacity
-                onPress={() => setPlanSummaryExpanded(v => !v)}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: planSummaryExpanded ? 8 : 0,
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
-                  <Text
-                    style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}
-                  >
-                    Imported plan summary
-                  </Text>
-                  {!planSummaryExpanded && importedPlanCollapsedSubtitle ? (
-                    <Text
-                      style={{ color: Colors.sub, fontSize: 12, marginTop: 3 }}
-                      numberOfLines={1}
-                    >
-                      {importedPlanCollapsedSubtitle}
-                    </Text>
-                  ) : null}
-                </View>
-                <MaterialIcons
-                  name={planSummaryExpanded ? 'expand-less' : 'expand-more'}
-                  size={22}
-                  color={Colors.sub}
-                />
-              </TouchableOpacity>
-              {planSummaryExpanded ? (
-                <View
-                  style={[
-                    styles.notesInput,
-                    inputShell,
-                    {
-                      opacity: 0.95,
-                    },
-                  ]}
+        {semanticsOn && importedPlanSummary ? (
+          <View style={{ marginBottom: 16 }}>
+            <TouchableOpacity
+              onPress={() => setPlanSummaryExpanded(v => !v)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: planSummaryExpanded ? 8 : 0,
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+                <Text
+                  style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}
                 >
+                  Imported plan summary
+                </Text>
+                {!planSummaryExpanded && importedPlanCollapsedSubtitle ? (
                   <Text
-                    style={{
-                      color: Colors.sub,
-                      fontSize: 12,
-                      lineHeight: 17,
-                      marginBottom: 8,
-                    }}
+                    style={{ color: Colors.sub, fontSize: 12, marginTop: 3 }}
+                    numberOfLines={1}
                   >
-                    Read-only. Structured plan measurements stay authoritative —
-                    editing Job notes below does not change imported numbers unless
-                    you re-run plan import.
+                    {importedPlanCollapsedSubtitle}
                   </Text>
-                  <Text
-                    style={{ color: Colors.text, fontSize: 14, lineHeight: 20 }}
-                  >
-                    {importedPlanSummary}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-        </>
-      ) : null}
+                ) : null}
+              </View>
+              <MaterialIcons
+                name={planSummaryExpanded ? 'expand-less' : 'expand-more'}
+                size={22}
+                color={Colors.sub}
+              />
+            </TouchableOpacity>
+            {planSummaryExpanded ? (
+              <View
+                style={[
+                  styles.notesInput,
+                  inputShell,
+                  {
+                    opacity: 0.95,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: Colors.sub,
+                    fontSize: 12,
+                    lineHeight: 17,
+                    marginBottom: 8,
+                  }}
+                >
+                  Read-only. Structured plan measurements stay authoritative —
+                  editing Job notes below does not change imported numbers unless
+                  you re-run plan import.
+                </Text>
+                <Text
+                  style={{ color: Colors.text, fontSize: 14, lineHeight: 20 }}
+                >
+                  {importedPlanSummary}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
 
       <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
+        style={estimateStep1InputCardStyle(Colors, darkMode, {
           marginBottom: 8,
-        }}
+        })}
       >
         <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
           Job notes
         </Text>
-        <EstimateVoiceDictationButton
-          Colors={Colors}
-          darkMode={darkMode}
-          disabled={busy}
-          onTranscript={handleTranscript}
-        />
+        <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, marginTop: 4, marginBottom: 10 }}>
+          Paste or dictate your walkthrough — sizes, materials, or lump sums if you have them.
+        </Text>
+        {showNotesEditor ? (
+          <TextInput
+            ref={notesInputRef}
+            value={notes}
+            onChangeText={setNotes}
+            editable={!busy}
+            multiline
+            scrollEnabled={false}
+            textAlignVertical='top'
+            blurOnSubmit
+            returnKeyType='done'
+            submitBehavior='blurAndSubmit'
+            onSubmitEditing={dismissNotesEditing}
+            onFocus={() => {
+              setNotesEditing(true);
+              setNotesFocused(true);
+              scrollNotesIntoView();
+            }}
+            onBlur={() => {
+              setNotesFocused(false);
+              if (notes.trim()) setNotesEditing(false);
+            }}
+            placeholder='Bathroom remodel — shower tile, vanity, plumbing, demo…'
+            placeholderTextColor={placeholderColor}
+            style={[
+              styles.notesInput,
+              {
+                color: Colors.text,
+                minHeight: notesMinHeight,
+                ...notesInputShellStyle,
+              },
+            ]}
+          />
+        ) : (
+          <Pressable
+            disabled={busy}
+            delayPressIn={150}
+            onPress={() => {
+              setNotesEditing(true);
+              setNotesFocused(true);
+              scrollNotesIntoView();
+            }}
+            style={[
+              styles.notesInput,
+              styles.notesViewShell,
+              notesInputShellStyle,
+            ]}
+          >
+            <Text style={{ color: Colors.text, fontSize: 15, lineHeight: 22 }}>
+              {notes}
+            </Text>
+            <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 10 }}>
+              Tap to edit
+            </Text>
+          </Pressable>
+        )}
+        <View style={{ marginTop: 10 }}>
+          <EstimateVoiceDictationButton
+            Colors={Colors}
+            darkMode={darkMode}
+            disabled={busy}
+            variant="action"
+            onTranscript={handleTranscript}
+          />
+        </View>
       </View>
-      {showNotesEditor ? (
-        <TextInput
-          ref={notesInputRef}
-          value={notes}
-          onChangeText={setNotes}
-          editable={!busy}
-          multiline
-          scrollEnabled={false}
-          textAlignVertical='top'
-          blurOnSubmit
-          returnKeyType='done'
-          submitBehavior='blurAndSubmit'
-          onSubmitEditing={dismissNotesEditing}
-          onBlur={() => {
-            if (notes.trim()) setNotesEditing(false);
-          }}
-          placeholder='Bathroom remodel — shower tile, vanity, plumbing, demo. Include sizes, materials, or lump sums if you have them.'
-          placeholderTextColor={placeholderColor}
-          style={[
-            styles.notesInput,
-            inputShell,
-            {
-              color: Colors.text,
-              minHeight: notesMinHeight,
-            },
-          ]}
-        />
-      ) : (
-        <Pressable
-          disabled={busy}
-          delayPressIn={150}
-          onPress={() => setNotesEditing(true)}
-          style={[styles.notesInput, inputShell, styles.notesViewShell]}
-        >
-          <Text style={{ color: Colors.text, fontSize: 15, lineHeight: 22 }}>
-            {notes}
-          </Text>
-          <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 10 }}>
-            Tap to edit
-          </Text>
-        </Pressable>
-      )}
 
       {false && notes.trim() && !hasPlanImport ? (
         <View
@@ -1001,7 +996,7 @@ export default function AIEstimateBuilderModal({
           onPress={handleContinueDraft}
           style={[
             styles.primaryBtn,
-            { backgroundColor: '#22c55e', marginBottom: 10 },
+            { backgroundColor: ESTIMATE_FLOW_GREEN, marginBottom: 10 },
           ]}
         >
           <MaterialIcons name='arrow-forward' size={20} color='#0f172a' />
@@ -1010,7 +1005,7 @@ export default function AIEstimateBuilderModal({
       ) : null}
       <TouchableOpacity
         activeOpacity={0.88}
-        disabled={!canGenerate}
+        disabled={!canGenerate || busy}
         onPress={handleGenerate}
         style={[
           styles.primaryBtn,
@@ -1018,21 +1013,21 @@ export default function AIEstimateBuilderModal({
             ? {
                 backgroundColor: 'transparent',
                 borderWidth: 1.5,
-                borderColor: canGenerate ? '#22c55e' : '#64748b',
+                borderColor: canGenerate ? ESTIMATE_FLOW_GREEN : 'rgba(34, 197, 94, 0.35)',
               }
-            : { backgroundColor: canGenerate || busy ? '#22c55e' : '#64748b' },
-          !canGenerate && !busy ? styles.primaryBtnDisabled : null,
+            : { backgroundColor: ESTIMATE_FLOW_GREEN },
+          !canGenerate && !busy ? { opacity: 0.42 } : null,
         ]}
       >
         {busy ? (
           <>
             <ActivityIndicator
-              color={hasExistingDraft ? '#22c55e' : '#0f172a'}
+              color={hasExistingDraft ? ESTIMATE_FLOW_GREEN : '#0f172a'}
             />
             <Text
               style={[
                 styles.primaryBtnText,
-                hasExistingDraft ? { color: '#22c55e' } : null,
+                hasExistingDraft ? { color: ESTIMATE_FLOW_GREEN } : null,
               ]}
             >
               Generating…
@@ -1044,14 +1039,14 @@ export default function AIEstimateBuilderModal({
               name='auto-awesome'
               size={20}
               color={
-                hasExistingDraft && onContinueDraft ? '#22c55e' : '#0f172a'
+                hasExistingDraft && onContinueDraft ? ESTIMATE_FLOW_GREEN : '#0f172a'
               }
             />
             <Text
               style={[
                 styles.primaryBtnText,
                 hasExistingDraft && onContinueDraft
-                  ? { color: '#22c55e' }
+                  ? { color: ESTIMATE_FLOW_GREEN }
                   : null,
               ]}
             >
@@ -1068,11 +1063,7 @@ export default function AIEstimateBuilderModal({
   );
 
   const body = (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: Colors.bg }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      enabled={Platform.OS === 'ios'}
-    >
+    <View style={{ flex: 1, backgroundColor: Colors.bg }}>
       <View style={{ flex: 1 }}>
         <AIEstimateFlowHeader
           title='Build with AI'
@@ -1089,8 +1080,12 @@ export default function AIEstimateBuilderModal({
           onBack={handleBack}
         />
         <ScrollView
+          ref={scrollRef}
           style={{ flex: 1 }}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: scrollBottomPad },
+          ]}
           keyboardShouldPersistTaps='always'
           keyboardDismissMode='none'
           showsVerticalScrollIndicator={false}
@@ -1098,9 +1093,9 @@ export default function AIEstimateBuilderModal({
         >
           {notesField}
         </ScrollView>
-        {!keyboardVisible || busy ? footer : null}
+        {!keyboardUp || busy ? footer : null}
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 
   if (embedded) {
@@ -1117,6 +1112,7 @@ export default function AIEstimateBuilderModal({
           visible={busy}
           phase={overlayPhase}
           steps={overlaySteps}
+          onCancel={handleCancelGenerating}
         />
       </View>
     );
@@ -1136,6 +1132,7 @@ export default function AIEstimateBuilderModal({
           visible={busy}
           phase={overlayPhase}
           steps={overlaySteps}
+          onCancel={handleCancelGenerating}
         />
       </View>
     </Modal>
@@ -1171,9 +1168,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     overflow: 'hidden',
-  },
-  primaryBtnDisabled: {
-    opacity: 0.85,
   },
   primaryBtnText: {
     color: '#0f172a',

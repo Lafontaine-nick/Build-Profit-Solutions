@@ -6,6 +6,8 @@ import {
 import {
   canApplyStageBenchmarkFill,
   classifySuggestedPricingState,
+  footerScrollToPricingButtonLabel,
+  footerSuggestedPricingPendingHint,
   footerSuggestedPricingSummary,
   isGrossFlooringDerivedFromLiving,
   missingStatusDisplayLabel,
@@ -295,26 +297,31 @@ describe('Step 2 benchmark + measurement-status binding', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     expect(
       footerSuggestedPricingSummary({
-        readyCount: 1,
+        readyCount: 5,
         benchmarkOnlyCount: 4,
         needsMeasurementCount: 13,
       })
-    ).toBe('1 price ready · 4 planning benchmarks · 13 to confirm');
+    ).toBe('5 prices ready to apply · 13 to confirm');
     expect(
       footerSuggestedPricingSummary({
         readyCount: 8,
         benchmarkOnlyCount: 0,
         needsMeasurementCount: 4,
       })
-    ).toBe('8 prices ready · 4 to confirm');
+    ).toBe('8 prices ready to apply · 4 to confirm');
     expect(
       footerSuggestedPricingSummary({
         readyCount: 0,
         benchmarkOnlyCount: 0,
       })
     ).toBeNull();
-    expect(
-      classifySuggestedPricingState({
+    expect(footerScrollToPricingButtonLabel(8)).toBe('Review 8 pricing cards below');
+    expect(footerScrollToPricingButtonLabel(1)).toBe('Review 1 pricing card below');
+    expect(footerScrollToPricingButtonLabel(0)).toBeNull();
+    expect(footerSuggestedPricingPendingHint({ needsMeasurementCount: 4 })).toBe(
+      '4 still to confirm'
+    );
+    expect(classifySuggestedPricingState({
         itemId: 'framing',
         hasPrimaryTakeoff: false,
         isLocalBenchmark: true,

@@ -511,7 +511,7 @@ describe('electrical Phase 3A plan export adapter', () => {
       benchmarkOnlyCount: 0,
       needsMeasurementCount: 1,
     });
-    expect(footer).toMatch(/10 prices ready/);
+    expect(footer).toMatch(/10 prices ready to apply/);
     expect(footer).toMatch(/1 to confirm/);
   });
 

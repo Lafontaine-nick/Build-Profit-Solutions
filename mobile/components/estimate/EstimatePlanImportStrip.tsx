@@ -29,7 +29,13 @@ import {
   takePlanPhoto,
 } from '@/utils/planImportRunner';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
-import { aiFlowCardBackground } from '@/utils/estimateFlowCardStyle';
+import EstimateFlowActionButton from '@/components/estimate/EstimateFlowActionButton';
+import {
+  aiFlowCardBackground,
+  estimateStep1IconBadgeStyle,
+  estimateStep1InputCardStyle,
+  ESTIMATE_FLOW_CHIP_GREEN,
+} from '@/utils/estimateFlowCardStyle';
 import type { AiGeneratePhaseId } from '@/utils/aiEstimateGeneratingUi';
 import {
   applyHvacProvenanceGuardToScopeMeasurements,
@@ -565,10 +571,25 @@ export default function EstimatePlanImportStrip({
   const lastTradeTapRef = useRef<{ key: PlanTradeKey; at: number } | null>(null);
   const planReady = Boolean(planReadySubtitle?.trim());
   const routingLocked = Boolean(forcedTradeKey);
-  const showPlanRouting =
-    routingLocked || showImportChooser || planReady || planReview != null;
-  const semanticsOn = measurementSemanticsV1Enabled();
   const plumbingPlanDisabled = disablePlanImport;
+  const [planSectionCollapsed, setPlanSectionCollapsed] = useState(embedded);
+  const planSectionExpanded = !planSectionCollapsed;
+  const canCollapsePlanSection =
+    !planReady && !importing && !plumbingPlanDisabled;
+  const showPlanRouting =
+    routingLocked ||
+    showImportChooser ||
+    planReady ||
+    planReview != null ||
+    !embedded ||
+    planSectionExpanded;
+  const semanticsOn = measurementSemanticsV1Enabled();
+
+  useEffect(() => {
+    if (planReady || importing) {
+      setPlanSectionCollapsed(false);
+    }
+  }, [planReady, importing]);
 
   useEffect(() => {
     if (forcedTradeKey) {
@@ -893,7 +914,7 @@ export default function EstimatePlanImportStrip({
 
   const openPicker = useCallback(() => {
     if (importing || disabled) return;
-    if (!showImportChooser && !routingLocked) {
+    if (!showPlanRouting && !routingLocked) {
       setShowImportChooser(true);
       return;
     }
@@ -921,7 +942,7 @@ export default function EstimatePlanImportStrip({
     importing,
     disabled,
     plumbingPlanDisabled,
-    showImportChooser,
+    showPlanRouting,
     routingLocked,
     estimatingMode,
     selectedTrade,
@@ -1344,26 +1365,28 @@ export default function EstimatePlanImportStrip({
     [planReview, onApplied, existingNotes, estimatingMode, selectedTrade]
   );
 
-  const cardShell = {
-    borderRadius: 14,
-    borderWidth: planReady ? 1.5 : 1,
-    borderColor: planReady
-      ? 'rgba(56,211,159,0.5)'
-      : darkMode
-        ? 'rgba(148,163,184,0.25)'
-        : Colors.line,
-    backgroundColor: planReady
-      ? darkMode
-        ? 'rgba(56,211,159,0.12)'
-        : 'rgba(34,197,94,0.08)'
-      : darkMode
-        ? 'rgba(34,197,94,0.08)'
-        : 'rgba(34,197,94,0.06)',
-    opacity:
-      importing || disabled || (plumbingPlanDisabled && showPlanRouting)
-        ? 0.55
-        : 1,
-  };
+  const cardShell = embedded
+    ? {}
+    : {
+        borderRadius: 14,
+        borderWidth: planReady ? 1.5 : 1,
+        borderColor: planReady
+          ? 'rgba(56,211,159,0.5)'
+          : darkMode
+            ? 'rgba(148,163,184,0.25)'
+            : Colors.line,
+        backgroundColor: planReady
+          ? darkMode
+            ? 'rgba(56,211,159,0.12)'
+            : 'rgba(34,197,94,0.08)'
+          : darkMode
+            ? 'rgba(34,197,94,0.08)'
+            : 'rgba(34,197,94,0.06)',
+        opacity:
+          importing || disabled || (plumbingPlanDisabled && showPlanRouting)
+            ? 0.55
+            : 1,
+      };
 
   const tradeOptions = routingLocked
     ? PLAN_EXPORT_TRADE_CONFIGURATIONS.filter(trade => trade.key === forcedTradeKey)
@@ -1387,8 +1410,13 @@ export default function EstimatePlanImportStrip({
           flexDirection: 'row',
           alignItems: 'flex-start',
           gap: 10,
-          padding: planReady ? 14 : 10,
-          paddingHorizontal: planReady ? 14 : 12,
+          padding: embedded ? 0 : planReady ? 14 : 10,
+          paddingHorizontal: embedded ? 0 : planReady ? 14 : 12,
+          opacity:
+            embedded &&
+            (importing || disabled || (plumbingPlanDisabled && showPlanRouting))
+              ? 0.55
+              : 1,
         },
         cardShell,
       ]}
@@ -1399,6 +1427,14 @@ export default function EstimatePlanImportStrip({
           color='#22c55e'
           style={{ marginTop: 2 }}
         />
+      ) : embedded ? (
+        <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
+          <Ionicons
+            name={planReady ? 'checkmark-circle' : 'map-outline'}
+            size={18}
+            color={planReady ? '#38d39f' : '#22c55e'}
+          />
+        </View>
       ) : (
         <Ionicons
           name={planReady ? 'checkmark-circle' : 'map-outline'}
@@ -1488,9 +1524,16 @@ export default function EstimatePlanImportStrip({
         </Text>
       ) : null}
       {embedded ? (
-        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+        <View style={{ gap: 8, marginBottom: 10 }}>
           {!routingLocked ? (
-            <TouchableOpacity
+            <EstimateFlowActionButton
+              label="General contractor"
+              icon="domain"
+              iconAccent="green"
+              Colors={Colors}
+              darkMode={darkMode}
+              selected={estimatingMode === 'whole_project'}
+              selectedAccent="green"
               onPress={() => {
                 if (estimatingMode === 'whole_project') {
                   updateRouting(null, null);
@@ -1498,28 +1541,18 @@ export default function EstimatePlanImportStrip({
                   updateRouting('whole_project', null);
                 }
               }}
-              style={{
-                flex: 1,
-                borderRadius: 10,
-                borderWidth: 1,
-                borderColor:
-                  estimatingMode === 'whole_project' ? '#22c55e' : Colors.line,
-                backgroundColor:
-                  estimatingMode === 'whole_project'
-                    ? 'rgba(34,197,94,0.12)'
-                    : 'transparent',
-                paddingVertical: 10,
-                alignItems: 'center',
-              }}
-            >
-              <Text
-                style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}
-              >
-                Whole project
-              </Text>
-            </TouchableOpacity>
+              style={{ flex: undefined, width: '100%' }}
+              labelStyle={{ fontSize: 12 }}
+            />
           ) : null}
-          <TouchableOpacity
+          <EstimateFlowActionButton
+            label={routingLocked ? 'Plumbing subcontractor' : 'Subcontractor'}
+            icon="handyman"
+            iconAccent="blue"
+            Colors={Colors}
+            darkMode={darkMode}
+            selected={estimatingMode === 'selected_trade'}
+            selectedAccent="blue"
             onPress={() => {
               if (estimatingMode === 'selected_trade') {
                 updateRouting(null, null);
@@ -1527,29 +1560,21 @@ export default function EstimatePlanImportStrip({
                 updateRouting('selected_trade', forcedTradeKey);
               }
             }}
-            style={{
-              flex: routingLocked ? 1 : 1,
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor:
-                estimatingMode === 'selected_trade' ? '#22c55e' : Colors.line,
-              backgroundColor:
-                estimatingMode === 'selected_trade'
-                  ? 'rgba(34,197,94,0.12)'
-                  : 'transparent',
-              paddingVertical: 10,
-              alignItems: 'center',
-            }}
-          >
-            <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>
-              {routingLocked ? 'Plumbing only' : 'Single trade'}
-            </Text>
-          </TouchableOpacity>
+            style={{ flex: undefined, width: '100%' }}
+            labelStyle={{ fontSize: 12 }}
+          />
         </View>
       ) : (
         <View style={{ gap: 8, marginBottom: 10 }}>
           {!routingLocked ? (
-            <TouchableOpacity
+            <EstimateFlowActionButton
+              label="Whole Project / General Contractor"
+              icon="domain"
+              iconAccent="green"
+              Colors={Colors}
+              darkMode={darkMode}
+              selected={estimatingMode === 'whole_project'}
+              selectedAccent="green"
               onPress={() => {
                 if (estimatingMode === 'whole_project') {
                   updateRouting(null, null);
@@ -1557,32 +1582,22 @@ export default function EstimatePlanImportStrip({
                   updateRouting('whole_project', null);
                 }
               }}
-              style={{
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor:
-                  estimatingMode === 'whole_project' ? '#22c55e' : Colors.line,
-                backgroundColor:
-                  estimatingMode === 'whole_project'
-                    ? 'rgba(34,197,94,0.12)'
-                    : 'transparent',
-                paddingHorizontal: 12,
-                paddingVertical: 10,
-              }}
-            >
-              <Text
-                style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}
-              >
-                Whole Project / General Contractor
-              </Text>
-              {estimatingMode === 'whole_project' ? (
-                <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
-                  Estimate multiple trades from the full plan set.
-                </Text>
-              ) : null}
-            </TouchableOpacity>
+              style={{ flex: undefined, alignItems: 'flex-start', paddingVertical: 10 }}
+              labelStyle={{ fontSize: 12 }}
+            />
           ) : null}
-          <TouchableOpacity
+          <EstimateFlowActionButton
+            label={
+              routingLocked
+                ? 'Single Trade / Plumbing Only'
+                : 'Single Trade / Subcontractor'
+            }
+            icon="handyman"
+            iconAccent="blue"
+            Colors={Colors}
+            darkMode={darkMode}
+            selected={estimatingMode === 'selected_trade'}
+            selectedAccent="blue"
             onPress={() => {
               if (estimatingMode === 'selected_trade') {
                 updateRouting(null, null);
@@ -1590,32 +1605,21 @@ export default function EstimatePlanImportStrip({
                 updateRouting('selected_trade', forcedTradeKey);
               }
             }}
-            style={{
-              borderRadius: 12,
-              borderWidth: 1,
-              borderColor:
-                estimatingMode === 'selected_trade' ? '#22c55e' : Colors.line,
-              backgroundColor:
-                estimatingMode === 'selected_trade'
-                  ? 'rgba(34,197,94,0.12)'
-                  : 'transparent',
-              paddingHorizontal: 12,
-              paddingVertical: 10,
-            }}
-          >
-            <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>
-              {routingLocked
-                ? 'Single Trade / Plumbing Only'
-                : 'Single Trade / Subcontractor'}
+            style={{ flex: undefined, alignItems: 'flex-start', paddingVertical: 10 }}
+            labelStyle={{ fontSize: 12 }}
+          />
+          {estimatingMode === 'whole_project' ? (
+            <Text style={{ color: Colors.sub, fontSize: 11, marginTop: -4, marginLeft: 4 }}>
+              Estimate multiple trades from the full plan set.
             </Text>
-            {estimatingMode === 'selected_trade' ? (
-              <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
-                {routingLocked
-                  ? 'Import plan quantities for the Plumbing-only estimate.'
-                  : 'Build an estimate for one trade only.'}
-              </Text>
-            ) : null}
-          </TouchableOpacity>
+          ) : null}
+          {estimatingMode === 'selected_trade' ? (
+            <Text style={{ color: Colors.sub, fontSize: 11, marginTop: -4, marginLeft: 4 }}>
+              {routingLocked
+                ? 'Import plan quantities for the Plumbing-only estimate.'
+                : 'Build an estimate for one trade only.'}
+            </Text>
+          ) : null}
         </View>
       )}
       {estimatingMode === 'selected_trade' ? (
@@ -1638,7 +1642,7 @@ export default function EstimatePlanImportStrip({
               Select your trade
             </Text>
             {embedded && selectedTradeLabel ? (
-              <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '700' }}>
+              <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 11, fontWeight: '700' }}>
                 {selectedTradeLabel}
               </Text>
             ) : null}
@@ -1655,36 +1659,23 @@ export default function EstimatePlanImportStrip({
                 {tradeOptions.map(trade => {
                   const selected = selectedTrade === trade.key;
                   return (
-                    <TouchableOpacity
+                    <EstimateFlowActionButton
                       key={trade.key}
+                      label={trade.label}
+                      iconColor={ESTIMATE_FLOW_CHIP_GREEN}
+                      Colors={Colors}
+                      darkMode={darkMode}
+                      selected={selected}
+                      selectedAccent="green"
                       onPress={() => handleTradePress(trade.key)}
                       style={{
                         width: '48%',
-                        borderRadius: 10,
-                        borderWidth: 1,
-                        borderColor: selected ? '#22c55e' : Colors.line,
-                        backgroundColor: selected
-                          ? 'rgba(34,197,94,0.12)'
-                          : 'transparent',
-                        paddingHorizontal: 8,
-                        paddingVertical: embedded ? 10 : 8,
-                        alignItems: 'center',
-                        justifyContent: 'center',
+                        flex: undefined,
                         minHeight: embedded ? 44 : 40,
+                        paddingHorizontal: 8,
                       }}
-                    >
-                      <Text
-                        style={{
-                          color: Colors.text,
-                          fontSize: 12,
-                          fontWeight: '700',
-                          textAlign: 'center',
-                        }}
-                        numberOfLines={2}
-                      >
-                        {trade.label}
-                      </Text>
-                    </TouchableOpacity>
+                      labelStyle={{ fontSize: 12, numberOfLines: 2 }}
+                    />
                   );
                 })}
               </View>
@@ -1832,8 +1823,120 @@ export default function EstimatePlanImportStrip({
     </View>
   ) : null;
 
+  const embeddedPlanImportSubtitle = plumbingPlanDisabled
+    ? 'Notes and photos are used for this Plumbing mode.'
+    : planReady
+      ? semanticsOn
+        ? 'Tap Generate Estimate Draft below — job notes are optional. Tap here to import a different plan.'
+        : 'Review Job notes, then Generate. Tap here to import a different plan.'
+      : planSectionCollapsed
+        ? 'Optional · PDF or plan photos'
+        : showPlanRouting
+          ? estimatingMode === 'selected_trade' && !selectedTrade
+            ? 'Pick a trade below, then choose your plan file.'
+            : 'Photo, library pages, or PDF — you review before Generate.'
+          : 'Photo, library pages, or PDF — you review before Generate';
+
+  const embeddedPlanImportCard = (
+    <View
+      style={[
+        estimateStep1InputCardStyle(Colors, darkMode, {
+          marginBottom: 8,
+          ready: planReady,
+        }),
+        importing || disabled || (plumbingPlanDisabled && showPlanRouting)
+          ? { opacity: 0.55 }
+          : null,
+      ]}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+        {importing ? (
+          <ActivityIndicator size='small' color='#22c55e' style={{ marginTop: 2 }} />
+        ) : (
+          <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
+            <Ionicons
+              name={planReady ? 'checkmark-circle' : 'map-outline'}
+              size={18}
+              color={planReady ? '#38d39f' : '#22c55e'}
+            />
+          </View>
+        )}
+        <TouchableOpacity
+          activeOpacity={0.75}
+          disabled={
+            importing || disabled || (plumbingPlanDisabled && showPlanRouting)
+          }
+          onPress={() => {
+            if (planSectionCollapsed) {
+              setPlanSectionCollapsed(false);
+              return;
+            }
+            openPicker();
+          }}
+          style={{ flex: 1, minWidth: 0 }}
+        >
+          <Text
+            style={{
+              color: Colors.text,
+              fontSize: planReady ? 15 : 13,
+              fontWeight: planReady ? '800' : '700',
+            }}
+          >
+            {importing
+              ? 'Reading plan…'
+              : planReady
+                ? 'Plan ready to generate'
+                : 'Import from plan'}
+          </Text>
+          {planReady && planReadySubtitle ? (
+            <Text
+              style={{
+                color: '#38d39f',
+                fontSize: 13,
+                fontWeight: '700',
+                marginTop: 4,
+              }}
+            >
+              {planReadySubtitle}
+            </Text>
+          ) : null}
+          <Text
+            style={{
+              color: Colors.sub,
+              fontSize: planReady ? 12 : 11,
+              lineHeight: planReady ? 17 : 16,
+              marginTop: planReady ? 6 : 2,
+              fontWeight: '400',
+            }}
+          >
+            {embeddedPlanImportSubtitle}
+          </Text>
+        </TouchableOpacity>
+        {canCollapsePlanSection ? (
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={() => setPlanSectionCollapsed(collapsed => !collapsed)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole='button'
+            accessibilityLabel={
+              planSectionCollapsed ? 'Show plan import' : 'Hide plan import'
+            }
+            style={{ padding: 4, marginTop: 2 }}
+          >
+            <Ionicons
+              name={planSectionCollapsed ? 'chevron-down' : 'chevron-up'}
+              size={20}
+              color={Colors.sub}
+            />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+      {planSectionExpanded && !plumbingPlanDisabled ? planRoutingPanel : null}
+    </View>
+  );
+
   return (
-    <View style={{ marginBottom: embedded ? 12 : 16 }}>
+    <View style={{ marginBottom: embedded ? 0 : 16 }}>
       {!embedded ? (
         <>
           <Text
@@ -1860,10 +1963,7 @@ export default function EstimatePlanImportStrip({
         </>
       ) : null}
       {embedded ? (
-        <>
-          {importButton}
-          {planRoutingPanel}
-        </>
+        embeddedPlanImportCard
       ) : (
         <>
           {planRoutingPanel}

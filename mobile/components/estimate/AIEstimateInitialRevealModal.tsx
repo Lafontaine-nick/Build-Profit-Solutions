@@ -47,10 +47,8 @@ type Props = {
   markupPct?: number;
   fromAssistant?: boolean;
   onBack: () => void;
-  onClose: () => void;
   onOpenDetailedReview: () => void;
   onConfirmScope?: () => void;
-  onRegenerate: () => void;
 };
 
 const STATUS_COLORS = {
@@ -126,17 +124,14 @@ function AIEstimateInitialRevealModal({
   markupPct = 0,
   fromAssistant = false,
   onBack,
-  onClose,
   onOpenDetailedReview,
   onConfirmScope,
-  onRegenerate,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [confirmListExpanded, setConfirmListExpanded] = useState(false);
-  const [bidDetailsExpanded, setBidDetailsExpanded] = useState(false);
   const scopeDefaultAppliedRef = useRef(false);
 
   const PRICING_PREVIEW_COUNT = 3;
@@ -194,7 +189,6 @@ function AIEstimateInitialRevealModal({
   useEffect(() => {
     if (visible) {
       setConfirmListExpanded(false);
-      setBidDetailsExpanded(false);
       scopeDefaultAppliedRef.current = false;
       setDetailsExpanded(false);
     }
@@ -233,16 +227,12 @@ function AIEstimateInitialRevealModal({
     startTransition(() => setConfirmListExpanded(false));
   }, []);
 
-  const handleToggleBidDetails = useCallback(() => {
-    startTransition(() => setBidDetailsExpanded((v) => !v));
-  }, []);
-
   const handleToggleScope = useCallback(() => {
     startTransition(() => setDetailsExpanded((v) => !v));
   }, []);
 
   const scrollPaddingBottom = useMemo(
-    () => Math.max(insets.bottom, 16) + 108,
+    () => Math.max(insets.bottom, 16) + 76,
     [insets.bottom]
   );
 
@@ -317,6 +307,11 @@ function AIEstimateInitialRevealModal({
                   {viewModel.hero.amountText}
                 </Text>
                 <Text style={[styles.heroHint, { color: Colors.sub }]}>{viewModel.hero.hint}</Text>
+                {viewModel.hero.markupSubline ? (
+                  <Text style={[styles.heroMarkupSubline, { color: Colors.sub }]}>
+                    {viewModel.hero.markupSubline}
+                  </Text>
+                ) : null}
                 {viewModel.planningDisclaimer ? (
                   <Text style={[styles.planningDisclaimer, { color: Colors.sub }]}>
                     {viewModel.planningDisclaimer}
@@ -437,57 +432,6 @@ function AIEstimateInitialRevealModal({
                   </View>
                 ) : null}
 
-                {viewModel.confirmBuckets.bidDetails.length > 0 ? (
-                  <View
-                    style={[
-                      styles.block,
-                      styles.blockBorder,
-                      { borderTopColor: dividerColor },
-                    ]}
-                  >
-                    <ReliablePress
-                      onPress={handleToggleBidDetails}
-                      style={styles.scopeHeader}
-                      accessibilityLabel="Bid details to confirm"
-                      accessibilityState={{ expanded: bidDetailsExpanded }}
-                    >
-                      <View style={[styles.blockTitleRow, { marginBottom: 0 }]}>
-                        <Text style={[styles.blockTitle, { color: Colors.text }]}>Bid details</Text>
-                        <View
-                          style={[
-                            styles.countPill,
-                            { backgroundColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' },
-                          ]}
-                        >
-                          <Text style={[styles.countPillText, { color: Colors.sub }]}>
-                            {viewModel.confirmBuckets.bidDetails.length}
-                          </Text>
-                        </View>
-                      </View>
-                      <MaterialIcons
-                        name={bidDetailsExpanded ? 'expand-less' : 'expand-more'}
-                        size={22}
-                        color={Colors.sub}
-                      />
-                    </ReliablePress>
-                    {bidDetailsExpanded
-                      ? viewModel.confirmBuckets.bidDetails.map((item, index) => (
-                          <View key={`bid-${item}-${index}`} style={styles.checkRow}>
-                            <View
-                              style={[
-                                styles.checkDot,
-                                { borderColor: darkMode ? 'rgba(255,255,255,0.28)' : Colors.line },
-                              ]}
-                            />
-                            <Text style={[styles.checkText, { color: Colors.sub }]} numberOfLines={2}>
-                              {item}
-                            </Text>
-                          </View>
-                        ))
-                      : null}
-                  </View>
-                ) : null}
-
                 {viewModel.scopePreview.length > 0 ? (
                   <View
                     style={[
@@ -568,16 +512,6 @@ function AIEstimateInitialRevealModal({
               color="#0f172a"
             />
           </ReliablePress>
-
-          <View style={styles.secondaryRow}>
-            <ReliablePress onPress={onRegenerate} style={styles.secondaryPress} accessibilityLabel="Edit notes">
-              <Text style={[styles.secondaryText, { color: Colors.sub }]}>Edit notes</Text>
-            </ReliablePress>
-            <Text style={[styles.secondaryDot, { color: Colors.sub }]}>·</Text>
-            <ReliablePress onPress={onClose} style={styles.secondaryPress} accessibilityLabel="Close">
-              <Text style={[styles.secondaryText, { color: Colors.sub }]}>Close</Text>
-            </ReliablePress>
-          </View>
         </View>
       </View>
     </Modal>
@@ -672,6 +606,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     marginTop: 4,
+  },
+  heroMarkupSubline: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+    opacity: 0.85,
   },
   planningDisclaimer: {
     fontSize: 12,
@@ -844,22 +784,5 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
     letterSpacing: -0.2,
-  },
-  secondaryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  secondaryPress: {
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-  },
-  secondaryText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  secondaryDot: {
-    opacity: 0.5,
   },
 });

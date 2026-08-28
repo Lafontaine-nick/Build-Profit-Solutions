@@ -19,6 +19,8 @@ export type InitialRevealStatusTone = 'ready' | 'mostly' | 'review';
 export type InitialRevealTotals = {
   heroTotal: number | null;
   heroTotalLabel: string;
+  /** Markup % included in hero total (not shown for note-stated totals). */
+  markupPct: number | null;
   material: number | null;
   labor: number | null;
   allowance: number | null;
@@ -90,15 +92,19 @@ export function splitInitialRevealConfirmItems(
   return { pricingScope, bidDetails };
 }
 
-/** All confirm items split into pricing/scope vs bid admin details. */
+/** All confirm items on Initial estimate — scope/pricing only (bid admin lives on estimate step 1). */
 export function getInitialRevealConfirmItems(
   draft: EstimateAiDraft
 ): InitialRevealConfirmBuckets {
   const { items } = getCompactStillNeeded(draft, 50);
-  const prioritized = [...items].sort(
-    (a, b) => revealItemPriority(a) - revealItemPriority(b)
-  );
+  const prioritized = [...items]
+    .filter((item) => !isInitialRevealBidDetailItem(item))
+    .sort((a, b) => revealItemPriority(a) - revealItemPriority(b));
   return splitInitialRevealConfirmItems(prioritized);
+}
+
+export function countInitialRevealAttentionItems(draft: EstimateAiDraft): number {
+  return getInitialRevealConfirmItems(draft).pricingScope.length;
 }
 
 export function getInitialRevealScopeMetaLabel(count: number): string {
@@ -107,7 +113,7 @@ export function getInitialRevealScopeMetaLabel(count: number): string {
 }
 
 export function shouldDefaultExpandInitialRevealScope(scopeItemCount: number): boolean {
-  return scopeItemCount > 0 && scopeItemCount <= 8;
+  return scopeItemCount > 0 && scopeItemCount <= 12;
 }
 
 export function getInitialRevealPlanningDisclaimer(
@@ -153,11 +159,6 @@ export function getInitialRevealStatusLabel(
   return { label: `${attentionCount} items to check`, tone: 'review' };
 }
 
-export function countInitialRevealAttentionItems(draft: EstimateAiDraft): number {
-  const { items, overflow } = getCompactStillNeeded(draft, 20);
-  return items.length + overflow;
-}
-
 export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
   if (draft.projectTitle?.trim()) {
     return draft.projectTitle.trim();
@@ -184,7 +185,9 @@ export function getInitialRevealPriorityItems(
   max = 3
 ): { items: string[]; overflow: number } {
   const { items, overflow } = getCompactStillNeeded(draft, 50);
-  const prioritized = [...items].sort((a, b) => revealItemPriority(a) - revealItemPriority(b));
+  const prioritized = [...items]
+    .filter((item) => !isInitialRevealBidDetailItem(item))
+    .sort((a, b) => revealItemPriority(a) - revealItemPriority(b));
   const visible = prioritized.slice(0, max).map(plainLanguageReviewItem);
   const hidden = Math.max(0, prioritized.length - max) + overflow;
   return { items: visible, overflow: hidden };
@@ -209,7 +212,14 @@ export type InitialRevealHeroDisplay = {
   hasAmount: boolean;
   amountText: string;
   hint: string;
+  markupSubline: string | null;
 };
+
+function formatHeroMarkupSubline(markupPct: number): string {
+  const rounded = Math.round(markupPct * 10) / 10;
+  const label = Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  return `${label}% markup`;
+}
 
 export function getInitialRevealHeroDisplay(
   totals: InitialRevealTotals,
@@ -220,6 +230,10 @@ export function getInitialRevealHeroDisplay(
       hasAmount: true,
       amountText: formatDraftMoney(totals.heroTotal),
       hint: totals.heroTotalLabel,
+      markupSubline:
+        totals.markupPct != null && totals.markupPct > 0
+          ? formatHeroMarkupSubline(totals.markupPct)
+          : null,
     };
   }
   if (needsScopeConfirmation) {
@@ -227,12 +241,14 @@ export function getInitialRevealHeroDisplay(
       hasAmount: false,
       amountText: '—',
       hint: 'Confirm scope to calculate pricing',
+      markupSubline: null,
     };
   }
   return {
     hasAmount: false,
     amountText: '—',
     hint: 'Add rates or confirm scope to see your total',
+    markupSubline: null,
   };
 }
 
@@ -341,9 +357,17 @@ export function getInitialRevealTotals(
         ? 'Initial estimate (incl. markup)'
         : 'Initial estimate';
 
+  const markupPctOnHero =
+    statedTotal != null && statedTotal > 0
+      ? null
+      : estimatedWithMarkup != null && normalizedMarkupPct > 0
+        ? normalizedMarkupPct
+        : null;
+
   return {
     heroTotal,
     heroTotalLabel,
+    markupPct: markupPctOnHero,
     material,
     labor,
     allowance,

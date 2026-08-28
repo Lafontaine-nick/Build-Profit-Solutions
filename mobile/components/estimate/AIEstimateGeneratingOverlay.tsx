@@ -1,10 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ActivityIndicator,
   Modal,
+  TouchableOpacity,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -20,17 +21,38 @@ type Props = {
   visible: boolean;
   phase: AiGeneratePhaseId | null;
   steps: AiGeneratePhaseId[];
+  onCancel?: () => void;
 };
 
-export default function AIEstimateGeneratingOverlay({ visible, phase, steps }: Props) {
+export default function AIEstimateGeneratingOverlay({ visible, phase, steps, onCancel }: Props) {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const activeIndex = aiGeneratePhaseIndex(steps, phase);
+  const [elapsedSec, setElapsedSec] = useState(0);
   const accent = darkMode ? '#00A6FF' : '#0284c7';
+
+  useEffect(() => {
+    if (!visible) {
+      setElapsedSec(0);
+      return;
+    }
+    const started = Date.now();
+    const timer = setInterval(() => {
+      setElapsedSec(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [visible]);
 
   if (!visible) return null;
 
   const displaySteps = steps.length ? steps : (['building_scope', 'finalizing'] as AiGeneratePhaseId[]);
+  const resolvedPhase = phase ?? 'building_scope';
+  const activeIndex = aiGeneratePhaseIndex(displaySteps, resolvedPhase);
+  const slowHint =
+    elapsedSec >= 20
+      ? 'Still working — large notes or a cold server can take up to a minute.'
+      : elapsedSec >= 8
+        ? 'Usually 10–30 seconds for painting notes.'
+        : null;
 
   return (
     <Modal visible transparent animationType="fade" statusBarTranslucent>
@@ -48,7 +70,7 @@ export default function AIEstimateGeneratingOverlay({ visible, phase, steps }: P
             <Text style={[styles.title, { color: Colors.text }]}>Building your draft</Text>
           </View>
           <Text style={[styles.subtitle, { color: Colors.sub }]}>
-            Usually takes a few seconds — hang tight.
+            {slowHint || 'Usually takes a few seconds — hang tight.'}
           </Text>
 
           <View style={styles.stepList}>
@@ -86,6 +108,16 @@ export default function AIEstimateGeneratingOverlay({ visible, phase, steps }: P
               );
             })}
           </View>
+          {onCancel ? (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Cancel draft generation"
+              onPress={onCancel}
+              style={styles.cancelBtn}
+            >
+              <Text style={[styles.cancelLabel, { color: Colors.sub }]}>Cancel</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -139,5 +171,15 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     lineHeight: 21,
+  },
+  cancelBtn: {
+    marginTop: 22,
+    alignSelf: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  cancelLabel: {
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

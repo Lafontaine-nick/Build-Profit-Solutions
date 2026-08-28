@@ -19,6 +19,12 @@ import {
   type PhotoScopeDetection,
   type PhotoScopeImage,
 } from '@/utils/estimateAiDraft';
+import {
+  estimateStep1ActionButtonStyle,
+  estimateStep1IconBadgeStyle,
+  estimateStep1InputCardStyle,
+} from '@/utils/estimateFlowCardStyle';
+import EstimateFlowActionButton from '@/components/estimate/EstimateFlowActionButton';
 
 type Colors = {
   text: string;
@@ -32,6 +38,8 @@ type SitePhoto = {
   uri: string;
   mimeType: string;
 };
+
+type PhotoSource = 'camera' | 'library';
 
 export type SitePhotoAttachment = SitePhoto;
 
@@ -109,6 +117,7 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
   const [photos, setPhotos] = useState<SitePhoto[]>(initialPhotos || []);
   const [analyzing, setAnalyzing] = useState(false);
   const [hasAnalyzed, setHasAnalyzed] = useState(Boolean(initialHasAnalyzed));
+  const [lastPhotoSource, setLastPhotoSource] = useState<PhotoSource | null>(null);
   const analyzePhotosRef = useRef<() => void>(() => {});
 
   useEffect(() => {
@@ -133,7 +142,16 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
     onPhotoStateChange?.({ photoCount: photos.length, hasAnalyzed });
   }, [photos.length, hasAnalyzed, onPhotoStateChange]);
 
-  const addAssets = (assets: ImagePicker.ImagePickerAsset[]) => {
+  useEffect(() => {
+    if (photos.length === 0) {
+      setLastPhotoSource(null);
+    }
+  }, [photos.length]);
+
+  const addAssets = (
+    assets: ImagePicker.ImagePickerAsset[],
+    source: PhotoSource
+  ) => {
     const next: SitePhoto[] = [];
     for (const asset of assets) {
       if (!asset?.uri) continue;
@@ -149,15 +167,18 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
     }
     // New photos need a fresh Detect pass.
     setHasAnalyzed(false);
+    setLastPhotoSource(source);
     updatePhotos((prev) => [...prev, ...next].slice(0, MAX_PHOTOS));
   };
 
   const takePhoto = async () => {
     if (disabled || analyzing || photos.length >= MAX_PHOTOS) return;
+    setLastPhotoSource('camera');
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Camera needed', 'Allow camera access to take site photos.');
+        if (photos.length === 0) setLastPhotoSource(null);
         return;
       }
       if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -169,7 +190,11 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
         exif: false,
         base64: false,
       });
-      if (!result.canceled && result.assets?.[0]) addAssets(result.assets);
+      if (!result.canceled && result.assets?.[0]) {
+        addAssets(result.assets, 'camera');
+      } else if (photos.length === 0) {
+        setLastPhotoSource(null);
+      }
     } catch (err: unknown) {
       console.warn('Site photos: camera failed', err);
       Alert.alert('Camera failed', 'Could not take a photo. Try Library instead.');
@@ -178,10 +203,12 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
 
   const pickFromLibrary = async () => {
     if (disabled || analyzing || photos.length >= MAX_PHOTOS) return;
+    setLastPhotoSource('library');
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Photos needed', 'Allow photo library access to attach site photos.');
+        if (photos.length === 0) setLastPhotoSource(null);
         return;
       }
       if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -197,7 +224,11 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
         preferredAssetRepresentationMode:
           ImagePicker.UIImagePickerPreferredAssetRepresentationMode?.Compatible,
       });
-      if (!result.canceled && result.assets?.length) addAssets(result.assets);
+      if (!result.canceled && result.assets?.length) {
+        addAssets(result.assets, 'library');
+      } else if (photos.length === 0) {
+        setLastPhotoSource(null);
+      }
     } catch (err: unknown) {
       console.warn('Site photos: library failed', err);
       Alert.alert('Library failed', 'Could not open photos. Please try again.');
@@ -298,93 +329,43 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
   };
 
   const atLimit = photos.length >= MAX_PHOTOS;
+  const photosReady = photos.length > 0 && hasAnalyzed;
 
-  return (
-    <View
-      style={{
-        marginBottom: embedded ? 0 : 14,
-        paddingTop: embedded ? 12 : 0,
-        borderTopWidth: embedded ? 1 : 0,
-        borderTopColor: embedded
-          ? darkMode
-            ? 'rgba(148, 163, 184, 0.12)'
-            : Colors.line
-          : 'transparent',
-      }}
-    >
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: embedded ? 6 : 8,
-        }}
-      >
-        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
-          Site photos
-        </Text>
-        <Text style={{ color: Colors.sub, fontSize: 11 }}>
-          Optional · up to {MAX_PHOTOS}
-        </Text>
-      </View>
+  const actionRow = (
+    <View style={{ flexDirection: 'row', gap: 8 }}>
+      <EstimateFlowActionButton
+        label="Camera"
+        icon="photo-camera"
+        iconAccent="green"
+        Colors={Colors}
+        darkMode={darkMode}
+        disabled={disabled || analyzing || atLimit}
+        selected={lastPhotoSource === 'camera'}
+        selectedAccent="green"
+        onPress={takePhoto}
+      />
+      <EstimateFlowActionButton
+        label="Library"
+        icon="photo-library"
+        iconAccent="blue"
+        Colors={Colors}
+        darkMode={darkMode}
+        disabled={disabled || analyzing || atLimit}
+        selected={lastPhotoSource === 'library'}
+        selectedAccent="blue"
+        onPress={pickFromLibrary}
+      />
+    </View>
+  );
 
-      {!embedded ? (
-        <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, marginBottom: 10 }}>
-          Add room photos — AI detects finishes and likely scope (not measurements or prices).
-        </Text>
-      ) : (
-        <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 15, marginBottom: 8 }}>
-          Finishes and likely scope only — not measurements or prices.
-        </Text>
-      )}
-
-      <View style={{ flexDirection: 'row', gap: 8, marginBottom: photos.length ? 10 : 0 }}>
-        <TouchableOpacity
-          activeOpacity={0.85}
-          disabled={disabled || analyzing || atLimit}
-          onPress={takePhoto}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 6,
-            paddingHorizontal: 10,
-            paddingVertical: 7,
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: darkMode ? 'rgba(148, 163, 184, 0.25)' : Colors.line,
-            opacity: disabled || analyzing || atLimit ? 0.45 : 1,
-          }}
-        >
-          <MaterialIcons name="photo-camera" size={16} color="#22c55e" />
-          <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>Camera</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          activeOpacity={0.85}
-          disabled={disabled || analyzing || atLimit}
-          onPress={pickFromLibrary}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 6,
-            paddingHorizontal: 10,
-            paddingVertical: 7,
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: darkMode ? 'rgba(148, 163, 184, 0.25)' : Colors.line,
-            opacity: disabled || analyzing || atLimit ? 0.45 : 1,
-          }}
-        >
-          <MaterialIcons name="photo-library" size={16} color="#60a5fa" />
-          <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>Library</Text>
-        </TouchableOpacity>
-      </View>
-
+  const photoContent = (
+    <>
       {photos.length > 0 ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ gap: 8, paddingVertical: 2 }}
-          style={{ marginBottom: 10 }}
+          style={{ marginTop: 12, marginBottom: 10 }}
         >
           {photos.map((p) => (
             <View key={p.id} style={{ position: 'relative' }}>
@@ -428,36 +409,104 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
           activeOpacity={0.88}
           disabled={disabled || analyzing}
           onPress={analyzePhotos}
-          style={{
-            paddingVertical: 11,
-            borderRadius: 10,
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexDirection: 'row',
-            gap: 8,
-            borderWidth: 1.5,
-            borderColor: analyzing ? 'rgba(96, 165, 250, 0.35)' : 'rgba(96, 165, 250, 0.55)',
-            backgroundColor: darkMode ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.05)',
-            opacity: disabled ? 0.5 : 1,
-          }}
+          style={[
+            estimateStep1ActionButtonStyle(Colors, darkMode, { disabled: disabled || analyzing }),
+            {
+              marginTop: 0,
+              opacity: disabled ? 0.5 : 1,
+            },
+          ]}
         >
           {analyzing ? (
             <>
               <ActivityIndicator size="small" color="#60a5fa" />
-              <Text style={{ color: '#60a5fa', fontSize: 13, fontWeight: '700' }}>
+              <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
                 Reading photos…
               </Text>
             </>
           ) : (
             <>
               <MaterialIcons name="image-search" size={18} color="#60a5fa" />
-              <Text style={{ color: '#60a5fa', fontSize: 13, fontWeight: '700' }}>
+              <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
                 Detect scope from {photos.length} photo{photos.length === 1 ? '' : 's'}
               </Text>
             </>
           )}
         </TouchableOpacity>
       ) : null}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <View
+        style={[
+          estimateStep1InputCardStyle(Colors, darkMode, {
+            marginBottom: 8,
+            ready: photosReady,
+          }),
+          disabled ? { opacity: 0.55 } : null,
+        ]}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
+          <View style={estimateStep1IconBadgeStyle(darkMode, 'blue')}>
+            <MaterialIcons
+              name={photosReady ? 'check-circle' : 'photo-library'}
+              size={18}
+              color={photosReady ? '#60a5fa' : '#60a5fa'}
+            />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+              }}
+            >
+              <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
+                {photosReady ? 'Photos ready' : 'Site photos'}
+              </Text>
+              <Text style={{ color: Colors.sub, fontSize: 11 }}>
+                Optional · up to {MAX_PHOTOS}
+              </Text>
+            </View>
+            <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 15, marginTop: 2 }}>
+              Finishes and likely scope only — not measurements or prices.
+            </Text>
+          </View>
+        </View>
+        {actionRow}
+        {photoContent}
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ marginBottom: 14 }}>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 8,
+        }}
+      >
+        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
+          Site photos
+        </Text>
+        <Text style={{ color: Colors.sub, fontSize: 11 }}>
+          Optional · up to {MAX_PHOTOS}
+        </Text>
+      </View>
+
+      <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, marginBottom: 10 }}>
+        Add room photos — AI detects finishes and likely scope (not measurements or prices).
+      </Text>
+
+      <View style={{ marginBottom: photos.length ? 10 : 0 }}>{actionRow}</View>
+      {photoContent}
     </View>
   );
 });

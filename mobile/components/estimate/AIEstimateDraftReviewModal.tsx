@@ -22,10 +22,7 @@ import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import AIEstimateDisclaimer from '@/components/estimate/AIEstimateDisclaimer';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { aiFlowStepTotal, isComplexEstimateTier } from '@/utils/estimateAiDraft';
-import {
-  draftHasApprovedSuggestions,
-  formatDraftMoney,
-} from '@/utils/estimateAiDraft';
+import { draftHasApprovedSuggestions } from '@/utils/estimateAiDraft';
 import type { EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
 import AIEstimateDraftReviewScopeOnly from '@/components/estimate/AIEstimateDraftReviewScopeOnly';
 import AIEstimateDraftReviewPricingActions from '@/components/estimate/AIEstimateDraftReviewPricingActions';
@@ -35,14 +32,15 @@ import AIEstimateClarifyQuestionsCard from '@/components/estimate/AIEstimateClar
 import type { ClarifyAnswer, ClarifyQuestionItem } from '@/utils/estimateAiDraft';
 import {
   dedupeDraftWarnings,
-  draftHasUnpricedScope,
   isScopeOnlyDraft,
+  shouldShowStep3FinishPricingCard,
 } from '@/utils/estimateDraftReviewUi';
 import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
 import ReliableFlowPress from '@/components/estimate/ReliableFlowPress';
 import {
   computeStep3ReviewTotals,
   formatStep3ReviewFooterTotal,
+  shouldShowStep3ClarifyQuestions,
 } from '@/utils/estimateDraftReviewStep3Ui';
 
 type Props = {
@@ -58,11 +56,6 @@ type Props = {
   onSubmitClarifyAnswers?: (answers: ClarifyAnswer[]) => void;
   onDismissClarify?: () => void;
   onDismissClarifyApplied?: () => void;
-  refining?: boolean;
-  refineAppliedSummary?: string[] | null;
-  refineLastCommand?: string | null;
-  onSubmitRefineCommand?: (command: string) => void;
-  onDismissRefineSummary?: () => void;
   fromAssistant?: boolean;
   embedded?: boolean;
   onClose: () => void;
@@ -116,11 +109,6 @@ export default function AIEstimateDraftReviewModal({
   onSubmitClarifyAnswers,
   onDismissClarify,
   onDismissClarifyApplied,
-  refining = false,
-  refineAppliedSummary = null,
-  refineLastCommand = null,
-  onSubmitRefineCommand,
-  onDismissRefineSummary,
   fromAssistant = false,
   embedded = false,
   onClose,
@@ -169,7 +157,7 @@ export default function AIEstimateDraftReviewModal({
     }
   };
 
-  const busy = applying || suggestingSplits || clarifying || roughRangeLoading || clarifyApplying || refining;
+  const busy = applying || suggestingSplits || clarifying || roughRangeLoading || clarifyApplying;
   const hasApproved = draftHasApprovedSuggestions(draft);
   const confidenceLevel = draft?.estimateConfidence?.level as EstimateConfidenceLevel | undefined;
   const confidenceColors: Record<EstimateConfidenceLevel, { bg: string; color: string }> = {
@@ -179,9 +167,9 @@ export default function AIEstimateDraftReviewModal({
   };
   const confStyle = confidenceLevel ? confidenceColors[confidenceLevel] : confidenceColors.medium;
   const scopeOnly = isScopeOnlyDraft(draft);
-  const showPricingActions =
-    draftHasUnpricedScope(draft) ||
-    (showUseSavedPricing && !draft?.savedPricingApplySummary);
+  const showPricingActions = shouldShowStep3FinishPricingCard(draft, {
+    showUseSavedPricing,
+  });
   const scopeHasPricing = draftHasApplyablePricing(draft);
   const step3Totals = useMemo(
     () => (draft ? computeStep3ReviewTotals(draft, markupPct) : null),
@@ -219,9 +207,6 @@ export default function AIEstimateDraftReviewModal({
         onDismissApplied={onDismissClarifyApplied}
       />
     ) : null;
-  const refinePricingNudge = Boolean(
-    clarifyAppliedSummary?.some((line) => /\b(LF|sqft|CY|squares|tons|each)\b/i.test(line))
-  );
   if (!visible) return null;
 
   const body = (
@@ -246,7 +231,8 @@ export default function AIEstimateDraftReviewModal({
       <GestureScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, paddingBottom: footerScrollPadding }}
-        keyboardShouldPersistTaps="always"
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         delayContentTouches={false}
         showsVerticalScrollIndicator={false}
       >
@@ -314,17 +300,8 @@ export default function AIEstimateDraftReviewModal({
               onUpdateScopeBudgetSplit={onUpdateScopeBudgetSplit}
               onRemoveScopeItem={onRemoveScopeItem}
               markupPct={markupPct}
-              onSubmitRefineCommand={onSubmitRefineCommand}
-              refining={refining}
-              refineAppliedSummary={refineAppliedSummary}
-              refineLastCommand={refineLastCommand}
-              onDismissRefineSummary={onDismissRefineSummary}
-              showRefinePricingNudge={refinePricingNudge}
             />
-            {step3Totals &&
-            (step3Totals.missingPriceCount > 0 || step3Totals.partialCount > 0)
-              ? clarifyCard
-              : null}
+            {shouldShowStep3ClarifyQuestions(draft, step3Totals) ? clarifyCard : null}
           </>
         )}
 

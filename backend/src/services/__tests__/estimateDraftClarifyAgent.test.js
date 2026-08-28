@@ -393,7 +393,7 @@ describe('refineEstimateDraft', () => {
   });
 
   test('no-LLM add command creates a new scope package', async () => {
-    const result = await refineEstimateDraft(baseDraft(), 'add landscaping $3500', { openai: null });
+    const result = await refineEstimateDraft(baseDraft(), 'add landscaping $3,500', { openai: null });
     expect(result.source).toBe('rules');
     const landscaping = result.draft.rooms.find((r) => /landscap/i.test(r.name));
     expect(landscaping).toBeTruthy();
@@ -401,6 +401,356 @@ describe('refineEstimateDraft', () => {
     expect(result.appliedSummary.some((s) => /Added:.*Landscap/i.test(s) || /\$3,500/.test(s))).toBe(
       true
     );
+  });
+
+  test('add stucco paint is not blocked by existing exterior paint row', async () => {
+    const draft = enrichDraft({
+      ...baseDraft(),
+      rooms: [
+        ...(baseDraft().rooms || []),
+        {
+          name: 'Exterior Paint',
+          scope: 'Exterior paint',
+          price: 4500,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: true,
+          priceProvidedByUser: true,
+        },
+      ],
+    });
+    const result = await refineEstimateDraft(draft, 'add stucco paint for $2,500', { openai: null });
+    expect(result.source).toBe('rules');
+    const stucco = result.draft.rooms.find((r) => /stucco paint/i.test(r.name));
+    expect(stucco).toBeTruthy();
+    expect(stucco.price).toBe(2500);
+    expect(result.appliedSummary.some((s) => /Added:.*Stucco Paint/i.test(s))).toBe(true);
+  });
+
+  test('set markup command returns markupPct for mobile bid', async () => {
+    const result = await refineEstimateDraft(
+      enrichDraft({ ...baseDraft(), markupPct: 15 }),
+      'set markup to 20%',
+      { openai: null }
+    );
+    expect(result.markupPct).toBe(20);
+    expect(result.appliedSummary.some((s) => /Markup set to 20%.*unchanged/i.test(s))).toBe(true);
+  });
+
+  test('rename command updates scope row name', async () => {
+    const draft = enrichDraft({
+      ...baseDraft(),
+      rooms: [
+        ...(baseDraft().rooms || []),
+        {
+          name: 'Exterior Paint',
+          scope: 'Exterior paint',
+          price: 4500,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: true,
+          priceProvidedByUser: true,
+        },
+      ],
+    });
+    const result = await refineEstimateDraft(
+      draft,
+      'rename exterior paint to stucco paint',
+      { openai: null }
+    );
+    expect(result.draft.rooms.some((r) => /stucco paint/i.test(r.name))).toBe(true);
+    expect(result.draft.rooms.some((r) => /^Exterior Paint$/i.test(r.name))).toBe(false);
+    expect(result.appliedSummary.some((s) => /Renamed:/i.test(s))).toBe(true);
+  });
+
+  test('rename command does not create a duplicate destination row', async () => {
+    const result = await refineEstimateDraft(
+      enrichDraft({
+        ...baseDraft(),
+        rooms: [
+          {
+            name: 'Exterior Paint',
+            scope: 'Exterior paint',
+            price: 4500,
+            priceIncludesLaborAndMaterials: true,
+            priceProvidedByUser: true,
+          },
+          {
+            name: 'Stucco Paint',
+            scope: 'Stucco paint',
+            price: 2500,
+            priceIncludesLaborAndMaterials: true,
+            priceProvidedByUser: true,
+          },
+        ],
+      }),
+      'rename exterior paint to stucco paint',
+      { openai: null }
+    );
+    expect(result.draft.rooms.filter((r) => /stucco paint/i.test(r.name))).toHaveLength(1);
+    expect(result.draft.rooms.some((r) => /exterior paint/i.test(r.name))).toBe(false);
+  });
+
+  test('quantity and rate command sets sqft and price', async () => {
+    const draft = enrichDraft({
+      ...baseDraft(),
+      rooms: [
+        ...(baseDraft().rooms || []),
+        {
+          name: 'Walls',
+          scope: 'Interior walls',
+          price: 4000,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: true,
+          priceProvidedByUser: true,
+        },
+      ],
+      scopeMeasurements: {
+        itemQuantities: {
+          interior_paint: { quantity: 4000, unit: 'allowance', quantitySource: 'user_entered' },
+          interior_paint__allowance: { quantity: 4000, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          interior_paint: { status: 'accepted', totalAmount: 4000 },
+        },
+      },
+    });
+    const result = await refineEstimateDraft(draft, 'walls 1500 sqft at $3.35/sf', { openai: null });
+    const walls = result.draft.rooms.find((r) => /walls/i.test(r.name));
+    expect(walls?.price).toBe(5025);
+    expect(walls?.scopeQuantities?.[0]?.quantity).toBe(1500);
+    expect(walls?.scopeQuantities?.[0]?.unit).toBe('sqft');
+    const iq = result.draft.scopeMeasurements?.itemQuantities?.interior_paint;
+    expect(iq?.unit).toBe('allowance');
+    expect(Number(iq?.quantity)).toBe(5025);
+  });
+
+  test('quantity-only command carries the existing sqft rate forward', async () => {
+    const draft = enrichDraft({
+      ...baseDraft(),
+      rooms: [
+        {
+          name: 'Walls',
+          scope: 'Interior walls',
+          price: 5025,
+          priceIncludesLaborAndMaterials: true,
+          priceProvidedByUser: true,
+          scopeQuantities: [
+            { label: 'Walls', quantity: 1500, unit: 'sqft', quantitySource: 'user_entered' },
+          ],
+        },
+      ],
+      scopeMeasurements: {
+        itemQuantities: {
+          interior_paint: { quantity: 5025, unit: 'allowance', quantitySource: 'user_entered' },
+          interior_paint__allowance: {
+            quantity: 5025,
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+        },
+        pricingAcceptance: {
+          interior_paint: { status: 'accepted', totalAmount: 5025 },
+        },
+      },
+    });
+    const result = await refineEstimateDraft(draft, 'walls 2000 sqft', { openai: null });
+    const walls = result.draft.rooms.find((r) => /^Walls$/i.test(r.name));
+    expect(walls?.price).toBe(6700);
+    expect(walls?.scopeQuantities?.[0]).toMatchObject({ quantity: 2000, unit: 'sqft' });
+    expect(result.draft.scopeMeasurements?.itemQuantities?.interior_paint?.quantity).toBe(6700);
+    expect(result.appliedSummary.some((s) => /Walls: 2,000 sqft.*\$6,700/i.test(s))).toBe(true);
+  });
+
+  test('walls 2000 sqft at rate bumps total without double-counting measurement key', async () => {
+    const draft = enrichDraft({
+      ...baseDraft(),
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'painting',
+        items: [
+          { id: 'prep', label: 'Prep & Masking', state: 'included', inputType: 'yes_no' },
+          { id: 'interior_paint', label: 'Walls', state: 'included', inputType: 'yes_no' },
+        ],
+      },
+      rooms: [
+        {
+          name: 'Prep & Masking',
+          scope: 'Prep',
+          price: 1485,
+          priceProvidedByUser: true,
+          priceIncludesLaborAndMaterials: true,
+        },
+        {
+          name: 'Walls',
+          scope: 'Interior walls',
+          price: 5025,
+          priceProvidedByUser: true,
+          priceIncludesLaborAndMaterials: true,
+          scopeQuantities: [{ label: 'Walls', quantity: 1500, unit: 'sqft', quantitySource: 'user_entered' }],
+        },
+      ],
+      scopeMeasurements: {
+        wallPaintSqft: 1500,
+        itemQuantities: {
+          prep: { quantity: 1485, unit: 'allowance', quantitySource: 'user_entered' },
+          interior_paint: { quantity: 5025, unit: 'allowance', quantitySource: 'user_entered' },
+          interior_paint__allowance: { quantity: 5025, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          prep: { status: 'accepted', totalAmount: 1485 },
+          interior_paint: { status: 'accepted', totalAmount: 5025 },
+        },
+      },
+    });
+    const result = await refineEstimateDraft(draft, 'Walls 2000 sqft at 3.35 sf', { openai: null });
+    const walls = result.draft.rooms.find((r) => /^Walls$/i.test(r.name));
+    expect(walls?.price).toBe(6700);
+    expect(walls?.scopeQuantities?.[0]).toMatchObject({ quantity: 2000, unit: 'sqft' });
+    expect(result.draft.scopeMeasurements?.itemQuantities?.interior_paint?.unit).toBe('allowance');
+    expect(Number(result.draft.scopeMeasurements?.itemQuantities?.interior_paint?.quantity)).toBe(6700);
+    expect(result.draft.scopeMeasurements?.itemQuantities?.interior_paint?.unit).not.toBe('sqft');
+  });
+
+  test('walls 2000 sqft at $3.35/sf updates wallPaintSqft measurement key', async () => {
+    const draft = enrichDraft({
+      ...baseDraft(),
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'painting',
+        items: [{ id: 'interior_paint', label: 'Walls', state: 'included', inputType: 'yes_no' }],
+      },
+      rooms: [
+        {
+          name: 'Walls',
+          scope: 'Interior walls',
+          price: 5025,
+          priceProvidedByUser: true,
+          priceIncludesLaborAndMaterials: true,
+          scopeQuantities: [{ label: 'Walls', quantity: 1500, unit: 'sqft', quantitySource: 'user_entered' }],
+        },
+      ],
+      scopeMeasurements: {
+        wallPaintSqft: 1500,
+        itemQuantities: {
+          interior_paint: { quantity: 5025, unit: 'allowance', quantitySource: 'user_entered' },
+          interior_paint__allowance: { quantity: 5025, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          interior_paint: { status: 'accepted', totalAmount: 5025 },
+        },
+      },
+    });
+    const result = await refineEstimateDraft(draft, 'walls 2000 sqft at $3.35/sf', { openai: null });
+    const walls = result.draft.rooms.find((r) => /^Walls$/i.test(r.name));
+    expect(walls?.price).toBe(6700);
+    expect(walls?.scopeQuantities?.[0]).toMatchObject({ quantity: 2000, unit: 'sqft' });
+    expect(result.draft.scopeMeasurements?.wallPaintSqft).toBe(2000);
+    expect(result.appliedSummary.some((s) => /Walls.*2,000 sqft/i.test(s))).toBe(true);
+  });
+
+  test('owner-supplied tag zeros material side and notes inclusion', async () => {
+    const draft = enrichDraft({
+      ...baseDraft(),
+      rooms: [
+        ...(baseDraft().rooms || []),
+        {
+          name: 'Cabinets',
+          scope: 'Cabinet install and finish',
+          price: 11000,
+          laborPrice: 4000,
+          materialPrice: 7000,
+          priceIncludesLaborAndMaterials: false,
+          priceProvidedByUser: true,
+        },
+      ],
+    });
+    const result = await refineEstimateDraft(draft, 'mark cabinets owner-supplied', { openai: null });
+    const cabinets = result.draft.rooms.find((r) => /cabinets/i.test(r.name));
+    expect(cabinets?.materialPrice).toBeNull();
+    expect(cabinets?.price).toBe(4000);
+    expect(result.draft.inclusions?.some((s) => /customer supplies cabinets/i.test(s))).toBe(true);
+  });
+
+  test('bulk exterior cut lowers matching priced rows', async () => {
+    const draft = enrichDraft({
+      ...baseDraft(),
+      rooms: [
+        ...(baseDraft().rooms || []),
+        {
+          name: 'Exterior Paint',
+          scope: 'Exterior paint',
+          price: 5000,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: true,
+          priceProvidedByUser: true,
+        },
+        {
+          name: 'Walls',
+          scope: 'Interior walls',
+          price: 4000,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: true,
+          priceProvidedByUser: true,
+        },
+      ],
+    });
+    const result = await refineEstimateDraft(draft, 'cut exterior items 10%', { openai: null });
+    const exterior = result.draft.rooms.find((r) => /exterior paint/i.test(r.name));
+    const walls = result.draft.rooms.find((r) => /^Walls$/i.test(r.name));
+    expect(exterior?.price).toBe(4500);
+    expect(walls?.price).toBe(4000);
+  });
+
+  test('remove demo with customer explanation is handled deterministically', async () => {
+    const openai = fakeOpenAi({});
+    const result = await refineEstimateDraft(
+      enrichDraft({
+        ...baseDraft(),
+        rooms: [
+          ...baseDraft().rooms,
+          {
+            name: 'Demo',
+            scope: 'Demolition',
+            price: 1000,
+            priceIncludesLaborAndMaterials: true,
+            priceProvidedByUser: true,
+          },
+        ],
+      }),
+      'remove demo, customer doing it',
+      { openai, aiModels: AI_DEPS_MODELS, aiRuntime: AI_DEPS_RUNTIME }
+    );
+    expect(result.source).toBe('rules');
+    expect(result.draft.rooms.some((r) => /^demo$/i.test(r.name))).toBe(false);
+  });
+
+  test('blocked duplicate add returns helpful warning instead of silent notes', async () => {
+    const draft = enrichDraft({
+      ...baseDraft(),
+      rooms: [
+        ...(baseDraft().rooms || []),
+        {
+          name: 'Pool Installation',
+          scope: 'Pool install',
+          price: 12000,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: true,
+          priceProvidedByUser: true,
+        },
+      ],
+    });
+    const result = await refineEstimateDraft(draft, 'add pool installation', { openai: null });
+    expect(result.warnings?.length || result.appliedSummary.length).toBeGreaterThan(0);
+    expect(
+      [...(result.warnings || []), ...(result.appliedSummary || [])].some((s) =>
+        /already on the bid|overlaps with/i.test(s)
+      )
+    ).toBe(true);
   });
 
   test('disposal price command updates cleanup package and itemQuantities', async () => {

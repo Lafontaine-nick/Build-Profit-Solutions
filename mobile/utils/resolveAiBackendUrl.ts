@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { getMetroBackendOrigin, getNetworkInfo } from './networkDetection';
+import { resolveBackendRestApiBaseUrl } from './resolveBackendRestApiUrl';
 import { clerkAuthService } from '@/services/clerkAuth';
 import { getAuthTokenWithFallback } from '@/utils/authTokenHelper';
 import { fetchWorkspaceClerkToken } from '@/utils/workspaceAuthBridge';
@@ -87,8 +88,25 @@ export function resolveAiBaseUrl(): string {
     return stripApiBaseSuffix(envBase);
   }
 
-  // Physical device: Metro host IP is authoritative — phone already reached the Mac at this address.
+  // Physical device: in dev, use the same LAN host as REST (projects, pricing, etc.).
+  // Metro IP detection can disagree with EXPO_PUBLIC_API_BASE_URL and POST never reaches the Mac.
   if (Platform.OS !== 'web' && Constants.isDevice) {
+    if (__DEV__) {
+      try {
+        const restOrigin = stripApiBaseSuffix(resolveBackendRestApiBaseUrl());
+        if (
+          restOrigin &&
+          isNonPublicDevBackendBase(restOrigin) &&
+          !restOrigin.includes('192.168.1.115') &&
+          !/render\.com/i.test(restOrigin)
+        ) {
+          return restOrigin;
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+
     const metroOrigin = getMetroBackendOrigin();
     if (metroOrigin) {
       return metroOrigin;
@@ -387,6 +405,35 @@ function originFromAssistantUrl(url: string): string {
   return url.replace(/\/api\/ai-assistant.*$/i, '').replace(/\/$/, '');
 }
 
+const AI_AUTH_TIMEOUT_MS = 8000;
+
+/** Clerk getToken() can hang on device; prefer cached JWT from AsyncStorage. */
+async function resolveAiAuthToken(): Promise<string | null> {
+  const cached = await Promise.race([
+    getAuthTokenWithFallback(),
+    new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 3000)),
+  ]);
+  if (cached) return cached;
+
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const clerkTokenPromise = (async () => {
+      const workspaceToken = await fetchWorkspaceClerkToken();
+      if (workspaceToken) return workspaceToken;
+      return getAuthTokenWithFallback(async () => clerkAuthService.getToken());
+    })();
+
+    return await Promise.race([
+      clerkTokenPromise,
+      new Promise<string | null>((resolve) => {
+        timeoutId = setTimeout(() => resolve(null), AI_AUTH_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 /** Quick /health probe so unreachable LAN backends fail in ~8s instead of hanging ~90s on POST. */
 async function filterReachableAiAssistantUrls(urls: string[], probeMs = 8000): Promise<string[]> {
   const byOrigin = new Map<string, string[]>();
@@ -397,8 +444,7 @@ async function filterReachableAiAssistantUrls(urls: string[], probeMs = 8000): P
     byOrigin.set(origin, list);
   }
 
-  const reachableOrigins: string[] = [];
-  for (const origin of byOrigin.keys()) {
+  const probeOrigin = async (origin: string): Promise<string | null> => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
       const controller = new AbortController();
@@ -408,11 +454,17 @@ async function filterReachableAiAssistantUrls(urls: string[], probeMs = 8000): P
       // Authentication-protected probes commonly return 401/403. That still
       // proves the backend is reachable; only server failures should exclude
       // an origin before the real authenticated request is attempted.
-      if (res.status < 500) reachableOrigins.push(origin);
+      return res.status < 500 ? origin : null;
     } catch {
       if (timeoutId) clearTimeout(timeoutId);
+      return null;
     }
-  }
+  };
+
+  const probeResults = await Promise.all(
+    [...byOrigin.keys()].map((origin) => probeOrigin(origin))
+  );
+  const reachableOrigins = probeResults.filter((origin): origin is string => Boolean(origin));
 
   if (reachableOrigins.length === 0) {
     const lanOnly = [...byOrigin.keys()].every(
@@ -427,41 +479,48 @@ async function filterReachableAiAssistantUrls(urls: string[], probeMs = 8000): P
   }
 
   const reachable = urls.filter((u) => reachableOrigins.includes(originFromAssistantUrl(u)));
-  const unreachable = urls.filter((u) => !reachableOrigins.includes(originFromAssistantUrl(u)));
-  return [...reachable, ...unreachable];
+  // Do not fall back to unreachable origins — each dead POST waited up to 90s and looked like a hang.
+  return reachable.length > 0 ? reachable : urls;
 }
 
 export async function postAiAssistantJson<T>(
   routePath: string,
   body: unknown,
-  timeout = 90000
+  timeout = 90000,
+  providedAuthToken?: string | null
 ): Promise<T> {
-  const urls = buildAiAssistantEndpointUrls(routePath);
-  const reachableUrls = await filterReachableAiAssistantUrls(urls);
-  // The workspace bridge is registered from the Clerk provider and calls
-  // Clerk's real `getToken()`, which refreshes expired session JWTs. The
-  // legacy auth service only stores a snapshot and can be stale.
-  const authToken =
-    (await fetchWorkspaceClerkToken()) ||
-    (await getAuthTokenWithFallback(async () => clerkAuthService.getToken()));
+  const path = routePath.startsWith('/') ? routePath : `/${routePath}`;
+  // Skip multi-origin health probes — extra LAN IPs hang iOS fetch and the POST never starts.
   if (__DEV__) {
-    console.log(
-      '🤖 AI POST',
-      routePath,
-      '→',
-      reachableUrls[0],
-      reachableUrls.length > 1 ? `(+${reachableUrls.length - 1} fallbacks)` : ''
+    console.warn('🤖 postAiAssistantJson entered', routePath);
+  }
+  const origin = resolveAiBaseUrl();
+  const url = `${origin}/api/ai-assistant${path}`;
+  if (__DEV__) {
+    console.warn('🤖 AI POST starting', routePath, '→', url);
+  }
+  const authToken =
+    (providedAuthToken && providedAuthToken.trim()) ||
+    (await Promise.race([
+      resolveAiAuthToken(),
+      new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 8000)),
+    ]));
+  if (__DEV__) {
+    console.warn('🤖 AI POST', routePath, authToken ? '(auth ok)' : '(no auth token)');
+  }
+  if (!authToken) {
+    throw new Error(
+      'Sign in is required to generate a draft. Sign out and sign back in, then try again.'
     );
   }
 
-  // OpenAI-backed routes often exceed the 8s LAN fail-fast window — use the full timeout.
   const response = await fetchBackendWithFallback(
-    reachableUrls,
+    [url],
     {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        Authorization: `Bearer ${authToken}`,
       },
       body: JSON.stringify(body),
     },

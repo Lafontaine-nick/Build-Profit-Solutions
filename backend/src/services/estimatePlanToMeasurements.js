@@ -19,6 +19,7 @@ const ALLOWED_MIME = new Set([
   "image/webp",
 ]);
 const PDF_MIME = "application/pdf";
+const { createOpenAiChatCompletion } = require("../utils/openaiChatCompletionParams");
 const {
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
@@ -4248,7 +4249,7 @@ async function analyzePlanForMeasurements({
     electricalSelected || insulationSelected
       ? 0
       : Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15);
-  const measurementsPromise = openai.chat.completions.create({
+  const measurementsPromise = createOpenAiChatCompletion(openai, {
     model: aiModels.assistant.vision,
     response_format: aiRuntime.assistant.vision.responseFormat,
     temperature: planVisionTemperature,
@@ -4388,7 +4389,7 @@ async function analyzePlanForMeasurements({
   // A focused trade pass helps PDF file inputs where the general takeoff reads
   // the text layer but does not inspect graphical elevation geometry deeply.
   const createTradeVisualCompletion = () =>
-    openai.chat.completions.create({
+    createOpenAiChatCompletion(openai, {
       model: aiModels.assistant.vision,
       response_format: aiRuntime.assistant.vision.responseFormat,
       temperature: planVisionTemperature,

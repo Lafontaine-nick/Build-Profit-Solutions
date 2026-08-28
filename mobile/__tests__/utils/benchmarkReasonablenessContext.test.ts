@@ -456,6 +456,62 @@ describe('benchmarkReasonablenessContext', () => {
     expect(totals?.total).toBe(508000);
   });
 
+  it('sumStep3ReviewBudgetTotals does not double-count painting Walls after Ask AI qty+rate', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'prep', label: 'Prep & Masking', state: 'included', inputType: 'yes_no' },
+      { id: 'interior_paint', label: 'Walls', state: 'included', inputType: 'yes_no' },
+      { id: 'trim_paint', label: 'Trim', state: 'included', inputType: 'yes_no' },
+    ];
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'painting', items },
+      scopePackages: [
+        {
+          name: 'Prep & Masking',
+          scope: 'Prep',
+          price: 1485,
+          knownSubtotal: 1485,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+        },
+        {
+          name: 'Walls',
+          scope: 'Interior walls',
+          price: 6700,
+          knownSubtotal: 6700,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          scopeQuantities: [{ quantity: 2000, unit: 'sqft' }],
+        },
+        {
+          name: 'Trim',
+          scope: 'Baseboards',
+          price: 1400,
+          knownSubtotal: 1400,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+        },
+      ],
+      scopeMeasurements: {
+        wallPaintSqft: 1500,
+        itemQuantities: {
+          prep: { quantity: 1485, unit: 'allowance', quantitySource: 'user_entered' },
+          interior_paint: { quantity: 6700, unit: 'allowance', quantitySource: 'user_entered' },
+          interior_paint__allowance: { quantity: 6700, unit: 'allowance', quantitySource: 'user_entered' },
+          trim_paint: { quantity: 1400, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          prep: { status: 'accepted', totalAmount: 1485 },
+          interior_paint: { status: 'accepted', totalAmount: 6700 },
+          trim_paint: { status: 'accepted', totalAmount: 1400 },
+        },
+      },
+    } as never;
+
+    const totals = sumStep3ReviewBudgetTotals(draft);
+    expect(totals?.total).toBe(9585);
+  });
+
   it('sumStep3ReviewBudgetTotals does not double-count stale AI packages without Applied pricing', () => {
     const items: ScopeChecklistItem[] = [
       {

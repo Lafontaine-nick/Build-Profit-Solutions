@@ -6,8 +6,10 @@
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
 import {
   formatUnitLabel,
+  isNationalAverageComparisonBlock,
   type SuggestedPricingBlock,
 } from '@/utils/scopeItemQuantities';
+import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics/flags';
 import { BATHROOM_VANITY_COUNTERTOP_VIEW_DETAILS } from '@/utils/bathroomVanityCountertopPricing';
 import {
   buildToiletRelocatePricingDetails,
@@ -327,8 +329,16 @@ export function displayPriceSourceLabel(
   if (/southern\s*utah|local\s*benchmark/i.test(stripped)) {
     return 'Local benchmark';
   }
-  if (/saved|template|company|pricing library/i.test(stripped)) {
+  if (/^saved pricing$/i.test(stripped) || /^pricing library$/i.test(stripped)) {
     return 'Saved pricing';
+  }
+  if (/^from this bid$/i.test(stripped)) {
+    return 'From this bid';
+  }
+  if (/^from saved template/i.test(stripped)) {
+    return stripped.length > 40
+      ? `${stripped.slice(0, 37).trimEnd()}…`
+      : stripped;
   }
   if (/user\s*adjust/i.test(stripped)) {
     return 'User adjusted';
@@ -583,11 +593,8 @@ export function suggestedCardTitle(input: {
     'Adjusted · '
   );
   const usesSavedPricing =
-    input.materialSource === 'template' ||
-    input.laborSource === 'template' ||
-    /saved\s*pricing|pricing\s*library|saved\s*rate/i.test(
-      String(input.rateSourceLabel || '')
-    );
+    (input.materialSource === 'template' || input.laborSource === 'template') &&
+    /^saved pricing$/i.test(String(input.rateSourceLabel || '').trim());
   // Installed local paint budgets display as pricing (not a soft-cost allowance).
   if (input.installedBudgetBenchmark) {
     return adjusted ? 'Adjusted pricing' : 'Suggested pricing';
@@ -610,6 +617,49 @@ export function suggestedCardTitle(input: {
   if (usesSavedPricing)
     return adjusted ? 'Adjusted saved pricing' : 'Saved pricing';
   return adjusted ? 'Adjusted pricing' : 'Suggested pricing';
+}
+
+/** True when Confirm Scope bulk-apply should include a row (matches green Apply CTAs). */
+export function shouldIncludeConfirmScopeBulkApplyRow(input: {
+  block: SuggestedPricingBlock;
+  hasCommittedPricing: boolean;
+}): boolean {
+  const { block, hasCommittedPricing } = input;
+  if (block.needsServiceAmperage) return false;
+  if (block.benchmarkAction === 'included_in_stage') return false;
+  if (block.benchmarkAction === 'comparison_only') {
+    return (
+      isNationalAverageComparisonBlock(block) && !hasCommittedPricing
+    );
+  }
+  if (block.isComparison && !isNationalAverageComparisonBlock(block)) {
+    return false;
+  }
+  if (
+    hasCommittedPricing &&
+    (isNationalAverageComparisonBlock(block) ||
+      /national\s*average/i.test(String(block.rateSourceLabel || '')))
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Planning benchmark rows still show Apply — tracked for footer info only. */
+export function isConfirmScopePlanningBenchmarkRow(
+  block: SuggestedPricingBlock
+): boolean {
+  if (!measurementSemanticsV1Enabled()) return false;
+  const isBenchmark =
+    block.materialSource === 'local_benchmark' ||
+    block.laborSource === 'local_benchmark' ||
+    Boolean(block.benchmarkEvidence);
+  const action = block.benchmarkAction;
+  return (
+    action === 'benchmark_only' ||
+    (isBenchmark &&
+      !block.benchmarkEvidence?.quantityRoles?.primaryTakeoff?.quantity)
+  );
 }
 
 export function resolveSuggestedActionType(input: {

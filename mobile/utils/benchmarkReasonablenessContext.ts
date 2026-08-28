@@ -222,6 +222,26 @@ export function syncAskAiPricingAcceptanceFromQuantities(
   if (!measurements?.itemQuantities) return measurements || {};
   let pricingAcceptance = measurements.pricingAcceptance;
   for (const [itemId, entry] of Object.entries(measurements.itemQuantities)) {
+    const baseId = /__(material|labor|allowance)$/.test(itemId)
+      ? itemId.replace(/__(material|labor|allowance)$/, '')
+      : itemId;
+    if (/__(material|labor|allowance)$/.test(itemId) && itemId.endsWith('__allowance')) {
+      const amount = Number(String(entry?.quantity ?? '').replace(/,/g, ''));
+      if (
+        entry?.quantitySource === 'user_entered' &&
+        amount > 0 &&
+        pricingAcceptance?.[baseId]
+      ) {
+        const next = markManualPricingAdjustment(
+          pricingAcceptance[baseId],
+          baseId,
+          pricingAcceptance,
+          amount
+        );
+        if (next !== pricingAcceptance) pricingAcceptance = next;
+      }
+      continue;
+    }
     if (/__(material|labor|allowance)$/.test(itemId)) continue;
     if (entry?.quantitySource !== 'user_entered') continue;
     const unit = String(entry?.unit || '').toLowerCase();
@@ -740,6 +760,7 @@ export function sumStep3ReviewBudgetTotals(
   );
 
   const extra = { material: 0, labor: 0, allowance: 0, total: 0 };
+  const seenExtraRuleKeys = new Set<string>();
   for (const pkg of getScopePackagesRaw(draft)) {
     const amount = scopePackagePricedAmount(pkg, draft);
     if (!(amount > 0)) continue;
@@ -755,6 +776,7 @@ export function sumStep3ReviewBudgetTotals(
 
     if (inAppliedBreakdown) {
       if (!isUserProvidedScopePackage(pkg)) continue;
+      if (ruleKey && seenExtraRuleKeys.has(ruleKey)) continue;
       const appliedAmount = resolveAppliedScopeMoneyTotal(
         ruleKey!,
         measurements.itemQuantities,
@@ -767,6 +789,7 @@ export function sumStep3ReviewBudgetTotals(
         extra.labor += buckets.labor;
         extra.allowance += buckets.allowance;
         extra.total += delta;
+        if (ruleKey) seenExtraRuleKeys.add(ruleKey);
       }
       continue;
     }
@@ -777,12 +800,14 @@ export function sumStep3ReviewBudgetTotals(
     // Ask AI / Step 3 manual rows not on the Confirm Scope checklist (e.g. Disposal Bid).
     // Do not add stale AI package prices for checklist rows that never got Applied pricing.
     if (!isUserProvidedScopePackage(pkg)) continue;
+    if (ruleKey && seenExtraRuleKeys.has(ruleKey)) continue;
 
     const buckets = bucketExtraScopePackageAmount(pkg, draft, amount);
     extra.material += buckets.material;
     extra.labor += buckets.labor;
     extra.allowance += buckets.allowance;
     extra.total += amount;
+    if (ruleKey) seenExtraRuleKeys.add(ruleKey);
   }
 
   if (!(extra.total > 0)) return applied;

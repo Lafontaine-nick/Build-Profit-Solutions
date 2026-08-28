@@ -60,20 +60,98 @@ function draftMeasurementsForAppliedPricing(draft: EstimateAiDraft): ScopeMeasur
   };
 }
 
-function ruleKeysForPackage(pkg: EstimateDraftScopePackage): string[] {
-  // Package already tied to a Confirm Scope row — never inherit sibling pricing via name regex
-  // (e.g. "Plumbing fixtures … toilet …" must not pull toilet's Applied dollars).
-  if (pkg.checklistItemId) return [pkg.checklistItemId];
+const INTERIOR_PAINT_SURFACE_KEYS = ['interior_paint', 'paint', 'paint_trim'] as const;
 
+function addRuleKey(keys: string[], key: string | null | undefined): void {
+  if (key && !keys.includes(key)) keys.push(key);
+}
+
+function expandInteriorPaintSurfaceAliases(keys: string[]): string[] {
+  const out = [...keys];
+  if (keys.some((key) => INTERIOR_PAINT_SURFACE_KEYS.includes(key as (typeof INTERIOR_PAINT_SURFACE_KEYS)[number]))) {
+    for (const alias of INTERIOR_PAINT_SURFACE_KEYS) addRuleKey(out, alias);
+  }
+  return out;
+}
+
+/** Keys that may hold Applied Confirm Scope dollars for a Step 3 package row. */
+function appliedPricingRuleKeysForPackage(pkg: EstimateDraftScopePackage): string[] {
   const keys: string[] = [];
-  for (const key of ruleKeysToTryForPackage(pkg.name, pkg.scope || '')) {
-    if (!keys.includes(key)) keys.push(key);
+  addRuleKey(keys, pkg.checklistItemId);
+  addRuleKey(keys, pkg.costCode);
+  for (const key of ruleKeysToTryForPackage(pkg.name || '', pkg.scope || '')) {
+    addRuleKey(keys, key);
   }
   if (!keys.length) {
-    const fallback = lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
-    if (fallback) keys.push(fallback);
+    addRuleKey(keys, lookupRuleKeyForPackage(pkg.name || '', pkg.scope || ''));
   }
-  return keys;
+
+  const primary = pkg.checklistItemId || pkg.costCode || keys[0] || null;
+  // Prep / exterior prep are separate add-ons — never copy wall or exterior paint totals.
+  if (primary === 'prep' || primary === 'exterior_prep') {
+    return [primary];
+  }
+  if (primary === 'ceiling_paint') {
+    return expandInteriorPaintSurfaceAliases(['ceiling_paint', ...keys]);
+  }
+  return expandInteriorPaintSurfaceAliases(keys);
+}
+
+function checklistItemAllowsAppliedRuleKey(
+  ruleKey: string,
+  primaryId: string | null | undefined,
+  items: ReturnType<typeof confirmScopeDisplayItemsFromDraft>
+): boolean {
+  const item = items.find((row) => row.id === ruleKey);
+  if (item) return checklistItemInScope(item);
+  if (!primaryId) return false;
+  const primary = items.find((row) => row.id === primaryId);
+  return Boolean(primary && checklistItemInScope(primary));
+}
+
+/**
+ * Painting prep / mask add-ons are included in standard interior or exterior paint
+ * when those surfaces already have Applied pricing on Confirm Scope.
+ */
+export function isPaintingAddonCoveredByAppliedSurfacePricing(
+  itemId: string,
+  draft: EstimateAiDraft | null | undefined
+): boolean {
+  if (!draft || !itemId) return false;
+  if (String(draft.scopeChecklist?.templateKey || '').toLowerCase() !== 'painting') {
+    return false;
+  }
+  if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) {
+    return false;
+  }
+
+  const items = confirmScopeDisplayItemsFromDraft(draft);
+  if (!items.length) return false;
+  const measurements = draftMeasurementsForAppliedPricing(draft);
+  const quantities = measurements.itemQuantities || {};
+  const acceptance = measurements.pricingAcceptance || {};
+  const surfacePricingApplied = (ids: readonly string[]) => {
+    const inScope = ids.some((id) => {
+      const item = items.find((row) => row.id === id);
+      return item && checklistItemInScope(item);
+    });
+    if (!inScope) return false;
+    return ids.some((id) => hasAcceptedScopePricing(id, quantities, acceptance));
+  };
+
+  if (itemId === 'prep') {
+    return surfacePricingApplied([...INTERIOR_PAINT_SURFACE_KEYS, 'ceiling_paint']);
+  }
+  if (itemId === 'exterior_prep') {
+    return surfacePricingApplied(['exterior_paint']);
+  }
+  if (itemId === 'ceiling_paint') {
+    const method = draft.scopeMeasurements?.paintPricingMethod;
+    if (method === 'combined') {
+      return surfacePricingApplied(INTERIOR_PAINT_SURFACE_KEYS);
+    }
+  }
+  return false;
 }
 
 /** Confirm Scope applied dollars for a Step 3 package when package.price is empty. */
@@ -90,9 +168,9 @@ export function resolveAppliedConfirmScopePackagePricing(
   const quantities = measurements.itemQuantities || {};
   const acceptanceMap = measurements.pricingAcceptance || {};
 
-  for (const ruleKey of ruleKeysForPackage(pkg)) {
-    const item = items.find((i) => i.id === ruleKey);
-    if (!item || !checklistItemInScope(item)) continue;
+  for (const ruleKey of appliedPricingRuleKeysForPackage(pkg)) {
+    const primaryId = pkg.checklistItemId || pkg.costCode || null;
+    if (!checklistItemAllowsAppliedRuleKey(ruleKey, primaryId, items)) continue;
     if (!hasAcceptedScopePricing(ruleKey, quantities, acceptanceMap)) continue;
 
     const total = resolveAppliedScopeMoneyTotal(ruleKey, quantities, acceptanceMap[ruleKey]);
@@ -136,9 +214,9 @@ export function resolveConfirmScopePackagePricingAcceptance(
   if (!items.length) return null;
   const measurements = draftMeasurementsForAppliedPricing(draft);
   const acceptanceMap = measurements.pricingAcceptance || {};
-  for (const ruleKey of ruleKeysForPackage(pkg)) {
-    const item = items.find((i) => i.id === ruleKey);
-    if (!item || !checklistItemInScope(item)) continue;
+  for (const ruleKey of appliedPricingRuleKeysForPackage(pkg)) {
+    const primaryId = pkg.checklistItemId || pkg.costCode || null;
+    if (!checklistItemAllowsAppliedRuleKey(ruleKey, primaryId, items)) continue;
     const acceptance = acceptanceMap[ruleKey];
     if (acceptance) return acceptance;
   }
@@ -226,10 +304,12 @@ export function resolveNationalAverageScopePackagePricing(
   const quantities = measurements.itemQuantities || {};
   const acceptanceMap = measurements.pricingAcceptance || {};
 
-  for (const ruleKey of ruleKeysForPackage(pkg)) {
-    const item = items.find((i) => i.id === ruleKey);
-    if (!item || !checklistItemInScope(item)) continue;
+  for (const ruleKey of appliedPricingRuleKeysForPackage(pkg)) {
+    const primaryId = pkg.checklistItemId || pkg.costCode || null;
+    if (!checklistItemAllowsAppliedRuleKey(ruleKey, primaryId, items)) continue;
     if (hasAcceptedScopePricing(ruleKey, quantities, acceptanceMap)) continue;
+    const item = items.find((i) => i.id === ruleKey) || items.find((i) => i.id === primaryId);
+    if (!item) continue;
     return nationalAveragePricingForRuleKey(ruleKey, item, draft, measurements);
   }
 

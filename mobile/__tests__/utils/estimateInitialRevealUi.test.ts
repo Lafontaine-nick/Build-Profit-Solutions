@@ -62,7 +62,7 @@ describe('estimateInitialRevealUi', () => {
     expect(buckets.bidDetails).toEqual(['Customer name', 'Start date']);
   });
 
-  it('builds confirm buckets from draft', () => {
+  it('builds confirm buckets from draft — scope/pricing only', () => {
     const draft = {
       stillNeededReview: ['Customer name', 'Pricing for tile demo', 'Project address'],
       needsReviewItems: [],
@@ -70,9 +70,7 @@ describe('estimateInitialRevealUi', () => {
     } as EstimateAiDraft;
     const buckets = getInitialRevealConfirmItems(draft);
     expect(buckets.pricingScope.some((item) => /tile demo/i.test(item))).toBe(true);
-    expect(buckets.bidDetails).toEqual(
-      expect.arrayContaining(['Customer name', 'Project address'])
-    );
+    expect(buckets.bidDetails).toEqual([]);
   });
 
   it('labels scope meta separately from checklist gaps', () => {
@@ -82,7 +80,8 @@ describe('estimateInitialRevealUi', () => {
 
   it('defaults scope open for small jobs', () => {
     expect(shouldDefaultExpandInitialRevealScope(7)).toBe(true);
-    expect(shouldDefaultExpandInitialRevealScope(9)).toBe(false);
+    expect(shouldDefaultExpandInitialRevealScope(9)).toBe(true);
+    expect(shouldDefaultExpandInitialRevealScope(13)).toBe(false);
   });
 
   it('shows planning disclaimer when total exists and gaps remain', () => {
@@ -91,6 +90,7 @@ describe('estimateInitialRevealUi', () => {
         {
           heroTotal: 8976,
           heroTotalLabel: 'Initial estimate (incl. markup)',
+          markupPct: 20,
           material: 2530,
           labor: 4950,
           allowance: null,
@@ -155,6 +155,7 @@ describe('estimateInitialRevealUi', () => {
       {
         heroTotal: null,
         heroTotalLabel: 'Initial estimate',
+        markupPct: null,
         material: null,
         labor: null,
         allowance: null,
@@ -165,6 +166,23 @@ describe('estimateInitialRevealUi', () => {
     );
     expect(display.amountText).toBe('—');
     expect(display.hint).toContain('Confirm scope');
+  });
+
+  it('shows markup subline under hero hint when markup is applied', () => {
+    const display = getInitialRevealHeroDisplay(
+      {
+        heroTotal: 32111.2,
+        heroTotalLabel: 'Initial estimate (incl. markup)',
+        markupPct: 15,
+        material: 7312.5,
+        labor: 19446.83,
+        allowance: null,
+        estimatedWithMarkup: 32111.2,
+        scopeItemCount: 9,
+      },
+      false
+    );
+    expect(display.markupSubline).toBe('15% markup');
   });
 
   it('uses project title for display heading', () => {

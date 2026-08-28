@@ -109,7 +109,6 @@ import {
   fetchSuggestedDraftSplits,
   fetchClarifyDraftQuestions,
   applyClarifyAnswersToDraft,
-  refineDraftWithCommand,
   shouldAutoClarifyDraft,
   fetchRoughEstimateRange,
   getScopePackages,
@@ -3522,7 +3521,7 @@ const blankState = () => ({
   
   // Percentages
   contingencyPct: 7,
-  markupPct: 20,
+  markupPct: 15,
   
   // Contractor Type (1-4)
   contractorType: null, // null = not set; 1–4 = pricing profile presets, 5 = custom
@@ -5287,6 +5286,15 @@ export default function EstimateGeneratorScreen() {
   const [aiDraftGenerating, setAiDraftGenerating] = useState(false);
   const [aiDraftGeneratingPhase, setAiDraftGeneratingPhase] = useState(null);
   const [aiDraftGeneratingSteps, setAiDraftGeneratingSteps] = useState([]);
+  const aiBuilderWasOpenRef = useRef(false);
+  useEffect(() => {
+    if (showAiBuilderModal && !aiBuilderWasOpenRef.current) {
+      setAiDraftGenerating(false);
+      setAiDraftGeneratingPhase(null);
+      setAiDraftGeneratingSteps([]);
+    }
+    aiBuilderWasOpenRef.current = showAiBuilderModal;
+  }, [showAiBuilderModal]);
   const [aiDraftApplying, setAiDraftApplying] = useState(false);
   const [aiDraftRoughLoading, setAiDraftRoughLoading] = useState(false);
   const [aiDraftSuggestingSplits, setAiDraftSuggestingSplits] = useState(false);
@@ -5331,9 +5339,6 @@ export default function EstimateGeneratorScreen() {
   const [aiClarifyQuestionItems, setAiClarifyQuestionItems] = useState(null);
   const [aiClarifyApplying, setAiClarifyApplying] = useState(false);
   const [aiClarifyAppliedSummary, setAiClarifyAppliedSummary] = useState(null);
-  const [aiDraftRefining, setAiDraftRefining] = useState(false);
-  const [aiRefineAppliedSummary, setAiRefineAppliedSummary] = useState(null);
-  const [aiRefineLastCommand, setAiRefineLastCommand] = useState(null);
   const aiSavedPricingAutoRef = useRef(null);
   const aiDraftReviewResumeRef = useRef(false);
   const latestScopeMeasurementsRef = useRef(null);
@@ -5917,20 +5922,11 @@ export default function EstimateGeneratorScreen() {
     });
   }, []);
 
-  const handleInitialRevealClose = useCallback(() => {
-    setShowAiInitialRevealModal(false);
-  }, []);
-
   const handleInitialRevealConfirmScope = useCallback(() => {
     setShowAiInitialRevealModal(false);
     InteractionManager.runAfterInteractions(() => {
       setShowAiScopeAssumptionsModal(true);
     });
-  }, []);
-
-  const handleInitialRevealRegenerate = useCallback(() => {
-    setShowAiInitialRevealModal(false);
-    setShowAiBuilderModal(true);
   }, []);
 
   /** After complex-job scope is confirmed, run saved pricing then rough pricing. */
@@ -5972,8 +5968,10 @@ export default function EstimateGeneratorScreen() {
         draftHasApplyablePricing(syncedDraft) && !draftHasUnpricedScope(syncedDraft);
 
       if (skipPricing || notePricingComplete) {
+        setAiClarifyQuestions(null);
+        setAiClarifyQuestionItems(null);
+        setAiClarifyAppliedSummary(null);
         openAiDraftReviewAfterScope(syncedDraft);
-        prefetchClarifyForDraft(syncedDraft);
         return;
       }
 
@@ -6038,55 +6036,71 @@ export default function EstimateGeneratorScreen() {
     ]
   );
 
-  const handleGenerateAiDraft = useCallback(async (notes, photoDetections, planImport, sitePhotos, photoExistingFeatures) => {
-    if (aiDraftGenerating) return;
-    const effectivePlanImport =
-      planImport ||
-      aiLastPlanImport ||
-      planImportPayloadFromDraft(aiDraft) ||
-      null;
-    const hasPhotos =
-      (Array.isArray(photoDetections) && photoDetections.length > 0) ||
-      (Array.isArray(sitePhotos) && sitePhotos.length > 0);
-    const hasPlanImport = Boolean(
-      effectivePlanImport &&
-        (Object.keys(effectivePlanImport.measurements || {}).length ||
-          effectivePlanImport.rooms?.length ||
-          effectivePlanImport.scopeDetections?.length ||
-          effectivePlanImport.planFacts ||
-          effectivePlanImport.buildingAreas ||
-          effectivePlanImport.tradeWorkflowSource === 'standalone_trade')
-    );
-    const generateSteps = buildAiGenerateSteps({ hasPhotos, hasPlanImport });
-    const advanceGeneratePhase = (phaseId) => setAiDraftGeneratingPhase(phaseId);
-    setAiDraftGeneratingSteps(generateSteps);
-    advanceGeneratePhase(generateSteps[0]);
-    setAiDraftGenerating(true);
-    setAiDraftNotes(notes);
-    setAiPhotoDetections(Array.isArray(photoDetections) ? photoDetections : []);
-    setAiPhotoExistingFeatures(Array.isArray(photoExistingFeatures) ? photoExistingFeatures : []);
-    setAiSitePhotos(Array.isArray(sitePhotos) ? sitePhotos : []);
-    setAiDraft(null);
-      latestScopeMeasurementsRef.current = null;
-    AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
-    setShowAiScopeAssumptionsModal(false);
-    setShowAiInitialRevealModal(false);
-    setShowAiDraftReviewModal(false);
-    setShowAiSavedPricingModal(false);
-    setAiClarifyQuestions(null);
-    setAiClarifyQuestionItems(null);
-    setAiClarifyAppliedSummary(null);
-    setAiRefineAppliedSummary(null);
-    setAiRefineLastCommand(null);
-    aiSavedPricingAutoRef.current = null;
+  const handleGenerateAiDraft = useCallback(async (notes, photoDetections, planImport, sitePhotos, photoExistingFeatures, prefetchedAuthToken) => {
     try {
-      let templates = savedBidTemplates;
-      try {
-        templates = await loadSavedBidTemplates();
-        setSavedBidTemplates(templates);
-      } catch {
-        templates = savedBidTemplates;
+      if (__DEV__) {
+        console.warn('🤖 handleGenerateAiDraft — starting');
       }
+      let authToken =
+        (prefetchedAuthToken && String(prefetchedAuthToken).trim()) || null;
+      if (!authToken) {
+        authToken = await Promise.race([
+          getToken(),
+          new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
+        ]);
+      }
+      if (__DEV__) {
+        console.warn('🤖 auth ready for draft POST', authToken ? '(token ok)' : '(no token)');
+      }
+      if (!authToken) {
+        throw new Error(
+          'Sign in is required to generate a draft. Sign out and sign back in, then try again.'
+        );
+      }
+      // The token is ready; do not block the request on a native storage write.
+      setTimeout(() => {
+        void syncClerkTokenToAsyncStorage(authToken).catch(() => {});
+      }, 0);
+
+      const effectivePlanImport =
+        planImport ||
+        aiLastPlanImport ||
+        planImportPayloadFromDraft(aiDraft) ||
+        null;
+      const hasPhotos =
+        (Array.isArray(photoDetections) && photoDetections.length > 0) ||
+        (Array.isArray(sitePhotos) && sitePhotos.length > 0);
+      const hasPlanImport = Boolean(
+        effectivePlanImport &&
+          (Object.keys(effectivePlanImport.measurements || {}).length ||
+            effectivePlanImport.rooms?.length ||
+            effectivePlanImport.scopeDetections?.length ||
+            effectivePlanImport.planFacts ||
+            effectivePlanImport.buildingAreas ||
+            effectivePlanImport.tradeWorkflowSource === 'standalone_trade')
+      );
+      const generateSteps = buildAiGenerateSteps({ hasPhotos, hasPlanImport });
+      const advanceGeneratePhase = (phaseId) => setAiDraftGeneratingPhase(phaseId);
+      if (__DEV__) console.warn('🤖 draft UI state ready');
+      setAiDraftGeneratingSteps(generateSteps);
+      setAiDraftGenerating(true);
+      advanceGeneratePhase('building_scope');
+      setAiDraftNotes(notes);
+      setAiPhotoDetections(Array.isArray(photoDetections) ? photoDetections : []);
+      setAiPhotoExistingFeatures(Array.isArray(photoExistingFeatures) ? photoExistingFeatures : []);
+      setAiSitePhotos(Array.isArray(sitePhotos) ? sitePhotos : []);
+      setAiDraft(null);
+      latestScopeMeasurementsRef.current = null;
+      // Old progress is cleared after the network request starts.
+      setShowAiScopeAssumptionsModal(false);
+      setShowAiInitialRevealModal(false);
+      setShowAiDraftReviewModal(false);
+      setShowAiSavedPricingModal(false);
+      setAiClarifyQuestions(null);
+      setAiClarifyQuestionItems(null);
+      setAiClarifyAppliedSummary(null);
+      aiSavedPricingAutoRef.current = null;
+      const templates = savedBidTemplates;
       // Whole-home plan takeoffs must classify as ground_up — otherwise Confirm Scope
       // gets remodel cards (Demo / Framing or layout changes) instead of excavation,
       // flatwork, framing, MEP, exterior paint, etc.
@@ -6098,8 +6112,28 @@ export default function EstimateGeneratorScreen() {
             notes,
             planImportLooksLikeGroundUp(effectivePlanImport)
           );
+      if (__DEV__) {
+        console.warn('🤖 calling estimate-draft-from-notes', {
+          notesLength: String(notesForDraft || '').length,
+          templateCount: templates.length,
+        });
+      }
       advanceGeneratePhase('building_scope');
-      let draft = await fetchEstimateDraftFromNotes(notesForDraft, templates);
+      let draft = await Promise.race([
+        fetchEstimateDraftFromNotes(notesForDraft, templates, authToken),
+        new Promise((_, reject) => {
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  'Draft generation timed out. Confirm your phone is on the same Wi‑Fi as your Mac, then try again.'
+                )
+              ),
+            45000
+          );
+        }),
+      ]);
+      void AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
       // Photo detections apply directly to the Step 2 checklist (structured vision
       // output, not notes-regex re-parsing) — only fills items still "unsure".
       if (photoDetections?.length || photoExistingFeatures?.length) {
@@ -6138,7 +6172,8 @@ export default function EstimateGeneratorScreen() {
         ) {
           draft = await fetchEstimateDraftFromNotes(
             ensureGroundUpPlanNotes(notesForDraft, true),
-            templates
+            templates,
+            authToken
           );
           if (photoDetections?.length) {
             draft = applyPhotoDetectionsToDraft(draft, photoDetections);
@@ -6176,6 +6211,9 @@ export default function EstimateGeneratorScreen() {
       advanceGeneratePhase('finalizing');
       setAiDraft(draft);
       setShowAiBuilderModal(false);
+      setAiDraftGenerating(false);
+      setAiDraftGeneratingPhase(null);
+      setAiDraftGeneratingSteps([]);
       AsyncStorage.setItem(
         AI_DRAFT_PROGRESS_STORAGE_KEY,
         JSON.stringify({
@@ -6197,14 +6235,15 @@ export default function EstimateGeneratorScreen() {
       } else {
         openAiDraftReviewEntry();
         prefetchClarifyForDraft(draft);
-        const { draft: draftWithProposal, hasProposal } = await applySavedPricingToDraftState(draft, {
+        void applySavedPricingToDraftState(draft, {
           autoApply: false,
           showLoading: false,
+        }).then(({ draft: draftWithProposal, hasProposal }) => {
+          if (hasProposal) {
+            setAiDraft(draftWithProposal);
+            setShowAiSavedPricingModal(true);
+          }
         });
-        if (hasProposal) {
-          setAiDraft(draftWithProposal);
-          setShowAiSavedPricingModal(true);
-        }
       }
 
       if (Platform.OS !== 'web') {
@@ -6229,6 +6268,7 @@ export default function EstimateGeneratorScreen() {
     savedBidTemplates,
     applySavedPricingToDraftState,
     prefetchClarifyForDraft,
+    getToken,
   ]);
 
   const handlePersistScopeProgress = useCallback((items, measurements) => {
@@ -6337,46 +6377,6 @@ export default function EstimateGeneratorScreen() {
     },
     [aiDraft, aiDraftNotes, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope, syncDraftWithLatestScopeMeasurements, openAiDraftReviewEntry]
   );
-
-  const handleScopeAssumptionsScopeOnly = useCallback(async (scopeMeasurements) => {
-    if (!aiDraft || aiScopeAssumptionsApplying) return;
-    const routedDraft =
-      scopeMeasurements?.tradeWorkflowSource === 'standalone_trade'
-        ? applyPlanImportToDraft(aiDraft, {
-            estimatingMode: 'selected_trade',
-            selectedTrade: 'plumbing',
-            tradeWorkflowSource: 'standalone_trade',
-            plumbingWorkflowMode: scopeMeasurements.plumbingWorkflowMode,
-            plumbingPerformerMode: scopeMeasurements.plumbingPerformerMode,
-          })
-        : aiDraft;
-    const baseItems =
-      routedDraft.confirmedAssumptions?.length
-        ? routedDraft.confirmedAssumptions
-        : routedDraft.scopeChecklist?.items || [];
-    const items = baseItems.map((item) => ({
-      ...item,
-      state: item.state === 'excluded' ? 'excluded' : 'unsure',
-    }));
-    setAiScopeAssumptionsApplying(true);
-    let enriched;
-    try {
-        enriched = await applyScopeAssumptionsToDraft(routedDraft, items, scopeMeasurements);
-    } catch (e) {
-      console.warn('handleScopeAssumptionsScopeOnly failed', e);
-      Alert.alert('Scope only', e?.message || 'Could not continue. Please try again.');
-      return;
-    } finally {
-      setAiScopeAssumptionsApplying(false);
-    }
-
-    try {
-      await advanceComplexDraftAfterScope(enriched, { skipPricing: true });
-    } catch (e) {
-      console.warn('advanceComplexDraftAfterScope scope-only failed', e);
-      openAiDraftReviewAfterScope(enriched);
-    }
-  }, [aiDraft, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope, openAiDraftReviewAfterScope]);
 
   const handleSuggestMissingPrices = useCallback(async () => {
     if (!aiDraft || aiDraftSuggestingMissing) return;
@@ -6913,35 +6913,6 @@ export default function EstimateGeneratorScreen() {
 
   const handleDismissClarifyApplied = useCallback(() => {
     setAiClarifyAppliedSummary(null);
-  }, []);
-
-  const handleRefineAiDraft = useCallback(
-    async (command) => {
-      if (!aiDraft || aiDraftRefining || !String(command || '').trim()) return;
-      setAiDraftRefining(true);
-      try {
-        const result = await refineDraftWithCommand(aiDraft, command);
-        setAiDraft(applyAskAiDraftResult(result.draft));
-        setAiRefineLastCommand(result.command || command);
-        setAiRefineAppliedSummary(
-          result.appliedSummary?.length ? result.appliedSummary : ['Draft updated']
-        );
-        if (Platform.OS !== 'web') {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        }
-      } catch (e) {
-        console.warn('handleRefineAiDraft failed', e);
-        Alert.alert('Could not revise draft', e?.message || 'Please try again.');
-      } finally {
-        setAiDraftRefining(false);
-      }
-    },
-    [aiDraft, aiDraftRefining, applyAskAiDraftResult]
-  );
-
-  const handleDismissRefineSummary = useCallback(() => {
-    setAiRefineAppliedSummary(null);
-    setAiRefineLastCommand(null);
   }, []);
 
   const handleToggleApplySuggestedSplits = useCallback(() => {
@@ -9043,25 +9014,24 @@ export default function EstimateGeneratorScreen() {
             console.log(`⚠️ No customer info found in bid data`);
           }
           
-          // Ensure default markup is 20% if not set, is 0, or is an invalid low value (< 5%)
+          // Ensure default markup is 15% if not set, is 0, or is an invalid low value (< 5%)
           // This catches cases where markup might have been accidentally set to a very low value like 2%
           if (!parsed.markupPct || parsed.markupPct === 0 || parsed.markupPct < 5) {
             if (parsed.markupPct && parsed.markupPct < 5) {
-              console.log(`🔄 Resetting markup from ${parsed.markupPct}% to 20% (value too low, using default)`);
+              console.log(`🔄 Resetting markup from ${parsed.markupPct}% to 15% (value too low, using default)`);
             }
-            parsed.markupPct = 20;
+            parsed.markupPct = 15;
           }
           
-          // Reset markup to 20% if it matches any contractor type default (18, 22, or 27)
+          // Reset markup to 15% if it matches any contractor type default (18, 22, or 27)
           // These were likely auto-applied before we removed that feature
-          // The user wants 20% to be the default for all contractor types
           const contractorTypeDefaults = [14, 17, 18, 20, 22, 27];
           const currentMarkup = parsed.markupPct;
           
-          // If markup is one of the contractor type defaults, reset to 20%
+          // If markup is one of the contractor type defaults, reset to 15%
           if (currentMarkup && contractorTypeDefaults.includes(currentMarkup)) {
-            console.log(`🔄 Resetting markup from ${currentMarkup}% to 20% (was auto-applied, now using default)`);
-            parsed.markupPct = 20;
+            console.log(`🔄 Resetting markup from ${currentMarkup}% to 15% (was auto-applied, now using default)`);
+            parsed.markupPct = 15;
           }
           
           setBid(parsed);
@@ -13858,8 +13828,6 @@ export default function EstimateGeneratorScreen() {
     setAiClarifyQuestions(null);
     setAiClarifyQuestionItems(null);
     setAiClarifyAppliedSummary(null);
-    setAiRefineAppliedSummary(null);
-    setAiRefineLastCommand(null);
     setAiSavedPricingProposal(null);
     setAiRoughPricingProposal(null);
     setShowAiBuilderModal(false);
@@ -16458,7 +16426,7 @@ export default function EstimateGeneratorScreen() {
         let contextualMessage = null;
         const currentMarkupNum = Number(currentMarkup);
         const recommendedMarkupNum = Number(recommendedMarkup);
-        const defaultMarkup = 20; // Global default markup
+        const defaultMarkup = 15; // Global default markup
         
         if (recommendationInfo) {
           const { safeMarkupRange } = recommendationInfo;
@@ -25150,7 +25118,12 @@ export default function EstimateGeneratorScreen() {
         hasExistingDraft={Boolean(aiDraft)}
         fromAssistant={aiDraftFromAssistant}
         onBack={() => {
-          if (aiDraftGenerating) return;
+          if (aiDraftGenerating) {
+            setAiDraftGenerating(false);
+            setAiDraftGeneratingPhase(null);
+            setAiDraftGeneratingSteps([]);
+            return;
+          }
           setShowAiBuilderModal(false);
           if (aiDraftFromAssistant && !bidHasLineItems) {
             setShowAIAssistant(false);
@@ -25190,16 +25163,8 @@ export default function EstimateGeneratorScreen() {
             setShowAiBuilderModal(true);
           }
         }}
-        onClose={() => {
-          if (!aiScopeAssumptionsApplying) {
-            setShowAiScopeAssumptionsModal(false);
-            setAiDraft(null);
-            setAiLastPlanImport(null);
-          }
-        }}
         onConfirm={handleConfirmScopeAssumptions}
         onConfirmBegin={handleConfirmScopeAssumptionsBegin}
-        onScopeOnly={handleScopeAssumptionsScopeOnly}
         onPersistProgress={handlePersistScopeProgress}
         pricingContext={aiScopePricingContext}
         hasSitePhotos={aiSitePhotos.length > 0}
@@ -25211,10 +25176,8 @@ export default function EstimateGeneratorScreen() {
         markupPct={Number(bid?.markupPct) || 0}
         fromAssistant={aiDraftFromAssistant}
         onBack={handleInitialRevealBack}
-        onClose={handleInitialRevealClose}
         onOpenDetailedReview={openAiDraftReviewDetailed}
         onConfirmScope={handleInitialRevealConfirmScope}
-        onRegenerate={handleInitialRevealRegenerate}
       />
 
       <AIEstimateDraftReviewModal
@@ -25230,11 +25193,6 @@ export default function EstimateGeneratorScreen() {
         onSubmitClarifyAnswers={handleApplyClarifyAnswers}
         onDismissClarify={handleDismissClarify}
         onDismissClarifyApplied={handleDismissClarifyApplied}
-        refining={aiDraftRefining}
-        refineAppliedSummary={aiRefineAppliedSummary}
-        refineLastCommand={aiRefineLastCommand}
-        onSubmitRefineCommand={handleRefineAiDraft}
-        onDismissRefineSummary={handleDismissRefineSummary}
         fromAssistant={aiDraftFromAssistant}
         onSuggestSplits={handleSuggestAiDraftSplits}
         onClarifyMissing={handleClarifyAiDraft}

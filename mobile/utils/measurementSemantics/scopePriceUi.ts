@@ -443,6 +443,23 @@ export function benchmarkActionButtonLabel(
   return 'Apply';
 }
 
+/** Secondary footer CTA — scroll to pricing cards instead of bulk-apply. */
+export function footerScrollToPricingButtonLabel(readyCount: number): string | null {
+  if (readyCount <= 0) return null;
+  return readyCount === 1
+    ? 'Review 1 pricing card below'
+    : `Review ${readyCount} pricing cards below`;
+}
+
+/** Muted hint under the scroll-to-pricing button when other scopes still need input. */
+export function footerSuggestedPricingPendingHint(input: {
+  needsMeasurementCount?: number;
+}): string | null {
+  const pending = input.needsMeasurementCount || 0;
+  if (pending <= 0) return null;
+  return `${pending} still to confirm`;
+}
+
 export function footerSuggestedPricingSummary(input: {
   readyCount: number;
   benchmarkOnlyCount: number;
@@ -467,11 +484,8 @@ export function footerSuggestedPricingSummary(input: {
   }
   const parts: string[] = [];
   if (input.readyCount > 0) {
-    parts.push(`${input.readyCount} price${input.readyCount === 1 ? '' : 's'} ready`);
-  }
-  if (input.benchmarkOnlyCount > 0) {
     parts.push(
-      `${input.benchmarkOnlyCount} planning benchmark${input.benchmarkOnlyCount === 1 ? '' : 's'}`
+      `${input.readyCount} price${input.readyCount === 1 ? '' : 's'} ready to apply`
     );
   }
   if ((input.needsMeasurementCount || 0) > 0) {
@@ -549,7 +563,7 @@ export function scopeHasCommittedConfirmScopePrice(params: {
 }
 
 export const FOOTER_PLANNING_BENCHMARK_INFO =
-  'Planning benchmarks require a detailed takeoff or quote before final bidding.';
+  'Some applied prices are planning estimates until you add a detailed takeoff or quote. You can edit any price after applying.';
 
 /** Gross floor area copied from living SF is not a finish takeoff. */
 export function isGrossFlooringDerivedFromLiving(input: {

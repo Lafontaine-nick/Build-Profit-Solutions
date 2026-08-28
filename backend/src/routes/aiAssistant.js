@@ -4,6 +4,7 @@ const axios = require('axios');
 const { authenticateToken } = require('../middleware/authenticateToken');
 const { buildSystemPrompt, buildRouterPrompt } = require('./promptSystem');
 const { createOpenAiClient, getAiModels, getAiRuntimeSettings } = require('../config/aiConfig');
+const { createOpenAiChatCompletion } = require('../utils/openaiChatCompletionParams');
 const { createEstimateDraftFromNotes } = require('../services/estimateDraftFromNotes');
 const { suggestLaborMaterialSplits } = require('../services/estimateDraftSuggestSplits');
 const { clarifyEstimateDraft } = require('../services/estimateDraftClarify');
@@ -509,7 +510,7 @@ async function runRouter(message, history, ctxSummary) {
       contextMessage += '\n\nCRITICAL: The assistant asked "which project?" but the user is clarifying SCOPE: they want ALL completed projects, not a single project name. Set domain = "portfolio", proposed_tool = "compare_projects", tool_args_draft = { status: "completed" }. The user wants aggregate profit/sum across completed projects. Do NOT treat "my completed projects" as a project name.';
     }
 
-    const completion = await openai.chat.completions.create({
+    const completion = await createOpenAiChatCompletion(openai, {
       model: aiModels.assistant.router,
       response_format: aiRuntime.assistant.router.responseFormat,
       messages: [
@@ -7097,7 +7098,7 @@ router.post('/stream', async (req, res) => {
     });
 
     try {
-      const stream = await openai.chat.completions.create({
+      const stream = await createOpenAiChatCompletion(openai, {
         model: aiModels.assistant.response,
         messages,
         temperature: aiRuntime.assistant.stream.temperature,
@@ -12145,7 +12146,7 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
     
     // ✅ WORKING CONFIGURATION - DO NOT CHANGE: Temperature 0.3 and max_tokens 2000 work correctly
     logPhase('executor_llm_start', { toolChoice: typeof finalToolChoice === 'string' ? finalToolChoice : finalToolChoice?.function?.name });
-    let completion = await withTimeout(openai.chat.completions.create({
+    let completion = await withTimeout(createOpenAiChatCompletion(openai, {
       model: aiModels.assistant.response,
       messages: messages,
       tools: functions,
@@ -14123,7 +14124,7 @@ RULES:
 - Return ONLY the JSON, no markdown, no explanation`;
 
             logPhase('estimate_llm_start');
-            const estimateCompletion = await withTimeout(openai.chat.completions.create({
+            const estimateCompletion = await withTimeout(createOpenAiChatCompletion(openai, {
               model: aiModels.assistant.estimate,
               response_format: aiRuntime.assistant.estimate.responseFormat,
               messages: [{ role: 'user', content: estimatePrompt }],
@@ -14476,7 +14477,7 @@ RULES:
 
             let roundCompletion;
             try {
-              roundCompletion = await withTimeout(openai.chat.completions.create({
+              roundCompletion = await withTimeout(createOpenAiChatCompletion(openai, {
                 model: aiModels.assistant.response,
                 messages: roundMessages,
                 tools: readonlyFunctions,
@@ -14705,7 +14706,7 @@ RULES:
         console.log('🛡️ Focus-today: returned deterministic reply, skipped final_llm');
       } else {
         logPhase('final_llm_start');
-        completion = await withTimeout(openai.chat.completions.create({
+        completion = await withTimeout(createOpenAiChatCompletion(openai, {
           model: aiModels.assistant.response,
           messages: messages,
           temperature: aiRuntime.assistant.final.temperature,
@@ -15560,6 +15561,8 @@ router.post('/estimate-draft-refine', async (req, res) => {
     return res.json({
       draft: result.draft,
       appliedSummary: result.appliedSummary,
+      warnings: result.warnings || [],
+      markupPct: result.markupPct ?? null,
       source: result.source,
       command: result.command,
     });
@@ -15998,7 +16001,7 @@ Schema:
       if (name) userTextParts.push(`Context: the contractor is currently working on project "${name}". Still only parse what the receipt actually shows.`);
     }
 
-    const completion = await openai.chat.completions.create({
+    const completion = await createOpenAiChatCompletion(openai, {
       model: aiModels.assistant.vision,
       response_format: aiRuntime.assistant.vision.responseFormat,
       temperature: aiRuntime.assistant.vision.temperature,

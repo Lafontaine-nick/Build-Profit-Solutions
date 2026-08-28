@@ -11,6 +11,7 @@ import type { ScopeItemIntelligence } from '@/utils/scopeIntelligence';
 import { buildConciseBenchmarkScopeWarning } from '@/utils/benchmarkScopeAssumptions';
 import type { AssemblyComponentStatus, ScopeGapNotice } from '@/utils/scopeAssemblyRegistry';
 import type { ResolvedItemQuantity, ScopeItemQuantityValue, SuggestedPricingBlock } from '@/utils/scopeItemQuantities';
+import { displayPriceSourceLabel } from '@/utils/suggestedPricingCardUi';
 import {
   allowanceSplitSubKey,
   clearSuggestedPrefillPricing,
@@ -133,7 +134,9 @@ export function pricingSourceLabelFromBlock(block: SuggestedPricingBlock): strin
     return 'Local benchmark';
   }
   const usesTemplate = block.materialSource === 'template' || block.laborSource === 'template';
-  if (usesTemplate) return 'Saved pricing';
+  if (usesTemplate) {
+    return displayPriceSourceLabel(block.rateSourceLabel);
+  }
   if (block.materialSource === 'notes' || block.laborSource === 'notes') return 'From notes';
   if (block.rateSourceLabel.includes('National') || /builder-budget/i.test(block.rateSourceLabel)) {
     return 'National planning rate';

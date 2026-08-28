@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, Alert, Platform, type ViewStyle } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Audio } from 'expo-av';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import { postAiAssistantJson } from '@/utils/resolveAiBackendUrl';
+import { estimateStep1GhostActionStyle, estimateStep1ActionButtonStyle } from '@/utils/estimateFlowCardStyle';
 
 type Colors = {
   text: string;
@@ -19,6 +20,8 @@ type Props = {
   disabled?: boolean;
   /** Receives the cleaned transcript when transcription completes. */
   onTranscript: (text: string) => void;
+  variant?: 'compact' | 'action' | 'ghost';
+  style?: ViewStyle;
 };
 
 /** Strip standalone filler words Whisper keeps; leave everything else untouched. */
@@ -39,6 +42,8 @@ export default function EstimateVoiceDictationButton({
   darkMode,
   disabled = false,
   onTranscript,
+  variant = 'compact',
+  style,
 }: Props) {
   const [isRecording, setIsRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
@@ -140,6 +145,18 @@ export default function EstimateVoiceDictationButton({
   };
 
   if (transcribing) {
+    if (variant === 'action' || variant === 'ghost') {
+      const shellStyle =
+        variant === 'ghost'
+          ? estimateStep1GhostActionStyle(darkMode)
+          : estimateStep1ActionButtonStyle(Colors, darkMode);
+      return (
+        <View style={[shellStyle, style]}>
+          <ActivityIndicator size="small" color="#22c55e" />
+          <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '600' }}>Transcribing…</Text>
+        </View>
+      );
+    }
     return (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
         <ActivityIndicator size="small" color="#60a5fa" />
@@ -149,29 +166,65 @@ export default function EstimateVoiceDictationButton({
   }
 
   if (isRecording) {
+    const recordingShell =
+      variant === 'ghost'
+        ? [
+            estimateStep1GhostActionStyle(darkMode),
+            {
+              backgroundColor: darkMode ? 'rgba(239, 68, 68, 0.14)' : 'rgba(239, 68, 68, 0.1)',
+            },
+            style,
+          ]
+        : variant === 'action'
+          ? [
+              estimateStep1ActionButtonStyle(Colors, darkMode),
+              {
+                backgroundColor: darkMode ? 'rgba(239, 68, 68, 0.14)' : 'rgba(239, 68, 68, 0.1)',
+                borderColor: 'rgba(239, 68, 68, 0.25)',
+              },
+              style,
+            ]
+          : {
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 999,
+              backgroundColor: darkMode ? 'rgba(239, 68, 68, 0.14)' : 'rgba(239, 68, 68, 0.1)',
+            };
     return (
       <TouchableOpacity
         activeOpacity={0.85}
         onPress={stopRecording}
         accessibilityRole="button"
         accessibilityLabel="Stop recording"
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 6,
-          paddingHorizontal: 10,
-          paddingVertical: 6,
-          borderRadius: 999,
-          backgroundColor: darkMode ? 'rgba(239, 68, 68, 0.14)' : 'rgba(239, 68, 68, 0.1)',
-        }}
+        style={recordingShell}
       >
         <MaterialIcons name="stop-circle" size={18} color="#ef4444" />
-        <Text style={{ color: '#ef4444', fontSize: 12, fontWeight: '700' }}>
+        <Text style={{ color: '#ef4444', fontSize: variant === 'compact' ? 12 : 13, fontWeight: '700' }}>
           {duration}s · tap to stop
         </Text>
       </TouchableOpacity>
     );
   }
+
+  const actionShell =
+    variant === 'ghost'
+      ? [estimateStep1GhostActionStyle(darkMode, { disabled }), style]
+      : variant === 'action'
+        ? [estimateStep1ActionButtonStyle(Colors, darkMode, { disabled }), style]
+        : {
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            paddingHorizontal: 10,
+            paddingVertical: 6,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: darkMode ? 'rgba(148, 163, 184, 0.25)' : Colors.line,
+            opacity: disabled ? 0.5 : 1,
+          };
 
   return (
     <TouchableOpacity
@@ -180,20 +233,18 @@ export default function EstimateVoiceDictationButton({
       onPress={startRecording}
       accessibilityRole="button"
       accessibilityLabel="Dictate walkthrough notes"
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: darkMode ? 'rgba(148, 163, 184, 0.25)' : Colors.line,
-        opacity: disabled ? 0.5 : 1,
-      }}
+      style={actionShell}
     >
-      <MaterialIcons name="mic" size={16} color="#22c55e" />
-      <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>Dictate</Text>
+      <MaterialIcons name="mic" size={variant === 'compact' ? 16 : 18} color="#22c55e" />
+      <Text
+        style={{
+          color: variant === 'ghost' ? Colors.sub : Colors.text,
+          fontSize: variant === 'compact' ? 12 : 13,
+          fontWeight: variant === 'ghost' ? '600' : '700',
+        }}
+      >
+        Dictate
+      </Text>
     </TouchableOpacity>
   );
 }

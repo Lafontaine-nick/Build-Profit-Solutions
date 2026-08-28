@@ -1241,6 +1241,16 @@ const PACKAGE_NAME_TO_RULE_KEY = [
     test: /\bexterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*exterior\b|\b(siding|stucco|soffit|fascia)\b[^.]{0,30}\b(?:paint|painting)\b/i,
     key: "exterior_paint",
   },
+  // Painting Step 3 split rows — must map before generic paint / site-walls landscaping.
+  { test: /^walls?$/i, key: "interior_paint" },
+  { test: /^ceilings?$/i, key: "ceiling_paint" },
+  { test: /^prep\s*(?:&|and)\s*masking$/i, key: "prep" },
+  { test: /^exterior\s+prep(?:\s*(?:&|and)\s*masking)?$/i, key: "exterior_prep" },
+  { test: /^trim$/i, key: "trim_paint" },
+  {
+    test: /\bbaseboards?\b[^.]{0,40}\btrim\b|\btrim\b[^.]{0,40}\b(?:molding|baseboard)\b|\bpainted?\s+trim\b/i,
+    key: "trim_paint",
+  },
   {
     test: /\binterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*interior\b|\bceiling\b[^.]{0,20}\b(?:paint|painting)\b/i,
     key: "interior_paint",

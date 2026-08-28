@@ -11104,11 +11104,52 @@ export type ScopePricingContext = {
   }> | null;
 };
 
+export type TemplateRateOrigin = 'pricing_library' | 'bid' | 'saved_template';
+
 export type TemplateRateMatch = {
   materialRate: number | null;
   laborRate: number | null;
   source: string;
+  origin?: TemplateRateOrigin;
 };
+
+/** Confirm Scope chip/title for template-backed rates — library only uses "Saved pricing". */
+export function templateRateSourceLabel(
+  match: Pick<TemplateRateMatch, 'origin' | 'source'> | null | undefined
+): string {
+  switch (match?.origin) {
+    case 'pricing_library':
+      return 'Saved pricing';
+    case 'bid':
+      return 'From this bid';
+    case 'saved_template': {
+      const name = String(match.source || '').trim();
+      if (name && !/^saved pricing$/i.test(name)) {
+        const label = `From saved template · ${name}`;
+        return label.length > 48 ? `${label.slice(0, 45).trimEnd()}…` : label;
+      }
+      return 'From saved template';
+    }
+    default:
+      return 'National planning rate';
+  }
+}
+
+export function isPricingLibraryTemplateBlock(
+  block:
+    | Pick<
+        SuggestedPricingBlock,
+        'materialSource' | 'laborSource' | 'rateSourceLabel'
+      >
+    | null
+    | undefined
+): boolean {
+  if (!block) return false;
+  const usesTemplate =
+    block.materialSource === 'template' || block.laborSource === 'template';
+  if (!usesTemplate) return false;
+  return /^saved pricing$/i.test(String(block.rateSourceLabel || '').trim());
+}
 
 /** Fallback trade families for items that have no rate-pricing matcher. */
 const TEMPLATE_FAMILY_FALLBACK: Record<string, RegExp> = {
@@ -11217,7 +11258,7 @@ export function resolveTemplateRateForItem(
     matcher,
     takeoffQuantity
   );
-  if (library) return library;
+  if (library) return { ...library, origin: 'pricing_library' as const };
 
   if (ctx.bid) {
     const materialRate = averageMatchingRate(
@@ -11234,7 +11275,8 @@ export function resolveTemplateRateForItem(
       return {
         materialRate: materialRate ?? null,
         laborRate: laborRate ?? null,
-        source: String(ctx.bid.name || 'Saved pricing'),
+        source: String(ctx.bid.name || 'This bid'),
+        origin: 'bid',
       };
     }
   }
@@ -11256,7 +11298,8 @@ export function resolveTemplateRateForItem(
       return {
         materialRate: materialRate ?? null,
         laborRate: laborRate ?? null,
-        source: String(source.name || 'Saved pricing'),
+        source: String(source.name || 'Saved template'),
+        origin: 'saved_template',
       };
     }
   }
@@ -11700,13 +11743,13 @@ function benchmarkFillWithoutPrimaryTakeoff(
 function rateSourceLabelFor(
   materialSource: PricingLegSource,
   laborSource: PricingLegSource,
-  templateName: string | null,
+  template: TemplateRateMatch | null | undefined,
   regional?: ResolvedRegionalPricing | null,
   average?: NationalAverageBudgetSplit | null
 ): string {
   const usesTemplate =
     materialSource === 'template' || laborSource === 'template';
-  if (usesTemplate) return 'Saved pricing';
+  if (usesTemplate) return templateRateSourceLabel(template);
   if (regional && regional.multiplier !== 1) return regional.rateSourceLabel;
   if (
     (materialSource === 'national_average' ||
@@ -17796,7 +17839,7 @@ export function resolveScopeItemSuggestedPricing(
           rateSourceLabel: rateSourceLabelFor(
             materialRateSource,
             laborRateSource,
-            templateName,
+            template,
             regional
           ),
           templateName,
@@ -17831,7 +17874,7 @@ export function resolveScopeItemSuggestedPricing(
         rateSourceLabel: rateSourceLabelFor(
           'notes',
           laborRateSource,
-          templateName,
+          template,
           regional
         ),
         templateName,
@@ -17874,7 +17917,7 @@ export function resolveScopeItemSuggestedPricing(
         rateSourceLabel: rateSourceLabelFor(
           materialRateSource,
           'notes',
-          templateName,
+          template,
           regional
         ),
         templateName,
@@ -17912,7 +17955,7 @@ export function resolveScopeItemSuggestedPricing(
           rateSourceLabel: rateSourceLabelFor(
             'template',
             'template',
-            templateName,
+            template,
             regional
           ),
           templateName,
@@ -17946,7 +17989,7 @@ export function resolveScopeItemSuggestedPricing(
         rateSourceLabel: rateSourceLabelFor(
           materialRateSource,
           materialRateSource,
-          templateName,
+          template,
           regional
         ),
         templateName,
@@ -18323,7 +18366,7 @@ export function resolveScopeItemSuggestedPricing(
     rateSourceLabel: rateSourceLabelFor(
       materialRateSource,
       laborRateSource,
-      templateName,
+      template,
       regional,
       effectiveAverage
     ),
@@ -20411,6 +20454,16 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   },
   // "Stucco / exterior wall finish" — without this, Step 3 used exterior trade $7+$9 × living SF.
   { test: /\bstucco\b/i, key: 'stucco' },
+  // Painting Step 3 split rows — must map before generic paint / site-walls landscaping.
+  { test: /^walls?$/i, key: 'interior_paint' },
+  { test: /^ceilings?$/i, key: 'ceiling_paint' },
+  { test: /^prep\s*(?:&|and)\s*masking$/i, key: 'prep' },
+  { test: /^exterior\s+prep(?:\s*(?:&|and)\s*masking)?$/i, key: 'exterior_prep' },
+  { test: /^trim$/i, key: 'trim_paint' },
+  {
+    test: /\bbaseboards?\b[^.]{0,40}\btrim\b|\btrim\b[^.]{0,40}\b(?:molding|baseboard)\b|\bpainted?\s+trim\b/i,
+    key: 'trim_paint',
+  },
   {
     test: /\binterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*interior\b|\bceiling\b[^.]{0,20}\b(?:paint|painting)\b/i,
     key: 'interior_paint',

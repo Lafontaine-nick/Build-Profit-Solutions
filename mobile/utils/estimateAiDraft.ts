@@ -1141,9 +1141,22 @@ export type ClarifyApplyResult = {
 export type RefineDraftResult = {
   draft: EstimateAiDraft;
   appliedSummary: string[];
+  warnings?: string[];
+  markupPct?: number | null;
   source: 'ai' | 'rules';
   command?: string;
 };
+
+/** Markup-only Ask AI must not re-sync scope prices (only bid.markupPct changes). */
+export function isMarkupOnlyRefineResult(
+  result: Pick<RefineDraftResult, 'markupPct' | 'appliedSummary' | 'warnings'>
+): boolean {
+  if (result.markupPct == null || !Number.isFinite(Number(result.markupPct))) return false;
+  if (result.warnings?.length) return false;
+  const summary = result.appliedSummary || [];
+  if (!summary.length) return false;
+  return summary.every((line) => /^Markup set to/i.test(String(line).trim()));
+}
 
 const PROJECT_CATEGORY_SLUGS: Record<string, string> = {
   kitchen: 'kitchen-remodel',
@@ -1425,13 +1438,17 @@ export function repairDraftRatePricingFromNotes(
 
 export async function fetchEstimateDraftFromNotes(
   notes: string,
-  savedTemplates: unknown[] = []
+  savedTemplates: unknown[] = [],
+  authToken?: string | null
 ): Promise<EstimateAiDraft> {
+  if (__DEV__) {
+    console.warn('🤖 fetchEstimateDraftFromNotes entered');
+  }
   const payload = await postAiAssistantJson<{
     draft?: EstimateAiDraft;
     error?: string;
     message?: string;
-  }>('/estimate-draft-from-notes', { notes, savedTemplates });
+  }>('/estimate-draft-from-notes', { notes, savedTemplates }, 45000, authToken);
 
   if (!payload?.draft) {
     throw new Error(
@@ -1542,6 +1559,8 @@ export async function refineDraftWithCommand(
   return {
     draft: syncSelectedScopePricing(payload.draft),
     appliedSummary: payload.appliedSummary || [],
+    warnings: payload.warnings || [],
+    markupPct: payload.markupPct ?? null,
     source: payload.source === 'ai' ? 'ai' : 'rules',
     command: payload.command,
   };
@@ -3276,6 +3295,9 @@ export function shouldAutoClarifyDraft(
   draft: EstimateAiDraft | null | undefined
 ): boolean {
   if (!draft) return false;
+  if (draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length) {
+    return false;
+  }
   if (draft.noPricingDetected) return true;
   if (draft.estimateConfidence?.level === 'low') return true;
   const packages = draft.scopePackages || draft.rooms || [];
@@ -5286,6 +5308,20 @@ function stripUnconfirmedAutoPackagePricing<
   };
 }
 
+function physicalScopeQuantityFromRoom(
+  draft: EstimateAiDraft,
+  packageName: string
+): { quantity: number; unit: string } | null {
+  const roomQty = (draft.rooms || []).find((room) => room.name === packageName)
+    ?.scopeQuantities?.[0];
+  if (roomQty?.quantity == null || !(Number(roomQty.quantity) > 0) || !roomQty.unit) {
+    return null;
+  }
+  const unit = String(roomQty.unit).toLowerCase();
+  if (['allowance', 'lump_sum'].includes(unit)) return null;
+  return { quantity: Number(roomQty.quantity), unit: String(roomQty.unit) };
+}
+
 function shouldPreserveUserPackagePrice(
   pkg: {
     priceProvidedByUser?: boolean;
@@ -5296,14 +5332,9 @@ function shouldPreserveUserPackagePrice(
 ): boolean {
   if (!pkg.priceProvidedByUser) return false;
   const current = Number(pkg.price);
-  if (!(current > 0) || Math.abs(current - selected.total) < 0.01) return false;
-  // Partial manual split — package total is authoritative; Confirm Scope legs are a portion only.
-  if (current > selected.total + 0.01) return true;
-  // Same checklist row — Ask AI / manual revision wins over stale Confirm Scope sync.
-  if (pkg.checklistItemId && pkg.checklistItemId === selected.ruleKey)
-    return true;
-  if (!SOFT_COST_SYNC_KEYS.has(selected.ruleKey)) return false;
-  return true;
+  if (!(current > 0)) return false;
+  // Ask AI / manual row price wins whenever it differs from Confirm Scope sync.
+  return Math.abs(current - selected.total) > 0.01;
 }
 
 function applySelectedPricingToScopePackage(
@@ -5339,8 +5370,10 @@ function applySelectedPricingToScopePackage(
   if (!selected) {
     return stripUnconfirmedAutoPackagePricing(pkg, draft, withIdentity, basis);
   }
+  const roomPhysicalQty = physicalScopeQuantityFromRoom(draft, pkg.name);
   if (shouldPreserveUserPackagePrice(pkg, selected)) {
     const preserved = Number(pkg.price) || selected.total;
+    const displayBasis = roomPhysicalQty ?? basis;
     return {
       ...withIdentity,
       price: preserved,
@@ -5349,12 +5382,13 @@ function applySelectedPricingToScopePackage(
       checklistItemId: pkg.checklistItemId || ruleKey,
       materialPrice: selected.materialPrice ?? pkg.materialPrice ?? null,
       laborPrice: selected.laborPrice ?? pkg.laborPrice ?? null,
-      budgetSplitBasis: basis ?? pkg.budgetSplitBasis ?? null,
-      scopeQuantities: basis
-        ? [{ quantity: basis.quantity, unit: basis.unit }]
-        : undefined,
+      budgetSplitBasis: displayBasis ?? pkg.budgetSplitBasis ?? null,
+      scopeQuantities: displayBasis
+        ? [{ quantity: displayBasis.quantity, unit: displayBasis.unit }]
+        : pkg.scopeQuantities,
     };
   }
+  const displayBasis = roomPhysicalQty ?? basis;
   return {
     ...withIdentity,
     price: selected.total,
@@ -5376,10 +5410,10 @@ function applySelectedPricingToScopePackage(
     splitIsSuggested: false,
     priceProvidedByUser: true,
     applyEligible: true,
-    budgetSplitBasis: basis,
-    scopeQuantities: basis
-      ? [{ quantity: basis.quantity, unit: basis.unit }]
-      : undefined,
+    budgetSplitBasis: displayBasis ?? pkg.budgetSplitBasis ?? null,
+    scopeQuantities: displayBasis
+      ? [{ quantity: displayBasis.quantity, unit: displayBasis.unit }]
+      : pkg.scopeQuantities,
     missingPriceItems: [],
   };
 }

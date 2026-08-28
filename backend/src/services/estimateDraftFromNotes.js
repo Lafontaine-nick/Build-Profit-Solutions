@@ -785,11 +785,13 @@ function isRetryableOpenAiError(err) {
   );
 }
 
+const { createOpenAiChatCompletion } = require('../utils/openaiChatCompletionParams');
+
 async function createChatCompletionWithRetry(openai, params, maxAttempts = 3) {
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      return await openai.chat.completions.create(params);
+      return await createOpenAiChatCompletion(openai, params);
     } catch (err) {
       lastError = err;
       if (attempt >= maxAttempts || !isRetryableOpenAiError(err)) {

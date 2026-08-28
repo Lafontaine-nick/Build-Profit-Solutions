@@ -6,6 +6,7 @@ const {
   hasValidOpenAiKey,
   JSON_RESPONSE_FORMAT,
 } = require('../src/config/aiConfig');
+const { createOpenAiChatCompletion } = require('../src/utils/openaiChatCompletionParams');
 
 function boundedMaxTokens(value, fallback = 80) {
   const parsed = Number(value);
@@ -14,7 +15,7 @@ function boundedMaxTokens(value, fallback = 80) {
 }
 
 async function runJsonSmoke({ client, model, runtime, label }) {
-  const completion = await client.chat.completions.create({
+  const completion = await createOpenAiChatCompletion(client, {
     model,
     response_format: JSON_RESPONSE_FORMAT,
     temperature: 0,

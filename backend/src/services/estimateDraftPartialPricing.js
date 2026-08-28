@@ -334,7 +334,13 @@ function buildScopePackage(room, draft, originalNotes) {
     sanitizedRoom.scope,
     catalogCtx
   );
-  if (catalogResolved.pricingReady && catalogResolved.quantity != null) {
+  const userMeasurementQty =
+    scopeQuantitiesFromRoom.length > 0 &&
+    scopeQuantitiesFromRoom[0].quantitySource === 'user_entered' &&
+    ['sqft', 'sf', 'lf', 'cy', 'squares'].includes(
+      String(scopeQuantitiesFromRoom[0].unit || '').toLowerCase()
+    );
+  if (!userMeasurementQty && catalogResolved.pricingReady && catalogResolved.quantity != null) {
     scopeQuantities = [
       {
         label: catalogResolved.label || sanitizedRoom.name,

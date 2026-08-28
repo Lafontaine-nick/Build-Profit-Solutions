@@ -18,6 +18,7 @@ const { enrichDraft } = require('./estimateDraftEnrichment');
 const { applyScopeMeasurements } = require('./estimateDraftComplexity');
 const { buildClarifyQuestions } = require('./estimateDraftClarify');
 const { lookupRuleKeyForPackage } = require('./scopeItemQuantityCatalog');
+const { createOpenAiChatCompletion } = require('../utils/openaiChatCompletionParams');
 
 /** Top-level measurement keys accepted from LLM patches (mirrors applyScopeMeasurements). */
 const MEASUREMENT_KEY_WHITELIST = new Set([
@@ -204,6 +205,18 @@ function mergePatchQuantities(basePatch, extra) {
       ...new Set([...(patch.removePackages || []), ...extra.removePackages]),
     ];
   }
+  if (extra.renamePackages?.length) {
+    patch.renamePackages = [...(patch.renamePackages || []), ...extra.renamePackages];
+  }
+  if (extra.packageTags?.length) {
+    patch.packageTags = [...(patch.packageTags || []), ...extra.packageTags];
+  }
+  if (extra.packageAdjustments?.length) {
+    patch.packageAdjustments = [...(patch.packageAdjustments || []), ...extra.packageAdjustments];
+  }
+  if (extra.markupPct != null && Number.isFinite(Number(extra.markupPct))) {
+    patch.markupPct = extra.markupPct;
+  }
   return patch;
 }
 
@@ -349,6 +362,10 @@ function packagesShareTrade(nameA, nameB) {
     'allowance',
     'labor',
     'material',
+    'paint',
+    'painting',
+    'prep',
+    'masking',
     'the',
     'and',
     'for',
@@ -411,6 +428,287 @@ function consolidateRefinePatch(draft, patch) {
   return next;
 }
 
+function emptyRefinePatch() {
+  return {
+    addPackages: [],
+    removePackages: [],
+    packagePrices: [],
+    packageQuantities: [],
+    renamePackages: [],
+    packageTags: [],
+    packageAdjustments: [],
+    markupPct: null,
+  };
+}
+
+function roundMoney(amount) {
+  return Math.round(Number(amount) * 100) / 100;
+}
+
+function parseMarkupPercentFromCommand(text, currentMarkup = 0) {
+  const s = String(text || '').trim();
+  const current = Number(currentMarkup) || 0;
+  const absolutePatterns = [
+    /\b(?:set|change|update|make)\s+(?:the\s+)?markup(?:\s+to)?\s+(\d{1,3}(?:\.\d+)?)\s*%/i,
+    /\bmarkup\s+(?:percent|percentage)\s+(?:of|to)\s+(\d{1,3}(?:\.\d+)?)\s*%/i,
+    /\bmarkup\s+to\s+(\d{1,3}(?:\.\d+)?)\s*%/i,
+  ];
+  for (const re of absolutePatterns) {
+    const m = s.match(re);
+    if (m?.[1] != null) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n >= 0 && n <= 100) return n;
+    }
+  }
+  let rel = s.match(/\b(?:increase|raise|bump)\s+(?:the\s+)?markup\s+(?:by|of)\s+(\d{1,3}(?:\.\d+)?)\s*%/i);
+  if (rel?.[1] != null) {
+    const delta = Number(rel[1]);
+    if (Number.isFinite(delta) && delta >= 0) {
+      return Math.min(100, Math.max(0, roundMoney(current + delta)));
+    }
+  }
+  rel = s.match(/\b(?:decrease|reduce|lower|cut)\s+(?:the\s+)?markup\s+(?:by|of)\s+(\d{1,3}(?:\.\d+)?)\s*%/i);
+  if (rel?.[1] != null) {
+    const delta = Number(rel[1]);
+    if (Number.isFinite(delta) && delta >= 0) {
+      return Math.min(100, Math.max(0, roundMoney(current - delta)));
+    }
+  }
+  return null;
+}
+
+function parseRenameFromCommand(text) {
+  const raw = String(text || '').trim();
+  const match =
+    raw.match(/^rename\s+(.+?)\s+to\s+(.+)$/i) ||
+    raw.match(/^change\s+(.+?)\s+(?:name\s+)?to\s+(.+)$/i);
+  if (!match) return null;
+  const fromName = match[1].replace(/\b(please|the)\b/gi, '').trim();
+  const toName = match[2].replace(/\b(please|the)\b/gi, '').trim();
+  if (!fromName || !toName || fromName.length > 120 || toName.length > 120) return null;
+  return { fromName, toName: titleCaseScopeName(toName) };
+}
+
+function normalizeRateUnit(raw) {
+  const unit = String(raw || 'sqft').toLowerCase().replace(/\s+/g, '');
+  if (unit === 'sf' || unit === 'sqft') return 'sqft';
+  if (unit.startsWith('square')) return 'squares';
+  return unit;
+}
+
+function parseQuantityRateFromCommand(text) {
+  const raw = String(text || '').trim();
+  const splitMatch = raw.match(
+    /^(?:set\s+)?(.+?)\s+(\d[\d,]*(?:\.\d+)?)\s*(sq\s*ft|sqft|sf|lf)\b\s*(?:at|@)?\s*\$?\s*([\d,]+(?:\.\d+)?)\s*(?:\/\s*(?:sq\s*ft|sf|sqft|lf)|(?:per|a)\s*(?:sq\s*ft|sf|sqft|lf))?\s*materials?\s+(?:and\s+|&\s*)\$?\s*([\d,]+(?:\.\d+)?)\s*(?:\/\s*(?:sq\s*ft|sf|sqft|lf)|(?:per|a)\s*(?:sq\s*ft|sf|sqft|lf))?\s*labou?r/i
+  );
+  if (splitMatch) {
+    const name = cleanPackageNameFromCommand(splitMatch[1]);
+    const quantity = Number(String(splitMatch[2]).replace(/,/g, ''));
+    const unit = normalizeRateUnit(splitMatch[3]);
+    const materialRate = parseCommandMoney(splitMatch[4]);
+    const laborRate = parseCommandMoney(splitMatch[5]);
+    if (name && quantity > 0 && materialRate != null && laborRate != null) {
+      return {
+        packageName: titleCaseScopeName(name),
+        quantity,
+        unit,
+        material: roundMoney(quantity * materialRate),
+        labor: roundMoney(quantity * laborRate),
+      };
+    }
+  }
+
+  const combinedMatch = raw.match(
+    /^(?:set\s+)?(.+?)\s+(\d[\d,]*(?:\.\d+)?)\s*(sq\s*ft|sqft|sf|lf)\b\s*(?:at|@)\s*\$?\s*([\d,]+(?:\.\d+)?)\s*(?:\/\s*(?:sq\s*ft|sf|sqft|lf)|(?:per|a)\s*(?:sq\s*ft|sf|sqft|lf))?/i
+  );
+  if (combinedMatch) {
+    const name = cleanPackageNameFromCommand(combinedMatch[1]);
+    const quantity = Number(String(combinedMatch[2]).replace(/,/g, ''));
+    const unit = normalizeRateUnit(combinedMatch[3]);
+    const rate = parseCommandMoney(combinedMatch[4]);
+    if (name && quantity > 0 && rate != null) {
+      return {
+        packageName: titleCaseScopeName(name),
+        quantity,
+        unit,
+        amount: roundMoney(quantity * rate),
+      };
+    }
+  }
+
+  const quantityOnlyMatch = raw.match(
+    /^(?:set\s+)?(.+?)\s+(\d[\d,]*(?:\.\d+)?)\s*(sq\s*ft|sqft|sf|lf|cy|squares?|each)\s*$/i
+  );
+  if (quantityOnlyMatch) {
+    const name = cleanPackageNameFromCommand(quantityOnlyMatch[1]);
+    const quantity = Number(String(quantityOnlyMatch[2]).replace(/,/g, ''));
+    const unit = normalizeRateUnit(quantityOnlyMatch[3]);
+    if (name && quantity > 0) {
+      return {
+        packageName: titleCaseScopeName(name),
+        quantity,
+        unit,
+      };
+    }
+  }
+
+  return null;
+}
+
+function parsePackageTagFromCommand(text, draftInput) {
+  const raw = String(text || '').trim();
+  const ownerMatch = raw.match(
+    /^(?:mark|make|set)\s+(.+?)\s+(?:as\s+)?(?:owner|customer)[-\s]?supplied(?:\s+materials?)?$/i
+  );
+  if (ownerMatch) {
+    const name = cleanPackageNameFromCommand(ownerMatch[1]);
+    if (name && findRoomForPackageName(draftInput, name)) {
+      return { packageName: name, tag: 'owner_supplied' };
+    }
+  }
+  const allowanceMatch = raw.match(
+    /^(?:mark|make|set)\s+(.+?)\s+(?:as\s+)?(?:an?\s+)?allowance$/i
+  );
+  if (allowanceMatch) {
+    const name = cleanPackageNameFromCommand(allowanceMatch[1]);
+    if (name && findRoomForPackageName(draftInput, name)) {
+      return { packageName: name, tag: 'allowance' };
+    }
+  }
+  const lumpMatch = raw.match(
+    /^(?:mark|make|set)\s+(.+?)\s+(?:as\s+)?(?:a\s+)?lump\s*sum$/i
+  );
+  if (lumpMatch) {
+    const name = cleanPackageNameFromCommand(lumpMatch[1]);
+    if (name && findRoomForPackageName(draftInput, name)) {
+      return { packageName: name, tag: 'lump_sum' };
+    }
+  }
+  return null;
+}
+
+function parseBulkPercentAdjustFromCommand(text) {
+  const raw = String(text || '').trim();
+  const decrease = raw.match(
+    /^(?:cut|lower|reduce|decrease)\s+(?:all\s+)?(.+?)\s+(?:items?|scope|packages?|prices?)?\s*(?:by\s+)?(\d+(?:\.\d+)?)\s*%/i
+  );
+  if (decrease) {
+    let filter = decrease[1].replace(/\b(the|my|bid|estimate)\b/gi, '').trim();
+    if (/^(everything|all|bid|estimate)$/i.test(filter)) filter = 'all';
+    const percent = Number(decrease[2]);
+    if (filter && Number.isFinite(percent) && percent > 0 && percent <= 100) {
+      return { filter, percent: -percent };
+    }
+  }
+  const increase = raw.match(
+    /^(?:raise|increase|bump)\s+(?:all\s+)?(.+?)\s+(?:items?|scope|packages?|prices?)?\s*(?:by\s+)?(\d+(?:\.\d+)?)\s*%/i
+  );
+  if (increase) {
+    let filter = increase[1].replace(/\b(the|my|bid|estimate)\b/gi, '').trim();
+    if (/^(everything|all|bid|estimate)$/i.test(filter)) filter = 'all';
+    const percent = Number(increase[2]);
+    if (filter && Number.isFinite(percent) && percent > 0 && percent <= 100) {
+      return { filter, percent };
+    }
+  }
+  return null;
+}
+
+function roomsMatchingFilter(rooms, filter) {
+  const list = Array.isArray(rooms) ? rooms : [];
+  const f = normalizeName(filter);
+  if (!f || f === 'all' || f === 'everything' || f === 'bid' || f === 'estimate') {
+    return list;
+  }
+  return list.filter((room) => {
+    const name = normalizeName(room.name);
+    const scope = normalizeName(room.scope);
+    return name.includes(f) || f.includes(name) || scope.includes(f);
+  });
+}
+
+function applyPercentDeltaToRoom(room, percentDelta) {
+  const factor = 1 + percentDelta / 100;
+  const mat = Number(room.materialPrice) || 0;
+  const lab = Number(room.laborPrice) || 0;
+  if (mat > 0 || lab > 0) {
+    const newMat = mat > 0 ? roundMoney(mat * factor) : null;
+    const newLab = lab > 0 ? roundMoney(lab * factor) : null;
+    const total = roundMoney((newMat || 0) + (newLab || 0));
+    return {
+      ...room,
+      materialPrice: newMat,
+      laborPrice: newLab,
+      price: total,
+      priceIncludesLaborAndMaterials: false,
+      priceProvidedByUser: true,
+    };
+  }
+  const price = Number(room.price);
+  if (Number.isFinite(price) && price > 0) {
+    return {
+      ...room,
+      price: roundMoney(price * factor),
+      priceIncludesLaborAndMaterials: true,
+      priceProvidedByUser: true,
+    };
+  }
+  return null;
+}
+
+/** Explain why addPackages were dropped so Ask AI can respond intelligently. */
+function getBlockedAddPackageReasons(draft, addEntries, priceUpdates) {
+  const rooms = draft?.rooms || [];
+  const reasons = [];
+  for (const entry of addEntries || []) {
+    const name = String(entry?.name || '').trim();
+    if (!name) continue;
+    if (findRoomForPackageName({ rooms }, name)) {
+      reasons.push(`"${name}" already on the bid — try "set ${name} to $X" instead`);
+      continue;
+    }
+    const tradeMatch = rooms.find((r) => packagesShareTrade(r.name, name));
+    if (tradeMatch) {
+      reasons.push(
+        `"${name}" overlaps with ${tradeMatch.name} — try "rename ${tradeMatch.name} to ${name}" or "set ${tradeMatch.name} to $X"`
+      );
+    }
+  }
+  return reasons;
+}
+
+function isAuthoritativeDeterministicRefineCommand(command, patch) {
+  if (patch?.markupPct != null && Number.isFinite(Number(patch.markupPct))) return true;
+  if (Array.isArray(patch?.renamePackages) && patch.renamePackages.length) return true;
+  if (Array.isArray(patch?.packageTags) && patch.packageTags.length) return true;
+  if (Array.isArray(patch?.packageAdjustments) && patch.packageAdjustments.length) return true;
+  if (
+    Array.isArray(patch?.packageQuantities) &&
+    patch.packageQuantities.length &&
+    (
+      /(?:at|@)\s*\$?\s*[\d,]/i.test(String(command || '')) ||
+      !Array.isArray(patch?.packagePrices) ||
+      patch.packagePrices.length === 0
+    )
+  ) {
+    return true;
+  }
+  if (
+    Array.isArray(patch?.removePackages) &&
+    patch.removePackages.length &&
+    /^(?:remove|delete|exclude)\s+[^,]+,\s*(?:customer|client|owner)\s+(?:is\s+)?doing\s+it\b/i.test(
+      String(command || '')
+    )
+  ) {
+    return true;
+  }
+  if (String(command || '').includes(',')) return false;
+  if (Array.isArray(patch?.removePackages) && patch.removePackages.length) return true;
+  if (Array.isArray(patch?.packagePrices) && patch.packagePrices.length) return true;
+  if (Array.isArray(patch?.addPackages) && patch.addPackages.length) return true;
+  return false;
+}
+
 function commandRequestsMaterialLaborSplit(command) {
   return /\bmaterials?\b/i.test(String(command || '')) && /\blabou?r\b/i.test(String(command || ''));
 }
@@ -422,8 +720,54 @@ function commandRequestsMaterialLaborSplit(command) {
  */
 function buildDeterministicRefinePatchFromCommand(command, draftInput) {
   const text = String(command || '').trim();
-  const patch = { addPackages: [], removePackages: [], packagePrices: [] };
+  const patch = emptyRefinePatch();
   if (!text) return patch;
+
+  const markupPct = parseMarkupPercentFromCommand(text, draftInput?.markupPct);
+  if (markupPct != null) {
+    patch.markupPct = markupPct;
+    return patch;
+  }
+
+  const rename = parseRenameFromCommand(text);
+  if (rename) {
+    patch.renamePackages.push(rename);
+    return patch;
+  }
+
+  const bulkAdjust = parseBulkPercentAdjustFromCommand(text);
+  if (bulkAdjust) {
+    patch.packageAdjustments.push(bulkAdjust);
+    return patch;
+  }
+
+  const packageTag = parsePackageTagFromCommand(text, draftInput);
+  if (packageTag) {
+    patch.packageTags.push(packageTag);
+    return patch;
+  }
+
+  const qtyRate = parseQuantityRateFromCommand(text);
+  if (qtyRate) {
+    patch.packageQuantities.push({
+      packageName: qtyRate.packageName,
+      quantity: qtyRate.quantity,
+      unit: qtyRate.unit,
+    });
+    if (qtyRate.material != null && qtyRate.labor != null) {
+      patch.packagePrices.push(
+        { packageName: qtyRate.packageName, amount: qtyRate.material, kind: 'material' },
+        { packageName: qtyRate.packageName, amount: qtyRate.labor, kind: 'labor' }
+      );
+    } else if (qtyRate.amount != null) {
+      patch.packagePrices.push({
+        packageName: qtyRate.packageName,
+        amount: qtyRate.amount,
+        kind: 'lump_sum',
+      });
+    }
+    return patch;
+  }
 
   const removeMatch = text.match(
     /^(?:remove|delete|exclude)\s+(?:scope\s+item\s+|the\s+)?(.+?)(?:\s*,.*)?$/i
@@ -722,6 +1066,10 @@ CRITICAL RULES:
 8. packageName / removePackages names must match draft package names exactly (or the closest clear match).
 9. If the command is unclear or cannot change the draft, return empty arrays and notesAddendum explaining what you need.
 10. Prefer packageQuantities for measurements tied to a named package. Square footage → unit "sqft", never "squares" unless the command says squares.
+11. For "rename X to Y": use renamePackages with fromName and toName matching draft package names.
+12. For "set markup to N%": set markupPct to the number (0–100).
+13. For "mark X owner-supplied" / "make X an allowance": use packageTags with tag owner_supplied|allowance|lump_sum.
+14. For "cut/raise exterior items 10%": use packageAdjustments with filter (e.g. "exterior") and percent (+10 or -10).
 
 Return ONLY valid JSON:
 {
@@ -730,6 +1078,10 @@ Return ONLY valid JSON:
   "packagePrices": [{ "packageName": "string", "amount": number, "kind": "lump_sum" | "labor" | "material" }],
   "addPackages": [{ "name": "new scope package name", "scope": "short description or null", "quantity": number | null, "unit": "sqft|lf|cy|each|lump_sum|null", "amount": number | null }],
   "removePackages": ["exact package name to remove from the bid"],
+  "renamePackages": [{ "fromName": "existing package name", "toName": "new name", "scope": "optional updated description or null" }],
+  "packageTags": [{ "packageName": "existing package name", "tag": "owner_supplied" | "allowance" | "lump_sum" }],
+  "packageAdjustments": [{ "filter": "exterior|interior|all|partial name", "percent": number }],
+  "markupPct": number | null,
   "inclusions": ["short statements now confirmed included"],
   "exclusions": ["short statements now confirmed excluded"],
   "projectInfo": { "customerName": "string or null", "projectAddress": "string or null", "customerPhone": "string or null" },
@@ -793,7 +1145,7 @@ async function generateClarifyQuestions(draftInput, deps = {}) {
 
   try {
     const summary = buildDraftStateSummary(enriched);
-    const completion = await openai.chat.completions.create({
+    const completion = await createOpenAiChatCompletion(openai, {
       model: aiModels.assistant.estimate,
       response_format: aiRuntime?.assistant?.estimate?.responseFormat || { type: 'json_object' },
       temperature: 0.2,
@@ -839,6 +1191,7 @@ async function generateClarifyQuestions(draftInput, deps = {}) {
 function applyClarifyPatch(draftInput, patch, options = {}) {
   const draft = { ...(draftInput || {}) };
   const appliedSummary = [];
+  const warnings = [];
   const overwriteProjectInfo = Boolean(options.overwriteProjectInfo);
 
   // 0. Remove packages (refine: "remove demo").
@@ -865,6 +1218,37 @@ function applyClarifyPatch(draftInput, patch, options = {}) {
       draft.scopePackages = draft.scopePackages.filter((pkg) =>
         kept.some((r) => normalizeName(r.name) === normalizeName(pkg.name))
       );
+    }
+  }
+
+  // 0a. Rename packages (refine: "rename Exterior Paint to Stucco paint").
+  const renameEntries = Array.isArray(patch?.renamePackages) ? patch.renamePackages : [];
+  if (renameEntries.length) {
+    let renameRooms = [...(draft.rooms || [])];
+    const renamedPackages = new Map();
+    for (const entry of renameEntries) {
+      const fromName = String(entry?.fromName || '').trim();
+      const toName = String(entry?.toName || '').trim().slice(0, 120);
+      if (!fromName || !toName) continue;
+      const room = findRoomForPackageName({ rooms: renameRooms }, fromName);
+      if (!room) continue;
+      const priorName = room.name;
+      const scope =
+        typeof entry?.scope === 'string' && entry.scope.trim()
+          ? entry.scope.trim().slice(0, 300)
+          : room.scope;
+      renameRooms = renameRooms
+        .filter((r) => r === room || normalizeName(r.name) !== normalizeName(toName))
+        .map((r) => (r === room ? { ...r, name: toName, scope } : r));
+      renamedPackages.set(normalizeName(priorName), { name: toName, scope });
+      appliedSummary.push(`Renamed: ${priorName} → ${toName}`);
+    }
+    draft.rooms = renameRooms;
+    if (Array.isArray(draft.scopePackages)) {
+      draft.scopePackages = draft.scopePackages.map((pkg) => {
+        const renamed = renamedPackages.get(normalizeName(pkg.name));
+        return renamed ? { ...pkg, ...renamed } : pkg;
+      });
     }
   }
 
@@ -935,6 +1319,19 @@ function applyClarifyPatch(draftInput, patch, options = {}) {
   const priceItemQuantities = {
     ...(draft.scopeMeasurements?.itemQuantities || {}),
   };
+  const packageQuantityUpdates = Array.isArray(patch?.packageQuantities)
+    ? patch.packageQuantities
+    : [];
+  const packageNamesWithPhysicalQty = new Set(
+    packageQuantityUpdates
+      .map((entry) => {
+        const unit = String(entry?.unit || 'sqft').toLowerCase();
+        if (['allowance', 'lump_sum'].includes(unit)) return null;
+        const room = findRoomForPackageName({ rooms }, entry?.packageName);
+        return room ? normalizeName(room.name) : null;
+      })
+      .filter(Boolean)
+  );
   for (const update of priceUpdates) {
     const amount = Number(update?.amount);
     if (!Number.isFinite(amount) || amount < 0) continue;
@@ -982,15 +1379,17 @@ function applyClarifyPatch(draftInput, patch, options = {}) {
       }
       // Keep display as 1 lump sum — never turn the dollar total into sqft/LF qty.
       const total = Number(next.price) || amount;
-      next.scopeQuantities = [
-        {
-          label: r.name,
-          quantity: 1,
-          unit: 'lump_sum',
-          quantitySource: 'user_entered',
-        },
-      ];
-      next.budgetSplitBasis = null;
+      if (!packageNamesWithPhysicalQty.has(normalizeName(r.name))) {
+        next.scopeQuantities = [
+          {
+            label: r.name,
+            quantity: 1,
+            unit: 'lump_sum',
+            quantitySource: 'user_entered',
+          },
+        ];
+        next.budgetSplitBasis = null;
+      }
       next.knownSubtotal = total;
       next.calculatedSubtotal = total;
       return next;
@@ -1109,6 +1508,105 @@ function applyClarifyPatch(draftInput, patch, options = {}) {
     }
   }
 
+  // 3b. Package tags — owner-supplied, allowance, lump sum.
+  const tagEntries = Array.isArray(patch?.packageTags) ? patch.packageTags : [];
+  if (tagEntries.length) {
+    let taggedRooms = [...(draft.rooms || [])];
+    const tagInclusions = [];
+    for (const entry of tagEntries) {
+      const room = findRoomForPackageName({ rooms: taggedRooms }, entry?.packageName);
+      if (!room) continue;
+      const tag = String(entry?.tag || '').toLowerCase();
+      taggedRooms = taggedRooms.map((r) => {
+        if (r !== room) return r;
+        if (tag === 'owner_supplied') {
+          const labor = Number(r.laborPrice) || Number(r.price) || 0;
+          tagInclusions.push(`Customer supplies ${r.name} materials`);
+          return {
+            ...r,
+            materialPrice: null,
+            laborPrice: labor > 0 ? labor : r.laborPrice,
+            price: labor > 0 ? labor : r.price,
+            priceIncludesLaborAndMaterials: false,
+            priceProvidedByUser: labor > 0,
+            scope: `${r.scope || r.name} (labor only — customer supplies materials)`.slice(0, 300),
+          };
+        }
+        if (tag === 'allowance') {
+          const amount = Number(r.price) || 1;
+          return {
+            ...r,
+            scopeQuantities: [
+              {
+                label: r.name,
+                quantity: amount,
+                unit: 'allowance',
+                quantitySource: 'user_entered',
+              },
+            ],
+          };
+        }
+        if (tag === 'lump_sum') {
+          const amount = Number(r.price) || 1;
+          return {
+            ...r,
+            scopeQuantities: [
+              {
+                label: r.name,
+                quantity: amount > 0 ? amount : 1,
+                unit: 'lump_sum',
+                quantitySource: 'user_entered',
+              },
+            ],
+          };
+        }
+        return r;
+      });
+      if (tag === 'owner_supplied') {
+        appliedSummary.push(`${room.name}: marked owner-supplied (materials)`);
+      } else if (tag === 'allowance') {
+        appliedSummary.push(`${room.name}: marked as allowance`);
+      } else if (tag === 'lump_sum') {
+        appliedSummary.push(`${room.name}: marked as lump sum`);
+      }
+    }
+    if (tagInclusions.length) {
+      draft.inclusions = [...new Set([...(draft.inclusions || []), ...tagInclusions])];
+    }
+    draft.rooms = taggedRooms;
+  }
+
+  // 3c. Bulk percent adjustments — "cut exterior items 10%".
+  const adjustEntries = Array.isArray(patch?.packageAdjustments) ? patch.packageAdjustments : [];
+  if (adjustEntries.length) {
+    let adjustedRooms = [...(draft.rooms || [])];
+    for (const entry of adjustEntries) {
+      const filter = String(entry?.filter || '').trim();
+      const percent = Number(entry?.percent);
+      if (!filter || !Number.isFinite(percent) || percent === 0) continue;
+      const targets = roomsMatchingFilter(adjustedRooms, filter);
+      if (!targets.length) continue;
+      for (const target of targets) {
+        const next = applyPercentDeltaToRoom(target, percent);
+        if (!next) continue;
+        adjustedRooms = adjustedRooms.map((r) => (r === target ? next : r));
+        const direction = percent > 0 ? 'raised' : 'lowered';
+        appliedSummary.push(
+          `${target.name}: ${direction} ${Math.abs(percent)}% → ${formatMoney(next.price)}`
+        );
+      }
+    }
+    draft.rooms = adjustedRooms;
+  }
+
+  // 3d. Markup percent — returned to mobile to apply on the live bid.
+  let markupPct = null;
+  if (patch?.markupPct != null && Number.isFinite(Number(patch.markupPct))) {
+    markupPct = Math.min(100, Math.max(0, Number(patch.markupPct)));
+    draft.markupPct = markupPct;
+    appliedSummary.push(`Markup set to ${markupPct}% (scope prices unchanged)`);
+  }
+
   // 4. Notes addendum — traceability plus re-parse fodder for enrichment.
   const addendum = typeof patch?.notesAddendum === 'string' ? patch.notesAddendum.trim().slice(0, 600) : '';
   if (addendum) {
@@ -1160,10 +1658,48 @@ function applyClarifyPatch(draftInput, patch, options = {}) {
     }
     if (unit === 'square') unit = 'squares';
 
+    const priorBasis =
+      room.scopeQuantities?.[0] || room.budgetSplitBasis || null;
+    const priorQuantity = Number(priorBasis?.quantity);
+    const currentTotal = Number(room.price);
+    const canCarryRate =
+      !pricedPackageNames.has(pkgKey) &&
+      priorQuantity > 0 &&
+      currentTotal > 0 &&
+      priorBasis?.unit &&
+      normalizeRateUnit(priorBasis.unit) === normalizeRateUnit(unit);
+    let carriedTotal = null;
+    let carriedMaterial = null;
+    let carriedLabor = null;
+    if (canCarryRate) {
+      const factor = quantity / priorQuantity;
+      carriedMaterial =
+        Number(room.materialPrice) > 0
+          ? roundMoney(Number(room.materialPrice) * factor)
+          : null;
+      carriedLabor =
+        Number(room.laborPrice) > 0
+          ? roundMoney(Number(room.laborPrice) * factor)
+          : null;
+      carriedTotal =
+        carriedMaterial != null || carriedLabor != null
+          ? roundMoney((carriedMaterial || 0) + (carriedLabor || 0))
+          : roundMoney(currentTotal * factor);
+    }
+
     roomsForQty = roomsForQty.map((r) => {
       if (r !== room) return r;
       return {
         ...r,
+        ...(carriedTotal != null
+          ? {
+              price: carriedTotal,
+              knownSubtotal: carriedTotal,
+              calculatedSubtotal: carriedTotal,
+              materialPrice: carriedMaterial,
+              laborPrice: carriedLabor,
+            }
+          : {}),
         scopeQuantities: [
           {
             label: r.name,
@@ -1177,16 +1713,51 @@ function applyClarifyPatch(draftInput, patch, options = {}) {
 
     const ruleKey = lookupRuleKeyForPackage(room.name, room.scope || '');
     if (ruleKey) {
-      itemQuantities[ruleKey] = {
-        quantity,
-        unit,
-        quantitySource: 'user_entered',
-      };
+      // Qty+rate also stamps allowance dollars on the same rule key — do not replace
+      // applied Confirm Scope pricing with bare sqft (breaks Step 3 totals + display).
+      if (carriedTotal != null) {
+        itemQuantities[`${ruleKey}__allowance`] = {
+          quantity: carriedTotal,
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        };
+        itemQuantities[ruleKey] = {
+          quantity: carriedTotal,
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        };
+        if (carriedMaterial != null) {
+          itemQuantities[`${ruleKey}__material`] = {
+            quantity: carriedMaterial,
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          };
+        }
+        if (carriedLabor != null) {
+          itemQuantities[`${ruleKey}__labor`] = {
+            quantity: carriedLabor,
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          };
+        }
+      } else if (!pricedPackageNames.has(pkgKey)) {
+        itemQuantities[ruleKey] = {
+          quantity,
+          unit,
+          quantitySource: 'user_entered',
+        };
+      }
     }
 
     // Also map common packages onto top-level measurement keys when possible.
     if (ruleKey === 'cabinets' && unit === 'lf') {
       measurementPatchFromPackages.cabinetLf = quantity;
+    }
+    if (ruleKey === 'interior_paint' && (unit === 'sqft' || unit === 'sf')) {
+      measurementPatchFromPackages.wallPaintSqft = quantity;
+    }
+    if (ruleKey === 'ceiling_paint' && (unit === 'sqft' || unit === 'sf')) {
+      measurementPatchFromPackages.ceilingPaintSqft = quantity;
     }
     if (ruleKey === 'roof_tie_in' && unit === 'sqft') {
       // Keep package as sqft; also store approximate squares for roofing engines.
@@ -1196,7 +1767,11 @@ function applyClarifyPatch(draftInput, patch, options = {}) {
       measurementPatchFromPackages.roofSquares = quantity;
     }
 
-    appliedSummary.push(`${room.name}: ${formatQuantityLabel(quantity, unit)}`);
+    appliedSummary.push(
+      carriedTotal != null
+        ? `${room.name}: ${formatQuantityLabel(quantity, unit)} · total ${formatMoney(carriedTotal)}`
+        : `${room.name}: ${formatQuantityLabel(quantity, unit)}`
+    );
   }
   draft.rooms = roomsForQty;
 
@@ -1289,10 +1864,12 @@ function applyClarifyPatch(draftInput, patch, options = {}) {
     return {
       draft: enrichDraft({ ...withMeasurements, rooms: stampedRooms }),
       appliedSummary,
+      markupPct,
+      warnings,
     };
   }
 
-  return { draft: enrichDraft(withMeasurements), appliedSummary };
+  return { draft: enrichDraft(withMeasurements), appliedSummary, markupPct, warnings };
 }
 
 function sanitizeAnswers(answers) {
@@ -1345,7 +1922,7 @@ async function applyClarifyAnswers(draftInput, answersInput, deps = {}) {
           `Q${i + 1}${a.targetPackage ? ` (about "${a.targetPackage}")` : ''}${a.targetKey ? ` [targetKey: ${a.targetKey}]` : ''}: ${a.question}\nA${i + 1}: ${a.answer}`
       )
       .join('\n\n');
-    const completion = await openai.chat.completions.create({
+    const completion = await createOpenAiChatCompletion(openai, {
       model: aiModels.assistant.estimate,
       response_format: aiRuntime?.assistant?.estimate?.responseFormat || { type: 'json_object' },
       temperature: 0.1,
@@ -1388,15 +1965,36 @@ async function refineEstimateDraft(draftInput, commandInput, deps = {}) {
   const deterministic = buildDeterministicRefinePatchFromCommand(command, enriched);
 
   const fallback = () => {
-    const { draft, appliedSummary } = applyClarifyPatch(
+    const rawAdds = Array.isArray(deterministic?.addPackages) ? deterministic.addPackages : [];
+    const consolidated = consolidateRefinePatch(enriched, deterministic);
+    const { draft, appliedSummary, markupPct, warnings } = applyClarifyPatch(
       enriched,
-      consolidateRefinePatch(enriched, deterministic),
+      consolidated,
       {
         overwriteProjectInfo: true,
       }
     );
+    const blockedReasons = getBlockedAddPackageReasons(enriched, rawAdds, deterministic.packagePrices);
+    const mergedWarnings = [...(warnings || []), ...blockedReasons];
     if (appliedSummary.length) {
-      return { draft, appliedSummary, source: 'rules', command };
+      return {
+        draft,
+        appliedSummary,
+        warnings: mergedWarnings,
+        markupPct,
+        source: 'rules',
+        command,
+      };
+    }
+    if (mergedWarnings.length) {
+      return {
+        draft: enriched,
+        appliedSummary: mergedWarnings.slice(0, 2),
+        warnings: mergedWarnings,
+        markupPct: null,
+        source: 'rules',
+        command,
+      };
     }
     const existingNotes = String(enriched.originalNotes || '').trim();
     const withNotes = enrichDraft({
@@ -1405,7 +2003,9 @@ async function refineEstimateDraft(draftInput, commandInput, deps = {}) {
     });
     return {
       draft: withNotes,
-      appliedSummary: ['Revision noted in job notes'],
+      appliedSummary: ['Could not apply — try naming a scope item and price (e.g. "set cabinets to $8,000")'],
+      warnings: ['Could not apply — try naming a scope item and price (e.g. "set cabinets to $8,000")'],
+      markupPct: null,
       source: 'rules',
       command,
     };
@@ -1413,17 +2013,18 @@ async function refineEstimateDraft(draftInput, commandInput, deps = {}) {
 
   if (!openai || !aiModels?.assistant?.estimate) return fallback();
 
-  // Priced "add X for $N" or mat/lab split — rules are authoritative; skip LLM duplicates.
+  // Priced "add X for $N", mat/lab split, markup, rename, tags, bulk %, qty+rate — rules are authoritative.
   if (
     isDeterministicPricedAddCommand(command, deterministic) ||
-    isDeterministicSplitCommand(command, deterministic)
+    isDeterministicSplitCommand(command, deterministic) ||
+    isAuthoritativeDeterministicRefineCommand(command, deterministic)
   ) {
     return fallback();
   }
 
   try {
     const summary = buildDraftStateSummary(enriched);
-    const completion = await openai.chat.completions.create({
+    const completion = await createOpenAiChatCompletion(openai, {
       model: aiModels.assistant.estimate,
       response_format: aiRuntime?.assistant?.estimate?.responseFormat || { type: 'json_object' },
       temperature: 0.1,
@@ -1449,11 +2050,11 @@ async function refineEstimateDraft(draftInput, commandInput, deps = {}) {
         deterministic
       )
     );
-    const { draft, appliedSummary } = applyClarifyPatch(enriched, patch, {
+    const { draft, appliedSummary, markupPct, warnings } = applyClarifyPatch(enriched, patch, {
       overwriteProjectInfo: true,
     });
     if (!appliedSummary.length) return fallback();
-    return { draft, appliedSummary, source: 'ai', command };
+    return { draft, appliedSummary, markupPct, warnings: warnings || [], source: 'ai', command };
   } catch (err) {
     console.warn('refineEstimateDraft LLM pass failed, appending to notes instead:', err?.message);
     return fallback();
