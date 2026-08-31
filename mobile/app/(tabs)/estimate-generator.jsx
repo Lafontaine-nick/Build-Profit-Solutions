@@ -137,12 +137,20 @@ import {
   estimateFlowLineItemsTotalStyle,
   estimateFlowNestedRowStyle,
   estimateAiAssistRowInCardStyle,
+  estimateFlowPrimaryButtonStyle,
+  estimateFlowPrimaryButtonTextStyle,
   estimateHeaderGradientRingStyle,
   estimateHeaderNewBidInnerStyle,
   estimateHeaderNewBidTextStyle,
   estimateStep1AccentCardStyle,
   estimateStep1ActionButtonStyle,
   estimateStep1IconBadgeStyle,
+  estimateSummaryHeroAmountStyle,
+  estimateSummarySectionSubtitleStyle,
+  estimateSummarySectionTitleStyle,
+  estimateSummaryStepperIconColor,
+  estimateSummaryStepperIconShellStyle,
+  estimateSummaryStepperLabelStyle,
   estimateSummaryMetricChipStyle,
   estimateSummaryStatusColors,
   ESTIMATE_FLOW_CHIP_GREEN,
@@ -14093,25 +14101,20 @@ export default function EstimateGeneratorScreen() {
           }]}>
                 {appliedTemplateName ? (
                   <View
-                    style={{
-                      marginBottom: 14,
-                      paddingVertical: 8,
-                      paddingHorizontal: 12,
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: 'rgba(45, 255, 196, 0.22)',
-                      backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.06)' : 'rgba(34, 197, 94, 0.06)',
-                    }}
+                    style={[
+                      estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 }),
+                      { paddingVertical: 10, paddingHorizontal: 12 },
+                    ]}
                   >
-                    <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '600' }}>Active template</Text>
-                    <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginTop: 2 }}>
+                    <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub }]}>Active template</Text>
+                    <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginTop: 4 }}>
                       {appliedTemplateName}
                     </Text>
                   </View>
                 ) : null}
 
                 {/* Total Bid — AI flow card */}
-              <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: 14 })}>
+              <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 })}>
                 <View
                   style={{
                     flexDirection: 'row',
@@ -14153,13 +14156,7 @@ export default function EstimateGeneratorScreen() {
                 </Text>
 
                 <Text
-                  style={{
-                    color: ESTIMATE_FLOW_GREEN,
-                    fontSize: 36,
-                    fontWeight: '900',
-                    letterSpacing: -0.8,
-                    marginTop: 12,
-                  }}
+                  style={estimateSummaryHeroAmountStyle()}
                 >
                   {money(calc.total)}
                 </Text>
@@ -14379,17 +14376,12 @@ export default function EstimateGeneratorScreen() {
               
               {/* Cost Breakdown — only when pricing exists */}
               {summaryHasPricing ? (
-              <View
-                style={[
-                  estimateFlowCardStyle(Colors, darkMode, { marginBottom: 10, marginTop: 10 }),
-                  { padding: 18 },
-                ]}
-              >
-                  <View style={{ marginBottom: 14 }}>
-                    <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700', marginBottom: 4 }}>
+              <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 })}>
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text, marginBottom: 4 }]}>
                       Cost Breakdown
                     </Text>
-                    <Text style={{ color: summaryMuted, fontSize: 13, lineHeight: 18 }}>
+                    <Text style={estimateSummarySectionSubtitleStyle(darkMode)}>
                       Bid costs, markup, overhead & net profit
                     </Text>
                   </View>
@@ -14477,43 +14469,37 @@ export default function EstimateGeneratorScreen() {
               ) : null}
               
               {/* Project Actions — always visible; one green primary when lifecycle allows */}
-              <View
-                style={[
-                  estimateFlowCardStyle(Colors, darkMode, { marginTop: 10, marginBottom: 8 }),
-                  { padding: 16 },
-                ]}
-              >
-                <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700', marginBottom: 4 }}>
-                  Project Actions
-                </Text>
-                <Text style={{ color: summaryMuted, fontSize: 13, lineHeight: 18, marginBottom: 14 }}>
-                  {bidWasSubmitted
-                    ? 'Bid submitted — mark as won from Projects when the client accepts'
-                    : submitBidIsPrimary
-                      ? 'Preview before sending to your client'
-                      : 'Save or submit your estimate · also saves automatically'}
-                </Text>
+              <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: 8 })}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 12 }}>
+                  <View style={estimateStep1IconBadgeStyle(darkMode, 'green')}>
+                    <Ionicons name="rocket-outline" size={18} color={ESTIMATE_FLOW_GREEN} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text }]}>
+                      Project Actions
+                    </Text>
+                    <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 3 }]}>
+                      {bidWasSubmitted
+                        ? 'Bid submitted — mark as won from Projects when the client accepts'
+                        : submitBidIsPrimary
+                          ? 'Preview before sending to your client'
+                          : 'Save or submit your estimate · also saves automatically'}
+                    </Text>
+                  </View>
+                </View>
 
                 {submitBidIsPrimary ? (
                   <TouchableOpacity
                     activeOpacity={0.88}
                     onPress={handleSubmitBid}
-                    style={{
-                      width: '100%',
-                      backgroundColor: ESTIMATE_FLOW_GREEN,
-                      borderRadius: 14,
-                      paddingVertical: 14,
-                      paddingHorizontal: 16,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexDirection: 'row',
-                      gap: 8,
-                      marginBottom: 10,
-                      ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
-                    }}
+                    style={[
+                      estimateFlowPrimaryButtonStyle(),
+                      { marginBottom: 10 },
+                      Platform.OS === 'web' ? { cursor: 'pointer' } : null,
+                    ]}
                   >
                     <Ionicons name="send-outline" size={18} color="#071018" />
-                    <Text style={{ color: '#071018', fontSize: 15, fontWeight: '800' }}>Preview & Submit Bid</Text>
+                    <Text style={estimateFlowPrimaryButtonTextStyle()}>Preview & Submit Bid</Text>
                   </TouchableOpacity>
                 ) : null}
 
@@ -23952,8 +23938,26 @@ export default function EstimateGeneratorScreen() {
                   </TouchableOpacity>
                 )}
 
-                {/* Next button */}
-                {activeNavButton === 'next' && step < 8 && step !== 0 ? (
+                {/* Next button — solid green on Summary; gradient when active on steps 1–8 */}
+                {step === 0 ? (
+                  <TouchableOpacity
+                    activeOpacity={0.88}
+                    style={[
+                      s.navNextWrap,
+                      s.navNextActive,
+                      { flex: 1, backgroundColor: ESTIMATE_FLOW_GREEN, borderRadius: 999 },
+                    ]}
+                    onPress={async () => {
+                      setStep(1);
+                      setActiveNavButton('next');
+                    }}
+                  >
+                    <View style={s.navNextInner}>
+                      <Text style={estimateFlowPrimaryButtonTextStyle()}>Next</Text>
+                      <Ionicons name="arrow-forward" size={18} color="#071018" />
+                    </View>
+                  </TouchableOpacity>
+                ) : activeNavButton === 'next' && step < 8 ? (
                   <LinearGradient
                     colors={['#22c55e', '#22d3ee']}
                     start={{ x: 0, y: 0 }}
@@ -24103,36 +24107,18 @@ export default function EstimateGeneratorScreen() {
                 desktopWeb && s.stepIconTouchableDesktop,
               ]}
             >
-              <View style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: darkMode
-                  ? (step === 0 ? 'rgba(25, 225, 128, 0.24)' : 'rgba(255, 255, 255, 0.09)')
-                  : (step === 0 ? 'rgba(25, 225, 128, 0.2)' : Colors.surface),
-                borderWidth: step === 0 ? 2 : 1,
-                borderColor: darkMode
-                  ? (step === 0 ? '#19E180' : 'rgba(255, 255, 255, 0.2)')
-                  : (step === 0 ? '#19E180' : Colors.line),
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginBottom: 5,
-              }}>
+              <View style={estimateSummaryStepperIconShellStyle(Colors, darkMode, step === 0)}>
                 <MaterialIcons
                   name={getStepIcon(0)}
                   size={18}
-                  color={darkMode ? (step === 0 ? '#19E180' : 'rgba(241, 245, 249, 0.92)') : (step === 0 ? '#19E180' : Colors.text)}
+                  color={estimateSummaryStepperIconColor(Colors, darkMode, step === 0)}
                 />
               </View>
               <Text
-                style={{
-                  color: darkMode ? (step === 0 ? '#19E180' : 'rgba(241, 245, 249, 0.94)') : (step === 0 ? '#19E180' : Colors.sub),
-                  fontSize: ew(10, 12),
-                  fontWeight: step === 0 ? '800' : '500',
-                  textAlign: 'center',
-                  minWidth: 28,
-                  letterSpacing: 0.2,
-                }}
+                style={[
+                  estimateSummaryStepperLabelStyle(Colors, darkMode, step === 0),
+                  { fontSize: ew(10, 12) },
+                ]}
               >
                 Summary
               </Text>
@@ -24154,36 +24140,18 @@ export default function EstimateGeneratorScreen() {
                   desktopWeb && s.stepIconTouchableDesktop,
                 ]}
               >
-                <View style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  backgroundColor: darkMode
-                    ? (step === stepItem.id ? 'rgba(25, 225, 128, 0.24)' : 'rgba(255, 255, 255, 0.09)')
-                    : (step === stepItem.id ? 'rgba(25, 225, 128, 0.2)' : Colors.surface),
-                  borderWidth: step === stepItem.id ? 2 : 1,
-                  borderColor: darkMode
-                    ? (step === stepItem.id ? '#19E180' : 'rgba(255, 255, 255, 0.2)')
-                    : (step === stepItem.id ? '#19E180' : Colors.line),
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginBottom: 5,
-                }}>
+                <View style={estimateSummaryStepperIconShellStyle(Colors, darkMode, step === stepItem.id)}>
                   <MaterialIcons
                     name={getStepIcon(stepItem.id)}
                     size={18}
-                    color={darkMode ? (step === stepItem.id ? '#19E180' : 'rgba(241, 245, 249, 0.92)') : (step === stepItem.id ? '#19E180' : Colors.text)}
+                    color={estimateSummaryStepperIconColor(Colors, darkMode, step === stepItem.id)}
                   />
                 </View>
                 <Text
-                  style={{
-                    color: darkMode ? (step === stepItem.id ? '#19E180' : 'rgba(241, 245, 249, 0.94)') : (step === stepItem.id ? '#19E180' : Colors.sub),
-                    fontSize: ew(10, 12),
-                    fontWeight: step === stepItem.id ? '800' : '500',
-                    textAlign: 'center',
-                    minWidth: 28,
-                    letterSpacing: 0.2,
-                  }}
+                  style={[
+                    estimateSummaryStepperLabelStyle(Colors, darkMode, step === stepItem.id),
+                    { fontSize: ew(10, 12) },
+                  ]}
                 >
                   {stepItem.id}
                 </Text>

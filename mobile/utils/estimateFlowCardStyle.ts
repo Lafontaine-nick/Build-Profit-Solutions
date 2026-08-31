@@ -10,6 +10,8 @@ export function aiFlowCardBackground(darkMode: boolean, lightFallback: string) {
 type FlowCardColors = {
   line: string;
   surface2: string;
+  sub?: string;
+  text?: string;
 };
 
 /** Match Step 2 scope cards / Budget tab inner cards. */
@@ -523,7 +525,7 @@ export function estimateSummaryStepperIconColor(
   active: boolean
 ): string {
   if (active) return ESTIMATE_FLOW_CHIP_GREEN;
-  return darkMode ? 'rgba(241, 245, 249, 0.92)' : Colors.line;
+  return darkMode ? 'rgba(241, 245, 249, 0.92)' : Colors.text ?? Colors.line;
 }
 
 export function estimateSummaryStepperLabelStyle(
@@ -536,7 +538,7 @@ export function estimateSummaryStepperLabelStyle(
       ? ESTIMATE_FLOW_CHIP_GREEN
       : darkMode
         ? 'rgba(241, 245, 249, 0.94)'
-        : Colors.line,
+        : Colors.sub ?? Colors.line,
     fontWeight: active ? '800' : '500',
     textAlign: 'center',
     minWidth: 28,
