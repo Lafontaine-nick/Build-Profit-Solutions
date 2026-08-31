@@ -35,6 +35,7 @@ type Props = {
   onClose: () => void;
   onSelect: (template: SavedBidTemplate) => void;
   onDelete: (template: SavedBidTemplate) => void;
+  onSaveCurrent?: () => void;
 };
 
 export default function EstimateTemplatePickerModal({
@@ -43,6 +44,7 @@ export default function EstimateTemplatePickerModal({
   onClose,
   onSelect,
   onDelete,
+  onSaveCurrent,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
@@ -73,7 +75,16 @@ export default function EstimateTemplatePickerModal({
     onClose();
   };
 
+  const handleSaveCurrent = () => {
+    if (!onSaveCurrent) return;
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    onSaveCurrent();
+  };
+
   const headerTopPadding = Math.max(insets.top, Platform.OS === 'ios' ? 12 : 0) + 8;
+  const footerPad = Math.max(insets.bottom, 16);
 
   return (
     <Modal
@@ -108,9 +119,9 @@ export default function EstimateTemplatePickerModal({
             </View>
 
             <View style={styles.headerText}>
-              <Text style={[styles.title, { color: Colors.text }]}>Saved Bid Templates</Text>
+              <Text style={[styles.title, { color: Colors.text }]}>Bid Templates</Text>
               <Text style={[styles.subtitle, { color: Colors.sub }]}>
-                Reuse materials, labor, and pricing packages
+                Apply a saved package or save this bid for reuse
               </Text>
             </View>
 
@@ -149,7 +160,7 @@ export default function EstimateTemplatePickerModal({
             keyExtractor={(item) => item.id}
             contentContainerStyle={{
               paddingHorizontal: 16,
-              paddingBottom: Math.max(insets.bottom, 20),
+              paddingBottom: onSaveCurrent ? footerPad + 88 : footerPad + 8,
               flexGrow: 1,
             }}
             keyboardShouldPersistTaps="handled"
@@ -157,10 +168,10 @@ export default function EstimateTemplatePickerModal({
               <View style={styles.emptyWrap}>
                 <Ionicons name="document-text-outline" size={42} color={Colors.sub} />
                 <Text style={[styles.emptyTitle, { color: Colors.text }]}>
-                  No saved bid templates yet
+                  No bid templates yet
                 </Text>
                 <Text style={[styles.emptyBody, { color: Colors.sub }]}>
-                  Save your most common estimates as templates so you can build repeat bids faster.
+                  Save this bid as a template to reuse materials, labor, and pricing on future estimates.
                 </Text>
               </View>
             }
@@ -223,6 +234,31 @@ export default function EstimateTemplatePickerModal({
               );
             }}
           />
+
+          {onSaveCurrent ? (
+            <View
+              style={[
+                styles.footer,
+                {
+                  paddingBottom: footerPad,
+                  borderTopColor: Colors.line,
+                  backgroundColor: Colors.bg,
+                },
+              ]}
+            >
+              <TouchableOpacity activeOpacity={0.88} onPress={handleSaveCurrent}>
+                <LinearGradient
+                  colors={['#2DFFC4', '#00A6FF']}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.saveCurrentButton}
+                >
+                  <Ionicons name="add-circle-outline" size={18} color="#001B14" />
+                  <Text style={styles.saveCurrentButtonText}>Save current bid as template</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -329,4 +365,23 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center' },
   emptyBody: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
+  footer: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 12,
+    paddingHorizontal: 16,
+  },
+  saveCurrentButton: {
+    minHeight: 48,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+  },
+  saveCurrentButtonText: {
+    color: '#001B14',
+    fontSize: 15,
+    fontWeight: '800',
+  },
 });
