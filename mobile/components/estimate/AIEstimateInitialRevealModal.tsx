@@ -19,12 +19,13 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
-import { formatDraftMoney } from '@/utils/estimateAiDraft';
+import { formatPlanningMoney } from '@/utils/estimateAiDraft';
 import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import { scopePackagePricedAmount } from '@/utils/estimateDraftReviewUi';
 import {
   countInitialRevealAttentionItems,
   draftNeedsScopeConfirmation,
+  getInitialRevealHeaderCopy,
   getInitialRevealConfirmItems,
   getInitialRevealDisplayTitle,
   getInitialRevealHeroDisplay,
@@ -35,6 +36,7 @@ import {
   getInitialRevealTagline,
   getInitialRevealTotals,
   getInitialRevealUnderstoodBullets,
+  getScopeTotalCoverageLine,
   shouldDefaultExpandInitialRevealScope,
   shouldShowInitialRevealWhatWeFound,
 } from '@/utils/estimateInitialRevealUi';
@@ -158,6 +160,11 @@ function AIEstimateInitialRevealModal({
       needsScopeConfirmation,
       primaryCta: getInitialRevealPrimaryCtaLabel(attentionCount, needsScopeConfirmation),
       hero: getInitialRevealHeroDisplay(totals, needsScopeConfirmation),
+      headerCopy: getInitialRevealHeaderCopy({
+        hasAmount: totals.heroTotal != null && totals.heroTotal > 0,
+        needsScopeConfirmation,
+      }),
+      totalCoverageLine: getScopeTotalCoverageLine(draft),
       scopeMetaLabel: getInitialRevealScopeMetaLabel(totals.scopeItemCount),
       planningDisclaimer: getInitialRevealPlanningDisclaimer(totals, attentionCount),
       defaultScopeExpanded: shouldDefaultExpandInitialRevealScope(totals.scopeItemCount),
@@ -245,12 +252,8 @@ function AIEstimateInitialRevealModal({
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
       <View style={[styles.screen, { backgroundColor: Colors.bg }]}>
         <AIEstimateFlowHeader
-          title="Initial estimate"
-          subtitle={
-            viewModel?.needsScopeConfirmation
-              ? 'Your first look — confirm scope to refine the number'
-              : 'Quick summary before detailed review'
-          }
+          title={viewModel?.headerCopy.title ?? 'Initial estimate'}
+          subtitle={viewModel?.headerCopy.subtitle ?? 'Quick summary before detailed review'}
           fromAssistant={fromAssistant}
           onBack={handleBack}
         />
@@ -317,6 +320,11 @@ function AIEstimateInitialRevealModal({
                     {viewModel.planningDisclaimer}
                   </Text>
                 ) : null}
+                {viewModel.totalCoverageLine ? (
+                  <Text style={[styles.planningDisclaimer, { color: Colors.sub }]}>
+                    {viewModel.totalCoverageLine}
+                  </Text>
+                ) : null}
 
                 {viewModel.hero.hasAmount &&
                 (viewModel.totals.material != null ||
@@ -326,7 +334,7 @@ function AIEstimateInitialRevealModal({
                     {viewModel.totals.material != null ? (
                       <StatChip
                         label="Materials"
-                        value={formatDraftMoney(viewModel.totals.material)}
+                        value={formatPlanningMoney(viewModel.totals.material)}
                         darkMode={darkMode}
                         Colors={Colors}
                       />
@@ -334,7 +342,7 @@ function AIEstimateInitialRevealModal({
                     {viewModel.totals.labor != null ? (
                       <StatChip
                         label="Labor"
-                        value={formatDraftMoney(viewModel.totals.labor)}
+                        value={formatPlanningMoney(viewModel.totals.labor)}
                         darkMode={darkMode}
                         Colors={Colors}
                       />
@@ -342,7 +350,7 @@ function AIEstimateInitialRevealModal({
                     {viewModel.totals.allowance != null ? (
                       <StatChip
                         label="Allowances"
-                        value={formatDraftMoney(viewModel.totals.allowance)}
+                        value={formatPlanningMoney(viewModel.totals.allowance)}
                         darkMode={darkMode}
                         Colors={Colors}
                       />
@@ -355,10 +363,10 @@ function AIEstimateInitialRevealModal({
                 <ReliablePress
                   onPress={handleDetailed}
                   style={styles.detailedReviewLink}
-                  accessibilityLabel="Open detailed review"
+                  accessibilityLabel="View estimate details"
                 >
                   <Text style={[styles.detailedReviewLinkText, { color: brandAccent }]}>
-                    Open detailed review
+                    View estimate details
                   </Text>
                   <MaterialIcons name="arrow-forward" size={16} color={brandAccent} />
                 </ReliablePress>
@@ -391,7 +399,7 @@ function AIEstimateInitialRevealModal({
                     ]}
                   >
                     <View style={styles.blockTitleRow}>
-                      <Text style={[styles.blockTitle, { color: Colors.text }]}>Next to confirm</Text>
+                      <Text style={[styles.blockTitle, { color: Colors.text }]}>Needs your attention</Text>
                       {viewModel.attentionCount > 0 ? (
                         <View style={[styles.countPill, { backgroundColor: 'rgba(251, 191, 36, 0.14)' }]}>
                           <Text style={styles.countPillText}>{viewModel.attentionCount}</Text>
@@ -473,7 +481,7 @@ function AIEstimateInitialRevealModal({
                                   { color: amount > 0 ? brandAccent : Colors.sub },
                                 ]}
                               >
-                                {amount > 0 ? formatDraftMoney(amount) : '—'}
+                                {amount > 0 ? formatPlanningMoney(amount) : '—'}
                               </Text>
                             </View>
                           </View>

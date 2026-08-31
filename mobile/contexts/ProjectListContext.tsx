@@ -4,6 +4,7 @@ import React, {
   useState,
   ReactNode,
   useEffect,
+  useLayoutEffect,
   useRef,
   useMemo,
   useCallback,
@@ -36,13 +37,19 @@ import {
   useClerkAccountUserId,
   useLegacyAccountUserId,
 } from '../hooks/useAccountUserId';
-import { useAuth, useUser } from '@clerk/clerk-react';
+import { useUser } from '@clerk/clerk-react';
+import { useClerkUiReady } from '../hooks/useClerkUiReady';
 import { syncClerkTokenToAsyncStorage } from '../utils/authTokenHelper';
 import { setBusinessEntitlementSnapshot } from '../utils/businessEntitlementCache';
 import { setWorkspaceClerkTokenGetter } from '../utils/workspaceAuthBridge';
 import { recordDeletedProject } from '../utils/aiDashboardPortfolioFilter';
 import { isWorkspaceRestrictedFinancialsProject } from '../utils/workspacePermissions';
 import { purgeSavedPricingForBid } from '../utils/estimateSavedPricingCleanup';
+import {
+  getProjectListSeed,
+  loadProjectListSeedForUser,
+  setProjectListSeed,
+} from '../lib/projectListSessionHydration';
 
 // Unified Project interface that combines Estimates, Projects, and Dashboard data
 export interface UnifiedProject {
@@ -151,6 +158,8 @@ interface ProjectListContextType {
   /** Re-merge timeline, projectData, and progress from AsyncStorage without a backend round-trip. */
   rehydrateProjectsFromStorage: () => Promise<void>;
   clearProjectsLocal: () => Promise<void>;
+  /** False until the first load/hydrate pass completes for the current account. */
+  projectsReady: boolean;
 }
 
 const ProjectListContext = createContext<ProjectListContextType | undefined>(
@@ -849,16 +858,46 @@ type ProjectListProviderCoreProps = {
   children: ReactNode;
   accountUserId: string | null;
   accountReady: boolean;
+  /** Clerk: signed-out loads must not mark portfolio ready or wipe re-login seed timing. */
+  gateReadyOnAccount?: boolean;
 };
 
 const ProjectListProviderCore = ({
   children,
   accountUserId,
   accountReady,
+  gateReadyOnAccount = false,
 }: ProjectListProviderCoreProps) => {
-  const [projects, setProjects] = useState<UnifiedProject[]>([]);
+  const [projects, setProjects] = useState<UnifiedProject[]>(() => {
+    const seed = getProjectListSeed();
+    return Array.isArray(seed) && seed.length > 0 ? (seed as UnifiedProject[]) : [];
+  });
   const [isHydrated, setIsHydrated] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const prevAccountUserIdRef = useRef(accountUserId);
+
+  useLayoutEffect(() => {
+    if (prevAccountUserIdRef.current === accountUserId) return;
+    prevAccountUserIdRef.current = accountUserId;
+    if (accountUserId) {
+      setHasLoadedOnce(false);
+      const seed = getProjectListSeed(accountUserId);
+      if (Array.isArray(seed) && seed.length > 0) {
+        setProjects(seed as UnifiedProject[]);
+      } else {
+        setProjects([]);
+      }
+    } else {
+      setProjects([]);
+      setHasLoadedOnce(false);
+    }
+  }, [accountUserId]);
+
+  const markPortfolioLoaded = useCallback(() => {
+    if (!gateReadyOnAccount || accountUserId) {
+      setHasLoadedOnce(true);
+    }
+  }, [gateReadyOnAccount, accountUserId]);
   const hasAttemptedBackendSeedRef = useRef(false);
   /** After GET /api/projects returns 429, skip refresh for a while so tab focus / dev reload does not spam the server. */
   const projectsRefreshCooldownUntilRef = useRef(0);
@@ -896,13 +935,64 @@ const ProjectListProviderCore = ({
     invalidateWorkspaceBootstrapCache();
   }, [accountUserId]);
 
+  // Seed from AsyncStorage as soon as account identity is known — before JWT sync / workspace bootstrap.
+  useEffect(() => {
+    if (!accountUserId) return;
+
+    let cancelled = false;
+
+    const seedFromLocalCache = async () => {
+      if (projectsRef.current.length > 0) return;
+
+      try {
+        const localRows = await loadProjectListSeedForUser(accountUserId);
+        if (localRows.length === 0 || cancelled || projectsRef.current.length > 0) {
+          return;
+        }
+
+        const cachedMember = await readWorkspaceAccessSnapshot();
+        if (
+          cachedMember?.hasWorkspaceAccess &&
+          cachedMember.workspaceId &&
+          !cachedMember.isOwner
+        ) {
+          workspaceMemberModeRef.current = true;
+          workspaceMemberContextRef.current = {
+            workspaceId: String(cachedMember.workspaceId),
+          };
+          storageKeyRef.current = getWorkspaceProjectsStorageKey(
+            String(cachedMember.workspaceId)
+          );
+        } else {
+          storageKeyRef.current = getUnifiedProjectsStorageKey(accountUserId);
+        }
+
+        const normalized = await hydrateProjectsList(localRows as UnifiedProject[]);
+        if (cancelled || projectsRef.current.length > 0) return;
+        setProjects(normalized);
+        setProjectListSeed(normalized, accountUserId);
+      } catch (error) {
+        if (__DEV__) {
+          console.warn('ProjectListContext: early cache hydrate failed', error);
+        }
+      }
+    };
+
+    void seedFromLocalCache();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accountUserId]);
+
   // Load when account identity is known (or legacy signed-out mode).
   useEffect(() => {
     if (!accountReady) return;
+    if (gateReadyOnAccount && !accountUserId) return;
     hasAttemptedBackendSeedRef.current = false;
     suppressBackendSyncRef.current = false;
     void loadProjects();
-  }, [accountUserId, accountReady]);
+  }, [accountUserId, accountReady, gateReadyOnAccount]);
 
   // After sign-in, retry once if the first load returned empty (token/network race).
   useEffect(() => {
@@ -960,6 +1050,7 @@ const ProjectListProviderCore = ({
         return false;
       }
       setProjects(next);
+      if (next.length > 0) setProjectListSeed(next, accountUserId);
       return true;
     };
 
@@ -979,7 +1070,7 @@ const ProjectListProviderCore = ({
       await AsyncStorage.setItem(listKey, JSON.stringify(normalized));
       await persistWorkspaceAccessSnapshot(wsAccess);
       setIsHydrated(true);
-      setHasLoadedOnce(true);
+      markPortfolioLoaded();
       suppressBackendSyncRef.current = false;
       lastProjectsRefreshAtRef.current = Date.now();
       if (__DEV__) {
@@ -1045,7 +1136,7 @@ const ProjectListProviderCore = ({
             };
             storageKeyRef.current = listKey;
             setIsHydrated(true);
-            setHasLoadedOnce(true);
+            markPortfolioLoaded();
             suppressBackendSyncRef.current = false;
             return;
           }
@@ -1058,7 +1149,7 @@ const ProjectListProviderCore = ({
       }
       if (workspaceMemberModeRef.current) {
         setIsHydrated(true);
-        setHasLoadedOnce(true);
+        markPortfolioLoaded();
         suppressBackendSyncRef.current = false;
         return;
       }
@@ -1110,6 +1201,7 @@ const ProjectListProviderCore = ({
           await applyProgressAndDatesFromStorage(quickHydrate)
         );
         setProjects(quickNormalized);
+        setProjectListSeed(quickNormalized, accountUserId);
       }
 
       if (accountUserId) {
@@ -1152,7 +1244,7 @@ const ProjectListProviderCore = ({
           await AsyncStorage.setItem(listKey, JSON.stringify(normalized));
           await setActiveProjectUserId(accountUserId);
           setIsHydrated(true);
-          setHasLoadedOnce(true);
+          markPortfolioLoaded();
           suppressBackendSyncRef.current = false;
           lastProjectsRefreshAtRef.current = Date.now();
           return;
@@ -1170,7 +1262,7 @@ const ProjectListProviderCore = ({
         );
         if (commitProjects(normalized)) {
           setIsHydrated(true);
-          setHasLoadedOnce(true);
+          markPortfolioLoaded();
           suppressBackendSyncRef.current = false;
           return;
         }
@@ -1179,13 +1271,13 @@ const ProjectListProviderCore = ({
       if (loadSeq === projectsLoadSeqRef.current) {
         commitProjects([]);
         setIsHydrated(true);
-        setHasLoadedOnce(true);
+        markPortfolioLoaded();
         suppressBackendSyncRef.current = false;
       }
     } catch (error) {
       console.error('Error loading projects:', error);
       setIsHydrated(true);
-      setHasLoadedOnce(true);
+      markPortfolioLoaded();
       suppressBackendSyncRef.current = false;
     }
   };
@@ -1206,6 +1298,9 @@ const ProjectListProviderCore = ({
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
       syncTimerRef.current = null;
+    }
+    if (accountUserId && projectsRef.current.length > 0) {
+      setProjectListSeed(projectsRef.current, accountUserId);
     }
     setProjects([]);
     setIsHydrated(false);
@@ -1692,6 +1787,7 @@ const ProjectListProviderCore = ({
         return false;
       }
       setProjects(next);
+      if (next.length > 0) setProjectListSeed(next, accountUserId);
       return true;
     };
 
@@ -1733,7 +1829,7 @@ const ProjectListProviderCore = ({
           await persistWorkspaceAccessSnapshot(memberAccess);
         }
         setIsHydrated(true);
-        setHasLoadedOnce(true);
+        markPortfolioLoaded();
         projectsRefreshCooldownUntilRef.current = 0;
         lastProjectsRefreshAtRef.current = Date.now();
         suppressBackendSyncRef.current = false;
@@ -1786,7 +1882,7 @@ const ProjectListProviderCore = ({
       }
 
       setIsHydrated(true);
-      setHasLoadedOnce(true);
+      markPortfolioLoaded();
       projectsRefreshCooldownUntilRef.current = 0;
       lastProjectsRefreshAtRef.current = Date.now();
       suppressBackendSyncRef.current = false;
@@ -1818,6 +1914,8 @@ const ProjectListProviderCore = ({
         refreshProjects,
         rehydrateProjectsFromStorage,
         clearProjectsLocal,
+        projectsReady:
+          hasLoadedOnce && (!gateReadyOnAccount || !!accountUserId),
       }}
     >
       {children}
@@ -1826,8 +1924,8 @@ const ProjectListProviderCore = ({
 };
 
 function ProjectListProviderClerk({ children }: { children: ReactNode }) {
-  const { userId, isReady: clerkUserReady } = useClerkAccountUserId();
-  const { isSignedIn, isLoaded, getToken } = useAuth();
+  const { userId } = useClerkAccountUserId();
+  const { isSignedIn, getToken, uiReady } = useClerkUiReady();
   const { user } = useUser();
   const [sessionReady, setSessionReady] = useState(false);
 
@@ -1839,7 +1937,7 @@ function ProjectListProviderClerk({ children }: { children: ReactNode }) {
   }, [isSignedIn, getToken]);
 
   useEffect(() => {
-    if (!isLoaded) {
+    if (!uiReady) {
       setSessionReady(false);
       return;
     }
@@ -1877,12 +1975,17 @@ function ProjectListProviderClerk({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isLoaded, isSignedIn, userId, getToken, user]);
+  }, [uiReady, isSignedIn, userId, getToken, user]);
 
-  const accountReady = clerkUserReady && sessionReady;
+  const accountReady =
+    sessionReady && (isSignedIn ? Boolean(userId) || uiReady : uiReady);
 
   return (
-    <ProjectListProviderCore accountUserId={userId} accountReady={accountReady}>
+    <ProjectListProviderCore
+      accountUserId={userId}
+      accountReady={accountReady}
+      gateReadyOnAccount
+    >
       {children}
     </ProjectListProviderCore>
   );

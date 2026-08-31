@@ -1,5 +1,10 @@
 import type { EstimateAiDraft, EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
-import { formatDraftMoney, getScopePackages, isComplexEstimateTier } from '@/utils/estimateAiDraft';
+import {
+  formatDraftMoney,
+  formatPlanningMoney,
+  getScopePackages,
+  isComplexEstimateTier,
+} from '@/utils/estimateAiDraft';
 import { sumStep3ReviewBudgetTotals } from '@/utils/benchmarkReasonablenessContext';
 import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import {
@@ -112,8 +117,24 @@ export function getInitialRevealScopeMetaLabel(count: number): string {
   return count === 1 ? '1 scope item' : `${count} scope items`;
 }
 
-export function shouldDefaultExpandInitialRevealScope(scopeItemCount: number): boolean {
-  return scopeItemCount > 0 && scopeItemCount <= 12;
+export function shouldDefaultExpandInitialRevealScope(_scopeItemCount: number): boolean {
+  return false;
+}
+
+export function getInitialRevealHeaderCopy(input: {
+  hasAmount: boolean;
+  needsScopeConfirmation: boolean;
+}): { title: string; subtitle: string } {
+  if (!input.hasAmount || input.needsScopeConfirmation) {
+    return {
+      title: 'Scope found',
+      subtitle: 'Review what BPS identified before pricing',
+    };
+  }
+  return {
+    title: 'Initial estimate',
+    subtitle: 'Quick summary before detailed review',
+  };
 }
 
 export function getInitialRevealPlanningDisclaimer(
@@ -122,7 +143,29 @@ export function getInitialRevealPlanningDisclaimer(
 ): string | null {
   if (totals.heroTotal == null || totals.heroTotal <= 0) return null;
   if (attentionCount === 0) return null;
-  return 'Planning estimate — refine on detailed review';
+  return 'Planning estimate — review before sending';
+}
+
+export function getScopeTotalCoverageLine(
+  draft: EstimateAiDraft,
+  options?: { missingPriceCount?: number; scopeItemCount?: number }
+): string | null {
+  const pkgs = getScopePackagesForReview(draft);
+  const scopeItemCount = options?.scopeItemCount ?? pkgs.length;
+  const needingPrice = pkgs.filter((pkg) => scopePackageNeedsManualPrice(pkg, draft));
+  const missingPriceCount = options?.missingPriceCount ?? needingPrice.length;
+  if (scopeItemCount <= 0 || missingPriceCount <= 0) return null;
+  const included = Math.max(0, scopeItemCount - missingPriceCount);
+  const names = needingPrice
+    .map((pkg) => String(pkg.name || pkg.scope || '').trim())
+    .filter(Boolean);
+  const missingDetail =
+    names.length === 1
+      ? `${names[0]} is not included`
+      : missingPriceCount === 1
+        ? '1 item is not included'
+        : `${missingPriceCount} items are not included`;
+  return `Includes ${included} of ${scopeItemCount} scope items. ${missingDetail}.`;
 }
 
 export function shouldShowInitialRevealWhatWeFound(
@@ -154,9 +197,9 @@ export function getInitialRevealStatusLabel(
     return { label: 'Mostly ready', tone: 'mostly' };
   }
   if (attentionCount === 1) {
-    return { label: '1 item to check', tone: 'review' };
+    return { label: 'Mostly ready · 1 to check', tone: 'review' };
   }
-  return { label: `${attentionCount} items to check`, tone: 'review' };
+  return { label: `Mostly ready · ${attentionCount} to check`, tone: 'review' };
 }
 
 export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
@@ -196,10 +239,19 @@ export function getInitialRevealPriorityItems(
 /** One-line positive summary for the hero area. */
 export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
   const bullets = summarizeWhatAiDidForDisplay(draft.whatAiDid || [], 6);
-  const positive = bullets.find(
-    (line) =>
-      !/no material or labor|rates were provided|no pricing was calculated|could not|unable to/i.test(line)
-  );
+  const titleNorm = getInitialRevealDisplayTitle(draft).toLowerCase();
+  const positive = bullets.find((line) => {
+    const plain = plainLanguageReviewItem(line);
+    if (
+      /kitchen remodel/i.test(plain) &&
+      /paint|repaint|exterior|interior/i.test(titleNorm)
+    ) {
+      return false;
+    }
+    return !/no material or labor|rates were provided|no pricing was calculated|could not|unable to/i.test(
+      line
+    );
+  });
   if (positive) return plainLanguageReviewItem(positive);
 
   if (draft.projectType && draft.projectType !== 'other') {
@@ -228,7 +280,7 @@ export function getInitialRevealHeroDisplay(
   if (totals.heroTotal != null && totals.heroTotal > 0) {
     return {
       hasAmount: true,
-      amountText: formatDraftMoney(totals.heroTotal),
+      amountText: formatPlanningMoney(totals.heroTotal),
       hint: totals.heroTotalLabel,
       markupSubline:
         totals.markupPct != null && totals.markupPct > 0
@@ -266,7 +318,7 @@ export function getInitialRevealUnderstoodBullets(draft: EstimateAiDraft, max = 
     return pkgs.slice(0, max).map((pkg) => {
       const name = String(pkg.name || pkg.scope || 'Scope item').trim();
       const amount = scopePackagePricedAmount(pkg, draft);
-      if (amount > 0) return `${name} · ${formatDraftMoney(amount)}`;
+      if (amount > 0) return `${name} · ${formatPlanningMoney(amount)}`;
       return name;
     });
   }

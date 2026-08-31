@@ -3030,7 +3030,7 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   roofing: 'Roof squares for material and labor.',
   paint_trim: 'Wall/ceiling paint surface sqft for material and labor.',
   interior_paint:
-    'Paintable wall/ceiling SF (physical). Local budgets are installed lump sums.',
+    'Wall and ceiling paint area from your notes or measurements.',
   exterior_paint:
     'Exterior paint application for siding, stucco, soffit, and fascia. Prep, masking, heavy repairs, access work, and specialty coatings are separate.',
   interior_trim:

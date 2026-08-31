@@ -12293,9 +12293,15 @@ function floorPrepPricing(
 
 /**
  * Confirm Scope comparison card: pure national average on the same qty/unit as the
- * suggested fill (no local barometer, no living-SF stage lump). Lets contractors
- * see how the blended suggest compares to national.
+ * suggested fill (no local barometer, no living-SF stage lump). Only paired when
+ * the primary fill comes from the contractor pricing library.
  */
+function pricingLibraryTemplateMatch(
+  template: TemplateRateMatch | null | undefined
+): boolean {
+  return template?.origin === 'pricing_library';
+}
+
 export function buildPureNationalAverageComparisonBlock(params: {
   itemId: string;
   basis: { quantity: number; unit: string } | null | undefined;
@@ -17354,11 +17360,7 @@ export function resolveScopeItemSuggestedPricing(
           : itemId;
       return {
         fill: paintTrimMissing,
-        comparison: buildPureNationalAverageComparisonBlock({
-          itemId: paintItemId,
-          basis: paintTrimMissing.basis,
-          fillTotal: paintTrimMissing.total,
-        }),
+        comparison: null,
       };
     }
     // Ground-up soft costs (plans / permits) even when no qty or stage evidence is cached.
@@ -17433,11 +17435,7 @@ export function resolveScopeItemSuggestedPricing(
           : itemId;
       return {
         fill: paintTrimPackage,
-        comparison: buildPureNationalAverageComparisonBlock({
-          itemId: paintItemId,
-          basis: paintTrimPackage.basis,
-          fillTotal: paintTrimPackage.total,
-        }),
+        comparison: null,
       };
     }
     // Keep the benchmark/suggested allowance available after the user edits so they
@@ -18027,11 +18025,7 @@ export function resolveScopeItemSuggestedPricing(
       itemId === 'paint_trim' || itemId === 'paint' ? 'interior_paint' : itemId;
     return {
       fill: localPaintTrim,
-      comparison: buildPureNationalAverageComparisonBlock({
-        itemId: paintItemId,
-        basis: localPaintTrim.basis,
-        fillTotal: localPaintTrim.total,
-      }),
+      comparison: null,
     };
   }
 
@@ -18514,7 +18508,9 @@ export function resolveScopeItemSuggestedPricing(
   }
   // Comparison = pure national on the same qty/unit as fill (not living-SF stage lump).
   const nationalComparison =
-    hasPhysicalTakeoffRates && concreteThicknessMultiplier === 1
+    hasPhysicalTakeoffRates &&
+    concreteThicknessMultiplier === 1 &&
+    pricingLibraryTemplateMatch(template)
       ? buildPureNationalAverageComparisonBlock({
           itemId,
           basis: takeoffFill.basis,

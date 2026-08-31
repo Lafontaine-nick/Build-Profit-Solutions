@@ -19,29 +19,24 @@ import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { useAuth, useUser } from "@clerk/clerk-react";
+import { useUser } from "@clerk/clerk-react";
+import { useClerkUiReady } from "@/hooks/useClerkUiReady";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { useClerkUiEnabled } from "@/contexts/ClerkUiContext";
-import {
-  getStaySignedInPreference,
-} from "@/lib/authSessionPreference";
 import {
   WEB_CENTERED_COLUMN_MAX_WIDTH,
   WEB_CENTERED_COLUMN_MIN_WIDTH,
 } from "@/constants/ScreenLayout";
 
-/** Clerk session signals can lag `isSignedIn` on web; `getToken()` confirms an active session. */
+/** Clerk session — used only to decide Go to Dashboard vs Get Started; never blocks the CTA. */
 function useClerkLandingSession() {
-  const { isSignedIn, isLoaded, getToken } = useAuth();
+  const { isSignedIn, isLoaded, getToken, clerkTimedOut } = useClerkUiReady();
   const { user } = useUser();
   const [hasToken, setHasToken] = useState(false);
 
   useEffect(() => {
-    if (!isLoaded) {
-      setHasToken(false);
-      return;
-    }
+    if (!isLoaded) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -54,12 +49,20 @@ function useClerkLandingSession() {
     return () => {
       cancelled = true;
     };
-  }, [isLoaded, getToken]);
+  }, [isLoaded, isSignedIn, getToken]);
 
+  /** Only when Clerk fully loaded — not after AuthGate timeout with a stale/partial session. */
   const showGoToDashboard =
-    isLoaded && (!!isSignedIn || !!user?.id || hasToken);
+    isLoaded && !clerkTimedOut && (!!isSignedIn || !!user?.id || hasToken);
 
-  return { showGoToDashboard, isLoaded, user };
+  return {
+    showGoToDashboard,
+    clerkLoaded: isLoaded,
+    clerkTimedOut,
+    user,
+    getToken,
+    isSignedIn,
+  };
 }
 
 function ClerkLandingHeroContent({
@@ -70,34 +73,47 @@ function ClerkLandingHeroContent({
   t: (key: string) => string;
 }) {
   const router = useRouter();
-  const { showGoToDashboard, isLoaded, user } = useClerkLandingSession();
+  const { showGoToDashboard, clerkLoaded, clerkTimedOut, user, getToken, isSignedIn } =
+    useClerkLandingSession();
   const [openingDashboard, setOpeningDashboard] = useState(false);
 
+  useEffect(() => {
+    if (!openingDashboard) return;
+    const reset = setTimeout(() => setOpeningDashboard(false), 8000);
+    return () => clearTimeout(reset);
+  }, [openingDashboard]);
+
   const onPress = async () => {
-    if (!isLoaded || openingDashboard) return;
+    if (openingDashboard) return;
     setOpeningDashboard(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      if (showGoToDashboard) {
-        const stay = await getStaySignedInPreference();
-        if (!stay) {
-          router.push("/auth?mode=signin");
-          return;
+      let goDashboard = showGoToDashboard;
+      if (!goDashboard && clerkLoaded && !clerkTimedOut) {
+        try {
+          const tok = await Promise.race([
+            getToken(),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+          ]);
+          goDashboard = !!(isSignedIn || user?.id || tok);
+        } catch {
+          goDashboard = false;
         }
+      }
+      if (goDashboard && clerkLoaded && !clerkTimedOut) {
         router.replace("/(tabs)/dashboard");
-        return;
+      } else {
+        router.push("/auth?mode=signin");
       }
     } catch {
-      // fall through to sign-in
+      router.push("/auth?mode=signin");
+    } finally {
+      setOpeningDashboard(false);
     }
-    setOpeningDashboard(false);
-    router.push("/auth?mode=signin");
   };
 
   const buttonLabel = openingDashboard
     ? "Opening Dashboard..."
-    : !isLoaded
-    ? t("landing.checkingSessionButton")
     : showGoToDashboard
       ? t("landing.goToDashboardButton")
       : t("landing.getStartedButton");
@@ -107,27 +123,23 @@ function ClerkLandingHeroContent({
       <View style={styles.cardHeaderRow}>
         <View style={styles.cardHeaderTextBlock}>
           <Text style={styles.cardTitle}>
-            {!isLoaded
-              ? t("landing.getStarted")
-              : showGoToDashboard
-                ? t("landing.goToDashboardHeadline")
-                : t("landing.getStarted")}
+            {showGoToDashboard
+              ? t("landing.goToDashboardHeadline")
+              : t("landing.getStarted")}
           </Text>
           <Text style={styles.cardSubtitle}>
-            {!isLoaded
-              ? t("landing.launchDescription")
-              : showGoToDashboard
-                ? t("landing.goToDashboardDescription")
-                : t("landing.launchDescription")}
+            {showGoToDashboard
+              ? t("landing.goToDashboardDescription")
+              : t("landing.launchDescription")}
           </Text>
         </View>
       </View>
 
       <TouchableOpacity
-        style={[styles.primaryButton, (!isLoaded || openingDashboard) && { opacity: 0.7 }]}
+        style={[styles.primaryButton, openingDashboard && { opacity: 0.7 }]}
         onPress={onPress}
         activeOpacity={0.85}
-        disabled={!isLoaded || openingDashboard}
+        disabled={openingDashboard}
       >
         <LinearGradient
           colors={["#22c55e", "#22d3ee"]}

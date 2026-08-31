@@ -1552,6 +1552,24 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(comparison?.rateSourceLabel).toMatch(/national average comparison/i);
   });
 
+  it('does not attach national planning comparison for exterior paint without pricing library', () => {
+    const input = inputWith({ exteriorPaintSqft: '2000' });
+    const resolved = {
+      quantity: 2000,
+      unit: 'sqft' as const,
+      quantitySource: 'user_entered' as const,
+    };
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'exterior_paint',
+      input,
+      'painting',
+      resolved,
+      { libraryRates: [] }
+    );
+    expect(fill?.total).toBe(6300);
+    expect(comparison).toBeNull();
+  });
+
   it('uses CY national average rates when concrete is measured in cubic yards', () => {
     const input = inputWith({ concreteCy: '18' });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);

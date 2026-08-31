@@ -447,8 +447,8 @@ export function benchmarkActionButtonLabel(
 export function footerScrollToPricingButtonLabel(readyCount: number): string | null {
   if (readyCount <= 0) return null;
   return readyCount === 1
-    ? 'Review 1 pricing card below'
-    : `Review ${readyCount} pricing cards below`;
+    ? 'Show 1 pricing card'
+    : `Show ${readyCount} pricing cards`;
 }
 
 /** Muted hint under the scroll-to-pricing button when other scopes still need input. */

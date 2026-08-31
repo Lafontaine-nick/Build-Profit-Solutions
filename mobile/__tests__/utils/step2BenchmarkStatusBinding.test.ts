@@ -315,8 +315,8 @@ describe('Step 2 benchmark + measurement-status binding', () => {
         benchmarkOnlyCount: 0,
       })
     ).toBeNull();
-    expect(footerScrollToPricingButtonLabel(8)).toBe('Review 8 pricing cards below');
-    expect(footerScrollToPricingButtonLabel(1)).toBe('Review 1 pricing card below');
+    expect(footerScrollToPricingButtonLabel(8)).toBe('Show 8 pricing cards');
+    expect(footerScrollToPricingButtonLabel(1)).toBe('Show 1 pricing card');
     expect(footerScrollToPricingButtonLabel(0)).toBeNull();
     expect(footerSuggestedPricingPendingHint({ needsMeasurementCount: 4 })).toBe(
       '4 still to confirm'

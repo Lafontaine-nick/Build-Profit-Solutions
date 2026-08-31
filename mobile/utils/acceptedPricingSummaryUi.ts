@@ -25,7 +25,7 @@ import {
   usesAllowanceSplitEditor,
   type ScopeItemQuantityRule,
 } from '@/utils/scopeItemQuantities';
-import { formatDraftMoney } from '@/utils/estimateAiDraft';
+import { formatDraftMoney, formatPlanningMoney } from '@/utils/estimateAiDraft';
 
 /** User-facing confidence badges on Confirm Scope applied-pricing cards. */
 export const PRICING_CONFIDENCE_LABEL = {
@@ -546,14 +546,14 @@ export function resolveAcceptedPricingDisplay(params: {
   const showConfidenceBadge = shouldShowConfidenceBadge(acceptance);
 
   return {
-    totalLabel: formatDraftMoney(total),
+    totalLabel: formatPlanningMoney(total),
     selectionStatusLabel: selectionStatusLabel(acceptance, params.resolved),
     pricingSourceLabel: acceptance.pricingSourceLabel,
     pricingTypeLabel: acceptance.pricingTypeLabel,
     subtitleLine: acceptedPricingSubtitleLine({
       display: {
         pricingModel,
-        totalLabel: formatDraftMoney(total),
+        totalLabel: formatPlanningMoney(total),
         acceptance,
       },
       resolved: params.resolved,
@@ -613,7 +613,7 @@ function selectionStatusLabel(
   acceptance: ScopePricingAcceptanceMetadata,
   resolved: ResolvedItemQuantity
 ): string {
-  if (acceptance.selectionStatus === 'accepted') return 'Applied';
+  if (acceptance.selectionStatus === 'accepted') return 'Selected';
   if (acceptance.selectionStatus === 'manual_adjusted') return 'User adjusted';
   if (resolved.quantitySource === 'notes') return 'From notes';
   if (acceptance.selectionStatus === 'user_entered') return 'User entered';
@@ -683,11 +683,11 @@ function buildMaterialLaborSummaryLine(
   const labor = acceptance.laborAmount ?? resolved.dualLabor?.quantity;
   const allowance = acceptance.allowanceAmount;
   const subcontractor = acceptance.subcontractorAmount;
-  if (material != null && material > 0) parts.push(`Material ${formatDraftMoney(material)}`);
-  if (labor != null && labor > 0) parts.push(`Labor ${formatDraftMoney(labor)}`);
-  if (allowance != null && allowance > 0) parts.push(`Allowance ${formatDraftMoney(allowance)}`);
+  if (material != null && material > 0) parts.push(`Material ${formatPlanningMoney(material)}`);
+  if (labor != null && labor > 0) parts.push(`Labor ${formatPlanningMoney(labor)}`);
+  if (allowance != null && allowance > 0) parts.push(`Allowance ${formatPlanningMoney(allowance)}`);
   if (subcontractor != null && subcontractor > 0) {
-    parts.push(`Subcontractor ${formatDraftMoney(subcontractor)}`);
+    parts.push(`Subcontractor ${formatPlanningMoney(subcontractor)}`);
   }
   return parts.length ? parts.join(' · ') : null;
 }

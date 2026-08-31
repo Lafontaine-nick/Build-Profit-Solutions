@@ -1187,6 +1187,13 @@ export function formatDraftMoney(amount: number | null | undefined): string {
   })}`;
 }
 
+/** Whole-dollar display for planning hero totals and quick summaries. */
+export function formatPlanningMoney(amount: number | null | undefined): string {
+  if (amount == null || Number.isNaN(Number(amount))) return '—';
+  const value = Math.round(Number(amount));
+  return `$${value.toLocaleString()}`;
+}
+
 export const BUILDER_MODE_LABELS: Record<
   EstimateBuilderMode,
   { title: string; subtitle: string }

@@ -1,8 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { startTransition, useMemo, useState } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
   Alert,
   ActionSheetIOS,
@@ -11,7 +10,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
-import { formatDraftMoney } from '@/utils/estimateAiDraft';
+import { formatPlanningMoney } from '@/utils/estimateAiDraft';
 import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import {
   compactPackageAmount,
@@ -41,7 +40,7 @@ import {
   getStep3ReviewStatusBadge,
   shouldDefaultShowAllStep3ScopeItems,
 } from '@/utils/estimateDraftReviewStep3Ui';
-import { getInitialRevealDisplayTitle } from '@/utils/estimateInitialRevealUi';
+import { getInitialRevealDisplayTitle, getScopeTotalCoverageLine } from '@/utils/estimateInitialRevealUi';
 import ReliableFlowPress from '@/components/estimate/ReliableFlowPress';
 import ScopeBudgetBreakdownPanel from '@/components/estimate/ScopeBudgetBreakdownPanel';
 import {
@@ -274,6 +273,10 @@ export default function AIEstimateDraftReviewCompact({
   const statusBadge = getStep3ReviewStatusBadge(step3Totals);
   const statusStyle = STEP3_STATUS_COLORS[statusBadge.tone];
   const planningDisclaimer = getStep3ReviewPlanningDisclaimer(step3Totals);
+  const totalCoverageLine = getScopeTotalCoverageLine(draft, {
+    missingPriceCount: step3Totals.missingPriceCount,
+    scopeItemCount: step3Totals.scopeItemCount,
+  });
   const heroMarkupSubline = getStep3ReviewHeroMarkupSubline(
     markupPct,
     calculatedTotal,
@@ -443,7 +446,7 @@ export default function AIEstimateDraftReviewCompact({
           {heroAmount != null ? (
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 12 }}>
               <Text style={{ color: '#22c55e', fontSize: 36, fontWeight: '900', letterSpacing: -0.8 }}>
-                {formatDraftMoney(heroAmount)}
+                {formatPlanningMoney(heroAmount)}
               </Text>
               {draft.totalMatches === true ? (
                 <MaterialIcons name="check-circle" size={18} color="#22c55e" />
@@ -466,12 +469,18 @@ export default function AIEstimateDraftReviewCompact({
             </Text>
           ) : null}
 
+          {totalCoverageLine ? (
+            <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 4, lineHeight: 17 }}>
+              {totalCoverageLine}
+            </Text>
+          ) : null}
+
           {showHeroStats ? (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
               {materialTotal != null ? (
                 <HeroStatChip
                   label="Materials"
-                  value={formatDraftMoney(materialTotal)}
+                  value={formatPlanningMoney(materialTotal)}
                   Colors={Colors}
                   darkMode={darkMode}
                 />
@@ -479,7 +488,7 @@ export default function AIEstimateDraftReviewCompact({
               {laborTotal != null ? (
                 <HeroStatChip
                   label="Labor"
-                  value={formatDraftMoney(laborTotal)}
+                  value={formatPlanningMoney(laborTotal)}
                   Colors={Colors}
                   darkMode={darkMode}
                 />
@@ -487,21 +496,12 @@ export default function AIEstimateDraftReviewCompact({
               {allowanceTotal != null ? (
                 <HeroStatChip
                   label="Allowances"
-                  value={formatDraftMoney(allowanceTotal)}
+                  value={formatPlanningMoney(allowanceTotal)}
                   Colors={Colors}
                   darkMode={darkMode}
                 />
               ) : null}
             </View>
-          ) : null}
-
-          {draft.estimateConfidence && statusBadge.tone !== 'ready' ? (
-            <Text
-              style={{ color: confStyle.color, fontSize: 11, fontWeight: '600', marginTop: 10 }}
-              numberOfLines={2}
-            >
-              {draft.estimateConfidence.label}
-            </Text>
           ) : null}
 
         </View>
@@ -532,7 +532,7 @@ export default function AIEstimateDraftReviewCompact({
           const liveSplitTotal =
             liveSplit != null ? roundedMoney(liveSplit.material + liveSplit.labor) : null;
           const rowAmount =
-            liveSplitTotal != null && liveSplitTotal > 0 ? formatDraftMoney(liveSplitTotal) : amount;
+            liveSplitTotal != null && liveSplitTotal > 0 ? formatPlanningMoney(liveSplitTotal) : amount;
           const editorBreakdown =
             isEditingPricing && canEditInline && !isSoftCost
               ? emptyBudgetBreakdown(pkg, resolvedBreakdown)
@@ -583,13 +583,16 @@ export default function AIEstimateDraftReviewCompact({
             });
           };
           const toggleBudgetSplit = () => {
-            if (!budgetBreakdown) return;
+            if (!budgetBreakdown || busy) return;
             // Chevron collapse = Done: close budget split and exit inline Material/Labor edit.
             if (isEditingPricing || expandedBudgetSplits[pkg.name]) {
               collapseBudgetSplit();
               return;
             }
-            setExpandedBudgetSplits((current) => ({ ...current, [pkg.name]: true }));
+            startTransition(() => {
+              // One open split at a time — keeps Step 3 scroll snappy.
+              setExpandedBudgetSplits({ [pkg.name]: true });
+            });
           };
           const showRowMenu =
             !isEditingPricing &&
@@ -634,82 +637,132 @@ export default function AIEstimateDraftReviewCompact({
                 <View style={{ alignItems: 'flex-end', flexShrink: 0, flexDirection: 'row', gap: 2 }}>
                   <View style={{ alignItems: 'flex-end' }}>
                     {rowAmount ? (
-                      <TouchableOpacity
-                        activeOpacity={budgetBreakdown ? 0.75 : 1}
-                        disabled={!budgetBreakdown}
-                        onPress={toggleBudgetSplit}
-                        accessibilityRole={budgetBreakdown ? 'button' : undefined}
-                        accessibilityLabel={
-                          budgetBreakdown
-                            ? showBudgetSplit
+                      budgetBreakdown ? (
+                        <ReliableFlowPress
+                          onPress={toggleBudgetSplit}
+                          disabled={busy}
+                          haptic="light"
+                          accessibilityRole="button"
+                          accessibilityState={{ expanded: showBudgetSplit }}
+                          accessibilityLabel={
+                            showBudgetSplit
                               ? `Hide budget split for ${pkg.name}`
                               : `Show budget split for ${pkg.name}`
-                            : undefined
-                        }
-                        style={{ flexDirection: 'row', alignItems: 'center', gap: 1 }}
-                      >
-                        <Text
-                          style={{
-                            color: '#22c55e',
-                            fontSize: 15,
-                            fontWeight: '600',
-                            letterSpacing: -0.2,
-                          }}
+                          }
+                          style={styles.budgetSplitToggle}
                         >
-                          {rowAmount}
-                        </Text>
-                        {budgetBreakdown ? (
-                          <MaterialIcons
-                            name={showBudgetSplit ? 'expand-less' : 'expand-more'}
-                            size={18}
-                            color="rgba(34, 197, 94, 0.85)"
-                          />
-                        ) : null}
-                      </TouchableOpacity>
+                          <View style={styles.budgetSplitToggleInner}>
+                            <Text
+                              style={{
+                                color: '#22c55e',
+                                fontSize: 15,
+                                fontWeight: '600',
+                                letterSpacing: -0.2,
+                              }}
+                            >
+                              {rowAmount}
+                            </Text>
+                            <MaterialIcons
+                              name={showBudgetSplit ? 'expand-less' : 'expand-more'}
+                              size={20}
+                              color="rgba(34, 197, 94, 0.9)"
+                            />
+                          </View>
+                          {pricingSourceLabel ? (
+                            <Text
+                              style={{
+                                color: compactPackagePricingSourceColor(
+                                  pricingSourceLabel,
+                                  darkMode,
+                                  Colors.sub
+                                ),
+                                fontSize: 10,
+                                fontWeight: '600',
+                                marginTop: 3,
+                              }}
+                            >
+                              {pricingSourceLabel}
+                            </Text>
+                          ) : showStatus ? (
+                            <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 3 }}>
+                              {statusLabel}
+                            </Text>
+                          ) : null}
+                        </ReliableFlowPress>
+                      ) : (
+                        <>
+                          <Text
+                            style={{
+                              color: '#22c55e',
+                              fontSize: 15,
+                              fontWeight: '600',
+                              letterSpacing: -0.2,
+                            }}
+                          >
+                            {rowAmount}
+                          </Text>
+                          {pricingSourceLabel ? (
+                            <Text
+                              style={{
+                                color: compactPackagePricingSourceColor(
+                                  pricingSourceLabel,
+                                  darkMode,
+                                  Colors.sub
+                                ),
+                                fontSize: 10,
+                                fontWeight: '600',
+                                marginTop: 2,
+                              }}
+                            >
+                              {pricingSourceLabel}
+                            </Text>
+                          ) : showStatus ? (
+                            <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 2 }}>
+                              {statusLabel}
+                            </Text>
+                          ) : null}
+                        </>
+                      )
                     ) : (
-                      <TouchableOpacity
-                        activeOpacity={0.8}
+                      <ReliableFlowPress
                         disabled={busy || (!canEditInline && !onPriceScopeItem)}
                         onPress={openInlinePricing}
+                        haptic="light"
+                        style={styles.budgetSplitToggle}
                       >
+                        <View
+                          style={
+                            needsPrice
+                              ? {
+                                  marginTop: 2,
+                                  alignSelf: 'flex-end',
+                                  paddingHorizontal: 10,
+                                  paddingVertical: 5,
+                                  borderRadius: 8,
+                                  borderWidth: 1,
+                                  borderColor: 'rgba(251, 191, 36, 0.45)',
+                                  backgroundColor: 'rgba(251, 191, 36, 0.12)',
+                                }
+                              : undefined
+                          }
+                        >
                         <Text
                           style={{
                             color: needsPrice ? '#fbbf24' : Colors.sub,
-                            fontSize: 13,
-                            fontWeight: needsPrice ? '600' : '400',
+                            fontSize: needsPrice ? 13 : 13,
+                            fontWeight: needsPrice ? '700' : '400',
                           }}
                         >
                           {needsPrice ? 'Add price' : statusLabel}
                         </Text>
-                      </TouchableOpacity>
+                        </View>
+                      </ReliableFlowPress>
                     )}
-                    {showStatus ? (
-                      <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 2 }}>
-                        {statusLabel}
-                      </Text>
-                    ) : null}
-                    {pricingSourceLabel ? (
-                      <Text
-                        style={{
-                          color: compactPackagePricingSourceColor(
-                            pricingSourceLabel,
-                            darkMode,
-                            Colors.sub
-                          ),
-                          fontSize: 10,
-                          fontWeight: '600',
-                          marginTop: 2,
-                        }}
-                      >
-                        {pricingSourceLabel}
-                      </Text>
-                    ) : null}
                   </View>
                   {showRowMenu ? (
-                    <TouchableOpacity
-                      activeOpacity={0.7}
+                    <ReliableFlowPress
                       disabled={busy}
-                      hitSlop={{ top: 10, bottom: 10, left: 8, right: 4 }}
+                      haptic="none"
                       accessibilityRole="button"
                       accessibilityLabel={`Actions for ${pkg.name}`}
                       onPress={() =>
@@ -720,10 +773,10 @@ export default function AIEstimateDraftReviewCompact({
                           openInlinePricing,
                         })
                       }
-                      style={{ paddingTop: 1, paddingLeft: 2 }}
+                      style={{ paddingTop: 1, paddingLeft: 2, minHeight: 44, justifyContent: 'center' }}
                     >
                       <MaterialIcons name="more-horiz" size={20} color={Colors.sub} />
-                    </TouchableOpacity>
+                    </ReliableFlowPress>
                   ) : null}
                 </View>
               </View>
@@ -788,22 +841,22 @@ export default function AIEstimateDraftReviewCompact({
             Totals
           </Text>
           {materialTotal != null ? (
-            <PriceRow label="Materials" value={formatDraftMoney(materialTotal)} Colors={Colors} />
+            <PriceRow label="Materials" value={formatPlanningMoney(materialTotal)} Colors={Colors} />
           ) : null}
           {laborTotal != null ? (
-            <PriceRow label="Labor" value={formatDraftMoney(laborTotal)} Colors={Colors} />
+            <PriceRow label="Labor" value={formatPlanningMoney(laborTotal)} Colors={Colors} />
           ) : null}
           {allowanceTotal != null ? (
-            <PriceRow label="Allowances" value={formatDraftMoney(allowanceTotal)} Colors={Colors} />
+            <PriceRow label="Allowances" value={formatPlanningMoney(allowanceTotal)} Colors={Colors} />
           ) : null}
           {calculatedTotal != null && calculatedTotal > 0 ? (
-            <PriceRow label="Total" value={formatDraftMoney(calculatedTotal)} Colors={Colors} highlight />
+            <PriceRow label="Total" value={formatPlanningMoney(calculatedTotal)} Colors={Colors} highlight />
           ) : null}
           {estimatedBidWithMarkup != null ? (
             <>
               <PriceRow
                 label={`Est. bid w/ ${normalizedMarkupPct}% markup`}
-                value={formatDraftMoney(estimatedBidWithMarkup)}
+                value={formatPlanningMoney(estimatedBidWithMarkup)}
                 Colors={Colors}
               />
               <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16, marginTop: 2 }}>
@@ -812,7 +865,7 @@ export default function AIEstimateDraftReviewCompact({
             </>
           ) : null}
           {statedTotal != null && statedTotal > 0 ? (
-            <PriceRow label="In your notes" value={formatDraftMoney(statedTotal)} Colors={Colors} />
+            <PriceRow label="In your notes" value={formatPlanningMoney(statedTotal)} Colors={Colors} />
           ) : null}
           {draft.totalMatches === true ? (
             <Text style={{ color: '#22c55e', fontSize: 12, marginTop: 4 }}>Totals match your notes.</Text>
@@ -873,5 +926,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.2,
+  },
+  budgetSplitToggle: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    minHeight: 44,
+    minWidth: 72,
+    paddingVertical: 4,
+    paddingLeft: 10,
+  },
+  budgetSplitToggleInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
   },
 });

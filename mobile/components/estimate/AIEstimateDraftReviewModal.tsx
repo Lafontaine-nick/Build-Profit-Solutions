@@ -441,14 +441,14 @@ export default function AIEstimateDraftReviewModal({
             disabled={!draft || busy}
             onPress={onApplyConfirmedOnly}
             style={[styles.primaryBtn, (!draft || busy) && styles.primaryBtnDisabled]}
-            accessibilityLabel="Apply Confirmed Only"
+            accessibilityLabel="Add to bid"
           >
             {applying ? (
               <ActivityIndicator color="#0f172a" />
             ) : (
               <>
                 <MaterialIcons name="check-circle" size={20} color="#0f172a" />
-                <Text style={styles.primaryBtnText}>Apply Confirmed Only</Text>
+                <Text style={styles.primaryBtnText}>Add to bid</Text>
               </>
             )}
           </ReliableFlowPress>

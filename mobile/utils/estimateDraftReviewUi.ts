@@ -1,7 +1,7 @@
 import { SCOPE_PARSED_FROM_NOTES_LABEL } from '@/constants/scopeNoteSourceLabels';
 
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
-import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
+import { formatDraftMoney, getScopePackages, formatPlanningMoney } from '@/utils/estimateAiDraft';
 import { draftHasApplyablePricing, formatDisplayUnit, proposalTotalForScopeName } from '@/utils/estimateAiDraftPricing';
 import { displayPriceSourceLabel } from '@/utils/suggestedPricingCardUi';
 import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
@@ -166,7 +166,7 @@ export function scopePackagePricingHint(pkg: EstimateDraftScopePackage): string 
   if (/tile|demo/.test(n)) return 'needs demo price';
   if (/laminate|flooring|lvp/.test(n) && !/baseboard/.test(n)) return 'needs material + labor price';
   if (/baseboard|trim/.test(n)) return 'needs material + labor price';
-  return 'needs pricing';
+  return 'needs price';
 }
 
 export function formatScopeQuantity(
@@ -292,7 +292,7 @@ export function compactPackageStatusLabel(
 function pricingAcceptanceSourceLabel(
   acceptance: ScopePricingAcceptanceMetadata
 ): string {
-  if (acceptance.selectionStatus === 'accepted') return 'Applied';
+  if (acceptance.selectionStatus === 'accepted') return 'Selected';
   if (acceptance.selectionStatus === 'manual_adjusted') return 'User adjusted';
   if (acceptance.selectionStatus === 'user_entered') return 'User entered';
   const label = String(acceptance.pricingSourceLabel || '').trim();
@@ -302,7 +302,7 @@ function pricingAcceptanceSourceLabel(
     return displayPriceSourceLabel(acceptance.pricingSourceLabel) || 'Saved pricing';
   }
   if (acceptance.pricingSourceKind === 'local_benchmark') return 'Local benchmark';
-  return 'Applied';
+  return 'Selected';
 }
 
 /** Pricing provenance for Step 3 scope rows (mirrors Step 2 Applied card status). */
@@ -334,7 +334,7 @@ export function compactPackagePricingSourceColor(
   if (normalized === 'user entered' || normalized === 'user adjusted') {
     return darkMode ? '#4ade80' : '#22c55e';
   }
-  if (normalized === 'applied' || normalized === 'bps national benchmark') {
+  if (normalized === 'applied' || normalized === 'selected' || normalized === 'bps national benchmark') {
     return darkMode ? 'rgba(255,255,255,0.62)' : subColor;
   }
   return darkMode ? 'rgba(255,255,255,0.62)' : subColor;
@@ -352,7 +352,7 @@ export function compactPackageAmount(
   draft?: EstimateAiDraft | null
 ): string | null {
   const amount = scopePackagePricedAmount(pkg, draft);
-  if (amount > 0) return formatDraftMoney(amount);
+  if (amount > 0) return formatPlanningMoney(amount);
   return null;
 }
 

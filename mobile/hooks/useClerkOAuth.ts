@@ -1,6 +1,11 @@
 import { useOAuth } from '@clerk/clerk-expo';
-import { useAuth, useClerk, useSignIn, useSignUp } from '@clerk/clerk-react';
+import { useClerk } from '@clerk/clerk-react';
+import { useEffect, useState } from 'react';
+import { useClerkUiReady } from '@/hooks/useClerkUiReady';
 import { isClerkPublishableKeyConfigured } from '@/lib/clerkPublishableKey';
+
+/** Brief guard so OAuth hooks mount; don't wait for full Clerk `isLoaded` (can take ~10s). */
+const OAUTH_WARMUP_MS = 600;
 
 /** Matches `RootLayout` / `auth.tsx` — must not rely on `Constants.expoConfig.extra` alone (web). */
 export function isClerkConfigured(): boolean {
@@ -21,42 +26,52 @@ export function isClerkConfigured(): boolean {
  * that are conditionally rendered when Clerk is configured, OR ensure Clerk is set up.
  */
 export function useClerkOAuth() {
-  // Check if Clerk is configured
   const isClerkEnabled = isClerkConfigured();
-
-  // Always call hooks unconditionally (React requirement)
-  // These will work if we're in ClerkProvider (which happens when Clerk is configured)
-  // If not in ClerkProvider, these will throw - but that's expected if Clerk isn't set up
   const googleOAuth = useOAuth({ strategy: 'oauth_google' });
   const appleOAuth = useOAuth({ strategy: 'oauth_apple' });
-  const { isLoaded: isSignInLoaded } = useSignIn();
-  const { isLoaded: isSignUpLoaded } = useSignUp();
-  const oauthReady = Boolean(isSignInLoaded && isSignUpLoaded);
-  const auth = useAuth();
+  const { isLoaded: authLoaded, uiReady } = useClerkUiReady();
   const clerk = useClerk();
-  // setActive is available on the Clerk instance, not on auth
   const clerkSetActive = clerk?.setActive;
+  const [warmupReady, setWarmupReady] = useState(false);
 
-  // Log for debugging
-  console.log('useClerkOAuth - Hook called:', {
-    isClerkEnabled,
-    oauthReady,
-    hasGoogleOAuth: !!googleOAuth,
-    hasAppleOAuth: !!appleOAuth,
-    hasAuth: !!auth,
-    hasClerk: !!clerk,
-    hasClerkSetActive: !!clerkSetActive,
-    clerkSetActiveType: typeof clerkSetActive,
-    googleOAuthHasStartFlow: !!(googleOAuth && typeof googleOAuth.startOAuthFlow === 'function'),
-  });
+  useEffect(() => {
+    if (uiReady) {
+      setWarmupReady(true);
+      return;
+    }
+    const timer = setTimeout(() => setWarmupReady(true), OAUTH_WARMUP_MS);
+    return () => clearTimeout(timer);
+  }, [uiReady]);
+
+  const hasGoogleFlow =
+    !!googleOAuth && typeof googleOAuth.startOAuthFlow === 'function';
+  const hasAppleFlow =
+    !!appleOAuth && typeof appleOAuth.startOAuthFlow === 'function';
+
+  /** OAuth can run once hooks are mounted — short warmup only, not full AuthGate timeout. */
+  const oauthReady =
+    isClerkEnabled && hasGoogleFlow && (uiReady || warmupReady);
+
+  if (__DEV__) {
+    console.log('useClerkOAuth - Hook called:', {
+      isClerkEnabled,
+      oauthReady,
+      authLoaded,
+      uiReady,
+      warmupReady,
+      hasGoogleFlow,
+      hasAppleFlow,
+      hasClerkSetActive: !!clerkSetActive,
+    });
+  }
 
   return {
     googleOAuth: isClerkEnabled ? googleOAuth : null,
     appleOAuth: isClerkEnabled ? appleOAuth : null,
     clerkSetActive: isClerkEnabled ? clerkSetActive : null,
     useClerk: isClerkEnabled,
-    /** Clerk useOAuth returns an empty session until sign-in/sign-up resources are loaded — wait for this. */
-    oauthReady: isClerkEnabled ? oauthReady : false,
+    oauthReady,
+    oauthWaiting: false,
   };
 }
 

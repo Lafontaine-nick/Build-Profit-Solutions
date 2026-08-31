@@ -15,6 +15,7 @@ import {
   Alert,
   useWindowDimensions,
   InteractionManager,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
@@ -2932,8 +2933,11 @@ function LegacyDashboardGreetingSync({
   return null;
 }
 
+const DASHBOARD_BOOT_GRACE_MS = 4000;
+
 const DashboardScreen: React.FC = () => {
   useRequireAuth();
+  const dashboardBootedAtRef = useRef(Date.now());
   const {
     restricted: restrictedWorkspaceFinancials,
     refresh: refreshWorkspaceEntitlement,
@@ -2960,13 +2964,16 @@ const DashboardScreen: React.FC = () => {
             alignSelf: "center" as const,
           }
         : undefined;
-  const { activeProjects, estimates, refreshProjects } = useProjectList();
+  const { activeProjects, estimates, refreshProjects, projectsReady } = useProjectList();
   const refreshProjectsRef = useRef(refreshProjects);
   refreshProjectsRef.current = refreshProjects;
 
   useFocusEffect(
     useCallback(() => {
       void refreshWorkspaceEntitlement();
+      if (Date.now() - dashboardBootedAtRef.current < DASHBOARD_BOOT_GRACE_MS) {
+        return;
+      }
       const task = InteractionManager.runAfterInteractions(() => {
         void refreshProjectsRef.current();
       });
@@ -3143,7 +3150,20 @@ const DashboardScreen: React.FC = () => {
   }, [activeProjects, estimates]);
 
   useEffect(() => {
-    loadTimelineProgress();
+    let cancelled = false;
+    let clearTimer: (() => void) | undefined;
+    const task = InteractionManager.runAfterInteractions(() => {
+      const delay = Math.max(0, 2000 - (Date.now() - dashboardBootedAtRef.current));
+      const timer = setTimeout(() => {
+        if (!cancelled) void loadTimelineProgress();
+      }, delay);
+      clearTimer = () => clearTimeout(timer);
+    });
+    return () => {
+      cancelled = true;
+      task.cancel?.();
+      clearTimer?.();
+    };
   }, [loadTimelineProgress]);
 
   useEffect(() => {
@@ -3617,6 +3637,9 @@ const DashboardScreen: React.FC = () => {
   // After returning from Projects / detail screens, timeline + list can change without waiting on debounce
   useFocusEffect(
     useCallback(() => {
+      if (Date.now() - dashboardBootedAtRef.current < DASHBOARD_BOOT_GRACE_MS) {
+        return;
+      }
       let cancelled = false;
       const interaction = InteractionManager.runAfterInteractions(() => {
         void (async () => {
@@ -3814,6 +3837,20 @@ const DashboardScreen: React.FC = () => {
       };
     }
 
+    const hasPortfolioRows = activeProjects.length > 0 || estimates.length > 0;
+    if (!projectsReady && !hasPortfolioRows) {
+      return {
+        totalBids: "—",
+        activeProjects: "—",
+        avgMargin: "—",
+        completedProfit: "—",
+        rawCompletedProfit: 0,
+        projectTypeStats: [],
+        _rawTotalBids: 0,
+        _rawActiveProjects: 0,
+      };
+    }
+
     // Deduplicate projects by ID to avoid double-counting
     const allProjectsMap = new Map<string, any>();
     [...activeProjects, ...estimates].forEach((p) => {
@@ -3867,7 +3904,7 @@ const DashboardScreen: React.FC = () => {
     };
     
     return result;
-  }, [activeProjects, estimates, restrictedWorkspaceFinancials, activeProjectCount]);
+  }, [activeProjects, estimates, restrictedWorkspaceFinancials, activeProjectCount, projectsReady]);
 
   const openProjectsTab = useCallback(
     (tab: ProjectsTabParam = "active") => {
@@ -4059,6 +4096,7 @@ const DashboardScreen: React.FC = () => {
             timelineLatestPlannedMs={timelineLatestPlannedMs}
             hideFinancialMetrics={restrictedWorkspaceFinancials}
             activeProjectCount={activeProjectCount}
+            projectsReady={projectsReady}
           />
         )}
         {activeTab === "analytics" &&
@@ -4674,6 +4712,7 @@ interface OverviewSectionProps {
   timelineLatestPlannedMs: Record<string, number>;
   hideFinancialMetrics?: boolean;
   activeProjectCount?: number;
+  projectsReady?: boolean;
 }
 
 const OverviewSection: React.FC<OverviewSectionProps> = ({
@@ -4690,6 +4729,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   timelineLatestPlannedMs,
   hideFinancialMetrics = false,
   activeProjectCount = 0,
+  projectsReady = false,
 }) => {
   const { width: windowWidth } = useWindowDimensions();
   const desktopWideWeb = isDesktopWebLayoutWidth(windowWidth);
@@ -5030,7 +5070,11 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
               </Pressable>
             </View>
 
-            {projects.length === 0 ? (
+            {!projectsReady ? (
+              <View style={styles.emptyState}>
+                <ActivityIndicator size="small" color="#22c55e" />
+              </View>
+            ) : projects.length === 0 ? (
               <View style={styles.emptyState}>
                 <View style={styles.emptyStateIconCircle}>
                   <Ionicons name="document-text-outline" size={32} color="#22c55e" />

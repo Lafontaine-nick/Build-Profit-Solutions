@@ -94,14 +94,16 @@ export function OAuthButtons({ onGooglePress, onApplePress, loading }: OAuthButt
         }}
         disabled={loading || !oauthReady}
       >
-        {loading || !oauthReady ? (
+        {loading ? (
           <ActivityIndicator color="#111827" size="small" />
         ) : (
           <>
             <View style={styles.googleIconContainer}>
               <Text style={styles.googleIconText}>G</Text>
             </View>
-            <Text style={styles.socialButtonText}>Continue with Google</Text>
+            <Text style={[styles.socialButtonText, !oauthReady && { opacity: 0.65 }]}>
+              Continue with Google
+            </Text>
           </>
         )}
       </TouchableOpacity>
@@ -115,12 +117,14 @@ export function OAuthButtons({ onGooglePress, onApplePress, loading }: OAuthButt
           }}
           disabled={loading || !oauthReady}
         >
-          {loading || !oauthReady ? (
+          {loading ? (
             <ActivityIndicator color="#111827" size="small" />
           ) : (
             <>
               <MaterialIcons name="apple" size={20} color="#000000" style={styles.socialIcon} />
-              <Text style={styles.socialButtonText}>Continue with Apple</Text>
+              <Text style={[styles.socialButtonText, !oauthReady && { opacity: 0.65 }]}>
+                Continue with Apple
+              </Text>
             </>
           )}
         </TouchableOpacity>

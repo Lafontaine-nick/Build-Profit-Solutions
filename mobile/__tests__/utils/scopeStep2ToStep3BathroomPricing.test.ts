@@ -224,7 +224,7 @@ describe('bathroom Step 2 → Step 3 pricing sync (review rows)', () => {
 
     expect(scopePackagePricedAmount(demo, draft)).toBe(522.5);
     expect(scopePackageNeedsManualPrice(demo, draft)).toBe(false);
-    expect(compactPackageAmount(demo, draft)).toBe('$522.50');
+    expect(compactPackageAmount(demo, draft)).toBe('$523');
 
     expect(scopePackagePricedAmount(showerTile, draft)).toBe(2080);
     expect(scopePackageNeedsManualPrice(showerTile, draft)).toBe(false);

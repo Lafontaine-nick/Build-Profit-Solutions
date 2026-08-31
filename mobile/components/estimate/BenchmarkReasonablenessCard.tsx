@@ -6,7 +6,7 @@ import { getColors } from '@/theme/getColors';
 import type { BenchmarkReasonableness } from '@/utils/benchmarkEngine';
 import type { ConfirmScopeAppliedPricingBreakdown, ConfirmScopeAppliedPricingLine } from '@/utils/benchmarkReasonablenessContext';
 import ConfirmScopeAppliedPricingSummary from '@/components/estimate/ConfirmScopeAppliedPricingSummary';
-import { formatDraftMoney } from '@/utils/estimateAiDraft';
+import { formatPlanningMoney } from '@/utils/estimateAiDraft';
 import { estimateFlowCardStyle, estimateFlowScopeCardAlignStyle } from '@/utils/estimateFlowCardStyle';
 
 type Props = {
@@ -110,11 +110,11 @@ export default function BenchmarkReasonablenessCard({
           <View style={[styles.detailsBlock, { marginTop: 6 }]}>
             {appliedLines.map((line) => (
               <Text key={line.itemId} style={[styles.detailRow, { color: muted }]}>
-                {line.label} {formatDraftMoney(line.total)}
+                {line.label} {formatPlanningMoney(line.total)}
               </Text>
             ))}
             <Text style={[styles.disclaimer, { color: muted }]}>
-              Sum of these lines matches Applied pricing above.
+              Sum of these lines matches Selected pricing above.
             </Text>
           </View>
         ) : null}

@@ -69,7 +69,7 @@ describe('painting Step 2 applied pricing on Step 3 review', () => {
     const interior = getScopePackages(draft).find((pkg) => pkg.checklistItemId === 'interior_paint');
     expect(interior).toBeTruthy();
     expect(resolveAppliedConfirmScopePackageAmount(interior!, draft)).toBeCloseTo(3721.85, 2);
-    expect(compactPackageAmount(interior!, draft)).toBe('$3,721.85');
+    expect(compactPackageAmount(interior!, draft)).toBe('$3,722');
     expect(scopePackageNeedsManualPrice(interior!, draft)).toBe(false);
   });
 

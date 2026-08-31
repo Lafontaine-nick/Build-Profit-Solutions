@@ -3,7 +3,7 @@
  * Display-only — does not change stored totals, apply math, or rate metadata.
  */
 
-import { formatDraftMoney } from '@/utils/estimateAiDraft';
+import { formatDraftMoney, formatPlanningMoney } from '@/utils/estimateAiDraft';
 import {
   formatUnitLabel,
   isNationalAverageComparisonBlock,
@@ -413,13 +413,13 @@ export function formatSuggestedBlendedRateMoney(
   return `$${value.toFixed(2)}`;
 }
 
-/** Exact apply amount — matches stored totals after Apply, including cents. */
+/** Planning display — whole dollars, consistent across AI flow summary cards. */
 export function formatSuggestedDisplayMoney(
   total: number | null | undefined
 ): string {
   const value = Number(total);
   if (!Number.isFinite(value)) return '—';
-  return formatDraftMoney(value);
+  return formatPlanningMoney(value);
 }
 
 export function formatSuggestedComponentMoney(
@@ -427,16 +427,16 @@ export function formatSuggestedComponentMoney(
 ): string {
   const value = Number(amount);
   if (!Number.isFinite(value)) return '—';
-  return formatDraftMoney(value);
+  return formatPlanningMoney(value);
 }
 
-/** Keep applied pricing consistent with the exact Step 3 totals. */
+/** Selected/applied pricing on Confirm Scope + Review draft summary cards. */
 export function formatAppliedDisplayMoney(
   total: number | null | undefined
 ): string {
   const value = Number(total);
   if (!Number.isFinite(value)) return '—';
-  return formatDraftMoney(value);
+  return formatPlanningMoney(value);
 }
 
 export function normalizeQuantitySource(
@@ -1110,9 +1110,7 @@ export function buildSuggestedPricingCardDisplay(input: {
 
   const displayTotal = needsServiceAmperage
     ? '—'
-    : isAdjusted
-      ? formatDraftMoney(block.total)
-      : formatSuggestedDisplayMoney(block.total);
+    : formatSuggestedDisplayMoney(block.total);
 
   const quantityLine = block.installedBudgetBenchmark
     ? formatInstalledBudgetQuantityLine(block)

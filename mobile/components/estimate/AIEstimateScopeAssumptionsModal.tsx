@@ -653,19 +653,9 @@ function deferConfirmScopeHeavyWork(run: () => void) {
   });
 }
 
-/** Faster path for per-card Apply — skips InteractionManager (adds noticeable lag). */
-function deferConfirmScopeApplyWork(run: () => void) {
-  requestAnimationFrame(() => {
-    startTransition(run);
-  });
-}
-
-function hapticApplyCommitted() {
-  if (Platform.OS !== 'web') {
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-      () => {}
-    );
-  }
+/** Run Apply on the same frame as the tap — rAF/startTransition added visible lag. */
+function runConfirmScopeApplyWork(run: () => void) {
+  run();
 }
 
 function inputShellStyle(
@@ -1902,7 +1892,7 @@ function SuggestedPricingApplyButton({
   return (
     <ReliableFlowPress
       onPress={onPress}
-      haptic='medium'
+      haptic='light'
       accessibilityLabel={label}
       accessibilityRole='button'
       activeOpacity={0.88}
@@ -21346,7 +21336,7 @@ export default function AIEstimateScopeAssumptionsModal({
       replaceStageKey?: string | null,
       measurementPatch?: Partial<ScopeMeasurementsInputExtended>
     ) => {
-      deferConfirmScopeApplyWork(() => {
+      runConfirmScopeApplyWork(() => {
       const currentMeasurements = measurementPatch
         ? { ...measurementsRef.current, ...measurementPatch }
         : measurementsRef.current;
@@ -21622,7 +21612,6 @@ export default function AIEstimateScopeAssumptionsModal({
         setElectricalPreviewMeasurements(null);
       }
       setTimeout(() => persistScopeProgressNow(), 0);
-      hapticApplyCommitted();
       });
     },
     [
@@ -23654,17 +23643,14 @@ export default function AIEstimateScopeAssumptionsModal({
             {scrollToPricingLabel ? (
               <>
                 <ReliableFlowPress
-                  style={[
-                    styles.bulkApplyBtn,
-                    darkMode ? styles.bulkApplyBtnDark : styles.bulkApplyBtnLight,
-                    applying && styles.primaryBtnDisabled,
-                  ]}
+                  style={styles.bulkSuggestedPricingLink}
                   onPress={handleScrollToReadyPricing}
                   disabled={applying}
                   accessibilityLabel={`Scroll to ${scrollToPricingLabel}`}
                 >
-                  <Ionicons name='arrow-down' size={18} color='#22c55e' />
-                  <Text style={styles.bulkApplyBtnText}>{scrollToPricingLabel}</Text>
+                  <Text style={[styles.bulkSuggestedPricingBtnText, { color: '#22c55e' }]}>
+                    {scrollToPricingLabel}
+                  </Text>
                 </ReliableFlowPress>
                 {pricingPendingHint ? (
                   <Text

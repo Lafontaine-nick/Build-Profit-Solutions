@@ -1,10 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal,
   View,
   Text,
   TouchableOpacity,
-  Pressable,
   TextInput,
   Platform,
   StyleSheet,
@@ -15,6 +14,7 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-react';
@@ -51,6 +51,12 @@ import {
   importedPlanSummaryCollapsedSubtitle,
   stripPlanTakeoffFromNotes,
 } from '@/utils/planTakeoffReviewUi';
+import ReliableFlowPress from '@/components/estimate/ReliableFlowPress';
+import {
+  BRAND_FRAME_GRADIENT_COLORS,
+  BRAND_FRAME_GRADIENT_END,
+  BRAND_FRAME_GRADIENT_START,
+} from '@/constants/brandFrameGradient';
 import { getPlanTradeConfiguration } from '@/utils/planImportTradeConfig';
 import type {
   PlumbingPerformerMode,
@@ -131,10 +137,45 @@ export default function AIEstimateBuilderModal({
   const photosStripRef = useRef<EstimateSitePhotosStripHandle>(null);
   const notesInputRef = useRef<TextInput>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const [notesInputSessionKey, setNotesInputSessionKey] = useState(0);
   const { keyboardHeight, isKeyboardVisible } = useKeyboard();
   const [notes, setNotes] = useState('');
-  /** View mode lets the page scroll without focusing the notes field (photo-detect blocks). */
-  const [notesEditing, setNotesEditing] = useState(false);
+  const notesRef = useRef('');
+  const [notesSyncTick, setNotesSyncTick] = useState(0);
+  const bumpNotesSync = useCallback(() => {
+    setNotesSyncTick((tick) => tick + 1);
+  }, []);
+  const applyNotesText = useCallback((text: string) => {
+    const next = text ?? '';
+    if (notesRef.current === next) return;
+    notesRef.current = next;
+    setNotes(next);
+    bumpNotesSync();
+  }, [bumpNotesSync]);
+
+  const commitNotesFromInput = useCallback(
+    (text?: string) => {
+      if (typeof text === 'string') {
+        applyNotesText(text);
+        return;
+      }
+      applyNotesText(notesRef.current);
+    },
+    [applyNotesText]
+  );
+
+  const syncNotesFromNativeEvent = useCallback(
+    (text?: string | null) => {
+      if (typeof text !== 'string') return;
+      applyNotesText(text);
+    },
+    [applyNotesText]
+  );
+
+  const dismissNotesEditing = useCallback(() => {
+    notesInputRef.current?.blur();
+    Keyboard.dismiss();
+  }, []);
   const [photoDetections, setPhotoDetections] = useState<PhotoScopeDetection[]>(
     []
   );
@@ -153,7 +194,6 @@ export default function AIEstimateBuilderModal({
   const [plumbingPerformerMode, setPlumbingPerformerMode] =
     useState<PlumbingPerformerMode | null>(null);
   const [planSummaryExpanded, setPlanSummaryExpanded] = useState(false);
-  const [notesFocused, setNotesFocused] = useState(false);
   const [localGenerating, setLocalGenerating] = useState(false);
   const [planImportBusy, setPlanImportBusy] = useState(false);
   const authTokenRef = useRef<string | null>(null);
@@ -182,7 +222,9 @@ export default function AIEstimateBuilderModal({
       // Reset only when the modal opens — not when initialNotes identity changes mid-session
       // (that was wiping planImport after Apply to bid).
       setNotes(initialNotes || '');
-      setNotesEditing(false);
+      notesRef.current = initialNotes || '';
+      setNotesInputSessionKey((key) => key + 1);
+      bumpNotesSync();
       Keyboard.dismiss();
       setPhotoDetections(initialPhotoDetections || []);
       setPhotoExistingFeatures(initialPhotoExistingFeatures || []);
@@ -206,7 +248,6 @@ export default function AIEstimateBuilderModal({
       setPlanSummaryExpanded(false);
     }
     if (!visible) {
-      setNotesFocused(false);
       setLocalGenerating(false);
       setPlanImportBusy(false);
       setPlanImportPhase(null);
@@ -227,10 +268,21 @@ export default function AIEstimateBuilderModal({
   }, [generating]);
 
   useEffect(() => {
-    if (!notesEditing) return;
-    const id = requestAnimationFrame(() => notesInputRef.current?.focus());
-    return () => cancelAnimationFrame(id);
-  }, [notesEditing]);
+    if (!visible || Platform.OS === 'web') return;
+    const event = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const sub = Keyboard.addListener(event, () => {
+      notesInputRef.current?.blur();
+      requestAnimationFrame(() => {
+        commitNotesFromInput();
+        bumpNotesSync();
+      });
+    });
+    return () => sub.remove();
+  }, [visible, bumpNotesSync, commitNotesFromInput]);
+
+  const resolveNotesText = useCallback(() => {
+    return String(notesRef.current || notes || '');
+  }, [notes, notesSyncTick]);
 
   const handleBack = () => {
     if (busy) return;
@@ -245,11 +297,9 @@ export default function AIEstimateBuilderModal({
   };
 
   const handleTranscript = (text: string) => {
-    setNotesEditing(true);
-    setNotes(prev => {
-      const existing = prev.trim();
-      return existing ? `${existing}\n${text}` : text;
-    });
+    const existing = resolveNotesText().trim();
+    const next = existing ? `${existing}\n${text}` : text;
+    applyNotesText(next);
   };
 
   const handlePhotoNotesMerged = (
@@ -258,8 +308,7 @@ export default function AIEstimateBuilderModal({
     detections: PhotoScopeDetection[],
     existingFeatures?: PhotoExistingFeature[]
   ) => {
-    setNotes(mergedNotes);
-    setNotesEditing(false);
+    applyNotesText(mergedNotes);
     setPhotoDetections(detections || []);
     setPhotoExistingFeatures(existingFeatures || []);
     onPhotoDetectionsChange?.(detections || []);
@@ -293,7 +342,7 @@ export default function AIEstimateBuilderModal({
         result.estimatingMode === 'selected_trade'
           ? getPlanTradeConfiguration(result.selectedTrade)?.label || null
           : null;
-      setNotes(
+      applyNotesText(
         userNotes.trim()
           ? userNotes
           : buildPlanReadyJobNotesPrompt({
@@ -308,7 +357,7 @@ export default function AIEstimateBuilderModal({
       );
       setPlanSummaryExpanded(false);
     } else if (result.mergedNotes?.trim()) {
-      setNotes(result.mergedNotes);
+      applyNotesText(result.mergedNotes);
     }
     const nextPlanImport: PlanImportPayload = {
       measurements: result.measurements,
@@ -440,7 +489,7 @@ export default function AIEstimateBuilderModal({
   ]);
 
   const runGenerate = async () => {
-    const trimmed = notes.trim();
+    const trimmed = resolveNotesText().trim();
     const canRun = Boolean(trimmed || (semanticsOn && hasPlanImport));
     if (!canRun || busy) {
       if (__DEV__ && busy) {
@@ -552,25 +601,35 @@ export default function AIEstimateBuilderModal({
   };
 
   const handleGenerate = () => {
-    const trimmed = notes.trim();
-    const canRun = Boolean(trimmed || (semanticsOn && hasPlanImport));
-    if (!canRun || busy) return;
-    if (hasExistingDraft) {
-      Alert.alert(
-        'Replace current scope draft?',
-        'Your Yes/No choices, measurements you confirmed, and applied prices will reset. Plan and notes stay — regenerate rebuilds scope from them.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Regenerate',
-            style: 'destructive',
-            onPress: proceedGenerate,
-          },
-        ]
-      );
-      return;
+    if (busy) return;
+    dismissNotesEditing();
+    const run = () => {
+      commitNotesFromInput();
+      const trimmed = resolveNotesText().trim();
+      const canRun = Boolean(trimmed || (semanticsOn && hasPlanImport));
+      if (!canRun) return;
+      if (hasExistingDraft) {
+        Alert.alert(
+          'Replace current scope draft?',
+          'Your Yes/No choices, measurements you confirmed, and applied prices will reset. Plan and notes stay — regenerate rebuilds scope from them.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Regenerate',
+              style: 'destructive',
+              onPress: proceedGenerate,
+            },
+          ]
+        );
+        return;
+      }
+      proceedGenerate();
+    };
+    if (Platform.OS === 'ios') {
+      setTimeout(run, 64);
+    } else {
+      requestAnimationFrame(run);
     }
-    proceedGenerate();
   };
 
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub;
@@ -579,40 +638,147 @@ export default function AIEstimateBuilderModal({
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
   };
   const footerBottomPad = Math.max(insets.bottom, 16);
-  const keyboardUp = isKeyboardVisible || notesFocused;
+  const keyboardUp = isKeyboardVisible;
+  const canGenerate = useMemo(
+    () =>
+      Boolean(
+        resolveNotesText().trim() || (semanticsOn && hasPlanImport)
+      ),
+    [resolveNotesText, semanticsOn, hasPlanImport]
+  );
+  const generateBtnEnabled = canGenerate && !busy;
+  const generateIsSecondaryOutline =
+    Boolean(hasExistingDraft && onContinueDraft && !busy);
+
   const scrollBottomPad = keyboardUp
     ? Math.max(keyboardHeight, Platform.OS === 'ios' ? 320 : 280) + 24
     : 24;
 
-  const scrollNotesIntoView = () => {
-    if (Platform.OS === 'web') return;
-    const delay = Platform.OS === 'ios' ? 120 : 80;
-    setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: true });
-    }, delay);
-  };
-
   if (!visible) return null;
 
-  const canGenerate =
-    (Boolean(notes.trim()) || (semanticsOn && hasPlanImport)) && !busy;
-
-  const dismissNotesEditing = () => {
-    notesInputRef.current?.blur();
-    Keyboard.dismiss();
-    setNotesFocused(false);
-    if (notes.trim()) {
-      setNotesEditing(false);
-    }
-  };
-
   const notesMinHeight = embedded ? 220 : 200;
-  /** Keep TextInput mounted while focused — empty notes start in editor mode without notesEditing. */
-  const showNotesEditor = notesEditing || !notes.trim() || notesFocused;
   const notesInputShellStyle = {
     backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
   };
+
+  const generateActions = (
+    <>
+      {hasExistingDraft && onContinueDraft && !busy ? (
+        <TouchableOpacity
+          activeOpacity={0.88}
+          onPress={handleContinueDraft}
+          style={[
+            styles.primaryBtn,
+            { backgroundColor: ESTIMATE_FLOW_GREEN, marginBottom: 10 },
+          ]}
+        >
+          <MaterialIcons name='arrow-forward' size={20} color='#0f172a' />
+          <Text style={styles.primaryBtnText}>Continue to Confirm scope</Text>
+        </TouchableOpacity>
+      ) : null}
+      <ReliableFlowPress
+        disabled={!generateBtnEnabled}
+        onPress={handleGenerate}
+        haptic='medium'
+        style={[
+          styles.primaryBtn,
+          { padding: 0, overflow: 'hidden' },
+          generateIsSecondaryOutline
+            ? {
+                backgroundColor: 'transparent',
+                borderWidth: 1.5,
+                borderColor: generateBtnEnabled
+                  ? ESTIMATE_FLOW_GREEN
+                  : darkMode
+                    ? 'rgba(148, 163, 184, 0.22)'
+                    : Colors.line,
+              }
+            : !generateBtnEnabled
+              ? styles.primaryBtnDisabled
+              : null,
+        ]}
+      >
+        {generateBtnEnabled && !generateIsSecondaryOutline && !busy ? (
+          <LinearGradient
+            colors={BRAND_FRAME_GRADIENT_COLORS}
+            start={BRAND_FRAME_GRADIENT_START}
+            end={BRAND_FRAME_GRADIENT_END}
+            style={styles.primaryBtnFill}
+          >
+            <MaterialIcons name='auto-awesome' size={20} color='#0f172a' />
+            <Text style={styles.primaryBtnText}>
+              {hasExistingDraft
+                ? 'Regenerate draft'
+                : selectedPlanTrade
+                  ? `Generate ${selectedPlanTrade.label} Estimate Draft`
+                  : 'Generate Estimate Draft'}
+            </Text>
+          </LinearGradient>
+        ) : (
+          <View style={styles.primaryBtnFill}>
+        {busy ? (
+          <>
+            <ActivityIndicator
+              color={hasExistingDraft ? ESTIMATE_FLOW_GREEN : '#0f172a'}
+            />
+            <Text
+              style={[
+                styles.primaryBtnText,
+                hasExistingDraft ? { color: ESTIMATE_FLOW_GREEN } : null,
+              ]}
+            >
+              Generating…
+            </Text>
+          </>
+        ) : (
+          <>
+            <MaterialIcons
+              name='auto-awesome'
+              size={20}
+              color={
+                generateIsSecondaryOutline
+                  ? generateBtnEnabled
+                    ? ESTIMATE_FLOW_GREEN
+                    : darkMode
+                      ? 'rgba(148, 163, 184, 0.55)'
+                      : Colors.sub
+                  : '#0f172a'
+              }
+            />
+            <Text
+              style={[
+                styles.primaryBtnText,
+                generateIsSecondaryOutline
+                  ? {
+                      color: generateBtnEnabled
+                        ? ESTIMATE_FLOW_GREEN
+                        : darkMode
+                          ? 'rgba(148, 163, 184, 0.55)'
+                          : Colors.sub,
+                    }
+                  : !generateBtnEnabled
+                    ? {
+                        color: darkMode
+                          ? 'rgba(148, 163, 184, 0.55)'
+                          : Colors.sub,
+                      }
+                    : null,
+              ]}
+            >
+              {hasExistingDraft
+                ? 'Regenerate draft'
+                : selectedPlanTrade
+                  ? `Generate ${selectedPlanTrade.label} Estimate Draft`
+                  : 'Generate Estimate Draft'}
+            </Text>
+          </>
+        )}
+          </View>
+        )}
+      </ReliableFlowPress>
+    </>
+  );
 
   const notesField = (
     <>
@@ -737,62 +903,40 @@ export default function AIEstimateBuilderModal({
         <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, marginTop: 4, marginBottom: 10 }}>
           Paste or dictate your walkthrough — sizes, materials, or lump sums if you have them.
         </Text>
-        {showNotesEditor ? (
-          <TextInput
-            ref={notesInputRef}
-            value={notes}
-            onChangeText={setNotes}
-            editable={!busy}
-            multiline
-            scrollEnabled={false}
-            textAlignVertical='top'
-            blurOnSubmit
-            returnKeyType='done'
-            submitBehavior='blurAndSubmit'
-            onSubmitEditing={dismissNotesEditing}
-            onFocus={() => {
-              setNotesEditing(true);
-              setNotesFocused(true);
-              scrollNotesIntoView();
-            }}
-            onBlur={() => {
-              setNotesFocused(false);
-              if (notes.trim()) setNotesEditing(false);
-            }}
-            placeholder='Bathroom remodel — shower tile, vanity, plumbing, demo…'
-            placeholderTextColor={placeholderColor}
-            style={[
-              styles.notesInput,
-              {
-                color: Colors.text,
-                minHeight: notesMinHeight,
-                ...notesInputShellStyle,
-              },
-            ]}
-          />
-        ) : (
-          <Pressable
-            disabled={busy}
-            delayPressIn={150}
-            onPress={() => {
-              setNotesEditing(true);
-              setNotesFocused(true);
-              scrollNotesIntoView();
-            }}
-            style={[
-              styles.notesInput,
-              styles.notesViewShell,
-              notesInputShellStyle,
-            ]}
-          >
-            <Text style={{ color: Colors.text, fontSize: 15, lineHeight: 22 }}>
-              {notes}
-            </Text>
-            <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 10 }}>
-              Tap to edit
-            </Text>
-          </Pressable>
-        )}
+        <TextInput
+          key={`job-notes-${notesInputSessionKey}`}
+          ref={notesInputRef}
+          value={notes}
+          onChangeText={syncNotesFromNativeEvent}
+          onChange={(event) => syncNotesFromNativeEvent(event.nativeEvent.text)}
+          editable={!busy}
+          multiline
+          scrollEnabled={false}
+          textAlignVertical='top'
+          blurOnSubmit
+          returnKeyType='done'
+          submitBehavior='blurAndSubmit'
+          onSubmitEditing={(event) => {
+            syncNotesFromNativeEvent(event.nativeEvent.text);
+            dismissNotesEditing();
+          }}
+          onEndEditing={(event) => {
+            syncNotesFromNativeEvent(event.nativeEvent.text);
+          }}
+          onBlur={(event) => {
+            syncNotesFromNativeEvent(event.nativeEvent.text);
+          }}
+          placeholder='Bathroom remodel — shower tile, vanity, plumbing, demo…'
+          placeholderTextColor={placeholderColor}
+          style={[
+            styles.notesInput,
+            {
+              color: Colors.text,
+              minHeight: notesMinHeight,
+              ...notesInputShellStyle,
+            },
+          ]}
+        />
         <View style={{ marginTop: 10 }}>
           <EstimateVoiceDictationButton
             Colors={Colors}
@@ -990,75 +1134,7 @@ export default function AIEstimateBuilderModal({
         backgroundColor: Colors.bg,
       }}
     >
-      {hasExistingDraft && onContinueDraft && !busy ? (
-        <TouchableOpacity
-          activeOpacity={0.88}
-          onPress={handleContinueDraft}
-          style={[
-            styles.primaryBtn,
-            { backgroundColor: ESTIMATE_FLOW_GREEN, marginBottom: 10 },
-          ]}
-        >
-          <MaterialIcons name='arrow-forward' size={20} color='#0f172a' />
-          <Text style={styles.primaryBtnText}>Continue to Confirm scope</Text>
-        </TouchableOpacity>
-      ) : null}
-      <TouchableOpacity
-        activeOpacity={0.88}
-        disabled={!canGenerate || busy}
-        onPress={handleGenerate}
-        style={[
-          styles.primaryBtn,
-          hasExistingDraft && onContinueDraft && !busy
-            ? {
-                backgroundColor: 'transparent',
-                borderWidth: 1.5,
-                borderColor: canGenerate ? ESTIMATE_FLOW_GREEN : 'rgba(34, 197, 94, 0.35)',
-              }
-            : { backgroundColor: ESTIMATE_FLOW_GREEN },
-          !canGenerate && !busy ? { opacity: 0.42 } : null,
-        ]}
-      >
-        {busy ? (
-          <>
-            <ActivityIndicator
-              color={hasExistingDraft ? ESTIMATE_FLOW_GREEN : '#0f172a'}
-            />
-            <Text
-              style={[
-                styles.primaryBtnText,
-                hasExistingDraft ? { color: ESTIMATE_FLOW_GREEN } : null,
-              ]}
-            >
-              Generating…
-            </Text>
-          </>
-        ) : (
-          <>
-            <MaterialIcons
-              name='auto-awesome'
-              size={20}
-              color={
-                hasExistingDraft && onContinueDraft ? ESTIMATE_FLOW_GREEN : '#0f172a'
-              }
-            />
-            <Text
-              style={[
-                styles.primaryBtnText,
-                hasExistingDraft && onContinueDraft
-                  ? { color: ESTIMATE_FLOW_GREEN }
-                  : null,
-              ]}
-            >
-              {hasExistingDraft
-                ? 'Regenerate draft'
-                : selectedPlanTrade
-                  ? `Generate ${selectedPlanTrade.label} Estimate Draft`
-                  : 'Generate Estimate Draft'}
-            </Text>
-          </>
-        )}
-      </TouchableOpacity>
+      {generateActions}
     </View>
   );
 
@@ -1090,10 +1166,18 @@ export default function AIEstimateBuilderModal({
           keyboardDismissMode='none'
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled={false}
+          {...(Platform.OS === 'ios'
+            ? {
+                maintainVisibleContentPosition: {
+                  minIndexForVisible: 0,
+                  autoscrollToTopThreshold: 100,
+                },
+              }
+            : null)}
         >
           {notesField}
         </ScrollView>
-        {!keyboardUp || busy ? footer : null}
+        {!busy ? footer : null}
       </View>
     </View>
   );
@@ -1156,9 +1240,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
-  notesViewShell: {
-    minHeight: undefined,
-  },
   primaryBtn: {
     borderRadius: 12,
     paddingVertical: 14,
@@ -1168,6 +1249,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     overflow: 'hidden',
+  },
+  primaryBtnFill: {
+    width: '100%',
+    minHeight: 48,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  primaryBtnDisabled: {
+    backgroundColor: 'rgba(148, 163, 184, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.18)',
   },
   primaryBtnText: {
     color: '#0f172a',

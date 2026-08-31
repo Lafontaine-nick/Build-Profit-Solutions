@@ -132,7 +132,7 @@ describe('suggestedPricingCardUi', () => {
     expect(display.whyThisPriceLines.join(' ')).toMatch(/Water, sewer, fire/);
   });
 
-  it('shows exact apply amounts on suggest cards (no planning rounding)', () => {
+  it('shows whole-dollar amounts on suggest cards (planning summaries)', () => {
     const raw = block({
       material: 443.52,
       labor: 3994.32,
@@ -144,15 +144,15 @@ describe('suggestedPricingCardUi', () => {
     });
     expect(roundSuggestedDisplayComponent(443.52)).toBe(440);
     expect(roundSuggestedDisplayTotal(4437.84)).toBe(4440);
-    expect(formatSuggestedComponentMoney(443.52)).toBe('$443.52');
-    expect(formatSuggestedSplitLine(raw)).toBe('Estimated planning split · Equipment $443.52 · Labor $3,994.32');
-    expect(formatSuggestedDisplayMoney(4437.84)).toBe('$4,437.84');
+    expect(formatSuggestedComponentMoney(443.52)).toBe('$444');
+    expect(formatSuggestedSplitLine(raw)).toBe('Estimated planning split · Equipment $444 · Labor $3,994');
+    expect(formatSuggestedDisplayMoney(4437.84)).toBe('$4,438');
     expect(raw.total).toBe(4437.84);
     expect(raw.material).toBe(443.52);
   });
 
-  it('keeps applied totals at exact cents for Step 2 and Step 3 parity', () => {
-    expect(formatAppliedDisplayMoney(28166.25)).toBe('$28,166.25');
+  it('keeps applied totals as whole dollars on planning summary cards', () => {
+    expect(formatAppliedDisplayMoney(28166.25)).toBe('$28,166');
   });
 
   it('uses one status line for fallback cards (no stacked title/hint)', () => {
@@ -182,7 +182,7 @@ describe('suggestedPricingCardUi', () => {
     expect(display.statusTone).toBe('amber');
     expect(display.actionType).toBe('use_planning_price');
     expect(display.actionLabel).toBe('Apply');
-    expect(display.splitLine).toBe('Estimated planning split · Material $4,792.10 · Labor $2,911.40');
+    expect(display.splitLine).toBe('Estimated planning split · Material $4,792 · Labor $2,911');
     expect(display.whyThisPriceLines).toEqual(
       expect.arrayContaining(['Fallback basis: 1,879 sqft living area', 'National planning rate'])
     );
@@ -208,7 +208,7 @@ describe('suggestedPricingCardUi', () => {
     expect(display.quantityLine).toBe('132 CY · From notes');
     expect(display.sourceLine).toBe('National planning rate');
     expect(display.statusLine).toBe('National planning rate');
-    expect(display.statusTone).toBe('amber');
+    expect(display.statusTone).toBe('neutral');
     expect(display.actionLabel).toBe('Apply');
     expect(display.title).toBe('Suggested pricing');
     expect(display.whyThisPriceLines).toContain('National planning rate');
@@ -363,7 +363,7 @@ describe('suggestedPricingCardUi', () => {
       }),
       quantitySource: 'calculated_confirmed',
     });
-    expect(display.quantityLine).toBe('1,200 SF total · $8.57/SF blended');
+    expect(display.quantityLine).toBe('1,200 SF total · $8.57/SF');
     expect(display.unitRateLine).toBeNull();
     expect(display.splitLine).toMatch(/Material \$[\d,]+ · Labor \$[\d,]+/);
   });
@@ -452,13 +452,13 @@ describe('suggestedPricingCardUi', () => {
       quantitySource: 'calculated_confirmed',
     });
 
-    expect(display.splitLine).toBe('Material $4,514.04 · Labor $3,653.16');
+    expect(display.splitLine).toBe('Material $4,514 · Labor $3,653');
     expect(display.assemblyDetailLines).toHaveLength(2);
     expect(display.assemblyDetailLines?.[0]).toMatchObject({
       sqft: '2,959 SF',
       description: 'Batt R-21 exterior wall',
       rate: '$1.50/SF',
-      lineTotal: '$4,438.50',
+      lineTotal: '$4,439',
     });
     expect(display.unitRateLine).toMatch(/Blended avg\. \$1\.5[67]\/SF/);
   });

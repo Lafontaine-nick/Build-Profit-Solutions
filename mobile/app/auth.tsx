@@ -42,6 +42,7 @@ import {
   WEB_CENTERED_COLUMN_MIN_WIDTH,
 } from '@/constants/ScreenLayout';
 import { showAuthFeedback } from '@/utils/authFeedback';
+import { useClerkUiReady } from '@/hooks/useClerkUiReady';
 
 // Complete OAuth sessions properly
 WebBrowser.maybeCompleteAuthSession();
@@ -130,7 +131,7 @@ const isValidEmail = (email: string): boolean => {
   return emailRegex.test(email);
 };
 
-const AuthScreen: React.FC = () => {
+const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true }) => {
   const router = useRouter();
   const navigation = useNavigation();
   const { t } = useTranslation();
@@ -262,7 +263,7 @@ const AuthScreen: React.FC = () => {
       if (Platform.OS === "web") {
         const signIn = signInHook?.signIn;
         const signUp = signUpHook?.signUp;
-        if (!signInHook?.isLoaded || !signUpHook?.isLoaded || !signIn) {
+        if ((!authUiReady && (!signInHook?.isLoaded || !signUpHook?.isLoaded)) || !signIn) {
           Alert.alert(
             "Sign-in not ready",
             "Please wait until authentication finishes loading, then try again—or use email and password."
@@ -377,6 +378,7 @@ const AuthScreen: React.FC = () => {
     }
 
     console.log('✅ All checks passed, starting OAuth flow...');
+
     setLoading(true);
     try {
       console.log('Starting Google OAuth flow...');
@@ -413,15 +415,8 @@ const AuthScreen: React.FC = () => {
           (result.createdSessionId === "" && !result.signIn && !result.signUp))) {
         console.log('OAuth flow cancelled or incomplete - no session data');
         console.log('Result details:', JSON.stringify(result, null, 2));
-        
-        // Check if this might be a network error (empty result after network failure)
-        // If we got here, it means startOAuthFlow didn't throw, but returned empty
-        // This could be a network issue that Clerk handled silently
-        Alert.alert(
-          'Sign-In Failed',
-          'Google sign-in could not complete. This is usually caused by:\n\n1. ❌ No internet connection\n2. ❌ Network connectivity issues\n3. ❌ Firewall/VPN blocking Clerk servers\n\nPlease check your internet connection and try again.',
-          [{ text: 'OK' }]
-        );
+        // Empty result is usually user dismissed the browser or redirect URL mismatch — not a network outage.
+        setLoading(false);
         return;
       }
       
@@ -478,7 +473,7 @@ const AuthScreen: React.FC = () => {
         } catch (setActiveError: any) {
           console.error('Failed to set active session:', setActiveError);
           // Check if user is actually signed in despite the error
-          const isActuallySignedIn = clerkAuth?.isSignedIn === true && clerkAuth?.isLoaded === true;
+          const isActuallySignedIn = clerkAuth?.isSignedIn === true;
           if (isActuallySignedIn) {
             console.log('User is signed in despite setActive error, navigating...');
             await navigateAfterClerkSession({ oauthResult: result });
@@ -507,6 +502,46 @@ const AuthScreen: React.FC = () => {
         throw new Error('No session created from OAuth flow');
       }
     } catch (error: any) {
+      const errorCode =
+        error?.errors?.[0]?.code ||
+        error?.error?.errors?.[0]?.code ||
+        error?.code ||
+        error?.error?.code;
+      const errorStatus =
+        error?.status ||
+        error?.error?.status ||
+        error?.statusCode ||
+        (error?.toString?.()?.match(/Status: (\d+)/)?.[1]
+          ? parseInt(error.toString().match(/Status: (\d+)/)?.[1] || '0')
+          : null);
+      const clerkErrorMessage =
+        error?.errors?.[0]?.message ||
+        error?.error?.errors?.[0]?.message ||
+        error?.message ||
+        error?.error?.message ||
+        '';
+      const errorString = String(error);
+      let extractedErrorCode = errorCode;
+      if (errorString.includes('session_exists')) {
+        extractedErrorCode = 'session_exists';
+      }
+
+      // Already signed in — navigate quietly (no red error overlay).
+      if (
+        extractedErrorCode === 'session_exists' ||
+        errorCode === 'session_exists' ||
+        clerkErrorMessage.includes('already signed in') ||
+        clerkErrorMessage.includes('Session already exists') ||
+        errorString.includes('session_exists')
+      ) {
+        if (clerkAuth?.isSignedIn === true) {
+          console.log('User already signed in, navigating to app...');
+          setLoading(false);
+          void navigateAfterClerkSession({});
+          return;
+        }
+      }
+
       // Log full error details for debugging
       console.error('❌ Error in handleGoogleSignIn:', {
         error,
@@ -530,60 +565,23 @@ const AuthScreen: React.FC = () => {
         setLoading(false);
         return;
       }
-      
-      // Extract error details - try multiple ways to get error info
-      const errorCode = error?.error?.errors?.[0]?.code || error?.code || error?.error?.code;
-      const errorStatus = error?.error?.status || error?.status || error?.statusCode || (error?.toString?.()?.match(/Status: (\d+)/)?.[1] ? parseInt(error.toString().match(/Status: (\d+)/)?.[1] || '0') : null);
-      const clerkErrorMessage = error?.error?.errors?.[0]?.message || error?.message || error?.error?.message || '';
+
+      if (
+        extractedErrorCode === 'session_exists' ||
+        errorCode === 'session_exists' ||
+        (errorStatus === 400 && extractedErrorCode === 'session_exists')
+      ) {
+        console.log('Session exists error but user is NOT signed in. This suggests OAuth configuration issue.');
+        setLoading(false);
+        Alert.alert(
+          'Sign-In Error',
+          'Google Sign-In encountered an issue. This usually means:\n\n1. Google OAuth is not properly configured in Clerk\n2. There\'s a stale session that needs to be cleared\n\nPlease check your Clerk dashboard to ensure Google OAuth is enabled and configured correctly.\n\nSee GOOGLE_OAUTH_SETUP.md for instructions.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
       const errorResponse = error?.response || error?.data || error?.error;
-      
-      // Try to extract error code from serialized error string
-      let extractedErrorCode = errorCode;
-      const errorString = String(error);
-      if (errorString.includes('session_exists')) {
-        extractedErrorCode = 'session_exists';
-      } else if (errorString.includes('Serialized errors')) {
-        // Try to parse the serialized errors JSON
-        try {
-          const serializedMatch = errorString.match(/Serialized errors: ({[^}]+})/);
-          if (serializedMatch) {
-            const serializedErrors = JSON.parse(serializedMatch[1]);
-            extractedErrorCode = serializedErrors.code || extractedErrorCode;
-          }
-        } catch (e) {
-          // Ignore parse errors
-        }
-      }
-      
-      // Handle "session_exists" error FIRST - check if user is actually signed in
-      // If user is already signed in, silently navigate without logging error
-      if (extractedErrorCode === 'session_exists' || errorCode === 'session_exists' || 
-          clerkErrorMessage.includes('already signed in') || 
-          clerkErrorMessage.includes('Session already exists') ||
-          errorString.includes('already signed in') ||
-          errorString.includes('Session already exists') ||
-          (errorStatus === 400 && extractedErrorCode === 'session_exists')) {
-        
-        // Check Clerk's actual auth state
-        const isActuallySignedIn = clerkAuth?.isSignedIn === true && clerkAuth?.isLoaded === true;
-        
-        if (isActuallySignedIn) {
-          // User is already signed in - silently navigate, no error needed
-          console.log('User already signed in, navigating to app...');
-          void navigateAfterClerkSession({});
-          return;
-        } else {
-          // User is NOT signed in, but getting session_exists error
-          // This means there's a stale session or OAuth isn't configured properly
-          console.log('Session exists error but user is NOT signed in. This suggests OAuth configuration issue.');
-          Alert.alert(
-            'Sign-In Error',
-            'Google Sign-In encountered an issue. This usually means:\n\n1. Google OAuth is not properly configured in Clerk\n2. There\'s a stale session that needs to be cleared\n\nPlease check your Clerk dashboard to ensure Google OAuth is enabled and configured correctly.\n\nSee GOOGLE_OAUTH_SETUP.md for instructions.',
-            [{ text: 'OK' }]
-          );
-          return;
-        }
-      }
       
       // Only log errors for actual failures (not session_exists when already signed in)
       // Try to serialize error for better logging
@@ -822,7 +820,7 @@ const AuthScreen: React.FC = () => {
           (errorStatus === 400 && extractedErrorCode === 'session_exists')) {
         
         // Check Clerk's actual auth state
-        const isActuallySignedIn = clerkAuth?.isSignedIn === true && clerkAuth?.isLoaded === true;
+        const isActuallySignedIn = clerkAuth?.isSignedIn === true;
         
         if (isActuallySignedIn) {
           // User is already signed in - silently navigate, no error needed
@@ -1026,7 +1024,7 @@ const AuthScreen: React.FC = () => {
         showAuthFeedback('Sign-in unavailable', msg);
         return;
       }
-      if (!signInHook.isLoaded || !signUpHook.isLoaded) {
+      if (!authUiReady && (!signInHook.isLoaded || !signUpHook.isLoaded)) {
         const msg = 'Sign-in is still loading. Try again in a moment.';
         setFormBanner(msg);
         showAuthFeedback('Please wait', msg);
@@ -2144,6 +2142,17 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
 });
 };
 
-export default AuthScreen;
+export default function AuthScreenRouter() {
+  const isClerkEnabled = isClerkPublishableKeyConfigured();
+  if (isClerkEnabled) {
+    return <AuthScreenClerk />;
+  }
+  return <AuthScreen authUiReady />;
+}
+
+function AuthScreenClerk() {
+  const { uiReady } = useClerkUiReady();
+  return <AuthScreen authUiReady={uiReady} />;
+}
 
 

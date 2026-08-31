@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
-import React, { useMemo, type ComponentType } from 'react';
-import { View, StyleSheet, Text, useWindowDimensions, Platform, type TextStyle, type ViewStyle } from 'react-native';
+import React, { useMemo, useEffect, type ComponentType } from 'react';
+import { View, StyleSheet, Text, useWindowDimensions, Platform, InteractionManager, type TextStyle, type ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { HapticTab } from '@/components/HapticTab';
 import { useAIManagerMode } from '@/state/useAIManagerMode';
@@ -18,6 +18,7 @@ import {
 import { isDesktopWebLayoutWidth } from '@/constants/ScreenLayout';
 import ProfileCompletionReminder from '@/components/ProfileCompletionReminder';
 import { useWorkspaceProjectPermissions } from '@/hooks/useWorkspaceProjectPermissions';
+import { warmEstimateStoragePreload } from '@/utils/estimateSessionHydration';
 
 const ASSISTANT_LABEL_COLOR = '#5eead4';
 
@@ -36,11 +37,31 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
   const sidebarBg = darkMode ? theme.bg : '#f8fafc';
   const { canAccessEstimateAndLeads } = useWorkspaceProjectPermissions();
 
+  // Warm estimate AsyncStorage cache as soon as tabs mount; defer JS parse so Dashboard stays responsive.
+  useEffect(() => {
+    void warmEstimateStoragePreload();
+    let cancelled = false;
+    let clearTimer: (() => void) | undefined;
+    const task = InteractionManager.runAfterInteractions(() => {
+      const timer = setTimeout(() => {
+        if (cancelled) return;
+        void import('@/app/(tabs)/estimate-generator').catch(() => undefined);
+      }, 2000);
+      clearTimer = () => clearTimeout(timer);
+    });
+    return () => {
+      cancelled = true;
+      task.cancel?.();
+      clearTimer?.();
+    };
+  }, []);
+
   const screenOptions = useMemo(
     () =>
       ({ route }: { route: { name: string } }) => ({
         headerShown: false,
         tabBarShowLabel: true,
+        sceneStyle: { backgroundColor: sidebarBg },
         ...(desktopWebSidebar
           ? {
               tabBarPosition: 'left' as const,

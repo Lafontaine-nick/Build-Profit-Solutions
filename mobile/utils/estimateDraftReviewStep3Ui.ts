@@ -1,5 +1,5 @@
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
-import { formatDraftMoney } from '@/utils/estimateAiDraft';
+import { formatDraftMoney, formatPlanningMoney } from '@/utils/estimateAiDraft';
 import { sumStep3ReviewBudgetTotals } from '@/utils/benchmarkReasonablenessContext';
 import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import {
@@ -131,8 +131,8 @@ export function getStep3ReviewScopeMetaLabel(count: number): string {
   return count === 1 ? '1 scope item' : `${count} scope items`;
 }
 
-export function shouldDefaultShowAllStep3ScopeItems(count: number): boolean {
-  return count > 0 && count <= 8;
+export function shouldDefaultShowAllStep3ScopeItems(_count: number): boolean {
+  return false;
 }
 
 export type Step3ReviewStatusTone = 'ready' | 'review' | 'partial';
@@ -148,8 +148,8 @@ export function getStep3ReviewStatusBadge(totals: Pick<
     return {
       label:
         totals.missingPriceCount === 1
-          ? '1 needs price'
-          : `${totals.missingPriceCount} need prices`,
+          ? '1 item to check'
+          : `${totals.missingPriceCount} items to check`,
       tone: 'review',
     };
   }
@@ -177,7 +177,7 @@ export function getStep3ReviewHeroMarkupSubline(
   if (!(subtotal > 0) || !(pct > 0)) return null;
   const rounded = Math.round(pct * 10) / 10;
   const pctLabel = Number.isInteger(rounded) ? String(rounded) : String(rounded);
-  return `${formatDraftMoney(subtotal)} scope · ${pctLabel}% markup`;
+  return `${formatPlanningMoney(subtotal)} scope · ${pctLabel}% markup`;
 }
 
 export function getStep3ReviewHeroAmount(params: {
@@ -208,7 +208,7 @@ export function getStep3ReviewPlanningDisclaimer(
 ): string | null {
   if (totals.heroAmount == null || totals.heroAmount <= 0) return null;
   if (totals.missingPriceCount === 0 && totals.partialCount === 0) return null;
-  return 'Planning estimate — refine before sending';
+  return 'Planning estimate — review before sending';
 }
 
 /** Step 3 — hide AI clarify strip after Confirm Scope (use Ask AI on scope rows instead). */
@@ -223,5 +223,5 @@ export function shouldShowStep3ClarifyQuestions(
 
 export function formatStep3ReviewFooterTotal(totals: Step3ReviewTotals): string | null {
   if (totals.heroAmount == null || totals.heroAmount <= 0) return null;
-  return formatDraftMoney(totals.heroAmount);
+  return formatPlanningMoney(totals.heroAmount);
 }

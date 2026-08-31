@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, startTransition } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import {
   InteractionManager,
   useWindowDimensions,
   Switch,
+  ActivityIndicator,
 } from 'react-native';
 import {
   ScrollView as GestureScrollView,
@@ -217,10 +218,16 @@ import {
   getProjectExpenseFormHorizontalPadding,
 } from '@/constants/ScreenLayout';
 import WebPageShell from '@/components/layout/WebPageShell';
+import {
+  getEstimateSessionSnapshot,
+  setEstimateSessionSnapshot,
+  warmEstimateStoragePreload,
+} from '@/utils/estimateSessionHydration';
 
 // Colors will be defined inside the component using theme
 
 const BID_STORAGE_KEY = 'bps.currentBid.v2';
+const estimateSessionSeed = getEstimateSessionSnapshot();
 const AI_DRAFT_PROGRESS_STORAGE_KEY = 'bps.aiDraftProgress.v1';
 const screenWidth = Dimensions.get('window').width;
 const CART_SCROLL_MAX_HEIGHT = 420;
@@ -5106,19 +5113,46 @@ export default function EstimateGeneratorScreen() {
   
   const [step, setStep] = useState(0); // Start at step 0 (Bid Summary) - default first page
   const [activeNavButton, setActiveNavButton] = useState('summary'); // 'back', 'summary', or 'next'
-  const [bid, setBid] = useState(blankState());
+  const [bid, setBid] = useState(() => {
+    const seedBid = getEstimateSessionSnapshot()?.bid;
+    return seedBid ? { ...seedBid } : blankState();
+  });
   const bidRef = useRef(bid);
   const materialsCartRef = useRef([]);
+  const estimateSessionCaptureRef = useRef({
+    rentalCart: [],
+    activeScope: 'kitchen',
+    isFirstTime: false,
+    savedEstimates: [],
+  });
   const lastEstimateAiUndoRef = useRef(null);
   const lastTemplateApplyRef = useRef(0);
   /** Declared before any hook reads them — avoids temporal-dead-zone crashes when Estimates mounts (web ErrorBoundary). */
-  const [materialsCart, setMaterialsCart] = useState([]);
-  const [activeScope, setActiveScope] = useState('kitchen');
+  const [materialsCart, setMaterialsCart] = useState(
+    () => estimateSessionSeed?.materialsCart ?? []
+  );
+  const [activeScope, setActiveScope] = useState(
+    () => estimateSessionSeed?.activeScope ?? 'kitchen'
+  );
   const [materialNeedQty, setMaterialNeedQty] = useState({});
-  const [rentalCart, setRentalCart] = useState([]);
+  const [rentalCart, setRentalCart] = useState(
+    () => estimateSessionSeed?.rentalCart ?? []
+  );
+  const [savedEstimates, setSavedEstimates] = useState(
+    () => estimateSessionSeed?.savedEstimates ?? []
+  );
+  const [isFirstTime, setIsFirstTime] = useState(
+    () => estimateSessionSeed?.isFirstTime ?? false
+  );
   useEffect(() => {
     materialsCartRef.current = materialsCart;
   }, [materialsCart]);
+  estimateSessionCaptureRef.current = {
+    rentalCart,
+    activeScope,
+    isFirstTime,
+    savedEstimates,
+  };
 
   const calc = useMemo(() => {
     // On AI-applied bids, the draft-generated bid material lines are authoritative.
@@ -5227,9 +5261,10 @@ export default function EstimateGeneratorScreen() {
 
   const healthColor = healthScore >= 80 ? '#22c55e' : healthScore >= 60 ? '#ffcc66' : '#ff7a7a';
 
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(() =>
+    Boolean(getEstimateSessionSnapshot()?.ready)
+  );
   const [forceRefresh, setForceRefresh] = useState(0);
-  const [savedEstimates, setSavedEstimates] = useState([]);
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [persistedSavedCustomers, setPersistedSavedCustomers] = useState([]);
   const [hiddenSavedCustomerKeys, setHiddenSavedCustomerKeys] = useState({ ids: [], names: [] });
@@ -5379,7 +5414,6 @@ export default function EstimateGeneratorScreen() {
   );
   const [aiDraftFillToast, setAiDraftFillToast] = useState({ visible: false, roomCount: 0 });
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
-  const [isFirstTime, setIsFirstTime] = useState(false);
   const [hasReviewedMarkup, setHasReviewedMarkup] = useState(false);
   const [hasReviewedTotal, setHasReviewedTotal] = useState(false);
   const [guidedMode, setGuidedMode] = useState(false);
@@ -8872,9 +8906,46 @@ export default function EstimateGeneratorScreen() {
   const [costAnalysis, setCostAnalysis] = useState(null);
   const [termsOpen, setTermsOpen] = useState(false);
   const [showAiSheet, setShowAiSheet] = useState(false);
+  const estimateMountedAtRef = useRef(Date.now());
 
   // Load bid from storage
   useEffect(() => {
+    let cancelled = false;
+
+    const captureSessionSnapshot = () => {
+      const live = estimateSessionCaptureRef.current;
+      setEstimateSessionSnapshot({
+        ready: true,
+        bid: bidRef.current,
+        materialsCart: materialsCartRef.current,
+        rentalCart: live.rentalCart,
+        activeScope: live.activeScope,
+        isFirstTime: live.isFirstTime,
+        savedEstimates: live.savedEstimates,
+      });
+    };
+
+    const applyPreloadSnapshot = (preload) => {
+      if (!preload?.ready || cancelled) return;
+      if (preload.bid) setBid({ ...preload.bid });
+      if (Array.isArray(preload.materialsCart)) setMaterialsCart(preload.materialsCart);
+      if (Array.isArray(preload.rentalCart)) setRentalCart(preload.rentalCart);
+      if (preload.activeScope) setActiveScope(preload.activeScope);
+      if (typeof preload.isFirstTime === 'boolean') setIsFirstTime(preload.isFirstTime);
+      if (Array.isArray(preload.savedEstimates)) setSavedEstimates(preload.savedEstimates);
+      setIsLoaded(true);
+    };
+
+    if (!getEstimateSessionSnapshot()?.ready) {
+      void warmEstimateStoragePreload().then((preload) => {
+        applyPreloadSnapshot(preload);
+      });
+    }
+
+    const loadSafetyTimer = setTimeout(() => {
+      if (!cancelled) setIsLoaded(true);
+    }, 8000);
+
     const loadBid = async () => {
       try {
         // Try to load current bid
@@ -9218,29 +9289,51 @@ export default function EstimateGeneratorScreen() {
 
     void (async () => {
       try {
-        await Promise.all([loadBid(), applyOnboardingFlags()]);
+        await loadBid();
       } catch (e) {
-        console.error('Initial estimate load failed:', e);
+        console.error('Initial estimate bid load failed:', e);
+      } finally {
+        if (!cancelled) {
+          setIsLoaded(true);
+          captureSessionSnapshot();
+          console.log('📱 Estimate generator mounted, bid ready');
+        }
       }
-      setIsLoaded(true);
-      console.log('📱 Estimate generator mounted, bid + onboarding flags ready');
-      void loadProfile();
-      void Promise.all([
-        loadMaterials().catch((err) => console.error('loadMaterials failed:', err)),
-        loadRentals().catch((err) => console.error('loadRentals failed:', err)),
-      ]).then(() => {
+
+      void (async () => {
+        try {
+          await Promise.all([
+            applyOnboardingFlags(),
+            loadMaterials().catch((err) => console.error('loadMaterials failed:', err)),
+            loadRentals().catch((err) => console.error('loadRentals failed:', err)),
+          ]);
+        } catch (e) {
+          console.error('Initial estimate secondary load failed:', e);
+        }
+        if (cancelled) return;
+        captureSessionSnapshot();
+        void loadProfile();
         setTimeout(() => {
           isInitialLoadRef.current = false;
           console.log('✅ Initial load complete - all data loaded');
         }, 1500);
-      });
+      })();
     })();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(loadSafetyTimer);
+      captureSessionSnapshot();
+    };
   }, []);
 
   // Reload bid when screen comes into focus (in case it was just saved from lead detail modal)
   // This ensures customer info from "Send Proposal" is always loaded
   useFocusEffect(
     React.useCallback(() => {
+      if (Date.now() - estimateMountedAtRef.current < 2500) {
+        return;
+      }
       console.log('📱 Estimate generator focused - checking for updated bid data');
       const reloadBid = async () => {
         try {
@@ -10276,17 +10369,21 @@ export default function EstimateGeneratorScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setAiDraftFromAssistant(false);
     setShowAIAssistant(false);
-    setShowAiScopeAssumptionsModal(false);
-    setShowAiInitialRevealModal(false);
-    setShowAiDraftReviewModal(false);
-    setAiDraft(null);
-    setAiDraftNotes('');
-    setAiLastPlanImport(null);
-    setAiPhotoDetections([]);
-    setAiSitePhotos([]);
-    AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
-    setEstimateAiInitialQuestion('');
     setShowAiBuilderModal(true);
+    requestAnimationFrame(() => {
+      startTransition(() => {
+        setShowAiScopeAssumptionsModal(false);
+        setShowAiInitialRevealModal(false);
+        setShowAiDraftReviewModal(false);
+        setAiDraft(null);
+        setAiDraftNotes('');
+        setAiLastPlanImport(null);
+        setAiPhotoDetections([]);
+        setAiSitePhotos([]);
+        setEstimateAiInitialQuestion('');
+        AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
+      });
+    });
   }, []);
 
   const aiFlowOverlayActive = showAiBuilderModal || showAiScopeAssumptionsModal || showAiInitialRevealModal || showAiDraftReviewModal;
@@ -23738,6 +23835,17 @@ export default function EstimateGeneratorScreen() {
     (!calc?.total || calc.total === 0) &&
     !firstEstimateWalkthroughTourActive;
 
+  /** Avoid painting the full stepper/breakdown before hydration — that swap caused a visible shutter. */
+  const showEstimateWorkspace = isLoaded && !shouldShowEstimateEmptyState;
+  const estimateLikelyReturning =
+    estimates.length > 0 || activeProjects.length > 0;
+  /** Paint a stable shell while bid + onboarding hydrate — avoids a black void under the header. */
+  const showEstimateHydrationShell = !isLoaded;
+  const estimateHydrationMinHeight = Math.max(
+    420,
+    Dimensions.get('window').height - (desktopWeb ? 220 : 260)
+  );
+
   const firstEstimateFloatingTipVisible =
     shouldShowFirstEstimateWalkthrough &&
     firstEstimateWtProgressHydrated &&
@@ -23898,6 +24006,7 @@ export default function EstimateGeneratorScreen() {
               paddingHorizontal: Platform.OS === 'web' ? 0 : estimateScrollPadH,
               paddingTop: Platform.OS === 'web' ? 0 : desktopWeb ? 24 : 32,
               paddingBottom: estimatesScrollContentPadBottom,
+              flexGrow: 1,
             },
             webScrollContentCap,
           ]}
@@ -23924,9 +24033,11 @@ export default function EstimateGeneratorScreen() {
               Estimates
             </Text>
             <Text style={{ color: Colors.sub, fontSize: 14, marginTop: 6 }}>
-              {shouldShowEstimateEmptyState
-                ? 'Paste notes or import a plan — AI drafts scope for you.'
-                : 'Build, review, and submit your bid'}
+              {!isLoaded
+                ? 'Build, review, and submit your bid'
+                : shouldShowEstimateEmptyState
+                  ? 'Paste notes or import a plan — AI drafts scope for you.'
+                  : 'Build, review, and submit your bid'}
             </Text>
           </View>
 
@@ -24101,8 +24212,58 @@ export default function EstimateGeneratorScreen() {
         </View>
       </View>
 
-      {/* Step Section Card with Icons */}
-      {!shouldShowEstimateEmptyState ? (
+        {/* Step Content */}
+        {showEstimateHydrationShell ? (
+          estimateLikelyReturning ? (
+            <View
+              style={[
+                s.wideContainer,
+                {
+                  marginTop: 12,
+                  marginBottom: 16,
+                  minHeight: estimateHydrationMinHeight,
+                  backgroundColor: darkMode ? '#000000' : Colors.bg,
+                },
+              ]}
+            >
+              <View
+                style={{
+                  borderRadius: 20,
+                  flex: 1,
+                  minHeight: estimateHydrationMinHeight - 24,
+                  borderWidth: 1,
+                  borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                  backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 12,
+                  paddingVertical: 32,
+                }}
+              >
+                <ActivityIndicator size="large" color="#2DFFC4" />
+                <Text style={{ color: Colors.sub, fontSize: 15, fontWeight: '600' }}>
+                  Loading your estimate…
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <View style={s.wideContainer}>
+              <EmptyStateCard
+                onPress={ensureBidReadyForFirstEstimateWalkthrough}
+                onBuildWithAi={openBuildWithAiDirect}
+              />
+            </View>
+          )
+        ) : shouldShowEstimateEmptyState ? (
+          <View style={s.wideContainer}>
+          <EmptyStateCard
+            onPress={ensureBidReadyForFirstEstimateWalkthrough}
+            onBuildWithAi={openBuildWithAiDirect}
+          />
+          </View>
+        ) : showEstimateWorkspace ? (
+          <>
+            {/* Step Section Card with Icons */}
       <View style={[s.wideContainer, { marginTop: 12, opacity: firstEstimateWalkthroughUiActive ? 0.38 : 1 }]}>
         <LinearGradient
           colors={['#2DFFC4', '#00A6FF']}
@@ -24294,10 +24455,8 @@ export default function EstimateGeneratorScreen() {
           </View>
         </LinearGradient>
       </View>
-      ) : null}
-
       {/* Build with AI (empty bid) or AI Assistant (populated) — pill under stepper */}
-      {step !== 8 && !firstEstimateWalkthroughUiActive && !shouldShowEstimateEmptyState && (
+            {step !== 8 && !firstEstimateWalkthroughUiActive && (
         <View
           style={[
             s.wideContainer,
@@ -24351,18 +24510,8 @@ export default function EstimateGeneratorScreen() {
             </GestureTouchableOpacity>
           )}
         </View>
-      )}
-      
-        {/* Step Content */}
-        {shouldShowEstimateEmptyState ? (
-          <View style={s.wideContainer}>
-          <EmptyStateCard
-            onPress={ensureBidReadyForFirstEstimateWalkthrough}
-            onBuildWithAi={openBuildWithAiDirect}
-          />
-          </View>
-        ) : (
-          <>
+            )}
+
             {/* Estimate Readiness Panel (first-run only, above breakdown) */}
             {shouldShowGuidance && step === 0 && !firstEstimateWalkthroughTourActive && (
               <View style={{ marginTop: 10, marginBottom: 16 }}>
@@ -24492,7 +24641,7 @@ export default function EstimateGeneratorScreen() {
 
             {renderStepContent()}
           </>
-        )}
+        ) : null}
         </WebPageShell>
         </GestureScrollView>
       </EstimatesMainKeyboardWrapper>

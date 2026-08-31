@@ -1383,6 +1383,6 @@ describe('acceptedPricingSummaryUi', () => {
       },
       intelligence: intelligence(),
     });
-    expect(display.totalLabel).toBe('$5,547.55');
+    expect(display.totalLabel).toBe('$5,548');
   });
 });

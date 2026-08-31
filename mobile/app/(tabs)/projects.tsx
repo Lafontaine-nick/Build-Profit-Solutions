@@ -347,9 +347,12 @@ function tabFromRouteParam(tab: string | string[] | undefined): 'active' | 'subm
   return null;
 }
 
+const PROJECTS_BOOT_GRACE_MS = 4000;
+
 export default function ProjectsScreen() {
   const router = useRouter();
   useRequireAuth();
+  const projectsMountedAtRef = useRef(Date.now());
   const { restricted: restrictedWorkspaceFinancials } = useRestrictedWorkspaceFinancials();
   const { t } = useTranslation();
   const { theme, darkMode } = useTheme();
@@ -518,6 +521,9 @@ export default function ProjectsScreen() {
         const prev = suffixToLatestPlanned[key];
         suffixToLatestPlanned[key] = prev == null ? ms : Math.max(prev, ms);
       };
+      const timelineEntries =
+        timelineKeys.length > 0 ? await AsyncStorage.multiGet(timelineKeys) : [];
+      const timelineRawByKey = new Map(timelineEntries);
       for (const k of timelineKeys) {
         const suffix = k.startsWith('bps.timeline.v2.')
           ? k.replace('bps.timeline.v2.', '')
@@ -526,7 +532,7 @@ export default function ProjectsScreen() {
             : '';
         if (!suffix) continue;
         try {
-          const raw = await AsyncStorage.getItem(k);
+          const raw = timelineRawByKey.get(k);
           if (raw) {
             const milestones = JSON.parse(raw);
             if (Array.isArray(milestones) && milestones.length > 0) {
@@ -651,12 +657,14 @@ export default function ProjectsScreen() {
     setTimelineLatestPlannedMs(latestPlannedMap);
   }, [activeProjects, estimates]);
 
-  useEffect(() => {
-    const task = InteractionManager.runAfterInteractions(() => {
-      loadProjectDataOverrides();
-    });
-    return () => task.cancel();
-  }, [loadProjectDataOverrides]);
+  useFocusEffect(
+    React.useCallback(() => {
+      const task = InteractionManager.runAfterInteractions(() => {
+        void loadProjectDataOverrides();
+      });
+      return () => task.cancel?.();
+    }, [loadProjectDataOverrides])
+  );
 
   useFocusEffect(
     React.useCallback(() => {
@@ -696,6 +704,9 @@ export default function ProjectsScreen() {
           /* ignore */
         }
       })();
+      if (Date.now() - projectsMountedAtRef.current < PROJECTS_BOOT_GRACE_MS) {
+        return;
+      }
       const task = InteractionManager.runAfterInteractions(() => {
         refreshProjects();
       });

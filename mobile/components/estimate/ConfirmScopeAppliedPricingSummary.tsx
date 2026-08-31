@@ -4,7 +4,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import type { ConfirmScopeAppliedPricingBreakdown } from '@/utils/benchmarkReasonablenessContext';
 import { formatBuildCostPerLivingSf } from '@/utils/benchmarkReasonablenessContext';
-import { formatDraftMoney } from '@/utils/estimateAiDraft';
+import { formatPlanningMoney } from '@/utils/estimateAiDraft';
 import { formatAppliedDisplayMoney } from '@/utils/suggestedPricingCardUi';
 
 type Props = {
@@ -46,21 +46,21 @@ export default function ConfirmScopeAppliedPricingSummary({
     <View style={[styles.root, align === 'center' ? styles.center : null]}>
       {showApplied ? (
         <>
-          <Text style={[styles.label, { color: text }]}>Applied pricing</Text>
+          <Text style={[styles.label, { color: text }]}>Selected pricing</Text>
           <Text style={[styles.primary, { color: text }]} accessibilityRole="text">
             {formatAppliedDisplayMoney(breakdown.total)}
           </Text>
           <View style={styles.breakdownRow}>
             <Text style={[styles.breakdownText, { color: muted }]}>
-              Material {formatDraftMoney(breakdown.material)}
+              Material {formatPlanningMoney(breakdown.material)}
             </Text>
             <Text style={[styles.breakdownDot, { color: muted }]}>·</Text>
             <Text style={[styles.breakdownText, { color: muted }]}>
-              Labor {formatDraftMoney(breakdown.labor)}
+              Labor {formatPlanningMoney(breakdown.labor)}
             </Text>
             <Text style={[styles.breakdownDot, { color: muted }]}>·</Text>
             <Text style={[styles.breakdownText, { color: muted }]}>
-              Allowances {formatDraftMoney(breakdown.allowance)}
+              Allowances {formatPlanningMoney(breakdown.allowance)}
             </Text>
           </View>
         </>

@@ -30,6 +30,7 @@ import {
   useWalkthroughState,
 } from '../contexts/WalkthroughStateContext';
 import '../i18n/config'; // Initialize i18n
+import '@/lib/projectListSessionHydration';
 import { BetaFeedbackProvider } from '../contexts/BetaFeedbackContext';
 import ClerkVendorDirectoryWrapper from '../components/ClerkVendorDirectoryWrapper';
 import { VendorDirectoryProviderLocal } from '../contexts/VendorDirectoryContext';

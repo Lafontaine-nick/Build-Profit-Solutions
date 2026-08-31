@@ -33,7 +33,7 @@ describe('estimateInitialRevealUi', () => {
       estimateConfidence: { level: 'high' },
     } as EstimateAiDraft;
     expect(getInitialRevealStatusLabel(draft, 0).label).toBe('Ready to send');
-    expect(getInitialRevealStatusLabel(draft, 2).label).toBe('2 items to check');
+    expect(getInitialRevealStatusLabel(draft, 2).label).toBe('Mostly ready · 2 to check');
   });
 
   it('builds primary CTA from attention count', () => {
@@ -78,9 +78,9 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealScopeMetaLabel(1)).toBe('1 scope item');
   });
 
-  it('defaults scope open for small jobs', () => {
-    expect(shouldDefaultExpandInitialRevealScope(7)).toBe(true);
-    expect(shouldDefaultExpandInitialRevealScope(9)).toBe(true);
+  it('keeps scope collapsed by default on quick view', () => {
+    expect(shouldDefaultExpandInitialRevealScope(7)).toBe(false);
+    expect(shouldDefaultExpandInitialRevealScope(9)).toBe(false);
     expect(shouldDefaultExpandInitialRevealScope(13)).toBe(false);
   });
 
@@ -99,7 +99,7 @@ describe('estimateInitialRevealUi', () => {
         },
         10
       )
-    ).toBe('Planning estimate — refine on detailed review');
+    ).toBe('Planning estimate — review before sending');
   });
 
   it('hides what we found when it duplicates the tagline', () => {

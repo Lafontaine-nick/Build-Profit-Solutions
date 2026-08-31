@@ -21,7 +21,7 @@ describe('estimateDraftReviewStep3Ui', () => {
   });
 
   it('defaults show-all scope for small jobs', () => {
-    expect(shouldDefaultShowAllStep3ScopeItems(8)).toBe(true);
+    expect(shouldDefaultShowAllStep3ScopeItems(8)).toBe(false);
     expect(shouldDefaultShowAllStep3ScopeItems(9)).toBe(false);
   });
 
@@ -52,7 +52,7 @@ describe('estimateDraftReviewStep3Ui', () => {
         missingPriceCount: 2,
         partialCount: 0,
       })
-    ).toBe('Planning estimate — refine before sending');
+    ).toBe('Planning estimate — review before sending');
     expect(
       getStep3ReviewPlanningDisclaimer({
         heroAmount: 8976,
@@ -64,14 +64,14 @@ describe('estimateDraftReviewStep3Ui', () => {
 
   it('builds status badge from missing prices', () => {
     expect(getStep3ReviewStatusBadge({ missingPriceCount: 2, partialCount: 0, uniformStatusLabel: null }))
-      .toEqual({ label: '2 need prices', tone: 'review' });
+      .toEqual({ label: '2 items to check', tone: 'review' });
     expect(getStep3ReviewStatusBadge({ missingPriceCount: 0, partialCount: 0, uniformStatusLabel: null }))
       .toEqual({ label: 'Pricing ready', tone: 'ready' });
   });
 
   it('shows scope subtotal and markup under hero', () => {
     expect(getStep3ReviewHeroMarkupSubline(20, 40308.66, null)).toBe(
-      '$40,308.66 scope · 20% markup'
+      '$40,309 scope · 20% markup'
     );
     expect(getStep3ReviewHeroMarkupSubline(15, 40308.66, 8500)).toBeNull();
   });
