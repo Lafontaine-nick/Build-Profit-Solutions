@@ -1167,6 +1167,38 @@ describe('scopeIntelligence', () => {
     expect(noConflict.hasOverlapRisk).toBe(false);
   });
 
+  it('does not flag interior prep as duplicate exterior paint pricing', () => {
+    const conflict = detectActualDuplicatePricingConflicts({
+      scopeKey: 'exterior_paint',
+      activeScopeKeys: ['prep', 'exterior_paint', 'interior_paint', 'trim_paint'],
+      overlaps: [],
+      pricingAcceptance: {
+        prep: { selectionStatus: 'accepted', totalAmount: 1485 },
+      },
+      benchmarkProfile: {
+        scopeAssumptionsDefined: true,
+        scopeAssumptions: [
+          {
+            scopeKey: 'masking',
+            status: 'excluded',
+            displayLabel: 'Tape and masking',
+          },
+          {
+            scopeKey: 'exterior_prep',
+            status: 'excluded',
+            displayLabel: 'Exterior prep & masking',
+          },
+          {
+            scopeKey: 'paint_material',
+            status: 'included',
+            displayLabel: 'Exterior / masonry paint',
+          },
+        ],
+      },
+    });
+    expect(conflict.hasOverlapRisk).toBe(false);
+  });
+
   it('does not lower card confidence from overlap alone when benchmark scope is defined', () => {
     const intelligence = resolveScopeItemIntelligence({
       scopeKey: 'cabinets',

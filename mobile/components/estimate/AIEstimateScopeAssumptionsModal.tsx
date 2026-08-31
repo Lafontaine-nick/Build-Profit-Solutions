@@ -453,6 +453,10 @@ import {
 } from '@/utils/exteriorOpeningsPricing';
 
 import {
+  CONFIRM_SCOPE_PRICE_TEXT,
+  confirmScopeApplyButtonStyle,
+  confirmScopeApplyButtonTextStyle,
+  confirmScopeChoiceSelectedYesColors,
   estimateFlowCardStyle,
   estimateFlowDividerColor,
   estimateFlowScopeCardAlignStyle,
@@ -798,13 +802,10 @@ function ScopeItemTitleRow({
   return (
     <View style={styles.cardTitleRow}>
       <Text
-        style={{
-          color: darkMode ? '#F5F7FA' : Colors.text,
-          fontSize: 14,
-          fontWeight: '700',
-          lineHeight: 20,
-          flex: 1,
-        }}
+        style={[
+          styles.scopeCardTitle,
+          { color: darkMode ? '#F5F7FA' : Colors.text },
+        ]}
       >
         {label}
       </Text>
@@ -815,7 +816,7 @@ function ScopeItemTitleRow({
             darkMode ? styles.fromNotesBadgeDark : styles.fromNotesBadgeLight,
           ]}
         >
-          <Text style={{ color: badgeColor, fontSize: 10, fontWeight: '700' }}>
+          <Text style={{ color: badgeColor, fontSize: 10, fontWeight: '800' }}>
             {badgeLabel}
           </Text>
         </View>
@@ -1007,9 +1008,9 @@ function PricingAmountRow({
         <Text
           style={{
             color: pricingTextColor(darkMode, Colors),
-            fontSize: emphasized ? 17 : 15,
-            fontWeight: '700',
-            letterSpacing: emphasized ? -0.2 : 0,
+            fontSize: emphasized ? 19 : 15,
+            fontWeight: emphasized ? '800' : '700',
+            letterSpacing: emphasized ? -0.3 : 0,
           }}
         >
           {value}
@@ -2121,7 +2122,7 @@ function SuggestedBudgetSplitRows({
       ) : null}
 
       <Text
-        style={[styles.budgetSplitHeaderTitle, { color: text }]}
+        style={[styles.budgetSplitHeaderTitle, { color: caption }]}
         numberOfLines={2}
         ellipsizeMode='tail'
       >
@@ -2129,13 +2130,10 @@ function SuggestedBudgetSplitRows({
       </Text>
 
       <Text
-        style={{
-          color: text,
-          fontSize: 26,
-          fontWeight: '700',
-          letterSpacing: -0.4,
-          marginTop: 6,
-        }}
+        style={[
+          CONFIRM_SCOPE_PRICE_TEXT,
+          { color: text, marginTop: 6 },
+        ]}
         accessibilityLabel={`Suggested total ${displayTotal}`}
       >
         {displayTotal}
@@ -7456,9 +7454,10 @@ function YesNoChip({
 
   if (active) {
     if (variant === 'yes') {
-      borderColor = '#22c55e';
-      backgroundColor = '#22c55e';
-      textColor = '#0f172a';
+      const selectedYes = confirmScopeChoiceSelectedYesColors();
+      borderColor = selectedYes.borderColor;
+      backgroundColor = selectedYes.backgroundColor;
+      textColor = selectedYes.textColor;
     } else if (variant === 'unsure') {
       borderColor = 'rgba(251,191,36,0.55)';
       backgroundColor = 'transparent';
@@ -7513,9 +7512,10 @@ function AssemblyChoiceChip({
 
   if (active) {
     if (variant === 'yes') {
-      borderColor = '#22c55e';
-      backgroundColor = '#22c55e';
-      textColor = '#0f172a';
+      const selectedYes = confirmScopeChoiceSelectedYesColors();
+      borderColor = selectedYes.borderColor;
+      backgroundColor = selectedYes.backgroundColor;
+      textColor = selectedYes.textColor;
     } else {
       borderColor = darkMode ? 'rgba(255,255,255,0.2)' : Colors.line;
       backgroundColor = darkMode
@@ -7671,12 +7671,10 @@ function WetAreaInstallLineCard({
       />
       {helper ? (
         <Text
-          style={{
-            color: captionColor(darkMode, Colors),
-            fontSize: 11,
-            marginTop: 3,
-            lineHeight: 15,
-          }}
+          style={[
+            styles.scopeCardDescription,
+            { color: captionColor(darkMode, Colors) },
+          ]}
         >
           {helper}
         </Text>
@@ -8390,12 +8388,10 @@ function YesNoRow({
       )}
       {helper ? (
         <Text
-          style={{
-            color: captionColor(darkMode, Colors),
-            fontSize: 11,
-            marginTop: 3,
-            lineHeight: 15,
-          }}
+          style={[
+            styles.scopeCardDescription,
+            { color: captionColor(darkMode, Colors) },
+          ]}
         >
           {helper}
         </Text>
@@ -23982,7 +23978,19 @@ const styles = StyleSheet.create({
   },
   card: {
     marginHorizontal: -8,
-    marginBottom: 8,
+    marginBottom: 12,
+  },
+  scopeCardTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 21,
+    flex: 1,
+    letterSpacing: -0.2,
+  },
+  scopeCardDescription: {
+    fontSize: 12,
+    marginTop: 4,
+    lineHeight: 17,
   },
   cardTitleRow: {
     flexDirection: 'row',
@@ -23990,9 +23998,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   fromNotesBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
     borderWidth: 1,
   },
   fromNotesBadgeLight: {
@@ -24080,41 +24088,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
-  useSuggestedPricingBtn: {
-    marginTop: 10,
+  useSuggestedPricingBtn: confirmScopeApplyButtonStyle(),
+  useSuggestedPricingBtnText: confirmScopeApplyButtonTextStyle(),
+  /** Secondary opt-in for national comparison (distinct from green Apply). */
+  useComparisonPricingBtn: {
+    marginTop: 8,
     alignSelf: 'stretch',
-    minHeight: 48,
+    minHeight: 44,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(34, 197, 94, 0.14)',
+    backgroundColor: 'rgba(251, 191, 36, 0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.35)',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  useSuggestedPricingBtnText: {
-    color: '#22c55e',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  /** Secondary opt-in for national comparison (distinct from green Apply). */
-  useComparisonPricingBtn: {
-    marginTop: 10,
-    alignSelf: 'stretch',
-    minHeight: 44,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(251, 191, 36, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(251, 191, 36, 0.4)',
+    borderColor: 'rgba(251, 191, 36, 0.32)',
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
   useComparisonPricingBtnText: {
     color: '#fbbf24',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
   },
   includedPillRow: {
@@ -24163,11 +24155,13 @@ const styles = StyleSheet.create({
   },
   choiceChip: {
     flex: 1,
+    minHeight: 44,
     paddingVertical: 10,
     paddingHorizontal: 8,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   choiceChipWide: {
     paddingVertical: 10,
@@ -24331,10 +24325,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   compactSuggestedBtn: {
-    minHeight: 40,
+    minHeight: 44,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -24344,7 +24338,7 @@ const styles = StyleSheet.create({
   compactSuggestedBtnText: {
     color: '#22c55e',
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   doneEditingBtn: {
     marginTop: 10,
@@ -24439,8 +24433,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   budgetSplitHeaderTitle: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   budgetSplitHeaderPill: {
     flexShrink: 0,

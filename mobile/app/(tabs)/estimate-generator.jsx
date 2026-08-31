@@ -5365,6 +5365,15 @@ export default function EstimateGeneratorScreen() {
     () => aiLastPlanImport || planImportPayloadFromDraft(aiDraft),
     [aiLastPlanImport, aiDraft]
   );
+  /** Resume-only: do not pre-fill Job notes when a saved draft exists. */
+  const aiBuilderInitialNotes = useMemo(
+    () => (aiDraft ? '' : aiDraftNotes),
+    [aiDraft, aiDraftNotes]
+  );
+  const aiBuilderSavedSessionNotes = useMemo(() => {
+    if (!aiDraft) return '';
+    return String(aiDraftNotes || aiDraft.originalNotes || '').trim();
+  }, [aiDraft, aiDraftNotes]);
   const [aiManualPricingSeed, setAiManualPricingSeed] = useState(null);
   const [aiManualPricingFocusPackage, setAiManualPricingFocusPackage] = useState(null);
   const [pricingFallbackVariant, setPricingFallbackVariant] = useState(null);
@@ -10360,6 +10369,23 @@ export default function EstimateGeneratorScreen() {
   }, []);
 
   /** Empty bid: open paste-notes flow directly (skip AI Assistant landing). */
+  const handleStartAiDraftFresh = useCallback(() => {
+    setAiDraft(null);
+    setAiDraftNotes('');
+    setAiLastPlanImport(null);
+    setAiPhotoDetections([]);
+    setAiPhotoExistingFeatures([]);
+    setAiSitePhotos([]);
+    latestScopeMeasurementsRef.current = null;
+    setShowAiScopeAssumptionsModal(false);
+    setShowAiInitialRevealModal(false);
+    setShowAiDraftReviewModal(false);
+    setShowAiSavedPricingModal(false);
+    setShowAiRoughPricingModal(false);
+    setShowAiManualPricingModal(false);
+    void AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
+  }, []);
+
   const openBuildWithAiDirect = useCallback(() => {
     if (aiEntryPressLockRef.current) return;
     aiEntryPressLockRef.current = true;
@@ -25259,7 +25285,8 @@ export default function EstimateGeneratorScreen() {
         generating={aiDraftGenerating}
         generatingPhase={aiDraftGeneratingPhase}
         generatingSteps={aiDraftGeneratingSteps}
-        initialNotes={aiDraftNotes}
+        initialNotes={aiBuilderInitialNotes}
+        savedSessionNotes={aiBuilderSavedSessionNotes}
         initialPlanImport={aiBuilderInitialPlanImport}
         initialPhotoDetections={aiPhotoDetections}
         initialPhotoExistingFeatures={aiPhotoExistingFeatures}
@@ -25290,6 +25317,7 @@ export default function EstimateGeneratorScreen() {
           setShowAiBuilderModal(false);
           openAiDraftReviewEntry();
         }}
+        onStartFresh={handleStartAiDraftFresh}
         onPlanImportChange={(next) => {
           setAiLastPlanImport(next || null);
         }}

@@ -3512,16 +3512,16 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
       ),
       assumption(
         'masking',
-        'included',
+        'excluded',
         'Tape and masking',
-        'Window, door, and adjacent-surface tape/masking for a normal single-story paint job is included.',
+        'Standard exterior tape and masking are priced on the Exterior Prep & Masking line when scoped separately.',
         { impact: 'medium' }
       ),
       assumption(
-        'prep',
-        'included',
-        'Basic prep',
-        'Light wash, scrape, and spot prep are included. Heavy crack repair is not.',
+        'exterior_prep',
+        'excluded',
+        'Exterior prep & masking',
+        'Cleaning, masking, scraping, and spot priming are on the Exterior Prep & Masking scope line — not in the exterior application rate.',
         { impact: 'medium' }
       ),
       assumption(

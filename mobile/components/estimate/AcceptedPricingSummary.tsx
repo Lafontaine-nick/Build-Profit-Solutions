@@ -586,9 +586,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   totalText: {
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: -0.2,
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.4,
   },
   statusText: {
     fontSize: 13,

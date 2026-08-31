@@ -873,19 +873,28 @@ const ProjectListProviderCore = ({
     return Array.isArray(seed) && seed.length > 0 ? (seed as UnifiedProject[]) : [];
   });
   const [isHydrated, setIsHydrated] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(() => {
+    const seed =
+      getProjectListSeed(accountUserId) ?? getProjectListSeed();
+    return Array.isArray(seed) && seed.length > 0;
+  });
   const prevAccountUserIdRef = useRef(accountUserId);
 
   useLayoutEffect(() => {
-    if (prevAccountUserIdRef.current === accountUserId) return;
+    const prevId = prevAccountUserIdRef.current;
+    if (prevId === accountUserId) return;
     prevAccountUserIdRef.current = accountUserId;
     if (accountUserId) {
-      setHasLoadedOnce(false);
       const seed = getProjectListSeed(accountUserId);
       if (Array.isArray(seed) && seed.length > 0) {
         setProjects(seed as UnifiedProject[]);
+        setHasLoadedOnce(true);
+      } else if (!prevId && projectsRef.current.length > 0) {
+        // Fresh sign-in: keep warm seed visible until cache/API hydrate finishes.
+        setHasLoadedOnce(true);
       } else {
         setProjects([]);
+        setHasLoadedOnce(false);
       }
     } else {
       setProjects([]);
@@ -971,6 +980,7 @@ const ProjectListProviderCore = ({
         if (cancelled || projectsRef.current.length > 0) return;
         setProjects(normalized);
         setProjectListSeed(normalized, accountUserId);
+        markPortfolioLoaded();
       } catch (error) {
         if (__DEV__) {
           console.warn('ProjectListContext: early cache hydrate failed', error);

@@ -1,4 +1,4 @@
-import { StyleSheet, type ViewStyle } from 'react-native';
+import { StyleSheet, type TextStyle, type ViewStyle } from 'react-native';
 
 /** Solid card fill shared across Build with AI → Initial Reveal → Confirm Scope. */
 export const AI_FLOW_CARD_BG_DARK = '#202022';
@@ -216,5 +216,56 @@ export function estimateStep1IconBadgeStyle(darkMode: boolean, tone: 'green' | '
         : darkMode
           ? 'rgba(34, 197, 94, 0.14)'
           : 'rgba(34, 197, 94, 0.1)',
+  };
+}
+
+/** Confirm Scope — Suggested pricing, Saved pricing, etc. */
+export function confirmScopeSectionLabelStyle(): TextStyle {
+  return {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  };
+}
+
+/** Confirm Scope — primary price on suggest/apply cards. */
+export const CONFIRM_SCOPE_PRICE_TEXT: TextStyle = {
+  fontSize: 30,
+  fontWeight: '800',
+  letterSpacing: -0.5,
+};
+
+/** Confirm Scope — ghost Apply (matches Build with AI footer CTAs). */
+export function confirmScopeApplyButtonStyle(): ViewStyle {
+  return {
+    marginTop: 10,
+    alignSelf: 'stretch',
+    minHeight: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(34, 197, 94, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  };
+}
+
+export function confirmScopeApplyButtonTextStyle(): TextStyle {
+  return {
+    color: ESTIMATE_FLOW_GREEN,
+    fontSize: 14,
+    fontWeight: '700',
+  };
+}
+
+/** Confirm Scope — Yes / included choice (tinted ring, not solid fill). */
+export function confirmScopeChoiceSelectedYesColors() {
+  return {
+    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
+    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+    textColor: ESTIMATE_FLOW_CHIP_GREEN,
   };
 }

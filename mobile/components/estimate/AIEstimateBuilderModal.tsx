@@ -78,6 +78,8 @@ type Props = {
   initialSitePhotos?: SitePhotoAttachment[];
   /** True when a Confirm Scope / review draft already exists — show Continue instead of wiping. */
   hasExistingDraft?: boolean;
+  /** Notes stored with the saved draft — used for Regenerate when the field is left empty. */
+  savedSessionNotes?: string;
   fromAssistant?: boolean;
   /** Render inside AI Assistant instead of a separate Modal (fixes iOS stacking). */
   embedded?: boolean;
@@ -85,6 +87,8 @@ type Props = {
   onBack?: () => void;
   /** Resume preserved Confirm Scope without regenerating. */
   onContinueDraft?: () => void;
+  /** Clear saved draft progress and reset Step 1 inputs. */
+  onStartFresh?: () => void;
   /** Keep parent lastPlanImport in sync when user imports/replaces a plan. */
   onPlanImportChange?: (planImport: PlanImportPayload | null) => void;
   onPhotoDetectionsChange?: (detections: PhotoScopeDetection[]) => void;
@@ -119,11 +123,13 @@ export default function AIEstimateBuilderModal({
   initialPhotoExistingFeatures = [],
   initialSitePhotos = [],
   hasExistingDraft = false,
+  savedSessionNotes = '',
   fromAssistant = false,
   embedded = false,
   onClose,
   onBack,
   onContinueDraft,
+  onStartFresh,
   onPlanImportChange,
   onPhotoDetectionsChange,
   onPhotoExistingFeaturesChange,
@@ -283,6 +289,12 @@ export default function AIEstimateBuilderModal({
   const resolveNotesText = useCallback(() => {
     return String(notesRef.current || notes || '');
   }, [notes, notesSyncTick]);
+
+  const resolveEffectiveNotes = useCallback(() => {
+    const typed = resolveNotesText().trim();
+    if (typed) return typed;
+    return String(savedSessionNotes || '').trim();
+  }, [resolveNotesText, savedSessionNotes]);
 
   const handleBack = () => {
     if (busy) return;
@@ -489,7 +501,7 @@ export default function AIEstimateBuilderModal({
   ]);
 
   const runGenerate = async () => {
-    const trimmed = resolveNotesText().trim();
+    const trimmed = resolveEffectiveNotes();
     const canRun = Boolean(trimmed || (semanticsOn && hasPlanImport));
     if (!canRun || busy) {
       if (__DEV__ && busy) {
@@ -576,6 +588,37 @@ export default function AIEstimateBuilderModal({
     onContinueDraft();
   };
 
+  const handleStartFresh = () => {
+    if (busy || !onStartFresh) return;
+    Alert.alert(
+      'Start fresh?',
+      'This clears your saved scope draft, job notes, plan import, and photos from Build with AI. Your current bid is not affected.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Start fresh',
+          style: 'destructive',
+          onPress: () => {
+            applyNotesText('');
+            setNotesInputSessionKey((key) => key + 1);
+            setPlanImport(null);
+            onPlanImportChange?.(null);
+            setPhotoDetections([]);
+            onPhotoDetectionsChange?.([]);
+            setPhotoExistingFeatures([]);
+            onPhotoExistingFeaturesChange?.([]);
+            setSitePhotos([]);
+            onSitePhotosChange?.([]);
+            setPhotoState({ photoCount: 0, hasAnalyzed: false });
+            setPlumbingOnly(false);
+            setPlanSummaryExpanded(false);
+            onStartFresh();
+          },
+        },
+      ]
+    );
+  };
+
   const proceedGenerate = () => {
     // Photos attached but Detect never run — remind so users don't skip vision scope.
     if (photoState.photoCount > 0 && !photoState.hasAnalyzed) {
@@ -605,7 +648,7 @@ export default function AIEstimateBuilderModal({
     dismissNotesEditing();
     const run = () => {
       commitNotesFromInput();
-      const trimmed = resolveNotesText().trim();
+      const trimmed = resolveEffectiveNotes();
       const canRun = Boolean(trimmed || (semanticsOn && hasPlanImport));
       if (!canRun) return;
       if (hasExistingDraft) {
@@ -642,13 +685,15 @@ export default function AIEstimateBuilderModal({
   const canGenerate = useMemo(
     () =>
       Boolean(
-        resolveNotesText().trim() || (semanticsOn && hasPlanImport)
+        resolveEffectiveNotes() || (semanticsOn && hasPlanImport)
       ),
-    [resolveNotesText, semanticsOn, hasPlanImport]
+    [resolveEffectiveNotes, semanticsOn, hasPlanImport]
   );
+  const showSavedNotesHint =
+    hasExistingDraft &&
+    Boolean(String(savedSessionNotes || '').trim()) &&
+    !resolveNotesText().trim();
   const generateBtnEnabled = canGenerate && !busy;
-  const generateIsSecondaryOutline =
-    Boolean(hasExistingDraft && onContinueDraft && !busy);
 
   const scrollBottomPad = keyboardUp
     ? Math.max(keyboardHeight, Platform.OS === 'ios' ? 320 : 280) + 24
@@ -665,118 +710,132 @@ export default function AIEstimateBuilderModal({
   const generateActions = (
     <>
       {hasExistingDraft && onContinueDraft && !busy ? (
-        <TouchableOpacity
-          activeOpacity={0.88}
-          onPress={handleContinueDraft}
-          style={[
-            styles.primaryBtn,
-            { backgroundColor: ESTIMATE_FLOW_GREEN, marginBottom: 10 },
-          ]}
-        >
-          <MaterialIcons name='arrow-forward' size={20} color='#0f172a' />
-          <Text style={styles.primaryBtnText}>Continue to Confirm scope</Text>
-        </TouchableOpacity>
-      ) : null}
+        <>
+          <TouchableOpacity
+            activeOpacity={0.88}
+            onPress={handleContinueDraft}
+            style={[
+              styles.primaryBtn,
+              { backgroundColor: ESTIMATE_FLOW_GREEN, marginBottom: 8 },
+            ]}
+          >
+            <MaterialIcons name='arrow-forward' size={20} color='#0f172a' />
+            <Text style={styles.primaryBtnText}>Continue to Confirm scope</Text>
+          </TouchableOpacity>
+          <ReliableFlowPress
+            disabled={!generateBtnEnabled}
+            onPress={handleGenerate}
+            haptic='light'
+            style={styles.regenerateLinkBtn}
+          >
+            <MaterialIcons
+              name='auto-awesome'
+              size={16}
+              color={
+                generateBtnEnabled
+                  ? ESTIMATE_FLOW_GREEN
+                  : darkMode
+                    ? 'rgba(148, 163, 184, 0.55)'
+                    : Colors.sub
+              }
+            />
+            <Text
+              style={[
+                styles.regenerateLinkText,
+                {
+                  color: generateBtnEnabled
+                    ? ESTIMATE_FLOW_GREEN
+                    : darkMode
+                      ? 'rgba(148, 163, 184, 0.55)'
+                      : Colors.sub,
+                },
+              ]}
+            >
+              Regenerate draft
+            </Text>
+          </ReliableFlowPress>
+          {onStartFresh ? (
+            <ReliableFlowPress
+              disabled={busy}
+              onPress={handleStartFresh}
+              haptic='light'
+              style={styles.startFreshLinkBtn}
+            >
+              <Text
+                style={[
+                  styles.startFreshLinkText,
+                  {
+                    color: darkMode
+                      ? 'rgba(248, 113, 113, 0.88)'
+                      : '#dc2626',
+                  },
+                ]}
+              >
+                Start fresh
+              </Text>
+            </ReliableFlowPress>
+          ) : null}
+        </>
+      ) : (
       <ReliableFlowPress
-        disabled={!generateBtnEnabled}
+        disabled={!generateBtnEnabled || busy}
         onPress={handleGenerate}
         haptic='medium'
         style={[
-          styles.primaryBtn,
-          { padding: 0, overflow: 'hidden' },
-          generateIsSecondaryOutline
-            ? {
-                backgroundColor: 'transparent',
-                borderWidth: 1.5,
-                borderColor: generateBtnEnabled
-                  ? ESTIMATE_FLOW_GREEN
-                  : darkMode
-                    ? 'rgba(148, 163, 184, 0.22)'
-                    : Colors.line,
-              }
-            : !generateBtnEnabled
-              ? styles.primaryBtnDisabled
-              : null,
+          styles.generateCtaShell,
+          !generateBtnEnabled || busy ? styles.generateCtaDisabled : null,
         ]}
       >
-        {generateBtnEnabled && !generateIsSecondaryOutline && !busy ? (
+        {generateBtnEnabled && !busy ? (
           <LinearGradient
             colors={BRAND_FRAME_GRADIENT_COLORS}
             start={BRAND_FRAME_GRADIENT_START}
             end={BRAND_FRAME_GRADIENT_END}
-            style={styles.primaryBtnFill}
+            style={styles.generateCta}
           >
-            <MaterialIcons name='auto-awesome' size={20} color='#0f172a' />
-            <Text style={styles.primaryBtnText}>
-              {hasExistingDraft
-                ? 'Regenerate draft'
-                : selectedPlanTrade
-                  ? `Generate ${selectedPlanTrade.label} Estimate Draft`
-                  : 'Generate Estimate Draft'}
+            <MaterialIcons name='auto-awesome' size={18} color='#0f172a' />
+            <Text style={styles.generateCtaText}>
+              {selectedPlanTrade
+                ? `Generate ${selectedPlanTrade.label} Estimate Draft`
+                : 'Generate Estimate Draft'}
             </Text>
           </LinearGradient>
         ) : (
-          <View style={styles.primaryBtnFill}>
-        {busy ? (
-          <>
-            <ActivityIndicator
-              color={hasExistingDraft ? ESTIMATE_FLOW_GREEN : '#0f172a'}
-            />
-            <Text
-              style={[
-                styles.primaryBtnText,
-                hasExistingDraft ? { color: ESTIMATE_FLOW_GREEN } : null,
-              ]}
-            >
-              Generating…
-            </Text>
-          </>
-        ) : (
-          <>
-            <MaterialIcons
-              name='auto-awesome'
-              size={20}
-              color={
-                generateIsSecondaryOutline
-                  ? generateBtnEnabled
-                    ? ESTIMATE_FLOW_GREEN
-                    : darkMode
-                      ? 'rgba(148, 163, 184, 0.55)'
-                      : Colors.sub
-                  : '#0f172a'
-              }
-            />
-            <Text
-              style={[
-                styles.primaryBtnText,
-                generateIsSecondaryOutline
-                  ? {
-                      color: generateBtnEnabled
-                        ? ESTIMATE_FLOW_GREEN
-                        : darkMode
-                          ? 'rgba(148, 163, 184, 0.55)'
-                          : Colors.sub,
-                    }
-                  : !generateBtnEnabled
-                    ? {
-                        color: darkMode
-                          ? 'rgba(148, 163, 184, 0.55)'
-                          : Colors.sub,
-                      }
-                    : null,
-              ]}
-            >
-              {hasExistingDraft
-                ? 'Regenerate draft'
-                : selectedPlanTrade
-                  ? `Generate ${selectedPlanTrade.label} Estimate Draft`
-                  : 'Generate Estimate Draft'}
-            </Text>
-          </>
-        )}
+          <View style={styles.generateCta}>
+            {busy ? (
+              <>
+                <ActivityIndicator color='#0f172a' size='small' />
+                <Text style={styles.generateCtaText}>Generating…</Text>
+              </>
+            ) : (
+              <>
+                <MaterialIcons
+                  name='auto-awesome'
+                  size={18}
+                  color={
+                    darkMode ? 'rgba(148, 163, 184, 0.55)' : Colors.sub
+                  }
+                />
+                <Text
+                  style={[
+                    styles.generateCtaText,
+                    {
+                      color: darkMode
+                        ? 'rgba(148, 163, 184, 0.55)'
+                        : Colors.sub,
+                    },
+                  ]}
+                >
+                  {selectedPlanTrade
+                    ? `Generate ${selectedPlanTrade.label} Estimate Draft`
+                    : 'Generate Estimate Draft'}
+                </Text>
+              </>
+            )}
           </View>
         )}
       </ReliableFlowPress>
+      )}
     </>
   );
 
@@ -791,7 +850,7 @@ export default function AIEstimateBuilderModal({
         }}
       >
         {hasExistingDraft
-          ? 'Draft saved — continue or regenerate from your notes and plan.'
+          ? 'Your saved draft is ready. Continue to pick up scope pricing, or Regenerate to rebuild from saved notes and plan.'
           : 'Paste or dictate job notes — AI drafts scope for review.'}
       </Text>
 
@@ -900,9 +959,22 @@ export default function AIEstimateBuilderModal({
         <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
           Job notes
         </Text>
-        <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, marginTop: 4, marginBottom: 10 }}>
+        <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, marginTop: 4, marginBottom: showSavedNotesHint ? 4 : 10 }}>
           Paste or dictate your walkthrough — sizes, materials, or lump sums if you have them.
         </Text>
+        {showSavedNotesHint ? (
+          <Text
+            style={{
+              color: Colors.sub,
+              fontSize: 11,
+              lineHeight: 15,
+              marginBottom: 10,
+              fontStyle: 'italic',
+            }}
+          >
+            Regenerate uses your saved notes unless you paste new ones here.
+          </Text>
+        ) : null}
         <TextInput
           key={`job-notes-${notesInputSessionKey}`}
           ref={notesInputRef}
@@ -1127,7 +1199,7 @@ export default function AIEstimateBuilderModal({
     <View
       style={{
         paddingHorizontal: 16,
-        paddingTop: 12,
+        paddingTop: 8,
         paddingBottom: footerBottomPad,
         borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
@@ -1242,7 +1314,7 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     borderRadius: 12,
-    paddingVertical: 14,
+    paddingVertical: 12,
     paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1250,21 +1322,60 @@ const styles = StyleSheet.create({
     gap: 8,
     overflow: 'hidden',
   },
-  primaryBtnFill: {
+  generateCtaShell: {
     width: '100%',
-    minHeight: 48,
     borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
+    overflow: 'hidden',
+  },
+  generateCta: {
+    width: '100%',
+    minHeight: 44,
+    borderRadius: 12,
+    paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
+  generateCtaDisabled: {
+    backgroundColor: 'rgba(148, 163, 184, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.18)',
+  },
+  generateCtaText: {
+    color: '#0f172a',
+    fontSize: 15,
+    fontWeight: '800',
+    flexShrink: 1,
+    textAlign: 'center',
+  },
   primaryBtnDisabled: {
     backgroundColor: 'rgba(148, 163, 184, 0.12)',
     borderWidth: 1,
     borderColor: 'rgba(148, 163, 184, 0.18)',
+  },
+  regenerateLinkBtn: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  regenerateLinkText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  startFreshLinkBtn: {
+    alignSelf: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    marginTop: 2,
+  },
+  startFreshLinkText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
   primaryBtnText: {
     color: '#0f172a',

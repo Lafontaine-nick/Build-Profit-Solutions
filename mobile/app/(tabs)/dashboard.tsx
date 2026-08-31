@@ -4752,6 +4752,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
     !aiInsightsExpanded &&
     (!aiLoading || aiData != null);
   const insightsHiddenCount = Math.max(0, insightCount - INSIGHT_PREVIEW_COUNT);
+  const showAllProjectsLoading = !projectsReady && projects.length === 0;
 
   const aiInsightsCollapsedHint = useMemo(() => {
     const expandVerb = desktopWideWeb ? "Click" : "Tap";
@@ -5070,7 +5071,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
               </Pressable>
             </View>
 
-            {!projectsReady ? (
+            {showAllProjectsLoading ? (
               <View style={styles.emptyState}>
                 <ActivityIndicator size="small" color="#22c55e" />
               </View>

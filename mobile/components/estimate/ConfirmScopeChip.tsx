@@ -85,7 +85,8 @@ export function ConfirmScopeChip({
 const styles = StyleSheet.create({
   chip: {
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 12,
+    minHeight: 44,
     paddingVertical: 10,
     paddingHorizontal: 12,
     width: '100%',
