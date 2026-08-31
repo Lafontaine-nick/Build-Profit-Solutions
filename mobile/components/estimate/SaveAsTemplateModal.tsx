@@ -24,17 +24,33 @@ import {
   BRAND_FRAME_GRADIENT_END,
   BRAND_FRAME_GRADIENT_START,
 } from '@/constants/brandFrameGradient';
+import {
+  ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
+  ESTIMATE_TEMPLATE_PRESERVATION_SHORT,
+  estimateFlowDisabledPrimaryButtonStyle,
+  estimateFlowDisabledPrimaryButtonTextStyle,
+  estimateFlowPrimaryButtonStyle,
+  estimateFlowPrimaryButtonTextStyle,
+} from '@/utils/estimateFlowCardStyle';
 
 type Props = {
   visible: boolean;
   saving?: boolean;
+  defaultEstimateName?: string;
   onClose: () => void;
   onSave: (input: { name: string; category: string; description: string }) => void;
 };
 
+function defaultTemplateName(raw?: string): string {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed || trimmed === 'Untitled Bid') return '';
+  return trimmed;
+}
+
 export default function SaveAsTemplateModal({
   visible,
   saving = false,
+  defaultEstimateName,
   onClose,
   onSave,
 }: Props) {
@@ -47,12 +63,13 @@ export default function SaveAsTemplateModal({
 
   useEffect(() => {
     if (visible) {
-      setName('');
+      setName(defaultTemplateName(defaultEstimateName));
       setCategory('');
       setDescription('');
     }
-  }, [visible]);
+  }, [visible, defaultEstimateName]);
 
+  const nameIsValid = Boolean(name.trim());
   const handleClose = () => {
     if (saving) return;
     if (Platform.OS !== 'web') {
@@ -93,12 +110,12 @@ export default function SaveAsTemplateModal({
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         >
           <ScrollView
             keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{
-              paddingBottom: Math.max(insets.bottom, 24),
-            }}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
           >
             <View style={[styles.headerRow, { paddingTop: headerTopPadding }]}>
               <LinearGradient
@@ -120,7 +137,7 @@ export default function SaveAsTemplateModal({
                 </GradientRingBackInner>
               </LinearGradient>
               <View style={styles.headerText}>
-                <Text style={[styles.title, { color: Colors.text }]}>Save as Template</Text>
+                <Text style={[styles.title, { color: Colors.text }]}>Save as template</Text>
                 <Text style={[styles.subtitle, { color: Colors.sub }]}>
                   Reuse this bid package on future estimates
                 </Text>
@@ -138,7 +155,10 @@ export default function SaveAsTemplateModal({
                 autoCorrect={false}
               />
 
-              <Text style={[styles.label, { color: Colors.sub }]}>Category / trade</Text>
+              <Text style={[styles.label, { color: Colors.sub }]}>Trade or category (optional)</Text>
+              <Text style={[styles.fieldHelper, { color: Colors.sub }]}>
+                Helps you organize and find this template later.
+              </Text>
               <TextInput
                 value={category}
                 onChangeText={setCategory}
@@ -159,31 +179,49 @@ export default function SaveAsTemplateModal({
               />
 
               <Text style={[styles.hint, { color: Colors.sub }]}>
-                Saves materials, labor, direct costs, overhead, markup, and payment schedule. Customer
-                info is not included — use Saved Customers for that.
+                {ESTIMATE_TEMPLATE_PRESERVATION_SHORT}
               </Text>
-
-              <TouchableOpacity
-                activeOpacity={0.88}
-                disabled={!name.trim() || saving}
-                onPress={handleSave}
-                style={{ opacity: !name.trim() || saving ? 0.55 : 1 }}
-              >
-                <LinearGradient
-                  colors={['#2DFFC4', '#00A6FF']}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.saveButton}
-                >
-                  {saving ? (
-                    <ActivityIndicator color="#001B14" />
-                  ) : (
-                    <Text style={styles.saveButtonText}>Save Template</Text>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
             </View>
           </ScrollView>
+
+          <View
+            style={[
+              styles.footer,
+              {
+                paddingBottom: Math.max(insets.bottom, 16),
+                borderTopColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+                backgroundColor: Colors.bg,
+              },
+            ]}
+          >
+            <TouchableOpacity
+              activeOpacity={nameIsValid ? 0.88 : 1}
+              disabled={!nameIsValid || saving}
+              onPress={handleSave}
+            >
+              <View
+                style={
+                  nameIsValid && !saving
+                    ? estimateFlowPrimaryButtonStyle()
+                    : estimateFlowDisabledPrimaryButtonStyle()
+                }
+              >
+                {saving ? (
+                  <ActivityIndicator color="rgba(248, 250, 252, 0.45)" />
+                ) : (
+                  <Text
+                    style={
+                      nameIsValid
+                        ? estimateFlowPrimaryButtonTextStyle()
+                        : estimateFlowDisabledPrimaryButtonTextStyle()
+                    }
+                  >
+                    Save template
+                  </Text>
+                )}
+              </View>
+            </TouchableOpacity>
+          </View>
         </KeyboardAvoidingView>
       </View>
     </Modal>
@@ -192,10 +230,14 @@ export default function SaveAsTemplateModal({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 16,
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
     paddingBottom: 18,
     gap: 12,
   },
@@ -216,8 +258,9 @@ const styles = StyleSheet.create({
   headerText: { flex: 1 },
   title: { fontSize: 22, fontWeight: '800' },
   subtitle: { fontSize: 13, marginTop: 4, lineHeight: 18 },
-  form: { paddingHorizontal: 16, gap: 8 },
+  form: { paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD, gap: 8 },
   label: { fontSize: 12, fontWeight: '700', marginTop: 8 },
+  fieldHelper: { fontSize: 11, lineHeight: 16, marginTop: 2, marginBottom: 2 },
   input: {
     borderWidth: 1,
     borderRadius: 14,
@@ -234,18 +277,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginTop: 8,
-    marginBottom: 12,
   },
-  saveButton: {
-    borderRadius: 16,
-    paddingVertical: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-  },
-  saveButtonText: {
-    color: '#001B14',
-    fontSize: 16,
-    fontWeight: '900',
+  footer: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 12,
+    paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
   },
 });

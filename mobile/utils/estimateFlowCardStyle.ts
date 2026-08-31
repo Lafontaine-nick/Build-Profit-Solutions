@@ -1,4 +1,9 @@
 import { StyleSheet, type TextStyle, type ViewStyle } from 'react-native';
+import { PROJECT_WIDE_CONTAINER_CARD_INSET } from '@/constants/ScreenLayout';
+import { BRAND_FRAME_GRADIENT_COLORS } from '@/constants/brandFrameGradient';
+
+/** Horizontal inset for estimate flow screens — matches `wideContainer` cards on Bid Summary. */
+export const ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD = PROJECT_WIDE_CONTAINER_CARD_INSET;
 
 /** Solid card fill shared across Build with AI → Initial Reveal → Confirm Scope. */
 export const AI_FLOW_CARD_BG_DARK = '#202022';
@@ -50,7 +55,16 @@ export const ESTIMATE_FLOW_GREEN = '#22c55e';
 /** Selection chips — Paint Scope, trade picks (Confirm scope). */
 export const ESTIMATE_FLOW_CHIP_GREEN = '#34d399';
 export const ESTIMATE_FLOW_CHIP_GREEN_BG = 'rgba(52, 211, 153, 0.12)';
-export const ESTIMATE_FLOW_BLUE = '#60a5fa';
+/** Brand electric blue — matches New bid ring / AI Assistant gradient end. */
+export const ESTIMATE_FLOW_BRAND_CYAN = BRAND_FRAME_GRADIENT_COLORS[0];
+export const ESTIMATE_FLOW_BLUE = BRAND_FRAME_GRADIENT_COLORS[1];
+/** Materials bar — brand blue → cyan (bottom to top). */
+export const ESTIMATE_FLOW_MATERIALS_BAR_GRADIENT: [string, string] = [
+  ESTIMATE_FLOW_BLUE,
+  ESTIMATE_FLOW_BRAND_CYAN,
+];
+export const ESTIMATE_FLOW_BLUE_BG = 'rgba(0, 166, 255, 0.12)';
+export const ESTIMATE_FLOW_BLUE_BORDER = 'rgba(0, 166, 255, 0.35)';
 
 export function estimateFlowDividerColor(darkMode: boolean) {
   return darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.2)';
@@ -88,17 +102,17 @@ export function estimateStep1AccentCardStyle(
       borderRadius: 14,
       borderWidth: options?.active ? 1.5 : 1,
       borderColor: options?.active
-        ? 'rgba(96,165,250,0.55)'
+        ? ESTIMATE_FLOW_BLUE_BORDER
         : darkMode
           ? 'rgba(148,163,184,0.25)'
           : Colors.line,
       backgroundColor: options?.active
         ? darkMode
-          ? 'rgba(59,130,246,0.14)'
-          : 'rgba(59,130,246,0.08)'
+          ? ESTIMATE_FLOW_BLUE_BG
+          : 'rgba(0, 166, 255, 0.08)'
         : darkMode
-          ? 'rgba(59,130,246,0.08)'
-          : 'rgba(59,130,246,0.05)',
+          ? 'rgba(0, 166, 255, 0.08)'
+          : 'rgba(0, 166, 255, 0.05)',
     };
   }
   return {
@@ -153,8 +167,8 @@ export function estimateStep1ActionButtonSelectedStyle(
   }
   return {
     borderWidth: 1,
-    borderColor: 'rgba(96, 165, 250, 0.5)',
-    backgroundColor: darkMode ? 'rgba(96, 165, 250, 0.16)' : 'rgba(59, 130, 246, 0.12)',
+    borderColor: ESTIMATE_FLOW_BLUE_BORDER,
+    backgroundColor: darkMode ? 'rgba(0, 166, 255, 0.16)' : 'rgba(0, 166, 255, 0.12)',
   };
 }
 
@@ -200,7 +214,7 @@ export function estimateStep1ActionIconColor(
   accent: 'green' | 'blue',
   darkMode: boolean
 ): string {
-  if (selected) return accent === 'green' ? '#22c55e' : '#60a5fa';
+  if (selected) return accent === 'green' ? '#22c55e' : ESTIMATE_FLOW_BLUE;
   return darkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.75)';
 }
 
@@ -214,8 +228,8 @@ export function estimateStep1IconBadgeStyle(darkMode: boolean, tone: 'green' | '
     backgroundColor:
       tone === 'blue'
         ? darkMode
-          ? 'rgba(96, 165, 250, 0.12)'
-          : 'rgba(59, 130, 246, 0.1)'
+          ? ESTIMATE_FLOW_BLUE_BG
+          : 'rgba(0, 166, 255, 0.1)'
         : darkMode
           ? 'rgba(34, 197, 94, 0.14)'
           : 'rgba(34, 197, 94, 0.1)',
@@ -280,7 +294,7 @@ export function estimateSummaryStatusColors(tone: EstimateSummaryStatusTone) {
   const tones = {
     ready: { bg: 'rgba(34, 197, 94, 0.14)', color: '#4ade80' },
     review: { bg: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24' },
-    progress: { bg: 'rgba(96, 165, 250, 0.12)', color: '#60a5fa' },
+    progress: { bg: ESTIMATE_FLOW_BLUE_BG, color: ESTIMATE_FLOW_BLUE },
   };
   return tones[tone];
 }
@@ -364,7 +378,7 @@ export function estimateAiAssistPillIconBadgeStyle(): ViewStyle {
 export function estimateAiAssistPillTextStyle(): TextStyle {
   return {
     marginLeft: 8,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     color: ESTIMATE_FLOW_CHIP_GREEN,
     letterSpacing: 0.15,
@@ -395,9 +409,9 @@ export function estimateAiAssistHintStyle(): TextStyle {
 /** Divider + inset for AI row tucked inside the Summary stepper card. */
 export function estimateAiAssistRowInCardStyle(darkMode: boolean): ViewStyle {
   return {
-    marginTop: 10,
-    paddingTop: 12,
-    paddingHorizontal: 10,
+    marginTop: 8,
+    paddingTop: 10,
+    paddingHorizontal: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: estimateFlowDividerColor(darkMode),
   };
@@ -487,6 +501,59 @@ export function estimateFlowPrimaryButtonTextStyle(): TextStyle {
     fontWeight: '800',
   };
 }
+
+/** Disabled primary CTA — e.g. Save template without a name. */
+export function estimateFlowDisabledPrimaryButtonStyle(): ViewStyle {
+  return {
+    width: '100%',
+    backgroundColor: '#3a3a3c',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  };
+}
+
+export function estimateFlowDisabledPrimaryButtonTextStyle(): TextStyle {
+  return {
+    color: 'rgba(248, 250, 252, 0.45)',
+    fontSize: 15,
+    fontWeight: '800',
+  };
+}
+
+/** Teal outlined secondary action — Open bid, etc. */
+export function estimateFlowOutlineActionButtonStyle(): ViewStyle {
+  return {
+    flex: 1,
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
+    backgroundColor: 'transparent',
+  };
+}
+
+export function estimateFlowOutlineActionButtonTextStyle(): TextStyle {
+  return {
+    color: ESTIMATE_FLOW_CHIP_GREEN,
+    fontSize: 14,
+    fontWeight: '700',
+  };
+}
+
+export const ESTIMATE_TEMPLATE_PRESERVATION_LONG =
+  'Templates preserve scope, quantities, materials, labor, direct costs, overhead, markup, and the payment schedule. Client information is not included.';
+
+export const ESTIMATE_TEMPLATE_PRESERVATION_SHORT =
+  'Includes scope, quantities, costs, overhead, markup, and payment schedule. Client information is excluded.';
 
 /** Summary stepper — compact icon shell (step 0 charcoal card). */
 export function estimateSummaryStepperIconShellStyle(
