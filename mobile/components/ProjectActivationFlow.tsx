@@ -16,6 +16,11 @@ import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import * as Haptics from 'expo-haptics';
 import GreyCalendar from './GreyCalendar';
+import {
+  estimateFlowActiveDateFieldStyle,
+  ESTIMATE_FLOW_CHIP_GREEN,
+  getProjectJobDurationDays,
+} from '@/utils/estimateFlowCardStyle';
 import { useProjectData } from '../contexts/ProjectDataContext';
 
 interface ProjectActivationFlowProps {
@@ -211,17 +216,7 @@ export default function ProjectActivationFlow({
     }
   };
 
-  const calculateDuration = () => {
-    try {
-      const start = new Date(startDate + 'T00:00:00');
-      const end = new Date(endDate + 'T00:00:00');
-      const diffTime = end.getTime() - start.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      return diffDays;
-    } catch {
-      return 0;
-    }
-  };
+  const calculateDuration = () => getProjectJobDurationDays(startDate, endDate) ?? 0;
 
   const handleNext = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -273,16 +268,19 @@ export default function ProjectActivationFlow({
           <View style={styles.dateItem}>
             <Text style={[styles.dateLabel, { color: Colors.sub }]}>Start date</Text>
             <TouchableOpacity
-              style={[styles.dateInput, { borderColor: Colors.line }]}
+              style={[
+                styles.dateInput,
+                { borderColor: Colors.line },
+                estimateFlowActiveDateFieldStyle(showStartDatePicker),
+              ]}
               onPress={() => {
-                console.log('Start date pressed, setting showStartDatePicker to true');
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setShowEndDatePicker(false); // Close end date picker if open
+                setShowEndDatePicker(false);
                 setShowStartDatePicker(true);
               }}
               activeOpacity={0.7}
             >
-              <MaterialIcons name="calendar-today" size={18} color="#2DFFC4" style={{ marginRight: 8 }} />
+              <MaterialIcons name="calendar-today" size={18} color={ESTIMATE_FLOW_CHIP_GREEN} style={{ marginRight: 8 }} />
               <Text style={[styles.dateInputText, { color: Colors.text }]}>
                 {startDate ? formatDate(startDate) : 'Select date'}
               </Text>
@@ -291,16 +289,19 @@ export default function ProjectActivationFlow({
           <View style={styles.dateItem}>
             <Text style={[styles.dateLabel, { color: Colors.sub }]}>End date</Text>
             <TouchableOpacity
-              style={[styles.dateInput, { borderColor: Colors.line }]}
+              style={[
+                styles.dateInput,
+                { borderColor: Colors.line },
+                estimateFlowActiveDateFieldStyle(showEndDatePicker),
+              ]}
               onPress={() => {
-                console.log('End date pressed, setting showEndDatePicker to true');
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setShowStartDatePicker(false); // Close start date picker if open
+                setShowStartDatePicker(false);
                 setShowEndDatePicker(true);
               }}
               activeOpacity={0.7}
             >
-              <MaterialIcons name="calendar-today" size={18} color="#2DFFC4" style={{ marginRight: 8 }} />
+              <MaterialIcons name="calendar-today" size={18} color={ESTIMATE_FLOW_CHIP_GREEN} style={{ marginRight: 8 }} />
               <Text style={[styles.dateInputText, { color: Colors.text }]}>
                 {endDate ? formatDate(endDate) : 'Select date'}
               </Text>
@@ -562,19 +563,16 @@ export default function ProjectActivationFlow({
                       setStartDateObj(selectedDate);
                       setStartDate(day.dateString);
                       setShowStartDatePicker(false);
-                      // Ensure end date is after start date
                       if (endDateObj < selectedDate) {
                         const newEndDate = new Date(selectedDate);
-                        newEndDate.setDate(newEndDate.getDate() + 90); // Default 90 days
+                        newEndDate.setDate(newEndDate.getDate() + 90);
                         setEndDateObj(newEndDate);
                         setEndDate(newEndDate.toISOString().split('T')[0]);
                       }
                     } else if (showEndDatePicker) {
-                      // Ensure end date is after start date
                       if (selectedDate >= startDateObj) {
                         setEndDateObj(selectedDate);
                         setEndDate(day.dateString);
-                        setShowEndDatePicker(false);
                       } else {
                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                         return;
@@ -582,14 +580,11 @@ export default function ProjectActivationFlow({
                     }
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   }}
-                  markedDates={{
-                    [showStartDatePicker ? startDate : endDate]: {
-                      selected: true,
-                      selectedColor: '#22c55e',
-                      selectedTextColor: '#000000',
-                    }
-                  }}
+                  rangeStartDate={startDate}
+                  rangeEndDate={endDate}
+                  activePicker={showStartDatePicker ? 'start' : showEndDatePicker ? 'end' : null}
                   initialDate={showStartDatePicker ? startDate : endDate}
+                  showJobDurationFooter={showEndDatePicker}
                 />
               </View>
             </View>

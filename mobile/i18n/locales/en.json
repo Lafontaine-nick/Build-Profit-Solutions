@@ -108,7 +108,7 @@
     "noItems": "No items added yet",
     "buildWithAi": "Build with AI",
     "buildWithAiSub": "Paste notes → rooms, scope, and pricing draft",
-    "aiAssistantSub": "Ask about scope, pricing, or changes"
+    "aiAssistantSub": "Scope, pricing, and changes"
   },
   "assistant": {
     "title": "Assistant",

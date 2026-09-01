@@ -4,9 +4,15 @@ import { TouchableOpacity as GestureTouchableOpacity } from 'react-native-gestur
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import {
+  BRAND_FRAME_GRADIENT_COLORS,
+  BRAND_FRAME_GRADIENT_END,
+  BRAND_FRAME_GRADIENT_START,
+} from '@/constants/brandFrameGradient';
+import {
   estimateAiAssistHintStyle,
   estimateAiAssistPillIconBadgeStyle,
-  estimateAiAssistPillShellStyle,
+  estimateAiAssistPillInnerStyle,
+  estimateAiAssistPillRingStyle,
   estimateAiAssistPillTextStyle,
   estimateAiAssistRowStyle,
 } from '../../utils/estimateFlowCardStyle';
@@ -28,21 +34,30 @@ export function EstimateAiAssistPill({
     <GestureTouchableOpacity
       onPressIn={onPress}
       activeOpacity={0.88}
-      style={estimateAiAssistPillShellStyle(darkMode)}
+      style={{ flexShrink: 0 }}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
     >
       <LinearGradient
-        colors={['#2DFFC4', '#00A6FF']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={estimateAiAssistPillIconBadgeStyle()}
+        colors={BRAND_FRAME_GRADIENT_COLORS}
+        start={BRAND_FRAME_GRADIENT_START}
+        end={BRAND_FRAME_GRADIENT_END}
+        style={estimateAiAssistPillRingStyle()}
       >
-        <MaterialIcons name="auto-awesome" size={16} color="#0f172a" />
+        <View style={estimateAiAssistPillInnerStyle(darkMode)}>
+          <LinearGradient
+            colors={BRAND_FRAME_GRADIENT_COLORS}
+            start={BRAND_FRAME_GRADIENT_START}
+            end={BRAND_FRAME_GRADIENT_END}
+            style={estimateAiAssistPillIconBadgeStyle()}
+          >
+            <MaterialIcons name="auto-awesome" size={16} color="#0f172a" />
+          </LinearGradient>
+          <Text style={estimateAiAssistPillTextStyle(darkMode)} numberOfLines={1}>
+            {label}
+          </Text>
+        </View>
       </LinearGradient>
-      <Text style={estimateAiAssistPillTextStyle()} numberOfLines={1}>
-        {label}
-      </Text>
     </GestureTouchableOpacity>
   );
 }

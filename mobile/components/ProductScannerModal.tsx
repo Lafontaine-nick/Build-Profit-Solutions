@@ -18,6 +18,9 @@ import { resolveScannedProductForStoreOpen } from '../services/productLookupServ
 import { getProductPageUrl, normalizeScannedBarcode } from '../lib/products/productScannerTypes';
 import { openStoreProductPage } from '../lib/products/openStoreProductPage';
 import type { ProductSupplierId, ScannedProduct } from '../lib/products/productScannerTypes';
+import { ESTIMATE_FLOW_CARD_GAP, ESTIMATE_FLOW_CHIP_GREEN, ESTIMATE_FLOW_CHIP_GREEN_BG, ESTIMATE_FLOW_GREEN, ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD, estimateFlowCardStyle, estimateFlowInputShellStyle, estimateFlowOutlineActionButtonStyle, estimateFlowOutlineActionButtonTextStyle } from '@/utils/estimateFlowCardStyle';
+import { useTheme } from '../contexts/ThemeContext';
+import { getColors } from '../theme/getColors';
 
 let CameraView = null;
 let CameraModule = null;
@@ -99,6 +102,10 @@ function ProductScannerModalContent({
   sourceHint?: ProductSupplierId | string;
 }) {
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
+  const Colors = getColors(theme);
+  const darkMode = Colors.bg === '#000000';
+  const flowHorizontalPad = ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD;
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [manualCode, setManualCode] = useState('');
@@ -167,7 +174,7 @@ function ProductScannerModalContent({
       <View
         style={{
           paddingTop: insets.top + 8,
-          paddingHorizontal: 18,
+          paddingHorizontal: flowHorizontalPad,
           paddingBottom: 14,
           flexDirection: 'row',
           alignItems: 'center',
@@ -184,7 +191,7 @@ function ProductScannerModalContent({
               alignItems: 'center',
               justifyContent: 'center',
               borderWidth: 1,
-              borderColor: 'rgba(45,255,196,0.35)',
+              borderColor: 'rgba(52, 211, 153, 0.35)',
             }}
           >
             <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
@@ -195,13 +202,13 @@ function ProductScannerModalContent({
               Scan a barcode or QR code, or enter a UPC, SKU, model number, or product URL manually.
             </Text>
           </View>
-          {isLookingUp ? <ActivityIndicator color="#2DFFC4" /> : null}
+          {isLookingUp ? <ActivityIndicator color={ESTIMATE_FLOW_CHIP_GREEN} /> : null}
         </View>
 
         <View
           style={{
             flex: 1,
-            margin: 18,
+            margin: flowHorizontalPad,
             borderRadius: 24,
             overflow: 'hidden',
             backgroundColor: SCANNER_SCREEN_BG,
@@ -220,55 +227,65 @@ function ProductScannerModalContent({
           )}
         </View>
 
-        <View style={{ paddingHorizontal: 18, paddingBottom: Math.max(insets.bottom, 16) + 12, backgroundColor: SCANNER_SCREEN_BG }}>
-          <Text style={{ color: 'rgba(226,232,240,0.72)', fontSize: 12, fontWeight: '700', marginBottom: 8 }}>
-            Enter code manually
-          </Text>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <TextInput
-              value={manualCode}
-              onChangeText={setManualCode}
-              placeholder="UPC, SKU, model, or product URL"
-              placeholderTextColor="rgba(226,232,240,0.45)"
-              autoCapitalize="none"
-              style={{
-                flex: 1,
-                minHeight: 46,
-                borderRadius: 14,
-                paddingHorizontal: 14,
-                color: '#FFFFFF',
-                backgroundColor: 'rgba(255,255,255,0.08)',
-                borderWidth: 1,
-                borderColor: 'rgba(255,255,255,0.14)',
-              }}
-            />
-            <TouchableOpacity
-              onPress={() => openProductFromCode(manualCode, 'manual')}
-              disabled={isLookingUp}
-              style={{
-                minHeight: 46,
-                borderRadius: 14,
-                paddingHorizontal: 16,
-                justifyContent: 'center',
-                backgroundColor: manualCode.trim() ? '#2DFFC4' : 'rgba(255,255,255,0.12)',
-              }}
-            >
-              <Text style={{ color: manualCode.trim() ? '#001B14' : 'rgba(226,232,240,0.55)', fontWeight: '900' }}>
-                Search
-              </Text>
-            </TouchableOpacity>
+        <View style={{ paddingHorizontal: flowHorizontalPad, paddingBottom: Math.max(insets.bottom, 16) + 12, backgroundColor: SCANNER_SCREEN_BG }}>
+          <View style={[estimateFlowCardStyle(Colors, darkMode), { gap: ESTIMATE_FLOW_CARD_GAP }]}>
+            <Text style={{ color: 'rgba(226,232,240,0.72)', fontSize: 12, fontWeight: '700' }}>
+              Enter code manually
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 12, alignItems: 'stretch' }}>
+              <TextInput
+                value={manualCode}
+                onChangeText={setManualCode}
+                placeholder="UPC, SKU, model, or product URL"
+                placeholderTextColor="rgba(226,232,240,0.45)"
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!isLookingUp}
+                returnKeyType="search"
+                blurOnSubmit
+                onSubmitEditing={() => openProductFromCode(manualCode, 'manual')}
+                keyboardAppearance="dark"
+                style={[
+                  estimateFlowInputShellStyle(Colors, darkMode),
+                  {
+                    flex: 1,
+                    flexBasis: 0,
+                    minHeight: 46,
+                    paddingHorizontal: 14,
+                    color: '#FFFFFF',
+                  },
+                ]}
+              />
+              <TouchableOpacity
+                onPress={() => openProductFromCode(manualCode, 'manual')}
+                disabled={isLookingUp}
+                style={[
+                  estimateFlowOutlineActionButtonStyle(),
+                  {
+                    flex: 1,
+                    flexBasis: 0,
+                    minHeight: 46,
+                    paddingHorizontal: 12,
+                    opacity: isLookingUp ? 0.5 : 1,
+                    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+                  },
+                ]}
+              >
+                <Text style={[estimateFlowOutlineActionButtonTextStyle(), { fontWeight: '800' }]}>Search</Text>
+              </TouchableOpacity>
+            </View>
+            {isLocked ? (
+              <TouchableOpacity
+                onPress={() => {
+                  scanLockRef.current = false;
+                  setIsLocked(false);
+                }}
+                style={{ alignItems: 'center', paddingVertical: 4 }}
+              >
+                <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontWeight: '800' }}>Scan another code</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
-          {isLocked ? (
-            <TouchableOpacity
-              onPress={() => {
-                scanLockRef.current = false;
-                setIsLocked(false);
-              }}
-              style={{ marginTop: 12, alignItems: 'center', paddingVertical: 10 }}
-            >
-              <Text style={{ color: '#2DFFC4', fontWeight: '800' }}>Scan another code</Text>
-            </TouchableOpacity>
-          ) : null}
         </View>
     </View>
   );
@@ -280,7 +297,7 @@ function CameraUnavailablePanel({ reason }: { reason: string }) {
 
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <Ionicons name="camera-outline" size={42} color="#2DFFC4" />
+      <Ionicons name="camera-outline" size={42} color={ESTIMATE_FLOW_CHIP_GREEN} />
       <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '900', marginTop: 12, textAlign: 'center' }}>
         Camera scanner needs a rebuild
       </Text>
@@ -310,10 +327,10 @@ function CameraUnavailablePanel({ reason }: { reason: string }) {
           padding: 14,
           backgroundColor: 'rgba(255,255,255,0.06)',
           borderWidth: 1,
-          borderColor: 'rgba(45,255,196,0.22)',
+          borderColor: 'rgba(52, 211, 153, 0.22)',
         }}
       >
-        <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '800', marginBottom: 8 }}>
+        <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 12, fontWeight: '800', marginBottom: 8 }}>
           Rebuild {platformLabel} dev client
         </Text>
         <Text style={{ color: 'rgba(226,232,240,0.82)', fontSize: 12, lineHeight: 18 }}>
@@ -374,7 +391,7 @@ function LiveCameraScanner({ isLocked, isLookingUp, onScanned }) {
   if (!hasPermission) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <Ionicons name="camera-outline" size={42} color="#2DFFC4" />
+        <Ionicons name="camera-outline" size={42} color={ESTIMATE_FLOW_CHIP_GREEN} />
         <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '900', marginTop: 12 }}>
           Camera permission needed
         </Text>
@@ -383,9 +400,9 @@ function LiveCameraScanner({ isLocked, isLookingUp, onScanned }) {
         </Text>
         <TouchableOpacity
           onPress={requestPermission}
-          style={{ marginTop: 18, backgroundColor: '#2DFFC4', borderRadius: 15, paddingHorizontal: 18, paddingVertical: 12 }}
+          style={{ marginTop: 18, backgroundColor: ESTIMATE_FLOW_GREEN, borderRadius: 15, paddingHorizontal: 18, paddingVertical: 12 }}
         >
-          <Text style={{ color: '#001B14', fontWeight: '900' }}>Allow Camera</Text>
+          <Text style={{ color: '#071018', fontWeight: '900' }}>Allow Camera</Text>
         </TouchableOpacity>
       </View>
     );
@@ -434,10 +451,12 @@ function LiveCameraScanner({ isLocked, isLookingUp, onScanned }) {
               borderRadius: 14,
               paddingHorizontal: 16,
               paddingVertical: 10,
-              backgroundColor: 'rgba(45,255,196,0.92)',
+              backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+              borderWidth: 1,
+              borderColor: ESTIMATE_FLOW_CHIP_GREEN,
             }}
           >
-            <Text style={{ color: '#001B14', fontWeight: '900' }}>Use dedicated scanner</Text>
+            <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontWeight: '800' }}>Use dedicated scanner</Text>
           </TouchableOpacity>
         ) : null}
         {lastScanHint ? (
@@ -445,7 +464,7 @@ function LiveCameraScanner({ isLocked, isLookingUp, onScanned }) {
             style={{
               marginTop: 10,
               alignSelf: 'center',
-              color: '#2DFFC4',
+              color: ESTIMATE_FLOW_CHIP_GREEN,
               backgroundColor: 'rgba(0,0,0,0.58)',
               paddingHorizontal: 12,
               paddingVertical: 8,

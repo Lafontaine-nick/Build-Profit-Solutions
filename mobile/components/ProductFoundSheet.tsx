@@ -33,6 +33,13 @@ import {
 import { lookupScannedProduct } from '../services/productLookupService';
 import { openStoreProductPage } from '../lib/products/openStoreProductPage';
 import { PROJECT_WIDE_CONTAINER_CARD_INSET } from '../constants/ScreenLayout';
+import {
+  ESTIMATE_FLOW_CHIP_GREEN,
+  ESTIMATE_FLOW_CHIP_GREEN_BG,
+  ESTIMATE_FLOW_GREEN,
+  estimateFlowPrimaryButtonStyle,
+  estimateFlowPrimaryButtonTextStyle,
+} from '@/utils/estimateFlowCardStyle';
 
 const SHEET_HEIGHT_RATIO = 0.88;
 const IOS_MODAL_BOTTOM_INSET = 34;
@@ -421,14 +428,14 @@ export default function ProductFoundSheet({
                   borderRadius: 24,
                   backgroundColor: '#050807',
                   borderWidth: 1,
-                  borderColor: 'rgba(45,255,196,0.24)',
+                  borderColor: 'rgba(52, 211, 153, 0.24)',
                   overflow: 'hidden',
                 }}
               >
           <Pressable onPress={dismissKeyboard} style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 10 }}>
             <View style={{ width: 48, height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.25)', alignSelf: 'center', marginBottom: 12 }} />
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 Product Found
               </Text>
               <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -449,13 +456,13 @@ export default function ProductFoundSheet({
                     width: 64,
                     height: 64,
                     borderRadius: 12,
-                    backgroundColor: 'rgba(45,255,196,0.08)',
+                    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
                     alignItems: 'center',
                     justifyContent: 'center',
                     marginRight: 12,
                   }}
                 >
-                  <Ionicons name="cube-outline" size={26} color="#2DFFC4" />
+                  <Ionicons name="cube-outline" size={26} color={ESTIMATE_FLOW_CHIP_GREEN} />
                 </View>
               )}
               <View style={{ flex: 1 }}>
@@ -501,11 +508,11 @@ export default function ProductFoundSheet({
                   paddingHorizontal: 12,
                   marginBottom: 12,
                   borderWidth: 1,
-                  borderColor: 'rgba(45,255,196,0.28)',
-                  backgroundColor: 'rgba(45,255,196,0.06)',
+                  borderColor: 'rgba(52, 211, 153, 0.28)',
+                  backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
                 }}
               >
-                <Ionicons name="sync-outline" size={16} color="#2DFFC4" />
+                <Ionicons name="sync-outline" size={16} color={ESTIMATE_FLOW_CHIP_GREEN} />
                 <Text style={{ color: 'rgba(226,232,240,0.72)', fontSize: 12, fontWeight: '700', flex: 1 }}>
                   Filling in product details...
                 </Text>
@@ -546,12 +553,12 @@ export default function ProductFoundSheet({
                     paddingHorizontal: 12,
                     marginBottom: 6,
                     borderWidth: 1,
-                    borderColor: 'rgba(45,255,196,0.35)',
-                    backgroundColor: 'rgba(45,255,196,0.08)',
+                    borderColor: 'rgba(52, 211, 153, 0.35)',
+                    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
                   }}
                 >
-                  <Ionicons name="open-outline" size={16} color="#2DFFC4" />
-                  <Text style={{ color: '#2DFFC4', fontSize: 12.5, fontWeight: '800' }}>{storePageLabel}</Text>
+                  <Ionicons name="open-outline" size={16} color={ESTIMATE_FLOW_CHIP_GREEN} />
+                  <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 12.5, fontWeight: '800' }}>{storePageLabel}</Text>
                 </TouchableOpacity>
                 <Text style={{ color: 'rgba(226,232,240,0.46)', fontSize: 10.5, lineHeight: 15, marginBottom: 14 }}>
                   Price source: Home Depot. Verify price, tax, and availability before purchase.
@@ -576,16 +583,16 @@ export default function ProductFoundSheet({
                           flexDirection: 'row',
                           alignItems: 'center',
                           borderWidth: 1,
-                          borderColor: selected ? '#2DFFC4' : 'rgba(255,255,255,0.12)',
-                          backgroundColor: selected ? 'rgba(45,255,196,0.1)' : 'rgba(255,255,255,0.045)',
+                          borderColor: selected ? ESTIMATE_FLOW_CHIP_GREEN : 'rgba(255,255,255,0.12)',
+                          backgroundColor: selected ? ESTIMATE_FLOW_CHIP_GREEN_BG : 'rgba(255,255,255,0.045)',
                         }}
                       >
-                        <Ionicons name={meta.icon} size={18} color={selected ? '#2DFFC4' : 'rgba(226,232,240,0.7)'} />
+                        <Ionicons name={meta.icon} size={18} color={selected ? ESTIMATE_FLOW_CHIP_GREEN : 'rgba(226,232,240,0.7)'} />
                         <View style={{ flex: 1, marginLeft: 10 }}>
                           <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '900' }}>{meta.title}</Text>
                           <Text style={{ color: 'rgba(226,232,240,0.62)', fontSize: 11, marginTop: 1 }}>{meta.subtitle}</Text>
                         </View>
-                        {selected ? <Ionicons name="checkmark-circle" size={18} color="#2DFFC4" /> : null}
+                        {selected ? <Ionicons name="checkmark-circle" size={18} color={ESTIMATE_FLOW_CHIP_GREEN} /> : null}
                       </TouchableOpacity>
                     );
                   })}
@@ -613,7 +620,7 @@ export default function ProductFoundSheet({
                 keyboardType="decimal-pad"
               />
             </View>
-            <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '900', marginBottom: 12 }}>
+            <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 12, fontWeight: '900', marginBottom: 12 }}>
               Line item total: {money(costTotal)}
             </Text>
             <Field
@@ -640,8 +647,8 @@ export default function ProductFoundSheet({
                           borderRadius: 13,
                           padding: 11,
                           borderWidth: 1,
-                          borderColor: !changeOrderId ? '#2DFFC4' : 'rgba(255,255,255,0.13)',
-                          backgroundColor: !changeOrderId ? 'rgba(45,255,196,0.1)' : 'rgba(255,255,255,0.06)',
+                          borderColor: !changeOrderId ? ESTIMATE_FLOW_CHIP_GREEN : 'rgba(255,255,255,0.13)',
+                          backgroundColor: !changeOrderId ? ESTIMATE_FLOW_CHIP_GREEN_BG : 'rgba(255,255,255,0.06)',
                         }}
                       >
                         <Text style={{ color: '#FFFFFF', fontSize: 12.5, fontWeight: '800' }}>Create new change order</Text>
@@ -654,8 +661,8 @@ export default function ProductFoundSheet({
                             borderRadius: 13,
                             padding: 11,
                             borderWidth: 1,
-                            borderColor: changeOrderId === co.id ? '#2DFFC4' : 'rgba(255,255,255,0.13)',
-                            backgroundColor: changeOrderId === co.id ? 'rgba(45,255,196,0.1)' : 'rgba(255,255,255,0.06)',
+                            borderColor: changeOrderId === co.id ? ESTIMATE_FLOW_CHIP_GREEN : 'rgba(255,255,255,0.13)',
+                            backgroundColor: changeOrderId === co.id ? ESTIMATE_FLOW_CHIP_GREEN_BG : 'rgba(255,255,255,0.06)',
                           }}
                         >
                           <Text style={{ color: '#FFFFFF', fontSize: 12.5, fontWeight: '800' }}>
@@ -671,7 +678,7 @@ export default function ProductFoundSheet({
                 ) : null}
                 <View style={{ height: 12 }} />
                 <Field label="Markup %" value={markupPct} onChangeText={setMarkupPct} keyboardType="decimal-pad" />
-                <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '900', marginTop: 8 }}>
+                <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 12, fontWeight: '900', marginTop: 8 }}>
                   Change order customer price: {money(changeOrderSellTotal)}
                 </Text>
                 <View style={{ height: 12 }} />
@@ -709,8 +716,8 @@ export default function ProductFoundSheet({
                     paddingVertical: 8,
                   }}
                 >
-                  <Ionicons name="add-circle-outline" size={18} color="#2DFFC4" />
-                  <Text style={{ color: '#2DFFC4', fontSize: 13, fontWeight: '800' }}>Add internal notes (optional)</Text>
+                  <Ionicons name="add-circle-outline" size={18} color={ESTIMATE_FLOW_CHIP_GREEN} />
+                  <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 13, fontWeight: '800' }}>Add internal notes (optional)</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -742,15 +749,16 @@ export default function ProductFoundSheet({
                   changeOrderId: destination === 'change_order' ? changeOrderId || undefined : undefined,
                 });
               }}
-              style={{
-                minHeight: 50,
-                borderRadius: 16,
-                backgroundColor: canSave ? '#2DFFC4' : 'rgba(255,255,255,0.12)',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+              style={[
+                estimateFlowPrimaryButtonStyle(),
+                {
+                  minHeight: 50,
+                  opacity: canSave ? 1 : 0.45,
+                  backgroundColor: canSave ? ESTIMATE_FLOW_GREEN : 'rgba(255,255,255,0.12)',
+                },
+              ]}
             >
-              <Text style={{ color: canSave ? '#001B14' : 'rgba(226,232,240,0.55)', fontSize: 15, fontWeight: '900' }}>
+              <Text style={canSave ? estimateFlowPrimaryButtonTextStyle() : { color: 'rgba(226,232,240,0.55)', fontSize: 15, fontWeight: '900' }}>
                 {primaryActionTitle || selectedMeta?.title || 'Add Product'}
               </Text>
             </TouchableOpacity>
@@ -806,9 +814,9 @@ function Field({ label, value, onChangeText, keyboardType = 'default', multiline
           paddingHorizontal: 13,
           paddingVertical: multiline ? 10 : Platform.OS === 'ios' ? 12 : 10,
           color: '#FFFFFF',
-          backgroundColor: 'rgba(255,255,255,0.07)',
+          backgroundColor: 'rgba(255,255,255,0.04)',
           borderWidth: 1,
-          borderColor: 'rgba(255,255,255,0.13)',
+          borderColor: 'rgba(148, 163, 184, 0.12)',
           textAlignVertical: multiline || compact ? 'top' : 'center',
           fontWeight: '700',
           fontSize: compact ? 13 : 15,

@@ -39,6 +39,10 @@ import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
 import { withProjectLeadsAuth } from '@/utils/projectLeadsAuthFetch';
 import { syncBpsDirectoryListing } from '@/services/bpsDirectorySync';
 import { SubWebFormOptionalChrome } from '@/components/SubWebFormOptionalChrome';
+import {
+  ESTIMATE_FLOW_CARD_GAP,
+  ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
+} from '@/utils/estimateFlowCardStyle';
 
 function extractZipFromGeocode(addresses: { postalCode?: string | null }[]): string | null {
   for (const a of addresses) {
@@ -1419,7 +1423,7 @@ function SubcontractorSearchModal({
           <>
           {/* Header Section — title centered; back balances right spacer */}
           <View style={{
-            paddingHorizontal: 22,
+            paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
             paddingTop: Math.max(insets.top, 0) + 10,
             paddingBottom: 14,
             backgroundColor: darkMode ? '#000000' : Colors.bg,
@@ -1493,9 +1497,10 @@ function SubcontractorSearchModal({
                     alignSelf: 'center',
                   }
                 : {
-              paddingTop: 14,
+              paddingTop: ESTIMATE_FLOW_CARD_GAP,
               paddingBottom: 40,
-              paddingHorizontal: 20,
+              paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
+              gap: ESTIMATE_FLOW_CARD_GAP,
               ...(webColumn860 ? { alignItems: 'center' } : {}),
             }
             }
@@ -2552,7 +2557,7 @@ function SubcontractorSearchModal({
           >
           {!isWeb && (
           <View style={{
-            paddingHorizontal: 22,
+            paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
             paddingTop: Math.max(insets.top, 0) + 10,
             paddingBottom: 14,
             backgroundColor: darkMode ? '#000000' : Colors.bg,
@@ -2620,9 +2625,10 @@ function SubcontractorSearchModal({
                     alignSelf: 'center',
                   }
                 : {
-              paddingTop: 14,
+              paddingTop: ESTIMATE_FLOW_CARD_GAP,
               paddingBottom: Math.max(insets.bottom, 12) + 40,
-              paddingHorizontal: 20,
+              paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
+              gap: ESTIMATE_FLOW_CARD_GAP,
               ...(webColumn860 ? { alignItems: 'center' } : {}),
             }
             }

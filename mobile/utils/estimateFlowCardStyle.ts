@@ -5,6 +5,50 @@ import { BRAND_FRAME_GRADIENT_COLORS } from '@/constants/brandFrameGradient';
 /** Horizontal inset for estimate flow screens — matches `wideContainer` cards on Bid Summary. */
 export const ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD = PROJECT_WIDE_CONTAINER_CARD_INSET;
 
+/** Uniform vertical gap between stacked flow cards (Summary → Step 8). */
+export const ESTIMATE_FLOW_CARD_GAP = 12;
+
+/** Inclusive calendar-day count between project start and end (YYYY-MM-DD). */
+export function getProjectJobDurationDays(
+  startDate?: string | null,
+  endDate?: string | null,
+): number | null {
+  if (!startDate || !endDate) return null;
+  const startTs = new Date(`${startDate}T00:00:00`).getTime();
+  const endTs = new Date(`${endDate}T00:00:00`).getTime();
+  const spanDays = Math.round((endTs - startTs) / (1000 * 60 * 60 * 24));
+  if (spanDays < 0) return null;
+  return spanDays + 1;
+}
+
+/** Active green ring when an inline date field has its calendar open. */
+export function estimateFlowActiveDateFieldStyle(isActive: boolean): ViewStyle {
+  if (!isActive) return {};
+  return {
+    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
+    borderWidth: 1.5,
+    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+  };
+}
+
+/** Extra bottom inset on long scroll steps (tab bar / keyboard clearance). */
+export const ESTIMATE_FLOW_STEP_SCROLL_BOTTOM = 80;
+
+/** `wideContainer` wrapper for step body content below the stepper. */
+export function estimateFlowStepContentWrapStyle(options?: { scrollBottom?: number }): ViewStyle {
+  return {
+    marginTop: 0,
+    marginBottom: options?.scrollBottom ?? ESTIMATE_FLOW_CARD_GAP,
+  };
+}
+
+/** Wrapper above the shared stepper card. */
+export function estimateFlowStepperWrapStyle(): ViewStyle {
+  return {
+    marginTop: ESTIMATE_FLOW_CARD_GAP,
+  };
+}
+
 /** Solid card fill shared across Build with AI → Initial Reveal → Confirm Scope. */
 export const AI_FLOW_CARD_BG_DARK = '#202022';
 
@@ -317,10 +361,27 @@ export function estimateFlowLineItemStyle(Colors: FlowCardColors, darkMode: bool
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 11,
-    marginBottom: 8,
+    marginBottom: ESTIMATE_FLOW_CARD_GAP,
     borderWidth: 1,
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line,
   };
+}
+
+/** Steps 1–2 AppTextField shell — reusable in Step 3 modals. */
+export function estimateFlowInputShellStyle(Colors: FlowCardColors, darkMode: boolean): ViewStyle {
+  return darkMode
+    ? {
+        backgroundColor: 'rgba(255,255,255,0.04)',
+        borderColor: 'rgba(148, 163, 184, 0.12)',
+        borderRadius: 14,
+        borderWidth: 1,
+      }
+    : {
+        backgroundColor: Colors.surface2,
+        borderColor: Colors.line,
+        borderRadius: 14,
+        borderWidth: 1,
+      };
 }
 
 /** Steps 3–4 — cart/list footer total band. */
@@ -349,8 +410,19 @@ export function estimateFlowNestedRowStyle(darkMode: boolean): ViewStyle {
   };
 }
 
-/** Shared shell — Build with AI / AI Assistant (tinted pill, not solid green). */
-export function estimateAiAssistPillShellStyle(darkMode: boolean): ViewStyle {
+/** Gradient ring thickness for + New bid / AI Assistant utility chrome. */
+export const ESTIMATE_UTILITY_RING_PADDING = 1;
+
+/** Gradient ring wrapper — matches + New bid chrome. */
+export function estimateAiAssistPillRingStyle(): ViewStyle {
+  return {
+    borderRadius: 999,
+    padding: ESTIMATE_UTILITY_RING_PADDING,
+  };
+}
+
+/** Inner fill for AI Assistant pill — charcoal on dark to match flow cards. */
+export function estimateAiAssistPillInnerStyle(darkMode: boolean): ViewStyle {
   return {
     flexDirection: 'row',
     alignItems: 'center',
@@ -358,10 +430,7 @@ export function estimateAiAssistPillShellStyle(darkMode: boolean): ViewStyle {
     paddingLeft: 5,
     paddingVertical: 5,
     borderRadius: 999,
-    backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
-    borderWidth: 1,
-    borderColor: darkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.22)',
-    flexShrink: 0,
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : '#f8fafc',
   };
 }
 
@@ -375,12 +444,12 @@ export function estimateAiAssistPillIconBadgeStyle(): ViewStyle {
   };
 }
 
-export function estimateAiAssistPillTextStyle(): TextStyle {
+export function estimateAiAssistPillTextStyle(darkMode: boolean): TextStyle {
   return {
     marginLeft: 8,
     fontSize: 12,
     fontWeight: '700',
-    color: ESTIMATE_FLOW_CHIP_GREEN,
+    color: darkMode ? '#f1f5f9' : '#0f172a',
     letterSpacing: 0.15,
   };
 }
@@ -417,18 +486,10 @@ export function estimateAiAssistRowInCardStyle(darkMode: boolean): ViewStyle {
   };
 }
 
-/** Page header — gradient ring wrapper (matches Back / Summary / Next nav pill). */
-export function estimateHeaderGradientRingStyle(): ViewStyle {
+/** Page header — solid green + New bid utility button. */
+export function estimateHeaderNewBidButtonStyle(): ViewStyle {
   return {
-    borderRadius: 999,
-    padding: 1.5,
-  };
-}
-
-/** Page header — inner fill for + New bid utility button. */
-export function estimateHeaderNewBidInnerStyle(Colors: FlowCardColors, darkMode: boolean): ViewStyle {
-  return {
-    backgroundColor: darkMode ? '#000000' : Colors.surface2,
+    backgroundColor: ESTIMATE_FLOW_GREEN,
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 9,
@@ -440,9 +501,9 @@ export function estimateHeaderNewBidInnerStyle(Colors: FlowCardColors, darkMode:
   };
 }
 
-export function estimateHeaderNewBidTextStyle(darkMode: boolean): TextStyle {
+export function estimateHeaderNewBidTextStyle(): TextStyle {
   return {
-    color: darkMode ? '#f1f5f9' : '#0f172a',
+    color: '#071018',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0.1,

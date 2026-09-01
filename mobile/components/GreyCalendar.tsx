@@ -1,9 +1,17 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import {
+  ESTIMATE_FLOW_CHIP_GREEN,
+  ESTIMATE_FLOW_CHIP_GREEN_BG,
+  ESTIMATE_FLOW_GREEN,
+} from '@/utils/estimateFlowCardStyle';
+import { EstimateJobDurationFooter } from '@/components/estimate/EstimateJobDurationFooter';
+
+/** Lifted surface inside charcoal flow cards — lighter than #202022 for readable calendars */
+const CALENDAR_SURFACE_DARK = '#2e2e30';
 
 interface GreyCalendarProps {
   onDayPress: (day: { dateString: string }) => void;
@@ -29,6 +37,10 @@ interface GreyCalendarProps {
     type?: string;
     color?: string;
   }>;
+  /** Optional note rendered below the grid (e.g. job duration on end-date picker) */
+  footer?: React.ReactNode;
+  /** When true and activePicker is "end", shows job duration from rangeStartDate/rangeEndDate */
+  showJobDurationFooter?: boolean;
 }
 
 const GreyCalendar: React.FC<GreyCalendarProps> = ({
@@ -40,6 +52,8 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
   rangeEndDate = null,
   activePicker = null,
   events = [],
+  footer,
+  showJobDurationFooter = false,
 }) => {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -168,7 +182,7 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
                   <View
                     style={[
                       styles.dayEventDot,
-                      { backgroundColor: markedConfig.dotColor || markedConfig.selectedColor || '#38d39f' },
+                      { backgroundColor: markedConfig.dotColor || markedConfig.selectedColor || ESTIMATE_FLOW_CHIP_GREEN },
                     ]}
                   />
                 )}
@@ -177,7 +191,7 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
                     key={idx}
                     style={[
                       styles.dayEventDot,
-                      { backgroundColor: event.color || event.type || '#22c55e' },
+                      { backgroundColor: event.color || event.type || ESTIMATE_FLOW_GREEN },
                     ]}
                   />
                 ))}
@@ -205,23 +219,16 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
         >
           <Ionicons
             name="chevron-back"
-            size={22}
-            color={darkMode ? "rgba(255, 255, 255, 0.7)" : "#334155"}
+            size={20}
+            color={darkMode ? 'rgba(255, 255, 255, 0.88)' : '#334155'}
           />
         </TouchableOpacity>
         <View style={styles.monthYearContainer}>
           <Text style={styles.monthYear}>
             {monthNames[month]} {year}
           </Text>
-          <TouchableOpacity onPress={goToToday} style={styles.todayButton}>
-            <LinearGradient
-              colors={['#22c55e', '#22d3ee']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.todayButtonGradient}
-            >
-              <Text style={styles.todayButtonText}>Today</Text>
-            </LinearGradient>
+          <TouchableOpacity onPress={goToToday} style={styles.todayButton} activeOpacity={0.85}>
+            <Text style={styles.todayButtonText}>Today</Text>
           </TouchableOpacity>
         </View>
         <TouchableOpacity 
@@ -231,8 +238,8 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
         >
           <Ionicons
             name="chevron-forward"
-            size={22}
-            color={darkMode ? "rgba(255, 255, 255, 0.7)" : "#334155"}
+            size={20}
+            color={darkMode ? 'rgba(255, 255, 255, 0.88)' : '#334155'}
           />
         </TouchableOpacity>
       </View>
@@ -250,18 +257,33 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
       <View style={styles.calendarGrid}>
         {renderDays()}
       </View>
+
+      {footer ? (
+        <View style={styles.footer}>
+          {footer}
+        </View>
+      ) : showJobDurationFooter && activePicker === 'end' ? (
+        <View style={styles.footer}>
+          <EstimateJobDurationFooter
+            startDate={rangeStartDate}
+            endDate={rangeEndDate}
+            labelColor={darkMode ? 'rgba(186, 204, 224, 0.82)' : Colors.sub}
+            textColor={darkMode ? '#ffffff' : Colors.text}
+            darkMode={darkMode}
+          />
+        </View>
+      ) : null}
     </View>
   );
 };
 
 const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   container: {
-    /* Light: surface2 reads clearly against page bg; dark unchanged */
-    backgroundColor: darkMode ? '#2a2a2a' : Colors.surface2,
-    borderRadius: 16,
+    backgroundColor: darkMode ? CALENDAR_SURFACE_DARK : Colors.surface2,
+    borderRadius: 14,
     padding: 12,
-    borderWidth: darkMode ? 0 : 1,
-    borderColor: darkMode ? 'transparent' : Colors.line,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
   },
   header: {
     flexDirection: 'row',
@@ -276,7 +298,9 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface,
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.12)' : Colors.surface,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line,
   },
   monthYearContainer: {
     flex: 1,
@@ -289,26 +313,25 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     letterSpacing: 0.2,
   },
   todayButton: {
-    marginTop: 4,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  todayButtonGradient: {
+    marginTop: 6,
+    borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
+    backgroundColor: darkMode ? ESTIMATE_FLOW_CHIP_GREEN_BG : 'rgba(52, 211, 153, 0.08)',
   },
   todayButtonText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#ffffff',
+    fontWeight: '700',
+    color: ESTIMATE_FLOW_CHIP_GREEN,
   },
   dayNamesRow: {
     flexDirection: 'row',
     marginBottom: 8,
     paddingBottom: 6,
     borderBottomWidth: 1,
-    borderBottomColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
+    borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
   },
   dayNameCell: {
     flex: 1,
@@ -317,9 +340,10 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   dayNameText: {
     fontSize: 11,
-    fontWeight: '600',
-    color: darkMode ? 'rgba(255,255,255,0.75)' : Colors.sub,
+    fontWeight: '700',
+    color: darkMode ? 'rgba(241, 245, 249, 0.88)' : Colors.sub,
     letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   calendarGrid: {
     flexDirection: 'row',
@@ -341,17 +365,17 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingVertical: 2,
   },
   dayInnerSelected: {
-    backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.22)' : 'rgba(13, 148, 136, 0.18)',
+    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
     borderWidth: 2,
-    borderColor: '#2DFFC4',
+    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
   },
   dayInnerRangeEndpoint: {
-    backgroundColor: darkMode ? 'rgba(34, 211, 238, 0.2)' : 'rgba(6, 182, 212, 0.16)',
+    backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.14)' : 'rgba(34, 197, 94, 0.08)',
     borderWidth: 2,
-    borderColor: '#22d3ee',
+    borderColor: ESTIMATE_FLOW_GREEN,
   },
   dayCellInRange: {
-    backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(13, 148, 136, 0.1)',
+    backgroundColor: darkMode ? 'rgba(52, 211, 153, 0.08)' : 'rgba(52, 211, 153, 0.1)',
   },
   dayCellRangeStart: {
     borderTopLeftRadius: 12,
@@ -363,47 +387,27 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   dayInnerTodayHint: {
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(45, 255, 196, 0.35)' : 'rgba(13, 148, 136, 0.4)',
-  },
-  dayCellGradient: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dayCellSelected: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#22c55e',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: darkMode ? 'rgba(52, 211, 153, 0.45)' : 'rgba(52, 211, 153, 0.4)',
   },
   dayText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: darkMode ? '#ffffff' : Colors.text,
+    fontWeight: '600',
+    color: darkMode ? 'rgba(248, 250, 252, 0.96)' : Colors.text,
   },
   dayTextToday: {
     fontSize: 14,
     fontWeight: '700',
-    color: darkMode ? '#2DFFC4' : '#0F766E',
+    color: ESTIMATE_FLOW_CHIP_GREEN,
   },
   dayTextSelected: {
     fontSize: 15,
     fontWeight: '800',
-    color: darkMode ? '#FFFFFF' : '#0f172a',
+    color: ESTIMATE_FLOW_CHIP_GREEN,
   },
   dayTextRangeEndpoint: {
     fontSize: 15,
     fontWeight: '700',
-    color: darkMode ? '#67e8f9' : '#0e7490',
-  },
-  dayTextHighlighted: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: darkMode ? '#ffffff' : Colors.text,
+    color: ESTIMATE_FLOW_GREEN,
   },
   dayEvents: {
     flexDirection: 'row',
@@ -421,6 +425,12 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontSize: 8,
     marginLeft: 2,
     color: darkMode ? '#ffffff' : Colors.sub,
+  },
+  footer: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
   },
 });
 

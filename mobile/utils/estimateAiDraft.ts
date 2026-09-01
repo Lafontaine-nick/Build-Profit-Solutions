@@ -6434,7 +6434,7 @@ function laborLineItemsFromDraft(
       qty: hours,
       unit: lineUnit,
       mode: lineUnit === 'sq ft' ? 'sqft' : undefined,
-      rate: total,
+      rate: hours > 0 ? total / hours : total,
       total,
       totalCost: total,
       category: isCombinedOnly ? 'Trade package' : 'Labor',

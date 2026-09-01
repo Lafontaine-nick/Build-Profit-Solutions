@@ -1,14 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Modal,
-  View,
-  Text,
-  TouchableOpacity,
-  TextInput,
+  Alert,
   FlatList,
+  Modal,
   Platform,
+  Pressable,
   StyleSheet,
   StatusBar,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,6 +24,15 @@ import {
   BRAND_FRAME_GRADIENT_END,
   BRAND_FRAME_GRADIENT_START,
 } from '@/constants/brandFrameGradient';
+import {
+  ESTIMATE_FLOW_BLUE,
+  ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
+  estimateFlowCardStyle,
+  estimateFlowOutlineActionButtonStyle,
+  estimateFlowOutlineActionButtonTextStyle,
+  estimateSummarySectionSubtitleStyle,
+  estimateSummarySectionTitleStyle,
+} from '@/utils/estimateFlowCardStyle';
 import type { SavedEstimateCustomer } from '@/utils/estimateSavedCustomers';
 import {
   formatSavedCustomerBidPill,
@@ -36,6 +47,25 @@ type Props = {
   onDelete: (customer: SavedEstimateCustomer) => void;
 };
 
+function showCustomerOverflowMenu(
+  customer: SavedEstimateCustomer,
+  onDelete: (customer: SavedEstimateCustomer) => void,
+) {
+  Alert.alert(customer.name, undefined, [
+    {
+      text: 'Delete customer',
+      style: 'destructive',
+      onPress: () => {
+        if (Platform.OS !== 'web') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+        onDelete(customer);
+      },
+    },
+    { text: 'Cancel', style: 'cancel' },
+  ]);
+}
+
 export default function EstimateCustomerPickerModal({
   visible,
   customers,
@@ -47,6 +77,11 @@ export default function EstimateCustomerPickerModal({
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const [query, setQuery] = useState('');
+
+  const flowCardColors = useMemo(
+    () => ({ line: Colors.line, surface2: Colors.surface2, sub: Colors.sub, text: Colors.text }),
+    [Colors.line, Colors.surface2, Colors.sub, Colors.text],
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -75,7 +110,15 @@ export default function EstimateCustomerPickerModal({
     onClose();
   };
 
+  const handleSelect = (customer: SavedEstimateCustomer) => {
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+    onSelect(customer);
+  };
+
   const headerTopPadding = Math.max(insets.top, Platform.OS === 'ios' ? 12 : 0) + 8;
+  const hasCustomers = customers.length > 0;
 
   return (
     <Modal
@@ -88,78 +131,96 @@ export default function EstimateCustomerPickerModal({
         <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
         <View style={styles.safeArea}>
           <View style={[styles.headerRow, { paddingTop: headerTopPadding }]}>
-            <View style={styles.headerSide}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={BRAND_FRAME_GRADIENT_START}
-                end={BRAND_FRAME_GRADIENT_END}
-                style={styles.backButtonBorder}
+            <LinearGradient
+              colors={BRAND_FRAME_GRADIENT_COLORS}
+              start={BRAND_FRAME_GRADIENT_START}
+              end={BRAND_FRAME_GRADIENT_END}
+              style={styles.backButtonBorder}
+            >
+              <GradientRingBackInner
+                darkMode={darkMode}
+                onPress={handleClose}
+                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
               >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={handleClose}
-                  style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-                >
-                  <MaterialIcons
-                    name="arrow-back"
-                    size={24}
-                    color={darkMode ? '#FFFFFF' : Colors.text}
-                  />
-                </GradientRingBackInner>
-              </LinearGradient>
-            </View>
+                <MaterialIcons
+                  name="arrow-back"
+                  size={22}
+                  color={darkMode ? '#FFFFFF' : Colors.text}
+                />
+              </GradientRingBackInner>
+            </LinearGradient>
 
             <View style={styles.headerText}>
-              <Text style={[styles.title, { color: Colors.text }]}>Saved Customers</Text>
-              <Text style={[styles.subtitle, { color: Colors.sub }]}>
-                Reuse contact info for repeat bids
+              <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text, fontSize: 20 }]}>
+                Saved customers
+              </Text>
+              <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 3 }]}>
+                {customers.length === 1 ? '1 saved customer' : `${customers.length} saved customers`}
               </Text>
             </View>
-
-            <View style={styles.headerSide} />
           </View>
 
-          <View
-            style={[
-              styles.searchWrap,
-              {
-                backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : Colors.surface2,
-                borderColor: Colors.line,
-              },
-            ]}
-          >
-            <Ionicons name="search" size={18} color={Colors.sub} />
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search name, email, phone, project..."
-              placeholderTextColor={Colors.sub}
-              autoCorrect={false}
-              autoCapitalize="none"
-              style={[styles.searchInput, { color: Colors.text }]}
-            />
-            {query.length > 0 ? (
-              <TouchableOpacity onPress={() => setQuery('')}>
-                <Ionicons name="close-circle" size={18} color={Colors.sub} />
-              </TouchableOpacity>
-            ) : null}
-          </View>
+          {hasCustomers ? (
+            <View
+              style={[
+                styles.searchWrap,
+                {
+                  backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : Colors.surface2,
+                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+                },
+              ]}
+            >
+              <Ionicons name="search" size={18} color={Colors.sub} />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search name, email, phone, project..."
+                placeholderTextColor={Colors.sub}
+                autoCorrect={false}
+                autoCapitalize="none"
+                style={[styles.searchInput, { color: Colors.text }]}
+              />
+              {query.length > 0 ? (
+                <TouchableOpacity onPress={() => setQuery('')}>
+                  <Ionicons name="close-circle" size={18} color={Colors.sub} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
 
           <FlatList
             style={styles.list}
             data={filtered}
             keyExtractor={(item) => item.id}
             contentContainerStyle={{
-              paddingHorizontal: 16,
+              paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
               paddingBottom: Math.max(insets.bottom, 20),
               flexGrow: 1,
             }}
             keyboardShouldPersistTaps="handled"
+            ListHeaderComponent={
+              hasCustomers ? (
+                <View
+                  style={[
+                    estimateFlowCardStyle(flowCardColors, darkMode, { marginBottom: 12 }),
+                    { paddingVertical: 12 },
+                  ]}
+                >
+                  <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { lineHeight: 18 }]}>
+                    Select a customer to fill this bid. Your current entries stay until you choose one.
+                  </Text>
+                </View>
+              ) : null
+            }
             ListEmptyComponent={
-              <View style={styles.emptyWrap}>
-                <Ionicons name="people-outline" size={42} color={Colors.sub} />
-                <Text style={[styles.emptyTitle, { color: Colors.text }]}>No saved customers yet</Text>
-                <Text style={[styles.emptyBody, { color: Colors.sub }]}>
+              <View style={[estimateFlowCardStyle(flowCardColors, darkMode), styles.emptyCard]}>
+                <View style={styles.emptyIconWrap}>
+                  <Ionicons name="people-outline" size={36} color={Colors.sub} />
+                </View>
+                <Text style={[estimateSummarySectionTitleStyle(), { color: Colors.text, fontSize: 17 }]}>
+                  No saved customers yet
+                </Text>
+                <Text style={[estimateSummarySectionSubtitleStyle(darkMode), styles.emptyBody]}>
                   Save or submit a bid with customer info and it will show up here for your next estimate.
                 </Text>
               </View>
@@ -167,58 +228,55 @@ export default function EstimateCustomerPickerModal({
             renderItem={({ item }) => {
               const secondary = formatSavedCustomerSecondaryDetail(item);
               const latestProject = item.recentProjects[0];
-              const pillLabel = formatSavedCustomerBidPill(item.bidCount);
+              const bidLabel = formatSavedCustomerBidPill(item.bidCount);
+              const metaParts = [secondary, bidLabel].filter(Boolean);
 
               return (
-                <View
-                  style={[
-                    styles.card,
-                    {
-                      backgroundColor: darkMode ? '#111827' : Colors.surface2,
-                      borderColor: Colors.line,
-                    },
+                <Pressable
+                  onPress={() => handleSelect(item)}
+                  style={({ pressed }) => [
+                    estimateFlowCardStyle(flowCardColors, darkMode, { marginBottom: 10 }),
+                    pressed ? { opacity: 0.92 } : null,
                   ]}
                 >
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={() => onSelect(item)}
-                    style={styles.cardContent}
-                  >
-                    <Text style={[styles.cardName, { color: Colors.text }]} numberOfLines={1}>
-                      {item.name}
+                  <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '800' }} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  {latestProject ? (
+                    <Text style={{ color: ESTIMATE_FLOW_BLUE, fontSize: 13, fontWeight: '700', marginTop: 4 }} numberOfLines={1}>
+                      {latestProject}
                     </Text>
-                    {latestProject ? (
-                      <Text style={styles.cardProject} numberOfLines={1}>
-                        {latestProject}
-                      </Text>
-                    ) : null}
-                    {secondary ? (
-                      <Text style={[styles.cardMeta, { color: Colors.sub }]} numberOfLines={1}>
-                        {secondary}
-                      </Text>
-                    ) : null}
-                  </TouchableOpacity>
+                  ) : null}
+                  {metaParts.length > 0 ? (
+                    <Text style={[estimateSummarySectionSubtitleStyle(darkMode), { marginTop: 4, fontSize: 12 }]} numberOfLines={2}>
+                      {metaParts.join(' · ')}
+                    </Text>
+                  ) : null}
 
-                  <View style={styles.deleteColumn}>
-                    <TouchableOpacity
-                      onPress={() => onDelete(item)}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      style={styles.deleteButton}
-                    >
-                      <Ionicons name="trash-outline" size={16} color="#fca5a5" />
-                    </TouchableOpacity>
-                  </View>
-
-                  <View style={styles.badgeColumn}>
+                  <View style={styles.cardActions}>
                     <TouchableOpacity
                       activeOpacity={0.85}
-                      onPress={() => onSelect(item)}
-                      style={styles.badge}
+                      onPress={() => handleSelect(item)}
+                      style={estimateFlowOutlineActionButtonStyle()}
                     >
-                      <Text style={styles.badgeText}>{pillLabel}</Text>
+                      <Text style={estimateFlowOutlineActionButtonTextStyle()}>Use customer</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onPress={() => showCustomerOverflowMenu(item, onDelete)}
+                      style={[
+                        styles.overflowBtn,
+                        {
+                          borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
+                          backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                        },
+                      ]}
+                      accessibilityLabel="More actions"
+                    >
+                      <Ionicons name="ellipsis-horizontal" size={18} color={Colors.sub} />
                     </TouchableOpacity>
                   </View>
-                </View>
+                </Pressable>
               );
             }}
           />
@@ -228,25 +286,15 @@ export default function EstimateCustomerPickerModal({
   );
 }
 
-const DELETE_COLUMN_WIDTH = 36;
-const BADGE_COLUMN_WIDTH = 72;
-
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
+  root: { flex: 1 },
+  safeArea: { flex: 1 },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    gap: 12,
+    paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
     paddingBottom: 14,
-  },
-  headerSide: {
-    width: 52,
-    alignItems: 'flex-start',
   },
   backButtonBorder: {
     width: 40,
@@ -262,117 +310,43 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerText: {
-    flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: 8,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 13,
-    marginTop: 4,
-    textAlign: 'center',
-  },
+  headerText: { flex: 1 },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginHorizontal: 16,
+    marginHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
     marginBottom: 12,
     borderWidth: 1,
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: Platform.OS === 'ios' ? 11 : 8,
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 15,
-    paddingVertical: 0,
-  },
-  list: {
-    flex: 1,
-  },
-  card: {
+  searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
+  list: { flex: 1 },
+  cardActions: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingLeft: 14,
-    paddingRight: 10,
-    marginBottom: 10,
-  },
-  cardContent: {
-    flex: 1,
-    minWidth: 0,
-    paddingRight: 8,
-  },
-  cardName: {
-    fontSize: 17,
-    fontWeight: '800',
-  },
-  deleteColumn: {
-    width: DELETE_COLUMN_WIDTH,
     alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: 1,
+    gap: 8,
+    marginTop: 12,
   },
-  deleteButton: {
-    width: 28,
-    height: 28,
+  overflowBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyCard: { marginTop: 8, alignItems: 'center' },
+  emptyIconWrap: {
+    width: 56,
+    height: 56,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(248, 113, 113, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(248, 113, 113, 0.28)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    marginBottom: 12,
   },
-  badgeColumn: {
-    width: BADGE_COLUMN_WIDTH,
-    alignItems: 'flex-end',
-    justifyContent: 'flex-start',
-    paddingTop: 2,
-  },
-  cardProject: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#22c55e',
-    marginTop: 4,
-  },
-  badge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    backgroundColor: 'rgba(34, 197, 94, 0.14)',
-  },
-  badgeText: {
-    color: '#22c55e',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  cardMeta: {
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 4,
-  },
-  emptyWrap: {
-    alignItems: 'center',
-    paddingTop: 48,
-    paddingHorizontal: 24,
-    gap: 10,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  emptyBody: {
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: 'center',
-  },
+  emptyBody: { marginTop: 8, lineHeight: 20, textAlign: 'center' },
 });

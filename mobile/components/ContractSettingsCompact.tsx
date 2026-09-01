@@ -10,6 +10,10 @@ import {
   View,
 } from "react-native";
 import { getColors } from "../theme/getColors";
+import {
+  ESTIMATE_FLOW_CHIP_GREEN,
+  ESTIMATE_FLOW_GREEN,
+} from "@/utils/estimateFlowCardStyle";
 
 export type ContractTemplateStateValue = "nevada" | "utah" | "other";
 
@@ -51,6 +55,8 @@ export type ContractSettingsCompactProps = {
   profileDefaultCompany: string;
   profileDefaultContractorName: string;
   profileDefaultContractorTitle: string;
+  /** When true, omit outer card chrome — parent supplies `estimateFlowCardStyle`. */
+  embedded?: boolean;
 };
 
 const mergeDisplayBranding = (
@@ -333,7 +339,7 @@ function ContractSettingsModalBody({
         <Pressable
           style={({ pressed }) => [
             styles.primaryBtn,
-            { backgroundColor: accent, opacity: pressed ? 0.92 : 1 },
+            { backgroundColor: ESTIMATE_FLOW_GREEN, opacity: pressed ? 0.92 : 1 },
             isWeb && styles.primaryBtnWeb,
           ]}
           onPress={onSave}
@@ -377,6 +383,7 @@ export default function ContractSettingsCompact({
   profileDefaultCompany,
   profileDefaultContractorName,
   profileDefaultContractorTitle,
+  embedded = false,
 }: ContractSettingsCompactProps) {
   const [open, setOpen] = useState(false);
   const [draftTemplateState, setDraftTemplateState] = useState(contractTemplateState);
@@ -430,7 +437,7 @@ export default function ContractSettingsCompact({
 
   const border = darkMode ? "rgba(255,255,255,0.10)" : colors.line;
   const cardBg = darkMode ? "rgba(255, 255, 255, 0.03)" : colors.surface2;
-  const accent = "#2DFFC4";
+  const accent = ESTIMATE_FLOW_CHIP_GREEN;
   const inputBg = darkMode ? "rgba(255,255,255,0.04)" : colors.bg;
   const panelBg = darkMode ? "rgba(255,255,255,0.02)" : colors.surface2;
   const panelBorder = darkMode ? "rgba(255,255,255,0.08)" : colors.line;
@@ -519,13 +526,17 @@ export default function ContractSettingsCompact({
 
   return (
     <View
-      style={[
-        styles.card,
-        {
-          backgroundColor: cardBg,
-          borderColor: border,
-        },
-      ]}
+      style={
+        embedded
+          ? { gap: 10 }
+          : [
+              styles.card,
+              {
+                backgroundColor: cardBg,
+                borderColor: border,
+              },
+            ]
+      }
     >
       <Text style={[styles.title, { color: colors.text }]}>Contract Settings</Text>
 
@@ -557,7 +568,7 @@ export default function ContractSettingsCompact({
         ]}
         onPress={() => setOpen(true)}
       >
-        <Text style={[styles.changeBtnText, { color: darkMode ? accent : "#000000" }]}>
+        <Text style={[styles.changeBtnText, { color: accent }]}>
           Change settings
         </Text>
       </Pressable>
@@ -825,7 +836,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   primaryBtnWeb: {
-    shadowColor: "#2DFFC4",
+    shadowColor: ESTIMATE_FLOW_GREEN,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.25,
     shadowRadius: 14,

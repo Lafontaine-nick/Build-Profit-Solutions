@@ -1,4 +1,8 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  ESTIMATE_FLOW_CHIP_GREEN,
+  ESTIMATE_FLOW_GREEN,
+} from "@/utils/estimateFlowCardStyle";
 import {
   View,
   Text,
@@ -27,6 +31,19 @@ function hapticLight() {
   }
 }
 
+function estimateMultilineHeight(
+  text: string,
+  lineHeight: number,
+  minHeight: number,
+  charsPerLine = 38,
+): number {
+  if (!text) return minHeight;
+  const lines = text.split("\n").reduce((sum, line) => {
+    return sum + Math.max(1, Math.ceil(line.length / charsPerLine));
+  }, 0);
+  return Math.max(minHeight, Math.ceil(lines * lineHeight + 24));
+}
+
 function AutoGrowTextInput({
   value,
   onChangeText,
@@ -34,7 +51,16 @@ function AutoGrowTextInput({
   minHeight = 52,
   ...rest
 }: React.ComponentProps<typeof TextInput> & { minHeight?: number }) {
-  const [h, setH] = useState(minHeight);
+  const flatStyle = StyleSheet.flatten(style);
+  const lineHeight = typeof flatStyle?.lineHeight === "number" ? flatStyle.lineHeight : 20;
+  const [h, setH] = useState(() =>
+    estimateMultilineHeight(String(value ?? ""), lineHeight, minHeight),
+  );
+
+  useEffect(() => {
+    setH(estimateMultilineHeight(String(value ?? ""), lineHeight, minHeight));
+  }, [value, lineHeight, minHeight]);
+
   return (
     <TextInput
       {...rest}
@@ -147,7 +173,7 @@ function PdfPreviewColumn({
     marginBottom: 10,
   };
   const smallTitle = {
-    color: "#2DFFC4",
+    color: ESTIMATE_FLOW_CHIP_GREEN,
     fontSize: 10,
     fontWeight: "800" as const,
     letterSpacing: 1,
@@ -250,7 +276,8 @@ export function ContractWordingEditor({
   onResetWorkNotes,
   onResetAll,
 }: ContractWordingEditorProps) {
-  const accent = "#2DFFC4";
+  const accent = ESTIMATE_FLOW_CHIP_GREEN;
+  const linkColor = ESTIMATE_FLOW_GREEN;
   const iconMuted = darkMode ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.22)";
   /** Outer section frame: bordered panel on web only; native stays flat so clause cards are not double-boxed. */
   const sectionChrome = isWeb
@@ -344,7 +371,7 @@ export function ContractWordingEditor({
         }}
         activeOpacity={0.75}
       >
-        <Text style={{ color: accent, fontSize: 13, fontWeight: "700" }}>{addLabel}</Text>
+        <Text style={{ color: linkColor, fontSize: 13, fontWeight: "700" }}>{addLabel}</Text>
       </TouchableOpacity>
       <TouchableOpacity
         onPress={() => {
@@ -353,7 +380,7 @@ export function ContractWordingEditor({
         }}
         activeOpacity={0.75}
       >
-        <Text style={{ color: accent, fontSize: 13, fontWeight: "700" }}>Reset section</Text>
+        <Text style={{ color: linkColor, fontSize: 13, fontWeight: "700" }}>Reset section</Text>
       </TouchableOpacity>
     </View>
   );
@@ -580,7 +607,7 @@ export function ContractWordingEditor({
           }}
           activeOpacity={0.75}
         >
-          <Text style={{ color: accent, fontSize: 14, fontWeight: "700" }}>Reset all to template defaults</Text>
+          <Text style={{ color: linkColor, fontSize: 14, fontWeight: "700" }}>Reset all to template defaults</Text>
         </TouchableOpacity>
       </View>
     </View>

@@ -23,6 +23,15 @@ import {
   removeSavedMaterial,
   SavedMaterial 
 } from '../services/savedMaterialsService';
+import {
+  ESTIMATE_FLOW_CARD_GAP,
+  ESTIMATE_FLOW_CHIP_GREEN,
+  ESTIMATE_FLOW_GREEN,
+  ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
+  estimateFlowPrimaryButtonStyle,
+} from '@/utils/estimateFlowCardStyle';
+import { useTheme } from '../contexts/ThemeContext';
+import { getColors } from '../theme/getColors';
 
 interface SavedMaterialsScreenProps {
   onClose: () => void;
@@ -33,6 +42,8 @@ export default function SavedMaterialsScreen({
   onClose, 
   onAddToBid 
 }: SavedMaterialsScreenProps) {
+  const { theme, darkMode } = useTheme();
+  const Colors = getColors(theme);
   const [materials, setMaterials] = useState<SavedMaterial[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -104,7 +115,11 @@ export default function SavedMaterialsScreen({
     const qty = quantities.get(item.sku) || 1;
 
     return (
-      <View style={styles.materialCard}>
+      <View style={[styles.materialCard, {
+        backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : 'rgba(0, 0, 0, 0.03)',
+        borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line,
+        marginBottom: ESTIMATE_FLOW_CARD_GAP,
+      }]}>
         {/* Image */}
         <View style={styles.imageContainer}>
           {item.image && item.image.startsWith('http') ? (
@@ -132,7 +147,7 @@ export default function SavedMaterialsScreen({
           </Text>
           
           <View style={styles.priceRow}>
-            <Text style={styles.price}>
+            <Text style={[styles.price, { color: ESTIMATE_FLOW_GREEN }]}>
               ${item.price.toFixed(2)}
               {item.unit ? ` • ${item.unit}` : ''}
             </Text>
@@ -181,10 +196,10 @@ export default function SavedMaterialsScreen({
           <View style={styles.actions}>
             <TouchableOpacity
               onPress={() => handleAddToBid(item)}
-              style={styles.addButton}
+              style={[estimateFlowPrimaryButtonStyle(), { flex: 1, width: undefined, borderRadius: 12, paddingVertical: 10 }]}
             >
-              <MaterialIcons name="add-shopping-cart" size={16} color="#000000" />
-              <Text style={styles.addButtonText}>Add to Bid</Text>
+              <MaterialIcons name="add-shopping-cart" size={16} color="#071018" />
+              <Text style={{ color: '#071018', fontWeight: '700', fontSize: 12 }}>Add to Bid</Text>
             </TouchableOpacity>
             
             <TouchableOpacity
@@ -254,7 +269,7 @@ export default function SavedMaterialsScreen({
       {/* Content */}
       {loading ? (
         <View style={styles.emptyState}>
-          <ActivityIndicator size="large" color="#22c55e" />
+          <ActivityIndicator size="large" color={ESTIMATE_FLOW_GREEN} />
           <Text style={styles.emptyText}>Loading saved materials...</Text>
         </View>
       ) : materials.length === 0 ? (
@@ -282,7 +297,7 @@ export default function SavedMaterialsScreen({
                 setRefreshing(true);
                 loadMaterials();
               }}
-              tintColor="#22c55e"
+              tintColor={ESTIMATE_FLOW_GREEN}
             />
           }
         />
@@ -299,7 +314,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.08)',
@@ -318,16 +333,15 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   listContent: {
-    padding: 16,
+    paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
+    paddingTop: 16,
+    paddingBottom: 16,
   },
   materialCard: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderRadius: 12,
     padding: 12,
-    marginBottom: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   imageContainer: {
     width: 80,
@@ -367,7 +381,6 @@ const styles = StyleSheet.create({
   price: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#22c55e',
   },
   badge: {
     flexDirection: 'row',
@@ -416,22 +429,7 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
-    gap: 8,
-  },
-  addButton: {
-    flex: 1,
-    backgroundColor: '#22c55e',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 8,
-    gap: 6,
-  },
-  addButtonText: {
-    color: '#000000',
-    fontWeight: '700',
-    fontSize: 12,
+    gap: ESTIMATE_FLOW_CARD_GAP,
   },
   viewButton: {
     width: 44,

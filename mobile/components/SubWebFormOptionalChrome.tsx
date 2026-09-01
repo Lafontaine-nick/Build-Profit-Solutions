@@ -6,8 +6,12 @@ import {
   BRAND_FRAME_GRADIENT_END,
   BRAND_FRAME_GRADIENT_START,
 } from '@/constants/brandFrameGradient';
+import {
+  ESTIMATE_FLOW_CARD_GAP,
+  estimateFlowCardStyle,
+} from '@/utils/estimateFlowCardStyle';
 
-/** Web: gradient card (max 860); native: padded column — matches Find Subcontractors / Edit Team. */
+/** Web: gradient card (max 860); native: charcoal flow card — matches Step 3 search / Step 4 subs. */
 export function SubWebFormOptionalChrome({
   isWeb,
   darkMode,
@@ -51,6 +55,8 @@ export function SubWebFormOptionalChrome({
     );
   }
   return (
-    <View style={[{ paddingTop: 0, gap: 14, width: '100%' }, columnStyle || {}]}>{children}</View>
+    <View style={[estimateFlowCardStyle(Colors, darkMode), { gap: ESTIMATE_FLOW_CARD_GAP }, columnStyle || {}]}>
+      {children}
+    </View>
   );
 }

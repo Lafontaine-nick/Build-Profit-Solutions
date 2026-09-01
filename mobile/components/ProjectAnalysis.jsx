@@ -7,6 +7,16 @@ import * as Haptics from 'expo-haptics';
 import Constants from 'expo-constants';
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import {
+  AI_FLOW_CARD_BG_DARK,
+  ESTIMATE_FLOW_CARD_GAP,
+  ESTIMATE_FLOW_CHIP_GREEN,
+  ESTIMATE_FLOW_CHIP_GREEN_BG,
+  ESTIMATE_FLOW_GREEN,
+  confirmScopeSectionLabelStyle,
+  estimateFlowCardStyle,
+  estimateFlowDividerColor,
+} from '@/utils/estimateFlowCardStyle';
 
 /** -----------------------
  *  Theme matching the app
@@ -20,10 +30,10 @@ const baseColors = {
   cardBorder: 'rgba(255,255,255,0.08)',
   text: '#e9f1ff',
   textDim: '#a7bed9',
-  accent: '#38d39f',
-  accentDim: 'rgba(56,211,159,0.2)',
-  button: '#38d39f',
-  buttonText: '#0d2745',
+  accent: ESTIMATE_FLOW_GREEN,
+  accentDim: ESTIMATE_FLOW_CHIP_GREEN_BG,
+  button: ESTIMATE_FLOW_GREEN,
+  buttonText: '#071018',
   chip: 'rgba(255,255,255,0.08)',
   divider: 'rgba(255,255,255,0.08)',
   yellow: '#ffd166',
@@ -39,11 +49,11 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   const palette = useMemo(() => ({
     ...baseColors,
     text: darkMode ? '#FFFFFF' : themeColors.text,
-    textDim: darkMode ? '#FFFFFF' : themeColors.sub,
-    card: darkMode ? baseColors.card : themeColors.bg,
-    cardDark: darkMode ? baseColors.cardDark : themeColors.bg,
-    chip: darkMode ? baseColors.chip : (themeColors.surface2 || themeColors.bg),
-    divider: darkMode ? baseColors.divider : themeColors.line,
+    textDim: darkMode ? 'rgba(248, 250, 252, 0.88)' : themeColors.sub,
+    card: darkMode ? AI_FLOW_CARD_BG_DARK : themeColors.bg,
+    cardDark: darkMode ? AI_FLOW_CARD_BG_DARK : themeColors.bg,
+    chip: darkMode ? 'rgba(0, 0, 0, 0.22)' : (themeColors.surface2 || themeColors.bg),
+    divider: darkMode ? estimateFlowDividerColor(true) : themeColors.line,
     accentText: darkMode ? '#FFFFFF' : themeColors.text,
     mutedOpacity: darkMode ? 1 : 0.7,
     subtleOpacity: darkMode ? 1 : 0.6,
@@ -52,7 +62,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   }), [darkMode, themeColors]);
   const estimateWebType = Platform.OS === 'web';
   const ew = (phone, web) => (estimateWebType ? web : phone);
-  const styles = useMemo(() => getStyles(palette, ew), [palette]);
+  const styles = useMemo(() => getStyles(palette, ew, darkMode), [palette, ew, darkMode]);
 
   // Early return if data is not ready
   if (!bid || !calc) {
@@ -342,16 +352,16 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     // Use margin on revenue for customer-facing risk labels
     let suggestion, color;
     if (sim.netProfitMarginPct < 5) {
-      suggestion = "❌ At risk — one issue could erase profit.";
+      suggestion = "At risk — one issue could erase profit.";
       color = palette.red;
     } else if (sim.netProfitMarginPct < 8) {
-      suggestion = "⚠️ Thin margin — minor overruns reduce profit.";
+      suggestion = "Thin margin — minor overruns reduce profit.";
       color = palette.yellow;
     } else if (sim.netProfitMarginPct < 15) {
-      suggestion = "✅ Healthy margin — absorbs moderate cost overruns.";
+      suggestion = "Healthy margin — absorbs moderate cost overruns.";
       color = palette.green;
     } else {
-      suggestion = "✅ Strong margin — well-protected against overruns.";
+      suggestion = "Strong margin — well-protected against overruns.";
       color = palette.green;
     }
     
@@ -612,7 +622,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     const v = raw ?? 0;
     const muted = 'rgba(148, 163, 184, 0.78)';
     const costUp = 'rgba(245, 158, 11, 0.92)';
-    const costDown = '#34d399';
+    const costDown = ESTIMATE_FLOW_CHIP_GREEN;
     if (field === 'markupPct') {
       if (v === 0) return muted;
       return v > 0 ? palette.accent : 'rgba(251, 146, 60, 0.92)';
@@ -632,14 +642,17 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
   const scenarioBidMatchesOriginal =
     Math.abs((sim.totalBid ?? 0) - (sim.originalBid ?? 0)) < 0.01;
 
+  const sectionCardStyle = estimateFlowCardStyle(themeColors, darkMode, {
+    marginBottom: ESTIMATE_FLOW_CARD_GAP,
+  });
+
   return (
     <View style={styles.container}>
-      {/* Content */}
       {/* View (not ScrollView): parent estimate screen already scrolls; nested ScrollView caused +/− taps to jump scroll on web & native */}
-      <View>
+      <View style={sectionCardStyle}>
             <View style={styles.cardHeader}>
-              <Text style={[styles.cardTitle, { color: darkMode ? palette.text : '#000000' }]}>
-                🎯 Outcome scenario presets
+              <Text style={[confirmScopeSectionLabelStyle(), { color: palette.textDim, flex: 1 }]}>
+                Scenario presets
               </Text>
               {hasChanges && (
                 <TouchableOpacity onPress={resetScenario} style={styles.resetBtn}>
@@ -651,10 +664,6 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               Use these presets to see how common execution scenarios may affect profit and margin. They are stress-test templates, not industry benchmarks — fine-tune below for a custom view.
             </Text>
 
-            {/* Preset Scenarios */}
-            <Text style={[styles.sectionLabel, { marginBottom: 8, fontSize: ew(12, 14), textAlign: 'center', color: '#38d39f' }]}>
-              Scenario presets
-            </Text>
             <View style={styles.presetRow}>
               <TouchableOpacity
                 onPress={() => {
@@ -721,8 +730,8 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                     <View style={[
                       styles.presetAppliedIndicator,
                       getPresetDetails.name === 'Typical Friction' && {
-                        backgroundColor: 'rgba(234, 179, 8, 0.12)',
-                        borderColor: 'rgba(234, 179, 8, 0.25)',
+                        backgroundColor: 'rgba(234, 179, 8, 0.08)',
+                        borderColor: 'rgba(234, 179, 8, 0.18)',
                       },
                       getPresetDetails.name === 'High Friction Job' && {
                         backgroundColor: 'rgba(249, 115, 22, 0.12)',
@@ -776,7 +785,10 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               </View>
             )}
 
-            <Text style={styles.fineTuneSectionTitle}>Fine-Tune Scenario</Text>
+      </View>
+
+      <View style={sectionCardStyle}>
+            <Text style={styles.fineTuneSectionTitle}>Fine-tune scenario</Text>
             <Text style={styles.fineTuneHint}>
               Use the controls below to fine-tune the scenario. Most changes move in 5% steps; bid moves in 2% steps.
             </Text>
@@ -869,18 +881,13 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 </View>
               ))}
             </View>
+      </View>
 
-            <View style={styles.scenarioResultsDivider} />
+      <View style={[sectionCardStyle, { marginBottom: 0 }]}>
             <Text style={styles.heroSectionEyebrow}>Scenario results</Text>
 
             {/* A) Key outcomes — same values as before, clearer hierarchy */}
-            <View style={[
-              styles.heroOutcomes,
-              darkMode && {
-                backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                borderColor: 'rgba(45, 255, 196, 0.22)',
-              },
-            ]}>
+            <View style={styles.heroOutcomes}>
               {scenarioBidMatchesOriginal ? (
                 <View style={[styles.heroRow, { alignItems: 'flex-start', marginBottom: 10 }]}>
                   <View style={{ flex: 1, paddingRight: 10 }}>
@@ -893,7 +900,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                     style={[
                       styles.heroBidValue,
                       {
-                        color: '#22d3ee',
+                        color: ESTIMATE_FLOW_GREEN,
                         transform: [{
                           scale: totalBidAnim.interpolate({
                             inputRange: [0, 1],
@@ -930,7 +937,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                       style={[
                         styles.heroBidValue,
                         {
-                          color: '#22d3ee',
+                          color: ESTIMATE_FLOW_GREEN,
                           transform: [{
                             scale: totalBidAnim.interpolate({
                               inputRange: [0, 1],
@@ -948,7 +955,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               <View style={styles.heroDivider} />
               <View style={styles.heroRow}>
                 <Text style={styles.heroLabel}>Estimated net profit</Text>
-                <Text style={[styles.heroValueAccent, { color: sim.netProfit >= 0 ? '#38d39f' : palette.red }]}>
+                <Text style={[styles.heroValueAccent, { color: sim.netProfit >= 0 ? ESTIMATE_FLOW_CHIP_GREEN : palette.red }]}>
                   ${sim.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </View>
@@ -970,7 +977,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               </View>
               <View style={styles.heroRow}>
                 <Text style={styles.heroLabel}>Profit change</Text>
-                <Text style={[styles.heroValueAccent, { color: aiTip.profitDelta >= 0 ? '#38d39f' : palette.red }]}>
+                <Text style={[styles.heroValueAccent, { color: aiTip.profitDelta >= 0 ? ESTIMATE_FLOW_CHIP_GREEN : palette.red }]}>
                   {aiTip.profitDelta >= 0 ? '+' : '-'}
                   ${Math.abs(aiTip.profitDelta).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
@@ -978,7 +985,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               <View style={[styles.heroRow, { marginBottom: 0 }]}>
                 <Text style={styles.heroLabel}>Cushion above break-even</Text>
                 <Text style={[styles.heroValueAccent, {
-                  color: (sim.totalBid - sim.breakEvenBid) >= 0 ? '#38d39f' : palette.red,
+                  color: (sim.totalBid - sim.breakEvenBid) >= 0 ? ESTIMATE_FLOW_CHIP_GREEN : palette.red,
                 }]}>
                   ${((sim.totalBid || 0) - (sim.breakEvenBid || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
@@ -986,13 +993,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
             </View>
 
             {/* C) Safety / margin signal — same aiTip.text & color logic */}
-            <View style={[
-              styles.safetyCard,
-              darkMode && {
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                borderColor: 'rgba(255, 255, 255, 0.12)',
-              },
-            ]}>
+            <View style={styles.safetyCard}>
               <Text style={[styles.safetyCardTitle, { color: aiTip.color || palette.accent }]}>Margin check</Text>
               <Text style={[styles.safetyCardBody, { color: aiTip.color || palette.text }]}>
                 {aiTip.text}
@@ -1000,20 +1001,14 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
             </View>
 
             {/* D) Supporting cost & bid detail — lower visual weight, same numbers */}
-            <View style={[
-              styles.supportingBlock,
-              darkMode && {
-                backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                borderColor: 'rgba(255, 255, 255, 0.1)',
-              },
-            ]}>
+            <View style={styles.supportingBlock}>
               <Text style={styles.supportingTitle}>Cost & bid detail</Text>
               <View style={styles.supportingRow}>
                 <Text style={styles.supportingLabel}>Labor (revised)</Text>
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={styles.supportingValue}>${sim.labor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                   {(adj.laborPct !== 0) && (
-                    <Text style={[styles.supportingHint, { color: adj.laborPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : '#38d39f' }]}>
+                    <Text style={[styles.supportingHint, { color: adj.laborPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : ESTIMATE_FLOW_CHIP_GREEN }]}>
                       {adj.laborPct > 0 ? '+' : ''}${(base.labor * (adj.laborPct / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   )}
@@ -1024,7 +1019,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={styles.supportingValue}>${sim.materials.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                   {(adj.materialPct !== 0) && (
-                    <Text style={[styles.supportingHint, { color: adj.materialPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : '#38d39f' }]}>
+                    <Text style={[styles.supportingHint, { color: adj.materialPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : ESTIMATE_FLOW_CHIP_GREEN }]}>
                       {adj.materialPct > 0 ? '+' : ''}${(base.materials * (adj.materialPct / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   )}
@@ -1035,7 +1030,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={styles.supportingValue}>${sim.overhead.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
                   {(adj.overheadPct !== 0) && (
-                    <Text style={[styles.supportingHint, { color: adj.overheadPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : '#38d39f' }]}>
+                    <Text style={[styles.supportingHint, { color: adj.overheadPct > 0 ? (getActivePreset === 'typical' ? '#eab308' : '#f97316') : ESTIMATE_FLOW_CHIP_GREEN }]}>
                       {adj.overheadPct > 0 ? '+' : ''}${(base.companyOverhead * (adj.overheadPct / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   )}
@@ -1044,7 +1039,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               {Math.abs(aiTip.bidDelta) > 0.01 && (
                 <View style={styles.supportingRow}>
                   <Text style={styles.supportingLabel}>Total bid change</Text>
-                  <Text style={[styles.supportingValue, { color: aiTip.bidDelta >= 0 ? '#38d39f' : palette.red }]}>
+                  <Text style={[styles.supportingValue, { color: aiTip.bidDelta >= 0 ? ESTIMATE_FLOW_CHIP_GREEN : palette.red }]}>
                     {aiTip.bidDelta >= 0 ? '+' : ''}${aiTip.bidDelta.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </Text>
                 </View>
@@ -1068,7 +1063,11 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 </Text>
               )}
             </View>
-        </View>
+
+            <Text style={[styles.step6Disclaimer, { color: palette.textDim }]}>
+              Estimates are scenario-based projections and not guarantees of actual costs or profit.
+            </Text>
+      </View>
 
       {/* More Details Modal */}
       <Modal
@@ -1088,7 +1087,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               >
                 <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#0F172A"} />
               </TouchableOpacity>
-              <Text style={styles.modalTitle}>📊 Detailed Analysis</Text>
+              <Text style={styles.modalTitle}>Detailed Analysis</Text>
               <View style={{ width: 40 }} />
             </View>
             
@@ -1097,7 +1096,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
               <View>
                 {/* Labor Rate Breakdown */}
                 <View style={styles.detailSection}>
-                  <Text style={styles.detailSectionTitle}>💰 Detailed Labor Rates</Text>
+                  <Text style={styles.detailSectionTitle}>Detailed Labor Rates</Text>
                   <View style={styles.detailCard}>
                     {Object.entries(aiData.laborData.data).map(([trade, rate]) => (
                       <View key={trade} style={styles.detailRow}>
@@ -1110,7 +1109,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
 
                 {/* Materials Inflation Analysis */}
                 <View style={styles.detailSection}>
-                  <Text style={styles.detailSectionTitle}>📈 Materials Inflation Analysis</Text>
+                  <Text style={styles.detailSectionTitle}>Materials Inflation Analysis</Text>
                   <View style={styles.detailCard}>
                     <View style={styles.inflationRow}>
                       <Text style={styles.detailLabel}>Current Materials Cost:</Text>
@@ -1137,7 +1136,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
 
                 {/* Bid Accommodation Analysis */}
                 <View style={styles.detailSection}>
-                  <Text style={styles.detailSectionTitle}>🛡️ Bid Inflation Protection</Text>
+                  <Text style={styles.detailSectionTitle}>Bid Inflation Protection</Text>
                   <View style={styles.detailCard}>
                     {(() => {
                       const currentMaterials = calc?.materials || 0;
@@ -1157,13 +1156,13 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                           <View style={styles.inflationRow}>
                             <Text style={styles.detailLabel}>Inflation Risk:</Text>
                             <Text style={[styles.detailValue, { color: isProtected ? palette.green : palette.red }]}>
-                              {isProtected ? '✅ Protected' : '⚠️ At Risk'}
+                              {isProtected ? 'Protected' : 'At Risk'}
                             </Text>
                           </View>
                           {!isProtected && (
                             <View style={styles.warningCard}>
                               <Text style={styles.warningText}>
-                                ⚠️ Your current {currentMarkup}% markup may not cover projected materials inflation. 
+                                Your current {currentMarkup}% markup may not cover projected materials inflation. 
                                 Consider increasing markup by {Math.ceil((inflationBuffer - markupBuffer) / (currentMaterials / 100))}% 
                                 to maintain profitability.
                               </Text>
@@ -1172,7 +1171,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                           {isProtected && (
                             <View style={styles.successCard}>
                               <Text style={styles.successText}>
-                                ✅ Your {currentMarkup}% markup provides adequate buffer for projected materials inflation.
+                                Your {currentMarkup}% markup provides adequate buffer for projected materials inflation.
                               </Text>
                             </View>
                           )}
@@ -1185,7 +1184,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
                 {/* AI Recommendation Details */}
                 {aiSuggestedMarkup && (
                   <View style={styles.detailSection}>
-                    <Text style={styles.detailSectionTitle}>🤖 AI Recommendation Details</Text>
+                    <Text style={styles.detailSectionTitle}>AI Recommendation Details</Text>
                     <View style={styles.detailCard}>
                       <Text style={styles.detailText}>
                         <Text style={styles.detailLabel}>Current Markup:</Text> {aiSuggestedMarkup.current}%
@@ -1205,7 +1204,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
 
                 {/* Market Insights */}
                 <View style={styles.detailSection}>
-                  <Text style={styles.detailSectionTitle}>📈 Market Insights</Text>
+                  <Text style={styles.detailSectionTitle}>Market Insights</Text>
                   <View style={styles.detailCard}>
                     <Text style={styles.detailText}>
                       Based on the current market analysis, your area shows {aiData.marketData.analysis.competitivenessScore} competition levels with a {aiData.marketData.analysis.marketTrend} trend.
@@ -1314,9 +1313,9 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
 }
 
 /** `ew` bumps secondary typography on web — matches estimate-generator step 5 */
-const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
+const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => StyleSheet.create({
   container: {
-    gap: 12,
+    gap: 0,
   },
   tabContainer: {
     flexDirection: 'row',
@@ -1352,14 +1351,15 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
   },
   cardTitle: {
     color: palette.text,
-    fontSize: ew(20, 22),
+    fontSize: ew(14, 15),
     fontWeight: '800',
+    letterSpacing: -0.2,
     flex: 1,
     flexShrink: 1,
   },
   cardSubtitle: {
     color: palette.textDim,
-    marginTop: 4,
+    marginTop: 8,
     marginBottom: 12,
     lineHeight: ew(18, 22),
     fontSize: ew(14, 16),
@@ -1385,12 +1385,12 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
     marginBottom: 16,
   },
   presetChip: {
-    backgroundColor: palette.chip,
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : palette.chip,
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 12,
-    borderWidth: 2,
-    borderColor: palette.divider,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : palette.divider,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1398,23 +1398,23 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
     minWidth: 0,
   },
   presetChipActive: {
-    backgroundColor: 'rgba(56, 211, 159, 0.1)',
-    borderWidth: 2,
-    borderColor: '#38d39f',
+    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+    borderWidth: 1,
+    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
   },
   presetChipActiveTypical: {
-    backgroundColor: 'rgba(234, 179, 8, 0.12)',
-    borderWidth: 2,
-    borderColor: '#eab308',
+    backgroundColor: 'rgba(234, 179, 8, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(234, 179, 8, 0.35)',
   },
   presetChipTextActiveTypical: {
-    color: '#eab308',
+    color: 'rgba(234, 179, 8, 0.92)',
     fontWeight: '700',
     textAlign: 'center',
   },
   presetChipActiveBad: {
     backgroundColor: 'rgba(249, 115, 22, 0.12)',
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: '#f97316',
   },
   presetChipTextActiveBad: {
@@ -1429,7 +1429,7 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
     textAlign: 'center',
   },
   presetChipTextActive: {
-    color: '#38d39f',
+    color: ESTIMATE_FLOW_CHIP_GREEN,
     fontWeight: '700',
     textAlign: 'center',
   },
@@ -1438,10 +1438,10 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
     marginBottom: 4,
     paddingVertical: 10,
     paddingHorizontal: 14,
-    backgroundColor: 'rgba(56, 211, 159, 0.1)',
+    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(56, 211, 159, 0.2)',
+    borderColor: 'rgba(52, 211, 153, 0.25)',
   },
   presetAppliedText: {
     color: palette.text,
@@ -1464,10 +1464,10 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
     marginTop: 8,
     marginBottom: 16,
     padding: 14,
-    backgroundColor: palette.chip,
-    borderRadius: 10,
+    backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : palette.chip,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: palette.divider,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : palette.divider,
   },
   aiExplanationLabel: {
     color: palette.accent,
@@ -1493,13 +1493,8 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
     fontStyle: 'italic',
   },
   sectionLabel: {
-    color: palette.textDim,
-    fontSize: ew(11, 13),
-    fontWeight: '600',
-    marginTop: 12,
-    marginBottom: 4,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    marginTop: 4,
+    marginBottom: 8,
   },
   chipRow: {
     flexDirection: 'row',
@@ -1523,12 +1518,13 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
   },
 
   fineTuneSectionTitle: {
-    color: palette.text,
-    fontSize: ew(13, 15),
-    fontWeight: '700',
-    marginTop: 12,
+    color: palette.textDim,
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 0,
     marginBottom: 4,
-    letterSpacing: 0.2,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   fineTuneHint: {
     color: palette.textDim,
@@ -1538,13 +1534,13 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
     opacity: palette.subtleOpacity,
   },
   bidActiveBanner: {
-    backgroundColor: 'rgba(56, 211, 159, 0.1)',
+    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 10,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: 'rgba(56, 211, 159, 0.28)',
+    borderColor: 'rgba(52, 211, 153, 0.28)',
   },
   bidActiveBannerText: {
     color: palette.accent,
@@ -1554,8 +1550,8 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
   fineTuneCard: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: palette.divider,
-    backgroundColor: palette.chip,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : palette.divider,
+    backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : palette.chip,
     overflow: 'hidden',
   },
   stepperRow: {
@@ -1687,13 +1683,13 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
-    marginTop: 2,
+    marginTop: 0,
     marginBottom: 10,
   },
   heroOutcomes: {
-    backgroundColor: palette.chip,
+    backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.08)' : palette.chip,
     borderWidth: 1,
-    borderColor: palette.divider,
+    borderColor: darkMode ? 'rgba(34, 197, 94, 0.22)' : palette.divider,
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 18,
@@ -1739,9 +1735,9 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
   },
 
   safetyCard: {
-    backgroundColor: palette.chip,
+    backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : palette.chip,
     borderWidth: 1,
-    borderColor: palette.divider,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : palette.divider,
     borderRadius: 14,
     padding: 14,
     marginBottom: 14,
@@ -1760,12 +1756,21 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
   },
 
   supportingBlock: {
-    backgroundColor: palette.chip,
+    backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : palette.chip,
     borderWidth: 1,
-    borderColor: palette.divider,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : palette.divider,
     borderRadius: 12,
     padding: 12,
-    marginBottom: 24,
+    marginBottom: 14,
+  },
+  step6Disclaimer: {
+    fontSize: ew(11, 13),
+    textAlign: 'center',
+    marginTop: 4,
+    paddingHorizontal: 4,
+    opacity: darkMode ? 0.85 : 0.72,
+    fontStyle: 'italic',
+    lineHeight: ew(17, 20),
   },
   supportingTitle: {
     color: palette.textDim,
@@ -2176,9 +2181,9 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(56, 226, 174, 0.15)',
+    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
     borderWidth: 1,
-    borderColor: 'rgba(56, 226, 174, 0.3)',
+    borderColor: 'rgba(52, 211, 153, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -2196,17 +2201,19 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
     marginBottom: 20,
   },
   detailSectionTitle: {
-    color: palette.accent,
-    fontSize: ew(18, 20),
+    color: palette.textDim,
+    fontSize: 11,
     fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
     marginBottom: 12,
   },
   detailCard: {
-    backgroundColor: '#000000',
+    backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : palette.chip,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : palette.divider,
   },
   detailText: {
     color: palette.text,
@@ -2235,15 +2242,15 @@ const getStyles = (palette, ew = (phone, web) => phone) => StyleSheet.create({
     paddingBottom: 40,
   },
   modalPrimaryBtn: {
-    backgroundColor: palette.accent,
+    backgroundColor: ESTIMATE_FLOW_GREEN,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: palette.accent,
+    borderColor: ESTIMATE_FLOW_GREEN,
   },
   modalPrimaryBtnText: {
-    color: palette.buttonText,
+    color: '#071018',
     fontSize: ew(16, 18),
     fontWeight: '800',
     textAlign: 'center',

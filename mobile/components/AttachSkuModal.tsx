@@ -78,6 +78,21 @@ import {
   getProjectExpenseFormHorizontalPadding,
   isDesktopWebLayoutWidth,
 } from '@/constants/ScreenLayout';
+import {
+  confirmScopeSectionLabelStyle,
+  ESTIMATE_FLOW_CARD_GAP,
+  ESTIMATE_FLOW_CHIP_GREEN,
+  ESTIMATE_FLOW_CHIP_GREEN_BG,
+  ESTIMATE_FLOW_GREEN,
+  ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
+  estimateFlowCardStyle,
+  estimateFlowInputShellStyle,
+  estimateFlowLineItemStyle,
+  estimateFlowPrimaryButtonStyle,
+  estimateFlowPrimaryButtonTextStyle,
+  estimateStep1ActionButtonStyle,
+  estimateStep1ActionButtonSelectedStyle,
+} from '@/utils/estimateFlowCardStyle';
 
 /** Match Estimates Add Labor / line-item modals (desktop web column cap). */
 const SKU_SEARCH_WEB_FORM_MAX_WIDTH = 900;
@@ -129,7 +144,7 @@ function SkuWebFormOptionalChrome({
     );
   }
   return (
-    <View style={[{ paddingTop: 14, gap: 14 }, columnStyle || {}]}>
+    <View style={[estimateFlowCardStyle(Colors, darkMode), { gap: ESTIMATE_FLOW_CARD_GAP }, columnStyle || {}]}>
       {children}
     </View>
   );
@@ -357,21 +372,8 @@ export default function AttachSkuModal({
 
   /** Same shell as Estimates step 1–2 `AppTextField` (`estimateAccessoryShellStyle` in estimate-generator). */
   const skuTextFieldShellStyle = useMemo(
-    () =>
-      darkMode
-        ? {
-            borderRadius: 18,
-            backgroundColor: '#0B0B0D',
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.10)',
-          }
-        : {
-            borderRadius: 12,
-            backgroundColor: Colors.surface2,
-            borderWidth: 1,
-            borderColor: Colors.line,
-          },
-    [darkMode, Colors.surface2, Colors.line],
+    () => estimateFlowInputShellStyle(Colors, darkMode),
+    [Colors, darkMode],
   );
 
   // Debug logging
@@ -400,7 +402,10 @@ export default function AttachSkuModal({
   const isWeb = Platform.OS === "web";
   const skuWebDesktopLayout = isWeb && isDesktopWebLayoutWidth(skuModalLayoutWidth);
   const skuWebHorizontalPad = useMemo(() => {
-    if (!isWeb) return { header: 20, scroll: 20, footer: 20 };
+    if (!isWeb) {
+      const pad = ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD;
+      return { header: pad, scroll: pad, footer: pad };
+    }
     return getProjectExpenseFormHorizontalPadding({ desktopWeb: skuWebDesktopLayout });
   }, [isWeb, skuWebDesktopLayout]);
   const headerRule = darkMode ? "rgba(148, 163, 184, 0.1)" : "rgba(0,0,0,0.08)";
@@ -895,7 +900,7 @@ export default function AttachSkuModal({
         <View style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}>
           {!isWeb && (
           <View style={{
-            paddingHorizontal: 20,
+            paddingHorizontal: skuWebHorizontalPad.header,
             paddingTop: Math.max(insets.top, 12),
             paddingBottom: 12,
             borderBottomWidth: StyleSheet.hairlineWidth,
@@ -929,7 +934,9 @@ export default function AttachSkuModal({
                 : {
                     flexGrow: 1,
                     paddingBottom: 24,
-                    paddingHorizontal: 20,
+                    paddingHorizontal: skuWebHorizontalPad.scroll,
+                    paddingTop: ESTIMATE_FLOW_CARD_GAP,
+                    gap: ESTIMATE_FLOW_CARD_GAP,
                   }
             }
             automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
@@ -961,41 +968,33 @@ export default function AttachSkuModal({
           <SkuWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumnCentered}>
             {/* Retailer Selection */}
             <View>
-              <Text style={{
-                fontSize: 12,
-                fontWeight: '600',
-                color: darkMode ? 'rgba(248, 250, 252, 0.88)' : 'rgba(0,0,0,0.75)',
-                marginBottom: 6,
-                letterSpacing: 0.4,
-                textTransform: 'uppercase',
-              }}>
+              <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>
                 Retailer
               </Text>
-              <View style={{ flexDirection: "row", gap: 8 }}>
+              <View style={{ flexDirection: "row", gap: ESTIMATE_FLOW_CARD_GAP }}>
                 <TouchableOpacity
                   onPress={() => setStore("hd")}
-                  style={{
-                    flex: 1,
-                    paddingVertical: 12,
-                    paddingHorizontal: 12,
-                    borderRadius: 12,
-                    borderWidth: 1.5,
-                    borderColor: store === "hd" ? "#22c55e" : (darkMode ? "rgba(148, 163, 184, 0.22)" : Colors.line),
-                    backgroundColor: store === "hd" ? "#22c55e" : (darkMode ? "rgba(255, 255, 255, 0.04)" : Colors.surface2),
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexDirection: 'row',
-                    gap: 8,
-                  }}
+                  style={[
+                    {
+                      flex: 1,
+                      minHeight: 48,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexDirection: 'row',
+                      gap: 8,
+                    },
+                    estimateStep1ActionButtonStyle(Colors, darkMode),
+                    store === "hd" && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
+                  ]}
                 >
                   <MaterialCommunityIcons
                     name="storefront-outline"
                     size={20}
-                    color={store === "hd" ? "#020617" : (darkMode ? "#e2e8f0" : "#0f172a")}
+                    color={store === "hd" ? ESTIMATE_FLOW_CHIP_GREEN : (darkMode ? "#e2e8f0" : "#0f172a")}
                   />
                   <Text
                     style={{
-                      color: store === "hd" ? "#020617" : (darkMode ? "#f1f5f9" : "#000000"),
+                      color: store === "hd" ? ESTIMATE_FLOW_CHIP_GREEN : (darkMode ? "#f1f5f9" : "#000000"),
                       fontWeight: "700",
                       fontSize: 14,
                       letterSpacing: 0.15,
@@ -1006,28 +1005,27 @@ export default function AttachSkuModal({
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => setStore("lowes")}
-                  style={{
-                    flex: 1,
-                    paddingVertical: 12,
-                    paddingHorizontal: 12,
-                    borderRadius: 12,
-                    borderWidth: 1.5,
-                    borderColor: store === "lowes" ? "#22c55e" : (darkMode ? "rgba(148, 163, 184, 0.22)" : Colors.line),
-                    backgroundColor: store === "lowes" ? "#22c55e" : (darkMode ? "rgba(255, 255, 255, 0.04)" : Colors.surface2),
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexDirection: 'row',
-                    gap: 8,
-                  }}
+                  style={[
+                    {
+                      flex: 1,
+                      minHeight: 48,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexDirection: 'row',
+                      gap: 8,
+                    },
+                    estimateStep1ActionButtonStyle(Colors, darkMode),
+                    store === "lowes" && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
+                  ]}
                 >
                   <MaterialCommunityIcons
                     name="tools"
                     size={20}
-                    color={store === "lowes" ? "#020617" : (darkMode ? "#e2e8f0" : "#0f172a")}
+                    color={store === "lowes" ? ESTIMATE_FLOW_CHIP_GREEN : (darkMode ? "#e2e8f0" : "#0f172a")}
                   />
                   <Text
                     style={{
-                      color: store === "lowes" ? "#020617" : (darkMode ? "#f1f5f9" : "#000000"),
+                      color: store === "lowes" ? ESTIMATE_FLOW_CHIP_GREEN : (darkMode ? "#f1f5f9" : "#000000"),
                       fontWeight: "700",
                       fontSize: 14,
                       letterSpacing: 0.15,
@@ -1041,13 +1039,7 @@ export default function AttachSkuModal({
 
             {/* Search Input */}
             <View>
-              <Text style={{
-                fontSize: 13,
-                fontWeight: '600',
-                color: darkMode ? '#FFFFFF' : '#000000',
-                marginBottom: 6,
-                letterSpacing: 0.2,
-              }}>
+              <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>
                 Search Query *
               </Text>
               <View
@@ -1107,13 +1099,7 @@ export default function AttachSkuModal({
 
             {/* ZIP Input */}
             <View>
-              <Text style={{
-                fontSize: 13,
-                fontWeight: '600',
-                color: darkMode ? '#FFFFFF' : '#000000',
-                marginBottom: 6,
-                letterSpacing: 0.2,
-              }}>
+              <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>
                 ZIP Code *
               </Text>
               <View
@@ -1162,49 +1148,31 @@ export default function AttachSkuModal({
                 search();
               }}
               disabled={loading || !q || !zip}
-              style={{
-                borderRadius: 12,
-                overflow: 'hidden',
-                marginTop: 2,
-                marginBottom: 4,
-                opacity: (loading || !q || !zip) ? 0.5 : 1,
-              }}
+              style={
+                loading || !q || !zip
+                  ? [
+                      estimateStep1ActionButtonStyle(Colors, darkMode),
+                      { marginTop: 2, marginBottom: 4, opacity: 0.55 },
+                    ]
+                  : [
+                      estimateFlowPrimaryButtonStyle(),
+                      { marginTop: 2, marginBottom: 4 },
+                    ]
+              }
             >
-                <View
-                  style={{
-                    backgroundColor: '#22c55e',
-                    paddingVertical: 13,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    shadowColor: '#000000',
-                    shadowOpacity: darkMode ? 0.35 : 0.12,
-                    shadowRadius: 10,
-                    shadowOffset: { width: 0, height: 4 },
-                    elevation: 4,
-                  }}
-                >
-                  <Text style={{
-                    fontSize: 15,
-                    fontWeight: '700',
-                    color: '#020617',
-                    letterSpacing: 0.35,
-                  }}>
-                    {loading ? 'Searching...' : 'Search'}
-                  </Text>
-                </View>
-              </TouchableOpacity>
+              <Text
+                style={
+                  loading || !q || !zip
+                    ? { color: Colors.text, fontSize: 15, fontWeight: '700' }
+                    : estimateFlowPrimaryButtonTextStyle()
+                }
+              >
+                {loading ? 'Searching...' : 'Search'}
+              </Text>
+            </TouchableOpacity>
+          </SkuWebFormOptionalChrome>
 
-            <View
-              style={{
-                marginTop: 14,
-                paddingVertical: 12,
-                paddingHorizontal: 12,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line,
-                backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(15, 23, 42, 0.04)',
-              }}
-            >
+            <View style={estimateFlowCardStyle(Colors, darkMode)}>
               <Text
                 style={{
                   fontSize: 11.5,
@@ -1216,11 +1184,11 @@ export default function AttachSkuModal({
               </Text>
             </View>
 
-            {loading && <ActivityIndicator color="#22c55e" size="large" style={{ marginTop: 16 }} />}
+            {loading && <ActivityIndicator color={ESTIMATE_FLOW_GREEN} size="large" style={{ marginTop: 4 }} />}
             {error && <Text style={{ color: "#f87171", textAlign: 'center', marginTop: 12, fontSize: 14, lineHeight: 20, paddingHorizontal: 8 }}>{error}</Text>}
 
             {results.length > 0 && (
-              <View style={{ marginTop: 6 }}>
+              <View style={estimateFlowCardStyle(Colors, darkMode)}>
                 <View style={{ 
                   flexDirection: 'row', 
                   alignItems: 'center', 
@@ -1252,14 +1220,10 @@ export default function AttachSkuModal({
                 {results.map((item, idx) => (
                   <View
                     key={`${item.sku || 'item'}-${idx}-${item.title || 'title'}`}
-                    style={{
-                      marginBottom: idx < results.length - 1 ? 10 : 0,
-                      borderRadius: 14,
-                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.035)' : Colors.surface2,
-                      borderWidth: 1,
-                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
-                      overflow: 'hidden',
-                    }}
+                    style={[
+                      estimateFlowLineItemStyle(Colors, darkMode),
+                      { marginBottom: idx < results.length - 1 ? ESTIMATE_FLOW_CARD_GAP : 0, overflow: 'hidden', padding: 0 },
+                    ]}
                   >
                     <TouchableOpacity
                       onPress={() => {
@@ -1506,7 +1470,6 @@ export default function AttachSkuModal({
               </View>
             )}
 
-          </SkuWebFormOptionalChrome>
           </ScrollView>
         </View>
       </SkuModalRoot>

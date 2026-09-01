@@ -31,6 +31,10 @@ import { useAIManagerMode } from "@/hooks/useAIManagerMode";
 import AIAssistantModal from "@/components/AIAssistantModal";
 import ProfileAnalytics from "@/components/ProfileAnalytics";
 import GreyCalendar from "@/components/GreyCalendar";
+import {
+  CalendarUpcomingFooter,
+  UPCOMING_CALENDAR_WINDOW_DAYS,
+} from "@/components/CalendarUpcomingFooter";
 import * as Haptics from "expo-haptics";
 import { apiService } from "@/services/api";
 import type { AiDashboardResponse, AiInsight, AiNextStep } from "@/types/aiDashboard";
@@ -1190,44 +1194,6 @@ function parseISODateAsLocalDay(iso: string): Date {
   return new Date(y, m - 1, d, 0, 0, 0, 0);
 }
 
-type UpcomingFilterKey =
-  | "all"
-  | "payment"
-  | "inspection"
-  | "delivery"
-  | "purchase_order"
-  | "deadline"
-  | "phase"
-  | "other"
-  | "ai";
-
-const matchesUpcomingFilter = (e: MasterCalendarEvent, f: UpcomingFilterKey): boolean => {
-  if (f === "all") return true;
-  if (f === "inspection") {
-    return e.calendarCategory === "inspection" || e.type === "inspection";
-  }
-  if (f === "payment") {
-    return e.calendarCategory === "payment" || e.type === "payment";
-  }
-  if (f === "delivery") {
-    return e.calendarCategory === "delivery";
-  }
-  if (f === "purchase_order") {
-    return e.calendarCategory === "purchase_order" || e.id.startsWith("po-");
-  }
-  if (f === "deadline") {
-    return e.calendarCategory === "deadline" || e.type === "deadline";
-  }
-  if (f === "phase") {
-    return e.calendarCategory === "phase" || e.type === "work";
-  }
-  if (f === "other") {
-    return e.calendarCategory === "other" || e.type === "other";
-  }
-  if (f === "ai") return Boolean(e.isUserCreated);
-  return true;
-};
-
 const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects, estimates }) => {
   const { theme, darkMode } = useTheme();
   const { canEditCalendar } = useWorkspaceProjectPermissions();
@@ -1239,7 +1205,6 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
     Platform.OS === "web" && isDesktopWebLayoutWidth(masterCalendarModalWidth);
   const [allEvents, setAllEvents] = React.useState<MasterCalendarEvent[]>([]);
   const [selectedDate, setSelectedDate] = React.useState<string | null>(() => toLocalISODate());
-  const [upcomingFilter, setUpcomingFilter] = React.useState<UpcomingFilterKey>("all");
   const [showDateEventsModal, setShowDateEventsModal] = React.useState(false);
   const [showEventModal, setShowEventModal] = React.useState(false);
   const [editingEvent, setEditingEvent] = React.useState<MasterCalendarEvent | null>(null);
@@ -1556,12 +1521,12 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
     return allEvents.filter(event => event.date === dateStr);
   }, [allEvents]);
 
-  // Upcoming events (next 7 days) — exclude completed jobs; local date match so payments/POs aren’t dropped by UTC shift
+  // Upcoming events (next 5 days) — shown in calendar footer
   const upcomingEvents = React.useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const nextWeek = new Date(today);
-    nextWeek.setDate(nextWeek.getDate() + 7);
+    const windowEnd = new Date(today);
+    windowEnd.setDate(windowEnd.getDate() + UPCOMING_CALENDAR_WINDOW_DAYS);
     return allEvents
       .filter((e) => {
         const me = e as MasterCalendarEvent;
@@ -1569,9 +1534,8 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         if (e.completed) return false;
         const eventDate = parseISODateAsLocalDay(e.date);
         if (Number.isNaN(eventDate.getTime())) return false;
-        return eventDate >= today && eventDate <= nextWeek;
+        return eventDate >= today && eventDate <= windowEnd;
       })
-      .filter((e) => matchesUpcomingFilter(e, upcomingFilter))
       .sort((a, b) => {
         const dateA = new Date(a.date).getTime();
         const dateB = new Date(b.date).getTime();
@@ -1580,21 +1544,6 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
         return a.time ? -1 : b.time ? 1 : 0;
       })
       .slice(0, 30);
-  }, [allEvents, upcomingFilter]);
-
-  const hasAnyUpcomingInWindow = React.useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const nextWeek = new Date(today);
-    nextWeek.setDate(nextWeek.getDate() + 7);
-    return allEvents.some((e) => {
-      const me = e as MasterCalendarEvent;
-      if (me.isCompletedProject) return false;
-      if (e.completed) return false;
-      const eventDate = parseISODateAsLocalDay(e.date);
-      if (Number.isNaN(eventDate.getTime())) return false;
-      return eventDate >= today && eventDate <= nextWeek;
-    });
   }, [allEvents]);
 
   const getProjectSiteHint = React.useCallback(
@@ -1613,24 +1562,6 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
     },
     [activeProjects, estimates],
   );
-
-  const selectedDayContext = React.useMemo(() => {
-    if (!selectedDate) {
-      return { title: "Select a date", sub: "Tap the calendar to focus a day" };
-    }
-    const parts = selectedDate.split("-").map(Number);
-    if (parts.length !== 3) return { title: "Select a date", sub: "" };
-    const [y, m, d] = parts;
-    const dt = new Date(y, m - 1, d);
-    const count = allEvents.filter((ev) => ev.date === selectedDate).length;
-    const title = `Events for ${dt.toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-    })}`;
-    const sub = count === 0 ? "No events on this day" : `${count} on this day`;
-    return { title, sub };
-  }, [selectedDate, allEvents]);
 
   const resetForm = React.useCallback(() => {
     setEventTitle("");
@@ -1797,18 +1728,6 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
     { key: "other", label: "Other", color: CALENDAR_CATEGORY_COLORS.other },
   ] as const;
 
-  const upcomingFilterChips: { key: UpcomingFilterKey; label: string }[] = [
-    { key: "all", label: "All" },
-    { key: "payment", label: "Payments" },
-    { key: "inspection", label: "Inspections" },
-    { key: "delivery", label: "Deliveries" },
-    { key: "purchase_order", label: "POs" },
-    { key: "deadline", label: "Deadlines" },
-    { key: "phase", label: "Crew" },
-    { key: "other", label: "Other" },
-    { key: "ai", label: "AI" },
-  ];
-
   return (
     <>
       <View style={{ marginTop: 4, marginBottom: 14 }}>
@@ -1833,22 +1752,38 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
             }
           }}
           events={calendarEvents}
+          footer={
+            <CalendarUpcomingFooter
+              events={upcomingEvents}
+              darkMode={darkMode}
+              textColor={COLORS.text}
+              subColor={darkMode ? "rgba(255,255,255,0.86)" : COLORS.subtext}
+              getEventColor={getEventColor}
+              onEventPress={(event) => {
+                const full = upcomingEvents.find((e) => e.id === event.id);
+                if (!full) return;
+                if ((full as MasterCalendarEvent).isUserCreated && canEditCalendar) {
+                  setEditingEvent(full as MasterCalendarEvent);
+                  setEventTitle(full.title);
+                  setEventDate(full.date);
+                  setEventTime(full.time || "");
+                  setEventType(full.type);
+                  setEventNotes(full.notes || "");
+                  setEventSubcontractor(full.subcontractor || "");
+                  setSelectedProjectId(full.projectId);
+                  setShowEventModal(true);
+                } else {
+                  setSelectedDate(full.date);
+                  setShowDateEventsModal(true);
+                }
+                if (Platform.OS === "ios") {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
+              }}
+            />
+          }
         />
-        <View style={{ marginTop: 10, paddingHorizontal: 2 }}>
-          <Text style={{ fontSize: 15, fontWeight: "800", color: COLORS.text }}>
-            {selectedDayContext.title}
-          </Text>
-          <Text
-            style={{
-              fontSize: 12,
-              marginTop: 3,
-              color: darkMode ? "rgba(255,255,255,0.86)" : COLORS.subtext,
-              fontWeight: "500",
-            }}
-          >
-            {selectedDayContext.sub}
-          </Text>
-        </View>
+        {allEvents.length > 0 ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -1879,229 +1814,8 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
             </View>
           ))}
         </ScrollView>
+        ) : null}
       </View>
-
-      {/* Upcoming (Next 7 Days) */}
-      {allEvents.length > 0 && (
-        <View style={{ paddingHorizontal: 0, marginBottom: 20 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <Ionicons name="time-outline" size={19} color={COLORS.green} />
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 17, fontWeight: "700", color: COLORS.text }}>
-                Upcoming · next 7 days
-              </Text>
-              <Text
-                style={{
-                  fontSize: 11,
-                  marginTop: 2,
-                  color: darkMode ? "rgba(255,255,255,0.74)" : COLORS.subtext,
-                  fontWeight: "500",
-                }}
-              >
-                Actionable schedule
-              </Text>
-            </View>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 8, marginBottom: 12, paddingRight: 12 }}
-          >
-            {upcomingFilterChips.map((chip) => {
-              const active = upcomingFilter === chip.key;
-              return (
-                <Pressable
-                  key={chip.key}
-                  onPress={() => {
-                    setUpcomingFilter(chip.key);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                  style={{
-                    paddingHorizontal: 14,
-                    paddingVertical: 7,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    backgroundColor: active
-                      ? "rgba(45, 255, 196, 0.18)"
-                      : darkMode
-                        ? "rgba(255,255,255,0.06)"
-                        : Colors.surface2,
-                    borderColor: active ? "#2DFFC4" : darkMode ? "rgba(255,255,255,0.12)" : Colors.line,
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      fontWeight: "700",
-                      color: active ? "#2DFFC4" : COLORS.text,
-                    }}
-                  >
-                    {chip.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          {upcomingEvents.length === 0 ? (
-            <Text
-              style={{
-                fontSize: 13,
-                color: darkMode ? "rgba(255,255,255,0.8)" : COLORS.subtext,
-                marginBottom: 8,
-              }}
-            >
-              {!hasAnyUpcomingInWindow
-                ? "Nothing scheduled in the next 7 days."
-                : "No events match this filter · try All."}
-            </Text>
-          ) : (
-            upcomingEvents.map((event) => {
-              const siteHint = getProjectSiteHint(event.projectId);
-              const statusLine = event.completed
-                ? "Done"
-                : event.notes?.toLowerCase().includes("collected")
-                  ? "Payment collected"
-                  : event.notes?.toLowerCase().includes("due")
-                    ? "Payment due"
-                    : null;
-              const typeLabel =
-                formatCalendarCategoryLabel(event.calendarCategory) ||
-                (event.type ? String(event.type).replace(/-/g, " ") : null);
-              return (
-            <View
-              key={event.id}
-              style={{
-                flexDirection: 'column',
-                borderRadius: 12,
-                marginBottom: 10,
-                borderWidth: 1,
-                overflow: 'hidden',
-                backgroundColor: darkMode ? '#3d3d3d' : Colors.surface2,
-                borderColor: darkMode ? '#4f4f4f' : Colors.line,
-              }}
-            >
-              <Pressable
-                style={{ flexDirection: 'row', flex: 1, paddingVertical: 10, paddingHorizontal: 11 }}
-                onPress={() => {
-                  if ((event as MasterCalendarEvent).isUserCreated && canEditCalendar) {
-                    setEditingEvent(event as MasterCalendarEvent);
-                    setEventTitle(event.title);
-                    setEventDate(event.date);
-                    setEventTime(event.time || "");
-                    setEventType(event.type);
-                    setEventNotes(event.notes || "");
-                    setEventSubcontractor(event.subcontractor || "");
-                    setSelectedProjectId(event.projectId);
-                    setShowEventModal(true);
-                  } else {
-                    setSelectedDate(event.date);
-                    setShowDateEventsModal(true);
-                  }
-                  if (Platform.OS === "ios") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-              >
-                <View style={{
-                  width: 4,
-                  borderRadius: 2,
-                  marginRight: 10,
-                  alignSelf: 'stretch',
-                  backgroundColor: getEventColor(event),
-                }} />
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={{ fontSize: 17, fontWeight: '800', color: COLORS.text }} numberOfLines={2}>
-                    {event.title}
-                  </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                    <Ionicons name="calendar-outline" size={15} color={COLORS.green} />
-                    <Text style={{ fontSize: 14, fontWeight: '700', color: COLORS.text }}>
-                      {new Date(event.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                      {event.time ? ` · ${event.time}` : ''}
-                    </Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 5 }}>
-                    <Ionicons name="folder-outline" size={14} color={COLORS.subtext} />
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: darkMode ? 'rgba(255,255,255,0.92)' : COLORS.text, flexShrink: 1 }} numberOfLines={1}>
-                      {event.projectName || 'Project'}
-                    </Text>
-                    {(event as MasterCalendarEvent).isCompletedProject ? (
-                      <View style={{
-                        paddingHorizontal: 6,
-                        paddingVertical: 2,
-                        borderRadius: 4,
-                        backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(100, 116, 139, 0.15)',
-                      }}>
-                        <Text style={{
-                          fontSize: 9,
-                          fontWeight: '700',
-                          color: darkMode ? 'rgba(255,255,255,0.86)' : '#334155',
-                          textTransform: 'uppercase',
-                          letterSpacing: 0.3,
-                        }}>Completed</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  {(siteHint || event.subcontractor) ? (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                      <Ionicons
-                        name={event.subcontractor ? 'person-outline' : 'location-outline'}
-                        size={13}
-                        color={COLORS.subtext}
-                      />
-                      <Text style={{ fontSize: 12, color: COLORS.subtext, flex: 1 }} numberOfLines={1}>
-                        {event.subcontractor ? event.subcontractor : siteHint}
-                        {event.subcontractor && siteHint ? ` · ${siteHint}` : ''}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {(statusLine || typeLabel) ? (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
-                      {typeLabel ? (
-                        <View style={{
-                          paddingHorizontal: 8,
-                          paddingVertical: 3,
-                          borderRadius: 8,
-                          backgroundColor: `${getEventColor(event)}18`,
-                        }}>
-                          <Text style={{
-                            fontSize: 10,
-                            fontWeight: '700',
-                            textTransform: 'uppercase',
-                            letterSpacing: 0.4,
-                            color: darkMode ? 'rgba(255,255,255,0.92)' : getEventColor(event),
-                          }}>
-                            {typeLabel}
-                          </Text>
-                        </View>
-                      ) : null}
-                      {statusLine ? (
-                        <Text style={{ fontSize: 11, fontWeight: '600', color: COLORS.subtext }}>{statusLine}</Text>
-                      ) : null}
-                    </View>
-                  ) : null}
-                  {event.notes && !statusLine ? (
-                    <Text style={{ fontSize: 11, marginTop: 5, color: darkMode ? 'rgba(255,255,255,0.8)' : COLORS.subtext }} numberOfLines={2}>
-                      {event.notes}
-                    </Text>
-                  ) : null}
-                  {(event as MasterCalendarEvent).isUserCreated ? (
-                    <Text style={{ fontSize: 10, marginTop: 6, color: darkMode ? 'rgba(255,255,255,0.74)' : Colors.sub, fontWeight: '500' }}>
-                      Editable task
-                    </Text>
-                  ) : (
-                    <Text style={{ fontSize: 10, marginTop: 6, color: darkMode ? 'rgba(255,255,255,0.74)' : Colors.sub, fontWeight: '500' }}>
-                      From schedule
-                    </Text>
-                  )}
-                </View>
-                <MaterialIcons name={getEventIcon(event) as any} size={18} color={darkMode ? 'rgba(255,255,255,0.74)' : getEventColor(event)} style={{ marginLeft: 4 }} />
-              </Pressable>
-            </View>
-              );
-            })
-          )}
-        </View>
-      )}
 
       {/* Date Events Modal */}
       <Modal

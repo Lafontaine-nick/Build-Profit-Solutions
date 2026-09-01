@@ -26,6 +26,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import GreyCalendar from './GreyCalendar';
+import {
+  CalendarUpcomingFooter,
+  UPCOMING_CALENDAR_WINDOW_DAYS,
+} from './CalendarUpcomingFooter';
 import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
 import { businessWorkspaceService } from '@/services/businessWorkspaceService';
 import { mergeArrayResource } from '@/utils/workspaceResourceMerge';
@@ -151,17 +155,6 @@ function parseISODateAsLocalDay(iso: string): Date {
   return new Date(y, m - 1, d, 0, 0, 0, 0);
 }
 
-type UpcomingFilterKey =
-  | 'all'
-  | 'payment'
-  | 'inspection'
-  | 'delivery'
-  | 'purchase_order'
-  | 'deadline'
-  | 'phase'
-  | 'other'
-  | 'ai';
-
 const CALENDAR_LEGEND_ITEMS = [
   { key: 'payment', label: 'Payments', color: CALENDAR_CATEGORY_COLORS.payment },
   { key: 'inspection', label: 'Inspections', color: CALENDAR_CATEGORY_COLORS.inspection },
@@ -171,18 +164,6 @@ const CALENDAR_LEGEND_ITEMS = [
   { key: 'deadline', label: 'Deadlines', color: CALENDAR_CATEGORY_COLORS.deadline },
   { key: 'other', label: 'Other', color: CALENDAR_CATEGORY_COLORS.other },
 ] as const;
-
-const UPCOMING_FILTER_CHIPS: { key: UpcomingFilterKey; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'payment', label: 'Payments' },
-  { key: 'inspection', label: 'Inspections' },
-  { key: 'delivery', label: 'Deliveries' },
-  { key: 'purchase_order', label: 'POs' },
-  { key: 'deadline', label: 'Deadlines' },
-  { key: 'phase', label: 'Crew' },
-  { key: 'other', label: 'Other' },
-  { key: 'ai', label: 'AI' },
-];
 
 const PAYMENT_KEYWORDS = ['payment', 'deposit', 'milestone', 'weekly pay', 'draw'];
 const INSPECTION_KEYWORDS = ['inspection', 'inspect'];
@@ -245,7 +226,6 @@ export default function ProjectCalendar({
   const [deliveryReceivedIds, setDeliveryReceivedIds] = useState<Set<string>>(new Set());
   const [timelineMilestones, setTimelineMilestones] = useState<any[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(() => toLocalISODate());
-  const [upcomingFilter, setUpcomingFilter] = useState<UpcomingFilterKey>('all');
   const [showEventModal, setShowEventModal] = useState(false);
   const [showDateEventsModal, setShowDateEventsModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
@@ -867,59 +847,25 @@ export default function ProjectCalendar({
 
   const userCreatedIds = useMemo(() => new Set(events.map((e) => e.id)), [events]);
 
-  const matchesUpcomingFilter = useCallback(
-    (e: CalendarEvent, f: UpcomingFilterKey): boolean => {
-      if (f === 'all') return true;
-      if (f === 'inspection') {
-        return e.calendarCategory === 'inspection' || e.type === 'inspection';
-      }
-      if (f === 'payment') {
-        return e.calendarCategory === 'payment' || e.type === 'payment';
-      }
-      if (f === 'delivery') {
-        return e.calendarCategory === 'delivery';
-      }
-      if (f === 'purchase_order') {
-        return e.calendarCategory === 'purchase_order' || e.id.startsWith('po-');
-      }
-      if (f === 'deadline') {
-        return e.calendarCategory === 'deadline' || e.type === 'deadline';
-      }
-      if (f === 'phase') {
-        return e.calendarCategory === 'phase' || e.type === 'work';
-      }
-      if (f === 'other') {
-        return e.calendarCategory === 'other' || e.type === 'other';
-      }
-      if (f === 'ai') return userCreatedIds.has(e.id);
-      return true;
-    },
-    [userCreatedIds]
-  );
-
-  // Upcoming (next 7 days) — same window as dashboard; chips are presentation-only
-  const { upcomingEvents, hasAnyUpcomingInWindow } = useMemo(() => {
+  // Upcoming (next 5 days) — shown in calendar footer
+  const upcomingEvents = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const nextWeek = new Date(today);
-    nextWeek.setDate(nextWeek.getDate() + 7);
+    const windowEnd = new Date(today);
+    windowEnd.setDate(windowEnd.getDate() + UPCOMING_CALENDAR_WINDOW_DAYS);
 
-    const inWindow = syncedEvents.filter((e) => {
-      const done = isDeliveryEvent(e)
-        ? isDeliveryReceived(e)
-        : isPaymentEvent(e)
-          ? isPaymentCompleted(e)
-          : e.completed;
-      if (done) return false;
-      const eventDate = parseISODateAsLocalDay(e.date);
-      if (Number.isNaN(eventDate.getTime())) return false;
-      return eventDate >= today && eventDate <= nextWeek;
-    });
-
-    const hasAnyUpcomingInWindow = inWindow.length > 0;
-
-    const upcomingEvents = inWindow
-      .filter((e) => matchesUpcomingFilter(e, upcomingFilter))
+    return syncedEvents
+      .filter((e) => {
+        const done = isDeliveryEvent(e)
+          ? isDeliveryReceived(e)
+          : isPaymentEvent(e)
+            ? isPaymentCompleted(e)
+            : e.completed;
+        if (done) return false;
+        const eventDate = parseISODateAsLocalDay(e.date);
+        if (Number.isNaN(eventDate.getTime())) return false;
+        return eventDate >= today && eventDate <= windowEnd;
+      })
       .sort((a, b) => {
         const dateA = new Date(a.date).getTime();
         const dateB = new Date(b.date).getTime();
@@ -928,27 +874,7 @@ export default function ProjectCalendar({
         return a.time ? -1 : b.time ? 1 : 0;
       })
       .slice(0, 30);
-
-    return { upcomingEvents, hasAnyUpcomingInWindow };
-  }, [syncedEvents, upcomingFilter, matchesUpcomingFilter, deliveryReceivedIds, isPaymentCompleted]);
-
-  const selectedDayContext = useMemo(() => {
-    if (!selectedDate) {
-      return { title: 'Select a date', sub: 'Tap the calendar to focus a day' };
-    }
-    const parts = selectedDate.split('-').map(Number);
-    if (parts.length !== 3) return { title: 'Select a date', sub: '' };
-    const [y, m, d] = parts;
-    const dt = new Date(y, m - 1, d);
-    const count = syncedEvents.filter((ev) => ev.date === selectedDate).length;
-    const title = `Events for ${dt.toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-    })}`;
-    const sub = count === 0 ? 'No events on this day' : `${count} on this day`;
-    return { title, sub };
-  }, [selectedDate, syncedEvents]);
+  }, [syncedEvents, deliveryReceivedIds, isPaymentCompleted]);
 
   // Removed markedDates - only current date should be highlighted, not selected dates
 
@@ -986,22 +912,24 @@ export default function ProjectCalendar({
             }}
             initialDate={selectedDate || eventDate || toLocalISODate()}
             events={calendarEvents}
+            footer={
+              <CalendarUpcomingFooter
+                events={upcomingEvents}
+                darkMode={darkMode}
+                textColor={COLORS.text}
+                subColor={darkMode ? 'rgba(255,255,255,0.86)' : COLORS.subtext}
+                getEventColor={getEventColor}
+                onEventPress={(event) => {
+                  const full = upcomingEvents.find((e) => e.id === event.id);
+                  if (!full) return;
+                  handleEventPress(full);
+                  if (Platform.OS === 'ios') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                }}
+              />
+            }
           />
-          <View style={{ marginTop: 10, paddingHorizontal: 2 }}>
-            <Text style={{ fontSize: 15, fontWeight: '800', color: COLORS.text }}>
-              {selectedDayContext.title}
-            </Text>
-            <Text
-              style={{
-                fontSize: 12,
-                marginTop: 3,
-                color: darkMode ? 'rgba(255,255,255,0.86)' : COLORS.subtext,
-                fontWeight: '500',
-              }}
-            >
-              {selectedDayContext.sub}
-            </Text>
-          </View>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -1030,332 +958,6 @@ export default function ProjectCalendar({
             ))}
           </ScrollView>
         </View>
-
-        {/* Upcoming — dashboard parity */}
-        {syncedEvents.length > 0 && (
-          <View style={[styles.upcomingSection, { paddingHorizontal: 0 }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <Ionicons name="time-outline" size={19} color={COLORS.green} />
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 17, fontWeight: '700', color: COLORS.text }}>
-                  Upcoming · next 7 days
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 11,
-                    marginTop: 2,
-                    color: darkMode ? 'rgba(255,255,255,0.74)' : COLORS.subtext,
-                    fontWeight: '500',
-                  }}
-                >
-                  Actionable schedule
-                </Text>
-              </View>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 8, marginBottom: 12, paddingRight: 12 }}
-            >
-              {UPCOMING_FILTER_CHIPS.map((chip) => {
-                const active = upcomingFilter === chip.key;
-                return (
-                  <Pressable
-                    key={chip.key}
-                    onPress={() => {
-                      setUpcomingFilter(chip.key);
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }}
-                    style={{
-                      paddingHorizontal: 14,
-                      paddingVertical: 7,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      backgroundColor: active
-                        ? 'rgba(45, 255, 196, 0.18)'
-                        : darkMode
-                          ? 'rgba(255,255,255,0.06)'
-                          : TC.surface2,
-                      borderColor: active ? '#2DFFC4' : darkMode ? 'rgba(255,255,255,0.12)' : TC.line,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        fontWeight: '700',
-                        color: active ? '#2DFFC4' : COLORS.text,
-                      }}
-                    >
-                      {chip.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-
-            {upcomingEvents.length === 0 ? (
-              <Text
-                style={{
-                  fontSize: 13,
-                  color: darkMode ? 'rgba(255,255,255,0.8)' : COLORS.subtext,
-                  marginBottom: 8,
-                }}
-              >
-                {!hasAnyUpcomingInWindow
-                  ? 'Nothing scheduled in the next 7 days.'
-                  : 'No events match this filter · try All.'}
-              </Text>
-            ) : (
-              upcomingEvents.map((event) => {
-                const isInspection = isInspectionEvent(event);
-                const hasInspectionResult = !!event.inspectionResult;
-                const pay = isPaymentEvent(event);
-                const payDone = pay && isPaymentCompleted(event);
-                const { primary: notePrimary, showAiAttribution } = splitEventNotesForDisplay(event.notes);
-                const hidePayMeta =
-                  pay && /^(payment collected|payment due)\.?$/i.test((notePrimary || '').trim());
-                const notesPrimary = hidePayMeta ? '' : notePrimary;
-                const typeLabel =
-                  formatCalendarCategoryLabel(event.calendarCategory) ||
-                  (event.type ? String(event.type).replace(/-/g, ' ') : null);
-                const statusLine = pay
-                  ? payDone
-                    ? 'Payment collected'
-                    : 'Payment due'
-                  : null;
-                const isUserCreated = userCreatedIds.has(event.id);
-                return (
-                  <View
-                    key={event.id}
-                    style={{
-                      flexDirection: 'column',
-                      borderRadius: 12,
-                      marginBottom: 10,
-                      borderWidth: 1,
-                      overflow: 'hidden',
-                      backgroundColor: darkMode ? '#3d3d3d' : TC.surface2,
-                      borderColor: darkMode ? '#4f4f4f' : TC.line,
-                    }}
-                  >
-                    <Pressable
-                      style={{ flexDirection: 'row', flex: 1, paddingVertical: 10, paddingHorizontal: 11 }}
-                      onPress={() => {
-                        handleEventPress(event);
-                        if (Platform.OS === 'ios') {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        }
-                      }}
-                    >
-                      <View
-                        style={{
-                          width: 4,
-                          borderRadius: 2,
-                          marginRight: 10,
-                          alignSelf: 'stretch',
-                          backgroundColor: getEventColor(event),
-                        }}
-                      />
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={{ fontSize: 17, fontWeight: '800', color: COLORS.text }} numberOfLines={2}>
-                          {event.title}
-                        </Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                          <Ionicons name="calendar-outline" size={15} color={COLORS.green} />
-                          <Text style={{ fontSize: 14, fontWeight: '700', color: COLORS.text }}>
-                            {new Date(event.date).toLocaleDateString('en-US', {
-                              weekday: 'short',
-                              month: 'short',
-                              day: 'numeric',
-                            })}
-                            {event.time ? ` · ${event.time}` : ''}
-                          </Text>
-                        </View>
-                        <View
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            flexWrap: 'wrap',
-                            gap: 6,
-                            marginTop: 5,
-                          }}
-                        >
-                          <Ionicons name="folder-outline" size={14} color={COLORS.subtext} />
-                          <Text
-                            style={{
-                              fontSize: 13,
-                              fontWeight: '600',
-                              color: darkMode ? 'rgba(255,255,255,0.92)' : COLORS.text,
-                              flexShrink: 1,
-                            }}
-                            numberOfLines={1}
-                          >
-                            {projectName}
-                          </Text>
-                        </View>
-                        {event.subcontractor ? (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                            <Ionicons name="person-outline" size={13} color={COLORS.subtext} />
-                            <Text
-                              style={{ fontSize: 12, color: COLORS.subtext, flex: 1 }}
-                              numberOfLines={1}
-                            >
-                              {event.subcontractor}
-                            </Text>
-                          </View>
-                        ) : null}
-                        {typeLabel || statusLine ? (
-                          <View
-                            style={{
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              flexWrap: 'wrap',
-                              gap: 8,
-                              marginTop: 6,
-                            }}
-                          >
-                            {typeLabel ? (
-                              <View
-                                style={{
-                                  paddingHorizontal: 8,
-                                  paddingVertical: 3,
-                                  borderRadius: 8,
-                                  backgroundColor: `${getEventColor(event)}18`,
-                                }}
-                              >
-                                <Text
-                                  style={{
-                                    fontSize: 10,
-                                    fontWeight: '700',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: 0.4,
-                                    color: darkMode ? 'rgba(255,255,255,0.92)' : getEventColor(event),
-                                  }}
-                                >
-                                  {typeLabel}
-                                </Text>
-                              </View>
-                            ) : null}
-                            {statusLine ? (
-                              <Text style={{ fontSize: 11, fontWeight: '600', color: COLORS.subtext }}>
-                                {statusLine}
-                              </Text>
-                            ) : null}
-                          </View>
-                        ) : null}
-                        {notesPrimary ? (
-                          <Text
-                            style={{
-                              fontSize: 11,
-                              marginTop: 5,
-                              color: darkMode ? 'rgba(255,255,255,0.8)' : COLORS.subtext,
-                            }}
-                            numberOfLines={2}
-                          >
-                            {notesPrimary}
-                          </Text>
-                        ) : null}
-                        {showAiAttribution ? (
-                          <Text
-                            style={[
-                              styles.modalAiCaption,
-                              { color: darkMode ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.45)' },
-                            ]}
-                          >
-                            From AI Assistant
-                          </Text>
-                        ) : null}
-                        <Text
-                          style={{
-                            fontSize: 10,
-                            marginTop: 6,
-                            color: darkMode ? 'rgba(255,255,255,0.74)' : COLORS.subtext,
-                            fontWeight: '500',
-                          }}
-                        >
-                          {isUserCreated ? 'Editable task' : 'From schedule'}
-                        </Text>
-                      </View>
-                      <MaterialIcons
-                        name={getEventIcon(event) as any}
-                        size={18}
-                        color={darkMode ? 'rgba(255,255,255,0.74)' : getEventColor(event)}
-                        style={{ marginLeft: 4 }}
-                      />
-                    </Pressable>
-                    {((!event.completed &&
-                      !isInspection &&
-                      !isDeliveryEvent(event) &&
-                      !isPaymentEvent(event)) ||
-                      (isDeliveryEvent(event) && !isDeliveryReceived(event))) && (
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          paddingHorizontal: 11,
-                          paddingBottom: 10,
-                          gap: 8,
-                        }}
-                      >
-                        {!event.completed &&
-                        !isInspection &&
-                        !isDeliveryEvent(event) &&
-                        !isPaymentEvent(event) && (
-                          <TouchableOpacity
-                            onPress={() => handleCompleteEvent(event)}
-                            style={{ padding: 4 }}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          >
-                            <Ionicons name="checkmark-circle-outline" size={22} color={COLORS.green} />
-                          </TouchableOpacity>
-                        )}
-                        {isDeliveryEvent(event) && !isDeliveryReceived(event) && (
-                          <TouchableOpacity
-                            style={[styles.receivedButton, { borderColor: COLORS.green, flex: 1 }]}
-                            onPress={() => handleMarkDeliveryReceived(event)}
-                          >
-                            <Ionicons name="cube-outline" size={18} color={COLORS.green} />
-                            <Text style={[styles.receivedButtonText, { color: COLORS.green }]}>Received</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    )}
-                    {isInspection && !hasInspectionResult && (
-                      <View style={[styles.inspectionActions, { marginTop: 0, paddingHorizontal: 11, paddingBottom: 10 }]}>
-                        <TouchableOpacity
-                          style={[styles.inspectionButton, styles.inspectionButtonPassed]}
-                          onPress={() => handleMarkInspectionResult(event, 'passed')}
-                          activeOpacity={0.8}
-                        >
-                          <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                          <Text style={styles.inspectionButtonText}>Passed</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.inspectionButton, styles.inspectionButtonFailed]}
-                          onPress={() => handleMarkInspectionResult(event, 'failed')}
-                          activeOpacity={0.8}
-                        >
-                          <Ionicons name="close-circle" size={18} color="#fff" />
-                          <Text style={styles.inspectionButtonText}>Failed</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </View>
-                );
-              })
-            )}
-          </View>
-        )}
-
-        {/* Empty state */}
-        {syncedEvents.length === 0 && (
-          <View style={styles.emptyState}>
-            <Ionicons name="calendar-outline" size={48} color={COLORS.subtext} />
-            <Text style={[styles.emptyStateText, { color: COLORS.text }]}>No events scheduled</Text>
-            <Text style={[styles.emptyStateSubtext, { color: COLORS.subtext }]}>
-              Tap any date to schedule an inspection, delivery, or work event
-            </Text>
-          </View>
-        )}
     </>
   );
 
