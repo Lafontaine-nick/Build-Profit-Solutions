@@ -112,7 +112,14 @@ router.post('/render-pdf', authenticateToken, async (req, res) => {
         const offsetWithinPage = ((blockTop % printableHeight) + printableHeight) % printableHeight;
         const remainingHeight = printableHeight - offsetWithinPage;
 
-        if (blockHeight > remainingHeight) {
+        // Only bump to the next page when the block does not fit in the remaining
+        // space AND there is not much room left (avoids half-empty pages).
+        const remainingRatio = remainingHeight / printableHeight;
+        if (
+          blockHeight > remainingHeight &&
+          blockHeight < printableHeight * 0.95 &&
+          remainingRatio < 0.28
+        ) {
           el.classList.add('force-page-break-before');
         }
       });

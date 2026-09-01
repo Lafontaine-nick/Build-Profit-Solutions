@@ -48,6 +48,7 @@ import PricingModeSection, { PricingMode } from './PricingModeSection';
 import { decimalMoneyInputToNumber, digitsOnly } from '@/src/lib/keyboardMoney';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import GradientRingBackInner from './GradientRingBackInner';
+import { AI_FLOW_CARD_BG_DARK } from '@/utils/estimateFlowCardStyle';
 
 /**
  * Build Profit Solutions — Budget Tab (with AI integrations)
@@ -854,6 +855,8 @@ export default function BudgetTab({
     ? 'Approved cost budget, actuals, POs, and category usage'
     : 'Detailed cost tracking, profitability, and category performance';
   const costSectionTitle = isCostControl ? 'Cost Control' : 'Contract & Cost';
+  const flowCardBg = darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2;
+  const flowCardBorderColor = darkMode ? 'rgba(148,163,184,0.12)' : Colors.line;
 
   return (
     <View style={[styles.container, embedded && styles.containerEmbedded]}>
@@ -900,11 +903,11 @@ export default function BudgetTab({
                 <View
                   style={[
                     styles.sectionCard,
-                    darkMode && styles.sectionCardElevated,
+                    !darkMode && styles.sectionCardElevated,
                     {
-                      backgroundColor: Colors.surface2,
+                      backgroundColor: flowCardBg,
                       borderWidth: 1,
-                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                      borderColor: flowCardBorderColor,
                     },
                   ]}
                 >
@@ -1071,7 +1074,7 @@ export default function BudgetTab({
 
                     return (
                       <View key={item.stableId || item.id || `budget-item-${index}`} style={[styles.budgetCardContainer, { marginTop: index === 0 ? 0 : 12 }]}>
-                        <View style={[styles.budgetCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line, borderRadius: 14 }]}>
+                        <View style={[styles.budgetCard, { backgroundColor: flowCardBg, borderWidth: 1, borderColor: flowCardBorderColor, borderRadius: 14 }]}>
                       <Pressable
                         onPress={() => setSelectedCategory(itemName)}
                         style={{ flex: 1 }}
@@ -1176,11 +1179,11 @@ export default function BudgetTab({
                   <View
                     style={[
                       styles.sectionCard,
-                      darkMode && styles.sectionCardElevated,
+                      !darkMode && styles.sectionCardElevated,
                       {
-                        backgroundColor: Colors.surface2,
+                        backgroundColor: flowCardBg,
                         borderWidth: 1,
-                        borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                        borderColor: flowCardBorderColor,
                       },
                     ]}
                   >
@@ -1322,7 +1325,7 @@ export default function BudgetTab({
                   
                   return (
                     <View key="purchase-orders-card" style={[styles.budgetCardContainer, { marginTop: 0 }]}>
-                      <View style={[styles.budgetCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line, borderRadius: 14 }]}>
+                      <View style={[styles.budgetCard, { backgroundColor: flowCardBg, borderWidth: 1, borderColor: flowCardBorderColor, borderRadius: 14 }]}>
                         <Pressable
                           onPress={() => setSelectedCategory('Purchase Orders')}
                           style={{ flex: 1 }}
@@ -1383,7 +1386,7 @@ export default function BudgetTab({
                   
                   return (
                     <View key="change-orders-card" style={[styles.budgetCardContainer, { marginTop: 12 }]}>
-                      <View style={[styles.budgetCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line, borderRadius: 14 }]}>
+                      <View style={[styles.budgetCard, { backgroundColor: flowCardBg, borderWidth: 1, borderColor: flowCardBorderColor, borderRadius: 14 }]}>
                         <Pressable
                           onPress={() => setSelectedCategory('Change Orders')}
                           style={{ flex: 1 }}
@@ -2146,8 +2149,8 @@ function TabPill({
         styles.tabPillPressable,
         styles.tabPillInactive,
         {
-          backgroundColor: darkMode ? 'rgba(30, 41, 59, 0.6)' : colors.surface2,
-          borderColor: colors.line,
+          backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : colors.surface2,
+          borderColor: darkMode ? 'rgba(148,163,184,0.12)' : colors.line,
         },
       ]}
     >
@@ -2341,7 +2344,7 @@ const styles = StyleSheet.create({
     padding: 1,
   },
   sectionCard: {
-    borderRadius: 16,
+    borderRadius: 14,
     padding: 15,
   },
   /** Match project Overview Financial Health / innerCard headers */

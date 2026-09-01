@@ -5,6 +5,7 @@ import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 
 interface ProjectTypeStat {
   label: string;
@@ -780,9 +781,9 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 8,
     borderRadius: 11,
-    backgroundColor: darkMode ? "rgba(255, 255, 255, 0.05)" : Colors.surface,
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface,
     borderWidth: 1,
-    borderColor: darkMode ? "rgba(255, 255, 255, 0.1)" : Colors.line,
+    borderColor: darkMode ? "rgba(148,163,184,0.12)" : Colors.line,
     overflow: "hidden",
   },
   forecastTileCentered: {

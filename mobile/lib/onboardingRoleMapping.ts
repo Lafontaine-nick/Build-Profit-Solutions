@@ -10,7 +10,7 @@ export type OnboardingRoleId =
 
 const ROLE_DISPLAY: Record<OnboardingRoleId, string> = {
   gc: 'General contractor',
-  subcontractor: 'Subcontractor',
+  subcontractor: 'Trade contractor',
   developer: 'Developer',
   'owner-builder': 'Owner-Builder',
   other: 'Other',

@@ -7,6 +7,7 @@ import {
   ScrollView,
   Platform,
   useWindowDimensions,
+  Image,
   type ViewStyle,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,7 +18,17 @@ import { useRouter } from 'expo-router';
 import { useUser } from '@clerk/clerk-react';
 import { isClerkEnabled } from '../lib/isClerkEnabled';
 import { clerkAuthService } from '../services/clerkAuth';
-import { onboardingDataKeyForUser } from '../lib/onboardingStorage';
+import { onboardingDataKeyForUser, setPendingOpenBuildWithAi } from '../lib/onboardingStorage';
+import {
+  AI_FLOW_CARD_BG_DARK,
+  ESTIMATE_FLOW_CHIP_GREEN,
+  ESTIMATE_FLOW_CHIP_GREEN_BG,
+  confirmScopeSectionLabelStyle,
+  estimateFlowPrimaryButtonStyle,
+  estimateFlowPrimaryButtonTextStyle,
+} from '../utils/estimateFlowCardStyle';
+import { BRAND_FRAME_GRADIENT_COLORS } from '../constants/brandFrameGradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   markWalkthroughCompleted,
   markWalkthroughSkipped,
@@ -32,9 +43,9 @@ interface OnboardingFlowProps {
 }
 
 type RoleOption = 'gc' | 'subcontractor' | 'developer' | 'owner-builder' | 'other';
-type HelpOption = 'estimates' | 'projects' | 'costs' | 'schedule' | 'profit' | 'all';
+type HelpOption = 'estimates' | 'projects' | 'costs' | 'schedule' | 'profit';
 
-const ONBOARDING_PAGE_COUNT = 5;
+const ONBOARDING_PAGE_COUNT = 4;
 const LAST_PAGE_INDEX = ONBOARDING_PAGE_COUNT - 1;
 
 function OnboardingFlowCore({
@@ -46,6 +57,7 @@ function OnboardingFlowCore({
 }) {
   const router = useRouter();
   const { refreshProjects } = useProjectList();
+  const insets = useSafeAreaInsets();
 
   const resyncProjectsFromServer = async () => {
     try {
@@ -61,17 +73,17 @@ function OnboardingFlowCore({
   const [selectedRoles, setSelectedRoles] = useState<RoleOption[]>([]);
   const [selectedHelpOptions, setSelectedHelpOptions] = useState<HelpOption[]>([]);
 
-  // Always use dark mode colors for onboarding
+  // Always use dark mode colors for onboarding (aligned with Estimates / Build with AI)
   const colors = {
     background: ['#000000', '#000000'] as const,
-    card: '#1a1a1a',
+    card: AI_FLOW_CARD_BG_DARK,
     cardElevated: '#242424',
     text: '#f9fafb',
-    subtext: '#FFFFFF',
-    muted: '#E5E7EB',
-    accent: '#22c55e',
-    accentCyan: '#22d3ee',
-    accentGradient: ['#22c55e', '#22d3ee'] as const,
+    subtext: 'rgba(255,255,255,0.82)',
+    muted: 'rgba(229,231,235,0.55)',
+    accent: ESTIMATE_FLOW_CHIP_GREEN,
+    accentCyan: ESTIMATE_FLOW_CHIP_GREEN,
+    accentGradient: BRAND_FRAME_GRADIENT_COLORS,
     border: 'rgba(148,163,184,0.20)',
     borderLight: 'rgba(148,163,184,0.10)',
   };
@@ -90,21 +102,14 @@ function OnboardingFlowCore({
   const webTitle = webDesktop
     ? ({ fontSize: 32, lineHeight: 40, letterSpacing: 0.2 } as const)
     : undefined;
-  const webTitleCompact = webDesktop
-    ? ({ fontSize: 30, lineHeight: 38 } as const)
-    : undefined;
   const webBody = webDesktop
     ? ({ fontSize: 18, lineHeight: 28 } as const)
-    : undefined;
-  const webBodyCompact = webDesktop
-    ? ({ fontSize: 17, lineHeight: 26 } as const)
     : undefined;
   const webBullet = webDesktop
     ? ({ fontSize: 17, lineHeight: 24 } as const)
     : undefined;
   const webOptionText = webDesktop ? ({ fontSize: 17 } as const) : undefined;
   const webHelper = webDesktop ? ({ fontSize: 15, lineHeight: 22 } as const) : undefined;
-  const webCallout = webDesktop ? ({ fontSize: 17, lineHeight: 24 } as const) : undefined;
 
   /** Desktop web: centered readable column (native / narrow web unchanged). */
   const webMainColumn: ViewStyle | undefined =
@@ -130,21 +135,17 @@ function OnboardingFlowCore({
     ? [styles.pageContainer, webMainColumn]
     : styles.pageContainer;
 
-  const pageOuterCompactStyle = webMainColumn
-    ? [styles.pageContainer, styles.pageContainerCompact, webMainColumn]
-    : [styles.pageContainer, styles.pageContainerCompact];
-
   const pageOuterFinalStyle = webMainColumn
     ? [styles.pageContainer, styles.pageContainerFinal, webMainColumn]
     : [styles.pageContainer, styles.pageContainerFinal];
 
   const pageOuterHeroStyle = webMainColumn
-    ? [styles.pageContainer, styles.pageContainerHero, webMainColumn]
-    : [styles.pageContainer, styles.pageContainerHero];
+    ? [styles.pageContainer, styles.pageContainerHero, styles.pageWithSkipClearance, webMainColumn]
+    : [styles.pageContainer, styles.pageContainerHero, styles.pageWithSkipClearance];
 
-  const contentCenteredStyle = [styles.content, webInnerClamp];
+  const contentQuestionStyle = [styles.content, styles.contentQuestion, webInnerClamp];
 
-  const contentCompactTopStyle = [styles.content, styles.contentCompactTop, webInnerClamp];
+  const skipTop = Math.max(insets.top, Platform.OS === 'web' ? 12 : 8) + 4;
 
   const contentFinalStyle = [styles.content, styles.contentFinal, webInnerClamp];
 
@@ -188,26 +189,33 @@ function OnboardingFlowCore({
       case 1:
         return renderPage2();
       case 2:
-        return renderPage4();
+        return renderGoalsPage();
       case 3:
-        return renderCombinedProductPage();
-      case 4:
         return renderFinalPage();
       default:
         return null;
     }
   };
 
+  const renderStepEyebrow = (stepIndex: number, label?: string) => (
+    <Text
+      style={[
+        confirmScopeSectionLabelStyle(),
+        stepIndex === 0 ? styles.stepEyebrowCenter : styles.stepEyebrow,
+        { color: colors.text },
+      ]}
+    >
+      {label ?? `Step ${stepIndex + 1} of ${ONBOARDING_PAGE_COUNT}`}
+    </Text>
+  );
+
   const optionCardStyle = (selected: boolean) => ({
-    backgroundColor: selected ? colors.accent : colors.card,
-    borderColor: selected ? colors.accent : 'rgba(255,255,255,0.22)',
+    backgroundColor: selected ? ESTIMATE_FLOW_CHIP_GREEN_BG : colors.card,
+    borderColor: selected ? ESTIMATE_FLOW_CHIP_GREEN : 'rgba(148,163,184,0.22)',
     borderWidth: selected ? 1.5 : 1,
-    shadowOpacity: selected ? 0.12 : 0.18,
-    shadowRadius: selected ? 4 : 6,
-    elevation: selected ? 2 : 3,
   });
 
-  // PAGE 1 — Product Positioning
+  // PAGE 1 — Product positioning + AI-first hook
   const renderPage1 = () => (
     <View style={pageOuterHeroStyle}>
       <View
@@ -217,6 +225,23 @@ function OnboardingFlowCore({
           webInnerClamp,
         ]}
       >
+        {renderStepEyebrow(0, 'Welcome')}
+        <View style={styles.heroLogoGlow}>
+          <LinearGradient
+            colors={BRAND_FRAME_GRADIENT_COLORS}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.heroIconRing}
+          >
+            <View style={styles.heroIconInner}>
+              <Image
+                source={require('../assets/images/bps-logo-updated.png')}
+                style={styles.heroLogoImage}
+                resizeMode="contain"
+              />
+            </View>
+          </LinearGradient>
+        </View>
         <Text
           style={[
             styles.title,
@@ -235,25 +260,25 @@ function OnboardingFlowCore({
             { color: colors.subtext },
           ]}
         >
-          Build Profit Solutions helps contractors turn estimates into profitable, well-run projects.
+          Turn job notes, photos, or plans into an estimate—then use it to run the job and protect your profit.
         </Text>
         <View style={[styles.bulletList, styles.bulletListHero]}>
           <View style={styles.bulletItem}>
-            <MaterialIcons name="check-circle" size={iconMd} color={colors.accent} />
+            <MaterialIcons name="auto-awesome" size={iconMd} color={colors.accentCyan} />
             <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>
-              Estimate with confidence
+              Create detailed estimates with AI
             </Text>
           </View>
           <View style={styles.bulletItem}>
-            <MaterialIcons name="check-circle" size={iconMd} color={colors.accent} />
+            <MaterialIcons name="trending-up" size={iconMd} color={colors.accent} />
             <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>
-              Manage jobs in real time
+              Track costs and progress from the estimate
             </Text>
           </View>
           <View style={styles.bulletItem}>
-            <MaterialIcons name="check-circle" size={iconMd} color={colors.accent} />
+            <MaterialIcons name="shield" size={iconMd} color={colors.accent} />
             <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>
-              Protect your margin from day one
+              Protect your margin throughout the job
             </Text>
           </View>
         </View>
@@ -261,7 +286,7 @@ function OnboardingFlowCore({
     </View>
   );
 
-  const toggleSelectedRole = (roleId: RoleOption) => {
+  const toggleRole = (roleId: RoleOption) => {
     setSelectedRoles((prev) =>
       prev.includes(roleId) ? prev.filter((id) => id !== roleId) : [...prev, roleId]
     );
@@ -273,24 +298,46 @@ function OnboardingFlowCore({
     );
   };
 
-  // PAGE 2 — Role Selection (multi-select)
+  const finalScreenCopy = () => {
+    const estimateFocused =
+      selectedHelpOptions.length === 0 ||
+      selectedHelpOptions.includes('estimates') ||
+      !selectedHelpOptions.some((id) => ['projects', 'costs', 'schedule', 'profit'].includes(id));
+
+    if (estimateFocused) {
+      return {
+        title: "Let's build your first estimate",
+        body: 'The fastest way to start: paste job notes, add photos, or upload plans with Build with AI.',
+        preferAi: true,
+      };
+    }
+
+    return {
+      title: "Let's set up your first job",
+      body: 'Start with an estimate — it becomes your live budget, schedule, and profit tracker as work progresses.',
+      preferAi: false,
+    };
+  };
+
+  // PAGE 2 — Role selection (multi-select)
   const renderPage2 = () => {
-    const roles = [
-      { id: 'gc' as RoleOption, label: 'General contractor' },
-      { id: 'subcontractor' as RoleOption, label: 'Subcontractor' },
-      { id: 'developer' as RoleOption, label: 'Developer' },
-      { id: 'owner-builder' as RoleOption, label: 'Owner-Builder' },
-      { id: 'other' as RoleOption, label: 'Other' },
+    const roles: { id: RoleOption; label: string; icon: React.ComponentProps<typeof MaterialIcons>['name'] }[] = [
+      { id: 'gc', label: 'General contractor', icon: 'engineering' },
+      { id: 'subcontractor', label: 'Trade contractor', icon: 'construction' },
+      { id: 'developer', label: 'Developer', icon: 'apartment' },
+      { id: 'owner-builder', label: 'Owner-builder', icon: 'home-work' },
+      { id: 'other', label: 'Other', icon: 'more-horiz' },
     ];
 
     return (
-      <View style={pageOuterStyle}>
-        <View style={contentCenteredStyle}>
-          <Text style={[styles.title, webTitle, { color: colors.text }]}>
+      <View style={[pageOuterStyle, styles.pageWithSkipClearance]}>
+        <View style={contentQuestionStyle}>
+          {renderStepEyebrow(1, 'About you')}
+          <Text style={[styles.title, styles.titleQuestion, webTitle, { color: colors.text }]}>
             What best describes you?
           </Text>
-          <Text style={[styles.helperText, styles.helperTextSubtle, webHelper, { marginBottom: 16 }]}>
-            Select all that apply.
+          <Text style={[styles.helperText, webHelper, { color: colors.subtext }]}>
+            Select all that apply. We use this for contract defaults and guidance — update anytime in Profile.
           </Text>
           <View style={styles.optionsContainer}>
             {roles.map((role) => {
@@ -305,25 +352,31 @@ function OnboardingFlowCore({
                 ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  toggleSelectedRole(role.id);
+                  toggleRole(role.id);
                 }}
                 activeOpacity={0.7}
               >
+                <MaterialIcons
+                  name={role.icon}
+                  size={iconSm}
+                  color={isSelected ? ESTIMATE_FLOW_CHIP_GREEN : colors.muted}
+                  style={styles.optionIcon}
+                />
                 <Text
                   style={[
                     styles.optionText,
                     webOptionText,
                     {
-                      color: isSelected ? '#fff' : colors.text,
-                      fontWeight: isSelected ? '600' : '400',
+                      color: colors.text,
+                      fontWeight: isSelected ? '700' : '500',
                     },
                   ]}
                 >
                   {role.label}
                 </Text>
-                {isSelected && (
-                  <MaterialIcons name="check" size={iconSm} color="#fff" />
-                )}
+                {isSelected ? (
+                  <MaterialIcons name="check-circle" size={iconSm} color={ESTIMATE_FLOW_CHIP_GREEN} />
+                ) : null}
               </TouchableOpacity>
             );
             })}
@@ -333,25 +386,29 @@ function OnboardingFlowCore({
     );
   };
 
-  // PAGE 3 — Primary goals (estimates + project management)
-  const renderPage4 = () => {
-    const helpOptions = [
-      { id: 'estimates' as HelpOption, label: 'Building accurate estimates' },
-      { id: 'projects' as HelpOption, label: 'Turning estimates into live projects' },
-      { id: 'costs' as HelpOption, label: 'Tracking costs and labor' },
-      { id: 'schedule' as HelpOption, label: 'Staying on schedule' },
-      { id: 'profit' as HelpOption, label: 'Protecting profit' },
-      { id: 'all' as HelpOption, label: 'All of the above' },
+  // PAGE 3 — Immediate goals (multi-select, optional)
+  const renderGoalsPage = () => {
+    const helpOptions: {
+      id: HelpOption;
+      label: string;
+      icon: React.ComponentProps<typeof MaterialIcons>['name'];
+    }[] = [
+      { id: 'estimates', label: 'Create an accurate estimate', icon: 'description' },
+      { id: 'projects', label: 'Turn estimates into live projects', icon: 'folder-shared' },
+      { id: 'costs', label: 'Track project costs and labor', icon: 'payments' },
+      { id: 'schedule', label: 'Manage schedule and progress', icon: 'event' },
+      { id: 'profit', label: 'Protect profit on every job', icon: 'trending-up' },
     ];
 
     return (
-      <View style={pageOuterStyle}>
-        <View style={contentCenteredStyle}>
-          <Text style={[styles.title, webTitle, { color: colors.text }]}>
-            What do you want help with most?
+      <View style={[pageOuterStyle, styles.pageWithSkipClearance]}>
+        <View style={contentQuestionStyle}>
+          {renderStepEyebrow(2, 'Your goals')}
+          <Text style={[styles.title, styles.titleQuestion, webTitle, { color: colors.text }]}>
+            What do you want to do first?
           </Text>
-          <Text style={[styles.helperText, styles.helperTextSubtle, webHelper, { marginBottom: 16 }]}>
-            Select all that apply — we will tailor tips around estimates and running the job.
+          <Text style={[styles.helperText, webHelper, { color: colors.subtext }]}>
+            Choose one or more. Skip if you are not sure — you can change this anytime.
           </Text>
           <View style={styles.optionsContainer}>
             {helpOptions.map((option) => {
@@ -370,21 +427,27 @@ function OnboardingFlowCore({
                 }}
                 activeOpacity={0.7}
               >
+                <MaterialIcons
+                  name={option.icon}
+                  size={iconSm}
+                  color={isSelected ? ESTIMATE_FLOW_CHIP_GREEN : colors.muted}
+                  style={styles.optionIcon}
+                />
                 <Text
                   style={[
                     styles.optionText,
                     webOptionText,
                     {
-                      color: isSelected ? '#fff' : colors.text,
-                      fontWeight: isSelected ? '600' : '400',
+                      color: colors.text,
+                      fontWeight: isSelected ? '700' : '500',
                     },
                   ]}
                 >
                   {option.label}
                 </Text>
-                {isSelected && (
-                  <MaterialIcons name="check" size={iconSm} color="#fff" />
-                )}
+                {isSelected ? (
+                  <MaterialIcons name="check-circle" size={iconSm} color={ESTIMATE_FLOW_CHIP_GREEN} />
+                ) : null}
               </TouchableOpacity>
             );
             })}
@@ -394,23 +457,32 @@ function OnboardingFlowCore({
     );
   };
 
-  const saveOnboardingAndOpenEstimate = async () => {
+  const completeOnboarding = async (options?: { openBuildWithAi?: boolean }) => {
     try {
+      const roles = selectedRoles;
+      const copy = finalScreenCopy();
+      const useBuildWithAi = options?.openBuildWithAi ?? copy.preferAi;
       const onboardingData = {
         role: selectedRoles[0] ?? null,
-        roles: selectedRoles,
+        roles,
         help: selectedHelpOptions[0] ?? null,
         helpOptions: selectedHelpOptions,
         completedAt: new Date().toISOString(),
+        entryPath: useBuildWithAi ? 'build-with-ai' : 'manual-estimate',
       };
       await AsyncStorage.setItem(
         onboardingDataKeyForUser(userId),
         JSON.stringify(onboardingData)
       );
-      await mergeOnboardingRoleIntoContractorProfile(selectedRoles);
+      if (roles.length > 0) {
+        await mergeOnboardingRoleIntoContractorProfile(roles);
+      }
       await markWalkthroughCompleted(userId, 'appOnboarding');
       await resyncProjectsFromServer();
       await AsyncStorage.setItem('bps.isFirstTimeEstimate', 'true');
+      if (useBuildWithAi) {
+        await setPendingOpenBuildWithAi();
+      }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       router.replace('/(tabs)/estimate-generator');
     } catch (error) {
@@ -419,95 +491,38 @@ function OnboardingFlowCore({
     }
   };
 
-  // PAGE 4 — Combined product flow (estimate → execution → margin → AI)
-  const renderCombinedProductPage = () => {
-    const flowBullets: { icon: 'account-balance-wallet' | 'engineering' | 'trending-up' | 'flag'; text: string }[] = [
-      { icon: 'account-balance-wallet', text: 'Estimate becomes the live job budget' },
-      { icon: 'engineering', text: 'Labor and materials become tracked costs' },
-      { icon: 'trending-up', text: 'Profit becomes a live metric during the job' },
-      { icon: 'flag', text: 'AI flags budget and scope risks early' },
-    ];
-
+  // PAGE 4 — Activate
+  const renderFinalPage = () => {
+    const copy = finalScreenCopy();
     return (
-      <View style={pageOuterCompactStyle}>
-        <View style={contentCompactTopStyle}>
-          <Text style={[styles.title, styles.titleCompact, webTitleCompact, { color: colors.text }]}>
-            From estimate to live job control
-          </Text>
-          <Text
-            style={[
-              styles.body,
-              styles.bodyCompact,
-              webBodyCompact,
-              { color: colors.subtext },
-            ]}
-          >
-            Build Profit Solutions does not stop after the bid is sent.{'\n'}
-            Your estimate becomes the foundation for running the job in real time.
-          </Text>
-          <View style={[styles.bulletList, styles.bulletListTight]}>
-            {flowBullets.map((row) => (
-              <View key={row.text} style={styles.bulletItem}>
-                <MaterialIcons name={row.icon} size={iconMd} color={colors.accent} />
-                <Text style={[styles.bulletText, webBullet, { color: colors.text }]}>{row.text}</Text>
-              </View>
-            ))}
-          </View>
-          <View
-            style={[
-              styles.calloutBox,
-              webDesktop && styles.calloutBoxWeb,
-              {
-                backgroundColor: 'rgba(34,197,94,0.12)',
-                borderColor: colors.accent,
-              },
-            ]}
-          >
-            <MaterialIcons name="insights" size={webDesktop ? 28 : 24} color={colors.accent} />
-            <Text style={[styles.calloutText, webCallout, { color: colors.text }]}>
-              Project Health Score shows how your job is performing at a glance.
-            </Text>
-          </View>
-        </View>
-      </View>
-    );
-  };
-
-  // PAGE 5 — Final action (single primary CTA)
-  const renderFinalPage = () => (
     <View style={pageOuterFinalStyle}>
       <View style={contentFinalStyle}>
-        <Text style={[styles.title, webTitle, { color: colors.text }]}>{"Let's get to work"}</Text>
+        {renderStepEyebrow(3, 'Get started')}
+        <Text style={[styles.title, webTitle, { color: colors.text }]}>{copy.title}</Text>
         <Text style={[styles.body, styles.bodyFinal, webBody, { color: colors.subtext }]}>
-          Start by creating your first estimate.
+          {copy.body}
         </Text>
         <View style={styles.finalActionsContainer}>
-          <LinearGradient
-            colors={colors.accentGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.primaryButton}
+          <TouchableOpacity
+            style={[estimateFlowPrimaryButtonStyle(), webDesktop && styles.primaryButtonWeb]}
+            onPress={() => completeOnboarding({ openBuildWithAi: true })}
+            activeOpacity={0.88}
           >
-            <TouchableOpacity
-              style={[styles.primaryButtonInner, webDesktop && styles.primaryButtonInnerWeb]}
-              onPress={saveOnboardingAndOpenEstimate}
-              activeOpacity={0.8}
-            >
-              <MaterialIcons name="description" size={iconMd} color="#fff" />
-              <Text style={[styles.primaryButtonText, webDesktop && styles.primaryButtonTextWeb]}>
-                Create First Estimate
-              </Text>
-            </TouchableOpacity>
-          </LinearGradient>
+            <MaterialIcons name="auto-awesome" size={iconMd} color="#071018" />
+            <Text style={estimateFlowPrimaryButtonTextStyle()}>Build with AI</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.outlineButtonCompact, webDesktop && styles.secondaryButtonWeb]}
+            onPress={() => completeOnboarding({ openBuildWithAi: false })}
+            activeOpacity={0.88}
+          >
+            <MaterialIcons name="description" size={iconMd} color={ESTIMATE_FLOW_CHIP_GREEN} />
+            <Text style={styles.outlineButtonText}>Start manually instead</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </View>
-  );
-
-  const canProceed = () => {
-    if (currentPage === 1) return selectedRoles.length > 0;
-    if (currentPage === 2) return selectedHelpOptions.length > 0;
-    return true;
+    );
   };
 
   return (
@@ -522,8 +537,16 @@ function OnboardingFlowCore({
         </View>
       </ScrollView>
 
-      {/* Navigation */}
-      <View style={[styles.navigation, { backgroundColor: '#000000', borderTopColor: 'rgba(255,255,255,0.05)' }]}>
+      <View
+        style={[
+          styles.navigation,
+          {
+            backgroundColor: '#000000',
+            borderTopColor: 'rgba(255,255,255,0.05)',
+            paddingBottom: Math.max(insets.bottom, 20),
+          },
+        ]}
+      >
         <View
           style={[
             styles.navigationContent,
@@ -556,52 +579,47 @@ function OnboardingFlowCore({
           <View style={styles.buttonRow}>
             {currentPage > 0 && (
               <TouchableOpacity
-                style={[
-                  styles.backButton,
-                  { borderColor: 'rgba(255,255,255,0.15)', backgroundColor: '#1a1a1a' },
-                  webDesktop && styles.backButtonWeb,
-                ]}
+                style={[styles.backButtonCompact, webDesktop && styles.backButtonWeb]}
                 onPress={handleBack}
-                activeOpacity={0.7}
+                activeOpacity={0.88}
               >
-                <MaterialIcons name="arrow-back" size={iconMd} color={colors.text} />
-                <Text style={[styles.backButtonText, { color: colors.text }]}>Back</Text>
+                <MaterialIcons name="arrow-back" size={iconMd} color={ESTIMATE_FLOW_CHIP_GREEN} />
+                <Text style={styles.outlineButtonText}>Back</Text>
               </TouchableOpacity>
             )}
             <View style={{ flex: 1 }} />
             {currentPage < LAST_PAGE_INDEX && (
-              <LinearGradient
-                colors={canProceed() ? colors.accentGradient : [colors.border, colors.border]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[styles.nextButton, { opacity: canProceed() ? 1 : 0.5 }]}
+              <TouchableOpacity
+                style={[
+                  estimateFlowPrimaryButtonStyle(),
+                  styles.nextButtonSolid,
+                  webDesktop && styles.nextButtonInnerWeb,
+                ]}
+                onPress={handleNext}
+                activeOpacity={0.88}
               >
-                <TouchableOpacity
-                  style={[styles.nextButtonInner, webDesktop && styles.nextButtonInnerWeb]}
-                  onPress={handleNext}
-                  disabled={!canProceed()}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.nextButtonText, webDesktop && styles.nextButtonTextWeb]}>Continue</Text>
-                  <MaterialIcons name="arrow-forward" size={iconMd} color="#fff" />
-                </TouchableOpacity>
-              </LinearGradient>
+                <Text style={estimateFlowPrimaryButtonTextStyle()}>Continue</Text>
+                <MaterialIcons name="arrow-forward" size={iconMd} color="#071018" />
+              </TouchableOpacity>
             )}
           </View>
         </View>
       </View>
 
-      {/* Skip button (only on first few pages) */}
-      {currentPage < 3 && (
+      {currentPage < LAST_PAGE_INDEX && (
         <TouchableOpacity
           style={[
             styles.skipButton,
-            skipButtonRight != null && { right: skipButtonRight, top: 16 },
+            { top: skipTop },
+            skipButtonRight != null && { right: skipButtonRight },
           ]}
           onPress={handleSkip}
           activeOpacity={0.7}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={[styles.skipButtonText, { color: colors.muted }]}>Skip</Text>
+          <Text style={[styles.skipButtonText, { color: colors.text }]}>
+            {currentPage === 0 ? 'Skip setup' : 'Skip for now'}
+          </Text>
         </TouchableOpacity>
       )}
     </LinearGradient>
@@ -692,14 +710,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 20,
     paddingTop: 32,
-    paddingBottom: 168,
+    paddingBottom: 188,
+  },
+  pageWithSkipClearance: {
+    paddingTop: 56,
+    justifyContent: 'flex-start',
   },
   pageContainerHero: {
-    paddingTop: 28,
-    justifyContent: 'center',
-  },
-  pageContainerCompact: {
-    paddingTop: 24,
     justifyContent: 'flex-start',
   },
   pageContainerFinal: {
@@ -711,15 +728,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   contentHero: {
-    justifyContent: 'center',
-    paddingVertical: 8,
+    justifyContent: 'flex-start',
+    paddingTop: 4,
     maxWidth: 400,
     alignSelf: 'center',
     width: '100%',
-  },
-  contentCompactTop: {
-    justifyContent: 'flex-start',
-    paddingTop: 8,
   },
   contentFinal: {
     justifyContent: 'center',
@@ -734,11 +747,55 @@ const styles = StyleSheet.create({
   },
   titleHero: {
     marginBottom: 12,
+    marginTop: 0,
   },
-  titleCompact: {
-    marginBottom: 12,
-    fontSize: 26,
-    lineHeight: 34,
+  contentQuestion: {
+    justifyContent: 'flex-start',
+    paddingTop: 8,
+  },
+  titleQuestion: {
+    textAlign: 'left',
+    marginBottom: 10,
+    marginTop: 2,
+  },
+  stepEyebrow: {
+    textAlign: 'left',
+    marginBottom: 16,
+  },
+  stepEyebrowCenter: {
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  heroLogoGlow: {
+    alignSelf: 'center',
+    marginBottom: 28,
+    shadowColor: '#22c55e',
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
+  },
+  /** Logo ring — slightly smaller than landing so headline stays focal. */
+  heroIconRing: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    padding: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heroIconInner: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  heroLogoImage: {
+    width: 152,
+    height: 152,
   },
   body: {
     fontSize: 16,
@@ -750,9 +807,6 @@ const styles = StyleSheet.create({
   bodyHero: {
     marginBottom: 20,
   },
-  bodyCompact: {
-    marginBottom: 18,
-  },
   bodyFinal: {
     marginBottom: 24,
   },
@@ -762,10 +816,6 @@ const styles = StyleSheet.create({
   },
   bulletListHero: {
     marginTop: 16,
-    gap: 12,
-  },
-  bulletListTight: {
-    marginTop: 14,
     gap: 12,
   },
   bulletItem: {
@@ -780,8 +830,8 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   optionsContainer: {
-    marginTop: 24,
-    gap: 12,
+    marginTop: 16,
+    gap: 10,
   },
   optionButton: {
     flexDirection: 'row',
@@ -790,11 +840,9 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 14,
     marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+  },
+  optionIcon: {
+    marginRight: 10,
   },
   optionButtonWeb: {
     paddingVertical: 18,
@@ -808,84 +856,67 @@ const styles = StyleSheet.create({
   },
   helperText: {
     fontSize: 14,
-    lineHeight: 20,
-    marginTop: 16,
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-  helperTextSubtle: {
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 14,
-    color: 'rgba(229,231,235,0.55)',
-    fontStyle: 'italic',
+    lineHeight: 21,
+    marginTop: 0,
+    marginBottom: 16,
+    textAlign: 'left',
     fontWeight: '400',
   },
-  calloutBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 18,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    marginTop: 18,
-    gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  calloutBoxWeb: {
-    paddingVertical: 22,
-    paddingHorizontal: 22,
-    gap: 14,
-  },
-  calloutText: {
-    fontSize: 16,
-    lineHeight: 22,
-    flex: 1,
-    fontWeight: '500',
-  },
-  finalActionsContainer: {
-    marginTop: 32,
-    gap: 12,
-  },
-  primaryButton: {
-    borderRadius: 14,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  primaryButtonInner: {
+  outlineButtonCompact: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 18,
-    gap: 8,
-  },
-  primaryButtonInnerWeb: {
-    paddingVertical: 20,
-    paddingHorizontal: 28,
-    minHeight: 56,
-  },
-  primaryButtonText: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  primaryButtonTextWeb: {
-    fontSize: 18,
-  },
-  secondaryButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
     backgroundColor: 'transparent',
-    borderWidth: 2,
+    gap: 8,
+    width: '100%',
   },
-  secondaryButtonText: {
-    fontSize: 17,
-    fontWeight: '600',
+  outlineButtonText: {
+    color: ESTIMATE_FLOW_CHIP_GREEN,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  backButtonCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
+    backgroundColor: 'transparent',
+    gap: 6,
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  finalActionsContainer: {
+    marginTop: 28,
+    gap: 12,
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
+  },
+  primaryButtonWeb: {
+    minHeight: 52,
+  },
+  secondaryButtonWeb: {
+    minHeight: 48,
+  },
+  nextButtonSolid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 24,
+    width: 'auto',
+    flexGrow: 0,
+    flexShrink: 0,
+    flex: 0,
   },
   navigation: {
     borderTopWidth: 1,
@@ -916,63 +947,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  backButtonWeb: {
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 6,
-  },
-  backButtonWeb: {
-    paddingVertical: 14,
-    paddingHorizontal: 20,
     minHeight: 48,
   },
-  backButtonText: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  nextButton: {
-    borderRadius: 14,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  nextButtonInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    gap: 8,
-  },
   nextButtonInnerWeb: {
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    minHeight: 52,
-  },
-  nextButtonText: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  nextButtonTextWeb: {
-    fontSize: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    minHeight: 48,
   },
   skipButton: {
     position: 'absolute',
-    top: 8,
-    right: 16,
-    padding: 10,
-    paddingHorizontal: 12,
+    right: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
     zIndex: 10,
   },
   skipButtonText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
+    letterSpacing: 0.1,
   },
 });

@@ -77,14 +77,8 @@ export const DEFAULT_PROJECT_ASSUMPTION_BULLETS: string[] = [
   "- Pricing is all-inclusive for the scope described. Nothing is hidden unless specifically excluded in the proposal.",
   "- This proposal is based on the visible site conditions and information available at the time of estimate.",
   "- Permits, plans, engineering, utility fees, inspections, and other project-related fees are billed at actual cost unless specifically included in the proposal.",
-  "- Project management covers scheduling, supervision, coordination, and documentation for the scope described.",
   "- Change orders are priced and approved in writing before additional work continues.",
-  "- Selections, finishes, fixtures, appliances, and owner-furnished items must be approved before ordering or installation.",
-  "- Lead times begin after signed approval, deposit receipt, required selections, and material release.",
-  "- Work schedule is subject to material availability, permit approvals, inspections, weather, owner selections, access, and change-order approvals.",
   "- Reasonable site protection, cleanup, and debris handling are included unless otherwise noted.",
-  "- Access to the work area, parking, power, water, and utilities must remain available during active work hours.",
-  "- Hidden damage, concealed conditions, framing deficiencies, code corrections, engineering changes, hazardous-material findings, and owner-requested revisions are excluded unless specifically listed.",
   `- Pricing is valid for ${DEFAULT_PROPOSAL_VALIDITY_DAYS} days from the proposal date due to labor, material, and supplier price changes.`,
 ];
 
@@ -258,7 +252,7 @@ export const sanitizeContractDoc = (
     .trim();
   const kind = getEffectiveEstimateKind(options, doc);
   const rawBullets = (doc.scope.bullets || [])
-    .map((bullet) => String(bullet || "").trim())
+    .map((bullet) => stripEditorListPrefix(String(bullet || "")))
     .filter(Boolean);
   let cleanScopeBullets =
     kind === "new_build"
@@ -556,16 +550,8 @@ export const computeClientPricingBreakdown = (doc: ContractDoc): ClientPricingBr
   };
 };
 
-/** Default job-specific bullets on the contract terms page (all estimate kinds). */
-export const DEFAULT_JOB_SPECIFIC_ASSUMPTION_CLAUSES: string[] = [
-  "- This pricing is based on the project type, scope, site conditions, and information available at the time of estimate.",
-  "- Existing or site-specific conditions that differ from the information provided may affect price, schedule, materials, labor, inspections, and required approvals.",
-  "- Hidden conditions, code corrections, utility conflicts, engineering changes, plan revisions, hazardous materials, unsuitable soils, structural issues, and other unforeseen conditions are outside the base scope unless specifically included.",
-  "- Owner selections, finish changes, fixture changes, appliance changes, layout changes, design changes, and owner-furnished materials may affect price, schedule, ordering, installation, and warranty coverage.",
-  "- Lead times, labor availability, inspection timing, weather, material availability, site access, owner decisions, change orders, and third-party delays may affect the project schedule.",
-  "- Any work not specifically listed in the proposal, scope summary, drawings, selections, or approved change order is excluded from the contract total.",
-  "- Project-specific assumptions should be reviewed and adjusted before sending the agreement to the client.",
-];
+/** Optional job-specific bullets on the contract terms page — empty by default; contractor adds as needed. */
+export const DEFAULT_JOB_SPECIFIC_ASSUMPTION_CLAUSES: string[] = [];
 
 export const getProjectTypePackForKind = (_kind: EstimateProjectKind): ClausePack => ({
   heading: "Job-specific assumptions",
@@ -736,7 +722,9 @@ export const normalizeProjectContractCopy = (
   const kind = getEffectiveEstimateKind(options, doc);
   const projectTypeLabel = formatProjectKindDisplayLabel(kind);
 
-  const rawBullets = (doc.scope.bullets || []).map((b) => String(b).trim()).filter(Boolean);
+  const rawBullets = (doc.scope.bullets || [])
+    .map((b) => stripEditorListPrefix(String(b)))
+    .filter(Boolean);
   /** Same contradiction filter as `sanitizeContractDoc` so included work never mixes remodel vs new-build. */
   const filteredBullets =
     kind === "new_build"

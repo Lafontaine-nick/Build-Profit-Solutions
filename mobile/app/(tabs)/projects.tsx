@@ -66,6 +66,8 @@ import { useClerkProfileGreeting } from '@/hooks/useProfileGreeting';
 import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 import { TabScreenHeader } from '@/components/ui/TabScreenHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
+import { tabFlowCardStyle } from '@/components/layout/TabFlowCard';
+import { AI_FLOW_CARD_BG_DARK } from '@/utils/estimateFlowCardStyle';
 import { formatMoneyUSD, formatMoneyCompact, formatDateShort } from '@/utils/formatters';
 /** UI-only: polish unknown location strings without changing stored data. */
 function formatLocationDisplay(raw: string | undefined | null): string {
@@ -1231,8 +1233,7 @@ export default function ProjectsScreen() {
           subtitle={`${projects.length} ${activeTab === 'submitted' ? 'submitted' : activeTab === 'completed' ? 'completed' : 'active'} ${projects.length === 1 ? 'project' : 'projects'}`}
           titleColor={darkMode ? '#F5F7FA' : Colors.text}
           subtitleColor={darkMode ? 'rgba(255,255,255,0.62)' : '#475569'}
-          titleStyle={styles.budgetPageTitleFont}
-          subtitleStyle={styles.budgetPageSubtitleFont}
+          darkMode={darkMode}
           right={
             <LinearGradient
               pointerEvents="box-none"
@@ -1376,18 +1377,7 @@ export default function ProjectsScreen() {
                           },
                         ]}
                       >
-                        <View
-                          style={[
-                            styles.projectCardInner,
-                            !darkMode && {
-                              borderWidth: 1,
-                              borderColor:
-                                Platform.OS === 'web'
-                                  ? 'rgba(148, 163, 184, 0.42)'
-                                  : Colors.line,
-                            },
-                          ]}
-                        >
+                        <View style={styles.projectCardInner}>
                   <View style={styles.projectTopRow}>
                     <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
                       <Text
@@ -1799,12 +1789,8 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     paddingHorizontal: desktopWeb ? 8 : 4,
   },
   card: {
-    borderRadius: ScreenLayout.card.radius,
-    padding: ScreenLayout.card.padding,
-    backgroundColor: Colors.card,
-    borderWidth: 1,
-    borderColor: Colors.line,
-    marginBottom: ScreenLayout.card.marginBottom,
+    ...tabFlowCardStyle(Colors, darkMode),
+    ...(desktopWeb ? { padding: 16 } : {}),
   },
   projectsCardWide: {
     marginHorizontal: -8,
@@ -1859,28 +1845,21 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     padding: 1,
   },
   projectCardInner: {
-    backgroundColor: Colors.surface2, // Same grey as dashboard project cards
-    borderRadius: 16,
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+    borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor:
-      Platform.OS === 'web'
-        ? darkMode
-          ? 'rgba(203, 213, 225, 0.32)'
-          : 'rgba(148, 163, 184, 0.42)'
-        : darkMode
-          ? 'rgba(148, 163, 184, 0.22)'
-          : Colors.line,
+    borderColor: darkMode ? 'rgba(148,163,184,0.12)' : Colors.line,
     ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: darkMode ? 0.35 : 0.08,
-        shadowRadius: 12,
-      },
-      android: {
-        elevation: darkMode ? 4 : 2,
-      },
+      ios: darkMode
+        ? {}
+        : {
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: 0.08,
+            shadowRadius: 12,
+          },
+      android: darkMode ? {} : { elevation: 2 },
     }),
   },
   projectCardGradient: {
@@ -2104,9 +2083,9 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   deleteButton: {
     padding: 4,
     borderRadius: 6,
-    backgroundColor: darkMode ? Colors.surface2 : "#FFFFFF",
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : '#FFFFFF',
     borderWidth: 1,
-    borderColor: darkMode ? "rgba(239, 68, 68, 0.35)" : "rgba(220, 38, 38, 0.35)",
+    borderColor: darkMode ? 'rgba(239, 68, 68, 0.35)' : 'rgba(220, 38, 38, 0.35)',
     justifyContent: 'center' as const,
     alignItems: 'center' as const,
   },
@@ -2146,9 +2125,9 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.cardDark,
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.cardDark,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(255, 255, 255, 0.12)' : Colors.line,
+    borderColor: darkMode ? 'rgba(148,163,184,0.12)' : Colors.line,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -2323,7 +2302,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderRadius: 12,
-    backgroundColor: darkMode ? Colors.surface2 : '#f1f5f9',
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
   },

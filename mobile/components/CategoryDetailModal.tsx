@@ -24,6 +24,7 @@ import {
   PROJECT_WIDE_CONTAINER_CARD_INSET,
 } from "@/constants/ScreenLayout";
 import GradientRingBackInner from "@/components/GradientRingBackInner";
+import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 
 // Helper to parse YYYY-MM-DD date strings as local time (not UTC) to avoid timezone shifts
 function parseLocalDate(dateString: string): Date {
@@ -123,6 +124,8 @@ export default function CategoryDetailModal({
     () => (darkMode ? "rgba(226, 232, 240, 0.78)" : Colors.sub),
     [darkMode, Colors.sub]
   );
+  const flowCardBg = darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2;
+  const flowCardBorder = darkMode ? "rgba(148,163,184,0.12)" : Colors.line;
   const { width: categoryLayoutWidth } = useWindowDimensions();
   const categoryDesktopWeb =
     Platform.OS === "web" && isDesktopWebLayoutWidth(categoryLayoutWidth);
@@ -825,7 +828,7 @@ export default function CategoryDetailModal({
                   activePOTab === 'total' && styles.poActiveTab,
                   { 
                     borderColor: activePOTab === 'total' ? Colors.primary : Colors.line,
-                    backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
+                    backgroundColor: flowCardBg,
                   },
                 ]}
                 onPress={() => {
@@ -852,7 +855,7 @@ export default function CategoryDetailModal({
                   activePOTab === 'committed' && styles.poActiveTab,
                   { 
                     borderColor: activePOTab === 'committed' ? Colors.primary : Colors.line,
-                    backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
+                    backgroundColor: flowCardBg,
                   },
                 ]}
                 onPress={() => {
@@ -879,7 +882,7 @@ export default function CategoryDetailModal({
                   activePOTab === 'received' && styles.poActiveTab,
                   { 
                     borderColor: activePOTab === 'received' ? Colors.primary : Colors.line,
-                    backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
+                    backgroundColor: flowCardBg,
                   },
                 ]}
                 onPress={() => {
@@ -910,7 +913,7 @@ export default function CategoryDetailModal({
                 style={[
                   styles.totalCardInner,
                   {
-                    backgroundColor: Colors.surface2,
+                    backgroundColor: flowCardBg,
                     borderWidth: 1,
                     borderColor: "rgba(148, 163, 184, 0.12)",
                     borderRadius: 14,
@@ -928,7 +931,7 @@ export default function CategoryDetailModal({
               </View>
             ) : (
               <View style={[styles.totalCardBorderLight, { borderColor: Colors.line }]}>
-                <View style={[styles.totalCardInner, { backgroundColor: Colors.surface2, borderColor: Colors.line, borderWidth: 1 }]}>
+                <View style={[styles.totalCardInner, { backgroundColor: flowCardBg, borderColor: flowCardBorder, borderWidth: 1 }]}>
                   <View style={styles.totalCard}>
                     <Text style={[styles.totalLabel, { color: Colors.sub }]}>
                       {isPurchaseOrdersCategory 
@@ -946,61 +949,41 @@ export default function CategoryDetailModal({
             <>
               {Platform.OS !== "web" ? (
                 <TouchableOpacity
-                  style={styles.addButtonWrapper}
+                  style={[
+                    styles.materialsScanButton,
+                    darkMode
+                      ? { backgroundColor: flowCardBg, borderColor: flowCardBorder }
+                      : { backgroundColor: Colors.surface2, borderColor: Colors.line },
+                  ]}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     setProductScannerVisible(true);
                   }}
                   activeOpacity={0.88}
                 >
-                  <LinearGradient
-                    colors={["#22c55e", "#22d3ee"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.addButton}
-                  >
-                    <View style={styles.scanPrimaryButtonContent}>
-                      <Ionicons name="camera-outline" size={20} color="#020617" />
-                      <Text style={styles.addButtonText}>Scan Product</Text>
-                    </View>
-                  </LinearGradient>
-                </TouchableOpacity>
-              ) : null}
-              {Platform.OS === "web" ? (
-                <TouchableOpacity
-                  style={styles.addButtonWrapper}
-                  onPress={() => {
-                    setEditingChangeOrderId(null);
-                    setShowAddForm(true);
-                  }}
-                  activeOpacity={0.88}
-                >
-                  <LinearGradient
-                    colors={["#22c55e", "#22d3ee"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.addButton}
-                  >
-                    <Text style={styles.addButtonText}>+ Add Materials/Equipment</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={[
-                    styles.materialsManualAddButton,
-                    !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
-                  ]}
-                  onPress={() => {
-                    setEditingChangeOrderId(null);
-                    setShowAddForm(true);
-                  }}
-                  activeOpacity={0.88}
-                >
-                  <Text style={[styles.materialsManualAddButtonText, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
-                    + Add Materials/Equipment
+                  <Ionicons name="camera-outline" size={18} color="#22c55e" />
+                  <Text style={[styles.materialsScanButtonText, { color: darkMode ? "#F5F7FA" : Colors.text }]}>
+                    Scan Product
                   </Text>
                 </TouchableOpacity>
-              )}
+              ) : null}
+              <TouchableOpacity
+                style={styles.addButtonWrapper}
+                onPress={() => {
+                  setEditingChangeOrderId(null);
+                  setShowAddForm(true);
+                }}
+                activeOpacity={0.88}
+              >
+                <LinearGradient
+                  colors={["#22c55e", "#22d3ee"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.addButton}
+                >
+                  <Text style={styles.addButtonText}>+ Add Materials/Equipment</Text>
+                </LinearGradient>
+              </TouchableOpacity>
               {Platform.OS !== "web" ? (
                 <Text style={[styles.materialsScanHelper, { color: supportSub }]}>
                   Scan a barcode to add Home Depot products faster.
@@ -1073,7 +1056,7 @@ export default function CategoryDetailModal({
                               styles.transactionCard,
                               {
                                 padding: 16,
-                                backgroundColor: Colors.surface2,
+                                backgroundColor: flowCardBg,
                                 borderWidth: 1,
                                 borderColor: "rgba(148, 163, 184, 0.12)",
                               },
@@ -1216,7 +1199,7 @@ export default function CategoryDetailModal({
                         <View style={[styles.transactionCardBorderLight, { borderColor: Colors.line }]}>
                           <View style={[styles.transactionCard, { 
                             padding: 16,
-                            backgroundColor: Colors.surface2,
+                            backgroundColor: flowCardBg,
                             borderColor: Colors.line,
                             borderWidth: 1,
                           }]}>
@@ -1379,7 +1362,7 @@ export default function CategoryDetailModal({
                           styles.transactionCard,
                           {
                             opacity: isItemDeleting ? 0.5 : 1,
-                            backgroundColor: Colors.surface2,
+                            backgroundColor: flowCardBg,
                             borderWidth: 1,
                             borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
                           },
@@ -1448,7 +1431,7 @@ export default function CategoryDetailModal({
                           styles.transactionCard, 
                           { 
                             opacity: isItemDeleting ? 0.5 : 1,
-                            backgroundColor: Colors.surface2,
+                            backgroundColor: flowCardBg,
                             borderWidth: 1,
                             borderColor: "rgba(148, 163, 184, 0.12)",
                           }
@@ -1853,7 +1836,7 @@ export default function CategoryDetailModal({
                             styles.transactionCard,
                             { 
                               opacity: isItemDeleting ? 0.5 : 1,
-                              backgroundColor: Colors.surface2,
+                              backgroundColor: flowCardBg,
                               borderColor: Colors.line,
                               borderWidth: 1,
                             }
@@ -2078,7 +2061,7 @@ export default function CategoryDetailModal({
                 </LinearGradient>
                 ) : (
                   <View style={[styles.emptyIconBorderLight, { borderColor: Colors.line }]}>
-                    <View style={[styles.emptyIconContainer, { backgroundColor: Colors.surface2, borderColor: Colors.line, borderWidth: 1 }]}>
+                    <View style={[styles.emptyIconContainer, { backgroundColor: flowCardBg, borderColor: flowCardBorder, borderWidth: 1 }]}>
                       <Text style={{ fontSize: 40 }}>{categoryIcon}</Text>
               </View>
                   </View>
@@ -2483,26 +2466,26 @@ const styles = StyleSheet.create({
   addButtonWrapper: {
     marginBottom: 10,
   },
+  materialsScanButton: {
+    marginBottom: 10,
+    minHeight: 46,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+  },
+  materialsScanButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
   scanPrimaryButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-  },
-  materialsManualAddButton: {
-    marginBottom: 8,
-    minHeight: 46,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(34, 197, 94, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.28)',
-  },
-  materialsManualAddButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: 0.2,
   },
   materialsScanHelper: {
     marginBottom: 22,

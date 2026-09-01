@@ -3,6 +3,22 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 /** Pre–per-user installs used a single global flag. Migrated once per user on read. */
 const LEGACY_ONBOARDING_COMPLETE_KEY = 'bps.onboardingComplete';
 
+/** Set during onboarding when user chooses Build with AI; consumed on Estimates tab focus. */
+export const PENDING_OPEN_BUILD_WITH_AI_KEY = 'bps.pendingOpenBuildWithAi';
+
+export async function setPendingOpenBuildWithAi(): Promise<void> {
+  await AsyncStorage.setItem(PENDING_OPEN_BUILD_WITH_AI_KEY, 'true');
+}
+
+export async function consumePendingOpenBuildWithAi(): Promise<boolean> {
+  const value = await AsyncStorage.getItem(PENDING_OPEN_BUILD_WITH_AI_KEY);
+  if (value === 'true') {
+    await AsyncStorage.removeItem(PENDING_OPEN_BUILD_WITH_AI_KEY);
+    return true;
+  }
+  return false;
+}
+
 export function onboardingCompleteKeyForUser(userId: string): string {
   return `bps.onboardingComplete.${userId}`;
 }

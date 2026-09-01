@@ -30,7 +30,13 @@ import {
   CalendarUpcomingFooter,
   UPCOMING_CALENDAR_WINDOW_DAYS,
 } from './CalendarUpcomingFooter';
-import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
+import {
+  isDesktopWebLayoutWidth,
+  DASHBOARD_WEB_MAX_CONTENT_WIDTH,
+  ScreenLayout,
+  WEB_DESKTOP_EDGE_HORIZONTAL,
+  getCalendarTabShellStyle,
+} from '@/constants/ScreenLayout';
 import { businessWorkspaceService } from '@/services/businessWorkspaceService';
 import { mergeArrayResource } from '@/utils/workspaceResourceMerge';
 import { useWorkspaceProjectPermissions } from '@/hooks/useWorkspaceProjectPermissions';
@@ -73,8 +79,8 @@ type ProjectCalendarProps = {
   onEventComplete?: (event: CalendarEvent) => void; // Callback when event is marked complete
   projectData?: any; // Full project data for syncing payments, POs, etc.
   /**
-   * Project detail: flush under AI PM row (no extra top inset). Render without parent `wideContainer`
-   * so width matches dashboard calendar (`ScreenLayout.edge.horizontal` via scroll padding).
+   * Project detail: flush under AI PM row. Uses dashboard-style inset width (narrower than
+   * `wideContainer` tabs) via `getCalendarTabContainerStyle`.
    */
   embedded?: boolean;
 };
@@ -190,6 +196,16 @@ export default function ProjectCalendar({
   /** Desktop web: cap calendar modals + New/Edit Event to same column as dashboard / date sheet */
   const calendarDesktopWeb =
     Platform.OS === 'web' && isDesktopWebLayoutWidth(layoutWidth);
+  const calendarEdge = calendarDesktopWeb
+    ? WEB_DESKTOP_EDGE_HORIZONTAL
+    : ScreenLayout.edge.horizontal;
+  const embeddedCalendarShellStyle = embedded
+    ? getCalendarTabShellStyle({
+        desktopWeb: calendarDesktopWeb,
+        edgeHorizontal: calendarEdge,
+        marginTop: 0,
+      })
+    : null;
   const COLORS = useMemo(
     () =>
       darkMode
@@ -904,7 +920,13 @@ export default function ProjectCalendar({
   const renderCalendarScrollBody = () => (
     <>
         {/* Calendar */}
-        <View style={[styles.calendarContainer, embedded && styles.calendarContainerEmbedded]}>
+        <View
+          style={
+            embedded
+              ? embeddedCalendarShellStyle
+              : styles.calendarContainer
+          }
+        >
           <GreyCalendar
             selectedDateString={selectedDate}
             onDayPress={({ dateString }) => {
@@ -961,15 +983,22 @@ export default function ProjectCalendar({
     </>
   );
 
+  const calendarBody = renderCalendarScrollBody();
+
   return (
-    <View style={[styles.container, { backgroundColor: COLORS.bg }]}>
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={embedded ? { paddingBottom: 24 } : undefined}
-      >
-        {renderCalendarScrollBody()}
-      </ScrollView>
+    <>
+      {embedded ? (
+        calendarBody
+      ) : (
+        <View style={[styles.container, { backgroundColor: COLORS.bg }]}>
+          <ScrollView
+            style={styles.scrollView}
+            showsVerticalScrollIndicator={false}
+          >
+            {calendarBody}
+          </ScrollView>
+        </View>
+      )}
 
       {/* Date Events Modal - Shows all events for selected date */}
       <Modal
@@ -1512,7 +1541,7 @@ export default function ProjectCalendar({
         </KeyboardAvoidingView>
       </Modal>
 
-    </View>
+    </>
   );
 }
 
@@ -1559,9 +1588,6 @@ const styles = StyleSheet.create({
   calendarContainer: {
     marginTop: 8,
     marginBottom: 24,
-  },
-  calendarContainerEmbedded: {
-    marginTop: 0,
   },
   dayHeaders: {
     flexDirection: 'row',

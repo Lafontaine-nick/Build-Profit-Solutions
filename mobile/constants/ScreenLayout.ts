@@ -66,18 +66,19 @@ export const ScreenLayout = {
   header: {
     marginTop: 12,
     marginBottom: 18,
-    titleSize: 32,
-    titleWeight: '800' as const,
-    titleLetterSpacing: 0.2,
+    /** Matches Estimates tab page title (`estimate-generator.jsx`). */
+    titleSize: 34,
+    titleWeight: '900' as const,
+    titleLetterSpacing: -0.3,
     subtitleSize: 14,
     subtitleWeight: '500' as const,
-    subtitleMarginTop: 4,
+    subtitleMarginTop: 6,
   },
-  /** Primary content cards (dashboard / projects) */
+  /** Primary content cards — aligned with `estimateFlowCardStyle` (Estimates / Build with AI). */
   card: {
-    radius: 28,
-    padding: 18,
-    marginBottom: 16,
+    radius: 14,
+    padding: 14,
+    marginBottom: 12,
     borderWidthDark: 1,
   },
   /** Must match app/(tabs)/_layout.tsx tabBarStyle */
@@ -88,6 +89,40 @@ export const ScreenLayout = {
     extraBottom: 24,
   },
 } as const;
+
+/** Dashboard + project detail calendar: slightly inset vs full-bleed section cards. */
+export function getCalendarTabContainerStyle(options: {
+  desktopWeb: boolean;
+  edgeHorizontal?: number;
+}): {
+  marginHorizontal: number;
+  paddingHorizontal: number;
+} {
+  const edge = options.edgeHorizontal ?? ScreenLayout.edge.horizontal;
+  return {
+    marginHorizontal: options.desktopWeb ? 0 : -(edge - 8),
+    paddingHorizontal: options.desktopWeb ? 24 : 8,
+  };
+}
+
+/** Full calendar tab shell — matches Dashboard `calendarContainer` + project detail embedded calendar. */
+export function getCalendarTabShellStyle(options: {
+  desktopWeb: boolean;
+  edgeHorizontal?: number;
+  marginTop?: number;
+}): {
+  marginTop: number;
+  marginBottom: number;
+  marginHorizontal: number;
+  paddingHorizontal: number;
+} {
+  const { marginTop = 4, ...rest } = options;
+  return {
+    marginTop,
+    marginBottom: 14,
+    ...getCalendarTabContainerStyle(rest),
+  };
+}
 
 export function getTabScrollContentBottomInset(
   safeAreaBottom: number,

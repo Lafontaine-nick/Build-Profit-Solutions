@@ -26,6 +26,12 @@ import { isDesktopWebLayoutWidth, getProjectExpenseFormHorizontalPadding } from 
 import KeyboardPlainAccessory from "./ui/KeyboardPlainAccessory";
 import { KEYBOARD_ACCESSORY_IDS } from "@/constants/keyboard";
 import { projectAddExpenseNumericKeyboardProps } from "@/constants/inputKeyboardPresets";
+import {
+  AI_FLOW_CARD_BG_DARK,
+  ESTIMATE_FLOW_CHIP_GREEN,
+  ESTIMATE_FLOW_CHIP_GREEN_BG,
+  ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
+} from "@/utils/estimateFlowCardStyle";
 
 /** RN Web: validation `Alert.alert` is easy to miss in Safari; sync dialog is obvious. */
 function alertAddTxnValidation(title: string, message: string) {
@@ -697,15 +703,16 @@ export default function AddTransactionModal({
   const displayCategoryName = categoryName.replace('/', ' & ');
 
   const { width: addTxnLayoutWidth } = useWindowDimensions();
-  /** Web-only: match estimate Add Labor / Add PO shell for budget “add expense” categories (not native). */
-  const webBudgetExpenseShell =
-    Platform.OS === "web" &&
-    (isPurchaseOrdersCategory ||
-      isChangeOrdersCategory ||
-      categoryNameLower.includes("material") ||
-      categoryNameLower.includes("equipment") ||
-      categoryNameLower.includes("labor") ||
-      categoryNameLower.includes("subs"));
+  /** Budget “add expense” categories — estimate-style gray card on native + web. */
+  const budgetExpenseCategory =
+    isPurchaseOrdersCategory ||
+    isChangeOrdersCategory ||
+    categoryNameLower.includes("material") ||
+    categoryNameLower.includes("equipment") ||
+    categoryNameLower.includes("labor") ||
+    categoryNameLower.includes("subs");
+  const webBudgetExpenseShell = budgetExpenseCategory;
+  const budgetExpenseWebRing = Platform.OS === "web" && webBudgetExpenseShell;
   const webPoDesktopWide =
     webBudgetExpenseShell && isDesktopWebLayoutWidth(addTxnLayoutWidth);
   const webPoFormPad = useMemo(() => {
@@ -778,13 +785,13 @@ export default function AddTransactionModal({
         letterSpacing: 0.25,
       },
       materialInputWrap: {
-        borderRadius: 16,
+        borderRadius: 14,
         flexDirection: "row" as const,
         alignItems: "center" as const,
         paddingHorizontal: 14,
-        backgroundColor: darkMode ? "rgba(255, 255, 255, 0.08)" : Colors.surface2,
+        backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : Colors.surface2,
         borderWidth: 1,
-        borderColor: darkMode ? "rgba(148, 163, 184, 0.32)" : Colors.line,
+        borderColor: darkMode ? "rgba(148, 163, 184, 0.12)" : Colors.line,
         paddingVertical: 12,
         minHeight: 48,
       },
@@ -798,32 +805,32 @@ export default function AddTransactionModal({
       pricingRow: { flexDirection: "row" as const, gap: 10 },
       pricingOpt: (active: boolean) => ({
         flex: 1,
-        paddingVertical: 14,
-        paddingHorizontal: 12,
-        borderRadius: 14,
-        borderWidth: 1.5,
+        paddingVertical: 12,
+        paddingHorizontal: 10,
+        borderRadius: 12,
+        borderWidth: 1,
         alignItems: "center" as const,
         justifyContent: "center" as const,
         minHeight: 48,
-        borderColor: active ? "#22c55e" : Colors.line,
+        borderColor: active ? ESTIMATE_FLOW_CHIP_GREEN : (darkMode ? "rgba(148, 163, 184, 0.18)" : Colors.line),
         backgroundColor: active
-          ? "#22c55e"
+          ? ESTIMATE_FLOW_CHIP_GREEN_BG
           : darkMode
-            ? "rgba(255, 255, 255, 0.06)"
+            ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK
             : Colors.bg,
       }),
       pricingText: (active: boolean) => ({
-        color: active ? "#050B13" : Colors.text,
+        color: active ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
         fontWeight: (active ? "700" : "600") as "700" | "600",
-        fontSize: 14,
+        fontSize: 13,
       }),
       amountShell: {
         flexDirection: "row" as const,
         alignItems: "center" as const,
-        borderRadius: 12,
+        borderRadius: 14,
         borderWidth: 1,
-        borderColor: darkMode ? "rgba(148, 163, 184, 0.32)" : Colors.line,
-        backgroundColor: darkMode ? "rgba(255, 255, 255, 0.08)" : Colors.surface2,
+        borderColor: darkMode ? "rgba(148, 163, 184, 0.12)" : Colors.line,
+        backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : Colors.surface2,
       },
       dollarSign: {
         fontSize: 18,
@@ -862,8 +869,8 @@ export default function AddTransactionModal({
         paddingVertical: 15,
         borderRadius: 14,
         borderWidth: 1,
-        borderColor: darkMode ? "#3f3f46" : Colors.line,
-        backgroundColor: darkMode ? "#18181b" : Colors.surface2,
+        borderColor: darkMode ? "rgba(148, 163, 184, 0.12)" : Colors.line,
+        backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
         alignItems: "center" as const,
         justifyContent: "center" as const,
       },
@@ -909,7 +916,7 @@ export default function AddTransactionModal({
     <Modal
       visible={visible}
       animationType="slide"
-      {...(webBudgetExpenseShell ? {} : { presentationStyle: "fullScreen" as const, statusBarTranslucent: true })}
+      {...(Platform.OS === "web" && webBudgetExpenseShell ? {} : { presentationStyle: "fullScreen" as const, statusBarTranslucent: true })}
     >
       <KeyboardPlainAccessory
         nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
@@ -917,9 +924,9 @@ export default function AddTransactionModal({
       />
       <KeyboardAvoidingView
         style={[styles.keyboardAvoid, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-        behavior={webBudgetExpenseShell ? undefined : (Platform.OS === 'ios' ? 'padding' : undefined)}
-        enabled={webBudgetExpenseShell ? false : Platform.OS === 'ios'}
-        keyboardVerticalOffset={webBudgetExpenseShell ? 0 : (Platform.OS === 'ios' ? -240 : 0)}
+        behavior={Platform.OS === "web" && webBudgetExpenseShell ? undefined : (Platform.OS === 'ios' ? 'padding' : undefined)}
+        enabled={Platform.OS === "web" && webBudgetExpenseShell ? false : Platform.OS === 'ios'}
+        keyboardVerticalOffset={Platform.OS === "web" && webBudgetExpenseShell ? 0 : (Platform.OS === 'ios' ? -240 : 0)}
       >
       <View style={[
         styles.container,
@@ -979,7 +986,9 @@ export default function AddTransactionModal({
                   Add {displayCategoryName}
                 </Text>
                 <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialSubtitle : [styles.subtitle, { color: Colors.sub }]}>
-                  Log your expense
+                  {isMaterialsEquipmentExpense
+                    ? "Log your material or equipment expense"
+                    : "Log your expense"}
                 </Text>
               </View>
             </View>
@@ -1012,24 +1021,25 @@ export default function AddTransactionModal({
             contentInsetAdjustmentBehavior="never"
           >
             <LinearGradient
-              colors={webBudgetExpenseShell ? BRAND_FRAME_GRADIENT_COLORS : ['transparent', 'transparent']}
+              colors={budgetExpenseWebRing ? BRAND_FRAME_GRADIENT_COLORS : ['transparent', 'transparent']}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
               style={{
-                borderRadius: webBudgetExpenseShell ? 20 : 0,
-                padding: webBudgetExpenseShell ? 1 : 0,
+                borderRadius: budgetExpenseWebRing ? 20 : (webBudgetExpenseShell ? 14 : 0),
+                padding: budgetExpenseWebRing ? 1 : 0,
                 marginBottom: webBudgetExpenseShell ? 8 : 0,
+                marginHorizontal: webBudgetExpenseShell && !budgetExpenseWebRing ? webPoFormPad.scroll : 0,
               }}
             >
               <View
                 style={{
-                  borderRadius: webBudgetExpenseShell ? 19 : 0,
+                  borderRadius: budgetExpenseWebRing ? 19 : (webBudgetExpenseShell ? 14 : 0),
                   padding: webBudgetExpenseShell ? 16 : 0,
                   backgroundColor: webBudgetExpenseShell
-                    ? (darkMode ? Colors.card : Colors.bg)
+                    ? (darkMode ? AI_FLOW_CARD_BG_DARK : Colors.bg)
                     : 'transparent',
                   borderWidth: webBudgetExpenseShell ? 1 : 0,
-                  borderColor: Colors.line,
+                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
                 }}
               >
             {isLaborOrSubs ? (
@@ -1951,13 +1961,15 @@ export default function AddTransactionModal({
                   onPress={showReceiptOptions}
                   style={{
                     borderWidth: 2,
-                    borderColor: Colors.line,
+                    borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
                     borderStyle: 'dashed',
                     borderRadius: 12,
                     padding: 20,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: Colors.surface2,
+                    backgroundColor: webBudgetExpenseShell && darkMode
+                      ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK
+                      : Colors.surface2,
                   }}
                 >
                   <MaterialIcons name="receipt" size={32} color="#8DA0B8" />

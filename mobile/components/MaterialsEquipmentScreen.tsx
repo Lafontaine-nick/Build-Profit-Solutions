@@ -28,6 +28,7 @@ import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL, ScreenLayout, PROJECT_WIDE_CONTAINER_CARD_INSET } from "@/constants/ScreenLayout";
 import { neutralIconPressableWebStyle } from "@/constants/iconPressable";
+import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
@@ -47,6 +48,8 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
   const router = useRouter();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
+  const flowCardBg = darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2;
+  const flowCardBorder = darkMode ? "rgba(148,163,184,0.12)" : Colors.line;
   const { width: layoutWidth } = useWindowDimensions();
   const materialsDesktopWeb =
     Platform.OS === "web" && isDesktopWebLayoutWidth(layoutWidth);
@@ -291,9 +294,9 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
                 style={[
                   styles.totalCard,
                   {
-                    backgroundColor: Colors.surface2,
+                    backgroundColor: flowCardBg,
                     borderWidth: 1,
-                    borderColor: "rgba(148, 163, 184, 0.12)",
+                    borderColor: flowCardBorder,
                     borderRadius: 14,
                   },
                 ]}
@@ -322,10 +325,10 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               </View>
             ) : (
               <View style={[styles.totalCardBorderLight, { borderColor: Colors.line }]}>
-                <View style={[styles.totalCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line }]}>
+                <View style={[styles.totalCard, { backgroundColor: flowCardBg, borderWidth: 1, borderColor: flowCardBorder }]}>
                   <View style={styles.totalLeftBlock}>
                     <View style={styles.totalTopRow}>
-                      <View style={[styles.totalIconContainer, { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+                      <View style={[styles.totalIconContainer, { backgroundColor: flowCardBg, borderColor: flowCardBorder }]}>
                         <Feather name="dollar-sign" size={18} color={BRAND_GREEN} />
                       </View>
                       <Text style={[styles.totalLabel, { color: Colors.sub }]}>Total Spent</Text>
@@ -347,6 +350,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
             <Pressable
               style={({ pressed }) => [
                 styles.scanButton,
+                darkMode && { backgroundColor: flowCardBg, borderColor: flowCardBorder },
                 !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
                 pressed && { opacity: 0.88 },
               ]}
@@ -380,11 +384,16 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               }
             }}
           >
-            <View style={[styles.addButtonGradient, { backgroundColor: BRAND_GREEN }]}>
+            <LinearGradient
+              colors={["#22c55e", "#22d3ee"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.addButtonGradient}
+            >
               <Text style={styles.addButtonText}>
                 + Add Materials & Equipment
               </Text>
-            </View>
+            </LinearGradient>
           </Pressable>
 
           {/* SECTION HEADER */}
@@ -392,7 +401,11 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
             <Text style={[styles.sectionTitle, { color: Colors.text }]}>Recent Transactions</Text>
             <View style={styles.sectionActionsRow}>
               <Pressable
-                style={[styles.iconChip, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}
+                style={[
+                  styles.iconChip,
+                  darkMode && { backgroundColor: flowCardBg, borderColor: flowCardBorder },
+                  !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
+                ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setShowSearch(!showSearch);
@@ -404,7 +417,12 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
                 <Feather name="search" size={16} color={darkMode ? "#FFFFFF" : Colors.sub} />
               </Pressable>
               <Pressable
-                style={[styles.iconChip, { marginLeft: 8 }, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}
+                style={[
+                  styles.iconChip,
+                  { marginLeft: 8 },
+                  darkMode && { backgroundColor: flowCardBg, borderColor: flowCardBorder },
+                  !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
+                ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   // Filter/sort functionality can be added later
@@ -417,7 +435,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
 
           {/* SEARCH BAR */}
           {showSearch && (
-            <View style={[styles.searchContainer, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+            <View style={[styles.searchContainer, darkMode && { backgroundColor: flowCardBg, borderColor: flowCardBorder }, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
               <Feather name="search" size={16} color={darkMode ? "#FFFFFF" : Colors.sub} style={{ marginRight: 8 }} />
               <TextInput
                 style={[styles.searchInput, { color: Colors.text }]}
@@ -441,7 +459,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
           {/* TRANSACTION LIST / EMPTY STATE */}
           {transactions.length === 0 ? (
             <View style={styles.emptyState}>
-              <View style={[styles.emptyIconBubble, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+              <View style={[styles.emptyIconBubble, darkMode && { backgroundColor: flowCardBg, borderColor: flowCardBorder }, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
                 <MaterialCommunityIcons
                   name="bricks"
                   size={28}
@@ -526,6 +544,8 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
   const Colors = useMemo(() => getColors(theme), [theme]);
   const supportSub = darkMode ? "rgba(226, 232, 240, 0.76)" : Colors.sub;
   const hintMuted = darkMode ? "rgba(226, 232, 240, 0.52)" : Colors.sub;
+  const flowCardBg = darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2;
+  const flowCardBorder = darkMode ? "rgba(148,163,184,0.12)" : Colors.line;
   const scale = useRef(new Animated.Value(1)).current;
 
   const pressIn = () => {
@@ -562,9 +582,9 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
             style={[
               styles.txCard,
               {
-                backgroundColor: Colors.surface2,
+                backgroundColor: flowCardBg,
                 borderWidth: 1,
-                borderColor: "rgba(148, 163, 184, 0.12)",
+                borderColor: flowCardBorder,
                 borderRadius: 14,
               },
             ]}
@@ -621,9 +641,9 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
           </View>
         ) : (
           <View style={[styles.txCardBorderLight, { borderColor: Colors.line }]}>
-            <View style={[styles.txCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line }]}>
+            <View style={[styles.txCard, { backgroundColor: flowCardBg, borderWidth: 1, borderColor: flowCardBorder }]}>
               <View style={styles.txLeft}>
-                <View style={[styles.txAvatar, { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+                <View style={[styles.txAvatar, { backgroundColor: flowCardBg, borderColor: flowCardBorder }]}>
                   <MaterialCommunityIcons
                     name="warehouse"
                     size={20}

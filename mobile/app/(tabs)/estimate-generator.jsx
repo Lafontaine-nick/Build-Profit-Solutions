@@ -145,6 +145,7 @@ import {
   estimateHeaderNewBidTextStyle,
   estimateStep1AccentCardStyle,
   estimateStep1ActionButtonStyle,
+  estimateFlowNestedActionButtonStyle,
   estimateStep1ActionButtonSelectedStyle,
   estimateStep1IconBadgeStyle,
   estimateFlowOutlineActionButtonStyle,
@@ -160,6 +161,8 @@ import {
   ESTIMATE_FLOW_CHIP_GREEN_BG,
   ESTIMATE_FLOW_BLUE,
   ESTIMATE_FLOW_GREEN,
+  AI_FLOW_CARD_BG_DARK,
+  ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
   ESTIMATE_FLOW_MATERIALS_BAR_GRADIENT,
   ESTIMATE_FLOW_CARD_GAP,
   ESTIMATE_FLOW_STEP_SCROLL_BOTTOM,
@@ -227,6 +230,7 @@ import {
   serializeAssumptionLines,
   parseBusinessTermsText,
   serializeBusinessTerms,
+  formatContractWordingSummary,
 } from '../../lib/proposals/contractWordingSerialization';
 import BottomToast from '../../components/BottomToast';
 import {
@@ -251,6 +255,7 @@ import { useProjectList } from '../../contexts/ProjectListContext';
 import { computeProfitForecast } from '../../src/lib/profitForecast';
 import { unifiedLeadService } from '../../services/unifiedLeadService';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { consumePendingOpenBuildWithAi } from '@/lib/onboardingStorage';
 import { useRequireAuth } from '../../hooks/useRequireAuth';
 import { useWorkspaceProjectPermissions } from '../../hooks/useWorkspaceProjectPermissions';
 import { useTranslation } from 'react-i18next';
@@ -879,7 +884,7 @@ const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
-    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
+    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : Colors.surface2,
     borderWidth: 1,
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
     paddingVertical: 12,
@@ -934,8 +939,8 @@ const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginRight: 0,
     marginBottom: 0,
     borderWidth: 1,
-    borderColor: Colors.line,
-    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.bg,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : Colors.bg,
   },
   materialChipActive: {
     backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
@@ -956,8 +961,8 @@ const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingVertical: 15,
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
-    backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : 'rgba(0,0,0,0.03)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1023,7 +1028,7 @@ const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
-    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
+    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : Colors.surface2,
   },
   budgetDollarSign: {
     fontSize: 18,
@@ -2511,7 +2516,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           onPress={() => setMode('hourly')}
                           style={[
                             modalStyles.materialPricingOption,
-                            estimateStep1ActionButtonStyle(Colors, darkMode),
+                            estimateFlowNestedActionButtonStyle(Colors, darkMode),
                             mode === 'hourly' && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
                           ]}
                         >
@@ -2530,7 +2535,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           onPress={() => setMode('sqft')}
                           style={[
                             modalStyles.materialPricingOption,
-                            estimateStep1ActionButtonStyle(Colors, darkMode),
+                            estimateFlowNestedActionButtonStyle(Colors, darkMode),
                             mode === 'sqft' && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
                           ]}
                         >
@@ -2556,7 +2561,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           onPress={() => setLaborType('inhouse')}
                           style={[
                             modalStyles.materialPricingOption,
-                            estimateStep1ActionButtonStyle(Colors, darkMode),
+                            estimateFlowNestedActionButtonStyle(Colors, darkMode),
                             laborType === 'inhouse' && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
                           ]}
                         >
@@ -2575,7 +2580,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           onPress={() => setLaborType('subcontractor')}
                           style={[
                             modalStyles.materialPricingOption,
-                            estimateStep1ActionButtonStyle(Colors, darkMode),
+                            estimateFlowNestedActionButtonStyle(Colors, darkMode),
                             laborType === 'subcontractor' && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
                           ]}
                         >
@@ -2739,7 +2744,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             onPress={() => handleMaterialPricingModeChange('flat')}
                             style={[
                               modalStyles.materialPricingOption,
-                              estimateStep1ActionButtonStyle(Colors, darkMode),
+                              estimateFlowNestedActionButtonStyle(Colors, darkMode),
                               mode === 'flat' && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
                             ]}
                           >
@@ -2758,7 +2763,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             onPress={() => handleMaterialPricingModeChange('sqft')}
                             style={[
                               modalStyles.materialPricingOption,
-                              estimateStep1ActionButtonStyle(Colors, darkMode),
+                              estimateFlowNestedActionButtonStyle(Colors, darkMode),
                               mode === 'sqft' && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
                             ]}
                           >
@@ -8825,6 +8830,7 @@ export default function EstimateGeneratorScreen() {
   const [contractLangAssumptions, setContractLangAssumptions] = useState([]);
   const [contractLangBusinessTerms, setContractLangBusinessTerms] = useState([]);
   const [contractLangWorkNotes, setContractLangWorkNotes] = useState([]);
+  const [generatingContract, setGeneratingContract] = useState(false);
   const contractLangDraftsKeyRef = useRef('');
   
   const normalizeScope = useCallback((value) => {
@@ -10412,6 +10418,27 @@ export default function EstimateGeneratorScreen() {
     aiDraftGenerating,
     aiDraftApplying,
   ]);
+
+  /** Onboarding "Build with AI" — open builder when user lands from final onboarding step. */
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      void (async () => {
+        try {
+          const pending = await consumePendingOpenBuildWithAi();
+          if (cancelled || !pending || !isLoaded) return;
+          requestAnimationFrame(() => {
+            if (!cancelled) openBuildWithAiDirect();
+          });
+        } catch (e) {
+          if (__DEV__) console.warn('pending OpenBuildWithAi check failed', e);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [isLoaded, openBuildWithAiDirect])
+  );
 
   const storeEstimateAiUndoSnapshot = useCallback((label) => {
     lastEstimateAiUndoRef.current = {
@@ -12547,14 +12574,19 @@ export default function EstimateGeneratorScreen() {
       const preflightWarnings = validateContractPreflight(doc, contractOptions);
 
       const runExport = async () => {
-        const brandAsset = await resolveContractBrandAsset(profileForPdf);
-        const coverImageUrl = resolveContractCoverImageUrl(profileForPdf);
-        const logoForPdf = brandAsset || coverImageUrl;
-        doc.contractor.logoUrl = logoForPdf;
-        contractOptions.branding = { ...branding, logoUrl: logoForPdf };
+        setGeneratingContract(true);
+        try {
+          const brandAsset = await resolveContractBrandAsset(profileForPdf);
+          const coverImageUrl = resolveContractCoverImageUrl(profileForPdf);
+          const logoForPdf = brandAsset || coverImageUrl;
+          doc.contractor.logoUrl = logoForPdf;
+          contractOptions.branding = { ...branding, logoUrl: logoForPdf };
 
-        await exportContractPdf(doc, contractOptions, `${bid.title || 'contract'}-agreement-${bid.id}`);
-        console.log('✅ Contract PDF generated and shared successfully');
+          await exportContractPdf(doc, contractOptions, `${bid.title || 'contract'}-agreement-${bid.id}`);
+          console.log('✅ Contract PDF generated and shared successfully');
+        } finally {
+          setGeneratingContract(false);
+        }
       };
 
       if (preflightWarnings.length > 0) {
@@ -15242,7 +15274,7 @@ export default function EstimateGeneratorScreen() {
                           paddingVertical: 13,
                           paddingHorizontal: 10,
                         },
-                        estimateStep1ActionButtonStyle(Colors, darkMode),
+                        estimateFlowNestedActionButtonStyle(Colors, darkMode),
                         materialModal.visible && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
                       ]}
                       onPress={() => setMaterialModal({ visible: true, item: null })}
@@ -15268,7 +15300,7 @@ export default function EstimateGeneratorScreen() {
                           paddingVertical: 13,
                           paddingHorizontal: 10,
                         },
-                        estimateStep1ActionButtonStyle(Colors, darkMode),
+                        estimateFlowNestedActionButtonStyle(Colors, darkMode),
                         skuModalVisible && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
                       ]}
                       onPress={() => {
@@ -16034,7 +16066,7 @@ export default function EstimateGeneratorScreen() {
                         paddingVertical: 13,
                         paddingHorizontal: 10,
                       },
-                      estimateStep1ActionButtonStyle(Colors, darkMode),
+                      estimateFlowNestedActionButtonStyle(Colors, darkMode),
                       laborModal.visible && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
                     ]}
                     onPress={() => setLaborModal({ visible: true, item: null })}
@@ -16060,7 +16092,7 @@ export default function EstimateGeneratorScreen() {
                         paddingVertical: 13,
                         paddingHorizontal: 10,
                       },
-                      estimateStep1ActionButtonStyle(Colors, darkMode),
+                      estimateFlowNestedActionButtonStyle(Colors, darkMode),
                       subcontractorModalVisible && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
                     ]}
                     onPress={() => setSubcontractorModalVisible(true)}
@@ -19040,7 +19072,7 @@ export default function EstimateGeneratorScreen() {
                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                               }}
                               style={[
-                                estimateStep1ActionButtonStyle(Colors, darkMode),
+                                estimateFlowNestedActionButtonStyle(Colors, darkMode),
                                 { paddingVertical: 8, paddingHorizontal: 11, borderRadius: 999 },
                                 selected && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
                               ]}
@@ -19094,7 +19126,7 @@ export default function EstimateGeneratorScreen() {
                                   gap: 9,
                                   paddingHorizontal: 12,
                                 },
-                                estimateStep1ActionButtonStyle(Colors, darkMode),
+                                estimateFlowNestedActionButtonStyle(Colors, darkMode),
                                 selected && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
                               ]}
                             >
@@ -23366,9 +23398,33 @@ export default function EstimateGeneratorScreen() {
                 <Text style={[confirmScopeSectionLabelStyle(), { color: Colors.sub, marginBottom: 8 }]}>
                   Contract wording on the PDF
                 </Text>
-                <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 21, marginBottom: 14 }}>
-                  The text below is what will appear on the agreement by default—the same layout and styling you see today. Would you like to change or add anything before you generate?
+                <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 21, marginBottom: 12 }}>
+                  Standard template wording is included. Expand a section only if you need to change something before you generate.
                 </Text>
+                {!contractWordingExpanded ? (
+                  <View
+                    style={{
+                      marginBottom: 14,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderRadius: 10,
+                      backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
+                      borderWidth: 1,
+                      borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                    }}
+                  >
+                    <Text style={[confirmScopeSectionLabelStyle(), { color: ESTIMATE_FLOW_CHIP_GREEN, marginBottom: 6 }]}>
+                      Using standard template
+                    </Text>
+                    <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 18 }}>
+                      {formatContractWordingSummary(
+                        contractLangAssumptions,
+                        contractLangBusinessTerms,
+                        contractLangWorkNotes,
+                      )}
+                    </Text>
+                  </View>
+                ) : null}
                 <TouchableOpacity
                   onPress={() => {
                     setContractWordingExpanded(!contractWordingExpanded);
@@ -23418,11 +23474,20 @@ export default function EstimateGeneratorScreen() {
                 <TouchableOpacity
                   onPress={shouldGateAdvanced ? handleReadinessCTA : () => generateContract()}
                   activeOpacity={0.8}
-                  style={estimateFlowPrimaryButtonStyle()}
+                  disabled={generatingContract}
+                  style={[estimateFlowPrimaryButtonStyle(), generatingContract && { opacity: 0.85 }]}
                 >
-                  <MaterialIcons name="description" size={20} color="#071018" />
+                  {generatingContract ? (
+                    <ActivityIndicator size="small" color="#071018" />
+                  ) : (
+                    <MaterialIcons name="description" size={20} color="#071018" />
+                  )}
                   <Text style={estimateFlowPrimaryButtonTextStyle()}>
-                    {shouldGateAdvanced ? 'Finish setup to generate' : 'Generate contract PDF'}
+                    {shouldGateAdvanced
+                      ? 'Finish setup to generate'
+                      : generatingContract
+                        ? 'Generating PDF…'
+                        : 'Generate contract PDF'}
                   </Text>
                 </TouchableOpacity>
               </View>

@@ -6,6 +6,8 @@ import { fromByteArray } from 'base64-js';
 import { resolveBackendRestApiBaseUrl } from '../../utils/resolveBackendRestApiUrl';
 import { getNetworkInfo } from '../../utils/networkDetection';
 import { triggerBrowserPdfDownload } from '../../utils/triggerBrowserPdfDownload';
+import { clerkAuthService } from '@/services/clerkAuth';
+import { getAuthTokenWithFallback } from '@/utils/authTokenHelper';
 
 const ensureApiSuffix = (url: string) => {
   const trimmed = String(url || '').trim().replace(/\/$/, '');
@@ -205,6 +207,12 @@ function buildBackendPdfFailureHint(attemptErrors: string[]): string {
   const blob = attemptErrors.join('\n');
   const parts: string[] = [];
 
+  if (/Access token required|Invalid or expired token/i.test(blob)) {
+    parts.push(
+      'ROOT 0 — Sign in required: contract PDF generation needs your Clerk session. Confirm you are logged in, reload the app, then try again.',
+    );
+  }
+
   if (/render\.com.*Chrome|Could not find Chrome|puppeteer|sparticuz/i.test(blob)) {
     parts.push(
       'ROOT 1 — Hosted backend (Render): PDF server could not launch Chrome. Redeploy the backend (`npm install` installs @sparticuz/chromium). Verify GET …/api/contracts/pdf-ready returns ok: true and pdfEngine: sparticuz-chromium.',
@@ -317,6 +325,12 @@ export async function renderHtmlPdfViaBackend(
     });
   }
   const attemptErrors: string[] = [];
+  const authToken = (await getAuthTokenWithFallback()) ?? clerkAuthService.getToken();
+  if (!authToken) {
+    throw new Error(
+      'Sign in required to generate PDFs. Confirm you are logged in, reload the app, then try again.',
+    );
+  }
 
   for (const apiBase of apiBases) {
     try {
@@ -329,6 +343,7 @@ export async function renderHtmlPdfViaBackend(
           headers: {
             'Content-Type': 'application/json',
             Accept: 'application/pdf',
+            Authorization: `Bearer ${authToken}`,
           },
           body: JSON.stringify({
             filename: safeFilename,

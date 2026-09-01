@@ -41,6 +41,15 @@ import {
   WEB_CENTERED_COLUMN_MAX_WIDTH,
   WEB_CENTERED_COLUMN_MIN_WIDTH,
 } from '@/constants/ScreenLayout';
+import { BRAND_FRAME_GRADIENT_COLORS, BRAND_FRAME_GRADIENT_START, BRAND_FRAME_GRADIENT_END } from '@/constants/brandFrameGradient';
+import {
+  AI_FLOW_CARD_BG_DARK,
+  ESTIMATE_FLOW_CHIP_GREEN,
+  ESTIMATE_FLOW_GREEN,
+  confirmScopeSectionLabelStyle,
+  estimateFlowPrimaryButtonStyle,
+  estimateFlowPrimaryButtonTextStyle,
+} from '@/utils/estimateFlowCardStyle';
 import { showAuthFeedback } from '@/utils/authFeedback';
 import { useClerkUiReady } from '@/hooks/useClerkUiReady';
 
@@ -1375,13 +1384,9 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                 <Text style={styles.headerEyebrow}>
                   {isSignup ? t('auth.getStarted') : t('auth.welcomeBack')}
                 </Text>
-                <View style={styles.headerTitleRow}>
-                  <Text style={styles.headerTitle}>
-                    {isSignup ? t('auth.createYour') : t('auth.signInTo')}
-                  </Text>
-                </View>
-                <Text style={styles.headerTitleAccent}>
-                  Build Profit Solutions
+                <Text style={styles.headerTitle}>
+                  {isSignup ? t('auth.createYour') : t('auth.signInTo')}{' '}
+                  <Text style={styles.headerTitleBrand}>Build Profit Solutions</Text>
                 </Text>
                 <Text style={styles.headerSubtitle}>
                   {t('auth.subtitle')}
@@ -1392,12 +1397,12 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
             {/* Card – mirrors your rounded dashboard surface */}
             <View style={styles.wideContainer}>
               <LinearGradient
-                colors={["#2DFFC4", "#00A6FF"]}
-                start={{ x: 0.05, y: 0.1 }}
-                end={{ x: 0.95, y: 0.9 }}
+                colors={BRAND_FRAME_GRADIENT_COLORS}
+                start={BRAND_FRAME_GRADIENT_START}
+                end={BRAND_FRAME_GRADIENT_END}
                 style={styles.cardBorder}
               >
-            <View style={[styles.card, Colors.bg !== '#000000' && { backgroundColor: Colors.cardDark, borderColor: Colors.line, borderWidth: 1 }]}>
+            <View style={[styles.card, !darkMode && { backgroundColor: Colors.cardDark, borderColor: Colors.line, borderWidth: 1 }]}>
               {/* Mode toggle – visually echoes Overview / Analytics / Insights bar */}
               <View style={styles.modeToggle}>
                 <TouchableOpacity
@@ -1744,11 +1749,6 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
               {/* Primary CTA */}
               <TouchableOpacity
                 activeOpacity={0.9}
-                style={[
-                  styles.primaryBtnWrapper,
-                  (loading || (awaitingCode && codeTooShort)) && styles.primaryBtnWrapperDisabled,
-                  Platform.OS === 'web' && styles.primaryBtnWrapperWeb,
-                ]}
                 onPress={
                   awaitingCode
                     ? isSignup
@@ -1758,18 +1758,17 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                 }
                 disabled={loading || (awaitingCode && codeTooShort)}
                 accessibilityRole="button"
+                style={[
+                  estimateFlowPrimaryButtonStyle(),
+                  styles.primaryBtn,
+                  (loading || (awaitingCode && codeTooShort)) && styles.primaryBtnWrapperDisabled,
+                  Platform.OS === 'web' && styles.primaryBtnWrapperWeb,
+                ]}
               >
-                <LinearGradient
-                  pointerEvents="none"
-                  colors={["#19E180", "#22c55e"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.primaryBtn}
-                >
                   {loading ? (
-                    <ActivityIndicator color="#022C22" />
+                    <ActivityIndicator color="#071018" />
                   ) : (
-                    <Text style={styles.primaryBtnText}>
+                    <Text style={estimateFlowPrimaryButtonTextStyle()}>
                       {awaitingCode
                         ? 'Verify code'
                         : isSignup
@@ -1777,7 +1776,6 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                           : t('auth.signIn')}
                     </Text>
                   )}
-                </LinearGradient>
               </TouchableOpacity>
 
               {/* OAuth (OAuthButtons includes the OR divider) */}
@@ -1900,10 +1898,9 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
       : {}),
   },
   headerEyebrow: {
-    color: "#19E180",
-    fontSize: 12,
-    fontWeight: "600",
-    marginBottom: 2,
+    ...confirmScopeSectionLabelStyle(),
+    color: isDark ? "#f9fafb" : Colors.sub,
+    marginBottom: 8,
     ...(wideWeb ? { textAlign: "center" as const, alignSelf: "stretch" as const } : {}),
   },
   headerTitleRow: {
@@ -1915,70 +1912,69 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     color: isDark ? "#F9FAFB" : Colors.text,
     fontSize: 28,
     fontWeight: "800",
+    lineHeight: 34,
     ...(wideWeb ? { textAlign: "center" as const } : {}),
   },
-  headerTitleAccent: {
-    color: "#19E180",
-    fontSize: 22,
-    fontWeight: "700",
-    marginTop: 1,
-    ...(wideWeb ? { textAlign: "center" as const, alignSelf: "stretch" as const } : {}),
+  headerTitleBrand: {
+    color: isDark ? "#F9FAFB" : Colors.text,
+    fontWeight: "800",
   },
   headerSubtitle: {
-    color: isDark ? "#FFFFFF" : "#475569",
-    fontSize: 13,
-    marginTop: 6,
+    color: isDark ? "rgba(255,255,255,0.82)" : "#475569",
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 8,
+    fontWeight: "500",
     ...(wideWeb ? { textAlign: "center" as const, alignSelf: "stretch" as const } : {}),
   },
   cardBorder: {
-    borderRadius: 30,
+    borderRadius: 16,
     padding: 1,
-    shadowColor: isDark ? '#00A6FF' : "transparent",
-    shadowOpacity: isDark ? 0.16 : 0,
-    shadowRadius: isDark ? 14 : 0,
-    shadowOffset: { width: 0, height: isDark ? 10 : 0 },
-    elevation: isDark ? 12 : 0,
+    shadowColor: isDark ? "transparent" : "transparent",
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
     borderWidth: isDark ? 0 : 1,
     borderColor: isDark ? "transparent" : "#E2E8F0",
   },
   card: {
-    backgroundColor: isDark ? "#000000" : "#FFFFFF",
-    borderRadius: 28,
+    backgroundColor: isDark ? AI_FLOW_CARD_BG_DARK : "#FFFFFF",
+    borderRadius: 15,
     paddingHorizontal: wideWeb ? 20 : 18,
     paddingVertical: wideWeb ? 18 : 20,
   },
   modeToggle: {
     flexDirection: "row",
-    backgroundColor: isDark ? "#000000" : "#F1F5F9",
-    borderRadius: 999,
+    backgroundColor: isDark ? "#141416" : "#F1F5F9",
+    borderRadius: 14,
     padding: 4,
-    borderWidth: isDark ? 1 : 1,
-    borderColor: isDark ? "rgba(55, 65, 81, 0.9)" : "#E2E8F0",
+    borderWidth: 1,
+    borderColor: isDark ? "rgba(148,163,184,0.12)" : "#E2E8F0",
     marginBottom: 18,
   },
   modeChip: {
     flex: 1,
-    borderRadius: 999,
-    paddingVertical: 8,
+    borderRadius: 10,
+    paddingVertical: 10,
     paddingHorizontal: 8,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
   },
   modeChipActive: {
-    backgroundColor: "#19E180",
-    shadowColor: "#19E180",
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 },
+    backgroundColor: ESTIMATE_FLOW_GREEN,
+    shadowColor: "transparent",
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
   },
   modeChipText: {
-    color: isDark ? "#FFFFFF" : "#334155",
+    color: isDark ? "rgba(255,255,255,0.82)" : "#334155",
     fontSize: 13,
     fontWeight: "600",
   },
   modeChipTextActive: {
-    color: "#022C22",
+    color: "#071018",
   },
   row: {
     flexDirection: "row",
@@ -1996,12 +1992,12 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 16,
+    borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 9,
-    backgroundColor: isDark ? "#000000" : "#FFFFFF",
+    paddingVertical: 10,
+    backgroundColor: isDark ? "#141416" : "#FFFFFF",
     borderWidth: 1,
-    borderColor: isDark ? "#FFFFFF" : "#E2E8F0",
+    borderColor: isDark ? "rgba(148,163,184,0.22)" : "#E2E8F0",
   },
   input: {
     flex: 1,
@@ -2054,9 +2050,9 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     marginBottom: 6,
   },
   forgotText: {
-    color: "#22C55E",
+    color: ESTIMATE_FLOW_CHIP_GREEN,
     fontSize: 13,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   staySignedInRow: {
     flexDirection: 'row',
@@ -2087,8 +2083,6 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     textAlign: 'center',
   },
   primaryBtnWrapper: {
-    borderRadius: 999,
-    overflow: "hidden",
     marginTop: 6,
   },
   primaryBtnWrapperWeb: {
@@ -2098,14 +2092,10 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     opacity: 0.6,
   },
   primaryBtn: {
-    borderRadius: 999,
-    paddingVertical: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 48,
+    marginTop: 0,
   },
   primaryBtnText: {
-    color: "#022C22",
+    color: "#071018",
     fontSize: 16,
     fontWeight: "700",
   },
@@ -2119,7 +2109,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     fontSize: 13,
   },
   footerLink: {
-    color: "#22C55E",
+    color: ESTIMATE_FLOW_CHIP_GREEN,
     fontSize: 13,
     fontWeight: "600",
   },
@@ -2135,7 +2125,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     lineHeight: 16,
   },
   termsLink: {
-    color: "#22C55E",
+    color: ESTIMATE_FLOW_CHIP_GREEN,
     fontWeight: "500",
     textDecorationLine: "underline",
   },

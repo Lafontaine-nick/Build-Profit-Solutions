@@ -83,6 +83,78 @@ const formatSqftRate = (item: AppendixLineItem) => {
 const esc = (s: string) =>
   (s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" } as any)[c]);
 
+/** PDF HTML display only — does not alter contract doc, estimate, or template rules. */
+const GENERIC_CONTRACTOR_TITLES = /^(developer|contractor|owner|president|ceo)$/i;
+
+function formatContractorTitleForPdf(title?: string): string {
+  const trimmed = String(title || "").trim();
+  return trimmed && !GENERIC_CONTRACTOR_TITLES.test(trimmed) ? trimmed : "";
+}
+
+function isOrphanScopeSectionHeading(text: string): boolean {
+  return /^(inclusions?|exclusions?|scope( items)?|measurements?)$/i.test(String(text || "").trim());
+}
+
+function dedupeScopeBulletsForDisplay(bullets: string[]): string[] {
+  const items = bullets.map((bullet) => stripEditorListPrefix(bullet).trim()).filter(Boolean);
+  const seen = new Set<string>();
+
+  return items.filter((item, index) => {
+    const key = item.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    if (isOrphanScopeSectionHeading(item)) return false;
+
+    const isShortLabel = item.length < 72 && !item.includes(".");
+    if (!isShortLabel) return true;
+
+    const shadowed = items.some((other, otherIndex) => {
+      if (otherIndex === index || other.length <= item.length) return false;
+      const otherKey = other.toLowerCase();
+      return (
+        otherKey.startsWith(key) ||
+        otherKey.startsWith(`${key}:`) ||
+        otherKey.startsWith(`${key} —`) ||
+        otherKey.startsWith(`${key} -`)
+      );
+    });
+    return !shadowed;
+  });
+}
+
+function resolveCoverSummaryDisplay(scopeSummary: string, displayBullets: string[]): string {
+  if (!displayBullets.length) return scopeSummary;
+  const trimmed = scopeSummary.trim();
+  const looksTruncated =
+    /\bapprox\.?$/i.test(trimmed) ||
+    trimmed.endsWith("…") ||
+    (trimmed.length >= 380 && displayBullets.join(" ").length > trimmed.length + 40);
+  if (!looksTruncated) return scopeSummary;
+
+  const narrative = displayBullets
+    .filter((bullet) => bullet.length > 80 || bullet.includes("."))
+    .slice(0, 2)
+    .join(" ");
+  const fallback = displayBullets.slice(0, 2).join(" ");
+  return (narrative || fallback).slice(0, 520);
+}
+
+function classifyScopeBullet(item: string): "title" | "detail" {
+  const text = item.trim();
+  if (text.length <= 72 && !text.includes(".") && !text.includes(":")) return "title";
+  return "detail";
+}
+
+function renderScopeBulletList(bullets: string[]): string {
+  if (!bullets.length) return "";
+  return `<ul class="bullet-list flush appendix-scope-bullets">${bullets
+    .map((bullet) => {
+      const kind = classifyScopeBullet(bullet);
+      return `<li class="scope-bullet scope-bullet--${kind}">${esc(bullet)}</li>`;
+    })
+    .join("")}</ul>`;
+}
+
 const hasMeaningfulLicenseNumber = (value?: string) => {
   const normalized = String(value || "").trim();
   if (!normalized) return false;
@@ -184,7 +256,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   });
   const company = resolvePdfHeaderCompany(options.branding, sanitizedDoc.contractor);
   const contractorName = options.branding.contractorName || sanitizedDoc.contractor.contactName || company;
-  const contractorTitle = options.branding.contractorTitle || "Contractor";
+  const contractorTitleRaw = options.branding.contractorTitle || "Contractor";
+  const displayContractorTitle = formatContractorTitleForPdf(contractorTitleRaw);
   const profileForCover = {
     avatar: options.branding.logoUrl || sanitizedDoc.contractor.logoUrl,
     logoUrl: options.branding.logoUrl || sanitizedDoc.contractor.logoUrl,
@@ -198,7 +271,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   const scheduleRail = getScheduleSummaryForContract(sanitizedDoc);
   const projectAddress = sanitizedDoc.owner.address || sanitizedDoc.summary.siteAddress;
   const contractCopy = normalizeProjectContractCopy(sanitizedDoc, options);
-  const coverSummary = contractCopy.scopeSummary;
+  const displayScopeBullets = dedupeScopeBulletsForDisplay(contractCopy.includedWorkBullets || []);
+  const coverSummary = resolveCoverSummaryDisplay(contractCopy.scopeSummary, displayScopeBullets);
   const trustItems = [
     options.branding.licenseNumber ? "Licensed" : "",
     options.branding.insuranceStatus ? "Insured" : "",
@@ -448,7 +522,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
           }
           <div class="cover-header-text">
             <div class="company-name">${esc(company)}</div>
-            <div class="company-subtitle">${esc(contractorName)}${contractorTitle ? `<span class="title-sep"> · </span>${esc(contractorTitle)}` : ""}</div>
+            <div class="company-subtitle">${esc(contractorName)}${displayContractorTitle ? `<span class="title-sep"> · </span>${esc(displayContractorTitle)}` : ""}</div>
             <div class="contact-line">${[
               options.branding.companyPhone,
               options.branding.companyEmail,
@@ -483,7 +557,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
             <div class="cover-story-block">
               <div class="cover-kicker">Prepared by</div>
               <div class="cover-detail-value">${esc(company)}</div>
-              <div class="cover-detail-subvalue">${esc(contractorName)}${contractorTitle ? ` · ${esc(contractorTitle)}` : ""}</div>
+              <div class="cover-detail-subvalue">${esc(contractorName)}${displayContractorTitle ? ` · ${esc(displayContractorTitle)}` : ""}</div>
               ${options.branding.businessAddress ? `<div class="cover-address cover-address--compact">${esc(options.branding.businessAddress)}</div>` : ""}
             </div>
           </div>
@@ -539,10 +613,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
           : `<p class="subtle-p">No line-item breakdown was attached; reconciliation below follows the contract summary only.</p>`
         : "";
 
-    const includedWorkHtml =
-      contractCopy.includedWorkBullets?.length > 0
-        ? `<ul class="bullet-list flush appendix-scope-bullets">${contractCopy.includedWorkBullets.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>`
-        : "";
+    const includedWorkHtml = renderScopeBulletList(displayScopeBullets);
+    const showScopeNarrative = displayScopeBullets.length === 0;
     const measurementLines = sanitizedDoc.scope.measurementLines || [];
     const measurementsHtml =
       measurementLines.length > 0
@@ -565,7 +637,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       <div class="section-head">
         <h2 class="section-title">Scope &amp; pricing detail</h2>
       </div>
-      <div class="appendix-context">
+      <div class="appendix-context scope-context-block">
         <h3 class="appendix-context-title">Project context</h3>
         <div class="appendix-meta">
           <div class="appendix-meta-row"><span class="appendix-meta-label">Project</span><span class="appendix-meta-value">${esc(sanitizedDoc.summary.projectName)}</span></div>
@@ -573,7 +645,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
           <div class="appendix-meta-row"><span class="appendix-meta-label">Project type</span><span class="appendix-meta-value">${esc(projectTypeDisplay)}</span></div>
         </div>
         <h3 class="appendix-context-title">Scope &amp; included work</h3>
-        <p class="appendix-scope-text">${esc(contractCopy.scopeSummary)}</p>
+        ${showScopeNarrative ? `<p class="appendix-scope-text">${esc(contractCopy.scopeSummary)}</p>` : ""}
         ${includedWorkHtml}
         ${measurementsHtml}
       </div>
@@ -654,7 +726,10 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
                       </tr>`;
                   })
                   .join("")
-              : `<tr><td colspan="5" class="empty-row">No payment schedule defined.</td></tr>`
+              : `<tr><td colspan="5" class="empty-row payment-empty">
+                  <div class="payment-empty-title">Payment schedule to be agreed</div>
+                  <div class="payment-empty-sub">Attach milestone payments in the estimate before client delivery.</div>
+                </td></tr>`
           }
           <tr class="schedule-total-row">
             <td>Total contract</td>
@@ -718,13 +793,17 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
         </ol>
       </div>
 
-      <div class="section-block">
+      ${
+        workTypeClausesForPdf.length > 0
+          ? `<div class="section-block">
         <h3 class="block-title">Job-specific assumptions</h3>
         <ul class="bullet-list flush">
           ${workTypeClausesForPdf.map((c) => `<li>${esc(stripEditorListPrefix(c))}</li>`).join("")}
         </ul>
         ${projectAssumptionNote ? `<p class="subtle-p">${projectAssumptionNote}</p>` : ""}
-      </div>
+      </div>`
+          : ""
+      }
     </section>`;
   };
 
@@ -1003,7 +1082,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     .cover-project-summary p {
       margin: 0;
       font-size: 10.5pt;
-      line-height: 1.46;
+      line-height: 1.48;
+      max-height: none;
     }
     .trust-badges {
       margin-top: 16px;
@@ -1055,6 +1135,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     .section-head {
       margin-bottom: 10px;
       padding-top: 2px;
+      break-after: avoid;
+      page-break-after: avoid;
     }
     .section-title {
       font-size: 15pt;
@@ -1072,6 +1154,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       display: grid;
       grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
       gap: 18px;
+      page-break-inside: auto;
+      break-inside: auto;
     }
     .block-title {
       font-size: 9pt;
@@ -1080,13 +1164,15 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       letter-spacing: 0.06em;
       color: ${brandDark};
       margin: 0 0 8px;
+      break-after: avoid;
+      page-break-after: avoid;
     }
     .bullet-list, .legal-list {
       margin: 0;
       padding-left: 18px;
     }
     .bullet-list.flush, .legal-list { padding-left: 20px; }
-    .bullet-list li, .legal-list li { margin-bottom: 5px; }
+    .bullet-list li, .legal-list li { margin-bottom: 5px; orphans: 2; widows: 2; }
     .notice-strip {
       padding: 8px 10px;
       margin-bottom: 12px;
@@ -1193,7 +1279,25 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     .empty-row {
       text-align: center;
       color: ${muted};
-      padding: 14px;
+      font-style: italic;
+      padding: 14px 8px;
+    }
+    .payment-empty {
+      padding: 20px 12px !important;
+      font-style: normal;
+      background: #f8fafc;
+    }
+    .payment-empty-title {
+      font-weight: 700;
+      font-size: 10pt;
+      color: ${brandDark};
+      margin-bottom: 4px;
+    }
+    .payment-empty-sub {
+      font-size: 8.5pt;
+      line-height: 1.4;
+      color: ${muted};
+      font-style: normal;
     }
     .note-inline {
       margin-top: 8px;
@@ -1282,6 +1386,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       letter-spacing: 0.08em;
       color: ${brandDark};
       margin: 0 0 8px;
+      break-after: avoid;
+      page-break-after: avoid;
     }
     .appendix-context-title:not(:first-child) { margin-top: 14px; }
     .appendix-meta { margin-bottom: 4px; }
@@ -1295,14 +1401,34 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     .appendix-meta-row:last-child { border-bottom: none; }
     .appendix-meta-label { min-width: 100px; font-weight: 600; color: ${muted}; }
     .appendix-meta-value { flex: 1; color: ${bodyText}; }
-    .appendix-scope-text { margin: 0 0 8px; font-size: 9.5pt; line-height: 1.45; color: ${bodyText}; }
-    .appendix-scope-bullets { margin-top: 6px; }
+    .appendix-scope-text { margin: 0 0 10px; font-size: 9.5pt; line-height: 1.48; color: ${bodyText}; }
+    .appendix-scope-bullets { margin-top: 4px; }
+    .appendix-scope-bullets .scope-bullet { margin-bottom: 6px; line-height: 1.45; orphans: 2; widows: 2; }
+    .appendix-scope-bullets .scope-bullet--title {
+      font-weight: 700;
+      color: ${brandDark};
+      margin-top: 10px;
+      margin-bottom: 2px;
+      list-style-type: disc;
+    }
+    .appendix-scope-bullets .scope-bullet--title:first-child { margin-top: 0; }
+    .appendix-scope-bullets .scope-bullet--detail {
+      margin-bottom: 8px;
+      color: ${bodyText};
+    }
+    .scope-context-block {
+      page-break-inside: auto;
+      break-inside: auto;
+      margin-bottom: 12px;
+    }
     .measurements-card {
       border: 1px solid #dbe4ee;
       background: #ffffff;
       border-radius: 8px;
       padding: 4px 10px;
       margin: 2px 0 8px;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
     .measurements-row {
       display: flex;
@@ -1322,6 +1448,8 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       margin: 18px 0 10px;
       padding-bottom: 6px;
       border-bottom: 2px solid ${brand};
+      break-after: avoid;
+      page-break-after: avoid;
     }
     .appendix-section-title--recon {
       margin-top: 0;
@@ -1352,11 +1480,10 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       min-height: 0;
       page-break-inside: auto;
     }
-    .page--scope-pricing-flow .appendix-block {
-      page-break-inside: auto;
-    }
     .line-item-detail-block {
-      margin-top: 4px;
+      margin-top: 16px;
+      page-break-before: auto;
+      break-before: auto;
     }
     .line-item-subhead {
       font-size: 10pt;
@@ -1365,14 +1492,29 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       margin: 14px 0 8px;
       padding-bottom: 4px;
       border-bottom: 1px solid #e2e8f0;
+      break-after: avoid;
+      page-break-after: avoid;
     }
 
-    .appendix-block { margin-bottom: 18px; page-break-inside: avoid; }
+    .appendix-block { margin-bottom: 18px; page-break-inside: auto; break-inside: auto; }
     .appendix-head {
       font-size: 10pt;
       font-weight: 700;
       color: ${brandDark};
       margin: 0 0 6px;
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+    .appendix-table thead {
+      display: table-header-group;
+    }
+    .appendix-table tbody tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .appendix-table .subtotal-row {
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     .appendix-table th,
     .appendix-table td {

@@ -52,6 +52,9 @@ export function estimateFlowStepperWrapStyle(): ViewStyle {
 /** Solid card fill shared across Build with AI → Initial Reveal → Confirm Scope. */
 export const AI_FLOW_CARD_BG_DARK = '#202022';
 
+/** Input / chip shells nested inside `estimateFlowCardStyle` (Project Information, Step 2). */
+export const ESTIMATE_FLOW_NESTED_FIELD_BG_DARK = 'rgba(255,255,255,0.04)';
+
 export function aiFlowCardBackground(darkMode: boolean, lightFallback: string) {
   return darkMode ? AI_FLOW_CARD_BG_DARK : lightFallback;
 }
@@ -192,7 +195,29 @@ export function estimateStep1ActionButtonStyle(
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
-    backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : 'rgba(0,0,0,0.03)',
+    opacity: options?.disabled ? 0.45 : 1,
+  };
+}
+
+/** Selected toggle inside a flow card — nested field fill, not the card surface. */
+export function estimateFlowNestedActionButtonStyle(
+  Colors: FlowCardColors,
+  darkMode: boolean,
+  options?: { disabled?: boolean }
+): ViewStyle {
+  return {
+    flex: 1,
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
+    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : 'rgba(0,0,0,0.03)',
     opacity: options?.disabled ? 0.45 : 1,
   };
 }
@@ -371,7 +396,7 @@ export function estimateFlowLineItemStyle(Colors: FlowCardColors, darkMode: bool
 export function estimateFlowInputShellStyle(Colors: FlowCardColors, darkMode: boolean): ViewStyle {
   return darkMode
     ? {
-        backgroundColor: 'rgba(255,255,255,0.04)',
+        backgroundColor: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
         borderColor: 'rgba(148, 163, 184, 0.12)',
         borderRadius: 14,
         borderWidth: 1,

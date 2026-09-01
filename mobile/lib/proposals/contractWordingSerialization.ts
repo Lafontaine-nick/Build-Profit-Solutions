@@ -2,6 +2,22 @@ import { stripEditorListPrefix } from "./contractTemplate";
 
 export type BusinessTermDraft = { title: string; body: string };
 
+export function isNonemptyBusinessTerm(term: BusinessTermDraft): boolean {
+  return Boolean(String(term.title ?? "").trim() || String(term.body ?? "").trim());
+}
+
+/** Human-readable counts for the Step 8 contract wording card and editor header. */
+export function formatContractWordingSummary(
+  assumptions: string[],
+  businessTerms: BusinessTermDraft[],
+  workNotes: string[],
+): string {
+  const assumptionCount = assumptions.filter((s) => parseAssumptionItem(s)).length;
+  const termCount = businessTerms.filter(isNonemptyBusinessTerm).length;
+  const noteCount = workNotes.filter((s) => parseAssumptionItem(s)).length;
+  return `${assumptionCount} scope bullet${assumptionCount === 1 ? "" : "s"} · ${termCount} contract term${termCount === 1 ? "" : "s"} · ${noteCount} job note${noteCount === 1 ? "" : "s"}`;
+}
+
 /** One assumption / work-type line → body text (no leading dash). */
 export function parseAssumptionItem(raw: string): string {
   return stripEditorListPrefix(String(raw ?? "")).trim();

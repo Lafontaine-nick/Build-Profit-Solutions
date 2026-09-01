@@ -107,6 +107,7 @@ import {
   getAllowanceLineItemsTotal,
   isAllowancesCategoryName,
 } from '@/utils/estimateAllowances';
+import { AI_FLOW_CARD_BG_DARK } from '@/utils/estimateFlowCardStyle';
 
 type TabKey = "Overview" | "Budget" | "Timeline" | "Calendar" | "Team";
 
@@ -4442,30 +4443,35 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     padding: 1,
   },
   innerCard: {
-    /** Same shell as BudgetProfitMixCard / Budget Contract & Cost — theme surface2 + hairline */
-    backgroundColor: Colors.surface2,
-    borderRadius: 26,
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+    borderRadius: 14,
     paddingHorizontal: 18,
     paddingTop: 18,
     paddingBottom: 18,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
-    shadowColor: "#000",
-    shadowOpacity: darkMode ? 0.18 : 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: darkMode ? 4 : 2,
+    borderColor: darkMode ? 'rgba(148,163,184,0.12)' : Colors.line,
+    ...Platform.select({
+      ios: darkMode
+        ? {}
+        : {
+            shadowColor: '#000',
+            shadowOpacity: 0.08,
+            shadowRadius: 16,
+            shadowOffset: { width: 0, height: 8 },
+          },
+      android: darkMode ? {} : { elevation: 2 },
+    }),
   },
   projectLeakCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
-    borderRadius: 18,
+    borderRadius: 14,
     padding: 14,
     marginBottom: 12,
-    backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : '#F8FAFC',
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : '#F8FAFC',
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(255,255,255,0.05)' : Colors.line,
+    borderColor: darkMode ? 'rgba(148,163,184,0.12)' : Colors.line,
   },
   projectLeakAccent: {
     width: 4,
@@ -4769,11 +4775,11 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     marginTop: 12,
   },
   spendingCardInner: {
-    backgroundColor: darkMode ? Colors.surface2 : Colors.surface2,
-    borderRadius: 16,
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+    borderRadius: 14,
     padding: 15,
-    borderWidth: darkMode ? 1 : 1,
-    borderColor: darkMode ? "rgba(148,163,184,0.16)" : Colors.line,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(148,163,184,0.12)' : Colors.line,
   },
   spendingHeaderRow: {
     flexDirection: "row",

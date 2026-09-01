@@ -1544,13 +1544,15 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
           ))}
         </View>
 
-        <View style={styles.sectionBlock}>
-          <Text style={styles.blockTitle}>Job-specific assumptions</Text>
-          <BulletList items={workTypeClausesForPdf} />
-          {sections.projectPack.disclaimer ? (
-            <Text style={styles.subtle}>{sections.projectPack.disclaimer}</Text>
-          ) : null}
-        </View>
+        {workTypeClausesForPdf.length > 0 ? (
+          <View style={styles.sectionBlock}>
+            <Text style={styles.blockTitle}>Job-specific assumptions</Text>
+            <BulletList items={workTypeClausesForPdf} />
+            {sections.projectPack.disclaimer ? (
+              <Text style={styles.subtle}>{sections.projectPack.disclaimer}</Text>
+            ) : null}
+          </View>
+        ) : null}
       </Page>
 
       <Page size="LETTER" style={styles.page}>

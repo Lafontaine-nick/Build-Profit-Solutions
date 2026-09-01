@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle, TextStyle, StyleProp } from 'react-native';
 import { ScreenLayout } from '@/constants/ScreenLayout';
+import { estimateSummarySectionSubtitleStyle } from '@/utils/estimateFlowCardStyle';
 
 export type TabScreenHeaderProps = {
   title: string;
@@ -14,6 +15,7 @@ export type TabScreenHeaderProps = {
   /** Merged after base title styles — use for Budget / overview type scale (e.g. 22 / 800 / -0.4) */
   titleStyle?: StyleProp<TextStyle>;
   subtitleStyle?: StyleProp<TextStyle>;
+  darkMode?: boolean;
 };
 
 /**
@@ -30,13 +32,20 @@ export function TabScreenHeader({
   style,
   titleStyle,
   subtitleStyle,
+  darkMode = false,
 }: TabScreenHeaderProps) {
   return (
     <View style={[styles.row, style]}>
       <View style={styles.left}>
         <Text style={[styles.screenTitle, { color: titleColor }, titleStyle]}>{title}</Text>
         {subtitle ? (
-          <Text style={[styles.screenSubtitle, { color: subtitleColor }, subtitleStyle]}>
+          <Text
+            style={[
+              estimateSummarySectionSubtitleStyle(darkMode),
+              { color: subtitleColor },
+              subtitleStyle,
+            ]}
+          >
             {subtitle}
           </Text>
         ) : null}
@@ -69,10 +78,5 @@ const styles = StyleSheet.create({
     fontSize: ScreenLayout.header.titleSize,
     fontWeight: ScreenLayout.header.titleWeight,
     letterSpacing: ScreenLayout.header.titleLetterSpacing,
-  },
-  screenSubtitle: {
-    fontSize: ScreenLayout.header.subtitleSize,
-    fontWeight: ScreenLayout.header.subtitleWeight,
-    marginTop: ScreenLayout.header.subtitleMarginTop,
   },
 });

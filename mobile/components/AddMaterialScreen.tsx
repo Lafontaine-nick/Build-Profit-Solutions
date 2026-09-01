@@ -8,6 +8,7 @@ import {
   ScrollView,
   TextInput,
   Pressable,
+  TouchableOpacity,
   KeyboardAvoidingView,
   Keyboard,
   Platform,
@@ -36,10 +37,11 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import {
-  centsDigitsToNumber,
-  clampCentsDigitsInput,
-  dollarsToCentsDigits,
+  decimalMoneyInputToNumber,
+  digitsOnly,
+  formatDecimalMoneyDisplay,
 } from "@/src/lib/keyboardMoney";
+import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import GradientRingBackInner from "@/components/GradientRingBackInner";
 import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from "@/constants/ScreenLayout";
@@ -47,9 +49,34 @@ import KeyboardPlainAccessory from "./ui/KeyboardPlainAccessory";
 import { KEYBOARD_ACCESSORY_IDS } from "@/constants/keyboard";
 import { projectAddExpenseNumericKeyboardProps } from "@/constants/inputKeyboardPresets";
 import WebFormGradientFrame from "@/components/layout/WebFormGradientFrame";
+import { AI_FLOW_CARD_BG_DARK, confirmScopeSectionLabelStyle, estimateFlowCardStyle, estimateFlowLineItemsTotalStyle, estimateFlowNestedActionButtonStyle, estimateStep1ActionButtonSelectedStyle, ESTIMATE_FLOW_CARD_GAP, ESTIMATE_FLOW_CHIP_GREEN, ESTIMATE_FLOW_CHIP_GREEN_BG, ESTIMATE_FLOW_GREEN, ESTIMATE_FLOW_NESTED_FIELD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
+
+const MATERIAL_CATEGORY_OPTIONS = [
+  "Lumber",
+  "Framing",
+  "Drywall",
+  "Electrical",
+  "Plumbing",
+  "Roofing",
+  "Flooring",
+  "Paint",
+  "Tile",
+  "Concrete",
+  "Hardware",
+  "Windows",
+  "Exterior Siding",
+  "Doors",
+  "Cabinets",
+  "Lighting",
+  "Appliances",
+  "Fixtures",
+  "Insulation",
+  "HVAC",
+  "General",
+] as const;
 
 interface AddMaterialScreenProps {
   navigation: any;
@@ -64,7 +91,7 @@ interface AddMaterialScreenProps {
   }) => void;
 }
 
-const presetAmounts = [100, 500, 1000, 2500];
+type PricingMode = "flat" | "sqft";
 
 const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   navigation,
@@ -80,15 +107,17 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
     Platform.OS === "web" && isDesktopWebLayoutWidth(layoutWidth);
   const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
   const placeholderTint = darkMode ? "rgba(226, 232, 240, 0.62)" : Colors.sub;
+  const sectionLabelColor = darkMode ? "rgba(226, 232, 240, 0.78)" : Colors.sub;
   const { addExpense } = useProjectData();
   
   const [vendor, setVendor] = useState("");
   const [material, setMaterial] = useState("");
-  const [amount, setAmount] = useState("");
-  const [scope, setScope] = useState("");
+  const [pricingMode, setPricingMode] = useState<PricingMode>("flat");
+  const [flatAmountText, setFlatAmountText] = useState("");
+  const [sqftText, setSqftText] = useState("");
+  const [rateText, setRateText] = useState("");
+  const [category, setCategory] = useState<string>("General");
   const [description, setDescription] = useState("");
-  const [poNumber, setPoNumber] = useState("");
-  const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
   const [receiptUri, setReceiptUri] = useState<string | null>(null);
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
   const [showOCRModal, setShowOCRModal] = useState(false);
@@ -118,12 +147,49 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
     };
   }, []);
 
-  const numericAmount = centsDigitsToNumber(amount);
+  const sqftModeSnapshotRef = useRef({ sqftText: "", rateText: "", sqft: 0, rate: 0 });
 
-  const handlePresetPress = (value: number) => {
-    setSelectedPreset(value);
-    setAmount(dollarsToCentsDigits(value));
-  };
+  const handlePricingModeChange = useCallback((nextMode: PricingMode) => {
+    if (nextMode === pricingMode) return;
+    if (pricingMode === "sqft" && nextMode === "flat") {
+      const sqft = parseInt(digitsOnly(sqftText), 10) || 0;
+      const rate = decimalMoneyInputToNumber(rateText) || 0;
+      sqftModeSnapshotRef.current = {
+        sqftText: digitsOnly(sqftText) || (sqft > 0 ? String(sqft) : ""),
+        rateText: rateText || (rate > 0 ? formatDecimalMoneyDisplay(String(rate)) : ""),
+        sqft,
+        rate,
+      };
+      const total = sqft * rate;
+      if (total > 0) {
+        setFlatAmountText(formatDecimalMoneyDisplay(String(total)));
+      }
+      setSqftText("");
+      setRateText("");
+    } else if (pricingMode === "flat" && nextMode === "sqft") {
+      const snap = sqftModeSnapshotRef.current;
+      if (snap.sqft > 0 || snap.sqftText) {
+        setSqftText(snap.sqftText || String(snap.sqft));
+        setRateText(
+          snap.rateText ||
+            (snap.rate > 0 ? formatDecimalMoneyDisplay(String(snap.rate)) : "")
+        );
+      } else {
+        setSqftText("");
+        setRateText("");
+      }
+    }
+    setPricingMode(nextMode);
+  }, [pricingMode, rateText, sqftText]);
+
+  const resolvedAmount = useMemo(() => {
+    if (pricingMode === "sqft") {
+      const sqft = parseInt(digitsOnly(sqftText), 10) || 0;
+      const rate = decimalMoneyInputToNumber(rateText) || 0;
+      return sqft * rate;
+    }
+    return decimalMoneyInputToNumber(flatAmountText) || 0;
+  }, [pricingMode, sqftText, rateText, flatAmountText]);
 
   // Request camera permission
   const requestCameraPermission = async () => {
@@ -236,7 +302,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
           setVendor(receiptData.vendor);
         }
         if (receiptData.amount) {
-          setAmount(dollarsToCentsDigits(receiptData.amount));
+          setFlatAmountText(formatDecimalMoneyDisplay(String(receiptData.amount)));
         }
         if (receiptData.items && receiptData.items.length > 0) {
           const firstDesc = receiptData.items[0]?.description?.trim();
@@ -284,17 +350,33 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   };
 
   const handleSave = () => {
-    if (!vendor.trim() || !numericAmount) {
-      if (
-        Platform.OS === "web" &&
-        typeof window !== "undefined" &&
-        typeof window.alert === "function"
-      ) {
-        window.alert(
-          "Required Fields\n\nVendor and amount are required.\n\nAmount uses digit entry: e.g. 10000 = $100.00 (last two digits are cents)."
-        );
+    if (!material.trim()) {
+      const msg = "Please enter a material description.";
+      if (Platform.OS === "web" && typeof window !== "undefined" && typeof window.alert === "function") {
+        window.alert(`Required Fields\n\n${msg}`);
       } else {
-        Alert.alert("Required Fields", "Vendor and amount are required.");
+        Alert.alert("Material required", msg);
+      }
+      return;
+    }
+
+    if (pricingMode === "sqft") {
+      const sqft = parseInt(digitsOnly(sqftText), 10) || 0;
+      const rate = decimalMoneyInputToNumber(rateText) || 0;
+      if (sqft <= 0) {
+        Alert.alert("Square feet required", "Please enter the square footage.");
+        return;
+      }
+      if (rate <= 0) {
+        Alert.alert("Rate required", "Please enter the price per square foot.");
+        return;
+      }
+    } else if (resolvedAmount <= 0) {
+      const msg = "Please enter an amount.";
+      if (Platform.OS === "web" && typeof window !== "undefined" && typeof window.alert === "function") {
+        window.alert(`Required Fields\n\n${msg}`);
+      } else {
+        Alert.alert("Amount required", msg);
       }
       return;
     }
@@ -306,10 +388,10 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
 
       addExpense({
         id: Date.now().toString(),
-        vendor: vendor.trim(),
-        material: material.trim() || undefined,
-        amount: numericAmount,
-        category: "Materials/Equipment",
+        vendor: vendor.trim() || undefined,
+        material: material.trim(),
+        amount: resolvedAmount,
+        category: category || "Materials/Equipment",
         date: new Date().toISOString(),
         notes: description.trim() || undefined,
         receiptUri: receiptUri || undefined,
@@ -318,11 +400,11 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
       if (onSave) {
         onSave({
           vendor: vendor.trim(),
-          material: material.trim() || undefined,
-          amount: numericAmount,
-          scope: scope.trim(),
+          material: material.trim(),
+          amount: resolvedAmount,
+          scope: category,
           description: description.trim(),
-          poNumber: poNumber.trim(),
+          poNumber: "",
         });
       }
 
@@ -417,7 +499,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                 <View style={styles.headerTextBlock}>
                   <Text style={styles.headerTitle}>Add Materials & Equipment</Text>
                   <Text style={styles.headerSubtitle}>
-                    Log your expense
+                    Log your material or equipment expense
                   </Text>
                 </View>
               </View>
@@ -430,42 +512,17 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
               contentContainerStyle={styles.scrollContent}
               {...KEYBOARD_SCROLL_DEFAULTS}
             >
-              {/* Vendor */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Vendor / Supplier *</Text>
-                <View style={styles.inputWrapper}>
-                  <Feather
-                    name="shopping-bag"
-                    size={16}
-                    color="#8DA0B8"
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g., Home Depot, ABC Contractors"
-                    placeholderTextColor={placeholderTint}
-                    value={vendor}
-                    onChangeText={setVendor}
-                    returnKeyType="done"
-                    onSubmitEditing={() => Keyboard.dismiss()}
-                    blurOnSubmit
-                  />
-                </View>
-              </View>
-
+              <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
               {/* Material */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Material</Text>
+                <Text style={[confirmScopeSectionLabelStyle(), styles.sectionLabel, { color: sectionLabelColor }]}>
+                  Material *
+                </Text>
                 <View style={styles.inputWrapper}>
-                  <Feather
-                    name="package"
-                    size={16}
-                    color="#8DA0B8"
-                    style={styles.inputIcon}
-                  />
+                  <Feather name="file-text" size={16} color="#8DA0B8" style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
-                    placeholder="e.g., 2x4 lumber, conduit, drywall sheets"
+                    placeholder="what is the material quoted"
                     placeholderTextColor={placeholderTint}
                     value={material}
                     onChangeText={setMaterial}
@@ -476,133 +533,204 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                 </View>
               </View>
 
-              {/* Amount */}
+              {/* Vendor */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Amount *</Text>
+                <Text style={[confirmScopeSectionLabelStyle(), styles.sectionLabel, { color: sectionLabelColor }]}>
+                  Vendor / Supplier (Optional)
+                </Text>
                 <View style={styles.inputWrapper}>
-                  <Feather
-                    name="dollar-sign"
-                    size={16}
-                    color={BRAND_GREEN}
-                    style={styles.inputIcon}
-                  />
+                  <Feather name="store" size={16} color="#8DA0B8" style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
-                    placeholder="0"
+                    placeholder="Home Depot"
                     placeholderTextColor={placeholderTint}
-                    value={amount}
-                    onChangeText={(text) => {
-                      setAmount(clampCentsDigitsInput(text));
-                      if (selectedPreset) setSelectedPreset(null);
-                    }}
-                    {...projectAddExpenseNumericKeyboardProps}
-                    keyboardType="phone-pad"
-                    textContentType="none"
-                    autoComplete="off"
+                    value={vendor}
+                    onChangeText={setVendor}
                     returnKeyType="done"
-                    onFocus={onAmountFieldFocus}
-                    onBlur={onAmountFieldBlur}
+                    onSubmitEditing={() => Keyboard.dismiss()}
+                    blurOnSubmit
                   />
                 </View>
+              </View>
 
-                {/* Quick amounts */}
-                <View style={styles.chipRow}>
-                  {presetAmounts.map((val) => {
-                    const isActive = selectedPreset === val;
+              {/* Pricing */}
+              <View style={styles.fieldGroup}>
+                <Text style={[confirmScopeSectionLabelStyle(), styles.sectionLabel, { color: sectionLabelColor }]}>
+                  Pricing *
+                </Text>
+                <View style={styles.pricingRow}>
+                  <TouchableOpacity
+                    onPress={() => handlePricingModeChange("flat")}
+                    style={[
+                      styles.pricingOption,
+                      estimateFlowNestedActionButtonStyle(Colors, darkMode),
+                      pricingMode === "flat" && estimateStep1ActionButtonSelectedStyle(darkMode, "green"),
+                    ]}
+                  >
+                    <Feather
+                      name="dollar-sign"
+                      size={16}
+                      color={pricingMode === "flat" ? ESTIMATE_FLOW_CHIP_GREEN : sectionLabelColor}
+                      style={{ marginBottom: 4 }}
+                    />
+                    <Text
+                      style={{
+                        color: pricingMode === "flat" ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
+                        fontWeight: pricingMode === "flat" ? "700" : "600",
+                        fontSize: 13,
+                      }}
+                    >
+                      Flat amount
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handlePricingModeChange("sqft")}
+                    style={[
+                      styles.pricingOption,
+                      estimateFlowNestedActionButtonStyle(Colors, darkMode),
+                      pricingMode === "sqft" && estimateStep1ActionButtonSelectedStyle(darkMode, "green"),
+                    ]}
+                  >
+                    <Feather
+                      name="maximize-2"
+                      size={16}
+                      color={pricingMode === "sqft" ? ESTIMATE_FLOW_CHIP_GREEN : sectionLabelColor}
+                      style={{ marginBottom: 4 }}
+                    />
+                    <Text
+                      style={{
+                        color: pricingMode === "sqft" ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
+                        fontWeight: pricingMode === "sqft" ? "700" : "600",
+                        fontSize: 13,
+                      }}
+                    >
+                      Per sq ft
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Amount */}
+              <View style={styles.fieldGroup}>
+                <Text style={[confirmScopeSectionLabelStyle(), styles.sectionLabel, { color: sectionLabelColor }]}>
+                  {pricingMode === "sqft" ? "Total (calculated) *" : "Amount *"}
+                </Text>
+
+                {pricingMode === "sqft" ? (
+                  <>
+                    <View style={styles.splitRow}>
+                      <View style={styles.splitCol}>
+                        <Text style={[confirmScopeSectionLabelStyle(), styles.subSectionLabel, { color: sectionLabelColor }]}>
+                          Square feet *
+                        </Text>
+                        <View style={styles.amountInputShell}>
+                          <Feather name="maximize-2" size={16} color="#8DA0B8" style={styles.amountLeadingIcon} />
+                          <TextInput
+                            style={styles.amountInput}
+                            placeholder="0"
+                            placeholderTextColor={placeholderTint}
+                            value={sqftText}
+                            onChangeText={(text) => setSqftText(digitsOnly(text))}
+                            {...projectAddExpenseNumericKeyboardProps}
+                            keyboardType="phone-pad"
+                            onFocus={onAmountFieldFocus}
+                            onBlur={onAmountFieldBlur}
+                          />
+                        </View>
+                      </View>
+                      <View style={styles.splitCol}>
+                        <Text style={[confirmScopeSectionLabelStyle(), styles.subSectionLabel, { color: sectionLabelColor }]}>
+                          Rate ($/sq ft) *
+                        </Text>
+                        <View style={styles.amountInputShell}>
+                          <Text style={styles.dollarSign}>$</Text>
+                          <TextInput
+                            style={styles.amountInput}
+                            placeholder="0"
+                            placeholderTextColor={placeholderTint}
+                            value={rateText}
+                            onChangeText={(text) => setRateText(formatDecimalMoneyDisplay(text))}
+                            keyboardType="decimal-pad"
+                            keyboardAppearance={darkMode ? "dark" : "light"}
+                            onFocus={onAmountFieldFocus}
+                            onBlur={onAmountFieldBlur}
+                          />
+                        </View>
+                      </View>
+                    </View>
+                    <View style={[estimateFlowLineItemsTotalStyle(darkMode), { marginTop: 12 }]}>
+                      <Text style={styles.totalText}>
+                        Total: {formatMoneyFull(resolvedAmount, { decimals: 2 })}
+                      </Text>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.amountInputShell}>
+                      <Text style={styles.dollarSign}>$</Text>
+                      <TextInput
+                        style={styles.amountInput}
+                        placeholder="0"
+                        placeholderTextColor={placeholderTint}
+                        value={flatAmountText}
+                        onChangeText={(text) => setFlatAmountText(formatDecimalMoneyDisplay(text))}
+                        keyboardType="decimal-pad"
+                        keyboardAppearance={darkMode ? "dark" : "light"}
+                        onFocus={onAmountFieldFocus}
+                        onBlur={onAmountFieldBlur}
+                      />
+                    </View>
+                    {resolvedAmount > 0 ? (
+                      <View style={[estimateFlowLineItemsTotalStyle(darkMode), { marginTop: 12 }]}>
+                        <Text style={styles.totalText}>
+                          Total: {formatMoneyFull(resolvedAmount, { decimals: 2 })}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </>
+                )}
+              </View>
+
+              {/* Category */}
+              <View style={styles.fieldGroup}>
+                <Text style={[confirmScopeSectionLabelStyle(), styles.sectionLabel, { color: sectionLabelColor }]}>
+                  Category (Optional)
+                </Text>
+                <View style={styles.categoryChipRow}>
+                  {MATERIAL_CATEGORY_OPTIONS.map((c) => {
+                    const isActive = category === c;
                     return (
-                      <Pressable
-                        key={val}
-                        onPress={() => handlePresetPress(val)}
-                        style={({ pressed }) => [
-                          styles.chip,
-                          isActive && styles.chipActive,
-                          pressed && { opacity: 0.9 },
+                      <TouchableOpacity
+                        key={c}
+                        onPress={() => setCategory(c)}
+                        style={[
+                          styles.categoryChip,
+                          isActive && {
+                            borderColor: ESTIMATE_FLOW_CHIP_GREEN,
+                            backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+                          },
                         ]}
                       >
                         <Text
-                          style={[
-                            styles.chipText,
-                            isActive && styles.chipTextActive,
-                          ]}
+                          style={{
+                            fontSize: 13,
+                            fontWeight: isActive ? "700" : "600",
+                            color: isActive ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
+                          }}
                         >
-                          ${val.toLocaleString()}
+                          {c}
                         </Text>
-                      </Pressable>
+                      </TouchableOpacity>
                     );
                   })}
                 </View>
               </View>
 
-              {/* Scope */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Scope (Optional)</Text>
-                <View style={styles.inputWrapper}>
-                  <Feather
-                    name="layers"
-                    size={16}
-                    color="#8DA0B8"
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g., Foundation, Framing, Rough-in"
-                    placeholderTextColor={placeholderTint}
-                    value={scope}
-                    onChangeText={setScope}
-                    returnKeyType="done"
-                    onSubmitEditing={() => Keyboard.dismiss()}
-                    blurOnSubmit
-                  />
-                </View>
-              </View>
-
-              {/* Description */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Description (Optional)</Text>
-                <View style={styles.textAreaWrapper}>
-                  <Feather
-                    name="file-text"
-                    size={16}
-                    color="#8DA0B8"
-                    style={styles.inputIconTop}
-                  />
-                  <TextInput
-                    style={[styles.input, styles.textArea]}
-                    placeholder="What was purchased or service provided?"
-                    placeholderTextColor={placeholderTint}
-                    value={description}
-                    onChangeText={setDescription}
-                    multiline
-                  />
-                </View>
-              </View>
-
-              {/* PO Number */}
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>PO Number (Optional)</Text>
-                <View style={styles.inputWrapper}>
-                  <Feather
-                    name="tag"
-                    size={16}
-                    color="#8DA0B8"
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g., PO-1003"
-                    placeholderTextColor={placeholderTint}
-                    value={poNumber}
-                    onChangeText={setPoNumber}
-                    returnKeyType="done"
-                    onSubmitEditing={() => Keyboard.dismiss()}
-                    blurOnSubmit
-                  />
-                </View>
-              </View>
-
               {/* Receipt Section */}
               <View style={[styles.fieldGroup, { marginBottom: 90 }]}>
-                <Text style={styles.label}>Receipt (Optional)</Text>
+                <Text style={[confirmScopeSectionLabelStyle(), styles.sectionLabel, { color: sectionLabelColor }]}>
+                  Receipt (Optional)
+                </Text>
                 {receiptUri ? (
                   <View style={{ marginTop: 8 }}>
                     <View style={{ position: 'relative', marginBottom: 8 }}>
@@ -651,6 +779,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     </Text>
                   </Pressable>
                 )}
+              </View>
               </View>
             </ScrollView>
             </WebFormGradientFrame>
@@ -805,6 +934,80 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     marginBottom: 8,
     letterSpacing: 0.25,
   },
+  sectionLabel: {
+    marginBottom: 8,
+  },
+  subSectionLabel: {
+    marginBottom: 8,
+  },
+
+  pricingRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  pricingOption: {
+    flex: 1,
+    minHeight: 48,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  splitRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  splitCol: {
+    flex: 1,
+  },
+  amountInputShell: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: isDark ? "rgba(148, 163, 184, 0.12)" : Colors.line,
+    backgroundColor: isDark ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : Colors.surface2,
+  },
+  amountLeadingIcon: {
+    marginLeft: 12,
+    marginRight: 8,
+  },
+  amountInput: {
+    flex: 1,
+    fontSize: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    paddingLeft: 4,
+    color: Colors.text,
+    fontWeight: "500",
+  },
+  dollarSign: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: BRAND_GREEN,
+    marginLeft: 12,
+    marginRight: 4,
+  },
+  totalText: {
+    color: ESTIMATE_FLOW_GREEN,
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  categoryChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  categoryChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: isDark ? "rgba(148, 163, 184, 0.12)" : Colors.line,
+    backgroundColor: isDark ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : Colors.surface2,
+  },
 
   /* INPUTS */
   inputBorder: {
@@ -818,17 +1021,17 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 13,
     minHeight: 50,
-    backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Colors.surface2,
+    backgroundColor: isDark ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : Colors.surface2,
     borderWidth: 1,
-    borderColor: isDark ? "rgba(148, 163, 184, 0.16)" : Colors.line,
+    borderColor: isDark ? "rgba(148, 163, 184, 0.12)" : Colors.line,
   },
   textAreaWrapper: {
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: isDark ? "rgba(255, 255, 255, 0.05)" : Colors.surface2,
+    backgroundColor: isDark ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : Colors.surface2,
     borderWidth: 1,
-    borderColor: isDark ? "rgba(148, 163, 184, 0.16)" : Colors.line,
+    borderColor: isDark ? "rgba(148, 163, 184, 0.12)" : Colors.line,
     flexDirection: "row",
     alignItems: "flex-start",
   },
@@ -862,8 +1065,8 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: isDark ? "rgba(148, 163, 184, 0.16)" : Colors.line,
-    backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : Colors.surface2,
+    borderColor: isDark ? "rgba(148, 163, 184, 0.12)" : Colors.line,
+    backgroundColor: isDark ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : Colors.surface2,
   },
   chipActive: {
     backgroundColor: "rgba(34, 197, 94, 0.14)",
@@ -903,8 +1106,8 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     paddingVertical: 15,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: isDark ? "#3f3f46" : Colors.line,
-    backgroundColor: isDark ? "#18181b" : Colors.surface2,
+    borderColor: isDark ? "rgba(148, 163, 184, 0.12)" : Colors.line,
+    backgroundColor: isDark ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -945,7 +1148,7 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     paddingHorizontal: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : Colors.surface2,
+    backgroundColor: isDark ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : Colors.surface2,
     marginTop: 8,
   },
   receiptUploadText: {

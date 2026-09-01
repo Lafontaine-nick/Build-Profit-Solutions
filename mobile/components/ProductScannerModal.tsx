@@ -18,7 +18,7 @@ import { resolveScannedProductForStoreOpen } from '../services/productLookupServ
 import { getProductPageUrl, normalizeScannedBarcode } from '../lib/products/productScannerTypes';
 import { openStoreProductPage } from '../lib/products/openStoreProductPage';
 import type { ProductSupplierId, ScannedProduct } from '../lib/products/productScannerTypes';
-import { ESTIMATE_FLOW_CARD_GAP, ESTIMATE_FLOW_CHIP_GREEN, ESTIMATE_FLOW_CHIP_GREEN_BG, ESTIMATE_FLOW_GREEN, ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD, estimateFlowCardStyle, estimateFlowInputShellStyle, estimateFlowOutlineActionButtonStyle, estimateFlowOutlineActionButtonTextStyle } from '@/utils/estimateFlowCardStyle';
+import { AI_FLOW_CARD_BG_DARK, ESTIMATE_FLOW_CARD_GAP, ESTIMATE_FLOW_CHIP_GREEN, ESTIMATE_FLOW_CHIP_GREEN_BG, ESTIMATE_FLOW_GREEN, ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD, estimateFlowCardStyle, estimateFlowInputShellStyle, estimateFlowOutlineActionButtonStyle, estimateFlowOutlineActionButtonTextStyle } from '@/utils/estimateFlowCardStyle';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 
@@ -213,7 +213,7 @@ function ProductScannerModalContent({
             overflow: 'hidden',
             backgroundColor: SCANNER_SCREEN_BG,
             borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.08)',
+            borderColor: darkMode ? 'rgba(148,163,184,0.12)' : 'rgba(255,255,255,0.08)',
           }}
         >
           {hasNativeCamera ? (
@@ -292,6 +292,7 @@ function ProductScannerModalContent({
 }
 
 function CameraUnavailablePanel({ reason }: { reason: string }) {
+  const { darkMode } = useTheme();
   const isExpoGo = Constants.executionEnvironment === 'storeClient';
   const platformLabel = Platform.OS === 'ios' ? 'iOS' : Platform.OS === 'android' ? 'Android' : Platform.OS;
 
@@ -325,9 +326,9 @@ function CameraUnavailablePanel({ reason }: { reason: string }) {
           width: '100%',
           borderRadius: 14,
           padding: 14,
-          backgroundColor: 'rgba(255,255,255,0.06)',
+          backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : 'rgba(255,255,255,0.06)',
           borderWidth: 1,
-          borderColor: 'rgba(52, 211, 153, 0.22)',
+          borderColor: darkMode ? 'rgba(148,163,184,0.12)' : 'rgba(52, 211, 153, 0.22)',
         }}
       >
         <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 12, fontWeight: '800', marginBottom: 8 }}>

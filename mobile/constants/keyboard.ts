@@ -43,7 +43,11 @@ export const KEYBOARD_ACCESSORY_IDS = {
    * AI estimate Confirm Scope (`AIEstimateScopeAssumptionsModal`) — empty accessory so decimal-pad
    * fields do not show a Done pill or inherit the global keyboard Done bar.
    */
-  aiScopeConfirmNumeric: 'bps-ai-scope-confirm-numeric-keyboard-accessory',
+  /**
+   * Contract wording edit sheet (`ContractWordingEditor`) — empty accessory so fields do not
+   * inherit the global keyboard Done bar.
+   */
+  contractWordingEdit: 'bps-contract-wording-edit-keyboard-accessory',
 } as const;
 
 /** Use on `inputAccessoryViewID` so Android does not receive iOS-only IDs. */

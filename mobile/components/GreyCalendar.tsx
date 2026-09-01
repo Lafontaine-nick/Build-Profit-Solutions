@@ -284,6 +284,8 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
+    width: '100%',
+    alignSelf: 'stretch',
   },
   header: {
     flexDirection: 'row',
@@ -355,10 +357,12 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginVertical: 2,
+    paddingHorizontal: 1,
   },
   dayInner: {
-    minWidth: 36,
-    minHeight: 44,
+    width: '100%',
+    maxWidth: 44,
+    minHeight: 40,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 12,

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
+import { AI_FLOW_CARD_BG_DARK } from '../utils/estimateFlowCardStyle';
 import type { ProfitForecastOutput } from '../src/lib/profitForecast';
 import BudgetProfitMixDonut from './BudgetProfitMixDonut';
 
@@ -128,11 +129,11 @@ export default function BudgetProfitMixCard({
       <View
         style={[
           styles.sectionCard,
-          darkMode && styles.sectionCardElevated,
+          !darkMode && styles.sectionCardElevated,
           {
-            backgroundColor: Colors.surface2,
+            backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
             borderWidth: 1,
-            borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+            borderColor: darkMode ? 'rgba(148,163,184,0.12)' : Colors.line,
           },
         ]}
       >
@@ -318,7 +319,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   sectionCard: {
-    borderRadius: 16,
+    borderRadius: 14,
     padding: 15,
   },
   sectionCardElevated: {

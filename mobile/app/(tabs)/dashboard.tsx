@@ -50,6 +50,7 @@ import {
   isDesktopWebLayoutWidth,
   DASHBOARD_WEB_MAX_CONTENT_WIDTH,
   WEB_DESKTOP_EDGE_HORIZONTAL,
+  getCalendarTabShellStyle,
 } from "@/constants/ScreenLayout";
 import { useTabScrollBottomInset } from "@/hooks/useTabScrollBottomInset";
 import { useRestrictedWorkspaceFinancials } from "@/hooks/useRestrictedWorkspaceFinancials";
@@ -59,6 +60,8 @@ import FinancialAccessLocked from "@/components/FinancialAccessLocked";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import WebPageShell from "@/components/layout/WebPageShell";
 import { TabScreenHeader } from "@/components/ui/TabScreenHeader";
+import { tabFlowCardStyle } from "@/components/layout/TabFlowCard";
+import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 import {
   formatMoneyUSD,
   formatMoneyCompact,
@@ -1198,6 +1201,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
   const { theme, darkMode } = useTheme();
   const { canEditCalendar } = useWorkspaceProjectPermissions();
   const Colors = React.useMemo(() => getColors(theme), [theme]);
+  const styles = useDashboardStyles(Colors);
   const insets = useSafeAreaInsets();
   const { width: masterCalendarModalWidth } = useWindowDimensions();
   /** Desktop web: date sheet + New/Edit Event align to dashboard content width */
@@ -1730,7 +1734,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
 
   return (
     <>
-      <View style={{ marginTop: 4, marginBottom: 14 }}>
+      <View style={styles.calendarContainer}>
         <GreyCalendar
           selectedDateString={selectedDate}
           onDayPress={({ dateString }) => {
@@ -3688,6 +3692,7 @@ const DashboardScreen: React.FC = () => {
             subtitle={`${t('dashboard.welcome')}, ${dashboardGreeting.name}`}
             titleColor={Colors.text}
             subtitleColor={darkMode ? "rgba(255,255,255,0.92)" : "#334155"}
+            darkMode={darkMode}
             titleStyle={desktopWeb ? styles.headerTitleDesktop : undefined}
             subtitleStyle={desktopWeb ? styles.headerSubtitleDesktop : undefined}
             belowTitle={(() => {
@@ -3974,8 +3979,31 @@ const SegmentTab = React.memo(function SegmentTab({ label, icon, isActive, onPre
 
 /* ----------------- ENHANCED METRIC CARD ----------------- */
 
+/** One gradient across the Overview key-metrics carousel (phone swipe + desktop row). */
+const METRICS_CAROUSEL_GRADIENT = [
+  "#22c55e",
+  "#22d3ee",
+  "#1AD0B2",
+  "#0088FF",
+  "#003E66",
+] as const;
+
+const METRICS_CAROUSEL_GRADIENT_SOLO = ["#1AD0B2", "#0088FF", "#003E66"] as const;
+
+function metricsCarouselGradientEndpoints(stripIndex: number, stripCount: number) {
+  if (stripCount <= 1) {
+    return {
+      start: { x: 0, y: 0 } as const,
+      end: { x: 1, y: 1 } as const,
+    };
+  }
+  return {
+    start: { x: -stripIndex, y: 0 } as const,
+    end: { x: stripCount - stripIndex, y: 1 } as const,
+  };
+}
+
 const EnhancedMetricCard = ({
-  gradient,
   label,
   value,
   timeframe,
@@ -3983,8 +4011,9 @@ const EnhancedMetricCard = ({
   trendDirection,
   context,
   desktopEqualColumns,
+  stripIndex = 0,
+  stripCount = 1,
 }: {
-  gradient?: boolean;
   label: string;
   value: string;
   timeframe: string;
@@ -3993,11 +4022,17 @@ const EnhancedMetricCard = ({
   context: string;
   /** Desktop web: equal-width columns to match segment nav width */
   desktopEqualColumns?: boolean;
+  /** Slice of the shared carousel gradient (0-based). */
+  stripIndex?: number;
+  /** Total cards in the carousel strip. */
+  stripCount?: number;
 }) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useDashboardStyles(Colors);
   const scale = useRef(new Animated.Value(1)).current;
+  const gradientEndpoints = metricsCarouselGradientEndpoints(stripIndex, stripCount);
+  const useDarkText = stripCount > 1 && stripIndex === 0;
 
   const handlePressIn = () => {
     Animated.spring(scale, {
@@ -4016,28 +4051,20 @@ const EnhancedMetricCard = ({
     }).start();
   };
 
-  const CardWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
-    gradient ? (
-      <LinearGradient
-        colors={["#22c55e", "#22d3ee"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.metricGradientCard}
-      >
-        {children}
-      </LinearGradient>
-    ) : label === "Active Projects" ? (
-      <View style={styles.metricCardSecondary}>{children}</View>
-    ) : (
-      <LinearGradient
-        colors={["#1AD0B2", "#0088FF", "#003E66"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.metricGradientCard}
-      >
-        {children}
-      </LinearGradient>
-    );
+  const CardWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <LinearGradient
+      colors={
+        stripCount > 1
+          ? [...METRICS_CAROUSEL_GRADIENT]
+          : [...METRICS_CAROUSEL_GRADIENT_SOLO]
+      }
+      start={gradientEndpoints.start}
+      end={gradientEndpoints.end}
+      style={styles.metricGradientCard}
+    >
+      {children}
+    </LinearGradient>
+  );
 
   return (
     <Animated.View
@@ -4057,7 +4084,7 @@ const EnhancedMetricCard = ({
               <Ionicons
                 name={trendDirection === "up" ? "trending-up" : "trending-down"}
                 size={14}
-                color={gradient || label === "Avg Net Profit" ? "#020617" : "#22d3ee"}
+                color={useDarkText ? "#020617" : "#22d3ee"}
                   />
                 </View>
           </View>
@@ -4067,13 +4094,13 @@ const EnhancedMetricCard = ({
             minimumFontScale={0.55}
             style={[
               styles.metricValue,
-              (gradient || label === "Avg Net Profit") && { color: "#020617" },
+              (useDarkText) && { color: "#020617" },
               { width: "100%" },
             ]}
           >
             {value}
           </Text>
-          <Text style={[styles.metricLabel, (gradient || label === "Avg Net Profit") && { color: "rgba(2,6,23,0.75)" }]}>
+          <Text style={[styles.metricLabel, useDarkText && { color: "rgba(2,6,23,0.75)" }]}>
             {label}
           </Text>
 
@@ -4103,7 +4130,7 @@ const EnhancedMetricCard = ({
           <Text
             style={[
               styles.metricContext,
-              (gradient || label === "Avg Net Profit") && styles.metricContextOnLight,
+              useDarkText && styles.metricContextOnLight,
             ]}
           >
             {context}
@@ -4522,7 +4549,6 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
           style={[
             styles.metricsRow,
             styles.wideContainer,
-            styles.overviewKeyMetricsAiInsights,
             styles.overviewKeyMetricsBottomSpacing,
           ]}
         >
@@ -4531,7 +4557,8 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
               {!hideFinancialMetrics ? (
               <EnhancedMetricCard
                 desktopEqualColumns
-                gradient
+                stripIndex={0}
+                stripCount={3}
                 label="Total Bids"
                 value={metrics.totalBids}
                 timeframe="This Month"
@@ -4542,6 +4569,8 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
               ) : null}
               <EnhancedMetricCard
                 desktopEqualColumns
+                stripIndex={hideFinancialMetrics ? 0 : 1}
+                stripCount={hideFinancialMetrics ? 1 : 3}
                 label="Projects"
                 value={hideFinancialMetrics ? String(activeProjectCount) : metrics.activeProjects}
                 timeframe="In Progress"
@@ -4552,6 +4581,8 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
               {!hideFinancialMetrics ? (
               <EnhancedMetricCard
                 desktopEqualColumns
+                stripIndex={2}
+                stripCount={3}
                 label="Avg Net Profit"
                 value={metrics.avgMargin}
                 timeframe="Completed jobs"
@@ -4569,7 +4600,8 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
           >
           {!hideFinancialMetrics ? (
           <EnhancedMetricCard
-            gradient
+            stripIndex={0}
+            stripCount={3}
             label="Total Bids"
             value={metrics.totalBids}
             timeframe="This Month"
@@ -4579,6 +4611,8 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
           />
           ) : null}
           <EnhancedMetricCard
+            stripIndex={hideFinancialMetrics ? 0 : 1}
+            stripCount={hideFinancialMetrics ? 1 : 3}
             label="Projects"
             value={hideFinancialMetrics ? String(activeProjectCount) : metrics.activeProjects}
             timeframe="In Progress"
@@ -4588,6 +4622,8 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
           />
           {!hideFinancialMetrics ? (
           <EnhancedMetricCard
+            stripIndex={2}
+            stripCount={3}
             label="Avg Net Profit"
             value={metrics.avgMargin}
             timeframe="Completed jobs"
@@ -4759,14 +4795,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             end={{ x: 0.95, y: 0.85 }}
             style={styles.allProjectsFrameGradient}
           />
-          <View
-            style={[
-              styles.allProjectsInner,
-              {
-                backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.bg,
-              },
-            ]}
-          >
+          <View style={styles.allProjectsInner}>
             <View style={styles.cardHeaderRow}>
               <View>
                 <Text style={styles.cardTitle}>{t('dashboard.allProjects')}</Text>
@@ -5530,7 +5559,8 @@ const getStyles = (
   layoutWidth: number = 390
 ) => {
   const edge = desktopWeb ? WEB_DESKTOP_EDGE_HORIZONTAL : ScreenLayout.edge.horizontal;
-  /** Key metric carousel: avoid 60%+ viewport-wide cards on desktop; tight horizontal strip on phone */
+  const darkMode = Colors.bg === '#000000';
+  /** Key metric carousel: narrow swipeable cards inside full-bleed `wideContainer` */
   const metricsCardOuterWidth = desktopWeb
     ? Math.min(
         308,
@@ -5718,19 +5748,10 @@ const getStyles = (
     color: Colors.bg === '#000000' ? "#050B13" : "#071018",
   },
 
-  // GENERIC CARD
+  // GENERIC CARD — matches Estimates / Build with AI flow cards
   card: {
-    borderRadius: ScreenLayout.card.radius,
-    padding: desktopWeb ? 22 : ScreenLayout.card.padding,
-    backgroundColor: Colors.card,
-    borderWidth: Colors.bg === '#000000' ? 1 : 0,
-    borderColor: Colors.line,
-    marginBottom: ScreenLayout.card.marginBottom,
-    shadowColor: Colors.bg === '#000000' ? "#000" : "#0F172A",
-    shadowOpacity: Colors.bg === '#000000' ? 0.4 : 0.05,
-    shadowRadius: Colors.bg === '#000000' ? 18 : 10,
-    shadowOffset: { width: 0, height: Colors.bg === '#000000' ? 10 : 4 },
-    elevation: Colors.bg === '#000000' ? 0 : 2,
+    ...tabFlowCardStyle(Colors, darkMode),
+    ...(desktopWeb ? { padding: 16 } : {}),
   },
   allProjectsCard: {
     marginHorizontal: -8,
@@ -5761,6 +5782,7 @@ const getStyles = (
     borderRadius: 18,
     padding: 12,
     zIndex: 1,
+    backgroundColor: darkMode ? Colors.card : Colors.bg,
   },
   /** Cap height when 4+ projects so the list scrolls inside the card */
   allProjectsListScroll: {
@@ -6295,9 +6317,9 @@ const getStyles = (
     paddingVertical: 11,
     paddingHorizontal: 11,
     borderRadius: 14,
-    backgroundColor: Colors.bg === '#000000' ? Colors.surface2 : Colors.surface2,
-    borderWidth: Colors.bg === '#000000' ? 1 : 0,
-    borderColor: Colors.line,
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+    borderWidth: 1,
+    borderColor: darkMode ? "rgba(148,163,184,0.12)" : Colors.line,
     zIndex: 2,
   },
   allProjectsList: {
@@ -6381,11 +6403,11 @@ const getStyles = (
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: Colors.surface2, // Match All Projects cards in both modes
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
     borderRadius: 12,
     padding: 12,
-    borderWidth: 1, // Match project card border in light mode without resizing
-    borderColor: Colors.line,
+    borderWidth: 1,
+    borderColor: darkMode ? "rgba(148,163,184,0.12)" : Colors.line,
   },
   analyticsMetricCard: {
     width: "48%",
@@ -6580,6 +6602,10 @@ const getStyles = (
   wideContainer: {
     marginHorizontal: -edge,
     paddingHorizontal: desktopWeb ? 8 : 4,
+  },
+  /** Calendar tab: slightly inset vs full-bleed section cards */
+  calendarContainer: {
+    ...getCalendarTabShellStyle({ desktopWeb, edgeHorizontal: edge }),
   },
   /** Extra left/right inset + vertical gap between Key Metrics strip and AI Insights (Overview tab) */
   overviewKeyMetricsAiInsights: {
