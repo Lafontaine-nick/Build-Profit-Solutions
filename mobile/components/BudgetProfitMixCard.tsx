@@ -3,7 +3,13 @@ import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
-import { AI_FLOW_CARD_BG_DARK } from '../utils/estimateFlowCardStyle';
+import {
+  ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
+  ESTIMATE_FLOW_TEXT_LABEL_DARK,
+  ESTIMATE_FLOW_TEXT_MUTED_DARK,
+  ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
+  estimateFlowCardStyle,
+} from '../utils/estimateFlowCardStyle';
 import type { ProfitForecastOutput } from '../src/lib/profitForecast';
 import BudgetProfitMixDonut from './BudgetProfitMixDonut';
 
@@ -57,9 +63,9 @@ export default function BudgetProfitMixCard({
         text: '#1e293b',
       };
 
-  const pageSubtext = darkMode ? 'rgba(255,255,255,0.88)' : '#64748b';
-  const pageCaption = darkMode ? 'rgba(255,255,255,0.78)' : '#64748b';
-  const pageInstructional = darkMode ? 'rgba(255,255,255,0.56)' : '#64748b';
+  const pageSubtext = darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#64748b';
+  const pageCaption = darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : '#64748b';
+  const pageInstructional = darkMode ? ESTIMATE_FLOW_TEXT_MUTED_DARK : '#64748b';
 
   const budgetMixChipSurface = useMemo(
     () => ({
@@ -131,7 +137,7 @@ export default function BudgetProfitMixCard({
           styles.sectionCard,
           !darkMode && styles.sectionCardElevated,
           {
-            backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+            backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
             borderWidth: 1,
             borderColor: darkMode ? 'rgba(148,163,184,0.12)' : Colors.line,
           },

@@ -35,6 +35,13 @@ import {
 } from '../src/lib/profitForecast';
 import { deriveEstimateFeedbackFromBudgetData } from '@/utils/estimateFeedback';
 import CalibrationReviewModal from '@/components/CalibrationReviewModal';
+import EstimateVsActualCard from '@/components/EstimateVsActualCard';
+import { submitCloseoutCalibration } from '@/utils/contractorPricingMemory';
+import {
+  ESTIMATE_VS_ACTUAL_MIN_COVERAGE_FOR_TIPS,
+  resolveUnlinkedCategoryLabel,
+  shouldShowEstimateVsActualCard,
+} from '@/utils/estimateVsActualCard';
 import { DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS } from '@/utils/buildWithAiProductionHardening';
 import {
   computeProjectFinancials,
@@ -48,7 +55,8 @@ import PricingModeSection, { PricingMode } from './PricingModeSection';
 import { decimalMoneyInputToNumber, digitsOnly } from '@/src/lib/keyboardMoney';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import GradientRingBackInner from './GradientRingBackInner';
-import { AI_FLOW_CARD_BG_DARK } from '@/utils/estimateFlowCardStyle';
+import { AI_FLOW_CARD_BG_DARK, ESTIMATE_FLOW_NESTED_CARD_BG_DARK, ESTIMATE_FLOW_PROGRESS_GRADIENT, ESTIMATE_FLOW_TEXT_LABEL_DARK, ESTIMATE_FLOW_TEXT_MUTED_DARK, ESTIMATE_FLOW_TEXT_SECONDARY_DARK, ESTIMATE_FLOW_TRACK_BG_DARK } from '@/utils/estimateFlowCardStyle';
+import { tabFlowCardStyle } from '@/components/layout/TabFlowCard';
 
 /**
  * Build Profit Solutions — Budget Tab (with AI integrations)
@@ -229,6 +237,7 @@ export default function BudgetTab({
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [pendingChangeOrderEditId, setPendingChangeOrderEditId] = useState<string | null>(null);
   const [showCalibrationReview, setShowCalibrationReview] = useState(false);
+  const [closeoutTipCount, setCloseoutTipCount] = useState<number | null>(null);
   const [newExpense, setNewExpense] = useState({ vendor: '', amount: '', category: '', notes: '' });
   const [newChangeOrder, setNewChangeOrder] = useState({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
   const [editingChangeOrder, setEditingChangeOrder] = useState<any>(null);
@@ -581,6 +590,18 @@ export default function BudgetTab({
     }));
   }, [buckets]);
 
+  const mapCostsCategory = useMemo(() => {
+    const candidates = stableBuckets
+      .filter((bucket) => Number(bucket.budget) > 0)
+      .sort((a, b) => {
+        const spentA = Number(a.spent) || 0;
+        const spentB = Number(b.spent) || 0;
+        if (spentA !== spentB) return spentA - spentB;
+        return Number(b.budget) - Number(a.budget);
+      });
+    return candidates[0]?.name ? String(candidates[0].name) : null;
+  }, [stableBuckets]);
+
   // Calculate Received Purchase Orders total (these should be included in Actual Expenses)
   const receivedPOsTotal = useMemo(() => {
     const rawPOs = projectData?.purchaseOrders || [];
@@ -696,13 +717,29 @@ export default function BudgetTab({
       isProjectCompleted,
     ]
   );
+  const bucketCostBudgetTotal = useMemo(
+    () => stableBuckets.reduce((sum, bucket) => sum + (Number(bucket.budget) || 0), 0),
+    [stableBuckets]
+  );
+
+  const feedbackBudgetLines = useMemo(() => {
+    if (data?.lines?.length) return data.lines;
+    return stableBuckets.map((bucket) => ({
+      id: String(bucket.id || bucket.stableId || bucket.name),
+      category: String(bucket.name || 'Category'),
+      qty: 1,
+      unit: 'lump_sum',
+      unitCost: Number(bucket.budget) || 0,
+    }));
+  }, [data?.lines, stableBuckets]);
+
   const profitForecast = profitForecastOverride ?? computedProfitForecast;
   const estimateFeedback = useMemo(
     () =>
       deriveEstimateFeedbackFromBudgetData({
         projectId,
         status: String((projectFromList as any)?.status ?? (projectData as any)?.status ?? ''),
-        lines: data?.lines || [],
+        lines: feedbackBudgetLines,
         expenses: (projectData?.expenses || []).map((expense: any) => ({
           id: String(expense.id),
           category: expense.category,
@@ -723,7 +760,10 @@ export default function BudgetTab({
           materialsAmount: co.materialsAmount,
           laborAmount: co.laborAmount,
         })),
-        plannedBudget: financials.plannedCostBudget || financials.adjustedCostBudget,
+        plannedBudget:
+          bucketCostBudgetTotal > 0
+            ? bucketCostBudgetTotal
+            : financials.plannedCostBudget || financials.adjustedCostBudget,
         finalCustomerPrice: financials.adjustedContractValue,
       }),
     [
@@ -732,12 +772,73 @@ export default function BudgetTab({
       projectData?.status,
       projectData?.expenses,
       projectData?.changeOrders,
-      data?.lines,
+      feedbackBudgetLines,
+      bucketCostBudgetTotal,
       financials.plannedCostBudget,
       financials.adjustedCostBudget,
       financials.adjustedContractValue,
     ]
   );
+
+  const calibrationProjectLike = useMemo(
+    () => ({
+      ...(projectFromList || {}),
+      id: projectId,
+      projectData: projectData || contextProjectData,
+      contractValue: financials.adjustedContractValue,
+      budget: financials.plannedCostBudget || financials.adjustedCostBudget,
+    }),
+    [
+      projectFromList,
+      projectId,
+      projectData,
+      contextProjectData,
+      financials.adjustedContractValue,
+      financials.plannedCostBudget,
+      financials.adjustedCostBudget,
+    ]
+  );
+
+  const closeoutPrefetchKey = useMemo(() => {
+    const expenses = projectData?.expenses || [];
+    const expenseTotal = expenses.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
+    return `${projectId}:${expenses.length}:${expenseTotal}`;
+  }, [projectId, projectData?.expenses]);
+
+  useEffect(() => {
+    const coverage = estimateFeedback.projectSummary.mappedActualCoveragePercent ?? 0;
+    if (
+      !projectId ||
+      !shouldShowEstimateVsActualCard(estimateFeedback) ||
+      coverage < ESTIMATE_VS_ACTUAL_MIN_COVERAGE_FOR_TIPS
+    ) {
+      setCloseoutTipCount(null);
+      return;
+    }
+
+    let cancelled = false;
+    void submitCloseoutCalibration(calibrationProjectLike)
+      .then((result) => {
+        if (cancelled) return;
+        const serverCount =
+          result.rateSuggestions?.length ??
+          (result.pendingSuggestionCount != null ? Number(result.pendingSuggestionCount) : null);
+        if (serverCount == null || !Number.isFinite(serverCount)) return;
+        setCloseoutTipCount((prev) => (prev == null ? serverCount : Math.max(prev, serverCount)));
+      })
+      .catch(() => {
+        // Keep showing the client-side count if the prefetch fails.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [closeoutPrefetchKey, calibrationProjectLike, estimateFeedback, projectId]);
+
+  const linkCostsTarget = useMemo(() => {
+    const names = stableBuckets.map((bucket) => String(bucket.name || '')).filter(Boolean);
+    return resolveUnlinkedCategoryLabel(estimateFeedback, names) ?? mapCostsCategory;
+  }, [stableBuckets, estimateFeedback, mapCostsCategory]);
 
   // Calculate projected costs for alerts
   const projectedTotal = actual + (purchaseOrdersTotal * 0.8); // Assume 80% of committed POs will be spent
@@ -831,11 +932,9 @@ export default function BudgetTab({
         accent: '#1976d2',
       };
 
-  /** Match project Overview secondary text: neutral grey / soft white (see [id].tsx mutedLabel). */
-  const pageSubtext = darkMode ? 'rgba(255,255,255,0.88)' : '#8891a0';
-  const pageCaption = darkMode ? 'rgba(255,255,255,0.78)' : '#8891a0';
-  /** Tertiary: instructional one-liners (e.g. usage bar) — dimmer than row sublabels */
-  const pageInstructional = darkMode ? 'rgba(255,255,255,0.56)' : '#94a3b8';
+  const pageSubtext = darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#8891a0';
+  const pageCaption = darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : '#8891a0';
+  const pageInstructional = darkMode ? ESTIMATE_FLOW_TEXT_MUTED_DARK : '#94a3b8';
 
   /** Budget Totals: row labels + helper lines under margin rows */
   const budgetTotalsTheme = {
@@ -843,8 +942,7 @@ export default function BudgetTab({
     subtext: pageSubtext,
     helperSubtext: pageCaption,
     instructionalHint: pageInstructional,
-    /** ~4.6:1 on black — clearer than 0.5 white while staying “secondary” vs values */
-    metricLabelColor: darkMode ? 'rgba(255,255,255,0.64)' : 'rgba(15,23,42,0.62)',
+    metricLabelColor: darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : 'rgba(15,23,42,0.62)',
     valueNeutral: darkMode ? '#F5F7FA' : theme.text,
   };
 
@@ -855,8 +953,9 @@ export default function BudgetTab({
     ? 'Approved cost budget, actuals, POs, and category usage'
     : 'Detailed cost tracking, profitability, and category performance';
   const costSectionTitle = isCostControl ? 'Cost Control' : 'Contract & Cost';
-  const flowCardBg = darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2;
-  const flowCardBorderColor = darkMode ? 'rgba(148,163,184,0.12)' : Colors.line;
+  const budgetFlowCardStyle = tabFlowCardStyle(Colors, darkMode, { marginBottom: 14 });
+  const nestedCardBg = darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2;
+  const nestedCardBorder = darkMode ? 'rgba(148,163,184,0.12)' : Colors.line;
 
   return (
     <View style={[styles.container, embedded && styles.containerEmbedded]}>
@@ -875,15 +974,7 @@ export default function BudgetTab({
             !darkMode && { backgroundColor: Colors.bg },
           ]}
         >
-          {/* Green → blue gradient frame (matches Project Overview) */}
-          <LinearGradient
-            colors={['#2DFFC4', '#00A6FF']}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
-            style={styles.overviewGradientRing}
-          >
-            <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
-              {/* Budget page header — matches Project Overview (overviewPageHeader / title / subtitle) */}
+          <View style={budgetFlowCardStyle}>
               <View style={styles.budgetPageHeader}>
                 <Text style={[styles.budgetPageTitle, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
                   {pageTitle}
@@ -891,7 +982,7 @@ export default function BudgetTab({
                 <Text
                   style={[
                     styles.budgetPageSubtitle,
-                    { color: darkMode ? 'rgba(255,255,255,0.62)' : '#64748b' },
+                    { color: darkMode ? pageSubtext : '#64748b' },
                   ]}
                 >
                   {pageSubtitle}
@@ -905,9 +996,9 @@ export default function BudgetTab({
                     styles.sectionCard,
                     !darkMode && styles.sectionCardElevated,
                     {
-                      backgroundColor: flowCardBg,
+                      backgroundColor: nestedCardBg,
                       borderWidth: 1,
-                      borderColor: flowCardBorderColor,
+                      borderColor: nestedCardBorder,
                     },
                   ]}
                 >
@@ -1002,12 +1093,9 @@ export default function BudgetTab({
                   </View>
                 </View>
               </View>
-
-            </View>
-            </LinearGradient>
           </View>
 
-          {/* Tabs — each pill sits in an equal flex slot so width is 50/50 regardless of label / gradient */}
+          {/* Tabs — each pill sits in an equal flex slot so width is 50/50 regardless of label */}
           <View style={styles.tabContainer}>
             <View style={styles.tabPillSlot}>
               <TabPill
@@ -1032,15 +1120,7 @@ export default function BudgetTab({
           </View>
 
           {tab === 'lines' && (
-            <View style={{ marginTop: 12 }}>
-              <LinearGradient
-                colors={['#2DFFC4', '#00A6FF']}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.overviewGradientRing}
-              >
-                <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
-                  {/* Header for Budget Categories — same type scale as main Budget page */}
+              <View style={[budgetFlowCardStyle, { marginTop: 12 }]}>
                   <View style={styles.budgetPageHeader}>
                     <Text style={[styles.budgetPageTitle, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
                       Budget Categories
@@ -1048,7 +1128,7 @@ export default function BudgetTab({
                     <Text
                       style={[
                         styles.budgetPageSubtitle,
-                        { color: darkMode ? 'rgba(255,255,255,0.62)' : '#64748b' },
+                        { color: darkMode ? pageSubtext : '#64748b' },
                       ]}
                     >
                       Track spending by category
@@ -1074,7 +1154,7 @@ export default function BudgetTab({
 
                     return (
                       <View key={item.stableId || item.id || `budget-item-${index}`} style={[styles.budgetCardContainer, { marginTop: index === 0 ? 0 : 12 }]}>
-                        <View style={[styles.budgetCard, { backgroundColor: flowCardBg, borderWidth: 1, borderColor: flowCardBorderColor, borderRadius: 14 }]}>
+                        <View style={[styles.budgetCard, { backgroundColor: nestedCardBg, borderWidth: 1, borderColor: nestedCardBorder, borderRadius: 14 }]}>
                       <Pressable
                         onPress={() => setSelectedCategory(itemName)}
                         style={{ flex: 1 }}
@@ -1134,9 +1214,9 @@ export default function BudgetTab({
                         </View>
 
                         <View style={styles.progressBarContainer}>
-                          <View style={[styles.progressBarBackground, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}>
+                          <View style={[styles.progressBarBackground, { backgroundColor: darkMode ? ESTIMATE_FLOW_TRACK_BG_DARK : 'rgba(148, 163, 184, 0.2)' }]}>
                             <LinearGradient
-                              colors={isOverBudget ? ['#ef4444', '#f59e0b'] : ['#22c55e', '#22d3ee']}
+                              colors={isOverBudget ? ['#ef4444', '#f59e0b'] : [...ESTIMATE_FLOW_PROGRESS_GRADIENT]}
                               start={{ x: 0, y: 0 }}
                               end={{ x: 1, y: 0 }}
                               style={[
@@ -1167,122 +1247,31 @@ export default function BudgetTab({
                       </View>
                     );
                   })}
-                </View>
-              </LinearGradient>
 
-              {estimateFeedback.status !== 'insufficient_data' &&
-              (Number(estimateFeedback.projectSummary.mappedActualCoveragePercent) > 0 ||
-                estimateFeedback.projectSummary.directCostVariancePercent != null ||
-                estimateFeedback.rateSuggestions.length > 0 ||
-                estimateFeedback.assumptionSuggestions.length > 0) ? (
-                <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
-                  <View
-                    style={[
-                      styles.sectionCard,
-                      !darkMode && styles.sectionCardElevated,
-                      {
-                        backgroundColor: flowCardBg,
-                        borderWidth: 1,
-                        borderColor: flowCardBorderColor,
-                      },
-                    ]}
-                  >
-                    <View style={styles.budgetCardHeaderMatch}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
-                        <View style={styles.budgetOverviewIconBadge}>
-                          <MaterialIcons name="analytics" size={16} color="#22c55e" />
-                        </View>
-                        <Text style={[styles.budgetSectionTitleMatch, { color: darkMode ? '#F5F7FA' : theme.text }]}>
-                          Estimate vs actual
-                        </Text>
-                      </View>
-                      <Text style={{ color: pageCaption, fontSize: 12, fontWeight: '700', textTransform: 'capitalize' }}>
-                        {estimateFeedback.status === 'ready_for_review'
-                          ? 'Ready to review'
-                          : estimateFeedback.status === 'partial'
-                            ? 'Partial data'
-                            : estimateFeedback.status === 'reviewed'
-                              ? 'Reviewed'
-                              : estimateFeedback.status === 'calibration_applied'
-                                ? 'Applied'
-                                : estimateFeedback.status.replace(/_/g, ' ')}
-                      </Text>
-                    </View>
-                    <View style={styles.totalsContent}>
-                      <Row
-                        label="Costs tracked"
-                        value={`${estimateFeedback.projectSummary.mappedActualCoveragePercent}%`}
-                        theme={budgetTotalsTheme}
-                        variant="book"
-                        metricLabel
-                      />
-                      <Row
-                        label="Over / under estimate"
-                        value={
-                          estimateFeedback.projectSummary.directCostVariancePercent != null
-                            ? `${estimateFeedback.projectSummary.directCostVariancePercent > 0 ? '+' : ''}${estimateFeedback.projectSummary.directCostVariancePercent}%`
-                            : '—'
-                        }
-                        theme={budgetTotalsTheme}
-                        variant="book"
-                        metricLabel
-                      />
-                      <Row
-                        label="Pricing tips"
-                        value={`${estimateFeedback.rateSuggestions.length + estimateFeedback.assumptionSuggestions.length}`}
-                        theme={budgetTotalsTheme}
-                        variant="book"
-                        metricLabel
-                      />
-                      {estimateFeedback.unresolvedMappings.length > 0 ? (
-                        <Text style={{ color: '#fbbf24', fontSize: 12, lineHeight: 17, marginTop: 8 }}>
-                          {estimateFeedback.unresolvedMappings.length} cost
-                          {estimateFeedback.unresolvedMappings.length === 1 ? '' : 's'} still need review before
-                          tips are reliable.
-                        </Text>
-                      ) : (
-                        <Text style={{ color: '#22c55e', fontSize: 12, lineHeight: 17, marginTop: 8 }}>
-                          Enough job costs are in to compare against the estimate. Tips still need your approval.
-                        </Text>
-                      )}
-                      {DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS.calibrationApproval ? (
-                        <Pressable
-                          onPress={() => setShowCalibrationReview(true)}
-                          style={{
-                            marginTop: 12,
-                            backgroundColor: '#22c55e',
-                            borderRadius: 10,
-                            paddingVertical: 11,
-                            alignItems: 'center',
-                          }}
-                          accessibilityRole="button"
-                          accessibilityLabel="Review rate tips"
-                        >
-                          <Text style={{ color: '#04140C', fontWeight: '800', fontSize: 14 }}>
-                            Review rate tips
-                            {estimateFeedback.rateSuggestions.length
-                              ? ` (${estimateFeedback.rateSuggestions.length})`
-                              : ''}
-                          </Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  </View>
-                </View>
+              {shouldShowEstimateVsActualCard(estimateFeedback) ? (
+                <EstimateVsActualCard
+                  estimateFeedback={estimateFeedback}
+                  closeoutTipCount={closeoutTipCount}
+                  darkMode={darkMode}
+                  nestedCardBg={nestedCardBg}
+                  nestedCardBorder={nestedCardBorder}
+                  theme={budgetTotalsTheme}
+                  pageCaption={pageCaption}
+                  onReviewTips={() => setShowCalibrationReview(true)}
+                  onMapCosts={
+                    linkCostsTarget ? () => setSelectedCategory(linkCostsTarget) : undefined
+                  }
+                  linkCostsTarget={linkCostsTarget}
+                  bidPrice={financials.adjustedContractValue}
+                  totalCategoryCount={stableBuckets.length}
+                  showInsightsCta={DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS.actualVsEstimatedFeedback}
+                />
               ) : null}
-            </View>
+              </View>
         )}
 
         {tab === 'cos' && (
-          <View style={{ marginTop: 12 }}>
-            <LinearGradient
-              colors={['#2DFFC4', '#00A6FF']}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.overviewGradientRing}
-            >
-              <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
-                {/* Header for Orders — same type scale as Budget Categories */}
+            <View style={[budgetFlowCardStyle, { marginTop: 12 }]}>
                 <View style={styles.budgetPageHeader}>
                   <Text style={[styles.budgetPageTitle, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
                     Orders
@@ -1290,7 +1279,7 @@ export default function BudgetTab({
                   <Text
                     style={[
                       styles.budgetPageSubtitle,
-                      { color: darkMode ? 'rgba(255,255,255,0.62)' : '#64748b' },
+                      { color: darkMode ? pageSubtext : '#64748b' },
                     ]}
                   >
                     Purchase orders and change orders
@@ -1325,7 +1314,7 @@ export default function BudgetTab({
                   
                   return (
                     <View key="purchase-orders-card" style={[styles.budgetCardContainer, { marginTop: 0 }]}>
-                      <View style={[styles.budgetCard, { backgroundColor: flowCardBg, borderWidth: 1, borderColor: flowCardBorderColor, borderRadius: 14 }]}>
+                      <View style={[styles.budgetCard, { backgroundColor: nestedCardBg, borderWidth: 1, borderColor: nestedCardBorder, borderRadius: 14 }]}>
                         <Pressable
                           onPress={() => setSelectedCategory('Purchase Orders')}
                           style={{ flex: 1 }}
@@ -1386,7 +1375,7 @@ export default function BudgetTab({
                   
                   return (
                     <View key="change-orders-card" style={[styles.budgetCardContainer, { marginTop: 12 }]}>
-                      <View style={[styles.budgetCard, { backgroundColor: flowCardBg, borderWidth: 1, borderColor: flowCardBorderColor, borderRadius: 14 }]}>
+                      <View style={[styles.budgetCard, { backgroundColor: nestedCardBg, borderWidth: 1, borderColor: nestedCardBorder, borderRadius: 14 }]}>
                         <Pressable
                           onPress={() => setSelectedCategory('Change Orders')}
                           style={{ flex: 1 }}
@@ -1421,10 +1410,10 @@ export default function BudgetTab({
                 </View>
                   );
                 })()}
-              </View>
-            </LinearGradient>
-          </View>
+            </View>
         )}
+
+        </View>
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
@@ -2014,18 +2003,15 @@ export default function BudgetTab({
       <CalibrationReviewModal
         visible={showCalibrationReview}
         onClose={() => setShowCalibrationReview(false)}
-        projectLike={{
-          ...(projectFromList || {}),
-          id: projectId,
-          projectData: projectData || contextProjectData,
-          contractValue: financials.adjustedContractValue,
-          budget: financials.plannedCostBudget || financials.adjustedCostBudget,
-        }}
+        projectLike={calibrationProjectLike}
+        projectStatus={String((projectFromList as any)?.status ?? projectData?.status ?? '')}
+        scopeComparisons={estimateFeedback.scopeComparisons}
         clientSuggestions={estimateFeedback.rateSuggestions}
         budgetAccessMode={budgetAccessMode}
         darkMode={darkMode}
         onApproved={() => {
           setShowCalibrationReview(false);
+          setCloseoutTipCount(null);
           onRefetch?.();
         }}
       />
@@ -2223,7 +2209,7 @@ function Bar({
         return ['#facc15', '#f59e0b'];
       case 'green':
       default:
-        return ['#22c55e', '#15803d'];
+        return [...ESTIMATE_FLOW_PROGRESS_GRADIENT] as [string, string, string];
     }
   };
 
@@ -2278,7 +2264,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: { padding: 0 },
   outerCard: {
-    backgroundColor: "#000000",
     marginBottom: 16,
   },
   budgetContainerWide: {
@@ -2293,19 +2278,7 @@ const styles = StyleSheet.create({
     paddingTop: 0,
     paddingBottom: 18,
   },
-  overviewGradientRing: {
-    borderRadius: 30,
-    padding: 1,
-    marginBottom: 14,
-    overflow: 'hidden',
-  },
-  overviewInner: {
-    borderRadius: 29,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 18,
-  },
-  /** Main page title block — mirrors project-detail overviewPageHeader / overviewPageTitle / overviewPageSubtitle */
+  /** Main page title block — mirrors project-detail overviewPageHeader */
   budgetPageHeader: {
     marginBottom: 16,
   },

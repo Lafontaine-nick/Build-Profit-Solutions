@@ -67,7 +67,7 @@ import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 import { TabScreenHeader } from '@/components/ui/TabScreenHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
 import { tabFlowCardStyle } from '@/components/layout/TabFlowCard';
-import { AI_FLOW_CARD_BG_DARK } from '@/utils/estimateFlowCardStyle';
+import { AI_FLOW_CARD_BG_DARK, ESTIMATE_FLOW_NESTED_CARD_BG_DARK } from '@/utils/estimateFlowCardStyle';
 import { formatMoneyUSD, formatMoneyCompact, formatDateShort } from '@/utils/formatters';
 /** UI-only: polish unknown location strings without changing stored data. */
 function formatLocationDisplay(raw: string | undefined | null): string {
@@ -1307,22 +1307,7 @@ export default function ProjectsScreen() {
         {/* ALL PROJECTS CARD — highlight ring while active-project walkthrough intro is showing */}
         <FirstEstimateWalkthroughHighlight active={activeProjectWalkthroughIntroVisible}>
         <View style={styles.wideContainer}>
-          <LinearGradient
-            colors={["#2DFFC4", "#00A6FF"]}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
-            style={{
-              borderRadius: 20,
-              padding: 1,
-              marginBottom: 16,
-            }}
-          >
-            <View style={{
-              /* Light: match page bg; dark: unchanged */
-              backgroundColor: darkMode ? Colors.card : Colors.bg,
-              borderRadius: 18,
-              padding: 12,
-            }}>
+          <View style={styles.allProjectsCard}>
               <View style={styles.cardHeaderRow}>
                 <View>
                   <Text style={styles.allProjectsCardTitle}>{t('projects.allProjects')}</Text>
@@ -1607,8 +1592,7 @@ export default function ProjectsScreen() {
           })}
                 </View>
               )}
-            </View>
-          </LinearGradient>
+          </View>
         </View>
         </FirstEstimateWalkthroughHighlight>
 
@@ -1789,6 +1773,9 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     marginHorizontal: -edge,
     paddingHorizontal: desktopWeb ? 8 : 4,
   },
+  allProjectsCard: {
+    ...tabFlowCardStyle(Colors, darkMode, { marginBottom: 16 }),
+  },
   card: {
     ...tabFlowCardStyle(Colors, darkMode),
     ...(desktopWeb ? { padding: 16 } : {}),
@@ -1846,7 +1833,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     padding: 1,
   },
   projectCardInner: {
-    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
@@ -2035,7 +2022,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     width: '100%',
     height: 8,
     borderRadius: 999,
-    backgroundColor: darkMode ? 'rgba(15, 23, 42, 0.9)' : '#CBD5E1',
+    backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : '#CBD5E1',
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.15)' : Colors.line,

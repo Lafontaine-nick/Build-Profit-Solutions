@@ -131,6 +131,66 @@ function actual(overrides: Partial<ActualProjectData> = {}): ActualProjectData {
 }
 
 describe('estimateFeedback', () => {
+  it('does not report project variance percent when mapped coverage is below threshold', () => {
+    const result = evaluateEstimateFeedback({
+      estimateId: 'est-1',
+      estimateSnapshot: snapshot({
+        scopeItems: [
+          {
+            scopeItemKey: 'flooring',
+            name: 'Flooring',
+            trade: 'flooring',
+            quantity: 1000,
+            unit: 'sqft',
+            totalDirectCost: 2000,
+            unitRate: 2,
+            pricingSource: 'saved_rate',
+            rateType: 'direct_cost',
+            costBasis: 'direct_cost',
+          },
+          {
+            scopeItemKey: 'electrical',
+            name: 'Electrical',
+            trade: 'electrical',
+            quantity: 40,
+            unit: 'hr',
+            laborCost: 8000,
+            totalDirectCost: 8000,
+            unitRate: 200,
+            pricingSource: 'company_rate',
+            rateType: 'direct_cost',
+            costBasis: 'direct_cost',
+          },
+        ],
+        totals: {
+          directCost: 10000,
+          sellingPrice: 13000,
+          markup: 3000,
+        },
+      }),
+      actualProjectData: actual({
+        scopeActuals: [
+          {
+            scopeItemKey: 'flooring',
+            actualQuantity: 1000,
+            actualUnit: 'sqft',
+            totalDirectCost: 80,
+            sourceRecords: [{ sourceType: 'supplier_receipt', sourceId: 'r1', confidence: 'high', userConfirmed: true }],
+            confidence: 'high',
+          },
+        ],
+        projectLevelActuals: {
+          totalActualCost: 5000,
+          finalCustomerPrice: 13000,
+        },
+      }),
+    });
+
+    expect(result.projectSummary.mappedActualCoveragePercent).toBe(20);
+    expect(result.projectSummary.varianceIsReliable).toBe(false);
+    expect(result.projectSummary.directCostVariancePercent).toBeNull();
+  });
+
   it('normalizes actual data and calculates project and scope variance safely', () => {
     const result = evaluateEstimateFeedback({
       estimateId: 'est-1',
@@ -166,7 +226,7 @@ describe('estimateFeedback', () => {
       }),
     });
 
-    expect(result.status).toBe('partial');
+    expect(result.status).toBe('ready_for_review');
     expect(result.confidence).toBe('medium');
     expect(result.rateSuggestions.every((suggestion) => suggestion.confidence !== 'high')).toBe(true);
   });
@@ -455,7 +515,7 @@ describe('estimateFeedback', () => {
     expect(result.projectId).toBe('budget-1');
     expect(result.projectSummary.mappedActualCoveragePercent).toBe(100);
     expect(result.projectSummary.directCostVariancePercent).toBe(10);
-    expect(result.status).toBe('ready_for_review');
+    expect(result.status).toBe('reviewed');
   });
 
   it('does not mutate the original estimate snapshot or saved rate metadata', () => {

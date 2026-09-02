@@ -83,6 +83,26 @@ export const AI_FLOW_CARD_BG_DARK = '#202022';
 /** Input / chip shells nested inside `estimateFlowCardStyle` (Project Information, Step 2). */
 export const ESTIMATE_FLOW_NESTED_FIELD_BG_DARK = 'rgba(255,255,255,0.04)';
 
+/** Nested card / row on `estimateFlowCardStyle` surfaces (All Projects rows, analytics tiles). */
+export const ESTIMATE_FLOW_NESTED_CARD_BG_DARK = 'rgba(255, 255, 255, 0.09)';
+
+/** Unfilled progress / chart track on dark nested surfaces. */
+export const ESTIMATE_FLOW_TRACK_BG_DARK = 'rgba(148, 163, 184, 0.2)';
+
+/** Green → teal → blue fill for progress bars and chart bars. */
+export const ESTIMATE_FLOW_PROGRESS_GRADIENT: readonly [string, string, string] = [
+  '#22c55e',
+  '#14b8a6',
+  '#0ea5e9',
+];
+
+/** Secondary body copy on gray flow cards (dark mode). */
+export const ESTIMATE_FLOW_TEXT_SECONDARY_DARK = 'rgba(255, 255, 255, 0.78)';
+/** Uppercase eyebrows / metric labels on gray flow cards (dark mode). */
+export const ESTIMATE_FLOW_TEXT_LABEL_DARK = 'rgba(255, 255, 255, 0.74)';
+/** Chart placeholders / muted hints on gray flow cards (dark mode). */
+export const ESTIMATE_FLOW_TEXT_MUTED_DARK = 'rgba(255, 255, 255, 0.62)';
+
 export function aiFlowCardBackground(darkMode: boolean, lightFallback: string) {
   return darkMode ? AI_FLOW_CARD_BG_DARK : lightFallback;
 }

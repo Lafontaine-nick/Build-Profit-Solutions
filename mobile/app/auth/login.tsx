@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Platform, ScrollView, SafeAreaView, ActivityIndicator, StyleSheet, Keyboard } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
-import { LinearGradient } from 'expo-linear-gradient';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
-import { ESTIMATE_FLOW_NESTED_FIELD_BG_DARK } from '@/utils/estimateFlowCardStyle';
+import {
+  ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
+  estimateFlowCardStyle,
+} from '@/utils/estimateFlowCardStyle';
 import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 
 // Conditionally import Clerk - only if configured
@@ -62,36 +64,23 @@ export default function LoginScreen() {
   // If Clerk is not configured, show a simple continue screen
   if (!useClerk || !hasClerk) {
     return (
-      <LinearGradient
-        colors={['#000000', '#000000']}
-        style={{ flex: 1 }}
-      >
+      <View style={styles.screen}>
         <SafeAreaView style={{ flex: 1 }}>
-          <KeyboardAvoidingView
-            style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          >
+          <View style={[styles.centeredContent, { paddingHorizontal: 20 }]}>
             <View style={styles.wideContainer}>
-              <LinearGradient
-                colors={["#2DFFC4", "#00A6FF"]}
-                start={{ x: 0.05, y: 0.1 }}
-                end={{ x: 0.95, y: 0.9 }}
-                style={styles.cardBorder}
-              >
-            <View style={styles.card}>
-              <Text style={styles.title}>Welcome</Text>
-              <TouchableOpacity
-                style={styles.primaryButton}
-                onPress={() => router.replace('/')}
-              >
-                <Text style={styles.primaryButtonText}>Continue to App</Text>
-              </TouchableOpacity>
+              <View style={[estimateFlowCardStyle({ line: '#E2E8F0', surface2: '#FFFFFF' }, true), styles.card]}>
+                <Text style={styles.title}>Welcome</Text>
+                <TouchableOpacity
+                  style={styles.primaryButton}
+                  onPress={() => router.replace('/')}
+                >
+                  <Text style={styles.primaryButtonText}>Continue to App</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            </LinearGradient>
-            </View>
-          </KeyboardAvoidingView>
+          </View>
         </SafeAreaView>
-      </LinearGradient>
+      </View>
     );
   }
 
@@ -150,21 +139,12 @@ export default function LoginScreen() {
   };
 
   return (
-    <LinearGradient
-      colors={['#000000', '#000000']}
-      style={{ flex: 1 }}
-    >
+    <View style={styles.screen}>
       <SafeAreaView style={{ flex: 1 }}>
         <View style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={styles.scrollContent} {...FORM_KEYBOARD_SCROLL_PROPS}>
             <View style={styles.wideContainer}>
-              <LinearGradient
-                colors={["#2DFFC4", "#00A6FF"]}
-                start={{ x: 0.05, y: 0.1 }}
-                end={{ x: 0.95, y: 0.9 }}
-                style={styles.cardBorder}
-              >
-              <View style={styles.card}>
+              <View style={[estimateFlowCardStyle({ line: '#E2E8F0', surface2: '#FFFFFF' }, true), styles.card]}>
                 <Text style={styles.title}>Sign In</Text>
                 {!sent ? (
                   <>
@@ -233,16 +213,24 @@ export default function LoginScreen() {
                   </>
                 )}
               </View>
-            </LinearGradient>
             </View>
           </ScrollView>
         </View>
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  centeredContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
@@ -253,18 +241,7 @@ const styles = StyleSheet.create({
     marginHorizontal: -20,
     paddingHorizontal: 8,
   },
-  cardBorder: {
-    borderRadius: 28,
-    padding: 1,
-    shadowColor: '#00A6FF',
-    shadowOpacity: 0.16,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 10,
-  },
   card: {
-    borderRadius: 26,
-    backgroundColor: '#000000',
     paddingHorizontal: 24,
     paddingVertical: 24,
   },

@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, Text, Pressable } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
+import { ESTIMATE_FLOW_PROGRESS_GRADIENT } from '@/utils/estimateFlowCardStyle';
 import type { getColors } from '@/theme/getColors';
 
 export type OperationalRiskCard = {
@@ -370,12 +372,14 @@ export function MemberProjectStatusCard({
               styles={styles}
             />
             <View style={styles.projectStatusBarTrack}>
-              <View
+              <LinearGradient
+                colors={[...ESTIMATE_FLOW_PROGRESS_GRADIENT]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
                 style={[
                   styles.projectStatusBarFill,
                   {
                     width: `${Math.min(100, metrics?.budgetProgress || 0)}%`,
-                    backgroundColor: metrics?.budgetColor || '#22c55e',
                   },
                 ]}
               />
@@ -388,12 +392,14 @@ export function MemberProjectStatusCard({
           styles={styles}
         />
         <View style={styles.projectStatusBarTrack}>
-          <View
+          <LinearGradient
+            colors={[...ESTIMATE_FLOW_PROGRESS_GRADIENT]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
             style={[
               styles.projectStatusBarFill,
               {
                 width: `${Math.min(100, metrics?.scheduleProgress || 0)}%`,
-                backgroundColor: metrics?.daysLeftColor || '#22c55e',
               },
             ]}
           />

@@ -17,6 +17,7 @@ import {
   resolveProjectScheduleEnd,
   resolveProjectScheduleStart,
 } from '../src/lib/projectChartTimeline';
+import { estimateFlowCardStyle, ESTIMATE_FLOW_PROGRESS_GRADIENT, ESTIMATE_FLOW_TEXT_LABEL_DARK, ESTIMATE_FLOW_TEXT_MUTED_DARK, ESTIMATE_FLOW_TEXT_SECONDARY_DARK } from '../utils/estimateFlowCardStyle';
 
 // Types for the detailed overview screen
 export type ProjectOverview = {
@@ -384,27 +385,8 @@ export default function OverviewScreen({
       style={darkMode ? undefined : { backgroundColor: '#FFFFFF' }}
     >
       {/* PROJECT SUMMARY CARD */}
-      <LinearGradient
-        colors={
-          Colors.bg === "#000000"
-            ? ["#2DFFC4", "#00A6FF"]
-            : ["rgba(45, 255, 196, 0.3)", "rgba(0, 166, 255, 0.3)"]
-        }
-        start={{ x: 0.05, y: 0.15 }}
-        end={{ x: 0.95, y: 0.85 }}
-        style={{
-          borderRadius: 20,
-          padding: 1,
-          marginBottom: 16,
-        }}
-      >
-        <View
-          style={[
-            styles.card,
-            Colors.bg === "#000000" ? {} : { backgroundColor: Colors.surface2 },
-          ]}
-        >
-          <View style={styles.cardHeaderRow}>
+      <View style={styles.flowCard}>
+        <View style={styles.cardHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <View style={styles.iconBadge}>
                 <Feather name="info" size={16} color="#22c55e" />
@@ -435,21 +417,10 @@ export default function OverviewScreen({
             {formatMoney(budgetDeltaRaw)}
           </Text>
         </View>
-        </View>
-      </LinearGradient>
+      </View>
 
       {/* PROJECT STATUS CARD */}
-      <LinearGradient
-        colors={["#2DFFC4", "#00A6FF"]}
-        start={{ x: 0.05, y: 0.15 }}
-        end={{ x: 0.95, y: 0.85 }}
-        style={{
-          borderRadius: 20,
-          padding: 1,
-          marginBottom: 16,
-        }}
-      >
-        <View style={styles.card}>
+      <View style={styles.flowCard}>
         <View style={styles.cardHeaderRow}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <View style={styles.iconBadge}>
@@ -480,7 +451,12 @@ export default function OverviewScreen({
               <Text style={[styles.projectStatusMetricValue, { color: Colors.text }]}>{budgetProgress.toFixed(0)}%</Text>
             </View>
             <View style={styles.projectStatusBarTrack}>
-              <View style={[styles.projectStatusBarFill, { width: `${Math.min(100, budgetProgress)}%`, backgroundColor: getBudgetColor(budgetProgress) }]} />
+              <LinearGradient
+                colors={[...ESTIMATE_FLOW_PROGRESS_GRADIENT]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[styles.projectStatusBarFill, { width: `${Math.min(100, budgetProgress)}%` }]}
+              />
             </View>
 
             <View style={[styles.projectStatusMetricRow, { marginTop: 16 }]}>
@@ -488,7 +464,12 @@ export default function OverviewScreen({
               <Text style={[styles.projectStatusMetricValue, { color: Colors.text }]}>{scheduleProgress.toFixed(0)}%</Text>
             </View>
             <View style={styles.projectStatusBarTrack}>
-              <View style={[styles.projectStatusBarFill, { width: `${Math.min(100, scheduleProgress)}%`, backgroundColor: getDaysLeftColor(daysLeft) }]} />
+              <LinearGradient
+                colors={[...ESTIMATE_FLOW_PROGRESS_GRADIENT]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[styles.projectStatusBarFill, { width: `${Math.min(100, scheduleProgress)}%` }]}
+              />
             </View>
           </View>
 
@@ -504,21 +485,10 @@ export default function OverviewScreen({
               <Text style={[styles.projectStatusDateValue, { color: Colors.text }]}>{formatDate(project.endISO)}</Text>
             </View>
           </View>
-        </View>
-      </LinearGradient>
+      </View>
 
       {/* FINANCIAL HEALTH CARD */}
-      <LinearGradient
-        colors={["#2DFFC4", "#00A6FF"]}
-        start={{ x: 0.05, y: 0.15 }}
-        end={{ x: 0.95, y: 0.85 }}
-        style={{
-          borderRadius: 20,
-          padding: 1,
-          marginBottom: 16,
-        }}
-      >
-        <View style={styles.card}>
+      <View style={styles.flowCard}>
           <View style={styles.cardHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <View style={styles.iconBadge}>
@@ -587,21 +557,10 @@ export default function OverviewScreen({
               </Text>
             </View>
           </View>
-        </View>
-      </LinearGradient>
+      </View>
 
       {/* SPENDING TREND CARD */}
-      <LinearGradient
-        colors={["#2DFFC4", "#00A6FF"]}
-        start={{ x: 0.05, y: 0.15 }}
-        end={{ x: 0.95, y: 0.85 }}
-        style={{
-          borderRadius: 20,
-          padding: 1,
-          marginBottom: 16,
-        }}
-      >
-        <View style={styles.card}>
+      <View style={styles.flowCard}>
         <View style={styles.cardHeaderRow}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <View style={styles.iconBadge}>
@@ -647,21 +606,10 @@ export default function OverviewScreen({
           />
             );
           })()}
-        </View>
-      </LinearGradient>
+      </View>
 
       {/* BUDGET SUMMARY CARD */}
-      <LinearGradient
-        colors={["#2DFFC4", "#00A6FF"]}
-        start={{ x: 0.05, y: 0.15 }}
-        end={{ x: 0.95, y: 0.85 }}
-        style={{
-          borderRadius: 20,
-          padding: 1,
-          marginBottom: 16,
-        }}
-      >
-        <View style={styles.card}>
+      <View style={styles.flowCard}>
         <View style={styles.cardHeaderRow}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <View style={styles.iconBadge}>
@@ -803,8 +751,7 @@ export default function OverviewScreen({
             })}
           </View>
         )}
-        </View>
-      </LinearGradient>
+      </View>
 
       <View style={{ height: 32 }} />
     </ScrollView>
@@ -815,6 +762,9 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   scrollContent: {
     paddingTop: 12,
     paddingBottom: 120,
+  },
+  flowCard: {
+    ...estimateFlowCardStyle(Colors, darkMode, { marginBottom: 16 }),
   },
   // Cards - matching dashboard exactly
   card: {
@@ -850,11 +800,11 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   cardSubtitle: {
     marginTop: 2,
     fontSize: 13,
-    color: darkMode ? Colors.subtext : "#475569",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#475569",
   },
   metricLabel: {
     fontSize: 12,
-    color: darkMode ? '#F3F4F6' : '#475569',
+    color: darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : '#475569',
     marginBottom: 4,
   },
   metricValue: {
@@ -913,7 +863,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   statusChipCompactDot: {
     fontSize: 12,
-    color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)',
+    color: darkMode ? ESTIMATE_FLOW_TEXT_MUTED_DARK : 'rgba(0,0,0,0.4)',
     fontWeight: '400',
   },
   projectStatusStatusRow: {
@@ -930,7 +880,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   projectStatusMetricLabel: {
     fontSize: 14,
-    color: darkMode ? '#FFFFFF' : '#475569',
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#475569',
     fontWeight: '500',
   },
   projectStatusMetricValue: {
@@ -963,7 +913,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   projectStatusDateLabel: {
     fontSize: 14,
-    color: darkMode ? '#FFFFFF' : '#475569',
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#475569',
     fontWeight: '500',
   },
   projectStatusDateValue: {
@@ -1003,7 +953,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   progressText: {
     fontSize: 12,
-    color: darkMode ? '#F3F4F6' : '#475569',
+    color: darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : '#475569',
     marginTop: 8,
     fontWeight: '500',
   },
@@ -1025,7 +975,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   budgetLabel: {
     fontSize: 14,
-    color: darkMode ? '#F3F4F6' : '#475569',
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#475569',
   },
   budgetValue: {
     fontSize: 14,
@@ -1047,7 +997,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   bucketName: {
     fontSize: 14,
     fontWeight: '600',
-    color: darkMode ? '#F3F4F6' : '#475569',
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#475569',
   },
   bucketAmount: {
     fontSize: 13,
@@ -1077,7 +1027,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   timelineLabel: {
     fontSize: 14,
-    color: darkMode ? '#F3F4F6' : '#475569',
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#475569',
   },
   timelineValue: {
     fontSize: 14,
@@ -1104,7 +1054,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   timelineLabelText: {
     fontSize: 12,
-    color: darkMode ? '#F3F4F6' : '#475569',
+    color: darkMode ? ESTIMATE_FLOW_TEXT_MUTED_DARK : '#475569',
   },
   // Health
   healthDetails: {
@@ -1118,7 +1068,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   healthLabel: {
     fontSize: 14,
-    color: darkMode ? '#F3F4F6' : '#475569',
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#475569',
   },
   healthValue: {
     fontSize: 14,
@@ -1133,7 +1083,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   },
   teamLabel: {
     fontSize: 14,
-    color: darkMode ? '#F3F4F6' : '#475569',
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#475569',
   },
   teamValue: {
     fontSize: 14,

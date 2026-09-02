@@ -28,6 +28,49 @@ import {
   WEB_CENTERED_COLUMN_MAX_WIDTH,
   WEB_CENTERED_COLUMN_MIN_WIDTH,
 } from "@/constants/ScreenLayout";
+import {
+  ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
+  estimateFlowCardStyle,
+} from "@/utils/estimateFlowCardStyle";
+
+const LANDING_CTA_GRADIENT = ["#22c55e", "#22d3ee"] as const;
+
+function LandingGradientCTA({
+  styles,
+  label,
+  onPress,
+  disabled,
+  loading,
+}: {
+  styles: ReturnType<typeof getStyles>;
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.primaryButton, disabled && styles.primaryButtonDisabled]}
+      onPress={onPress}
+      activeOpacity={0.85}
+      disabled={disabled}
+    >
+      <LinearGradient
+        colors={[...LANDING_CTA_GRADIENT]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.buttonGradient}
+      >
+        {loading ? (
+          <ActivityIndicator size="small" color="#020617" />
+        ) : (
+          <Ionicons name="rocket-outline" size={20} color="#020617" />
+        )}
+        <Text style={styles.primaryButtonText}>{label}</Text>
+      </LinearGradient>
+    </TouchableOpacity>
+  );
+}
 
 /** Clerk session — used only to decide Go to Dashboard vs Get Started; never blocks the CTA. */
 function useClerkLandingSession() {
@@ -135,26 +178,13 @@ function ClerkLandingHeroContent({
         </View>
       </View>
 
-      <TouchableOpacity
-        style={[styles.primaryButton, openingDashboard && { opacity: 0.7 }]}
+      <LandingGradientCTA
+        styles={styles}
+        label={buttonLabel}
         onPress={onPress}
-        activeOpacity={0.85}
         disabled={openingDashboard}
-      >
-        <LinearGradient
-          colors={["#22c55e", "#22d3ee"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.buttonGradient}
-        >
-          {openingDashboard ? (
-            <ActivityIndicator size="small" color="#020617" />
-          ) : (
-            <Ionicons name="rocket-outline" size={20} color="#020617" />
-          )}
-          <Text style={styles.primaryButtonText}>{buttonLabel}</Text>
-        </LinearGradient>
-      </TouchableOpacity>
+        loading={openingDashboard}
+      />
     </>
   );
 }
@@ -168,24 +198,14 @@ function DefaultGetStartedCTA({
 }) {
   const router = useRouter();
   return (
-    <TouchableOpacity
-      style={styles.primaryButton}
+    <LandingGradientCTA
+      styles={styles}
+      label={t("landing.getStartedButton")}
       onPress={() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         router.push("/auth?mode=signin");
       }}
-      activeOpacity={0.85}
-    >
-      <LinearGradient
-        colors={["#22c55e", "#22d3ee"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.buttonGradient}
-      >
-        <Ionicons name="rocket-outline" size={20} color="#020617" />
-        <Text style={styles.primaryButtonText}>{t("landing.getStartedButton")}</Text>
-      </LinearGradient>
-    </TouchableOpacity>
+    />
   );
 }
 
@@ -301,6 +321,8 @@ export default function LandingScreen() {
     () => getStyles(Colors, darkMode, windowWidth),
     [Colors, darkMode, windowWidth]
   );
+  const wideWeb =
+    Platform.OS === "web" && windowWidth >= LANDING_WIDE_WEB_MIN_WIDTH;
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -345,7 +367,6 @@ export default function LandingScreen() {
                   style={styles.logoOuter}
                 >
                   <View style={styles.logoInner}>
-                    {/* Gloss highlight on the ring */}
                     <View pointerEvents="none" style={styles.logoGloss} />
             <Image
                       source={
@@ -383,21 +404,13 @@ export default function LandingScreen() {
           </View>
 
                     {/* HERO CARD */}
-          <View style={styles.wideContainer}>
-          <LinearGradient
-            colors={["#2DFFC4", "#00A6FF"]}
-            start={{ x: 0.05, y: 0.1 }}
-            end={{ x: 0.95, y: 0.9 }}
-            style={styles.cardBorder}
-          >
+          <View style={[styles.wideContainer, styles.heroCardSection]}>
             <View
               style={[
+                estimateFlowCardStyle(Colors, darkMode, {
+                  marginBottom: wideWeb ? 12 : 16,
+                }),
                 styles.card,
-                !darkMode && {
-                  backgroundColor: Colors.bg,
-                  borderColor: Colors.line,
-                  borderWidth: 1,
-                },
               ]}
             >
               {clerkUiEnabled ? (
@@ -464,26 +477,15 @@ export default function LandingScreen() {
                 </Text>
               </View>
             </View>
-          </LinearGradient>
           </View>
 
                     {/* TESTIMONIAL CARD */}
           <View style={styles.wideContainer}>
-          <LinearGradient
-            colors={["#2DFFC4", "#00A6FF"]}
-            start={{ x: 0.05, y: 0.1 }}
-            end={{ x: 0.95, y: 0.9 }}
-            style={[styles.cardBorder, styles.feedbackCardBorder]}
-          >
             <View
               style={[
+                estimateFlowCardStyle(Colors, darkMode, { marginBottom: 0 }),
                 styles.card,
                 styles.feedbackCard,
-                !darkMode && {
-                  backgroundColor: Colors.bg,
-                  borderColor: Colors.line,
-                  borderWidth: 1,
-                },
               ]}
             >
               <View style={styles.feedbackCardInner}>
@@ -507,7 +509,6 @@ export default function LandingScreen() {
                 />
               </View>
             </View>
-          </LinearGradient>
           </View>
         </Animated.View>
       </ScrollView>
@@ -666,30 +667,11 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     fontWeight: "500",
   },
 
-  cardBorder: {
-    borderRadius: 28,
-    padding: 1,
-    marginBottom: wideWeb ? 12 : 16,
-    shadowColor: darkMode ? '#00A6FF' : "transparent",
-    shadowOpacity: darkMode ? 0.16 : 0,
-    shadowRadius: darkMode ? 14 : 0,
-    shadowOffset: { width: 0, height: darkMode ? 10 : 0 },
-    elevation: darkMode ? 10 : 0,
-    borderWidth: 0,
-    borderColor: "transparent",
-    overflow: 'hidden',
-  },
-  feedbackCardBorder: {
-    marginBottom: 0,
-    shadowOpacity: darkMode ? 0.1 : 0,
-    shadowRadius: darkMode ? 10 : 0,
-    shadowOffset: { width: 0, height: darkMode ? 6 : 0 },
+  heroCardSection: {
+    marginTop: wideWeb ? 6 : 10,
   },
   card: {
-    backgroundColor: darkMode ? "#000000" : "#FFFFFF",
-    borderRadius: 26,
     padding: wideWeb ? 22 : 20,
-    borderWidth: darkMode ? 0 : 0, // Border on wrapper, not card
   },
   feedbackCard: {
     paddingVertical: wideWeb ? 14 : 16,
@@ -784,7 +766,8 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
   cardSubtitle: {
     marginTop: 8,
     fontSize: 13,
-    color: darkMode ? "#FFFFFF" : "#475569",
+    lineHeight: 19,
+    color: darkMode ? "rgba(255, 255, 255, 0.72)" : "#475569",
     textAlign: "center",
   },
 
@@ -804,6 +787,9 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     shadowOpacity: darkMode ? 0.35 : 0.25,
     shadowRadius: 14,
     elevation: darkMode ? 10 : 2,
+  },
+  primaryButtonDisabled: {
+    opacity: 0.7,
   },
   buttonGradient: {
     flexDirection: "row",
@@ -835,7 +821,7 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     width: 52,
     height: 52,
     borderRadius: 18,
-    backgroundColor: darkMode ? "#000000" : "#F1F5F9",
+    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : "#F1F5F9",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 10,

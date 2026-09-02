@@ -275,6 +275,12 @@ export type ProjectActualSummary = {
   mappedActualCoveragePercent: number;
   highConfidenceCoveragePercent: number;
   estimateAccuracyScore?: number;
+  /** Estimated direct cost for scope lines that have mapped actuals (comparable subset). */
+  mappedDirectCostEstimated?: number;
+  /** Actual direct cost on the comparable subset only. */
+  mappedDirectCostActual?: number;
+  /** True when mapped coverage is high enough to show variance % on the card. */
+  varianceIsReliable?: boolean;
 };
 
 export type CalibrationEvidence = {
@@ -778,28 +784,42 @@ function projectSummary(input: FeedbackAlgorithmInput, comparisons: ScopeActualC
     positive(input.actualProjectData?.projectLevelActuals?.totalActualCost) ?? mappedActualCost;
   const estimatedSellingPrice = positive(input.estimateSnapshot?.totals?.sellingPrice);
   const finalSellingPrice = positive(input.actualProjectData?.projectLevelActuals?.finalCustomerPrice);
-  const mappedEstimateValue = comparisons.reduce((sum, comparison) => {
-    return sum + (comparison.actualDirectCost != null ? Number(comparison.estimatedDirectCost || 0) : 0);
-  }, 0);
   const highConfidenceMappedValue = comparisons.reduce((sum, comparison) => {
     return sum + (comparison.actualDirectCost != null && comparison.confidence === 'high' ? Number(comparison.estimatedDirectCost || 0) : 0);
   }, 0);
+  const mappedEstimatedCostTotal =
+    sumDefined(
+      ...comparisons
+        .filter((comparison) => comparison.actualDirectCost != null)
+        .map((comparison) => positive(comparison.estimatedDirectCost))
+    ) ?? 0;
+  const mappedActualCostTotal =
+    sumDefined(
+      ...comparisons
+        .filter((comparison) => comparison.actualDirectCost != null)
+        .map((comparison) => positive(comparison.actualDirectCost))
+    ) ?? 0;
   const coverageBase = estimatedDirectCost || 0;
-  const mappedActualCoveragePercent = coverageBase > 0 ? round((mappedEstimateValue / coverageBase) * 100, 1) || 0 : 0;
+  const mappedActualCoveragePercent = coverageBase > 0 ? round((mappedEstimatedCostTotal / coverageBase) * 100, 1) || 0 : 0;
   const highConfidenceCoveragePercent = coverageBase > 0 ? round((highConfidenceMappedValue / coverageBase) * 100, 1) || 0 : 0;
-  const directCostVariance = estimatedDirectCost != null && actualDirectCost != null ? round(actualDirectCost - estimatedDirectCost) ?? undefined : undefined;
-  const directCostVariancePercent = percentVariance(actualDirectCost, estimatedDirectCost);
+  const directCostVariance =
+    mappedEstimatedCostTotal > 0
+      ? round(mappedActualCostTotal - mappedEstimatedCostTotal) ?? undefined
+      : undefined;
+  const directCostVariancePercent = percentVariance(mappedActualCostTotal, mappedEstimatedCostTotal);
+  const varianceIsReliable =
+    mappedActualCoveragePercent >= 50 && mappedEstimatedCostTotal > 0 && comparisons.some((c) => c.actualDirectCost != null);
   const estimatedGrossProfit = estimatedSellingPrice != null && estimatedDirectCost != null ? round(estimatedSellingPrice - estimatedDirectCost) ?? undefined : undefined;
   const actualGrossProfit = finalSellingPrice != null && actualDirectCost != null ? round(finalSellingPrice - actualDirectCost) ?? undefined : undefined;
   const accuracyScore =
-    mappedActualCoveragePercent >= 60 && directCostVariancePercent != null
+    varianceIsReliable && directCostVariancePercent != null
       ? Math.max(0, Math.min(100, Math.round(100 - Math.abs(directCostVariancePercent))))
       : undefined;
   return {
     estimatedDirectCost,
     actualDirectCost,
     directCostVariance,
-    directCostVariancePercent,
+    directCostVariancePercent: varianceIsReliable ? directCostVariancePercent : null,
     estimatedSellingPrice: estimatedSellingPrice ?? undefined,
     finalSellingPrice: finalSellingPrice ?? undefined,
     estimatedGrossProfit,
@@ -811,6 +831,9 @@ function projectSummary(input: FeedbackAlgorithmInput, comparisons: ScopeActualC
     mappedActualCoveragePercent,
     highConfidenceCoveragePercent,
     estimateAccuracyScore: accuracyScore,
+    mappedDirectCostEstimated: mappedEstimatedCostTotal > 0 ? mappedEstimatedCostTotal : undefined,
+    mappedDirectCostActual: mappedActualCostTotal > 0 ? mappedActualCostTotal : undefined,
+    varianceIsReliable,
   };
 }
 
@@ -1084,11 +1107,24 @@ function feedbackConfidence(data?: ActualProjectData | null, summary?: ProjectAc
   return 'low';
 }
 
-function statusFor(data: ActualProjectData | null | undefined, summary: ProjectActualSummary, unresolved: ActualMappingIssue[], confidence: FeedbackConfidence): FeedbackStatus {
+function statusFor(
+  data: ActualProjectData | null | undefined,
+  summary: ProjectActualSummary,
+  unresolved: ActualMappingIssue[],
+  confidence: FeedbackConfidence,
+  suggestionCount: number
+): FeedbackStatus {
   if (!data || !data.scopeActuals.length) return 'insufficient_data';
-  if (data.completionStatus === 'in_progress') return 'partial';
-  if (summary.mappedActualCoveragePercent < 50 || unresolved.length > 0 || confidence === 'low') return 'partial';
-  return 'ready_for_review';
+  if (unresolved.length > 0) return 'partial';
+  if (summary.mappedActualCoveragePercent < 15) return 'insufficient_data';
+  if (summary.mappedActualCoveragePercent < 50 || confidence === 'low') {
+    return 'partial';
+  }
+  if (suggestionCount > 0) return 'ready_for_review';
+  if (data.completionStatus === 'complete' || data.completionStatus === 'closed') {
+    return 'reviewed';
+  }
+  return 'partial';
 }
 
 function analytics(comparisons: ScopeActualComparison[], unresolved: ActualMappingIssue[], suggestions: RateCalibrationSuggestion[], assumptionSuggestionList: AssumptionCalibrationSuggestion[], summary: ProjectActualSummary): FeedbackAnalyticsSummary {
@@ -1152,6 +1188,7 @@ export function evaluateEstimateFeedback(input: FeedbackAlgorithmInput): Estimat
   }
   const { comparisons, unresolved } = buildComparisons(input);
   const summary = projectSummary(input, comparisons);
+  const confidence = feedbackConfidence(input.actualProjectData, summary);
   const { quantityFindings, pricingFindings } = findingsFor(comparisons, input);
   const suggestions = rateSuggestions(comparisons, input);
   const assumptions = assumptionSuggestions(input);
@@ -1179,11 +1216,16 @@ export function evaluateEstimateFeedback(input: FeedbackAlgorithmInput): Estimat
       evidence: [],
       recommendedAction: 'Review formula assumptions before changing approved formula definitions.',
     }));
-  const confidence = feedbackConfidence(input.actualProjectData, summary);
   return {
     estimateId: input.estimateId,
     projectId: input.projectId,
-    status: statusFor(input.actualProjectData, summary, unresolved, confidence),
+    status: statusFor(
+      input.actualProjectData,
+      summary,
+      unresolved,
+      confidence,
+      suggestions.length + assumptions.suggestions.length
+    ),
     scopeComparisons: comparisons,
     projectSummary: summary,
     quantityFindings,

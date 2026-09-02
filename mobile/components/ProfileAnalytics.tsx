@@ -1,11 +1,20 @@
 import React, { useMemo, useRef, useEffect } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
-import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
+import {
+  ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
+  ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
+  ESTIMATE_FLOW_GREEN,
+  ESTIMATE_FLOW_PROGRESS_GRADIENT,
+  ESTIMATE_FLOW_TEXT_LABEL_DARK,
+  ESTIMATE_FLOW_TEXT_MUTED_DARK,
+  ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
+  ESTIMATE_FLOW_TRACK_BG_DARK,
+  estimateFlowCardStyle,
+} from "@/utils/estimateFlowCardStyle";
 
 interface ProjectTypeStat {
   label: string;
@@ -67,17 +76,17 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
   const completedNetDisplay = formatCurrency(po?.completedNetProfit ?? 0);
   const pipelineNetDisplay = formatCurrency(po?.pipelineProjectedNetProfit ?? 0);
   const completedNetSub = po?.hasCompletedData
-    ? `${po?.completedJobCount ?? 0} completed job${(po?.completedJobCount ?? 0) === 1 ? "" : "s"}`
-    : "No completed jobs yet.";
+    ? `${po?.completedJobCount ?? 0} completed`
+    : "No completed jobs";
   const pipelineNetSub = (() => {
     if (!po?.hasOpenPipeline) {
-      return "No active or submitted bids with contract value.";
+      return "No pipeline yet";
     }
     const a = po.activePipelineProjectCount ?? 0;
     const s = po.submittedPipelineProjectCount ?? 0;
     const parts: string[] = [];
-    if (a > 0) parts.push(`${a} active · forecast at completion`);
-    if (s > 0) parts.push(`${s} submitted · net from margin/estimate`);
+    if (a > 0) parts.push(`${a} active`);
+    if (s > 0) parts.push(`${s} submitted`);
     return parts.length > 0 ? parts.join(" · ") : "Pipeline";
   })();
 
@@ -263,13 +272,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
       </View>
 
       {/* Monthly completed-profit trend (same data as before; clearer label) */}
-      <LinearGradient
-        colors={BRAND_FRAME_GRADIENT_COLORS}
-        start={{ x: 0.05, y: 0.15 }}
-        end={{ x: 0.95, y: 0.85 }}
-        style={styles.cardBorder}
-      >
-        <View style={styles.cardInner}>
+      <View style={styles.flowCardFirst}>
           <Text style={styles.forecastEyebrow}>Completed profit</Text>
           <View style={styles.forecastTitleRow}>
             <View style={styles.blockHeaderLeft}>
@@ -308,13 +311,23 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
                     item.isEmpty && styles.barTrackEmpty,
                   ]}
                 >
-                  <View
-                    style={[
-                      styles.barFill,
-                      item.isEmpty && styles.barFillEmpty,
-                      { height: `${item.heightPct}%` },
-                    ]}
-                  />
+                  {item.isEmpty ? (
+                    <View
+                      style={[
+                        styles.barFill,
+                        styles.barFillEmpty,
+                        { height: `${item.heightPct}%` },
+                      ]}
+                    />
+                  ) : (
+                    <View
+                      style={[
+                        styles.barFill,
+                        styles.barFillGreen,
+                        { height: `${item.heightPct}%` },
+                      ]}
+                    />
+                  )}
                 </View>
 
                 <View style={[styles.monthPill, item.isEmpty && styles.monthPillMuted]}>
@@ -330,17 +343,10 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
               </View>
             ))}
           </ScrollView>
-        </View>
-      </LinearGradient>
+      </View>
 
       {/* Profit Analytics & Profitability by Project Type - Combined */}
-      <LinearGradient
-        colors={BRAND_FRAME_GRADIENT_COLORS}
-        start={{ x: 0.05, y: 0.15 }}
-        end={{ x: 0.95, y: 0.85 }}
-        style={[styles.cardBorder, styles.cardBorderStacked]}
-      >
-        <View style={styles.cardInner}>
+      <View style={styles.flowCardStacked}>
           {/* Profit Analytics Section */}
           <Text style={styles.forecastEyebrow}>Historical performance</Text>
           <View style={styles.forecastTitleRow}>
@@ -358,7 +364,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
           </View>
 
           <Text style={styles.forecastSub}>
-            Based on completed projects to date.
+            From completed jobs.
           </Text>
 
           {/* Divider */}
@@ -376,8 +382,8 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
 
           {projectTypeStats.length === 0 ? (
             <Text style={styles.forecastSub}>
-              No data yet. Complete projects with a project type (from estimates) to
-              see average margin by Kitchen, Bathroom, and other types.
+              Add a project type on estimates, then complete jobs to see margins by
+              type.
             </Text>
           ) : (
             projectTypeStats.map((pt) => (
@@ -391,7 +397,7 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
                 </Text>
                 <View style={styles.progressTrack}>
                   <LinearGradient
-                    colors={['#22c55e', '#14b8a6', '#0ea5e9']}
+                    colors={[...ESTIMATE_FLOW_PROGRESS_GRADIENT]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={[
@@ -405,17 +411,10 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
               </View>
             ))
           )}
-        </View>
-      </LinearGradient>
+      </View>
 
       {/* Revenue Forecast */}
-      <LinearGradient
-        colors={BRAND_FRAME_GRADIENT_COLORS}
-        start={{ x: 0.05, y: 0.15 }}
-        end={{ x: 0.95, y: 0.85 }}
-        style={[styles.cardBorder, styles.cardBorderStacked]}
-      >
-        <View style={styles.cardInner}>
+      <View style={styles.flowCardStacked}>
           <View style={styles.netProfitHeaderBlock}>
             <Text style={[styles.forecastEyebrow, styles.netProfitEyebrowSpacing]}>
               Completed vs pipeline
@@ -493,15 +492,11 @@ const ProfileAnalytics: React.FC<ProfileAnalyticsProps> = ({
               color={darkMode ? "rgba(255,255,255,0.78)" : "#475569"}
             />
             <Text style={styles.infoText}>
-              Current net profit uses revenue minus actual cost (or estimated margin)
-              for every completed job. For active projects, projected net profit uses
-              the same completion forecast as Budget (spend, progress, budget). For
-              submitted bids, it uses net profit from your estimate or margin %,
-              matching the Projects list.
+              Completed uses actual revenue and cost. Active uses your Budget
+              forecast. Submitted uses estimate margin.
             </Text>
           </View>
-        </View>
-      </LinearGradient>
+      </View>
     </View>
   );
 };
@@ -530,22 +525,12 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: "500",
   },
 
-  /* gradient border card */
-  cardBorder: {
-    borderRadius: 20,
-    padding: 1,
-    marginTop: 6,
+  /* estimate-flow gray cards */
+  flowCardFirst: {
+    ...estimateFlowCardStyle(Colors, darkMode, { marginTop: 6 }),
   },
-  cardBorderStacked: {
-    marginTop: 12,
-  },
-  cardInner: {
-    /* Light: match page bg (same as Performance Snapshot / All Projects); dark: unchanged */
-    backgroundColor: darkMode ? Colors.card : Colors.bg,
-    borderRadius: 18,
-    padding: 14,
-    borderWidth: darkMode ? 0 : 1,
-    borderColor: darkMode ? "transparent" : Colors.line,
+  flowCardStacked: {
+    ...estimateFlowCardStyle(Colors, darkMode, { marginTop: 12 }),
   },
   /** Budget rowLabelMetric — section eyebrows (monthly trend, historical, revenue) */
   forecastEyebrow: {
@@ -554,7 +539,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.8,
     textTransform: "uppercase",
-    color: darkMode ? "rgba(255,255,255,0.64)" : "rgba(15,23,42,0.72)",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : "rgba(15,23,42,0.72)",
     marginBottom: 8,
   },
   forecastTitleRow: {
@@ -585,7 +570,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "500",
-    color: darkMode ? "rgba(255,255,255,0.62)" : "#475569",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#475569",
   },
   projectTypeTitleRow: {
     marginBottom: 8,
@@ -646,42 +631,44 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginBottom: 3,
   },
   barValueLabelMuted: {
-    color: darkMode ? "rgba(255,255,255,0.45)" : "rgba(51,65,85,0.55)",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_MUTED_DARK : "rgba(51,65,85,0.55)",
     fontWeight: "600",
   },
   barTrack: {
     width: 22,
     height: 64,
     borderRadius: 999,
-    backgroundColor: darkMode ? Colors.card : Colors.surface,
+    backgroundColor: darkMode ? ESTIMATE_FLOW_TRACK_BG_DARK : Colors.surface,
     borderWidth: 1,
-    borderColor: darkMode ? Colors.line : "#94A3B8",
+    borderColor: darkMode ? "rgba(148, 163, 184, 0.15)" : "#94A3B8",
     justifyContent: "flex-end",
     overflow: "hidden",
   },
   barTrackEmpty: {
-    backgroundColor: darkMode ? "rgba(15,23,42,0.65)" : "rgba(241,245,249,0.9)",
-    borderColor: darkMode ? "rgba(51,65,85,0.55)" : "rgba(148,163,184,0.45)",
+    backgroundColor: darkMode ? ESTIMATE_FLOW_TRACK_BG_DARK : "rgba(241,245,249,0.9)",
+    borderColor: darkMode ? "rgba(148, 163, 184, 0.15)" : "rgba(148,163,184,0.45)",
   },
   barFill: {
     width: "100%",
     borderRadius: 999,
-    backgroundColor: "#22d3ee",
+  },
+  barFillGreen: {
+    backgroundColor: ESTIMATE_FLOW_GREEN,
   },
   barFillEmpty: {
-    backgroundColor: "rgba(34,211,238,0.22)",
+    backgroundColor: "rgba(148, 163, 184, 0.25)",
   },
   monthPill: {
     marginTop: 5,
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: 7,
-    backgroundColor: Colors.surface2,
+    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
     borderWidth: 1,
-    borderColor: Colors.line,
+    borderColor: darkMode ? "rgba(148, 163, 184, 0.16)" : Colors.line,
   },
   monthPillMuted: {
-    backgroundColor: darkMode ? "rgba(30,41,59,0.6)" : "rgba(241,245,249,0.85)",
+    backgroundColor: darkMode ? ESTIMATE_FLOW_TRACK_BG_DARK : "rgba(241,245,249,0.85)",
   },
   chartXAxisLabel: {
     fontSize: 12,
@@ -690,7 +677,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     color: darkMode ? "#F5F7FA" : "#334155",
   },
   chartXAxisLabelMuted: {
-    color: darkMode ? "rgba(255,255,255,0.5)" : "rgba(51,65,85,0.55)",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_MUTED_DARK : "rgba(51,65,85,0.55)",
     fontWeight: "500",
   },
 
@@ -759,7 +746,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     marginTop: 6,
     height: 6,
     borderRadius: 999,
-    backgroundColor: "rgba(15, 23, 42, 0.9)",
+    backgroundColor: darkMode ? ESTIMATE_FLOW_TRACK_BG_DARK : "rgba(148, 163, 184, 0.2)",
     overflow: "hidden",
   },
   progressFill: {
@@ -781,9 +768,9 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 8,
     borderRadius: 11,
-    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface,
+    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface,
     borderWidth: 1,
-    borderColor: darkMode ? "rgba(148,163,184,0.12)" : Colors.line,
+    borderColor: darkMode ? "rgba(148,163,184,0.16)" : Colors.line,
     overflow: "hidden",
   },
   forecastTileCentered: {
@@ -808,7 +795,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.75,
     textTransform: "uppercase",
-    color: darkMode ? "rgba(255,255,255,0.64)" : "rgba(15,23,42,0.72)",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : "rgba(15,23,42,0.72)",
   },
   forecastValueSlot: {
     minHeight: 48,
@@ -839,14 +826,14 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     lineHeight: 14,
     fontWeight: "500",
     letterSpacing: 0.12,
-    color: darkMode ? "rgba(255,255,255,0.56)" : "#64748b",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#64748b",
   },
   forecastSub: {
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "500",
     letterSpacing: 0.15,
-    color: darkMode ? "rgba(255,255,255,0.56)" : "#64748b",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#64748b",
   },
   infoRow: {
     flexDirection: "row",
@@ -865,7 +852,7 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     lineHeight: 16,
     fontWeight: "500",
     letterSpacing: 0.15,
-    color: darkMode ? "rgba(255,255,255,0.56)" : "#64748b",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#64748b",
     flex: 1,
   },
 });

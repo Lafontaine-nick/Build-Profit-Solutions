@@ -29,6 +29,7 @@ import { useProjectList } from "@/contexts/ProjectListContext";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useAIManagerMode } from "@/hooks/useAIManagerMode";
 import AIAssistantModal from "@/components/AIAssistantModal";
+import { AiPmModePill } from "@/components/AiPmModePill";
 import ProfileAnalytics from "@/components/ProfileAnalytics";
 import GreyCalendar from "@/components/GreyCalendar";
 import {
@@ -61,7 +62,7 @@ import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import WebPageShell from "@/components/layout/WebPageShell";
 import { TabScreenHeader } from "@/components/ui/TabScreenHeader";
 import { tabFlowCardStyle } from "@/components/layout/TabFlowCard";
-import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
+import { ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, ESTIMATE_FLOW_NESTED_CARD_BG_DARK, ESTIMATE_FLOW_PROGRESS_GRADIENT, ESTIMATE_FLOW_TEXT_LABEL_DARK, ESTIMATE_FLOW_TEXT_SECONDARY_DARK, ESTIMATE_FLOW_TRACK_BG_DARK } from "@/utils/estimateFlowCardStyle";
 import {
   formatMoneyUSD,
   formatMoneyCompact,
@@ -3859,44 +3860,18 @@ const DashboardScreen: React.FC = () => {
 
       {/* FLOATING AI PROJECT MANAGER MODE BADGE */}
       {!restrictedWorkspaceFinancials ? (
-      <Pressable
-        style={[
-          styles.aiFloatingWrapper,
-          activeTab === "calendar" && styles.aiFloatingWrapperCalendarTab,
-        ]}
-        onPress={() => setAiPmMode((prev) => !prev)}
-      >
-        <LinearGradient
-          colors={
-            aiPmMode
-              ? activeTab === "calendar"
-                ? ["#134e2a", "#115e59"]
-                : ["#15803d", "#0e7490"]
-              : ["#3f3f46", "#18181b"]
-          }
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
+        <AiPmModePill
+          active={aiPmMode}
+          label={aiPmMode ? t('dashboard.aiPmModeOn') : t('dashboard.aiPmModeOff')}
+          onPress={() => setAiPmMode((prev) => !prev)}
+          darkMode={darkMode}
+          size={activeTab === "calendar" ? "compact" : "default"}
+          elevated
           style={[
-            styles.aiFloating,
-            activeTab === "calendar" && styles.aiFloatingCalendarTab,
+            styles.aiFloatingWrapper,
+            activeTab === "calendar" && styles.aiFloatingWrapperCalendarTab,
           ]}
-        >
-          <Ionicons
-            name="sparkles"
-            size={activeTab === "calendar" ? 14 : 15}
-            color={aiPmMode ? "#ecfdf5" : "#d4d4d8"}
-          />
-          <Text
-            style={[
-              styles.aiFloatingText,
-              aiPmMode && styles.aiFloatingTextOn,
-              activeTab === "calendar" && styles.aiFloatingTextCalendarTab,
-            ]}
-          >
-            {aiPmMode ? t('dashboard.aiPmModeOn') : t('dashboard.aiPmModeOff')}
-          </Text>
-        </LinearGradient>
-      </Pressable>
+        />
       ) : null}
 
       {/* AI Assistant Modal */}
@@ -4413,12 +4388,14 @@ const DashboardProjectSummaryCard = ({
       </View>
       <View style={styles.projectSummaryProgress}>
         <View style={styles.progressBarTrack}>
-          <View
+          <LinearGradient
+            colors={[...ESTIMATE_FLOW_PROGRESS_GRADIENT]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
             style={[
               styles.progressBarFill,
               {
                 width: `${Math.min(Math.max(project.progress * 100, 0), 100)}%`,
-                backgroundColor: "#22c55e",
               },
             ]}
           />
@@ -4787,15 +4764,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
 
       {/* ALL PROJECTS */}
       <View style={styles.allProjectsContainer}>
-        <View style={styles.allProjectsFrame}>
-          <LinearGradient
-            pointerEvents="none"
-            colors={["#2DFFC4", "#00A6FF"]}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
-            style={styles.allProjectsFrameGradient}
-          />
-          <View style={styles.allProjectsInner}>
+        <View style={styles.allProjectsCard}>
             <View style={styles.cardHeaderRow}>
               <View>
                 <Text style={styles.cardTitle}>{t('dashboard.allProjects')}</Text>
@@ -4877,7 +4846,6 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                 ))}
               </View>
             )}
-          </View>
         </View>
       </View>
 
@@ -4914,7 +4882,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
   estimates,
   timelineProgress,
 }) => {
-  const { theme } = useTheme();
+  const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useDashboardStyles(Colors);
   // Simple avg project value for the snapshot card (use raw total — display string may be $12.8M / $123.5M)
@@ -4956,25 +4924,23 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
   );
 
   return (
-    <>
+    <View style={styles.analyticsPageShell}>
+      {darkMode ? (
+        <LinearGradient
+          pointerEvents="none"
+          colors={[
+            "rgba(34, 197, 94, 0.05)",
+            "rgba(0, 166, 255, 0.04)",
+            "transparent",
+          ]}
+          locations={[0, 0.38, 0.9]}
+          style={styles.analyticsPageGlow}
+        />
+      ) : null}
+
       {/* Top snapshot card (4 mini metrics) */}
       <View style={[styles.analyticsSection, styles.wideContainer]}>
-        <LinearGradient
-          colors={["#2DFFC4", "#00A6FF"]}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
-          style={{
-            borderRadius: 20,
-            padding: 1,
-            marginBottom: 12,
-          }}
-        >
-          <View style={{
-            /* Light: match page bg; dark: unchanged */
-            backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.bg,
-            borderRadius: 18,
-            padding: 14,
-          }}>
+        <View style={styles.performanceSnapshotCard}>
             <View style={styles.cardHeaderRow}>
               <View>
                 <Text style={styles.cardTitle}>Performance Snapshot</Text>
@@ -4997,8 +4963,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
                 value={metrics.avgMargin}
               />
             </View>
-          </View>
-        </LinearGradient>
+        </View>
       </View>
 
       {/* Deeper charts / profit analytics */}
@@ -5014,7 +4979,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
           profitOutlook={profitOutlook}
         />
       </View>
-    </>
+    </View>
   );
 };
 
@@ -5035,10 +5000,10 @@ const AnalyticsMetric = ({
   const isDark = Colors.bg === '#000000';
   const getMetricConfig = (label: string) => {
     const baseConfigs: Record<string, { icon: keyof typeof Ionicons.glyphMap; color: string; darkBg: string; lightBg: string }> = {
-      "Total Bids": { icon: "cash-outline", color: "#3b82f6", darkBg: Colors.surface2, lightBg: "#E2E8F0" },
-      "Active Projects": { icon: "folder-outline", color: "#22c55e", darkBg: Colors.surface2, lightBg: "#E2E8F0" },
-      "Avg Project Value": { icon: "trending-up-outline", color: "#22d3ee", darkBg: Colors.surface2, lightBg: "#E2E8F0" },
-      "Avg Net Profit": { icon: "pie-chart-outline", color: "#a78bfa", darkBg: Colors.surface2, lightBg: "#E2E8F0" },
+      "Total Bids": { icon: "cash-outline", color: "#3b82f6", darkBg: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, lightBg: "#E2E8F0" },
+      "Active Projects": { icon: "folder-outline", color: "#22c55e", darkBg: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, lightBg: "#E2E8F0" },
+      "Avg Project Value": { icon: "trending-up-outline", color: "#22d3ee", darkBg: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, lightBg: "#E2E8F0" },
+      "Avg Net Profit": { icon: "pie-chart-outline", color: "#a78bfa", darkBg: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, lightBg: "#E2E8F0" },
     };
     const config = baseConfigs[label] || { icon: "stats-chart-outline", color: "#FFFFFF", darkBg: Colors.surface2, lightBg: "#E2E8F0" };
     return {
@@ -5754,35 +5719,14 @@ const getStyles = (
     ...(desktopWeb ? { padding: 16 } : {}),
   },
   allProjectsCard: {
-    marginHorizontal: -8,
-    paddingHorizontal: 12,
-    paddingVertical: 18,
-    borderWidth: desktopWeb && Colors.bg === "#000000" ? 1 : 0,
-    borderColor: "rgba(34, 197, 94, 0.18)",
-    borderRadius: desktopWeb ? 26 : undefined,
+    ...tabFlowCardStyle(Colors, darkMode, { marginBottom: 16 }),
+    ...(desktopWeb ? { padding: 16 } : {}),
   },
   allProjectsContainer: {
     marginBottom: 16,
     marginHorizontal: -edge,
     paddingHorizontal: 4,
     paddingTop: 16,
-  },
-  allProjectsFrame: {
-    position: "relative",
-    borderRadius: 20,
-    marginBottom: 16,
-    padding: 1,
-    overflow: "hidden",
-  },
-  allProjectsFrameGradient: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 20,
-  },
-  allProjectsInner: {
-    borderRadius: 18,
-    padding: 12,
-    zIndex: 1,
-    backgroundColor: darkMode ? Colors.card : Colors.bg,
   },
   /** Cap height when 4+ projects so the list scrolls inside the card */
   allProjectsListScroll: {
@@ -5807,19 +5751,22 @@ const getStyles = (
   },
   analyticsSection: {
     marginBottom: 10,
+    zIndex: 1,
+  },
+  analyticsPageShell: {
+    position: "relative",
+    zIndex: 0,
+  },
+  analyticsPageGlow: {
+    position: "absolute",
+    top: -24,
+    left: -edge,
+    right: -edge,
+    height: 480,
+    zIndex: 0,
   },
   performanceSnapshotCard: {
-    backgroundColor: "transparent", // gradient handles the fill
-    borderRadius: 22,
-    overflow: "hidden",
-    borderWidth: Colors.bg === '#000000' ? 1 : 0,
-    borderColor: Colors.bg === '#000000' ? "#102131" : Colors.line,
-    marginBottom: 16,
-    shadowColor: Colors.bg === '#000000' ? "transparent" : "#0F172A",
-    shadowOpacity: Colors.bg === '#000000' ? 0 : 0.05,
-    shadowRadius: Colors.bg === '#000000' ? 0 : 10,
-    shadowOffset: { width: 0, height: Colors.bg === '#000000' ? 0 : 4 },
-    elevation: Colors.bg === '#000000' ? 0 : 2,
+    ...tabFlowCardStyle(Colors, darkMode, { marginBottom: 12 }),
   },
   analyticsGradient: {
     width: "100%",
@@ -5844,7 +5791,7 @@ const getStyles = (
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "500",
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.62)" : "#475569",
+    color: Colors.bg === '#000000' ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#475569",
   },
   /** Insights tab — AI Insights card title + body (larger, easier to read) */
   insightsCardTitle: {
@@ -6276,7 +6223,7 @@ const getStyles = (
     flex: 1,
     height: 6,
     borderRadius: 999,
-    backgroundColor: Colors.bg === '#000000' ? "#1B2938" : "#CBD5E1", // Darker track in light mode
+    backgroundColor: Colors.bg === '#000000' ? ESTIMATE_FLOW_TRACK_BG_DARK : "#CBD5E1",
     overflow: "hidden",
   },
   progressBarFill: {
@@ -6317,9 +6264,9 @@ const getStyles = (
     paddingVertical: 11,
     paddingHorizontal: 11,
     borderRadius: 14,
-    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
     borderWidth: 1,
-    borderColor: darkMode ? "rgba(148,163,184,0.12)" : Colors.line,
+    borderColor: darkMode ? "rgba(148,163,184,0.16)" : Colors.line,
     zIndex: 2,
   },
   allProjectsList: {
@@ -6403,11 +6350,11 @@ const getStyles = (
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
     borderRadius: 12,
     padding: 12,
     borderWidth: 1,
-    borderColor: darkMode ? "rgba(148,163,184,0.12)" : Colors.line,
+    borderColor: darkMode ? "rgba(148,163,184,0.16)" : Colors.line,
   },
   analyticsMetricCard: {
     width: "48%",
@@ -6449,7 +6396,7 @@ const getStyles = (
     fontWeight: "700",
     letterSpacing: 0.8,
     textTransform: "uppercase",
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.64)" : "rgba(15,23,42,0.72)",
+    color: Colors.bg === '#000000' ? ESTIMATE_FLOW_TEXT_LABEL_DARK : "rgba(15,23,42,0.72)",
     marginBottom: 6,
   },
   /** Budget rowValueIntelHero */
@@ -6836,39 +6783,9 @@ const getStyles = (
     bottom: Platform.OS === "web" ? 56 : 96,
     zIndex: 10,
   },
-  aiFloating: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 999,
-    shadowColor: "#000000",
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 5,
-  },
-  aiFloatingText: {
-    marginLeft: 6,
-    fontSize: desktopWeb ? 12 : 11,
-    fontWeight: "600",
-    color: "#d4d4d8",
-  },
-  aiFloatingTextOn: {
-    color: "#ecfdf5",
-  },
   aiFloatingWrapperCalendarTab: {
     opacity: 0.9,
     bottom: Platform.OS === "web" ? 62 : 102,
-  },
-  aiFloatingCalendarTab: {
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    shadowOpacity: 0.22,
-    shadowRadius: 8,
-  },
-  aiFloatingTextCalendarTab: {
-    fontSize: 10,
   },
 });
 };

@@ -21,7 +21,7 @@ describe('buildWithAiProductionHardening', () => {
     expect(BUILD_WITH_AI_PRODUCTION_HARDENING_VERSION).toBe('1.0.0');
     expect(DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS.readinessScoring).toBe(true);
     expect(DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS.actualVsEstimatedFeedback).toBe(true);
-    expect(DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS.calibrationApproval).toBe(true);
+    expect(DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS.calibrationApproval).toBe(false);
   });
 
   it('defines golden workflow fixtures for major project types without live pricing dependency', () => {

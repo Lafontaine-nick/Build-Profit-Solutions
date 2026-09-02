@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -10,110 +9,210 @@ import {
   View,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import type { RateCalibrationSuggestion } from '@/utils/estimateFeedback';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { ScopeActualComparison } from '@/utils/estimateFeedback';
 import {
-  approveCloseoutCalibration,
   submitCloseoutCalibration,
   type CloseoutCalibrationResult,
 } from '@/utils/contractorPricingMemory';
+import { formatMoneyFull } from '@/src/lib/budgetUtils';
 import {
-  canPerformBuildWithAiAction,
-  DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS,
-  type BuildWithAiRole,
-} from '@/utils/buildWithAiProductionHardening';
+  buildRateInsightSections,
+  countRateInsightRows,
+  formatRateInsightLineEstimate,
+  type RateInsightLineItem,
+  type RateInsightSection,
+} from '@/utils/rateInsightComparisons';
+import { BRAND_FRAME_GRADIENT_COLORS } from '@/constants/brandFrameGradient';
+import { PROJECT_WIDE_CONTAINER_CARD_INSET } from '@/constants/ScreenLayout';
+import GradientRingBackInner from '@/components/GradientRingBackInner';
+import {
+  AI_FLOW_CARD_BG_DARK,
+  ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
+  ESTIMATE_FLOW_TEXT_LABEL_DARK,
+  ESTIMATE_FLOW_TEXT_MUTED_DARK,
+  ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
+} from '@/utils/estimateFlowCardStyle';
 
-export type CalibrationReviewSuggestion = {
-  suggestionId: string;
-  scopeItemName: string;
-  trade?: string;
-  category?: string;
-  unit?: string;
-  currentRate?: number | null;
-  suggestedRate: number;
-  variancePct?: number | null;
-  confidence?: string;
-  message?: string;
-  reason?: string;
-};
 
 type Props = {
   visible: boolean;
   onClose: () => void;
   projectLike: Record<string, unknown> | null | undefined;
-  /** Client-side tips from Budget estimateFeedback (optional seed). */
-  clientSuggestions?: RateCalibrationSuggestion[];
-  /** owner → owner role; cost_control → manager */
-  budgetAccessMode?: 'owner' | 'cost_control';
+  clientSuggestions?: unknown[];
+  scopeComparisons?: ScopeActualComparison[];
+  projectStatus?: string;
   darkMode?: boolean;
+  /** @deprecated Approval is disabled — kept for call-site compatibility. */
+  budgetAccessMode?: 'owner' | 'cost_control';
   onApproved?: (count: number) => void;
 };
 
-function mapClientSuggestion(s: RateCalibrationSuggestion): CalibrationReviewSuggestion {
-  return {
-    suggestionId: s.key,
-    scopeItemName: String(s.scopeKey || s.key),
-    trade: s.trade,
-    unit: String(s.unit || 'unit'),
-    currentRate: s.currentRate ?? null,
-    suggestedRate: s.suggestedRate,
-    confidence: s.confidence,
-    reason: s.reason,
-    message: `Update saved rate for ${s.scopeKey} to $${s.suggestedRate}/${s.unit || 'unit'} (${s.reason.replace(/_/g, ' ')}).`,
-  };
+function formatMoney(amount: number | null | undefined): string {
+  if (amount == null || !Number.isFinite(amount)) return '—';
+  return formatMoneyFull(amount, { decimals: 0 });
 }
 
-function mapServerSuggestion(raw: Record<string, unknown>): CalibrationReviewSuggestion {
-  return {
-    suggestionId: String(raw.suggestionId || raw.key || ''),
-    scopeItemName: String(raw.scopeItemName || raw.scopeKey || 'Scope item'),
-    trade: raw.trade != null ? String(raw.trade) : undefined,
-    category: raw.category != null ? String(raw.category) : undefined,
-    unit: raw.unit != null ? String(raw.unit) : 'unit',
-    currentRate: raw.currentRate != null ? Number(raw.currentRate) : null,
-    suggestedRate: Number(raw.suggestedRate) || 0,
-    variancePct: raw.variancePct != null ? Number(raw.variancePct) : null,
-    confidence: raw.confidence != null ? String(raw.confidence) : undefined,
-    message: raw.message != null ? String(raw.message) : undefined,
-    reason: raw.reason != null ? String(raw.reason) : undefined,
-  };
+function formatVariancePct(pct: number | null | undefined): string | null {
+  if (pct == null || !Number.isFinite(pct)) return null;
+  return `${pct > 0 ? '+' : ''}${pct}%`;
 }
 
-function formatRate(rate: number | null | undefined, unit?: string) {
-  if (rate == null || !Number.isFinite(rate)) return '—';
-  const u = unit || 'unit';
-  return `$${rate}/${u}`;
+function LineItemCard({
+  line,
+  nestedCardBg,
+  cardBorder,
+  text,
+  secondary,
+  muted,
+}: {
+  line: RateInsightLineItem;
+  nestedCardBg: string;
+  cardBorder: string;
+  text: string;
+  secondary: string;
+  muted: string;
+}) {
+  const estimateDetail = formatRateInsightLineEstimate(line);
+  const variance = formatVariancePct(line.variancePct);
+
+  return (
+    <View style={[styles.lineCard, { backgroundColor: nestedCardBg, borderColor: cardBorder }]}>
+      <Text style={[styles.lineTitle, { color: text }]} numberOfLines={2}>
+        {line.name}
+      </Text>
+      <Text style={[styles.lineMeta, { color: secondary }]}>
+        Estimated {formatMoney(line.estimatedTotal)}
+        {estimateDetail !== '—' ? ` (${estimateDetail})` : ''}
+      </Text>
+      {line.loggedTotal > 0 ? (
+        <Text style={[styles.lineMeta, { color: secondary }]}>
+          Logged {formatMoney(line.loggedTotal)}
+          {variance ? ` (${variance})` : ''}
+        </Text>
+      ) : null}
+      {line.expenses.map((expense) => (
+        <Text key={expense.id} style={[styles.expenseRow, { color: muted }]}>
+          · {expense.label} — {formatMoney(expense.amount)}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+function SectionCard({
+  section,
+  outerCardBg,
+  nestedCardBg,
+  cardBorder,
+  text,
+  secondary,
+  label,
+  muted,
+}: {
+  section: RateInsightSection;
+  outerCardBg: string;
+  nestedCardBg: string;
+  cardBorder: string;
+  text: string;
+  secondary: string;
+  label: string;
+  muted: string;
+}) {
+  const sectionVariance = formatVariancePct(
+    section.estimatedTotal > 0 && section.loggedTotal > 0
+      ? Math.round(((section.loggedTotal - section.estimatedTotal) / section.estimatedTotal) * 100)
+      : null
+  );
+
+  return (
+    <View style={[styles.outerCard, { backgroundColor: outerCardBg, borderColor: cardBorder }]}>
+      <Text style={[styles.sectionLabel, { color: label }]}>{section.title}</Text>
+      <Text style={[styles.sectionTotals, { color: text }]}>
+        Est. {formatMoney(section.estimatedTotal)} · Logged {formatMoney(section.loggedTotal)}
+        {sectionVariance ? ` (${sectionVariance})` : ''}
+      </Text>
+      {section.lineItems.map((line) => (
+        <LineItemCard
+          key={line.id}
+          line={line}
+          nestedCardBg={nestedCardBg}
+          cardBorder={cardBorder}
+          text={text}
+          secondary={secondary}
+          muted={muted}
+        />
+      ))}
+      {section.unlinkedExpenses.length > 0 ? (
+        <View style={[styles.unlinkedBlock, { borderColor: cardBorder }]}>
+          <Text style={[styles.unlinkedLabel, { color: label }]}>Logged costs (not linked to a line)</Text>
+          {section.unlinkedExpenses.map((expense) => (
+            <Text key={expense.id} style={[styles.expenseRow, { color: muted }]}>
+              · {expense.label} — {formatMoney(expense.amount)}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function isProjectCloseout(status?: string): boolean {
+  const normalized = String(status || '').toLowerCase();
+  return normalized === 'completed' || normalized === 'complete' || normalized === 'closed';
+}
+
+function formatSummaryStatus(status?: string): string {
+  return String(status || 'building data')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 export default function CalibrationReviewModal({
   visible,
   onClose,
   projectLike,
-  clientSuggestions = [],
-  budgetAccessMode = 'owner',
+  scopeComparisons = [],
+  projectStatus,
   darkMode = true,
-  onApproved,
 }: Props) {
-  const role: BuildWithAiRole = budgetAccessMode === 'owner' ? 'owner' : 'manager';
-  const canApprove =
-    DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS.calibrationApproval &&
-    canPerformBuildWithAiAction(role, 'approve_calibration');
-
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(false);
-  const [approving, setApproving] = useState(false);
   const [closeout, setCloseout] = useState<CloseoutCalibrationResult | null>(null);
-  const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
 
-  const suggestions = useMemo(() => {
-    const fromServer = (closeout?.rateSuggestions || []).map((s) =>
-      mapServerSuggestion(s as Record<string, unknown>)
-    );
-    const serverIds = new Set(fromServer.map((s) => s.suggestionId));
-    const fromClient = clientSuggestions
-      .map(mapClientSuggestion)
-      .filter((s) => s.suggestionId && !serverIds.has(s.suggestionId));
-    return [...fromServer, ...fromClient].filter((s) => s.suggestedRate > 0);
-  }, [closeout, clientSuggestions]);
+  const projectData = (projectLike?.projectData as Record<string, unknown> | undefined) || projectLike || {};
+  const estimateData = (projectData.estimateData as Record<string, unknown> | undefined) || {};
+  const expenses = useMemo(
+    () =>
+      ((projectData.expenses as Array<Record<string, unknown>>) || []).map((expense) => ({
+        id: String(expense.id),
+        category: expense.category != null ? String(expense.category) : undefined,
+        description:
+          expense.description != null
+            ? String(expense.description)
+            : expense.notes != null
+              ? String(expense.notes)
+              : undefined,
+        vendor: expense.vendor != null ? String(expense.vendor) : undefined,
+        amount: expense.amount != null ? Number(expense.amount) : undefined,
+        linkedLineId: expense.linkedLineId != null ? String(expense.linkedLineId) : undefined,
+      })),
+    [projectData.expenses]
+  );
+
+  const insightSections = useMemo(
+    () =>
+      buildRateInsightSections({
+        estimateData,
+        expenses,
+        scopeComparisons,
+      }),
+    [estimateData, expenses, scopeComparisons]
+  );
+  const insightRowCount = countRateInsightRows(insightSections);
+  const isCloseout = isProjectCloseout(projectStatus);
 
   const load = useCallback(async () => {
     if (!projectLike?.id && !(projectLike as any)?.projectData) {
@@ -125,208 +224,172 @@ export default function CalibrationReviewModal({
     try {
       const result = await submitCloseoutCalibration(projectLike);
       setCloseout(result);
-      const ids = (result.rateSuggestions || []).map((s) =>
-        String((s as Record<string, unknown>).suggestionId || '')
-      );
-      const next: Record<string, boolean> = {};
-      for (const id of ids) {
-        if (id) next[id] = true;
-      }
-      // Pre-select client tips too when server returned none
-      if (!ids.length) {
-        for (const s of clientSuggestions) {
-          next[s.key] = true;
-        }
-      }
-      setSelected(next);
       if (result.success === false && result.message) {
         setError(result.message);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load calibration tips');
+      setError(e instanceof Error ? e.message : 'Failed to load rate insights');
     } finally {
       setLoading(false);
     }
-  }, [projectLike, clientSuggestions]);
+  }, [projectLike]);
 
   useEffect(() => {
     if (visible) {
       void load();
     } else {
       setCloseout(null);
-      setSelected({});
       setError(null);
     }
   }, [visible, load]);
 
-  const selectedList = suggestions.filter((s) => selected[s.suggestionId]);
-
-  const toggle = (id: string) => {
-    setSelected((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const onApprove = async () => {
-    if (!canApprove) {
-      Alert.alert('Permission needed', 'Only managers and owners can approve rate updates.');
-      return;
-    }
-    if (!selectedList.length) {
-      Alert.alert('Nothing selected', 'Select at least one rate tip to apply.');
-      return;
-    }
-    setApproving(true);
-    try {
-      const res = await approveCloseoutCalibration({
-        suggestions: selectedList.map((s) => ({
-          suggestionId: s.suggestionId,
-          scopeItemName: s.scopeItemName,
-          trade: s.trade,
-          category: s.category,
-          unit: s.unit,
-          currentRate: s.currentRate,
-          suggestedRate: s.suggestedRate,
-          reason: s.reason,
-        })),
-        suggestionIds: selectedList.map((s) => s.suggestionId),
-        role,
-      });
-      Alert.alert(
-        'Rates updated',
-        res.message || `Updated ${res.approved} saved rate${res.approved === 1 ? '' : 's'}.`
-      );
-      onApproved?.(res.approved);
-      onClose();
-    } catch (e) {
-      Alert.alert('Could not apply', e instanceof Error ? e.message : 'Approve failed');
-    } finally {
-      setApproving(false);
-    }
-  };
-
-  const bg = darkMode ? '#0B1220' : '#F8FAFC';
-  const card = darkMode ? '#111827' : '#FFFFFF';
-  const text = darkMode ? '#F8FAFC' : '#0F172A';
-  const muted = darkMode ? 'rgba(248,250,252,0.62)' : '#64748B';
-  const line = darkMode ? 'rgba(148,163,184,0.2)' : '#E2E8F0';
+  const pageBg = darkMode ? '#000000' : '#F8FAFC';
+  const outerCardBg = darkMode ? AI_FLOW_CARD_BG_DARK : '#FFFFFF';
+  const nestedCardBg = darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : '#F1F5F9';
+  const cardBorder = darkMode ? 'rgba(148,163,184,0.12)' : '#E2E8F0';
+  const text = darkMode ? '#F5F7FA' : '#0F172A';
+  const secondary = darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#64748B';
+  const label = darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : '#64748B';
+  const muted = darkMode ? ESTIMATE_FLOW_TEXT_MUTED_DARK : '#94A3B8';
+  const pageInset = PROJECT_WIDE_CONTAINER_CARD_INSET;
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={[styles.root, { backgroundColor: bg }]}>
-        <View style={[styles.header, { borderBottomColor: line }]}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={[styles.title, { color: text }]}>Review rate tips</Text>
-            <Text style={[styles.subtitle, { color: muted }]}>
-              From this job’s actual costs. Nothing changes until you approve.
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+      <View style={[styles.root, { backgroundColor: pageBg, paddingTop: insets.top }]}>
+        <View style={[styles.header, { paddingHorizontal: pageInset }]}>
+          <View style={[styles.headerBack, { left: pageInset }]}>
+            {darkMode ? (
+              <LinearGradient
+                colors={BRAND_FRAME_GRADIENT_COLORS}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.backButtonBorder}
+              >
+                <GradientRingBackInner
+                  darkMode
+                  onPress={onClose}
+                  style={[styles.backButton, { backgroundColor: '#000000' }]}
+                >
+                  <MaterialIcons name="arrow-back" size={22} color="#FFFFFF" />
+                </GradientRingBackInner>
+              </LinearGradient>
+            ) : (
+              <LinearGradient
+                colors={BRAND_FRAME_GRADIENT_COLORS}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.backButtonBorder}
+              >
+                <GradientRingBackInner
+                  darkMode={false}
+                  onPress={onClose}
+                  style={[styles.backButton, { backgroundColor: '#FFFFFF' }]}
+                >
+                  <MaterialIcons name="arrow-back" size={22} color="#0F172A" />
+                </GradientRingBackInner>
+              </LinearGradient>
+            )}
+          </View>
+          <View style={styles.headerCenter}>
+            <Text style={[styles.title, { color: text }]}>Rate insights</Text>
+            <Text style={[styles.subtitle, { color: secondary }]}>
+              For information only — saved rates are not changed from this screen.
             </Text>
           </View>
-          <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
-            <MaterialIcons name="close" size={24} color={muted} />
-          </Pressable>
         </View>
 
         {loading ? (
           <View style={styles.centered}>
-            <ActivityIndicator color="#22c55e" />
+            <ActivityIndicator color={darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#64748B'} />
             <Text style={[styles.subtitle, { color: muted, marginTop: 12 }]}>Comparing estimate vs actual…</Text>
           </View>
         ) : (
-          <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            contentContainerStyle={[styles.scroll, { paddingHorizontal: pageInset, paddingBottom: 24 + insets.bottom }]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             {closeout?.summary ? (
-              <View style={[styles.summaryCard, { backgroundColor: card, borderColor: line }]}>
-                <Text style={[styles.summaryLabel, { color: muted }]}>This close-out</Text>
+              <View style={[styles.outerCard, { backgroundColor: outerCardBg, borderColor: cardBorder }]}>
+                <Text style={[styles.sectionLabel, { color: label }]}>
+                  {isCloseout ? 'This close-out' : 'This job so far'}
+                </Text>
                 <Text style={[styles.summaryValue, { color: text }]}>
-                  {String(closeout.status || '').replace(/_/g, ' ')}
-                  {closeout.summary.overallVariancePct != null
-                    ? ` · ${Number(closeout.summary.overallVariancePct) > 0 ? '+' : ''}${closeout.summary.overallVariancePct}% vs estimate`
-                    : ''}
+                  {formatSummaryStatus(closeout.status)}
                 </Text>
                 {closeout.message ? (
-                  <Text style={[styles.summaryHint, { color: muted }]}>{closeout.message}</Text>
+                  <Text style={[styles.bodyText, { color: secondary }]}>{closeout.message}</Text>
+                ) : (
+                  <Text style={[styles.bodyText, { color: secondary }]}>
+                    {insightRowCount
+                      ? `${insightRowCount} line${insightRowCount === 1 ? '' : 's'} compared between your estimate and logged costs.`
+                      : 'No meaningful differences found yet.'}
+                  </Text>
+                )}
+                {!isCloseout && insightSections.some((s) => s.loggedTotal > 0 && s.loggedTotal < s.estimatedTotal * 0.5) ? (
+                  <View style={[styles.noteCard, { backgroundColor: nestedCardBg, borderColor: cardBorder }]}>
+                    <Text style={[styles.noteText, { color: muted }]}>
+                      Job still in progress — logged costs may be incomplete until all expenses are entered.
+                    </Text>
+                  </View>
                 ) : null}
               </View>
             ) : null}
 
             {error ? (
-              <Text style={[styles.error, { color: '#fbbf24' }]}>{error}</Text>
+              <View style={[styles.outerCard, { backgroundColor: outerCardBg, borderColor: cardBorder }]}>
+                <Text style={[styles.bodyText, { color: '#fbbf24' }]}>{error}</Text>
+              </View>
             ) : null}
 
-            {!suggestions.length ? (
-              <View style={[styles.emptyCard, { backgroundColor: card, borderColor: line }]}>
-                <MaterialIcons name="check-circle" size={28} color="#22c55e" />
-                <Text style={[styles.emptyTitle, { color: text }]}>No rate changes suggested</Text>
-                <Text style={[styles.summaryHint, { color: muted, textAlign: 'center' }]}>
-                  Actuals were recorded when available. Add more expenses linked to budget categories to get tips.
+            {insightSections.length > 0 ? (
+              <>
+                <View style={[styles.outerCard, { backgroundColor: outerCardBg, borderColor: cardBorder }]}>
+                  <Text style={[styles.sectionLabel, { color: label }]}>Estimated vs logged</Text>
+                  <Text style={[styles.bodyText, { color: muted, marginTop: 4 }]}>
+                    Each material and labor line from your estimate, with logged expenses listed separately.
+                    Update saved rates manually in your pricing library if you want to use these on future bids.
+                  </Text>
+                </View>
+                {insightSections.map((section) => (
+                  <SectionCard
+                    key={section.key}
+                    section={section}
+                    outerCardBg={outerCardBg}
+                    nestedCardBg={nestedCardBg}
+                    cardBorder={cardBorder}
+                    text={text}
+                    secondary={secondary}
+                    label={label}
+                    muted={muted}
+                  />
+                ))}
+              </>
+            ) : (
+              <View style={[styles.outerCard, { backgroundColor: outerCardBg, borderColor: cardBorder, alignItems: 'center' }]}>
+                <MaterialIcons name="insights" size={28} color={muted} />
+                <Text style={[styles.emptyTitle, { color: text, marginTop: 10 }]}>No insights yet</Text>
+                <Text style={[styles.bodyText, { color: muted, textAlign: 'center' }]}>
+                  Log expenses and link them to estimate lines to see how actuals compare to your bid.
                 </Text>
               </View>
-            ) : (
-              suggestions.map((s) => {
-                const on = !!selected[s.suggestionId];
-                return (
-                  <Pressable
-                    key={s.suggestionId}
-                    onPress={() => toggle(s.suggestionId)}
-                    style={[
-                      styles.tipCard,
-                      {
-                        backgroundColor: card,
-                        borderColor: on ? '#22c55e' : line,
-                      },
-                    ]}
-                  >
-                    <View style={styles.tipRow}>
-                      <MaterialIcons
-                        name={on ? 'check-box' : 'check-box-outline-blank'}
-                        size={22}
-                        color={on ? '#22c55e' : muted}
-                      />
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={[styles.tipTitle, { color: text }]} numberOfLines={2}>
-                          {s.scopeItemName}
-                        </Text>
-                        <Text style={[styles.tipRates, { color: muted }]}>
-                          {formatRate(s.currentRate, s.unit)} → {formatRate(s.suggestedRate, s.unit)}
-                          {s.variancePct != null
-                            ? `  (${s.variancePct > 0 ? '+' : ''}${s.variancePct}%)`
-                            : ''}
-                        </Text>
-                        {s.message ? (
-                          <Text style={[styles.tipMsg, { color: muted }]}>{s.message}</Text>
-                        ) : null}
-                      </View>
-                    </View>
-                  </Pressable>
-                );
-              })
             )}
           </ScrollView>
         )}
 
-        <View style={[styles.footer, { borderTopColor: line, backgroundColor: bg }]}>
-          {!canApprove ? (
-            <Text style={[styles.summaryHint, { color: muted, marginBottom: 8 }]}>
-              Viewing only — ask a manager or owner to approve rate updates.
-            </Text>
-          ) : null}
-          <Pressable
-            onPress={onApprove}
-            disabled={!canApprove || approving || !selectedList.length}
-            style={[
-              styles.approveBtn,
-              {
-                opacity: !canApprove || approving || !selectedList.length ? 0.45 : 1,
-              },
-            ]}
-          >
-            {approving ? (
-              <ActivityIndicator color="#04140C" />
-            ) : (
-              <Text style={styles.approveText}>
-                Approve {selectedList.length || 0} rate{selectedList.length === 1 ? '' : 's'}
-              </Text>
-            )}
-          </Pressable>
-          <Pressable onPress={onClose} style={styles.dismissBtn}>
-            <Text style={[styles.dismissText, { color: muted }]}>Not now</Text>
+        <View
+          style={[
+            styles.footer,
+            {
+              borderTopColor: cardBorder,
+              backgroundColor: pageBg,
+              paddingHorizontal: pageInset,
+              paddingBottom: Math.max(insets.bottom, 16),
+            },
+          ]}
+        >
+          <Pressable onPress={onClose} style={styles.doneBtn} accessibilityRole="button" accessibilityLabel="Done">
+            <Text style={[styles.doneText, { color: text }]}>Done</Text>
           </Pressable>
         </View>
       </View>
@@ -337,59 +400,145 @@ export default function CalibrationReviewModal({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
+    position: 'relative',
+    minHeight: 56,
+    paddingBottom: 12,
+    justifyContent: 'center',
   },
-  title: { fontSize: 20, fontWeight: '700' },
-  subtitle: { fontSize: 13, lineHeight: 18, marginTop: 4 },
-  scroll: { padding: 16, paddingBottom: 28, gap: 10 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  summaryCard: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 4,
+  headerBack: {
+    position: 'absolute',
+    top: 0,
+    zIndex: 2,
   },
-  summaryLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
-  summaryValue: { fontSize: 15, fontWeight: '600', marginTop: 4, textTransform: 'capitalize' },
-  summaryHint: { fontSize: 12, lineHeight: 17, marginTop: 6 },
-  error: { fontSize: 13, lineHeight: 18, marginBottom: 4 },
-  emptyCard: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 20,
+  headerCenter: {
+    paddingHorizontal: 52,
     alignItems: 'center',
-    gap: 8,
+    paddingTop: 2,
   },
-  emptyTitle: { fontSize: 16, fontWeight: '700' },
-  tipCard: {
-    borderWidth: 1.5,
-    borderRadius: 12,
-    padding: 12,
+  backButtonBorder: {
+    borderRadius: 22,
+    padding: 1,
+    overflow: 'hidden',
   },
-  tipRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
-  tipTitle: { fontSize: 15, fontWeight: '700' },
-  tipRates: { fontSize: 13, marginTop: 4, fontWeight: '600' },
-  tipMsg: { fontSize: 12, lineHeight: 17, marginTop: 6 },
-  footer: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 24,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  approveBtn: {
-    backgroundColor: '#22c55e',
-    borderRadius: 12,
-    minHeight: 48,
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  approveText: { color: '#04140C', fontSize: 16, fontWeight: '800' },
-  dismissBtn: { alignItems: 'center', paddingVertical: 12 },
-  dismissText: { fontSize: 14, fontWeight: '600' },
+  title: {
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  scroll: {
+    gap: 12,
+  },
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outerCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 15,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  summaryValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    marginTop: 8,
+    letterSpacing: -0.3,
+  },
+  bodyText: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 8,
+  },
+  noteCard: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+  },
+  noteText: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  sectionTotals: {
+    fontSize: 15,
+    fontWeight: '700',
+    marginTop: 8,
+    fontVariant: ['tabular-nums'],
+  },
+  lineCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 10,
+  },
+  lineTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  lineMeta: {
+    fontSize: 13,
+    marginTop: 5,
+    lineHeight: 18,
+    fontVariant: ['tabular-nums'],
+  },
+  expenseRow: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 4,
+    paddingLeft: 2,
+  },
+  unlinkedBlock: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  unlinkedLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  footer: {
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  doneBtn: {
+    minHeight: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(148,163,184,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.12)',
+  },
+  doneText: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
 });

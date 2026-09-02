@@ -13,7 +13,6 @@ import {
   useWindowDimensions,
   Switch,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams, useNavigation } from 'expo-router';
 import { clerkAuthService } from '@/services/clerkAuth';
 import * as AuthSession from 'expo-auth-session';
@@ -41,13 +40,12 @@ import {
   WEB_CENTERED_COLUMN_MAX_WIDTH,
   WEB_CENTERED_COLUMN_MIN_WIDTH,
 } from '@/constants/ScreenLayout';
-import { BRAND_FRAME_GRADIENT_COLORS, BRAND_FRAME_GRADIENT_START, BRAND_FRAME_GRADIENT_END } from '@/constants/brandFrameGradient';
 import {
-  AI_FLOW_CARD_BG_DARK,
   ESTIMATE_FLOW_CHIP_GREEN,
   ESTIMATE_FLOW_GREEN,
   ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
   confirmScopeSectionLabelStyle,
+  estimateFlowCardStyle,
   estimateFlowPrimaryButtonStyle,
   estimateFlowPrimaryButtonTextStyle,
 } from '@/utils/estimateFlowCardStyle';
@@ -1392,15 +1390,9 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
               </View>
             </View>
 
-            {/* Card – mirrors your rounded dashboard surface */}
-            <View style={styles.wideContainer}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={BRAND_FRAME_GRADIENT_START}
-                end={BRAND_FRAME_GRADIENT_END}
-                style={styles.cardBorder}
-              >
-            <View style={[styles.card, !darkMode && { backgroundColor: Colors.cardDark, borderColor: Colors.line, borderWidth: 1 }]}>
+            {/* Card – mirrors estimate flow gray cards */}
+            <View style={[styles.wideContainer, styles.authCardSection]}>
+              <View style={[estimateFlowCardStyle(Colors, darkMode), styles.card]}>
               {/* Mode toggle – visually echoes Overview / Analytics / Insights bar */}
               <View style={styles.modeToggle}>
                 <TouchableOpacity
@@ -1846,7 +1838,6 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                 </TouchableOpacity>
               </View>
             </View>
-          </LinearGradient>
             </View>
           </ScrollView>
         </View>
@@ -1889,7 +1880,7 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
         }),
   },
   headerRow: {
-    marginBottom: wideWeb ? 14 : 18,
+    marginBottom: wideWeb ? 20 : 26,
     ...(wideWeb ? { alignItems: "center" as const } : {}),
   },
   headerBackBtn: {
@@ -1937,19 +1928,10 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     fontWeight: "500",
     ...(wideWeb ? { textAlign: "center" as const, alignSelf: "stretch" as const } : {}),
   },
-  cardBorder: {
-    borderRadius: 16,
-    padding: 1,
-    shadowColor: isDark ? "transparent" : "transparent",
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    elevation: 0,
-    borderWidth: isDark ? 0 : 1,
-    borderColor: isDark ? "transparent" : "#E2E8F0",
+  authCardSection: {
+    marginTop: wideWeb ? 4 : 6,
   },
   card: {
-    backgroundColor: isDark ? AI_FLOW_CARD_BG_DARK : "#FFFFFF",
-    borderRadius: 15,
     paddingHorizontal: wideWeb ? 20 : 18,
     paddingVertical: wideWeb ? 18 : 20,
   },

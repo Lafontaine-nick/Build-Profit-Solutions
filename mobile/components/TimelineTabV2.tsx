@@ -67,7 +67,7 @@ function fireCloseoutCalibration(project: any, projectFromList: any, projectData
       if (tips > 0) {
         Alert.alert(
           'Rate tips ready',
-          `${tips} pricing tip${tips === 1 ? '' : 's'} from this job’s actual costs. Open the Budget tab → Estimate vs actual → Review rate tips to approve.`
+          `${tips} rate insight${tips === 1 ? '' : 's'} from this job’s actual costs. Open Budget → Estimate vs actual → View rate insights.`
         );
       }
     });

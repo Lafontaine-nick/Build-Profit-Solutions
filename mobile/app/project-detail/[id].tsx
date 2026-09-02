@@ -55,6 +55,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
 import AIAssistantModal from '../../components/AIAssistantModal';
+import { AiPmModePill } from '@/components/AiPmModePill';
 import GradientRingBackInner from '../../components/GradientRingBackInner';
 import ProjectActivationFlow from '../../components/ProjectActivationFlow';
 import { isChangeOrderMirrorExpenseId } from '../../lib/changeOrderMirrorExpenses';
@@ -107,7 +108,14 @@ import {
   getAllowanceLineItemsTotal,
   isAllowancesCategoryName,
 } from '@/utils/estimateAllowances';
-import { AI_FLOW_CARD_BG_DARK } from '@/utils/estimateFlowCardStyle';
+import { tabFlowCardStyle } from '@/components/layout/TabFlowCard';
+import {
+  ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
+  ESTIMATE_FLOW_PROGRESS_GRADIENT,
+  ESTIMATE_FLOW_TEXT_LABEL_DARK,
+  ESTIMATE_FLOW_TEXT_MUTED_DARK,
+  ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
+} from '@/utils/estimateFlowCardStyle';
 import { isTeamWorkspaceReleased } from '@/constants/releaseFlags';
 
 type TabKey = "Overview" | "Budget" | "Timeline" | "Calendar" | "Team";
@@ -1886,13 +1894,7 @@ function ProjectDetailContent() {
           const profitLeaksEmpty = projectLeakCards.length === 0;
           return (
             <View style={styles.wideContainer}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={BRAND_FRAME_GRADIENT_START}
-                end={BRAND_FRAME_GRADIENT_END}
-                style={styles.overviewGradientRing}
-              >
-                <View style={[styles.overviewInner, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}>
+              <View style={styles.overviewCard}>
                   <View style={styles.overviewPageHeader}>
                     <Text style={styles.overviewPageTitle}>Project Overview</Text>
                     <Text style={styles.overviewPageSubtitle}>
@@ -2011,12 +2013,14 @@ function ProjectDetailContent() {
                           </Text>
                         </View>
                         <View style={styles.projectStatusBarTrack}>
-                          <View
+                          <LinearGradient
+                            colors={[...ESTIMATE_FLOW_PROGRESS_GRADIENT]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
                             style={[
                               styles.projectStatusBarFill,
                               {
                                 width: `${Math.min(100, metrics.budgetProgress)}%`,
-                                backgroundColor: metrics.budgetColor,
                               },
                             ]}
                           />
@@ -2034,12 +2038,14 @@ function ProjectDetailContent() {
                           </Text>
                         </View>
                         <View style={styles.projectStatusBarTrack}>
-                          <View
+                          <LinearGradient
+                            colors={[...ESTIMATE_FLOW_PROGRESS_GRADIENT]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
                             style={[
                               styles.projectStatusBarFill,
                               {
                                 width: `${Math.min(100, metrics.scheduleProgress)}%`,
-                                backgroundColor: metrics.daysLeftColor,
                               },
                             ]}
                           />
@@ -2245,7 +2251,6 @@ function ProjectDetailContent() {
                   </>
                   )}
                 </View>
-              </LinearGradient>
             </View>
           );
         }
@@ -2634,20 +2639,16 @@ function ProjectDetailContent() {
             <>
               {/* AI PM — single stable slot under tabs (not floating over cards) */}
               <View style={[styles.wideContainer, styles.aiPmUnderTabs]}>
-                <Pressable
+                <AiPmModePill
+                  active
+                  label={t('dashboard.aiPmModeOn')}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     setShowAIAssistant(true);
                   }}
-                  style={styles.aiFloatingInline}
-                  accessibilityRole="button"
+                  darkMode={darkMode}
                   accessibilityLabel={t('dashboard.aiPmModeOn')}
-                >
-                  <Ionicons name="sparkles" size={15} color="#34D399" />
-                  <Text style={[styles.aiFloatingText, styles.aiFloatingTextOn]} numberOfLines={1}>
-                    {t('dashboard.aiPmModeOn')}
-                  </Text>
-                </Pressable>
+                />
               </View>
             </>
           ) : null}
@@ -3996,16 +3997,9 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     marginHorizontal: -edge,
     paddingHorizontal: desktopWeb ? 8 : 4,
   },
-  /** Green → blue gradient frame (1px ring via padding) */
-  overviewGradientRing: {
-    borderRadius: 30,
-    padding: 1,
-    marginBottom: 14,
-    overflow: "hidden",
-  },
-  overviewInner: {
-    backgroundColor: darkMode ? Colors.card : Colors.cardDark,
-    borderRadius: 29,
+  /** Overview tab — gray flow card (matches Dashboard / Projects). */
+  overviewCard: {
+    ...tabFlowCardStyle(Colors, darkMode, { marginBottom: 14 }),
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 18,
@@ -4024,7 +4018,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "500",
-    color: darkMode ? "rgba(255,255,255,0.62)" : "#475569",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#475569",
   },
   overviewHeroCard: {
     paddingVertical: 18,
@@ -4042,7 +4036,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "500",
-    color: darkMode ? "rgba(255,255,255,0.62)" : "#475569",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#475569",
   },
   overviewHeroMetricsGrid: {
     flexDirection: "row",
@@ -4060,7 +4054,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     lineHeight: 16,
     fontWeight: "700",
     letterSpacing: 0.8,
-    color: darkMode ? "rgba(255,255,255,0.50)" : "#475569",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : "#475569",
     textTransform: "uppercase",
   },
   /** Legacy single value style — dates / misc */
@@ -4132,7 +4126,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     lineHeight: 15,
     fontWeight: "700",
     letterSpacing: 0.45,
-    color: darkMode ? "rgba(255,255,255,0.50)" : "#64748b",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : "#64748b",
     textTransform: "uppercase",
   },
   overviewHeroFooterLabelCentered: {
@@ -4172,7 +4166,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     marginTop: 6,
     fontSize: 13,
     lineHeight: 18,
-    color: darkMode ? "rgba(255,255,255,0.58)" : "#64748b",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#64748b",
     fontWeight: "500",
   },
   overviewFhSlimBody: {
@@ -4180,7 +4174,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "500",
-    color: darkMode ? "rgba(255,255,255,0.58)" : "#475569",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#475569",
   },
   overviewFhStatusPill: {
     paddingHorizontal: 10,
@@ -4232,7 +4226,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   overviewMetaLine: {
     fontSize: 12,
     lineHeight: 17,
-    color: darkMode ? "rgba(255,255,255,0.85)" : "#475569",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#475569",
     fontWeight: "500",
   },
   overviewMetricsBlock: {
@@ -4273,7 +4267,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   overviewHelperMuted: {
     fontSize: 11,
     lineHeight: 15,
-    color: darkMode ? "rgba(255,255,255,0.77)" : "#64748b",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#64748b",
     marginTop: 3,
     fontWeight: "400",
   },
@@ -4286,7 +4280,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     fontSize: 11,
     lineHeight: 15,
     marginTop: 3,
-    color: darkMode ? "rgba(255,255,255,0.77)" : "#8891a0",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#8891a0",
     fontWeight: "400",
   },
   budgetSummaryTable: {
@@ -4327,7 +4321,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     fontSize: 12,
     fontWeight: "600",
     marginTop: 4,
-    color: darkMode ? "rgba(255,255,255,0.87)" : "#64748b",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#64748b",
   },
   headerRow: {
     flexDirection: "row",
@@ -4497,7 +4491,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     padding: 1,
   },
   innerCard: {
-    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
     borderRadius: 14,
     paddingHorizontal: 18,
     paddingTop: 18,
@@ -4523,7 +4517,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     borderRadius: 14,
     padding: 14,
     marginBottom: 12,
-    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : '#F8FAFC',
+    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : '#F8FAFC',
     borderWidth: 1,
     borderColor: darkMode ? 'rgba(148,163,184,0.12)' : Colors.line,
   },
@@ -4541,7 +4535,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   projectLeakBody: {
     fontSize: 13,
     lineHeight: 18,
-    color: darkMode ? 'rgba(255,255,255,0.8)' : '#475569',
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#475569',
   },
   cardHeaderRow: {
     flexDirection: "row",
@@ -4578,7 +4572,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     fontSize: 12,
     fontWeight: "600",
     letterSpacing: 0.15,
-    color: darkMode ? "rgba(255,255,255,0.85)" : "#8891a0",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : "#8891a0",
     marginBottom: 4,
   },
   largeNumber: {
@@ -4788,7 +4782,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   timelineEdgeLabel: {
     fontSize: 11,
-    color: darkMode ? "rgba(255,255,255,0.82)" : "#64748b",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#64748b",
   },
   // Health styles
   healthRow: {
@@ -4821,7 +4815,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   teamNotAssignedText: {
     fontSize: 14,
-    color: darkMode ? "rgba(255,255,255,0.82)" : "#64748b",
+    color: darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : "#64748b",
     fontStyle: "italic",
   },
   // Spending Trend Card styles
@@ -4829,7 +4823,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     marginTop: 12,
   },
   spendingCardInner: {
-    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
     borderRadius: 14,
     padding: 15,
     borderWidth: 1,
@@ -4848,26 +4842,6 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     paddingHorizontal: 4,
     marginTop: 2,
     marginBottom: 8,
-  },
-  aiFloatingInline: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: "rgba(34,197,94,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(34,197,94,0.2)",
-    maxWidth: "100%",
-  },
-  aiFloatingText: {
-    marginLeft: 6,
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#34D399",
-  },
-  aiFloatingTextOn: {
-    color: "#34D399",
   },
   chartBox: {
     marginTop: 8,
