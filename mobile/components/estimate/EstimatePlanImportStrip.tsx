@@ -1,5 +1,5 @@
 /**
- * Step 1 "Import from plan" strip — camera / library / PDF → review modal.
+ * Step 1 "Import from plan" strip — PDF → review modal.
  * Measurements + scope detections are returned to the parent for Generate handoff.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -21,12 +21,8 @@ import type {
   PlanToMeasurementsResult,
 } from '@/utils/estimateAiDraft';
 import {
-  imagesFromPickerAssets,
-  pickPlanFromLibrary,
   pickPlanPdf,
-  promptPlanImportSource,
   runPlanTakeoff,
-  takePlanPhoto,
 } from '@/utils/planImportRunner';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import EstimateFlowActionButton from '@/components/estimate/EstimateFlowActionButton';
@@ -868,36 +864,6 @@ export default function EstimatePlanImportStrip({
     ]
   );
 
-  const onCamera = useCallback(async () => {
-    if (importing || disabled || plumbingPlanDisabled) return;
-    try {
-      const assets = await takePlanPhoto();
-      if (!assets?.length) return;
-      const images = await imagesFromPickerAssets(assets);
-      await executeTakeoff(images);
-    } catch (e) {
-      Alert.alert(
-        'Camera failed',
-        e instanceof Error ? e.message : 'Could not take a photo.'
-      );
-    }
-  }, [importing, disabled, plumbingPlanDisabled, executeTakeoff]);
-
-  const onLibrary = useCallback(async () => {
-    if (importing || disabled || plumbingPlanDisabled) return;
-    try {
-      const assets = await pickPlanFromLibrary();
-      if (!assets?.length) return;
-      const images = await imagesFromPickerAssets(assets);
-      await executeTakeoff(images);
-    } catch (e) {
-      Alert.alert(
-        'Library failed',
-        e instanceof Error ? e.message : 'Could not open photos.'
-      );
-    }
-  }, [importing, disabled, plumbingPlanDisabled, executeTakeoff]);
-
   const onPdf = useCallback(async () => {
     if (importing || disabled || plumbingPlanDisabled) return;
     try {
@@ -933,11 +899,7 @@ export default function EstimatePlanImportStrip({
       );
       return;
     }
-    promptPlanImportSource({
-      onCamera: () => void onCamera(),
-      onLibrary: () => void onLibrary(),
-      onPdf: () => void onPdf(),
-    });
+    void onPdf();
   }, [
     importing,
     disabled,
@@ -946,8 +908,6 @@ export default function EstimatePlanImportStrip({
     routingLocked,
     estimatingMode,
     selectedTrade,
-    onCamera,
-    onLibrary,
     onPdf,
   ]);
 
@@ -1408,48 +1368,18 @@ export default function EstimatePlanImportStrip({
     !importRoutingReady;
 
   const planImportActionRow = (
-    <View style={{ marginTop: 10, gap: 8 }}>
-      <Text
-        style={{
-          color: Colors.text,
-          fontSize: embedded ? 12 : 13,
-          fontWeight: '700',
-        }}
-      >
-        Choose your plan file
-      </Text>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <EstimateFlowActionButton
-          label='Camera'
-          icon='photo-camera'
-          iconAccent='green'
-          Colors={Colors}
-          darkMode={darkMode}
-          disabled={planImportActionsDisabled}
-          loading={importing}
-          onPress={onCamera}
-        />
-        <EstimateFlowActionButton
-          label='Library'
-          icon='photo-library'
-          iconAccent='blue'
-          Colors={Colors}
-          darkMode={darkMode}
-          disabled={planImportActionsDisabled}
-          loading={importing}
-          onPress={onLibrary}
-        />
-        <EstimateFlowActionButton
-          label='PDF'
-          icon='picture-as-pdf'
-          iconAccent='green'
-          Colors={Colors}
-          darkMode={darkMode}
-          disabled={planImportActionsDisabled}
-          loading={importing}
-          onPress={onPdf}
-        />
-      </View>
+    <View style={{ marginTop: 10 }}>
+      <EstimateFlowActionButton
+        label='Import PDF'
+        icon='picture-as-pdf'
+        iconAccent='green'
+        Colors={Colors}
+        darkMode={darkMode}
+        disabled={planImportActionsDisabled}
+        loading={importing}
+        onPress={onPdf}
+        style={{ flex: undefined, width: '100%' }}
+      />
     </View>
   );
 
@@ -1537,15 +1467,15 @@ export default function EstimatePlanImportStrip({
             ? 'Notes and photos are used for this Plumbing mode.'
             : planReady
               ? semanticsOn
-                ? 'Tap Generate Estimate Draft below — job notes are optional. Use the buttons below to import a different plan.'
-                : 'Review Job notes, then Generate. Use the buttons below to import a different plan.'
+                ? 'Tap Generate Estimate Draft below — job notes are optional. Use the button below to import a different plan.'
+                : 'Review Job notes, then Generate. Use the button below to import a different plan.'
               : embedded && showPlanRouting
                 ? !estimatingMode
                   ? 'Choose General contractor or Subcontractor below.'
                   : estimatingMode === 'selected_trade' && !selectedTrade
-                    ? 'Pick a trade below, then choose your plan file.'
-                    : 'Camera, library pages, or PDF — you review before Generate.'
-                : 'Camera, library pages, or PDF — you review before Generate'}
+                    ? 'Pick a trade below, then import your plan PDF.'
+                    : 'Import a floor-plan PDF — you review before Generate.'
+                : 'Import a floor-plan PDF — you review before Generate'}
         </Text>
       </View>
     </TouchableOpacity>
@@ -1758,7 +1688,7 @@ export default function EstimatePlanImportStrip({
         </Text>
       ) : estimatingMode === 'selected_trade' && !selectedTrade ? (
         <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 10, lineHeight: 15 }}>
-          Select a trade above, then choose your plan file.
+          Select a trade above, then import your plan PDF.
         </Text>
       ) : (
         planImportActionRow
@@ -1890,17 +1820,17 @@ export default function EstimatePlanImportStrip({
     ? 'Notes and photos are used for this Plumbing mode.'
     : planReady
       ? semanticsOn
-        ? 'Tap Generate Estimate Draft below — job notes are optional. Use the buttons below to import a different plan.'
-        : 'Review Job notes, then Generate. Use the buttons below to import a different plan.'
+        ? 'Tap Generate Estimate Draft below — job notes are optional. Use the button below to import a different plan.'
+        : 'Review Job notes, then Generate. Use the button below to import a different plan.'
       : planSectionCollapsed
-        ? 'Optional · PDF or plan photos'
+        ? 'Optional · PDF plan set'
         : showPlanRouting
           ? !estimatingMode
             ? 'Choose General contractor or Subcontractor below.'
             : estimatingMode === 'selected_trade' && !selectedTrade
-              ? 'Pick a trade below, then choose your plan file.'
-              : 'Camera, library pages, or PDF — you review before Generate.'
-          : 'Camera, library pages, or PDF — you review before Generate';
+              ? 'Pick a trade below, then import your plan PDF.'
+              : 'Import a floor-plan PDF — you review before Generate.'
+          : 'Import a floor-plan PDF — you review before Generate';
 
   const embeddedPlanImportCard = (
     <View
@@ -2021,7 +1951,7 @@ export default function EstimatePlanImportStrip({
               marginBottom: 10,
             }}
           >
-            Import a floor-plan PDF or photos — AI fills measurements and drafts
+            Import a floor-plan PDF — AI fills measurements and drafts
             scope for you to review.
           </Text>
         </>
