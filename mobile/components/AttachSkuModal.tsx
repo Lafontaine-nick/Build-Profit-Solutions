@@ -69,10 +69,10 @@ import * as Haptics from 'expo-haptics';
 import { saveMaterial, removeSavedMaterial, isMaterialSaved } from '../services/savedMaterialsService';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
 import {
+  nativeNumericKeyboardProps,
   skuSearchQueryTextKeyboard,
-  textInputPhonePadDoneAccessory,
 } from '@/constants/inputKeyboardPresets';
 import {
   getProjectExpenseFormHorizontalPadding,
@@ -939,10 +939,7 @@ export default function AttachSkuModal({
                     gap: ESTIMATE_FLOW_CARD_GAP,
                   }
             }
-            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-            automaticallyAdjustContentInsets={false}
-            contentInsetAdjustmentBehavior="never"
-            {...KEYBOARD_SCROLL_DEFAULTS}
+            {...FORM_KEYBOARD_SCROLL_PROPS}
           >
           {isWeb && (
             <View
@@ -1121,7 +1118,7 @@ export default function AttachSkuModal({
                     style={{ marginRight: 12 }}
                   />
                   <TextInput
-                    {...textInputPhonePadDoneAccessory}
+                    keyboardType="phone-pad"
                     placeholder="ZIP (store pricing is ZIP-specific)"
                     value={zip}
                     onChangeText={setZip}
@@ -1137,6 +1134,7 @@ export default function AttachSkuModal({
                     }}
                     placeholderTextColor={darkMode ? "rgba(226,232,240,0.55)" : Colors.sub}
                     underlineColorAndroid="transparent"
+                    {...nativeNumericKeyboardProps}
                   />
               </View>
             </View>

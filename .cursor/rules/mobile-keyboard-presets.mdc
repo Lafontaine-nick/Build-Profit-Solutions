@@ -1,24 +1,62 @@
 ---
-description: Mobile keyboards — use shared presets; do not revert unrelated fields when editing one input
+description: LOCKED — app-wide iOS keyboard contract (blue checkmark, no Done bar). Do not regress without explicit user approval.
 globs: mobile/**/*
-alwaysApply: false
+alwaysApply: true
 ---
 
-# Mobile keyboard configuration
+# Mobile keyboard — LOCKED (reviewed Sep 2026)
 
-## Estimates (`estimate-generator.jsx`)
+**Product decision:** Native iOS keyboard with **blue checkmark** (bottom-right). **No toolbar / Done strip** above the keyboard. Same on Projects and Estimates.
 
-- **Full step 1–7 keyboard contract** (step 8 accessories included in the same doc): see **`estimate-generator-keyboards-stable.mdc`** (same folder). Follow it before changing any `TextInput` / `AppTextField` keyboard or accessory on that screen.
-- Step 1–2: **edit only the field the user asked about**; do not refactor neighbors to shared presets unless asked.
+Fixing one screen must **not** change keyboard behavior on another. Unless the user explicitly asks to change a **specific** field, do **not** touch keyboard props on unrelated inputs.
 
-## SKU Search modal (`AttachSkuModal.tsx`)
+## Never do (causes grey key + cross-screen bleed)
 
-- Use spreads from `mobile/constants/inputKeyboardPresets.ts` (`textInputPhonePadDoneAccessory`, `skuSearchQueryTextKeyboard`) for the ZIP and Search `TextInput`s. Adjust behavior in that file when the task is about those fields.
+- Mount `KeyboardPlainAccessory`, `KeyboardDoneAccessory`, `KeyboardDoneBar`, or any `InputAccessoryView` on **text** fields
+- Add `inputAccessoryViewID` to text fields (numeric presets are native-pad-only — no accessory ID)
+- Spread `blueDoneKeyboardProps` / `returnKeyType` / `blurOnSubmit` **before** other props (they get overridden → grey return)
+- Combine `useKeyboard()` bottom padding + `automaticallyAdjustKeyboardInsets` + `KeyboardAvoidingView` on the same form
+- Set iOS `keyboardDismissMode: 'on-drag'` on forms that use the blue checkmark (use `FORM_KEYBOARD_SCROLL_PROPS` or Estimates `keyboardDismissMode: 'none'`)
+- Bulk-refactor keyboard props across a file when fixing one field
 
-## Shared IDs
+## Always do
 
-- Accessory native IDs live in `mobile/constants/keyboard.ts` (`KEYBOARD_ACCESSORY_IDS`, `iosAccessoryId`).
+| Field type | Implementation |
+|---|---|
+| **Single-line text** | `AppTextField` **or** `{...resolveTextInputKeyboardProps()}` spread **last** on raw `TextInput` |
+| **Multiline notes** | `{...resolveTextInputKeyboardProps({ multiline: true })}` **last** |
+| **Growing multiline** | `{...resolveTextInputKeyboardProps({ multiline: true, multilineMode: 'growable' })}` **last** |
+| **Field chains** | Blue checkmark on every text field; use `onSubmitEditing` to focus the next ref (do **not** use grey `returnKeyType="next"`) |
+| **Numeric** (`decimal-pad`, `phone-pad`) | `keyboardType` + `{...nativeNumericKeyboardProps}` only — dismiss via previous field’s checkmark, tap outside, or Save |
+| **Project form scroll** | `{...FORM_KEYBOARD_SCROLL_PROPS}` on wrapping `ScrollView` / `FlatList` |
 
-## Intent
+## Source of truth (edit behavior here only)
 
-Avoid drive-by keyboard changes: fixing one input must not rewrite unrelated fields the user already approved.
+- `mobile/constants/inputKeyboardPresets.ts` — `resolveTextInputKeyboardProps`, `nativeNumericKeyboardProps`
+- `mobile/constants/keyboardScrollProps.ts` — `FORM_KEYBOARD_SCROLL_PROPS`
+- `mobile/components/ui/AppTextField.tsx` — labeled fields; calls `resolveTextInputKeyboardProps` internally
+
+## Raw `TextInput` template
+
+```tsx
+<TextInput
+  value={value}
+  onChangeText={setValue}
+  style={styles.input}
+  placeholder="Vendor"
+  onSubmitEditing={() => nextRef.current?.focus()}
+  {...resolveTextInputKeyboardProps()}
+/>
+
+<ScrollView contentContainerStyle={…} {...FORM_KEYBOARD_SCROLL_PROPS}>
+```
+
+## Estimates
+
+`estimate-generator.jsx` follows the same blue-checkmark contract. See `estimate-generator-keyboards-stable.mdc` for step-specific notes. Do not reintroduce `KeyboardPlainAccessory` on steps 1–2 or line-item modals.
+
+## Before any keyboard edit
+
+1. Grep the file for `KeyboardPlain`, `inputAccessoryViewID`, `returnKeyType`, `blueDoneKeyboardProps` — confirm only the intended field changed
+2. Verify `resolveTextInputKeyboardProps` is the **last** spread on edited `TextInput`s
+3. Do not change `inputKeyboardPresets.ts` / `keyboardScrollProps.ts` unless the contract itself must change (user approval)

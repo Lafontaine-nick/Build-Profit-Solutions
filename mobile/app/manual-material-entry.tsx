@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
-  KeyboardAvoidingView,
   Keyboard,
   Platform,
 } from 'react-native';
@@ -17,7 +16,8 @@ import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import WebPageShell from '@/components/layout/WebPageShell';
 
 const Colors = {
@@ -114,7 +114,7 @@ export default function ManualMaterialEntryScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <LinearGradient colors={['#0b1c38', '#1B365D', '#43cea2']} style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+          <View style={{ flex: 1 }}>
             <View style={styles.header}>
               <TouchableOpacity
                 onPress={() => {
@@ -135,7 +135,7 @@ export default function ManualMaterialEntryScreen() {
               <ScrollView
                 contentContainerStyle={styles.scrollContent}
                 showsVerticalScrollIndicator={false}
-                {...KEYBOARD_SCROLL_DEFAULTS}
+                {...FORM_KEYBOARD_SCROLL_PROPS}
               >
                 <WebPageShell size="form" scroll={false} contentStyle={{ paddingBottom: 0 }}>
                 <View style={styles.sectionCard}>
@@ -150,9 +150,8 @@ export default function ManualMaterialEntryScreen() {
                     placeholder="e.g., 2x4x8 Stud, Drywall Sheet, etc."
                     placeholderTextColor="rgba(255, 255, 255, 0.5)"
                     autoCapitalize="words"
-                    returnKeyType="done"
                     onSubmitEditing={() => Keyboard.dismiss()}
-                    blurOnSubmit
+                    {...resolveTextInputKeyboardProps()}
                   />
                 </View>
 
@@ -174,6 +173,7 @@ export default function ManualMaterialEntryScreen() {
                         keyboardType="decimal-pad"
                         placeholder="1"
                         placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                        {...nativeNumericKeyboardProps}
                       />
                     </View>
                     <View style={[styles.inputGroup, { flex: 1, marginLeft: 12 }]}>
@@ -188,6 +188,7 @@ export default function ManualMaterialEntryScreen() {
                         keyboardType="decimal-pad"
                         placeholder="0.00"
                         placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                        {...nativeNumericKeyboardProps}
                       />
                     </View>
                   </View>
@@ -255,7 +256,7 @@ export default function ManualMaterialEntryScreen() {
                 </WebPageShell>
               </ScrollView>
             </View>
-          </KeyboardAvoidingView>
+          </View>
         </SafeAreaView>
       </LinearGradient>
     </>

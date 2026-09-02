@@ -8,7 +8,6 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
 } from 'react-native';
@@ -19,7 +18,8 @@ import { useTheme } from '@/contexts/ThemeContext';
 import * as Haptics from 'expo-haptics';
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import { sanitizeStoredProfileAvatar } from '@/lib/profileAvatar';
 
 // Try to import Clerk hooks
@@ -258,14 +258,11 @@ export default function ProfileSetupScreen() {
         style={styles.gradient}
       >
         <SafeAreaView style={styles.safeArea}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.keyboardView}
-          >
+          <View style={styles.keyboardView}>
             <ScrollView
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
-              {...KEYBOARD_SCROLL_DEFAULTS}
+              {...FORM_KEYBOARD_SCROLL_PROPS}
             >
               {/* Header */}
               <View style={styles.headerContainer}>
@@ -306,6 +303,7 @@ export default function ProfileSetupScreen() {
                       onChangeText={value => handleInputChange('firstName', value)}
                       autoCapitalize='words'
                       autoCorrect={false}
+                      {...resolveTextInputKeyboardProps()}
                     />
                   </View>
                 </View>
@@ -329,6 +327,7 @@ export default function ProfileSetupScreen() {
                       onChangeText={value => handleInputChange('lastName', value)}
                       autoCapitalize='words'
                       autoCorrect={false}
+                      {...resolveTextInputKeyboardProps()}
                     />
                   </View>
                 </View>
@@ -352,6 +351,7 @@ export default function ProfileSetupScreen() {
                       onChangeText={value => handleInputChange('company', value)}
                       autoCapitalize='words'
                       autoCorrect={false}
+                      {...resolveTextInputKeyboardProps()}
                     />
                   </View>
                 </View>
@@ -373,6 +373,7 @@ export default function ProfileSetupScreen() {
                       onChangeText={value => handleInputChange('phone', value)}
                       keyboardType='phone-pad'
                       autoCorrect={false}
+                      {...nativeNumericKeyboardProps}
                     />
                   </View>
                 </View>
@@ -394,6 +395,7 @@ export default function ProfileSetupScreen() {
                       onChangeText={value => handleInputChange('location', value)}
                       autoCapitalize='words'
                       autoCorrect={false}
+                      {...resolveTextInputKeyboardProps()}
                     />
                   </View>
                 </View>
@@ -424,7 +426,7 @@ export default function ProfileSetupScreen() {
               </View>
               )}
             </ScrollView>
-          </KeyboardAvoidingView>
+          </View>
         </SafeAreaView>
       </LinearGradient>
     </>

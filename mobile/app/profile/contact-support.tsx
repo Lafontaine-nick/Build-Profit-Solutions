@@ -20,7 +20,8 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
 import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
@@ -198,7 +199,7 @@ export default function ContactSupportScreen() {
                 paddingHorizontal: 0,
               }}
               showsVerticalScrollIndicator={true}
-              {...KEYBOARD_SCROLL_DEFAULTS}
+              {...FORM_KEYBOARD_SCROLL_PROPS}
             >
               <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
               <LinearGradient
@@ -294,6 +295,7 @@ export default function ContactSupportScreen() {
                           value={formData.name}
                           onChangeText={(value) => handleInputChange('name', value)}
                           autoCapitalize='words'
+                          {...resolveTextInputKeyboardProps()}
                         />
                       </View>
 
@@ -317,6 +319,7 @@ export default function ContactSupportScreen() {
                           keyboardType='email-address'
                           autoCapitalize='none'
                           autoCorrect={false}
+                          {...resolveTextInputKeyboardProps({ keyboardType: 'email-address' })}
                         />
                       </View>
 
@@ -337,6 +340,7 @@ export default function ContactSupportScreen() {
                           placeholderTextColor={theme.subtext}
                           value={formData.subject}
                           onChangeText={(value) => handleInputChange('subject', value)}
+                          {...resolveTextInputKeyboardProps()}
                         />
                       </View>
 
@@ -360,6 +364,7 @@ export default function ContactSupportScreen() {
                           multiline
                           numberOfLines={6}
                           textAlignVertical='top'
+                          {...resolveTextInputKeyboardProps({ multiline: true })}
                         />
                       </View>
 

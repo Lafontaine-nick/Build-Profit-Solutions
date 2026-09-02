@@ -13,6 +13,7 @@ import {
   ESTIMATE_FLOW_CHIP_GREEN,
   ESTIMATE_FLOW_CHIP_GREEN_BG,
   ESTIMATE_FLOW_GREEN,
+  ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
   confirmScopeSectionLabelStyle,
   estimateFlowCardStyle,
   estimateFlowDividerColor,
@@ -52,7 +53,7 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
     textDim: darkMode ? 'rgba(248, 250, 252, 0.88)' : themeColors.sub,
     card: darkMode ? AI_FLOW_CARD_BG_DARK : themeColors.bg,
     cardDark: darkMode ? AI_FLOW_CARD_BG_DARK : themeColors.bg,
-    chip: darkMode ? 'rgba(0, 0, 0, 0.22)' : (themeColors.surface2 || themeColors.bg),
+    chip: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : (themeColors.surface2 || themeColors.bg),
     divider: darkMode ? estimateFlowDividerColor(true) : themeColors.line,
     accentText: darkMode ? '#FFFFFF' : themeColors.text,
     mutedOpacity: darkMode ? 1 : 0.7,
@@ -1313,7 +1314,11 @@ export default function ProjectAnalysis({ bid, calc, onMarkupChange }) {
 }
 
 /** `ew` bumps secondary typography on web — matches estimate-generator step 5 */
-const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => StyleSheet.create({
+const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => {
+  const nestedSurface = darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : palette.chip;
+  const nestedBorder = darkMode ? 'rgba(148, 163, 184, 0.12)' : palette.divider;
+
+  return StyleSheet.create({
   container: {
     gap: 0,
   },
@@ -1385,12 +1390,12 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
     marginBottom: 16,
   },
   presetChip: {
-    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : palette.chip,
+    backgroundColor: nestedSurface,
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : palette.divider,
+    borderColor: nestedBorder,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1464,10 +1469,10 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
     marginTop: 8,
     marginBottom: 16,
     padding: 14,
-    backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : palette.chip,
+    backgroundColor: nestedSurface,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : palette.divider,
+    borderColor: nestedBorder,
   },
   aiExplanationLabel: {
     color: palette.accent,
@@ -1550,8 +1555,8 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
   fineTuneCard: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : palette.divider,
-    backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : palette.chip,
+    borderColor: nestedBorder,
+    backgroundColor: nestedSurface,
     overflow: 'hidden',
   },
   stepperRow: {
@@ -1735,9 +1740,9 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
   },
 
   safetyCard: {
-    backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : palette.chip,
+    backgroundColor: nestedSurface,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : palette.divider,
+    borderColor: nestedBorder,
     borderRadius: 14,
     padding: 14,
     marginBottom: 14,
@@ -1756,9 +1761,9 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
   },
 
   supportingBlock: {
-    backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : palette.chip,
+    backgroundColor: nestedSurface,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : palette.divider,
+    borderColor: nestedBorder,
     borderRadius: 12,
     padding: 12,
     marginBottom: 14,
@@ -1879,10 +1884,10 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
   versionCol: {
     flex: 1,
     borderWidth: 1,
-    borderColor: palette.divider,
+    borderColor: nestedBorder,
     borderRadius: 14,
     padding: 14,
-    backgroundColor: 'rgba(0,0,0,0.15)',
+    backgroundColor: nestedSurface,
   },
   versionTitle: {
     color: palette.accent,
@@ -1969,12 +1974,12 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
 
   // Loading and Error States
   loadingCard: {
-    backgroundColor: '#000000',
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : palette.card,
     borderRadius: 16,
     padding: 32,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: nestedBorder,
   },
   loadingText: {
     color: palette.textDim,
@@ -1982,7 +1987,7 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
     fontSize: ew(14, 16),
   },
   errorCard: {
-    backgroundColor: '#000000',
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : palette.card,
     borderRadius: 16,
     padding: 20,
     borderWidth: 1,
@@ -2011,12 +2016,12 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
   marketItem: {
     flex: 1,
     minWidth: '30%',
-    backgroundColor: 'rgba(0,0,0,0.2)',
+    backgroundColor: nestedSurface,
     borderRadius: 12,
     padding: 10,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: palette.divider,
+    borderColor: nestedBorder,
     justifyContent: 'center',
   },
   marketLabel: {
@@ -2044,14 +2049,14 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
   laborItem: {
     flex: 1,
     minWidth: '48%',
-    backgroundColor: 'rgba(0,0,0,0.15)',
+    backgroundColor: nestedSurface,
     borderRadius: 12,
     padding: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: palette.divider,
+    borderColor: nestedBorder,
     minHeight: 55,
   },
   laborLabel: {
@@ -2087,11 +2092,11 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
   },
   detailedRecommendations: {
     marginTop: 16,
-    backgroundColor: 'rgba(0,0,0,0.15)',
+    backgroundColor: nestedSurface,
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: palette.divider,
+    borderColor: nestedBorder,
   },
   recommendationSectionTitle: {
     color: palette.accent,
@@ -2173,9 +2178,9 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
     alignItems: 'center',
     padding: 20,
     paddingTop: 80,
-    backgroundColor: '#000000',
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : palette.card,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomColor: nestedBorder,
   },
   modalBackButton: {
     width: 40,
@@ -2209,11 +2214,11 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
     marginBottom: 12,
   },
   detailCard: {
-    backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : palette.chip,
+    backgroundColor: nestedSurface,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : palette.divider,
+    borderColor: nestedBorder,
   },
   detailText: {
     color: palette.text,
@@ -2307,12 +2312,12 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
     padding: 20,
   },
   laborModalContent: {
-    backgroundColor: '#000000',
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : palette.card,
     borderRadius: 16,
     width: '90%',
     maxWidth: 400,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: nestedBorder,
     overflow: 'hidden',
   },
   laborModalHeader: {
@@ -2320,7 +2325,7 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 20,
-    backgroundColor: '#000000',
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : palette.card,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
@@ -2351,4 +2356,4 @@ const getStyles = (palette, ew = (phone, web) => phone, darkMode = true) => Styl
     fontWeight: '700',
   },
 });
-
+};

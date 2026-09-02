@@ -30,7 +30,8 @@ import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Text as SvgText }
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import WebPageShell, {
   getWebPageShellMaxWidth,
   WEB_PAGE_SHELL_HORIZONTAL_PADDING,
@@ -1815,6 +1816,7 @@ export default function ProfileScreen() {
                   });
                 }, 100);
               }}
+              {...resolveTextInputKeyboardProps({ multiline: true })}
             />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, alignItems: 'center' }}>
               <Text style={[styles.characterCount, { 
@@ -3141,7 +3143,7 @@ export default function ProfileScreen() {
                 style={{ flex: 1, width: '100%' }}
                 contentContainerStyle={{ paddingBottom: 100, paddingTop: 20, paddingHorizontal: 20, flexGrow: 1 }}
                 showsVerticalScrollIndicator={true}
-                {...KEYBOARD_SCROLL_DEFAULTS}
+                {...FORM_KEYBOARD_SCROLL_PROPS}
               >
               {/* Profile Information Fields */}
               <View style={[styles.modalFormGroup, { backgroundColor: darkMode ? '#323232' : '#ffffff', marginBottom: 12 }]}>
@@ -3165,7 +3167,7 @@ export default function ProfileScreen() {
                     placeholder='Enter your first name'
                     placeholderTextColor={darkMode ? '#888' : '#666'}
                     autoCapitalize='words'
-                    returnKeyType="next"
+                    {...resolveTextInputKeyboardProps()}
                   />
                 </View>
               </View>
@@ -3191,7 +3193,7 @@ export default function ProfileScreen() {
                     placeholder='Enter your last name'
                     placeholderTextColor={darkMode ? '#888' : '#666'}
                     autoCapitalize='words'
-                    returnKeyType="next"
+                    {...resolveTextInputKeyboardProps()}
                   />
                 </View>
               </View>
@@ -3220,7 +3222,7 @@ export default function ProfileScreen() {
                     keyboardType='email-address'
                     autoCapitalize='none'
                     autoCorrect={false}
-                    returnKeyType="next"
+                    {...resolveTextInputKeyboardProps({ keyboardType: 'email-address' })}
                   />
                 </View>
               </View>
@@ -3248,9 +3250,9 @@ export default function ProfileScreen() {
                     placeholder='(555) 123-4567'
                     placeholderTextColor={darkMode ? '#888' : '#666'}
                     keyboardType='numeric'
-                    returnKeyType="done"
                     onSubmitEditing={() => Keyboard.dismiss()}
                     maxLength={14}
+                    {...nativeNumericKeyboardProps}
                   />
                 </View>
               </View>
@@ -3277,7 +3279,7 @@ export default function ProfileScreen() {
                     placeholder='Enter your company'
                     placeholderTextColor={darkMode ? '#888' : '#666'}
                     autoCapitalize='words'
-                    returnKeyType="next"
+                    {...resolveTextInputKeyboardProps()}
                   />
                 </View>
               </View>
@@ -3304,7 +3306,7 @@ export default function ProfileScreen() {
                     placeholder='Enter your role'
                     placeholderTextColor={darkMode ? '#888' : '#666'}
                     autoCapitalize='words'
-                    returnKeyType="next"
+                    {...resolveTextInputKeyboardProps()}
                   />
                 </View>
               </View>
@@ -3341,11 +3343,11 @@ export default function ProfileScreen() {
                       placeholder='City'
                       placeholderTextColor={darkMode ? '#888' : '#666'}
                       autoCapitalize='words'
-                      returnKeyType="next"
                       onFocus={() => {
                         // Don't auto-scroll - let the user manually scroll if needed
                         // The keyboard will push the content up naturally
                       }}
+                      {...resolveTextInputKeyboardProps()}
                     />
                     <TextInput
                       ref={stateInputRef}
@@ -3367,11 +3369,11 @@ export default function ProfileScreen() {
                       placeholderTextColor={darkMode ? '#888' : '#666'}
                       autoCapitalize='characters'
                       maxLength={2}
-                      returnKeyType="done"
                       onFocus={() => {
                         // Don't auto-scroll - let the user manually scroll if needed
                         // The keyboard will push the content up naturally
                       }}
+                      {...resolveTextInputKeyboardProps()}
                     />
                   </View>
                 </View>
@@ -3417,7 +3419,7 @@ export default function ProfileScreen() {
             <ScrollView
               contentContainerStyle={styles.passwordModalScrollContent}
               showsVerticalScrollIndicator={false}
-              {...KEYBOARD_SCROLL_DEFAULTS}
+              {...FORM_KEYBOARD_SCROLL_PROPS}
             >
               {/* Password change card - matching language & edit profile modal */}
               <View style={[styles.passwordModalCard, styles.passwordModalCardWeb, { 
@@ -3454,6 +3456,7 @@ export default function ProfileScreen() {
                       editable={!passwordLoading}
                       autoCapitalize='none'
                       autoCorrect={false}
+                      {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
                     />
                     <TouchableOpacity
                       style={styles.passwordEyeIcon}
@@ -3488,6 +3491,7 @@ export default function ProfileScreen() {
                       editable={!passwordLoading}
                       autoCapitalize='none'
                       autoCorrect={false}
+                      {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
                     />
                     <TouchableOpacity
                       style={styles.passwordEyeIcon}
@@ -3525,6 +3529,7 @@ export default function ProfileScreen() {
                       editable={!passwordLoading}
                       autoCapitalize='none'
                       autoCorrect={false}
+                      {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
                     />
                     <TouchableOpacity
                       style={styles.passwordEyeIcon}

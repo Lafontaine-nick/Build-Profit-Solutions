@@ -35,7 +35,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useProjectList } from '../../../contexts/ProjectListContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
 import { SubWebFormOptionalChrome } from '@/components/SubWebFormOptionalChrome';
 
@@ -686,7 +687,7 @@ export default function LeadDetailModal({
               ref={scrollViewRef}
               style={styles.content}
               showsVerticalScrollIndicator={false}
-              {...KEYBOARD_SCROLL_DEFAULTS}
+              {...FORM_KEYBOARD_SCROLL_PROPS}
               contentContainerStyle={
                 isWeb
                   ? {
@@ -1196,6 +1197,7 @@ export default function LeadDetailModal({
                               multiline
                               numberOfLines={2}
                               textAlignVertical="top"
+                              {...resolveTextInputKeyboardProps({ multiline: true })}
                             />
                             <View style={styles.taskInputActions}>
                               <TouchableOpacity 
@@ -1663,6 +1665,7 @@ export default function LeadDetailModal({
                         numberOfLines={3}
                         maxLength={500}
                         textAlignVertical="top"
+                        {...resolveTextInputKeyboardProps({ multiline: true })}
                       />
                       <View style={styles.noteInputActions}>
                         <TouchableOpacity 

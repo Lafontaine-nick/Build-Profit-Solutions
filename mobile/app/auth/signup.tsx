@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Alert, SafeAreaView, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Platform, ScrollView, Alert, SafeAreaView, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 
 export default function SignupScreen() {
   const [email, setEmail] = useState('');
@@ -58,11 +59,8 @@ export default function SignupScreen() {
       style={{ flex: 1 }}
     >
       <SafeAreaView style={{ flex: 1 }}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <ScrollView contentContainerStyle={styles.scrollContent} {...KEYBOARD_SCROLL_DEFAULTS}>
+        <View style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={styles.scrollContent} {...FORM_KEYBOARD_SCROLL_PROPS}>
             <View style={styles.card}>
               <Text style={styles.title}>Create Account</Text>
               <View style={styles.inputGroup}>
@@ -76,6 +74,7 @@ export default function SignupScreen() {
                   value={email}
                   onChangeText={setEmail}
                   editable={!pending}
+                  {...resolveTextInputKeyboardProps({ keyboardType: 'email-address' })}
                 />
               </View>
               <View style={styles.inputGroup}>
@@ -88,6 +87,7 @@ export default function SignupScreen() {
                   value={password}
                   onChangeText={setPassword}
                   editable={!pending}
+                  {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
                 />
               </View>
               <View style={styles.inputGroup}>
@@ -100,6 +100,7 @@ export default function SignupScreen() {
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
                   editable={!pending}
+                  {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
                 />
               </View>
               <TouchableOpacity
@@ -124,7 +125,7 @@ export default function SignupScreen() {
               </TouchableOpacity>
             </View>
           </ScrollView>
-        </KeyboardAvoidingView>
+        </View>
       </SafeAreaView>
     </LinearGradient>
   );

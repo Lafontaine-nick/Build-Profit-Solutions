@@ -45,6 +45,7 @@ import type {
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import { syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
 import { useKeyboard } from '@/services/MobileOptimization';
+import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import {
   buildImportedPlanSummaryText,
   buildPlanReadyJobNotesPrompt,
@@ -985,13 +986,11 @@ export default function AIEstimateBuilderModal({
           multiline
           scrollEnabled={false}
           textAlignVertical='top'
-          blurOnSubmit
-          returnKeyType='done'
-          submitBehavior='blurAndSubmit'
           onSubmitEditing={(event) => {
             syncNotesFromNativeEvent(event.nativeEvent.text);
             dismissNotesEditing();
           }}
+          {...resolveTextInputKeyboardProps({ multiline: true })}
           onEndEditing={(event) => {
             syncNotesFromNativeEvent(event.nativeEvent.text);
           }}

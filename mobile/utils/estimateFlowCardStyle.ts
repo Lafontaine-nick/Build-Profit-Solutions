@@ -21,6 +21,34 @@ export function getProjectJobDurationDays(
   return spanDays + 1;
 }
 
+/** Billable week count from Step 2 start/end dates (partial weeks round up). */
+export function getProjectJobDurationWeeks(
+  startDate?: string | null,
+  endDate?: string | null,
+): number | null {
+  const days = getProjectJobDurationDays(startDate, endDate);
+  if (days == null) return null;
+  return Math.max(1, Math.ceil(days / 7));
+}
+
+/** Step 7 weekly progress default when Step 2 dates are not set yet. */
+export const ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS = 4;
+
+export function resolveWeeklyProjectWeeks(
+  startDate?: string | null,
+  endDate?: string | null,
+  overrideWeeks?: string | number | null,
+): number {
+  const parsedOverride = Math.round(Number(overrideWeeks));
+  if (Number.isFinite(parsedOverride) && parsedOverride > 0) {
+    return parsedOverride;
+  }
+  return (
+    getProjectJobDurationWeeks(startDate, endDate) ??
+    ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS
+  );
+}
+
 /** Active green ring when an inline date field has its calendar open. */
 export function estimateFlowActiveDateFieldStyle(isActive: boolean): ViewStyle {
   if (!isActive) return {};
@@ -379,16 +407,16 @@ export function estimateSummaryMetricChipStyle(darkMode: boolean): ViewStyle {
   };
 }
 
-/** Steps 3–4 — individual material/labor row inside a flow card list. */
+/** Steps 3–5 — row/panel nested inside a flow card (materials, labor, allowances). */
 export function estimateFlowLineItemStyle(Colors: FlowCardColors, darkMode: boolean): ViewStyle {
   return {
-    backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : 'rgba(0, 0, 0, 0.03)',
+    backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : 'rgba(0, 0, 0, 0.03)',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 11,
     marginBottom: ESTIMATE_FLOW_CARD_GAP,
     borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
   };
 }
 

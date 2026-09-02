@@ -21,6 +21,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import TaxGradientFrame from '@/src/components/tax/TaxGradientFrame';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -499,7 +501,7 @@ export default function TaxVendorDetailScreen() {
           <ScrollView
             style={styles.scrollView}
             contentContainerStyle={styles.scroll}
-            keyboardShouldPersistTaps="handled"
+            {...FORM_KEYBOARD_SCROLL_PROPS}
           >
             <TaxGradientFrame style={styles.formGradientRing} innerStyle={styles.formFrameInner}>
           <Field label="Business name" value={businessName} onChangeText={setBusinessName} />
@@ -648,6 +650,9 @@ function Field({
         keyboardType={keyboardType || 'default'}
         {...(autoCapitalize != null ? { autoCapitalize } : {})}
         maxLength={maxLength}
+        {...((keyboardType === 'phone-pad'
+          ? nativeNumericKeyboardProps
+          : resolveTextInputKeyboardProps({ multiline: !!multiline, keyboardType })) as object)}
       />
     </View>
   );

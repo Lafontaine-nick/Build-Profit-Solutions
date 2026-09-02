@@ -34,6 +34,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { Typography } from '@/constants/Typography';
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import AIEstimateDisclaimer from '@/components/estimate/AIEstimateDisclaimer';
 import {
@@ -3441,8 +3442,6 @@ function CustomScopeItemComposer({
         onChangeText={onChangeLabel}
         placeholder={placeholder}
         placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'}
-        returnKeyType='done'
-        blurOnSubmit
         onSubmitEditing={() => {
           if (label.trim()) onAdd();
         }}
@@ -3461,6 +3460,7 @@ function CustomScopeItemComposer({
               : Colors.surface2,
           },
         ]}
+        {...resolveTextInputKeyboardProps()}
       />
       <View style={styles.customComposerActions}>
         <TouchableOpacity
@@ -8307,7 +8307,6 @@ function YesNoRow({
             value={draftLabel}
             onChangeText={setDraftLabel}
             autoFocus
-            returnKeyType='done'
             onSubmitEditing={saveRename}
             placeholder='Scope item name'
             placeholderTextColor={
@@ -8325,6 +8324,7 @@ function YesNoRow({
                   : Colors.surface2,
               },
             ]}
+            {...resolveTextInputKeyboardProps()}
           />
           <TouchableOpacity
             onPress={saveRename}
@@ -12196,6 +12196,7 @@ function InsulationAssemblyCard({
                               darkMode,
                               Colors
                             )}
+                            {...nativeNumericKeyboardProps}
                             style={{
                               flex: 1,
                               color: Colors.text,
@@ -14226,6 +14227,7 @@ function CollapsibleQuickMeasurements({
             placeholderTextColor={
               darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'
             }
+            {...nativeNumericKeyboardProps}
             style={{
               flex: 1,
               color: darkMode ? '#F5F7FA' : Colors.text,

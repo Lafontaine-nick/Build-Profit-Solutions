@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,8 +10,8 @@ import {
   Alert,
   SafeAreaView,
   StatusBar,
-  KeyboardAvoidingView,
   Platform,
+  Keyboard,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
@@ -27,8 +27,12 @@ import GreyCalendar from "./GreyCalendar";
 import GradientRingBackInner from "./GradientRingBackInner";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
-import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
-import { useKeyboard } from "@/services/MobileOptimization";
+import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
+import { resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
+import {
+  estimateFlowPrimaryButtonStyle,
+  estimateFlowPrimaryButtonTextStyle,
+} from "@/utils/estimateFlowCardStyle";
 
 export type DailyLogEntry = {
   id: string;
@@ -91,31 +95,13 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
   const [noteText, setNoteText] = useState("");
   const [weather, setWeather] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [notesFocused, setNotesFocused] = useState(false);
 
   const notesRef = useRef<TextInput>(null);
-  const scrollRef = useRef<ScrollView>(null);
-  const notesOffsetY = useRef(0);
-  const { keyboardHeight, isKeyboardVisible } = useKeyboard();
-
-  const scrollNotesIntoView = useCallback(() => {
-    const delay = Platform.OS === "ios" ? 280 : 120;
-    setTimeout(() => {
-      scrollRef.current?.scrollTo({
-        y: Math.max(0, notesOffsetY.current - 96),
-        animated: true,
-      });
-    }, delay);
-  }, []);
-
-  useEffect(() => {
-    if (isKeyboardVisible && notesFocused) {
-      scrollNotesIntoView();
-    }
-  }, [isKeyboardVisible, keyboardHeight, notesFocused, scrollNotesIntoView]);
+  const [notesInputKey, setNotesInputKey] = useState(0);
 
   useEffect(() => {
     if (!visible) return;
+    setNotesInputKey((key) => key + 1);
     if (existingLog) {
       const rawDate = existingLog.date || existingLog.createdAt;
       const dateOnly = rawDate ? String(rawDate).match(/^(\d{4}-\d{2}-\d{2})/)?.[1] : null;
@@ -128,7 +114,6 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
       setWeather(null);
     }
     setSaving(false);
-    setNotesFocused(false);
   }, [visible, existingLog]);
 
   const resetAndClose = () => {
@@ -224,28 +209,17 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
               <View style={{ width: 40 }} />
             </View>
 
-            <KeyboardAvoidingView
-              style={{ flex: 1 }}
-              behavior={Platform.OS === "ios" ? "padding" : undefined}
-              keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
-            >
             <ScrollView
-              ref={scrollRef}
               style={[styles.form, { backgroundColor: Colors.bg }]}
-              contentContainerStyle={{
-                paddingBottom: insets.bottom + 24 + (keyboardHeight > 0 ? keyboardHeight + 48 : 0),
-              }}
+              contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
               showsVerticalScrollIndicator={false}
-              {...KEYBOARD_SCROLL_DEFAULTS}
+              {...FORM_KEYBOARD_SCROLL_PROPS}
             >
-            {!notesFocused && (
             <View style={styles.summaryCard}>
               <Text style={styles.summaryCardLabel}>Log date</Text>
               <Text style={styles.summaryCardValue}>{formattedDate}</Text>
             </View>
-            )}
 
-            {!notesFocused && (
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>Date</Text>
               <View style={styles.calendarWrap}>
@@ -256,24 +230,12 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
                 />
               </View>
             </View>
-            )}
 
-            {notesFocused && (
-              <View style={[styles.summaryCard, { marginBottom: 12 }]}>
-                <Text style={styles.summaryCardLabel}>Log date</Text>
-                <Text style={styles.summaryCardValue}>{formattedDate}</Text>
-              </View>
-            )}
-
-            <View
-              style={styles.fieldGroup}
-              onLayout={(e) => {
-                notesOffsetY.current = e.nativeEvent.layout.y;
-              }}
-            >
+            <View style={styles.fieldGroup}>
               <Text style={[styles.label, !darkMode && { color: Colors.text }]}>Notes *</Text>
               <View style={[styles.inputWrapper, styles.textAreaWrapper, fieldSurface]}>
                 <TextInput
+                  key={`daily-log-notes-${notesInputKey}`}
                   ref={notesRef}
                   style={[styles.input, styles.textArea, !darkMode && { color: Colors.text }]}
                   placeholder="What happened on site today? Progress, delays, issues..."
@@ -281,12 +243,13 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
                   value={noteText}
                   onChangeText={setNoteText}
                   multiline
+                  scrollEnabled={false}
                   textAlignVertical="top"
-                  onFocus={() => {
-                    setNotesFocused(true);
-                    scrollNotesIntoView();
-                  }}
-                  onBlur={() => setNotesFocused(false)}
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  {...(Platform.OS === "ios"
+                    ? { keyboardAppearance: darkMode ? "dark" : "light" }
+                    : {})}
+                  {...resolveTextInputKeyboardProps({ multiline: true })}
                 />
               </View>
             </View>
@@ -317,24 +280,20 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
             </View>
 
             <TouchableOpacity
-              style={[styles.saveButton, saving && styles.saveButtonDisabled, { marginTop: 8 }]}
+              style={[
+                estimateFlowPrimaryButtonStyle(),
+                { marginTop: 8 },
+                saving && styles.saveButtonDisabled,
+              ]}
               onPress={handleSave}
               disabled={saving}
             >
-              <LinearGradient
-                colors={["#22c55e", "#10b981"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.saveButtonGradient}
-              >
-                <MaterialIcons name="check" size={22} color="#FFFFFF" />
-                <Text style={styles.saveButtonText}>
-                  {saving ? "Saving..." : isEditing ? "Save changes" : "Save daily log"}
-                </Text>
-              </LinearGradient>
+              <MaterialIcons name="check" size={22} color="#071018" />
+              <Text style={estimateFlowPrimaryButtonTextStyle()}>
+                {saving ? "Saving..." : isEditing ? "Save changes" : "Save daily log"}
+              </Text>
             </TouchableOpacity>
           </ScrollView>
-            </KeyboardAvoidingView>
         </SafeAreaView>
       </View>
     </Modal>
@@ -472,23 +431,7 @@ const styles = StyleSheet.create({
   chipTextSelected: {
     color: "#22d3ee",
   },
-  saveButton: {
-    borderRadius: 14,
-    overflow: "hidden",
-  },
   saveButtonDisabled: {
     opacity: 0.65,
-  },
-  saveButtonGradient: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 16,
-  },
-  saveButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "700",
   },
 });

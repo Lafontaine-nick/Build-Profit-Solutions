@@ -17,7 +17,8 @@ import {
 import { PurchaseOrder } from "../contexts/ProjectDataContext";
 import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
-import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
+import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
+import { resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import GradientRingBackInner from "./GradientRingBackInner";
 import { getWebPageShellMaxWidth } from "@/components/layout/WebPageShell";
 import WebFormGradientFrame from "@/components/layout/WebFormGradientFrame";
@@ -228,7 +229,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
               Platform.OS === "web" ? { flexGrow: 0, paddingBottom: 8 } : undefined
             }
             showsVerticalScrollIndicator={false}
-            {...KEYBOARD_SCROLL_DEFAULTS}
+            {...FORM_KEYBOARD_SCROLL_PROPS}
           >
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, !darkMode && { color: '#000000' }]}>Vendor / Supplier *</Text>
@@ -246,7 +247,6 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                   value={vendor}
                   onChangeText={setVendor}
                   autoCapitalize="words"
-                  returnKeyType="next"
                   onSubmitEditing={() => {
                     if (pricingMode === "sqft") {
                       sqftRef.current?.focus();
@@ -254,6 +254,7 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                       amountRef.current?.focus();
                     }
                   }}
+                  {...resolveTextInputKeyboardProps()}
                 />
               </View>
             </View>
@@ -310,6 +311,8 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                   }}
                   multiline
                   numberOfLines={2}
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  {...resolveTextInputKeyboardProps({ multiline: true })}
                 />
               </View>
             </View>
@@ -381,6 +384,8 @@ export default function EditPurchaseOrderModal({ visible, purchaseOrder, onClose
                       scrollViewRef.current?.scrollToEnd({ animated: true });
                     }, 100);
                   }}
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  {...resolveTextInputKeyboardProps()}
                 />
               </View>
             </View>

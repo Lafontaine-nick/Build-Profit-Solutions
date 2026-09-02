@@ -12,9 +12,7 @@ import {
 } from "@/src/lib/keyboardMoney";
 import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
-import KeyboardPlainAccessory from "./ui/KeyboardPlainAccessory";
-import { KEYBOARD_ACCESSORY_IDS } from "@/constants/keyboard";
-import { projectAddExpenseNumericKeyboardProps } from "@/constants/inputKeyboardPresets";
+import { nativeNumericKeyboardProps } from "@/constants/inputKeyboardPresets";
 
 const WEB_TEXT_INPUT_NO_FOCUS_RING =
   Platform.OS === "web"
@@ -87,10 +85,6 @@ export default function PricingModeSection({
 
   return (
     <>
-      <KeyboardPlainAccessory
-        nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
-        backgroundColor={darkMode ? '#000000' : Colors.bg}
-      />
       <View style={styles.field}>
         <Text style={[styles.label, { color: Colors.text }]}>Pricing *</Text>
         <View style={{ flexDirection: "row", gap: 12 }}>
@@ -210,7 +204,7 @@ export default function PricingModeSection({
                     placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                     value={sqftInput}
                     onChangeText={(t) => onSqftInputChange(digitsOnly(t))}
-                    {...projectAddExpenseNumericKeyboardProps}
+                    {...nativeNumericKeyboardProps}
                     keyboardType="phone-pad"
                     returnKeyType="done"
                     onSubmitEditing={onSqftSubmitEditing}
@@ -250,7 +244,7 @@ export default function PricingModeSection({
                     placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                     value={ratePerSqftInput}
                     onChangeText={(t) => onRatePerSqftInputChange(sanitizeDecimalMoneyInput(t))}
-                    {...projectAddExpenseNumericKeyboardProps}
+                    {...nativeNumericKeyboardProps}
                     keyboardType="decimal-pad"
                     returnKeyType="done"
                     onSubmitEditing={onRateSubmitEditing}
@@ -318,7 +312,7 @@ export default function PricingModeSection({
               placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
               value={amount}
               onChangeText={onFlatAmountChange}
-              {...projectAddExpenseNumericKeyboardProps}
+              {...nativeNumericKeyboardProps}
               keyboardType="phone-pad"
               returnKeyType="done"
               onSubmitEditing={onFlatAmountSubmitEditing}

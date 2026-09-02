@@ -21,7 +21,8 @@ import GradientRingBackInner from '@/components/GradientRingBackInner';
 import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import { apiService } from '@/services/api';
 import { AnalyticsEvent, trackProductEvent } from '@/lib/analytics/productAnalytics';
 import { featureAreaFromRoute } from '@/lib/betaFeedback/featureAreaFromRoute';
@@ -342,7 +343,7 @@ export default function BetaFeedbackPanel({ preset, onCancel }: BetaFeedbackPane
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={Platform.OS === 'web'}
-          {...KEYBOARD_SCROLL_DEFAULTS}
+          {...FORM_KEYBOARD_SCROLL_PROPS}
         >
           <LinearGradient
             colors={['#2DFFC4', '#00A6FF']}
@@ -419,8 +420,7 @@ export default function BetaFeedbackPanel({ preset, onCancel }: BetaFeedbackPane
                     {...placeholderProps}
                     value={description}
                     onChangeText={setDescription}
-                    blurOnSubmit={false}
-                    returnKeyType='default'
+                    {...resolveTextInputKeyboardProps({ multiline: true })}
                   />
                 </View>
 
@@ -433,9 +433,8 @@ export default function BetaFeedbackPanel({ preset, onCancel }: BetaFeedbackPane
                     {...placeholderProps}
                     value={intendedAction}
                     onChangeText={setIntendedAction}
-                    returnKeyType='next'
-                    blurOnSubmit={false}
                     onSubmitEditing={() => expectedResultRef.current?.focus()}
+                    {...resolveTextInputKeyboardProps()}
                   />
                 </View>
 
@@ -448,8 +447,10 @@ export default function BetaFeedbackPanel({ preset, onCancel }: BetaFeedbackPane
                     {...placeholderProps}
                     value={expectedResult}
                     onChangeText={setExpectedResult}
-                    returnKeyType={Platform.OS === 'web' ? 'send' : 'done'}
                     onSubmitEditing={() => void submit()}
+                    {...(Platform.OS === 'web'
+                      ? { returnKeyType: 'send' as const, blurOnSubmit: true }
+                      : resolveTextInputKeyboardProps())}
                   />
                 </View>
 

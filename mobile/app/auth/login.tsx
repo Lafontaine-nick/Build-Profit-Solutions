@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, SafeAreaView, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Platform, ScrollView, SafeAreaView, ActivityIndicator, StyleSheet, Keyboard } from 'react-native';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import { ESTIMATE_FLOW_NESTED_FIELD_BG_DARK } from '@/utils/estimateFlowCardStyle';
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 
 // Conditionally import Clerk - only if configured
 let signInHookFactory: any = null;
@@ -153,11 +155,8 @@ export default function LoginScreen() {
       style={{ flex: 1 }}
     >
       <SafeAreaView style={{ flex: 1 }}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <ScrollView contentContainerStyle={styles.scrollContent} {...KEYBOARD_SCROLL_DEFAULTS}>
+        <View style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={styles.scrollContent} {...FORM_KEYBOARD_SCROLL_PROPS}>
             <View style={styles.wideContainer}>
               <LinearGradient
                 colors={["#2DFFC4", "#00A6FF"]}
@@ -174,12 +173,13 @@ export default function LoginScreen() {
                       <TextInput
                         style={styles.input}
                         placeholder='you@company.com'
-                        placeholderTextColor='#9CA3AF'
+                        placeholderTextColor='rgba(255,255,255,0.42)'
                         autoCapitalize='none'
                         keyboardType='email-address'
                         value={email}
                         onChangeText={setEmail}
                         editable={!pending}
+                        {...resolveTextInputKeyboardProps({ keyboardType: 'email-address' })}
                       />
                     </View>
                     <TouchableOpacity
@@ -210,12 +210,13 @@ export default function LoginScreen() {
                       <TextInput
                         style={styles.input}
                         placeholder='Enter code'
-                        placeholderTextColor='#9CA3AF'
+                        placeholderTextColor='rgba(255,255,255,0.42)'
                         autoCapitalize='none'
                         keyboardType='phone-pad'
                         value={code}
                         onChangeText={setCode}
                         editable={!pending}
+                        {...nativeNumericKeyboardProps}
                       />
                     </View>
                     <TouchableOpacity
@@ -235,7 +236,7 @@ export default function LoginScreen() {
             </LinearGradient>
             </View>
           </ScrollView>
-        </KeyboardAvoidingView>
+        </View>
       </SafeAreaView>
     </LinearGradient>
   );
@@ -282,14 +283,14 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   input: {
-    borderRadius: 12,
-    backgroundColor: '#0f172a',
+    borderRadius: 14,
+    backgroundColor: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
     borderWidth: 1,
-    borderColor: 'rgba(0, 166, 255, 0.42)',
+    borderColor: 'rgba(148, 163, 184, 0.12)',
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 14,
-    color: '#f9fafb',
+    color: '#FFFFFF',
   },
   primaryButton: {
     marginTop: 8,

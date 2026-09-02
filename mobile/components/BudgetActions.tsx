@@ -16,6 +16,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 
 import AIExpenseValidation from './AIExpenseValidation';
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 
 const { width } = Dimensions.get('window');
 
@@ -247,6 +248,9 @@ function AnimatedInput({
           multiline={multiline}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
+          {...(keyboardType === 'numeric'
+            ? nativeNumericKeyboardProps
+            : resolveTextInputKeyboardProps({ multiline }))}
         />
       </Animated.View>
     </View>

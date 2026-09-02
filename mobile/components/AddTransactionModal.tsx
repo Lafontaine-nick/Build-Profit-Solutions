@@ -23,9 +23,8 @@ import {
 } from "@/src/lib/keyboardMoney";
 import GradientRingBackInner from "./GradientRingBackInner";
 import { isDesktopWebLayoutWidth, getProjectExpenseFormHorizontalPadding } from "@/constants/ScreenLayout";
-import KeyboardPlainAccessory from "./ui/KeyboardPlainAccessory";
-import { KEYBOARD_ACCESSORY_IDS } from "@/constants/keyboard";
-import { projectAddExpenseNumericKeyboardProps } from "@/constants/inputKeyboardPresets";
+import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import {
   AI_FLOW_CARD_BG_DARK,
   ESTIMATE_FLOW_CHIP_GREEN,
@@ -918,15 +917,11 @@ export default function AddTransactionModal({
       animationType="slide"
       {...(Platform.OS === "web" && webBudgetExpenseShell ? {} : { presentationStyle: "fullScreen" as const, statusBarTranslucent: true })}
     >
-      <KeyboardPlainAccessory
-        nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
-        backgroundColor={darkMode ? '#000000' : Colors.bg}
-      />
       <KeyboardAvoidingView
         style={[styles.keyboardAvoid, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-        behavior={Platform.OS === "web" && webBudgetExpenseShell ? undefined : (Platform.OS === 'ios' ? 'padding' : undefined)}
-        enabled={Platform.OS === "web" && webBudgetExpenseShell ? false : Platform.OS === 'ios'}
-        keyboardVerticalOffset={Platform.OS === "web" && webBudgetExpenseShell ? 0 : (Platform.OS === 'ios' ? -240 : 0)}
+        behavior={Platform.OS === 'android' ? 'padding' : undefined}
+        enabled={Platform.OS === 'android'}
+        keyboardVerticalOffset={0}
       >
       <View style={[
         styles.container,
@@ -1013,12 +1008,8 @@ export default function AddTransactionModal({
                   }
                 : { paddingBottom: 32, flexGrow: 1 }
             }
-            showsVerticalScrollIndicator={false} 
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-            automaticallyAdjustContentInsets={false}
-            contentInsetAdjustmentBehavior="never"
+            showsVerticalScrollIndicator={false}
+            {...FORM_KEYBOARD_SCROLL_PROPS}
           >
             <LinearGradient
               colors={budgetExpenseWebRing ? BRAND_FRAME_GRADIENT_COLORS : ['transparent', 'transparent']}
@@ -1057,11 +1048,10 @@ export default function AddTransactionModal({
                         value={laborDescription}
                         onChangeText={setLaborDescription}
                         autoCapitalize="sentences"
-                        returnKeyType="next"
                         onSubmitEditing={() => tradeRef.current?.focus()}
-                        blurOnSubmit={false}
                         selectionColor="#22c55e"
                         underlineColorAndroid="transparent"
+                        {...resolveTextInputKeyboardProps()}
                       />
                     </View>
                   ) : (
@@ -1082,9 +1072,8 @@ export default function AddTransactionModal({
                       value={laborDescription}
                       onChangeText={setLaborDescription}
                       autoCapitalize="sentences"
-                      returnKeyType="next"
                       onSubmitEditing={() => tradeRef.current?.focus()}
-                      blurOnSubmit={false}
+                      {...resolveTextInputKeyboardProps()}
                     />
                   )}
                 </View>
@@ -1101,11 +1090,10 @@ export default function AddTransactionModal({
                         value={trade}
                         onChangeText={setTrade}
                         autoCapitalize="words"
-                        returnKeyType="next"
                         onSubmitEditing={focusIntoPricingOrAmount}
-                        blurOnSubmit={false}
                         selectionColor="#22c55e"
                         underlineColorAndroid="transparent"
+                        {...resolveTextInputKeyboardProps()}
                       />
                     </View>
                   ) : (
@@ -1126,9 +1114,8 @@ export default function AddTransactionModal({
                       value={trade}
                       onChangeText={setTrade}
                       autoCapitalize="words"
-                      returnKeyType="next"
                       onSubmitEditing={focusIntoPricingOrAmount}
-                      blurOnSubmit={false}
+                      {...resolveTextInputKeyboardProps()}
                     />
                   )}
                 </View>
@@ -1147,11 +1134,10 @@ export default function AddTransactionModal({
                     value={vendor}
                     onChangeText={setVendor}
                     autoCapitalize="words"
-                    returnKeyType="next"
                     onSubmitEditing={focusNextAfterVendorField}
-                    blurOnSubmit={false}
                     selectionColor="#22c55e"
                     underlineColorAndroid="transparent"
+                    {...resolveTextInputKeyboardProps()}
                   />
                 </View>
               ) : (
@@ -1172,9 +1158,8 @@ export default function AddTransactionModal({
                 value={vendor}
                 onChangeText={setVendor}
                 autoCapitalize="words"
-                returnKeyType="next"
                 onSubmitEditing={focusNextAfterVendorField}
-                blurOnSubmit={false}
+                {...resolveTextInputKeyboardProps()}
               />
               )}
             </View>
@@ -1194,11 +1179,10 @@ export default function AddTransactionModal({
                       value={material}
                       onChangeText={setMaterial}
                       autoCapitalize="sentences"
-                      returnKeyType="next"
                       onSubmitEditing={focusIntoPricingOrAmount}
-                      blurOnSubmit={false}
                       selectionColor="#22c55e"
                       underlineColorAndroid="transparent"
+                      {...resolveTextInputKeyboardProps()}
                     />
                   </View>
                 ) : (
@@ -1219,9 +1203,8 @@ export default function AddTransactionModal({
                     value={material}
                     onChangeText={setMaterial}
                     autoCapitalize="sentences"
-                    returnKeyType="next"
                     onSubmitEditing={focusIntoPricingOrAmount}
-                    blurOnSubmit={false}
+                    {...resolveTextInputKeyboardProps()}
                   />
                 )}
               </View>
@@ -1357,7 +1340,7 @@ export default function AddTransactionModal({
                         onChangeText={(text) =>
                           setMaterialsAmountInput(sanitizeDecimalMoneyInput(text))
                         }
-                        {...projectAddExpenseNumericKeyboardProps}
+                        {...nativeNumericKeyboardProps}
                         keyboardType="decimal-pad"
                         returnKeyType="next"
                         onSubmitEditing={() => laborAmountRef.current?.focus()}
@@ -1396,7 +1379,7 @@ export default function AddTransactionModal({
                         onChangeText={(text) =>
                           setLaborAmountInput(sanitizeDecimalMoneyInput(text))
                         }
-                        {...projectAddExpenseNumericKeyboardProps}
+                        {...nativeNumericKeyboardProps}
                         keyboardType="decimal-pad"
                         returnKeyType="next"
                         onSubmitEditing={() => descriptionRef.current?.focus()}
@@ -1514,7 +1497,7 @@ export default function AddTransactionModal({
                                 }
                                 value={materialSqftInput}
                                 onChangeText={(text) => setMaterialSqftInput(digitsOnly(text))}
-                                {...projectAddExpenseNumericKeyboardProps}
+                                {...nativeNumericKeyboardProps}
                         keyboardType="decimal-pad"
                                 returnKeyType="next"
                                 onSubmitEditing={() => materialRatePerSqftRef.current?.focus()}
@@ -1562,7 +1545,7 @@ export default function AddTransactionModal({
                                 onChangeText={(text) =>
                                   setMaterialRatePerSqftInput(sanitizeDecimalMoneyInput(text))
                                 }
-                                {...projectAddExpenseNumericKeyboardProps}
+                                {...nativeNumericKeyboardProps}
                         keyboardType="decimal-pad"
                                 returnKeyType="next"
                                 onSubmitEditing={() => laborSqftRef.current?.focus()}
@@ -1620,7 +1603,7 @@ export default function AddTransactionModal({
                                 }
                                 value={laborSqftInput}
                                 onChangeText={(text) => setLaborSqftInput(digitsOnly(text))}
-                                {...projectAddExpenseNumericKeyboardProps}
+                                {...nativeNumericKeyboardProps}
                         keyboardType="decimal-pad"
                                 returnKeyType="next"
                                 onSubmitEditing={() => laborRatePerSqftRef.current?.focus()}
@@ -1668,7 +1651,7 @@ export default function AddTransactionModal({
                                 onChangeText={(text) =>
                                   setLaborRatePerSqftInput(sanitizeDecimalMoneyInput(text))
                                 }
-                                {...projectAddExpenseNumericKeyboardProps}
+                                {...nativeNumericKeyboardProps}
                         keyboardType="decimal-pad"
                                 returnKeyType="done"
                                 onSubmitEditing={() => descriptionRef.current?.focus()}
@@ -1781,7 +1764,7 @@ export default function AddTransactionModal({
                             }
                             value={sqftInput}
                             onChangeText={onSqftChange}
-                            {...projectAddExpenseNumericKeyboardProps}
+                            {...nativeNumericKeyboardProps}
                         keyboardType="decimal-pad"
                             returnKeyType="done"
                             onSubmitEditing={() => ratePerSqftRef.current?.focus()}
@@ -1830,7 +1813,7 @@ export default function AddTransactionModal({
                             }
                             value={ratePerSqftInput}
                             onChangeText={onRatePerSqftChange}
-                            {...projectAddExpenseNumericKeyboardProps}
+                            {...nativeNumericKeyboardProps}
                         keyboardType="decimal-pad"
                             returnKeyType="done"
                             onSubmitEditing={() => descriptionRef.current?.focus()}
@@ -1906,7 +1889,7 @@ export default function AddTransactionModal({
                     }
                     value={amount}
                     onChangeText={applyFlatAmountTextChange}
-                    {...projectAddExpenseNumericKeyboardProps}
+                                {...nativeNumericKeyboardProps}
                     keyboardType={pricingMode === "flat" ? "decimal-pad" : "phone-pad"}
                     editable={!(isChangeOrdersCategory && pricingMode !== "sqft")}
                     selectTextOnFocus={!(isChangeOrdersCategory && pricingMode !== "sqft")}
@@ -2171,8 +2154,9 @@ export default function AddTransactionModal({
                 placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                 value={scope}
                 onChangeText={setScope}
-                returnKeyType="next"
                 autoCapitalize="words"
+                onSubmitEditing={() => descriptionRef.current?.focus()}
+                {...resolveTextInputKeyboardProps()}
               />
             </View>
 
@@ -2199,12 +2183,11 @@ export default function AddTransactionModal({
                 numberOfLines={2}
                 textAlignVertical="top"
                 scrollEnabled={false}
-                returnKeyType="next"
                 onSubmitEditing={() => poRef.current?.focus()}
-                blurOnSubmit={false}
                 selectionColor={darkMode ? "rgba(34, 197, 94, 0.4)" : "rgba(34, 197, 94, 0.3)"}
                 cursorColor={Colors.text}
                 keyboardAppearance={darkMode ? "dark" : "light"}
+                {...resolveTextInputKeyboardProps({ multiline: true })}
               />
             </View>
 
@@ -2227,7 +2210,6 @@ export default function AddTransactionModal({
                 value={po}
                 onChangeText={setPo}
                 autoCapitalize="characters"
-                returnKeyType="done"
                 onSubmitEditing={() => {
                   Keyboard.dismiss();
                   handleSave();
@@ -2235,6 +2217,7 @@ export default function AddTransactionModal({
                 selectionColor={darkMode ? "rgba(34, 197, 94, 0.4)" : "rgba(34, 197, 94, 0.3)"}
                 cursorColor={Colors.text}
                 keyboardAppearance={darkMode ? "dark" : "light"}
+                {...resolveTextInputKeyboardProps()}
               />
             </View>
               </View>

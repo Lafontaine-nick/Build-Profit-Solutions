@@ -26,7 +26,7 @@ import {
   BRAND_FRAME_GRADIENT_END,
   BRAND_FRAME_GRADIENT_START,
 } from '@/constants/brandFrameGradient';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 import { useKeyboard } from '@/services/MobileOptimization';
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
@@ -643,8 +643,7 @@ export default function AIEstimateManualPricingModal({
             scrollYRef.current = e.nativeEvent.contentOffset.y;
           }}
           scrollEventThrottle={16}
-          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-          {...KEYBOARD_SCROLL_DEFAULTS}
+          {...FORM_KEYBOARD_SCROLL_PROPS}
         >
           {displayPackages.map((pkg) => {
             const qtyLabel = formatScopeQuantity(pkg);

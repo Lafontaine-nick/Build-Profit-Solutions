@@ -5,7 +5,8 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
-import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
+import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
+import { resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import GradientRingBackInner from "./GradientRingBackInner";
 import { getWebPageShellMaxWidth } from "@/components/layout/WebPageShell";
 import WebFormGradientFrame from "@/components/layout/WebFormGradientFrame";
@@ -210,7 +211,7 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
               ...(Platform.OS === "web" ? { flexGrow: 0 } : {}),
             }}
             showsVerticalScrollIndicator={false}
-            {...KEYBOARD_SCROLL_DEFAULTS}
+            {...FORM_KEYBOARD_SCROLL_PROPS}
           >
             <View style={styles.field}>
               <Text style={styles.label}>{vendorLabel}</Text>
@@ -221,9 +222,8 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
                 value={vendor}
                 onChangeText={setVendor}
                 autoCapitalize="words"
-                returnKeyType="next"
                 onSubmitEditing={() => amountRef.current?.focus()}
-                blurOnSubmit={false}
+                {...resolveTextInputKeyboardProps()}
               />
             </View>
 
@@ -270,6 +270,8 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
                 }}
                 multiline
                 numberOfLines={2}
+                onSubmitEditing={() => Keyboard.dismiss()}
+                {...resolveTextInputKeyboardProps({ multiline: true })}
               />
             </View>
 
@@ -286,6 +288,8 @@ export default function EditTransactionModal({ visible, transaction, categoryNam
                   }, 100);
                 }}
                 autoCapitalize="characters"
+                onSubmitEditing={() => Keyboard.dismiss()}
+                {...resolveTextInputKeyboardProps()}
               />
             </View>
           </ScrollView>

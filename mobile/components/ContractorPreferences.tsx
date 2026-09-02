@@ -20,7 +20,7 @@ import { getColors } from '../theme/getColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { usePrefsStore } from '../store/prefs';
 import { useScoredLeads } from '../store/leads';
-import * as Haptics from 'expo-haptics';
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import { geocodeCity } from '../lib/geo';
 import {
   BRAND_FRAME_GRADIENT_COLORS,
@@ -972,6 +972,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
                 }
                 updatePreferences('serviceAreas', updatedAreas);
               }}
+              {...resolveTextInputKeyboardProps()}
             />
             <TextInput
               style={[
@@ -991,6 +992,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
                 updatePreferences('serviceAreas', updatedAreas);
               }}
               maxLength={2}
+              {...resolveTextInputKeyboardProps()}
             />
           </View>
           
@@ -1088,8 +1090,8 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
               })
             }
             keyboardType='numeric'
-            returnKeyType='next'
             onSubmitEditing={() => maxBudgetInputRef.current?.focus()}
+            {...nativeNumericKeyboardProps}
           />
           <Text style={[styles.priceSeparator, { color: textColor }]}>to</Text>
           <TextInput
@@ -1108,7 +1110,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
               })
             }
             keyboardType='numeric'
-            returnKeyType='done'
+            {...nativeNumericKeyboardProps}
           />
         </View>
       </View>

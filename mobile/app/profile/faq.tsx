@@ -15,7 +15,7 @@ import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import * as Haptics from 'expo-haptics';
+import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
 import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
@@ -464,6 +464,7 @@ export default function FAQScreen() {
                       placeholderTextColor={theme.subtext}
                       value={searchQuery}
                       onChangeText={setSearchQuery}
+                      {...resolveTextInputKeyboardProps()}
                     />
                     {searchQuery.length > 0 && (
                       <TouchableOpacity

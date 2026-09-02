@@ -9,7 +9,6 @@ import {
   TextInput,
   Pressable,
   TouchableOpacity,
-  KeyboardAvoidingView,
   Keyboard,
   Platform,
   Alert,
@@ -42,12 +41,10 @@ import {
   formatDecimalMoneyDisplay,
 } from "@/src/lib/keyboardMoney";
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
-import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
+import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import GradientRingBackInner from "@/components/GradientRingBackInner";
 import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from "@/constants/ScreenLayout";
-import KeyboardPlainAccessory from "./ui/KeyboardPlainAccessory";
-import { KEYBOARD_ACCESSORY_IDS } from "@/constants/keyboard";
-import { projectAddExpenseNumericKeyboardProps } from "@/constants/inputKeyboardPresets";
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import WebFormGradientFrame from "@/components/layout/WebFormGradientFrame";
 import { AI_FLOW_CARD_BG_DARK, confirmScopeSectionLabelStyle, estimateFlowCardStyle, estimateFlowLineItemsTotalStyle, estimateFlowNestedActionButtonStyle, estimateStep1ActionButtonSelectedStyle, ESTIMATE_FLOW_CARD_GAP, ESTIMATE_FLOW_CHIP_GREEN, ESTIMATE_FLOW_CHIP_GREEN_BG, ESTIMATE_FLOW_GREEN, ESTIMATE_FLOW_NESTED_FIELD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 
@@ -123,28 +120,19 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   const [showOCRModal, setShowOCRModal] = useState(false);
   /** Hide Cancel/Save while amount keypad is open so buttons don't stack on the keyboard. */
   const [hideFooterForNumeric, setHideFooterForNumeric] = useState(false);
-  const numericBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const materialRef = useRef<TextInput>(null);
+  const vendorRef = useRef<TextInput>(null);
 
   const onAmountFieldFocus = useCallback(() => {
-    if (numericBlurTimerRef.current) {
-      clearTimeout(numericBlurTimerRef.current);
-      numericBlurTimerRef.current = null;
-    }
     setHideFooterForNumeric(true);
   }, []);
 
-  const onAmountFieldBlur = useCallback(() => {
-    if (numericBlurTimerRef.current) clearTimeout(numericBlurTimerRef.current);
-    numericBlurTimerRef.current = setTimeout(() => {
-      setHideFooterForNumeric(false);
-      numericBlurTimerRef.current = null;
-    }, 120);
-  }, []);
-
   useEffect(() => {
-    return () => {
-      if (numericBlurTimerRef.current) clearTimeout(numericBlurTimerRef.current);
-    };
+    if (Platform.OS === "web") return undefined;
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      setHideFooterForNumeric(false);
+    });
+    return () => hideSub.remove();
   }, []);
 
   const sqftModeSnapshotRef = useRef({ sqftText: "", rateText: "", sqft: 0, rate: 0 });
@@ -438,10 +426,6 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardPlainAccessory
-        nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
-        backgroundColor={darkMode ? '#000000' : Colors.bg}
-      />
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
 
       <View
@@ -459,10 +443,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
             },
           ]}
         >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
+        <View style={{ flex: 1 }}>
           <View style={styles.content}>
             <WebFormGradientFrame
               style={Platform.OS === "web" ? { flex: 1, minHeight: 0 } : undefined}
@@ -510,7 +491,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
               showsVerticalScrollIndicator={false}
               style={Platform.OS === "web" ? { flex: 1, minHeight: 0 } : undefined}
               contentContainerStyle={styles.scrollContent}
-              {...KEYBOARD_SCROLL_DEFAULTS}
+              {...FORM_KEYBOARD_SCROLL_PROPS}
             >
               <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
               {/* Material */}
@@ -521,14 +502,17 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                 <View style={styles.inputWrapper}>
                   <Feather name="file-text" size={16} color="#8DA0B8" style={styles.inputIcon} />
                   <TextInput
+                    ref={materialRef}
                     style={styles.input}
                     placeholder="what is the material quoted"
                     placeholderTextColor={placeholderTint}
                     value={material}
                     onChangeText={setMaterial}
-                    returnKeyType="done"
-                    onSubmitEditing={() => Keyboard.dismiss()}
-                    blurOnSubmit
+                    onSubmitEditing={() => vendorRef.current?.focus()}
+                    {...(Platform.OS === "ios"
+                      ? { keyboardAppearance: darkMode ? "dark" : "light" }
+                      : {})}
+                    {...resolveTextInputKeyboardProps()}
                   />
                 </View>
               </View>
@@ -541,14 +525,17 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                 <View style={styles.inputWrapper}>
                   <Feather name="store" size={16} color="#8DA0B8" style={styles.inputIcon} />
                   <TextInput
+                    ref={vendorRef}
                     style={styles.input}
                     placeholder="Home Depot"
                     placeholderTextColor={placeholderTint}
                     value={vendor}
                     onChangeText={setVendor}
-                    returnKeyType="done"
                     onSubmitEditing={() => Keyboard.dismiss()}
-                    blurOnSubmit
+                    {...(Platform.OS === "ios"
+                      ? { keyboardAppearance: darkMode ? "dark" : "light" }
+                      : {})}
+                    {...resolveTextInputKeyboardProps()}
                   />
                 </View>
               </View>
@@ -631,10 +618,9 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                             placeholderTextColor={placeholderTint}
                             value={sqftText}
                             onChangeText={(text) => setSqftText(digitsOnly(text))}
-                            {...projectAddExpenseNumericKeyboardProps}
+                            {...nativeNumericKeyboardProps}
                             keyboardType="phone-pad"
                             onFocus={onAmountFieldFocus}
-                            onBlur={onAmountFieldBlur}
                           />
                         </View>
                       </View>
@@ -650,10 +636,10 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                             placeholderTextColor={placeholderTint}
                             value={rateText}
                             onChangeText={(text) => setRateText(formatDecimalMoneyDisplay(text))}
+                            {...nativeNumericKeyboardProps}
                             keyboardType="decimal-pad"
                             keyboardAppearance={darkMode ? "dark" : "light"}
                             onFocus={onAmountFieldFocus}
-                            onBlur={onAmountFieldBlur}
                           />
                         </View>
                       </View>
@@ -674,10 +660,10 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                         placeholderTextColor={placeholderTint}
                         value={flatAmountText}
                         onChangeText={(text) => setFlatAmountText(formatDecimalMoneyDisplay(text))}
+                        {...nativeNumericKeyboardProps}
                         keyboardType="decimal-pad"
                         keyboardAppearance={darkMode ? "dark" : "light"}
                         onFocus={onAmountFieldFocus}
-                        onBlur={onAmountFieldBlur}
                       />
                     </View>
                     {resolvedAmount > 0 ? (
@@ -837,7 +823,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
             </View>
             )}
           </View>
-        </KeyboardAvoidingView>
+        </View>
         </View>
       </View>
     </SafeAreaView>

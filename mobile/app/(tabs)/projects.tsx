@@ -1700,7 +1700,7 @@ export default function ProjectsScreen() {
       <Modal
         visible={markAsWonModalVisible}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setMarkAsWonModalVisible(false)}
       >
         <Pressable
@@ -2251,7 +2251,7 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
       : {}),
   },
   bottomSheet: {
-    backgroundColor: darkMode ? Colors.card : Colors.cardDark,
+    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.cardDark,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderWidth: 1,
@@ -2302,7 +2302,9 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderRadius: 12,
-    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : '#f1f5f9',
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : '#f1f5f9',
+    borderWidth: darkMode ? 1 : 0,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },

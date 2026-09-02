@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Keyboard,
   Platform,
   StyleSheet,
   Text,
@@ -11,6 +12,10 @@ import {
   TextStyle,
   RefObject,
 } from 'react-native';
+import { resolveTextInputKeyboardProps, type MultilineKeyboardMode } from '@/constants/inputKeyboardPresets';
+
+/** LOCKED — wraps resolveTextInputKeyboardProps(); see `.cursor/rules/mobile-keyboard-presets.mdc`. */
+
 export type AppTextFieldFocusMode = 'none' | 'text' | 'number';
 
 type Props = TextInputProps & {
@@ -24,6 +29,8 @@ type Props = TextInputProps & {
   wrapperStyle?: StyleProp<ViewStyle>;
   /** Notifies parent of keyboard mode from `keyboardType` on focus/blur. */
   onFocusMode?: (mode: AppTextFieldFocusMode) => void;
+  /** `growable` keeps native multiline height; default `compact` for notes-style fields. */
+  multilineKeyboardMode?: MultilineKeyboardMode;
   /** Ref to the inner `TextInput` (e.g. custom keypad + blur from parent). */
   textInputRef?: RefObject<TextInput | null>;
 };
@@ -38,6 +45,7 @@ export default function AppTextField({
   placeholderTextColor = 'rgba(255,255,255,0.34)',
   wrapperStyle,
   onFocusMode,
+  multilineKeyboardMode,
   textInputRef,
   onFocus,
   onBlur,
@@ -50,11 +58,29 @@ export default function AppTextField({
     keyboardType === 'phone-pad' ||
     keyboardType === 'decimal-pad';
 
+  const keyboardProps = resolveTextInputKeyboardProps({
+    multiline: !!props.multiline,
+    multilineMode: props.multiline ? (multilineKeyboardMode ?? 'compact') : undefined,
+    returnKeyType: props.returnKeyType,
+    keyboardType,
+  });
+
+  const useKeyboardPreset = Object.keys(keyboardProps).length > 0;
+  const shouldAutoDismiss = useKeyboardPreset && props.onSubmitEditing == null;
+
   // Never let spread props override keyboard / accessory (ZIP vs Phone bugs when keys leak into `props`).
   const spreadProps = { ...props } as Record<string, unknown>;
   delete spreadProps.keyboardType;
   delete spreadProps.textContentType;
   delete spreadProps.inputAccessoryViewID;
+  if (useKeyboardPreset) {
+    delete spreadProps.returnKeyType;
+    delete spreadProps.blurOnSubmit;
+    delete spreadProps.submitBehavior;
+    delete spreadProps.multiline;
+    delete spreadProps.scrollEnabled;
+    delete spreadProps.textAlignVertical;
+  }
 
   return (
     <View style={[styles.wrapper, wrapperStyle]}>
@@ -71,6 +97,10 @@ export default function AppTextField({
         <TextInput
           ref={textInputRef}
           {...(spreadProps as TextInputProps)}
+          {...keyboardProps}
+          {...(shouldAutoDismiss
+            ? { onSubmitEditing: () => Keyboard.dismiss() }
+            : {})}
           style={[
             styles.input,
             leftIcon ? { paddingLeft: 8 } : null,

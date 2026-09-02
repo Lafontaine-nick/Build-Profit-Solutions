@@ -16,7 +16,8 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from "../contexts/ThemeContext";
 import { getColors } from "../theme/getColors";
-import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
+import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
+import { resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import GradientRingBackInner from "./GradientRingBackInner";
 
 type Props = {
@@ -210,7 +211,7 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
           ref={scrollViewRef}
           style={styles.form}
           showsVerticalScrollIndicator={false}
-          {...KEYBOARD_SCROLL_DEFAULTS}
+          {...FORM_KEYBOARD_SCROLL_PROPS}
         >
           {/* Total Amount Card */}
           <View style={styles.summaryCard}>
@@ -236,9 +237,8 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
                   value={poNumber}
                   onChangeText={setPONumber}
                   autoCapitalize="characters"
-                  returnKeyType="next"
                   onSubmitEditing={() => vendorRef.current?.focus()}
-                  blurOnSubmit={false}
+                  {...resolveTextInputKeyboardProps()}
                 />
               </View>
             </View>
@@ -260,7 +260,6 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
                   value={vendor}
                   onChangeText={setVendor}
                   autoCapitalize="words"
-                  returnKeyType="next"
                   onSubmitEditing={() => {
                     if (pricingMode === "sqft") {
                       sqftRef.current?.focus();
@@ -268,7 +267,7 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
                       amountRef.current?.focus();
                     }
                   }}
-                  blurOnSubmit={false}
+                  {...resolveTextInputKeyboardProps()}
                 />
               </View>
             </View>
@@ -393,7 +392,8 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
                   placeholderTextColor={placeholderTint}
                   value={scope}
                   onChangeText={setScope}
-                  returnKeyType="next"
+                  onSubmitEditing={() => descriptionRef.current?.focus()}
+                  {...resolveTextInputKeyboardProps()}
                 />
               </View>
             </View>
@@ -421,6 +421,8 @@ export default function AddPurchaseOrderModal({ visible, onClose, onSave }: Prop
                   }}
                   multiline
                   numberOfLines={2}
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  {...resolveTextInputKeyboardProps({ multiline: true })}
                 />
               </View>
             </View>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, SafeAreaView, StatusBar, KeyboardAvoidingView } from "react-native";
+import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, SafeAreaView, StatusBar, KeyboardAvoidingView, Keyboard } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { BRAND_FRAME_GRADIENT_COLORS, BRAND_FRAME_GRADIENT_END, BRAND_FRAME_GRADIENT_START } from "@/constants/brandFrameGradient";
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -12,6 +12,8 @@ import GreyCalendar from "./GreyCalendar";
 import GradientRingBackInner from "./GradientRingBackInner";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
+import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 
 type Props = {
   visible: boolean;
@@ -193,6 +195,8 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                 onChangeText={setTitle}
                 placeholder="e.g., Foundation Complete"
                 placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : ThemeColors.sub}
+                onSubmitEditing={() => Keyboard.dismiss()}
+                {...resolveTextInputKeyboardProps()}
               />
             </View>
 
@@ -231,9 +235,10 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                     const num = text.replace(/[^0-9.]/g, '').replace(/,/g, '');
                     setPaymentAmount(num);
                   }}
-                  keyboardType="numeric"
+                  keyboardType="decimal-pad"
                   placeholder="0"
                   placeholderTextColor={darkMode ? Colors.subtext : ThemeColors.sub}
+                  {...nativeNumericKeyboardProps}
                 />
               </View>
             </View>
@@ -411,6 +416,8 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                 selectionColor={darkMode ? "rgba(34, 197, 94, 0.4)" : "rgba(34, 197, 94, 0.3)"}
                 cursorColor={ThemeColors.text}
                 keyboardAppearance={darkMode ? "dark" : "light"}
+                onSubmitEditing={() => Keyboard.dismiss()}
+                {...resolveTextInputKeyboardProps()}
               />
             </View>
             </>
@@ -478,8 +485,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
               style={{ flex: 1 }}
               contentContainerStyle={styles.editMilestoneWebPageContent}
               showsVerticalScrollIndicator
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
+              {...FORM_KEYBOARD_SCROLL_PROPS}
             >
               <View
                 style={[
@@ -556,18 +562,14 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
           </View>
 
           {/* Form */}
-          <ScrollView 
+          <ScrollView
             style={[
               styles.form,
               { backgroundColor: darkMode ? '#000000' : ThemeColors.bg },
-            ]} 
+            ]}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.formContent}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-            automaticallyAdjustContentInsets={false}
-            contentInsetAdjustmentBehavior="never"
+            {...FORM_KEYBOARD_SCROLL_PROPS}
           >
             <WebMilestoneFormChrome isWeb={false}>
               {milestoneFormFields}

@@ -29,7 +29,8 @@ import { ServiceAreaSelector } from './ServiceAreaSelector';
 import { SPECIALTY_PRICING_TEMPLATES } from './PricingCalculator';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
 
 const IG_GRADIENT = `
@@ -466,6 +467,7 @@ export default function CampaignCreationModal({
                 placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
                 value={campaign.campaignName || ''}
                 onChangeText={(text) => setCampaign({ ...campaign, campaignName: text })}
+                {...resolveTextInputKeyboardProps()}
               />
             </View>
 
@@ -510,6 +512,7 @@ export default function CampaignCreationModal({
                         setCampaign({ ...campaign, startDate: undefined });
                       }
                     }}
+                    {...resolveTextInputKeyboardProps()}
                   />
                 </View>
 
@@ -530,6 +533,7 @@ export default function CampaignCreationModal({
                         setCampaign({ ...campaign, endDate: undefined });
                       }
                     }}
+                    {...resolveTextInputKeyboardProps()}
                   />
                 </View>
               </>
@@ -1158,7 +1162,7 @@ export default function CampaignCreationModal({
                 style={[styles.content, { flex: 1, minHeight: 0, paddingHorizontal: 0 }]}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={[{ paddingBottom: 20 }, isWeb && { paddingHorizontal: 0 }]}
-                {...KEYBOARD_SCROLL_DEFAULTS}
+                {...FORM_KEYBOARD_SCROLL_PROPS}
               >
                 {renderStepContent()}
 
@@ -1195,7 +1199,7 @@ export default function CampaignCreationModal({
                 style={styles.content}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 20 }}
-                {...KEYBOARD_SCROLL_DEFAULTS}
+                {...FORM_KEYBOARD_SCROLL_PROPS}
               >
                 {renderStepContent()}
 

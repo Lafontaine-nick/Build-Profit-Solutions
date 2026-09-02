@@ -8,9 +8,15 @@ import {
   Dimensions,
   Pressable,
   ScrollView,
+  TextInput,
+  Keyboard,
 } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { MaterialIcons } from '@expo/vector-icons';
+import {
+  nativeNumericKeyboardProps,
+  resolveTextInputKeyboardProps,
+} from '@/constants/inputKeyboardPresets';
 import {
   useFadeIn,
   useSlideIn,
@@ -351,6 +357,14 @@ export const EnhancedInput: React.FC<{
     outputRange: [theme.border, theme.accent],
   });
 
+  const keyboardProps =
+    keyboardType === 'numeric' ||
+    keyboardType === 'decimal-pad' ||
+    keyboardType === 'number-pad' ||
+    keyboardType === 'phone-pad'
+      ? nativeNumericKeyboardProps
+      : resolveTextInputKeyboardProps({ multiline, secureTextEntry });
+
   return (
     <View style={[styles.inputContainer, style]}>
       {label && (
@@ -391,6 +405,8 @@ export const EnhancedInput: React.FC<{
           multiline={multiline}
           keyboardType={keyboardType}
           secureTextEntry={secureTextEntry}
+          onSubmitEditing={secureTextEntry ? undefined : () => Keyboard.dismiss()}
+          {...keyboardProps}
         />
       </Animated.View>
       {error && (

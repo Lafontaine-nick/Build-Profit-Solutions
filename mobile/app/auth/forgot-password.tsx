@@ -7,7 +7,6 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   SafeAreaView,
@@ -16,7 +15,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { getPostAuthHref } from '@/lib/postAuthNavigation';
 import { MaterialIcons } from '@expo/vector-icons';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import Constants from 'expo-constants';
 
 // Conditionally import Clerk - only if configured
@@ -226,14 +226,11 @@ export default function ForgotPasswordScreen() {
   return (
     <LinearGradient colors={['#021A35', '#007A70']} style={{ flex: 1 }}>
       <SafeAreaView style={styles.safeArea}>
-        <KeyboardAvoidingView
-          style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
+        <View style={styles.container}>
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
-            {...KEYBOARD_SCROLL_DEFAULTS}
+            {...FORM_KEYBOARD_SCROLL_PROPS}
           >
             <View style={styles.card}>
               {/* Back button */}
@@ -267,6 +264,7 @@ export default function ForgotPasswordScreen() {
                       onChangeText={setEmail}
                       editable={!loading}
                       autoFocus
+                      {...resolveTextInputKeyboardProps({ keyboardType: 'email-address' })}
                     />
                   </View>
 
@@ -299,6 +297,7 @@ export default function ForgotPasswordScreen() {
                       editable={!loading}
                       autoFocus
                       maxLength={6}
+                      {...nativeNumericKeyboardProps}
                     />
                     <Text style={styles.helperText}>
                       Check your email for the reset code
@@ -316,6 +315,7 @@ export default function ForgotPasswordScreen() {
                         value={newPassword}
                         onChangeText={setNewPassword}
                         editable={!loading}
+                        {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
                       />
                       <TouchableOpacity
                         style={styles.eyeIcon}
@@ -345,6 +345,7 @@ export default function ForgotPasswordScreen() {
                         value={confirmPassword}
                         onChangeText={setConfirmPassword}
                         editable={!loading}
+                        {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
                       />
                       <TouchableOpacity
                         style={styles.eyeIcon}
@@ -404,7 +405,7 @@ export default function ForgotPasswordScreen() {
               </TouchableOpacity>
             </View>
           </ScrollView>
-        </KeyboardAvoidingView>
+        </View>
       </SafeAreaView>
     </LinearGradient>
   );

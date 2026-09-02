@@ -34,7 +34,8 @@ import { normalizeTrade } from '../lib/trades';
 import { clerkAuthService } from '@/services/clerkAuth';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS, KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
 import { withProjectLeadsAuth } from '@/utils/projectLeadsAuthFetch';
 import { syncBpsDirectoryListing } from '@/services/bpsDirectorySync';
@@ -1614,6 +1615,7 @@ function SubcontractorSearchModal({
                   fontSize: 15,
                   ...inputWebOutline,
                 }}
+                {...resolveTextInputKeyboardProps()}
               />
               <TextInput
                 value={zipCode}
@@ -1643,6 +1645,7 @@ function SubcontractorSearchModal({
                   textAlign: 'center',
                   ...inputWebOutline,
                 }}
+                {...nativeNumericKeyboardProps}
               />
             </View>
             <Text
@@ -1653,7 +1656,7 @@ function SubcontractorSearchModal({
                 marginTop: 6,
               }}
             >
-                Based on your location (US); may differ from mailing ZIP near boundaries.
+              Based on your location (US); may differ from mailing ZIP near boundaries.
             </Text>
             {isWeb && (geoHint || geoAccuracyWarning) ? (
               <View style={{ marginTop: 8 }}>
@@ -2632,7 +2635,7 @@ function SubcontractorSearchModal({
               ...(webColumn860 ? { alignItems: 'center' } : {}),
             }
             }
-              {...KEYBOARD_SCROLL_DEFAULTS}
+              {...FORM_KEYBOARD_SCROLL_PROPS}
               keyboardShouldPersistTaps="always"
             >
           {isWeb && (
@@ -3606,6 +3609,7 @@ function SubcontractorSearchModal({
                     }
                     placeholder="e.g. Plumbing, electrical, tile…"
                     placeholderTextColor={darkMode ? 'rgba(226,232,240,0.55)' : Colors.sub}
+                    {...resolveTextInputKeyboardProps()}
                   />
                 </View>
 
@@ -3628,6 +3632,7 @@ function SubcontractorSearchModal({
                     onChangeText={(text) => setRequestFormData({ ...requestFormData, projectName: text })}
                     placeholder="e.g. Kitchen remodel, office build"
                     placeholderTextColor={darkMode ? 'rgba(226,232,240,0.55)' : Colors.sub}
+                    {...resolveTextInputKeyboardProps()}
                   />
                 </View>
 
@@ -3688,6 +3693,7 @@ function SubcontractorSearchModal({
                         textAlign: 'center',
                         ...inputWebOutline,
                       }}
+                      {...nativeNumericKeyboardProps}
                     />
                   </View>
                   <Text style={{ color: subMeta, fontSize: 11, lineHeight: 15, marginTop: 6 }}>
@@ -3720,6 +3726,7 @@ function SubcontractorSearchModal({
                     placeholder="$50,000"
                     placeholderTextColor={darkMode ? 'rgba(226,232,240,0.55)' : Colors.sub}
                     keyboardType="number-pad"
+                    {...nativeNumericKeyboardProps}
                   />
                 </View>
 
@@ -3818,6 +3825,7 @@ function SubcontractorSearchModal({
                     placeholderTextColor={darkMode ? 'rgba(226,232,240,0.55)' : Colors.sub}
                     multiline
                     numberOfLines={4}
+                    {...resolveTextInputKeyboardProps({ multiline: true })}
                   />
                 </View>
 

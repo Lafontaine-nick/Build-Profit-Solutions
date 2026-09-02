@@ -1,40 +1,50 @@
 ---
-description: Estimates estimate-generator.jsx — keyboard UX locked for steps 1–7 (and step 8 payment accessories); no regressions without explicit approval
+description: LOCKED — estimate-generator.jsx keyboard UX; same blue-checkmark contract as Projects; no regressions without explicit approval
 globs: **/estimate-generator.jsx
 alwaysApply: false
 ---
 
-# Estimates keyboards (steps 1–7) — do not regress
+# Estimates keyboards — LOCKED (reviewed Sep 2026)
 
-Keyboard and accessory behavior on this screen is **intentionally set and reviewed**. Unless the user explicitly asks to change a specific field:
+Same contract as the rest of the app: **blue checkmark**, **no Done bar** above the keyboard. Unless the user explicitly asks to change a **specific** field:
 
-- Do **not** change `keyboardType`, `accessoryID`, `inputAccessoryViewID`, or remove/add iOS `InputAccessoryView` / `KeyboardDoneAccessory` mounts for unrelated steps.
-- Do **not** “clean up” or bulk-refactor keyboard props across steps.
+- Do **not** add `KeyboardPlainAccessory`, `KeyboardDoneAccessory`, or `inputAccessoryViewID` on text fields
+- Do **not** bulk-refactor `keyboardType` / `returnKeyType` / accessory props across steps
+- Do **not** reintroduce green/grey Done strips or global `bpsKeyboardDone` on text inputs
 
-## iOS layout mounts (root of `estimate-generator.jsx`)
+## Shared helpers (same as Projects)
 
-These must stay aligned with the inputs below:
+| Use case | Helper |
+|---|---|
+| Step 1–2 labeled fields | `AppTextField` (applies `resolveTextInputKeyboardProps` internally) |
+| Line-item modal text fields | `{...resolveTextInputKeyboardProps()}` or `{ multiline: true }` spread **last** |
+| Phone / ZIP / sqft / modal amounts | `keyboardType` + `estimateStep12NumericKeyboardProps` or `lineItemModalNumericKeyboardProps` (= `nativeNumericKeyboardProps`, **no accessory**) |
+| Main scroll (iOS) | `estimatesMainScrollIosProps`: `automaticallyAdjustKeyboardInsets` + `keyboardDismissMode: 'none'` |
 
-| Condition | What mounts |
-|-----------|-------------|
-| `step === 1 \|\| step === 2 \|\| material modal \|\| labor modal` | **No** local `KeyboardDoneAccessory` / no `step5EquipmentPlain` strip (dismiss via tap outside / scroll). Global `KeyboardDoneBar` in `_layout.tsx` still applies to fields using `bpsKeyboardDone`. |
-| `step === 3 \|\| step === 4` (and modals closed) | **Only** `KeyboardDoneAccessory` for `KEYBOARD_ACCESSORY_IDS.number` (grey Done — materials/labor cart quantity `TextInput`s). **Do not** mount `number` on steps 5–8 or it can reattach to the wrong keyboard. |
-| `step >= 5 && step <= 8` | Empty `InputAccessoryView` for `KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain` (step 5 decimals + step 7 custom weeks/milestones phone-pad). There is **no** `bps-text-keyboard-accessory` mount (nothing references it). |
+## iOS mounts — current (do not add accessories)
 
-## Canonical contract by step (numbered steps only)
+| Area | Rule |
+|---|---|
+| Steps 1–2 main screen | **No** `KeyboardPlainAccessory` — removed; was breaking blue checkmark on Email / Customer Name |
+| Line-item modal (Add Labor / Add Materials) | **No** `KeyboardPlainAccessory` |
+| Step 5 decimals | `step5EquipmentPlain` empty accessory **only** if already mounted for step 5–7 decimal pads — do not extend to text fields |
+| Step 3 cart qty | Native `phone-pad` only when line-item modal is closed |
 
-| Step | Keyboard pattern |
-|------|-------------------|
-| **1** Customer | Default keyboard for name / address / city / state / company / notes (no `accessoryID` on those). **Email**: `accessoryID` → `bpsKeyboardDone`. **Phone** + **ZIP**: `phone-pad` + `bpsKeyboardDone`. |
-| **2** Project | Default keyboard for title + multiline description. **Square footage**: `phone-pad` + `bpsKeyboardDone`. Dates: calendar pickers (no keyboard). |
-| **3** Materials | Cart quantity edits: `phone-pad` + `bpsKeyboardDone` when line-item modal closed (cleared when modal open — see `lineItemModalOpen`). Material / labor **modals** use their own inputs; do not change modal keyboards when fixing the main step. |
-| **4** Labor | No inline numeric fields on the main step (modals only). Preserve modal behavior. |
-| **5** Direct costs | All money / % decimals: `keyboardType="decimal-pad"` + `step5DecimalInputProps` + `inputAccessoryViewID` → `step5EquipmentPlain` only. **Do not** use `step5Numeric` or `KeyboardNumericDoneAccessory` for these. |
-| **6** Analysis | `ProjectAnalysis` — do not add estimate-level accessory assumptions here without checking that component. |
-| **7** Payment schedule | `phone-pad` for custom weeks / custom milestone counts + `step5EquipmentPlain` (not `number` / not grey Done). Deposit chips stay on existing handlers. |
+## By step
 
-Step **8** (if present in the same file) continues to use the same **`step5EquipmentPlain`** mount as steps 5–7.
+| Step | Text fields | Numeric fields |
+|------|-------------|----------------|
+| **1** Customer | `AppTextField` — name, email, address, city, state, company, notes | Phone, ZIP: `phone-pad` + `estimateStep12NumericKeyboardProps` |
+| **2** Project | `AppTextField` — title, description | Square footage: `phone-pad` + `estimateStep12NumericKeyboardProps` |
+| **3–4** Modals | `resolveTextInputKeyboardProps` on labor/material text inputs | `lineItemModalNumericKeyboardProps` on amount/rate/sqft |
+| **5** Direct costs | N/A | `decimal-pad` + `step5EquipmentPlain` (existing step-5 contract only) |
+| **7** Payments | N/A | `phone-pad` + `step5EquipmentPlain` for custom week/milestone counts |
 
-## Before committing a keyboard change
+## Before committing a keyboard change in this file
 
-Grep this file for `step5Numeric`, `step5EquipmentPlain`, `bpsKeyboardDone`, `accessoryID`, `lineItemModalOpen` — confirm unrelated inputs were not touched.
+```bash
+# Must be zero after a text-field fix (unless step 5–7 decimal-only accessory):
+rg 'KeyboardPlainAccessory|bpsKeyboardDone|inputAccessoryViewID' estimate-generator.jsx
+```
+
+Confirm unrelated steps were not touched.

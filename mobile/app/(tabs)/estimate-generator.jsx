@@ -167,6 +167,10 @@ import {
   ESTIMATE_FLOW_CARD_GAP,
   ESTIMATE_FLOW_STEP_SCROLL_BOTTOM,
   estimateFlowActiveDateFieldStyle,
+  ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS,
+  getProjectJobDurationDays,
+  getProjectJobDurationWeeks,
+  resolveWeeklyProjectWeeks,
   estimateFlowInputShellStyle,
   estimateFlowStepContentWrapStyle,
   estimateFlowStepperWrapStyle,
@@ -193,9 +197,7 @@ import ProjectAnalysis from '../../components/ProjectAnalysis';
 import AIAssistantModal from '../../components/AIAssistantModal';
 import AppTextField from '@/components/ui/AppTextField';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
-import KeyboardPlainAccessory from '@/components/ui/KeyboardPlainAccessory';
-import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
-import { estimateStep12NumericKeyboardProps, lineItemModalNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
+import { estimateStep12NumericKeyboardProps, lineItemModalNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import GradientRingBackInner from '../../components/GradientRingBackInner';
 import {
   centsDigitsToNumber,
@@ -1217,9 +1219,9 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, onDelete, grand
               style={modalStyles.materialInput}
               value={name}
               onChangeText={setName}
-              returnKeyType="next"
               placeholder="e.g., Deposit, Framing Complete"
               placeholderTextColor="rgba(255,255,255,0.4)"
+              {...resolveTextInputKeyboardProps()}
             />
           </View>
         </GradientFieldShell>
@@ -1241,6 +1243,8 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, onDelete, grand
             placeholder="Optional description"
             placeholderTextColor={darkMode ? 'rgba(255,255,255,0.4)' : Colors.text}
             multiline
+            {...resolveTextInputKeyboardProps({ multiline: true })}
+            onSubmitEditing={() => Keyboard.dismiss()}
           />
         </View>
       </View>
@@ -1745,6 +1749,8 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal, paymen
             placeholder={paymentLabel === 'Custom Payment' ? 'e.g., Material deposit, Lender draw, Final payment' : 'Optional description'}
             placeholderTextColor={darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub}
             multiline
+            {...resolveTextInputKeyboardProps({ multiline: true })}
+            onSubmitEditing={() => Keyboard.dismiss()}
             selectionColor="#22c55e"
             underlineColorAndroid="transparent"
           />
@@ -1817,6 +1823,8 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal, paymen
               placeholder="Example: Due upon lender draw approval"
               placeholderTextColor={darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub}
               multiline
+              {...resolveTextInputKeyboardProps({ multiline: true })}
+              onSubmitEditing={() => Keyboard.dismiss()}
               selectionColor="#22c55e"
               underlineColorAndroid="transparent"
             />
@@ -2353,10 +2361,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
         : {})}
       onRequestClose={onClose}
     >
-      <KeyboardPlainAccessory
-        nativeID={KEYBOARD_ACCESSORY_IDS.lineItemModalPlain}
-        backgroundColor={darkMode ? '#000000' : Colors.bg}
-      />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'android' ? 'padding' : undefined}
         enabled={Platform.OS === 'android'}
@@ -2472,11 +2476,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                           value={name}
                           onChangeText={setName}
-                          returnKeyType="done"
                           onSubmitEditing={() => Keyboard.dismiss()}
-                          blurOnSubmit
                           selectionColor="#22c55e"
                           underlineColorAndroid="transparent"
+                          {...resolveTextInputKeyboardProps()}
                         />
                       </View>
                     </View>
@@ -2499,11 +2502,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                           value={trade}
                           onChangeText={setTrade}
-                          returnKeyType="done"
                           onSubmitEditing={() => Keyboard.dismiss()}
-                          blurOnSubmit
                           selectionColor="#22c55e"
                           underlineColorAndroid="transparent"
+                          {...resolveTextInputKeyboardProps()}
                         />
                       </View>
                     </View>
@@ -2698,11 +2700,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                             value={name}
                             onChangeText={setName}
-                            returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
-                            blurOnSubmit
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
+                            {...resolveTextInputKeyboardProps()}
                           />
                         </View>
                       </View>
@@ -2726,11 +2727,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                               onChangeText={setVendor}
                               onFocus={() => setMaterialVendorFocused(true)}
                               onBlur={() => setMaterialVendorFocused(false)}
-                              returnKeyType="done"
                               onSubmitEditing={() => Keyboard.dismiss()}
-                              blurOnSubmit
                               selectionColor="#22c55e"
                               underlineColorAndroid="transparent"
+                              {...resolveTextInputKeyboardProps()}
                             />
                           </View>
                         </View>
@@ -3086,11 +3086,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                       style={modalStyles.input}
                       value={name}
                       onChangeText={setName}
-                      returnKeyType="done"
                       onSubmitEditing={() => Keyboard.dismiss()}
-                      blurOnSubmit={true}
                       placeholder={isLaborForm ? 'Enter labor description' : 'Enter item name'}
                       placeholderTextColor={Colors.sub}
+                      {...resolveTextInputKeyboardProps()}
                     />
                   </View>
 
@@ -3101,11 +3100,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                         style={modalStyles.input}
                         value={trade}
                         onChangeText={setTrade}
-                        returnKeyType="done"
                         onSubmitEditing={() => Keyboard.dismiss()}
-                        blurOnSubmit={true}
                         placeholder="e.g., Electrical, Framing"
                         placeholderTextColor={Colors.sub}
+                        {...resolveTextInputKeyboardProps()}
                       />
                     </View>
                   ) : null}
@@ -3237,11 +3235,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             style={modalStyles.input}
                             value={unit}
                             onChangeText={setUnit}
-                            returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
-                            blurOnSubmit
                             placeholder="lot, sq ft, etc"
                             placeholderTextColor={Colors.sub}
+                            {...resolveTextInputKeyboardProps()}
                           />
                         </View>
                       </View>
@@ -8658,7 +8655,9 @@ export default function EstimateGeneratorScreen() {
   const [customDepositModal, setCustomDepositModal] = useState({ visible: false, value: '' });
   const [customFinalModal, setCustomFinalModal] = useState({ visible: false, value: '' });
   const [weeklyDepositPercentText, setWeeklyDepositPercentText] = useState('20');
-  const [weeklyProjectWeeksText, setWeeklyProjectWeeksText] = useState('20');
+  const [weeklyProjectWeeksText, setWeeklyProjectWeeksText] = useState(
+    String(ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS),
+  );
   const [weeklyHoldbackPercentText, setWeeklyHoldbackPercentText] = useState('5');
   const [weeklyHoldbackDue, setWeeklyHoldbackDue] = useState('final_walkthrough_punch_list');
   const [milestoneDepositPercentText, setMilestoneDepositPercentText] = useState('20');
@@ -8751,9 +8750,32 @@ export default function EstimateGeneratorScreen() {
       }
       setWeeklyPaymentDateDrafts(extractWeeklyPaymentDateDrafts(bid.weeklyPayments));
     } else {
+      const step2Weeks = getProjectJobDurationWeeks(
+        bid.startDate || bid.projectStartDate,
+        bid.endDate || bid.projectEndDate,
+      );
+      setWeeklyProjectWeeksText(
+        String(step2Weeks ?? ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS),
+      );
       setWeeklyPaymentDateDrafts({ deposit: '', weeks: [], holdback: '' });
     }
-  }, [bid.id, bid.paymentScheduleVariant, bid.weeklyProgressSettings, bid.weeklyPayments]);
+  }, [bid.id, bid.paymentScheduleVariant, bid.weeklyProgressSettings, bid.weeklyPayments, bid.startDate, bid.endDate, bid.projectStartDate, bid.projectEndDate]);
+  useEffect(() => {
+    if (bid.weeklyProgressSettings?.projectWeeks != null) return;
+    const step2Weeks = getProjectJobDurationWeeks(
+      bid.startDate || bid.projectStartDate,
+      bid.endDate || bid.projectEndDate,
+    );
+    setWeeklyProjectWeeksText(
+      String(step2Weeks ?? ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS),
+    );
+  }, [
+    bid.startDate,
+    bid.endDate,
+    bid.projectStartDate,
+    bid.projectEndDate,
+    bid.weeklyProgressSettings?.projectWeeks,
+  ]);
   useEffect(() => {
     if (!bid?.id) return;
     if (bid.paymentScheduleVariant === 'weekly_progress') return;
@@ -14054,7 +14076,7 @@ export default function EstimateGeneratorScreen() {
    * Summary: step 1–2 AppTextField patterns (phone/ZIP/sqft → native phone-pad only);
    * step 3 cart qty → native phone-pad only;
    * step 5 decimals → native decimal-pad only; step 7 custom counts → native phone-pad only.
-   * No iOS InputAccessoryView mounts on the estimate screen — avoids stale green/grey Done bars.
+   * No iOS InputAccessoryView mounts on the estimate screen — blue checkmark via resolveTextInputKeyboardProps / AppTextField only.
    * Full table: `.cursor/rules/estimate-generator-keyboards-stable.mdc`
    */
   // Render step content
@@ -14438,7 +14460,7 @@ export default function EstimateGeneratorScreen() {
                         activeOpacity={0.85}
                         onPress={() => setStep(3)}
                         style={[
-                          estimateStep1ActionButtonStyle(Colors, darkMode),
+                          estimateFlowNestedActionButtonStyle(Colors, darkMode),
                           { width: '100%' },
                         ]}
                       >
@@ -15328,24 +15350,37 @@ export default function EstimateGeneratorScreen() {
                     {Platform.OS !== 'web' ? (
                       <TouchableOpacity
                         style={[
-                          estimateFlowOutlineActionButtonStyle(),
                           {
                             minHeight: 52,
                             width: '100%',
                             paddingVertical: 13,
                             paddingHorizontal: 16,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 8,
                           },
-                          productScannerVisible && {
-                            backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
-                          },
+                          estimateFlowNestedActionButtonStyle(Colors, darkMode),
+                          productScannerVisible && estimateStep1ActionButtonSelectedStyle(darkMode, 'green'),
                         ]}
                         onPress={() => {
                           setProductScannerVisible(true);
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                         }}
                       >
-                        <Ionicons name="camera-outline" size={20} color={ESTIMATE_FLOW_CHIP_GREEN} />
-                        <Text style={[estimateFlowOutlineActionButtonTextStyle(), { fontSize: 15, fontWeight: '800' }]}>Scan Product</Text>
+                        <Ionicons
+                          name="camera-outline"
+                          size={20}
+                          color={productScannerVisible ? ESTIMATE_FLOW_CHIP_GREEN : Colors.sub}
+                        />
+                        <Text
+                          style={{
+                            color: productScannerVisible ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
+                            fontSize: 15,
+                            fontWeight: '800',
+                          }}
+                        >
+                          Scan Product
+                        </Text>
                       </TouchableOpacity>
                     ) : null}
                   </View>
@@ -16540,17 +16575,17 @@ export default function EstimateGeneratorScreen() {
           paddingHorizontal: 12,
           paddingVertical: 12,
           borderRadius: 12,
-          backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : 'rgba(0, 0, 0, 0.03)',
+          backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : 'rgba(0, 0, 0, 0.03)',
           borderWidth: 1,
-          borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line,
+          borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
         };
         const step5AllowanceEditPanelStyle = {
           marginTop: 12,
           padding: 12,
           borderRadius: 12,
           borderWidth: 1,
-          borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line,
-          backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)',
+          borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+          backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : 'rgba(0, 0, 0, 0.04)',
           gap: 8,
         };
         const step5ProfileChipBaseStyle = {
@@ -16558,8 +16593,8 @@ export default function EstimateGeneratorScreen() {
           paddingHorizontal: 11,
           borderRadius: 12,
           borderWidth: 1,
-          borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
-          backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+          borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+          backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : 'rgba(0,0,0,0.03)',
         };
         const step5InputBaseStyle = [
           estimateFlowInputShellStyle(Colors, darkMode),
@@ -17307,7 +17342,7 @@ export default function EstimateGeneratorScreen() {
                     setAllowanceDraftAmount('');
                   }}
                   style={[
-                    estimateFlowOutlineActionButtonStyle(),
+                    estimateFlowNestedActionButtonStyle(Colors, darkMode),
                     {
                       alignSelf: 'stretch',
                       width: '100%',
@@ -17318,8 +17353,8 @@ export default function EstimateGeneratorScreen() {
                     },
                   ]}
                 >
-                  <Ionicons name="add" size={16} color={ESTIMATE_FLOW_CHIP_GREEN} />
-                  <Text style={estimateFlowOutlineActionButtonTextStyle()}>Add allowance</Text>
+                  <Ionicons name="add" size={16} color={Colors.sub} />
+                  <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>Add allowance</Text>
                 </TouchableOpacity>
               </View>
               </View>
@@ -17907,10 +17942,22 @@ export default function EstimateGeneratorScreen() {
           bid.startDate || bid.projectStartDate || new Date().toISOString().split('T')[0];
         const weeklyProgressEndDate =
           bid.endDate || bid.projectEndDate || '';
+        const step2DerivedProjectWeeks = getProjectJobDurationWeeks(
+          weeklyProgressStartDate,
+          weeklyProgressEndDate,
+        );
+        const step2DerivedProjectDays = getProjectJobDurationDays(
+          weeklyProgressStartDate,
+          weeklyProgressEndDate,
+        );
         const getWeeklyProgressRows = (overrides = {}) => {
           const rows = buildWeeklyProgressSchedule({
             contractAmount: grandTotal,
-            projectWeeks: Number(overrides.weeksText ?? weeklyProjectWeeksText) || 20,
+            projectWeeks: resolveWeeklyProjectWeeks(
+              weeklyProgressStartDate,
+              weeklyProgressEndDate,
+              overrides.weeksText ?? weeklyProjectWeeksText,
+            ),
             depositPercent: Number(overrides.depositText ?? weeklyDepositPercentText) || 0,
             holdbackPercent: Number(overrides.holdbackText ?? weeklyHoldbackPercentText) || 0,
             holdbackDueLabel:
@@ -18236,7 +18283,11 @@ export default function EstimateGeneratorScreen() {
           });
         };
         const highlightedScheduleOption = step7ExpandedSchedule;
-        const weeklyPreviewWeeks = Math.max(Math.round(Number(weeklyProjectWeeksText) || 20), 1);
+        const weeklyPreviewWeeks = resolveWeeklyProjectWeeks(
+          weeklyProgressStartDate,
+          weeklyProgressEndDate,
+          weeklyProjectWeeksText,
+        );
         const weeklyPreviewDepositPct = Math.min(Math.max(Number(weeklyDepositPercentText) || 0, 0), 100);
         const weeklyPreviewHoldbackPct = Math.min(
           Math.max(Number(weeklyHoldbackPercentText) || 0, 0),
@@ -18500,6 +18551,12 @@ export default function EstimateGeneratorScreen() {
         const step7Muted = darkMode ? 'rgba(198, 214, 232, 0.9)' : Colors.sub;
         const step7MutedSoft = darkMode ? 'rgba(186, 204, 224, 0.82)' : Colors.sub;
         const step7Accent = ESTIMATE_FLOW_GREEN;
+        const step7ProjectStartColor = ESTIMATE_FLOW_CHIP_GREEN;
+        const step7WeeklyPaymentColor = '#22d3ee';
+        const step7ProjectEndColor = '#FFD166';
+        const step7HoldbackColor = '#c084fc';
+        const step7NestedBorder = darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line;
+        const step7NestedSurface = darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : Colors.surface2;
         const step7SectionCard = estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP });
         const step7DateField = {
           ...estimateFlowInputShellStyle(Colors, darkMode),
@@ -18509,9 +18566,9 @@ export default function EstimateGeneratorScreen() {
         const step7NestedPanel = {
           borderRadius: 12,
           padding: 13,
-          backgroundColor: darkMode ? 'rgba(0, 0, 0, 0.22)' : Colors.surface2,
+          backgroundColor: step7NestedSurface,
           borderWidth: 1,
-          borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line,
+          borderColor: step7NestedBorder,
         };
         const step7InfoPanel = {
           borderRadius: 12,
@@ -18538,8 +18595,8 @@ export default function EstimateGeneratorScreen() {
           padding: 14,
           borderRadius: 12,
           borderWidth: 1,
-          borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
-          backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+          borderColor: step7NestedBorder,
+          backgroundColor: step7NestedSurface,
         };
         const formatStep7DateLabel = (dateString) => {
           if (!dateString) return 'Select date';
@@ -18659,17 +18716,17 @@ export default function EstimateGeneratorScreen() {
         };
         const buildWeeklyPaymentCalendarEvents = () => {
           const events = [
-            { date: weeklyProgressStartDate, color: ESTIMATE_FLOW_CHIP_GREEN },
-            ...(weeklyProgressEndDate ? [{ date: weeklyProgressEndDate, color: '#FFD166' }] : []),
+            { date: weeklyProgressStartDate, color: step7ProjectStartColor },
+            ...(weeklyProgressEndDate ? [{ date: weeklyProgressEndDate, color: step7ProjectEndColor }] : []),
           ];
           if (weeklyPaymentDateDrafts.deposit) {
             events.push({ date: weeklyPaymentDateDrafts.deposit, color: ESTIMATE_FLOW_BLUE });
           }
           (weeklyPaymentDateDrafts.weeks || []).forEach((date) => {
-            if (date) events.push({ date, color: ESTIMATE_FLOW_GREEN });
+            if (date) events.push({ date, color: step7WeeklyPaymentColor });
           });
           if (weeklyPreviewHoldbackPct > 0 && weeklyPaymentDateDrafts.holdback) {
-            events.push({ date: weeklyPaymentDateDrafts.holdback, color: '#c084fc' });
+            events.push({ date: weeklyPaymentDateDrafts.holdback, color: step7HoldbackColor });
           }
           return events;
         };
@@ -18744,8 +18801,8 @@ export default function EstimateGeneratorScreen() {
         }) => {
           const isOpen = step7SettingsCalendarId === id;
           const calendarEventList = calendarEvents || [
-            { date: weeklyProgressStartDate, color: step7Accent },
-            ...(weeklyProgressEndDate ? [{ date: weeklyProgressEndDate, color: '#FFD166' }] : []),
+            { date: weeklyProgressStartDate, color: step7ProjectStartColor },
+            ...(weeklyProgressEndDate ? [{ date: weeklyProgressEndDate, color: step7ProjectEndColor }] : []),
           ];
           return (
             <View key={id}>
@@ -18784,22 +18841,22 @@ export default function EstimateGeneratorScreen() {
                           : 'Use the project start/end dates as reference when choosing this payment date.'}
                     </Text>
                     <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-                      {renderCalendarLegendDot(step7Accent, `Start ${formatStep7DateLabel(weeklyProgressStartDate)}`)}
+                      {renderCalendarLegendDot(step7ProjectStartColor, `Start ${formatStep7DateLabel(weeklyProgressStartDate)}`)}
                       {renderCalendarLegendDot(
-                        '#FFD166',
+                        step7ProjectEndColor,
                         weeklyProgressEndDate ? `End ${formatStep7DateLabel(weeklyProgressEndDate)}` : 'End not set',
                       )}
                       {(legendVariant === 'weekly-schedule' || legendVariant === 'milestone-schedule') && (
                         <>
                           {renderCalendarLegendDot(ESTIMATE_FLOW_BLUE, 'Deposit')}
                           {legendVariant === 'weekly-schedule'
-                            ? renderCalendarLegendDot(ESTIMATE_FLOW_GREEN, 'Weekly')
+                            ? renderCalendarLegendDot(step7WeeklyPaymentColor, 'Weekly')
                             : renderCalendarLegendDot(ESTIMATE_FLOW_GREEN, 'Milestone')}
                           {legendVariant === 'weekly-schedule' && weeklyPreviewHoldbackPct > 0
-                            ? renderCalendarLegendDot('#c084fc', 'Holdback')
+                            ? renderCalendarLegendDot(step7HoldbackColor, 'Holdback')
                             : null}
                           {legendVariant === 'milestone-schedule' && milestonePreviewFinalPct > 0
-                            ? renderCalendarLegendDot('#c084fc', 'Closeout')
+                            ? renderCalendarLegendDot(step7HoldbackColor, 'Closeout')
                             : null}
                         </>
                       )}
@@ -18887,7 +18944,7 @@ export default function EstimateGeneratorScreen() {
                                   borderRadius: 10,
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                                  backgroundColor: step7NestedSurface,
                                 }
                           }>
                             <Ionicons
@@ -18960,12 +19017,19 @@ export default function EstimateGeneratorScreen() {
                             value={weeklyProjectWeeksText}
                             onChangeText={setWeeklyProjectWeeksText}
                             keyboardType="decimal-pad"
-                            placeholder="20"
+                            placeholder={String(
+                              step2DerivedProjectWeeks ?? ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS,
+                            )}
                             placeholderTextColor={estimateStepMutedInputColor}
                             style={{ flex: 1, color: Colors.text, fontSize: 15, fontWeight: '800', paddingVertical: 8, minHeight: 34 }}
                           />
                           <Text style={{ color: step7MutedSoft, fontSize: 12, fontWeight: '700' }}>weeks</Text>
                         </TouchableOpacity>
+                        <Text style={{ color: step7MutedSoft, fontSize: 11, lineHeight: 15, marginTop: 6 }}>
+                          {step2DerivedProjectWeeks != null && step2DerivedProjectDays != null
+                            ? `Based on Step 2 dates · ${step2DerivedProjectDays} day${step2DerivedProjectDays !== 1 ? 's' : ''}`
+                            : `Default ${ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS} weeks · add dates in Step 2 to auto-calculate`}
+                        </Text>
                       </View>
 
                       <View style={{ flex: 1 }}>
@@ -19412,6 +19476,8 @@ export default function EstimateGeneratorScreen() {
                                 });
                               }}
                               multiline
+                              {...resolveTextInputKeyboardProps({ multiline: true })}
+                              onSubmitEditing={() => Keyboard.dismiss()}
                               placeholder={`Example: ${index === 0 ? 'Demo and rough-in complete' : index === 1 ? 'Drywall, paint, and trim complete' : 'Final finishes complete'}`}
                               placeholderTextColor={estimateStepMutedInputColor}
                               style={{
@@ -19760,7 +19826,7 @@ export default function EstimateGeneratorScreen() {
                       <View style={{
                         borderRadius: 15,
                         padding: 13,
-                        backgroundColor: darkMode ? 'rgba(255,255,255,0.045)' : Colors.surface2,
+                        backgroundColor: step7NestedSurface,
                         borderWidth: 1,
                         borderColor: 'rgba(52, 211, 153, 0.26)',
                         gap: 10,
@@ -19885,6 +19951,8 @@ export default function EstimateGeneratorScreen() {
                             value={customPaymentDraft.paymentTerms}
                             onChangeText={(text) => setCustomPaymentDraft((prev) => ({ ...prev, paymentTerms: text }))}
                             multiline
+                            {...resolveTextInputKeyboardProps({ multiline: true })}
+                            onSubmitEditing={() => Keyboard.dismiss()}
                             placeholder="Example: Due upon lender draw approval"
                             placeholderTextColor={estimateStepMutedInputColor}
                             style={[step7DateField, { color: Colors.text, fontSize: 13, fontWeight: '700', minHeight: 68, textAlignVertical: 'top' }]}
@@ -19904,9 +19972,9 @@ export default function EstimateGeneratorScreen() {
                               borderRadius: 14,
                               alignItems: 'center',
                               justifyContent: 'center',
-                              backgroundColor: darkMode ? 'rgba(255,255,255,0.055)' : Colors.surface2,
+                              backgroundColor: step7NestedSurface,
                               borderWidth: 1,
-                              borderColor: darkMode ? 'rgba(255,255,255,0.13)' : Colors.line,
+                              borderColor: step7NestedBorder,
                             }}
                           >
                             <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800' }}>Cancel</Text>
@@ -19941,7 +20009,7 @@ export default function EstimateGeneratorScreen() {
                     <View style={{
                       borderRadius: 15,
                       padding: 13,
-                      backgroundColor: darkMode ? 'rgba(255,255,255,0.045)' : Colors.surface2,
+                      backgroundColor: step7NestedSurface,
                       borderWidth: 1,
                       borderColor: customPreviewIsExact
                         ? 'rgba(34, 197, 94, 0.35)'
@@ -20096,9 +20164,9 @@ export default function EstimateGeneratorScreen() {
                               paddingHorizontal: 10,
                               paddingVertical: 6,
                               borderRadius: 20,
-                              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                              backgroundColor: step7NestedSurface,
                               borderWidth: 1,
-                              borderColor: 'rgba(255, 255, 255, 0.15)',
+                              borderColor: step7NestedBorder,
                             }}
                             onPress={() => {
                               Alert.alert(
@@ -20146,8 +20214,8 @@ export default function EstimateGeneratorScreen() {
                   
                   {/* Empty State for Hybrid - Template Selection */}
                   {milestones.length === 0 && weeklyPayments.length === 0 ? (
-                    <View style={[s.stepCard, { padding: 32, alignItems: 'center', borderColor: 'rgba(255, 255, 255, 0.15)', backgroundColor: 'rgba(255, 255, 255, 0.05)' }]}>
-                      <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255, 255, 255, 0.05)', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                    <View style={[s.stepCard, { padding: 32, alignItems: 'center', borderColor: step7NestedBorder, backgroundColor: step7NestedSurface }]}>
+                      <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: step7NestedSurface, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
                         <Ionicons name="calendar-outline" size={32} color="rgba(255, 255, 255, 0.6)" />
                       </View>
                       <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6, textAlign: 'center' }}>
@@ -20537,7 +20605,7 @@ export default function EstimateGeneratorScreen() {
                                     borderRadius: 12,
                                     backgroundColor: isSelected
                                       ? 'rgba(52, 211, 153, 0.22)'
-                                      : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
+                                      : step7NestedSurface,
                                     borderWidth: 1,
                                     borderColor: isSelected
                                       ? 'rgba(45, 255, 196, 0.4)'
@@ -20635,7 +20703,7 @@ export default function EstimateGeneratorScreen() {
                                     paddingVertical: 8,
                                     paddingHorizontal: 12,
                                     borderRadius: 12,
-                                    backgroundColor: !isCustomWeeks && weeks === weekCount ? 'rgba(52, 211, 153, 0.22)' : 'rgba(255, 255, 255, 0.05)',
+                                    backgroundColor: !isCustomWeeks && weeks === weekCount ? 'rgba(52, 211, 153, 0.22)' : step7NestedSurface,
                                     borderWidth: 1,
                                     borderColor: !isCustomWeeks && weeks === weekCount ? 'rgba(45, 255, 196, 0.4)' : 'rgba(255, 255, 255, 0.1)',
                                     alignItems: 'center',
@@ -20698,9 +20766,9 @@ export default function EstimateGeneratorScreen() {
                                     placeholderTextColor={estimateStepMutedInputColor}
                                     keyboardType="phone-pad"
                                     style={{
-                                      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                                      backgroundColor: step7NestedSurface,
                                       borderWidth: 1,
-                                      borderColor: isCustomWeeks ? 'rgba(45, 255, 196, 0.4)' : 'rgba(255, 255, 255, 0.1)',
+                                      borderColor: isCustomWeeks ? 'rgba(45, 255, 196, 0.4)' : step7NestedBorder,
                                       borderRadius: 12,
                                       paddingHorizontal: 12,
                                       paddingVertical: 10,
@@ -21010,7 +21078,7 @@ export default function EstimateGeneratorScreen() {
                                     borderRadius: 12,
                                     backgroundColor: isSelected
                                       ? 'rgba(52, 211, 153, 0.22)'
-                                      : (darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2),
+                                      : step7NestedSurface,
                                     borderWidth: 1,
                                     borderColor: isSelected
                                       ? 'rgba(45, 255, 196, 0.4)'
@@ -21127,8 +21195,8 @@ export default function EstimateGeneratorScreen() {
                   </View>
                   
                   {milestones.length === 0 && scheduleType !== 'hybrid' ? (
-                    <View style={[s.stepCard, { padding: 32, alignItems: 'center', borderColor: 'rgba(255, 255, 255, 0.15)', backgroundColor: 'rgba(255, 255, 255, 0.05)' }]}>
-                      <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255, 255, 255, 0.05)', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                    <View style={[s.stepCard, { padding: 32, alignItems: 'center', borderColor: step7NestedBorder, backgroundColor: step7NestedSurface }]}>
+                      <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: step7NestedSurface, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
                         <Ionicons name="calendar-outline" size={32} color="rgba(255, 255, 255, 0.6)" />
                       </View>
                       <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6, textAlign: 'center' }}>
@@ -21639,7 +21707,7 @@ export default function EstimateGeneratorScreen() {
                                       placeholderTextColor={estimateStepMutedInputColor}
                                       keyboardType="phone-pad"
                                       style={{
-                                        backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : '#CBD5E1',
+                                        backgroundColor: step7NestedSurface,
                                         borderWidth: 1,
                                         borderColor: isCustomMilestones
                                           ? 'rgba(59, 130, 246, 0.4)'
@@ -21671,7 +21739,7 @@ export default function EstimateGeneratorScreen() {
                                 borderTopWidth: 1,
                                 borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
                                 borderRadius: 12,
-                                backgroundColor: darkMode ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.02)',
+                                backgroundColor: step7NestedSurface,
                               }}>
                                 <Text style={{ color: step7Muted, fontSize: 11, fontWeight: '700', marginBottom: 10, letterSpacing: 0.4, textTransform: 'uppercase' }}>Milestone dates</Text>
                                 <View style={{ gap: 8 }}>
@@ -22280,9 +22348,9 @@ export default function EstimateGeneratorScreen() {
                                       placeholderTextColor={estimateStepMutedInputColor}
                                       keyboardType="phone-pad"
                                       style={{
-                                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                                        backgroundColor: step7NestedSurface,
                                         borderWidth: 1,
-                                        borderColor: isCustomWeeks ? 'rgba(59, 130, 246, 0.4)' : 'rgba(255, 255, 255, 0.1)',
+                                        borderColor: isCustomWeeks ? 'rgba(59, 130, 246, 0.4)' : step7NestedBorder,
                                         borderRadius: 12,
                                         paddingHorizontal: 12,
                                         paddingVertical: 10,
@@ -22310,7 +22378,7 @@ export default function EstimateGeneratorScreen() {
                                 borderTopWidth: 1,
                                 borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
                                 borderRadius: 12,
-                                backgroundColor: darkMode ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.02)',
+                                backgroundColor: step7NestedSurface,
                               }}>
                                 <Text style={{ color: step7Muted, fontSize: 11, fontWeight: '700', marginBottom: 10, letterSpacing: 0.4, textTransform: 'uppercase' }}>Week dates</Text>
                                 <View style={{ gap: 8 }}>
@@ -22429,9 +22497,9 @@ export default function EstimateGeneratorScreen() {
                             paddingHorizontal: 10,
                             paddingVertical: 6,
                             borderRadius: 20,
-                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                            backgroundColor: step7NestedSurface,
                             borderWidth: 1,
-                            borderColor: 'rgba(255, 255, 255, 0.15)',
+                            borderColor: step7NestedBorder,
                           }}
                           onPress={() => {
                             Alert.alert(
@@ -22469,8 +22537,8 @@ export default function EstimateGeneratorScreen() {
                   </View>
                   
                   {weeklyPayments.length === 0 && scheduleType !== 'hybrid' && selectedScheduleOption !== 'custom' ? (
-                    <View style={[s.stepCard, { padding: 32, alignItems: 'center', borderColor: 'rgba(255, 255, 255, 0.15)', backgroundColor: 'rgba(255, 255, 255, 0.05)' }]}>
-                      <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255, 255, 255, 0.05)', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                    <View style={[s.stepCard, { padding: 32, alignItems: 'center', borderColor: step7NestedBorder, backgroundColor: step7NestedSurface }]}>
+                      <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: step7NestedSurface, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
                         <Ionicons name="calendar-outline" size={32} color="rgba(255, 255, 255, 0.6)" />
                       </View>
                       <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6, textAlign: 'center' }}>
@@ -22531,7 +22599,7 @@ export default function EstimateGeneratorScreen() {
                             borderRadius: 16,
                             borderWidth: 1,
                             borderColor: 'rgba(52, 211, 153, 0.24)',
-                            backgroundColor: darkMode ? 'rgba(255,255,255,0.045)' : Colors.surface2,
+                            backgroundColor: step7NestedSurface,
                           },
                         ]}>
                           <View
@@ -22631,7 +22699,7 @@ export default function EstimateGeneratorScreen() {
                     <View style={{
                       backgroundColor: customPreviewIsExact
                         ? 'rgba(34, 197, 94, 0.12)'
-                        : (darkMode ? 'rgba(255,255,255,0.045)' : Colors.surface2),
+                        : step7NestedSurface,
                       borderRadius: 16,
                       padding: 15,
                       borderWidth: 1,
@@ -23187,7 +23255,7 @@ export default function EstimateGeneratorScreen() {
                         borderColor: healthColor,
                         alignItems: 'center',
                         justifyContent: 'center',
-                        backgroundColor: darkMode ? 'rgba(0,0,0,0.22)' : Colors.bg,
+                        backgroundColor: step7NestedSurface,
                       }}
                     >
                       <Text style={{ color: healthColor, fontSize: 22, fontWeight: '800' }}>
@@ -23653,6 +23721,7 @@ export default function EstimateGeneratorScreen() {
       ? {
           automaticallyAdjustKeyboardInsets: true,
           contentInsetAdjustmentBehavior: 'never',
+          keyboardDismissMode: 'none',
         }
       : {};
 
@@ -23672,12 +23741,6 @@ export default function EstimateGeneratorScreen() {
       edges={['top']}
     >
       <StatusBar barStyle="light-content" />
-      {(step === 1 || step === 2) && (
-        <KeyboardPlainAccessory
-          nativeID={KEYBOARD_ACCESSORY_IDS.estimateStep12Plain}
-          backgroundColor={darkMode ? '#000000' : Colors.bg}
-        />
-      )}
       <EstimatesMainKeyboardWrapper {...estimatesMainKeyboardWrapperProps}>
         <GestureScrollView
           ref={mainScrollRef}

@@ -19,8 +19,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import KeyboardPlainAccessory from '@/components/ui/KeyboardPlainAccessory';
-import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
 import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -1825,10 +1824,6 @@ export default function PlanTakeoffReviewModal({
         enabled={Platform.OS === 'ios'}
       >
         <View style={{ flex: 1, backgroundColor: Colors.bg }}>
-          <KeyboardPlainAccessory
-            nativeID={KEYBOARD_ACCESSORY_IDS.aiScopeConfirmNumeric}
-            backgroundColor={Colors.bg}
-          />
           <AIEstimateFlowHeader
             title={
               tradeLabel
@@ -1848,10 +1843,9 @@ export default function PlanTakeoffReviewModal({
           <ScrollView
             style={{ flex: 1 }}
             contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps='always'
-            keyboardDismissMode='on-drag'
             bounces={false}
             showsVerticalScrollIndicator={false}
+            {...FORM_KEYBOARD_SCROLL_PROPS}
           >
             {measurementConflicts.length ? (
               <PlanTakeoffConflictChooser

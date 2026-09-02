@@ -9,9 +9,7 @@ import {
   View,
 } from 'react-native';
 import { ConfirmScopeChip } from '@/components/estimate/ConfirmScopeChip';
-import KeyboardPlainAccessory from '@/components/ui/KeyboardPlainAccessory';
-import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
-import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
+import { nativeNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
 import type { PlanMeasurementConflict } from '@/utils/estimateAiDraft';
 import {
   applyPlanConflictChoices,
@@ -163,10 +161,6 @@ export const PlanTakeoffConflictChooser = React.memo(function PlanTakeoffConflic
 
   return (
     <View style={styles.section}>
-      <KeyboardPlainAccessory
-        nativeID={KEYBOARD_ACCESSORY_IDS.aiScopeConfirmNumeric}
-        backgroundColor={darkMode ? '#000000' : '#E8EDF5'}
-      />
       <Text style={styles.eyebrow}>Confirm measurement</Text>
       <Text style={[styles.sectionTitle, { color: titleColor }]}>
         Resolve count differences
@@ -277,13 +271,11 @@ export const PlanTakeoffConflictChooser = React.memo(function PlanTakeoffConflic
                     }}
                     onSubmitEditing={() => submitManual(conflict.field)}
                     autoFocus
-                    {...aiScopeConfirmNumericKeyboardProps}
-                    returnKeyType='done'
-                    blurOnSubmit
                     keyboardType='decimal-pad'
                     placeholder='Enter'
                     placeholderTextColor={captionColor}
                     style={[styles.manualInput, { color: titleColor }]}
+                    {...nativeNumericKeyboardProps}
                   />
                   <Text style={[styles.manualUnit, { color: captionColor }]}>
                     {unit}

@@ -40,6 +40,7 @@ import {
   estimateFlowPrimaryButtonStyle,
   estimateFlowPrimaryButtonTextStyle,
 } from '@/utils/estimateFlowCardStyle';
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 
 const SHEET_HEIGHT_RATIO = 0.88;
 const IOS_MODAL_BOTTOM_INSET = 34;
@@ -791,6 +792,12 @@ function MetaChip({ label }: { label: string }) {
 }
 
 function Field({ label, value, onChangeText, keyboardType = 'default', multiline = false, compact = false }) {
+  const isNumericPad =
+    keyboardType === 'decimal-pad' ||
+    keyboardType === 'numeric' ||
+    keyboardType === 'number-pad' ||
+    keyboardType === 'phone-pad';
+
   return (
     <View style={{ flex: 1 }}>
       <Text style={{ color: 'rgba(226,232,240,0.72)', fontSize: 11, fontWeight: '800', marginBottom: 6 }}>
@@ -804,9 +811,10 @@ function Field({ label, value, onChangeText, keyboardType = 'default', multiline
         multiline={multiline || compact}
         numberOfLines={multiline ? 3 : compact ? 2 : 1}
         placeholderTextColor="rgba(226,232,240,0.45)"
-        returnKeyType={multiline ? 'default' : 'done'}
-        blurOnSubmit={!multiline}
-        onSubmitEditing={multiline ? undefined : () => Keyboard.dismiss()}
+        onSubmitEditing={() => Keyboard.dismiss()}
+        {...(isNumericPad
+          ? nativeNumericKeyboardProps
+          : resolveTextInputKeyboardProps({ multiline: multiline || compact }))}
         style={{
           minHeight: multiline ? 88 : compact ? 52 : 46,
           maxHeight: compact ? 52 : multiline ? 120 : undefined,

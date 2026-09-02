@@ -29,7 +29,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
-import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
+import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import { useProjectData } from "@/contexts/ProjectDataContext";
 import { useRouter } from "expo-router";
 import BusinessTeamLock from "@/components/BusinessTeamLock";
@@ -1087,7 +1088,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
               ]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              {...KEYBOARD_SCROLL_DEFAULTS}
+              {...FORM_KEYBOARD_SCROLL_PROPS}
             >
             <View
               style={[
@@ -1149,6 +1150,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
                   onChangeText={setName}
                   placeholder="Full Name"
                   placeholderTextColor={placeholderTint}
+                  {...resolveTextInputKeyboardProps()}
                 />
               </View>
 
@@ -1162,6 +1164,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
                   placeholderTextColor={placeholderTint}
                   keyboardType="phone-pad"
                   maxLength={12}
+                  {...nativeNumericKeyboardProps}
                 />
               </View>
 
@@ -1175,6 +1178,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
                   placeholderTextColor={placeholderTint}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  {...resolveTextInputKeyboardProps({ keyboardType: 'email-address' })}
                 />
               </View>
 
@@ -1477,7 +1481,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
           style={styles.addMemberScroll}
           contentContainerStyle={[styles.addMemberScrollContent, { paddingBottom: 150 }]}
           showsVerticalScrollIndicator={false}
-          {...KEYBOARD_SCROLL_DEFAULTS}
+          {...FORM_KEYBOARD_SCROLL_PROPS}
         >
           <View style={styles.addMemberForm}>
             <View style={styles.addMemberField}>
@@ -1490,6 +1494,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
                 onChangeText={setName}
                 placeholder="Full Name"
                 placeholderTextColor={placeholderTint}
+                {...resolveTextInputKeyboardProps()}
               />
             </View>
 
@@ -1503,6 +1508,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
                 placeholderTextColor={placeholderTint}
                 keyboardType="phone-pad"
                 maxLength={12}
+                {...nativeNumericKeyboardProps}
               />
             </View>
 
@@ -1516,6 +1522,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
                 placeholderTextColor={placeholderTint}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                {...resolveTextInputKeyboardProps({ keyboardType: 'email-address' })}
               />
             </View>
 
@@ -1865,7 +1872,7 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
             contentContainerStyle={styles.editMemberWebPageContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            {...KEYBOARD_SCROLL_DEFAULTS}
+            {...FORM_KEYBOARD_SCROLL_PROPS}
           >
             <View
               style={[
@@ -1942,6 +1949,7 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
                       placeholderTextColor={placeholderTint}
                       keyboardType="phone-pad"
                       maxLength={12}
+                      {...nativeNumericKeyboardProps}
                     />
                   </View>
 
@@ -1957,6 +1965,7 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
                       placeholderTextColor={placeholderTint}
                       keyboardType="email-address"
                       autoCapitalize="none"
+                      {...resolveTextInputKeyboardProps({ keyboardType: 'email-address' })}
                     />
                   </View>
 
@@ -2162,7 +2171,7 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
           style={styles.addMemberScroll}
           contentContainerStyle={[styles.addMemberScrollContent, { paddingBottom: 150 }]}
           showsVerticalScrollIndicator={false}
-          {...KEYBOARD_SCROLL_DEFAULTS}
+          {...FORM_KEYBOARD_SCROLL_PROPS}
         >
           <View style={styles.addMemberForm}>
             <View style={styles.addMemberField}>
@@ -2189,6 +2198,7 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
                 placeholderTextColor={placeholderTint}
                 keyboardType="phone-pad"
                 maxLength={12}
+                {...nativeNumericKeyboardProps}
               />
             </View>
 
@@ -2204,6 +2214,7 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
                 placeholderTextColor={placeholderTint}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                {...resolveTextInputKeyboardProps({ keyboardType: 'email-address' })}
               />
             </View>
 
@@ -2674,6 +2685,7 @@ const NotifyTeamModal = ({ members, onClose }: {
                     placeholder="Enter your message..."
                     placeholderTextColor={Colors.sub}
                     multiline
+                    {...resolveTextInputKeyboardProps({ multiline: true })}
                   />
                 </View>
               </View>
@@ -2850,6 +2862,7 @@ const NotifyTeamModal = ({ members, onClose }: {
                 placeholder="Enter your message..."
                 placeholderTextColor={Colors.sub}
                 multiline
+                {...resolveTextInputKeyboardProps({ multiline: true })}
               />
             </View>
           </View>
@@ -3859,6 +3872,7 @@ export default function TeamTab({
                 value={q}
                 onChangeText={setQ}
                 clearButtonMode="while-editing"
+                {...resolveTextInputKeyboardProps()}
               />
               {q.length > 0 && (
                 <TouchableOpacity

@@ -6,7 +6,6 @@ import {
   TextInput,
   TouchableOpacity,
   SafeAreaView,
-  KeyboardAvoidingView,
   Platform,
   Alert,
   ActivityIndicator,
@@ -36,7 +35,8 @@ import {
   getStaySignedInPreference,
   setStaySignedInPreference,
 } from '@/lib/authSessionPreference';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import {
   WEB_CENTERED_COLUMN_MAX_WIDTH,
   WEB_CENTERED_COLUMN_MIN_WIDTH,
@@ -46,6 +46,7 @@ import {
   AI_FLOW_CARD_BG_DARK,
   ESTIMATE_FLOW_CHIP_GREEN,
   ESTIMATE_FLOW_GREEN,
+  ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
   confirmScopeSectionLabelStyle,
   estimateFlowPrimaryButtonStyle,
   estimateFlowPrimaryButtonTextStyle,
@@ -151,7 +152,7 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
     () => getStyles(Colors, darkMode, windowWidth),
     [Colors, darkMode, windowWidth]
   );
-  const inputPlaceholderColor = darkMode ? '#6B7280' : '#64748B';
+  const inputPlaceholderColor = darkMode ? 'rgba(255,255,255,0.42)' : '#64748B';
   const params = useLocalSearchParams<{ mode?: string }>();
 
   const initialMode = params.mode === 'signin' ? 'signin' : 'signup';
@@ -1359,14 +1360,11 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
   return (
     <View style={styles.gradient}>
       <SafeAreaView style={styles.safeArea}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
+        <View style={{ flex: 1 }}>
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
-            {...KEYBOARD_SCROLL_DEFAULTS}
+            {...FORM_KEYBOARD_SCROLL_PROPS}
           >
             {/* Top header – styled like the Dashboard title area */}
             <View style={[styles.headerRow, styles.wideContainer]}>
@@ -1406,7 +1404,10 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
               {/* Mode toggle – visually echoes Overview / Analytics / Insights bar */}
               <View style={styles.modeToggle}>
                 <TouchableOpacity
-                  style={[styles.modeChip, isSignup && styles.modeChipActive]}
+                  style={[
+                    styles.modeChip,
+                    isSignup ? styles.modeChipActive : styles.modeChipInactive,
+                  ]}
                   onPress={() => {
                     if (!loading) {
                       setMode('signup');
@@ -1436,7 +1437,10 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.modeChip, !isSignup && styles.modeChipActive]}
+                  style={[
+                    styles.modeChip,
+                    !isSignup ? styles.modeChipActive : styles.modeChipInactive,
+                  ]}
                   onPress={() => {
                     if (!loading) {
                       setMode('signin');
@@ -1492,6 +1496,7 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                           validateField('firstName', firstName);
                         }}
                         editable={!loading}
+                        {...resolveTextInputKeyboardProps()}
                       />
                     </View>
                     {touched.firstName && errors.firstName && (
@@ -1522,6 +1527,7 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                           validateField('lastName', lastName);
                         }}
                         editable={!loading}
+                        {...resolveTextInputKeyboardProps()}
                       />
                     </View>
                     {touched.lastName && errors.lastName && (
@@ -1556,6 +1562,7 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                       validateField('email', email);
                     }}
                     editable={!loading}
+                    {...resolveTextInputKeyboardProps({ keyboardType: 'email-address' })}
                   />
                 </View>
                 {touched.email && errors.email && (
@@ -1587,6 +1594,7 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                       validateField('password', password);
                     }}
                     editable={!loading}
+                    {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
                   />
                   <TouchableOpacity
                     onPress={() => setShowPassword((prev) => !prev)}
@@ -1629,6 +1637,7 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                         validateField('confirmPassword', confirmPassword);
                       }}
                       editable={!loading}
+                      {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
                     />
                     <TouchableOpacity
                       onPress={() => setShowConfirmPassword((prev) => !prev)}
@@ -1702,6 +1711,7 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
                       editable={!loading}
                       autoFocus
                       maxLength={6}
+                      {...nativeNumericKeyboardProps}
                     />
                   </View>
                   <Text style={styles.helperText}>
@@ -1839,7 +1849,7 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
           </LinearGradient>
             </View>
           </ScrollView>
-        </KeyboardAvoidingView>
+        </View>
       </SafeAreaView>
     </View>
   );
@@ -1945,12 +1955,13 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
   },
   modeToggle: {
     flexDirection: "row",
-    backgroundColor: isDark ? "#141416" : "#F1F5F9",
+    backgroundColor: isDark ? "transparent" : "#F1F5F9",
     borderRadius: 14,
     padding: 4,
-    borderWidth: 1,
-    borderColor: isDark ? "rgba(148,163,184,0.12)" : "#E2E8F0",
+    borderWidth: isDark ? 0 : 1,
+    borderColor: isDark ? "transparent" : "#E2E8F0",
     marginBottom: 18,
+    gap: 4,
   },
   modeChip: {
     flex: 1,
@@ -1960,6 +1971,11 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
+  },
+  modeChipInactive: {
+    backgroundColor: isDark ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : "transparent",
+    borderWidth: isDark ? 1 : 0,
+    borderColor: isDark ? "rgba(148, 163, 184, 0.12)" : "transparent",
   },
   modeChipActive: {
     backgroundColor: ESTIMATE_FLOW_GREEN,
@@ -1995,9 +2011,9 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    backgroundColor: isDark ? "#141416" : "#FFFFFF",
+    backgroundColor: isDark ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : "#FFFFFF",
     borderWidth: 1,
-    borderColor: isDark ? "rgba(148,163,184,0.22)" : "#E2E8F0",
+    borderColor: isDark ? "rgba(148, 163, 184, 0.12)" : "#E2E8F0",
   },
   input: {
     flex: 1,

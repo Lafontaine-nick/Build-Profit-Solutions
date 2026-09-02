@@ -14,7 +14,6 @@ import {
   StyleSheet,
   Modal,
   Keyboard,
-  KeyboardAvoidingView,
   StatusBar,
   Dimensions,
 } from "react-native";
@@ -26,8 +25,8 @@ import {
   isNonemptyBusinessTerm,
   previewFromDrafts,
 } from "@/lib/proposals/contractWordingSerialization";
-import KeyboardPlainAccessory from "@/components/ui/KeyboardPlainAccessory";
-import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from "@/constants/keyboard";
+import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
+import { resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 
 type ColorsLike = {
   text: string;
@@ -651,16 +650,9 @@ export function ContractWordingEditor({
         onRequestClose={closeEdit}
         {...(Platform.OS !== "web" ? { statusBarTranslucent: true } : {})}
       >
-        <KeyboardPlainAccessory
-          nativeID={KEYBOARD_ACCESSORY_IDS.contractWordingEdit}
-          backgroundColor={screenBg}
-        />
         <View style={[styles.fullScreenRoot, { backgroundColor: screenBg }]}>
           <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
-          <KeyboardAvoidingView
-            style={{ flex: 1 }}
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-          >
+          <View style={{ flex: 1 }}>
             <View style={[styles.fullScreenHeader, { paddingTop: headerTopPadding }]}>
               <TouchableOpacity
                 onPress={() => {
@@ -702,9 +694,8 @@ export function ContractWordingEditor({
                 styles.fullScreenBody,
                 { paddingBottom: Math.max(insets.bottom, 16) + 8 },
               ]}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
               showsVerticalScrollIndicator={false}
+              {...FORM_KEYBOARD_SCROLL_PROPS}
             >
               {editKind === "business" ? (
                 <>
@@ -714,12 +705,10 @@ export function ContractWordingEditor({
                     onChangeText={setDraftTitle}
                     placeholder="e.g. Payments"
                     placeholderTextColor={colors.sub}
-                    returnKeyType="next"
-                    blurOnSubmit={false}
                     autoFocus
                     onSubmitEditing={() => bodyInputRef.current?.focus()}
-                    inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.contractWordingEdit)}
                     style={[inputBase, { minHeight: 48, marginBottom: 16 }]}
+                    {...resolveTextInputKeyboardProps()}
                   />
                   <Text style={{ color: colors.sub, fontSize: 11, marginBottom: 6 }}>Body</Text>
                   <TextInput
@@ -731,15 +720,12 @@ export function ContractWordingEditor({
                     multiline
                     scrollEnabled
                     textAlignVertical="top"
-                    returnKeyType="done"
-                    blurOnSubmit
-                    submitBehavior="blurAndSubmit"
                     onContentSizeChange={(e) =>
                       setBodyAreaHeight(clampTextAreaHeight(e.nativeEvent.contentSize.height, 160))
                     }
                     onSubmitEditing={() => Keyboard.dismiss()}
-                    inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.contractWordingEdit)}
                     style={[inputBase, { height: bodyAreaHeight }]}
+                    {...resolveTextInputKeyboardProps({ multiline: true })}
                   />
                 </>
               ) : (
@@ -753,20 +739,17 @@ export function ContractWordingEditor({
                   multiline
                   scrollEnabled
                   textAlignVertical="top"
-                  returnKeyType="done"
-                  blurOnSubmit
-                  submitBehavior="blurAndSubmit"
                   onContentSizeChange={(e) =>
                     setTextAreaHeight(clampTextAreaHeight(e.nativeEvent.contentSize.height))
                   }
                   onSubmitEditing={() => Keyboard.dismiss()}
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.contractWordingEdit)}
                   style={[inputBase, { height: textAreaHeight }]}
                   autoFocus
+                  {...resolveTextInputKeyboardProps({ multiline: true })}
                 />
               )}
             </ScrollView>
-          </KeyboardAvoidingView>
+          </View>
         </View>
       </Modal>
     </View>

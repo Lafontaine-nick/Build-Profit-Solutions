@@ -48,6 +48,8 @@ export const KEYBOARD_ACCESSORY_IDS = {
    * inherit the global keyboard Done bar.
    */
   contractWordingEdit: 'bps-contract-wording-edit-keyboard-accessory',
+  /** Daily log notes (`AddDailyLogModal`) — empty accessory + blue return key (matches Job notes). */
+  dailyLog: 'bps-daily-log-keyboard-accessory',
 } as const;
 
 /** Use on `inputAccessoryViewID` so Android does not receive iOS-only IDs. */

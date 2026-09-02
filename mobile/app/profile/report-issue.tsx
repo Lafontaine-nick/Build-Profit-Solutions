@@ -22,7 +22,8 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clerkAuthService } from '@/services/clerkAuth';
 import Constants from 'expo-constants';
-import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
 import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
@@ -265,7 +266,7 @@ export default function ReportIssueScreen() {
                 paddingHorizontal: 0,
               }}
               showsVerticalScrollIndicator={true}
-              {...KEYBOARD_SCROLL_DEFAULTS}
+              {...FORM_KEYBOARD_SCROLL_PROPS}
             >
               <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
               <LinearGradient
@@ -365,6 +366,7 @@ export default function ReportIssueScreen() {
                             placeholderTextColor={theme.subtext}
                             value={formData.title}
                             onChangeText={(value) => handleInputChange('title', value)}
+                            {...resolveTextInputKeyboardProps()}
                           />
                         </View>
 
@@ -390,6 +392,7 @@ export default function ReportIssueScreen() {
                             multiline
                             numberOfLines={6}
                             textAlignVertical='top'
+                            {...resolveTextInputKeyboardProps({ multiline: true })}
                           />
                         </View>
 
