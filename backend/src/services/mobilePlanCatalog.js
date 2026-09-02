@@ -1,12 +1,13 @@
 /**
  * Canonical subscription catalog for the mobile app.
- * Stripe Price IDs come from env (Render): STRIPE_PRICE_BASIC, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_BUSINESS.
  * Display amounts are loaded from Stripe so UI matches what customers pay.
  *
  * Professional / premium: optional STRIPE_PRODUCT_PROFESSIONAL=prod_...
  * If set, uses that Product's **Default price** in Stripe (the one with the blue "Default" badge).
  * Fixes cases where STRIPE_PRICE_PREMIUM still points at an old archived price id.
  */
+
+const { filterLaunchSubscriptionPlans } = require('../constants/releaseFlags');
 
 const PLAN_DEFINITIONS = [
   {
@@ -225,7 +226,7 @@ async function getMobilePlansCatalog(stripeClient) {
       recommended: def.recommended,
     });
   }
-  return out;
+  return filterLaunchSubscriptionPlans(out);
 }
 
 module.exports = {

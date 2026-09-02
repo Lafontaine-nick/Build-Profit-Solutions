@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/authenticateToken');
+const { isTeamWorkspaceReleased } = require('../constants/releaseFlags');
 const {
   acceptWorkspaceInvitesForUser,
   addWorkspaceMember,
@@ -34,6 +35,40 @@ const ALLOWED_RESOURCE_TYPES = new Set([
   'timeline',
   'team',
 ]);
+
+const DISABLED_WORKSPACE_ACCESS = {
+  hasWorkspaceAccess: false,
+  workspaceId: null,
+  ownerUserId: null,
+  ownerMember: null,
+  role: null,
+  status: null,
+  isOwner: false,
+  member: null,
+};
+
+router.use(authenticateToken);
+
+router.use((req, res, next) => {
+  if (isTeamWorkspaceReleased()) return next();
+
+  if (req.method === 'GET' && req.path === '/access') {
+    return res.json({ success: true, data: DISABLED_WORKSPACE_ACCESS });
+  }
+
+  if (req.method === 'GET' && req.path === '/bootstrap') {
+    return res.json({
+      success: true,
+      data: { access: DISABLED_WORKSPACE_ACCESS },
+    });
+  }
+
+  return res.status(503).json({
+    success: false,
+    error: 'Team workspace is not available yet.',
+    code: 'TEAM_WORKSPACE_DISABLED',
+  });
+});
 
 function currentUser(req) {
   const userId = String(req.user?.userId || req.user?.id || req.user?.sub || '');

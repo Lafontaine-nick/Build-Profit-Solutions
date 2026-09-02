@@ -11,11 +11,12 @@ import {
   type PostCheckoutReturn,
 } from '@/utils/postCheckoutReturn';
 import { setBusinessEntitlementSnapshot } from '@/utils/businessEntitlementCache';
+import { isBusinessPlanReleased } from '@/constants/releaseFlags';
 
 export default function PaymentSuccess() {
   const { darkMode } = useTheme();
   const router = useRouter();
-  const [redirectLabel, setRedirectLabel] = useState('Opening your Team workspace…');
+  const [redirectLabel, setRedirectLabel] = useState('Returning to your project…');
   const [returnTarget, setReturnTarget] = useState<PostCheckoutReturn | null>(null);
 
   const theme = darkMode
@@ -41,11 +42,13 @@ export default function PaymentSuccess() {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const finish = async () => {
-      try {
-        await AsyncStorage.setItem('bps.cachedPlanId', 'business');
-        setBusinessEntitlementSnapshot({ hasBusiness: true });
-      } catch {
-        // non-blocking
+      if (isBusinessPlanReleased()) {
+        try {
+          await AsyncStorage.setItem('bps.cachedPlanId', 'business');
+          setBusinessEntitlementSnapshot({ hasBusiness: true });
+        } catch {
+          // non-blocking
+        }
       }
 
       const target = await consumePostCheckoutReturn();
@@ -54,7 +57,7 @@ export default function PaymentSuccess() {
       setReturnTarget(target);
 
       if (target?.projectId) {
-        const tab = target.tab || 'Team';
+        const tab = target.tab || 'Budget';
         setRedirectLabel(`Returning to ${tab}…`);
         router.replace(buildProjectDetailHref(target.projectId, tab) as never);
         return;
@@ -90,8 +93,9 @@ export default function PaymentSuccess() {
         </Text>
 
         <Text style={[styles.subtitle, { color: theme.subtext }]}>
-          Your Business plan is active. We&apos;re taking you back to your project
-          Team workspace.
+          {isBusinessPlanReleased()
+            ? "Your Business plan is active. We're taking you back to your project Team workspace."
+            : 'Your subscription is active. We\u2019re taking you back to your project.'}
         </Text>
 
         <ActivityIndicator size="large" color={theme.accent} style={{ marginVertical: 20 }} />
@@ -107,7 +111,7 @@ export default function PaymentSuccess() {
               router.replace(
                 buildProjectDetailHref(
                   returnTarget.projectId,
-                  returnTarget.tab || 'Team'
+                  returnTarget.tab || 'Budget'
                 ) as never
               );
               return;

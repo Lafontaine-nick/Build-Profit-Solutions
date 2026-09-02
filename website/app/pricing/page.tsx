@@ -16,12 +16,12 @@ export default function PricingPage() {
           Pricing
         </p>
         <h1 className="mx-auto max-w-4xl text-5xl font-black tracking-tight text-white sm:text-6xl">
-          Plans for solo contractors, growing crews, and construction teams.
+          Plans for solo contractors and growing construction businesses.
         </h1>
         <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-300">
           {siteLaunch.isPrelaunch
             ? "Pricing is shown for launch planning and may be finalized before subscriptions open."
-            : "Start with the essentials, then scale into AI estimating, live job costing, advanced analytics, team permissions, and integrations."}
+            : "Start with the essentials, then scale into AI estimating, live job costing, and advanced profit tracking."}
         </p>
         {siteLaunch.isPrelaunch ? (
           <p className="mx-auto mt-4 max-w-3xl text-base leading-7 text-emerald-100/85">
@@ -32,7 +32,7 @@ export default function PricingPage() {
       </section>
 
       <section className="px-5 pb-20 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-3">
+        <div className={`mx-auto grid max-w-5xl gap-6 ${pricingPlans.length > 2 ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>
           {pricingPlans.map((plan) => (
             <GradientCard
               key={plan.id}
@@ -79,7 +79,7 @@ export default function PricingPage() {
         <SectionHeading eyebrow="Need help choosing?" title="Start where you are today.">
           {siteLaunch.isPrelaunch
             ? "Request early access if you want to follow the launch, ask which plan fits your business, or get updates before subscriptions open."
-            : "Most solo operators can begin with Basic. Contractors managing multiple jobs and margin controls should start with Professional. Teams that need permissions, forecasting, and integrations should look at Business."}
+            : "Most solo operators can begin with Basic. Contractors managing multiple jobs and margin controls should start with Professional."}
         </SectionHeading>
         <div className="flex flex-col justify-center gap-3 text-center sm:flex-row">
           <ButtonLink href={siteLinks.contact}>Request Early Access</ButtonLink>

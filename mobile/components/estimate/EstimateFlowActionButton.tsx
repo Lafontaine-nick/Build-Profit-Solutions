@@ -94,7 +94,12 @@ export default function EstimateFlowActionButton({
       ) : null}
       <Text
         style={{
-          color: selected && !icon ? ESTIMATE_FLOW_CHIP_GREEN : Colors.text,
+          color:
+            selected && !icon
+              ? selectedAccent === 'blue'
+                ? ESTIMATE_FLOW_BLUE
+                : ESTIMATE_FLOW_CHIP_GREEN
+              : Colors.text,
           fontSize: labelStyle?.fontSize ?? 13,
           fontWeight: '700',
           textAlign: icon ? undefined : 'center',

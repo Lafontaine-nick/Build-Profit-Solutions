@@ -41,6 +41,7 @@ import {
   shouldShowInitialRevealWhatWeFound,
 } from '@/utils/estimateInitialRevealUi';
 import { estimateFlowCardStyle, estimateFlowDividerColor, aiFlowCardBackground } from '@/utils/estimateFlowCardStyle';
+import { getEmbeddedAiFlowFooterBottomInset } from '@/constants/ScreenLayout';
 import { BRAND_FRAME_GRADIENT_END, BRAND_FRAME_GRADIENT_START } from '@/constants/brandFrameGradient';
 
 type Props = {
@@ -48,6 +49,7 @@ type Props = {
   draft: EstimateAiDraft | null;
   markupPct?: number;
   fromAssistant?: boolean;
+  embedded?: boolean;
   onBack: () => void;
   onOpenDetailedReview: () => void;
   onConfirmScope?: () => void;
@@ -125,6 +127,7 @@ function AIEstimateInitialRevealModal({
   draft,
   markupPct = 0,
   fromAssistant = false,
+  embedded = false,
   onBack,
   onOpenDetailedReview,
   onConfirmScope,
@@ -168,7 +171,7 @@ function AIEstimateInitialRevealModal({
       scopeMetaLabel: getInitialRevealScopeMetaLabel(totals.scopeItemCount),
       planningDisclaimer: getInitialRevealPlanningDisclaimer(totals, attentionCount),
       defaultScopeExpanded: shouldDefaultExpandInitialRevealScope(totals.scopeItemCount),
-      scopePreview: getScopePackagesForReview(draft).slice(0, 6).map((pkg) => {
+      scopePreview: getScopePackagesForReview(draft).map((pkg) => {
         const name = String(pkg.name || pkg.scope || 'Scope item').trim();
         const amount = scopePackagePricedAmount(pkg, draft);
         return { name, amount };
@@ -210,8 +213,10 @@ function AIEstimateInitialRevealModal({
   }, [visible, viewModel]);
 
   const handleBack = useCallback(() => {
-    fireHaptic(Haptics.ImpactFeedbackStyle.Light);
     onBack();
+    if (Platform.OS !== 'web') {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
   }, [onBack]);
 
   const handlePrimary = useCallback(() => {
@@ -238,17 +243,21 @@ function AIEstimateInitialRevealModal({
     startTransition(() => setDetailsExpanded((v) => !v));
   }, []);
 
+  const footerBottomPad = embedded
+    ? getEmbeddedAiFlowFooterBottomInset(insets.bottom)
+    : Math.max(insets.bottom, 12);
+
   const scrollPaddingBottom = useMemo(
-    () => Math.max(insets.bottom, 16) + 76,
-    [insets.bottom]
+    () => footerBottomPad + 76,
+    [footerBottomPad]
   );
 
   if (!visible) return null;
 
   const statusStyle = viewModel ? STATUS_COLORS[viewModel.status.tone] : STATUS_COLORS.mostly;
 
-  return (
-    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={handleBack}>
+  const body = (
+    <>
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
       <View style={[styles.screen, { backgroundColor: Colors.bg }]}>
         <AIEstimateFlowHeader
@@ -498,7 +507,7 @@ function AIEstimateInitialRevealModal({
           style={[
             styles.footer,
             {
-              paddingBottom: Math.max(insets.bottom, 12),
+              paddingBottom: footerBottomPad,
               borderTopColor: darkMode ? 'rgba(255,255,255,0.06)' : Colors.line,
               backgroundColor: Colors.bg,
             },
@@ -522,6 +531,20 @@ function AIEstimateInitialRevealModal({
           </ReliablePress>
         </View>
       </View>
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <View style={[StyleSheet.absoluteFillObject, styles.embeddedShell]}>
+        {body}
+      </View>
+    );
+  }
+
+  return (
+    <Modal visible animationType="none" presentationStyle="fullScreen" onRequestClose={handleBack}>
+      {body}
     </Modal>
   );
 }
@@ -553,6 +576,10 @@ function StatChip({
 export default memo(AIEstimateInitialRevealModal);
 
 const styles = StyleSheet.create({
+  embeddedShell: {
+    zIndex: 101,
+    elevation: 101,
+  },
   screen: {
     flex: 1,
   },

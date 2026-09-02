@@ -462,6 +462,7 @@ import {
   estimateFlowDividerColor,
   estimateFlowScopeCardAlignStyle,
 } from '@/utils/estimateFlowCardStyle';
+import { getEmbeddedAiFlowFooterBottomInset } from '@/constants/ScreenLayout';
 import {
   SCOPE_ITEM_TIER_OPACITY,
   scopeCardAccentForItem,
@@ -583,6 +584,9 @@ import {
 type Props = {
   visible: boolean;
   draft: EstimateAiDraft | null;
+  embedded?: boolean;
+  /** Hydrate checklist while hidden (e.g. on Scope found) so Step 2 opens without a flash. */
+  prepareWhileHidden?: boolean;
   /** Session notes when draft.originalNotes was not persisted on the draft object. */
   notesFallback?: string | null;
   applying?: boolean;
@@ -660,7 +664,9 @@ function deferConfirmScopeHeavyWork(run: () => void) {
 
 /** Run Apply on the same frame as the tap — rAF/startTransition added visible lag. */
 function runConfirmScopeApplyWork(run: () => void) {
-  run();
+  // Let the press event render the busy state before the scope payload is
+  // normalized and handed back to the parent.
+  requestAnimationFrame(run);
 }
 
 function inputShellStyle(
@@ -2526,6 +2532,27 @@ function ComparisonToggle({
     ) ||
     (Boolean(block.isComparison) &&
       /national\s*average/i.test(String(block.rateSourceLabel || '')));
+  const usesTemplate =
+    block.materialSource === 'template' || block.laborSource === 'template';
+  const hasBenchmark = Boolean(block.benchmarkEvidence);
+  const includedInStage =
+    block.benchmarkAction === 'included_in_stage' ||
+    Boolean(block.includedInStageLabel);
+  const comparisonOnly = Boolean(
+    block.isComparison ||
+    block.benchmarkEvidence?.benchmarkIsComparisonOnly ||
+    includedInStage
+  );
+  // Hooks must run before any comparison-specific early return.
+  const [open, setOpen] = useState(
+    includedInStage ||
+      usesTemplate ||
+      (hasBenchmark && !measurementSemanticsV1Enabled())
+  );
+
+  useEffect(() => {
+    if (includedInStage || usesTemplate) setOpen(true);
+  }, [includedInStage, usesTemplate, block.templateName]);
 
   if (isNationalComparison) {
     return (
@@ -2542,28 +2569,6 @@ function ComparisonToggle({
       </View>
     );
   }
-
-  const usesTemplate =
-    block.materialSource === 'template' || block.laborSource === 'template';
-  const hasBenchmark = Boolean(block.benchmarkEvidence);
-  const includedInStage =
-    block.benchmarkAction === 'included_in_stage' ||
-    Boolean(block.includedInStageLabel);
-  const comparisonOnly = Boolean(
-    block.isComparison ||
-    block.benchmarkEvidence?.benchmarkIsComparisonOnly ||
-    includedInStage
-  );
-  // Included-in-stage notices stay visible; other comparisons collapse by default under semantics.
-  const [open, setOpen] = useState(
-    includedInStage ||
-      usesTemplate ||
-      (hasBenchmark && !measurementSemanticsV1Enabled())
-  );
-
-  useEffect(() => {
-    if (includedInStage || usesTemplate) setOpen(true);
-  }, [includedInStage, usesTemplate, block.templateName]);
 
   if (includedInStage) {
     return (
@@ -15832,10 +15837,14 @@ function CollapsibleQuickMeasurements({
         </Text>
       </View>
     ) : null;
+  const notesMentionWallsAndCeilings =
+    /\bwalls?\b/i.test(String(notes || '')) &&
+    /\bceilings?\b/i.test(String(notes || ''));
   const ambiguousPaintArea =
     String(templateKey || '').toLowerCase() === 'painting' &&
     Boolean(measurements.paintAreaNeedsConfirmation) &&
-    Number(measurements.paintAreaSqft) > 0;
+    Number(measurements.paintAreaSqft) > 0 &&
+    !notesMentionWallsAndCeilings;
   const choosePaintPricingMethod = (method: 'combined' | 'separate') => {
     setMeasurements(prev =>
       applyPaintPricingMethodChoice(prev, method, lastPaintSplitRef.current)
@@ -17135,6 +17144,8 @@ function ScopeGroupSection({
 export default function AIEstimateScopeAssumptionsModal({
   visible,
   draft,
+  embedded = false,
+  prepareWhileHidden = false,
   notesFallback,
   applying = false,
   fromAssistant = false,
@@ -17743,7 +17754,28 @@ export default function AIEstimateScopeAssumptionsModal({
     []
   );
   const hydratedVisibleSessionRef = useRef(false);
+  const [scopeHydrated, setScopeHydrated] = useState(false);
+  const [scopeDisplayReady, setScopeDisplayReady] = useState(false);
   const livePlanImportHandoffKeyRef = useRef('');
+
+  useEffect(() => {
+    if (!scopeHydrated) {
+      if (!visible) setScopeDisplayReady(false);
+      return;
+    }
+    let cancelled = false;
+    let secondFrame: number | null = null;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        if (!cancelled) setScopeDisplayReady(true);
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame != null) cancelAnimationFrame(secondFrame);
+    };
+  }, [visible, scopeHydrated]);
 
   const setMeasurementsSynced = useCallback(
     (update: React.SetStateAction<ScopeMeasurementsInputExtended>) => {
@@ -18335,11 +18367,13 @@ export default function AIEstimateScopeAssumptionsModal({
   );
 
   useEffect(() => {
-    if (visible && checklist?.items?.length) {
-      if (hydratedVisibleSessionRef.current) return;
-      selectedPricingRef.current = {};
-      const sourceItems = scopeChecklistItemsForEditing(draft);
-      if (!sourceItems.length) return;
+    if (!(visible || prepareWhileHidden) || !checklist?.items?.length) {
+      return;
+    }
+    if (hydratedVisibleSessionRef.current) return;
+    selectedPricingRef.current = {};
+    const sourceItems = scopeChecklistItemsForEditing(draft);
+    if (!sourceItems.length) return;
       const draftForScope =
         draft && scopeNotes.trim()
           ? repairDraftRatePricingFromNotes(draft, scopeNotes)
@@ -18868,12 +18902,12 @@ export default function AIEstimateScopeAssumptionsModal({
         )
       );
       hydratedVisibleSessionRef.current = true;
-    }
+      setScopeHydrated(true);
     // `draft` is intentionally excluded: re-running on every parent re-render (e.g. when the
     // keyboard opens) remounts the inputs and drops focus. `draftScopeRestoreKey` is the stable
     // content signature that captures the data this effect actually reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, draftScopeRestoreKey, checklist?.templateKey, singleTradeKey]);
+  }, [visible, prepareWhileHidden, draftScopeRestoreKey, checklist?.templateKey, singleTradeKey]);
 
   useEffect(() => {
     if (
@@ -18929,7 +18963,7 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [visible, livePlanImportHandoffKey, planImport, setMeasurementsSynced]);
 
   useEffect(() => {
-    if (visible) return;
+    if (visible || prepareWhileHidden) return;
     // Persist before wiping local form state. Skip during Continue — parent saves in onConfirm.
     if (onPersistProgress && !applying && itemsRef.current.length) {
       const currentItems = scopeItemsForCurrentMeasurements(itemsRef.current);
@@ -18942,6 +18976,7 @@ export default function AIEstimateScopeAssumptionsModal({
     setElectricalPreviewMeasurements(null);
     livePlanImportHandoffKeyRef.current = '';
     hydratedVisibleSessionRef.current = false;
+    setScopeHydrated(false);
     baseItemsRef.current = [];
     setNotesTradeMode('whole_project');
     setItems([]);
@@ -18955,6 +18990,7 @@ export default function AIEstimateScopeAssumptionsModal({
     setShowCustomItemInput(false);
   }, [
     visible,
+    prepareWhileHidden,
     onPersistProgress,
     applying,
     scopeItemsForCurrentMeasurements,
@@ -20347,6 +20383,7 @@ export default function AIEstimateScopeAssumptionsModal({
   const pricingInteractionGenerationRef = useRef(0);
   const pricingReadyRef = useRef(false);
   const pricingFooterInitialPassRef = useRef(true);
+  const [pricingFooterReady, setPricingFooterReady] = useState(false);
   computeUnconfirmedSuggestedPricingRef.current = async (
     generation: number
   ) => {
@@ -20547,6 +20584,7 @@ export default function AIEstimateScopeAssumptionsModal({
     if (!visible) {
       pricingFooterInitialPassRef.current = true;
       pricingReadyRef.current = false;
+      setPricingFooterReady(false);
       setUnconfirmedSuggestedPricing([]);
       pricingItemCacheRef.current = {
         computeKey: '',
@@ -20563,6 +20601,11 @@ export default function AIEstimateScopeAssumptionsModal({
     const generation = ++pricingInteractionGenerationRef.current;
     const runImmediate = pricingFooterInitialPassRef.current;
     pricingFooterInitialPassRef.current = false;
+    if (runImmediate) {
+      // Do not expose the warning footer while the first pricing pass is
+      // still using the pre-hydration measurements.
+      setPricingFooterReady(false);
+    }
     const run = async () => {
       if (cancelled || generation !== pricingInteractionGenerationRef.current) {
         return;
@@ -20575,6 +20618,7 @@ export default function AIEstimateScopeAssumptionsModal({
       pricingReadyRef.current = true;
       startTransition(() => {
         setUnconfirmedSuggestedPricing(next);
+        setPricingFooterReady(true);
       });
     };
     if (!runImmediate && quickMeasurementsOpen) {
@@ -22856,7 +22900,7 @@ export default function AIEstimateScopeAssumptionsModal({
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
     onConfirmBegin?.();
-    deferConfirmScopeHeavyWork(() => {
+    runConfirmScopeApplyWork(() => {
       commitElectricalAttributes();
       const payload = scopeMeasurementsPayloadForCurrentState();
       if (__DEV__) {
@@ -22979,12 +23023,54 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [customScopeItems]);
 
   const handleBack = () => {
-    commitElectricalAttributes();
-    persistScopeProgressNow();
     onBack();
+    requestAnimationFrame(() => {
+      commitElectricalAttributes();
+      persistScopeProgressNow();
+    });
   };
 
-  if (!visible || !draft || !checklist) return null;
+  if (!draft || !checklist) return null;
+  if (!visible && !prepareWhileHidden) return null;
+
+  if (visible && (!scopeHydrated || !scopeDisplayReady)) {
+    const loadingShell = (
+      <View style={[styles.shell, { backgroundColor: Colors.bg }]}>
+        <AIEstimateFlowHeader
+          title='Confirm scope'
+          subtitle='What work is in this bid?'
+          step={2}
+          stepTotal={3}
+          fromAssistant={fromAssistant}
+          disabled={applying}
+          onBack={handleBack}
+        />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator size='large' color='#22c55e' />
+        </View>
+      </View>
+    );
+    if (embedded) {
+      return (
+        <View style={[StyleSheet.absoluteFillObject, styles.embeddedShell]}>
+          <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
+          {loadingShell}
+        </View>
+      );
+    }
+    return (
+      <Modal visible animationType='none' presentationStyle='fullScreen' onRequestClose={handleBack}>
+        <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
+        <View style={{ flex: 1, backgroundColor: Colors.bg }}>{loadingShell}</View>
+      </Modal>
+    );
+  }
+
+  if (prepareWhileHidden && !visible) return null;
+
+  const embeddedFooterBottomInset = embedded
+    ? getEmbeddedAiFlowFooterBottomInset(insets.bottom)
+    : Math.max(insets.bottom, 16);
 
   const scopeGroupsToRender =
     isElectricalConfirmScope && quickMeasurementsOpen
@@ -23034,7 +23120,7 @@ export default function AIEstimateScopeAssumptionsModal({
         style={{ flex: 1 }}
         contentContainerStyle={{
           paddingHorizontal: 16,
-          paddingBottom: insets.bottom + 168,
+          paddingBottom: embeddedFooterBottomInset + 168,
         }}
         keyboardShouldPersistTaps='always'
         delayContentTouches={false}
@@ -23596,7 +23682,7 @@ export default function AIEstimateScopeAssumptionsModal({
         style={[
           styles.footer,
           {
-            paddingBottom: Math.max(insets.bottom, 16),
+            paddingBottom: embeddedFooterBottomInset,
             backgroundColor: Colors.bg,
             borderTopColor: darkMode
               ? 'rgba(148, 163, 184, 0.12)'
@@ -23634,9 +23720,10 @@ export default function AIEstimateScopeAssumptionsModal({
           </View>
         ) : null}
 
-        {scrollToPricingLabel ||
+        {pricingFooterReady &&
+        (scrollToPricingLabel ||
         suggestedPricingFooterSummary ||
-        footerQuickMeasurementSummary.needsConfirmation > 0 ? (
+        footerQuickMeasurementSummary.needsConfirmation > 0) ? (
           <View style={styles.bulkSuggestedPricingBlock}>
             {scrollToPricingLabel ? (
               <>
@@ -23770,19 +23857,28 @@ export default function AIEstimateScopeAssumptionsModal({
       <ScopeAssemblyContextValue.Provider value={scopeAssemblyContext}>
         <ScopeNormalizedMeasurementsContext.Provider value={sharedRowNorm}>
           <ScopeParsedNotesContext.Provider value={sharedParsedNotes}>
-            <Modal
-              visible
-              animationType='slide'
-              presentationStyle='fullScreen'
-              onRequestClose={handleBack}
-            >
-              <StatusBar
-                barStyle={darkMode ? 'light-content' : 'dark-content'}
-              />
-              <View style={{ flex: 1, backgroundColor: Colors.bg }}>
+            {embedded ? (
+              <View style={[StyleSheet.absoluteFillObject, styles.embeddedShell]}>
+                <StatusBar
+                  barStyle={darkMode ? 'light-content' : 'dark-content'}
+                />
                 {body}
               </View>
-            </Modal>
+            ) : (
+              <Modal
+                visible
+                animationType='none'
+                presentationStyle='fullScreen'
+                onRequestClose={handleBack}
+              >
+                <StatusBar
+                  barStyle={darkMode ? 'light-content' : 'dark-content'}
+                />
+                <View style={{ flex: 1, backgroundColor: Colors.bg }}>
+                  {body}
+                </View>
+              </Modal>
+            )}
           </ScopeParsedNotesContext.Provider>
         </ScopeNormalizedMeasurementsContext.Provider>
       </ScopeAssemblyContextValue.Provider>
@@ -23791,6 +23887,12 @@ export default function AIEstimateScopeAssumptionsModal({
 }
 
 const styles = StyleSheet.create({
+  embeddedShell: {
+    flex: 1,
+    zIndex: 102,
+    elevation: 102,
+    backgroundColor: '#000000',
+  },
   shell: { flex: 1 },
   quickMeasurements: {
     marginHorizontal: -8,

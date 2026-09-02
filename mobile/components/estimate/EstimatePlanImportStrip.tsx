@@ -34,7 +34,7 @@ import {
   aiFlowCardBackground,
   estimateStep1IconBadgeStyle,
   estimateStep1InputCardStyle,
-  ESTIMATE_FLOW_CHIP_GREEN,
+  ESTIMATE_FLOW_BLUE,
 } from '@/utils/estimateFlowCardStyle';
 import type { AiGeneratePhaseId } from '@/utils/aiEstimateGeneratingUi';
 import {
@@ -1398,6 +1398,61 @@ export default function EstimatePlanImportStrip({
     PLAN_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)?.label ||
     null;
 
+  const importRoutingReady =
+    estimatingMode === 'whole_project' ||
+    (estimatingMode === 'selected_trade' && Boolean(selectedTrade));
+  const planImportActionsDisabled =
+    importing ||
+    disabled ||
+    (plumbingPlanDisabled && showPlanRouting) ||
+    !importRoutingReady;
+
+  const planImportActionRow = (
+    <View style={{ marginTop: 10, gap: 8 }}>
+      <Text
+        style={{
+          color: Colors.text,
+          fontSize: embedded ? 12 : 13,
+          fontWeight: '700',
+        }}
+      >
+        Choose your plan file
+      </Text>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <EstimateFlowActionButton
+          label='Camera'
+          icon='photo-camera'
+          iconAccent='green'
+          Colors={Colors}
+          darkMode={darkMode}
+          disabled={planImportActionsDisabled}
+          loading={importing}
+          onPress={onCamera}
+        />
+        <EstimateFlowActionButton
+          label='Library'
+          icon='photo-library'
+          iconAccent='blue'
+          Colors={Colors}
+          darkMode={darkMode}
+          disabled={planImportActionsDisabled}
+          loading={importing}
+          onPress={onLibrary}
+        />
+        <EstimateFlowActionButton
+          label='PDF'
+          icon='picture-as-pdf'
+          iconAccent='green'
+          Colors={Colors}
+          darkMode={darkMode}
+          disabled={planImportActionsDisabled}
+          loading={importing}
+          onPress={onPdf}
+        />
+      </View>
+    </View>
+  );
+
   const importButton = (
     <TouchableOpacity
       onPress={openPicker}
@@ -1482,13 +1537,15 @@ export default function EstimatePlanImportStrip({
             ? 'Notes and photos are used for this Plumbing mode.'
             : planReady
               ? semanticsOn
-                ? 'Tap Generate Estimate Draft below — job notes are optional. Tap here to import a different plan.'
-                : 'Review Job notes, then Generate. Tap here to import a different plan.'
+                ? 'Tap Generate Estimate Draft below — job notes are optional. Use the buttons below to import a different plan.'
+                : 'Review Job notes, then Generate. Use the buttons below to import a different plan.'
               : embedded && showPlanRouting
-                ? estimatingMode === 'selected_trade' && !selectedTrade
-                  ? 'Pick a trade below, then choose your plan file.'
-                  : 'Photo, library pages, or PDF — you review before Generate.'
-                : 'Photo, library pages, or PDF — you review before Generate'}
+                ? !estimatingMode
+                  ? 'Choose General contractor or Subcontractor below.'
+                  : estimatingMode === 'selected_trade' && !selectedTrade
+                    ? 'Pick a trade below, then choose your plan file.'
+                    : 'Camera, library pages, or PDF — you review before Generate.'
+                : 'Camera, library pages, or PDF — you review before Generate'}
         </Text>
       </View>
     </TouchableOpacity>
@@ -1642,7 +1699,7 @@ export default function EstimatePlanImportStrip({
               Select your trade
             </Text>
             {embedded && selectedTradeLabel ? (
-              <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontSize: 11, fontWeight: '700' }}>
+              <Text style={{ color: ESTIMATE_FLOW_BLUE, fontSize: 11, fontWeight: '700' }}>
                 {selectedTradeLabel}
               </Text>
             ) : null}
@@ -1662,11 +1719,11 @@ export default function EstimatePlanImportStrip({
                     <EstimateFlowActionButton
                       key={trade.key}
                       label={trade.label}
-                      iconColor={ESTIMATE_FLOW_CHIP_GREEN}
+                      iconAccent="blue"
                       Colors={Colors}
                       darkMode={darkMode}
                       selected={selected}
-                      selectedAccent="green"
+                      selectedAccent="blue"
                       onPress={() => handleTradePress(trade.key)}
                       style={{
                         width: '48%',
@@ -1695,11 +1752,17 @@ export default function EstimatePlanImportStrip({
           })()}
         </>
       ) : null}
-      {!embedded && estimatingMode === 'selected_trade' && !selectedTrade ? (
-        <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 10 }}>
-          Select a trade before importing the plan.
+      {!estimatingMode ? (
+        <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 10, lineHeight: 15 }}>
+          Choose General contractor or Subcontractor above to import a plan.
         </Text>
-      ) : null}
+      ) : estimatingMode === 'selected_trade' && !selectedTrade ? (
+        <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 10, lineHeight: 15 }}>
+          Select a trade above, then choose your plan file.
+        </Text>
+      ) : (
+        planImportActionRow
+      )}
       {!embedded && selectedTrade ? (
         <Text
           style={{
@@ -1827,21 +1890,24 @@ export default function EstimatePlanImportStrip({
     ? 'Notes and photos are used for this Plumbing mode.'
     : planReady
       ? semanticsOn
-        ? 'Tap Generate Estimate Draft below — job notes are optional. Tap here to import a different plan.'
-        : 'Review Job notes, then Generate. Tap here to import a different plan.'
+        ? 'Tap Generate Estimate Draft below — job notes are optional. Use the buttons below to import a different plan.'
+        : 'Review Job notes, then Generate. Use the buttons below to import a different plan.'
       : planSectionCollapsed
         ? 'Optional · PDF or plan photos'
         : showPlanRouting
-          ? estimatingMode === 'selected_trade' && !selectedTrade
-            ? 'Pick a trade below, then choose your plan file.'
-            : 'Photo, library pages, or PDF — you review before Generate.'
-          : 'Photo, library pages, or PDF — you review before Generate';
+          ? !estimatingMode
+            ? 'Choose General contractor or Subcontractor below.'
+            : estimatingMode === 'selected_trade' && !selectedTrade
+              ? 'Pick a trade below, then choose your plan file.'
+              : 'Camera, library pages, or PDF — you review before Generate.'
+          : 'Camera, library pages, or PDF — you review before Generate';
 
   const embeddedPlanImportCard = (
     <View
       style={[
         estimateStep1InputCardStyle(Colors, darkMode, {
           marginBottom: 8,
+          marginHorizontal: -8,
           ready: planReady,
         }),
         importing || disabled || (plumbingPlanDisabled && showPlanRouting)
@@ -1869,9 +1935,7 @@ export default function EstimatePlanImportStrip({
           onPress={() => {
             if (planSectionCollapsed) {
               setPlanSectionCollapsed(false);
-              return;
             }
-            openPicker();
           }}
           style={{ flex: 1, minWidth: 0 }}
         >

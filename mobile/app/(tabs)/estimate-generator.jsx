@@ -78,6 +78,7 @@ import {
 import { applyConfirmScopeUnpricedPricingProposal } from '../../utils/confirmScopeUnpricedPricing';
 import { fetchPricingLibraryRatesForScopeContext } from '../../utils/scopePricingLibraryContext';
 import { draftHasUnpricedScope, isScopeOnlyDraft } from '../../utils/estimateDraftReviewUi';
+import { draftNeedsScopeConfirmation } from '../../utils/estimateInitialRevealUi';
 import { mergeScopeProgressIntoDraft } from '../../utils/estimateScopeChecklistUi';
 import {
   foldAskAiMeasurementsIntoScopeSnapshot,
@@ -294,6 +295,17 @@ import {
 const BID_STORAGE_KEY = 'bps.currentBid.v2';
 const estimateSessionSeed = getEstimateSessionSnapshot();
 const AI_DRAFT_PROGRESS_STORAGE_KEY = 'bps.aiDraftProgress.v1';
+const AI_DRAFT_PROGRESS_CLEARED_KEY = 'bps.aiDraftProgress.cleared.v1';
+
+async function markAiDraftProgressCleared() {
+  const clearedAt = Date.now();
+  await AsyncStorage.setItem(AI_DRAFT_PROGRESS_CLEARED_KEY, String(clearedAt));
+  await AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY);
+}
+
+async function clearAiDraftProgressClearedMarker() {
+  await AsyncStorage.removeItem(AI_DRAFT_PROGRESS_CLEARED_KEY);
+}
 const screenWidth = Dimensions.get('window').width;
 const CART_SCROLL_MAX_HEIGHT = 420;
 const ESTIMATE_SCAN_DESTINATIONS = ['estimate'];
@@ -644,7 +656,7 @@ const STEPS = [
 ];
 
 // ============ MODAL COMPONENTS ============
-const getModalStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
+const getModalStyles = (Colors, darkMode) => StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: Colors.overlay,
@@ -4586,8 +4598,115 @@ const buildTimelineFromProject = (project) => {
   return timeline;
 };
 
+/** Which Step 7 schedule card to open when a saved payment schedule already exists on the bid. */
+const resolveStep7SavedScheduleOption = (bid) => {
+  if (!bid) return null;
+  const customPayments = Array.isArray(bid.customPayments) ? bid.customPayments : [];
+  const weeklyPayments = Array.isArray(bid.weeklyPayments) ? bid.weeklyPayments : [];
+  const milestones = Array.isArray(bid.paymentMilestones) ? bid.paymentMilestones : [];
+
+  if (bid.paymentScheduleVariant === 'custom' && customPayments.length > 0) return 'custom';
+  if (bid.paymentScheduleVariant === 'weekly_progress' && weeklyPayments.length > 0) return 'weekly';
+  if (bid.paymentScheduleVariant === 'milestone_based' && milestones.length > 0) return 'milestone-based';
+
+  if (bid.paymentSchedule === 'weekly' && weeklyPayments.length > 0) return 'weekly';
+  if (
+    (bid.paymentSchedule === 'milestone-based' || bid.paymentSchedule === 'hybrid') &&
+    milestones.length > 0
+  ) {
+    return 'milestone-based';
+  }
+
+  if (customPayments.length > 0) return 'custom';
+  if (weeklyPayments.length > 0 && milestones.length === 0) return 'weekly';
+  if (milestones.length > 0) return 'milestone-based';
+  return null;
+};
+
+const bidHasPersistedPaymentSchedule = (bid) => Boolean(resolveStep7SavedScheduleOption(bid));
+
+/** Infer variant/settings flags when rows exist but older bids omitted paymentScheduleVariant. */
+const normalizeBidPaymentScheduleFields = (bid) => {
+  if (!bid || bid.paymentScheduleVariant) return null;
+  const customPayments = Array.isArray(bid.customPayments) ? bid.customPayments : [];
+  const weeklyPayments = Array.isArray(bid.weeklyPayments) ? bid.weeklyPayments : [];
+  const milestones = Array.isArray(bid.paymentMilestones) ? bid.paymentMilestones : [];
+
+  if (customPayments.length > 0) {
+    return { paymentSchedule: 'weekly', paymentScheduleVariant: 'custom' };
+  }
+  if (weeklyPayments.length > 0) {
+    return { paymentSchedule: 'weekly', paymentScheduleVariant: 'weekly_progress' };
+  }
+  if (milestones.length > 0) {
+    return {
+      paymentSchedule:
+        bid.paymentSchedule === 'weekly' ? 'weekly' : 'milestone-based',
+      paymentScheduleVariant: 'milestone_based',
+    };
+  }
+  return null;
+};
+
+/** Pull payment schedule rows from a linked active/won project when the in-memory bid lost them. */
+const resolvePaymentScheduleFieldsFromProject = (bid, project) => {
+  if (!bid?.id || !project || project.id !== bid.id) return null;
+  if (bidHasPersistedPaymentSchedule(bid) && bid.paymentScheduleVariant) return null;
+
+  const estimate = project.estimateData || {};
+  const weeklyFromProject = estimate.weeklyPayments || project.weeklyPayments;
+  const milestonesFromProject = estimate.paymentMilestones || project.milestones;
+  const customFromProject = estimate.customPayments || project.customPayments;
+
+  const hasProjectWeekly = Array.isArray(weeklyFromProject) && weeklyFromProject.length > 0;
+  const hasProjectMilestones = Array.isArray(milestonesFromProject) && milestonesFromProject.length > 0;
+  const hasProjectCustom = Array.isArray(customFromProject) && customFromProject.length > 0;
+  if (!hasProjectWeekly && !hasProjectMilestones && !hasProjectCustom) return null;
+
+  const paymentSchedule =
+    estimate.paymentSchedule ||
+    project.paymentSchedule ||
+    bid.paymentSchedule ||
+    (hasProjectMilestones ? 'milestone-based' : 'weekly');
+
+  let paymentScheduleVariant =
+    estimate.paymentScheduleVariant ||
+    project.paymentScheduleVariant ||
+    bid.paymentScheduleVariant ||
+    undefined;
+  if (!paymentScheduleVariant) {
+    if (hasProjectCustom) paymentScheduleVariant = 'custom';
+    else if (paymentSchedule === 'weekly' && hasProjectWeekly) paymentScheduleVariant = 'weekly_progress';
+    else if (hasProjectMilestones) paymentScheduleVariant = 'milestone_based';
+    else if (hasProjectWeekly) paymentScheduleVariant = 'weekly_progress';
+  }
+
+  return {
+    paymentSchedule:
+      paymentSchedule === 'hybrid' ? 'milestone-based' : paymentSchedule,
+    paymentScheduleVariant,
+    paymentMilestones: hasProjectMilestones
+      ? milestonesFromProject
+      : Array.isArray(bid.paymentMilestones)
+        ? bid.paymentMilestones
+        : [],
+    weeklyPayments: hasProjectWeekly
+      ? weeklyFromProject
+      : Array.isArray(bid.weeklyPayments)
+        ? bid.weeklyPayments
+        : [],
+    customPayments: hasProjectCustom
+      ? customFromProject
+      : Array.isArray(bid.customPayments)
+        ? bid.customPayments
+        : [],
+    weeklyProgressSettings: estimate.weeklyProgressSettings || project.weeklyProgressSettings || bid.weeklyProgressSettings,
+    milestoneBasedSettings: estimate.milestoneBasedSettings || project.milestoneBasedSettings || bid.milestoneBasedSettings,
+  };
+};
+
 // ============ STYLES ============
-const getStyles = (Colors: any, desktopWeb = false) => {
+const getStyles = (Colors, desktopWeb = false) => {
   const edge = desktopWeb ? WEB_DESKTOP_EDGE_HORIZONTAL : ScreenLayout.edge.horizontal;
   return StyleSheet.create({
   container: {
@@ -5332,15 +5451,28 @@ export default function EstimateGeneratorScreen() {
         : null,
     [aiDraft, aiDraftNotes]
   );
+  const shouldMountAiScopeModal = useMemo(
+    () =>
+      Boolean(
+        aiDraft &&
+          (showAiScopeAssumptionsModal ||
+            ((showAiInitialRevealModal || showAiBuilderModal) &&
+              draftNeedsScopeConfirmation(aiDraft)))
+      ),
+    [aiDraft, showAiScopeAssumptionsModal, showAiInitialRevealModal, showAiBuilderModal]
+  );
+  const prepareAiScopeWhileHidden =
+    (showAiInitialRevealModal || showAiBuilderModal) &&
+    !showAiScopeAssumptionsModal &&
+    Boolean(aiDraft && draftNeedsScopeConfirmation(aiDraft));
   const aiBuilderInitialPlanImport = useMemo(
     () => aiLastPlanImport || planImportPayloadFromDraft(aiDraft),
     [aiLastPlanImport, aiDraft]
   );
-  /** Resume-only: do not pre-fill Job notes when a saved draft exists. */
-  const aiBuilderInitialNotes = useMemo(
-    () => (aiDraft ? '' : aiDraftNotes),
-    [aiDraft, aiDraftNotes]
-  );
+  /** Job notes to show when Step 1 reopens (including back from Confirm scope). */
+  const aiBuilderInitialNotes = useMemo(() => {
+    return String(aiDraftNotes || aiDraft?.originalNotes || '');
+  }, [aiDraftNotes, aiDraft]);
   const aiBuilderSavedSessionNotes = useMemo(() => {
     if (!aiDraft) return '';
     return String(aiDraftNotes || aiDraft.originalNotes || '').trim();
@@ -5356,6 +5488,7 @@ export default function EstimateGeneratorScreen() {
   const [aiClarifyAppliedSummary, setAiClarifyAppliedSummary] = useState(null);
   const aiSavedPricingAutoRef = useRef(null);
   const aiDraftReviewResumeRef = useRef(false);
+  const aiDraftPersistGenerationRef = useRef(0);
   const latestScopeMeasurementsRef = useRef(null);
   const syncDraftWithLatestScopeMeasurements = useCallback((draft) => {
     if (!draft) return draft;
@@ -5809,9 +5942,27 @@ export default function EstimateGeneratorScreen() {
     let cancelled = false;
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(AI_DRAFT_PROGRESS_STORAGE_KEY);
-        if (cancelled || !raw) return;
+        const [clearedRaw, raw] = await Promise.all([
+          AsyncStorage.getItem(AI_DRAFT_PROGRESS_CLEARED_KEY),
+          AsyncStorage.getItem(AI_DRAFT_PROGRESS_STORAGE_KEY),
+        ]);
+        if (cancelled) return;
+        if (!raw) {
+          if (clearedRaw) {
+            await AsyncStorage.removeItem(AI_DRAFT_PROGRESS_CLEARED_KEY);
+          }
+          return;
+        }
         const saved = JSON.parse(raw);
+        const clearedAt = clearedRaw ? Number(clearedRaw) : 0;
+        const savedAt = Number(saved?.updatedAt) || 0;
+        if (clearedAt && (!savedAt || clearedAt >= savedAt)) {
+          await AsyncStorage.multiRemove([
+            AI_DRAFT_PROGRESS_STORAGE_KEY,
+            AI_DRAFT_PROGRESS_CLEARED_KEY,
+          ]);
+          return;
+        }
         if (!saved?.draft?.scopeChecklist) return;
         let restoredDraft = saved.draft;
         if (saved.planImport?.estimatingMode === 'selected_trade') {
@@ -5913,35 +6064,60 @@ export default function EstimateGeneratorScreen() {
   );
 
   const openAiDraftReviewEntry = useCallback(() => {
-    setShowAiDraftReviewModal(false);
     setShowAiInitialRevealModal(true);
+    setShowAiDraftReviewModal(false);
+    setShowAiScopeAssumptionsModal(false);
+    setShowAiBuilderModal(false);
+  }, []);
+
+  const transitionToAiBuilder = useCallback(() => {
+    setShowAiBuilderModal(true);
+    setShowAiScopeAssumptionsModal(false);
+    setShowAiInitialRevealModal(false);
+    setShowAiDraftReviewModal(false);
+  }, []);
+
+  const transitionToAiScope = useCallback(() => {
+    // Switch screens in one render. Delaying the other state changes by a frame
+    // briefly leaves Scope found and Confirm scope mounted together, which can
+    // expose a Step 2 frame during the transition.
+    setShowAiScopeAssumptionsModal(true);
+    setShowAiBuilderModal(false);
+    setShowAiInitialRevealModal(false);
+    setShowAiDraftReviewModal(false);
+  }, []);
+
+  const transitionToAiReview = useCallback(() => {
+    setShowAiDraftReviewModal(true);
+    setShowAiScopeAssumptionsModal(false);
+    setShowAiBuilderModal(false);
+    setShowAiInitialRevealModal(false);
   }, []);
 
   const openAiDraftReviewDirect = useCallback(() => {
-    setShowAiInitialRevealModal(false);
-    InteractionManager.runAfterInteractions(() => {
-      setShowAiDraftReviewModal(true);
-    });
-  }, []);
+    transitionToAiReview();
+  }, [transitionToAiReview]);
 
   const openAiDraftReviewAfterScope = useCallback(() => {
-    // Always land on Initial estimate first — shows the pricing hero after scope confirm.
     openAiDraftReviewEntry();
   }, [openAiDraftReviewEntry]);
 
+  const resumeAiDraftFromBuilder = useCallback(() => {
+    if (!aiDraft) return;
+    if (draftNeedsScopeConfirmation(aiDraft)) {
+      transitionToAiScope();
+      return;
+    }
+    transitionToAiReview();
+  }, [aiDraft, transitionToAiScope, transitionToAiReview]);
+
   const openAiDraftReviewDetailed = useCallback(() => {
-    setShowAiInitialRevealModal(false);
-    InteractionManager.runAfterInteractions(() => {
-      setShowAiDraftReviewModal(true);
-    });
-  }, []);
+    transitionToAiReview();
+  }, [transitionToAiReview]);
 
   const handleInitialRevealConfirmScope = useCallback(() => {
-    setShowAiInitialRevealModal(false);
-    InteractionManager.runAfterInteractions(() => {
-      setShowAiScopeAssumptionsModal(true);
-    });
-  }, []);
+    transitionToAiScope();
+  }, [transitionToAiScope]);
 
   /** After complex-job scope is confirmed, run saved pricing then rough pricing. */
   const pauseDraftReviewForPricingModal = useCallback(() => {
@@ -5976,7 +6152,6 @@ export default function EstimateGeneratorScreen() {
     async (enrichedDraft, { skipPricing = false } = {}) => {
       const syncedDraft = syncDraftWithLatestScopeMeasurements(enrichedDraft);
       setAiDraft(syncedDraft);
-      setShowAiScopeAssumptionsModal(false);
 
       const notePricingComplete =
         draftHasApplyablePricing(syncedDraft) && !draftHasUnpricedScope(syncedDraft);
@@ -5997,6 +6172,7 @@ export default function EstimateGeneratorScreen() {
         setAiDraft(syncDraftWithLatestScopeMeasurements(withSaved));
         aiDraftReviewResumeRef.current = true;
         setShowAiSavedPricingModal(true);
+        setShowAiScopeAssumptionsModal(false);
         prefetchClarifyForDraft(withSaved);
         if (Platform.OS !== 'web') {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -6051,6 +6227,9 @@ export default function EstimateGeneratorScreen() {
   );
 
   const handleGenerateAiDraft = useCallback(async (notes, photoDetections, planImport, sitePhotos, photoExistingFeatures, prefetchedAuthToken) => {
+    const operationGeneration = ++aiDraftPersistGenerationRef.current;
+    const isCurrentOperation = () =>
+      operationGeneration === aiDraftPersistGenerationRef.current;
     try {
       if (__DEV__) {
         console.warn('🤖 handleGenerateAiDraft — starting');
@@ -6147,6 +6326,7 @@ export default function EstimateGeneratorScreen() {
           );
         }),
       ]);
+      if (!isCurrentOperation()) return;
       void AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
       // Photo detections apply directly to the Step 2 checklist (structured vision
       // output, not notes-regex re-parsing) — only fills items still "unsure".
@@ -6224,10 +6404,11 @@ export default function EstimateGeneratorScreen() {
       setAiSaveToPricingLibrary(!/\b(test|demo|sample|example)\b/.test(draftTitle));
       advanceGeneratePhase('finalizing');
       setAiDraft(draft);
-      setShowAiBuilderModal(false);
       setAiDraftGenerating(false);
       setAiDraftGeneratingPhase(null);
       setAiDraftGeneratingSteps([]);
+      const savedAt = Date.now();
+      void clearAiDraftProgressClearedMarker().catch(() => {});
       AsyncStorage.setItem(
         AI_DRAFT_PROGRESS_STORAGE_KEY,
         JSON.stringify({
@@ -6239,20 +6420,20 @@ export default function EstimateGeneratorScreen() {
           photoExistingFeatures: Array.isArray(photoExistingFeatures) ? photoExistingFeatures : [],
           sitePhotos: Array.isArray(sitePhotos) ? sitePhotos : [],
           stage: 'scope',
-          updatedAt: Date.now(),
+          updatedAt: savedAt,
         })
       ).catch((e) => console.warn('persist AI draft after generate failed', e));
 
-      if (isComplexEstimateTier(draft)) {
-        openAiDraftReviewEntry();
-        prefetchClarifyForDraft(draft);
-      } else {
-        openAiDraftReviewEntry();
-        prefetchClarifyForDraft(draft);
+      prefetchClarifyForDraft(draft);
+      // Always show Scope found / Initial estimate before Confirm scope (Step 2).
+      openAiDraftReviewEntry();
+      if (!isComplexEstimateTier(draft)) {
+        const pricingGeneration = operationGeneration;
         void applySavedPricingToDraftState(draft, {
           autoApply: false,
           showLoading: false,
         }).then(({ draft: draftWithProposal, hasProposal }) => {
+          if (pricingGeneration !== aiDraftPersistGenerationRef.current) return;
           if (hasProposal) {
             setAiDraft(draftWithProposal);
             setShowAiSavedPricingModal(true);
@@ -6264,15 +6445,18 @@ export default function EstimateGeneratorScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     } catch (e) {
+      if (!isCurrentOperation()) return;
       console.warn('handleGenerateAiDraft failed', e);
       Alert.alert(
         'Could not generate draft',
         formatEstimateAiError(e)
       );
     } finally {
-      setAiDraftGenerating(false);
-      setAiDraftGeneratingPhase(null);
-      setAiDraftGeneratingSteps([]);
+      if (isCurrentOperation()) {
+        setAiDraftGenerating(false);
+        setAiDraftGeneratingPhase(null);
+        setAiDraftGeneratingSteps([]);
+      }
     }
   }, [
     aiDraft,
@@ -6283,11 +6467,18 @@ export default function EstimateGeneratorScreen() {
     applySavedPricingToDraftState,
     prefetchClarifyForDraft,
     getToken,
+    openAiDraftReviewDirect,
+    openAiDraftReviewEntry,
+    transitionToAiScope,
+    transitionToAiReview,
   ]);
 
   const handlePersistScopeProgress = useCallback((items, measurements) => {
+    const persistGeneration = aiDraftPersistGenerationRef.current;
     setAiDraft((prev) => {
-      if (!prev) return prev;
+      if (!prev || persistGeneration !== aiDraftPersistGenerationRef.current) {
+        return prev;
+      }
       const scopeNotes = prev.originalNotes || aiDraftNotes;
       const safeMeasurements = measurements || { itemQuantities: {} };
       const repairedMeasurements = scopeNotes.trim()
@@ -6302,6 +6493,8 @@ export default function EstimateGeneratorScreen() {
           scopeNotes,
         })
       );
+      const updatedAt = Date.now();
+      void clearAiDraftProgressClearedMarker().catch(() => {});
       AsyncStorage.setItem(
         AI_DRAFT_PROGRESS_STORAGE_KEY,
         JSON.stringify({
@@ -6313,7 +6506,7 @@ export default function EstimateGeneratorScreen() {
           photoExistingFeatures: aiPhotoExistingFeatures,
           sitePhotos: aiSitePhotos,
           stage: 'scope',
-          updatedAt: Date.now(),
+          updatedAt,
         })
       ).catch((e) => console.warn('persist AI scope progress failed', e));
       return nextDraft;
@@ -6361,6 +6554,9 @@ export default function EstimateGeneratorScreen() {
         enriched = syncDraftWithLatestScopeMeasurements(
           await applyScopeAssumptionsToDraft(draftForScope, confirmedItems, scopeMeasurements)
         );
+        // The temporary progress snapshot is no longer needed once the
+        // server-confirmed scope has been returned.
+        enriched = { ...enriched, scopeProgressItems: undefined };
         if (__DEV__) {
           const q = enriched.scopeMeasurements?.itemQuantities || {};
           const pkg = enriched.scopePackages?.find((p) => /flooring|lvp/i.test(`${p.name || ''} ${p.scope || ''}`));
@@ -6386,10 +6582,10 @@ export default function EstimateGeneratorScreen() {
         await advanceComplexDraftAfterScope(enriched, { skipPricing: true });
       } catch (e) {
         console.warn('advanceComplexDraftAfterScope failed', e);
-        openAiDraftReviewEntry();
+        openAiDraftReviewDirect();
       }
     },
-    [aiDraft, aiDraftNotes, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope, syncDraftWithLatestScopeMeasurements, openAiDraftReviewEntry]
+    [aiDraft, aiDraftNotes, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope, syncDraftWithLatestScopeMeasurements, openAiDraftReviewDirect]
   );
 
   const handleSuggestMissingPrices = useCallback(async () => {
@@ -6631,13 +6827,18 @@ export default function EstimateGeneratorScreen() {
   );
 
   const reopenConfirmScopeFromReview = useCallback(() => {
-    setAiDraft((prev) => {
-      if (!prev) return prev;
-      const withMeasurements = syncConfirmScopeMeasurementsFromPackages(prev);
-      latestScopeMeasurementsRef.current = withMeasurements.scopeMeasurements || null;
-      return syncDraftWithLatestScopeMeasurements(withMeasurements);
-    });
     setShowAiScopeAssumptionsModal(true);
+    requestAnimationFrame(() => {
+      setAiDraft((prev) => {
+        if (!prev) return prev;
+        const withMeasurements = syncConfirmScopeMeasurementsFromPackages(prev);
+        latestScopeMeasurementsRef.current = withMeasurements.scopeMeasurements || null;
+        return syncDraftWithLatestScopeMeasurements(withMeasurements);
+      });
+    });
+    setShowAiDraftReviewModal(false);
+    setShowAiBuilderModal(false);
+    setShowAiInitialRevealModal(false);
   }, [syncDraftWithLatestScopeMeasurements]);
 
   const handleConfirmScopeItemFromPricing = useCallback((_scopeName) => {
@@ -6653,9 +6854,8 @@ export default function EstimateGeneratorScreen() {
   }, [reopenConfirmScopeFromReview]);
 
   const handleInitialRevealBack = useCallback(() => {
-    setShowAiInitialRevealModal(false);
-    setShowAiBuilderModal(true);
-  }, []);
+    transitionToAiBuilder();
+  }, [transitionToAiBuilder]);
 
   const handlePriceScopeItemFromPricingModal = useCallback(
     (scopeName) => {
@@ -6952,13 +7152,15 @@ export default function EstimateGeneratorScreen() {
 
   const commitApplyAiDraft = useCallback(
     async (mode = 'default') => {
-      if (!aiDraft) return;
+      if (!aiDraft || aiDraftApplying) return;
 
       const applyConfirmedOnly = mode === 'confirmed';
       const scopeOnly = mode === 'scope_only';
       const withApproved = mode === 'with_approved';
 
       const runApply = async (draftOverride = null, forceApplySuggestedSplits = false) => {
+        setAiDraftApplying(true);
+        await new Promise((resolve) => requestAnimationFrame(resolve));
         let draftToApply = draftOverride || syncDraftWithLatestScopeMeasurements(aiDraft);
         // Merge approved pending proposal into packages so Step 3 totals become labor/material lines.
         if (
@@ -6970,7 +7172,6 @@ export default function EstimateGeneratorScreen() {
             approved: true,
           });
         }
-        setAiDraftApplying(true);
         try {
           // Drop prior AI line items so Bid Summary cannot keep stale inflated rows.
           const bidBaseForApply = {
@@ -7014,6 +7215,12 @@ export default function EstimateGeneratorScreen() {
           await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
           await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(nextCart));
           await AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY);
+          setAiDraft(null);
+          setAiDraftNotes('');
+          setAiLastPlanImport(null);
+          setAiPhotoDetections([]);
+          setAiPhotoExistingFeatures([]);
+          setAiSitePhotos([]);
           setForceRefresh((prev) => prev + 1);
           if (Platform.OS !== 'web') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -7098,7 +7305,7 @@ export default function EstimateGeneratorScreen() {
 
       await runApply();
     },
-    [aiDraft, aiSaveToPricingLibrary, bid, bidHasLineItems, syncLocalCustomerFromBid, syncDraftWithLatestScopeMeasurements]
+    [aiDraft, aiDraftApplying, aiSaveToPricingLibrary, bid, bidHasLineItems, syncLocalCustomerFromBid, syncDraftWithLatestScopeMeasurements]
   );
 
   const handleApplyAiDraftConfirmed = useCallback(
@@ -8703,10 +8910,73 @@ export default function EstimateGeneratorScreen() {
   const [scoreExplanationExpanded, setScoreExplanationExpanded] = useState(false);
   const weeklyProgressSettingsHydratedBidRef = useRef(null);
   const milestoneBasedSettingsHydratedBidRef = useRef(null);
+  const paymentScheduleHydratedBidRef = useRef(null);
+  const step7UserCollapsedRef = useRef(false);
+  const prevEstimateStepRef = useRef(step);
   useEffect(() => {
-    setStep7ExpandedSchedule(null);
     setStep7SettingsCalendarId(null);
-  }, [step]);
+    const enteredStep7 = step === 7 && prevEstimateStepRef.current !== 7;
+    prevEstimateStepRef.current = step;
+    if (step !== 7) {
+      setStep7ExpandedSchedule(null);
+      step7UserCollapsedRef.current = false;
+      return;
+    }
+    if (enteredStep7) {
+      step7UserCollapsedRef.current = false;
+      setStep7ExpandedSchedule(resolveStep7SavedScheduleOption(bid));
+    }
+  }, [step, bid?.id, bid?.paymentScheduleVariant, bid?.paymentSchedule, bid?.paymentMilestones, bid?.weeklyPayments, bid?.customPayments]);
+  useEffect(() => {
+    if (step !== 7 || step7ExpandedSchedule || step7UserCollapsedRef.current) return;
+    const savedOption = resolveStep7SavedScheduleOption(bid);
+    if (savedOption) setStep7ExpandedSchedule(savedOption);
+  }, [
+    step,
+    step7ExpandedSchedule,
+    bid?.paymentScheduleVariant,
+    bid?.paymentMilestones,
+    bid?.weeklyPayments,
+    bid?.customPayments,
+  ]);
+  useEffect(() => {
+    if (!isLoaded || !bid?.id) return;
+    if (paymentScheduleHydratedBidRef.current === bid.id) return;
+
+    const normalizedFields = normalizeBidPaymentScheduleFields(bid);
+    if (normalizedFields) {
+      paymentScheduleHydratedBidRef.current = bid.id;
+      const updatedBid = { ...bid, ...normalizedFields };
+      bidRef.current = updatedBid;
+      setBid(updatedBid);
+      AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updatedBid)).catch((err) => {
+        console.error('Error normalizing payment schedule variant:', err);
+      });
+      return;
+    }
+
+    if (bidHasPersistedPaymentSchedule(bid) && bid.paymentScheduleVariant) {
+      paymentScheduleHydratedBidRef.current = bid.id;
+      return;
+    }
+    const matchingProject =
+      activeProjects.find((p) => p.id === bid.id) || estimates.find((p) => p.id === bid.id);
+    const mergedFields = resolvePaymentScheduleFieldsFromProject(bid, matchingProject);
+    if (!mergedFields) return;
+    paymentScheduleHydratedBidRef.current = bid.id;
+    const updatedBid = { ...bid, ...mergedFields };
+    bidRef.current = updatedBid;
+    setBid(updatedBid);
+    AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updatedBid)).catch((err) => {
+      console.error('Error hydrating payment schedule from project:', err);
+    });
+  }, [isLoaded, bid?.id, bid?.paymentScheduleVariant, activeProjects, estimates]);
+  useEffect(() => {
+    paymentScheduleHydratedBidRef.current = null;
+    weeklyProgressSettingsHydratedBidRef.current = null;
+    milestoneBasedSettingsHydratedBidRef.current = null;
+    step7UserCollapsedRef.current = false;
+  }, [bid?.id]);
   useEffect(() => {
     if (!bid?.id || bid.paymentScheduleVariant !== 'weekly_progress') return;
     if (weeklyProgressSettingsHydratedBidRef.current === bid.id) return;
@@ -9486,6 +9756,7 @@ export default function EstimateGeneratorScreen() {
                 const projectEstimate = matchingProject.estimateData;
                 const currentLaborTotal = (parsed.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
                 const projectLaborTotal = (projectEstimate.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
+                const paymentFieldsFromProject = resolvePaymentScheduleFieldsFromProject(parsed, matchingProject);
                 
                 // Skip sync if AI just updated labor (within last 2 seconds) to prevent sync loops
                 const timeSinceAILaborUpdate = Date.now() - lastAIMaterialUpdateRef.current;
@@ -9493,13 +9764,24 @@ export default function EstimateGeneratorScreen() {
                 const shouldSkipLaborSync =
                   timeSinceAILaborUpdate < 2000 || timeSinceTemplateApply < 5000;
                 
+                const shouldSyncLabor =
+                  !shouldSkipLaborSync && Math.abs(currentLaborTotal - projectLaborTotal) > 0.01;
+                
                 // If labor totals don't match, update the bid from the project
-                if (!shouldSkipLaborSync && Math.abs(currentLaborTotal - projectLaborTotal) > 0.01) {
-                  console.log('🔄 Syncing bid with updated project estimate on focus:', {
-                    currentLabor: currentLaborTotal,
-                    projectLabor: projectLaborTotal,
-                    projectId: matchingProject.id,
-                  });
+                if (shouldSyncLabor || paymentFieldsFromProject) {
+                  if (shouldSyncLabor) {
+                    console.log('🔄 Syncing bid with updated project estimate on focus:', {
+                      currentLabor: currentLaborTotal,
+                      projectLabor: projectLaborTotal,
+                      projectId: matchingProject.id,
+                    });
+                  }
+                  if (paymentFieldsFromProject) {
+                    console.log('🔄 Restoring payment schedule from project estimate on focus:', {
+                      projectId: matchingProject.id,
+                      paymentScheduleVariant: paymentFieldsFromProject.paymentScheduleVariant,
+                    });
+                  }
                   
                   // Merge: storage + in-memory bid so open edits (customer, title, …) are not reverted.
                   const live = bidRef.current || {};
@@ -9513,6 +9795,7 @@ export default function EstimateGeneratorScreen() {
                     id: parsed.id,
                     laborLineItems:
                       projectLabor.length > 0 ? projectLabor : storedLabor,
+                    ...(paymentFieldsFromProject || {}),
                   };
                   setBid(updatedBid);
                   await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updatedBid));
@@ -9928,6 +10211,14 @@ export default function EstimateGeneratorScreen() {
             existingProject?.category,
           category: snapshotBid.category || existingProject?.category,
           paymentSchedule: snapshotBid.paymentSchedule || bid.paymentSchedule || 'milestone-based',
+          paymentScheduleVariant: snapshotBid.paymentScheduleVariant || bid.paymentScheduleVariant,
+          weeklyProgressSettings:
+            snapshotBid.weeklyProgressSettings || bid.weeklyProgressSettings,
+          milestoneBasedSettings:
+            snapshotBid.milestoneBasedSettings || bid.milestoneBasedSettings,
+          customPayments: Array.isArray(snapshotBid.customPayments)
+            ? snapshotBid.customPayments
+            : [],
           milestones: normalizedPaymentMilestones,
           weeklyPayments: normalizedWeeklyPayments,
             estimateData: snapshotBid,
@@ -10373,6 +10664,7 @@ export default function EstimateGeneratorScreen() {
 
   /** Empty bid: open paste-notes flow directly (skip AI Assistant landing). */
   const handleStartAiDraftFresh = useCallback(() => {
+    aiDraftPersistGenerationRef.current += 1;
     setAiDraft(null);
     setAiDraftNotes('');
     setAiLastPlanImport(null);
@@ -10386,7 +10678,9 @@ export default function EstimateGeneratorScreen() {
     setShowAiSavedPricingModal(false);
     setShowAiRoughPricingModal(false);
     setShowAiManualPricingModal(false);
-    void AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
+    void markAiDraftProgressCleared().catch((e) =>
+      console.warn('clear AI draft progress failed', e)
+    );
   }, []);
 
   const openBuildWithAiDirect = useCallback(() => {
@@ -10396,23 +10690,23 @@ export default function EstimateGeneratorScreen() {
       aiEntryPressLockRef.current = false;
     }, 400);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Reset before mounting Step 1 so its open effect cannot capture notes
+    // from the previous draft/session.
     setAiDraftFromAssistant(false);
     setShowAIAssistant(false);
+    setShowAiScopeAssumptionsModal(false);
+    setShowAiInitialRevealModal(false);
+    setShowAiDraftReviewModal(false);
+    setAiDraft(null);
+    setAiDraftNotes('');
+    setAiLastPlanImport(null);
+    setAiPhotoDetections([]);
+    setAiPhotoExistingFeatures([]);
+    setAiSitePhotos([]);
+    setEstimateAiInitialQuestion('');
+    aiDraftPersistGenerationRef.current += 1;
+    void markAiDraftProgressCleared().catch(() => {});
     setShowAiBuilderModal(true);
-    requestAnimationFrame(() => {
-      startTransition(() => {
-        setShowAiScopeAssumptionsModal(false);
-        setShowAiInitialRevealModal(false);
-        setShowAiDraftReviewModal(false);
-        setAiDraft(null);
-        setAiDraftNotes('');
-        setAiLastPlanImport(null);
-        setAiPhotoDetections([]);
-        setAiSitePhotos([]);
-        setEstimateAiInitialQuestion('');
-        AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
-      });
-    });
   }, []);
 
   const aiFlowOverlayActive = showAiBuilderModal || showAiScopeAssumptionsModal || showAiInitialRevealModal || showAiDraftReviewModal;
@@ -13160,6 +13454,12 @@ export default function EstimateGeneratorScreen() {
         createdAt: existingProject?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         paymentSchedule: sourceBid.paymentSchedule || existingProject?.paymentSchedule || 'milestone-based',
+        paymentScheduleVariant: sourceBid.paymentScheduleVariant || existingProject?.paymentScheduleVariant,
+        weeklyProgressSettings:
+          sourceBid.weeklyProgressSettings || existingProject?.weeklyProgressSettings,
+        milestoneBasedSettings:
+          sourceBid.milestoneBasedSettings || existingProject?.milestoneBasedSettings,
+        customPayments: Array.isArray(sourceBid.customPayments) ? sourceBid.customPayments : [],
         milestones: normalizedPaymentMilestones,
         weeklyPayments: normalizedWeeklyPayments,
         estimateData: estimateSnapshot,
@@ -17980,6 +18280,7 @@ export default function EstimateGeneratorScreen() {
           });
         };
         const applyWeeklyProgressSchedule = async (overrides = {}) => {
+          Keyboard.dismiss();
           const rows = getWeeklyProgressRows(overrides);
           const currentBid = bidRef.current || bid;
           const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
@@ -18148,6 +18449,7 @@ export default function EstimateGeneratorScreen() {
           return { rows, depositPct, finalPct, progressCount, milestoneDescriptions, dateDrafts };
         };
         const applyMilestoneBasedSchedule = async (overrides = {}) => {
+          Keyboard.dismiss();
           const {
             rows,
             depositPct,
@@ -18247,10 +18549,13 @@ export default function EstimateGeneratorScreen() {
         );
         const selectPaymentScheduleOption = (option) => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          Keyboard.dismiss();
           if (step7ExpandedSchedule === option) {
             setStep7ExpandedSchedule(null);
+            step7UserCollapsedRef.current = true;
             return;
           }
+          step7UserCollapsedRef.current = false;
           setStep7ExpandedSchedule(option);
           if (option === 'weekly') {
             setBid(prev => {
@@ -18282,7 +18587,8 @@ export default function EstimateGeneratorScreen() {
             return updated;
           });
         };
-        const highlightedScheduleOption = step7ExpandedSchedule;
+        const savedScheduleOption = resolveStep7SavedScheduleOption(bid);
+        const highlightedScheduleOption = step7ExpandedSchedule ?? savedScheduleOption;
         const weeklyPreviewWeeks = resolveWeeklyProjectWeeks(
           weeklyProgressStartDate,
           weeklyProgressEndDate,
@@ -18428,6 +18734,7 @@ export default function EstimateGeneratorScreen() {
           }));
         };
         const saveInlineCustomPayment = async () => {
+          Keyboard.dismiss();
           const amountValue = parseFloat(customPaymentDraft.amount) || 0;
           const percentageValue = parseFloat(customPaymentDraft.percentage) ||
             (grandTotal > 0 && amountValue > 0 ? (amountValue / grandTotal) * 100 : 0);
@@ -18809,6 +19116,7 @@ export default function EstimateGeneratorScreen() {
               <Text style={step7FieldLabel}>{label}</Text>
               <TouchableOpacity
                 onPress={() => {
+                  Keyboard.dismiss();
                   closeStep7InlineCalendars();
                   setStep7SettingsCalendarId(isOpen ? null : id);
                 }}
@@ -18885,8 +19193,35 @@ export default function EstimateGeneratorScreen() {
         };
         const weeklyScheduleCalendarEvents = buildWeeklyPaymentCalendarEvents();
         const milestoneScheduleCalendarEvents = buildMilestonePaymentCalendarEvents();
+        const focusOrBlurStep7Numeric = (ref) => {
+          const input = ref?.current;
+          if (!input) return;
+          if (typeof input.isFocused === 'function' && input.isFocused()) {
+            input.blur();
+            Keyboard.dismiss();
+            return;
+          }
+          input.focus?.();
+        };
+        const step7NumericInputProps = {
+          ...estimateStep12NumericKeyboardProps,
+          ...(Platform.OS === 'ios'
+            ? { keyboardAppearance: darkMode ? 'dark' : 'light' }
+            : {
+                returnKeyType: 'done',
+                blurOnSubmit: true,
+                onSubmitEditing: () => Keyboard.dismiss(),
+              }),
+        };
+        const Step7KeyboardDismissWrap =
+          Platform.OS === 'web' ? View : TouchableWithoutFeedback;
         
         return (
+          <Step7KeyboardDismissWrap
+            {...(Platform.OS === 'web'
+              ? {}
+              : { onPress: Keyboard.dismiss, accessible: false })}
+          >
           <View style={[s.wideContainer, estimateFlowStepContentWrapStyle({ scrollBottom: 96 })]}>
             <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
             <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
@@ -19009,7 +19344,7 @@ export default function EstimateGeneratorScreen() {
                         <Text style={step7FieldLabel}>Project Duration</Text>
                         <TouchableOpacity
                           activeOpacity={1}
-                          onPress={() => weeklyProjectWeeksInputRef.current?.focus?.()}
+                          onPress={() => focusOrBlurStep7Numeric(weeklyProjectWeeksInputRef)}
                           style={[step7DateField, { flexDirection: 'row', alignItems: 'center', minHeight: 46 }]}
                         >
                           <TextInput
@@ -19017,6 +19352,7 @@ export default function EstimateGeneratorScreen() {
                             value={weeklyProjectWeeksText}
                             onChangeText={setWeeklyProjectWeeksText}
                             keyboardType="decimal-pad"
+                            {...step7NumericInputProps}
                             placeholder={String(
                               step2DerivedProjectWeeks ?? ESTIMATE_DEFAULT_WEEKLY_PROJECT_WEEKS,
                             )}
@@ -19036,7 +19372,7 @@ export default function EstimateGeneratorScreen() {
                         <Text style={step7FieldLabel}>Deposit</Text>
                         <TouchableOpacity
                           activeOpacity={1}
-                          onPress={() => weeklyDepositPercentInputRef.current?.focus?.()}
+                          onPress={() => focusOrBlurStep7Numeric(weeklyDepositPercentInputRef)}
                           style={[step7DateField, { flexDirection: 'row', alignItems: 'center', minHeight: 46 }]}
                         >
                           <TextInput
@@ -19044,6 +19380,7 @@ export default function EstimateGeneratorScreen() {
                             value={weeklyDepositPercentText}
                             onChangeText={setWeeklyDepositPercentText}
                             keyboardType="decimal-pad"
+                            {...step7NumericInputProps}
                             placeholder="20"
                             placeholderTextColor={estimateStepMutedInputColor}
                             style={{ flex: 1, color: Colors.text, fontSize: 15, fontWeight: '800', paddingVertical: 8, minHeight: 34 }}
@@ -19150,7 +19487,7 @@ export default function EstimateGeneratorScreen() {
                       </View>
                       <TouchableOpacity
                         activeOpacity={1}
-                        onPress={() => weeklyHoldbackPercentInputRef.current?.focus?.()}
+                        onPress={() => focusOrBlurStep7Numeric(weeklyHoldbackPercentInputRef)}
                         style={[step7DateField, { flexDirection: 'row', alignItems: 'center', minHeight: 46 }]}
                       >
                         <TextInput
@@ -19158,6 +19495,7 @@ export default function EstimateGeneratorScreen() {
                           value={weeklyHoldbackPercentText}
                           onChangeText={setWeeklyHoldbackPercentText}
                           keyboardType="decimal-pad"
+                          {...step7NumericInputProps}
                           placeholder="5"
                           placeholderTextColor={estimateStepMutedInputColor}
                           style={{ flex: 1, color: Colors.text, fontSize: 15, fontWeight: '800', paddingVertical: 8, minHeight: 34 }}
@@ -19414,7 +19752,7 @@ export default function EstimateGeneratorScreen() {
                         <Text style={step7FieldLabel}>Deposit</Text>
                         <TouchableOpacity
                           activeOpacity={1}
-                          onPress={() => milestoneDepositPercentInputRef.current?.focus?.()}
+                          onPress={() => focusOrBlurStep7Numeric(milestoneDepositPercentInputRef)}
                           style={[step7DateField, { flexDirection: 'row', alignItems: 'center', minHeight: 46 }]}
                         >
                           <TextInput
@@ -19422,6 +19760,7 @@ export default function EstimateGeneratorScreen() {
                             value={milestoneDepositPercentText}
                             onChangeText={setMilestoneDepositPercentText}
                             keyboardType="decimal-pad"
+                            {...step7NumericInputProps}
                             placeholder="20"
                             placeholderTextColor={estimateStepMutedInputColor}
                             style={{ flex: 1, color: Colors.text, fontSize: 15, fontWeight: '800', paddingVertical: 8, minHeight: 34 }}
@@ -19434,7 +19773,7 @@ export default function EstimateGeneratorScreen() {
                         <Text style={step7FieldLabel}>Milestones</Text>
                         <TouchableOpacity
                           activeOpacity={1}
-                          onPress={() => milestoneCountInputRef.current?.focus?.()}
+                          onPress={() => focusOrBlurStep7Numeric(milestoneCountInputRef)}
                           style={[step7DateField, { flexDirection: 'row', alignItems: 'center', minHeight: 46 }]}
                         >
                           <TextInput
@@ -19442,6 +19781,7 @@ export default function EstimateGeneratorScreen() {
                             value={milestoneCountText}
                             onChangeText={setMilestoneCountText}
                             keyboardType="number-pad"
+                            {...step7NumericInputProps}
                             placeholder="3"
                             placeholderTextColor={estimateStepMutedInputColor}
                             style={{ flex: 1, color: Colors.text, fontSize: 15, fontWeight: '800', paddingVertical: 8, minHeight: 34 }}
@@ -19548,7 +19888,7 @@ export default function EstimateGeneratorScreen() {
                       <Text style={step7FieldLabel}>Final Closeout Payment</Text>
                       <TouchableOpacity
                         activeOpacity={1}
-                        onPress={() => milestoneFinalPercentInputRef.current?.focus?.()}
+                        onPress={() => focusOrBlurStep7Numeric(milestoneFinalPercentInputRef)}
                         style={[step7DateField, { flexDirection: 'row', alignItems: 'center', minHeight: 46 }]}
                       >
                         <TextInput
@@ -19556,6 +19896,7 @@ export default function EstimateGeneratorScreen() {
                           value={milestoneFinalPercentText}
                           onChangeText={setMilestoneFinalPercentText}
                           keyboardType="decimal-pad"
+                          {...step7NumericInputProps}
                           placeholder="5"
                           placeholderTextColor={estimateStepMutedInputColor}
                           style={{ flex: 1, color: Colors.text, fontSize: 15, fontWeight: '800', paddingVertical: 8, minHeight: 34 }}
@@ -19857,6 +20198,7 @@ export default function EstimateGeneratorScreen() {
                             placeholder="e.g., Material deposit, lender draw, final payment"
                             placeholderTextColor={estimateStepMutedInputColor}
                             style={[step7DateField, { color: Colors.text, fontSize: 13.5, fontWeight: '700', minHeight: 46 }]}
+                            {...resolveTextInputKeyboardProps()}
                           />
                         </View>
 
@@ -19867,6 +20209,7 @@ export default function EstimateGeneratorScreen() {
                               value={customPaymentDraft.amount}
                               onChangeText={updateCustomPaymentDraftAmount}
                               keyboardType="decimal-pad"
+                              {...step7NumericInputProps}
                               placeholder="$0.00"
                               placeholderTextColor={estimateStepMutedInputColor}
                               style={[step7DateField, { color: Colors.text, fontSize: 13.5, fontWeight: '800', minHeight: 46 }]}
@@ -19878,6 +20221,7 @@ export default function EstimateGeneratorScreen() {
                               value={customPaymentDraft.percentage}
                               onChangeText={updateCustomPaymentDraftPercentage}
                               keyboardType="decimal-pad"
+                              {...step7NumericInputProps}
                               placeholder="0"
                               placeholderTextColor={estimateStepMutedInputColor}
                               style={[step7DateField, { color: Colors.text, fontSize: 13.5, fontWeight: '800', minHeight: 46 }]}
@@ -19888,7 +20232,10 @@ export default function EstimateGeneratorScreen() {
                         <View>
                           <Text style={step7FieldLabel}>Due Date</Text>
                           <TouchableOpacity
-                            onPress={() => setCustomPaymentCalendarOpen((open) => !open)}
+                            onPress={() => {
+                              Keyboard.dismiss();
+                              setCustomPaymentCalendarOpen((open) => !open);
+                            }}
                             style={[step7DateField, { minHeight: 46, justifyContent: 'center' }]}
                           >
                             <Text style={{ color: customPaymentDraft.scheduledDate ? Colors.text : step7MutedSoft, fontSize: 13.5, fontWeight: '700' }}>
@@ -20762,20 +21109,21 @@ export default function EstimateGeneratorScreen() {
                                         }
                                       }
                                     }}
-                                    placeholder="Enter weeks (13-52)"
-                                    placeholderTextColor={estimateStepMutedInputColor}
-                                    keyboardType="phone-pad"
-                                    style={{
-                                      backgroundColor: step7NestedSurface,
-                                      borderWidth: 1,
-                                      borderColor: isCustomWeeks ? 'rgba(45, 255, 196, 0.4)' : step7NestedBorder,
-                                      borderRadius: 12,
-                                      paddingHorizontal: 12,
-                                      paddingVertical: 10,
-                                      color: Colors.text,
-                                      fontSize: 14,
-                                    }}
-                                  />
+                                      placeholder="Enter weeks (13-52)"
+                                      placeholderTextColor={estimateStepMutedInputColor}
+                                      keyboardType="phone-pad"
+                                      {...step7NumericInputProps}
+                                      style={{
+                                        backgroundColor: step7NestedSurface,
+                                        borderWidth: 1,
+                                        borderColor: isCustomWeeks ? 'rgba(45, 255, 196, 0.4)' : step7NestedBorder,
+                                        borderRadius: 12,
+                                        paddingHorizontal: 12,
+                                        paddingVertical: 10,
+                                        color: Colors.text,
+                                        fontSize: 14,
+                                      }}
+                                    />
                                 </View>
                                 {isCustomWeeks && (
                                   <Text style={{ color: Colors.sub, fontSize: 12, minWidth: 80 }}>
@@ -21706,6 +22054,7 @@ export default function EstimateGeneratorScreen() {
                                       placeholder="Enter milestones (9-20)"
                                       placeholderTextColor={estimateStepMutedInputColor}
                                       keyboardType="phone-pad"
+                                      {...step7NumericInputProps}
                                       style={{
                                         backgroundColor: step7NestedSurface,
                                         borderWidth: 1,
@@ -22347,6 +22696,7 @@ export default function EstimateGeneratorScreen() {
                                       placeholder="Enter weeks (13-52)"
                                       placeholderTextColor={estimateStepMutedInputColor}
                                       keyboardType="phone-pad"
+                                      {...step7NumericInputProps}
                                       style={{
                                         backgroundColor: step7NestedSurface,
                                         borderWidth: 1,
@@ -22924,6 +23274,7 @@ export default function EstimateGeneratorScreen() {
               </View>
             </FirstEstimateWalkthroughHighlight>
           </View>
+          </Step7KeyboardDismissWrap>
         );
       }
       
@@ -24636,6 +24987,18 @@ export default function EstimateGeneratorScreen() {
         computeTotal={(item) => item.total || item.grandTotal || computeTotalFromBidData(item.data) || 0}
       />
 
+      {aiFlowOverlayActive ? (
+        <View
+          pointerEvents="none"
+          style={{
+            ...StyleSheet.absoluteFillObject,
+            backgroundColor: '#000000',
+            zIndex: 90,
+            elevation: 90,
+          }}
+        />
+      ) : null}
+
       <AIAssistantModal
         visible={showAIAssistant}
         onClose={() => {
@@ -24654,6 +25017,7 @@ export default function EstimateGeneratorScreen() {
         overlayBlocksKeyboard={showAIAssistant && aiFlowOverlayActive}
         onBuildWithAi={() => {
           setAiDraftFromAssistant(true);
+          setShowAIAssistant(false);
           setShowAiScopeAssumptionsModal(false);
           setShowAiInitialRevealModal(false);
           setShowAiDraftReviewModal(false);
@@ -24668,8 +25032,10 @@ export default function EstimateGeneratorScreen() {
         }}
       />
 
+      {showAiBuilderModal ? (
       <AIEstimateBuilderModal
         visible={showAiBuilderModal}
+        embedded
         generating={aiDraftGenerating}
         generatingPhase={aiDraftGeneratingPhase}
         generatingSteps={aiDraftGeneratingSteps}
@@ -24680,9 +25046,11 @@ export default function EstimateGeneratorScreen() {
         initialPhotoExistingFeatures={aiPhotoExistingFeatures}
         initialSitePhotos={aiSitePhotos}
         hasExistingDraft={Boolean(aiDraft)}
+        resumeToScopeConfirm={aiDraft ? draftNeedsScopeConfirmation(aiDraft) : false}
         fromAssistant={aiDraftFromAssistant}
         onBack={() => {
           if (aiDraftGenerating) {
+            aiDraftPersistGenerationRef.current += 1;
             setAiDraftGenerating(false);
             setAiDraftGeneratingPhase(null);
             setAiDraftGeneratingSteps([]);
@@ -24702,8 +25070,7 @@ export default function EstimateGeneratorScreen() {
         }}
         onContinueDraft={() => {
           if (aiDraftGenerating || !aiDraft) return;
-          setShowAiBuilderModal(false);
-          openAiDraftReviewEntry();
+          resumeAiDraftFromBuilder();
         }}
         onStartFresh={handleStartAiDraftFresh}
         onPlanImportChange={(next) => {
@@ -24714,9 +25081,26 @@ export default function EstimateGeneratorScreen() {
         onSitePhotosChange={setAiSitePhotos}
         onGenerate={handleGenerateAiDraft}
       />
+      ) : null}
 
+      {showAiInitialRevealModal ? (
+      <AIEstimateInitialRevealModal
+        visible={showAiInitialRevealModal}
+        embedded
+        draft={aiDraftSyncedForReview}
+        markupPct={Number(bid?.markupPct) || 0}
+        fromAssistant={aiDraftFromAssistant}
+        onBack={handleInitialRevealBack}
+        onOpenDetailedReview={openAiDraftReviewDetailed}
+        onConfirmScope={handleInitialRevealConfirmScope}
+      />
+      ) : null}
+
+      {shouldMountAiScopeModal ? (
       <AIEstimateScopeAssumptionsModal
         visible={showAiScopeAssumptionsModal}
+        embedded
+        prepareWhileHidden={prepareAiScopeWhileHidden}
         draft={aiScopeAssumptionsDraft}
         notesFallback={aiDraftNotes}
         applying={aiScopeAssumptionsApplying}
@@ -24724,8 +25108,7 @@ export default function EstimateGeneratorScreen() {
         planImport={aiBuilderInitialPlanImport}
         onBack={() => {
           if (!aiScopeAssumptionsApplying) {
-            setShowAiScopeAssumptionsModal(false);
-            setShowAiBuilderModal(true);
+            transitionToAiBuilder();
           }
         }}
         onConfirm={handleConfirmScopeAssumptions}
@@ -24734,19 +25117,12 @@ export default function EstimateGeneratorScreen() {
         pricingContext={aiScopePricingContext}
         hasSitePhotos={aiSitePhotos.length > 0}
       />
+      ) : null}
 
-      <AIEstimateInitialRevealModal
-        visible={showAiInitialRevealModal}
-        draft={aiDraftSyncedForReview}
-        markupPct={Number(bid?.markupPct) || 0}
-        fromAssistant={aiDraftFromAssistant}
-        onBack={handleInitialRevealBack}
-        onOpenDetailedReview={openAiDraftReviewDetailed}
-        onConfirmScope={handleInitialRevealConfirmScope}
-      />
-
+      {showAiDraftReviewModal ? (
       <AIEstimateDraftReviewModal
         visible={showAiDraftReviewModal}
+        embedded
         draft={aiDraftSyncedForReview}
         applying={aiDraftApplying}
         suggestingSplits={aiDraftSuggestingSplits}
@@ -24768,11 +25144,13 @@ export default function EstimateGeneratorScreen() {
             setShowAiSavedPricingModal(false);
             setShowAiRoughPricingModal(false);
             setShowAiManualPricingModal(false);
-            setShowAiDraftReviewModal(false);
             if (isComplexEstimateTier(aiDraft)) {
               reopenConfirmScopeFromReview();
             } else {
               setShowAiInitialRevealModal(true);
+              setShowAiDraftReviewModal(false);
+              setShowAiScopeAssumptionsModal(false);
+              setShowAiBuilderModal(false);
             }
           }
         }}
@@ -24786,9 +25164,7 @@ export default function EstimateGeneratorScreen() {
           }
         }}
         onRegenerate={() => {
-          setShowAiInitialRevealModal(false);
-          setShowAiDraftReviewModal(false);
-          setShowAiBuilderModal(true);
+          transitionToAiBuilder();
         }}
         onApply={handleApplyAiDraft}
         onApplyConfirmedOnly={handleApplyAiDraftConfirmed}
@@ -24812,6 +25188,7 @@ export default function EstimateGeneratorScreen() {
         markupPct={Number(bid?.markupPct) || 0}
         onUpdateProjectComplexity={handleUpdateProjectComplexity}
       />
+      ) : null}
 
       <AIEstimatePricingProposalModal
         visible={showAiSavedPricingModal}

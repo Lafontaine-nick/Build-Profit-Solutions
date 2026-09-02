@@ -1,6 +1,7 @@
 import { clerkAuthService } from './clerkAuth';
 import * as SecureStore from 'expo-secure-store';
 import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
+import { filterLaunchSubscriptionPlans } from '@/constants/releaseFlags';
 
 interface CheckoutSession {
   sessionId: string;
@@ -58,10 +59,12 @@ export function resolveLiveStripePriceId(planId: string, stripePriceId: string):
 }
 
 function normalizeSubscriptionPlans(plans: SubscriptionPlan[]): SubscriptionPlan[] {
-  return plans.map((plan) => ({
-    ...plan,
-    stripePriceId: resolveLiveStripePriceId(plan.id, plan.stripePriceId),
-  }));
+  return filterLaunchSubscriptionPlans(
+    plans.map((plan) => ({
+      ...plan,
+      stripePriceId: resolveLiveStripePriceId(plan.id, plan.stripePriceId),
+    }))
+  );
 }
 
 function isPrivateOrLocalApiUrl(url: string): boolean {

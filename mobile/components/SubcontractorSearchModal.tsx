@@ -24,7 +24,7 @@ import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient';
 import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import GradientRingBackInner from './GradientRingBackInner';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { requireOptionalNativeModule } from 'expo-modules-core';
@@ -32,18 +32,27 @@ import { GooglePlacesResultsFooter } from '@/components/AttributionBadge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { normalizeTrade } from '../lib/trades';
 import { clerkAuthService } from '@/services/clerkAuth';
+import { useUser } from '@clerk/clerk-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import { FORM_KEYBOARD_SCROLL_PROPS, KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
 import { withProjectLeadsAuth } from '@/utils/projectLeadsAuthFetch';
-import { syncBpsDirectoryListing } from '@/services/bpsDirectorySync';
+import { syncBpsDirectoryListing, type BpsDirectorySyncResult } from '@/services/bpsDirectorySync';
 import { SubWebFormOptionalChrome } from '@/components/SubWebFormOptionalChrome';
 import {
   ESTIMATE_FLOW_CARD_GAP,
+  ESTIMATE_FLOW_GREEN,
+  ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
   ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
+  AI_FLOW_CARD_BG_DARK,
+  confirmScopeSectionLabelStyle,
+  estimateFlowCardStyle,
 } from '@/utils/estimateFlowCardStyle';
+
+/** Slightly lighter than search shell (`#202022`) so result rows read as nested content. */
+const SUBCONTRACTOR_LIST_CARD_BG_DARK = '#2a2a2e';
 
 function extractZipFromGeocode(addresses: { postalCode?: string | null }[]): string | null {
   for (const a of addresses) {
@@ -52,6 +61,116 @@ function extractZipFromGeocode(addresses: { postalCode?: string | null }[]): str
     if (z.length === 5) return z;
   }
   return null;
+}
+
+function normalizeTradeToken(value: string): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function listCardPricingLine(sub: any, isGoogle: boolean, isBpsListing: boolean): string {
+  if (
+    sub.hideHourlyRate ||
+    isGoogle ||
+    isBpsListing ||
+    !sub.hourlyRate ||
+    typeof sub.hourlyRate.min !== 'number' ||
+    sub.hourlyRate.min <= 0
+  ) {
+    return 'Quote required';
+  }
+  return `$${sub.hourlyRate.min}–$${sub.hourlyRate.max}/hr`;
+}
+
+type ListCardRatingInfo =
+  | { kind: 'rated'; score: number; reviews: number }
+  | { kind: 'new_listing' }
+  | null;
+
+function listCardRatingInfo(sub: any, isBpsListing: boolean, isGoogle: boolean): ListCardRatingInfo {
+  const rating = typeof sub.rating === 'number' && !Number.isNaN(sub.rating) ? sub.rating : null;
+  const reviews = typeof sub.reviews === 'number' ? sub.reviews : Number(sub.reviews) || 0;
+  if (rating != null && rating > 0) {
+    return { kind: 'rated', score: rating, reviews };
+  }
+  if (isBpsListing) return { kind: 'new_listing' };
+  if (isGoogle) return null;
+  return null;
+}
+
+const GOOGLE_POI_SPECIALTY_BLOCKLIST = new Set([
+  'point of interest',
+  'service',
+  'establishment',
+  'finance',
+  'store',
+]);
+
+function listCardShortAddress(raw: string): string {
+  let loc = String(raw || '').trim();
+  loc = loc
+    .replace(/\s*\(\s*\d+(\.\d+)?\s*mi\s*\)\s*$/i, '')
+    .replace(/\s*—\s*Build Profit Solutions member\s*$/i, '')
+    .replace(/,?\s*USA\s*$/i, '')
+    .trim();
+  if (/^\d{5}$/.test(loc)) return loc;
+  const parts = loc.split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    const street = parts[0];
+    const city = parts[1].replace(/\s+[A-Z]{2}\s+\d{5}.*$/i, '').trim() || parts[1];
+    return `${street}, ${city}`;
+  }
+  return loc;
+}
+
+function listCardDistanceLabel(sub: any): string | null {
+  if (sub.distance == null || sub.distance === '') return null;
+  const n = Number(sub.distance);
+  if (Number.isNaN(n)) return `${sub.distance} mi`;
+  const rounded = n < 10 ? n.toFixed(1) : String(Math.round(n));
+  return `${rounded} mi`;
+}
+
+function listCardMetaParts(sub: any): { trade: string; address: string; distance: string | null } {
+  const trade = String(sub.trade || '').trim();
+  const address = listCardShortAddress(sub.location || '');
+  return {
+    trade,
+    address,
+    distance: listCardDistanceLabel(sub),
+  };
+}
+
+function isBlockedListCardSpecialty(spec: string, tradeNorm: string): boolean {
+  const specNorm = normalizeTradeToken(spec);
+  if (!specNorm) return true;
+  if (GOOGLE_POI_SPECIALTY_BLOCKLIST.has(specNorm)) return true;
+  if (specNorm === tradeNorm) return true;
+  if (tradeNorm && (specNorm.includes(tradeNorm) || tradeNorm.includes(specNorm))) return true;
+  return false;
+}
+
+function listCardUniqueSpecialties(sub: any): string[] {
+  const tradeNorm = normalizeTradeToken(sub.trade || '');
+  return (sub.specialties || []).filter((spec: string) => !isBlockedListCardSpecialty(spec, tradeNorm));
+}
+
+function sortGoogleListRows(rows: any[], searchQuery: string): any[] {
+  if (searchQuery.trim()) return rows;
+  return [...rows].sort((a, b) => {
+    const ratingA = typeof a.rating === 'number' && !Number.isNaN(a.rating) ? a.rating : 0;
+    const ratingB = typeof b.rating === 'number' && !Number.isNaN(b.rating) ? b.rating : 0;
+    if (ratingB !== ratingA) return ratingB - ratingA;
+    const reviewsA = Number(a.reviews) || 0;
+    const reviewsB = Number(b.reviews) || 0;
+    if (reviewsB !== reviewsA) return reviewsB - reviewsA;
+    const distA = Number(a.distance);
+    const distB = Number(b.distance);
+    if (!Number.isNaN(distA) && !Number.isNaN(distB) && distA !== distB) return distA - distB;
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
 }
 
 function digitsOnlyBudget(raw: string): string {
@@ -450,13 +569,31 @@ function SubcontractorSearchModal({
   /** Shared UI tokens — Find Subcontractors + Contractor Profile polish */
   const subMeta = darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub;
   const subMeta2 = darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub;
-  const subCard = {
-    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.045)' : Colors.surface2,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
-  };
+  const subCard = useMemo(
+    () => estimateFlowCardStyle(Colors, darkMode),
+    [Colors, darkMode]
+  );
+  const subCardPad = useMemo(
+    () => ({ ...estimateFlowCardStyle(Colors, darkMode), padding: 18 }),
+    [Colors, darkMode]
+  );
+  const profileNestedField = useMemo(
+    () => ({
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      backgroundColor: darkMode ? ESTIMATE_FLOW_NESTED_FIELD_BG_DARK : Colors.surface2,
+      borderWidth: 1,
+      borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+    }),
+    [Colors, darkMode]
+  );
+  const profileSectionLabel = useMemo(
+    () => [confirmScopeSectionLabelStyle(), { color: subMeta2, marginBottom: 8 }] as const,
+    [subMeta2]
+  );
   const router = useRouter();
+  const { user: clerkUser } = useUser();
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === "web";
   const headerRule = darkMode ? "rgba(148, 163, 184, 0.1)" : "rgba(0,0,0,0.06)";
@@ -532,6 +669,8 @@ function SubcontractorSearchModal({
   
   // Get Clerk user id for directory sync — never register under email/demo ids (creates duplicate listings).
   const getDirectoryUserId = () => {
+    const clerkId = String(clerkUser?.id || '').trim();
+    if (clerkId.startsWith('user_')) return clerkId;
     try {
       const authState = clerkAuthService.getAuthState();
       const id = String(authState?.user?.id || '').trim();
@@ -551,24 +690,34 @@ function SubcontractorSearchModal({
     }
   };
 
-  const persistBpsDiscoverability = React.useCallback(async (listOn: boolean) => {
+  const persistBpsDiscoverability = React.useCallback(async (listOn: boolean): Promise<BpsDirectorySyncResult> => {
     try {
       const directoryUserId = getDirectoryUserId();
-      if (!directoryUserId) return;
+      if (!directoryUserId) {
+        return {
+          ok: false,
+          error: 'Sign in required to update your Find Subcontractors listing.',
+        };
+      }
       const z = zipCode.replace(/\D/g, '').slice(0, 5);
       const raw = await AsyncStorage.getItem('bps.contractorProfile');
       const profile = raw ? JSON.parse(raw) : {};
+      const clerkEmail =
+        clerkUser?.primaryEmailAddress?.emailAddress ||
+        clerkUser?.emailAddresses?.[0]?.emailAddress ||
+        '';
       const next = {
         ...profile,
         listOnFindSubcontractors: listOn,
         serviceZip: z,
+        email: profile.email || clerkEmail || '',
       };
       await AsyncStorage.setItem('bps.contractorProfile', JSON.stringify(next));
-      await syncBpsDirectoryListing({
+      return await syncBpsDirectoryListing({
         id: directoryUserId,
         companyName: next.company || '',
         contactName: next.name || '',
-        email: next.email || '',
+        email: next.email || clerkEmail || '',
         phone: String(next.phone || '').replace(/\D/g, ''),
         website: next.website || '',
         trades: next.role ? [next.role] : ['General Contractor'],
@@ -577,8 +726,12 @@ function SubcontractorSearchModal({
       });
     } catch (e) {
       console.warn('persistBpsDiscoverability', e);
+      return {
+        ok: false,
+        error: 'Could not save your listing preference. Try again.',
+      };
     }
-  }, [zipCode]);
+  }, [zipCode, clerkUser]);
 
   // When discoverability is on, keep stored / backend ZIP aligned with the search bar ZIP.
   useEffect(() => {
@@ -604,7 +757,11 @@ function SubcontractorSearchModal({
       if (raw) {
         const p = JSON.parse(raw);
         setBpsDiscoverListOn(!!p.listOnFindSubcontractors);
-        setSelfProfileEmailNorm(normFindSubsEmail(p.email ?? null));
+        const clerkEmail =
+          clerkUser?.primaryEmailAddress?.emailAddress ||
+          clerkUser?.emailAddresses?.[0]?.emailAddress ||
+          '';
+        setSelfProfileEmailNorm(normFindSubsEmail(p.email ?? clerkEmail ?? null));
         setSelfProfileCompanyNorm(normFindSubsLabel(p.company ?? null));
         setSelfProfileContactNorm(normFindSubsLabel(p.name ?? null));
         setSelfProfilePhoneNorm(String(p.phone || '').replace(/\D/g, ''));
@@ -617,7 +774,7 @@ function SubcontractorSearchModal({
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [clerkUser]);
 
   // Load campaigns and convert to subcontractor format
   const loadCampaigns = async () => {
@@ -789,24 +946,24 @@ function SubcontractorSearchModal({
     return merged.filter((row) => shouldShowFindSubsRow(row, findSubsSelfCtx, bpsDiscoverListOn));
   }, [realBpsRows, apiBpsDirectoryRows, findSubsSelfCtx, bpsDiscoverListOn]);
 
-  const googleRowsFiltered = useMemo(
-    () => filterByTradeAndQuery(googlePlacesResults.filter((s) => s.source !== 'bps')),
-    [selectedTrade, searchQuery, googlePlacesResults]
-  );
+  const googleRowsFiltered = useMemo(() => {
+    const rows = filterByTradeAndQuery(googlePlacesResults.filter((s) => s.source !== 'bps'));
+    return sortGoogleListRows(rows, searchQuery);
+  }, [selectedTrade, searchQuery, googlePlacesResults]);
 
   const resultSections = useMemo(() => {
     const sections: { key: string; title: string; rows: any[] }[] = [];
     if (combinedBpsRows.length > 0) {
       sections.push({
         key: 'bps',
-        title: 'Verified BPS Subcontractors',
+        title: 'BPS directory',
         rows: combinedBpsRows,
       });
     }
     if (googleRowsFiltered.length > 0) {
       sections.push({
         key: 'google',
-        title: 'Nearby Google Results',
+        title: 'Google nearby',
         rows: googleRowsFiltered,
       });
     }
@@ -1816,10 +1973,24 @@ function SubcontractorSearchModal({
                       );
                       return;
                     }
+                    const prev = bpsDiscoverListOn;
                     setBpsDiscoverListOn(v);
-                    void persistBpsDiscoverability(v)
-                      .then(() => loadSelfProfileFromStorage())
-                      .then(() => handleSearch());
+                    if (!v) {
+                      setGooglePlacesResults((rows) =>
+                        rows.filter((row) =>
+                          shouldShowFindSubsRow(row, findSubsSelfCtx, false)
+                        )
+                      );
+                    }
+                    void persistBpsDiscoverability(v).then(async (result) => {
+                      if (!result.ok) {
+                        setBpsDiscoverListOn(prev);
+                        Alert.alert('Could not update listing', result.error);
+                        return;
+                      }
+                      await loadSelfProfileFromStorage();
+                      await handleSearch();
+                    });
                   }}
                   trackColor={{ false: darkMode ? '#334155' : '#cbd5e1', true: '#22c55e' }}
                   thumbColor="#f8fafc"
@@ -1840,56 +2011,30 @@ function SubcontractorSearchModal({
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                 handleSearch();
               }}
-              activeOpacity={0.9}
+              activeOpacity={0.88}
               disabled={loading || locating}
               style={{
                 flex: 1,
                 borderRadius: 12,
-                overflow: 'hidden',
-                opacity: loading || locating ? 0.88 : 1,
+                paddingVertical: 12,
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: 44,
+                backgroundColor: ESTIMATE_FLOW_GREEN,
+                opacity: loading || locating ? 0.55 : 1,
               }}
             >
-              {isWeb ? (
-                <View
-                  style={{
-                    paddingVertical: 11,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    minHeight: 42,
-                    backgroundColor: "#22c55e",
-                    shadowColor: "#000000",
-                    shadowOpacity: darkMode ? 0.25 : 0.12,
-                    shadowRadius: 8,
-                    shadowOffset: { width: 0, height: 3 },
-                    elevation: 3,
-                  }}
-                >
-                  <Text style={{ color: '#020617', textAlign: 'center', fontWeight: '700', fontSize: 14, letterSpacing: 0.15 }}>
-                    {loading ? 'Searching...' : 'Search / Refresh'}
-                  </Text>
-                </View>
-              ) : (
-              <LinearGradient
-                colors={['#22c55e', '#22d3ee']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
+              <Text
                 style={{
-                  paddingVertical: 11,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  minHeight: 42,
-                  shadowColor: '#000000',
-                  shadowOpacity: darkMode ? 0.25 : 0.12,
-                  shadowRadius: 8,
-                  shadowOffset: { width: 0, height: 3 },
-                  elevation: 3,
+                  color: '#0f172a',
+                  textAlign: 'center',
+                  fontWeight: '800',
+                  fontSize: 15,
+                  letterSpacing: 0.1,
                 }}
               >
-                <Text style={{ color: '#020617', textAlign: 'center', fontWeight: '700', fontSize: 14, letterSpacing: 0.15 }}>
-                  {loading ? 'Searching...' : 'Search / Refresh'}
-                </Text>
-              </LinearGradient>
-              )}
+                {loading ? 'Searching...' : 'Search / Refresh'}
+              </Text>
             </TouchableOpacity>
 
             {/* Request Subcontractor Button */}
@@ -1904,20 +2049,28 @@ function SubcontractorSearchModal({
               disabled={loading || locating}
               style={{
                 flex: 1,
-                backgroundColor: 'transparent',
-                paddingVertical: 10,
+                backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.surface2,
+                paddingVertical: 12,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: darkMode ? 'rgba(148, 163, 184, 0.28)' : Colors.line,
+                borderColor: darkMode ? 'rgba(148, 163, 184, 0.32)' : Colors.line,
                 flexDirection: 'row',
                 justifyContent: 'center',
                 alignItems: 'center',
                 gap: 6,
-                minHeight: 42,
+                minHeight: 44,
+                opacity: loading || locating ? 0.55 : 1,
               }}
             >
-              <MaterialIcons name="send" size={17} color={darkMode ? 'rgba(226, 232, 240, 0.85)' : Colors.sub} />
-              <Text style={{ color: darkMode ? 'rgba(226, 232, 240, 0.92)' : Colors.text, textAlign: 'center', fontWeight: '600', fontSize: 13 }}>
+              <MaterialIcons name="send" size={17} color={darkMode ? 'rgba(226, 232, 240, 0.88)' : Colors.sub} />
+              <Text
+                style={{
+                  color: darkMode ? 'rgba(226, 232, 240, 0.92)' : Colors.text,
+                  textAlign: 'center',
+                  fontWeight: '600',
+                  fontSize: 14,
+                }}
+              >
                 Request Subcontractor
               </Text>
             </TouchableOpacity>
@@ -1937,8 +2090,8 @@ function SubcontractorSearchModal({
             {/* Results */}
             {!loading && !locating && hasAnyResults && (
               <View>
-                <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', fontSize: 17, fontWeight: '700', letterSpacing: -0.2, marginBottom: 12 }}>
-                  {combinedBpsRows.length + googleRowsFiltered.length} Subcontractor
+                <Text style={{ color: subMeta, fontSize: 13, fontWeight: '600', marginBottom: 12 }}>
+                  {combinedBpsRows.length + googleRowsFiltered.length} subcontractor
                   {combinedBpsRows.length + googleRowsFiltered.length !== 1 ? 's' : ''} found
                 </Text>
                 {gpsZipMismatchNote ? (
@@ -1959,10 +2112,10 @@ function SubcontractorSearchModal({
                   <View key={section.key} style={{ marginBottom: 6 }}>
                     <Text
                       style={{
-                        color: darkMode ? 'rgba(226, 232, 240, 0.92)' : Colors.text,
-                        fontSize: 13,
+                        color: subMeta2,
+                        fontSize: 11,
                         fontWeight: '700',
-                        letterSpacing: 0.2,
+                        letterSpacing: 0.45,
                         textTransform: 'uppercase',
                         marginBottom: 10,
                         marginTop: section.key === 'google' ? 14 : 0,
@@ -1973,536 +2126,261 @@ function SubcontractorSearchModal({
                     {section.rows.map((sub) => {
                       const isGoogle = sub.source === 'google_places';
                       const isBpsListing = sub.source === 'bps';
-                      const isSample = sub.source === 'sample' || sub.source === 'demo';
-                      const locLine =
-                        sub.location +
-                        (sub.distance != null && sub.distance !== ''
-                          ? ` (${sub.distance} mi)`
-                          : '');
-                      const sourceBadgeBg =
-                        isGoogle
+                      const metaParts = listCardMetaParts(sub);
+                      const metaText = [metaParts.trade, metaParts.address].filter(Boolean).join(' · ');
+                      const ratingInfo = listCardRatingInfo(sub, isBpsListing, isGoogle);
+                      const pricingLine = listCardPricingLine(sub, isGoogle, isBpsListing);
+                      const uniqueSpecialties = listCardUniqueSpecialties(sub);
+                      const sourceBadgeLabel = isBpsListing
+                        ? 'BPS'
+                        : isGoogle
+                          ? 'Google'
+                          : sub.sourceLabel || 'Network';
+                      const sourceBadgeIcon = isBpsListing
+                        ? 'verified'
+                        : isGoogle
+                          ? 'map'
+                          : 'apps';
+                      const sourceBadgeBg = isGoogle
+                        ? darkMode
+                          ? 'rgba(59, 130, 246, 0.14)'
+                          : 'rgba(37, 99, 235, 0.08)'
+                        : isBpsListing
                           ? darkMode
-                            ? 'rgba(59, 130, 246, 0.14)'
-                            : 'rgba(37, 99, 235, 0.08)'
-                          : isBpsListing
-                            ? darkMode
-                              ? 'rgba(34, 197, 94, 0.18)'
-                              : 'rgba(22, 163, 74, 0.1)'
-                          : sub.source === 'yelp'
-                            ? darkMode
-                              ? 'rgba(239, 68, 68, 0.1)'
-                              : 'rgba(239, 68, 68, 0.08)'
-                            : isSample
-                              ? darkMode
-                                ? 'rgba(245, 158, 11, 0.12)'
-                                : 'rgba(245, 158, 11, 0.08)'
-                              : darkMode
-                                ? 'rgba(255, 255, 255, 0.06)'
-                                : Colors.surface2;
-                      const sourceBadgeBorder =
-                        isGoogle
-                          ? 'rgba(96, 165, 250, 0.35)'
-                          : isBpsListing
-                            ? 'rgba(52, 211, 153, 0.45)'
-                          : sub.source === 'yelp'
-                            ? 'rgba(248, 113, 113, 0.28)'
-                            : isSample
-                              ? 'rgba(245, 158, 11, 0.35)'
-                              : darkMode
-                                ? 'rgba(148, 163, 184, 0.22)'
-                                : Colors.line;
-                      const sourceIcon =
-                        sub.source === 'bps_verified' || sub.hasCampaign
-                          ? 'campaign'
-                          : sub.source === 'bps'
-                            ? 'verified'
-                          : sub.source === 'yelp'
-                            ? 'business'
-                            : isGoogle
-                              ? 'map'
-                              : isSample
-                                ? 'science'
-                                : sub.source === 'app'
-                                  ? 'person'
-                                  : 'apps';
-                      const sourceIconColor =
-                        isGoogle
+                            ? 'rgba(34, 197, 94, 0.18)'
+                            : 'rgba(22, 163, 74, 0.1)'
+                          : darkMode
+                            ? 'rgba(255, 255, 255, 0.06)'
+                            : Colors.surface2;
+                      const sourceBadgeBorder = isGoogle
+                        ? 'rgba(96, 165, 250, 0.35)'
+                        : isBpsListing
+                          ? 'rgba(52, 211, 153, 0.45)'
+                          : darkMode
+                            ? 'rgba(148, 163, 184, 0.22)'
+                            : Colors.line;
+                      const sourceIconColor = isGoogle
+                        ? darkMode
+                          ? '#93c5fd'
+                          : '#1d4ed8'
+                        : isBpsListing
                           ? darkMode
-                            ? '#93c5fd'
-                            : '#1d4ed8'
-                          : isBpsListing
-                            ? darkMode
-                              ? '#86efac'
-                              : '#15803d'
-                          : sub.source === 'yelp'
-                            ? darkMode
-                              ? '#fca5a5'
-                              : '#b91c1c'
-                            : isSample
-                              ? darkMode
-                                ? '#fbbf24'
-                                : '#b45309'
-                              : darkMode
-                                ? 'rgba(226,232,240,0.75)'
-                                : Colors.sub;
-                      const sourceTextColor =
-                        isGoogle
+                            ? '#86efac'
+                            : '#15803d'
+                          : darkMode
+                            ? 'rgba(226,232,240,0.75)'
+                            : Colors.sub;
+                      const sourceTextColor = isGoogle
+                        ? darkMode
+                          ? '#bfdbfe'
+                          : '#1e3a8a'
+                        : isBpsListing
                           ? darkMode
-                            ? '#bfdbfe'
-                            : '#1e3a8a'
-                          : isBpsListing
-                            ? darkMode
-                              ? '#bbf7d0'
-                              : '#14532d'
-                          : sub.source === 'yelp'
-                            ? darkMode
-                              ? '#fca5a5'
-                              : '#b91c1c'
-                            : isSample
-                              ? darkMode
-                                ? '#fcd34d'
-                                : '#b45309'
-                              : darkMode
-                                ? 'rgba(226,232,240,0.85)'
-                                : Colors.text;
-                      const googleQuickBtn = {
-                        flexDirection: 'row' as const,
-                        alignItems: 'center' as const,
-                        gap: 5,
-                        paddingHorizontal: 10,
-                        paddingVertical: 7,
-                        borderRadius: 10,
-                        borderWidth: 1,
-                        borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line,
-                        backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : Colors.surface2,
-                      };
+                            ? '#bbf7d0'
+                            : '#14532d'
+                          : darkMode
+                            ? 'rgba(226,232,240,0.85)'
+                            : Colors.text;
+                      const distancePillBg = darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.bg;
+                      const distancePillBorder = darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line;
 
                       return (
                         <View
                           key={String(sub.id || sub.placeId)}
                           style={{
-                            marginBottom: 10,
-                            borderRadius: 14,
-                            borderWidth: 1,
-                            borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
-                            backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.045)' : Colors.surface2,
+                            marginBottom: 12,
+                            ...estimateFlowCardStyle(Colors, darkMode),
+                            backgroundColor: darkMode ? SUBCONTRACTOR_LIST_CARD_BG_DARK : Colors.surface2,
+                            borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
                             borderLeftWidth: 3,
                             borderLeftColor: isGoogle
                               ? 'rgba(96, 165, 250, 0.5)'
                               : isBpsListing
                                 ? 'rgba(34, 197, 94, 0.55)'
                                 : 'rgba(45, 255, 196, 0.45)',
-                            overflow: 'hidden',
+                            padding: 12,
                           }}
                         >
-                          <View
-                            style={{
-                              borderRadius: 11,
-                              overflow: 'hidden',
-                              backgroundColor: darkMode ? Colors.card : Colors.bg,
-                              borderWidth: 0,
-                            }}
+                          <Pressable
+                            onPress={() => openContractorProfile(sub)}
+                            style={({ pressed }) => ({ opacity: pressed ? 0.88 : 1, marginBottom: 8 })}
                           >
-                            <TouchableOpacity
+                            <View
                               style={{
-                                paddingHorizontal: 14,
-                                paddingVertical: 12,
-                                backgroundColor: 'transparent',
+                                flexDirection: 'row',
+                                alignItems: 'flex-start',
+                                justifyContent: 'space-between',
+                                gap: 10,
+                                marginBottom: 6,
                               }}
-                              onPress={() => openContractorProfile(sub)}
-                              activeOpacity={0.85}
                             >
-                              <View style={{ flexDirection: 'row', marginBottom: 8 }}>
-                                <View style={{ flex: 1 }}>
-                                  <View
-                                    style={{
-                                      flexDirection: 'row',
-                                      alignItems: 'flex-start',
-                                      justifyContent: 'space-between',
-                                      gap: 8,
-                                      marginBottom: 6,
-                                    }}
-                                  >
-                                    <Text
-                                      style={{
-                                        color: darkMode ? '#f8fafc' : '#000000',
-                                        fontSize: 16,
-                                        fontWeight: '700',
-                                        lineHeight: 22,
-                                        flex: 1,
-                                      }}
-                                    >
-                                      {sub.name}
-                                    </Text>
-                                    <View
-                                      style={{
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        flexShrink: 0,
-                                        gap: 4,
-                                        flexWrap: 'wrap',
-                                        justifyContent: 'flex-end',
-                                      }}
-                                    >
-                                      <View
-                                        style={{
-                                          backgroundColor: sourceBadgeBg,
-                                          paddingHorizontal: 7,
-                                          paddingVertical: 3,
-                                          borderRadius: 8,
-                                          flexDirection: 'row',
-                                          alignItems: 'center',
-                                          borderWidth: 1,
-                                          borderColor: sourceBadgeBorder,
-                                        }}
-                                      >
-                                        <MaterialIcons name={sourceIcon as any} size={11} color={sourceIconColor} />
-                                        <Text
-                                          style={{
-                                            color: sourceTextColor,
-                                            fontSize: 10,
-                                            fontWeight: '600',
-                                            marginLeft: 3,
-                                          }}
-                                        >
-                                          {sub.sourceLabel || 'Network'}
-                                        </Text>
-                                      </View>
-                                      {isBpsListing ? (
-                                        <>
-                                          <View
-                                            style={{
-                                              backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.14)' : 'rgba(22, 163, 74, 0.08)',
-                                              paddingHorizontal: 7,
-                                              paddingVertical: 3,
-                                              borderRadius: 8,
-                                              flexDirection: 'row',
-                                              alignItems: 'center',
-                                              borderWidth: 1,
-                                              borderColor: 'rgba(52, 211, 153, 0.4)',
-                                            }}
-                                          >
-                                            <MaterialIcons name={'verified' as any} size={11} color={sourceIconColor} />
-                                            <Text
-                                              style={{
-                                                color: sourceTextColor,
-                                                fontSize: 10,
-                                                fontWeight: '700',
-                                                marginLeft: 3,
-                                              }}
-                                            >
-                                              BPS
-                                            </Text>
-                                          </View>
-                                          <View
-                                            style={{
-                                              backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(22, 163, 74, 0.06)',
-                                              paddingHorizontal: 7,
-                                              paddingVertical: 3,
-                                              borderRadius: 8,
-                                              borderWidth: 1,
-                                              borderColor: 'rgba(52, 211, 153, 0.35)',
-                                            }}
-                                          >
-                                            <Text
-                                              style={{
-                                                color: darkMode ? '#86efac' : '#166534',
-                                                fontSize: 10,
-                                                fontWeight: '700',
-                                              }}
-                                            >
-                                              Verified by BPS
-                                            </Text>
-                                          </View>
-                                        </>
-                                      ) : null}
-                                      {!isBpsListing && isGoogle && sub.unverifiedLabel ? (
-                                        <View
-                                          style={{
-                                            backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15,23,42,0.06)',
-                                            paddingHorizontal: 7,
-                                            paddingVertical: 3,
-                                            borderRadius: 8,
-                                            borderWidth: 1,
-                                            borderColor: darkMode ? 'rgba(148, 163, 184, 0.28)' : Colors.line,
-                                          }}
-                                        >
-                                          <Text
-                                            style={{
-                                              color: darkMode ? 'rgba(226,232,240,0.82)' : Colors.sub,
-                                              fontSize: 10,
-                                              fontWeight: '600',
-                                            }}
-                                          >
-                                            {sub.unverifiedLabel}
-                                          </Text>
-                                        </View>
-                                      ) : null}
-                                      {sub.campaignVerified && !isGoogle ? (
-                                        <MaterialIcons name="verified" size={14} color="#10B981" />
-                                      ) : null}
-                                    </View>
-                                  </View>
-                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                                    <MaterialIcons name="star" size={15} color="#fbbf24" style={{ marginRight: 4 }} />
-                                    <Text style={{ color: '#fbbf24', fontSize: 14, fontWeight: '700', marginRight: 6 }}>
-                                      {typeof sub.rating === 'number' && !Number.isNaN(sub.rating)
-                                        ? sub.rating.toFixed(1)
-                                        : sub.rating}
-                                    </Text>
-                                    <Text style={{ color: subMeta, fontSize: 13 }}>({sub.reviews} reviews)</Text>
-                                  </View>
-                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                    <View
-                                      style={{
-                                        backgroundColor: isWeb ? '#22c55e' : 'rgba(34, 197, 94, 0.2)',
-                                        paddingHorizontal: 9,
-                                        paddingVertical: 4,
-                                        borderRadius: 8,
-                                        borderWidth: 1,
-                                        borderColor: isWeb ? '#22c55e' : 'rgba(34, 197, 94, 0.35)',
-                                      }}
-                                    >
-                                      <Text
-                                        style={{
-                                          color: isWeb ? '#000000' : darkMode ? '#86efac' : '#166534',
-                                          fontSize: 11,
-                                          fontWeight: '700',
-                                        }}
-                                      >
-                                        {sub.trade}
-                                      </Text>
-                                    </View>
-                                    {isGoogle ? (
-                                      <Text style={{ color: subMeta, fontSize: 11, fontWeight: '500' }}>
-                                        Public Google listing
-                                      </Text>
-                                    ) : null}
-                                    {!isGoogle && sub.licensed ? (
-                                      <Text style={{ color: darkMode ? '#93c5fd' : '#1d4ed8', fontSize: 11, fontWeight: '600' }}>
-                                        ✓ Licensed
-                                      </Text>
-                                    ) : null}
-                                    {!isGoogle && sub.insured ? (
-                                      <Text style={{ color: darkMode ? '#93c5fd' : '#1d4ed8', fontSize: 11, fontWeight: '600' }}>
-                                        ✓ Insured
-                                      </Text>
-                                    ) : null}
-                                    {sub.hasCampaign ? (
-                                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                                        <View
-                                          style={{
-                                            backgroundColor: '#8B5CF6',
-                                            paddingHorizontal: 6,
-                                            paddingVertical: 2,
-                                            borderRadius: 8,
-                                            flexDirection: 'row',
-                                            alignItems: 'center',
-                                          }}
-                                        >
-                                          <MaterialIcons name="campaign" size={10} color="#FFFFFF" />
-                                          <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '600', marginLeft: 2 }}>
-                                            CAMPAIGN CREATOR
-                                          </Text>
-                                        </View>
-                                        {sub.portfolioPhotos ? (
-                                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                            <MaterialIcons name="photo-library" size={12} color="#43cea2" />
-                                            <Text style={{ color: '#43cea2', fontSize: 11, marginLeft: 2 }}>
-                                              {sub.portfolioPhotos}
-                                            </Text>
-                                          </View>
-                                        ) : null}
-                                        {sub.yearsExperience ? (
-                                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                            <MaterialIcons name="work" size={12} color="#F59E0B" />
-                                            <Text style={{ color: '#F59E0B', fontSize: 11, marginLeft: 2 }}>
-                                              {sub.yearsExperience}y
-                                            </Text>
-                                          </View>
-                                        ) : null}
-                                        {sub.responseTime ? (
-                                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                            <MaterialIcons name="schedule" size={12} color="#3B82F6" />
-                                            <Text style={{ color: '#3B82F6', fontSize: 11, marginLeft: 2 }}>
-                                              {String(sub.responseTime).replace('_', ' ')}
-                                            </Text>
-                                          </View>
-                                        ) : null}
-                                      </View>
-                                    ) : null}
-                                  </View>
-                                </View>
-                              </View>
-
-                              <View style={{ marginBottom: 8, gap: 6 }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                  <MaterialIcons name="place" size={16} color={subMeta2} style={{ marginTop: 1 }} />
-                                  <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18, flex: 1 }}>{locLine}</Text>
-                                </View>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                  <MaterialIcons name="payments" size={16} color={subMeta2} style={{ marginTop: 1 }} />
-                                  <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18, flex: 1 }}>
-                                    {sub.hideHourlyRate
-                                      ? 'Pricing not listed — contact for quote'
-                                      : `$${sub.hourlyRate.min}-${sub.hourlyRate.max}/hr`}
-                                  </Text>
-                                </View>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                  <MaterialIcons name="event-available" size={16} color={subMeta2} style={{ marginTop: 1 }} />
-                                  <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18, flex: 1 }}>
-                                    {sub.availability}
-                                  </Text>
-                                </View>
-                              </View>
-
-                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                                {(sub.specialties || []).map((spec: string) => (
-                                  <View
-                                    key={spec}
-                                    style={{
-                                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.bg,
-                                      paddingHorizontal: 9,
-                                      paddingVertical: 4,
-                                      borderRadius: 10,
-                                      borderWidth: 1,
-                                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
-                                    }}
-                                  >
-                                    <Text
-                                      style={{
-                                        color: darkMode ? 'rgba(248, 250, 252, 0.9)' : Colors.text,
-                                        fontSize: 11,
-                                        fontWeight: '500',
-                                      }}
-                                    >
-                                      {spec}
-                                    </Text>
-                                  </View>
-                                ))}
-                              </View>
-
-                              {isGoogle ? (
-                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-                                  {sub.phone ? (
-                                    <TouchableOpacity
-                                      style={googleQuickBtn}
-                                  onPress={() => {
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                    dialPhone(sub);
-                                  }}
-                                    >
-                                      <MaterialIcons name="call" size={16} color="#34d399" />
-                                      <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontWeight: '600', fontSize: 12 }}>
-                                        Call
-                                      </Text>
-                                    </TouchableOpacity>
-                                  ) : null}
-                                  {sub.website || sub.url ? (
-                                    <TouchableOpacity
-                                      style={googleQuickBtn}
-                                      onPress={() => {
-                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                        openWebsite(sub);
-                                      }}
-                                    >
-                                      <MaterialIcons name="language" size={16} color="#60a5fa" />
-                                      <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontWeight: '600', fontSize: 12 }}>
-                                        Website
-                                      </Text>
-                                    </TouchableOpacity>
-                                  ) : null}
-                                  {sub.googleMapsUri ? (
-                                    <TouchableOpacity
-                                      style={googleQuickBtn}
-                                      onPress={() => {
-                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                        openGoogleMaps(sub);
-                                      }}
-                                    >
-                                      <MaterialIcons name="map" size={16} color="#fbbf24" />
-                                      <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontWeight: '600', fontSize: 12 }}>
-                                        Google Maps
-                                      </Text>
-                                    </TouchableOpacity>
-                                  ) : null}
-                                </View>
-                              ) : null}
-
-                              <View style={{ flexDirection: 'row', gap: 10 }}>
-                                <TouchableOpacity
+                              <Text
+                                numberOfLines={2}
+                                style={{
+                                  color: darkMode ? '#f8fafc' : Colors.text,
+                                  fontSize: 16,
+                                  fontWeight: '700',
+                                  lineHeight: 22,
+                                  flex: 1,
+                                }}
+                              >
+                                {sub.name}
+                              </Text>
+                              <View
+                                style={{
+                                  backgroundColor: sourceBadgeBg,
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 4,
+                                  borderRadius: 8,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  borderWidth: 1,
+                                  borderColor: sourceBadgeBorder,
+                                  flexShrink: 0,
+                                }}
+                              >
+                                <MaterialIcons name={sourceBadgeIcon as any} size={11} color={sourceIconColor} />
+                                <Text
                                   style={{
-                                    flex: 1,
-                                    backgroundColor: '#22c55e',
-                                    paddingVertical: 9,
-                                    borderRadius: 10,
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    shadowColor: '#000000',
-                                    shadowOpacity: 0.12,
-                                    shadowRadius: 4,
-                                    shadowOffset: { width: 0, height: 1 },
-                                    elevation: 2,
-                                  }}
-                                  onPress={() => {
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                    handleSelectSubcontractor(sub);
+                                    color: sourceTextColor,
+                                    fontSize: 10,
+                                    fontWeight: '700',
+                                    marginLeft: 4,
                                   }}
                                 >
-                                  <Text style={{ color: '#020617', fontWeight: '700', fontSize: 14 }}>Add to Bid</Text>
-                                </TouchableOpacity>
-                                {sub.hasCampaign ? (
-                                  <TouchableOpacity
+                                  {sourceBadgeLabel}
+                                </Text>
+                              </View>
+                            </View>
+
+                            {metaText || metaParts.distance ? (
+                              <View
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'flex-start',
+                                  gap: 8,
+                                  marginBottom: ratingInfo || pricingLine ? 6 : 0,
+                                }}
+                              >
+                                {metaText ? (
+                                  <Text
+                                    numberOfLines={2}
+                                    style={{ color: subMeta, fontSize: 13, lineHeight: 18, flex: 1 }}
+                                  >
+                                    {metaText}
+                                  </Text>
+                                ) : (
+                                  <View style={{ flex: 1 }} />
+                                )}
+                                {metaParts.distance ? (
+                                  <View
                                     style={{
-                                      flex: 1,
-                                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                                      paddingVertical: 9,
-                                      borderRadius: 10,
+                                      backgroundColor: distancePillBg,
                                       borderWidth: 1,
-                                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
-                                      alignItems: 'center',
-                                      flexDirection: 'row',
-                                      justifyContent: 'center',
-                                    }}
-                                    onPress={() => {
-                                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                      console.log('🖱️ Contact button pressed for:', sub.name);
+                                      borderColor: distancePillBorder,
+                                      borderRadius: 999,
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 3,
+                                      flexShrink: 0,
                                     }}
                                   >
-                                    <MaterialIcons name="campaign" size={16} color={darkMode ? 'rgba(248,250,252,0.85)' : Colors.text} />
+                                    <Text style={{ color: subMeta, fontSize: 11, fontWeight: '700' }}>
+                                      {metaParts.distance}
+                                    </Text>
+                                  </View>
+                                ) : null}
+                              </View>
+                            ) : null}
+
+                            {ratingInfo || pricingLine ? (
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
+                                {ratingInfo?.kind === 'rated' ? (
+                                  <>
+                                    <MaterialIcons name="star" size={14} color="#fbbf24" />
                                     <Text
                                       style={{
-                                        color: darkMode ? 'rgba(248,250,252,0.88)' : Colors.text,
-                                        fontWeight: '600',
+                                        color: '#fbbf24',
                                         fontSize: 13,
+                                        fontWeight: '800',
                                         marginLeft: 4,
                                       }}
                                     >
-                                      Contact
+                                      {ratingInfo.score.toFixed(1)}
                                     </Text>
-                                  </TouchableOpacity>
-                                ) : (
-                                  <TouchableOpacity
+                                    <Text style={{ color: subMeta, fontSize: 13, marginLeft: 5 }}>
+                                      ({ratingInfo.reviews} review{ratingInfo.reviews === 1 ? '' : 's'})
+                                    </Text>
+                                  </>
+                                ) : ratingInfo?.kind === 'new_listing' ? (
+                                  <Text style={{ color: subMeta, fontSize: 13, fontWeight: '600' }}>New listing</Text>
+                                ) : null}
+                                {pricingLine ? (
+                                  <>
+                                    {ratingInfo ? (
+                                      <Text style={{ color: subMeta2, fontSize: 13, marginHorizontal: 6 }}>·</Text>
+                                    ) : null}
+                                    <Text style={{ color: subMeta, fontSize: 13 }}>{pricingLine}</Text>
+                                  </>
+                                ) : null}
+                              </View>
+                            ) : null}
+
+                            {uniqueSpecialties.length > 0 ? (
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                                {uniqueSpecialties.slice(0, 2).map((spec: string) => (
+                                  <View
+                                    key={spec}
                                     style={{
-                                      flex: 1,
-                                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                                      paddingVertical: 9,
-                                      borderRadius: 10,
+                                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.bg,
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 3,
+                                      borderRadius: 8,
                                       borderWidth: 1,
-                                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                    }}
-                                    onPress={() => {
-                                      openContractorProfile(sub);
+                                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
                                     }}
                                   >
-                                    <Text style={{ color: darkMode ? 'rgba(248,250,252,0.88)' : Colors.text, fontWeight: '600', fontSize: 13 }}>
-                                      View Profile
-                                    </Text>
-                                  </TouchableOpacity>
-                                )}
+                                    <Text style={{ color: subMeta, fontSize: 11, fontWeight: '500' }}>{spec}</Text>
+                                  </View>
+                                ))}
                               </View>
+                            ) : null}
+
+                            {isGoogle && !isBpsListing && sub.unverifiedLabel ? (
+                              <Text style={{ color: subMeta2, fontSize: 11, marginTop: 8 }}>
+                                {sub.unverifiedLabel}
+                              </Text>
+                            ) : null}
+                          </Pressable>
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                            <TouchableOpacity
+                              style={{
+                                flex: 1,
+                                backgroundColor: ESTIMATE_FLOW_GREEN,
+                                paddingVertical: 10,
+                                borderRadius: 10,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                              onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                handleSelectSubcontractor(sub);
+                              }}
+                            >
+                              <Text style={{ color: '#0f172a', fontWeight: '800', fontSize: 14 }}>Add to Bid</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => openContractorProfile(sub)}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                paddingVertical: 10,
+                                paddingHorizontal: 2,
+                              }}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Text style={{ color: subMeta, fontWeight: '600', fontSize: 13 }}>Profile</Text>
+                              <MaterialIcons name="chevron-right" size={18} color={subMeta2} />
                             </TouchableOpacity>
                           </View>
                         </View>
@@ -2697,70 +2575,112 @@ function SubcontractorSearchModal({
           transparent={false}
           onRequestClose={() => setShowProfile(false)}
         >
-          <View style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}>
-            <View style={{ flex: 1, paddingTop: 56 }}>
-              {/* Back Button */}
-              <View style={{
-                position: 'absolute',
-                top: 48,
-                left: 18,
-                zIndex: 10,
-              }}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    padding: 1,
-                  }}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      setShowProfile(false);
-                    }}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      borderRadius: 19,
-                      backgroundColor: darkMode ? '#000000' : Colors.bg,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <MaterialIcons
-                      name="arrow-back"
-                      size={24}
-                      color={darkMode ? '#FFFFFF' : Colors.text}
-                    />
-                  </GradientRingBackInner>
-                </LinearGradient>
+          <View style={{ flex: 1, backgroundColor: Colors.bg, paddingTop: insets.top }}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
+                  paddingTop: 8,
+                  paddingBottom: 14,
+                  marginBottom: 8,
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: headerRule,
+                }}
+              >
+                <View style={[{ flexDirection: 'row', alignItems: 'center', flex: 1 }, webColumn860]}>
+                  <View style={{ marginRight: 12 }}>
+                    <LinearGradient
+                      colors={BRAND_FRAME_GRADIENT_COLORS}
+                      start={{ x: 0.05, y: 0.15 }}
+                      end={{ x: 0.95, y: 0.85 }}
+                      style={{ width: 40, height: 40, borderRadius: 20, padding: 1 }}
+                    >
+                      <GradientRingBackInner
+                        darkMode={darkMode}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setShowProfile(false);
+                        }}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          borderRadius: 19,
+                          backgroundColor: darkMode ? Colors.card : Colors.bg,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <MaterialIcons
+                          name="arrow-back"
+                          size={24}
+                          color={darkMode ? '#FFFFFF' : Colors.text}
+                        />
+                      </GradientRingBackInner>
+                    </LinearGradient>
+                  </View>
+                  <View style={{ marginRight: 12 }}>
+                    <LinearGradient
+                      colors={BRAND_FRAME_GRADIENT_COLORS}
+                      start={{ x: 0.05, y: 0.15 }}
+                      end={{ x: 0.95, y: 0.85 }}
+                      style={{ borderRadius: 12, padding: 1 }}
+                    >
+                      <View
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 11,
+                          backgroundColor: darkMode ? Colors.card : Colors.bg,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <MaterialCommunityIcons name="account-hard-hat" size={24} color={ESTIMATE_FLOW_GREEN} />
+                      </View>
+                    </LinearGradient>
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text
+                      style={{
+                        color: darkMode ? '#f8fafc' : Colors.text,
+                        fontSize: 24,
+                        fontWeight: '700',
+                        letterSpacing: -0.35,
+                        lineHeight: 30,
+                      }}
+                      numberOfLines={2}
+                    >
+                      Contractor Profile
+                    </Text>
+                    <Text
+                      style={{
+                        color: subMeta,
+                        fontSize: 13,
+                        marginTop: 5,
+                        fontWeight: '500',
+                        lineHeight: 18,
+                      }}
+                      numberOfLines={2}
+                    >
+                      {selectedSubcontractor.name}
+                    </Text>
+                  </View>
+                </View>
               </View>
 
-              {/* Header */}
-              <Text style={{ 
-                color: darkMode ? '#f8fafc' : Colors.text, 
-                fontSize: 18, 
-                fontWeight: '700', 
-                textAlign: 'center',
-                marginTop: 18,
-                marginBottom: 6,
-                paddingHorizontal: 56,
-                letterSpacing: -0.2,
-              }}>
-                Contractor Profile
-              </Text>
-
-              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 32 }}>
-                {/* Name & Trade */}
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 24, fontWeight: '700', marginBottom: 10, letterSpacing: -0.35, lineHeight: 30 }}>
-                    {selectedSubcontractor.name}
-                  </Text>
+              <ScrollView
+                style={{ flex: 1 }}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{
+                  paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
+                  paddingTop: ESTIMATE_FLOW_CARD_GAP,
+                  paddingBottom: 16,
+                }}
+                {...FORM_KEYBOARD_SCROLL_PROPS}
+              >
+                <View style={webColumn860}>
+                <View style={estimateFlowCardStyle(Colors, darkMode)}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                     <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.2)', paddingHorizontal: 11, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.35)' }}>
                       <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 13, fontWeight: '700' }}>{selectedSubcontractor.trade}</Text>
@@ -2800,32 +2720,32 @@ function SubcontractorSearchModal({
                     ) : null}
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <MaterialIcons name="star" size={20} color="#fbbf24" style={{ marginRight: 6 }} />
                     <Text style={{ color: '#fbbf24', fontSize: 18, fontWeight: '700', marginRight: 8 }}>
-                      ⭐{' '}
                       {typeof selectedSubcontractor.rating === 'number' && !Number.isNaN(selectedSubcontractor.rating)
                         ? selectedSubcontractor.rating.toFixed(1)
                         : selectedSubcontractor.rating}
                     </Text>
                     <Text style={{ color: subMeta, fontSize: 14 }}>({selectedSubcontractor.reviews} reviews)</Text>
                   </View>
-                </View>
 
-                {/* Key Info Cards */}
-                <View style={{ gap: 10, marginBottom: 22 }}>
-                  <View style={{ ...subCard, padding: 18 }}>
-                    <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.15 }}>📍 Location</Text>
+                  <View style={{ marginBottom: 18, marginTop: 18 }}>
+                    <Text style={profileSectionLabel}>Location</Text>
+                    <View style={profileNestedField}>
                     <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 16, fontWeight: '600', lineHeight: 22 }}>
                       {selectedSubcontractor.location}
                       {selectedSubcontractor.distance != null && selectedSubcontractor.distance !== ''
                         ? ` (${selectedSubcontractor.distance} miles away)`
                         : ''}
                     </Text>
+                    </View>
                   </View>
 
-                  <View style={{ ...subCard, padding: 18 }}>
-                    <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.15 }}>💰 Hourly Rate</Text>
+                  <View style={{ marginBottom: 18 }}>
+                    <Text style={profileSectionLabel}>Hourly rate</Text>
+                    <View style={profileNestedField}>
                     {selectedSubcontractor.hideHourlyRate || selectedSubcontractor.source === 'google_places' || selectedSubcontractor.source === 'bps' ? (
-                      <Text style={{ color: subMeta, fontSize: 16, fontWeight: '600', lineHeight: 22 }}>
+                      <Text style={{ color: subMeta, fontSize: 15, fontWeight: '500', lineHeight: 22 }}>
                         Not listed for this listing — request a quote to confirm pricing.
                       </Text>
                     ) : (
@@ -2833,17 +2753,21 @@ function SubcontractorSearchModal({
                         ${selectedSubcontractor.hourlyRate.min} - ${selectedSubcontractor.hourlyRate.max}/hr
                       </Text>
                     )}
+                    </View>
                   </View>
 
-                  <View style={{ ...subCard, padding: 18 }}>
-                    <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.15 }}>📅 Availability</Text>
+                  <View style={{ marginBottom: 18 }}>
+                    <Text style={profileSectionLabel}>Availability</Text>
+                    <View style={profileNestedField}>
                     <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 16, fontWeight: '600', lineHeight: 22 }}>
                       {selectedSubcontractor.availability}
                     </Text>
+                    </View>
                   </View>
 
-                  <View style={{ ...subCard, padding: 18 }}>
-                    <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 12, letterSpacing: 0.15 }}>📞 Contact</Text>
+                  <View style={{ marginBottom: 18 }}>
+                    <Text style={profileSectionLabel}>Contact</Text>
+                    <View style={profileNestedField}>
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 }}>
                       <MaterialIcons name="phone" size={20} color="#4ade80" style={{ marginRight: 12, marginTop: 2 }} />
                       <View style={{ flex: 1 }}>
@@ -2886,13 +2810,13 @@ function SubcontractorSearchModal({
                         )}
                       </View>
                     </View>
+                    </View>
                   </View>
 
                   {selectedSubcontractor.source === 'google_places' || selectedSubcontractor.source === 'bps' ? (
-                    <View style={{ ...subCard, padding: 18 }}>
-                      <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 10, letterSpacing: 0.15 }}>
-                        Quick links
-                      </Text>
+                    <View style={{ marginBottom: 18 }}>
+                      <Text style={profileSectionLabel}>Quick links</Text>
+                      <View style={profileNestedField}>
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                         {selectedSubcontractor.website || selectedSubcontractor.url ? (
                           <TouchableOpacity
@@ -2933,11 +2857,13 @@ function SubcontractorSearchModal({
                           </TouchableOpacity>
                         ) : null}
                       </View>
+                      </View>
                     </View>
                   ) : null}
 
-                  <View style={{ ...subCard, padding: 18 }}>
-                    <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.15 }}>🏢 Company</Text>
+                  <View style={{ marginBottom: 18 }}>
+                    <Text style={profileSectionLabel}>Company</Text>
+                    <View style={profileNestedField}>
                     <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 16, fontWeight: '600', marginBottom: 6, lineHeight: 22 }}>
                       {selectedSubcontractor.company || selectedSubcontractor.name}
                     </Text>
@@ -2956,23 +2882,23 @@ function SubcontractorSearchModal({
                         License: {selectedSubcontractor.licenseNumber || 'Not provided'}
                       </Text>
                     )}
+                    </View>
                   </View>
-                </View>
 
                 {/* Professional Badges */}
-                <View style={{ marginBottom: 22 }}>
-                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
-                    {selectedSubcontractor.source === 'google_places' ? 'Verification' : selectedSubcontractor.source === 'bps' ? 'BPS listing' : 'Professional Credentials'}
+                <View style={{ marginBottom: 18 }}>
+                  <Text style={profileSectionLabel}>
+                    {selectedSubcontractor.source === 'google_places' ? 'Verification' : selectedSubcontractor.source === 'bps' ? 'BPS listing' : 'Professional credentials'}
                   </Text>
                   {selectedSubcontractor.source === 'google_places' ? (
-                    <View style={{ ...subCard, padding: 16 }}>
+                    <View style={profileNestedField}>
                       <Text style={{ color: subMeta, fontSize: 14, lineHeight: 22 }}>
                         BPS does not display license or insurance for Google-sourced listings. Confirm credentials
                         directly with the business before hiring.
                       </Text>
                     </View>
                   ) : selectedSubcontractor.source === 'bps' ? (
-                    <View style={{ ...subCard, padding: 16 }}>
+                    <View style={profileNestedField}>
                       <Text style={{ color: subMeta, fontSize: 14, lineHeight: 22 }}>
                         Directory listings show active BPS accounts only. License and insurance are not verified by BPS
                         here — confirm with the contractor.
@@ -3065,11 +2991,11 @@ function SubcontractorSearchModal({
                 </View>
 
                 {/* Company Bio */}
-                <View style={{ marginBottom: 22 }}>
-                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
+                <View style={{ marginBottom: 18 }}>
+                  <Text style={profileSectionLabel}>
                     About {selectedSubcontractor.name}
                   </Text>
-                  <View style={{ ...subCard, padding: 18 }}>
+                  <View style={profileNestedField}>
                     <View style={{ alignItems: 'flex-start' }}>
                       {selectedSubcontractor.bio ? (
                         <Text style={{ 
@@ -3177,11 +3103,12 @@ function SubcontractorSearchModal({
 
                 {/* Portfolio Photos */}
                 {selectedSubcontractor.portfolioPhotos && selectedSubcontractor.portfolioPhotos > 0 && (
-                  <View style={{ marginBottom: 22 }}>
-                    <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
+                  <View style={{ marginBottom: 18 }}>
+                    <Text style={profileSectionLabel}>
                       Portfolio ({selectedSubcontractor.portfolioPhotos} photos)
                     </Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                    <View style={profileNestedField}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       {selectedSubcontractor.portfolio && selectedSubcontractor.portfolio.length > 0 ? (
                         // Show actual uploaded photos
                         selectedSubcontractor.portfolio.slice(0, 6).map((photo: any, i: number) => (
@@ -3276,16 +3203,15 @@ function SubcontractorSearchModal({
                         })
                       )}
                     </ScrollView>
+                    </View>
                   </View>
                 )}
 
                 {/* Experience & Team */}
                 {(selectedSubcontractor.yearsExperience || selectedSubcontractor.teamSize) && (
-                  <View style={{ marginBottom: 22 }}>
-                    <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
-                      Experience & Team
-                    </Text>
-                    <View style={{ ...subCard, padding: 18 }}>
+                  <View style={{ marginBottom: 18 }}>
+                    <Text style={profileSectionLabel}>Experience & team</Text>
+                    <View style={profileNestedField}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
                         {selectedSubcontractor.yearsExperience && (
                           <View style={{ flex: 1, marginRight: 8 }}>
@@ -3322,11 +3248,9 @@ function SubcontractorSearchModal({
 
                 {/* Service Areas */}
                 {selectedSubcontractor.serviceAreas && selectedSubcontractor.serviceAreas.length > 0 && (
-                  <View style={{ marginBottom: 22 }}>
-                    <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
-                      Service Areas
-                    </Text>
-                    <View style={{ ...subCard, padding: 18 }}>
+                  <View style={{ marginBottom: 18 }}>
+                    <Text style={profileSectionLabel}>Service areas</Text>
+                    <View style={profileNestedField}>
                       {selectedSubcontractor.serviceAreas.map((area: any, index: number) => (
                         <View key={index} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 8, borderBottomWidth: index < selectedSubcontractor.serviceAreas.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line }}>
                           <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 16, fontWeight: '600' }}>
@@ -3343,11 +3267,9 @@ function SubcontractorSearchModal({
 
                 {/* Specialty Pricing */}
                 {selectedSubcontractor.specialtyPricing && Object.keys(selectedSubcontractor.specialtyPricing).length > 0 && (
-                  <View style={{ marginBottom: 22 }}>
-                    <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
-                      Specialty Pricing
-                    </Text>
-                    <View style={{ ...subCard, padding: 18 }}>
+                  <View style={{ marginBottom: 18 }}>
+                    <Text style={profileSectionLabel}>Specialty pricing</Text>
+                    <View style={profileNestedField}>
                       {Object.entries(selectedSubcontractor.specialtyPricing).map(([specialty, pricing]: [string, any], index, arr) => (
                         <View key={specialty} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 8, borderBottomWidth: index < arr.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line }}>
                           <Text style={{ color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 15, fontWeight: '600' }}>
@@ -3363,8 +3285,9 @@ function SubcontractorSearchModal({
                 )}
 
                 {/* Specialties */}
-                <View style={{ marginBottom: 22 }}>
-                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>Specialties</Text>
+                <View style={{ marginBottom: 18 }}>
+                  <Text style={profileSectionLabel}>Specialties</Text>
+                  <View style={profileNestedField}>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     {(selectedSubcontractor.specialties || []).map((spec: string) => (
                       <View key={spec} style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.28)' }}>
@@ -3372,13 +3295,14 @@ function SubcontractorSearchModal({
                       </View>
                     ))}
                   </View>
+                  </View>
                 </View>
 
                 {/* Experience */}
                 {selectedSubcontractor.source !== 'google_places' ? (
-                <View style={{ marginBottom: 22 }}>
-                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>Experience</Text>
-                  <View style={{ ...subCard, padding: 18 }}>
+                <View style={{ marginBottom: 18 }}>
+                  <Text style={profileSectionLabel}>Experience</Text>
+                  <View style={profileNestedField}>
                     <Text style={{ color: subMeta, fontSize: 15, lineHeight: 24 }}>
                       {selectedSubcontractor.yearsExperience} years of professional experience in {selectedSubcontractor.trade.toLowerCase()}. 
                       Completed over {selectedSubcontractor.completedJobs} projects with an average rating of {selectedSubcontractor.rating} stars.
@@ -3387,20 +3311,30 @@ function SubcontractorSearchModal({
                 </View>
                 ) : null}
 
-                {/* Primary actions: bid, then call + message */}
-                <View style={{ gap: 10, paddingBottom: 24 }}>
-                  {/* Add to Bid Button */}
-                  <TouchableOpacity
+                </View>
+                </View>
+              </ScrollView>
+
+              <View
+                style={{
+                  paddingHorizontal: ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD,
+                  paddingTop: 14,
+                  paddingBottom: Math.max(insets.bottom, 16),
+                  borderTopWidth: StyleSheet.hairlineWidth,
+                  borderTopColor: headerRule,
+                  gap: 10,
+                }}
+              >
+                <View style={[webColumn860, { gap: ESTIMATE_FLOW_CARD_GAP }]}>
+                <TouchableOpacity
                     style={{
-                      backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.14)' : 'rgba(34, 197, 94, 0.1)',
-                      paddingVertical: 16,
+                      backgroundColor: ESTIMATE_FLOW_GREEN,
+                      paddingVertical: 15,
                       borderRadius: 14,
-                      borderWidth: 1.5,
-                      borderColor: 'rgba(45, 255, 196, 0.55)',
                       alignItems: 'center',
                       flexDirection: 'row',
                       justifyContent: 'center',
-                      gap: 8
+                      gap: 8,
                     }}
                     onPress={() => {
                       console.log('🆕 NEW BUTTON: Add to Bid pressed');
@@ -3442,20 +3376,20 @@ function SubcontractorSearchModal({
                         console.log('✅ Modal closed');
                       }
                     }}
-                  >
-                    <MaterialIcons name="add" size={20} color="#4ade80" />
-                    <Text style={{ color: '#86efac', fontWeight: '700', fontSize: 16 }}>Add to Bid</Text>
-                  </TouchableOpacity>
+                    >
+                      <MaterialIcons name="add" size={20} color="#0f172a" />
+                      <Text style={{ color: '#0f172a', fontWeight: '800', fontSize: 15 }}>Add to Bid</Text>
+                    </TouchableOpacity>
 
                   <View style={{ flexDirection: 'row', gap: 10 }}>
                     <TouchableOpacity
                       style={{
                         flex: 1,
-                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                        borderWidth: 1,
-                        borderColor: 'rgba(52, 211, 153, 0.35)',
+                        backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : 'rgba(0,0,0,0.03)',
+                        borderWidth: StyleSheet.hairlineWidth,
+                        borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
                         borderRadius: 12,
-                        paddingVertical: 14,
+                        paddingVertical: 15,
                         flexDirection: 'row',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -3468,17 +3402,17 @@ function SubcontractorSearchModal({
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                       }}
                     >
-                      <MaterialIcons name="phone" size={18} color="#34d399" />
-                      <Text style={{ color: '#6ee7b7', fontWeight: '600', fontSize: 14 }}>Call</Text>
+                      <MaterialIcons name="phone" size={18} color={darkMode ? '#e2e8f0' : Colors.text} />
+                      <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontWeight: '600', fontSize: 14 }}>Call</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={{
                         flex: 1,
-                        backgroundColor: 'rgba(139, 92, 246, 0.08)',
-                        borderWidth: 1,
-                        borderColor: 'rgba(167, 139, 250, 0.35)',
+                        backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : 'rgba(0,0,0,0.03)',
+                        borderWidth: StyleSheet.hairlineWidth,
+                        borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
                         borderRadius: 12,
-                        paddingVertical: 14,
+                        paddingVertical: 15,
                         flexDirection: 'row',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -3519,13 +3453,12 @@ function SubcontractorSearchModal({
                         }
                       }}
                     >
-                      <MaterialIcons name="message" size={18} color="#a78bfa" />
-                      <Text style={{ color: '#c4b5fd', fontWeight: '600', fontSize: 14 }}>Message</Text>
+                      <MaterialIcons name="message" size={18} color={darkMode ? '#e2e8f0' : Colors.text} />
+                      <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontWeight: '600', fontSize: 14 }}>Message</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
-              </ScrollView>
-            </View>
+              </View>
           </View>
         </Modal>
       )}
@@ -3853,7 +3786,7 @@ function SubcontractorSearchModal({
                           alignItems: 'center',
                           justifyContent: 'center',
                           minHeight: 42,
-                          backgroundColor: '#22c55e',
+                          backgroundColor: ESTIMATE_FLOW_GREEN,
                           shadowColor: '#000000',
                           shadowOpacity: darkMode ? 0.25 : 0.12,
                           shadowRadius: 8,
@@ -3861,26 +3794,24 @@ function SubcontractorSearchModal({
                           elevation: 3,
                         }}
                       >
-                        <Text style={{ color: '#020617', textAlign: 'center', fontWeight: '700', fontSize: 14, letterSpacing: 0.15 }}>
+                        <Text style={{ color: '#0f172a', textAlign: 'center', fontWeight: '800', fontSize: 14, letterSpacing: 0.15 }}>
                           {isSubmitting ? 'Sending…' : 'Send request'}
                         </Text>
                       </View>
                     ) : (
-                      <LinearGradient
-                        colors={isSubmitting ? ['#6b7280', '#4b5563'] : ['#22c55e', '#22d3ee']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
+                      <View
                         style={{
                           paddingVertical: 14,
                           alignItems: 'center',
                           justifyContent: 'center',
                           minHeight: 42,
+                          backgroundColor: ESTIMATE_FLOW_GREEN,
                         }}
                       >
-                        <Text style={{ color: isSubmitting ? '#f8fafc' : '#020617', textAlign: 'center', fontWeight: '800', fontSize: 15, letterSpacing: 0.2 }}>
+                        <Text style={{ color: '#0f172a', textAlign: 'center', fontWeight: '800', fontSize: 15, letterSpacing: 0.2 }}>
                           {isSubmitting ? 'Sending…' : 'Send request'}
                         </Text>
-                      </LinearGradient>
+                      </View>
                     )}
                   </Pressable>
 

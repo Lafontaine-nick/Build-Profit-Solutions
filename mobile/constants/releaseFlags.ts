@@ -1,0 +1,47 @@
+/**
+ * Launch feature flags — flip both to `true` when Business plan + Team workspace ship together.
+ * Keep Team/Business code in the repo; hide all customer-facing surfaces while disabled.
+ */
+export const BUSINESS_PLAN_ENABLED = false;
+export const TEAM_WORKSPACE_ENABLED = false;
+
+export function isBusinessPlanReleased(): boolean {
+  return BUSINESS_PLAN_ENABLED;
+}
+
+export function isTeamWorkspaceReleased(): boolean {
+  return BUSINESS_PLAN_ENABLED && TEAM_WORKSPACE_ENABLED;
+}
+
+export type LaunchGatedPlan = { id: string };
+
+/** Remove Business from pricing/catalog surfaces when the plan is not released. */
+export function filterLaunchSubscriptionPlans<T extends LaunchGatedPlan>(plans: T[]): T[] {
+  if (isBusinessPlanReleased()) return plans;
+  return plans.filter((plan) => plan.id !== 'business');
+}
+
+export type ProjectDetailTabName = 'Overview' | 'Budget' | 'Timeline' | 'Calendar' | 'Team';
+
+export type ProjectTeamTabGate = {
+  hasBusinessEntitlement?: boolean;
+  hasWorkspaceAccess?: boolean;
+};
+
+/**
+ * Team tab is customer-facing only when the feature is released and the user
+ * has Business entitlement or active workspace membership (invited crew).
+ */
+export function shouldShowProjectTeamTab(options: ProjectTeamTabGate = {}): boolean {
+  if (!isTeamWorkspaceReleased()) return false;
+  const { hasBusinessEntitlement = false, hasWorkspaceAccess = false } = options;
+  return hasBusinessEntitlement || hasWorkspaceAccess;
+}
+
+export function filterProjectDetailTabs<T extends ProjectDetailTabName>(
+  tabs: T[],
+  options: ProjectTeamTabGate = {}
+): T[] {
+  if (shouldShowProjectTeamTab(options)) return tabs;
+  return tabs.filter((tab) => tab !== 'Team');
+}

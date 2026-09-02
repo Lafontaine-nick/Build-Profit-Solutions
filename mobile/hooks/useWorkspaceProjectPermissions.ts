@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useBusinessEntitlement } from '@/hooks/useBusinessEntitlement';
 import { useResolvedWorkspaceAccess } from '@/hooks/useResolvedWorkspaceAccess';
 import {
   effectiveWorkspaceRole,
@@ -39,14 +40,20 @@ export type WorkspaceProjectPermissions = {
 
 export function useWorkspaceProjectPermissions(): WorkspaceProjectPermissions {
   const access = useResolvedWorkspaceAccess();
+  const entitlement = useBusinessEntitlement();
 
   return useMemo(() => {
     const hasWorkspace = Boolean(access?.hasWorkspaceAccess);
-    const isOwner = hasWorkspace && access?.isOwner === true;
+    const isWorkspaceOwner = hasWorkspace && access?.isOwner === true;
+    const isSoloAccount = !hasWorkspace;
+    const tabOwnerContext = isSoloAccount || isWorkspaceOwner;
     const role = effectiveWorkspaceRole(access?.role);
-    const visibleTabs = getVisibleProjectTabs(role, isOwner);
-    const ownerFinancials = isOwner || canViewOwnerFinancials(role);
-    const costControl = hasWorkspace && !isOwner && canViewCostControl(role);
+    const visibleTabs = getVisibleProjectTabs(role, tabOwnerContext, {
+      hasBusinessEntitlement: entitlement.hasBusiness,
+      hasWorkspaceAccess: hasWorkspace,
+    });
+    const ownerFinancials = tabOwnerContext || canViewOwnerFinancials(role);
+    const costControl = hasWorkspace && !isWorkspaceOwner && canViewCostControl(role);
 
     const budgetAccessMode: BudgetAccessMode = ownerFinancials
       ? 'owner'
@@ -56,24 +63,24 @@ export function useWorkspaceProjectPermissions(): WorkspaceProjectPermissions {
 
     return {
       hasWorkspace,
-      isOwner,
+      isOwner: tabOwnerContext,
       role,
       visibleTabs,
-      budgetTabLabel: getBudgetTabLabel(role, isOwner),
+      budgetTabLabel: getBudgetTabLabel(role, tabOwnerContext),
       budgetAccessMode,
       canViewOwnerFinancials: ownerFinancials,
       canViewCostControl: costControl,
-      canViewProjectTeamAdmin: isOwner || canViewProjectTeamAdmin(role),
-      canUseAIFinancialInsights: isOwner || canUseAIFinancialInsights(role),
-      canViewPaymentSchedule: !hasWorkspace || isOwner || role === 'manager',
-      canCollectPayments: !hasWorkspace || isOwner,
-      canAccessEstimateAndLeads: !hasWorkspace || isOwner,
-      canEditCalendar: !hasWorkspace || isOwner || roleCanEditCalendar(role),
-      isManager: hasWorkspace && !isOwner && role === 'manager',
-      isForeman: hasWorkspace && !isOwner && role === 'foreman',
-      isField: hasWorkspace && !isOwner && role === 'field',
-      isRestrictedMember: hasWorkspace && !isOwner,
-      showProjectAI: isOwner || hasWorkspace,
+      canViewProjectTeamAdmin: tabOwnerContext || canViewProjectTeamAdmin(role),
+      canUseAIFinancialInsights: tabOwnerContext || canUseAIFinancialInsights(role),
+      canViewPaymentSchedule: isSoloAccount || isWorkspaceOwner || role === 'manager',
+      canCollectPayments: isSoloAccount || isWorkspaceOwner,
+      canAccessEstimateAndLeads: isSoloAccount || isWorkspaceOwner,
+      canEditCalendar: isSoloAccount || isWorkspaceOwner || roleCanEditCalendar(role),
+      isManager: hasWorkspace && !isWorkspaceOwner && role === 'manager',
+      isForeman: hasWorkspace && !isWorkspaceOwner && role === 'foreman',
+      isField: hasWorkspace && !isWorkspaceOwner && role === 'field',
+      isRestrictedMember: hasWorkspace && !isWorkspaceOwner,
+      showProjectAI: tabOwnerContext || hasWorkspace,
     };
-  }, [access]);
+  }, [access, entitlement.hasBusiness]);
 }

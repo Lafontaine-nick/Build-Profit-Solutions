@@ -108,6 +108,7 @@ import {
   isAllowancesCategoryName,
 } from '@/utils/estimateAllowances';
 import { AI_FLOW_CARD_BG_DARK } from '@/utils/estimateFlowCardStyle';
+import { isTeamWorkspaceReleased } from '@/constants/releaseFlags';
 
 type TabKey = "Overview" | "Budget" | "Timeline" | "Calendar" | "Team";
 
@@ -130,7 +131,7 @@ const firstPositiveNumber = (...values: any[]): number | null => {
   return null;
 };
 
-const AP_WT_STEPS: { tab: TabKey; title: string; body: string }[] = [
+const AP_WT_STEPS_BASE: { tab: TabKey; title: string; body: string }[] = [
   {
     tab: 'Overview',
     title: 'Overview',
@@ -151,12 +152,34 @@ const AP_WT_STEPS: { tab: TabKey; title: string; body: string }[] = [
     title: 'Calendar',
     body: 'Schedule site visits, deliveries, and deadlines so the crew and client stay on the same page.',
   },
-  {
-    tab: 'Team',
-    title: 'Team',
-    body: 'Assign subs and crew roles so everyone knows who is responsible for each part of the job.',
-  },
 ];
+
+const AP_WT_TEAM_STEP: { tab: TabKey; title: string; body: string } = {
+  tab: 'Team',
+  title: 'Team',
+  body: 'Assign subs and crew roles so everyone knows who is responsible for each part of the job.',
+};
+
+function getApWtSteps(): { tab: TabKey; title: string; body: string }[] {
+  return isTeamWorkspaceReleased()
+    ? [...AP_WT_STEPS_BASE, AP_WT_TEAM_STEP]
+    : AP_WT_STEPS_BASE;
+}
+
+function getProjectScreenTitleTypography(title: string): {
+  fontSize: number;
+  lineHeight: number;
+  letterSpacing: number;
+} {
+  const len = title.trim().length;
+  if (len <= 22) {
+    return { fontSize: 26, lineHeight: 31, letterSpacing: -0.45 };
+  }
+  if (len <= 40) {
+    return { fontSize: 20, lineHeight: 25, letterSpacing: -0.3 };
+  }
+  return { fontSize: 17, lineHeight: 22, letterSpacing: -0.15 };
+}
 
 type ProjectLeakCard = {
   id: string;
@@ -290,6 +313,7 @@ const CircularProgress = ({
 };
 
 function ProjectDetailContent() {
+  const apWtSteps = useMemo(() => getApWtSteps(), []);
   const router = useRouter();
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
@@ -384,8 +408,15 @@ function ProjectDetailContent() {
   const [teamRefreshTrigger, setTeamRefreshTrigger] = useState(0);
 
   useEffect(() => {
-    if (!projectPerms.visibleTabs.includes(activeTab)) {
-      setActiveTab('Overview');
+    const allowedTabs: TabKey[] = [
+      'Overview',
+      ...(projectPerms.visibleTabs.includes('Budget') ? (['Budget'] as const) : []),
+      'Timeline',
+      'Calendar',
+      ...(projectPerms.visibleTabs.includes('Team') ? (['Team'] as const) : []),
+    ];
+    if (!allowedTabs.includes(activeTab)) {
+      setActiveTab(allowedTabs.includes('Budget') ? 'Budget' : allowedTabs[0] ?? 'Timeline');
     }
   }, [activeTab, projectPerms.visibleTabs]);
 
@@ -436,8 +467,8 @@ function ProjectDetailContent() {
   const apWtSheetVisible =
     apWtWalkthroughEligible &&
     apWtStepIndex >= 0 &&
-    apWtStepIndex < AP_WT_STEPS.length &&
-    activeTab === AP_WT_STEPS[apWtStepIndex].tab;
+    apWtStepIndex < apWtSteps.length &&
+    activeTab === apWtSteps[apWtStepIndex].tab;
 
   const apWtScrollPadBottom = apWtSheetVisible
     ? Math.round(Dimensions.get('window').height * 0.24) + 28
@@ -483,10 +514,10 @@ function ProjectDetailContent() {
     const p = apWtProgress;
     const rawIdx = Number(p?.detailStepIndex);
     const idx = Number.isFinite(rawIdx)
-      ? Math.min(AP_WT_STEPS.length - 1, Math.max(0, rawIdx))
+      ? Math.min(apWtSteps.length - 1, Math.max(0, rawIdx))
       : 0;
     setApWtStepIndex(idx);
-    setActiveTab(AP_WT_STEPS[idx].tab);
+    setActiveTab(apWtSteps[idx].tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync tab once when walkthrough becomes eligible
   }, [apWtProgressLoaded, apWtComplete, apWtWalkthroughEligible]);
 
@@ -518,13 +549,13 @@ function ProjectDetailContent() {
   const handleApWtGotIt = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const nextIdx = apWtStepIndex + 1;
-    if (nextIdx >= AP_WT_STEPS.length) {
+    if (nextIdx >= apWtSteps.length) {
       await markFirstProjectWalkthroughCompleted('firstProject');
       stripApWtFromRoute();
       return;
     }
     setApWtStepIndex(nextIdx);
-    setActiveTab(AP_WT_STEPS[nextIdx].tab);
+    setActiveTab(apWtSteps[nextIdx].tab);
     await persistApWtProgress({ detailStepIndex: nextIdx });
   }, [apWtStepIndex, persistApWtProgress, stripApWtFromRoute, markFirstProjectWalkthroughCompleted]);
 
@@ -2302,7 +2333,7 @@ function ProjectDetailContent() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setActiveTab(tab);
       if (apWtWalkthroughEligible) {
-        const idx = AP_WT_STEPS.findIndex((s) => s.tab === tab);
+        const idx = apWtSteps.findIndex((s) => s.tab === tab);
         if (idx >= 0) {
           setApWtStepIndex(idx);
           void persistApWtProgress({ detailStepIndex: idx });
@@ -2316,6 +2347,11 @@ function ProjectDetailContent() {
   const projectTitle = useMemo(() => {
     return safeProjectData?.title || 'Project Details';
   }, [safeProjectData?.title]);
+
+  const projectTitleTypography = useMemo(
+    () => getProjectScreenTitleTypography(projectTitle),
+    [projectTitle]
+  );
 
   const showJustActivated = useMemo(() => {
     const status = safeProjectData?.status || 'In Progress';
@@ -2395,14 +2431,9 @@ function ProjectDetailContent() {
     }
 
     return (
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.segmentInner}
-        style={styles.segmentScrollView}
-      >
-        {tabs}
-      </ScrollView>
+      <View style={styles.segmentScrollRowWeb}>
+        <View style={[styles.segmentInner, styles.segmentInnerWeb]}>{tabs}</View>
+      </View>
     );
   }, [activeTab, styles, handleTabPress, projectPerms.visibleTabs, projectPerms.budgetTabLabel]);
 
@@ -2474,9 +2505,16 @@ function ProjectDetailContent() {
                 </GradientRingBackInner>
               </LinearGradient>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.screenTitle}>{projectTitle}</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+
+            <View style={styles.headerTitleBlock}>
+              <Text
+                style={[styles.screenTitle, projectTitleTypography]}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+              >
+                {projectTitle}
+              </Text>
+              <View style={styles.screenSubtitleRow}>
                 {projectStatus === 'Just activated' ? (
                   <Animated.Text style={[styles.screenSubtitle, { opacity: justActivatedOpacity }]}>
                     {projectStatus}
@@ -2485,11 +2523,12 @@ function ProjectDetailContent() {
                   <Text style={styles.screenSubtitle}>{projectStatus}</Text>
                 )}
                 <Text style={styles.screenSubtitle}>·</Text>
-                <Text style={styles.screenSubtitle}>{(safeProjectData as any)?.location || 'Unknown Location'}</Text>
+                <Text style={[styles.screenSubtitle, styles.screenSubtitleLocation]} numberOfLines={1}>
+                  {(safeProjectData as any)?.location || 'Unknown Location'}
+                </Text>
               </View>
             </View>
-            
-            {/* Profile with glow */}
+
             <LinearGradient
               pointerEvents="box-none"
               colors={["#22c55e", "#22d3ee"]}
@@ -2631,8 +2670,8 @@ function ProjectDetailContent() {
             <FirstEstimateWalkthroughStepSheetContent
               darkMode={darkMode}
               Colors={Colors}
-              title={AP_WT_STEPS[apWtStepIndex].title}
-              body={AP_WT_STEPS[apWtStepIndex].body}
+              title={apWtSteps[apWtStepIndex].title}
+              body={apWtSteps[apWtStepIndex].body}
               onGotIt={handleApWtGotIt}
               onSkipWalkthrough={skipActiveProjectWalkthrough}
             />
@@ -3849,13 +3888,13 @@ function ProjectDetailContent() {
         <SubscriptionPlansModal
           visible={showTeamUpgradePlans}
           returnToProjectId={id}
-          returnTab="Team"
+          returnTab="Budget"
           onUpgradeComplete={() => {
-            setActiveTab('Team');
+            setActiveTab('Budget');
           }}
           onClose={() => {
             setShowTeamUpgradePlans(false);
-            setActiveTab('Team');
+            setActiveTab('Budget');
             void businessEntitlement.refresh();
           }}
         />
@@ -4292,13 +4331,18 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   headerRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
+    alignItems: "center",
     marginTop: 12,
-    marginBottom: 18,
+    marginBottom: 14,
+  },
+  headerTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 6,
+    alignItems: "center",
   },
   backButtonWrapper: {
-    marginRight: 12,
+    flexShrink: 0,
   },
   backButtonBorder: {
     borderRadius: 20,
@@ -4314,14 +4358,26 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     alignItems: "center",
   },
   screenTitle: {
-    fontSize: 32,
     fontWeight: "800",
     color: Colors.text,
+    textAlign: "center",
+    width: "100%",
+  },
+  screenSubtitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    flexWrap: "nowrap",
+    gap: 4,
+    marginTop: 4,
+    width: "100%",
   },
   screenSubtitle: {
     fontSize: 14,
     color: darkMode ? Colors.subtext : "#475569",
-    marginTop: 4,
+  },
+  screenSubtitleLocation: {
+    flexShrink: 1,
   },
   inviteButtonContainer: {
     marginBottom: 18,
@@ -4352,19 +4408,17 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     padding: 4,
     gap: 4,
     backgroundColor: "transparent",
+    width: "100%",
   },
   segmentInnerWeb: {
     width: "100%",
     gap: 0,
   },
   segmentTab: {
-    flexShrink: 0,
-    minWidth: 88,
+    flex: 1,
+    minWidth: 0,
     borderRadius: 999,
     marginHorizontal: 1,
-    ...(Platform.OS === "web"
-      ? { flex: 1, minWidth: 0, marginHorizontal: 0 }
-      : {}),
   },
   segmentTabActive: {
     overflow: "hidden",
@@ -4826,6 +4880,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     padding: 2,
     justifyContent: "center",
     alignItems: "center",
+    flexShrink: 0,
     shadowColor: "#22c55e",
     shadowOpacity: 0.9,
     shadowOffset: { width: 0, height: 0 },

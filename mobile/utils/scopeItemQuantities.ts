@@ -13100,6 +13100,33 @@ function withUserEnteredNationalBenchmarkFallback(
     return result;
   }
 
+  // Exterior paint may show the national comparison only when the primary
+  // saved price came from the contractor pricing library. A manually entered
+  // or saved-template price is not a library sample and must not create the
+  // "National planning rate" comparison card.
+  if (
+    itemId === 'exterior_paint' &&
+    resolveTemplateRateForItem(
+      itemId,
+      resolved.unit,
+      pricingContext,
+      resolved.quantity
+    )?.origin !== 'pricing_library'
+  ) {
+    const nationalFill =
+      result.fill &&
+      !result.fill.isComparison &&
+      (result.fill.materialSource === 'national_average' ||
+        result.fill.laborSource === 'national_average' ||
+        /national\s*average|national\s*planning\s*rate/i.test(
+          String(result.fill.rateSourceLabel || '')
+        ));
+    return {
+      fill: nationalFill ? null : result.fill,
+      comparison: null,
+    };
+  }
+
   // Manual/user pricing is already active — never leave national average as an
   // applyable fill (that drives the footer "N prices ready" count).
   if (

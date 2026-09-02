@@ -29,6 +29,18 @@ export const siteLaunch = {
   isPrelaunch: process.env.NEXT_PUBLIC_PRELAUNCH !== "false",
 };
 
+/** Flip both when Business plan + Team workspace ship together. */
+export const BUSINESS_PLAN_ENABLED = false;
+export const TEAM_WORKSPACE_ENABLED = false;
+
+export function isBusinessPlanReleased(): boolean {
+  return BUSINESS_PLAN_ENABLED;
+}
+
+export function isTeamWorkspaceReleased(): boolean {
+  return BUSINESS_PLAN_ENABLED && TEAM_WORKSPACE_ENABLED;
+}
+
 /** Centralized outbound links for CTAs across the marketing site. */
 export const siteLinks = {
   signUp: `${webAppBase}/auth?mode=signup`,
@@ -290,7 +302,7 @@ export const primaryScreenshots = [
   },
 ];
 
-export const secondaryScreenshots = [
+const ALL_SECONDARY_SCREENSHOTS = [
   {
     title: "Payment Schedules",
     description:
@@ -329,7 +341,11 @@ export const secondaryScreenshots = [
   },
 ];
 
-export const pricingPlans = [
+export const secondaryScreenshots = isTeamWorkspaceReleased()
+  ? ALL_SECONDARY_SCREENSHOTS
+  : ALL_SECONDARY_SCREENSHOTS.filter((item) => item.title !== "Team Management");
+
+const ALL_PRICING_PLANS = [
   {
     id: "basic",
     name: "Basic",
@@ -390,6 +406,10 @@ export const pricingPlans = [
     ],
   },
 ];
+
+export const pricingPlans = isBusinessPlanReleased()
+  ? ALL_PRICING_PLANS
+  : ALL_PRICING_PLANS.filter((plan) => plan.id !== "business");
 
 export const faqs = [
   {

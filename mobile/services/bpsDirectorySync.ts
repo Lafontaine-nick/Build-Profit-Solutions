@@ -12,11 +12,17 @@ export type BpsDirectoryPayload = {
   listOnFindSubcontractors: boolean;
 };
 
+export type BpsDirectorySyncResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
 /**
  * Registers opt-in listing on the backend so Find Subcontractors can merge this account
  * with Google Places (verified BPS section).
  */
-export async function syncBpsDirectoryListing(payload: BpsDirectoryPayload): Promise<void> {
+export async function syncBpsDirectoryListing(
+  payload: BpsDirectoryPayload
+): Promise<BpsDirectorySyncResult> {
   const zip = String(payload.zip || '')
     .replace(/\D/g, '')
     .slice(0, 5);
@@ -34,12 +40,30 @@ export async function syncBpsDirectoryListing(payload: BpsDirectoryPayload): Pro
       zip,
       listOnFindSubcontractors: payload.listOnFindSubcontractors,
     };
-    await fetch(url, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    if (!response.ok) {
+      let detail = `Server error (${response.status})`;
+      try {
+        const errBody = await response.json();
+        if (typeof errBody?.error === 'string' && errBody.error.trim()) {
+          detail = errBody.error.trim();
+        }
+      } catch {
+        /* ignore */
+      }
+      return { ok: false, error: detail };
+    }
+    return { ok: true };
   } catch (e) {
+    const message =
+      e instanceof Error && e.message
+        ? e.message
+        : 'Could not reach the server to update your listing.';
     if (__DEV__) console.warn('syncBpsDirectoryListing failed', e);
+    return { ok: false, error: message };
   }
 }

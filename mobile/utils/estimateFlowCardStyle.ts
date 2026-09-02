@@ -212,20 +212,7 @@ export function estimateStep1ActionButtonStyle(
   darkMode: boolean,
   options?: { disabled?: boolean }
 ): ViewStyle {
-  return {
-    flex: 1,
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
-    backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : 'rgba(0,0,0,0.03)',
-    opacity: options?.disabled ? 0.45 : 1,
-  };
+  return estimateFlowNestedActionButtonStyle(Colors, darkMode, options);
 }
 
 /** Selected toggle inside a flow card — nested field fill, not the card surface. */
@@ -292,10 +279,19 @@ export function estimateStep1GhostActionStyle(
 export function estimateStep1InputCardStyle(
   Colors: FlowCardColors,
   darkMode: boolean,
-  options?: { marginBottom?: number; ready?: boolean }
+  options?: {
+    marginBottom?: number;
+    marginHorizontal?: number;
+    ready?: boolean;
+  }
 ): ViewStyle {
   return {
-    ...estimateFlowCardStyle(Colors, darkMode, { marginBottom: options?.marginBottom }),
+    ...estimateFlowCardStyle(Colors, darkMode, {
+      marginBottom: options?.marginBottom,
+    }),
+    ...(options?.marginHorizontal != null
+      ? { marginHorizontal: options.marginHorizontal }
+      : {}),
     ...(options?.ready
       ? {
           borderWidth: 1.5,

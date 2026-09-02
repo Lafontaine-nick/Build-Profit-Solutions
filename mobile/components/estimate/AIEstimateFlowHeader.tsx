@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -22,6 +22,8 @@ type Props = {
   omitTopSafeArea?: boolean;
   disabled?: boolean;
   onBack: () => void;
+  onMenuPress?: () => void;
+  menuAccessibilityLabel?: string;
 };
 
 export default function AIEstimateFlowHeader({
@@ -33,6 +35,8 @@ export default function AIEstimateFlowHeader({
   omitTopSafeArea = false,
   disabled = false,
   onBack,
+  onMenuPress,
+  menuAccessibilityLabel = 'More options',
 }: Props) {
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
@@ -91,7 +95,26 @@ export default function AIEstimateFlowHeader({
             </Text>
           ) : null}
         </View>
-        <View style={styles.headerSide} />
+        <View style={[styles.headerSide, styles.headerSideRight]}>
+          {onMenuPress ? (
+            <TouchableOpacity
+              onPress={() => {
+                if (!disabled) onMenuPress();
+              }}
+              disabled={disabled}
+              accessibilityRole="button"
+              accessibilityLabel={menuAccessibilityLabel}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={styles.menuButton}
+            >
+              <MaterialIcons
+                name="more-vert"
+                size={24}
+                color={darkMode ? '#FFFFFF' : Colors.text}
+              />
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
     </View>
   );
@@ -110,6 +133,14 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   headerSide: { width: 52, alignItems: 'flex-start' },
+  headerSideRight: { alignItems: 'flex-end' },
+  menuButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   backButtonBorder: {
     width: 40,
     height: 40,

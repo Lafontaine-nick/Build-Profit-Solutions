@@ -1570,6 +1570,29 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(comparison).toBeNull();
   });
 
+  it('does not attach exterior paint comparison to a non-library entered price', () => {
+    const input = inputWith({
+      exteriorPaintSqft: '2000',
+      pricingAcceptance: {
+        exterior_paint: { selectionStatus: 'user_entered' },
+      },
+    });
+    const resolved = {
+      quantity: 2000,
+      unit: 'sqft' as const,
+      quantitySource: 'user_entered' as const,
+    };
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'exterior_paint',
+      input,
+      'painting',
+      resolved,
+      { libraryRates: [] }
+    );
+    expect(fill).toBeNull();
+    expect(comparison).toBeNull();
+  });
+
   it('uses CY national average rates when concrete is measured in cubic yards', () => {
     const input = inputWith({ concreteCy: '18' });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);

@@ -12,7 +12,9 @@ import {
   StatusBar,
   Platform,
   Keyboard,
+  Image,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -33,6 +35,13 @@ import {
   estimateFlowPrimaryButtonStyle,
   estimateFlowPrimaryButtonTextStyle,
 } from "@/utils/estimateFlowCardStyle";
+import {
+  deleteProjectPhoto,
+  getProjectPhotosByIds,
+  linkPhotosToDailyLog,
+  saveProjectPhoto,
+  updateProjectPhotoCaption,
+} from "@/services/projectPhotoService";
 
 export type DailyLogEntry = {
   id: string;
@@ -42,7 +51,17 @@ export type DailyLogEntry = {
   crewCount: number | null;
   hoursWorked: number | null;
   createdAt: string;
+  photoIds?: string[];
 };
+
+type AttachedLogPhoto = {
+  id: string;
+  uri: string;
+  existing: boolean;
+  caption?: string;
+};
+
+const MAX_LOG_PHOTOS = 6;
 
 type Props = {
   visible: boolean;
@@ -95,6 +114,7 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
   const [noteText, setNoteText] = useState("");
   const [weather, setWeather] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [attachedPhotos, setAttachedPhotos] = useState<AttachedLogPhoto[]>([]);
 
   const notesRef = useRef<TextInput>(null);
   const [notesInputKey, setNotesInputKey] = useState(0);
@@ -102,24 +122,144 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
   useEffect(() => {
     if (!visible) return;
     setNotesInputKey((key) => key + 1);
-    if (existingLog) {
-      const rawDate = existingLog.date || existingLog.createdAt;
-      const dateOnly = rawDate ? String(rawDate).match(/^(\d{4}-\d{2}-\d{2})/)?.[1] : null;
-      setLogDate(dateOnly || toDateString(new Date()));
-      setNoteText(existingLog.noteText || "");
-      setWeather(existingLog.weather || null);
-    } else {
-      setLogDate(toDateString(new Date()));
-      setNoteText("");
-      setWeather(null);
-    }
-    setSaving(false);
-  }, [visible, existingLog]);
+    let cancelled = false;
+
+    const hydrate = async () => {
+      if (existingLog) {
+        const rawDate = existingLog.date || existingLog.createdAt;
+        const dateOnly = rawDate ? String(rawDate).match(/^(\d{4}-\d{2}-\d{2})/)?.[1] : null;
+        setLogDate(dateOnly || toDateString(new Date()));
+        setNoteText(existingLog.noteText || "");
+        setWeather(existingLog.weather || null);
+
+        if (existingLog.photoIds?.length && projectId) {
+          const photos = await getProjectPhotosByIds(projectId, existingLog.photoIds);
+          if (!cancelled) {
+            setAttachedPhotos(
+              photos.map((photo) => ({
+                id: photo.id,
+                uri: photo.localUri,
+                existing: true,
+                caption: photo.caption,
+              }))
+            );
+          }
+        } else if (!cancelled) {
+          setAttachedPhotos([]);
+        }
+      } else {
+        setLogDate(toDateString(new Date()));
+        setNoteText("");
+        setWeather(null);
+        setAttachedPhotos([]);
+      }
+      if (!cancelled) setSaving(false);
+    };
+
+    void hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, existingLog, projectId]);
 
   const resetAndClose = () => {
     setNoteText("");
     setWeather(null);
+    setAttachedPhotos([]);
     onClose();
+  };
+
+  const addPhotoAsset = (asset: ImagePicker.ImagePickerAsset) => {
+    if (!asset?.uri) return;
+    setAttachedPhotos((prev) => {
+      if (prev.length >= MAX_LOG_PHOTOS) return prev;
+      return [
+        ...prev,
+        {
+          id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          uri: asset.uri,
+          existing: false,
+        },
+      ];
+    });
+  };
+
+  const takePhoto = async () => {
+    if (attachedPhotos.length >= MAX_LOG_PHOTOS) {
+      Alert.alert("Photo limit", `You can attach up to ${MAX_LOG_PHOTOS} photos per log.`);
+      return;
+    }
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Camera needed", "Allow camera access to take site photos.");
+        return;
+      }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.7,
+        exif: false,
+        base64: false,
+      });
+      if (!result.canceled && result.assets?.[0]) {
+        addPhotoAsset(result.assets[0]);
+      }
+    } catch (error) {
+      console.error("Daily log camera error:", error);
+      Alert.alert("Error", "Failed to take photo.");
+    }
+  };
+
+  const pickFromLibrary = async () => {
+    if (attachedPhotos.length >= MAX_LOG_PHOTOS) {
+      Alert.alert("Photo limit", `You can attach up to ${MAX_LOG_PHOTOS} photos per log.`);
+      return;
+    }
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Photos needed", "Allow photo library access to attach site photos.");
+        return;
+      }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        selectionLimit: Math.max(1, MAX_LOG_PHOTOS - attachedPhotos.length),
+        quality: 0.7,
+        exif: false,
+        base64: false,
+        allowsEditing: false,
+      });
+      if (!result.canceled && result.assets?.length) {
+        setAttachedPhotos((prev) => {
+          const remaining = MAX_LOG_PHOTOS - prev.length;
+          if (remaining <= 0) return prev;
+          const toAdd = result.assets.slice(0, remaining).map((asset) => ({
+            id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            uri: asset.uri,
+            existing: false,
+          }));
+          return [...prev, ...toAdd];
+        });
+      }
+    } catch (error) {
+      console.error("Daily log library error:", error);
+      Alert.alert("Error", "Failed to open photo library.");
+    }
+  };
+
+  const removeAttachedPhoto = (photoId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setAttachedPhotos((prev) => prev.filter((photo) => photo.id !== photoId));
+  };
+
+  const updateAttachedPhotoCaption = (photoId: string, caption: string) => {
+    setAttachedPhotos((prev) =>
+      prev.map((photo) => (photo.id === photoId ? { ...photo, caption } : photo))
+    );
   };
 
   const handleSave = async () => {
@@ -132,18 +272,46 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
       return;
     }
 
-    const entry: DailyLogEntry = {
-      id: existingLog?.id ?? `log-${Date.now()}`,
-      date: logDate,
-      noteText: noteText.trim(),
-      weather,
-      crewCount: existingLog?.crewCount ?? null,
-      hoursWorked: existingLog?.hoursWorked ?? null,
-      createdAt: existingLog?.createdAt ?? new Date().toISOString(),
-    };
+    const logId = existingLog?.id ?? `log-${Date.now()}`;
+    const originalPhotoIds = new Set(existingLog?.photoIds || []);
 
     try {
       setSaving(true);
+
+      for (const photoId of originalPhotoIds) {
+        if (!attachedPhotos.some((photo) => photo.id === photoId)) {
+          await deleteProjectPhoto(projectId, photoId);
+        }
+      }
+
+      const photoIds: string[] = [];
+      for (const photo of attachedPhotos) {
+        if (photo.existing) {
+          await updateProjectPhotoCaption(projectId, photo.id, photo.caption);
+          photoIds.push(photo.id);
+        } else {
+          const saved = await saveProjectPhoto(projectId, {
+            localUri: photo.uri,
+            source: "daily_log",
+            dailyLogId: logId,
+            caption: photo.caption?.trim() || undefined,
+          });
+          photoIds.push(saved.id);
+        }
+      }
+      await linkPhotosToDailyLog(projectId, logId, photoIds);
+
+      const entry: DailyLogEntry = {
+        id: logId,
+        date: logDate,
+        noteText: noteText.trim(),
+        weather,
+        crewCount: existingLog?.crewCount ?? null,
+        hoursWorked: existingLog?.hoursWorked ?? null,
+        createdAt: existingLog?.createdAt ?? new Date().toISOString(),
+        photoIds,
+      };
+
       if (isEditing) {
         await updateDailyLog(projectId, entry);
       } else {
@@ -252,6 +420,66 @@ export default function AddDailyLogModal({ visible, projectId, existingLog, onCl
                   {...resolveTextInputKeyboardProps({ multiline: true })}
                 />
               </View>
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, !darkMode && { color: Colors.text }]}>Site photos</Text>
+              <Text style={[styles.photoHint, !darkMode && { color: Colors.sub }]}>
+                Attach inspection or progress photos for this log.
+              </Text>
+              <View style={styles.photoActionsRow}>
+                <TouchableOpacity
+                  style={[styles.photoActionButton, fieldSurface]}
+                  onPress={takePhoto}
+                >
+                  <MaterialIcons name="photo-camera" size={20} color="#22d3ee" />
+                  <Text style={styles.photoActionText}>Take photo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.photoActionButton, fieldSurface]}
+                  onPress={pickFromLibrary}
+                >
+                  <MaterialIcons name="photo-library" size={20} color="#22d3ee" />
+                  <Text style={styles.photoActionText}>Library</Text>
+                </TouchableOpacity>
+              </View>
+              {attachedPhotos.length > 0 ? (
+                <View style={styles.photoList}>
+                  {attachedPhotos.map((photo) => (
+                    <View key={photo.id} style={styles.photoItem}>
+                      <View style={styles.photoThumbWrap}>
+                        <Image source={{ uri: photo.uri }} style={styles.photoThumb} resizeMode="cover" />
+                        <TouchableOpacity
+                          style={styles.photoRemoveButton}
+                          onPress={() => removeAttachedPhoto(photo.id)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <MaterialIcons name="close" size={16} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                      <TextInput
+                        value={photo.caption || ""}
+                        onChangeText={(text) => updateAttachedPhotoCaption(photo.id, text)}
+                        placeholder="Description (optional)"
+                        placeholderTextColor={placeholderTint}
+                        multiline
+                        scrollEnabled={false}
+                        textAlignVertical="top"
+                        onSubmitEditing={() => Keyboard.dismiss()}
+                        {...(Platform.OS === "ios"
+                          ? { keyboardAppearance: darkMode ? "dark" : "light" }
+                          : {})}
+                        {...resolveTextInputKeyboardProps({ multiline: true })}
+                        style={[
+                          styles.photoCaptionInput,
+                          fieldSurface,
+                          { color: Colors.text },
+                        ]}
+                      />
+                    </View>
+                  ))}
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.fieldGroup}>
@@ -430,6 +658,79 @@ const styles = StyleSheet.create({
   },
   chipTextSelected: {
     color: "#22d3ee",
+  },
+  photoHint: {
+    color: "rgba(226, 232, 240, 0.62)",
+    fontSize: 13,
+    marginBottom: 10,
+    lineHeight: 18,
+  },
+  photoActionsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 10,
+  },
+  photoActionButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+  },
+  photoActionText: {
+    color: "#22d3ee",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  photoThumbRow: {
+    gap: 10,
+    paddingVertical: 2,
+  },
+  photoList: {
+    gap: 12,
+    marginTop: 4,
+  },
+  photoItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  photoCaptionInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    lineHeight: 20,
+    minHeight: 88,
+  },
+  photoThumbWrap: {
+    width: 88,
+    height: 88,
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.25)",
+  },
+  photoThumb: {
+    width: "100%",
+    height: "100%",
+  },
+  photoRemoveButton: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "rgba(15, 23, 42, 0.72)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   saveButtonDisabled: {
     opacity: 0.65,

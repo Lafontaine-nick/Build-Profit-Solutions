@@ -1,4 +1,8 @@
 import type { WorkspaceAccessRole } from '@/services/businessWorkspaceService';
+import {
+  filterProjectDetailTabs,
+  type ProjectTeamTabGate,
+} from '@/constants/releaseFlags';
 
 export type WorkspacePermissionPreset = {
   viewAllProjects: boolean;
@@ -163,20 +167,27 @@ export type ProjectDetailTab = 'Overview' | 'Budget' | 'Timeline' | 'Calendar' |
 
 export function getVisibleProjectTabs(
   role: unknown,
-  isOwner: boolean
+  isOwner: boolean,
+  teamGate: ProjectTeamTabGate = {}
 ): ProjectDetailTab[] {
+  let tabs: ProjectDetailTab[];
   if (isOwner) {
-    return ['Overview', 'Budget', 'Timeline', 'Calendar', 'Team'];
+    tabs = ['Overview', 'Budget', 'Timeline', 'Calendar', 'Team'];
+  } else {
+    switch (effectiveWorkspaceRole(role)) {
+      case 'manager':
+        tabs = ['Overview', 'Budget', 'Timeline', 'Calendar', 'Team'];
+        break;
+      case 'foreman':
+        tabs = ['Overview', 'Timeline', 'Calendar', 'Team'];
+        break;
+      case 'field':
+      default:
+        tabs = ['Overview', 'Timeline', 'Calendar'];
+        break;
+    }
   }
-  switch (effectiveWorkspaceRole(role)) {
-    case 'manager':
-      return ['Overview', 'Budget', 'Timeline', 'Calendar', 'Team'];
-    case 'foreman':
-      return ['Overview', 'Timeline', 'Calendar', 'Team'];
-    case 'field':
-    default:
-      return ['Overview', 'Timeline', 'Calendar'];
-  }
+  return filterProjectDetailTabs(tabs, teamGate);
 }
 
 export function getBudgetTabLabel(role: unknown, isOwner: boolean): string {

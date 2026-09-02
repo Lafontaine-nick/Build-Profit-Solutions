@@ -469,21 +469,24 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                 </LinearGradient>
               </View>
 
-              <View style={styles.headerTitleRow}>
-                <View style={styles.headerAvatar}>
-                  <MaterialCommunityIcons
-                    name="package-variant-closed"
-                    size={24}
-                    color={BRAND_GREEN}
-                  />
-                </View>
-                <View style={styles.headerTextBlock}>
-                  <Text style={styles.headerTitle}>Add Materials & Equipment</Text>
-                  <Text style={styles.headerSubtitle}>
-                    Log your material or equipment expense
-                  </Text>
-                </View>
+              <View style={styles.headerAvatar}>
+                <MaterialCommunityIcons
+                  name="package-variant-closed"
+                  size={24}
+                  color={BRAND_GREEN}
+                />
               </View>
+
+              <View style={styles.headerTextBlock}>
+                <Text style={styles.headerTitle} numberOfLines={2}>
+                  Add Materials & Equipment
+                </Text>
+                <Text style={styles.headerSubtitle}>
+                  Log your material or equipment expense
+                </Text>
+              </View>
+
+              <View style={styles.headerSideSpacer} />
             </View>
 
             {/* CONTENT */}
@@ -852,7 +855,12 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     marginBottom: 18,
   },
   backButtonWrapper: {
-    marginRight: 16,
+    flexShrink: 0,
+    marginRight: 12,
+  },
+  headerSideSpacer: {
+    width: 44,
+    flexShrink: 0,
   },
   backButtonBorder: {
     width: 44,
@@ -869,16 +877,12 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  headerTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
   headerAvatar: {
     width: 52,
     height: 52,
     borderRadius: 14,
-    marginRight: 12,
+    marginRight: 10,
+    flexShrink: 0,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: isDark ? "rgba(34, 197, 94, 0.15)" : Colors.bg,
@@ -887,6 +891,9 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
   },
   headerTextBlock: {
     flex: 1,
+    minWidth: 0,
+    alignItems: "center",
+    paddingRight: 6,
   },
   headerTitle: {
     fontSize: 24,
@@ -894,6 +901,7 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     color: "#FFFFFF",
     letterSpacing: -0.35,
     lineHeight: 30,
+    textAlign: "center",
   },
   headerSubtitle: {
     fontSize: 13,
@@ -902,6 +910,7 @@ const getStyles = (Colors: any, isDark: boolean) => StyleSheet.create({
     fontWeight: "500",
     letterSpacing: 0.12,
     lineHeight: 18,
+    textAlign: "center",
   },
 
   scrollContent: {

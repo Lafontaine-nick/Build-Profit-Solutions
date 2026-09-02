@@ -139,3 +139,10 @@ export function getTabScrollContentBottomInset(
     safeAreaBottom
   );
 }
+
+/** Fixed footers in embedded AI flow overlays — sit above the floating tab bar, not below it. */
+export function getEmbeddedAiFlowFooterBottomInset(_safeAreaBottom = 0): number {
+  // Tab bar is already lifted above the home indicator (bottomOffset). Only reserve
+  // pill height + a small gap — do not add safeAreaBottom again or buttons float too high.
+  return ScreenLayout.tabBar.bottomOffset + ScreenLayout.tabBar.height + 8;
+}

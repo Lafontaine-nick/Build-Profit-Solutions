@@ -45,7 +45,7 @@ import {
   loadWorkspaceTimelineProgressByProjectId,
 } from '@/utils/workspaceTimelineProgress';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ScreenLayout, isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL } from '@/constants/ScreenLayout';
+import { ScreenLayout, isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL, PROJECT_WIDE_CONTAINER_CARD_INSET } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import { useRestrictedWorkspaceFinancials } from '@/hooks/useRestrictedWorkspaceFinancials';
 import { isWorkspaceRestrictedFinancialsProject } from '@/utils/workspacePermissions';
@@ -1707,9 +1707,9 @@ export default function ProjectsScreen() {
           style={styles.modalOverlay}
           onPress={() => setMarkAsWonModalVisible(false)}
         >
-          <Pressable
+          <View
             style={styles.bottomSheet}
-            onPress={(e) => e.stopPropagation()}
+            onStartShouldSetResponder={() => true}
           >
             <View style={styles.bottomSheetHandle} />
             <Text style={styles.bottomSheetTitle}>Mark project as won?</Text>
@@ -1718,7 +1718,8 @@ export default function ProjectsScreen() {
             </Text>
             <View style={styles.bottomSheetButtons}>
               <TouchableOpacity
-                style={styles.bottomSheetCancelButton}
+                style={[styles.bottomSheetActionButton, styles.bottomSheetCancelButton]}
+                activeOpacity={0.85}
                 onPress={() => {
                   setMarkAsWonModalVisible(false);
                   setSelectedProjectForWon(null);
@@ -1727,20 +1728,20 @@ export default function ProjectsScreen() {
                 <Text style={styles.bottomSheetCancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.bottomSheetConfirmButton}
+                style={styles.bottomSheetActionButton}
+                activeOpacity={0.88}
                 onPress={confirmMarkAsWon}
               >
                 <LinearGradient
                   colors={['#2DFFC4', '#00A6FF']}
                   start={{ x: 0.05, y: 0.15 }}
                   end={{ x: 0.95, y: 0.85 }}
-                  style={styles.bottomSheetConfirmGradient}
-                >
-                  <Text style={styles.bottomSheetConfirmText}>Mark as won</Text>
-                </LinearGradient>
+                  style={StyleSheet.absoluteFillObject}
+                />
+                <Text style={styles.bottomSheetConfirmText}>Mark as won</Text>
               </TouchableOpacity>
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
 
@@ -1757,7 +1758,7 @@ export default function ProjectsScreen() {
               darkMode={darkMode}
               Colors={Colors}
               title="Manage your active project"
-              body="Take a quick tour of Overview, Budget, Timeline, Calendar, and Team so you know where to track costs, payments, and crew."
+              body="Take a quick tour of Budget, Timeline, and Calendar so you know where to track costs, payments, and schedule."
               startButtonLabel="Start walkthrough"
               onStart={handleActiveProjectWalkthroughIntroStart}
               onSkip={handleActiveProjectWalkthroughIntroSkip}
@@ -2252,25 +2253,25 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   },
   bottomSheet: {
     backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.cardDark,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.42)' : '#94a3b8',
     padding: 24,
-    paddingBottom: Platform.OS === 'web' ? 40 : Math.max(40, 28 + safeAreaInsetBottom),
-    maxHeight: '50%',
+    maxHeight: '70%',
+    alignSelf: 'stretch',
     ...(Platform.OS === 'web'
       ? {
           width: '100%',
           maxWidth: 520,
           alignSelf: 'center' as const,
-          borderRadius: 20,
+          paddingBottom: 40,
           marginBottom: Math.max(24, safeAreaInsetBottom > 0 ? safeAreaInsetBottom + 8 : 24),
         }
       : {
-          borderBottomLeftRadius: 24,
-          borderBottomRightRadius: 24,
-          marginBottom: Math.max(14, safeAreaInsetBottom + 10),
+          marginHorizontal: PROJECT_WIDE_CONTAINER_CARD_INSET,
+          paddingBottom: 24,
+          // Clear the floating tab bar — safe area alone is not enough on tab screens.
+          marginBottom: scrollBottomInset,
         }),
   },
   bottomSheetHandle: {
@@ -2295,39 +2296,41 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   },
   bottomSheetButtons: {
     flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'stretch',
     gap: 12,
+    width: '100%',
+  },
+  bottomSheetActionButton: {
+    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    minHeight: 48,
+    borderRadius: 12,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 14,
   },
   bottomSheetCancelButton: {
-    flex: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 12,
     backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : '#f1f5f9',
     borderWidth: darkMode ? 1 : 0,
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   bottomSheetCancelText: {
     color: Colors.text,
     fontSize: 16,
     fontWeight: '600',
-  },
-  bottomSheetConfirmButton: {
-    flex: 1,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  bottomSheetConfirmGradient: {
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    textAlign: 'center',
   },
   bottomSheetConfirmText: {
     color: '#000',
     fontSize: 16,
     fontWeight: '700',
+    textAlign: 'center',
   },
 });
 };

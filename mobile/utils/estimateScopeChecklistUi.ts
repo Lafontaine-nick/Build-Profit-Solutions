@@ -2207,11 +2207,22 @@ export function scopeChecklistItemsForPersist(
 export function scopeChecklistItemsForEditing(
   draft: EstimateAiDraft | null
 ): ScopeChecklistItem[] {
+  const checklistItems = draft?.scopeChecklist?.items;
+  const progressItems = draft?.scopeProgressItems;
+  if (
+    !draft?.scopeAssumptionsConfirmed &&
+    progressItems?.length &&
+    checklistItems?.length
+  ) {
+    return restoreConfirmedChecklistItemStates(
+      checklistItems.map(item => ({ ...item })),
+      progressItems
+    );
+  }
   const confirmed = draft?.confirmedAssumptions;
   if (confirmed?.length) {
     return confirmed.map(item => ({ ...item }));
   }
-  const checklistItems = draft?.scopeChecklist?.items;
   if (checklistItems?.length) {
     return checklistItems.map(item => ({ ...item }));
   }
@@ -2253,9 +2264,9 @@ export function mergeScopeProgressIntoDraft(
 
   const next: EstimateAiDraft = {
     ...draft,
-    confirmedAssumptions: persistedItems.length
-      ? persistedItems
-      : draft.confirmedAssumptions,
+    scopeProgressItems: persistedItems.length
+      ? persistedItems.map(item => ({ ...item }))
+      : draft.scopeProgressItems,
     ...(scopeNotes && !String(draft.originalNotes || '').trim()
       ? { originalNotes: scopeNotes }
       : {}),
@@ -2276,7 +2287,9 @@ export function mergeScopeProgressIntoDraft(
   if (draft.scopeChecklist && persistedItems.length) {
     next.scopeChecklist = {
       ...draft.scopeChecklist,
-      items: persistedItems.map(item => ({ ...item })),
+      // Keep the complete generated checklist available when progress is
+      // persisted. Partial Step 2 progress must not become confirmed scope.
+      items: draft.scopeChecklist.items.map(item => ({ ...item })),
     };
   }
 

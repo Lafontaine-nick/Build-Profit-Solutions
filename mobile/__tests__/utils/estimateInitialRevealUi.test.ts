@@ -78,10 +78,10 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealScopeMetaLabel(1)).toBe('1 scope item');
   });
 
-  it('keeps scope collapsed by default on quick view', () => {
-    expect(shouldDefaultExpandInitialRevealScope(7)).toBe(false);
-    expect(shouldDefaultExpandInitialRevealScope(9)).toBe(false);
-    expect(shouldDefaultExpandInitialRevealScope(13)).toBe(false);
+  it('expands scope by default when scope items exist', () => {
+    expect(shouldDefaultExpandInitialRevealScope(7)).toBe(true);
+    expect(shouldDefaultExpandInitialRevealScope(9)).toBe(true);
+    expect(shouldDefaultExpandInitialRevealScope(0)).toBe(false);
   });
 
   it('shows planning disclaimer when total exists and gaps remain', () => {

@@ -289,6 +289,22 @@ function mapPlaceToResult(place) {
   };
 }
 
+function friendlyGooglePlacesApiError(rawMessage) {
+  const msg = String(rawMessage || '').trim();
+  const lower = msg.toLowerCase();
+  if (
+    lower.includes('caller does not have permission') ||
+    lower.includes('permission_denied') ||
+    lower.includes('api key not valid') ||
+    lower.includes('api key is invalid')
+  ) {
+    return (
+      'Google Cloud blocked nearby search for this server key. In Google Cloud Console for the project behind GOOGLE_PLACES_API_KEY: enable billing, turn on "Places API (New)" and "Geocoding API", then save the key on Render and redeploy.'
+    );
+  }
+  return msg || 'Google Places search failed';
+}
+
 /**
  * GET /api/places/contractors/search
  */
@@ -557,11 +573,12 @@ router.get('/contractors/search', async (req, res) => {
     });
   } catch (err) {
     const status = err.response?.status;
-    const msg =
+    const msg = friendlyGooglePlacesApiError(
       err.response?.data?.error?.message ||
       err.response?.data?.error_message ||
       err.message ||
-      'Google Places search failed';
+      'Google Places search failed'
+    );
     console.error('Google Places search error:', status, msg);
     res.status(status && status < 500 ? status : 502).json({
       error: msg,

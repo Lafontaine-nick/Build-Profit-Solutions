@@ -14,6 +14,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
+import { estimateFlowCardStyle, ESTIMATE_FLOW_CARD_GAP } from "@/utils/estimateFlowCardStyle";
 
 type Props = {
   visible: boolean;
@@ -172,6 +173,54 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
     { value: 'in_progress', label: 'In Progress', color: "#22d3ee" },
     { value: 'completed', label: 'Completed', color: "#22c55e" },
   ];
+
+  const handleHeaderBack = () => {
+    if (Platform.OS === "ios") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    onClose();
+  };
+
+  const milestoneHeader = (
+    <View style={styles.headerRow}>
+      <View style={styles.backButtonWrapper}>
+        <LinearGradient
+          colors={BRAND_FRAME_GRADIENT_COLORS}
+          start={BRAND_FRAME_GRADIENT_START}
+          end={BRAND_FRAME_GRADIENT_END}
+          style={styles.backButtonBorder}
+        >
+          <GradientRingBackInner
+            darkMode={darkMode}
+            onPress={handleHeaderBack}
+            style={[styles.backButton, !darkMode && { backgroundColor: ThemeColors.bg }]}
+          >
+            <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : ThemeColors.text} />
+          </GradientRingBackInner>
+        </LinearGradient>
+      </View>
+      <View style={styles.headerTitleRow}>
+        <View
+          style={[
+            styles.headerAvatar,
+            !darkMode && { backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line },
+          ]}
+        >
+          <MaterialIcons name="event" size={24} color="#22c55e" />
+        </View>
+        <View style={styles.headerTextBlock}>
+          <Text style={[styles.title, !darkMode && { color: ThemeColors.text }]}>Edit Milestone</Text>
+          <Text
+            style={[styles.subtitle, !darkMode && { color: ThemeColors.sub }]}
+            numberOfLines={2}
+            ellipsizeMode="tail"
+          >
+            {milestone.title}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
 
   const milestoneFormFields = (
             <>
@@ -496,33 +545,14 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                   },
                 ]}
               >
-                <View style={styles.backButtonWrapper}>
-                  <LinearGradient
-                    colors={BRAND_FRAME_GRADIENT_COLORS}
-                    start={BRAND_FRAME_GRADIENT_START}
-                    end={BRAND_FRAME_GRADIENT_END}
-                    style={styles.backButtonBorder}
-                  >
-                    <GradientRingBackInner
-                      darkMode={darkMode}
-                      onPress={() => {
-                        onClose();
-                      }}
-                      style={[styles.backButton, !darkMode && { backgroundColor: ThemeColors.bg }]}
-                    >
-                      <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : ThemeColors.text} />
-                    </GradientRingBackInner>
-                  </LinearGradient>
-                </View>
-                <View style={styles.headerTitleContainer}>
-                  <Text style={[styles.title, !darkMode && { color: ThemeColors.text }]}>Edit Milestone</Text>
-                  <Text style={[styles.subtitle, !darkMode && { color: ThemeColors.sub }]}>{milestone.title}</Text>
-                </View>
+                {milestoneHeader}
               </View>
 
               <WebMilestoneFormChrome
                 isWeb={isWeb}
                 innerBackground={darkMode ? "#050807" : ThemeColors.surface2}
+                Colors={ThemeColors}
+                darkMode={darkMode}
               >
                 {milestoneFormFields}
               </WebMilestoneFormChrome>
@@ -531,35 +561,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
             </ScrollView>
           ) : (
             <>
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.backButtonWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backButtonBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    if (Platform.OS === 'ios') {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }
-                    onClose();
-                  }}
-                  style={[styles.backButton, !darkMode && { backgroundColor: ThemeColors.bg }]}
-                >
-                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : ThemeColors.text} />
-                </GradientRingBackInner>
-              </LinearGradient>
-            </View>
-            <View style={styles.headerTitleContainer}>
-              <Text style={[styles.title, !darkMode && { color: ThemeColors.text }]}>Edit Milestone</Text>
-              <Text style={[styles.subtitle, !darkMode && { color: ThemeColors.sub }]}>{milestone.title}</Text>
-            </View>
-            <View style={{ width: 44 }} />
-          </View>
+          {milestoneHeader}
 
           {/* Form */}
           <ScrollView
@@ -571,7 +573,7 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
             contentContainerStyle={styles.formContent}
             {...FORM_KEYBOARD_SCROLL_PROPS}
           >
-            <WebMilestoneFormChrome isWeb={false}>
+            <WebMilestoneFormChrome isWeb={false} Colors={ThemeColors} darkMode={darkMode}>
               {milestoneFormFields}
             </WebMilestoneFormChrome>
 
@@ -625,16 +627,37 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  header: {
+  headerRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
+    paddingHorizontal: 12,
     paddingTop: 8,
     paddingBottom: 16,
     marginBottom: 8,
   },
+  headerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    minWidth: 0,
+  },
+  headerTextBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  headerAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    marginRight: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(34, 197, 94, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(34, 211, 238, 0.3)",
+  },
   backButtonWrapper: {
+    flexShrink: 0,
     marginRight: 12,
   },
   backButtonBorder: {
@@ -655,21 +678,24 @@ const styles = StyleSheet.create({
   },
   title: {
     color: "#FFFFFF",
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: "800",
-    letterSpacing: -0.5,
+    letterSpacing: -0.35,
+    lineHeight: 30,
   },
   subtitle: {
     color: "#8DA0B8",
-    fontSize: 14,
-    marginTop: 4,
+    fontSize: 13,
+    marginTop: 5,
     fontWeight: "500",
+    letterSpacing: 0.12,
+    lineHeight: 18,
   },
   form: {
     flex: 1,
   },
   formContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 12,
     paddingBottom: 24,
   },
   editMilestoneWebPageContent: {
@@ -681,8 +707,6 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   editMilestoneWebHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
     marginBottom: 24,
     paddingBottom: 18,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -784,7 +808,7 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: "row",
-    paddingHorizontal: 20,
+    paddingHorizontal: 12,
     paddingTop: 20,
     gap: 12,
     position: "absolute",
@@ -879,24 +903,32 @@ function WebMilestoneFormChrome({
   isWeb,
   innerBackground,
   children,
+  Colors,
+  darkMode,
 }: {
   isWeb: boolean;
   innerBackground?: string;
   children: React.ReactNode;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
 }) {
-  if (!isWeb) {
-    return <>{children}</>;
+  if (isWeb) {
+    return (
+      <LinearGradient
+        colors={BRAND_FRAME_GRADIENT_COLORS}
+        start={BRAND_FRAME_GRADIENT_START}
+        end={BRAND_FRAME_GRADIENT_END}
+        style={styles.editMilestoneWebFormCardGradient}
+      >
+        <View style={[styles.editMilestoneWebFormCardInner, { backgroundColor: innerBackground ?? "#050807" }]}>
+          {children}
+        </View>
+      </LinearGradient>
+    );
   }
   return (
-    <LinearGradient
-      colors={BRAND_FRAME_GRADIENT_COLORS}
-      start={BRAND_FRAME_GRADIENT_START}
-      end={BRAND_FRAME_GRADIENT_END}
-      style={styles.editMilestoneWebFormCardGradient}
-    >
-      <View style={[styles.editMilestoneWebFormCardInner, { backgroundColor: innerBackground ?? "#050807" }]}>
-        {children}
-      </View>
-    </LinearGradient>
+    <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
+      {children}
+    </View>
   );
 }

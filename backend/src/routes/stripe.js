@@ -2,7 +2,11 @@ const express = require('express');
 const router = express.Router();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const stripeService = require('../services/stripeService');
-const { getMobilePlansCatalog } = require('../services/mobilePlanCatalog');
+const { getMobilePlansCatalog, PLAN_DEFINITIONS } = require('../services/mobilePlanCatalog');
+const {
+  isBusinessPlanReleased,
+  filterLaunchSubscriptionPlans,
+} = require('../constants/releaseFlags');
 const { authenticateToken } = require('../middleware/authenticateToken');
 
 /**
@@ -54,6 +58,28 @@ function authenticatedEmail(req, requestedEmail) {
   return ownerEmail;
 }
 
+function resolveConfiguredBusinessPriceIds() {
+  const def = PLAN_DEFINITIONS.find((plan) => plan.id === 'business');
+  if (!def) return new Set();
+  const ids = new Set();
+  const raw = process.env[def.envVar];
+  let trimmed = raw != null ? String(raw).trim().replace(/^["']|["']$/g, '') : '';
+  trimmed = trimmed.replace(/[\u200B-\u200D\uFEFF]/g, '');
+  if (trimmed.startsWith('price_')) ids.add(trimmed);
+  if (def.stripePriceIdFallback) ids.add(def.stripePriceIdFallback);
+  return ids;
+}
+
+function assertBusinessPlanBillingAllowed(priceId) {
+  if (isBusinessPlanReleased()) return;
+  const normalized = String(priceId || '').trim();
+  if (resolveConfiguredBusinessPriceIds().has(normalized)) {
+    const error = new Error('Business plan is not available yet.');
+    error.statusCode = 403;
+    throw error;
+  }
+}
+
 router.get('/checkout-return', (req, res) => {
   const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
   sendDeepLinkHtml(res, { path: 'payment/success', stripeQuery: q });
@@ -98,7 +124,7 @@ router.get('/mobile-plans', async (req, res) => {
         error: 'Stripe is not configured on the server',
       });
     }
-    const plans = await getMobilePlansCatalog(stripe);
+    const plans = filterLaunchSubscriptionPlans(await getMobilePlansCatalog(stripe));
     res.json({ success: true, plans });
   } catch (error) {
     console.error('Error fetching mobile plans:', error);
@@ -164,6 +190,8 @@ router.post('/change-plan', async (req, res) => {
         error: 'email and priceId are required',
       });
     }
+
+    assertBusinessPlanBillingAllowed(priceId);
 
     const customers = await stripe.customers.list({ email: String(email).trim(), limit: 1 });
     if (!customers.data.length) {
@@ -274,7 +302,7 @@ router.post('/change-plan', async (req, res) => {
     });
   } catch (error) {
     console.error('Error changing subscription plan:', error);
-    res.status(500).json({
+    res.status(error?.statusCode || 500).json({
       success: false,
       error: error?.message || 'Failed to change subscription plan',
     });
@@ -330,6 +358,8 @@ router.post('/create-checkout-session', async (req, res) => {
         error: 'Missing required fields: customerId and priceId' 
       });
     }
+
+    assertBusinessPlanBillingAllowed(priceId);
 
     const customer = await stripe.customers.retrieve(customerId);
     authenticatedEmail(req, customer?.email);

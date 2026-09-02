@@ -118,7 +118,7 @@ export function getInitialRevealScopeMetaLabel(count: number): string {
 }
 
 export function shouldDefaultExpandInitialRevealScope(_scopeItemCount: number): boolean {
-  return false;
+  return _scopeItemCount > 0;
 }
 
 export function getInitialRevealHeaderCopy(input: {
@@ -430,7 +430,12 @@ export function getInitialRevealTotals(
 
 export function draftNeedsScopeConfirmation(draft: EstimateAiDraft | null | undefined): boolean {
   if (!draft || !isComplexEstimateTier(draft)) return false;
-  return !draft.scopeAssumptionsConfirmed && !(draft.confirmedAssumptions?.length);
+  if (draft.scopeAssumptionsConfirmed) return false;
+  if (draft.requiresScopeConfirmation) return true;
+  // A saved checklist can contain partial in-progress choices. Those are not
+  // confirmation just because one or more rows have been touched.
+  if (draft.scopeProgressItems?.length) return true;
+  return !(draft.confirmedAssumptions?.length);
 }
 
 export function getInitialRevealPrimaryCtaLabel(

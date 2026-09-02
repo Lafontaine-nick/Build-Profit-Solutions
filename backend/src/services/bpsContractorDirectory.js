@@ -61,6 +61,60 @@ function reconcileEmailListings(activeId, email, listOn) {
   if (changed) saveAll(rows);
 }
 
+/** Opt-out: turn off every listing tied to this account (Clerk id, email, phone, company+ZIP). */
+function disableListingsForIdentity({
+  userId,
+  email,
+  phone,
+  companyName,
+  zip,
+} = {}) {
+  const uid = String(userId || '').trim();
+  const em = normEmail(email);
+  const ph = String(phone || '').replace(/\D/g, '');
+  const co = String(companyName || '')
+    .trim()
+    .toLowerCase();
+  const z = String(zip || '')
+    .replace(/\D/g, '')
+    .slice(0, 5);
+
+  const rows = loadAll();
+  let changed = false;
+  const next = rows.filter((r) => {
+    const rowEm = normEmail(r.email);
+    const rowPh = String(r.phone || '').replace(/\D/g, '');
+    const rowCo = String(r.companyName || '')
+      .trim()
+      .toLowerCase();
+    const rowZip = String(r.zip || '')
+      .replace(/\D/g, '')
+      .slice(0, 5);
+
+    const identityMatch =
+      (uid && r.id === uid) ||
+      (em && rowEm && rowEm === em) ||
+      (ph.length >= 10 && rowPh.length >= 10 && rowPh === ph) ||
+      (co && co.length >= 3 && rowCo === co && z.length === 5 && rowZip === z);
+
+    if (!identityMatch) return true;
+
+    if (isDemoDirectoryId(r.id) || (em && rowEm === em && uid && r.id !== uid)) {
+      changed = true;
+      return false;
+    }
+
+    if (r.listOnFindSubcontractors) {
+      r.listOnFindSubcontractors = false;
+      r.updatedAt = new Date().toISOString();
+      changed = true;
+    }
+    return true;
+  });
+
+  if (changed) saveAll(next.length !== rows.length ? next : rows);
+}
+
 function pruneOrphanListings(activeId, entry) {
   const em = normEmail(entry.email);
   if (!em) return;
@@ -108,7 +162,17 @@ function upsert(entry) {
   else rows.push(next);
 
   saveAll(rows);
-  reconcileEmailListings(id, next.email, next.listOnFindSubcontractors === true);
+  if (next.listOnFindSubcontractors === true) {
+    reconcileEmailListings(id, next.email, true);
+  } else {
+    disableListingsForIdentity({
+      userId: id,
+      email: next.email,
+      phone: next.phone,
+      companyName: next.companyName,
+      zip: next.zip,
+    });
+  }
   pruneOrphanListings(id, next);
 
   // Drop stale rows that used email/demo ids before Clerk id was available.
@@ -207,4 +271,5 @@ module.exports = {
   upsert,
   listPublic,
   removeListingsForUser,
+  disableListingsForIdentity,
 };

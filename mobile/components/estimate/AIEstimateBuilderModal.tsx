@@ -12,6 +12,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,6 +23,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import { aiFlowCardBackground, estimateStep1InputCardStyle, ESTIMATE_FLOW_GREEN } from '@/utils/estimateFlowCardStyle';
+import { getEmbeddedAiFlowFooterBottomInset } from '@/constants/ScreenLayout';
 import {
   buildPlanImportSteps,
   type AiGeneratePhaseId,
@@ -79,6 +81,8 @@ type Props = {
   initialSitePhotos?: SitePhotoAttachment[];
   /** True when a Confirm Scope / review draft already exists — show Continue instead of wiping. */
   hasExistingDraft?: boolean;
+  /** Resume opens Confirm scope (Step 2) instead of Review draft (Step 3). */
+  resumeToScopeConfirm?: boolean;
   /** Notes stored with the saved draft — used for Regenerate when the field is left empty. */
   savedSessionNotes?: string;
   fromAssistant?: boolean;
@@ -113,6 +117,41 @@ function contractorIntentNotes(notes: string): string {
   ).trim();
 }
 
+function stablePhotoIds(photos: SitePhotoAttachment[]): string {
+  return [...photos]
+    .map((photo) => photo.id)
+    .sort()
+    .join('|');
+}
+
+function stableDetectionKey(detections: PhotoScopeDetection[]): string {
+  return JSON.stringify(
+    [...detections]
+      .map((detection) => `${detection.itemId}:${detection.state}`)
+      .sort()
+  );
+}
+
+function stableExistingFeatureKey(features: PhotoExistingFeature[]): string {
+  return JSON.stringify(
+    [...features]
+      .map((feature) => feature.feature)
+      .sort()
+  );
+}
+
+function planImportSnapshot(plan: PlanImportPayload | null | undefined): string {
+  if (!plan) return '';
+  if (plan.planImportFingerprint) return plan.planImportFingerprint;
+  return JSON.stringify({
+    measurements: Object.keys(plan.measurements || {}).length,
+    rooms: plan.rooms?.length || 0,
+    scope: plan.scopeDetections?.length || 0,
+    trade: plan.selectedTrade || null,
+    mode: plan.estimatingMode || null,
+  });
+}
+
 export default function AIEstimateBuilderModal({
   visible,
   generating = false,
@@ -124,6 +163,7 @@ export default function AIEstimateBuilderModal({
   initialPhotoExistingFeatures = [],
   initialSitePhotos = [],
   hasExistingDraft = false,
+  resumeToScopeConfirm = false,
   savedSessionNotes = '',
   fromAssistant = false,
   embedded = false,
@@ -138,14 +178,17 @@ export default function AIEstimateBuilderModal({
   onGenerate,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { getToken } = useAuth();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const photosStripRef = useRef<EstimateSitePhotosStripHandle>(null);
   const notesInputRef = useRef<TextInput>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const revealGenerateAfterPasteRef = useRef(false);
   const [notesInputSessionKey, setNotesInputSessionKey] = useState(0);
   const { keyboardHeight, isKeyboardVisible } = useKeyboard();
+  const keyboardWasVisibleRef = useRef(false);
   const [notes, setNotes] = useState('');
   const notesRef = useRef('');
   const [notesSyncTick, setNotesSyncTick] = useState(0);
@@ -178,6 +221,32 @@ export default function AIEstimateBuilderModal({
     },
     [applyNotesText]
   );
+
+  const revealGenerateAfterPaste = useCallback(() => {
+    revealGenerateAfterPasteRef.current = true;
+  }, []);
+
+  const handleNotesTextChange = useCallback(
+    (text?: string | null) => {
+      if (typeof text !== 'string') return;
+      const previousLength = notesRef.current.length;
+      syncNotesFromNativeEvent(text);
+      // RN does not expose a distinct paste event. A multi-character insertion
+      // is the reliable native signal for the paste action used in this field.
+      if (text.length - previousLength > 1) {
+        revealGenerateAfterPaste();
+      }
+    },
+    [revealGenerateAfterPaste, syncNotesFromNativeEvent]
+  );
+
+  const handleNotesContentSizeChange = useCallback(() => {
+    if (!revealGenerateAfterPasteRef.current) return;
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+      revealGenerateAfterPasteRef.current = false;
+    });
+  }, []);
 
   const dismissNotesEditing = useCallback(() => {
     notesInputRef.current?.blur();
@@ -228,8 +297,9 @@ export default function AIEstimateBuilderModal({
     if (visible && !wasVisibleRef.current) {
       // Reset only when the modal opens — not when initialNotes identity changes mid-session
       // (that was wiping planImport after Apply to bid).
-      setNotes(initialNotes || '');
-      notesRef.current = initialNotes || '';
+      const restoredNotes = initialNotes || savedSessionNotes || '';
+      setNotes(restoredNotes);
+      notesRef.current = restoredNotes;
       setNotesInputSessionKey((key) => key + 1);
       bumpNotesSync();
       Keyboard.dismiss();
@@ -263,9 +333,11 @@ export default function AIEstimateBuilderModal({
   }, [
     visible,
     initialNotes,
+    savedSessionNotes,
     initialPlanImport,
     initialPhotoDetections,
     initialSitePhotos,
+    bumpNotesSync,
   ]);
 
   useEffect(() => {
@@ -273,6 +345,23 @@ export default function AIEstimateBuilderModal({
       setLocalGenerating(false);
     }
   }, [generating]);
+
+  useEffect(() => {
+    if (isKeyboardVisible) {
+      keyboardWasVisibleRef.current = true;
+      return;
+    }
+    if (!keyboardWasVisibleRef.current) return;
+    keyboardWasVisibleRef.current = false;
+    // The keyboard spacer is removed when the keyboard hides. Reconcile the
+    // ScrollView offset after that layout pass so the footer does not briefly
+    // sit high above a large black gap.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollToEnd({ animated: false });
+      });
+    });
+  }, [isKeyboardVisible]);
 
   useEffect(() => {
     if (!visible || Platform.OS === 'web') return;
@@ -299,13 +388,13 @@ export default function AIEstimateBuilderModal({
 
   const handleBack = () => {
     if (busy) return;
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
     if (onBack) {
       onBack();
     } else {
       onClose();
+    }
+    if (Platform.OS !== 'web') {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
   };
 
@@ -406,7 +495,7 @@ export default function AIEstimateBuilderModal({
         'Plan ready',
         semanticsOn
           ? hasExistingDraft
-            ? 'Your plan is loaded. Continue to Confirm scope to keep your draft, or Regenerate to rebuild from this plan.'
+            ? 'Your plan is loaded. Update scope below to rebuild from this plan, or keep your current draft.'
             : 'Your plan is loaded. Tap Generate Estimate Draft at the bottom to build your scope draft.'
           : [
               meas ? `${meas} measurement${meas === 1 ? '' : 's'} ready` : null,
@@ -414,7 +503,7 @@ export default function AIEstimateBuilderModal({
                 ? `${scope} scope item${scope === 1 ? '' : 's'} ready`
                 : null,
               hasExistingDraft
-                ? 'Continue or Regenerate below.'
+                ? 'Update scope below, or keep your current draft.'
                 : 'Review Job notes, then Generate.',
             ]
               .filter(Boolean)
@@ -593,7 +682,7 @@ export default function AIEstimateBuilderModal({
     if (busy || !onStartFresh) return;
     Alert.alert(
       'Start fresh?',
-      'This clears your saved scope draft, job notes, plan import, and photos from Build with AI. Your current bid is not affected.',
+      'This clears your saved scope draft, job notes, plan import, and photos from Build with AI. Saved progress is removed from this device. Your current bid is not affected.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -681,7 +770,11 @@ export default function AIEstimateBuilderModal({
     backgroundColor: aiFlowCardBackground(darkMode, Colors.surface2),
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
   };
-  const footerBottomPad = Math.max(insets.bottom, 16);
+  const tabBarClearance = embedded
+    ? getEmbeddedAiFlowFooterBottomInset(insets.bottom)
+    : Math.max(insets.bottom, 16);
+  // Generate CTA + Start fresh + footer top padding
+  const footerChromeHeight = 96;
   const keyboardUp = isKeyboardVisible;
   const canGenerate = useMemo(
     () =>
@@ -690,15 +783,123 @@ export default function AIEstimateBuilderModal({
       ),
     [resolveEffectiveNotes, semanticsOn, hasPlanImport]
   );
+
+  const baselineNotes = useMemo(
+    () => contractorIntentNotes(savedSessionNotes || initialNotes || '').trim(),
+    [savedSessionNotes, initialNotes]
+  );
+
+  const inputsChangedSinceDraft = useMemo(() => {
+    if (!hasExistingDraft) return false;
+
+    const currentNotes = contractorIntentNotes(
+      resolveNotesText().trim() || savedSessionNotes || ''
+    ).trim();
+    if (currentNotes !== baselineNotes) return true;
+
+    if (
+      planImportSnapshot(planImport) !==
+      planImportSnapshot(initialPlanImport)
+    ) {
+      return true;
+    }
+
+    if (
+      stablePhotoIds(sitePhotos) !==
+      stablePhotoIds(initialSitePhotos || [])
+    ) {
+      return true;
+    }
+
+    if (
+      stableDetectionKey(photoDetections) !==
+      stableDetectionKey(initialPhotoDetections || [])
+    ) {
+      return true;
+    }
+
+    if (
+      stableExistingFeatureKey(photoExistingFeatures) !==
+      stableExistingFeatureKey(initialPhotoExistingFeatures || [])
+    ) {
+      return true;
+    }
+
+    return false;
+  }, [
+    hasExistingDraft,
+    baselineNotes,
+    resolveNotesText,
+    notesSyncTick,
+    savedSessionNotes,
+    planImport,
+    initialPlanImport,
+    sitePhotos,
+    initialSitePhotos,
+    photoDetections,
+    initialPhotoDetections,
+    photoExistingFeatures,
+    initialPhotoExistingFeatures,
+  ]);
+
   const showSavedNotesHint =
     hasExistingDraft &&
     Boolean(String(savedSessionNotes || '').trim()) &&
-    !resolveNotesText().trim();
+    !resolveNotesText().trim() &&
+    inputsChangedSinceDraft;
   const generateBtnEnabled = canGenerate && !busy;
+
+  const hasBuilderSessionContent = useMemo(() => {
+    if (hasExistingDraft) return true;
+    if (Boolean(resolveEffectiveNotes().trim())) return true;
+    if (hasPlanImport) return true;
+    if (sitePhotos.length > 0) return true;
+    if (photoDetections.length > 0) return true;
+    return false;
+  }, [
+    hasExistingDraft,
+    resolveEffectiveNotes,
+    notesSyncTick,
+    hasPlanImport,
+    sitePhotos,
+    photoDetections,
+  ]);
+
+  const startFreshLink =
+    hasBuilderSessionContent && onStartFresh ? (
+      <ReliableFlowPress
+        disabled={busy}
+        onPress={handleStartFresh}
+        haptic='light'
+        style={styles.startFreshLinkBtn}
+      >
+        <Text
+          style={[
+            styles.startFreshLinkText,
+            {
+              color: darkMode ? 'rgba(248, 113, 113, 0.92)' : '#dc2626',
+            },
+          ]}
+        >
+          Start fresh
+        </Text>
+      </ReliableFlowPress>
+    ) : null;
 
   const scrollBottomPad = keyboardUp
     ? Math.max(keyboardHeight, Platform.OS === 'ios' ? 320 : 280) + 24
-    : 24;
+    : footerChromeHeight + tabBarClearance + 16;
+
+  const embeddedShellStyle = embedded
+    ? {
+        position: 'absolute' as const,
+        top: 0,
+        left: 0,
+        right: 0,
+        height: windowHeight,
+        backgroundColor: Colors.bg,
+      }
+    : null;
 
   if (!visible) return null;
 
@@ -711,73 +912,86 @@ export default function AIEstimateBuilderModal({
   const generateActions = (
     <>
       {hasExistingDraft && onContinueDraft && !busy ? (
-        <>
+        inputsChangedSinceDraft ? (
+          <>
+            <ReliableFlowPress
+              disabled={!generateBtnEnabled}
+              onPress={handleGenerate}
+              haptic='medium'
+              style={[
+                styles.generateCtaShell,
+                !generateBtnEnabled ? styles.generateCtaDisabled : null,
+                { marginBottom: 8 },
+              ]}
+            >
+              {generateBtnEnabled ? (
+                <LinearGradient
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={BRAND_FRAME_GRADIENT_START}
+                  end={BRAND_FRAME_GRADIENT_END}
+                  style={styles.generateCta}
+                >
+                  <MaterialIcons name='auto-awesome' size={18} color='#0f172a' />
+                  <Text style={styles.generateCtaText}>Update scope from notes</Text>
+                </LinearGradient>
+              ) : (
+                <View style={styles.generateCta}>
+                  <MaterialIcons
+                    name='auto-awesome'
+                    size={18}
+                    color={
+                      darkMode ? 'rgba(148, 163, 184, 0.55)' : Colors.sub
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.generateCtaText,
+                      {
+                        color: darkMode
+                          ? 'rgba(148, 163, 184, 0.55)'
+                          : Colors.sub,
+                      },
+                    ]}
+                  >
+                    Update scope from notes
+                  </Text>
+                </View>
+              )}
+            </ReliableFlowPress>
+            <ReliableFlowPress
+              onPress={handleContinueDraft}
+              haptic='light'
+              style={styles.regenerateLinkBtn}
+            >
+              <MaterialIcons name='arrow-forward' size={16} color={ESTIMATE_FLOW_GREEN} />
+              <Text style={[styles.regenerateLinkText, { color: ESTIMATE_FLOW_GREEN }]}>
+                Keep current draft
+              </Text>
+            </ReliableFlowPress>
+            {startFreshLink}
+          </>
+        ) : (
+          <>
           <TouchableOpacity
             activeOpacity={0.88}
             onPress={handleContinueDraft}
             style={[
               styles.primaryBtn,
-              { backgroundColor: ESTIMATE_FLOW_GREEN, marginBottom: 8 },
+              { backgroundColor: ESTIMATE_FLOW_GREEN, marginBottom: 4 },
             ]}
           >
             <MaterialIcons name='arrow-forward' size={20} color='#0f172a' />
-            <Text style={styles.primaryBtnText}>Continue to Confirm scope</Text>
-          </TouchableOpacity>
-          <ReliableFlowPress
-            disabled={!generateBtnEnabled}
-            onPress={handleGenerate}
-            haptic='light'
-            style={styles.regenerateLinkBtn}
-          >
-            <MaterialIcons
-              name='auto-awesome'
-              size={16}
-              color={
-                generateBtnEnabled
-                  ? ESTIMATE_FLOW_GREEN
-                  : darkMode
-                    ? 'rgba(148, 163, 184, 0.55)'
-                    : Colors.sub
-              }
-            />
-            <Text
-              style={[
-                styles.regenerateLinkText,
-                {
-                  color: generateBtnEnabled
-                    ? ESTIMATE_FLOW_GREEN
-                    : darkMode
-                      ? 'rgba(148, 163, 184, 0.55)'
-                      : Colors.sub,
-                },
-              ]}
-            >
-              Regenerate draft
+            <Text style={styles.primaryBtnText}>
+              {resumeToScopeConfirm
+                ? 'Continue to Confirm scope'
+                : 'Continue to review'}
             </Text>
-          </ReliableFlowPress>
-          {onStartFresh ? (
-            <ReliableFlowPress
-              disabled={busy}
-              onPress={handleStartFresh}
-              haptic='light'
-              style={styles.startFreshLinkBtn}
-            >
-              <Text
-                style={[
-                  styles.startFreshLinkText,
-                  {
-                    color: darkMode
-                      ? 'rgba(248, 113, 113, 0.88)'
-                      : '#dc2626',
-                  },
-                ]}
-              >
-                Start fresh
-              </Text>
-            </ReliableFlowPress>
-          ) : null}
-        </>
+          </TouchableOpacity>
+          {startFreshLink}
+          </>
+        )
       ) : (
+      <>
       <ReliableFlowPress
         disabled={!generateBtnEnabled || busy}
         onPress={handleGenerate}
@@ -836,6 +1050,8 @@ export default function AIEstimateBuilderModal({
           </View>
         )}
       </ReliableFlowPress>
+      {startFreshLink}
+      </>
       )}
     </>
   );
@@ -851,7 +1067,11 @@ export default function AIEstimateBuilderModal({
         }}
       >
         {hasExistingDraft
-          ? 'Your saved draft is ready. Continue to pick up scope pricing, or Regenerate to rebuild from saved notes and plan.'
+          ? inputsChangedSinceDraft
+            ? 'You changed notes, photos, or plan since your last draft. Update scope to rebuild, or keep your current draft.'
+            : resumeToScopeConfirm
+              ? 'Your saved draft is ready. Continue below to confirm scope items and pricing.'
+              : 'Your saved draft is ready. Continue below to review scope pricing and apply to your bid.'
           : 'Paste or dictate job notes — AI drafts scope for review.'}
       </Text>
 
@@ -955,6 +1175,7 @@ export default function AIEstimateBuilderModal({
       <View
         style={estimateStep1InputCardStyle(Colors, darkMode, {
           marginBottom: 8,
+          marginHorizontal: embedded ? -8 : undefined,
         })}
       >
         <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
@@ -973,30 +1194,31 @@ export default function AIEstimateBuilderModal({
               fontStyle: 'italic',
             }}
           >
-            Regenerate uses your saved notes unless you paste new ones here.
+            Update scope uses your saved notes unless you paste new ones here.
           </Text>
         ) : null}
         <TextInput
           key={`job-notes-${notesInputSessionKey}`}
           ref={notesInputRef}
           value={notes}
-          onChangeText={syncNotesFromNativeEvent}
-          onChange={(event) => syncNotesFromNativeEvent(event.nativeEvent.text)}
+          onChangeText={handleNotesTextChange}
+          onChange={(event) => handleNotesTextChange(event.nativeEvent.text)}
           editable={!busy}
           multiline
           scrollEnabled={false}
           textAlignVertical='top'
+          onContentSizeChange={handleNotesContentSizeChange}
           onSubmitEditing={(event) => {
             syncNotesFromNativeEvent(event.nativeEvent.text);
             dismissNotesEditing();
           }}
-          {...resolveTextInputKeyboardProps({ multiline: true })}
           onEndEditing={(event) => {
             syncNotesFromNativeEvent(event.nativeEvent.text);
           }}
           onBlur={(event) => {
             syncNotesFromNativeEvent(event.nativeEvent.text);
           }}
+          {...resolveTextInputKeyboardProps({ multiline: true })}
           placeholder='Bathroom remodel — shower tile, vanity, plumbing, demo…'
           placeholderTextColor={placeholderColor}
           style={[
@@ -1197,9 +1419,8 @@ export default function AIEstimateBuilderModal({
   const footer = (
     <View
       style={{
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: footerBottomPad,
+        paddingTop: 12,
+        paddingBottom: embedded ? 0 : tabBarClearance,
         borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
         backgroundColor: Colors.bg,
@@ -1209,59 +1430,66 @@ export default function AIEstimateBuilderModal({
     </View>
   );
 
+  const scrollContentStyle = embedded
+    ? {
+        flexGrow: 1,
+        paddingBottom: keyboardUp ? scrollBottomPad : tabBarClearance + 8,
+      }
+    : { paddingBottom: scrollBottomPad };
+
   const body = (
-    <View style={{ flex: 1, backgroundColor: Colors.bg }}>
-      <View style={{ flex: 1 }}>
-        <AIEstimateFlowHeader
-          title='Build with AI'
-          subtitle={
-            hasExistingDraft
-              ? 'Draft saved — continue or regenerate'
-              : 'Notes, photos, or plans'
-          }
-          step={1}
-          stepTotal={3}
-          fromAssistant={fromAssistant}
-          omitTopSafeArea={embedded}
-          disabled={busy}
-          onBack={handleBack}
-        />
-        <ScrollView
-          ref={scrollRef}
-          style={{ flex: 1 }}
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: scrollBottomPad },
-          ]}
-          keyboardShouldPersistTaps='always'
-          keyboardDismissMode='none'
-          showsVerticalScrollIndicator={false}
-          nestedScrollEnabled={false}
-          {...(Platform.OS === 'ios'
-            ? {
-                maintainVisibleContentPosition: {
-                  minIndexForVisible: 0,
-                  autoscrollToTopThreshold: 100,
-                },
-              }
-            : null)}
-        >
-          {notesField}
-        </ScrollView>
-        {!busy ? footer : null}
-      </View>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: Colors.bg,
+        ...(embedded ? { height: windowHeight } : null),
+      }}
+    >
+      <AIEstimateFlowHeader
+        title='Build with AI'
+        subtitle={
+          hasExistingDraft
+            ? inputsChangedSinceDraft
+              ? 'Inputs changed — update or keep draft'
+              : resumeToScopeConfirm
+                ? 'Draft saved — confirm scope below'
+                : 'Draft saved — continue to review'
+            : 'Notes, photos, or plans'
+        }
+        step={1}
+        stepTotal={3}
+        fromAssistant={fromAssistant}
+        disabled={busy}
+        onBack={handleBack}
+      />
+      <ScrollView
+        ref={scrollRef}
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.scrollContent, scrollContentStyle]}
+        keyboardShouldPersistTaps='always'
+        keyboardDismissMode='none'
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled={false}
+        {...(Platform.OS === 'ios' && !embedded
+          ? {
+              maintainVisibleContentPosition: {
+                minIndexForVisible: 0,
+                autoscrollToTopThreshold: 100,
+              },
+            }
+          : null)}
+      >
+        {notesField}
+        {embedded ? <View style={{ flexGrow: 1, minHeight: 16 }} /> : null}
+        {embedded && !busy ? footer : null}
+      </ScrollView>
+      {!embedded && !busy ? footer : null}
     </View>
   );
 
   if (embedded) {
     return (
-      <View
-        style={[
-          StyleSheet.absoluteFillObject,
-          styles.embeddedShell,
-          { backgroundColor: Colors.bg },
-        ]}
-      >
+      <View style={[embeddedShellStyle, styles.embeddedShell]}>
         {body}
         <AIEstimateGeneratingOverlay
           visible={busy}
@@ -1276,7 +1504,7 @@ export default function AIEstimateBuilderModal({
   return (
     <Modal
       visible
-      animationType='slide'
+      animationType='none'
       presentationStyle='fullScreen'
       onRequestClose={handleBack}
     >
@@ -1368,13 +1596,13 @@ const styles = StyleSheet.create({
   },
   startFreshLinkBtn: {
     alignSelf: 'center',
-    paddingVertical: 6,
+    paddingVertical: 8,
     paddingHorizontal: 4,
-    marginTop: 2,
+    marginTop: 4,
   },
   startFreshLinkText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   primaryBtnText: {
     color: '#0f172a',

@@ -32,6 +32,6 @@ export async function consumePostCheckoutReturn(): Promise<PostCheckoutReturn | 
   return payload;
 }
 
-export function buildProjectDetailHref(projectId: string, tab = 'Team'): string {
+export function buildProjectDetailHref(projectId: string, tab = 'Budget'): string {
   return `/project-detail/${encodeURIComponent(projectId)}?activeTab=${encodeURIComponent(tab)}`;
 }

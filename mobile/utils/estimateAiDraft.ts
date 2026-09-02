@@ -1054,6 +1054,8 @@ export type EstimateAiDraft = {
   scopeChecklist?: ScopeChecklist | null;
   scopeAssumptionsConfirmed?: boolean;
   requiresScopeConfirmation?: boolean;
+  /** In-progress Step 2 choices. These are not confirmed until Continue is pressed. */
+  scopeProgressItems?: ScopeChecklistItem[];
   confirmedAssumptions?: ScopeChecklistItem[];
   scopeMeasurements?: ScopeMeasurements | null;
   projectAddress?: string | null;
@@ -5254,8 +5256,12 @@ function isAutoCalculatedUnconfirmedPackage(
     return true;
   }
 
-  // After Confirm Scope: checklist rows without Applied pricing are stripped even
-  // when AI marked them confirmed+applyEligible (that path inflated Bid Summary).
+  // An explicitly confirmed package is already approved by the AI draft flow.
+  // Keep it available for the normal Apply action; only unapproved checklist
+  // pricing should be stripped after Confirm Scope.
+  if (pkg.status === 'confirmed' && pkg.applyEligible) return false;
+
+  // After Confirm Scope: checklist rows without Applied pricing are stripped.
   if (ruleKey) {
     const onChecklist = confirmScopeDisplayItemsFromDraft(draft).some(
       item => item.id === ruleKey && checklistItemInScope(item)

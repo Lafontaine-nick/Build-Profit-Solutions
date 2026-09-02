@@ -11,6 +11,8 @@ import { Colors, COLORS } from "../src/theme/colors";
 import ProgressBar from "./timeline/ProgressBar";
 import EditMilestoneModal from "./EditMilestoneModal";
 import AddDailyLogModal, { type DailyLogEntry } from "./AddDailyLogModal";
+import ProjectPhotosCard from "./ProjectPhotosCard";
+import { listProjectPhotos, deleteProjectPhoto, type ProjectPhoto } from "@/services/projectPhotoService";
 import { useProjectData } from "../contexts/ProjectDataContext";
 import { useProjectList } from "../contexts/ProjectListContext";
 import type { Milestone } from "../src/types/timeline";
@@ -227,6 +229,19 @@ function statusPillStyle(status?: string, darkMode = true) {
     text: darkMode ? "#FFFFFF" : "rgba(234,241,247,0.75)",
     border: "rgba(148, 163, 184, 0.4)",
   };
+}
+
+function isMilestoneReceived(m: Milestone): boolean {
+  const status = String(m.status || "").toLowerCase();
+  if (status === "completed" || status === "complete" || status === "paid") return true;
+  return Boolean((m as Milestone & { collectedAt?: string }).collectedAt);
+}
+
+function sortMilestonesByPlannedDate(items: Milestone[]): Milestone[] {
+  return [...items].sort(
+    (a, b) =>
+      new Date(safeISODate(a.plannedDate)).getTime() - new Date(safeISODate(b.plannedDate)).getTime()
+  );
 }
 
 /* -------------------- Milestone Card (matches app design) -------------------- */
@@ -717,6 +732,14 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     });
   };
 
+  // Render the schedule already present on the project while storage/workspace data hydrates.
+  const initialMilestones = useMemo(() => {
+    const paymentMilestones = collectPaymentMilestones();
+    return paymentMilestones.length
+      ? convertPaymentMilestonesToTimeline(paymentMilestones)
+      : [];
+  }, [collectPaymentMilestones]);
+
   /* ---------- load/save ---------- */
 
   // Force reload trigger for payment collection updates
@@ -724,6 +747,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
   
   // Daily logs state
   const [dailyLogs, setDailyLogs] = useState<any[]>([]);
+  const [projectPhotos, setProjectPhotos] = useState<ProjectPhoto[]>([]);
   const [showAddDailyLog, setShowAddDailyLog] = useState(false);
   const [editingDailyLog, setEditingDailyLog] = useState<DailyLogEntry | null>(null);
 
@@ -809,6 +833,20 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     }
   }, [project?.id]);
 
+  const loadProjectPhotos = useCallback(async () => {
+    if (!project?.id) {
+      setProjectPhotos([]);
+      return;
+    }
+    try {
+      const photos = await listProjectPhotos(project.id);
+      setProjectPhotos(photos);
+    } catch (error) {
+      console.error('❌ Error loading project photos:', error);
+      setProjectPhotos([]);
+    }
+  }, [project?.id]);
+
   // Delete daily log
   const deleteDailyLog = useCallback(async (logId: string) => {
     if (!project?.id) {
@@ -820,9 +858,16 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
       const raw = await AsyncStorage.getItem(logKey);
       if (raw) {
         const logs = JSON.parse(raw);
+        const logToDelete = Array.isArray(logs) ? logs.find((log: any) => log.id === logId) : null;
         const filtered = Array.isArray(logs) ? logs.filter((log: any) => log.id !== logId) : [];
         await AsyncStorage.setItem(logKey, JSON.stringify(filtered));
         pushDailyLogsToBusinessWorkspace(filtered);
+        if (logToDelete?.photoIds?.length) {
+          for (const photoId of logToDelete.photoIds) {
+            await deleteProjectPhoto(project.id, photoId);
+          }
+          await loadProjectPhotos();
+        }
         console.log('🗑️ Deleted daily log:', logId);
         // Reload logs
         setReloadTrigger(prev => prev + 1);
@@ -835,18 +880,20 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
       console.error('❌ Error deleting daily log:', error);
       Alert.alert('Error', 'Failed to delete daily log');
     }
-  }, [project?.id, pushDailyLogsToBusinessWorkspace]);
+  }, [project?.id, pushDailyLogsToBusinessWorkspace, loadProjectPhotos]);
   
   // Load daily logs on mount and when reloadTrigger changes
   useEffect(() => {
     loadDailyLogs();
-  }, [loadDailyLogs, reloadTrigger]);
+    loadProjectPhotos();
+  }, [loadDailyLogs, loadProjectPhotos, reloadTrigger]);
 
   // Reload daily logs when screen comes into focus (e.g., after adding a log via AI)
   useFocusEffect(
     useCallback(() => {
       loadDailyLogs();
-    }, [loadDailyLogs])
+      loadProjectPhotos();
+    }, [loadDailyLogs, loadProjectPhotos])
   );
   
   useEffect(() => {
@@ -1101,23 +1148,42 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
 
   /* ---------- computed ---------- */
 
-  const byId = useMemo(() => Object.fromEntries(milestones.map((m) => [m.id, m])), [milestones]);
+  const renderedMilestones = isLoaded
+    ? milestones
+    : milestones.length > 0
+      ? milestones
+      : initialMilestones;
 
-  const visibleMilestones = useMemo(() => {
-    if (canViewPaymentSchedule) return milestones;
-    return milestones.filter((m) => !isPaymentTimelineMilestone(m));
-  }, [milestones, canViewPaymentSchedule]);
-
-  const paymentScheduleMilestones = useMemo(
-    () => (canViewPaymentSchedule ? milestones.filter(isPaymentTimelineMilestone) : []),
-    [milestones, canViewPaymentSchedule]
+  const byId = useMemo(
+    () => Object.fromEntries(renderedMilestones.map((m) => [m.id, m])),
+    [renderedMilestones]
   );
 
-  const upcoming = useMemo(() => {
-    return [...visibleMilestones]
-      .filter((m) => m.status !== "completed")
-      .sort((a, b) => new Date(safeISODate(a.plannedDate)).getTime() - new Date(safeISODate(b.plannedDate)).getTime())
-      .slice(0, 3);
+  const visibleMilestones = useMemo(() => {
+    if (canViewPaymentSchedule) return renderedMilestones;
+    return renderedMilestones.filter((m) => !isPaymentTimelineMilestone(m));
+  }, [renderedMilestones, canViewPaymentSchedule]);
+
+  const paymentScheduleMilestones = useMemo(
+    () => (canViewPaymentSchedule ? renderedMilestones.filter(isPaymentTimelineMilestone) : []),
+    [renderedMilestones, canViewPaymentSchedule]
+  );
+  const paymentScheduleHighlight = useMemo(() => {
+    if (!canViewPaymentSchedule || !paymentScheduleMilestones.length) {
+      return { lastReceived: null as Milestone | null, nextUpcoming: null as Milestone | null };
+    }
+
+    const sorted = sortMilestonesByPlannedDate(paymentScheduleMilestones);
+    const received = sorted.filter(isMilestoneReceived);
+    const lastReceived = received.length ? received[received.length - 1] : null;
+    const nextUpcoming = sorted.find((m) => !isMilestoneReceived(m)) ?? null;
+
+    return { lastReceived, nextUpcoming };
+  }, [paymentScheduleMilestones, canViewPaymentSchedule]);
+
+  const nextWorkMilestone = useMemo(() => {
+    const pending = sortMilestonesByPlannedDate(visibleMilestones).filter((m) => m.status !== "completed");
+    return pending[0] ?? null;
   }, [visibleMilestones]);
 
   /* ---------- sync overall progress ---------- */
@@ -1176,6 +1242,15 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     console.log('📝 Opening milestone for edit:', m.id, m.title);
     setEditingMilestone(m);
   };
+
+  const renderedPaymentCards = paymentScheduleMilestones.map((item) => (
+    <MilestoneCardV2
+      key={item.id}
+      item={item}
+      dependencyTitle={item.dependsOnId ? byId[item.dependsOnId]?.title ?? "—" : undefined}
+      onPress={onOpenMilestone}
+    />
+  ));
 
   const addNewMilestone = () => {
     const newMilestone: Milestone = {
@@ -1252,8 +1327,9 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     }
     // Reload daily logs
     await loadDailyLogs();
+    await loadProjectPhotos();
     setTimeout(() => setRefreshing(false), 500);
-  }, [project?.id, collectPaymentMilestones, loadDailyLogs]);
+  }, [project?.id, collectPaymentMilestones, loadDailyLogs, loadProjectPhotos]);
 
   const syncWithEstimate = () => {
     if (Platform.OS === 'ios') {
@@ -1294,54 +1370,14 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
 
   /* ---------- render ---------- */
 
-  if (!isLoaded) {
-    return (
-      <View
-        style={[
-          styles.container,
-          embedded && styles.containerEmbedded,
-          styles.center,
-          !darkMode && { backgroundColor: Colors.bg },
-        ]}
-      >
-        <Text style={[styles.loadingText, { color: darkMode ? COLORS.text : Colors.text }]}>Loading timeline...</Text>
-      </View>
-    );
-  }
+  const timelineBodyStyle = {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 16,
+    ...(isWeb ? { alignItems: "center" as const } : {}),
+  };
 
-  return (
-    <View
-      style={[
-        styles.container,
-        embedded && styles.containerEmbedded,
-        !darkMode && { backgroundColor: Colors.bg },
-      ]}
-    >
-      <ScrollView
-        style={styles.scrollContent}
-        showsVerticalScrollIndicator={true}
-        contentContainerStyle={{
-          paddingHorizontal: 0,
-          paddingTop: 0,
-          paddingBottom: 16,
-          ...(isWeb ? { alignItems: "center" as const } : {}),
-        }}
-        nestedScrollEnabled={true}
-        scrollEnabled={true}
-        bounces={true}
-        alwaysBounceVertical={false}
-        {...KEYBOARD_SCROLL_DEFAULTS}
-        {...(Platform.OS === 'web' ? { keyboardShouldPersistTaps: 'always' as const } : {})}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={COLORS.green}
-            colors={[COLORS.green]}
-          />
-        }
-      >
-        {/* Wide Container - matches Budget and Overview pages */}
+  const timelineBody = (
         <View
           style={[
             styles.outerCard,
@@ -1438,12 +1474,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                   </TouchableOpacity>
                 </View>
                 {dailyLogs.length > 0 ? (
-                  <ScrollView 
-                    style={styles.logsList}
-                    nestedScrollEnabled={true}
-                    showsVerticalScrollIndicator={false}
-                    contentContainerStyle={dailyLogs.length > 3 ? { paddingBottom: 8 } : {}}
-                  >
+                  <View style={styles.logsList}>
                     {dailyLogs.map((log) => (
                       <TouchableOpacity
                         key={log.id}
@@ -1470,6 +1501,14 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                               <View style={[styles.logBadge, { backgroundColor: darkMode ? "rgba(34, 211, 238, 0.15)" : "#E0F2FE", borderColor: "#22d3ee" }]}>
                                 <MaterialIcons name="wb-sunny" size={14} color="#22d3ee" />
                                 <Text style={[styles.logBadgeText, { color: "#22d3ee" }]}>{log.weather}</Text>
+                              </View>
+                            )}
+                            {Array.isArray(log.photoIds) && log.photoIds.length > 0 && (
+                              <View style={[styles.logBadge, { backgroundColor: darkMode ? "rgba(34, 197, 94, 0.15)" : "rgba(34, 197, 94, 0.08)", borderColor: "#22c55e" }]}>
+                                <MaterialIcons name="photo-camera" size={14} color="#22c55e" />
+                                <Text style={[styles.logBadgeText, { color: "#22c55e" }]}>
+                                  {log.photoIds.length}
+                                </Text>
                               </View>
                             )}
                             <TouchableOpacity
@@ -1525,7 +1564,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                         )}
                       </TouchableOpacity>
                     ))}
-                  </ScrollView>
+                  </View>
                 ) : (
                   <View style={styles.emptyLogsContainer}>
                     <View style={[styles.emptyLogsIconWrap, { backgroundColor: darkMode ? "rgba(34,211,238,0.1)" : "rgba(14,165,233,0.08)" }]}>
@@ -1563,8 +1602,22 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
             </LinearGradient>
           </View>
 
-          {/* Upcoming work milestones — hide for field roles when only payments remain */}
-          {(canViewPaymentSchedule || upcoming.length > 0) ? (
+          <ProjectPhotosCard
+            projectId={project?.id || ""}
+            photos={projectPhotos}
+            darkMode={darkMode}
+            textColor={darkMode ? COLORS.text : Colors.text}
+            mutedColor={muted}
+            surfaceColor={Colors.bg}
+            lineColor={Colors.line}
+            onPhotosChanged={async () => {
+              await loadProjectPhotos();
+              await loadDailyLogs();
+            }}
+          />
+
+          {/* Payment snapshot (last received + next due) or next work milestone for field roles */}
+          {(canViewPaymentSchedule && paymentScheduleMilestones.length > 0) || nextWorkMilestone ? (
           <View style={{ marginTop: 12 }}>
             <LinearGradient
               colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -1578,36 +1631,94 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                     <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
                       <MaterialIcons name="event" size={22} color="#22c55e" />
                       <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
-                        Upcoming (next 3)
+                        {canViewPaymentSchedule ? "Payments" : "Upcoming"}
                       </Text>
                     </View>
                     <View style={styles.upcomingContent}>
-                      {upcoming.length > 0 ? (
-                        upcoming.map((u) => (
-                          <View
-                            key={u.id}
-                            style={[
-                              styles.upcomingShell,
-                              {
-                                backgroundColor: darkMode ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.03)",
-                                borderColor: darkMode ? "rgba(148,163,184,0.12)" : "rgba(15,23,42,0.08)",
-                              },
-                            ]}
-                          >
-                            <View style={[styles.upcomingDot, { backgroundColor: "#22d3ee" }]} />
-                            <View style={styles.upcomingTextCol}>
-                              <Text style={[styles.upcomingTitleOnly, { color: darkMode ? COLORS.text : Colors.text }]} numberOfLines={2}>
-                                {u.title}
+                      {canViewPaymentSchedule ? (
+                        paymentScheduleHighlight.lastReceived || paymentScheduleHighlight.nextUpcoming ? (
+                          <>
+                            {paymentScheduleHighlight.lastReceived ? (
+                              <Pressable
+                                onPress={() => onOpenMilestone(paymentScheduleHighlight.lastReceived!)}
+                                style={[
+                                  styles.upcomingShell,
+                                  styles.paymentHighlightReceived,
+                                  {
+                                    backgroundColor: darkMode ? "rgba(34, 197, 94, 0.12)" : "rgba(34, 197, 94, 0.08)",
+                                    borderColor: darkMode ? "rgba(34, 197, 94, 0.45)" : "rgba(34, 197, 94, 0.35)",
+                                  },
+                                ]}
+                              >
+                                <View style={[styles.upcomingDot, { backgroundColor: "#22c55e" }]} />
+                                <View style={styles.upcomingTextCol}>
+                                  <View style={[styles.paymentHighlightBadge, styles.paymentHighlightBadgeReceived]}>
+                                    <Text style={styles.paymentHighlightBadgeTextReceived}>Received</Text>
+                                  </View>
+                                  <Text style={[styles.upcomingTitleOnly, { color: darkMode ? COLORS.text : Colors.text }]} numberOfLines={2}>
+                                    {paymentScheduleHighlight.lastReceived.title}
+                                  </Text>
+                                  <Text style={[styles.upcomingDateLine, { color: caption }]}>
+                                    {formatDate(paymentScheduleHighlight.lastReceived.plannedDate)}
+                                  </Text>
+                                </View>
+                              </Pressable>
+                            ) : null}
+                            {paymentScheduleHighlight.nextUpcoming ? (
+                              <Pressable
+                                onPress={() => onOpenMilestone(paymentScheduleHighlight.nextUpcoming!)}
+                                style={[
+                                  styles.upcomingShell,
+                                  {
+                                    backgroundColor: darkMode ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.03)",
+                                    borderColor: darkMode ? "rgba(148,163,184,0.12)" : "rgba(15,23,42,0.08)",
+                                  },
+                                ]}
+                              >
+                                <View style={[styles.upcomingDot, { backgroundColor: "#22d3ee" }]} />
+                                <View style={styles.upcomingTextCol}>
+                                  <View style={[styles.paymentHighlightBadge, styles.paymentHighlightBadgeUpcoming]}>
+                                    <Text style={styles.paymentHighlightBadgeTextUpcoming}>Upcoming</Text>
+                                  </View>
+                                  <Text style={[styles.upcomingTitleOnly, { color: darkMode ? COLORS.text : Colors.text }]} numberOfLines={2}>
+                                    {paymentScheduleHighlight.nextUpcoming.title}
+                                  </Text>
+                                  <Text style={[styles.upcomingDateLine, { color: caption }]}>
+                                    {formatDate(paymentScheduleHighlight.nextUpcoming.plannedDate)}
+                                  </Text>
+                                </View>
+                              </Pressable>
+                            ) : paymentScheduleHighlight.lastReceived ? (
+                              <Text style={[styles.paymentAllCollectedText, { color: muted }]}>
+                                All scheduled payments have been received.
                               </Text>
-                              <Text style={[styles.upcomingDateLine, { color: caption }]}>{formatDate(u.plannedDate)}</Text>
-                            </View>
+                            ) : null}
+                          </>
+                        ) : (
+                          <Text style={[styles.emptyText, { color: muted }]}>No payments scheduled yet.</Text>
+                        )
+                      ) : nextWorkMilestone ? (
+                        <Pressable
+                          onPress={() => onOpenMilestone(nextWorkMilestone)}
+                          style={[
+                            styles.upcomingShell,
+                            {
+                              backgroundColor: darkMode ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.03)",
+                              borderColor: darkMode ? "rgba(148,163,184,0.12)" : "rgba(15,23,42,0.08)",
+                            },
+                          ]}
+                        >
+                          <View style={[styles.upcomingDot, { backgroundColor: "#22d3ee" }]} />
+                          <View style={styles.upcomingTextCol}>
+                            <Text style={[styles.upcomingTitleOnly, { color: darkMode ? COLORS.text : Colors.text }]} numberOfLines={2}>
+                              {nextWorkMilestone.title}
+                            </Text>
+                            <Text style={[styles.upcomingDateLine, { color: caption }]}>{formatDate(nextWorkMilestone.plannedDate)}</Text>
                           </View>
-                        ))
+                        </Pressable>
                       ) : (
                         <Text style={[styles.emptyText, { color: muted }]}>
-                          {canViewPaymentSchedule
-                            ? 'No upcoming milestones'
-                            : 'No upcoming work milestones — payment schedule is managed by the owner.'}
+                          No upcoming work milestones — payment schedule is managed by the owner.
                         </Text>
                       )}
                     </View>
@@ -1636,17 +1747,9 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                     All Payments
                   </Text>
                 </View>
-                <View style={styles.milestonesList}>
-                  {paymentScheduleMilestones.length > 0 ? (
-                    paymentScheduleMilestones.map((item) => (
-                      <MilestoneCardV2
-                        key={item.id}
-                        item={item}
-                        dependencyTitle={item.dependsOnId ? byId[item.dependsOnId]?.title ?? "—" : undefined}
-                        onPress={onOpenMilestone}
-                      />
-                    ))
-                  ) : (
+                {paymentScheduleMilestones.length > 0 ? (
+                  <View style={styles.milestonesList}>{renderedPaymentCards}</View>
+                ) : (
                     <View style={styles.emptyTimelineContainer}>
                       <Text style={[styles.emptyTimelineTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
                         Project hasn't started yet
@@ -1722,14 +1825,46 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                         </TouchableOpacity>
                       </View>
                     </View>
-                  )}
-                </View>
+                )}
               </View>
             </LinearGradient>
           </View>
           ) : null}
         </View>
-      </ScrollView>
+  );
+
+  return (
+    <View
+      style={[
+        styles.container,
+        embedded && styles.containerEmbedded,
+        !darkMode && { backgroundColor: Colors.bg },
+      ]}
+    >
+      {embedded ? (
+        <View style={timelineBodyStyle}>{timelineBody}</View>
+      ) : (
+        <ScrollView
+          style={styles.scrollContent}
+          showsVerticalScrollIndicator={true}
+          contentContainerStyle={timelineBodyStyle}
+          scrollEnabled={true}
+          bounces={true}
+          alwaysBounceVertical={false}
+          {...KEYBOARD_SCROLL_DEFAULTS}
+          {...(Platform.OS === 'web' ? { keyboardShouldPersistTaps: 'always' as const } : {})}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={COLORS.green}
+              colors={[COLORS.green]}
+            />
+          }
+        >
+          {timelineBody}
+        </ScrollView>
+      )}
 
       <AddDailyLogModal
         visible={showAddDailyLog}
@@ -1747,6 +1882,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
             }
           }
           setReloadTrigger((prev) => prev + 1);
+          await loadProjectPhotos();
         }}
       />
 
@@ -2081,7 +2217,49 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
-    minHeight: 72,
+    minHeight: 64,
+  },
+  paymentHighlightReceived: {
+    borderWidth: 1.5,
+  },
+  paymentHighlightBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    marginBottom: 6,
+  },
+  paymentHighlightBadgeReceived: {
+    backgroundColor: "rgba(34, 197, 94, 0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(34, 197, 94, 0.4)",
+  },
+  paymentHighlightBadgeUpcoming: {
+    backgroundColor: "rgba(34, 211, 238, 0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(34, 211, 238, 0.35)",
+  },
+  paymentHighlightBadgeTextReceived: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    color: "#22c55e",
+    textTransform: "uppercase",
+  },
+  paymentHighlightBadgeTextUpcoming: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    color: "#22d3ee",
+    textTransform: "uppercase",
+  },
+  paymentAllCollectedText: {
+    fontSize: 14,
+    fontWeight: "500",
+    textAlign: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    lineHeight: 20,
   },
   upcomingDot: {
     width: 8,
@@ -2109,7 +2287,7 @@ const styles = StyleSheet.create({
   },
   milestonesList: {
     marginTop: 12,
-    gap: 18,
+    gap: 12,
   },
   milestoneCardContainer: {
     marginBottom: 0,
@@ -2119,26 +2297,26 @@ const styles = StyleSheet.create({
     padding: 1,
   },
   mCard: {
-    padding: 15,
+    padding: 12,
   },
   mTitle: { 
     color: COLORS.text, 
     fontWeight: "700", 
-    fontSize: 17, 
+    fontSize: 16,
     letterSpacing: Platform.OS === 'ios' ? -0.3 : -0.2,
-    lineHeight: 22,
-    marginBottom: 10,
+    lineHeight: 20,
+    marginBottom: 7,
   },
   mAmountRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    marginBottom: 12,
+    marginBottom: 9,
   },
   amountPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 999,
     backgroundColor: "rgba(34, 197, 94, 0.2)",
     borderWidth: 1,
@@ -2147,7 +2325,7 @@ const styles = StyleSheet.create({
   amountText: { 
     color: "#22c55e", 
     fontWeight: "800", 
-    fontSize: 15,
+    fontSize: 14,
     fontVariant: ["tabular-nums"],
   },
   mPctSecondary: {
@@ -2160,14 +2338,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    marginBottom: 10,
-    paddingBottom: 10,
+    marginBottom: 8,
+    paddingBottom: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(148, 163, 184, 0.14)",
   },
   statusPill: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderRadius: 999,
   },
   statusText: { 
@@ -2184,12 +2362,12 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
     marginBottom: 4,
   },
   mMetaLine: {
     fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 17,
   },
   costImpact: { 
     color: "#22d3ee", 
@@ -2199,10 +2377,10 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   mProgressContainer: {
-    marginTop: 14,
+    marginTop: 10,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 999,
-    padding: 3,
+    padding: 2,
     borderColor: "rgba(148, 163, 184, 0.22)",
   },
   emptyText: {
@@ -2231,8 +2409,7 @@ const styles = StyleSheet.create({
   },
   logsList: {
     marginTop: 16,
-    gap: 20, // Increased spacing between log cards
-    maxHeight: 340, // Adjusted for larger spacing
+    gap: 20,
   },
   emptyLogsContainer: {
     paddingVertical: 28,

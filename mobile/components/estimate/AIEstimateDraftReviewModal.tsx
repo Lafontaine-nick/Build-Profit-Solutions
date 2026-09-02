@@ -16,6 +16,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getEmbeddedAiFlowFooterBottomInset } from '@/constants/ScreenLayout';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
@@ -147,13 +148,13 @@ export default function AIEstimateDraftReviewModal({
 
   const handleBack = () => {
     if (applying) return;
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
     if (onBack) {
       onBack();
     } else {
       onClose();
+    }
+    if (Platform.OS !== 'web') {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
   };
 
@@ -181,13 +182,16 @@ export default function AIEstimateDraftReviewModal({
     ? draft.needsReviewItems
     : draft?.missingInfo || [];
   const [footerExpanded, setFooterExpanded] = useState(false);
+  const embeddedFooterBottomInset = embedded
+    ? getEmbeddedAiFlowFooterBottomInset(insets.bottom)
+    : insets.bottom;
   const footerScrollPadding = scopeOnly
-    ? 96 + insets.bottom
+    ? 96 + embeddedFooterBottomInset
     : footerExpanded
-      ? 280 + insets.bottom
+      ? 280 + embeddedFooterBottomInset
       : onToggleSaveToPricingLibrary
-        ? 120 + insets.bottom
-        : 88 + insets.bottom;
+        ? 120 + embeddedFooterBottomInset
+        : 88 + embeddedFooterBottomInset;
   const showFooterTotal =
     Boolean(footerTotalLabel) &&
     !(step3Totals?.heroAmount != null && step3Totals.heroAmount > 0);
@@ -223,7 +227,6 @@ export default function AIEstimateDraftReviewModal({
         step={aiFlowStepTotal(draft)}
         stepTotal={aiFlowStepTotal(draft)}
         fromAssistant={fromAssistant}
-        omitTopSafeArea={embedded}
         disabled={busy}
         onBack={handleBack}
       />
@@ -311,7 +314,7 @@ export default function AIEstimateDraftReviewModal({
         style={{
           paddingHorizontal: 16,
           paddingTop: footerExpanded ? 8 : 6,
-          paddingBottom: Math.max(insets.bottom, 16),
+          paddingBottom: Math.max(embeddedFooterBottomInset, 16),
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
           backgroundColor: Colors.bg,
@@ -523,7 +526,7 @@ export default function AIEstimateDraftReviewModal({
   }
 
   return (
-    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={handleBack}>
+    <Modal visible animationType="none" presentationStyle="fullScreen" onRequestClose={handleBack}>
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
       <View style={{ flex: 1, backgroundColor: Colors.bg }}>{shell}</View>
     </Modal>

@@ -32,6 +32,10 @@ import WebPageShell, {
   getWebPageShellMaxWidth,
   WEB_PAGE_SHELL_HORIZONTAL_PADDING,
 } from '@/components/layout/WebPageShell';
+import {
+  filterLaunchSubscriptionPlans,
+  isTeamWorkspaceReleased,
+} from '@/constants/releaseFlags';
 
 function planShortName(name: string): string {
   return name.replace(/\s+Plan\s*$/i, '').trim() || name;
@@ -71,7 +75,7 @@ export default function SubscriptionPlansModal({
   onClose,
   mode = 'modal',
   returnToProjectId,
-  returnTab = 'Team',
+  returnTab = 'Budget',
   onUpgradeComplete,
 }: SubscriptionPlansModalProps) {
   const router = useRouter();
@@ -120,7 +124,7 @@ export default function SubscriptionPlansModal({
     let cancelled = false;
     stripeService.fetchSubscriptionPlans().then((next) => {
       if (!cancelled && next.length > 0) {
-        setPlans(next);
+        setPlans(filterLaunchSubscriptionPlans(next));
       }
     });
     return () => {
@@ -133,7 +137,7 @@ export default function SubscriptionPlansModal({
     let cancelled = false;
     stripeService.fetchSubscriptionPlans().then((next) => {
       if (!cancelled && next.length > 0) {
-        setPlans(next);
+        setPlans(filterLaunchSubscriptionPlans(next));
       }
     });
     return () => {
@@ -314,8 +318,8 @@ export default function SubscriptionPlansModal({
             Alert.alert(
               'Plan updated',
               isDowngrade
-                ? `You're now on ${changeResult.planName || plan.name}. Team workspace access will update accordingly.`
-                : `You're now on ${changeResult.planName || plan.name}. Team access will refresh automatically.`,
+                ? `You're now on ${changeResult.planName || plan.name}.`
+                : `You're now on ${changeResult.planName || plan.name}.`,
               [
                 {
                   text: 'OK',
@@ -446,7 +450,9 @@ export default function SubscriptionPlansModal({
             if (result.type === 'dismiss') {
               Alert.alert(
                 'Checkout closed',
-                'If you completed payment, tap Refresh on the Team tab to unlock Business workspace access.',
+                isTeamWorkspaceReleased()
+                  ? 'If you completed payment, tap Refresh on the Team tab to unlock Business workspace access.'
+                  : 'If you completed payment, open Payment & Billing to confirm your plan.',
                 [{ text: 'OK', onPress: () => handleClose() }]
               );
             } else {
