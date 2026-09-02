@@ -1593,6 +1593,47 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(comparison).toBeNull();
   });
 
+  it('painting exterior paint uses exterior national rates, not interior bid lines', () => {
+    const input = inputWith({ exteriorPaintSqft: '2000' });
+    const resolved = {
+      quantity: 2000,
+      unit: 'sqft' as const,
+      quantitySource: 'user_entered' as const,
+    };
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'exterior_paint',
+      input,
+      'painting',
+      resolved,
+      {
+        libraryRates: [],
+        bid: {
+          name: 'Interior repaint bid',
+          materialLineItems: [
+            {
+              description: 'Interior wall paint',
+              quantity: 1500,
+              unit: 'sqft',
+              unitPrice: 0.85,
+            },
+          ],
+          laborLineItems: [
+            {
+              description: 'Interior wall paint labor',
+              quantity: 1500,
+              unit: 'sqft',
+              unitPrice: 2.5,
+            },
+          ],
+        },
+      }
+    );
+    expect(fill?.total).toBeCloseTo(6300, 2);
+    expect(fill?.materialSource).toBe('national_average');
+    expect(fill?.rateSourceLabel).toMatch(/exterior\/stucco paint/i);
+    expect(fill?.rateSourceLabel).not.toMatch(/^saved pricing$/i);
+  });
+
   it('uses CY national average rates when concrete is measured in cubic yards', () => {
     const input = inputWith({ concreteCy: '18' });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);

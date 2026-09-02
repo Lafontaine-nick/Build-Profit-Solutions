@@ -14796,6 +14796,76 @@ export function resolveScopeItemSuggestedPricing(
     };
   }
 
+  if (
+    (itemId === 'exterior_prep' || itemId === 'exterior_paint') &&
+    String(templateKey || '').toLowerCase() === 'painting' &&
+    Number(resolved.quantity) > 0
+  ) {
+    const itemQuantities = measurementsInput.itemQuantities || {};
+    if (
+      !options?.bypassAppliedSuppress &&
+      shouldSuppressSuggestedPricingAfterApply(
+        itemId,
+        itemQuantities,
+        measurementsInput.pricingAcceptance
+      )
+    ) {
+      return empty;
+    }
+    if (
+      userHasCommittedScopePricing(
+        itemId,
+        itemQuantities,
+        measurementsInput.pricingAcceptance
+      )
+    ) {
+      return { fill: null, comparison: null };
+    }
+    const quantity = Number(resolved.quantity);
+    if (itemId === 'exterior_prep') {
+      const material = round2(quantity * 0.15);
+      const labor = round2(quantity * 0.65);
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel:
+            'Suggested · National Average · exterior prep and masking',
+          helper: `${quantity.toLocaleString()} sqft exterior surface`,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity, unit: resolved.unit || 'sqft' },
+          benchmarkAction: 'price_ready',
+          pricingRecordId: 'bps_national:exterior_prep:painting',
+        },
+        comparison: null,
+      };
+    }
+    const material = round2(quantity * 0.9);
+    const labor = round2(quantity * 2.25);
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel:
+          'Suggested · National Average · exterior/stucco paint (mid-market)',
+        helper: exteriorPaintLocalCalibrationMessage(),
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: resolved.unit || 'sqft' },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: 'bps_national:exterior_paint:painting',
+      },
+      comparison: null,
+    };
+  }
+
   const itemQuantities = measurementsInput.itemQuantities || {};
   if (
     !options?.bypassAppliedSuppress &&

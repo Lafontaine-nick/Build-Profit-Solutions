@@ -23133,12 +23133,11 @@ export default function AIEstimateScopeAssumptionsModal({
         }}
       >
         <View ref={scrollContentRef} collapsable={false}>
-          <AIEstimateDisclaimer variant='compact' />
           <Text
             style={{
               color: captionColor(darkMode, Colors),
               fontSize: 12,
-              marginTop: 4,
+              marginTop: 0,
               marginBottom: 12,
               lineHeight: 17,
             }}
@@ -23675,6 +23674,8 @@ export default function AIEstimateScopeAssumptionsModal({
               }
             />
           ) : null}
+
+          <AIEstimateDisclaimer variant='compact' />
         </View>
       </GestureScrollView>
 
