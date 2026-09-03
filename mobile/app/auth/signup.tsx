@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Platform, ScrollView, Alert, SafeAreaView, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Platform, ScrollView, Alert, ActivityIndicator, StyleSheet } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -12,6 +13,7 @@ export default function SignupScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [pending, setPending] = useState(false);
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const handleSignup = async () => {
     if (!email || !password) {
@@ -58,9 +60,15 @@ export default function SignupScreen() {
       colors={['#021A35', '#007A70']}
       style={{ flex: 1 }}
     >
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
         <View style={{ flex: 1 }}>
-          <ScrollView contentContainerStyle={styles.scrollContent} {...FORM_KEYBOARD_SCROLL_PROPS}>
+          <ScrollView
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: 24 + insets.bottom },
+            ]}
+            {...FORM_KEYBOARD_SCROLL_PROPS}
+          >
             <View style={styles.card}>
               <Text style={styles.title}>Create Account</Text>
               <View style={styles.inputGroup}>
@@ -136,7 +144,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 24,
-    paddingVertical: 20,
+    paddingTop: 20,
   },
   card: {
     borderRadius: 28,

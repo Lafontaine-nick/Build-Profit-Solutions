@@ -9,8 +9,8 @@ import {
   ActivityIndicator,
   Platform,
   ScrollView,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { getPostAuthHref } from '@/lib/postAuthNavigation';
@@ -32,6 +32,7 @@ try {
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   
   // Check if Clerk is configured
   const publishableKey = Constants.expoConfig?.extra?.clerkPublishableKey || process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
@@ -225,10 +226,13 @@ export default function ForgotPasswordScreen() {
 
   return (
     <LinearGradient colors={['#021A35', '#007A70']} style={{ flex: 1 }}>
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
         <View style={styles.container}>
           <ScrollView
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: 24 + insets.bottom },
+            ]}
             showsVerticalScrollIndicator={false}
             {...FORM_KEYBOARD_SCROLL_PROPS}
           >
@@ -422,7 +426,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 24,
-    paddingVertical: 20,
+    paddingTop: 20,
   },
   card: {
     borderRadius: 28,

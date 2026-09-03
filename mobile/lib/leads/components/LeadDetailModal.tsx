@@ -513,7 +513,7 @@ export default function LeadDetailModal({
       if (matchingProject) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         onClose();
-        router.push(`/project-detail/${matchingProject.id}`);
+        router.push(`/(tabs)/project-detail/${matchingProject.id}`);
         return;
       } else {
         Alert.alert(

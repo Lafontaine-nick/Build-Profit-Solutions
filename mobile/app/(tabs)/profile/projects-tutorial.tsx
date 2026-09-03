@@ -14,23 +14,33 @@ import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
 import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
-import { useWebProfileHelpHeaderMargins } from '@/lib/useWebProfileHelpHeaderMargins';
+import {
+  PROFILE_HELP_CHROME_H_MARGIN,
+  useWebProfileHelpHeaderMargins,
+} from '@/lib/useWebProfileHelpHeaderMargins';
 
-interface StepCardProps {
+interface TutorialStepProps {
   number: number;
   title: string;
   description: string;
   icon: string;
   theme: any;
-  onPress?: () => void;
   isLast?: boolean;
 }
 
-const StepCard = ({ number, title, description, icon, theme, onPress, isLast }: StepCardProps) => (
+const TutorialStep = ({
+  number,
+  title,
+  description,
+  icon,
+  theme,
+  isLast,
+}: TutorialStepProps) => (
   <View style={styles.stepContainer}>
     <View style={styles.stepRow}>
       <View style={styles.stepLeft}>
@@ -43,38 +53,25 @@ const StepCard = ({ number, title, description, icon, theme, onPress, isLast }: 
           <View style={[styles.stepConnector, { backgroundColor: theme.border }]} />
         )}
       </View>
-      <TouchableOpacity
-        style={[
-          styles.stepCard,
-          { borderColor: theme.border, backgroundColor: theme.card },
-          onPress && styles.stepCardClickable,
-        ]}
-        onPress={onPress}
-        activeOpacity={onPress ? 0.7 : 1}
-        disabled={!onPress}
-      >
+      <View style={[styles.stepCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
         <View style={styles.stepContent}>
           <View style={styles.stepHeader}>
             <MaterialIcons name={icon as any} size={24} color={theme.accent} />
             <Text style={[styles.stepTitle, { color: theme.text }]}>{title}</Text>
-            {onPress && (
-              <MaterialIcons name='chevron-right' size={20} color={theme.subtext} />
-            )}
           </View>
           <Text style={[styles.stepDescription, { color: theme.subtext }]}>
             {description}
           </Text>
         </View>
-      </TouchableOpacity>
+      </View>
     </View>
   </View>
 );
 
-
-export default function GettingStartedScreen() {
+export default function ProjectsTutorialScreen() {
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const router = useRouter();
-  /** Web chrome uses no horizontal inset — frame is flush with shell padding. */
-  const webHelpHeaderMargins = useWebProfileHelpHeaderMargins(0);
+  const webHelpHeaderMargins = useWebProfileHelpHeaderMargins();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
 
@@ -91,71 +88,56 @@ export default function GettingStartedScreen() {
   const steps = [
     {
       number: 1,
-      title: 'Complete Your Profile',
+      title: 'View All Projects',
       description:
-        'Add your company information, licenses, and insurance details to get started.',
-      icon: 'person',
-      onPress: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        router.push('/(tabs)/profile');
-      },
+        'See all your projects in one place. Projects are organized by status: In Progress, Active, and Completed.',
+      icon: 'folder',
     },
     {
       number: 2,
-      title: 'Explore the Dashboard',
+      title: 'Convert Estimates to Projects',
       description:
-        'View your project overview, revenue metrics, and active projects at a glance.',
-      icon: 'dashboard',
-      onPress: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        router.push('/(tabs)/dashboard');
-      },
+        'Projects are created by converting estimates from the Estimate Generator. After winning a bid, convert your estimate to a project to start tracking progress.',
+      icon: 'swap-horiz',
     },
     {
       number: 3,
-      title: 'Add Your First Lead',
+      title: 'Track Project Progress',
       description:
-        'Start managing leads by adding new opportunities from the Leads tab.',
-      icon: 'person-add',
-      onPress: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        router.push('/(tabs)/leads');
-      },
+        'Monitor project completion with visual progress bars. Track budgets, labor costs, how much you\'ve spent, and how much budget is available. Progress is calculated based on timeline and completion milestones.',
+      icon: 'trending-up',
     },
     {
       number: 4,
-      title: 'Create an Estimate',
+      title: 'Filter and Search',
       description:
-        'Use the Estimate Generator to create professional project estimates with AI assistance.',
-      icon: 'calculate',
-      onPress: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        router.push('/(tabs)/estimate-generator');
-      },
+        'Use the search bar to find projects by name or location. Filter by status to see only active, completed, or draft projects.',
+      icon: 'search',
     },
     {
       number: 5,
-      title: 'Manage Projects',
+      title: 'View Project Details',
       description:
-        'Track project progress, manage budgets, and collaborate with your team.',
-      icon: 'folder',
-      onPress: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        router.push('/(tabs)/projects');
-      },
+        'Tap any project card to see detailed information including timeline, budget, margin, client information, and project notes.',
+      icon: 'info',
+    },
+    {
+      number: 6,
+      title: 'Monitor Profitability',
+      description:
+        'Track project margins and profitability in real-time. See which projects are performing well and which need attention.',
+      icon: 'show-chart',
     },
   ];
-
 
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <LinearGradient colors={theme.background} style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
-          <View style={styles.pageShell}>
           {Platform.OS === 'web' ? (
             <HelpSupportSubpageWebHeader
-              title='Getting Started'
+              title='Project Management'
               darkMode={darkMode}
               lightBg={Colors.bg}
               webHelpHeaderMargins={webHelpHeaderMargins}
@@ -172,7 +154,9 @@ export default function GettingStartedScreen() {
                   <GradientRingBackInner
                     darkMode={darkMode}
                     onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      if (Platform.OS !== 'web') {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }
                       router.back();
                     }}
                     style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
@@ -183,7 +167,7 @@ export default function GettingStartedScreen() {
               </View>
               <View style={styles.titleContainer}>
                 <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
-                  Getting Started
+                  Project Management
                 </Text>
               </View>
               <View style={styles.backButtonWrapper} />
@@ -195,7 +179,7 @@ export default function GettingStartedScreen() {
             style={{ flex: 1 }}
             contentContainerStyle={{
               paddingTop: Platform.OS === 'web' ? 0 : 16,
-              paddingBottom: 40,
+              paddingBottom: tabScrollBottomInset,
               paddingHorizontal: 0,
             }}
             showsVerticalScrollIndicator={true}
@@ -212,7 +196,7 @@ export default function GettingStartedScreen() {
                   styles.contentCard,
                   {
                     backgroundColor: darkMode ? Colors.cardDark : Colors.bg,
-                    borderColor: Colors.line,
+                    borderColor: theme.border,
                     borderWidth: 1,
                   },
                 ]}
@@ -221,40 +205,36 @@ export default function GettingStartedScreen() {
                   {/* Welcome Section */}
                   <View style={[styles.welcomeCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                     <View style={[styles.welcomeIcon, { backgroundColor: theme.iconBg }]}>
-                      <MaterialIcons name='rocket-launch' size={32} color={theme.accent} />
+                      <MaterialIcons name='folder' size={32} color={theme.accent} />
                     </View>
                     <Text style={[styles.welcomeTitle, { color: theme.text }]}>
-                      Welcome to Build Profit Solutions!
+                      Manage Your Projects
                     </Text>
                     <Text style={[styles.welcomeText, { color: theme.subtext }]}>
-                      We're here to help you manage your construction business more
-                      efficiently. Follow these steps to get started.
+                      Keep track of all your projects from start to finish. Monitor progress,
+                      profitability, and timelines in one centralized location.
                     </Text>
                   </View>
 
-                  {/* Steps Section */}
+                  {/* Tutorial Steps */}
                   <View style={styles.section}>
                     <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                      Quick Start Guide
-                    </Text>
-                    <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
-                      Tap on any step to get started
+                      Getting Started
                     </Text>
                     {steps.map((step, index) => (
-                      <StepCard
+                      <TutorialStep
                         key={step.number}
                         number={step.number}
                         title={step.title}
                         description={step.description}
                         icon={step.icon}
                         theme={theme}
-                        onPress={step.onPress}
                         isLast={index === steps.length - 1}
                       />
                     ))}
                   </View>
 
-                  {/* Tips Section */}
+                  {/* Quick Tips */}
                   <View style={[styles.tipsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                     <MaterialIcons name='lightbulb-outline' size={24} color={theme.accent} />
                     <View style={styles.tipsContent}>
@@ -262,20 +242,31 @@ export default function GettingStartedScreen() {
                         Pro Tips
                       </Text>
                       <Text style={[styles.tipsText, { color: theme.subtext }]}>
-                        • Complete your profile to unlock all features{'\n'}
-                        • Use the Dashboard to track your business metrics{'\n'}
-                        • Create estimates to win more projects{'\n'}
-                        • Manage leads to grow your pipeline
+                        • Convert estimates to projects after winning bids{'\n'}
+                        • Update project status regularly for accurate tracking{'\n'}
+                        • Use filters to focus on active projects{'\n'}
+                        • Monitor margins to ensure profitability
                       </Text>
                     </View>
                   </View>
 
+                  {/* CTA Button */}
+                  <TouchableOpacity
+                    style={styles.ctaButton}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      router.push('/(tabs)/projects');
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialIcons name='play-arrow' size={24} color='#FFFFFF' />
+                    <Text style={styles.ctaButtonText}>Go to Projects</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             </LinearGradient>
             </WebPageShell>
           </ScrollView>
-          </View>
         </SafeAreaView>
       </LinearGradient>
     </>
@@ -289,10 +280,6 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  pageShell: {
-    flex: 1,
-    width: '100%',
-  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -305,11 +292,8 @@ const styles = StyleSheet.create({
   chromeFrame: {
     borderRadius: 24,
     padding: 1,
+    marginHorizontal: PROFILE_HELP_CHROME_H_MARGIN,
     marginBottom: 16,
-    ...Platform.select({
-      web: { marginHorizontal: 0 },
-      default: { marginHorizontal: 8 },
-    }),
   },
   backButtonWrapper: {
     width: 42,
@@ -332,11 +316,13 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingLeft: 2,
   },
   screenTitle: {
     fontSize: 26,
     fontWeight: "800",
     letterSpacing: 0.15,
+    textAlign: 'center',
   },
   contentCard: {
     borderRadius: 23,
@@ -376,12 +362,8 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  sectionSubtitle: {
-    fontSize: 14,
+    fontSize: 16,
+    fontWeight: '600',
     marginBottom: 16,
   },
   stepContainer: {
@@ -419,9 +401,6 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
   },
-  stepCardClickable: {
-    // Additional styling for clickable cards if needed
-  },
   stepContent: {
     flex: 1,
   },
@@ -453,13 +432,29 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tipsTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     marginBottom: 8,
   },
   tipsText: {
-    fontSize: 14,
+    fontSize: 13,
     lineHeight: 22,
+    opacity: 0.65,
+  },
+  ctaButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 56,
+    borderRadius: 12,
+    gap: 12,
+    marginTop: 8,
+    backgroundColor: '#43cea2',
+  },
+  ctaButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '600',
   },
 });
 

@@ -18,6 +18,7 @@ import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
@@ -31,6 +32,7 @@ import {
 } from '@/lib/useWebProfileHelpHeaderMargins';
 
 export default function ContactSupportScreen() {
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const router = useRouter();
   const webHelpHeaderMargins = useWebProfileHelpHeaderMargins();
   const { darkMode, theme: themeContext } = useTheme();
@@ -195,7 +197,7 @@ export default function ContactSupportScreen() {
               style={{ flex: 1 }}
               contentContainerStyle={{
                 paddingTop: Platform.OS === 'web' ? 0 : 16,
-                paddingBottom: 40,
+              paddingBottom: tabScrollBottomInset,
                 paddingHorizontal: 0,
               }}
               showsVerticalScrollIndicator={true}

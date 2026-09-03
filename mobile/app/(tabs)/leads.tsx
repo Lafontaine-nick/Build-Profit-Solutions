@@ -33,6 +33,7 @@ import { ScreenLayout } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import WebPageShell from '@/components/layout/WebPageShell';
+import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
 import Constants from 'expo-constants';
 
 /** Matches `useRequireAuth` — when true, wait for Clerk `useUser().isLoaded` before first leads API bootstrap. */
@@ -3236,6 +3237,7 @@ export default function LeadsScreen() {
       <SafeAreaView edges={[]} style={styles.safeArea}>
         <StatusBar barStyle="light-content" translucent={false} />
         
+        <View style={{ flex: 1 }}>
         <ScrollView
           style={styles.mainScroll}
           contentContainerStyle={[
@@ -3285,7 +3287,7 @@ export default function LeadsScreen() {
             >
               <Pressable
                 style={styles.profileInner}
-                onPress={() => router.push('/profile')}
+                onPress={() => router.push('/(tabs)/profile')}
                 accessibilityRole="button"
                 accessibilityLabel="Profile"
               >
@@ -3447,6 +3449,8 @@ export default function LeadsScreen() {
       <View style={{ height: 32 }} />
       </WebPageShell>
       </ScrollView>
+      <TabScreenBottomScrollFade />
+      </View>
       
       {/* Lead Matching Preferences Modal */}
       <Modal
@@ -3636,6 +3640,7 @@ const getStyles = (Colors: any, scrollBottomInset: number = 120) => StyleSheet.c
     paddingHorizontal: ScreenLayout.edge.horizontal,
   },
   contentCard: {
+    flex: 1,
     marginBottom: ScreenLayout.card.marginBottom,
     borderRadius: ScreenLayout.card.radius,
     backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.cardDark,

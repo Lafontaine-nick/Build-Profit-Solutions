@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  SafeAreaView,
   Platform,
   Alert,
   ActivityIndicator,
@@ -51,6 +50,7 @@ import {
 } from '@/utils/estimateFlowCardStyle';
 import { showAuthFeedback } from '@/utils/authFeedback';
 import { useClerkUiReady } from '@/hooks/useClerkUiReady';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Complete OAuth sessions properly
 WebBrowser.maybeCompleteAuthSession();
@@ -146,6 +146,7 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const { width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(
     () => getStyles(Colors, darkMode, windowWidth),
     [Colors, darkMode, windowWidth]
@@ -1357,10 +1358,13 @@ const AuthScreen: React.FC<{ authUiReady?: boolean }> = ({ authUiReady = true })
 
   return (
     <View style={styles.gradient}>
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
         <View style={{ flex: 1 }}>
           <ScrollView
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: 24 + insets.bottom },
+            ]}
             showsVerticalScrollIndicator={false}
             {...FORM_KEYBOARD_SCROLL_PROPS}
           >
@@ -1861,7 +1865,6 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: wideWeb ? 24 : 20,
-    paddingBottom: 24,
     paddingTop: wideWeb ? 12 : 0,
     justifyContent: wideWeb ? "flex-start" : "flex-end",
   },

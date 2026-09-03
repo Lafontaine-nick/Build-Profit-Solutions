@@ -533,7 +533,7 @@ export default function TaxCenterScreen() {
     return (
       <View style={styles.screenRoot}>
         <StatusBar barStyle="light-content" />
-        <SafeAreaView style={styles.safeArea}>
+        <SafeAreaView style={styles.safeArea} edges={['top']}>
           <View style={[styles.pageShell, { paddingTop: Math.max(insets.top, 12) + 14 }]}>
             <Pressable
               onPress={() => router.back()}
@@ -551,7 +551,7 @@ export default function TaxCenterScreen() {
   return (
     <View style={styles.screenRoot}>
       <StatusBar barStyle="light-content" />
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
         <View
           style={[
             styles.pageShell,
@@ -603,7 +603,7 @@ export default function TaxCenterScreen() {
 
         <ScrollView
           style={styles.scrollView}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { flexGrow: 1, paddingBottom: 24 + insets.bottom }]}
           showsVerticalScrollIndicator={false}
         >
           <TaxGradientFrame innerStyle={styles.readinessFrameInner}>

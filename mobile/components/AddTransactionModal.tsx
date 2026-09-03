@@ -12,7 +12,6 @@ import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { useProjectData } from "@/contexts/ProjectDataContext";
-import { classifyExpensePriceReasonableness } from "@/utils/expensePriceReasonableness";
 import {
   centsDigitsToNumber,
   clampCentsDigitsInput,
@@ -24,13 +23,17 @@ import {
 import GradientRingBackInner from "./GradientRingBackInner";
 import { isDesktopWebLayoutWidth, getProjectExpenseFormHorizontalPadding } from "@/constants/ScreenLayout";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
-import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
+import { projectAddExpenseNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
+import KeyboardPlainAccessory from "@/components/ui/KeyboardPlainAccessory";
+import { KEYBOARD_ACCESSORY_IDS } from "@/constants/keyboard";
 import {
   AI_FLOW_CARD_BG_DARK,
   ESTIMATE_FLOW_CHIP_GREEN,
   ESTIMATE_FLOW_CHIP_GREEN_BG,
   ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
+  ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
 } from "@/utils/estimateFlowCardStyle";
+import EstimateLinePicker, { type EstimateLineOption } from "@/components/EstimateLinePicker";
 
 /** RN Web: validation `Alert.alert` is easy to miss in Safari; sync dialog is obvious. */
 function alertAddTxnValidation(title: string, message: string) {
@@ -70,8 +73,8 @@ type Props = {
     isPlanned?: boolean;
     projectPhase?: string;
     scope?: string;
-    priceReasonableness?: 'normal' | 'high' | 'outlier';
     expectedDelivery?: string;
+    linkedLineId?: string;
   }) => void;
   /** Pre-fill when editing a change order from Category detail (web + native). */
   initialDraft?: AddTransactionChangeOrderDraft | null;
@@ -94,11 +97,6 @@ export default function AddTransactionModal({
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const { projectData } = useProjectData();
-
-  const referenceBudgetUsd = useMemo(() => {
-    const b = Number(projectData?.budgeted);
-    return Number.isFinite(b) && b > 0 ? b : 0;
-  }, [projectData?.budgeted]);
   
   const [vendor, setVendor] = useState("");
   const [material, setMaterial] = useState("");
@@ -107,13 +105,13 @@ export default function AddTransactionModal({
   const [trade, setTrade] = useState("");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
+  const [selectedEstimateLine, setSelectedEstimateLine] = useState<EstimateLineOption | null>(null);
   const [po, setPo] = useState("");
   const [receiptUri, setReceiptUri] = useState<string | null>(null);
   const [isPlanned, setIsPlanned] = useState<boolean>(true);
   const [projectPhase, setProjectPhase] = useState<string>('');
   const [scope, setScope] = useState<string>('');
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
-  const [priceReasonableness, setPriceReasonableness] = useState<'normal' | 'high' | 'outlier' | null>(null);
   const [expectedDelivery, setExpectedDelivery] = useState(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
   const [showDeliveryDatePicker, setShowDeliveryDatePicker] = useState(false);
 
@@ -206,7 +204,6 @@ export default function AddTransactionModal({
     setIsPlanned(true);
     setProjectPhase('');
     setScope('');
-    setPriceReasonableness(null);
     setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
     setPricingMode("flat");
     setSqftInput("");
@@ -223,6 +220,7 @@ export default function AddTransactionModal({
     setVendor("");
     setAmount("");
     setDescription("");
+    setSelectedEstimateLine(null);
     setPo("");
 
     if (initialDraft && isChangeOrdersCategory) {
@@ -280,18 +278,6 @@ export default function AddTransactionModal({
     }
     /** When M+L is zero, keep `amount` (total-only CO / fallback from total field). */
   }, [isChangeOrdersCategory, pricingMode, materialsAmountInput, laborAmountInput]);
-
-  // High / outlier vs total project budget (not fixed dollar cutoffs on large bids)
-  useEffect(() => {
-    const amountNum = parseAmountFieldToNumber(amount);
-    if (amountNum > 0) {
-      setPriceReasonableness(
-        classifyExpensePriceReasonableness(amountNum, referenceBudgetUsd)
-      );
-    } else {
-      setPriceReasonableness(null);
-    }
-  }, [amount, referenceBudgetUsd, parseAmountFieldToNumber]);
 
   // Request camera permissions
   const requestCameraPermissions = async () => {
@@ -499,7 +485,6 @@ export default function AddTransactionModal({
     setIsPlanned(true);
     setProjectPhase('');
     setScope('');
-    setPriceReasonableness(null);
     setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
     setPricingMode("flat");
     setSqftInput("");
@@ -661,6 +646,7 @@ export default function AddTransactionModal({
       material: isMaterialsEquipmentExpense ? material.trim() || undefined : undefined,
       amount: amountNum,
       description: descriptionOut,
+      linkedLineId: selectedEstimateLine?.id,
       materialsAmount:
         isChangeOrdersCategory && pricingMode === "flat"
           ? materialsAmount
@@ -679,7 +665,6 @@ export default function AddTransactionModal({
       isPlanned,
       projectPhase: projectPhase || undefined,
       scope: scope || undefined,
-      priceReasonableness: priceReasonableness || undefined,
       expectedDelivery: isPurchaseOrdersCategory
         ? `${expectedDelivery.getFullYear()}-${String(expectedDelivery.getMonth() + 1).padStart(2, '0')}-${String(expectedDelivery.getDate()).padStart(2, '0')}`
         : undefined,
@@ -903,13 +888,6 @@ export default function AddTransactionModal({
     }
   };
 
-  const focusNextAfterVendorField = () => {
-    if (isMaterialsEquipmentExpense) {
-      materialRef.current?.focus();
-      return;
-    }
-    focusIntoPricingOrAmount();
-  };
 
   return (
     <Modal
@@ -917,6 +895,12 @@ export default function AddTransactionModal({
       animationType="slide"
       {...(Platform.OS === "web" && webBudgetExpenseShell ? {} : { presentationStyle: "fullScreen" as const, statusBarTranslucent: true })}
     >
+      {webBudgetExpenseShell ? (
+        <KeyboardPlainAccessory
+          nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
+          backgroundColor={darkMode ? "#000000" : Colors.bg}
+        />
+      ) : null}
       <KeyboardAvoidingView
         style={[styles.keyboardAvoid, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
         behavior={Platform.OS === 'android' ? 'padding' : undefined}
@@ -1010,6 +994,7 @@ export default function AddTransactionModal({
             }
             showsVerticalScrollIndicator={false}
             {...FORM_KEYBOARD_SCROLL_PROPS}
+            keyboardShouldPersistTaps="never"
           >
             <LinearGradient
               colors={budgetExpenseWebRing ? BRAND_FRAME_GRADIENT_COLORS : ['transparent', 'transparent']}
@@ -1035,6 +1020,29 @@ export default function AddTransactionModal({
               >
             {isLaborOrSubs ? (
               <>
+                {categoryNameLower.includes('labor') ? (
+                  <EstimateLinePicker
+                    kind="labor"
+                    projectLike={projectData as unknown as Record<string, unknown>}
+                    selectedLineId={selectedEstimateLine?.id}
+                    onSelect={(line) => {
+                      setSelectedEstimateLine(line);
+                      if (line) {
+                        setLaborDescription(line.name.replace(/\s*[—–-]\s*labor\s*$/i, '').trim());
+                      }
+                    }}
+                    darkMode={darkMode}
+                    colors={{
+                      background: darkMode ? '#000000' : Colors.bg,
+                      card: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+                      text: Colors.text,
+                      secondary: Colors.sub,
+                      border: Colors.line,
+                      nestedCard: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
+                      accent: '#22c55e',
+                    }}
+                  />
+                ) : null}
                 <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
                   <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>Labor description *</Text>
                   {webBudgetExpenseShell && poWebChrome ? (
@@ -1121,6 +1129,30 @@ export default function AddTransactionModal({
                 </View>
               </>
             ) : (
+            <>
+            {isMaterialsEquipmentExpense ? (
+              <EstimateLinePicker
+                kind="materials"
+                projectLike={projectData as unknown as Record<string, unknown>}
+                selectedLineId={selectedEstimateLine?.id}
+                onSelect={(line) => {
+                  setSelectedEstimateLine(line);
+                  if (line) {
+                    setMaterial(line.name.replace(/\s*[—–-]\s*materials?\s*$/i, '').trim());
+                  }
+                }}
+                darkMode={darkMode}
+                colors={{
+                  background: darkMode ? '#000000' : Colors.bg,
+                  card: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+                  text: Colors.text,
+                  secondary: Colors.sub,
+                  border: Colors.line,
+                  nestedCard: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
+                  accent: '#22c55e',
+                }}
+              />
+            ) : null}
             <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
               <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>{vendorLabel}</Text>
               {webBudgetExpenseShell && poWebChrome ? (
@@ -1134,7 +1166,6 @@ export default function AddTransactionModal({
                     value={vendor}
                     onChangeText={setVendor}
                     autoCapitalize="words"
-                    onSubmitEditing={focusNextAfterVendorField}
                     selectionColor="#22c55e"
                     underlineColorAndroid="transparent"
                     {...resolveTextInputKeyboardProps()}
@@ -1158,11 +1189,11 @@ export default function AddTransactionModal({
                 value={vendor}
                 onChangeText={setVendor}
                 autoCapitalize="words"
-                onSubmitEditing={focusNextAfterVendorField}
                 {...resolveTextInputKeyboardProps()}
               />
               )}
             </View>
+            </>
             )}
 
             {isMaterialsEquipmentExpense && (
@@ -1179,7 +1210,6 @@ export default function AddTransactionModal({
                       value={material}
                       onChangeText={setMaterial}
                       autoCapitalize="sentences"
-                      onSubmitEditing={focusIntoPricingOrAmount}
                       selectionColor="#22c55e"
                       underlineColorAndroid="transparent"
                       {...resolveTextInputKeyboardProps()}
@@ -1203,7 +1233,6 @@ export default function AddTransactionModal({
                     value={material}
                     onChangeText={setMaterial}
                     autoCapitalize="sentences"
-                    onSubmitEditing={focusIntoPricingOrAmount}
                     {...resolveTextInputKeyboardProps()}
                   />
                 )}
@@ -1340,11 +1369,8 @@ export default function AddTransactionModal({
                         onChangeText={(text) =>
                           setMaterialsAmountInput(sanitizeDecimalMoneyInput(text))
                         }
-                        {...nativeNumericKeyboardProps}
                         keyboardType="decimal-pad"
-                        returnKeyType="next"
-                        onSubmitEditing={() => laborAmountRef.current?.focus()}
-                        blurOnSubmit={false}
+                        {...projectAddExpenseNumericKeyboardProps}
                       />
                     </View>
                   </View>
@@ -1379,11 +1405,8 @@ export default function AddTransactionModal({
                         onChangeText={(text) =>
                           setLaborAmountInput(sanitizeDecimalMoneyInput(text))
                         }
-                        {...nativeNumericKeyboardProps}
                         keyboardType="decimal-pad"
-                        returnKeyType="next"
-                        onSubmitEditing={() => descriptionRef.current?.focus()}
-                        blurOnSubmit={false}
+                        {...projectAddExpenseNumericKeyboardProps}
                       />
                     </View>
                   </View>
@@ -1392,45 +1415,13 @@ export default function AddTransactionModal({
             )}
 
             <View style={webBudgetExpenseShell && poWebChrome ? poWebChrome.fieldGroup : styles.field}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <Text style={webBudgetExpenseShell && poWebChrome ? [poWebChrome.materialLabel, { marginBottom: 0 }] : [styles.label, { color: Colors.text }]}>
-                  {supportsPerSqftPricing && pricingMode === "sqft"
-                    ? "Total (calculated) *"
-                    : isChangeOrdersCategory
-                      ? "Total Change Order Amount *"
-                      : "Amount *"}
-                </Text>
-                {priceReasonableness && (
-                  <View style={{
-                    paddingHorizontal: 8,
-                    paddingVertical: 4,
-                    borderRadius: 8,
-                    backgroundColor: 
-                      priceReasonableness === 'normal' ? 'rgba(34, 197, 94, 0.2)' :
-                      priceReasonableness === 'high' ? 'rgba(245, 158, 11, 0.2)' :
-                      'rgba(239, 68, 68, 0.2)',
-                    borderWidth: 1,
-                    borderColor:
-                      priceReasonableness === 'normal' ? 'rgba(34, 197, 94, 0.4)' :
-                      priceReasonableness === 'high' ? 'rgba(245, 158, 11, 0.4)' :
-                      'rgba(239, 68, 68, 0.4)',
-                  }}>
-                    <Text style={{
-                      color:
-                        priceReasonableness === 'normal' ? '#22c55e' :
-                        priceReasonableness === 'high' ? '#f59e0b' :
-                        '#ef4444',
-                      fontSize: 11,
-                      fontWeight: '600',
-                      textTransform: 'uppercase',
-                    }}>
-                      {priceReasonableness === 'normal' ? '✓ Normal' :
-                       priceReasonableness === 'high' ? '⚠ High' :
-                       '🚨 Outlier'}
-                    </Text>
-                  </View>
-                )}
-              </View>
+              <Text style={webBudgetExpenseShell && poWebChrome ? poWebChrome.materialLabel : [styles.label, { color: Colors.text }]}>
+                {supportsPerSqftPricing && pricingMode === "sqft"
+                  ? "Total (calculated) *"
+                  : isChangeOrdersCategory
+                    ? "Total Change Order Amount *"
+                    : "Amount *"}
+              </Text>
 
               {supportsPerSqftPricing && pricingMode === "sqft" ? (
                 isChangeOrdersCategory ? (
@@ -1497,11 +1488,8 @@ export default function AddTransactionModal({
                                 }
                                 value={materialSqftInput}
                                 onChangeText={(text) => setMaterialSqftInput(digitsOnly(text))}
-                                {...nativeNumericKeyboardProps}
-                        keyboardType="decimal-pad"
-                                returnKeyType="next"
-                                onSubmitEditing={() => materialRatePerSqftRef.current?.focus()}
-                                blurOnSubmit={false}
+                                keyboardType="decimal-pad"
+                                {...projectAddExpenseNumericKeyboardProps}
                               />
                             </View>
                           </View>
@@ -1545,11 +1533,8 @@ export default function AddTransactionModal({
                                 onChangeText={(text) =>
                                   setMaterialRatePerSqftInput(sanitizeDecimalMoneyInput(text))
                                 }
-                                {...nativeNumericKeyboardProps}
-                        keyboardType="decimal-pad"
-                                returnKeyType="next"
-                                onSubmitEditing={() => laborSqftRef.current?.focus()}
-                                blurOnSubmit={false}
+                                keyboardType="decimal-pad"
+                                {...projectAddExpenseNumericKeyboardProps}
                               />
                             </View>
                           </View>
@@ -1603,11 +1588,8 @@ export default function AddTransactionModal({
                                 }
                                 value={laborSqftInput}
                                 onChangeText={(text) => setLaborSqftInput(digitsOnly(text))}
-                                {...nativeNumericKeyboardProps}
-                        keyboardType="decimal-pad"
-                                returnKeyType="next"
-                                onSubmitEditing={() => laborRatePerSqftRef.current?.focus()}
-                                blurOnSubmit={false}
+                                keyboardType="decimal-pad"
+                                {...projectAddExpenseNumericKeyboardProps}
                               />
                             </View>
                           </View>
@@ -1651,11 +1633,8 @@ export default function AddTransactionModal({
                                 onChangeText={(text) =>
                                   setLaborRatePerSqftInput(sanitizeDecimalMoneyInput(text))
                                 }
-                                {...nativeNumericKeyboardProps}
-                        keyboardType="decimal-pad"
-                                returnKeyType="done"
-                                onSubmitEditing={() => descriptionRef.current?.focus()}
-                                blurOnSubmit={false}
+                                keyboardType="decimal-pad"
+                                {...projectAddExpenseNumericKeyboardProps}
                               />
                             </View>
                           </View>
@@ -1764,11 +1743,8 @@ export default function AddTransactionModal({
                             }
                             value={sqftInput}
                             onChangeText={onSqftChange}
-                            {...nativeNumericKeyboardProps}
-                        keyboardType="decimal-pad"
-                            returnKeyType="done"
-                            onSubmitEditing={() => ratePerSqftRef.current?.focus()}
-                            blurOnSubmit={false}
+                            keyboardType="decimal-pad"
+                            {...projectAddExpenseNumericKeyboardProps}
                           />
                         </View>
                       </View>
@@ -1813,11 +1789,8 @@ export default function AddTransactionModal({
                             }
                             value={ratePerSqftInput}
                             onChangeText={onRatePerSqftChange}
-                            {...nativeNumericKeyboardProps}
-                        keyboardType="decimal-pad"
-                            returnKeyType="done"
-                            onSubmitEditing={() => descriptionRef.current?.focus()}
-                            blurOnSubmit={false}
+                            keyboardType="decimal-pad"
+                            {...projectAddExpenseNumericKeyboardProps}
                           />
                         </View>
                       </View>
@@ -1889,13 +1862,10 @@ export default function AddTransactionModal({
                     }
                     value={amount}
                     onChangeText={applyFlatAmountTextChange}
-                                {...nativeNumericKeyboardProps}
                     keyboardType={pricingMode === "flat" ? "decimal-pad" : "phone-pad"}
                     editable={!(isChangeOrdersCategory && pricingMode !== "sqft")}
                     selectTextOnFocus={!(isChangeOrdersCategory && pricingMode !== "sqft")}
-                    returnKeyType="done"
-                    onSubmitEditing={() => descriptionRef.current?.focus()}
-                    blurOnSubmit={false}
+                    {...projectAddExpenseNumericKeyboardProps}
                   />
                 </View>
               )}

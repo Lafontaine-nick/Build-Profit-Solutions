@@ -56,7 +56,7 @@ function ProfileCompletionReminderCore({ userId }: { userId: string }) {
       const copy = buildProfileCompletionReminderCopy(result);
 
       const openProfile = () => {
-        router.push('/profile');
+        router.push('/(tabs)/profile');
       };
 
       showNotification({

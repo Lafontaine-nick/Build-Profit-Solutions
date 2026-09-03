@@ -13,13 +13,13 @@ import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Svg, { Circle } from 'react-native-svg';
-import BudgetTab from '../../components/BudgetTab';
-import TimelineTabV2 from '../../components/TimelineTabV2';
-import TeamTab from '../../components/TeamTab';
-import SpendingTrendChart from '../../components/SpendingTrendChart';
-import { useProjectData } from '../../contexts/ProjectDataContext';
-import { buildSpendingTrendSamplePoints } from '../../src/lib/projectChartTimeline';
-import { computeProjectFinancials } from '../../src/lib/projectFinancials';
+import BudgetTab from '@/components/BudgetTab';
+import TimelineTabV2 from '@/components/TimelineTabV2';
+import TeamTab from '@/components/TeamTab';
+import SpendingTrendChart from '@/components/SpendingTrendChart';
+import { useProjectData } from '@/contexts/ProjectDataContext';
+import { buildSpendingTrendSamplePoints } from '@/src/lib/projectChartTimeline';
+import { computeProjectFinancials } from '@/src/lib/projectFinancials';
 import {
   neutralIconPressableProps,
   neutralIconPressableWebStyle,

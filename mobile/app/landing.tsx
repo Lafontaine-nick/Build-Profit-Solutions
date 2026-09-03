@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import {
-  SafeAreaView,
   View,
   Text,
   StyleSheet,
@@ -13,6 +12,7 @@ import {
   useWindowDimensions,
   ActivityIndicator,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -323,6 +323,7 @@ export default function LandingScreen() {
   );
   const wideWeb =
     Platform.OS === "web" && windowWidth >= LANDING_WIDE_WEB_MIN_WIDTH;
+  const insets = useSafeAreaInsets();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -336,7 +337,7 @@ export default function LandingScreen() {
 
   return (
     <View style={styles.root}>
-      <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
+      <SafeAreaView style={styles.safeAreaShell} edges={['top']}>
         <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
 
         {/* Subtle gradient background behind logo (light mode only) - positioned outside ScrollView */}
@@ -349,7 +350,10 @@ export default function LandingScreen() {
         )}
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { flexGrow: 1, paddingBottom: 24 + insets.bottom },
+        ]}
         showsVerticalScrollIndicator={false}
         style={styles.scrollView}
       >
@@ -480,12 +484,13 @@ export default function LandingScreen() {
           </View>
 
                     {/* TESTIMONIAL CARD */}
-          <View style={styles.wideContainer}>
+          <View style={[styles.wideContainer, styles.landingFlowFill]}>
             <View
               style={[
                 estimateFlowCardStyle(Colors, darkMode, { marginBottom: 0 }),
                 styles.card,
                 styles.feedbackCard,
+                styles.landingFlowFill,
               ]}
             >
               <View style={styles.feedbackCardInner}>
@@ -528,6 +533,9 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     position: 'relative',
     overflow: 'visible',
   },
+  safeAreaShell: {
+    flex: 1,
+  },
   glossOverlay: {
     position: "absolute",
     top: -120,
@@ -539,8 +547,10 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
   scrollContent: {
     paddingHorizontal: wideWeb ? 24 : 20,
     paddingTop: 0,
-    paddingBottom: 40,
     overflow: 'visible',
+  },
+  landingFlowFill: {
+    flex: 1,
   },
   container: {
     flex: 1,

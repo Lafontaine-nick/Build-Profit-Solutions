@@ -90,6 +90,17 @@ export const ScreenLayout = {
   },
 } as const;
 
+/** Height of the under-pill dim zone (dock footprint only — not above the pill). */
+export function getTabBarUnderlayHeight(safeAreaBottom: number): number {
+  const { bottomOffset, height } = ScreenLayout.tabBar;
+  return bottomOffset + height + safeAreaBottom;
+}
+
+/** @deprecated Use getTabBarUnderlayHeight — kept for any legacy imports */
+export function getTabBarScrollFadeHeight(safeAreaBottom: number): number {
+  return getTabBarUnderlayHeight(safeAreaBottom);
+}
+
 /** Dashboard + project detail calendar: slightly inset vs full-bleed section cards. */
 export function getCalendarTabContainerStyle(options: {
   desktopWeb: boolean;

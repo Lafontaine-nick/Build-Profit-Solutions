@@ -18,28 +18,20 @@ import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
 import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
-import {
-  PROFILE_HELP_CHROME_H_MARGIN,
-  useWebProfileHelpHeaderMargins,
-} from '@/lib/useWebProfileHelpHeaderMargins';
+import { useWebProfileHelpHeaderMargins } from '@/lib/useWebProfileHelpHeaderMargins';
+import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 
-interface TutorialStepProps {
+interface StepCardProps {
   number: number;
   title: string;
   description: string;
   icon: string;
   theme: any;
+  onPress?: () => void;
   isLast?: boolean;
 }
 
-const TutorialStep = ({
-  number,
-  title,
-  description,
-  icon,
-  theme,
-  isLast,
-}: TutorialStepProps) => (
+const StepCard = ({ number, title, description, icon, theme, onPress, isLast }: StepCardProps) => (
   <View style={styles.stepContainer}>
     <View style={styles.stepRow}>
       <View style={styles.stepLeft}>
@@ -52,24 +44,39 @@ const TutorialStep = ({
           <View style={[styles.stepConnector, { backgroundColor: theme.border }]} />
         )}
       </View>
-      <View style={[styles.stepCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+      <TouchableOpacity
+        style={[
+          styles.stepCard,
+          { borderColor: theme.border, backgroundColor: theme.card },
+          onPress && styles.stepCardClickable,
+        ]}
+        onPress={onPress}
+        activeOpacity={onPress ? 0.7 : 1}
+        disabled={!onPress}
+      >
         <View style={styles.stepContent}>
           <View style={styles.stepHeader}>
             <MaterialIcons name={icon as any} size={24} color={theme.accent} />
             <Text style={[styles.stepTitle, { color: theme.text }]}>{title}</Text>
+            {onPress && (
+              <MaterialIcons name='chevron-right' size={20} color={theme.subtext} />
+            )}
           </View>
           <Text style={[styles.stepDescription, { color: theme.subtext }]}>
             {description}
           </Text>
         </View>
-      </View>
+      </TouchableOpacity>
     </View>
   </View>
 );
 
-export default function EstimateTutorialScreen() {
+
+export default function GettingStartedScreen() {
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const router = useRouter();
-  const webHelpHeaderMargins = useWebProfileHelpHeaderMargins();
+  /** Web chrome uses no horizontal inset — frame is flush with shell padding. */
+  const webHelpHeaderMargins = useWebProfileHelpHeaderMargins(0);
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
 
@@ -86,85 +93,71 @@ export default function EstimateTutorialScreen() {
   const steps = [
     {
       number: 1,
-      title: 'Start a New Estimate',
+      title: 'Complete Your Profile',
       description:
-        'Tap the "+ New" button to create a new estimate. Give it a descriptive title that helps you identify the project later.',
-      icon: 'add-circle-outline',
+        'Add your company information, licenses, and insurance details to get started.',
+      icon: 'person',
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        router.push('/(tabs)/profile');
+      },
     },
     {
       number: 2,
-      title: 'Enter Customer Information',
+      title: 'Explore the Dashboard',
       description:
-        'Fill in your customer\'s name, email, phone, and address. This information will be included in the final proposal.',
-      icon: 'person',
+        'View your project overview, revenue metrics, and active projects at a glance.',
+      icon: 'dashboard',
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        router.push('/(tabs)/dashboard');
+      },
     },
     {
       number: 3,
-      title: 'Set Project Details',
+      title: 'Add Your First Lead',
       description:
-        'Select the project type (Kitchen, Bathroom, etc.), enter the square footage, location, and desired timeline.',
-      icon: 'folder',
+        'Start managing leads by adding new opportunities from the Leads tab.',
+      icon: 'person-add',
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        router.push('/(tabs)/leads');
+      },
     },
     {
       number: 4,
-      title: 'Add Materials & Supplies',
+      title: 'Create an Estimate',
       description:
-        'Search for materials using Material Search. Add line items with quantities and the system will calculate costs with live pricing.',
-      icon: 'inventory',
+        'Use the Estimate Generator to create professional project estimates with AI assistance.',
+      icon: 'calculate',
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        router.push('/(tabs)/estimate-generator');
+      },
     },
     {
       number: 5,
-      title: 'Add Labor & Subcontractors',
+      title: 'Manage Projects',
       description:
-        'Add labor line items or search for subcontractors in your area. The system uses regional wage data for accurate labor costs.',
-      icon: 'people',
-    },
-    {
-      number: 6,
-      title: 'Direct costs, overhead & markup',
-      description:
-        'Enter equipment rental, plans, permits, and other direct costs; then overhead (insurance, equipment maintenance, facilities, other); then your markup percentage.',
-      icon: 'trending-up',
-    },
-    {
-      number: 7,
-      title: 'Review Project Analysis',
-      description:
-        'Use the Project Analysis tool to see profitability metrics, margin breakdown, and what-if scenarios before finalizing.',
-      icon: 'analytics',
-    },
-    {
-      number: 8,
-      title: 'Set Payment Schedule',
-      description:
-        'Define payment terms, milestones, and work schedule. This helps ensure timely payments throughout the project.',
-      icon: 'payment',
-    },
-    {
-      number: 9,
-      title: 'Add Legal & Compliance',
-      description:
-        'Include licensing information, insurance details, and safety compliance requirements in your proposal.',
-      icon: 'gavel',
-    },
-    {
-      number: 10,
-      title: 'Generate & Export Proposal',
-      description:
-        'Review your final bid, check the health score, and export as a professional PDF proposal to send to your customer.',
-      icon: 'description',
+        'Track project progress, manage budgets, and collaborate with your team.',
+      icon: 'folder',
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        router.push('/(tabs)/projects');
+      },
     },
   ];
+
 
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <LinearGradient colors={theme.background} style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
+          <View style={styles.pageShell}>
           {Platform.OS === 'web' ? (
             <HelpSupportSubpageWebHeader
-              title='How to Create an'
-              titleLine2='Estimate'
+              title='Getting Started'
               darkMode={darkMode}
               lightBg={Colors.bg}
               webHelpHeaderMargins={webHelpHeaderMargins}
@@ -191,14 +184,9 @@ export default function EstimateTutorialScreen() {
                 </LinearGradient>
               </View>
               <View style={styles.titleContainer}>
-                <View style={styles.titleWrapper}>
-                  <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
-                    How to Create an
-                  </Text>
-                  <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
-                    Estimate
-                  </Text>
-                </View>
+                <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
+                  Getting Started
+                </Text>
               </View>
               <View style={styles.backButtonWrapper} />
             </View>
@@ -209,7 +197,7 @@ export default function EstimateTutorialScreen() {
             style={{ flex: 1 }}
             contentContainerStyle={{
               paddingTop: Platform.OS === 'web' ? 0 : 16,
-              paddingBottom: 40,
+              paddingBottom: tabScrollBottomInset,
               paddingHorizontal: 0,
             }}
             showsVerticalScrollIndicator={true}
@@ -235,36 +223,40 @@ export default function EstimateTutorialScreen() {
                   {/* Welcome Section */}
                   <View style={[styles.welcomeCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                     <View style={[styles.welcomeIcon, { backgroundColor: theme.iconBg }]}>
-                      <MaterialIcons name='calculate' size={32} color={theme.accent} />
+                      <MaterialIcons name='rocket-launch' size={32} color={theme.accent} />
                     </View>
                     <Text style={[styles.welcomeTitle, { color: theme.text }]}>
-                      Create Professional Estimates
+                      Welcome to Build Profit Solutions!
                     </Text>
                     <Text style={[styles.welcomeText, { color: theme.subtext }]}>
-                      Follow these steps to create accurate, professional project estimates
-                      with live material pricing and AI-powered insights.
+                      We're here to help you manage your construction business more
+                      efficiently. Follow these steps to get started.
                     </Text>
                   </View>
 
-                  {/* Tutorial Steps */}
+                  {/* Steps Section */}
                   <View style={styles.section}>
-                    <Text style={[styles.sectionTitle, { color: Colors.text }]}>
-                      Step-by-Step Guide
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                      Quick Start Guide
+                    </Text>
+                    <Text style={[styles.sectionSubtitle, { color: theme.subtext }]}>
+                      Tap on any step to get started
                     </Text>
                     {steps.map((step, index) => (
-                      <TutorialStep
+                      <StepCard
                         key={step.number}
                         number={step.number}
                         title={step.title}
                         description={step.description}
                         icon={step.icon}
                         theme={theme}
+                        onPress={step.onPress}
                         isLast={index === steps.length - 1}
                       />
                     ))}
                   </View>
 
-                  {/* Quick Tips */}
+                  {/* Tips Section */}
                   <View style={[styles.tipsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                     <MaterialIcons name='lightbulb-outline' size={24} color={theme.accent} />
                     <View style={styles.tipsContent}>
@@ -272,31 +264,20 @@ export default function EstimateTutorialScreen() {
                         Pro Tips
                       </Text>
                       <Text style={[styles.tipsText, { color: theme.subtext }]}>
-                        • Use Material Search for accurate material pricing{'\n'}
-                        • Save estimates frequently to avoid losing work{'\n'}
-                        • Review the Project Analysis before finalizing{'\n'}
-                        • Export as PDF for professional proposals
+                        • Complete your profile to unlock all features{'\n'}
+                        • Use the Dashboard to track your business metrics{'\n'}
+                        • Create estimates to win more projects{'\n'}
+                        • Manage leads to grow your pipeline
                       </Text>
                     </View>
                   </View>
 
-                  {/* CTA Button */}
-                  <TouchableOpacity
-                    style={styles.ctaButton}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      router.push('/(tabs)/estimate-generator');
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <MaterialIcons name='play-arrow' size={24} color='#FFFFFF' />
-                    <Text style={styles.ctaButtonText}>Start Creating an Estimate</Text>
-                  </TouchableOpacity>
                 </View>
               </View>
             </LinearGradient>
             </WebPageShell>
           </ScrollView>
+          </View>
         </SafeAreaView>
       </LinearGradient>
     </>
@@ -310,6 +291,10 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
+  pageShell: {
+    flex: 1,
+    width: '100%',
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -322,8 +307,11 @@ const styles = StyleSheet.create({
   chromeFrame: {
     borderRadius: 24,
     padding: 1,
-    marginHorizontal: PROFILE_HELP_CHROME_H_MARGIN,
     marginBottom: 16,
+    ...Platform.select({
+      web: { marginHorizontal: 0 },
+      default: { marginHorizontal: 8 },
+    }),
   },
   backButtonWrapper: {
     width: 42,
@@ -347,14 +335,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  titleWrapper: {
-    alignItems: 'center',
-  },
   screenTitle: {
     fontSize: 26,
     fontWeight: "800",
     letterSpacing: 0.15,
-    textAlign: 'center',
   },
   contentCard: {
     borderRadius: 23,
@@ -396,6 +380,10 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20,
     fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
     marginBottom: 16,
   },
   stepContainer: {
@@ -432,6 +420,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
+  },
+  stepCardClickable: {
+    // Additional styling for clickable cards if needed
   },
   stepContent: {
     flex: 1,
@@ -471,21 +462,6 @@ const styles = StyleSheet.create({
   tipsText: {
     fontSize: 14,
     lineHeight: 22,
-  },
-  ctaButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 56,
-    borderRadius: 12,
-    gap: 12,
-    marginTop: 8,
-    backgroundColor: '#43cea2',
-  },
-  ctaButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '600',
   },
 });
 

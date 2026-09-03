@@ -14,6 +14,7 @@ import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
 import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
@@ -67,7 +68,8 @@ const TutorialStep = ({
   </View>
 );
 
-export default function ProjectsTutorialScreen() {
+export default function EstimateTutorialScreen() {
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const router = useRouter();
   const webHelpHeaderMargins = useWebProfileHelpHeaderMargins();
   const { darkMode, theme: themeContext } = useTheme();
@@ -86,45 +88,73 @@ export default function ProjectsTutorialScreen() {
   const steps = [
     {
       number: 1,
-      title: 'View All Projects',
+      title: 'Start a New Estimate',
       description:
-        'See all your projects in one place. Projects are organized by status: In Progress, Active, and Completed.',
-      icon: 'folder',
+        'Tap the "+ New" button to create a new estimate. Give it a descriptive title that helps you identify the project later.',
+      icon: 'add-circle-outline',
     },
     {
       number: 2,
-      title: 'Convert Estimates to Projects',
+      title: 'Enter Customer Information',
       description:
-        'Projects are created by converting estimates from the Estimate Generator. After winning a bid, convert your estimate to a project to start tracking progress.',
-      icon: 'swap-horiz',
+        'Fill in your customer\'s name, email, phone, and address. This information will be included in the final proposal.',
+      icon: 'person',
     },
     {
       number: 3,
-      title: 'Track Project Progress',
+      title: 'Set Project Details',
       description:
-        'Monitor project completion with visual progress bars. Track budgets, labor costs, how much you\'ve spent, and how much budget is available. Progress is calculated based on timeline and completion milestones.',
-      icon: 'trending-up',
+        'Select the project type (Kitchen, Bathroom, etc.), enter the square footage, location, and desired timeline.',
+      icon: 'folder',
     },
     {
       number: 4,
-      title: 'Filter and Search',
+      title: 'Add Materials & Supplies',
       description:
-        'Use the search bar to find projects by name or location. Filter by status to see only active, completed, or draft projects.',
-      icon: 'search',
+        'Search for materials using Material Search. Add line items with quantities and the system will calculate costs with live pricing.',
+      icon: 'inventory',
     },
     {
       number: 5,
-      title: 'View Project Details',
+      title: 'Add Labor & Subcontractors',
       description:
-        'Tap any project card to see detailed information including timeline, budget, margin, client information, and project notes.',
-      icon: 'info',
+        'Add labor line items or search for subcontractors in your area. The system uses regional wage data for accurate labor costs.',
+      icon: 'people',
     },
     {
       number: 6,
-      title: 'Monitor Profitability',
+      title: 'Direct costs, overhead & markup',
       description:
-        'Track project margins and profitability in real-time. See which projects are performing well and which need attention.',
-      icon: 'show-chart',
+        'Enter equipment rental, plans, permits, and other direct costs; then overhead (insurance, equipment maintenance, facilities, other); then your markup percentage.',
+      icon: 'trending-up',
+    },
+    {
+      number: 7,
+      title: 'Review Project Analysis',
+      description:
+        'Use the Project Analysis tool to see profitability metrics, margin breakdown, and what-if scenarios before finalizing.',
+      icon: 'analytics',
+    },
+    {
+      number: 8,
+      title: 'Set Payment Schedule',
+      description:
+        'Define payment terms, milestones, and work schedule. This helps ensure timely payments throughout the project.',
+      icon: 'payment',
+    },
+    {
+      number: 9,
+      title: 'Add Legal & Compliance',
+      description:
+        'Include licensing information, insurance details, and safety compliance requirements in your proposal.',
+      icon: 'gavel',
+    },
+    {
+      number: 10,
+      title: 'Generate & Export Proposal',
+      description:
+        'Review your final bid, check the health score, and export as a professional PDF proposal to send to your customer.',
+      icon: 'description',
     },
   ];
 
@@ -135,7 +165,8 @@ export default function ProjectsTutorialScreen() {
         <SafeAreaView style={styles.safeArea}>
           {Platform.OS === 'web' ? (
             <HelpSupportSubpageWebHeader
-              title='Project Management'
+              title='How to Create an'
+              titleLine2='Estimate'
               darkMode={darkMode}
               lightBg={Colors.bg}
               webHelpHeaderMargins={webHelpHeaderMargins}
@@ -152,9 +183,7 @@ export default function ProjectsTutorialScreen() {
                   <GradientRingBackInner
                     darkMode={darkMode}
                     onPress={() => {
-                      if (Platform.OS !== 'web') {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       router.back();
                     }}
                     style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
@@ -164,9 +193,14 @@ export default function ProjectsTutorialScreen() {
                 </LinearGradient>
               </View>
               <View style={styles.titleContainer}>
-                <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
-                  Project Management
-                </Text>
+                <View style={styles.titleWrapper}>
+                  <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
+                    How to Create an
+                  </Text>
+                  <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
+                    Estimate
+                  </Text>
+                </View>
               </View>
               <View style={styles.backButtonWrapper} />
             </View>
@@ -177,7 +211,7 @@ export default function ProjectsTutorialScreen() {
             style={{ flex: 1 }}
             contentContainerStyle={{
               paddingTop: Platform.OS === 'web' ? 0 : 16,
-              paddingBottom: 40,
+              paddingBottom: tabScrollBottomInset,
               paddingHorizontal: 0,
             }}
             showsVerticalScrollIndicator={true}
@@ -194,7 +228,7 @@ export default function ProjectsTutorialScreen() {
                   styles.contentCard,
                   {
                     backgroundColor: darkMode ? Colors.cardDark : Colors.bg,
-                    borderColor: theme.border,
+                    borderColor: Colors.line,
                     borderWidth: 1,
                   },
                 ]}
@@ -203,21 +237,21 @@ export default function ProjectsTutorialScreen() {
                   {/* Welcome Section */}
                   <View style={[styles.welcomeCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                     <View style={[styles.welcomeIcon, { backgroundColor: theme.iconBg }]}>
-                      <MaterialIcons name='folder' size={32} color={theme.accent} />
+                      <MaterialIcons name='calculate' size={32} color={theme.accent} />
                     </View>
                     <Text style={[styles.welcomeTitle, { color: theme.text }]}>
-                      Manage Your Projects
+                      Create Professional Estimates
                     </Text>
                     <Text style={[styles.welcomeText, { color: theme.subtext }]}>
-                      Keep track of all your projects from start to finish. Monitor progress,
-                      profitability, and timelines in one centralized location.
+                      Follow these steps to create accurate, professional project estimates
+                      with live material pricing and AI-powered insights.
                     </Text>
                   </View>
 
                   {/* Tutorial Steps */}
                   <View style={styles.section}>
-                    <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                      Getting Started
+                    <Text style={[styles.sectionTitle, { color: Colors.text }]}>
+                      Step-by-Step Guide
                     </Text>
                     {steps.map((step, index) => (
                       <TutorialStep
@@ -240,10 +274,10 @@ export default function ProjectsTutorialScreen() {
                         Pro Tips
                       </Text>
                       <Text style={[styles.tipsText, { color: theme.subtext }]}>
-                        • Convert estimates to projects after winning bids{'\n'}
-                        • Update project status regularly for accurate tracking{'\n'}
-                        • Use filters to focus on active projects{'\n'}
-                        • Monitor margins to ensure profitability
+                        • Use Material Search for accurate material pricing{'\n'}
+                        • Save estimates frequently to avoid losing work{'\n'}
+                        • Review the Project Analysis before finalizing{'\n'}
+                        • Export as PDF for professional proposals
                       </Text>
                     </View>
                   </View>
@@ -253,12 +287,12 @@ export default function ProjectsTutorialScreen() {
                     style={styles.ctaButton}
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      router.push('/(tabs)/projects');
+                      router.push('/(tabs)/estimate-generator');
                     }}
                     activeOpacity={0.8}
                   >
                     <MaterialIcons name='play-arrow' size={24} color='#FFFFFF' />
-                    <Text style={styles.ctaButtonText}>Go to Projects</Text>
+                    <Text style={styles.ctaButtonText}>Start Creating an Estimate</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -314,7 +348,9 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingLeft: 2,
+  },
+  titleWrapper: {
+    alignItems: 'center',
   },
   screenTitle: {
     fontSize: 26,
@@ -360,8 +396,8 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: 'bold',
     marginBottom: 16,
   },
   stepContainer: {
@@ -430,14 +466,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tipsTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     marginBottom: 8,
   },
   tipsText: {
-    fontSize: 13,
+    fontSize: 14,
     lineHeight: 22,
-    opacity: 0.65,
   },
   ctaButton: {
     flexDirection: 'row',

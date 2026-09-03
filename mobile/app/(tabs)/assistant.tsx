@@ -11,6 +11,7 @@ import { useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useProjectsCompareData } from '@/hooks/useProjectsCompareData';
 import WebPageShell from '@/components/layout/WebPageShell';
+import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
 import { computeProjectFinancials, sumPlannedCostFromBuckets } from '@/src/lib/projectFinancials';
 import {
   computeProfitForecast,
@@ -799,6 +800,7 @@ export default function AssistantScreen() {
         }}
       />
     </View>
+    <TabScreenBottomScrollFade />
     </WebPageShell>
   );
 }

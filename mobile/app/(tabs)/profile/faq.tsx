@@ -15,6 +15,7 @@ import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
 import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
@@ -331,6 +332,7 @@ function FAQItemComponent({
 }
 
 export default function FAQScreen() {
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const router = useRouter();
   const webHelpHeaderMargins = useWebProfileHelpHeaderMargins();
   const { darkMode, theme: themeContext } = useTheme();
@@ -432,7 +434,7 @@ export default function FAQScreen() {
             style={{ flex: 1 }}
             contentContainerStyle={{
               paddingTop: Platform.OS === 'web' ? 0 : 16,
-              paddingBottom: 40,
+              paddingBottom: tabScrollBottomInset,
               paddingHorizontal: 0,
             }}
             showsVerticalScrollIndicator={true}

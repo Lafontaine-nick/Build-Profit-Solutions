@@ -15,17 +15,12 @@ import {
   KeyboardAvoidingView,
   useWindowDimensions,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from '@/constants/brandFrameGradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { tabFlowCardStyle } from '@/components/layout/TabFlowCard';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
 import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import {
@@ -34,6 +29,8 @@ import {
   estimateStep1InputCardStyle,
 } from '@/utils/estimateFlowCardStyle';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
+import { BRAND_FRAME_GRADIENT_COLORS, BRAND_FRAME_GRADIENT_END, BRAND_FRAME_GRADIENT_START } from '@/constants/brandFrameGradient';
+import { LinearGradient } from 'expo-linear-gradient';
 import type { ProjectPhoto } from '@/services/projectPhotoService';
 import { removeProjectPhoto, updateProjectPhotoCaption } from '@/services/projectPhotoService';
 import AddProjectPhotoModal from '@/components/AddProjectPhotoModal';
@@ -89,6 +86,10 @@ export default function ProjectPhotosCard({
       borderColor: isDark ? '#3f3f46' : lineColor,
     }),
     [isDark, surfaceColor, lineColor]
+  );
+  const flowCardStyle = useMemo(
+    () => tabFlowCardStyle(Colors, isDark, { marginBottom: 14 }),
+    [Colors, isDark],
   );
 
   const openViewer = (photo: ProjectPhoto) => {
@@ -151,14 +152,7 @@ export default function ProjectPhotosCard({
 
   return (
     <>
-      <View style={{ marginTop: 12 }}>
-        <LinearGradient
-          colors={BRAND_FRAME_GRADIENT_COLORS}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
-          style={styles.overviewBorder}
-        >
-          <View style={[styles.overviewInner, { backgroundColor: darkMode ? '#000000' : surfaceColor }]}>
+      <View style={[{ marginTop: 12 }, flowCardStyle]}>
             <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? 'rgba(148,163,184,0.1)' : lineColor }]}>
               <MaterialIcons name="photo-library" size={22} color="#22c55e" />
               <Text style={[styles.sectionTitle, { color: textColor, marginLeft: 12 }]}>Site Photos</Text>
@@ -216,8 +210,6 @@ export default function ProjectPhotosCard({
                 </Text>
               </View>
             )}
-          </View>
-        </LinearGradient>
       </View>
 
       <AddProjectPhotoModal
@@ -384,15 +376,6 @@ export default function ProjectPhotosCard({
 }
 
 const styles = StyleSheet.create({
-  overviewBorder: {
-    borderRadius: 20,
-    padding: 1,
-    marginBottom: 16,
-  },
-  overviewInner: {
-    borderRadius: 18,
-    padding: 14,
-  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',

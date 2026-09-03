@@ -13,7 +13,7 @@ const ProfileAvatarButton: React.FC<Props> = ({ style, initials = "?" }) => {
 
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push("/profile");
+    router.push("/(tabs)/profile");
   };
 
   return (

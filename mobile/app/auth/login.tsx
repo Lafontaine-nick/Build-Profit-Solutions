@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
@@ -24,6 +25,7 @@ export default function LoginScreen() {
   const [pending, setPending] = useState(false);
   const [sent, setSent] = useState(false);
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   
   // Check if Clerk is configured
   const publishableKey = Constants.expoConfig?.extra?.clerkPublishableKey || process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
@@ -65,7 +67,7 @@ export default function LoginScreen() {
   if (!useClerk || !hasClerk) {
     return (
       <View style={styles.screen}>
-        <SafeAreaView style={{ flex: 1 }}>
+        <SafeAreaView style={{ flex: 1 }} edges={['top']}>
           <View style={[styles.centeredContent, { paddingHorizontal: 20 }]}>
             <View style={styles.wideContainer}>
               <View style={[estimateFlowCardStyle({ line: '#E2E8F0', surface2: '#FFFFFF' }, true), styles.card]}>
@@ -140,9 +142,15 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
         <View style={{ flex: 1 }}>
-          <ScrollView contentContainerStyle={styles.scrollContent} {...FORM_KEYBOARD_SCROLL_PROPS}>
+          <ScrollView
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: 24 + insets.bottom },
+            ]}
+            {...FORM_KEYBOARD_SCROLL_PROPS}
+          >
             <View style={styles.wideContainer}>
               <View style={[estimateFlowCardStyle({ line: '#E2E8F0', surface2: '#FFFFFF' }, true), styles.card]}>
                 <Text style={styles.title}>Sign In</Text>
@@ -235,7 +243,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingTop: 20,
   },
   wideContainer: {
     marginHorizontal: -20,

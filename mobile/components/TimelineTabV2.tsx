@@ -1,8 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Pressable, Alert, ScrollView, RefreshControl, Platform } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { LinearGradient } from "expo-linear-gradient";
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
@@ -29,6 +27,8 @@ import { mergeArrayResource } from "@/utils/workspaceResourceMerge";
 import { invalidateWorkspaceTimelineProgressCache } from "@/utils/workspaceTimelineProgress";
 import { useWorkspaceProjectPermissions } from "@/hooks/useWorkspaceProjectPermissions";
 import { submitCloseoutCalibration } from "@/utils/contractorPricingMemory";
+import { tabFlowCardStyle } from "@/components/layout/TabFlowCard";
+import { ESTIMATE_FLOW_NESTED_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 
 /** Merge list + live ProjectData so change orders match Budget tab. */
 function mergeProjectRecordForTimelineCo(project: any, projectFromList: any, projectData: any) {
@@ -361,7 +361,10 @@ interface TimelineTabProps {
   embedded?: boolean;
 }
 
-export default function TimelineTabV2({ project, embedded = false }: TimelineTabProps) {
+export default function TimelineTabV2({
+  project,
+  embedded = false,
+}: TimelineTabProps) {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [editingMilestone, setEditingMilestone] = useState<Milestone | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -371,6 +374,12 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
   const muted = timelineMuted(darkMode);
   const caption = timelineCaption(darkMode);
   const isWeb = Platform.OS === "web";
+  const timelineFlowCardStyle = useMemo(
+    () => tabFlowCardStyle(Colors, darkMode, { marginBottom: 14 }),
+    [Colors, darkMode],
+  );
+  const nestedCardBg = darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2;
+  const nestedCardBorder = darkMode ? "rgba(148,163,184,0.12)" : Colors.line;
 
   const { addExpense, updateExpense, deleteExpense, projectData, updateTimeline } = useProjectData();
   const { updateProject, getProjectById } = useProjectList();
@@ -1383,41 +1392,31 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
             styles.outerCard,
             styles.timelineContainerWide,
             embedded && styles.timelineContainerEmbedded,
+            embedded && { flex: 1 },
             !darkMode && { backgroundColor: Colors.bg },
             isWeb && styles.timelineWebColumn,
           ]}
         >
-          {/* Outer green-to-blue border wrapping Timeline Details header, Overall Progress, and Upcoming cards */}
-          <LinearGradient
-            pointerEvents="box-none"
-            colors={BRAND_FRAME_GRADIENT_COLORS}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
-            style={styles.overviewBorder}
-          >
-            <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
-              {/* Timeline Details Header */}
-              <View style={styles.timelineHeaderRow}>
-                <View>
-                  <Text style={[styles.timelineHeaderTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
-                    Timeline Details
-                  </Text>
-                  <Text style={[styles.timelineHeaderSubtitle, { color: muted }]}>
-                    Track milestones and project progress
-                  </Text>
-                </View>
+          {/* Timeline Details + Overall Progress */}
+          <View style={timelineFlowCardStyle}>
+              <View style={styles.timelinePageHeader}>
+                <Text style={[styles.timelinePageTitle, { color: darkMode ? COLORS.text : Colors.text }]}>
+                  Timeline Details
+                </Text>
+                <Text style={[styles.timelinePageSubtitle, { color: muted }]}>
+                  Track milestones and project progress
+                </Text>
               </View>
 
-              {/* Overall Progress Section */}
-              <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
+              <View style={[styles.sectionCardContainer, { marginTop: 0 }]}>
                 <View
                   style={[
                     styles.sectionCard,
                     darkMode && styles.sectionCardElevated,
                     {
-                      backgroundColor: Colors.surface2,
+                      backgroundColor: nestedCardBg,
                       borderWidth: 1,
-                      borderColor: darkMode ? "rgba(148, 163, 184, 0.14)" : Colors.line,
+                      borderColor: nestedCardBorder,
                       borderRadius: 14,
                     },
                   ]}
@@ -1437,18 +1436,10 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                 </View>
               </View>
             </View>
-            </View>
-          </LinearGradient>
+          </View>
 
           {/* Daily Logs Section - At the top for recent activity */}
-          <View style={{ marginTop: 12 }}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.overviewBorder}
-            >
-              <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
+          <View style={timelineFlowCardStyle}>
                 <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
                   <MaterialIcons name="description" size={22} color="#22c55e" />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
@@ -1487,7 +1478,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                           styles.logCard,
                           styles.logCardIOS,
                           {
-                            backgroundColor: darkMode ? Colors.surface2 : "#FFFFFF",
+                            backgroundColor: darkMode ? nestedCardBg : "#FFFFFF",
                             borderColor: darkMode ? Colors.line : "rgba(15, 23, 42, 0.08)",
                           },
                         ]}
@@ -1598,8 +1589,6 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                     </TouchableOpacity>
                   </View>
                 )}
-              </View>
-            </LinearGradient>
           </View>
 
           <ProjectPhotosCard
@@ -1618,16 +1607,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
 
           {/* Payment snapshot (last received + next due) or next work milestone for field roles */}
           {(canViewPaymentSchedule && paymentScheduleMilestones.length > 0) || nextWorkMilestone ? (
-          <View style={{ marginTop: 12 }}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.overviewBorder}
-            >
-              <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
-                <View style={styles.sectionCardContainer}>
-                  <View style={[styles.sectionCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? "rgba(148, 163, 184, 0.14)" : Colors.line, borderRadius: 14 }]}>
+          <View style={timelineFlowCardStyle}>
                     <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
                       <MaterialIcons name="event" size={22} color="#22c55e" />
                       <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
@@ -1722,25 +1702,12 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                         </Text>
                       )}
                     </View>
-                  </View>
-                </View>
-              </View>
-            </LinearGradient>
           </View>
           ) : null}
 
           {/* All Payments Section — owner & manager only */}
           {canViewPaymentSchedule ? (
-          <View style={{ marginTop: 12 }}>
-            {/* Outer green-to-blue border wrapping All Payments header and all milestone cards */}
-            <LinearGradient
-              pointerEvents="box-none"
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.overviewBorder}
-            >
-              <View style={[styles.overviewInner, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}>
+          <View style={[timelineFlowCardStyle, embedded && styles.timelineFlowCardFill]}>
                 <View style={[styles.sectionHeader, { borderBottomColor: darkMode ? "rgba(148,163,184,0.1)" : Colors.line }]}>
                   <MaterialIcons name="list" size={22} color="#22c55e" />
                   <Text style={[styles.sectionTitle, { color: darkMode ? COLORS.text : Colors.text, marginLeft: 12 }]}>
@@ -1826,8 +1793,6 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                       </View>
                     </View>
                 )}
-              </View>
-            </LinearGradient>
           </View>
           ) : null}
         </View>
@@ -1842,7 +1807,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
       ]}
     >
       {embedded ? (
-        <View style={timelineBodyStyle}>{timelineBody}</View>
+        <View style={[timelineBodyStyle, { flex: 1 }]}>{timelineBody}</View>
       ) : (
         <ScrollView
           style={styles.scrollContent}
@@ -2104,9 +2069,7 @@ const styles = StyleSheet.create({
   loadingText: { color: Colors.text, fontSize: 18, fontWeight: "700" },
 
   outerCard: {
-    backgroundColor: "#000000",
-    borderRadius: 28,
-    marginBottom: 0,
+    marginBottom: 16,
   },
   timelineContainerWide: {
     marginHorizontal: 0, // Container already extends with -20, so 0 here extends to edges
@@ -2127,29 +2090,24 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     paddingHorizontal: 20,
   },
-  overviewBorder: {
-    borderRadius: 20,
-    padding: 1,
+  timelineFlowCardFill: {
+    flex: 1,
+    marginBottom: 0,
+  },
+  timelinePageHeader: {
     marginBottom: 16,
   },
-  overviewInner: {
-    borderRadius: 18,
-    padding: 14,
-  },
-  timelineHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 14,
-  },
-  timelineHeaderTitle: {
-    fontSize: 18,
-    fontWeight: "600",
+  timelinePageTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.4,
     color: "#F9FAFB",
   },
-  timelineHeaderSubtitle: {
-    fontSize: 14,
-    marginTop: 4,
+  timelinePageSubtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
   },
   sectionCardContainer: {
     marginTop: 12,

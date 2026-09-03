@@ -60,6 +60,7 @@ import { isWorkspaceRestrictedFinancialsProject } from "@/utils/workspacePermiss
 import FinancialAccessLocked from "@/components/FinancialAccessLocked";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import WebPageShell from "@/components/layout/WebPageShell";
+import TabScreenBottomScrollFade from "@/components/layout/TabScreenBottomScrollFade";
 import { TabScreenHeader } from "@/components/ui/TabScreenHeader";
 import { tabFlowCardStyle } from "@/components/layout/TabFlowCard";
 import { ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, ESTIMATE_FLOW_NESTED_CARD_BG_DARK, ESTIMATE_FLOW_PROGRESS_GRADIENT, ESTIMATE_FLOW_TEXT_LABEL_DARK, ESTIMATE_FLOW_TEXT_SECONDARY_DARK, ESTIMATE_FLOW_TRACK_BG_DARK } from "@/utils/estimateFlowCardStyle";
@@ -3660,6 +3661,7 @@ const DashboardScreen: React.FC = () => {
         styles.root,
         Platform.OS === "web" && desktopWeb && styles.rootDesktopWeb,
       ]}
+      edges={['top']}
     >
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
       {clerkAuthEnabled ? (
@@ -3671,6 +3673,7 @@ const DashboardScreen: React.FC = () => {
       {/* Background — must not capture taps (especially on web) or the header profile control won't receive presses */}
       <View style={StyleSheet.absoluteFill} pointerEvents="none" />
 
+        <View style={{ flex: 1 }}>
         <ScrollView
           style={
             Platform.OS === "web"
@@ -3679,6 +3682,7 @@ const DashboardScreen: React.FC = () => {
           }
           contentContainerStyle={[
             styles.scrollContent,
+            { flexGrow: 1 },
             Platform.OS === "web" && { paddingHorizontal: 0, paddingTop: 0 },
             webScrollContentCap,
           ]}
@@ -3758,7 +3762,7 @@ const DashboardScreen: React.FC = () => {
               >
                 <Pressable
                   style={styles.profileInner}
-                  onPress={() => router.push("/profile")}
+                  onPress={() => router.push("/(tabs)/profile")}
                   accessibilityRole="button"
                   accessibilityLabel="Profile"
                 >
@@ -3801,6 +3805,7 @@ const DashboardScreen: React.FC = () => {
         </View>
 
         {/* CONTENT */}
+        <View style={styles.tabPanel}>
         {activeTab === "overview" && (
           <OverviewSection
             metrics={metrics}
@@ -3854,9 +3859,11 @@ const DashboardScreen: React.FC = () => {
           />
         ))}
 
-        <View style={{ height: desktopWeb ? 20 : 32 }} />
+        </View>
         </WebPageShell>
       </ScrollView>
+      <TabScreenBottomScrollFade />
+        </View>
 
       {/* FLOATING AI PROJECT MANAGER MODE BADGE */}
       {!restrictedWorkspaceFinancials ? (
@@ -5203,7 +5210,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
 
   const openProject = (projectId?: string | null) => {
     if (Platform.OS === "ios") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (projectId) router.push(`/project-detail/${projectId}`);
+    if (projectId) router.push(`/(tabs)/project-detail/${projectId}`);
     else router.push("/(tabs)/projects");
   };
 
@@ -5551,6 +5558,9 @@ const getStyles = (
     paddingHorizontal: edge,
     paddingBottom: scrollBottomInset,
   },
+  tabPanel: {
+    flex: 1,
+  },
   glossOverlay: {
     position: "absolute",
     top: -120,
@@ -5668,8 +5678,8 @@ const getStyles = (
   segmentContainer: {
     borderRadius: 999,
     overflow: "hidden",
-    borderWidth: 1, // Match projects page border width
-    borderColor: "#19E180", // Green border for both dark and light mode
+    borderWidth: 1,
+    borderColor: "rgba(25, 225, 128, 0.45)",
     marginBottom: desktopWeb ? 22 : 18,
   },
   segmentScrollView: {
@@ -5678,7 +5688,10 @@ const getStyles = (
   segmentInner: {
     flexDirection: "row",
     padding: desktopWeb ? 5 : 4,
-    backgroundColor: Colors.bg === '#000000' ? "transparent" : Colors.surface2,
+    backgroundColor:
+      Colors.bg === "#000000"
+        ? "rgba(255, 255, 255, 0.04)"
+        : Colors.surface2,
     minWidth: "100%",
   },
   segmentTab: {

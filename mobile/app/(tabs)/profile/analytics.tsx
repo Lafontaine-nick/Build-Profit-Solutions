@@ -15,6 +15,7 @@ import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
 import { LineChart } from 'react-native-gifted-charts';
 import WebPageShell from '@/components/layout/WebPageShell';
+import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 
 const { width, height } = Dimensions.get('window');
 
@@ -39,6 +40,7 @@ interface AnalyticsMetric {
 }
 
 export default function AnalyticsScreen() {
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const { darkMode } = useTheme();
   const [selectedPeriod, setSelectedPeriod] = useState<
     'week' | 'month' | 'quarter' | 'year'
@@ -305,7 +307,10 @@ export default function AnalyticsScreen() {
     <LinearGradient colors={theme.background} style={styles.container}>
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={Platform.OS === 'web' ? { paddingHorizontal: 0 } : undefined}
+        contentContainerStyle={[
+          Platform.OS === 'web' ? { paddingHorizontal: 0 } : null,
+          { paddingBottom: tabScrollBottomInset },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>

@@ -40,7 +40,6 @@ import {
 import { businessWorkspaceService } from '@/services/businessWorkspaceService';
 import { mergeArrayResource } from '@/utils/workspaceResourceMerge';
 import { useWorkspaceProjectPermissions } from '@/hooks/useWorkspaceProjectPermissions';
-
 export type CalendarEvent = {
   id: string;
   title: string;
@@ -203,7 +202,6 @@ export default function ProjectCalendar({
     ? getCalendarTabShellStyle({
         desktopWeb: calendarDesktopWeb,
         edgeHorizontal: calendarEdge,
-        marginTop: 0,
       })
     : null;
   const COLORS = useMemo(

@@ -34,6 +34,7 @@ import {
   type ProfitForecastOutput,
 } from '../src/lib/profitForecast';
 import { deriveEstimateFeedbackFromBudgetData } from '@/utils/estimateFeedback';
+import { normalizeExpenseForMatching } from '@/utils/rateInsightComparisons';
 import CalibrationReviewModal from '@/components/CalibrationReviewModal';
 import EstimateVsActualCard from '@/components/EstimateVsActualCard';
 import { submitCloseoutCalibration } from '@/utils/contractorPricingMemory';
@@ -740,17 +741,20 @@ export default function BudgetTab({
         projectId,
         status: String((projectFromList as any)?.status ?? (projectData as any)?.status ?? ''),
         lines: feedbackBudgetLines,
-        expenses: (projectData?.expenses || []).map((expense: any) => ({
-          id: String(expense.id),
-          category: expense.category,
-          description: expense.description ?? expense.notes,
-          vendor: expense.vendor,
-          amount: expense.amount,
-          date: expense.date,
-          receiptUri: expense.receiptUri || undefined,
-          aiConfidence: expense.aiConfidence,
-          linkedLineId: expense.linkedLineId,
-        })),
+        expenses: (projectData?.expenses || []).map((expense: any) => {
+          const normalized = normalizeExpenseForMatching(expense);
+          return {
+            id: normalized.id,
+            category: normalized.category,
+            description: normalized.description,
+            vendor: normalized.vendor,
+            amount: normalized.amount,
+            date: expense.date,
+            receiptUri: expense.receiptUri || undefined,
+            aiConfidence: expense.aiConfidence,
+            linkedLineId: normalized.linkedLineId,
+          };
+        }),
         changeOrders: (projectData?.changeOrders || []).map((co: any) => ({
           id: String(co.id),
           title: co.title,
@@ -957,24 +961,22 @@ export default function BudgetTab({
   const nestedCardBg = darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2;
   const nestedCardBorder = darkMode ? 'rgba(148,163,184,0.12)' : Colors.line;
 
-  return (
-    <View style={[styles.container, embedded && styles.containerEmbedded]}>
-      <ScrollView
-        ref={budgetScrollViewRef}
-        style={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 24 }}
+  const budgetPanelBody = (
+    <View
+      style={[
+        styles.outerCard,
+        styles.budgetContainerWide,
+        embedded && styles.budgetContainerEmbedded,
+        embedded && { flex: 1 },
+        !darkMode && { backgroundColor: Colors.bg },
+      ]}
+    >
+      <View
+        style={[
+          budgetFlowCardStyle,
+          embedded && styles.budgetFlowCardEmbedded,
+        ]}
       >
-        {/* Wide Container - matches Overview page */}
-        <View
-          style={[
-            styles.outerCard,
-            styles.budgetContainerWide,
-            embedded && styles.budgetContainerEmbedded,
-            !darkMode && { backgroundColor: Colors.bg },
-          ]}
-        >
-          <View style={budgetFlowCardStyle}>
               <View style={styles.budgetPageHeader}>
                 <Text style={[styles.budgetPageTitle, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
                   {pageTitle}
@@ -1093,7 +1095,6 @@ export default function BudgetTab({
                   </View>
                 </View>
               </View>
-          </View>
 
           {/* Tabs — each pill sits in an equal flex slot so width is 50/50 regardless of label */}
           <View style={styles.tabContainer}>
@@ -1118,6 +1119,7 @@ export default function BudgetTab({
               />
             </View>
           </View>
+      </View>
 
           {tab === 'lines' && (
               <View style={[budgetFlowCardStyle, { marginTop: 12 }]}>
@@ -1413,10 +1415,24 @@ export default function BudgetTab({
             </View>
         )}
 
-        </View>
+    </View>
+  );
 
-        <View style={styles.bottomSpacer} />
-      </ScrollView>
+  return (
+    <View style={[styles.container, embedded && styles.containerEmbedded]}>
+      {embedded ? (
+        budgetPanelBody
+      ) : (
+        <ScrollView
+          ref={budgetScrollViewRef}
+          style={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 24 }}
+        >
+          {budgetPanelBody}
+          <View style={styles.bottomSpacer} />
+        </ScrollView>
+      )}
 
       {/* Editor Sheet (lightweight inline) */}
       {editing && (
@@ -2276,7 +2292,10 @@ const styles = StyleSheet.create({
   budgetContainerEmbedded: {
     paddingHorizontal: 0,
     paddingTop: 0,
-    paddingBottom: 18,
+    paddingBottom: 0,
+  },
+  budgetFlowCardEmbedded: {
+    marginBottom: 0,
   },
   /** Main page title block — mirrors project-detail overviewPageHeader */
   budgetPageHeader: {

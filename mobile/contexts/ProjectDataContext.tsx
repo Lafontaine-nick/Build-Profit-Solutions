@@ -40,6 +40,7 @@ interface ProjectDataContextType {
     date?: string;
     notes?: string;
     receiptUri?: string | null;
+    linkedLineId?: string | null;
   }) => void;
   deleteExpense: (expenseId: string) => void;
   clearAllExpenses: () => void;
@@ -51,6 +52,7 @@ interface ProjectDataContextType {
     amount: number;
     date?: string;
     notes?: string;
+    linkedLineId?: string | null;
   }) => void;
   addPurchaseOrder: (po: Omit<PurchaseOrder, 'id'>) => void;
   updatePurchaseOrder: (po: PurchaseOrder) => void;
@@ -506,6 +508,29 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
 
         const key = `bps.project.${projectId || '1'}`;
         const saved = await AsyncStorage.getItem(key);
+        const listProjectData = (unified?.projectData || {}) as Partial<ProjectOverview>;
+        const estimateHasLineItems = (value: unknown): boolean => {
+          const estimate = value as Record<string, unknown> | undefined;
+          return Boolean(
+            estimate &&
+              ((
+                Array.isArray(estimate.materialLineItems) &&
+                estimate.materialLineItems.length > 0
+              ) ||
+                (Array.isArray(estimate.laborLineItems) &&
+                  estimate.laborLineItems.length > 0) ||
+                (Array.isArray(estimate.lines) && estimate.lines.length > 0))
+          );
+        };
+        const listEstimateData =
+          (estimateHasLineItems(unified?.estimateData)
+            ? unified?.estimateData
+            : (listProjectData as ProjectOverview).estimateData) ||
+          unified?.estimateData;
+        const hydrateEstimateData = (candidate: ProjectOverview): ProjectOverview =>
+          estimateHasLineItems(candidate.estimateData) || !listEstimateData
+            ? candidate
+            : { ...candidate, estimateData: listEstimateData };
         
         if (saved) {
           const parsedData = JSON.parse(saved);
@@ -525,11 +550,24 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
             });
           }
           
-          replaceProjectDataState(await mergeBusinessWorkspaceResources(parsedData));
+          replaceProjectDataState(
+            await mergeBusinessWorkspaceResources(
+              hydrateEstimateData(parsedData as ProjectOverview)
+            )
+          );
         } else {
-          // No saved data, use initial
+          // No local project snapshot yet: hydrate from the converted estimate in ProjectList.
           const initial = getInitialProjectData(projectId);
-          replaceProjectDataState(await mergeBusinessWorkspaceResources(initial));
+          const fromList = unified
+            ? {
+                ...initial,
+                ...listProjectData,
+                estimateData: listEstimateData,
+              }
+            : initial;
+          replaceProjectDataState(
+            await mergeBusinessWorkspaceResources(hydrateEstimateData(fromList))
+          );
         }
       } catch (error) {
         console.error('Error loading project data:', error);
@@ -756,6 +794,7 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     date?: string;
     notes?: string;
     receiptUri?: string | null;
+    linkedLineId?: string;
   }) => {
     // Emit PM event for expense added
     pmEventTracker.emit({
@@ -766,6 +805,7 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         amount: expense.amount,
         category: expense.category,
         vendor: expense.vendor,
+        linkedLineId: expense.linkedLineId,
       },
       timestamp: Date.now(),
     });
@@ -1032,9 +1072,14 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
 
       const amountDiff = updatedExpense.amount - oldExpense.amount;
 
-      const updatedExpenses = (prev.expenses || []).map(e =>
-        e.id === updatedExpense.id ? { ...e, ...updatedExpense } : e
-      );
+      const updatedExpenses = (prev.expenses || []).map((e) => {
+        if (e.id !== updatedExpense.id) return e;
+        const merged = { ...e, ...updatedExpense };
+        if ('linkedLineId' in updatedExpense && updatedExpense.linkedLineId == null) {
+          delete (merged as { linkedLineId?: string }).linkedLineId;
+        }
+        return merged;
+      });
 
       const updatedBuckets = prev.buckets.map(bucket => {
         if (

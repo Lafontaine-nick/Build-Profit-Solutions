@@ -4,7 +4,7 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 
 /** iOS-style tab bar icon colors (spec) */
 export const TAB_NAV_ACTIVE = '#4ade80';
-export const TAB_NAV_INACTIVE_DARK = '#757575';
+export const TAB_NAV_INACTIVE_DARK = '#8E8E93';
 export const TAB_NAV_INACTIVE_LIGHT = '#64748B';
 export const TAB_ASSISTANT_STAR = '#4ade80';
 /** Lines on filled estimate icon */

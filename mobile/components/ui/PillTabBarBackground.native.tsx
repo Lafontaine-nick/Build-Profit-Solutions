@@ -16,9 +16,8 @@ export default function PillTabBarBackground() {
     flex: 1,
     borderRadius: 28,
     borderWidth: edge,
-    borderColor: darkMode ? 'rgba(255,255,255,0.055)' : 'rgba(0,0,0,0.045)',
-    // Dark: let more blur read through (less “slab”); light: airy frosted card
-    backgroundColor: darkMode ? 'rgba(28, 28, 30, 0.48)' : 'rgba(255,255,255,0.76)',
+    borderColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+    backgroundColor: darkMode ? 'rgba(12, 12, 14, 0.70)' : 'rgba(255, 255, 255, 0.88)',
     shadowColor: '#000',
     shadowOpacity: darkMode ? 0.22 : 0.07,
     shadowRadius: 20,
@@ -28,7 +27,7 @@ export default function PillTabBarBackground() {
 
   return (
     <BlurView
-      intensity={Platform.OS === 'ios' ? 56 : 48}
+      intensity={Platform.OS === 'ios' ? 80 : 72}
       tint={darkMode ? 'dark' : 'light'}
       style={StyleSheet.absoluteFillObject}
     >

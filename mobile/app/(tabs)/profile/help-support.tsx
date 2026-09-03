@@ -15,6 +15,7 @@ import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import { useMemo } from 'react';
 import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
@@ -71,6 +72,7 @@ const SettingsRow = ({ iconName, icon, label, onPress }: SettingsRowProps) => {
 };
 
 export default function HelpSupportScreen() {
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const router = useRouter();
   const webHelpHeaderMargins = useWebProfileHelpHeaderMargins();
   const { darkMode, theme: themeContext } = useTheme();
@@ -179,7 +181,7 @@ export default function HelpSupportScreen() {
             style={{ flex: 1 }}
             contentContainerStyle={{
               paddingTop: Platform.OS === 'web' ? 0 : 16,
-              paddingBottom: 40,
+              paddingBottom: tabScrollBottomInset,
               paddingHorizontal: 0,
             }}
             showsVerticalScrollIndicator={true}
@@ -327,7 +329,6 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 40,
   },
   sectionCard: {
     borderRadius: 20,

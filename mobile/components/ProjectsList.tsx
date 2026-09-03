@@ -137,7 +137,7 @@ export default function ProjectsList() {
 
   const handleProjectPress = (project: Project) => {
     // Navigate to project detail page with project data
-    router.push(`/project-detail/${project.id}`);
+    router.push(`/(tabs)/project-detail/${project.id}`);
   };
 
   const filteredProjects = mockProjects.filter(project => {

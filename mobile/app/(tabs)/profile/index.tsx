@@ -42,6 +42,7 @@ import {
   DASHBOARD_WEB_MAX_CONTENT_WIDTH,
   WEB_DESKTOP_EDGE_HORIZONTAL,
 } from '@/constants/ScreenLayout';
+import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from 'react-i18next';
@@ -350,6 +351,7 @@ export default function ProfileScreen() {
   const { darkMode, setDarkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { width: layoutWidth } = useWindowDimensions();
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const desktopWeb = isDesktopWebLayoutWidth(layoutWidth);
   const webScrollContentCap =
     Platform.OS === 'web'
@@ -2949,6 +2951,7 @@ export default function ProfileScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={[
           styles.scrollContent,
+          { paddingBottom: tabScrollBottomInset },
           Platform.OS === 'web' && { paddingHorizontal: 0, paddingTop: 0 },
           webScrollContentCap,
         ]}

@@ -33,5 +33,5 @@ export async function consumePostCheckoutReturn(): Promise<PostCheckoutReturn | 
 }
 
 export function buildProjectDetailHref(projectId: string, tab = 'Budget'): string {
-  return `/project-detail/${encodeURIComponent(projectId)}?activeTab=${encodeURIComponent(tab)}`;
+  return `/(tabs)/project-detail/${encodeURIComponent(projectId)}?activeTab=${encodeURIComponent(tab)}`;
 }

@@ -14,7 +14,7 @@ export default function OnboardingScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar style="light" backgroundColor="#000000" />
       <OnboardingFlow onComplete={handleComplete} />
     </SafeAreaView>

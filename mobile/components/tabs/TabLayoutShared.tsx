@@ -32,7 +32,7 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
   const { enabled: aiManagerEnabled, hasAlerts } = useAIManagerMode();
   const { t } = useTranslation();
   const { darkMode, theme } = useTheme();
-  const tabInactiveColor = darkMode ? '#757575' : '#64748B';
+  const tabInactiveColor = darkMode ? '#8E8E93' : '#64748B';
   const sidebarBorder = darkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(15, 23, 42, 0.12)';
   const sidebarBg = darkMode ? theme.bg : '#f8fafc';
   const { canAccessEstimateAndLeads } = useWorkspaceProjectPermissions();
@@ -108,7 +108,8 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
                 backgroundColor: 'transparent',
                 borderTopWidth: 0,
                 overflow: 'hidden' as const,
-                elevation: 0,
+                elevation: 40,
+                zIndex: 50,
               },
               tabBarBackground: () => <PillTabBarBackground />,
             }),
@@ -148,7 +149,7 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
             return (
               <View style={styles.iconWrapper}>
                 <LinearGradient
-                  colors={['rgba(255, 255, 255, 0.09)', 'rgba(74, 222, 128, 0.11)']}
+                  colors={['rgba(255, 255, 255, 0.06)', 'rgba(74, 222, 128, 0.07)']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={[
@@ -222,6 +223,18 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
           href: canAccessEstimateAndLeads ? undefined : null,
         }}
       />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="project-detail"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
     </>
   );
@@ -244,7 +257,7 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   assistantCircleAIEnabled: {
-    borderColor: 'rgba(74, 222, 128, 0.22)',
+    borderColor: 'rgba(74, 222, 128, 0.15)',
   },
   aiBadge: {
     position: 'absolute',

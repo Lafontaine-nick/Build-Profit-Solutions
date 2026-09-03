@@ -23,6 +23,8 @@ import { estimateFlowCardStyle, ESTIMATE_FLOW_PROGRESS_GRADIENT, ESTIMATE_FLOW_T
 export type ProjectOverview = {
   id: string;
   title: string;
+  /** Original estimate snapshot retained when an estimate becomes a project. */
+  estimateData?: Record<string, unknown>;
   status: string;
   priority: string;
   risk: string;
@@ -59,6 +61,7 @@ export type ProjectOverview = {
     date?: string;
     notes?: string;
     receiptUri?: string | null;
+    linkedLineId?: string;
   }[];
   changeOrders?: {
     id: string;

@@ -44,9 +44,12 @@ import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import { FORM_KEYBOARD_SCROLL_PROPS } from "@/constants/keyboardScrollProps";
 import GradientRingBackInner from "@/components/GradientRingBackInner";
 import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from "@/constants/ScreenLayout";
-import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
+import { projectAddExpenseNumericKeyboardProps, resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
+import KeyboardPlainAccessory from "@/components/ui/KeyboardPlainAccessory";
+import { KEYBOARD_ACCESSORY_IDS } from "@/constants/keyboard";
 import WebFormGradientFrame from "@/components/layout/WebFormGradientFrame";
-import { AI_FLOW_CARD_BG_DARK, confirmScopeSectionLabelStyle, estimateFlowCardStyle, estimateFlowLineItemsTotalStyle, estimateFlowNestedActionButtonStyle, estimateStep1ActionButtonSelectedStyle, ESTIMATE_FLOW_CARD_GAP, ESTIMATE_FLOW_CHIP_GREEN, ESTIMATE_FLOW_CHIP_GREEN_BG, ESTIMATE_FLOW_GREEN, ESTIMATE_FLOW_NESTED_FIELD_BG_DARK } from "@/utils/estimateFlowCardStyle";
+import EstimateLinePicker, { type EstimateLineOption } from "@/components/EstimateLinePicker";
+import { AI_FLOW_CARD_BG_DARK, confirmScopeSectionLabelStyle, estimateFlowCardStyle, estimateFlowLineItemsTotalStyle, estimateFlowNestedActionButtonStyle, estimateStep1ActionButtonSelectedStyle, ESTIMATE_FLOW_CARD_GAP, ESTIMATE_FLOW_CHIP_GREEN, ESTIMATE_FLOW_CHIP_GREEN_BG, ESTIMATE_FLOW_GREEN, ESTIMATE_FLOW_NESTED_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
@@ -85,6 +88,7 @@ interface AddMaterialScreenProps {
     scope?: string;
     description: string;
     poNumber: string;
+    linkedLineId?: string;
   }) => void;
 }
 
@@ -105,7 +109,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   const styles = useMemo(() => getStyles(Colors, darkMode), [Colors, darkMode]);
   const placeholderTint = darkMode ? "rgba(226, 232, 240, 0.62)" : Colors.sub;
   const sectionLabelColor = darkMode ? "rgba(226, 232, 240, 0.78)" : Colors.sub;
-  const { addExpense } = useProjectData();
+  const { addExpense, projectData } = useProjectData();
   
   const [vendor, setVendor] = useState("");
   const [material, setMaterial] = useState("");
@@ -117,11 +121,10 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
   const [description, setDescription] = useState("");
   const [receiptUri, setReceiptUri] = useState<string | null>(null);
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
+  const [selectedEstimateLine, setSelectedEstimateLine] = useState<EstimateLineOption | null>(null);
   const [showOCRModal, setShowOCRModal] = useState(false);
   /** Hide Cancel/Save while amount keypad is open so buttons don't stack on the keyboard. */
   const [hideFooterForNumeric, setHideFooterForNumeric] = useState(false);
-  const materialRef = useRef<TextInput>(null);
-  const vendorRef = useRef<TextInput>(null);
 
   const onAmountFieldFocus = useCallback(() => {
     setHideFooterForNumeric(true);
@@ -383,6 +386,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
         date: new Date().toISOString(),
         notes: description.trim() || undefined,
         receiptUri: receiptUri || undefined,
+        linkedLineId: selectedEstimateLine?.id,
       });
 
       if (onSave) {
@@ -393,6 +397,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
           scope: category,
           description: description.trim(),
           poNumber: "",
+          linkedLineId: selectedEstimateLine?.id,
         });
       }
 
@@ -402,7 +407,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
 
       if (projectId) {
         router.push({
-          pathname: `/project-detail/[id]`,
+          pathname: `/(tabs)/project-detail/[id]`,
           params: { id: projectId, activeTab: "Budget", backToProjects: "1" },
         });
       } else {
@@ -426,6 +431,10 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <KeyboardPlainAccessory
+        nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
+        backgroundColor={darkMode ? "#000000" : Colors.bg}
+      />
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
 
       <View
@@ -451,7 +460,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
               innerBackgroundColor={darkMode ? "#000000" : Colors.bg}
             >
             {/* HEADER */}
-            <View style={styles.headerRow}>
+            <Pressable onPress={Keyboard.dismiss} style={styles.headerRow} accessibilityRole="none">
               <View style={styles.backButtonWrapper}>
                 <LinearGradient
                   colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -487,7 +496,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
               </View>
 
               <View style={styles.headerSideSpacer} />
-            </View>
+            </Pressable>
 
             {/* CONTENT */}
             <ScrollView
@@ -495,8 +504,31 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
               style={Platform.OS === "web" ? { flex: 1, minHeight: 0 } : undefined}
               contentContainerStyle={styles.scrollContent}
               {...FORM_KEYBOARD_SCROLL_PROPS}
+              keyboardShouldPersistTaps="never"
             >
               <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: ESTIMATE_FLOW_CARD_GAP })}>
+              <EstimateLinePicker
+                kind="materials"
+                projectLike={projectData as unknown as Record<string, unknown>}
+                selectedLineId={selectedEstimateLine?.id}
+                onSelect={(line) => {
+                  setSelectedEstimateLine(line);
+                  if (line) {
+                    setMaterial(line.name.replace(/\s*[—–-]\s*materials?\s*$/i, '').trim());
+                    setCategory("Materials/Equipment");
+                  }
+                }}
+                darkMode={darkMode}
+                colors={{
+                  background: darkMode ? "#000000" : Colors.bg,
+                  card: darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2,
+                  text: Colors.text,
+                  secondary: Colors.sub,
+                  border: Colors.line,
+                  nestedCard: darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2,
+                  accent: BRAND_GREEN,
+                }}
+              />
               {/* Material */}
               <View style={styles.fieldGroup}>
                 <Text style={[confirmScopeSectionLabelStyle(), styles.sectionLabel, { color: sectionLabelColor }]}>
@@ -505,13 +537,11 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                 <View style={styles.inputWrapper}>
                   <Feather name="file-text" size={16} color="#8DA0B8" style={styles.inputIcon} />
                   <TextInput
-                    ref={materialRef}
                     style={styles.input}
                     placeholder="what is the material quoted"
                     placeholderTextColor={placeholderTint}
                     value={material}
                     onChangeText={setMaterial}
-                    onSubmitEditing={() => vendorRef.current?.focus()}
                     {...(Platform.OS === "ios"
                       ? { keyboardAppearance: darkMode ? "dark" : "light" }
                       : {})}
@@ -528,13 +558,11 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                 <View style={styles.inputWrapper}>
                   <Feather name="store" size={16} color="#8DA0B8" style={styles.inputIcon} />
                   <TextInput
-                    ref={vendorRef}
                     style={styles.input}
                     placeholder="Home Depot"
                     placeholderTextColor={placeholderTint}
                     value={vendor}
                     onChangeText={setVendor}
-                    onSubmitEditing={() => Keyboard.dismiss()}
                     {...(Platform.OS === "ios"
                       ? { keyboardAppearance: darkMode ? "dark" : "light" }
                       : {})}
@@ -621,7 +649,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                             placeholderTextColor={placeholderTint}
                             value={sqftText}
                             onChangeText={(text) => setSqftText(digitsOnly(text))}
-                            {...nativeNumericKeyboardProps}
+                            {...projectAddExpenseNumericKeyboardProps}
                             keyboardType="phone-pad"
                             onFocus={onAmountFieldFocus}
                           />
@@ -639,7 +667,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                             placeholderTextColor={placeholderTint}
                             value={rateText}
                             onChangeText={(text) => setRateText(formatDecimalMoneyDisplay(text))}
-                            {...nativeNumericKeyboardProps}
+                            {...projectAddExpenseNumericKeyboardProps}
                             keyboardType="decimal-pad"
                             keyboardAppearance={darkMode ? "dark" : "light"}
                             onFocus={onAmountFieldFocus}
@@ -663,7 +691,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                         placeholderTextColor={placeholderTint}
                         value={flatAmountText}
                         onChangeText={(text) => setFlatAmountText(formatDecimalMoneyDisplay(text))}
-                        {...nativeNumericKeyboardProps}
+                        {...projectAddExpenseNumericKeyboardProps}
                         keyboardType="decimal-pad"
                         keyboardAppearance={darkMode ? "dark" : "light"}
                         onFocus={onAmountFieldFocus}

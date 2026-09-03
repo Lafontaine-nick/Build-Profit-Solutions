@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TextInput,
   TouchableOpacity,
@@ -21,6 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
 import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import { sanitizeStoredProfileAvatar } from '@/lib/profileAvatar';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Try to import Clerk hooks
 let clerkUserFactory: any = null;
@@ -33,6 +33,7 @@ try {
 
 export default function ProfileSetupScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { darkMode } = useTheme();
   const [loading, setLoading] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -257,10 +258,13 @@ export default function ProfileSetupScreen() {
         end={{ x: 0, y: 1 }}
         style={styles.gradient}
       >
-        <SafeAreaView style={styles.safeArea}>
+        <SafeAreaView style={styles.safeArea} edges={['top']}>
           <View style={styles.keyboardView}>
             <ScrollView
-              contentContainerStyle={styles.scrollContent}
+              contentContainerStyle={[
+                styles.scrollContent,
+                { flexGrow: 1, paddingBottom: 24 + insets.bottom },
+              ]}
               showsVerticalScrollIndicator={false}
               {...FORM_KEYBOARD_SCROLL_PROPS}
             >
@@ -446,7 +450,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 20,
-    paddingBottom: 40,
   },
   headerContainer: {
     alignItems: 'center',

@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ScrollView,
   Pressable,
@@ -14,6 +13,7 @@ import {
   Platform,
   useWindowDimensions,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, Feather, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -28,7 +28,14 @@ import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL, ScreenLayout, PROJECT_WIDE_CONTAINER_CARD_INSET } from "@/constants/ScreenLayout";
 import { neutralIconPressableWebStyle } from "@/constants/iconPressable";
-import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
+import { tabFlowCardStyle } from "@/components/layout/TabFlowCard";
+import { ESTIMATE_FLOW_NESTED_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
+import EstimateLineExpenseGroupCard from "./EstimateLineExpenseGroupCard";
+import {
+  buildEstimateLineIdToLabel,
+  buildGroupedCategoryExpenseList,
+} from "@/utils/groupCategoryExpenses";
+import { resolveProjectEstimateData } from "@/utils/rateInsightComparisons";
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
@@ -47,9 +54,11 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
 }) => {
   const router = useRouter();
   const { theme, darkMode } = useTheme();
+  const insets = useSafeAreaInsets();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const flowCardBg = darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2;
-  const flowCardBorder = darkMode ? "rgba(148,163,184,0.12)" : Colors.line;
+  const categoryFlowCardStyle = tabFlowCardStyle(Colors, darkMode, { marginBottom: 0 });
+  const nestedCardBg = darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2;
+  const nestedCardBorder = darkMode ? "rgba(148,163,184,0.12)" : Colors.line;
   const { width: layoutWidth } = useWindowDimensions();
   const materialsDesktopWeb =
     Platform.OS === "web" && isDesktopWebLayoutWidth(layoutWidth);
@@ -101,7 +110,9 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
           : 'No date',
         date: exp.date,
         notes: exp.notes,
+        linkedLineId: exp.linkedLineId || undefined,
         receiptUri: exp.receiptUri ?? null,
+        priceReasonableness: exp.priceReasonableness || undefined,
       }));
     
     // Apply search filter if active
@@ -122,6 +133,20 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
       return dateB - dateA;
     });
   }, [projectData?.expenses, searchQuery]);
+
+  const estimateLineIdToLabel = useMemo(
+    () =>
+      buildEstimateLineIdToLabel(
+        resolveProjectEstimateData(projectData as unknown as Record<string, unknown>),
+        'materials'
+      ),
+    [projectData]
+  );
+
+  const listItems = useMemo(
+    () => buildGroupedCategoryExpenseList(transactions, estimateLineIdToLabel),
+    [transactions, estimateLineIdToLabel]
+  );
 
   const totalSpent = useMemo(
     () => transactions.reduce((sum, t) => sum + t.amount, 0),
@@ -211,7 +236,10 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, !darkMode && { backgroundColor: Colors.bg }]}>
+    <SafeAreaView
+      style={[styles.safeArea, !darkMode && { backgroundColor: Colors.bg }]}
+      edges={['top']}
+    >
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
 
       <View
@@ -234,22 +262,11 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingHorizontal: scrollOuterPadH },
+            { paddingHorizontal: scrollOuterPadH, flexGrow: 1, paddingBottom: 24 + insets.bottom },
           ]}
         >
           <View style={pageWideBleedStyle}>
-          <LinearGradient
-            colors={["#2DFFC4", "#00A6FF"]}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
-            style={styles.pageOverviewGradientRing}
-          >
-            <View
-              style={[
-                styles.pageOverviewInner,
-                { backgroundColor: darkMode ? "#000000" : Colors.bg },
-              ]}
-            >
+            <View style={[categoryFlowCardStyle, { flex: 1 }]}>
           {/* HEADER — same horizontal inset as project tabs (outside wide strip) */}
           <View style={styles.headerRow}>
             <TouchableOpacity
@@ -294,9 +311,9 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
                 style={[
                   styles.totalCard,
                   {
-                    backgroundColor: flowCardBg,
+                    backgroundColor: nestedCardBg,
                     borderWidth: 1,
-                    borderColor: flowCardBorder,
+                    borderColor: nestedCardBorder,
                     borderRadius: 14,
                   },
                 ]}
@@ -325,10 +342,10 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               </View>
             ) : (
               <View style={[styles.totalCardBorderLight, { borderColor: Colors.line }]}>
-                <View style={[styles.totalCard, { backgroundColor: flowCardBg, borderWidth: 1, borderColor: flowCardBorder }]}>
+                <View style={[styles.totalCard, { backgroundColor: nestedCardBg, borderWidth: 1, borderColor: nestedCardBorder }]}>
                   <View style={styles.totalLeftBlock}>
                     <View style={styles.totalTopRow}>
-                      <View style={[styles.totalIconContainer, { backgroundColor: flowCardBg, borderColor: flowCardBorder }]}>
+                      <View style={[styles.totalIconContainer, { backgroundColor: nestedCardBg, borderColor: nestedCardBorder }]}>
                         <Feather name="dollar-sign" size={18} color={BRAND_GREEN} />
                       </View>
                       <Text style={[styles.totalLabel, { color: Colors.sub }]}>Total Spent</Text>
@@ -350,7 +367,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
             <Pressable
               style={({ pressed }) => [
                 styles.scanButton,
-                darkMode && { backgroundColor: flowCardBg, borderColor: flowCardBorder },
+                darkMode && { backgroundColor: nestedCardBg, borderColor: nestedCardBorder },
                 !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
                 pressed && { opacity: 0.88 },
               ]}
@@ -403,7 +420,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
               <Pressable
                 style={[
                   styles.iconChip,
-                  darkMode && { backgroundColor: flowCardBg, borderColor: flowCardBorder },
+                  darkMode && { backgroundColor: nestedCardBg, borderColor: nestedCardBorder },
                   !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
                 ]}
                 onPress={() => {
@@ -420,7 +437,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
                 style={[
                   styles.iconChip,
                   { marginLeft: 8 },
-                  darkMode && { backgroundColor: flowCardBg, borderColor: flowCardBorder },
+                  darkMode && { backgroundColor: nestedCardBg, borderColor: nestedCardBorder },
                   !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
                 ]}
                 onPress={() => {
@@ -435,7 +452,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
 
           {/* SEARCH BAR */}
           {showSearch && (
-            <View style={[styles.searchContainer, darkMode && { backgroundColor: flowCardBg, borderColor: flowCardBorder }, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+            <View style={[styles.searchContainer, darkMode && { backgroundColor: nestedCardBg, borderColor: nestedCardBorder }, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
               <Feather name="search" size={16} color={darkMode ? "#FFFFFF" : Colors.sub} style={{ marginRight: 8 }} />
               <TextInput
                 style={[styles.searchInput, { color: Colors.text }]}
@@ -459,7 +476,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
           {/* TRANSACTION LIST / EMPTY STATE */}
           {transactions.length === 0 ? (
             <View style={styles.emptyState}>
-              <View style={[styles.emptyIconBubble, darkMode && { backgroundColor: flowCardBg, borderColor: flowCardBorder }, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+              <View style={[styles.emptyIconBubble, darkMode && { backgroundColor: nestedCardBg, borderColor: nestedCardBorder }, !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
                 <MaterialCommunityIcons
                   name="bricks"
                   size={28}
@@ -478,17 +495,34 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
             </View>
           ) : (
             <View style={styles.listContainer}>
-              {transactions.map((tx) => (
+              {listItems.map((entry) => {
+                if (entry.kind === 'group') {
+                  return (
+                    <EstimateLineExpenseGroupCard
+                      key={entry.groupKey}
+                      lineName={entry.lineName}
+                      items={entry.items}
+                      darkMode={darkMode}
+                      nestedCardBg={nestedCardBg}
+                      nestedCardBorder={nestedCardBorder}
+                      textColor={Colors.text}
+                      subtextColor={darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub}
+                      onPressItem={(tx) => handleEditTransaction(tx)}
+                    />
+                  );
+                }
+                const tx = entry.item;
+                return (
                 <TransactionCard 
                   key={tx.id} 
                   transaction={tx}
                   onPress={() => handleEditTransaction(tx)}
                 />
-              ))}
+                );
+              })}
             </View>
           )}
             </View>
-          </LinearGradient>
           </View>
         </ScrollView>
         </View>
@@ -544,8 +578,8 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
   const Colors = useMemo(() => getColors(theme), [theme]);
   const supportSub = darkMode ? "rgba(226, 232, 240, 0.76)" : Colors.sub;
   const hintMuted = darkMode ? "rgba(226, 232, 240, 0.52)" : Colors.sub;
-  const flowCardBg = darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2;
-  const flowCardBorder = darkMode ? "rgba(148,163,184,0.12)" : Colors.line;
+  const nestedCardBg = darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2;
+  const nestedCardBorder = darkMode ? "rgba(148,163,184,0.12)" : Colors.line;
   const scale = useRef(new Animated.Value(1)).current;
 
   const pressIn = () => {
@@ -582,9 +616,9 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
             style={[
               styles.txCard,
               {
-                backgroundColor: flowCardBg,
+                backgroundColor: nestedCardBg,
                 borderWidth: 1,
-                borderColor: flowCardBorder,
+                borderColor: nestedCardBorder,
                 borderRadius: 14,
               },
             ]}
@@ -641,9 +675,9 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
           </View>
         ) : (
           <View style={[styles.txCardBorderLight, { borderColor: Colors.line }]}>
-            <View style={[styles.txCard, { backgroundColor: flowCardBg, borderWidth: 1, borderColor: flowCardBorder }]}>
+            <View style={[styles.txCard, { backgroundColor: nestedCardBg, borderWidth: 1, borderColor: nestedCardBorder }]}>
               <View style={styles.txLeft}>
-                <View style={[styles.txAvatar, { backgroundColor: flowCardBg, borderColor: flowCardBorder }]}>
+                <View style={[styles.txAvatar, { backgroundColor: nestedCardBg, borderColor: nestedCardBorder }]}>
                   <MaterialCommunityIcons
                     name="warehouse"
                     size={20}
@@ -710,19 +744,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingTop: 12,
-    paddingBottom: 40,
-  },
-  pageOverviewGradientRing: {
-    borderRadius: 30,
-    padding: 1,
-    marginBottom: 14,
-    overflow: "hidden",
-  },
-  pageOverviewInner: {
-    borderRadius: 29,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 18,
   },
 
   /* HEADER */

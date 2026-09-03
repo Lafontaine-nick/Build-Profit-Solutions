@@ -24,7 +24,14 @@ import {
   PROJECT_WIDE_CONTAINER_CARD_INSET,
 } from "@/constants/ScreenLayout";
 import GradientRingBackInner from "@/components/GradientRingBackInner";
-import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
+import EstimateLineExpenseGroupCard from "./EstimateLineExpenseGroupCard";
+import {
+  buildEstimateLineIdToLabel,
+  buildGroupedCategoryExpenseList,
+} from "@/utils/groupCategoryExpenses";
+import { resolveProjectEstimateData } from "@/utils/rateInsightComparisons";
+import { tabFlowCardStyle } from "@/components/layout/TabFlowCard";
+import { ESTIMATE_FLOW_NESTED_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 
 // Helper to parse YYYY-MM-DD date strings as local time (not UTC) to avoid timezone shifts
 function parseLocalDate(dateString: string): Date {
@@ -124,8 +131,9 @@ export default function CategoryDetailModal({
     () => (darkMode ? "rgba(226, 232, 240, 0.78)" : Colors.sub),
     [darkMode, Colors.sub]
   );
-  const flowCardBg = darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2;
-  const flowCardBorder = darkMode ? "rgba(148,163,184,0.12)" : Colors.line;
+  const categoryFlowCardStyle = tabFlowCardStyle(Colors, darkMode, { marginBottom: 14 });
+  const nestedCardBg = darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2;
+  const nestedCardBorder = darkMode ? "rgba(148,163,184,0.12)" : Colors.line;
   const { width: categoryLayoutWidth } = useWindowDimensions();
   const categoryDesktopWeb =
     Platform.OS === "web" && isDesktopWebLayoutWidth(categoryLayoutWidth);
@@ -163,6 +171,10 @@ export default function CategoryDetailModal({
     !isChangeOrdersCategory &&
     !isPurchaseOrdersCategory &&
     (categoryLower.includes('materials') || categoryLower.includes('equipment'));
+  const isLaborCategory =
+    categoryLower.includes('labor') || categoryLower.includes('subs');
+  const shouldGroupByEstimateLine =
+    isMaterialsEquipmentCategory || isLaborCategory;
 
   const projectLookupZip = useMemo(() => {
     const raw =
@@ -451,6 +463,7 @@ export default function CategoryDetailModal({
           projectPhase: exp.projectPhase || undefined,
           scope: exp.scope || undefined,
           priceReasonableness: exp.priceReasonableness || undefined,
+          linkedLineId: exp.linkedLineId || undefined,
           isChangeOrder: false,
           isChangeOrderMirror: isChangeOrderMirrorExpenseId(expenseId),
         };
@@ -467,7 +480,23 @@ export default function CategoryDetailModal({
     // Return filtered data (don't freeze during delete - let it update naturally)
     return filtered;
   }, [projectData.expenses, projectData.changeOrders, projectData.purchaseOrders, categoryName, isChangeOrdersCategory, isPurchaseOrdersCategory, showArchived, activePOTab]);
-  
+
+  const estimateLineIdToLabel = useMemo(() => {
+    if (!shouldGroupByEstimateLine) return {};
+    return buildEstimateLineIdToLabel(
+      resolveProjectEstimateData(projectData as unknown as Record<string, unknown>),
+      isLaborCategory ? 'labor' : 'materials'
+    );
+  }, [projectData, shouldGroupByEstimateLine, isLaborCategory]);
+
+  const listItems = useMemo(() => {
+    if (!shouldGroupByEstimateLine) {
+      return data.map((item) => ({ kind: 'single' as const, item }));
+    }
+    return buildGroupedCategoryExpenseList(data, estimateLineIdToLabel);
+  }, [data, shouldGroupByEstimateLine, estimateLineIdToLabel]);
+
+  const hasCategoryTransactions = listItems.length > 0;
 
   const total = useMemo(() => {
     // For Purchase Orders, calculate total based on active tab
@@ -677,6 +706,7 @@ export default function CategoryDetailModal({
       date: transaction.date,
       notes: transaction.description,
       receiptUri: transaction.receiptUri || null,
+      linkedLineId: transaction.linkedLineId || undefined,
       isPlanned: transaction.isPlanned !== undefined ? transaction.isPlanned : true,
       projectPhase: transaction.projectPhase || undefined,
       scope: transaction.scope || undefined,
@@ -803,20 +833,17 @@ export default function CategoryDetailModal({
 
         <ScrollView 
           style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            !hasCategoryTransactions && styles.scrollContentCompact,
+          ]}
           showsVerticalScrollIndicator={false}
         >
           <View style={pageWideBleedStyle}>
-          <LinearGradient
-            colors={["#2DFFC4", "#00A6FF"]}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
-            style={styles.pageOverviewGradientRing}
-          >
             <View
               style={[
-                styles.pageOverviewInner,
-                { backgroundColor: darkMode ? "#000000" : Colors.bg },
+                categoryFlowCardStyle,
+                !hasCategoryTransactions && styles.categoryFlowCardCompact,
               ]}
             >
           {/* Tabs for Purchase Orders */}
@@ -828,7 +855,7 @@ export default function CategoryDetailModal({
                   activePOTab === 'total' && styles.poActiveTab,
                   { 
                     borderColor: activePOTab === 'total' ? Colors.primary : Colors.line,
-                    backgroundColor: flowCardBg,
+                    backgroundColor: nestedCardBg,
                   },
                 ]}
                 onPress={() => {
@@ -855,7 +882,7 @@ export default function CategoryDetailModal({
                   activePOTab === 'committed' && styles.poActiveTab,
                   { 
                     borderColor: activePOTab === 'committed' ? Colors.primary : Colors.line,
-                    backgroundColor: flowCardBg,
+                    backgroundColor: nestedCardBg,
                   },
                 ]}
                 onPress={() => {
@@ -882,7 +909,7 @@ export default function CategoryDetailModal({
                   activePOTab === 'received' && styles.poActiveTab,
                   { 
                     borderColor: activePOTab === 'received' ? Colors.primary : Colors.line,
-                    backgroundColor: flowCardBg,
+                    backgroundColor: nestedCardBg,
                   },
                 ]}
                 onPress={() => {
@@ -913,7 +940,7 @@ export default function CategoryDetailModal({
                 style={[
                   styles.totalCardInner,
                   {
-                    backgroundColor: flowCardBg,
+                    backgroundColor: nestedCardBg,
                     borderWidth: 1,
                     borderColor: "rgba(148, 163, 184, 0.12)",
                     borderRadius: 14,
@@ -931,7 +958,7 @@ export default function CategoryDetailModal({
               </View>
             ) : (
               <View style={[styles.totalCardBorderLight, { borderColor: Colors.line }]}>
-                <View style={[styles.totalCardInner, { backgroundColor: flowCardBg, borderColor: flowCardBorder, borderWidth: 1 }]}>
+                <View style={[styles.totalCardInner, { backgroundColor: nestedCardBg, borderColor: nestedCardBorder, borderWidth: 1 }]}>
                   <View style={styles.totalCard}>
                     <Text style={[styles.totalLabel, { color: Colors.sub }]}>
                       {isPurchaseOrdersCategory 
@@ -952,7 +979,7 @@ export default function CategoryDetailModal({
                   style={[
                     styles.materialsScanButton,
                     darkMode
-                      ? { backgroundColor: flowCardBg, borderColor: flowCardBorder }
+                      ? { backgroundColor: nestedCardBg, borderColor: nestedCardBorder }
                       : { backgroundColor: Colors.surface2, borderColor: Colors.line },
                   ]}
                   onPress={() => {
@@ -1035,9 +1062,27 @@ export default function CategoryDetailModal({
           )}
 
           {/* Transactions List */}
-          {data.length > 0 ? (
+          {listItems.length > 0 ? (
             <View style={styles.transactionsContainer}>
-              {data.map((item) => {
+              {listItems.map((entry) => {
+                if (entry.kind === 'group') {
+                  return (
+                    <EstimateLineExpenseGroupCard
+                      key={entry.groupKey}
+                      lineName={entry.lineName}
+                      items={entry.items}
+                      darkMode={darkMode}
+                      nestedCardBg={nestedCardBg}
+                      nestedCardBorder={darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line}
+                      textColor={darkMode ? '#FFFFFF' : Colors.text}
+                      subtextColor={darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub}
+                      deletingId={deletingId}
+                      onPressItem={(item) => setEditingTransaction(item)}
+                    />
+                  );
+                }
+
+                const item = entry.item;
                 const isItemDeleting = deletingId === item.id;
                 
                 // For Purchase Orders, use the BudgetTab card design
@@ -1056,7 +1101,7 @@ export default function CategoryDetailModal({
                               styles.transactionCard,
                               {
                                 padding: 16,
-                                backgroundColor: flowCardBg,
+                                backgroundColor: nestedCardBg,
                                 borderWidth: 1,
                                 borderColor: "rgba(148, 163, 184, 0.12)",
                               },
@@ -1199,7 +1244,7 @@ export default function CategoryDetailModal({
                         <View style={[styles.transactionCardBorderLight, { borderColor: Colors.line }]}>
                           <View style={[styles.transactionCard, { 
                             padding: 16,
-                            backgroundColor: flowCardBg,
+                            backgroundColor: nestedCardBg,
                             borderColor: Colors.line,
                             borderWidth: 1,
                           }]}>
@@ -1362,7 +1407,7 @@ export default function CategoryDetailModal({
                           styles.transactionCard,
                           {
                             opacity: isItemDeleting ? 0.5 : 1,
-                            backgroundColor: flowCardBg,
+                            backgroundColor: nestedCardBg,
                             borderWidth: 1,
                             borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
                           },
@@ -1431,7 +1476,7 @@ export default function CategoryDetailModal({
                           styles.transactionCard, 
                           { 
                             opacity: isItemDeleting ? 0.5 : 1,
-                            backgroundColor: flowCardBg,
+                            backgroundColor: nestedCardBg,
                             borderWidth: 1,
                             borderColor: "rgba(148, 163, 184, 0.12)",
                           }
@@ -1562,30 +1607,7 @@ export default function CategoryDetailModal({
                               <Text style={{ color: '#f59e0b', fontSize: 10, fontWeight: '600' }}>UNPLANNED</Text>
                             </View>
                           )}
-                          {item.priceReasonableness === 'high' && (
-                            <View style={{
-                              paddingHorizontal: 6,
-                              paddingVertical: 2,
-                              borderRadius: 6,
-                              backgroundColor: 'rgba(245, 158, 11, 0.2)',
-                              borderWidth: 1,
-                              borderColor: 'rgba(245, 158, 11, 0.4)',
-                            }}>
-                              <Text style={{ color: '#f59e0b', fontSize: 10, fontWeight: '600' }}>HIGH</Text>
-                            </View>
-                          )}
-                          {item.priceReasonableness === 'outlier' && (
-                            <View style={{
-                              paddingHorizontal: 6,
-                              paddingVertical: 2,
-                              borderRadius: 6,
-                              backgroundColor: 'rgba(239, 68, 68, 0.2)',
-                              borderWidth: 1,
-                              borderColor: 'rgba(239, 68, 68, 0.4)',
-                            }}>
-                              <Text style={{ color: '#ef4444', fontSize: 10, fontWeight: '600' }}>OUTLIER</Text>
-                            </View>
-                          )}
+
                         </View>
                         {/* Purchase Order specific layout - better spacing */}
                         {item.isPurchaseOrder ? (
@@ -1836,7 +1858,7 @@ export default function CategoryDetailModal({
                             styles.transactionCard,
                             { 
                               opacity: isItemDeleting ? 0.5 : 1,
-                              backgroundColor: flowCardBg,
+                              backgroundColor: nestedCardBg,
                               borderColor: Colors.line,
                               borderWidth: 1,
                             }
@@ -1938,30 +1960,6 @@ export default function CategoryDetailModal({
                                     <Text style={{ color: '#f59e0b', fontSize: 10, fontWeight: '600' }}>UNPLANNED</Text>
                                   </View>
                                 )}
-                                {item.priceReasonableness === 'high' && (
-                                  <View style={{
-                                    paddingHorizontal: 6,
-                                    paddingVertical: 2,
-                                    borderRadius: 6,
-                                    backgroundColor: 'rgba(245, 158, 11, 0.2)',
-                                    borderWidth: 1,
-                                    borderColor: 'rgba(245, 158, 11, 0.4)',
-                                  }}>
-                                    <Text style={{ color: '#f59e0b', fontSize: 10, fontWeight: '600' }}>HIGH</Text>
-                                  </View>
-                                )}
-                                {item.priceReasonableness === 'outlier' && (
-                                  <View style={{
-                                    paddingHorizontal: 6,
-                                    paddingVertical: 2,
-                                    borderRadius: 6,
-                                    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-                                    borderWidth: 1,
-                                    borderColor: 'rgba(239, 68, 68, 0.4)',
-                                  }}>
-                                    <Text style={{ color: '#ef4444', fontSize: 10, fontWeight: '600' }}>OUTLIER</Text>
-                                  </View>
-                                )}
                               </View>
                               {!!item.material && (
                                 <Text style={[styles.description, { color: Colors.sub }]} numberOfLines={2} ellipsizeMode="tail">
@@ -2046,26 +2044,19 @@ export default function CategoryDetailModal({
               })}
             </View>
           ) : (
-            <View style={styles.emptyState}>
+            <View style={[styles.emptyState, !hasCategoryTransactions && styles.emptyStateCompact]}>
               <View style={styles.emptyIconContainerWrapper}>
-                {darkMode ? (
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.emptyIconBorder}
+                <View
+                  style={[
+                    styles.emptyIconBubble,
+                    {
+                      backgroundColor: nestedCardBg,
+                      borderColor: nestedCardBorder,
+                    },
+                  ]}
                 >
-                  <View style={styles.emptyIconContainer}>
-                    <Text style={{ fontSize: 40 }}>{categoryIcon}</Text>
-                  </View>
-                </LinearGradient>
-                ) : (
-                  <View style={[styles.emptyIconBorderLight, { borderColor: Colors.line }]}>
-                    <View style={[styles.emptyIconContainer, { backgroundColor: flowCardBg, borderColor: flowCardBorder, borderWidth: 1 }]}>
-                      <Text style={{ fontSize: 40 }}>{categoryIcon}</Text>
-              </View>
-                  </View>
-                )}
+                  <Text style={{ fontSize: 40 }}>{categoryIcon}</Text>
+                </View>
               </View>
               <Text style={[styles.emptyText, !darkMode && { color: Colors.text }]}>No transactions yet</Text>
               <Text style={[styles.emptySubtext, !darkMode && { color: Colors.sub }]}>
@@ -2074,9 +2065,8 @@ export default function CategoryDetailModal({
             </View>
           )}
           
-          <View style={styles.bottomSpacer} />
+          <View style={hasCategoryTransactions ? styles.bottomSpacer : undefined} />
             </View>
-          </LinearGradient>
           </View>
         </ScrollView>
         </View>
@@ -2134,6 +2124,8 @@ export default function CategoryDetailModal({
                 amount: updated.amount,
                 date: updated.date,
                 notes: updated.description,
+                material: updated.material,
+                linkedLineId: updated.linkedLineId,
               });
               Alert.alert('Updated!', 'Transaction updated successfully');
               setEditingTransaction(null);
@@ -2226,6 +2218,8 @@ export default function CategoryDetailModal({
               amount: updated.amount,
               date: updated.date,
               notes: updated.description,
+              material: updated.material,
+              linkedLineId: updated.linkedLineId,
             });
             if (typeof window !== 'undefined' && typeof window.alert === 'function') {
               window.alert('Updated!\n\nTransaction updated successfully');
@@ -2391,19 +2385,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 22,
     paddingBottom: 120,
+    flexGrow: 0,
   },
-  /** Budget Categories–style frame around category detail body */
-  pageOverviewGradientRing: {
-    borderRadius: 30,
-    padding: 1,
-    marginBottom: 14,
-    overflow: "hidden",
+  scrollContentCompact: {
+    flexGrow: 0,
   },
-  pageOverviewInner: {
-    borderRadius: 29,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 18,
+  categoryFlowCardCompact: {
+    alignSelf: 'flex-start',
+    width: '100%',
+    flexGrow: 0,
+    flexShrink: 0,
   },
   totalCardContainer: {
     marginBottom: 22,
@@ -2634,27 +2625,23 @@ const styles = StyleSheet.create({
     letterSpacing: 0.15,
   },
   emptyState: {
-    paddingVertical: 80,
+    paddingVertical: 48,
     paddingHorizontal: 40,
     alignItems: "center",
+  },
+  emptyStateCompact: {
+    paddingVertical: 24,
+    paddingHorizontal: 24,
+    marginTop: 8,
   },
   emptyIconContainerWrapper: {
     marginBottom: 24,
   },
-  emptyIconBorder: {
-    borderRadius: 24,
-    padding: 1,
-  },
-  emptyIconBorderLight: {
-    borderRadius: 24,
-    padding: 1,
-    borderWidth: 1,
-  },
-  emptyIconContainer: {
+  emptyIconBubble: {
     width: 96,
     height: 96,
-    borderRadius: 23,
-    backgroundColor: '#000000',
+    borderRadius: 20,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },

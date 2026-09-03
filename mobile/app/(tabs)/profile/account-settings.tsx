@@ -23,6 +23,7 @@ import {
   clearOnboardingCompleteForUser,
 } from '@/lib/onboardingStorage';
 import WebPageShell from '@/components/layout/WebPageShell';
+import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import ContractorPricingMemorySettings from '@/components/estimate/ContractorPricingMemorySettings';
 import {
   FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY,
@@ -43,6 +44,7 @@ interface SettingItem {
 }
 
 export default function AccountSettingsScreen() {
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const { darkMode, setDarkMode } = useTheme();
   const { userRole, clearUserRole } = useUserRole();
   const router = useRouter();
@@ -336,7 +338,10 @@ export default function AccountSettingsScreen() {
     <LinearGradient colors={theme.background} style={styles.container}>
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={Platform.OS === 'web' ? { paddingHorizontal: 0 } : undefined}
+        contentContainerStyle={[
+          Platform.OS === 'web' ? { paddingHorizontal: 0 } : null,
+          { paddingBottom: tabScrollBottomInset },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>

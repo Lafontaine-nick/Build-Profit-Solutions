@@ -6,7 +6,6 @@ import {
   ScrollView,
   Pressable,
   StatusBar,
-  SafeAreaView,
   Alert,
   TouchableOpacity,
   Modal,
@@ -44,7 +43,7 @@ import {
   applyWorkspaceTimelineProgressToMaps,
   loadWorkspaceTimelineProgressByProjectId,
 } from '@/utils/workspaceTimelineProgress';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenLayout, isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL, PROJECT_WIDE_CONTAINER_CARD_INSET } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import { useRestrictedWorkspaceFinancials } from '@/hooks/useRestrictedWorkspaceFinancials';
@@ -66,6 +65,7 @@ import { useClerkProfileGreeting } from '@/hooks/useProfileGreeting';
 import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 import { TabScreenHeader } from '@/components/ui/TabScreenHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
+import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
 import { tabFlowCardStyle } from '@/components/layout/TabFlowCard';
 import { AI_FLOW_CARD_BG_DARK, ESTIMATE_FLOW_NESTED_CARD_BG_DARK } from '@/utils/estimateFlowCardStyle';
 import { formatMoneyUSD, formatMoneyCompact, formatDateShort } from '@/utils/formatters';
@@ -846,7 +846,7 @@ export default function ProjectsScreen() {
   }, [allProjects, activeTab]);
 
   const handleProjectPress = (project: any) => {
-    router.push(`/project-detail/${project.id}`);
+    router.push(`/(tabs)/project-detail/${project.id}`);
   };
 
   const [markAsWonModalVisible, setMarkAsWonModalVisible] = useState(false);
@@ -1048,7 +1048,7 @@ export default function ProjectsScreen() {
     setApWtPendingProjectId(null);
     setApWtIntroResolved(true);
     setApWtStarted(true);
-    router.push(`/project-detail/${chosenId}?apWt=1`);
+    router.push(`/(tabs)/project-detail/${chosenId}?apWt=1`);
   }, [apWtPendingProjectId, projects, router]);
 
   const handleActiveProjectWalkthroughIntroSkip = useCallback(async () => {
@@ -1212,11 +1212,14 @@ export default function ProjectsScreen() {
         styles.root,
         Platform.OS === "web" && desktopWeb && styles.rootDesktopWeb,
       ]}
+      edges={['top']}
     >
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
+      <View style={{ flex: 1 }}>
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
+          { flexGrow: 1 },
           Platform.OS === 'web' && { paddingHorizontal: 0, paddingTop: 0 },
           webScrollContentCap,
           activeProjectWalkthroughScrollPadBottom > 0 && {
@@ -1242,7 +1245,7 @@ export default function ProjectsScreen() {
             >
               <Pressable
                 style={styles.profileInner}
-                onPress={() => router.push('/profile')}
+                onPress={() => router.push('/(tabs)/profile')}
                 accessibilityRole="button"
                 accessibilityLabel="Profile"
               >
@@ -1306,7 +1309,7 @@ export default function ProjectsScreen() {
 
         {/* ALL PROJECTS CARD — highlight ring while active-project walkthrough intro is showing */}
         <FirstEstimateWalkthroughHighlight active={activeProjectWalkthroughIntroVisible}>
-        <View style={styles.wideContainer}>
+        <View style={[styles.wideContainer, styles.tabFlowWide]}>
           <View style={styles.allProjectsCard}>
               <View style={styles.cardHeaderRow}>
                 <View>
@@ -1599,6 +1602,8 @@ export default function ProjectsScreen() {
         <View style={{ height: 32 }} />
         </WebPageShell>
       </ScrollView>
+      <TabScreenBottomScrollFade />
+      </View>
 
       {/* Submit bid — floating glass toast (auto-dismiss + swipe up) */}
       {showSubmitBanner ? (
@@ -1773,8 +1778,12 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     marginHorizontal: -edge,
     paddingHorizontal: desktopWeb ? 8 : 4,
   },
+  tabFlowWide: {
+    flex: 1,
+  },
   allProjectsCard: {
-    ...tabFlowCardStyle(Colors, darkMode, { marginBottom: 16 }),
+    ...tabFlowCardStyle(Colors, darkMode, { marginBottom: 0 }),
+    flex: 1,
   },
   card: {
     ...tabFlowCardStyle(Colors, darkMode),

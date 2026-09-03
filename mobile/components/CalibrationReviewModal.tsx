@@ -17,13 +17,6 @@ import {
   type CloseoutCalibrationResult,
 } from '@/utils/contractorPricingMemory';
 import { formatMoneyFull } from '@/src/lib/budgetUtils';
-import {
-  buildRateInsightSections,
-  countRateInsightRows,
-  formatRateInsightLineEstimate,
-  type RateInsightLineItem,
-  type RateInsightSection,
-} from '@/utils/rateInsightComparisons';
 import { BRAND_FRAME_GRADIENT_COLORS } from '@/constants/brandFrameGradient';
 import { PROJECT_WIDE_CONTAINER_CARD_INSET } from '@/constants/ScreenLayout';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
@@ -34,7 +27,40 @@ import {
   ESTIMATE_FLOW_TEXT_MUTED_DARK,
   ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
 } from '@/utils/estimateFlowCardStyle';
+import {
+  buildRateInsightSections,
+  countRateInsightRows,
+  formatCategoryBudgetExplanation,
+  formatRateInsightLineEstimate,
+  formatRateInsightLoggedLabel,
+  getRateInsightSpendStatus,
+  normalizeExpenseForMatching,
+  resolveProjectEstimateData,
+  type RateInsightLineItem,
+  type RateInsightSection,
+  type RateInsightSpendStatus,
+} from '@/utils/rateInsightComparisons';
 
+const SPEND_STATUS_STYLES: Record<
+  RateInsightSpendStatus,
+  { backgroundColor: string; borderColor: string; loggedColor: string }
+> = {
+  none: {
+    backgroundColor: ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
+    borderColor: 'rgba(148,163,184,0.12)',
+    loggedColor: ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
+  },
+  on_track: {
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    borderColor: 'rgba(34, 197, 94, 0.45)',
+    loggedColor: '#4ade80',
+  },
+  over: {
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderColor: 'rgba(239, 68, 68, 0.5)',
+    loggedColor: '#f87171',
+  },
+};
 
 type Props = {
   visible: boolean;
@@ -66,6 +92,7 @@ function LineItemCard({
   text,
   secondary,
   muted,
+  darkMode,
 }: {
   line: RateInsightLineItem;
   nestedCardBg: string;
@@ -73,25 +100,37 @@ function LineItemCard({
   text: string;
   secondary: string;
   muted: string;
+  darkMode: boolean;
 }) {
   const estimateDetail = formatRateInsightLineEstimate(line);
-  const variance = formatVariancePct(line.variancePct);
+  const spendStatus = getRateInsightSpendStatus(line);
+  const statusStyle = SPEND_STATUS_STYLES[spendStatus];
+  const loggedLabel = formatRateInsightLoggedLabel(line);
+  const cardBg =
+    spendStatus === 'none'
+      ? nestedCardBg
+      : darkMode
+        ? statusStyle.backgroundColor
+        : statusStyle.backgroundColor;
+  const borderColor = spendStatus === 'none' ? cardBorder : statusStyle.borderColor;
 
   return (
-    <View style={[styles.lineCard, { backgroundColor: nestedCardBg, borderColor: cardBorder }]}>
+    <View style={[styles.lineCard, { backgroundColor: cardBg, borderColor }]}>
       <Text style={[styles.lineTitle, { color: text }]} numberOfLines={2}>
         {line.name}
       </Text>
       <Text style={[styles.lineMeta, { color: secondary }]}>
         Estimated {formatMoney(line.estimatedTotal)}
-        {estimateDetail !== '—' ? ` (${estimateDetail})` : ''}
+        {estimateDetail ? ` (${estimateDetail})` : ''}
       </Text>
       {line.loggedTotal > 0 ? (
-        <Text style={[styles.lineMeta, { color: secondary }]}>
+        <Text style={[styles.lineMeta, styles.loggedMeta, { color: statusStyle.loggedColor }]}>
           Logged {formatMoney(line.loggedTotal)}
-          {variance ? ` (${variance})` : ''}
+          {loggedLabel ? ` · ${loggedLabel}` : ''}
         </Text>
-      ) : null}
+      ) : (
+        <Text style={[styles.lineMetaMuted, { color: muted }]}>No costs logged for this line yet</Text>
+      )}
       {line.expenses.map((expense) => (
         <Text key={expense.id} style={[styles.expenseRow, { color: muted }]}>
           · {expense.label} — {formatMoney(expense.amount)}
@@ -110,6 +149,7 @@ function SectionCard({
   secondary,
   label,
   muted,
+  darkMode,
 }: {
   section: RateInsightSection;
   outerCardBg: string;
@@ -119,6 +159,7 @@ function SectionCard({
   secondary: string;
   label: string;
   muted: string;
+  darkMode: boolean;
 }) {
   const sectionVariance = formatVariancePct(
     section.estimatedTotal > 0 && section.loggedTotal > 0
@@ -133,6 +174,11 @@ function SectionCard({
         Est. {formatMoney(section.estimatedTotal)} · Logged {formatMoney(section.loggedTotal)}
         {sectionVariance ? ` (${sectionVariance})` : ''}
       </Text>
+      {section.budgetOnly ? (
+        <Text style={[styles.budgetOnlyNote, { color: muted }]}>
+          {formatCategoryBudgetExplanation(section.key as 'materials' | 'labor' | 'other')}
+        </Text>
+      ) : null}
       {section.lineItems.map((line) => (
         <LineItemCard
           key={line.id}
@@ -142,6 +188,7 @@ function SectionCard({
           text={text}
           secondary={secondary}
           muted={muted}
+          darkMode={darkMode}
         />
       ))}
       {section.unlinkedExpenses.length > 0 ? (
@@ -183,22 +230,10 @@ export default function CalibrationReviewModal({
   const [error, setError] = useState<string | null>(null);
 
   const projectData = (projectLike?.projectData as Record<string, unknown> | undefined) || projectLike || {};
-  const estimateData = (projectData.estimateData as Record<string, unknown> | undefined) || {};
+  const estimateData = useMemo(() => resolveProjectEstimateData(projectLike), [projectLike]);
   const expenses = useMemo(
     () =>
-      ((projectData.expenses as Array<Record<string, unknown>>) || []).map((expense) => ({
-        id: String(expense.id),
-        category: expense.category != null ? String(expense.category) : undefined,
-        description:
-          expense.description != null
-            ? String(expense.description)
-            : expense.notes != null
-              ? String(expense.notes)
-              : undefined,
-        vendor: expense.vendor != null ? String(expense.vendor) : undefined,
-        amount: expense.amount != null ? Number(expense.amount) : undefined,
-        linkedLineId: expense.linkedLineId != null ? String(expense.linkedLineId) : undefined,
-      })),
+      ((projectData.expenses as Array<Record<string, unknown>>) || []).map(normalizeExpenseForMatching),
     [projectData.expenses]
   );
 
@@ -346,10 +381,20 @@ export default function CalibrationReviewModal({
               <>
                 <View style={[styles.outerCard, { backgroundColor: outerCardBg, borderColor: cardBorder }]}>
                   <Text style={[styles.sectionLabel, { color: label }]}>Estimated vs logged</Text>
-                  <Text style={[styles.bodyText, { color: muted, marginTop: 4 }]}>
-                    Each material and labor line from your estimate, with logged expenses listed separately.
-                    Update saved rates manually in your pricing library if you want to use these on future bids.
-                  </Text>
+                <Text style={[styles.bodyText, { color: muted, marginTop: 4 }]}>
+                  Each estimate line is listed below. Expenses auto-match by name when possible;
+                  link manually in Budget for certainty. Green = on or under budget, red = over.
+                </Text>
+                <View style={[styles.legendRow, { borderColor: cardBorder }]}>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendSwatch, { backgroundColor: SPEND_STATUS_STYLES.on_track.backgroundColor, borderColor: SPEND_STATUS_STYLES.on_track.borderColor }]} />
+                    <Text style={[styles.legendText, { color: muted }]}>On budget</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendSwatch, { backgroundColor: SPEND_STATUS_STYLES.over.backgroundColor, borderColor: SPEND_STATUS_STYLES.over.borderColor }]} />
+                    <Text style={[styles.legendText, { color: muted }]}>Over budget</Text>
+                  </View>
+                </View>
                 </View>
                 {insightSections.map((section) => (
                   <SectionCard
@@ -362,6 +407,7 @@ export default function CalibrationReviewModal({
                     secondary={secondary}
                     label={label}
                     muted={muted}
+                    darkMode={darkMode}
                   />
                 ))}
               </>
@@ -489,6 +535,11 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontVariant: ['tabular-nums'],
   },
+  budgetOnlyNote: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 8,
+  },
   lineCard: {
     borderWidth: 1,
     borderRadius: 12,
@@ -505,6 +556,36 @@ const styles = StyleSheet.create({
     marginTop: 5,
     lineHeight: 18,
     fontVariant: ['tabular-nums'],
+  },
+  lineMetaMuted: {
+    fontSize: 12,
+    marginTop: 5,
+    lineHeight: 17,
+    fontStyle: 'italic',
+  },
+  loggedMeta: {
+    fontWeight: '700',
+  },
+  legendRow: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  legendSwatch: {
+    width: 14,
+    height: 14,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  legendText: {
+    fontSize: 12,
   },
   expenseRow: {
     fontSize: 12,

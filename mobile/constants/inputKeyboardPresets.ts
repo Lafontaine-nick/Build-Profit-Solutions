@@ -137,9 +137,13 @@ export const nativeNumericKeyboardProps = {
 };
 
 /**
- * @deprecated Use {@link nativeNumericKeyboardProps} — budget screens no longer mount a plain accessory.
+ * Projects Budget → Add transaction modal and add-materials screen.
+ * Pair with `KeyboardPlainAccessory` (`KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain`) in the screen.
  */
-export const projectAddExpenseNumericKeyboardProps = nativeNumericKeyboardProps;
+export const projectAddExpenseNumericKeyboardProps = {
+  ...nativeNumericKeyboardProps,
+  inputAccessoryViewID: iosAccessoryId(KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain),
+};
 
 /** Estimates step 1–2 phone / ZIP / sqft — native pad only (no accessory bar). */
 export const estimateStep12NumericKeyboardProps = nativeNumericKeyboardProps;

@@ -18,8 +18,10 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import WebPageShell from '@/components/layout/WebPageShell';
 import { useWebProfileHelpHeaderMargins } from '@/lib/useWebProfileHelpHeaderMargins';
+import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 
 export default function AboutScreen() {
+  const tabScrollBottomInset = useTabScrollBottomInset();
   const router = useRouter();
   /** Align header with profile chrome; `0` matches `chromeFrame` `marginHorizontal: 0` on web. */
   const webHelpHeaderMargins = useWebProfileHelpHeaderMargins(0);
@@ -87,7 +89,7 @@ export default function AboutScreen() {
               style={{ flex: 1 }}
               contentContainerStyle={{
                 paddingTop: Platform.OS === 'web' ? 0 : 16,
-                paddingBottom: 40,
+                paddingBottom: tabScrollBottomInset,
                 paddingHorizontal: 0,
               }}
               showsVerticalScrollIndicator={true}

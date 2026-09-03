@@ -284,6 +284,7 @@ import {
   getProjectExpenseFormHorizontalPadding,
 } from '@/constants/ScreenLayout';
 import WebPageShell from '@/components/layout/WebPageShell';
+import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
 import {
   getEstimateSessionSnapshot,
   setEstimateSessionSnapshot,
@@ -24716,6 +24717,7 @@ export default function EstimateGeneratorScreen() {
         ) : null}
         </WebPageShell>
         </GestureScrollView>
+        <TabScreenBottomScrollFade />
       </EstimatesMainKeyboardWrapper>
 
       {shouldShowFirstEstimateWalkthrough &&
@@ -24766,7 +24768,7 @@ export default function EstimateGeneratorScreen() {
         actionLabel="Convert to Project"
         onAction={() => {
           // Navigate to convert estimate to project
-          router.push(`/project-detail/${bid.id}`);
+          router.push(`/(tabs)/project-detail/${bid.id}`);
         }}
         onDismiss={() => setShowToast(false)}
         duration={6000}

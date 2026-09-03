@@ -74,7 +74,7 @@ export default function TaxVendorsScreen() {
   return (
     <View style={styles.screenRoot}>
       <StatusBar barStyle="light-content" />
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
         <View
           style={[
             styles.pageShell,
