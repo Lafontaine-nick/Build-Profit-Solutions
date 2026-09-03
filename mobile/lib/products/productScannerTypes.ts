@@ -1,4 +1,4 @@
-export type ProductSupplierId = 'hd' | 'lowes' | 'unknown';
+export type ProductSupplierId = 'hd' | 'lowes' | 'generic' | 'unknown';
 
 export type ProductScannerDestination =
   | 'estimate'
@@ -20,6 +20,8 @@ export type ScannedProduct = {
   codeType?: string;
   lookupStatus?: 'found' | 'manual_required';
   dataSource?: string;
+  /** Set only when a retailer result was explicitly tied to the scanned barcode. */
+  barcodeVerified?: boolean;
 };
 
 export type ProductLookupResult = {
@@ -41,12 +43,31 @@ export type ProductScannerSavePayload = {
   notes?: string;
   customerNotes?: string;
   changeOrderId?: string;
+  /** Store/vendor name for generic (any-store) scans — e.g. Floor & Decor, Ferguson. */
+  vendor?: string;
 };
 
 export const supplierNameFromId = (supplierId?: ProductSupplierId | string | null): string => {
   if (supplierId === 'hd') return 'Home Depot';
   if (supplierId === 'lowes') return "Lowe's";
+  if (supplierId === 'generic') return 'Any store';
   return 'Unknown supplier';
+};
+
+export const isGenericSupplier = (supplierId?: ProductSupplierId | string | null): boolean =>
+  supplierId === 'generic' || supplierId === 'unknown';
+
+export const isUniversalLookupMode = (sourceHint?: ProductSupplierId | string | null): boolean =>
+  !sourceHint || sourceHint === 'auto' || sourceHint === 'generic';
+
+export const getProductPageLabel = (product: ScannedProduct): string => {
+  if (product.supplierId === 'lowes') return "View on Lowe's";
+  if (product.supplierId === 'hd') return 'View on Home Depot';
+  const supplier = String(product.supplier || '').trim();
+  if (supplier && supplier !== 'Any store' && supplier !== 'Unknown supplier') {
+    return `View on ${supplier}`;
+  }
+  return 'View product page';
 };
 
 export const supplierStoreFromProduct = (product: ScannedProduct): 'hd' | 'lowes' => {
@@ -58,7 +79,8 @@ export const getProductUnitPrice = (product: ScannedProduct): number => {
   return Number.isFinite(price) && price > 0 ? price : 0;
 };
 
-export const getStoreSearchUrl = (supplierId: ProductSupplierId | string | null | undefined, query: string): string => {
+export const getStoreSearchUrl = (supplierId: ProductSupplierId | string | null | undefined, query: string): string | null => {
+  if (supplierId === 'generic' || supplierId === 'unknown') return null;
   const q = encodeURIComponent(String(query || '').trim());
   if (supplierId === 'lowes') {
     return `https://www.lowes.com/search?searchTerm=${q}`;
@@ -75,7 +97,9 @@ export const getProductPageUrl = (product: ScannedProduct): string | null => {
 };
 
 export const isDirectProductPageUrl = (url: string): boolean =>
-  /homedepot\.com\/p\//i.test(url) || /lowes\.com\/pd\//i.test(url) || /lowes\.com\/p\//i.test(url);
+  /homedepot\.com\/p\//i.test(url) ||
+  /lowes\.com\/pd\//i.test(url) ||
+  /lowes\.com\/p\//i.test(url);
 
 /** Strip to comparable UPC/GTIN digits (handles EAN-13 leading zero). */
 export const normalizeUpcDigits = (value: string): string => {
@@ -135,6 +159,69 @@ export const hasResolvedProductDetails = (product?: ScannedProduct | null): bool
   const price = getProductUnitPrice(product);
   const realTitle = !isBarcodePlaceholderTitle(product.title, product.rawCode);
   return price > 0 && realTitle;
+};
+
+export const isBarcodeScanCode = (code?: string | null): boolean =>
+  /^\d{8,14}$/.test(String(code || '').trim());
+
+/** True when a retailer catalog hit is tied to the scanned barcode. */
+export const catalogProductMatchesBarcode = (
+  product: ScannedProduct | null | undefined,
+  rawCode: string,
+): boolean => {
+  if (!product) return false;
+  if (!isBarcodeScanCode(rawCode)) return true;
+
+  if (product.supplierId === 'lowes') {
+    if (product.dataSource === 'serpapi_lowes' || product.dataSource === 'webscraping') {
+      return Boolean(product.barcodeVerified);
+    }
+    if (
+      product.sourceUrl &&
+      isDirectProductPageUrl(product.sourceUrl) &&
+      !isBarcodePlaceholderTitle(product.title, rawCode)
+    ) {
+      return Boolean(product.upc && upcDigitsMatch(rawCode, product.upc));
+    }
+    return false;
+  }
+
+  if (product.supplierId === 'hd') {
+    if (
+      product.dataSource === 'homedepot_direct' ||
+      product.dataSource === 'homedepot_api' ||
+      product.dataSource === 'serpapi_hd_barcode'
+    ) {
+      return Boolean(product.upc && upcDigitsMatch(rawCode, product.upc));
+    }
+    if (
+      product.sourceUrl &&
+      isDirectProductPageUrl(product.sourceUrl) &&
+      product.upc &&
+      upcDigitsMatch(rawCode, product.upc)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  return true;
+};
+
+export const needsProductDetailRefresh = (product?: ScannedProduct | null): boolean => {
+  if (!product) return false;
+  if (hasResolvedProductDetails(product)) return false;
+
+  const hasTitle = !isBarcodePlaceholderTitle(product.title, product.rawCode);
+  const hasPrice = getProductUnitPrice(product) > 0;
+  const hasRetailerPage =
+    Boolean(product.sourceUrl) &&
+    (product.supplierId === 'hd' || product.supplierId === 'lowes') &&
+    isDirectProductPageUrl(product.sourceUrl || '');
+
+  if (hasTitle && hasPrice) return false;
+  if (hasTitle && hasRetailerPage) return false;
+  return true;
 };
 
 export const buildProductNotes = (product: ScannedProduct, extraNotes = ''): string => {

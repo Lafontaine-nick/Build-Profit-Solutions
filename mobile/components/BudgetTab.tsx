@@ -218,6 +218,7 @@ export default function BudgetTab({
   embedded = false,
   profitForecastOverride,
   budgetAccessMode = 'owner',
+  initialBudgetCategory = null,
 }: {
   data?: BudgetData;
   onRefetch?: () => void;
@@ -226,6 +227,8 @@ export default function BudgetTab({
   profitForecastOverride?: ProfitForecastOutput;
   /** Owner sees contract + profit framing; manager sees cost control only */
   budgetAccessMode?: 'owner' | 'cost_control';
+  /** Deep-link from dashboard insights — opens category detail on mount */
+  initialBudgetCategory?: string | null;
 }) {
   const { darkMode, theme: themeTokens } = useTheme();
   const Colors = useMemo(() => getColors(themeTokens), [themeTokens]);
@@ -235,7 +238,7 @@ export default function BudgetTab({
   const [showChangeOrderModal, setShowChangeOrderModal] = useState(false);
   const [showPOModal, setShowPOModal] = useState(false);
   const [editingPO, setEditingPO] = useState<any>(null);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(initialBudgetCategory);
   const [pendingChangeOrderEditId, setPendingChangeOrderEditId] = useState<string | null>(null);
   const [showCalibrationReview, setShowCalibrationReview] = useState(false);
   const [closeoutTipCount, setCloseoutTipCount] = useState<number | null>(null);
@@ -270,6 +273,13 @@ export default function BudgetTab({
     if (!showChangeOrderModal) return;
     changeOrderIsEditingRef.current = editingChangeOrder != null;
   }, [showChangeOrderModal, editingChangeOrder]);
+
+  useEffect(() => {
+    if (initialBudgetCategory) {
+      setTab('lines');
+      setSelectedCategory(initialBudgetCategory);
+    }
+  }, [initialBudgetCategory]);
 
   useEffect(() => {
     if (!showChangeOrderModal || changeOrderPricingMode !== 'sqft') return;
@@ -1250,7 +1260,7 @@ export default function BudgetTab({
                     );
                   })}
 
-              {shouldShowEstimateVsActualCard(estimateFeedback) ? (
+              {!isProjectCompleted && shouldShowEstimateVsActualCard(estimateFeedback) ? (
                 <EstimateVsActualCard
                   estimateFeedback={estimateFeedback}
                   closeoutTipCount={closeoutTipCount}
@@ -2151,8 +2161,8 @@ function TabPill({
         styles.tabPillPressable,
         styles.tabPillInactive,
         {
-          backgroundColor: darkMode ? AI_FLOW_CARD_BG_DARK : colors.surface2,
-          borderColor: darkMode ? 'rgba(148,163,184,0.12)' : colors.line,
+          backgroundColor: darkMode ? '#3A3A3C' : colors.surface2,
+          borderColor: darkMode ? 'rgba(148,163,184,0.2)' : colors.line,
         },
       ]}
     >

@@ -20,7 +20,6 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { estimateFlowCardStyle, ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, ESTIMATE_FLOW_TRACK_BG_DARK } from '@/utils/estimateFlowCardStyle';
 import {
-  collectEstimateLineItems,
   getEstimateLineSpendSummaries,
   getUnlinkedExpensesForKind,
   resolveProjectEstimateData,
@@ -28,17 +27,25 @@ import {
   sortEstimateLineOptions,
   type EstimateLineSpendSummary,
 } from '@/utils/rateInsightComparisons';
+import {
+  displayEstimateLineName,
+  estimateLineOptionsFor,
+  type EstimateLineOption,
+} from '@/utils/estimateLineOptions';
+import BudgetStatusBadge from '@/components/BudgetStatusBadge';
+import {
+  formatSpendDetail,
+  lineBudgetStatusVariant,
+  lineSpendColor,
+  progressFillPercent,
+  withEditingAmount,
+} from '@/utils/estimateLineBudgetDisplay';
 import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 
 export type EstimateLinePickerKind = 'materials' | 'labor';
 
-export type EstimateLineOption = {
-  id: string;
-  name: string;
-  budget: number;
-  quantity?: number | null;
-  unit?: string | null;
-};
+export type { EstimateLineOption } from '@/utils/estimateLineOptions';
+export { resolveEstimateLineOption } from '@/utils/estimateLineOptions';
 
 type Props = {
   kind: EstimateLinePickerKind;
@@ -48,6 +55,8 @@ type Props = {
   darkMode: boolean;
   /** When editing an expense, omit it from logged spend totals. */
   excludeExpenseId?: string | null;
+  /** Amount on the form — added back for display when `excludeExpenseId` is set. */
+  editingAmount?: number | null;
   /** Show linked line as a read-only summary (no picker, no clear). */
   readOnly?: boolean;
   colors: {
@@ -61,71 +70,19 @@ type Props = {
   };
 };
 
-function lineName(item: Record<string, unknown>): string {
-  return String(item.name || item.description || item.scopeName || 'Estimate line').trim();
-}
-
-function displayLineName(name: string): string {
-  return name.replace(/\s*[—–-]\s*(materials?|labor)\s*$/i, '').trim() || name;
-}
-
-function lineCategoryLabel(kind: EstimateLinePickerKind): string {
-  return kind === 'materials' ? 'Materials' : 'Labor';
-}
-
-function lineSpendColor(summary: EstimateLineSpendSummary): string {
-  if (summary.loggedTotal <= 0) return '#94a3b8';
-  if (summary.budget <= 0) return '#22c55e';
-  if (summary.remaining < 0) return '#f87171';
-  return '#22c55e';
-}
-
-function formatSpendDetail(summary: EstimateLineSpendSummary): string {
-  const spent = formatMoneyFull(summary.loggedTotal, { decimals: 0 });
-  if (summary.budget <= 0) return `Total spent ${spent}`;
-  if (summary.remaining >= 0) {
-    return `Total spent ${spent} · ${formatMoneyFull(summary.remaining, { decimals: 0 })} remaining`;
-  }
-  return `Total spent ${spent} · ${formatMoneyFull(Math.abs(summary.remaining), { decimals: 0 })} over`;
-}
-
-function progressFillPercent(summary: EstimateLineSpendSummary): number {
-  if (summary.budget <= 0 || summary.loggedTotal <= 0) return 0;
-  return Math.min(100, (summary.loggedTotal / summary.budget) * 100);
-}
-
-function LineBudgetBadge() {
-  return (
-    <View style={[styles.badge, styles.badgeOver]}>
-      <Text style={[styles.badgeText, { color: '#f87171' }]}>Over budget</Text>
-    </View>
-  );
-}
-
-function lineBudget(item: Record<string, unknown>): number {
-  const total = Number(item.total ?? item.estimatedTotal ?? item.amount ?? 0);
-  if (Number.isFinite(total) && total > 0) return total;
-  const qty = Number(item.qty ?? item.quantity ?? 0);
-  const rate = Number(item.unitPrice ?? item.unitCost ?? item.unitRate ?? item.rate ?? 0);
-  return qty > 0 && rate > 0 ? qty * rate : Math.max(rate, 0);
-}
-
 function optionsFor(
   projectLike: Record<string, unknown> | null | undefined,
   kind: EstimateLinePickerKind
 ): EstimateLineOption[] {
-  const { materialLines, laborLines } = collectEstimateLineItems(
-    resolveProjectEstimateData(projectLike)
-  );
-  return (kind === 'materials' ? materialLines : laborLines)
-    .map((item, index) => ({
-      id: String(item.id || `${kind}-${index}`),
-      name: lineName(item),
-      budget: lineBudget(item),
-      quantity: Number(item.qty ?? item.quantity) > 0 ? Number(item.qty ?? item.quantity) : null,
-      unit: item.unit != null ? String(item.unit) : null,
-    }))
-    .filter((item) => item.budget > 0);
+  return estimateLineOptionsFor(resolveProjectEstimateData(projectLike), kind);
+}
+
+function displayLineName(name: string): string {
+  return displayEstimateLineName(name);
+}
+
+function lineCategoryLabel(kind: EstimateLinePickerKind): string {
+  return kind === 'materials' ? 'Materials' : 'Labor';
 }
 
 export default function EstimateLinePicker({
@@ -135,6 +92,7 @@ export default function EstimateLinePicker({
   onSelect,
   darkMode,
   excludeExpenseId,
+  editingAmount,
   readOnly = false,
   colors,
 }: Props) {
@@ -202,7 +160,21 @@ export default function EstimateLinePicker({
     setPendingLineId((current) => (current === lineId ? null : lineId));
   };
 
-  const pendingSummary = pendingLine ? spendSummaries[pendingLine.id] : null;
+  const pendingSummary = pendingLine
+    ? withEditingAmount(
+        spendSummaries[pendingLine.id],
+        pendingLine.budget,
+        excludeExpenseId ? editingAmount : null
+      )
+    : null;
+
+  const selectedDisplaySummary = selected
+    ? withEditingAmount(
+        spendSummaries[selected.id],
+        selected.budget,
+        excludeExpenseId ? editingAmount : null
+      )
+    : null;
 
   const selectedSummaryContent = selected ? (
     <>
@@ -213,14 +185,14 @@ export default function EstimateLinePicker({
         {lineCategoryLabel(kind)} · Budget {formatMoneyFull(selected.budget, { decimals: 0 })}
         {selected.quantity && selected.unit ? ` · ${selected.quantity} ${selected.unit}` : ''}
       </Text>
-      {spendSummaries[selected.id]?.loggedTotal ? (
+      {selectedDisplaySummary && selectedDisplaySummary.loggedTotal > 0 ? (
         <Text
           style={[
             styles.selectorSubtitle,
-            { color: lineSpendColor(spendSummaries[selected.id]), marginTop: 4, fontWeight: '700' },
+            { color: lineSpendColor(selectedDisplaySummary), marginTop: 4, fontWeight: '700' },
           ]}
         >
-          {formatSpendDetail(spendSummaries[selected.id])}
+          {formatSpendDetail(selectedDisplaySummary)}
         </Text>
       ) : null}
       {!readOnly ? (
@@ -356,7 +328,7 @@ export default function EstimateLinePicker({
               ) : null}
               <View style={styles.optionsList}>
                 {sortedFiltered.map((line) => {
-                  const summary =
+                  const rawSummary =
                     spendSummaries[line.id] ??
                     ({
                       loggedTotal: 0,
@@ -365,6 +337,13 @@ export default function EstimateLinePicker({
                       variancePct: null,
                       badge: null,
                     } satisfies EstimateLineSpendSummary);
+                  const summary = withEditingAmount(
+                    rawSummary,
+                    line.budget,
+                    excludeExpenseId && (line.id === selectedLineId || line.id === pendingLineId)
+                      ? editingAmount
+                      : null
+                  );
                   const isPending = line.id === pendingLineId;
                   return (
                     <Pressable
@@ -383,7 +362,9 @@ export default function EstimateLinePicker({
                           <Text style={[styles.optionName, { color: colors.text, flex: 1 }]}>
                             {displayLineName(line.name)}
                           </Text>
-                          {summary.remaining < 0 ? <LineBudgetBadge /> : null}
+                          {lineBudgetStatusVariant(summary) !== 'neutral' ? (
+                            <BudgetStatusBadge variant={lineBudgetStatusVariant(summary)} />
+                          ) : null}
                         </View>
                         <Text style={[styles.optionMeta, { color: colors.secondary }]}>
                           {lineCategoryLabel(kind)} · Budget {formatMoneyFull(line.budget, { decimals: 0 })}

@@ -1,5 +1,11 @@
 export type AiInsightType = "alert" | "opportunity" | "info";
 
+export type AiInsightActionTarget =
+  | { kind: "project_overview" }
+  | { kind: "budget_tab" }
+  | { kind: "budget_category"; category: string }
+  | { kind: "rate_insights"; lineId?: string; section?: "materials" | "labor" | "other" };
+
 export interface AiInsight {
   id: string;
   type: AiInsightType;
@@ -7,8 +13,11 @@ export interface AiInsight {
   body: string;
   projectId?: string | null;
   impactScore: number; // 1–10
+  /** Actual dollar overrun when the insight is budget-related. */
+  impactDollars?: number | null;
   evidence?: string[];
   leakType?: string;
+  actionTarget?: AiInsightActionTarget;
   /** When true, insight is a closed-job summary (net profit) — not operational pipeline advice */
   retrospective?: boolean;
 }
@@ -20,6 +29,7 @@ export interface AiNextStep {
   projectId?: string | null;
   priority: "low" | "medium" | "high";
   leakType?: string;
+  actionTarget?: AiInsightActionTarget;
 }
 
 export interface DailyBriefRisk {

@@ -31,6 +31,7 @@ import Animated, {
   interpolate,
 } from 'react-native-reanimated';
 import { leadSourcesFaqAnswer } from '@/lib/leads/leadSourcesHelp';
+import { isLeadsNetworkingReleased } from '@/constants/releaseFlags';
 
 interface FAQItem {
   id: string;
@@ -353,6 +354,12 @@ export default function FAQScreen() {
 
   const filteredFAQs = useMemo(() => {
     let filtered = faqData;
+
+    if (!isLeadsNetworkingReleased()) {
+      filtered = filtered.filter(
+        (faq) => !['4', '4-lead-sources'].includes(faq.id)
+      );
+    }
 
     // Filter by category
     if (selectedCategory !== 'all') {

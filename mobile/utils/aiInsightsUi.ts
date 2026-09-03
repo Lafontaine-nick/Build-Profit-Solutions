@@ -1,6 +1,270 @@
 import type { AiInsight, AiNextStep } from "@/types/aiDashboard";
+import { insightActionCtaLabel, resolveInsightActionTarget } from "@/utils/insightNavigation";
 
 export type ActionBucket = "critical" | "today" | "quick";
+
+const COMPLETED_STATUSES = new Set(["completed", "complete", "done", "finished"]);
+
+export function isCompletedProjectStatus(status: unknown): boolean {
+  const normalized = String(status ?? "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/-/g, "_");
+  return COMPLETED_STATUSES.has(normalized);
+}
+
+export function resolveInsightImpactDollars(
+  insight: Pick<AiInsight, "impactDollars" | "evidence">
+): number | null {
+  if (insight.impactDollars != null && Number.isFinite(Number(insight.impactDollars))) {
+    return Number(insight.impactDollars);
+  }
+  for (const line of insight.evidence || []) {
+    const match = String(line).match(/over by\s*\$?([\d,]+(?:\.\d{1,2})?)/i);
+    if (match) {
+      const parsed = Number(match[1].replace(/,/g, ""));
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+  }
+  return null;
+}
+
+export function formatHeroImpactPhrase(
+  leakType: string | undefined,
+  impactDollars: number | null | undefined
+): string {
+  if (impactDollars == null || !Number.isFinite(impactDollars) || impactDollars <= 0) {
+    return "";
+  }
+  const compact = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(impactDollars);
+  if (leakType === "line_over_estimate") return ` · ~${compact} over estimate`;
+  if (leakType === "category_over_budget") return ` · ~${compact} over category budget`;
+  if (leakType === "over_budget") return ` · ~${compact} over cost budget`;
+  return ` · ~${compact} at risk`;
+}
+
+export function heroKickerForLeakType(
+  leakType?: string | null,
+  opts?: { projectCompleted?: boolean }
+): string {
+  if (opts?.projectCompleted) return "Closeout review";
+  switch (leakType) {
+    case "line_over_estimate":
+      return "Over estimate";
+    case "category_over_budget":
+      return "Budget alert";
+    case "over_budget":
+      return "Over budget";
+    case "margin_erosion":
+    case "spend_ahead_of_progress":
+      return "Biggest risk";
+    case "missing_receipts":
+      return "Receipt gap";
+    case "stale_high_value_estimate":
+      return "Top opportunity";
+    default:
+      return "Today's brief";
+  }
+}
+
+export function frameInsightForDisplay(
+  insight: AiInsight,
+  projectCompleted: boolean
+): AiInsight {
+  if (!projectCompleted) return insight;
+  const leakType = insight.leakType;
+  if (leakType === "line_over_estimate") {
+    return {
+      ...insight,
+      body: insight.body.includes("closeout")
+        ? insight.body
+        : `${insight.body} Review final logged costs in closeout.`,
+    };
+  }
+  if (leakType === "category_over_budget") {
+    return {
+      ...insight,
+      body: insight.body.includes("closeout")
+        ? insight.body
+        : `${insight.body} Compare final category spend before archiving.`,
+    };
+  }
+  if (leakType === "over_budget") {
+    return {
+      ...insight,
+      title: insight.title.startsWith("Closeout")
+        ? insight.title
+        : `Closeout — ${insight.title}`,
+      body: insight.body.includes("closeout")
+        ? insight.body
+        : `${insight.body} Review final totals against the original cost budget.`,
+    };
+  }
+  return insight;
+}
+
+export function frameNextStepForDisplay(
+  step: AiNextStep,
+  projectCompleted: boolean
+): AiNextStep {
+  if (!projectCompleted) return step;
+  const leakType = step.leakType;
+  if (!leakType) return step;
+  if (leakType === "line_over_estimate") {
+    const label = /^review/i.test(step.label)
+      ? step.label.replace(/^Review/i, "Review final")
+      : `Review final ${step.label}`;
+    return {
+      ...step,
+      label,
+      chip: "Closeout review",
+    };
+  }
+  if (leakType === "category_over_budget" || leakType === "over_budget") {
+    return {
+      ...step,
+      chip: "Closeout review",
+    };
+  }
+  return step;
+}
+
+export function pickOverviewInsightPreview(
+  insights: AiInsight[],
+  limit = 2
+): AiInsight[] {
+  if (insights.length <= limit) return insights;
+
+  const picked: AiInsight[] = [];
+  const seen = new Set<string>();
+  const push = (insight?: AiInsight) => {
+    if (!insight || seen.has(insight.id)) return;
+    seen.add(insight.id);
+    picked.push(insight);
+  };
+
+  const lineInsightForSection = (section: "materials" | "labor") =>
+    insights.find(
+      (i) =>
+        i.leakType === "line_over_estimate" &&
+        i.actionTarget?.kind === "rate_insights" &&
+        i.actionTarget.section === section
+    ) ||
+    insights.find(
+      (i) =>
+        i.leakType === "line_over_estimate" &&
+        (i.evidence?.[0] || "").toLowerCase().includes(section === "labor" ? "labor" : "material")
+    );
+
+  push(insights.find((i) => i.leakType === "category_over_budget"));
+  push(lineInsightForSection("materials"));
+  push(lineInsightForSection("labor"));
+  push(insights.find((i) => i.leakType === "line_over_estimate"));
+  push(insights.find((i) => i.leakType === "over_budget"));
+
+  for (const insight of insights) {
+    if (picked.length >= limit) break;
+    push(insight);
+  }
+
+  return picked.slice(0, limit);
+}
+
+export function summarizeProjectLineOverruns(
+  insights: AiInsight[],
+  projectId: string
+): {
+  lineCount: number;
+  totalOver: number;
+  materialsCount: number;
+  laborCount: number;
+} {
+  const lines = insights.filter(
+    (i) => i.leakType === "line_over_estimate" && String(i.projectId) === String(projectId)
+  );
+  let materialsCount = 0;
+  let laborCount = 0;
+  let totalOver = 0;
+  for (const insight of lines) {
+    totalOver += resolveInsightImpactDollars(insight) ?? 0;
+    const section =
+      insight.actionTarget?.kind === "rate_insights"
+        ? insight.actionTarget.section
+        : undefined;
+    if (section === "labor") laborCount += 1;
+    else if (section === "materials") materialsCount += 1;
+  }
+  return { lineCount: lines.length, totalOver, materialsCount, laborCount };
+}
+
+export function nextStepMatchesDailyRisk(
+  step: AiNextStep,
+  dailyRisk: { id?: string; projectId?: string | null; type?: string; headline?: string }
+): boolean {
+  if (dailyRisk.id && String(step.id) === String(dailyRisk.id)) return true;
+  if (!dailyRisk.projectId || String(step.projectId) !== String(dailyRisk.projectId)) {
+    return false;
+  }
+  if (dailyRisk.type !== "line_over_estimate" || step.leakType !== "line_over_estimate") {
+    return false;
+  }
+  const headline = String(dailyRisk.headline || "").toLowerCase();
+  const lineName = compactActionStepTitle(step).toLowerCase();
+  return Boolean(lineName && headline.includes(lineName.split("—")[0].trim()));
+}
+
+export function filterInsightsActionStepsAfterHero(
+  steps: AiNextStep[],
+  dailyRisk:
+    | { id?: string; projectId?: string | null; type?: string; headline?: string }
+    | undefined
+    | null,
+  heroUsesAggregate: boolean,
+  heroProjectId: string | null
+): AiNextStep[] {
+  if (!dailyRisk) return steps;
+  if (
+    heroUsesAggregate &&
+    heroProjectId &&
+    dailyRisk.type === "line_over_estimate"
+  ) {
+    return steps.filter(
+      (step) =>
+        String(step.projectId) !== heroProjectId ||
+        step.leakType !== "line_over_estimate"
+    );
+  }
+  return steps.filter((step) => !nextStepMatchesDailyRisk(step, dailyRisk));
+}
+
+export function compactActionStepTitle(step: AiNextStep): string {
+  const reviewMatch = step.label.match(/^Review (?:final )?(.+?) on /i);
+  if (reviewMatch?.[1]) return reviewMatch[1].trim();
+  if (!/\bon\b/i.test(step.label)) {
+    return step.label.replace(/^Review (?:final )?/i, "").trim() || step.label;
+  }
+  const humanized = humanizeNextStepLabel(step.label);
+  const onIdx = humanized.lastIndexOf(" on ");
+  if (onIdx > 0) return humanized.slice(0, onIdx).trim();
+  return humanized;
+}
+
+export function compactInsightBody(insight: AiInsight): string {
+  if (insight.leakType === "line_over_estimate" && insight.body.includes(" logged vs ")) {
+    return insight.body.includes("closeout")
+      ? insight.body
+      : `${insight.body} Review in rate insights.`;
+  }
+  if (insight.leakType === "category_over_budget") {
+    return firstSupportingSentence(insight.body, 110);
+  }
+  return firstSupportingSentence(insight.body, 120);
+}
 
 export function bucketForNextStep(step: AiNextStep): ActionBucket {
   const chip = String(step.chip || "").toLowerCase();
@@ -40,11 +304,28 @@ export function humanizeNextStepLabel(label: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-export function inferCtaFromStep(label: string): { cta: string; kind: "permit" | "receipt" | "review" | "open" } {
+export function inferCtaFromStep(
+  label: string,
+  step?: Pick<AiNextStep, "leakType" | "actionTarget">
+): { cta: string; kind: "permit" | "receipt" | "review" | "open" } {
+  const actionTarget = step ? resolveInsightActionTarget(step) : undefined;
+  if (actionTarget) {
+    return {
+      cta: insightActionCtaLabel(actionTarget),
+      kind:
+        actionTarget.kind === "rate_insights"
+          ? "review"
+          : actionTarget.kind === "budget_category"
+            ? "review"
+            : "open",
+    };
+  }
   const l = label.toLowerCase();
   if (/\bpermit|fee(s)?\b/.test(l)) return { cta: "Add permit", kind: "permit" };
   if (/\breceipt|invoice|upload\b/.test(l)) return { cta: "Upload", kind: "receipt" };
-  if (/\bmargin|scope|profit|budget|forecast|overrun|underpriced\b/.test(l)) return { cta: "Review now", kind: "review" };
+  if (/\bmargin|scope|profit|budget|forecast|overrun|underpriced\b/.test(l)) {
+    return { cta: "Review now", kind: "review" };
+  }
   return { cta: "Open", kind: "open" };
 }
 
@@ -76,6 +357,47 @@ export function portfolioPatternBullets(
   insights: AiInsight[],
   steps: AiNextStep[]
 ): string[] {
+  const lineOverCount = insights.filter((i) => i.leakType === "line_over_estimate").length;
+  const materialLineCount = insights.filter(
+    (i) =>
+      i.leakType === "line_over_estimate" &&
+      i.actionTarget?.kind === "rate_insights" &&
+      i.actionTarget.section === "materials"
+  ).length;
+  const laborLineCount = insights.filter(
+    (i) =>
+      i.leakType === "line_over_estimate" &&
+      i.actionTarget?.kind === "rate_insights" &&
+      i.actionTarget.section === "labor"
+  ).length;
+  const categoryOverCount = insights.filter((i) => i.leakType === "category_over_budget").length;
+  const projectOverCount = insights.filter((i) => i.leakType === "over_budget").length;
+
+  const lines: string[] = [];
+  if (materialLineCount > 0) {
+    lines.push(
+      `${materialLineCount} material line${materialLineCount === 1 ? "" : "s"} over estimate`
+    );
+  }
+  if (laborLineCount > 0) {
+    lines.push(`${laborLineCount} labor line${laborLineCount === 1 ? "" : "s"} over estimate`);
+  }
+  if (lineOverCount > 0 && materialLineCount === 0 && laborLineCount === 0) {
+    lines.push(
+      `${lineOverCount} estimate line${lineOverCount === 1 ? "" : "s"} running over budget`
+    );
+  }
+  if (categoryOverCount > 0) {
+    lines.push(
+      `${categoryOverCount} categor${categoryOverCount === 1 ? "y" : "ies"} over cost budget`
+    );
+  }
+  if (projectOverCount > 0) {
+    lines.push(
+      `${projectOverCount} project${projectOverCount === 1 ? "" : "s"} over total cost budget`
+    );
+  }
+
   const blob = [...insights.map((i) => `${i.title} ${i.body}`), ...steps.map((s) => s.label)]
     .join(" ")
     .toLowerCase();
@@ -99,9 +421,10 @@ export function portfolioPatternBullets(
     },
   ];
   const ranked = candidates.filter((c) => c.n > 0).sort((a, b) => b.n - a.n);
-  const lines = ranked.slice(0, 3).map((c) => c.line);
+  lines.push(...ranked.slice(0, 3 - lines.length).map((c) => c.line));
+
   if (lines.length === 0) {
     return ["Patterns sharpen as you log costs and close phases."];
   }
-  return lines;
+  return lines.slice(0, 3);
 }

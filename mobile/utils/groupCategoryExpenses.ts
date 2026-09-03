@@ -3,6 +3,8 @@ import { collectEstimateLineItems } from '@/utils/rateInsightComparisons';
 export type CategoryExpenseLike = {
   id: string;
   material?: string;
+  vendor?: string;
+  description?: string;
   linkedLineId?: string;
   date?: string;
 };
@@ -35,6 +37,10 @@ export function resolveExpenseGroupKey(
   }
   const fromMaterial = normalizeExpenseGroupLabel(expense.material);
   if (fromMaterial) return `grp:${fromMaterial}`;
+  const fromVendor = normalizeExpenseGroupLabel(expense.vendor);
+  if (fromVendor) return `grp:${fromVendor}`;
+  const fromDescription = normalizeExpenseGroupLabel(expense.description);
+  if (fromDescription) return `grp:${fromDescription}`;
   return `exp:${expense.id}`;
 }
 
@@ -44,6 +50,8 @@ function displayLineNameForGroup<T extends CategoryExpenseLike>(
 ): string {
   const first = items[0];
   if (first.material?.trim()) return displayExpenseLineName(first.material);
+  if (first.vendor?.trim()) return displayExpenseLineName(first.vendor);
+  if (first.description?.trim()) return displayExpenseLineName(first.description);
   if (first.linkedLineId && lineIdToLabel[first.linkedLineId]) {
     return displayExpenseLineName(lineIdToLabel[first.linkedLineId]);
   }

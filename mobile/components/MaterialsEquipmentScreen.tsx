@@ -28,14 +28,21 @@ import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL, ScreenLayout, PROJECT_WIDE_CONTAINER_CARD_INSET } from "@/constants/ScreenLayout";
 import { neutralIconPressableWebStyle } from "@/constants/iconPressable";
-import { tabFlowCardStyle } from "@/components/layout/TabFlowCard";
-import { ESTIMATE_FLOW_NESTED_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
+import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 import EstimateLineExpenseGroupCard from "./EstimateLineExpenseGroupCard";
+import CategoryEstimateBudgetCard from "./CategoryEstimateBudgetCard";
+import EstimateLineBudgetStrip from "./EstimateLineBudgetStrip";
 import {
   buildEstimateLineIdToLabel,
   buildGroupedCategoryExpenseList,
 } from "@/utils/groupCategoryExpenses";
 import { resolveProjectEstimateData } from "@/utils/rateInsightComparisons";
+import { useEstimateLineBudgets, lookupSpendSummary } from "@/hooks/useEstimateLineBudgets";
+import { resolveExpenseLineId } from "@/utils/resolveExpenseLineId";
+import { buildCategoryBudgetSummary } from "@/utils/estimateLineBudgetDisplay";
+import ReceiptStatusPill from "./ReceiptStatusPill";
+import { expenseSubtitleLines } from "@/utils/expenseCardDisplay";
+import type { EstimateLineSpendSummary } from '@/utils/rateInsightComparisons';
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
@@ -56,30 +63,15 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
   const { theme, darkMode } = useTheme();
   const insets = useSafeAreaInsets();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const categoryFlowCardStyle = tabFlowCardStyle(Colors, darkMode, { marginBottom: 0 });
-  const nestedCardBg = darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2;
+  const nestedCardBg = darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2;
   const nestedCardBorder = darkMode ? "rgba(148,163,184,0.12)" : Colors.line;
   const { width: layoutWidth } = useWindowDimensions();
   const materialsDesktopWeb =
     Platform.OS === "web" && isDesktopWebLayoutWidth(layoutWidth);
-  /** Native: same math as BudgetTab inside project-detail (outer 20 + wide strip -20 / +4). */
-  const useNativeBudgetBleed =
-    Platform.OS === "ios" || Platform.OS === "android";
   const scrollOuterPadH = useMemo(() => {
     if (materialsDesktopWeb) return WEB_DESKTOP_EDGE_HORIZONTAL;
-    return ScreenLayout.edge.horizontal;
+    return PROJECT_WIDE_CONTAINER_CARD_INSET;
   }, [materialsDesktopWeb]);
-  /** Same as BudgetTab `budgetContainerWide` + project `wideContainer`: nearly full-bleed gradient frame on native. */
-  const pageWideBleedStyle = useMemo(
-    () =>
-      useNativeBudgetBleed
-        ? {
-            marginHorizontal: -ScreenLayout.edge.horizontal,
-            paddingHorizontal: PROJECT_WIDE_CONTAINER_CARD_INSET,
-          }
-        : undefined,
-    [useNativeBudgetBleed]
-  );
   const { projectData, addExpense, updateExpense } = useProjectData();
   const [showAddModal, setShowAddModal] = useState(false);
   const [productScannerVisible, setProductScannerVisible] = useState(false);
@@ -153,6 +145,20 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
     [transactions]
   );
 
+  const { spendSummaries, categorySummary: estimateCategorySummary } =
+    useEstimateLineBudgets(
+    projectData as unknown as Record<string, unknown>,
+    'materials'
+  );
+
+  const categoryBudgetSummary = useMemo(
+    () =>
+      estimateCategorySummary.hasEstimateBudget
+        ? buildCategoryBudgetSummary(estimateCategorySummary.totalBudget, totalSpent)
+        : buildCategoryBudgetSummary(0, totalSpent),
+    [estimateCategorySummary, totalSpent]
+  );
+
   const projectLookupZip = useMemo(() => {
     const raw =
       projectData?.customerZip ||
@@ -164,12 +170,12 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
   }, [projectData]);
 
   const handleMaterialsScannedProductSave = useCallback((payload: ProductScannerSavePayload) => {
-    const { product, quantity, unitCost, description, notes } = payload;
+    const { product, quantity, unitCost, description, notes, vendor: scannedVendor } = payload;
     const qty = Math.max(Number(quantity) || 0, 0);
     const cost = Math.max(Number(unitCost) || 0, 0);
     const costTotal = Math.round(qty * cost * 100) / 100;
     const productNotes = buildProductNotes(product, notes);
-    const vendor = product.supplier || 'Scanned supplier';
+    const vendor = scannedVendor?.trim() || product.supplier || 'Scanned supplier';
     const title = description || product.title || 'Scanned product';
 
     addExpense({
@@ -265,9 +271,7 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
             { paddingHorizontal: scrollOuterPadH, flexGrow: 1, paddingBottom: 24 + insets.bottom },
           ]}
         >
-          <View style={pageWideBleedStyle}>
-            <View style={[categoryFlowCardStyle, { flex: 1 }]}>
-          {/* HEADER — same horizontal inset as project tabs (outside wide strip) */}
+          {/* HEADER */}
           <View style={styles.headerRow}>
             <TouchableOpacity
               onPress={() => navigation?.goBack?.()}
@@ -304,63 +308,15 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
             </View>
           </View>
 
-          {/* TOTAL SPENT CARD */}
-          <View style={styles.totalCardContainer}>
-            {darkMode ? (
-              <View
-                style={[
-                  styles.totalCard,
-                  {
-                    backgroundColor: nestedCardBg,
-                    borderWidth: 1,
-                    borderColor: nestedCardBorder,
-                    borderRadius: 14,
-                  },
-                ]}
-              >
-                <View style={styles.totalLeftBlock}>
-                  <View style={styles.totalTopRow}>
-                    <View style={styles.totalIconContainer}>
-                      <Feather name="dollar-sign" size={18} color={BRAND_GREEN} />
-                    </View>
-                    <Text
-                      style={[
-                        styles.totalLabel,
-                        { color: darkMode ? "rgba(226, 232, 240, 0.72)" : Colors.sub },
-                      ]}
-                    >
-                      Total Spent
-                    </Text>
-                  </View>
-                </View>
-                <Text style={styles.totalValue}>
-                  $
-                  {totalSpent.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                  })}
-                </Text>
-              </View>
-            ) : (
-              <View style={[styles.totalCardBorderLight, { borderColor: Colors.line }]}>
-                <View style={[styles.totalCard, { backgroundColor: nestedCardBg, borderWidth: 1, borderColor: nestedCardBorder }]}>
-                  <View style={styles.totalLeftBlock}>
-                    <View style={styles.totalTopRow}>
-                      <View style={[styles.totalIconContainer, { backgroundColor: nestedCardBg, borderColor: nestedCardBorder }]}>
-                        <Feather name="dollar-sign" size={18} color={BRAND_GREEN} />
-                      </View>
-                      <Text style={[styles.totalLabel, { color: Colors.sub }]}>Total Spent</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.totalValue}>
-                    $
-                    {totalSpent.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                    })}
-                  </Text>
-                </View>
-              </View>
-            )}
-          </View>
+          {/* BUDGET + SPENT CARD */}
+          <CategoryEstimateBudgetCard
+            summary={categoryBudgetSummary}
+            darkMode={darkMode}
+            nestedCardBg={nestedCardBg}
+            nestedCardBorder={nestedCardBorder}
+            labelColor={darkMode ? "rgba(226, 232, 240, 0.72)" : Colors.sub}
+            valueColor={Colors.text}
+          />
 
           {/* SCAN + ADD */}
           {Platform.OS !== "web" ? (
@@ -497,6 +453,11 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
             <View style={styles.listContainer}>
               {listItems.map((entry) => {
                 if (entry.kind === 'group') {
+                  const lineId = resolveExpenseLineId({
+                    groupKey: entry.groupKey,
+                    expense: entry.items[0],
+                    lineIdToLabel: estimateLineIdToLabel,
+                  });
                   return (
                     <EstimateLineExpenseGroupCard
                       key={entry.groupKey}
@@ -507,23 +468,29 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
                       nestedCardBorder={nestedCardBorder}
                       textColor={Colors.text}
                       subtextColor={darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub}
+                      budgetSummary={lookupSpendSummary(spendSummaries, lineId)}
                       onPressItem={(tx) => handleEditTransaction(tx)}
                     />
                   );
                 }
                 const tx = entry.item;
+                const lineId = resolveExpenseLineId({
+                  expense: tx,
+                  lineIdToLabel: estimateLineIdToLabel,
+                });
+                const budgetSummary = lookupSpendSummary(spendSummaries, lineId);
                 return (
                 <TransactionCard 
                   key={tx.id} 
                   transaction={tx}
+                  budgetSummary={budgetSummary}
+                  darkMode={darkMode}
                   onPress={() => handleEditTransaction(tx)}
                 />
                 );
               })}
             </View>
           )}
-            </View>
-          </View>
         </ScrollView>
         </View>
       </View>
@@ -570,17 +537,34 @@ interface Transaction {
   receiptUri?: string | null;
 }
 
-const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void }> = ({
+const TransactionCard: React.FC<{
+  transaction: Transaction;
+  budgetSummary?: EstimateLineSpendSummary | null;
+  darkMode: boolean;
+  onPress?: () => void;
+}> = ({
   transaction,
+  budgetSummary,
+  darkMode: darkModeProp,
   onPress,
 }) => {
-  const { theme, darkMode } = useTheme();
+  const { theme, darkMode: darkModeFromTheme } = useTheme();
+  const darkMode = darkModeProp ?? darkModeFromTheme;
   const Colors = useMemo(() => getColors(theme), [theme]);
   const supportSub = darkMode ? "rgba(226, 232, 240, 0.76)" : Colors.sub;
   const hintMuted = darkMode ? "rgba(226, 232, 240, 0.52)" : Colors.sub;
-  const nestedCardBg = darkMode ? ESTIMATE_FLOW_NESTED_CARD_BG_DARK : Colors.surface2;
+  const nestedCardBg = darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2;
   const nestedCardBorder = darkMode ? "rgba(148,163,184,0.12)" : Colors.line;
   const scale = useRef(new Animated.Value(1)).current;
+  const subtitles = useMemo(
+    () =>
+      expenseSubtitleLines({
+        vendor: transaction.vendor,
+        material: transaction.material,
+        description: transaction.notes ?? undefined,
+      }),
+    [transaction.vendor, transaction.material, transaction.notes]
+  );
 
   const pressIn = () => {
     Animated.spring(scale, {
@@ -633,28 +617,27 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
               </View>
               <View style={styles.txTextBlock}>
                 <Text style={[styles.txVendor, { color: Colors.text }]}>{transaction.vendor}</Text>
-                {transaction.material ? (
+                {subtitles.material ? (
                   <Text style={[styles.txCategory, { color: supportSub }]} numberOfLines={2}>
-                    {transaction.material}
+                    {subtitles.material}
                   </Text>
                 ) : null}
-                <Text style={[styles.txCategory, { color: supportSub }]} numberOfLines={1}>
-                  {transaction.category}
-                </Text>
-                {transaction.notes ? (
+                {subtitles.description ? (
                   <Text style={[styles.txNotes, { color: supportSub }]} numberOfLines={2}>
-                    {transaction.notes}
+                    {subtitles.description}
                   </Text>
+                ) : null}
+                {budgetSummary ? (
+                  <EstimateLineBudgetStrip
+                    summary={budgetSummary}
+                    darkMode={darkMode}
+                    compact
+                  />
                 ) : null}
                 <View style={[styles.txFooter, !darkMode && { borderTopColor: Colors.line }]}>
                   <View style={styles.txFooterLeft}>
                     <Text style={[styles.txDate, { color: hintMuted }]}>{transaction.dateLabel}</Text>
-                    {transaction.receiptUri ? (
-                      <View style={styles.txReceiptPill}>
-                        <MaterialCommunityIcons name="receipt" size={12} color="rgba(34, 197, 94, 0.85)" />
-                        <Text style={styles.txReceiptPillText}>Receipt</Text>
-                      </View>
-                    ) : null}
+                    <ReceiptStatusPill hasReceipt={Boolean(transaction.receiptUri)} />
                   </View>
                   <View style={styles.txEditRow}>
                     <Text style={[styles.txEditText, { color: hintMuted }]}>Tap to edit</Text>
@@ -686,28 +669,27 @@ const TransactionCard: React.FC<{ transaction: Transaction; onPress?: () => void
                 </View>
                 <View style={styles.txTextBlock}>
                   <Text style={[styles.txVendor, { color: Colors.text }]}>{transaction.vendor}</Text>
-                  {transaction.material ? (
+                  {subtitles.material ? (
                     <Text style={[styles.txCategory, { color: supportSub }]} numberOfLines={2}>
-                      {transaction.material}
+                      {subtitles.material}
                     </Text>
                   ) : null}
-                  <Text style={[styles.txCategory, { color: supportSub }]} numberOfLines={1}>
-                    {transaction.category}
-                  </Text>
-                  {transaction.notes ? (
+                  {subtitles.description ? (
                     <Text style={[styles.txNotes, { color: supportSub }]} numberOfLines={2}>
-                      {transaction.notes}
+                      {subtitles.description}
                     </Text>
+                  ) : null}
+                  {budgetSummary ? (
+                    <EstimateLineBudgetStrip
+                      summary={budgetSummary}
+                      darkMode={darkMode}
+                      compact
+                    />
                   ) : null}
                   <View style={[styles.txFooter, { borderTopColor: Colors.line }]}>
                     <View style={styles.txFooterLeft}>
                       <Text style={[styles.txDate, { color: hintMuted }]}>{transaction.dateLabel}</Text>
-                      {transaction.receiptUri ? (
-                        <View style={styles.txReceiptPill}>
-                          <MaterialCommunityIcons name="receipt" size={12} color="rgba(34, 197, 94, 0.85)" />
-                          <Text style={styles.txReceiptPillText}>Receipt</Text>
-                        </View>
-                      ) : null}
+                      <ReceiptStatusPill hasReceipt={Boolean(transaction.receiptUri)} />
                     </View>
                     <View style={styles.txEditRow}>
                       <Text style={[styles.txEditText, { color: hintMuted }]}>Tap to edit</Text>
@@ -864,6 +846,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+    alignSelf: "stretch",
+    width: "100%",
     backgroundColor: "rgba(34, 197, 94, 0.1)",
     borderWidth: 1,
     borderColor: "rgba(34, 197, 94, 0.32)",
@@ -876,12 +860,16 @@ const styles = StyleSheet.create({
   addButtonWrapper: {
     marginTop: 0,
     marginBottom: 24,
+    alignSelf: "stretch",
+    width: "100%",
   },
   addButtonGradient: {
     borderRadius: 14,
     paddingVertical: 15,
     justifyContent: "center",
     alignItems: "center",
+    alignSelf: "stretch",
+    width: "100%",
     shadowColor: BRAND_GREEN,
     shadowOpacity: 0.25,
     shadowRadius: 12,

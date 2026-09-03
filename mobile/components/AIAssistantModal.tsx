@@ -1511,6 +1511,8 @@ const AIAssistantModal: React.FC<Props> = ({
   }, [isEstimateContext, chatSuggestions]);
   const isProjectsScreenContext = parsedContext?.screen === 'Projects';
   const isGlobalAssistantContext = parsedContext?.screen === 'AI Assistant Tab';
+  const isCentralCommandReadOnly =
+    parsedContext?.assistantMode === 'central_command' && parsedContext?.readOnly === true;
   /** Dark mode: reply body, footer suggestions, timestamps — all contexts including Estimate */
   const darkModeChatMutedWhite = useMemo(
     () => (darkMode ? ({ color: "#FFFFFF" } as TextStyle) : undefined),
@@ -3675,7 +3677,10 @@ const AIAssistantModal: React.FC<Props> = ({
         reply: data.reply?.substring(0, 100)
       });
       
-      if (data.projectUpdate || (data.reply && data.reply.includes('added') && data.reply.includes('$'))) {
+      if (
+        !isCentralCommandReadOnly &&
+        (data.projectUpdate || (data.reply && data.reply.includes('added') && data.reply.includes('$')))
+      ) {
         try {
           // Check if response contains project update data from function calls
           // The AI assistant returns projectUpdate in the function result
@@ -3957,7 +3962,7 @@ const AIAssistantModal: React.FC<Props> = ({
       }, 100);
       
       // Handle AI actions if any - but first show confirmation
-      if (data.actions && Array.isArray(data.actions) && onAction) {
+      if (data.actions && Array.isArray(data.actions) && onAction && !isCentralCommandReadOnly) {
         console.log('🔍 AIAssistantModal: Received actions from backend:', {
           actionsCount: data.actions.length,
           actions: data.actions.map((a: any) => ({ type: a.type, projectId: a.projectId, amount: a.amount, vendor: a.vendor }))
@@ -4894,7 +4899,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       <View style={styles.headerTitleCenter}>
                         <Ionicons name="sparkles-sharp" size={18} color={Colors.green} />
                         <Text style={[styles.headerTitle, light({ color: ThemeColors.text })]}>
-                          AI Assistant
+                          {isGlobalAssistantContext ? 'Central Command' : 'AI Assistant'}
                         </Text>
                       </View>
                     </View>
@@ -4902,7 +4907,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       <View style={styles.headerContextStack}>
                         <Text style={[styles.headerSubtitle, light({ color: ThemeColors.sub })]}>
                           {isGlobalAssistantContext
-                            ? 'Command Center • All Projects'
+                            ? 'Central Command • All Projects'
                             : isProjectsScreenContext
                               ? selectedProjectHintId
                                 ? (() => {
@@ -4914,6 +4919,11 @@ const AIAssistantModal: React.FC<Props> = ({
                                 ? `Estimate • ${parsedContext?.stepTitle || 'Bid'}`
                                 : `${projectInfo!.title} • ${projectInfo!.phase}`}
                         </Text>
+                        {isCentralCommandReadOnly && (
+                          <Text style={[styles.headerMeta, light({ color: ThemeColors.sub })]}>
+                            Portfolio data • Read-only
+                          </Text>
+                        )}
                         {projectInfo &&
                           !isProjectsScreenContext &&
                           !isGlobalAssistantContext &&
@@ -5177,7 +5187,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       </ScrollView>
                     </>
                   )}
-                  {/* AI Project Manager Mode card - hidden on Projects, Global Assistant, and Estimate Generator (field-PM framing) */}
+                  {/* AI Daily Brief card - hidden on Projects, Global Assistant, and Estimate Generator */}
                   {!isProjectsScreenContext && !isGlobalAssistantContext && !isEstimateContext && (
                   <View style={styles.managerCardContainer}>
                     <LinearGradient
@@ -5190,13 +5200,13 @@ const AIAssistantModal: React.FC<Props> = ({
                     <View style={styles.managerHeaderRow}>
                       <View style={{ flex: 1, paddingRight: 8 }}>
                         <Text style={[styles.managerEyebrow, light({ color: ThemeColors.sub })]}>
-                          Project automation
+                          Dashboard insights
                         </Text>
                         <Text style={[styles.managerTitle, light({ color: ThemeColors.text })]}>
-                          AI Project Manager Mode
+                          AI Daily Brief
                         </Text>
                         <Text style={[styles.managerSubtitle, light({ color: ThemeColors.sub })]}>
-                          AI monitors cost, schedule, and margin so you can act faster.
+                          Personalized patterns and summaries on your dashboard. Budget alerts stay on either way.
                         </Text>
                       </View>
 
@@ -5256,7 +5266,7 @@ const AIAssistantModal: React.FC<Props> = ({
                           </View>
                         </View>
                         <Text style={[styles.managerMicrocopy, light({ color: ThemeColors.sub })]}>
-                          Checks run when you open AI or update this project.
+                          Brief updates when you open the dashboard or project data changes.
                         </Text>
                       </>
                     )}

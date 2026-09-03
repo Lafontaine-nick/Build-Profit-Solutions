@@ -13,6 +13,7 @@ const {
   analyzePortfolioProject,
   buildDailyCommandCenter,
 } = require('./aiAssistantCore');
+const { buildPortfolioBudgetInsights } = require('./portfolioBudgetInsights');
 
 const aiModels = getAiModels();
 const aiRuntime = getAiRuntimeSettings();
@@ -514,6 +515,14 @@ async function buildAiDashboardForUser(
       const nextStep = leakToNextStep(leak);
       if (nextStep && !isClosedJob) baseNextSteps.push(nextStep);
     }
+  }
+
+  const budgetPortfolioInsights = buildPortfolioBudgetInsights(projectsForModel);
+  for (const insight of budgetPortfolioInsights.insights || []) {
+    baseInsights.push(insight);
+  }
+  for (const step of budgetPortfolioInsights.nextSteps || []) {
+    baseNextSteps.push(step);
   }
 
   for (const p of projectsForModel) {

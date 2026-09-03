@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { apiService } from "@/services/api";
 
 type AIManagerSettings = {
-  enabled: boolean;   // AI Project Manager Mode on/off
+  enabled: boolean;   // AI Daily Brief on/off (budget alerts are always on)
   hasAlerts: boolean; // future: project at-risk indicator
 };
 
@@ -10,14 +10,13 @@ async function apiGetAIManagerSettings(): Promise<AIManagerSettings> {
   try {
     const settings = await apiService.getUserSettings();
     return {
-      enabled: settings.ai_project_manager_mode || false,
+      enabled: settings.ai_project_manager_mode ?? true,
       hasAlerts: false, // TODO: implement alerts when backend supports it
     };
   } catch (error) {
     console.warn("Failed to fetch AI manager settings, using defaults:", error);
-    // Fallback to defaults if API fails (e.g., not authenticated, network error)
     return {
-      enabled: false,
+      enabled: true,
       hasAlerts: false,
     };
   }
@@ -31,7 +30,7 @@ async function apiUpdateAIManagerSettings(
       ai_project_manager_mode: updates.enabled,
     });
     return {
-      enabled: settings.ai_project_manager_mode || false,
+      enabled: settings.ai_project_manager_mode ?? true,
       hasAlerts: updates.hasAlerts ?? false,
     };
   } catch (error) {
@@ -45,7 +44,7 @@ async function apiUpdateAIManagerSettings(
 }
 
 export function useAIManagerMode() {
-  const [enabled, setEnabled] = useState<boolean>(false);
+  const [enabled, setEnabled] = useState<boolean>(true);
   const [hasAlerts, setHasAlerts] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
 

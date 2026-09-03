@@ -25,13 +25,20 @@ import {
 } from "@/constants/ScreenLayout";
 import GradientRingBackInner from "@/components/GradientRingBackInner";
 import EstimateLineExpenseGroupCard from "./EstimateLineExpenseGroupCard";
+import CategoryEstimateBudgetCard from "./CategoryEstimateBudgetCard";
+import ReceiptStatusPill from "./ReceiptStatusPill";
+import EstimateLineBudgetStrip from "./EstimateLineBudgetStrip";
 import {
   buildEstimateLineIdToLabel,
   buildGroupedCategoryExpenseList,
 } from "@/utils/groupCategoryExpenses";
 import { resolveProjectEstimateData } from "@/utils/rateInsightComparisons";
+import { useEstimateLineBudgets, lookupSpendSummary } from "@/hooks/useEstimateLineBudgets";
+import { resolveExpenseLineId } from "@/utils/resolveExpenseLineId";
+import { buildCategoryBudgetSummary } from "@/utils/estimateLineBudgetDisplay";
+import { expenseSubtitleLines } from "@/utils/expenseCardDisplay";
 import { tabFlowCardStyle } from "@/components/layout/TabFlowCard";
-import { ESTIMATE_FLOW_NESTED_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
+import { ESTIMATE_FLOW_NESTED_CARD_BG_DARK, AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 
 // Helper to parse YYYY-MM-DD date strings as local time (not UTC) to avoid timezone shifts
 function parseLocalDate(dateString: string): Date {
@@ -175,6 +182,12 @@ export default function CategoryDetailModal({
     categoryLower.includes('labor') || categoryLower.includes('subs');
   const shouldGroupByEstimateLine =
     isMaterialsEquipmentCategory || isLaborCategory;
+  const usesWideDarkCardLayout =
+    shouldGroupByEstimateLine ||
+    isChangeOrdersCategory ||
+    isPurchaseOrdersCategory;
+  const cardBg =
+    usesWideDarkCardLayout && darkMode ? AI_FLOW_CARD_BG_DARK : nestedCardBg;
 
   const projectLookupZip = useMemo(() => {
     const raw =
@@ -189,14 +202,16 @@ export default function CategoryDetailModal({
   const scannerFlowActive = productScannerVisible || Boolean(scannedProjectProduct);
 
   const handleMaterialsScannedProductSave = useCallback((payload: ProductScannerSavePayload) => {
-    const { product, quantity, unitCost, description, notes } = payload;
+    const { product, quantity, unitCost, description, notes, vendor: scannedVendor } = payload;
     const qty = Math.max(Number(quantity) || 0, 0);
     const cost = Math.max(Number(unitCost) || 0, 0);
     const costTotal = Math.round(qty * cost * 100) / 100;
     const productNotes = buildProductNotes(product, notes);
-    const vendor = product.supplier || 'Scanned supplier';
+    const vendor = scannedVendor?.trim() || product.supplier || 'Scanned supplier';
     const title = description || product.title || 'Scanned product';
     const dateAdded = new Date().toISOString();
+    const expenseSource =
+      product.supplierId === 'generic' ? 'scanner' : product.supplier || 'Home Depot';
 
     addExpense({
       id: `scan-exp-${Date.now()}`,
@@ -218,7 +233,7 @@ export default function CategoryDetailModal({
       quantity: qty,
       unitCost: cost,
       lineItemTotal: costTotal,
-      source: 'Home Depot',
+      source: expenseSource,
       dateAdded,
       internalNotes: notes || '',
     } as any);
@@ -456,7 +471,10 @@ export default function CategoryDetailModal({
           source: exp.source || undefined,
           dateAdded: exp.dateAdded || exp.date || undefined,
           internalNotes: exp.internalNotes || '',
-          isScannedProduct: Boolean(exp.source === 'Home Depot' && (exp.quantity || exp.unitCost || exp.lineItemTotal)),
+          isScannedProduct: Boolean(
+            (exp.source === 'Home Depot' || exp.source === 'scanner' || exp.source === "Lowe's") &&
+              (exp.quantity || exp.unitCost || exp.lineItemTotal),
+          ),
           po: exp.po || undefined,
           receiptUri: exp.receiptUri || undefined,
           isPlanned: exp.isPlanned !== undefined ? exp.isPlanned : true,
@@ -507,6 +525,21 @@ export default function CategoryDetailModal({
     // For all other categories, sum all items
     return data.reduce((sum, item) => sum + (item.amount || 0), 0);
   }, [data, isPurchaseOrdersCategory]);
+
+  const estimateBudgetKind = isLaborCategory ? 'labor' : 'materials';
+  const { spendSummaries, categorySummary: estimateCategorySummary } =
+    useEstimateLineBudgets(
+    shouldGroupByEstimateLine ? (projectData as unknown as Record<string, unknown>) : null,
+    estimateBudgetKind
+  );
+
+  const categoryBudgetSummary = useMemo(
+    () =>
+      shouldGroupByEstimateLine && estimateCategorySummary.hasEstimateBudget
+        ? buildCategoryBudgetSummary(estimateCategorySummary.totalBudget, total)
+        : buildCategoryBudgetSummary(0, total),
+    [shouldGroupByEstimateLine, estimateCategorySummary, total]
+  );
 
   // Reset add form when category modal closes (avoids stale open state on next open)
   useEffect(() => {
@@ -836,15 +869,20 @@ export default function CategoryDetailModal({
           contentContainerStyle={[
             styles.scrollContent,
             !hasCategoryTransactions && styles.scrollContentCompact,
+            usesWideDarkCardLayout && styles.materialsWideScrollContent,
           ]}
           showsVerticalScrollIndicator={false}
         >
-          <View style={pageWideBleedStyle}>
+          <View style={usesWideDarkCardLayout ? undefined : pageWideBleedStyle}>
             <View
-              style={[
-                categoryFlowCardStyle,
-                !hasCategoryTransactions && styles.categoryFlowCardCompact,
-              ]}
+              style={
+                usesWideDarkCardLayout
+                  ? undefined
+                  : [
+                      categoryFlowCardStyle,
+                      !hasCategoryTransactions && styles.categoryFlowCardCompact,
+                    ]
+              }
             >
           {/* Tabs for Purchase Orders */}
           {isPurchaseOrdersCategory && (
@@ -855,7 +893,7 @@ export default function CategoryDetailModal({
                   activePOTab === 'total' && styles.poActiveTab,
                   { 
                     borderColor: activePOTab === 'total' ? Colors.primary : Colors.line,
-                    backgroundColor: nestedCardBg,
+                    backgroundColor: cardBg,
                   },
                 ]}
                 onPress={() => {
@@ -882,7 +920,7 @@ export default function CategoryDetailModal({
                   activePOTab === 'committed' && styles.poActiveTab,
                   { 
                     borderColor: activePOTab === 'committed' ? Colors.primary : Colors.line,
-                    backgroundColor: nestedCardBg,
+                    backgroundColor: cardBg,
                   },
                 ]}
                 onPress={() => {
@@ -909,7 +947,7 @@ export default function CategoryDetailModal({
                   activePOTab === 'received' && styles.poActiveTab,
                   { 
                     borderColor: activePOTab === 'received' ? Colors.primary : Colors.line,
-                    backgroundColor: nestedCardBg,
+                    backgroundColor: cardBg,
                   },
                 ]}
                 onPress={() => {
@@ -933,14 +971,24 @@ export default function CategoryDetailModal({
             </View>
           )}
 
-          {/* Total Spent Card */}
+          {/* Total Spent / Budget Card */}
+          {shouldGroupByEstimateLine ? (
+            <CategoryEstimateBudgetCard
+              summary={categoryBudgetSummary}
+              darkMode={darkMode}
+              nestedCardBg={cardBg}
+              nestedCardBorder={nestedCardBorder}
+              labelColor={supportSub}
+              valueColor={Colors.text}
+            />
+          ) : (
           <View style={styles.totalCardContainer}>
             {darkMode ? (
               <View
                 style={[
                   styles.totalCardInner,
                   {
-                    backgroundColor: nestedCardBg,
+                    backgroundColor: cardBg,
                     borderWidth: 1,
                     borderColor: "rgba(148, 163, 184, 0.12)",
                     borderRadius: 14,
@@ -958,7 +1006,7 @@ export default function CategoryDetailModal({
               </View>
             ) : (
               <View style={[styles.totalCardBorderLight, { borderColor: Colors.line }]}>
-                <View style={[styles.totalCardInner, { backgroundColor: nestedCardBg, borderColor: nestedCardBorder, borderWidth: 1 }]}>
+                <View style={[styles.totalCardInner, { backgroundColor: cardBg, borderColor: nestedCardBorder, borderWidth: 1 }]}>
                   <View style={styles.totalCard}>
                     <Text style={[styles.totalLabel, { color: Colors.sub }]}>
                       {isPurchaseOrdersCategory 
@@ -971,6 +1019,7 @@ export default function CategoryDetailModal({
               </View>
             )}
           </View>
+          )}
 
           {isMaterialsEquipmentCategory ? (
             <>
@@ -979,7 +1028,7 @@ export default function CategoryDetailModal({
                   style={[
                     styles.materialsScanButton,
                     darkMode
-                      ? { backgroundColor: nestedCardBg, borderColor: nestedCardBorder }
+                      ? { backgroundColor: cardBg, borderColor: nestedCardBorder }
                       : { backgroundColor: Colors.surface2, borderColor: Colors.line },
                   ]}
                   onPress={() => {
@@ -1066,23 +1115,43 @@ export default function CategoryDetailModal({
             <View style={styles.transactionsContainer}>
               {listItems.map((entry) => {
                 if (entry.kind === 'group') {
+                  const lineId = resolveExpenseLineId({
+                    groupKey: entry.groupKey,
+                    expense: entry.items[0],
+                    lineIdToLabel: estimateLineIdToLabel,
+                  });
                   return (
                     <EstimateLineExpenseGroupCard
                       key={entry.groupKey}
                       lineName={entry.lineName}
                       items={entry.items}
                       darkMode={darkMode}
-                      nestedCardBg={nestedCardBg}
+                      nestedCardBg={cardBg}
                       nestedCardBorder={darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line}
                       textColor={darkMode ? '#FFFFFF' : Colors.text}
                       subtextColor={darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub}
                       deletingId={deletingId}
+                      budgetSummary={lookupSpendSummary(spendSummaries, lineId)}
                       onPressItem={(item) => setEditingTransaction(item)}
                     />
                   );
                 }
 
                 const item = entry.item;
+                const itemLineId = shouldGroupByEstimateLine
+                  ? resolveExpenseLineId({
+                      expense: item,
+                      lineIdToLabel: estimateLineIdToLabel,
+                    })
+                  : null;
+                const itemBudgetSummary = shouldGroupByEstimateLine
+                  ? lookupSpendSummary(spendSummaries, itemLineId)
+                  : null;
+                const itemSubtitles = expenseSubtitleLines({
+                  vendor: item.vendor,
+                  material: item.material,
+                  description: item.description,
+                });
                 const isItemDeleting = deletingId === item.id;
                 
                 // For Purchase Orders, use the BudgetTab card design
@@ -1101,7 +1170,7 @@ export default function CategoryDetailModal({
                               styles.transactionCard,
                               {
                                 padding: 16,
-                                backgroundColor: nestedCardBg,
+                                backgroundColor: cardBg,
                                 borderWidth: 1,
                                 borderColor: "rgba(148, 163, 184, 0.12)",
                               },
@@ -1244,7 +1313,7 @@ export default function CategoryDetailModal({
                         <View style={[styles.transactionCardBorderLight, { borderColor: Colors.line }]}>
                           <View style={[styles.transactionCard, { 
                             padding: 16,
-                            backgroundColor: nestedCardBg,
+                            backgroundColor: cardBg,
                             borderColor: Colors.line,
                             borderWidth: 1,
                           }]}>
@@ -1407,7 +1476,7 @@ export default function CategoryDetailModal({
                           styles.transactionCard,
                           {
                             opacity: isItemDeleting ? 0.5 : 1,
-                            backgroundColor: nestedCardBg,
+                            backgroundColor: cardBg,
                             borderWidth: 1,
                             borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
                           },
@@ -1420,17 +1489,15 @@ export default function CategoryDetailModal({
                       >
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 16 }}>
                           <View style={{ flex: 1 }}>
-                            <Text style={{ color: mutedText, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 }}>
-                              Vendor
-                            </Text>
                             <Text style={[styles.vendor, { color: cardText, marginTop: 3 }]} numberOfLines={1}>
                               {item.vendor || 'Home Depot'}
                             </Text>
+                            <View style={styles.scannedCardBadge}>
+                              <MaterialIcons name="qr-code-scanner" size={12} color="#22c55e" />
+                              <Text style={styles.scannedCardBadgeText}>SCANNED</Text>
+                            </View>
                           </View>
                           <View style={{ alignItems: 'flex-end' }}>
-                            <Text style={{ color: mutedText, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 }}>
-                              Amount
-                            </Text>
                             <Text style={[styles.amount, { marginTop: 3 }]}>
                               {formatMoneyFull(scannedLineTotal, { decimals: 2 })}
                             </Text>
@@ -1438,9 +1505,6 @@ export default function CategoryDetailModal({
                         </View>
 
                         <View style={{ marginTop: 12 }}>
-                          <Text style={{ color: mutedText, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 }}>
-                            Description
-                          </Text>
                           <Text style={[styles.description, { color: mutedText, marginTop: 4 }]} numberOfLines={2} ellipsizeMode="tail">
                             {item.productTitle || item.material || item.description || 'Scanned product'}
                           </Text>
@@ -1454,12 +1518,13 @@ export default function CategoryDetailModal({
 
                         {item.modelNumber ? (
                           <Text style={{ color: mutedText, fontSize: 12, fontWeight: '700', marginTop: 6 }}>
-                            Model: {item.modelNumber}
+                            Model {item.modelNumber}
                           </Text>
                         ) : null}
 
                         <View style={[styles.transactionFooter, { marginTop: 12, borderTopColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line }]}>
-                          <Text style={[styles.date, { color: mutedText }]}>Date: {scannedDate}</Text>
+                          <Text style={[styles.date, { color: mutedText }]}>{scannedDate}</Text>
+                          <ReceiptStatusPill hasReceipt={Boolean(item.receiptUri)} />
                           <Text style={styles.tapToEdit}>Tap to edit →</Text>
                         </View>
                       </TouchableOpacity>
@@ -1476,7 +1541,7 @@ export default function CategoryDetailModal({
                           styles.transactionCard, 
                           { 
                             opacity: isItemDeleting ? 0.5 : 1,
-                            backgroundColor: nestedCardBg,
+                            backgroundColor: cardBg,
                             borderWidth: 1,
                             borderColor: "rgba(148, 163, 184, 0.12)",
                           }
@@ -1530,9 +1595,6 @@ export default function CategoryDetailModal({
                           flexWrap: 'wrap'
                         }}>
                           <Text style={[styles.vendor, item.isPurchaseOrder && { marginBottom: 0 }]}>{item.vendor}</Text>
-                          {item.receiptUri && (
-                            <MaterialIcons name="receipt" size={16} color="#22c55e" />
-                          )}
                           {/* Change Order Status Badge */}
                           {item.isChangeOrder && item.status && (
                             <View style={{
@@ -1657,14 +1719,14 @@ export default function CategoryDetailModal({
                           </View>
                         ) : (
                           <>
-                            {!!item.material && (
+                            {!!itemSubtitles.material && (
                               <Text style={styles.description} numberOfLines={2} ellipsizeMode="tail">
-                                {item.material}
+                                {itemSubtitles.material}
                               </Text>
                             )}
-                            {item.description && (
-                              <Text style={styles.description} numberOfLines={1} ellipsizeMode="tail">
-                                {item.description}
+                            {!!itemSubtitles.description && (
+                              <Text style={styles.description} numberOfLines={2} ellipsizeMode="tail">
+                                {itemSubtitles.description}
                               </Text>
                             )}
                             {(item.projectPhase || item.scope) && (
@@ -1682,6 +1744,14 @@ export default function CategoryDetailModal({
                       </View>
                       <Text style={styles.amount}>{formatMoneyFull(item.amount, { decimals: 2 })}</Text>
                     </View>
+
+                    {itemBudgetSummary ? (
+                      <EstimateLineBudgetStrip
+                        summary={itemBudgetSummary}
+                        darkMode={darkMode}
+                        compact
+                      />
+                    ) : null}
                     
                     {/* Footer - Different layout for Purchase Orders */}
                     {item.isPurchaseOrder ? (
@@ -1809,18 +1879,9 @@ export default function CategoryDetailModal({
                             <Text style={styles.poText}>📋 {item.po}</Text>
                           </View>
                         )}
-                        {item.amount > 1000 && !item.receiptUri && (
-                          <View style={{
-                            paddingHorizontal: 6,
-                            paddingVertical: 2,
-                            borderRadius: 6,
-                            backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                            borderWidth: 1,
-                            borderColor: 'rgba(239, 68, 68, 0.3)',
-                          }}>
-                            <Text style={{ color: '#ef4444', fontSize: 10, fontWeight: '600' }}>⚠️ No Receipt</Text>
-                          </View>
-                        )}
+                        {!item.isPurchaseOrder && !item.isChangeOrder ? (
+                          <ReceiptStatusPill hasReceipt={Boolean(item.receiptUri)} />
+                        ) : null}
                         {!item.isChangeOrderMirror ? (
                         <Text style={styles.tapToEdit}>Tap to edit →</Text>
                         ) : onRequestOpenChangeOrder ? (
@@ -1858,7 +1919,7 @@ export default function CategoryDetailModal({
                             styles.transactionCard,
                             { 
                               opacity: isItemDeleting ? 0.5 : 1,
-                              backgroundColor: nestedCardBg,
+                              backgroundColor: cardBg,
                               borderColor: Colors.line,
                               borderWidth: 1,
                             }
@@ -1914,9 +1975,6 @@ export default function CategoryDetailModal({
                             <View style={{ flex: 1 }}>
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                                 <Text style={[styles.vendor, { color: Colors.text }]}>{item.vendor}</Text>
-                                {item.receiptUri && (
-                                  <MaterialIcons name="receipt" size={16} color="#22c55e" />
-                                )}
                                 {/* Change Order Status Badge */}
                                 {item.isChangeOrder && item.status && (
                                   <View style={{
@@ -1961,14 +2019,14 @@ export default function CategoryDetailModal({
                                   </View>
                                 )}
                               </View>
-                              {!!item.material && (
+                              {!!itemSubtitles.material && (
                                 <Text style={[styles.description, { color: Colors.sub }]} numberOfLines={2} ellipsizeMode="tail">
-                                  {item.material}
+                                  {itemSubtitles.material}
                                 </Text>
                               )}
-                              {item.description && (
-                                <Text style={[styles.description, { color: Colors.sub }]} numberOfLines={1} ellipsizeMode="tail">
-                                  {item.description}
+                              {!!itemSubtitles.description && (
+                                <Text style={[styles.description, { color: Colors.sub }]} numberOfLines={2} ellipsizeMode="tail">
+                                  {itemSubtitles.description}
                                 </Text>
                               )}
                               {(item.projectPhase || item.scope) && (
@@ -1984,6 +2042,14 @@ export default function CategoryDetailModal({
                             </View>
                             <Text style={styles.amount}>{formatMoneyFull(item.amount, { decimals: 2 })}</Text>
                           </View>
+
+                          {itemBudgetSummary ? (
+                            <EstimateLineBudgetStrip
+                              summary={itemBudgetSummary}
+                              darkMode={darkMode}
+                              compact
+                            />
+                          ) : null}
                           
                           <View style={[styles.transactionFooter, { borderTopColor: Colors.line }]}>
                             <Text style={[styles.date, { color: Colors.sub }]}>
@@ -1998,18 +2064,9 @@ export default function CategoryDetailModal({
                                 <Text style={styles.poText}>📋 {item.po}</Text>
                               </View>
                             )}
-                            {item.amount > 1000 && !item.receiptUri && (
-                              <View style={{
-                                paddingHorizontal: 6,
-                                paddingVertical: 2,
-                                borderRadius: 6,
-                                backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                                borderWidth: 1,
-                                borderColor: 'rgba(239, 68, 68, 0.3)',
-                              }}>
-                                <Text style={{ color: '#ef4444', fontSize: 10, fontWeight: '600' }}>⚠️ No Receipt</Text>
-                              </View>
-                            )}
+                            {!item.isPurchaseOrder && !item.isChangeOrder ? (
+                              <ReceiptStatusPill hasReceipt={Boolean(item.receiptUri)} />
+                            ) : null}
                             {!item.isChangeOrderMirror ? (
                             <Text style={styles.tapToEdit}>Tap to edit →</Text>
                             ) : onRequestOpenChangeOrder ? (
@@ -2050,7 +2107,7 @@ export default function CategoryDetailModal({
                   style={[
                     styles.emptyIconBubble,
                     {
-                      backgroundColor: nestedCardBg,
+                      backgroundColor: cardBg,
                       borderColor: nestedCardBorder,
                     },
                   ]}
@@ -2390,6 +2447,9 @@ const styles = StyleSheet.create({
   scrollContentCompact: {
     flexGrow: 0,
   },
+  materialsWideScrollContent: {
+    paddingHorizontal: PROJECT_WIDE_CONTAINER_CARD_INSET,
+  },
   categoryFlowCardCompact: {
     alignSelf: 'flex-start',
     width: '100%',
@@ -2456,6 +2516,8 @@ const styles = StyleSheet.create({
   },
   addButtonWrapper: {
     marginBottom: 10,
+    alignSelf: 'stretch',
+    width: '100%',
   },
   materialsScanButton: {
     marginBottom: 10,
@@ -2466,6 +2528,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     borderWidth: 1,
+    alignSelf: 'stretch',
+    width: '100%',
   },
   materialsScanButtonText: {
     fontSize: 15,
@@ -2491,6 +2555,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
+    alignSelf: 'stretch',
+    width: '100%',
     shadowColor: '#22c55e',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -2582,6 +2648,25 @@ const styles = StyleSheet.create({
     flex: 1,
     letterSpacing: -0.3,
     lineHeight: 22,
+  },
+  scannedCardBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 7,
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.28)',
+  },
+  scannedCardBadgeText: {
+    color: '#22c55e',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
   amount: {
     color: "#22c55e",

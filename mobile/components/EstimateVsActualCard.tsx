@@ -13,6 +13,7 @@ import {
   formatCostBudgetVsBidNote,
   formatEstimateStatusLabel,
   formatEstimateVarianceDisplay,
+  formatMapCostsCtaLabel,
   formatSpendDollarsLine,
   formatSpendProgress,
   formatVarianceDollarsLine,
@@ -83,6 +84,10 @@ type EstimateVsActualCardProps = {
   bidPrice?: number;
   totalCategoryCount?: number;
   linkCostsTarget?: string | null;
+  /** When true, CTA opens the Budget tab (Overview). Otherwise targets a category (Budget tab). */
+  mapCostsOpensBudgetTab?: boolean;
+  /** When true, skip the card chrome — parent already provides the surface (e.g. Budget flow card). */
+  embeddedInFlow?: boolean;
   onReviewTips: () => void;
   onMapCosts?: () => void;
   showInsightsCta: boolean;
@@ -99,6 +104,8 @@ export default function EstimateVsActualCard({
   bidPrice,
   totalCategoryCount,
   linkCostsTarget,
+  mapCostsOpensBudgetTab = false,
+  embeddedInFlow = false,
   onReviewTips,
   onMapCosts,
   showInsightsCta,
@@ -116,9 +123,9 @@ export default function EstimateVsActualCard({
   const showTips = shouldShowTipsRow(estimateFeedback, tipCount);
   const showMapCosts =
     Boolean(onMapCosts) &&
-    Boolean(linkCostsTarget) &&
     coverage < ESTIMATE_VS_ACTUAL_MIN_COVERAGE_FOR_TIPS &&
-    estimateFeedback.unresolvedMappings.length === 0;
+    estimateFeedback.unresolvedMappings.length === 0 &&
+    (mapCostsOpensBudgetTab || Boolean(linkCostsTarget));
   const varianceColor =
     !variance.reliable
       ? pageCaption
@@ -136,20 +143,15 @@ export default function EstimateVsActualCard({
       : undefined;
   const categoriesLinkedLabel = formatCategoriesLinkedLabel(linkedCategories.length, totalCategoryCount);
   const categoriesLinkedSublabel = formatCategoriesLinkedSublabel(linkedCategories);
+  const statusLabel = formatEstimateStatusLabel(estimateFeedback.status);
+  const mapCostsCtaLabel = formatMapCostsCtaLabel(linkCostsTarget, {
+    opensBudgetTab: mapCostsOpensBudgetTab,
+  });
 
-  return (
-    <View style={{ marginTop: 12 }}>
-      <View
-        style={{
-          borderRadius: 14,
-          padding: 15,
-          backgroundColor: nestedCardBg,
-          borderWidth: 1,
-          borderColor: nestedCardBorder,
-        }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, gap: 8 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+  const body = (
+    <>
+        <View style={{ marginBottom: 18 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <View
               style={{
                 width: 40,
@@ -160,18 +162,47 @@ export default function EstimateVsActualCard({
                 borderColor: 'rgba(34, 197, 94, 0.22)',
                 alignItems: 'center',
                 justifyContent: 'center',
-                marginRight: 12,
+                flexShrink: 0,
               }}
             >
               <MaterialIcons name="analytics" size={16} color="#22c55e" />
             </View>
-            <Text style={{ fontSize: 22, fontWeight: '800', letterSpacing: -0.4, color: darkMode ? '#F5F7FA' : theme.text }}>
+            <Text
+              style={{
+                flex: 1,
+                fontSize: 20,
+                fontWeight: '800',
+                letterSpacing: -0.35,
+                color: darkMode ? '#F5F7FA' : theme.text,
+              }}
+              numberOfLines={2}
+            >
               Estimate vs actual
             </Text>
           </View>
-          <Text style={{ color: pageCaption, fontSize: 12, fontWeight: '700', textTransform: 'capitalize' }}>
-            {formatEstimateStatusLabel(estimateFeedback.status)}
-          </Text>
+          <View
+            style={{
+              alignSelf: 'flex-start',
+              marginTop: 10,
+              marginLeft: 52,
+              paddingHorizontal: 10,
+              paddingVertical: 4,
+              borderRadius: 999,
+              backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : 'rgba(100, 116, 139, 0.12)',
+            }}
+          >
+            <Text
+              style={{
+                color: pageCaption,
+                fontSize: 11,
+                fontWeight: '700',
+                letterSpacing: 0.2,
+              }}
+              numberOfLines={1}
+            >
+              {statusLabel}
+            </Text>
+          </View>
         </View>
 
         <MetricRow
@@ -238,9 +269,9 @@ export default function EstimateVsActualCard({
         ) : null}
 
         {showMapCosts ? (
-          <Pressable onPress={onMapCosts} accessibilityRole="button" accessibilityLabel={`Link costs to ${linkCostsTarget}`}>
+          <Pressable onPress={onMapCosts} accessibilityRole="button" accessibilityLabel={mapCostsCtaLabel.replace(/\s*→\s*$/, '')}>
             <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '700', marginTop: 10 }}>
-              Link costs to {linkCostsTarget} →
+              {mapCostsCtaLabel}
             </Text>
           </Pressable>
         ) : null}
@@ -259,6 +290,25 @@ export default function EstimateVsActualCard({
             </LinearGradient>
           </Pressable>
         ) : null}
+    </>
+  );
+
+  if (embeddedInFlow) {
+    return <View style={{ marginTop: 12 }}>{body}</View>;
+  }
+
+  return (
+    <View style={{ marginTop: 12 }}>
+      <View
+        style={{
+          borderRadius: 14,
+          padding: 15,
+          backgroundColor: nestedCardBg,
+          borderWidth: 1,
+          borderColor: nestedCardBorder,
+        }}
+      >
+        {body}
       </View>
     </View>
   );

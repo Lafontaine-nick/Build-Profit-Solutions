@@ -3,6 +3,9 @@ const {
   buildDailyCommandCenter,
   parseCalendarEventCreate,
   runCompareProjectsPipeline,
+  isCentralCommandMutationRequest,
+  appendDataFreshness,
+  buildBudgetStatusReply,
 } = require('../aiAssistantCore');
 const {
   deepClone,
@@ -83,5 +86,27 @@ describe('aiAssistantCore', () => {
 
     expect(parsed.needsMore).toBe('details');
     expect(parsed.event.title).not.toBe('2026');
+  });
+
+  test('identifies Central Command mutation requests before tool execution', () => {
+    expect(isCentralCommandMutationRequest('Add a $450 lumber expense from Lowe’s')).toBe(true);
+    expect(isCentralCommandMutationRequest('Mark the final payment collected')).toBe(true);
+    expect(isCentralCommandMutationRequest('Change the budget for the kitchen project')).toBe(true);
+    expect(isCentralCommandMutationRequest('Which project has the lowest margin?')).toBe(false);
+    expect(isCentralCommandMutationRequest('How much have I spent on materials?')).toBe(false);
+  });
+
+  test('keeps freshness metadata attached to deterministic answers', () => {
+    const reply = appendDataFreshness('Portfolio totals are available.', {
+      snapshotAt: '2026-09-03T18:00:00.000Z',
+    });
+
+    expect(reply).toContain('Portfolio totals are available.');
+    expect(reply).toContain('2026-09-03 18:00 UTC');
+    expect(reply).toContain('Pull to refresh');
+  });
+
+  test('does not manufacture a budget answer when the budget is unavailable', () => {
+    expect(buildBudgetStatusReply({ projectName: 'Unpriced Job', spent: 1200 })).toBeNull();
   });
 });

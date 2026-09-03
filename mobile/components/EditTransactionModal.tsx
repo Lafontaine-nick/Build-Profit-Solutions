@@ -40,6 +40,8 @@ import {
 } from "@/utils/estimateFlowCardStyle";
 import { useProjectData } from "@/contexts/ProjectDataContext";
 import EstimateLinePicker, { type EstimateLineOption } from "@/components/EstimateLinePicker";
+import { resolveEstimateLineOption } from "@/utils/estimateLineOptions";
+import { resolveProjectEstimateData } from "@/utils/rateInsightComparisons";
 
 /** Web: space below browser tabs / address bar so the card does not touch the chrome */
 const WEB_MODAL_TOP_INSET = 52;
@@ -286,23 +288,29 @@ export default function EditTransactionModal({
   const displayLineName = (name: string) =>
     name.replace(/\s*[—–-]\s*(materials?|labor)\s*$/i, "").trim() || name;
 
+  const resolvedEstimateLine = useMemo(() => {
+    if (!transaction || !showEstimateLinePicker) return null;
+    return resolveEstimateLineOption(
+      resolveProjectEstimateData(projectData as unknown as Record<string, unknown>),
+      estimatePickerKind,
+      {
+        linkedLineId: transaction.linkedLineId,
+        material: transaction.material,
+        vendor: transaction.vendor,
+        description: transaction.description,
+      }
+    );
+  }, [transaction, showEstimateLinePicker, projectData, estimatePickerKind]);
+
   useEffect(() => {
     if (visible && transaction) {
       setVendor(transaction.vendor);
       setAmount(String(transaction.amount));
       setDescription(transaction.description);
       setPo(transaction.po || "");
-      if (transaction.linkedLineId) {
-        setSelectedEstimateLine({
-          id: transaction.linkedLineId,
-          name: transaction.material || transaction.description || transaction.vendor,
-          budget: 0,
-        });
-      } else {
-        setSelectedEstimateLine(null);
-      }
+      setSelectedEstimateLine(resolvedEstimateLine);
     }
-  }, [visible, transaction]);
+  }, [visible, transaction, resolvedEstimateLine]);
 
   const webAlert = (title: string, message: string) => {
     if (
@@ -339,7 +347,7 @@ export default function EditTransactionModal({
       material: selectedEstimateLine
         ? displayLineName(selectedEstimateLine.name)
         : transaction.material,
-      linkedLineId: selectedEstimateLine?.id ?? null,
+      linkedLineId: selectedEstimateLine?.id ?? resolvedEstimateLine?.id ?? null,
     });
   };
 
@@ -481,7 +489,9 @@ export default function EditTransactionModal({
                   kind={estimatePickerKind}
                   projectLike={projectData as unknown as Record<string, unknown>}
                   selectedLineId={selectedEstimateLine?.id}
-                  readOnly={Boolean(transaction.linkedLineId)}
+                  excludeExpenseId={transaction.id}
+                  editingAmount={parseFloat(amount) || 0}
+                  readOnly={Boolean(selectedEstimateLine)}
                   onSelect={(line) => {
                     setSelectedEstimateLine(line);
                     if (line && isMaterialsEquipment) {

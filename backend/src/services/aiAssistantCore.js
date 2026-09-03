@@ -980,6 +980,26 @@ function appendDataFreshness(text = '', parsedContext = {}) {
   return `${t}${buildDataFreshnessFooter(parsedContext)}`;
 }
 
+/**
+ * Central Command is an analysis surface, not a write surface.
+ * Keep mutation detection intentionally conservative: questions about current
+ * data should continue to the deterministic portfolio handlers, while requests
+ * to change stored data are declined before any model/tool execution.
+ */
+function isCentralCommandMutationRequest(message = '') {
+  const text = normalizeAiMessageForIntent(message);
+  if (!text) return false;
+
+  const mutationVerb =
+    /\b(?:add|record|log|create|save|update|edit|modify|mark|apply|remove|delete|rename)\b/i;
+  const mutationObject =
+    /\b(?:expense|expenses|material|materials|labor|labou?r|purchase\s+order|po\b|daily\s+log|change\s+order|payment|estimate|project|budget|pricing|scope|schedule|team\s+member|calendar)\b/i;
+
+  if (mutationVerb.test(text) && mutationObject.test(text)) return true;
+  if (/\b(?:change|move|set)\s+(?:the|my|this|that|a|an)\b/i.test(text) && mutationObject.test(text)) return true;
+  return /\b(?:bought|purchased|spent)\b/i.test(text) && /\d/.test(text) && mutationObject.test(text);
+}
+
 /** User wants to add something to the project calendar (mobile persists to AsyncStorage). */
 function isCalendarEventCreateQuery(message = '') {
   const s = normalizeAiMessageForIntent(message);
@@ -1775,6 +1795,7 @@ module.exports = {
   buildPortfolioComparisonReply,
   buildDataFreshnessFooter,
   appendDataFreshness,
+  isCentralCommandMutationRequest,
   buildPortfolioNextActions,
   runCompareProjectsPipeline,
 };

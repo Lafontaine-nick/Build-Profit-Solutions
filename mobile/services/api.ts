@@ -515,7 +515,7 @@ class ApiService {
     return response.data.settings;
   }
 
-  // User settings methods (AI Project Manager Mode)
+  // User settings methods (AI Daily Brief)
   async getUserSettings(): Promise<{
     ai_project_manager_mode: boolean;
     ai_manager_aggressiveness: string;
@@ -535,7 +535,7 @@ class ApiService {
       if (error.message?.includes('Route') && error.message?.includes('not found')) {
         console.log('⚠️  User settings route not available, using defaults');
         return {
-          ai_project_manager_mode: false,
+          ai_project_manager_mode: true,
           ai_manager_aggressiveness: 'medium',
           ai_notify_about: 'all',
           ai_preferred_channel: 'in_app',
@@ -623,7 +623,7 @@ class ApiService {
       if (error.message?.includes('Route') && error.message?.includes('not found')) {
         console.log('⚠️  User settings route not available, using local defaults');
         return {
-          ai_project_manager_mode: updates.ai_project_manager_mode ?? false,
+          ai_project_manager_mode: updates.ai_project_manager_mode ?? true,
           ai_manager_aggressiveness: updates.ai_manager_aggressiveness ?? 'medium',
           ai_notify_about: updates.ai_notify_about ?? 'all',
           ai_preferred_channel: updates.ai_preferred_channel ?? 'in_app',

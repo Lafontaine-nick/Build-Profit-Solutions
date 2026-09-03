@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -70,6 +70,12 @@ type Props = {
   scopeComparisons?: ScopeActualComparison[];
   projectStatus?: string;
   darkMode?: boolean;
+  /** Skip slide-in when opened from a deep link on first paint. */
+  instantPresent?: boolean;
+  /** Scroll to a specific estimate line when opened from an insight. */
+  highlightLineId?: string | null;
+  /** Accessibility label for back / done when returning to dashboard Insights. */
+  closeAccessibilityLabel?: string;
   /** @deprecated Approval is disabled — kept for call-site compatibility. */
   budgetAccessMode?: 'owner' | 'cost_control';
   onApproved?: (count: number) => void;
@@ -115,7 +121,12 @@ function LineItemCard({
   const borderColor = spendStatus === 'none' ? cardBorder : statusStyle.borderColor;
 
   return (
-    <View style={[styles.lineCard, { backgroundColor: cardBg, borderColor }]}>
+    <View
+      style={[
+        styles.lineCard,
+        { backgroundColor: cardBg, borderColor },
+      ]}
+    >
       <Text style={[styles.lineTitle, { color: text }]} numberOfLines={2}>
         {line.name}
       </Text>
@@ -150,6 +161,8 @@ function SectionCard({
   label,
   muted,
   darkMode,
+  onLineLayout,
+  registerLineRef,
 }: {
   section: RateInsightSection;
   outerCardBg: string;
@@ -160,6 +173,8 @@ function SectionCard({
   label: string;
   muted: string;
   darkMode: boolean;
+  onLineLayout?: (lineId: string) => void;
+  registerLineRef?: (lineId: string, node: View | null) => void;
 }) {
   const sectionVariance = formatVariancePct(
     section.estimatedTotal > 0 && section.loggedTotal > 0
@@ -180,16 +195,22 @@ function SectionCard({
         </Text>
       ) : null}
       {section.lineItems.map((line) => (
-        <LineItemCard
+        <View
           key={line.id}
-          line={line}
-          nestedCardBg={nestedCardBg}
-          cardBorder={cardBorder}
-          text={text}
-          secondary={secondary}
-          muted={muted}
-          darkMode={darkMode}
-        />
+          ref={(node) => registerLineRef?.(line.id, node)}
+          collapsable={false}
+          onLayout={() => onLineLayout?.(line.id)}
+        >
+          <LineItemCard
+            line={line}
+            nestedCardBg={nestedCardBg}
+            cardBorder={cardBorder}
+            text={text}
+            secondary={secondary}
+            muted={muted}
+            darkMode={darkMode}
+          />
+        </View>
       ))}
       {section.unlinkedExpenses.length > 0 ? (
         <View style={[styles.unlinkedBlock, { borderColor: cardBorder }]}>
@@ -223,9 +244,17 @@ export default function CalibrationReviewModal({
   scopeComparisons = [],
   projectStatus,
   darkMode = true,
+  instantPresent = false,
+  highlightLineId = null,
+  closeAccessibilityLabel,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const [loading, setLoading] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollContentRef = useRef<View>(null);
+  const lineRefs = useRef<Record<string, View | null>>({});
+  const pendingHighlightLineId = useRef<string | null>(highlightLineId || null);
+  const hasAutoScrolledToHighlight = useRef(false);
+  const [closeoutLoading, setCloseoutLoading] = useState(false);
   const [closeout, setCloseout] = useState<CloseoutCalibrationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -249,12 +278,55 @@ export default function CalibrationReviewModal({
   const insightRowCount = countRateInsightRows(insightSections);
   const isCloseout = isProjectCloseout(projectStatus);
 
+  const scrollToHighlightedLine = useCallback((animated = false) => {
+    const lineId = pendingHighlightLineId.current;
+    if (!lineId || hasAutoScrolledToHighlight.current) return;
+    const lineNode = lineRefs.current[lineId];
+    const contentNode = scrollContentRef.current;
+    if (!lineNode || !contentNode) return;
+    lineNode.measureLayout(
+      contentNode,
+      (_x, y) => {
+        scrollRef.current?.scrollTo({ y: Math.max(0, y - 32), animated });
+        pendingHighlightLineId.current = null;
+        hasAutoScrolledToHighlight.current = true;
+      },
+      () => {}
+    );
+  }, []);
+
+  const registerLineRef = useCallback((lineId: string, node: View | null) => {
+    lineRefs.current[lineId] = node;
+  }, []);
+
+  const handleLineLayout = useCallback(
+    (lineId: string) => {
+      if (pendingHighlightLineId.current === lineId) {
+        requestAnimationFrame(() => scrollToHighlightedLine(false));
+      }
+    },
+    [scrollToHighlightedLine]
+  );
+
+  useEffect(() => {
+    if (!visible) {
+      hasAutoScrolledToHighlight.current = false;
+      pendingHighlightLineId.current = highlightLineId || null;
+      lineRefs.current = {};
+      return;
+    }
+    if (highlightLineId) {
+      pendingHighlightLineId.current = highlightLineId;
+      hasAutoScrolledToHighlight.current = false;
+    }
+  }, [visible, highlightLineId]);
+
   const load = useCallback(async () => {
     if (!projectLike?.id && !(projectLike as any)?.projectData) {
       setError('No project loaded.');
       return;
     }
-    setLoading(true);
+    setCloseoutLoading(true);
     setError(null);
     try {
       const result = await submitCloseoutCalibration(projectLike);
@@ -265,7 +337,7 @@ export default function CalibrationReviewModal({
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load rate insights');
     } finally {
-      setLoading(false);
+      setCloseoutLoading(false);
     }
   }, [projectLike]);
 
@@ -289,7 +361,12 @@ export default function CalibrationReviewModal({
   const pageInset = PROJECT_WIDE_CONTAINER_CARD_INSET;
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType={instantPresent ? 'none' : 'slide'}
+      presentationStyle="fullScreen"
+      onRequestClose={onClose}
+    >
       <View style={[styles.root, { backgroundColor: pageBg, paddingTop: insets.top }]}>
         <View style={[styles.header, { paddingHorizontal: pageInset }]}>
           <View style={[styles.headerBack, { left: pageInset }]}>
@@ -303,6 +380,7 @@ export default function CalibrationReviewModal({
                 <GradientRingBackInner
                   darkMode
                   onPress={onClose}
+                  accessibilityLabel={closeAccessibilityLabel ?? "Go back"}
                   style={[styles.backButton, { backgroundColor: '#000000' }]}
                 >
                   <MaterialIcons name="arrow-back" size={22} color="#FFFFFF" />
@@ -318,6 +396,7 @@ export default function CalibrationReviewModal({
                 <GradientRingBackInner
                   darkMode={false}
                   onPress={onClose}
+                  accessibilityLabel={closeAccessibilityLabel ?? "Go back"}
                   style={[styles.backButton, { backgroundColor: '#FFFFFF' }]}
                 >
                   <MaterialIcons name="arrow-back" size={22} color="#0F172A" />
@@ -333,19 +412,22 @@ export default function CalibrationReviewModal({
           </View>
         </View>
 
-        {loading ? (
-          <View style={styles.centered}>
-            <ActivityIndicator color={darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#64748B'} />
-            <Text style={[styles.subtitle, { color: muted, marginTop: 12 }]}>Comparing estimate vs actual…</Text>
-          </View>
-        ) : (
-          <ScrollView
-            contentContainerStyle={[styles.scroll, { paddingHorizontal: pageInset, paddingBottom: 24 + insets.bottom }]}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {closeout?.summary ? (
-              <View style={[styles.outerCard, { backgroundColor: outerCardBg, borderColor: cardBorder }]}>
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={[styles.scroll, { paddingHorizontal: pageInset, paddingBottom: 24 + insets.bottom }]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View ref={scrollContentRef} collapsable={false}>
+            {closeoutLoading && !closeout ? (
+              <View style={[styles.outerCard, styles.summaryCard, { backgroundColor: outerCardBg, borderColor: cardBorder, alignItems: 'center' }]}>
+                <ActivityIndicator color={darkMode ? ESTIMATE_FLOW_TEXT_SECONDARY_DARK : '#64748B'} />
+                <Text style={[styles.bodyText, { color: muted, marginTop: 10, textAlign: 'center' }]}>
+                  Checking close-out suggestions…
+                </Text>
+              </View>
+            ) : closeout?.summary ? (
+              <View style={[styles.outerCard, styles.summaryCard, { backgroundColor: outerCardBg, borderColor: cardBorder }]}>
                 <Text style={[styles.sectionLabel, { color: label }]}>
                   {isCloseout ? 'This close-out' : 'This job so far'}
                 </Text>
@@ -408,6 +490,8 @@ export default function CalibrationReviewModal({
                     label={label}
                     muted={muted}
                     darkMode={darkMode}
+                    onLineLayout={handleLineLayout}
+                    registerLineRef={registerLineRef}
                   />
                 ))}
               </>
@@ -420,8 +504,8 @@ export default function CalibrationReviewModal({
                 </Text>
               </View>
             )}
-          </ScrollView>
-        )}
+          </View>
+        </ScrollView>
 
         <View
           style={[
@@ -434,7 +518,12 @@ export default function CalibrationReviewModal({
             },
           ]}
         >
-          <Pressable onPress={onClose} style={styles.doneBtn} accessibilityRole="button" accessibilityLabel="Done">
+          <Pressable
+            onPress={onClose}
+            style={styles.doneBtn}
+            accessibilityRole="button"
+            accessibilityLabel={closeAccessibilityLabel ?? "Done"}
+          >
             <Text style={[styles.doneText, { color: text }]}>Done</Text>
           </Pressable>
         </View>
@@ -486,7 +575,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   scroll: {
-    gap: 12,
+    paddingTop: 8,
   },
   centered: {
     flex: 1,
@@ -496,7 +585,12 @@ const styles = StyleSheet.create({
   outerCard: {
     borderWidth: 1,
     borderRadius: 14,
-    padding: 15,
+    padding: 16,
+    marginBottom: 20,
+  },
+  summaryCard: {
+    minHeight: 108,
+    justifyContent: 'center',
   },
   sectionLabel: {
     fontSize: 12,
@@ -543,8 +637,8 @@ const styles = StyleSheet.create({
   lineCard: {
     borderWidth: 1,
     borderRadius: 12,
-    padding: 12,
-    marginTop: 10,
+    padding: 14,
+    marginTop: 16,
   },
   lineTitle: {
     fontSize: 15,

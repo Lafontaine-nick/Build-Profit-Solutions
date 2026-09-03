@@ -104,6 +104,8 @@ interface ProjectDataContextType {
   }) => void;
   resetProjectData: () => void;
   reloadFromStorage: () => Promise<void>;
+  /** False until AsyncStorage hydration for the current projectId finishes. */
+  isProjectDataLoaded: boolean;
 }
 
 const ProjectDataContext = createContext<ProjectDataContextType | undefined>(
@@ -496,6 +498,9 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
 
   // Load saved data from AsyncStorage on mount
   useEffect(() => {
+    setIsLoaded(false);
+    setProjectData(getInitialProjectData(projectId));
+
     const loadSavedData = async () => {
       try {
         const unified = getProjectById(projectId || '1');
@@ -1731,6 +1736,7 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     updateHealth,
     resetProjectData,
     reloadFromStorage,
+    isProjectDataLoaded: isLoaded,
   };
 
   return (

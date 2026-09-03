@@ -1,8 +1,9 @@
 // @ts-nocheck
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  InteractionManager,
   Modal,
   Platform,
   Text,
@@ -14,9 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { resolveScannedProductForStoreOpen } from '../services/productLookupService';
-import { getProductPageUrl, normalizeScannedBarcode } from '../lib/products/productScannerTypes';
-import { openStoreProductPage } from '../lib/products/openStoreProductPage';
+import { lookupScannedProduct } from '../services/productLookupService';
+import { normalizeScannedBarcode } from '../lib/products/productScannerTypes';
 import type { ProductSupplierId, ScannedProduct } from '../lib/products/productScannerTypes';
 import { AI_FLOW_CARD_BG_DARK, ESTIMATE_FLOW_CARD_GAP, ESTIMATE_FLOW_CHIP_GREEN, ESTIMATE_FLOW_CHIP_GREEN_BG, ESTIMATE_FLOW_GREEN, ESTIMATE_FLOW_SCREEN_HORIZONTAL_PAD, estimateFlowCardStyle, estimateFlowInputShellStyle, estimateFlowOutlineActionButtonStyle, estimateFlowOutlineActionButtonTextStyle } from '@/utils/estimateFlowCardStyle';
 import { useTheme } from '../contexts/ThemeContext';
@@ -59,6 +59,18 @@ const BARCODE_TYPES = [
 ];
 
 const SCANNER_SCREEN_BG = '#000000';
+const PRODUCT_LOOKUP_TIMEOUT_MS = 20000;
+const CAMERA_START_DELAY_MS = 1000;
+
+const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('Product lookup timed out.')), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+};
 
 export default function ProductScannerModal({
   visible,
@@ -110,14 +122,56 @@ function ProductScannerModalContent({
   const [isLocked, setIsLocked] = useState(false);
   const [manualCode, setManualCode] = useState('');
   const scanLockRef = useRef(false);
+  const isLockedRef = useRef(isLocked);
+  const isLookingUpRef = useRef(isLookingUp);
+  const lookupRequestRef = useRef(0);
+  const scanCooldownUntilRef = useRef(0);
+  const scanResetTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [cameraPaneReady, setCameraPaneReady] = useState(false);
 
   useEffect(() => {
-    if (!visible) return;
+    isLockedRef.current = isLocked;
+  }, [isLocked]);
+
+  useEffect(() => {
+    isLookingUpRef.current = isLookingUp;
+  }, [isLookingUp]);
+
+  useEffect(() => {
+    if (!visible) {
+      setCameraPaneReady(false);
+      return undefined;
+    }
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      setCameraPaneReady(true);
+    });
+
+    return () => task.cancel?.();
+  }, [visible]);
+
+  const resetScannerState = useCallback(() => {
+    lookupRequestRef.current += 1;
     scanLockRef.current = false;
+    scanCooldownUntilRef.current = 0;
+    if (scanResetTimerRef.current) {
+      clearTimeout(scanResetTimerRef.current);
+      scanResetTimerRef.current = undefined;
+    }
     setIsLocked(false);
     setIsLookingUp(false);
     setManualCode('');
-  }, [visible]);
+  }, []);
+
+  useEffect(() => {
+    resetScannerState();
+  }, [resetScannerState, visible]);
+
+  const handleClose = useCallback(() => {
+    resetScannerState();
+    void Promise.resolve(CameraModule?.dismissScanner?.()).catch(() => {});
+    onClose();
+  }, [onClose, resetScannerState]);
 
   const openProductFromCode = useCallback(
     async (code: string, codeType = 'manual') => {
@@ -127,8 +181,31 @@ function ProductScannerModalContent({
         return;
       }
       if (scanLockRef.current) return;
+      if (Date.now() < scanCooldownUntilRef.current) return;
+
+      const isShortCameraBarcode =
+        codeType !== 'manual' &&
+        (/^ean8$/i.test(String(codeType || '')) ||
+          (trimmed.length === 8 && /^barcode$/i.test(String(codeType || ''))));
+      if (isShortCameraBarcode && trimmed.length === 8) {
+        scanCooldownUntilRef.current = Date.now() + 1800;
+        scanLockRef.current = true;
+        setIsLocked(true);
+        Alert.alert(
+          'Short barcode detected',
+          'This may be a secondary package barcode. Scan the longer 12-digit UPC-A barcode on the product, or enter this code manually below.',
+        );
+        scanResetTimerRef.current = setTimeout(() => {
+          scanLockRef.current = false;
+          scanCooldownUntilRef.current = 0;
+          setIsLocked(false);
+          scanResetTimerRef.current = undefined;
+        }, 1800);
+        return;
+      }
 
       scanLockRef.current = true;
+      const requestId = ++lookupRequestRef.current;
       setIsLocked(true);
       setIsLookingUp(true);
 
@@ -137,34 +214,42 @@ function ProductScannerModalContent({
       }
 
       try {
-        const product = await resolveScannedProductForStoreOpen({
-          code: trimmed,
-          codeType,
-          sourceHint,
-          zip: defaultZip,
-        });
-        const pageUrl = getProductPageUrl(product);
-        if (pageUrl) {
-          await openStoreProductPage(pageUrl);
-        }
-        onProductFound(product);
+        const result = await withTimeout(
+          lookupScannedProduct({
+            code: trimmed,
+            codeType,
+            sourceHint: sourceHint || 'auto',
+            zip: defaultZip,
+          }),
+          PRODUCT_LOOKUP_TIMEOUT_MS,
+        );
+        if (requestId !== lookupRequestRef.current) return;
+        onProductFound(result.product);
       } catch (error) {
-        Alert.alert('Product lookup failed', 'Check your connection and try again.');
-        scanLockRef.current = false;
-        setIsLocked(false);
+        if (requestId !== lookupRequestRef.current) return;
+        const timedOut = error?.message === 'Product lookup timed out.';
+        Alert.alert(
+          timedOut ? 'Product lookup took too long' : 'Product lookup failed',
+          timedOut
+            ? 'The camera is ready again. Try scanning once more or enter the code manually.'
+            : 'Check your connection and try again.',
+        );
+        resetScannerState();
       } finally {
-        setIsLookingUp(false);
+        if (requestId === lookupRequestRef.current) {
+          setIsLookingUp(false);
+        }
       }
     },
-    [defaultZip, onProductFound, sourceHint],
+    [defaultZip, onProductFound, resetScannerState, sourceHint],
   );
 
   const handleScanned = useCallback(
     ({ data, type }) => {
-      if (scanLockRef.current || isLocked || isLookingUp) return;
+      if (scanLockRef.current || isLockedRef.current || isLookingUpRef.current) return;
       openProductFromCode(data, type || 'barcode');
     },
-    [isLocked, isLookingUp, openProductFromCode],
+    [openProductFromCode],
   );
 
   const hasNativeCamera = Boolean(CameraView && useCameraPermissions);
@@ -183,7 +268,7 @@ function ProductScannerModalContent({
         }}
       >
           <TouchableOpacity
-            onPress={onClose}
+            onPress={handleClose}
             style={{
               width: 42,
               height: 42,
@@ -199,7 +284,7 @@ function ProductScannerModalContent({
           <View style={{ flex: 1, marginLeft: 14 }}>
             <Text style={{ color: '#FFFFFF', fontSize: 20, fontWeight: '900' }}>Product Scanner</Text>
             <Text style={{ color: 'rgba(226,232,240,0.72)', fontSize: 12, marginTop: 2 }}>
-              Scan a barcode or QR code, or enter a UPC, SKU, model number, or product URL manually.
+              Scan any product — we detect Home Depot, Lowe&apos;s, and other stores automatically.
             </Text>
           </View>
           {isLookingUp ? <ActivityIndicator color={ESTIMATE_FLOW_CHIP_GREEN} /> : null}
@@ -217,11 +302,16 @@ function ProductScannerModalContent({
           }}
         >
           {hasNativeCamera ? (
-            <LiveCameraScanner
-              isLocked={isLocked}
-              isLookingUp={isLookingUp}
-              onScanned={handleScanned}
-            />
+            visible && cameraPaneReady ? (
+              <LiveCameraScanner
+                visible={visible}
+                isLocked={isLocked}
+                isLookingUp={isLookingUp}
+                onScanned={handleScanned}
+              />
+            ) : (
+              <View style={{ flex: 1, backgroundColor: SCANNER_SCREEN_BG }} />
+            )
           ) : (
             <CameraUnavailablePanel reason={cameraUnavailableReason} />
           )}
@@ -274,7 +364,16 @@ function ProductScannerModalContent({
                 <Text style={[estimateFlowOutlineActionButtonTextStyle(), { fontWeight: '800' }]}>Search</Text>
               </TouchableOpacity>
             </View>
-            {isLocked ? (
+            {isLookingUp ? (
+              <TouchableOpacity
+                onPress={handleClose}
+                style={{ alignItems: 'center', paddingVertical: 4 }}
+              >
+                <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontWeight: '800' }}>
+                  Cancel lookup
+                </Text>
+              </TouchableOpacity>
+            ) : isLocked ? (
               <TouchableOpacity
                 onPress={() => {
                   scanLockRef.current = false;
@@ -285,6 +384,18 @@ function ProductScannerModalContent({
                 <Text style={{ color: ESTIMATE_FLOW_CHIP_GREEN, fontWeight: '800' }}>Scan another code</Text>
               </TouchableOpacity>
             ) : null}
+            <Text
+              style={{
+                color: 'rgba(226,232,240,0.46)',
+                fontSize: 10.5,
+                lineHeight: 15,
+                fontWeight: '600',
+                textAlign: 'center',
+                marginTop: 4,
+              }}
+            >
+              Not affiliated with Home Depot or Lowe&apos;s.
+            </Text>
           </View>
         </View>
     </View>
@@ -348,28 +459,57 @@ function CameraUnavailablePanel({ reason }: { reason: string }) {
   );
 }
 
-function LiveCameraScanner({ isLocked, isLookingUp, onScanned }) {
+const LiveCameraScanner = memo(function LiveCameraScanner({ visible, isLocked, isLookingUp, onScanned }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [lastScanHint, setLastScanHint] = useState('');
+  const cameraReadyRef = useRef(false);
+  const isLockedRef = useRef(isLocked);
+  const isLookingUpRef = useRef(isLookingUp);
+  const onScannedRef = useRef(onScanned);
   const hasPermission = permission?.granted;
   const canUseNativeScanner = Boolean(CameraModule?.launchScanner && CameraModule?.onModernBarcodeScanned);
+
+  useEffect(() => {
+    isLockedRef.current = isLocked;
+  }, [isLocked]);
+
+  useEffect(() => {
+    isLookingUpRef.current = isLookingUp;
+  }, [isLookingUp]);
+
+  useEffect(() => {
+    onScannedRef.current = onScanned;
+  }, [onScanned]);
+
+  // Give the user a moment to position the barcode when the scanner opens.
+  // Detection and lookup behavior remains unchanged after the warm-up.
+  useEffect(() => {
+    if (!visible) {
+      cameraReadyRef.current = false;
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      cameraReadyRef.current = true;
+    }, CAMERA_START_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [visible]);
 
   useEffect(() => {
     if (!canUseNativeScanner) return undefined;
 
     const subscription = CameraModule.onModernBarcodeScanned((event) => {
       const data = event?.data || event?.value || event?.rawValue;
-      if (!data || isLocked || isLookingUp) return;
+      if (!cameraReadyRef.current || !data || isLockedRef.current || isLookingUpRef.current) return;
       setLastScanHint(`Detected ${event?.type || 'barcode'}: ${data}`);
       void CameraModule.dismissScanner?.().catch?.(() => {});
-      onScanned({ data, type: event?.type || 'barcode' });
+      onScannedRef.current({ data, type: event?.type || 'barcode' });
     });
 
     return () => subscription?.remove?.();
-  }, [canUseNativeScanner, isLocked, isLookingUp, onScanned]);
+  }, [canUseNativeScanner]);
 
   const launchNativeScanner = useCallback(() => {
-    if (!canUseNativeScanner || isLocked || isLookingUp) return;
+    if (!canUseNativeScanner || !cameraReadyRef.current || isLockedRef.current || isLookingUpRef.current) return;
     CameraModule.launchScanner({
       barcodeTypes: BARCODE_TYPES,
       isGuidanceEnabled: true,
@@ -377,17 +517,14 @@ function LiveCameraScanner({ isLocked, isLookingUp, onScanned }) {
     }).catch((error) => {
       Alert.alert('Scanner unavailable', error?.message || 'Use the live camera view or enter the code manually.');
     });
-  }, [canUseNativeScanner, isLocked, isLookingUp]);
+  }, [canUseNativeScanner]);
 
-  const handleLiveBarcodeScanned = useCallback(
-    (event) => {
-      const data = event?.data || event?.value || event?.rawValue;
-      if (!data || isLocked || isLookingUp) return;
-      setLastScanHint(`Detected ${event?.type || 'barcode'}: ${data}`);
-      onScanned({ data, type: event?.type || 'barcode' });
-    },
-    [isLocked, isLookingUp, onScanned],
-  );
+  const handleLiveBarcodeScanned = useCallback((event) => {
+    const data = event?.data || event?.value || event?.rawValue;
+    if (!cameraReadyRef.current || !data || isLockedRef.current || isLookingUpRef.current) return;
+    setLastScanHint(`Detected ${event?.type || 'barcode'}: ${data}`);
+    onScannedRef.current({ data, type: event?.type || 'barcode' });
+  }, []);
 
   if (!hasPermission) {
     return (
@@ -413,9 +550,9 @@ function LiveCameraScanner({ isLocked, isLookingUp, onScanned }) {
     <CameraView
       style={{ flex: 1, backgroundColor: SCANNER_SCREEN_BG }}
       facing="back"
-      active
+      active={visible && !isLocked && !isLookingUp}
       barcodeScannerSettings={{ barcodeTypes: BARCODE_TYPES }}
-      onBarcodeScanned={isLocked || isLookingUp ? undefined : handleLiveBarcodeScanned}
+      onBarcodeScanned={handleLiveBarcodeScanned}
     >
       <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 28 }}>
         <View
@@ -481,4 +618,4 @@ function LiveCameraScanner({ isLocked, isLookingUp, onScanned }) {
       </View>
     </CameraView>
   );
-}
+});

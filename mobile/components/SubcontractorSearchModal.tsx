@@ -37,6 +37,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import { FORM_KEYBOARD_SCROLL_PROPS, KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import { nativeNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
+import { isLeadsNetworkingReleased } from '@/constants/releaseFlags';
 import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
 import { withProjectLeadsAuth } from '@/utils/projectLeadsAuthFetch';
 import { syncBpsDirectoryListing, type BpsDirectorySyncResult } from '@/services/bpsDirectorySync';
@@ -2037,7 +2038,7 @@ function SubcontractorSearchModal({
               </Text>
             </TouchableOpacity>
 
-            {/* Request Subcontractor Button */}
+            {isLeadsNetworkingReleased() ? (
             <TouchableOpacity
               onPress={() => {
                 console.log('🔘 Request Subcontractor button pressed');
@@ -2074,6 +2075,7 @@ function SubcontractorSearchModal({
                 Request Subcontractor
               </Text>
             </TouchableOpacity>
+            ) : null}
             </View>
           </View>
 
@@ -2404,7 +2406,9 @@ function SubcontractorSearchModal({
                 </Text>
                 <Text style={{ color: darkMode ? '#8DA0B8' : Colors.sub, fontSize: 14, textAlign: 'center', marginTop: 8 }}>
                   {placesDisabledMessage ||
-                    "Try another ZIP, trade, or radius — or tap Request Subcontractor above."}
+                    (isLeadsNetworkingReleased()
+                      ? 'Try another ZIP, trade, or radius — or tap Request Subcontractor above.'
+                      : 'Try another ZIP, trade, or radius.')}
                 </Text>
               </View>
             )}

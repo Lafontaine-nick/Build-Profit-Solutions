@@ -192,10 +192,7 @@ import {
   draftWithoutPendingPricing,
   purgeSavedPricingForBid,
 } from '../../utils/estimateSavedPricingCleanup';
-import { MessagesInbox } from '../../components/MessagesInbox';
-import AIBidOptimization from '../../components/AIBidOptimization';
 import ProjectAnalysis from '../../components/ProjectAnalysis';
-import AIAssistantModal from '../../components/AIAssistantModal';
 import AppTextField from '@/components/ui/AppTextField';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import { estimateStep12NumericKeyboardProps, lineItemModalNumericKeyboardProps, resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
@@ -264,7 +261,6 @@ import { useWorkspaceProjectPermissions } from '../../hooks/useWorkspaceProjectP
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getColors } from '../../theme/getColors';
-import api from '../../services/BackendAPI';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import { syncClerkTokenToAsyncStorage } from '../../utils/authTokenHelper';
 import { formatIsoDateMMDDYYYY } from '../../utils/formatIsoDateMMDDYYYY';
@@ -3665,230 +3661,6 @@ const moneyCompactBar = (n) => {
   return money(value);
 };
 
-const ESTIMATE_AI_PACKAGES = {
-  kitchen: {
-    scopeSections: ['Demo & protection', 'Cabinetry & Tops', 'Fixtures', 'Flooring', 'Electrical', 'Paint & trim'],
-    materials: [
-      { description: 'Cabinetry allowance', section: 'Cabinetry & Tops', category: 'Cabinetry', unit: 'allowance' },
-      { description: 'Countertop allowance', section: 'Cabinetry & Tops', category: 'Countertops', unit: 'allowance' },
-      { description: 'Sink and faucet allowance', section: 'Fixtures', category: 'Fixtures', unit: 'allowance' },
-      { description: 'Backsplash / finish allowance', section: 'Paint & trim', category: 'Finishes', unit: 'allowance' },
-    ],
-    labor: [
-      { description: 'Demo & protection labor', section: 'Demo & protection', category: 'Demo' },
-      { description: 'Cabinet install labor', section: 'Cabinetry & Tops', category: 'Cabinetry' },
-      { description: 'Electrical trim labor', section: 'Electrical', category: 'Electrical' },
-      { description: 'Paint & finish labor', section: 'Paint & trim', category: 'Finishes' },
-    ],
-  },
-  bathroom: {
-    scopeSections: ['Demo & protection', 'Waterproofing', 'Tile', 'Fixtures', 'Plumbing', 'Paint & trim'],
-    materials: [
-      { description: 'Tile allowance', section: 'Tile', category: 'Tile', unit: 'allowance' },
-      { description: 'Waterproofing allowance', section: 'Waterproofing', category: 'Waterproofing', unit: 'allowance' },
-      { description: 'Vanity / fixtures allowance', section: 'Fixtures', category: 'Fixtures', unit: 'allowance' },
-      { description: 'Plumbing trim allowance', section: 'Plumbing', category: 'Plumbing', unit: 'allowance' },
-    ],
-    labor: [
-      { description: 'Demo labor', section: 'Demo & protection', category: 'Demo' },
-      { description: 'Tile install labor', section: 'Tile', category: 'Tile' },
-      { description: 'Plumbing labor', section: 'Plumbing', category: 'Plumbing' },
-      { description: 'Finish labor', section: 'Paint & trim', category: 'Finishes' },
-    ],
-  },
-  room_addition: {
-    scopeSections: ['Sitework', 'Framing', 'Roofing', 'Electrical', 'Insulation', 'Drywall & Paint'],
-    materials: [
-      { description: 'Framing package allowance', section: 'Framing', category: 'Framing', unit: 'allowance' },
-      { description: 'Roofing tie-in allowance', section: 'Roofing', category: 'Roofing', unit: 'allowance' },
-      { description: 'Electrical rough allowance', section: 'Electrical', category: 'Electrical', unit: 'allowance' },
-      { description: 'Drywall / finish allowance', section: 'Drywall & Paint', category: 'Finishes', unit: 'allowance' },
-    ],
-    labor: [
-      { description: 'Site prep labor', section: 'Sitework', category: 'Sitework' },
-      { description: 'Framing labor', section: 'Framing', category: 'Framing' },
-      { description: 'Roofing labor', section: 'Roofing', category: 'Roofing' },
-      { description: 'Finish labor', section: 'Drywall & Paint', category: 'Finishes' },
-    ],
-  },
-  home_addition: {
-    scopeSections: ['Demolition', 'Framing', 'Electrical', 'Plumbing', 'Drywall & Paint', 'Flooring'],
-    materials: [
-      { description: 'Demolition allowance', section: 'Demolition', category: 'Demolition', unit: 'allowance' },
-      { description: 'Framing package allowance', section: 'Framing', category: 'Framing', unit: 'allowance' },
-      { description: 'Electrical rough allowance', section: 'Electrical', category: 'Electrical', unit: 'allowance' },
-      { description: 'Finish flooring allowance', section: 'Flooring', category: 'Flooring', unit: 'allowance' },
-    ],
-    labor: [
-      { description: 'Demolition labor', section: 'Demolition', category: 'Demolition' },
-      { description: 'Framing labor', section: 'Framing', category: 'Framing' },
-      { description: 'Electrical / plumbing coordination labor', section: 'Electrical', category: 'Electrical' },
-      { description: 'Finish labor', section: 'Drywall & Paint', category: 'Finishes' },
-    ],
-  },
-  adu: {
-    scopeSections: ['Sitework', 'Foundation', 'Framing', 'Roofing', 'MEP Rough', 'Finishes'],
-    materials: [
-      { description: 'Foundation package allowance', section: 'Foundation', category: 'Foundation', unit: 'allowance' },
-      { description: 'Framing package allowance', section: 'Framing', category: 'Framing', unit: 'allowance' },
-      { description: 'Roofing allowance', section: 'Roofing', category: 'Roofing', unit: 'allowance' },
-      { description: 'Finish package allowance', section: 'Finishes', category: 'Finishes', unit: 'allowance' },
-    ],
-    labor: [
-      { description: 'Sitework labor', section: 'Sitework', category: 'Sitework' },
-      { description: 'Framing labor', section: 'Framing', category: 'Framing' },
-      { description: 'MEP coordination labor', section: 'MEP Rough', category: 'MEP Rough' },
-      { description: 'Finish labor', section: 'Finishes', category: 'Finishes' },
-    ],
-  },
-  garage_conversion: {
-    scopeSections: ['Demolition', 'Framing', 'Electrical', 'Insulation', 'Drywall & Paint', 'Flooring'],
-    materials: [
-      { description: 'Framing package allowance', section: 'Framing', category: 'Framing', unit: 'allowance' },
-      { description: 'Electrical rough allowance', section: 'Electrical', category: 'Electrical', unit: 'allowance' },
-      { description: 'Insulation allowance', section: 'Insulation', category: 'Insulation', unit: 'allowance' },
-      { description: 'Flooring allowance', section: 'Flooring', category: 'Flooring', unit: 'allowance' },
-    ],
-    labor: [
-      { description: 'Demolition labor', section: 'Demolition', category: 'Demolition' },
-      { description: 'Framing labor', section: 'Framing', category: 'Framing' },
-      { description: 'Electrical labor', section: 'Electrical', category: 'Electrical' },
-      { description: 'Finish labor', section: 'Drywall & Paint', category: 'Finishes' },
-    ],
-  },
-  new_build: {
-    scopeSections: ['Sitework', 'Foundation', 'Framing', 'Roofing', 'MEP Rough', 'Finishes'],
-    materials: [
-      { description: 'Foundation package allowance', section: 'Foundation', category: 'Foundation', unit: 'allowance' },
-      { description: 'Framing package allowance', section: 'Framing', category: 'Framing', unit: 'allowance' },
-      { description: 'Roofing allowance', section: 'Roofing', category: 'Roofing', unit: 'allowance' },
-      { description: 'Finish package allowance', section: 'Finishes', category: 'Finishes', unit: 'allowance' },
-    ],
-    labor: [
-      { description: 'Sitework labor', section: 'Sitework', category: 'Sitework' },
-      { description: 'Framing labor', section: 'Framing', category: 'Framing' },
-      { description: 'Roofing labor', section: 'Roofing', category: 'Roofing' },
-      { description: 'Finish labor', section: 'Finishes', category: 'Finishes' },
-    ],
-  },
-  landscaping: {
-    scopeSections: ['Hardscape', 'Softscape & Plants', 'Irrigation', 'Lighting'],
-    materials: [
-      { description: 'Hardscape allowance', section: 'Hardscape', category: 'Hardscape', unit: 'allowance' },
-      { description: 'Planting allowance', section: 'Softscape & Plants', category: 'Softscape', unit: 'allowance' },
-      { description: 'Irrigation allowance', section: 'Irrigation', category: 'Irrigation', unit: 'allowance' },
-      { description: 'Lighting allowance', section: 'Lighting', category: 'Lighting', unit: 'allowance' },
-    ],
-    labor: [
-      { description: 'Site prep labor', section: 'Hardscape', category: 'Hardscape' },
-      { description: 'Planting labor', section: 'Softscape & Plants', category: 'Softscape' },
-      { description: 'Irrigation labor', section: 'Irrigation', category: 'Irrigation' },
-      { description: 'Lighting labor', section: 'Lighting', category: 'Lighting' },
-    ],
-  },
-  roofing: {
-    scopeSections: ['Demolition', 'Roof Deck', 'Underlayment', 'Roofing', 'Flashing', 'Gutters'],
-    materials: [
-      { description: 'Tear-off allowance', section: 'Demolition', category: 'Demolition', unit: 'allowance' },
-      { description: 'Underlayment allowance', section: 'Underlayment', category: 'Roofing', unit: 'allowance' },
-      { description: 'Roofing material allowance', section: 'Roofing', category: 'Roofing', unit: 'allowance' },
-      { description: 'Flashing / gutter allowance', section: 'Flashing', category: 'Roofing', unit: 'allowance' },
-    ],
-    labor: [
-      { description: 'Tear-off labor', section: 'Demolition', category: 'Demolition' },
-      { description: 'Deck repair labor', section: 'Roof Deck', category: 'Roofing' },
-      { description: 'Roof install labor', section: 'Roofing', category: 'Roofing' },
-      { description: 'Flashing / gutter labor', section: 'Gutters', category: 'Roofing' },
-    ],
-  },
-  deck_patio: {
-    scopeSections: ['Demolition', 'Footings', 'Framing', 'Decking', 'Railing', 'Concrete & Pavers'],
-    materials: [
-      { description: 'Footing allowance', section: 'Footings', category: 'Concrete', unit: 'allowance' },
-      { description: 'Framing package allowance', section: 'Framing', category: 'Framing', unit: 'allowance' },
-      { description: 'Decking allowance', section: 'Decking', category: 'Decking', unit: 'allowance' },
-      { description: 'Railing / patio finish allowance', section: 'Railing', category: 'Finishes', unit: 'allowance' },
-    ],
-    labor: [
-      { description: 'Demolition labor', section: 'Demolition', category: 'Demolition' },
-      { description: 'Footing labor', section: 'Footings', category: 'Concrete' },
-      { description: 'Framing labor', section: 'Framing', category: 'Framing' },
-      { description: 'Deck / patio finish labor', section: 'Decking', category: 'Decking' },
-    ],
-  },
-  plumbing_service: {
-    scopeSections: ['Diagnostics', 'Plumbing', 'Fixtures', 'Water Heater', 'Finish & Cleanup'],
-    materials: [
-      { description: 'Diagnostic allowance', section: 'Diagnostics', category: 'Plumbing', unit: 'allowance' },
-      { description: 'Pipe / fitting allowance', section: 'Plumbing', category: 'Plumbing', unit: 'allowance' },
-      { description: 'Fixture replacement allowance', section: 'Fixtures', category: 'Fixtures', unit: 'allowance' },
-      { description: 'Water heater allowance', section: 'Water Heater', category: 'Plumbing', unit: 'allowance' },
-    ],
-    labor: [
-      { description: 'Diagnostic labor', section: 'Diagnostics', category: 'Plumbing' },
-      { description: 'Repair labor', section: 'Plumbing', category: 'Plumbing' },
-      { description: 'Fixture install labor', section: 'Fixtures', category: 'Fixtures' },
-      { description: 'Cleanup / testing labor', section: 'Finish & Cleanup', category: 'Plumbing' },
-    ],
-  },
-  other: {
-    scopeSections: ['Scope setup', 'Materials', 'Labor', 'Pricing', 'Payments'],
-    materials: [
-      { description: 'Primary material allowance', section: 'Materials', category: 'Materials', unit: 'allowance' },
-      { description: 'Finish material allowance', section: 'Materials', category: 'Finishes', unit: 'allowance' },
-    ],
-    labor: [
-      { description: 'Core production labor', section: 'Labor', category: 'Labor' },
-      { description: 'Finish labor', section: 'Labor', category: 'Finishes' },
-    ],
-  },
-};
-
-const normalizeEstimateAiProjectType = (projectType) => {
-  const key = String(projectType || 'other').trim().toLowerCase().replace(/\s+/g, '_');
-  return ESTIMATE_AI_PACKAGES[key] ? key : 'other';
-};
-
-const getEstimateAiPackage = (projectType) =>
-  ESTIMATE_AI_PACKAGES[normalizeEstimateAiProjectType(projectType)] || ESTIMATE_AI_PACKAGES.other;
-
-const makeEstimateAiId = (prefix, index) => `${prefix}-${Date.now()}-${index}`;
-
-const buildEstimateStarterMaterialItems = (projectType, tier = 'standard') => {
-  const packageDef = getEstimateAiPackage(projectType);
-  const tierLabel = tier === 'budget' ? 'Budget' : tier === 'premium' ? 'Premium' : 'Standard';
-  return packageDef.materials.map((item, index) => ({
-    id: makeEstimateAiId(`ai-material-${tier}`, index),
-    name: item.description,
-    description: `${tierLabel} starter allowance - verify selections, quantities, and local pricing.`,
-    quantity: 1,
-    unit: item.unit || 'allowance',
-    unitPrice: 0,
-    total: 0,
-    vendor: '',
-    section: item.section,
-    category: item.category,
-    scope: normalizeEstimateAiProjectType(projectType),
-    source: 'ai',
-    isManual: true,
-  }));
-};
-
-const buildEstimateStarterLaborItems = (projectType, tier = 'standard') => {
-  const packageDef = getEstimateAiPackage(projectType);
-  const tierLabel = tier === 'budget' ? 'Budget' : tier === 'premium' ? 'Premium' : 'Standard';
-  return packageDef.labor.map((item, index) => ({
-    id: makeEstimateAiId(`ai-labor-${tier}`, index),
-    name: item.description,
-    description: `${tierLabel} starter labor placeholder - verify hours, crew mix, and rates.`,
-    hours: 0,
-    rate: 0,
-    total: 0,
-    category: item.category,
-    section: item.section,
-  }));
-};
-
 const addDaysToDateString = (dateString, daysToAdd) => {
   const base = dateString ? new Date(`${dateString}T00:00:00`) : new Date();
   if (Number.isNaN(base.getTime())) return new Date().toISOString().split('T')[0];
@@ -3898,59 +3670,6 @@ const addDaysToDateString = (dateString, daysToAdd) => {
 
 const roundEstimateAiMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
-const buildEstimateMilestoneSchedule = (total, { startDate, safer = false } = {}) => {
-  const percentages = safer ? [40, 30, 20, 10] : [30, 30, 30, 10];
-  const labels = safer
-    ? ['Deposit / mobilization', 'Midpoint progress', 'Substantial completion', 'Punch list']
-    : ['Deposit', 'Rough-in / progress', 'Finish stage', 'Final completion'];
-  return labels.map((name, index) => {
-    const percentage = percentages[index] || 0;
-    const amount = roundEstimateAiMoney((Number(total) || 0) * (percentage / 100));
-    const scheduledDate = addDaysToDateString(startDate, index * 7);
-    return {
-      id: makeEstimateAiId('ai-milestone', index),
-      name,
-      percentage,
-      paymentAmount: amount,
-      amount,
-      scheduledDate,
-      dueDate: scheduledDate,
-    };
-  });
-};
-
-const buildEstimateWeeklySchedule = (total, weeks = 4, { startDate, safer = false } = {}) => {
-  const safeWeeks = Math.max(2, Math.min(12, Number(weeks) || 4));
-  const depositPct = safer ? 25 : 20;
-  const remainingPct = 100 - depositPct;
-  const recurringPct = safeWeeks > 0 ? remainingPct / safeWeeks : remainingPct;
-  const payments = [
-    {
-      id: makeEstimateAiId('ai-weekly', 0),
-      name: 'Deposit / startup',
-      description: 'Deposit / startup',
-      percentage: depositPct,
-      amount: roundEstimateAiMoney((Number(total) || 0) * (depositPct / 100)),
-      weekNumber: 0,
-      scheduledDate: startDate || new Date().toISOString().split('T')[0],
-      dueDate: startDate || new Date().toISOString().split('T')[0],
-    },
-  ];
-  for (let index = 1; index <= safeWeeks; index += 1) {
-    const scheduledDate = addDaysToDateString(startDate, index * 7);
-    payments.push({
-      id: makeEstimateAiId('ai-weekly', index),
-      name: `Week ${index} progress payment`,
-      description: `Week ${index} progress payment`,
-      percentage: roundEstimateAiMoney(recurringPct),
-      amount: roundEstimateAiMoney((Number(total) || 0) * (recurringPct / 100)),
-      weekNumber: index,
-      scheduledDate,
-      dueDate: scheduledDate,
-    });
-  }
-  return payments;
-};
 
 const WEEKLY_PROGRESS_HOLDBACK_OPTIONS = [0, 2.5, 5, 10];
 
@@ -4078,273 +3797,6 @@ const extractMilestonePaymentDateDrafts = (milestones = []) => {
     milestones: progressDates,
     final: final?.scheduledDate || final?.dueDate || '',
   };
-};
-
-const buildEstimateAssistantBrief = ({
-  step,
-  projectType,
-  readinessState,
-  nextStepLabel,
-  currentStepLabel,
-  healthScore,
-  missingEstimateItems,
-  setupProgressPct,
-  estimateNameIsEmpty,
-  hasClientInfo,
-  hasJobInfo,
-  hasMaterials,
-  hasLabor,
-  hasReviewedMarkup,
-  hasPaymentSchedule,
-  hasReviewedTotal,
-  markupLow,
-  markupPct,
-  total,
-}) => {
-  const normalizedProjectType = normalizeEstimateAiProjectType(projectType);
-  const projectTypeLabel = normalizedProjectType.replace(/_/g, ' ');
-  const chips = [];
-  const pushChip = (label, prompt) => {
-    if (!label || !prompt) return;
-    if (!chips.some((chip) => chip.label === label || chip.prompt === prompt)) {
-      chips.push({ label, prompt });
-    }
-  };
-
-  let bestNextAction = {
-    label: 'Review this bid',
-    prompt: 'Review this bid and tell me the best next fix.',
-    reason: 'A quick audit will surface the highest-value fix first.',
-  };
-
-  if (!hasClientInfo) {
-    bestNextAction = {
-      label: 'Fix customer info',
-      prompt: 'What customer fields are still missing (name, phone, address)?',
-      reason: 'Name, phone, and address are enough to start; email can wait until you send the proposal.',
-    };
-  } else if (!hasJobInfo || estimateNameIsEmpty) {
-    bestNextAction = {
-      label: 'Finish project setup',
-      prompt: 'Help me finish the project information for this estimate.',
-      reason: 'Project setup drives scope suggestions, timing, and cleaner bid presentation.',
-    };
-  } else if (!hasMaterials) {
-    bestNextAction = {
-      label: 'Build starter materials',
-      prompt: `Build a starter materials list for this ${projectTypeLabel} estimate.`,
-      reason: 'Without material coverage, the price and margin are not grounded yet.',
-    };
-  } else if (!hasLabor) {
-    bestNextAction = {
-      label: 'Build labor breakdown',
-      prompt: `Build a starter labor breakdown for this ${projectTypeLabel} estimate.`,
-      reason: 'Labor is still missing, so your profit picture is incomplete.',
-    };
-  } else if (!hasReviewedMarkup || markupLow) {
-    bestNextAction = {
-      label: 'Protect profit',
-      prompt: 'Review my markup and tell me if this bid is protected enough.',
-      reason: markupLow
-        ? `Markup is only ${Math.round((Number(markupPct) || 0) * 10) / 10}%, which may leave thin cushion.`
-        : 'Markup and overhead should be checked before send readiness.',
-    };
-  } else if (!hasPaymentSchedule) {
-    bestNextAction = {
-      label: 'Build payment schedule',
-      prompt: 'Build a safer payment schedule for this estimate.',
-      reason: 'Payment timing protects cash flow and startup exposure.',
-    };
-  } else if (!hasReviewedTotal) {
-    bestNextAction = {
-      label: 'Run final review',
-      prompt: 'Review this bid before I send it.',
-      reason: 'A final review catches remaining blockers before the bid goes out.',
-    };
-  } else if (healthScore < 75) {
-    bestNextAction = {
-      label: 'Improve protection',
-      prompt: 'Make this estimate safer and explain the top protection moves.',
-      reason: 'The estimate is mostly built, but risk and margin protection can still improve.',
-    };
-  }
-
-  const stage =
-    readinessState === 'empty' || setupProgressPct <= 15
-      ? 'mostly_empty'
-      : readinessState === 'ready' || setupProgressPct >= 80
-        ? 'near_complete'
-        : 'partially_built';
-
-  const riskLines = [];
-  if (!hasMaterials) riskLines.push('material coverage is still empty');
-  if (!hasLabor) riskLines.push('labor coverage is still empty');
-  if (!hasPaymentSchedule) riskLines.push('payment timing is not protecting cash flow yet');
-  if (markupLow) riskLines.push('profit cushion looks thin for normal job friction');
-
-  const missingPreview = Array.isArray(missingEstimateItems) ? missingEstimateItems.slice(0, 3) : [];
-  const summary =
-    stage === 'mostly_empty'
-      ? `This estimate is still in setup. ${missingPreview.length ? `Largest gaps: ${missingPreview.join(', ')}.` : 'You need core job, cost, and payment inputs before pricing is reliable.'}`
-      : stage === 'near_complete'
-        ? `This bid is close. ${riskLines.length ? `Main watchout: ${riskLines[0]}.` : 'You are mostly in final review territory.'}`
-        : `This bid is in progress. ${missingPreview.length ? `Still missing: ${missingPreview.join(', ')}.` : 'A few important setup items still need attention.'}`;
-
-  const assumptions =
-    !hasMaterials || !hasLabor
-      ? 'Starter guidance only until real material and labor values are entered.'
-      : !hasPaymentSchedule
-        ? 'Pricing can look fine while cash flow risk is still exposed.'
-        : total > 0
-          ? 'Recommendations are grounded in the current estimate values on screen.'
-          : 'Totals are still incomplete, so suggestions stay directional.';
-
-  const confidence =
-    !hasMaterials || !hasLabor
-      ? 'Low confidence until cost inputs are entered'
-      : healthScore >= 80
-        ? 'High confidence from entered estimate data'
-        : 'Medium confidence from current estimate setup';
-
-  if (stage === 'mostly_empty') {
-    pushChip(bestNextAction.label, bestNextAction.prompt);
-    pushChip('Build Starter Scope', `Build a starter scope for this ${projectTypeLabel} estimate.`);
-    pushChip('Add Common Items', `Add common line items for this ${projectTypeLabel} estimate.`);
-    pushChip('What’s Missing', 'What is missing from this estimate right now?');
-    pushChip('Set Safe Markup', 'Set a safer markup for this estimate.');
-    pushChip('Build Payment Schedule', 'Build a payment schedule for this estimate.');
-  } else if (stage === 'near_complete') {
-    pushChip(bestNextAction.label, bestNextAction.prompt);
-    pushChip('Ready to Send?', 'Is this estimate ready to send?');
-    pushChip('Pressure-Test Profit', 'Run a friction scenario on this estimate.');
-    pushChip('Protect Profit', 'Make this estimate safer and explain the top protection moves.');
-    pushChip('Final Review', 'Review this bid before I send it.');
-    pushChip('Safer Schedule', 'Generate a safer payment schedule for this estimate.');
-  } else {
-    pushChip(bestNextAction.label, bestNextAction.prompt);
-    pushChip('Review This Bid', 'Review this bid and tell me the biggest profit risks.');
-    pushChip('Missing Costs', 'Scan this estimate for missing costs and gaps.');
-    pushChip('Check Margin', 'What is my margin on this estimate?');
-    pushChip('Add Line Items', 'Help me add line items to this estimate.');
-    pushChip('Build Schedule', 'Build a payment schedule for this estimate.');
-  }
-
-  switch (step) {
-    case 1:
-      pushChip('Missing Fields', 'Which customer fields are still missing?');
-      pushChip('Contract Readiness', 'Is the customer setup ready for contract use?');
-      pushChip('Summarize Notes', 'Summarize the customer notes into a clean scope summary.');
-      break;
-    case 2:
-      pushChip('Build Starter Scope', 'Build a starter scope for this estimate.');
-      pushChip('Common Line Items', `Add common line items for this ${projectTypeLabel} estimate.`);
-      pushChip('Timeline Help', 'Help me set realistic timeline assumptions for this estimate.');
-      break;
-    case 3:
-      pushChip('Starter Material List', `Build a starter materials list for this ${projectTypeLabel} estimate.`);
-      pushChip('Missing Material Categories', 'What material categories are still missing?');
-      pushChip('Budget vs Premium', 'Compare budget vs premium material packages for this estimate.');
-      break;
-    case 4:
-      pushChip('Add Labor Breakdown', `Build a starter labor breakdown for this ${projectTypeLabel} estimate.`);
-      pushChip('In-House vs Subs', 'How should I split this between in-house labor and subs?');
-      pushChip('Check Labor Coverage', 'Check whether this estimate has enough labor coverage.');
-      break;
-    case 5:
-      pushChip('Is My Markup Safe?', 'Is my markup safe for this estimate?');
-      pushChip('Raise Margin', 'How can I raise margin on this estimate?');
-      pushChip('Explain Break-Even', 'Explain my break-even and cushion on this estimate.');
-      break;
-    case 7:
-      pushChip('Build Weekly Schedule', 'Build a weekly payment schedule for this estimate.');
-      pushChip('Build Milestones', 'Build a milestone payment schedule for this estimate.');
-      pushChip('Improve Cash Flow', 'Improve cash flow protection on this estimate.');
-      pushChip('Auto-Fix 100%', 'Rebalance this payment schedule to 100%.');
-      break;
-    case 8:
-    case 0:
-      pushChip('Review This Bid', 'Review this bid before I send it.');
-      pushChip('Ready to Send?', 'Is this estimate ready to send?');
-      pushChip('Why Is Health Low?', 'Why is the health score low on this estimate?');
-      pushChip('Top Fixes', 'What should I fix first on this estimate?');
-      break;
-    default:
-      break;
-  }
-
-  return {
-    stage,
-    currentStepLabel,
-    nextStepLabel,
-    summary,
-    assumptions,
-    confidence,
-    risks: riskLines,
-    bestNextAction,
-    chips: chips.slice(0, 6),
-  };
-};
-
-const buildEstimateTrustSignals = ({
-  hasMaterials,
-  hasLabor,
-  hasPaymentSchedule,
-  healthScore,
-  setupProgressPct,
-}) => {
-  const labels = [];
-  labels.push(hasMaterials && hasLabor ? 'Entered cost data' : 'Starter / incomplete cost data');
-  labels.push(hasPaymentSchedule ? 'Cash flow structure entered' : 'Cash flow assumptions still incomplete');
-  labels.push(healthScore >= 80 && setupProgressPct >= 80 ? 'High confidence' : healthScore >= 55 ? 'Medium confidence' : 'Low confidence');
-  return labels;
-};
-
-const buildEstimateVariantPreviews = ({ calc, bid, readinessState }) => {
-  const subtotal = Number(calc?.subtotal || 0);
-  const currentMarkup = Number(bid?.markupPct || 0);
-  const startDate = bid?.startDate || bid?.projectStartDate || new Date().toISOString().split('T')[0];
-  const totalForMarkup = (markupPct) => roundEstimateAiMoney(subtotal + subtotal * ((Number(markupPct) || 0) / 100));
-  const standardMarkup = currentMarkup > 0 ? currentMarkup : 20;
-  return [
-    {
-      id: 'budget',
-      label: 'Budget',
-      title: 'Budget version',
-      note: 'Lean presentation with thinner cushion. Best when the user wants a price-sensitive option.',
-      markupPct: 16,
-      total: totalForMarkup(16),
-      trustLabel: readinessState === 'ready' ? 'Based on entered cost data' : 'Directional until cost inputs are complete',
-    },
-    {
-      id: 'standard',
-      label: 'Standard',
-      title: 'Standard version',
-      note: 'Balanced default for most bids with normal contractor protection.',
-      markupPct: Math.max(standardMarkup, 20),
-      total: totalForMarkup(Math.max(standardMarkup, 20)),
-      trustLabel: readinessState === 'ready' ? 'Closest to current bid' : 'Starter guidance',
-    },
-    {
-      id: 'premium',
-      label: 'Premium',
-      title: 'Premium version',
-      note: 'More cushion for complexity, finish quality, and change-order resistance.',
-      markupPct: Math.max(standardMarkup, 28),
-      total: totalForMarkup(Math.max(standardMarkup, 28)),
-      trustLabel: readinessState === 'ready' ? 'Higher finish / higher cushion' : 'Preview until estimate is more complete',
-    },
-    {
-      id: 'safer_cashflow',
-      label: 'Safer Cash Flow',
-      title: 'Safer cash-flow version',
-      note: 'Keeps more money earlier through deposit + stronger milestone timing.',
-      markupPct: Math.max(standardMarkup, 20),
-      total: totalForMarkup(Math.max(standardMarkup, 20)),
-      paymentSchedule: 'milestone-based',
-      paymentMilestones: buildEstimateMilestoneSchedule(totalForMarkup(Math.max(standardMarkup, 20)), { startDate, safer: true }),
-      trustLabel: 'Focused on payment protection, not just price',
-    },
-  ];
 };
 
 // Compute total from saved bid data (for Restore list when stored total is 0)
@@ -5213,7 +4665,6 @@ export default function EstimateGeneratorScreen() {
     isFirstTime: false,
     savedEstimates: [],
   });
-  const lastEstimateAiUndoRef = useRef(null);
   const lastTemplateApplyRef = useRef(0);
   /** Declared before any hook reads them — avoids temporal-dead-zone crashes when Estimates mounts (web ErrorBoundary). */
   const [materialsCart, setMaterialsCart] = useState(
@@ -5543,7 +4994,6 @@ export default function EstimateGeneratorScreen() {
   const [hasCreatedFirstEstimate, setHasCreatedFirstEstimate] = useState(false);
   const [hasSubmittedFirstEstimate, setHasSubmittedFirstEstimate] = useState(false);
   const [isOnboardingReset, setIsOnboardingReset] = useState(false);
-  const [estimateAiInitialQuestion, setEstimateAiInitialQuestion] = useState('');
   /** Account + device: first-estimate walkthrough off after skip/complete/second bid. */
   const firstEstimateWalkthroughDone = wtHydrated && !shouldShowFirstEstimate;
   /** Intro resolved (Start / Skip); persisted while first-estimate walkthrough is active. */
@@ -7210,8 +6660,6 @@ export default function EstimateGeneratorScreen() {
           setShowAiDraftReviewModal(false);
           setShowAiBuilderModal(false);
           setAiDraftFromAssistant(false);
-          setShowAIAssistant(false);
-          setEstimateAiInitialQuestion('');
           setStep(0);
           await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
           await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(nextCart));
@@ -8093,84 +7541,6 @@ export default function EstimateGeneratorScreen() {
     () => estimateChecklist.filter((item) => !item.completed).map((item) => item.label),
     [estimateChecklist]
   );
-  const estimateStepFields = useMemo(() => {
-    switch (step) {
-      case 0:
-        return ['total', 'unitPrice', 'marginPercent', 'healthScore', 'saveOrSubmit'];
-      case 1:
-        return ['customerName', 'customerPhone', 'customerAddress', 'customerNotes'];
-      case 2:
-        // sqft stays on the form but is not a field the AI should chase in chat
-        return ['title', 'projectType', 'scopeDescription', 'startDate', 'endDate'];
-      case 3:
-        return ['materialLineItems', 'materialsCart', 'unitPrice', 'quantity'];
-      case 4:
-        return ['laborLineItems', 'subcontractors', 'hours', 'trade'];
-      case 5:
-        return ['contractorType', 'markupPct', 'insuranceOverhead', 'equipment', 'equipmentMaintenance', 'facilities', 'adminOverhead', 'planCost', 'permitCost', 'otherDirectCost', 'engineeringCost', 'financingFees', 'interestCost', 'contingencyAllowance'];
-      case 6:
-        return ['scenarioAnalysis', 'projectAnalysis', 'marketRates', 'laborRates'];
-      case 7:
-        return ['paymentSchedule', 'paymentMilestones', 'weeklyPayments', 'customPayments'];
-      case 8:
-        return ['healthScore', 'contract', 'export', 'finalReview'];
-      default:
-        return [];
-    }
-  }, [step]);
-  const estimateAssistantBrief = useMemo(() => buildEstimateAssistantBrief({
-    step,
-    projectType: bid.projectType,
-    readinessState,
-    nextStepLabel,
-    currentStepLabel: currentEstimateStepMeta?.title || (step === 0 ? 'Bid Summary' : `Step ${step}`),
-    healthScore,
-    missingEstimateItems,
-    setupProgressPct,
-    estimateNameIsEmpty: !(typeof bid?.title === 'string' && bid.title.trim()),
-    hasClientInfo,
-    hasJobInfo,
-    hasMaterials,
-    hasLabor,
-    hasReviewedMarkup,
-    hasPaymentSchedule,
-    hasReviewedTotal,
-    markupLow,
-    markupPct,
-    total: calc?.total || 0,
-  }), [
-    step,
-    bid.projectType,
-    bid?.title,
-    readinessState,
-    nextStepLabel,
-    currentEstimateStepMeta,
-    healthScore,
-    missingEstimateItems,
-    setupProgressPct,
-    hasClientInfo,
-    hasJobInfo,
-    hasMaterials,
-    hasLabor,
-    hasReviewedMarkup,
-    hasPaymentSchedule,
-    hasReviewedTotal,
-    markupLow,
-    markupPct,
-    calc?.total,
-  ]);
-  const estimateTrustSignals = useMemo(() => buildEstimateTrustSignals({
-    hasMaterials,
-    hasLabor,
-    hasPaymentSchedule,
-    healthScore,
-    setupProgressPct,
-  }), [hasLabor, hasMaterials, hasPaymentSchedule, healthScore, setupProgressPct]);
-  const estimateVariantPreviews = useMemo(() => buildEstimateVariantPreviews({
-    calc,
-    bid,
-    readinessState,
-  }), [calc, bid, readinessState]);
   
   // Local state for markup percentage input to prevent glitching while typing
   const [markupPctText, setMarkupPctText] = useState('');
@@ -8902,10 +8272,8 @@ export default function EstimateGeneratorScreen() {
   const milestoneCountInputRef = useRef(null);
   const milestoneFinalPercentInputRef = useRef(null);
   const [subcontractorModalVisible, setSubcontractorModalVisible] = useState(false);
-  const [showMessagesInbox, setShowMessagesInbox] = useState(false);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
-  const [showAIAssistant, setShowAIAssistant] = useState(false);
   const [milestoneModal, setMilestoneModal] = useState({ visible: false, item: null });
   const [weeklyPaymentModal, setWeeklyPaymentModal] = useState({ visible: false, item: null });
   const [scoreExplanationExpanded, setScoreExplanationExpanded] = useState(false);
@@ -10065,7 +9433,7 @@ export default function EstimateGeneratorScreen() {
         }))
       : [];
 
-    // Calculate values with exact decimal precision for estimateContext
+    // Calculate values with exact decimal precision for the saved financial context
     const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
     const labor = (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
     const financials = getEstimateStep5Financials(bid, materials, labor);
@@ -10094,7 +9462,7 @@ export default function EstimateGeneratorScreen() {
 
     pendingSaveRef.current = {
       bidSnapshot,
-      estimateContext: {
+      financialContext: {
         materials,
         labor,
         costContextTotal,
@@ -10109,7 +9477,7 @@ export default function EstimateGeneratorScreen() {
 
     const persistSnapshot = async (snapshot) => {
       if (!snapshot) return;
-      const { bidSnapshot: snapshotBid, estimateContext } = snapshot;
+      const { bidSnapshot: snapshotBid, financialContext } = snapshot;
       try {
         await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(snapshotBid));
 
@@ -10127,11 +9495,11 @@ export default function EstimateGeneratorScreen() {
         const existingProject = existingWonProject || matchingEstimate || existingInProgress;
           const location = `${snapshotBid.customerCity || 'Unknown'}, ${snapshotBid.customerState || 'Unknown'}`;
 
-        // Calculate labor and materials budgets from estimateContext (which uses CURRENT materialsCart and laborLineItems)
-        // CRITICAL: estimateContext.materials and estimateContext.labor are calculated from current state in the useEffect
+        // Calculate labor and materials budgets from the current financial context.
+        // CRITICAL: financialContext.materials and financialContext.labor are calculated from current state in the useEffect
         // These are the source of truth, not snapshotBid.materialLineItems which might be stale
-        const materialsBudget = estimateContext.materials || 0;
-        const laborBudget = estimateContext.labor || 0;
+        const materialsBudget = financialContext.materials || 0;
+        const laborBudget = financialContext.labor || 0;
 
         // CRITICAL: Also update snapshotBid.materialLineItems to match materialsCart so it's saved correctly
         // This ensures materials don't get deleted when the bid is reloaded
@@ -10159,21 +9527,21 @@ export default function EstimateGeneratorScreen() {
         await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(snapshotBid));
 
           const companyOH =
-            estimateContext.companyOverhead ??
-            Math.max(0, (estimateContext.costContextTotal ?? 0) - (estimateContext.permitCosts ?? 0));
-          const profitRaw = estimateContext.profit ?? 0;
+            financialContext.companyOverhead ??
+            Math.max(0, (financialContext.costContextTotal ?? 0) - (financialContext.permitCosts ?? 0));
+          const profitRaw = financialContext.profit ?? 0;
           const netProfit = profitRaw - companyOH;
-          const margin = estimateContext.total > 0 ? (netProfit / estimateContext.total) * 100 : 0;
+          const margin = financialContext.total > 0 ? (netProfit / financialContext.total) * 100 : 0;
           const savedFinancialFields = getEstimateSavedFinancialFields({
-            materials: estimateContext.materials,
-            labor: estimateContext.labor,
+            materials: financialContext.materials,
+            labor: financialContext.labor,
             financials: {
               companyOverheadTotal: companyOH,
-              projectCosts: { totalProjectCosts: estimateContext.permitCosts ?? 0 },
-              overheadContextTotal: estimateContext.costContextTotal,
+              projectCosts: { totalProjectCosts: financialContext.permitCosts ?? 0 },
+              overheadContextTotal: financialContext.costContextTotal,
             },
-            subtotal: estimateContext.subtotal,
-            bidPrice: estimateContext.total,
+            subtotal: financialContext.subtotal,
+            bidPrice: financialContext.total,
             netProfit,
           });
           const estimateData = {
@@ -10183,7 +9551,7 @@ export default function EstimateGeneratorScreen() {
             ...savedFinancialFields,
           actualCost: existingProject?.actualCost || 0,
             margin,
-            markup: estimateContext.markup,
+            markup: financialContext.markup,
             location,
             city: snapshotBid.customerCity,
             state: snapshotBid.customerState,
@@ -10249,7 +9617,7 @@ export default function EstimateGeneratorScreen() {
             ...projectData,
             id: snapshotBid.id,
             title: snapshotBid.title || 'Untitled Bid',
-            budgeted: estimateContext.total,
+            budgeted: financialContext.total,
             spent: projectData?.spent || 0,
             buckets: [
               {
@@ -10564,105 +9932,6 @@ export default function EstimateGeneratorScreen() {
     return () => clearTimeout(timeoutId);
   }, [bid, materialsCart, isLoaded, silentPersistEstimateDraft]);
 
-  const estimateContext = useMemo(() => {
-    const estimateNameTrimmed =
-      typeof bid?.title === 'string' ? bid.title.trim() : '';
-    const base = {
-    screen: 'Estimate Generator',
-    aiScope: 'project',
-    projectId: bid.id,
-    /** Raw name for AI Assistant strip — can be empty so UI can prompt to add a name */
-    projectName: estimateNameTrimmed || 'Current Estimate',
-    bidTitle: estimateNameTrimmed,
-    estimateName: estimateNameTrimmed,
-    estimateNameIsEmpty: !estimateNameTrimmed,
-    currentStepNumber: step,
-    currentStepLabel: currentEstimateStepMeta?.title || (step === 0 ? 'Bid Summary' : `Step ${step}`),
-    currentStepSubtitle: currentEstimateStepMeta?.subtitle || '',
-    currentStepFields: estimateStepFields,
-    estimateAssistantBrief,
-    estimateTrustSignals,
-    estimateVariantPreviews,
-    isBidSummary: step === 0,
-    guidedStepIndex,
-    readinessState,
-    isEstimateReady,
-    shouldGateAdvanced,
-    nextStepLabel,
-    completedChecklistCount,
-    checklistTotal,
-    setupProgressPct,
-    markupLow,
-    healthScore,
-    estimateChecklist,
-    missingEstimateItems,
-    bidTotal: calc?.total || 0,
-    total: calc?.total || 0,
-    status: 'estimate',
-    bidData: bid,
-    /** Explicit alias for AI / prompts that look for estimateData (same shape as bid in editor) */
-    estimateData: bid,
-    /** Precomputed totals so the model does not have to infer from raw line items */
-    calcTotals: calc
-      ? {
-          materials: calc.materials,
-          labor: calc.labor,
-          rentals: calc.rentals,
-          costContextTotal: calc.costContextTotal,
-          companyOverhead: calc.companyOverhead,
-          permitCosts: calc.permitCosts,
-          totalProjectCosts: calc.totalProjectCosts,
-          markupBaseSubtotal: calc.markupBaseSubtotal,
-          contingency: calc.contingency,
-          subtotal: calc.subtotal,
-          profit: calc.profit,
-          total: calc.total,
-          marginPercent: calc.marginPercent,
-          unitPrice: calc.unitPrice,
-        }
-      : null,
-    customerName: bid.customerName || '',
-    customerLocation: [bid.customerCity, bid.customerState, bid.customerZip].filter(Boolean).join(', ') || '',
-    // Include real projects so AI can resolve actual IDs/statuses for expense actions
-    allProjects: [...activeProjects, ...estimates].map((p) => ({
-      id: p.id,
-      title: p.title || p.name || 'Untitled Project',
-      status: p.status,
-      bidPrice: p.bidPrice || 0,
-      estimatedCost: p.estimatedCost || p.bidPrice || 0,
-      actualCost: p.actualCost || p.totalSpent || (p.projectData?.actualCost || p.projectData?.spent || 0),
-      totalSpent: p.totalSpent || p.actualCost || (p.projectData?.spent || p.projectData?.actualCost || 0),
-      expenses: p.expenses || p.projectData?.expenses || [],
-      expensesCount: (p.expenses || p.projectData?.expenses || []).length,
-      margin: p.margin || 0,
-      progress: p.progress || p.overallProgressPct || 0,
-      customerName: p.client || p.customerName || '',
-      location: p.location || '',
-    })),
-    stepTitle: step === 0 ? 'Bid Summary' : `Step ${step}`,
-    };
-    // CRITICAL: When viewing an existing project with live actuals, inject Projects data so AI uses spend-to-date margin, NOT estimate margin
-    const withLive = projectLiveMetrics && typeof projectLiveMetrics.actualCost === 'number' && projectLiveMetrics.actualCost >= 0
-      ? { ...base, ...projectLiveMetrics }
-      : base;
-    return JSON.stringify(withLive);
-  }, [bid, calc, step, currentEstimateStepMeta, estimateStepFields, estimateAssistantBrief, estimateTrustSignals, estimateVariantPreviews, guidedStepIndex, readinessState, isEstimateReady, shouldGateAdvanced, nextStepLabel, completedChecklistCount, checklistTotal, setupProgressPct, markupLow, healthScore, estimateChecklist, missingEstimateItems, activeProjects, estimates, projectLiveMetrics]);
-
-  const openEstimateCopilot = useCallback((prompt = '') => {
-    if (aiEntryPressLockRef.current) return;
-    aiEntryPressLockRef.current = true;
-    setTimeout(() => {
-      aiEntryPressLockRef.current = false;
-    }, 400);
-    if (prompt) {
-      setEstimateAiInitialQuestion(prompt);
-    } else {
-      setEstimateAiInitialQuestion('');
-    }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setShowAIAssistant(true);
-  }, []);
-
   /** Empty bid: open paste-notes flow directly (skip AI Assistant landing). */
   const handleStartAiDraftFresh = useCallback(() => {
     aiDraftPersistGenerationRef.current += 1;
@@ -10694,7 +9963,6 @@ export default function EstimateGeneratorScreen() {
     // Reset before mounting Step 1 so its open effect cannot capture notes
     // from the previous draft/session.
     setAiDraftFromAssistant(false);
-    setShowAIAssistant(false);
     setShowAiScopeAssumptionsModal(false);
     setShowAiInitialRevealModal(false);
     setShowAiDraftReviewModal(false);
@@ -10704,37 +9972,12 @@ export default function EstimateGeneratorScreen() {
     setAiPhotoDetections([]);
     setAiPhotoExistingFeatures([]);
     setAiSitePhotos([]);
-    setEstimateAiInitialQuestion('');
     aiDraftPersistGenerationRef.current += 1;
     void markAiDraftProgressCleared().catch(() => {});
     setShowAiBuilderModal(true);
   }, []);
 
   const aiFlowOverlayActive = showAiBuilderModal || showAiScopeAssumptionsModal || showAiInitialRevealModal || showAiDraftReviewModal;
-
-  /** Empty bid + assistant open: skip blank chat landing and go straight to paste-notes. */
-  useEffect(() => {
-    if (
-      showAIAssistant &&
-      !bidHasLineItems &&
-      !showAiBuilderModal &&
-      !showAiInitialRevealModal &&
-      !showAiDraftReviewModal &&
-      !aiDraftGenerating &&
-      !aiDraftApplying
-    ) {
-      setAiDraftFromAssistant(true);
-      setShowAiBuilderModal(true);
-    }
-  }, [
-    showAIAssistant,
-    bidHasLineItems,
-    showAiBuilderModal,
-    showAiInitialRevealModal,
-    showAiDraftReviewModal,
-    aiDraftGenerating,
-    aiDraftApplying,
-  ]);
 
   /** Onboarding "Build with AI" — open builder when user lands from final onboarding step. */
   useFocusEffect(
@@ -10756,903 +9999,6 @@ export default function EstimateGeneratorScreen() {
       };
     }, [isLoaded, openBuildWithAiDirect])
   );
-
-  const storeEstimateAiUndoSnapshot = useCallback((label) => {
-    lastEstimateAiUndoRef.current = {
-      label,
-      bid: JSON.parse(JSON.stringify(bidRef.current || {})),
-      materialsCart: JSON.parse(JSON.stringify(materialsCart || [])),
-      capturedAt: Date.now(),
-    };
-  }, [materialsCart]);
-
-  const applyEstimateVariant = useCallback((variant) => {
-    if (!variant) return;
-    storeEstimateAiUndoSnapshot(`apply ${variant.title || variant.label || 'variant'}`);
-    setBid((prev) => ({
-      ...prev,
-      markupPct: variant.markupPct ?? prev.markupPct,
-      paymentSchedule: variant.paymentSchedule ?? prev.paymentSchedule,
-      paymentMilestones: variant.paymentMilestones ?? prev.paymentMilestones,
-      weeklyPayments: variant.weeklyPayments ?? prev.weeklyPayments,
-    }));
-    if (variant.markupPct !== undefined) {
-      setHasReviewedMarkup(true);
-    }
-    setForceRefresh((prev) => prev + 1);
-    Alert.alert(
-      'Variant Applied',
-      `${variant.title || variant.label || 'Variant'} is now applied to the current estimate. You can undo it from the AI assistant.`,
-      [{ text: 'OK' }]
-    );
-  }, [storeEstimateAiUndoSnapshot]);
-
-  const handleEstimateAIAction = useCallback(async (action) => {
-    if (!action || !action.type) return;
-
-    const resultWithUndo = (message, extra = {}) => ({
-      message,
-      undoable: true,
-      suggestedFollowUps: estimateAssistantBrief?.chips?.slice(0, 4) || [],
-      ...extra,
-    });
-
-    if (action.type === 'undo_last_estimate_ai_action') {
-      const snapshot = lastEstimateAiUndoRef.current;
-      if (!snapshot) {
-        return {
-          message: 'There is no recent AI estimate change to undo yet.',
-          suggestedFollowUps: estimateAssistantBrief?.chips?.slice(0, 4) || [],
-        };
-      }
-      setBid(snapshot.bid || blankState());
-      setMaterialsCart(snapshot.materialsCart || []);
-      setForceRefresh(prev => prev + 1);
-      lastEstimateAiUndoRef.current = null;
-      return {
-        message: `Undid the last AI estimate change${snapshot.label ? `: ${snapshot.label}` : ''}.`,
-        suggestedFollowUps: estimateAssistantBrief?.chips?.slice(0, 4) || [],
-      };
-    }
-
-    if (action.type === 'create_estimate_variant') {
-      const variantType = action.variantType || 'standard';
-      const variant = estimateVariantPreviews.find((item) => item.id === variantType) || estimateVariantPreviews.find((item) => item.id === 'standard');
-      if (!variant) {
-        return { message: 'I could not build that estimate variant yet.' };
-      }
-      applyEstimateVariant(variant);
-      return {
-        message: `Applied the ${variant.title.toLowerCase()} to the current estimate.`,
-        undoable: true,
-        suggestedFollowUps: [
-          { label: 'Undo last AI change', prompt: 'Undo last AI change' },
-          ...(estimateAssistantBrief?.chips?.slice(0, 3) || []),
-        ],
-      };
-    }
-
-    // CRITICAL: Check if this is a PROJECT expense action (not estimate action)
-    // If action has projectId and projectName, it's for a PROJECT, not the current estimate
-    if ((action.type === 'add_material' || action.type === 'add_material_purchase') && 
-        action.projectId && 
-        action.projectName && 
-        action.projectName !== bid.title) {
-      // This is a project expense, not an estimate addition
-      try {
-        // First, ensure Clerk token is synced to AsyncStorage
-        const clerkToken = await getToken();
-        if (clerkToken) {
-          await syncClerkTokenToAsyncStorage(clerkToken);
-          console.log('✅ Synced Clerk token to AsyncStorage');
-        } else {
-          console.warn('⚠️ No Clerk token available');
-        }
-        
-        // Update the project's expenses using ProjectListContext (local state)
-        const project = activeProjects.find(p => p.id === action.projectId);
-        if (project) {
-          // CRITICAL: Load expenses from AsyncStorage to avoid restoring deleted items
-          let currentExpenses = project.projectData?.expenses || [];
-          let currentSpent = project.projectData?.spent || 0;
-          try {
-            const storageKey = `bps.project.${action.projectId}`;
-            const existingDataStr = await AsyncStorage.getItem(storageKey);
-            if (existingDataStr) {
-              const existingProjectData = JSON.parse(existingDataStr);
-              // Use expenses from AsyncStorage as source of truth (includes deletions)
-              currentExpenses = existingProjectData.expenses || [];
-              currentSpent = existingProjectData.spent || 0;
-            }
-          } catch (error) {
-            console.error('Error loading expenses from AsyncStorage:', error);
-            // Fallback to project.projectData if AsyncStorage fails
-          }
-          
-          const newExpense = {
-            id: `exp-${Date.now()}`,
-            category: action.category || 'Materials/Equipment',
-            vendor: action.vendor || '',
-            amount: action.amount || 0,
-            date: new Date().toISOString(),
-            notes: action.notes || `${action.category || 'Material'} from ${action.vendor || 'vendor'}`,
-            receiptUri: null,
-          };
-          
-          const updatedExpenses = [...currentExpenses, newExpense];
-          const newSpent = currentSpent + (action.amount || 0);
-          
-          updateProject(action.projectId, {
-            projectData: {
-              ...project.projectData,
-              expenses: updatedExpenses,
-              spent: newSpent,
-            },
-          });
-          
-          // Also save directly to AsyncStorage to ensure consistency
-          try {
-            const storageKey = `bps.project.${action.projectId}`;
-            const existingDataStr = await AsyncStorage.getItem(storageKey);
-            let existingProjectData = existingDataStr ? JSON.parse(existingDataStr) : {};
-            
-            const projectDataToSave = {
-              ...existingProjectData,
-              expenses: updatedExpenses,
-              spent: newSpent,
-              lastUpdated: new Date().toISOString(),
-            };
-            
-            await AsyncStorage.setItem(storageKey, JSON.stringify(projectDataToSave));
-            console.log('✅ Saved expense to AsyncStorage from estimate-generator');
-          } catch (error) {
-            console.error('Error saving to AsyncStorage:', error);
-          }
-        }
-        
-        // Then, sync to backend API
-        // CRITICAL: Send current expenses list so backend uses it as source of truth
-        const expenseData = {
-          amount: action.amount || 0,
-          category: action.category || 'Materials/Equipment',
-          vendor: action.vendor || '',
-          notes: action.notes || `${action.category || 'Material'} from ${action.vendor || 'vendor'}`,
-          date: new Date().toISOString().split('T')[0],
-          currentExpenses: updatedExpenses, // Send current expenses (includes new one) so backend doesn't restore deleted items
-        };
-        
-        const response = await api.addExpense(action.projectId, expenseData);
-        if (response.success) {
-          console.log('✅ Added expense to backend:', response.data);
-          Alert.alert(
-            'Expense Recorded',
-            `I've recorded $${action.amount || 0} for ${action.category || 'materials'} to ${action.projectName}. This was added to the project's expenses.`,
-            [{ text: 'OK' }]
-          );
-        } else {
-          console.error('❌ Failed to add expense to backend:', response.error);
-          Alert.alert(
-            'Authentication Error',
-            'There was an issue adding the expense due to authentication. Please log in again and try again.',
-            [{ text: 'OK' }]
-          );
-        }
-      } catch (error) {
-        console.error('❌ Error adding expense:', error);
-        // Check if it's an authentication error
-        if (error.message?.includes('401') || error.message?.includes('403') || error.message?.includes('token') || error.message?.includes('Access token required')) {
-          Alert.alert(
-            'Authentication Error',
-            'There was an issue with authentication. Please log in again and we can try adding the expense.',
-            [{ text: 'OK' }]
-          );
-        } else {
-          Alert.alert(
-            'Error',
-            `Failed to add expense: ${error.message || 'Unknown error'}`,
-            [{ text: 'OK' }]
-          );
-        }
-      }
-      return;
-    }
-
-    // Handle labor expenses for projects (not estimates)
-    if (action.type === 'add_labor_expense' && 
-        action.projectId && 
-        action.projectName && 
-        action.projectName !== bid.title) {
-      try {
-        // First, ensure Clerk token is synced to AsyncStorage
-        const clerkToken = await getToken();
-        if (clerkToken) {
-          await syncClerkTokenToAsyncStorage(clerkToken);
-          console.log('✅ Synced Clerk token to AsyncStorage');
-        } else {
-          console.warn('⚠️ No Clerk token available');
-        }
-        
-        // Update the project's expenses using ProjectListContext (local state)
-        const project = activeProjects.find(p => p.id === action.projectId);
-        let updatedExpenses = [];
-        if (project) {
-          // CRITICAL: Load expenses from AsyncStorage to avoid restoring deleted items
-          let currentExpenses = project.projectData?.expenses || [];
-          let currentSpent = project.projectData?.spent || 0;
-          try {
-            const storageKey = `bps.project.${action.projectId}`;
-            const existingDataStr = await AsyncStorage.getItem(storageKey);
-            if (existingDataStr) {
-              const existingProjectData = JSON.parse(existingDataStr);
-              // Use expenses from AsyncStorage as source of truth (includes deletions)
-              currentExpenses = existingProjectData.expenses || [];
-              currentSpent = existingProjectData.spent || 0;
-            }
-          } catch (error) {
-            console.error('Error loading expenses from AsyncStorage:', error);
-            // Fallback to project.projectData if AsyncStorage fails
-          }
-          
-          const newExpense = {
-            id: `exp-${Date.now()}`,
-            category: 'Labor',
-            vendor: action.vendor || action.laborType || '',
-            amount: action.amount || 0,
-            date: new Date().toISOString(),
-            notes: action.notes || `${action.laborType || 'Labor'} expense`,
-            receiptUri: null,
-          };
-          
-          updatedExpenses = [...currentExpenses, newExpense];
-          const newSpent = currentSpent + (action.amount || 0);
-          
-          updateProject(action.projectId, {
-            projectData: {
-              ...project.projectData,
-              expenses: updatedExpenses,
-              spent: newSpent,
-            },
-          });
-          
-          // Also save directly to AsyncStorage to ensure consistency
-          try {
-            const storageKey = `bps.project.${action.projectId}`;
-            const existingDataStr = await AsyncStorage.getItem(storageKey);
-            let existingProjectData = existingDataStr ? JSON.parse(existingDataStr) : {};
-            
-            const projectDataToSave = {
-              ...existingProjectData,
-              expenses: updatedExpenses,
-              spent: newSpent,
-              lastUpdated: new Date().toISOString(),
-            };
-            
-            await AsyncStorage.setItem(storageKey, JSON.stringify(projectDataToSave));
-            console.log('✅ Saved labor expense to AsyncStorage from estimate-generator');
-          } catch (error) {
-            console.error('Error saving to AsyncStorage:', error);
-          }
-        }
-        
-        // Then, sync to backend API
-        // CRITICAL: Send current expenses list so backend uses it as source of truth
-        const expenseData = {
-          amount: action.amount || 0,
-          category: 'Labor',
-          vendor: action.vendor || action.laborType || '',
-          notes: action.notes || `${action.laborType || 'Labor'} expense`,
-          date: new Date().toISOString().split('T')[0],
-          currentExpenses: updatedExpenses, // Send current expenses (includes new one) so backend doesn't restore deleted items
-        };
-        
-        const response = await api.addExpense(action.projectId, expenseData);
-        if (response.success) {
-          console.log('✅ Added labor expense to backend:', response.data);
-          Alert.alert(
-            'Expense Recorded',
-            `I've recorded $${action.amount || 0} for labor to ${action.projectName}. This was added to the project's expenses.`,
-            [{ text: 'OK' }]
-          );
-        } else {
-          console.error('❌ Failed to add labor expense to backend:', response.error);
-          Alert.alert(
-            'Authentication Error',
-            'There was an issue adding the expense due to authentication. Please log in again and try again.',
-            [{ text: 'OK' }]
-          );
-        }
-      } catch (error) {
-        console.error('❌ Error adding labor expense:', error);
-        // Check if it's an authentication error
-        if (error.message?.includes('401') || error.message?.includes('403') || error.message?.includes('token') || error.message?.includes('Access token required')) {
-          Alert.alert(
-            'Authentication Error',
-            'There was an issue with authentication. Please log in again and we can try adding the expense.',
-            [{ text: 'OK' }]
-          );
-        } else {
-          Alert.alert(
-            'Error',
-            `Failed to add expense: ${error.message || 'Unknown error'}`,
-            [{ text: 'OK' }]
-          );
-        }
-      }
-      return;
-    }
-
-    // --- Estimate-page specific commands ---
-    // The backend may return structured actions; apply them directly to the local bid state
-    // so the UI updates immediately (materials/labor, customer info, payment schedule, etc.).
-    if (action.type === 'rename_estimate') {
-      const nextTitle = String(action.title || action.estimateName || '').trim();
-      if (!nextTitle) {
-        return { message: 'I need a name before I can rename this bid.' };
-      }
-      storeEstimateAiUndoSnapshot('rename estimate');
-      const nextBid = {
-        ...(bidRef.current || bid),
-        _isNewBid: false,
-        title: nextTitle,
-      };
-      bidRef.current = nextBid;
-      setBid(nextBid);
-      setForceRefresh(prev => prev + 1);
-      void silentPersistEstimateDraft();
-      return resultWithUndo(`Renamed this bid to "${nextTitle}".`);
-    }
-
-    if (action.type === 'set_markup_percentage') {
-      const nextMarkup = Number(action.markupPct);
-      if (!Number.isFinite(nextMarkup)) {
-        return { message: 'I could not read the markup percentage to apply.' };
-      }
-      storeEstimateAiUndoSnapshot('update markup');
-      setBid(prev => ({ ...prev, markupPct: nextMarkup }));
-      setHasReviewedMarkup(true);
-      setForceRefresh(prev => prev + 1);
-      return resultWithUndo(`Set markup to ${Math.round(nextMarkup * 10) / 10}%.`);
-    }
-
-    if (action.type === 'apply_estimate_pricing_fields') {
-      storeEstimateAiUndoSnapshot('update Step 5 pricing fields');
-      const num = (v) => (v != null && Number.isFinite(Number(v)) ? Number(v) : null);
-      setBid((prev) => {
-        const next = { ...prev };
-        const pc = num(action.planCost);
-        const pperm = num(action.permitCost);
-        const eq = num(action.equipment);
-        const ins = num(action.insuranceOverhead);
-        const em = num(action.equipmentMaintenance);
-        const fac = num(action.facilities);
-        const oo = num(action.otherOverhead);
-        const odc = num(action.otherDirectCost);
-        if (pc != null) next.planCost = pc;
-        if (pperm != null) next.permitCost = pperm;
-        if (eq != null) next.equipment = eq;
-        if (ins != null) next.insuranceOverhead = ins;
-        if (em != null) next.equipmentMaintenance = em;
-        if (fac != null) next.facilities = fac;
-        if (oo != null) next.otherOverhead = oo;
-        if (odc != null) next.otherDirectCost = odc;
-        return next;
-      });
-      setForceRefresh((prev) => prev + 1);
-      return resultWithUndo(
-        'Updated Step 5 amounts — direct costs (plans, permits, equipment rental, other direct) and overhead fields are saved on this bid.'
-      );
-    }
-
-    if (action.type === 'update_customer_info') {
-      storeEstimateAiUndoSnapshot('update customer info');
-      // Step 1 TextInputs are bound to localCustomer* state, which only syncs from bid when bid.id changes.
-      // Merge using bidRef so we apply AI updates to both bid and locals in one shot.
-      const prev = bidRef.current || {};
-      const nextPhoneRaw = action.phone != null && String(action.phone).trim()
-        ? formatPhoneNumber(String(action.phone).trim())
-        : prev.customerPhone;
-      const next = {
-        ...prev,
-        _isNewBid: false,
-        customerName: action.customerName ?? prev.customerName,
-        customerEmail: action.email ?? prev.customerEmail,
-        customerPhone: nextPhoneRaw,
-        customerCompany: action.company ?? prev.customerCompany,
-        customerAddress: action.address ?? prev.customerAddress,
-        customerCity: action.city ?? prev.customerCity,
-        customerState: action.state ?? prev.customerState,
-        customerZip: action.zip ?? prev.customerZip,
-        customerNotes: action.notes ?? prev.customerNotes,
-      };
-      if (action.customerName != null && String(action.customerName).trim()) {
-        next.clientName = String(action.customerName).trim();
-      }
-      bidRef.current = next;
-      setBid(next);
-      setLocalCustomerName(next.customerName || '');
-      setLocalCustomerEmail(next.customerEmail || '');
-      setLocalCustomerPhone(
-        next.customerPhone ? formatPhoneNumber(String(next.customerPhone)) : ''
-      );
-      setLocalCustomerAddress(next.customerAddress || '');
-      setLocalCustomerCity(next.customerCity || '');
-      setLocalCustomerState(next.customerState || '');
-      setLocalCustomerZip(next.customerZip || '');
-      setLocalCustomerCompany(next.customerCompany || '');
-      setForceRefresh(prevCount => prevCount + 1);
-      void silentPersistEstimateDraft();
-      return resultWithUndo(
-        '✅ **Step 1 saved** — customer name, phone, address, and notes are on this bid.\n\n' +
-          'Want to move on to **Step 2 — Project information**? I’ll ask for **project title**, **project type**, and **project description**. **Start and end dates** are optional—you can skip them and still keep going. (We won’t ask for square footage unless you want per‑sq‑ft help.)\n\n' +
-          'Tap **Start Step 2** below, or tell me what you want to do next.',
-        {
-          suggestedFollowUps: [
-            {
-              label: 'Start Step 2',
-              prompt:
-                'Help me fill in Step 2 project information: project title, project type, project description, and optional start/end dates (dates are not required to continue). Do not ask for square footage unless I bring it up.',
-            },
-            {
-              label: 'Name this bid',
-              prompt: 'Suggest a short, professional bid title based on the customer and job we have so far.',
-            },
-            {
-              label: 'What’s Step 2?',
-              prompt: 'What do I fill in for Step 2 after customer information?',
-            },
-            { label: 'Fix customer info', prompt: 'What customer fields are still missing (name, phone, address)?' },
-          ],
-        }
-      );
-    }
-
-    if (action.type === 'update_project_info') {
-      storeEstimateAiUndoSnapshot('update project info');
-      const prev = bidRef.current || {};
-      const next = { ...prev, _isNewBid: false };
-      if (action.title != null && String(action.title).trim()) {
-        next.title = String(action.title).trim();
-      }
-      if (action.projectType != null && String(action.projectType).trim()) {
-        const pt = String(action.projectType).trim();
-        next.projectType = pt;
-        next.projectCategory = PROJECT_CATEGORY_SLUGS[pt] || prev.projectCategory || 'other';
-        next.category = PROJECT_CATEGORY_SLUGS[pt] || prev.category || 'other';
-      }
-      if (action.scopeDescription != null) {
-        next.scopeDescription = String(action.scopeDescription).trim();
-      }
-      if (action.sqft != null && Number.isFinite(Number(action.sqft))) {
-        next.sqft = Number(action.sqft);
-      }
-      if (action.startDate != null && String(action.startDate).trim()) {
-        const sd = String(action.startDate).trim();
-        next.startDate = sd;
-        next.projectStartDate = sd;
-      }
-      if (action.endDate != null && String(action.endDate).trim()) {
-        const ed = String(action.endDate).trim();
-        next.endDate = ed;
-        next.projectEndDate = ed;
-      }
-      bidRef.current = next;
-      setBid(next);
-      setForceRefresh((c) => c + 1);
-      void silentPersistEstimateDraft();
-      const t = next.title || prev.title || 'this bid';
-      const typeLabel = (next.projectType || prev.projectType || '')
-        .replace(/_/g, ' ')
-        .replace(/\b\w/g, (c) => c.toUpperCase());
-      const onlyScheduleFields =
-        (action.startDate || action.endDate) &&
-        !action.title &&
-        !action.projectType &&
-        !action.scopeDescription &&
-        action.sqft == null;
-      if (onlyScheduleFields) {
-        const parts = [];
-        if (action.startDate) {
-          parts.push(`start **${formatIsoDateMMDDYYYY(String(action.startDate).trim())}**`);
-        }
-        if (action.endDate) {
-          parts.push(`end **${formatIsoDateMMDDYYYY(String(action.endDate).trim())}**`);
-        }
-        return resultWithUndo(
-          `✅ **Schedule saved** — ${parts.join(' and ')}. Same values as the start/end date fields (calendar pickers) on this estimate.\n\n` +
-            'Want to adjust the other side of the schedule or keep building this bid?',
-          {
-            suggestedFollowUps: [
-              { label: 'Set other date', prompt: 'I need to set or change the other project date (start or end).' },
-              { label: 'Start Step 3', prompt: "Let's add materials and supplies to this bid." },
-              { label: 'Review This Bid', prompt: 'Review this bid before I send it.' },
-              { label: 'Fix project info', prompt: 'I need to correct title, type, or description.' },
-            ],
-          }
-        );
-      }
-      const savedFields = [
-        action.title ? 'project title' : null,
-        action.projectType ? 'project type' : null,
-        action.scopeDescription ? 'description' : null,
-        action.sqft != null ? 'square footage' : null,
-      ].filter(Boolean);
-      const fieldSummary = savedFields.length > 0
-        ? savedFields.join(', ').replace(/, ([^,]*)$/, ' and $1')
-        : 'project information';
-      return resultWithUndo(
-        `✅ **Step 2 saved** — ${fieldSummary} ${savedFields.length === 1 ? 'is' : 'are'} now set on **${t}**${typeLabel ? ` (${typeLabel})` : ''}.\n\n` +
-          'Want to move on to **Step 3 — Materials & Supplies**? You can suggest materials, quantities, or categories you want to include.',
-        {
-          suggestedFollowUps: [
-            {
-              label: 'Start Step 3',
-              prompt: "Let's start with step three — add materials and supplies to this bid.",
-            },
-            { label: 'Add drywall allowance', prompt: 'Add a drywall materials line to this estimate with a rough allowance.' },
-            { label: 'Review This Bid', prompt: 'Review this bid before I send it.' },
-            { label: 'Fix project info', prompt: 'I need to correct one project field (title, type, or description).' },
-          ],
-        }
-      );
-    }
-
-    if (action.type === 'set_payment_schedule_type') {
-      storeEstimateAiUndoSnapshot('change payment schedule type');
-      setBid(prev => ({
-        ...prev,
-        paymentSchedule: action.paymentSchedule ?? prev.paymentSchedule,
-      }));
-      setForceRefresh(prev => prev + 1);
-      return resultWithUndo(`Set the payment schedule to ${action.paymentSchedule === 'weekly' ? 'weekly' : action.paymentSchedule === 'hybrid' ? 'hybrid' : 'milestone-based'}.`);
-    }
-
-    if (action.type === 'add_payment_milestone' && action.milestone) {
-      storeEstimateAiUndoSnapshot('add payment milestone');
-      setBid(prev => ({
-        ...prev,
-        paymentMilestones: [...(prev.paymentMilestones || []), action.milestone],
-      }));
-      setForceRefresh(prev => prev + 1);
-      return resultWithUndo(`Added the "${action.milestone.name || 'payment'}" milestone.`);
-    }
-
-    if (action.type === 'add_weekly_payment' && action.payment) {
-      storeEstimateAiUndoSnapshot('add weekly payment');
-      setBid(prev => ({
-        ...prev,
-        weeklyPayments: [...(prev.weeklyPayments || []), action.payment],
-      }));
-      setForceRefresh(prev => prev + 1);
-      return resultWithUndo('Added a weekly payment entry.');
-    }
-
-    if (action.type === 'replace_payment_schedule') {
-      storeEstimateAiUndoSnapshot(action.safer ? 'generate safer payment schedule' : 'generate payment schedule');
-      const effectiveStartDate = bid.startDate || bid.projectStartDate || new Date().toISOString().split('T')[0];
-      const fallbackMilestones = action.paymentSchedule === 'milestone-based'
-        ? buildEstimateMilestoneSchedule(calc?.total || 0, { startDate: effectiveStartDate, safer: !!action.safer })
-        : [];
-      const fallbackWeekly = action.paymentSchedule === 'weekly'
-        ? buildEstimateWeeklySchedule(calc?.total || 0, action.weeks || 4, { startDate: effectiveStartDate, safer: !!action.safer })
-        : [];
-      setBid(prev => ({
-        ...prev,
-        paymentSchedule: action.paymentSchedule ?? prev.paymentSchedule,
-        paymentMilestones: action.paymentMilestones ?? fallbackMilestones,
-        weeklyPayments: action.weeklyPayments ?? fallbackWeekly,
-      }));
-      setForceRefresh(prev => prev + 1);
-      return resultWithUndo(action.safer
-        ? 'Generated a safer payment schedule with earlier cash protection.'
-        : 'Generated a payment schedule for this estimate.');
-    }
-
-    if (action.type === 'rebalance_payment_schedule') {
-      const totalValue = Number(calc?.total || 0);
-      storeEstimateAiUndoSnapshot('rebalance payment schedule');
-      setBid(prev => {
-        if (prev.paymentSchedule === 'weekly') {
-          const normalizedWeekly = normalizePaymentsToExactTotal(prev.weeklyPayments || [], totalValue, false);
-          return { ...prev, weeklyPayments: normalizedWeekly };
-        }
-        if (prev.paymentSchedule === 'hybrid') {
-          const normalized = normalizeHybridPaymentsToExactTotal(prev.paymentMilestones || [], prev.weeklyPayments || [], totalValue);
-          return {
-            ...prev,
-            paymentMilestones: normalized.milestones,
-            weeklyPayments: normalized.weeklyPayments,
-          };
-        }
-        const normalizedMilestones = normalizePaymentsToExactTotal(prev.paymentMilestones || [], totalValue, true);
-        return { ...prev, paymentMilestones: normalizedMilestones };
-      });
-      setForceRefresh(prev => prev + 1);
-      return resultWithUndo('Rebalanced the payment schedule so it adds up cleanly.');
-    }
-
-    if (action.type === 'update_overhead_markup') {
-      storeEstimateAiUndoSnapshot('update overhead / markup');
-      setBid(prev => ({
-        ...prev,
-        insuranceOverhead: action.insuranceOverhead ?? prev.insuranceOverhead,
-        equipment: action.equipment ?? prev.equipment,
-        equipmentMaintenance: action.equipmentMaintenance ?? prev.equipmentMaintenance,
-        facilities: action.facilities ?? prev.facilities,
-        otherOverhead: action.otherOverhead ?? prev.otherOverhead,
-        markupPct: action.markupPct ?? prev.markupPct,
-      }));
-      if (action.markupPct !== undefined) {
-        setHasReviewedMarkup(true);
-      }
-      setForceRefresh(prev => prev + 1);
-      return resultWithUndo('Updated overhead and markup settings.');
-    }
-
-    if (action.type === 'add_starter_materials' || action.type === 'add_starter_labor' || action.type === 'add_common_scope_package') {
-      storeEstimateAiUndoSnapshot(action.type === 'add_common_scope_package' ? 'add starter scope package' : action.type === 'add_starter_materials' ? 'add starter materials' : 'add starter labor');
-
-      const materialItems = Array.isArray(action.materialItems) && action.materialItems.length > 0
-        ? action.materialItems
-        : (action.type !== 'add_starter_labor'
-          ? buildEstimateStarterMaterialItems(action.projectType || bid.projectType, action.tier || 'standard')
-          : []);
-      const laborItems = Array.isArray(action.laborItems) && action.laborItems.length > 0
-        ? action.laborItems
-        : (action.type !== 'add_starter_materials'
-          ? buildEstimateStarterLaborItems(action.projectType || bid.projectType, action.tier || 'standard')
-          : []);
-      const scopeSections = Array.isArray(action.scopeSections) && action.scopeSections.length > 0
-        ? action.scopeSections
-        : getEstimateAiPackage(action.projectType || bid.projectType).scopeSections;
-
-      if (materialItems.length > 0) {
-        setMaterialsCart(prev => {
-          const existingKeys = new Set(prev.map(item => `${(item.section || '').toLowerCase()}::${(item.name || item.description || '').toLowerCase()}`));
-          const additions = materialItems.filter(item => !existingKeys.has(`${(item.section || '').toLowerCase()}::${(item.name || item.description || '').toLowerCase()}`));
-          return [...prev, ...additions];
-        });
-      }
-
-      setBid(prev => {
-        const existingMaterialKeys = new Set((prev.materialLineItems || []).map(item => `${(item.section || '').toLowerCase()}::${(item.name || item.description || '').toLowerCase()}`));
-        const mergedMaterials = [
-          ...(prev.materialLineItems || []),
-          ...materialItems.filter(item => !existingMaterialKeys.has(`${(item.section || '').toLowerCase()}::${(item.name || item.description || '').toLowerCase()}`)),
-        ];
-        const existingLaborKeys = new Set((prev.laborLineItems || []).map(item => `${(item.section || '').toLowerCase()}::${(item.name || item.description || '').toLowerCase()}`));
-        const mergedLabor = [
-          ...(prev.laborLineItems || []),
-          ...laborItems.filter(item => !existingLaborKeys.has(`${(item.section || '').toLowerCase()}::${(item.name || item.description || '').toLowerCase()}`)),
-        ];
-        const existingScope = String(prev.scopeDescription || '').trim();
-        const missingScopeLines = scopeSections.filter((section) => !existingScope.toLowerCase().includes(section.toLowerCase()));
-        const nextScopeDescription = missingScopeLines.length > 0
-          ? [existingScope, ...missingScopeLines.map((section) => `- ${section}`)].filter(Boolean).join('\n')
-          : prev.scopeDescription;
-        return {
-          ...prev,
-          projectType: action.projectType || prev.projectType,
-          materialLineItems: mergedMaterials,
-          laborLineItems: mergedLabor,
-          scopeDescription: nextScopeDescription,
-        };
-      });
-
-      setForceRefresh(prev => prev + 1);
-      const packageLabel = action.projectType
-        ? `${String(action.projectType).replace(/_/g, ' ')} ${action.tier || 'standard'}`
-        : `${action.tier || 'standard'} starter`;
-      return resultWithUndo(
-        action.type === 'add_common_scope_package'
-          ? `Added a ${packageLabel} starter scope package with editable placeholder line items.`
-          : action.type === 'add_starter_materials'
-            ? `Added editable starter material placeholders for this estimate.`
-            : `Added editable starter labor placeholders for this estimate.`,
-        {
-          suggestedFollowUps: [
-            { label: 'Undo last AI change', prompt: 'Undo last AI change' },
-            ...(estimateAssistantBrief?.chips?.slice(0, 3) || []),
-          ],
-        }
-      );
-    }
-
-    if (action.type === 'add_estimate_line_items') {
-      const incomingItems = Array.isArray(action.items) ? action.items : [];
-      if (incomingItems.length === 0) {
-        return { message: 'I could not find any estimate items to add.' };
-      }
-
-      storeEstimateAiUndoSnapshot('add estimate line items');
-
-      const materialItems = incomingItems
-        .filter((item) => String(item.kind || item.category || '').toLowerCase() !== 'labor')
-        .map((item, index) => ({
-          id: `ai-material-${Date.now()}-${index}`,
-          name: item.name || 'Material',
-          description: item.name || 'Material',
-          quantity: Number(item.quantity || 1) || 1,
-          unit: item.unit || 'lot',
-          unitPrice: Number(item.unitCost ?? item.amount ?? 0) || 0,
-          total: Number(item.amount ?? item.unitCost ?? 0) || 0,
-          vendor: item.vendor || '',
-          section: item.section || item.name || 'Materials',
-          category: item.category || item.name || 'Materials',
-          scope: item.scope || activeScope,
-          source: 'ai',
-          isManual: true,
-        }));
-
-      const laborItems = incomingItems
-        .filter((item) => String(item.kind || item.category || '').toLowerCase() === 'labor')
-        .map((item, index) => ({
-          id: `ai-labor-${Date.now()}-${index}`,
-          name: item.name || 'Labor',
-          description: item.name || 'Labor',
-          hours: Number(item.quantity || 1) || 1,
-          rate: Number(item.unitCost ?? item.amount ?? 0) || 0,
-          total: Number(item.amount ?? item.unitCost ?? 0) || 0,
-          category: item.category || 'Labor',
-          section: item.section || 'Labor',
-        }));
-
-      const upsertByName = (existing, additions) => {
-        const next = [...existing];
-        additions.forEach((entry) => {
-          const nameKey = String(entry.name || entry.description || '').trim().toLowerCase();
-          const matchIndex = next.findIndex((item) => String(item.name || item.description || '').trim().toLowerCase() === nameKey);
-          if (matchIndex >= 0) {
-            next[matchIndex] = { ...next[matchIndex], ...entry };
-          } else {
-            next.push(entry);
-          }
-        });
-        return next;
-      };
-
-      if (materialItems.length > 0) {
-        setMaterialsCart((prev) => upsertByName(prev, materialItems));
-      }
-
-      setBid((prev) => ({
-        ...prev,
-        _isNewBid: false,
-        materialLineItems: materialItems.length > 0 ? upsertByName(prev.materialLineItems || [], materialItems) : (prev.materialLineItems || []),
-        laborLineItems: laborItems.length > 0 ? upsertByName(prev.laborLineItems || [], laborItems) : (prev.laborLineItems || []),
-      }));
-
-      setForceRefresh(prev => prev + 1);
-
-      const addedMaterialTotal = materialItems.reduce((sum, item) => sum + Number(item.total || 0), 0);
-      const addedLaborTotal = laborItems.reduce((sum, item) => sum + Number(item.total || 0), 0);
-      const nextMaterialSubtotal = Number(action.summary?.nextMaterialSubtotal ?? ((bid.materialLineItems || []).reduce((sum, item) => sum + Number(item.total || item.totalCost || 0), 0) + addedMaterialTotal));
-      const nextLaborSubtotal = Number(action.summary?.nextLaborSubtotal ?? ((bid.laborLineItems || []).reduce((sum, item) => sum + Number(item.total || item.totalCost || 0), 0) + addedLaborTotal));
-
-      const lines = [
-        `Added ${incomingItems.length} item${incomingItems.length === 1 ? '' : 's'} to this bid:`,
-        ...incomingItems.map((item) => `- ${item.name || 'Line item'}: $${Number(item.amount || item.unitCost || 0).toLocaleString()}`),
-      ];
-      if (materialItems.length > 0) {
-        lines.push('', `Material subtotal is now $${Math.round(nextMaterialSubtotal).toLocaleString()}.`);
-      }
-      if (laborItems.length > 0) {
-        lines.push(`Labor subtotal is now $${Math.round(nextLaborSubtotal).toLocaleString()}.`);
-      }
-      if (materialItems.length > 0 && nextLaborSubtotal <= 0) {
-        lines.push('', 'Labor is still missing, so the current margin is not fully meaningful yet.');
-      }
-
-      return resultWithUndo(lines.join('\n'), {
-        suggestedFollowUps: [
-          { label: 'Add Labor Costs', prompt: 'Add labor costs to this estimate.' },
-          { label: 'Build Starter Labor', prompt: 'Build starter labor for this estimate.' },
-          { label: 'Review Markup', prompt: 'Review markup against these estimate costs.' },
-          { label: 'Current Cost', prompt: 'What is my current cost so far in this estimate?' },
-        ],
-      });
-    }
-
-    const rawDescription =
-      action.newDescription ||
-      action.itemDescription ||
-      action.category ||
-      action.laborType ||
-      'Material';
-    const description = String(rawDescription).trim() || 'Material';
-    const amount = Number(action.newAmount ?? action.amount ?? 0) || 0;
-    const quantity = Number(action.newQuantity ?? 1) || 1;
-    const unitCost = Number(action.newUnitCost ?? (amount && quantity ? amount / quantity : 0)) || 0;
-    const itemId = action.itemId || action.item_id || `ai-${Date.now()}`;
-    const descriptionKey = description.toLowerCase();
-
-    const isAiLaborItem =
-      action.type === 'add_labor_expense' ||
-      /labor|labour|sub|crew/.test(descriptionKey);
-
-    // CRITICAL: Check if this is a PROJECT expense action (not estimate action)
-    // If action has projectId and projectName, it's for a PROJECT, not the current estimate
-    if (action.type === 'add_material' && action.projectId && action.projectName && action.projectName !== bid.title) {
-      // This is a project expense, not an estimate addition
-      // Show a message that it was added to the project
-      Alert.alert(
-        'Expense Recorded',
-        `I've recorded $${action.amount || 0} for ${action.category || 'materials'} to ${action.projectName}. This was added to the project's expenses, not the current estimate.`,
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-    
-    if (action.type === 'update_estimate_item' || action.type === 'add_material' || action.type === 'add_labor_expense') {
-      storeEstimateAiUndoSnapshot(isAiLaborItem ? 'add / update labor item' : 'add / update material item');
-      if (isAiLaborItem) {
-        const nextLabor = {
-          id: itemId,
-          name: description,
-          description,
-          hours: quantity,
-          rate: unitCost || (amount ? amount / quantity : 0),
-          total: amount || quantity * (unitCost || 0),
-          category: action.projectScope || 'Labor',
-          section: action.projectScope || 'Labor',
-        };
-
-        setBid((prev) => {
-          const existing = prev.laborLineItems || [];
-          const matchIndex = existing.findIndex((item) => {
-            const name = (item.name || item.description || '').toLowerCase();
-            return item.id === itemId || name === descriptionKey || name.includes(descriptionKey) || descriptionKey.includes(name);
-          });
-          const updated = matchIndex >= 0
-            ? existing.map((item, idx) => (idx === matchIndex ? { ...item, ...nextLabor } : item))
-            : [...existing, nextLabor];
-          return { ...prev, laborLineItems: updated };
-        });
-        setForceRefresh((prev) => prev + 1);
-        return resultWithUndo(`Updated labor coverage with "${description}".`);
-      }
-
-      const nextMaterial = {
-        id: itemId,
-        name: description,
-        description,
-        quantity,
-        unit: action.unit || 'lot',
-        unitPrice: unitCost || (amount ? amount / quantity : 0),
-        total: amount || quantity * (unitCost || 0),
-        vendor: action.vendor || '',
-        section: action.projectScope || description,
-        category: action.projectScope || description,
-        scope: action.projectScope || activeScope,
-        source: 'ai',
-        isManual: true,
-      };
-
-      setMaterialsCart((prev) => {
-        const matchIndex = prev.findIndex((item) => {
-          const name = (item.name || item.description || '').toLowerCase();
-          return item.id === itemId || name === descriptionKey || name.includes(descriptionKey) || descriptionKey.includes(name);
-        });
-        if (matchIndex >= 0) {
-          return prev.map((item, idx) => (idx === matchIndex ? { ...item, ...nextMaterial } : item));
-        }
-        return [...prev, nextMaterial];
-      });
-
-      setBid((prev) => {
-        const existing = prev.materialLineItems || [];
-        const matchIndex = existing.findIndex((item) => {
-          const name = (item.name || item.description || '').toLowerCase();
-          return item.id === itemId || name === descriptionKey || name.includes(descriptionKey) || descriptionKey.includes(name);
-        });
-        const updated = matchIndex >= 0
-          ? existing.map((item, idx) => (idx === matchIndex ? { ...item, ...nextMaterial } : item))
-          : [...existing, nextMaterial];
-        return { ...prev, materialLineItems: updated };
-      });
-      setForceRefresh((prev) => prev + 1);
-      return resultWithUndo(`Updated materials with "${description}".`);
-    }
-  }, [activeProjects, activeScope, applyEstimateVariant, bid.projectType, calc?.total, estimateAssistantBrief, estimateVariantPreviews, getToken, materialsCart, setMaterialsCart, setBid, silentPersistEstimateDraft, updateProject, storeEstimateAiUndoSnapshot]);
 
   // Auto-adjust payment amounts when total bid price changes
   useEffect(() => {
@@ -13902,7 +12248,7 @@ export default function EstimateGeneratorScreen() {
   };
 
   const handleScannedEstimateProductSave = (payload) => {
-    const { product, quantity, unitCost, description, notes } = payload;
+    const { product, quantity, unitCost, description, notes, vendor: scannedVendor } = payload;
     handleSkuAttach({
       sku: product.sku || product.model || product.upc || product.rawCode || String(Date.now()),
       title: description || product.title,
@@ -13913,7 +12259,7 @@ export default function EstimateGeneratorScreen() {
       zip: bid.customerZip || '',
       image: product.imageUrl || null,
       quantity,
-      supplier: product.supplier,
+      supplier: scannedVendor?.trim() || product.supplier,
       model: product.model,
       upc: product.upc,
       notes: buildProductNotes(product, notes),
@@ -14291,8 +12637,6 @@ export default function EstimateGeneratorScreen() {
     setShowAiScopeAssumptionsModal(false);
     setAiScopeAssumptionsApplying(false);
     setAiManualPricingSeed(null);
-    setShowAIAssistant(false);
-    setEstimateAiInitialQuestion('');
     setAiDraftFromAssistant(false);
     setAiDraftGenerating(false);
     setAiDraftApplying(false);
@@ -23676,12 +22020,6 @@ export default function EstimateGeneratorScreen() {
                           {finalStepLegalExpanded ? 'Hide legal notes' : 'View legal review notes'}
                         </Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => openEstimateCopilot('Review this proposal before export.')}
-                        activeOpacity={0.75}
-                      >
-                        <Text style={{ color: ESTIMATE_FLOW_GREEN, fontSize: 12, fontWeight: '700' }}>Review with AI</Text>
-                      </TouchableOpacity>
                     </View>
 
                     {healthScoreBreakdownExpanded && (
@@ -24492,20 +22830,16 @@ export default function EstimateGeneratorScreen() {
             ))}
           </ScrollView>
           </View>
-          {step !== 8 && !firstEstimateWalkthroughUiActive ? (
+          {step !== 8 && !firstEstimateWalkthroughUiActive && !bidHasLineItems ? (
             <View style={estimateAiAssistRowInCardStyle(darkMode)}>
               <EstimateAiAssistRow
-                hint={bidHasLineItems ? t('estimate.aiAssistantSub') : t('estimate.buildWithAiSub')}
-                label={bidHasLineItems ? t('assistant.aiAssistant') : t('estimate.buildWithAi')}
-                onPress={bidHasLineItems ? () => openEstimateCopilot('') : openBuildWithAiDirect}
+                hint={t('estimate.buildWithAiSub')}
+                label={t('estimate.buildWithAi')}
+                onPress={openBuildWithAiDirect}
                 darkMode={darkMode}
                 hintColor={Colors.sub}
                 containerStyle={{ marginTop: 0, marginBottom: 0, paddingHorizontal: 0 }}
-                accessibilityLabel={
-                  bidHasLineItems
-                    ? t('assistant.aiAssistant')
-                    : `${t('estimate.buildWithAi')}. ${t('estimate.buildWithAiSub')}`
-                }
+                accessibilityLabel={`${t('estimate.buildWithAi')}. ${t('estimate.buildWithAiSub')}`}
               />
             </View>
           ) : null}
@@ -25001,39 +23335,6 @@ export default function EstimateGeneratorScreen() {
         />
       ) : null}
 
-      <AIAssistantModal
-        visible={showAIAssistant}
-        onClose={() => {
-          setShowAIAssistant(false);
-          setEstimateAiInitialQuestion('');
-          setShowAiBuilderModal(false);
-          setShowAiScopeAssumptionsModal(false);
-          setShowAiInitialRevealModal(false);
-          setShowAiDraftReviewModal(false);
-          setAiDraftFromAssistant(false);
-        }}
-        context={estimateContext}
-        onAction={handleEstimateAIAction}
-        initialQuestion={estimateAiInitialQuestion}
-        estimateBidIsEmpty={!bidHasLineItems}
-        overlayBlocksKeyboard={showAIAssistant && aiFlowOverlayActive}
-        onBuildWithAi={() => {
-          setAiDraftFromAssistant(true);
-          setShowAIAssistant(false);
-          setShowAiScopeAssumptionsModal(false);
-          setShowAiInitialRevealModal(false);
-          setShowAiDraftReviewModal(false);
-          setAiDraft(null);
-          setAiDraftNotes('');
-          setAiLastPlanImport(null);
-          setAiPhotoDetections([]);
-          setAiPhotoExistingFeatures([]);
-          setAiSitePhotos([]);
-          AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
-          setShowAiBuilderModal(true);
-        }}
-      />
-
       {showAiBuilderModal ? (
       <AIEstimateBuilderModal
         visible={showAiBuilderModal}
@@ -25059,10 +23360,7 @@ export default function EstimateGeneratorScreen() {
             return;
           }
           setShowAiBuilderModal(false);
-          if (aiDraftFromAssistant && !bidHasLineItems) {
-            setShowAIAssistant(false);
-            setAiDraftFromAssistant(false);
-          }
+          setAiDraftFromAssistant(false);
         }}
         onClose={() => {
           if (!aiDraftGenerating) {

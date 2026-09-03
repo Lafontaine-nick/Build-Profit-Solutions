@@ -19,6 +19,7 @@ import { isDesktopWebLayoutWidth } from '@/constants/ScreenLayout';
 import ProfileCompletionReminder from '@/components/ProfileCompletionReminder';
 import { useWorkspaceProjectPermissions } from '@/hooks/useWorkspaceProjectPermissions';
 import { warmEstimateStoragePreload } from '@/utils/estimateSessionHydration';
+import { isLeadsNetworkingReleased } from '@/constants/releaseFlags';
 
 const ASSISTANT_LABEL_COLOR = '#5eead4';
 
@@ -29,13 +30,14 @@ export type TabLayoutSharedProps = {
 export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutSharedProps) {
   const { width } = useWindowDimensions();
   const desktopWebSidebar = isDesktopWebLayoutWidth(width);
-  const { enabled: aiManagerEnabled, hasAlerts } = useAIManagerMode();
+  const { hasAlerts } = useAIManagerMode();
   const { t } = useTranslation();
   const { darkMode, theme } = useTheme();
   const tabInactiveColor = darkMode ? '#8E8E93' : '#64748B';
   const sidebarBorder = darkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(15, 23, 42, 0.12)';
   const sidebarBg = darkMode ? theme.bg : '#f8fafc';
   const { canAccessEstimateAndLeads } = useWorkspaceProjectPermissions();
+  const showLeadsTab = canAccessEstimateAndLeads && isLeadsNetworkingReleased();
 
   // Warm estimate AsyncStorage cache as soon as tabs mount; defer JS parse so Dashboard stays responsive.
   useEffect(() => {
@@ -152,17 +154,12 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
                   colors={['rgba(255, 255, 255, 0.06)', 'rgba(74, 222, 128, 0.07)']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
-                  style={[
-                    styles.assistantCircle,
-                    aiManagerEnabled && styles.assistantCircleAIEnabled,
-                  ]}
+                  style={[styles.assistantCircle, styles.assistantCircleAIEnabled]}
                 >
                   <TabBarAssistantStar size={desktopWebSidebar ? 22 : 20} />
-                  {aiManagerEnabled && (
-                    <View style={styles.aiBadge}>
-                      <Text style={styles.aiBadgeText}>AI</Text>
-                    </View>
-                  )}
+                  <View style={styles.aiBadge}>
+                    <Text style={styles.aiBadgeText}>AI</Text>
+                  </View>
                 </LinearGradient>
                 {hasAlerts && !focused && <View style={styles.alertDot} />}
               </View>
@@ -182,7 +179,7 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
           );
         },
       }),
-    [PillTabBarBackground, aiManagerEnabled, darkMode, desktopWebSidebar, hasAlerts, sidebarBg, sidebarBorder, tabInactiveColor]
+    [PillTabBarBackground, darkMode, desktopWebSidebar, hasAlerts, sidebarBg, sidebarBorder, tabInactiveColor]
   );
 
   return (
@@ -220,7 +217,7 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
         name="leads"
         options={{
           title: t('tabs.leads'),
-          href: canAccessEstimateAndLeads ? undefined : null,
+          href: showLeadsTab ? undefined : null,
         }}
       />
       <Tabs.Screen

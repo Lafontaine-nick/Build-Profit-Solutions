@@ -55,4 +55,18 @@ describe('promptSystem contracts', () => {
     expect(prompt).toContain('You are a combined PM + Estimator + CFO');
     expect(prompt).not.toContain('You are the AI Command Center');
   });
+
+  test('central command prompt is explicit about read-only, source-backed answers', () => {
+    const prompt = buildSystemPrompt({
+      screen: 'AI Assistant Tab',
+      assistantMode: 'central_command',
+      projectId: null,
+      aiScope: 'portfolio',
+    });
+
+    expect(prompt).toContain('Central Command');
+    expect(prompt).toContain('read-only portfolio data analyst');
+    expect(prompt).toContain('do not fill gaps with an estimate');
+    expect(prompt).toContain('does not change stored data');
+  });
 });

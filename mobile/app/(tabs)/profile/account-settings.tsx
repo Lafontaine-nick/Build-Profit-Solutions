@@ -31,6 +31,7 @@ import {
 } from '@/lib/firstEstimateWalkthroughStorage';
 import { resetActiveProjectWalkthroughStorage } from '@/lib/activeProjectWalkthroughStorage';
 import { resetAllWalkthroughsForAccount } from '@/lib/walkthroughStateService';
+import { useAIManagerMode } from '@/state/useAIManagerMode';
 
 interface SettingItem {
   id: string;
@@ -48,6 +49,11 @@ export default function AccountSettingsScreen() {
   const { darkMode, setDarkMode } = useTheme();
   const { userRole, clearUserRole } = useUserRole();
   const router = useRouter();
+  const {
+    enabled: aiDailyBriefEnabled,
+    loading: aiDailyBriefLoading,
+    toggleEnabled: toggleAiDailyBrief,
+  } = useAIManagerMode();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [settings, setSettings] = useState({
     pushNotifications: true,
@@ -193,6 +199,18 @@ export default function AccountSettingsScreen() {
       onToggle: () => handleThemeToggle(),
     },
     {
+      id: 'ai-daily-brief',
+      title: 'AI Daily Brief',
+      subtitle: 'Personalized dashboard insights and patterns (budget alerts always on)',
+      icon: 'auto-awesome',
+      type: 'toggle',
+      value: aiDailyBriefEnabled,
+      onToggle: value => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        void toggleAiDailyBrief(value);
+      },
+    },
+    {
       id: 'push',
       title: 'Push Notifications',
       subtitle: 'Receive notifications about leads and projects',
@@ -321,6 +339,7 @@ export default function AccountSettingsScreen() {
         <Switch
           value={item.value}
           onValueChange={item.onToggle}
+          disabled={item.id === 'ai-daily-brief' && aiDailyBriefLoading}
           trackColor={{ false: '#767577', true: theme.accent }}
           thumbColor={item.value ? '#fff' : '#f4f3f4'}
         />

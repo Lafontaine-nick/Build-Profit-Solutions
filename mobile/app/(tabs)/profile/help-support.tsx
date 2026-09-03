@@ -16,6 +16,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
+import { isLeadsNetworkingReleased } from '@/constants/releaseFlags';
 import { useMemo } from 'react';
 import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
@@ -228,11 +229,13 @@ export default function HelpSupportScreen() {
                   label='Project Management'
                   onPress={handleProjectManagement}
                 />
+                {isLeadsNetworkingReleased() ? (
                 <SettingsRow
                   iconName='people'
                   label='Lead Management'
                   onPress={handleLeadManagement}
                 />
+                ) : null}
               </View>
 
               {/* Quick Help */}

@@ -30,7 +30,6 @@ import { useFocusEffect } from 'expo-router';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useProjectList } from '@/contexts/ProjectListContext';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
-import { useAIManagerMode } from '@/hooks/useAIManagerMode';
 import * as Haptics from 'expo-haptics';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -378,7 +377,6 @@ export default function ProjectsScreen() {
     [Colors, darkMode, tabScrollBottomInset, desktopWeb, insets.bottom]
   );
   const { activeProjects, estimates, deleteProject, convertBidToProject, updateProject, refreshProjects } = useProjectList();
-  const { enabled: aiPmMode } = useAIManagerMode();
   const params = useLocalSearchParams();
   const [activeTab, setActiveTab] = useState<'active' | 'submitted' | 'completed'>(() => {
     return tabFromRouteParam(params.tab) ?? 'active';
@@ -846,7 +844,7 @@ export default function ProjectsScreen() {
   }, [allProjects, activeTab]);
 
   const handleProjectPress = (project: any) => {
-    router.push(`/(tabs)/project-detail/${project.id}`);
+    router.navigate(`/(tabs)/project-detail/${project.id}` as never);
   };
 
   const [markAsWonModalVisible, setMarkAsWonModalVisible] = useState(false);
@@ -1449,16 +1447,6 @@ export default function ProjectsScreen() {
                         <Text style={styles.projectAmount}>
                           {formatMoneyUSD(project.amount)}
                         </Text>
-                        {aiPmMode && (
-                          <View style={styles.aiTagChip}>
-                            <Ionicons
-                              name="sparkles-outline"
-                              size={11}
-                              color="#22C55E"
-                            />
-                            <Text style={[styles.aiTagText, { color: '#22C55E' }]}>AI Assist</Text>
-                          </View>
-                        )}
                       </View>
                       <View style={styles.projectDateBlock}>
                         <Text style={styles.projectMetaLabel}>

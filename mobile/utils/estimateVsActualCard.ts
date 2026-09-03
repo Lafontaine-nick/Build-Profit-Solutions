@@ -139,15 +139,29 @@ export function formatEstimateStatusLabel(status: EstimateFeedbackResult['status
     case 'ready_for_review':
       return 'Ready to review';
     case 'partial':
-      return 'Partial data';
+      return 'In progress';
     case 'reviewed':
       return 'Reviewed';
     case 'calibration_applied':
       return 'Applied';
     case 'insufficient_data':
     default:
-      return 'Building data';
+      return 'No costs logged';
   }
+}
+
+/** CTA when the user should log or categorize expenses from this card. */
+export function formatMapCostsCtaLabel(
+  category: string | null | undefined,
+  options?: { opensBudgetTab?: boolean }
+): string {
+  if (options?.opensBudgetTab) {
+    return 'Log expenses in Budget →';
+  }
+  if (category) {
+    return `Add expenses to ${category} →`;
+  }
+  return 'Log expenses in Budget →';
 }
 
 export function getEstimateVsActualCardMessage(

@@ -5,6 +5,13 @@
 export const BUSINESS_PLAN_ENABLED = false;
 export const TEAM_WORKSPACE_ENABLED = false;
 
+/** Contractor networking (Leads tab, Request Subcontractor, campaigns). Re-enable when user density supports matching. */
+export const LEADS_NETWORKING_ENABLED = false;
+
+export function isLeadsNetworkingReleased(): boolean {
+  return LEADS_NETWORKING_ENABLED;
+}
+
 export function isBusinessPlanReleased(): boolean {
   return BUSINESS_PLAN_ENABLED;
 }

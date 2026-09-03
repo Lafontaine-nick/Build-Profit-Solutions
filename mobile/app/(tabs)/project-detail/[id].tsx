@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import {
   ProjectDataProvider,
   useProjectData,
@@ -17,9 +17,9 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
-  Alert,
   BackHandler,
   useWindowDimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -27,7 +27,7 @@ import {
   BRAND_FRAME_GRADIENT_END,
   BRAND_FRAME_GRADIENT_START,
 } from "@/constants/brandFrameGradient";
-import { BlurView } from 'expo-blur';
+import { SegmentNavBar, type SegmentNavItem } from '@/components/navigation/SegmentNavBar';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -53,17 +53,11 @@ import { buildSpendingTrendSamplePoints } from '@/src/lib/projectChartTimeline';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
-import AIAssistantModal from '@/components/AIAssistantModal';
-import { AiPmModePill } from '@/components/AiPmModePill';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
 import ProjectActivationFlow from '@/components/ProjectActivationFlow';
 import { isChangeOrderMirrorExpenseId } from '@/lib/changeOrderMirrorExpenses';
 import { setLastOpenedProjectId } from '@/lib/ai/userProjectSettings';
-import api from '@/services/BackendAPI';
-import { useAuth } from '@clerk/clerk-react';
 import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
-import { syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
-import { useTranslation } from 'react-i18next';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import {
@@ -96,14 +90,10 @@ import {
   type ActiveProjectWalkthroughProgress,
 } from '@/lib/activeProjectWalkthroughStorage';
 import {
-  applyMarkPaymentCollectedFromAction,
-  computeOverallProgressExcludingDeposit,
-} from '@/lib/markPaymentCollected';
-import { filterProjectAIContext, isWorkspaceRestrictedFinancialsProject } from '@/utils/workspacePermissions';
-import {
   mapApprovedCostBucketsToBudgetLines,
   mapApprovedCostBucketsToProjectBuckets,
 } from '@/utils/approvedCostBuckets';
+import { isWorkspaceRestrictedFinancialsProject } from '@/utils/workspacePermissions';
 import {
   getAllowanceLineItemsTotal,
   isAllowancesCategoryName,
@@ -118,6 +108,11 @@ import {
   ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
 } from '@/utils/estimateFlowCardStyle';
 import { isTeamWorkspaceReleased } from '@/constants/releaseFlags';
+import EstimateVsActualCard from '@/components/EstimateVsActualCard';
+import CalibrationReviewModal from '@/components/CalibrationReviewModal';
+import { parseOpenRateInsightsParam, parseDashboardReturnTab } from '@/utils/insightNavigation';
+import { useProjectEstimateFeedback } from '@/hooks/useProjectEstimateFeedback';
+import { DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS } from '@/utils/buildWithAiProductionHardening';
 
 type TabKey = "Overview" | "Budget" | "Timeline" | "Calendar" | "Team";
 
@@ -190,95 +185,6 @@ function getProjectScreenTitleTypography(title: string): {
   return { fontSize: 17, lineHeight: 22, letterSpacing: -0.15 };
 }
 
-type ProjectLeakCard = {
-  id: string;
-  title: string;
-  body: string;
-  severity: 'high' | 'medium' | 'low';
-};
-
-const buildProjectLeakCards = ({
-  project,
-  metrics,
-  liveTimelineMilestones,
-}: {
-  project: any;
-  metrics: any;
-  liveTimelineMilestones: any[];
-}): ProjectLeakCard[] => {
-  const cards: ProjectLeakCard[] = [];
-  const status = String(project?.status || '').toLowerCase();
-  const isCompleted = status === 'completed' || status === 'done' || status === 'finished';
-  if (!metrics || isCompleted) return cards;
-
-  const budgetCap = Number(metrics?.costBudgetCap || 0);
-  const spentAndCommitted = Number(metrics?.totalSpent || 0) + Number(metrics?.committedPOsTotal || 0);
-  const progress = Number(metrics?.scheduleProgress || 0);
-  const expectedSpend = budgetCap > 0 ? budgetCap * (progress / 100) : 0;
-  const spendAheadBy = Math.max(0, spentAndCommitted - expectedSpend);
-  const pf = metrics?.profitForecast;
-  const projectedMargin = Number(pf?.projectedMarginPct || 0);
-  const originalMargin = Number(pf?.estimatedMarginPct || 0);
-  const marginDrop = originalMargin > 0 && projectedMargin > 0 ? (originalMargin - projectedMargin) : 0;
-  const expenses = Array.isArray(project?.expenses) ? project.expenses : Array.isArray(project?.projectData?.expenses) ? project.projectData.expenses : [];
-  const missingReceipts = expenses.filter((expense: any) => !expense?.receiptUri || !String(expense.receiptUri).trim()).length;
-  const overduePayments = (Array.isArray(liveTimelineMilestones) ? liveTimelineMilestones : []).filter((m: any) => {
-    const due = m?.date ? new Date(m.date) : null;
-    if (!due || Number.isNaN(due.getTime())) return false;
-    const name = String(m?.title || m?.name || '').toLowerCase();
-    const isPayment = name.includes('payment') || m?.type === 'payment';
-    const isCollected = m?.paid === true || m?.collected === true || m?.status === 'paid';
-    return isPayment && !isCollected && due.getTime() < Date.now();
-  });
-
-  if (progress > 0 && budgetCap > 0 && spendAheadBy > Math.max(1000, budgetCap * 0.08)) {
-    cards.push({
-      id: 'spend-ahead',
-      severity: spendAheadBy > budgetCap * 0.15 ? 'high' : 'medium',
-      title: 'Spend is ahead of progress',
-      body: `This job is ${Math.round((spentAndCommitted / budgetCap) * 100)}% spent at ${Math.round(progress)}% progress. Review labor, materials, or scope before margin slips further.`,
-    });
-  }
-
-  if (budgetCap > 0 && spentAndCommitted > budgetCap) {
-    cards.push({
-      id: 'over-budget',
-      severity: spentAndCommitted > budgetCap * 1.1 ? 'high' : 'medium',
-      title: 'Budget is already exceeded',
-      body: `Current cost exposure is about $${Math.round(spentAndCommitted - budgetCap).toLocaleString()} over the planned cost budget. Check the biggest overrun categories first.`,
-    });
-  }
-
-  if (marginDrop >= 5) {
-    cards.push({
-      id: 'margin-erosion',
-      severity: marginDrop >= 10 ? 'high' : 'medium',
-      title: 'Projected margin is eroding',
-      body: `Projected margin has moved from about ${originalMargin.toFixed(1)}% to ${projectedMargin.toFixed(1)}%. Tighten cost control or recover scope before the job closes out.`,
-    });
-  }
-
-  if (overduePayments.length > 0) {
-    cards.push({
-      id: 'collections',
-      severity: overduePayments.length > 1 ? 'high' : 'medium',
-      title: 'Collections need attention',
-      body: `${overduePayments.length} payment milestone${overduePayments.length > 1 ? 's are' : ' is'} overdue. Slow collections can squeeze cash even when the job still looks profitable.`,
-    });
-  }
-
-  if (missingReceipts >= 3) {
-    cards.push({
-      id: 'receipts',
-      severity: missingReceipts >= 6 ? 'medium' : 'low',
-      title: 'Cost backup is incomplete',
-      body: `${missingReceipts} expense${missingReceipts > 1 ? 's are' : ' is'} missing receipts. Missing backup makes profit tracking less trustworthy.`,
-    });
-  }
-
-  return cards.slice(0, 4);
-};
-
 // Circular Progress Component
 const CircularProgress = ({
   progress,
@@ -326,13 +232,64 @@ function ProjectDetailContent() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
-  const id = params.id as string;
+  const id = useMemo(() => {
+    const raw = params.id;
+    return String(Array.isArray(raw) ? raw[0] : raw ?? '');
+  }, [params.id]);
   const initialTab = (params.activeTab as TabKey) || 'Overview';
+  const openRateInsightsOnEntry = useRef(
+    parseOpenRateInsightsParam(params.openRateInsights as string | string[] | undefined)
+  );
+  const returnToDashboardTabOnEntry = useRef(
+    parseDashboardReturnTab(params.returnToDashboardTab as string | string[] | undefined)
+  );
+  const rateInsightLineIdOnEntry = useRef<string | null>(
+    (() => {
+      const raw = params.rateInsightLineId;
+      const value = Array.isArray(raw) ? raw[0] : raw;
+      return value ? String(value) : null;
+    })()
+  );
+  const budgetCategoryParam = useMemo(() => {
+    const raw = params.budgetCategory;
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    return value ? String(value) : null;
+  }, [params.budgetCategory]);
   const backToProjects = params.backToProjects === '1';
   const apWtRaw = params.apWt;
   const apWtRequest =
     apWtRaw === '1' || (Array.isArray(apWtRaw) && apWtRaw[0] === '1');
-  const { projectData: contextProjectData, reloadFromStorage, addExpense, addPurchaseOrder, markPOReceived, addChangeOrder, updateTeam } = useProjectData();
+  const {
+    projectData: rawContextProjectData,
+    reloadFromStorage,
+    isProjectDataLoaded,
+  } = useProjectData();
+  const { getProjectById, updateProject } = useProjectList();
+  const realProjectData = getProjectById(id);
+  const isRestrictedWorkspaceProject = isWorkspaceRestrictedFinancialsProject(realProjectData);
+  const approvedCostBucketsForMember = isRestrictedWorkspaceProject
+    ? mapApprovedCostBucketsToProjectBuckets((realProjectData as any)?.approvedCostBuckets)
+    : [];
+  const listProjectSnapshot = useMemo(() => {
+    if (!realProjectData || String(realProjectData.id) !== id) return undefined;
+    const pd = (realProjectData as { projectData?: Record<string, unknown> }).projectData;
+    if (!pd || typeof pd !== 'object') return undefined;
+    return { ...pd, id } as typeof rawContextProjectData;
+  }, [realProjectData, id]);
+  // Prefer hydrated context; fall back to list snapshot (already merged from AsyncStorage in ProjectList).
+  const contextProjectData = useMemo(() => {
+    if (rawContextProjectData?.id === id && isProjectDataLoaded) {
+      return rawContextProjectData;
+    }
+    if (listProjectSnapshot) return listProjectSnapshot;
+    if (rawContextProjectData?.id === id) return rawContextProjectData;
+    return undefined;
+  }, [rawContextProjectData, id, isProjectDataLoaded, listProjectSnapshot]);
+  const projectDetailReady =
+    Boolean(id) &&
+    Boolean(realProjectData) &&
+    String(realProjectData?.id) === id &&
+    (isProjectDataLoaded || Boolean(listProjectSnapshot));
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const { width: layoutWidth } = useWindowDimensions();
@@ -349,8 +306,6 @@ function ProjectDetailContent() {
           }
         : undefined;
   const styles = useMemo(() => getStyles(Colors, darkMode, desktopWeb), [Colors, darkMode, desktopWeb]);
-  const { t } = useTranslation();
-  const { getToken } = useAuth();
   const businessEntitlement = useBusinessEntitlement();
   const projectPerms = useWorkspaceProjectPermissions();
 
@@ -408,14 +363,7 @@ function ProjectDetailContent() {
       UIManager.setLayoutAnimationEnabledExperimental(true);
     }
   }, []);
-  const { getProjectById, updateProject, activeProjects, projects: allProjects } = useProjectList();
-  const realProjectData = getProjectById(id as string);
-  const isRestrictedWorkspaceProject = isWorkspaceRestrictedFinancialsProject(realProjectData);
-  const approvedCostBucketsForMember = isRestrictedWorkspaceProject
-    ? mapApprovedCostBucketsToProjectBuckets((realProjectData as any)?.approvedCostBuckets)
-    : [];
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
-  const [teamRefreshTrigger, setTeamRefreshTrigger] = useState(0);
 
   useEffect(() => {
     const allowedTabs: TabKey[] = [
@@ -431,9 +379,30 @@ function ProjectDetailContent() {
   }, [activeTab, projectPerms.visibleTabs]);
 
   const [materialsCart, setMaterialsCart] = useState<any[]>([]);
-  /** When there are no leak cards, section starts collapsed; tap header to expand details. */
-  const [profitLeakEmptyExpanded, setProfitLeakEmptyExpanded] = useState(false);
-  const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [showCalibrationReview, setShowCalibrationReview] = useState(
+    () => openRateInsightsOnEntry.current
+  );
+  const [calibrationFromInsightLink, setCalibrationFromInsightLink] = useState(
+    () => openRateInsightsOnEntry.current
+  );
+  const handleCloseCalibrationReview = useCallback(() => {
+    setShowCalibrationReview(false);
+
+    const openedFromInsight = openRateInsightsOnEntry.current;
+    const returnTab =
+      returnToDashboardTabOnEntry.current ||
+      parseDashboardReturnTab(
+        params.returnToDashboardTab as string | string[] | undefined
+      );
+
+    if (openedFromInsight) {
+      router.replace({
+        pathname: '/(tabs)/dashboard',
+        params: { tab: returnTab ?? 'insights' },
+      } as never);
+      return;
+    }
+  }, [router, params.returnToDashboardTab]);
   const [showTeamUpgradePlans, setShowTeamUpgradePlans] = useState(false);
   const [showActivationFlow, setShowActivationFlow] = useState(false);
   const [activationChecklist, setActivationChecklist] = useState({
@@ -448,7 +417,6 @@ function ProjectDetailContent() {
   const [justActivatedDismissed, setJustActivatedDismissed] = useState(false);
   const justActivatedOpacity = useRef(new Animated.Value(1)).current;
   const [liveTimelineMilestones, setLiveTimelineMilestones] = useState<any[]>([]);
-  const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
 
   const [apWtProgressLoaded, setApWtProgressLoaded] = useState(false);
   const [apWtProgress, setApWtProgress] = useState<ActiveProjectWalkthroughProgress | null>(null);
@@ -473,6 +441,36 @@ function ProjectDetailContent() {
       setActiveTab(params.activeTab as TabKey);
     }
   }, [params.activeTab, apWtWalkthroughEligible, activeTab]);
+
+  useLayoutEffect(() => {
+    if (!parseOpenRateInsightsParam(params.openRateInsights as string | string[] | undefined)) {
+      return;
+    }
+    openRateInsightsOnEntry.current = true;
+    const returnTab = parseDashboardReturnTab(
+      params.returnToDashboardTab as string | string[] | undefined
+    );
+    if (returnTab) {
+      returnToDashboardTabOnEntry.current = returnTab;
+    }
+    const rawLineId = params.rateInsightLineId;
+    const lineId = Array.isArray(rawLineId) ? rawLineId[0] : rawLineId;
+    if (lineId) {
+      rateInsightLineIdOnEntry.current = String(lineId);
+    }
+    setCalibrationFromInsightLink(true);
+    setActiveTab((current) => (current === 'Budget' ? current : 'Budget'));
+    setShowCalibrationReview(true);
+    const frame = requestAnimationFrame(() => {
+      router.setParams({ openRateInsights: '', rateInsightLineId: '' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [
+    params.openRateInsights,
+    params.returnToDashboardTab,
+    params.rateInsightLineId,
+    router,
+  ]);
 
   const apWtSheetVisible =
     apWtWalkthroughEligible &&
@@ -581,6 +579,7 @@ function ProjectDetailContent() {
   // Load live timeline milestones from AsyncStorage (this is where TimelineTabV2 saves completed statuses)
   useEffect(() => {
     if (!id) return;
+    setLiveTimelineMilestones([]);
     const loadTimeline = async () => {
       try {
         const saved = await AsyncStorage.getItem(`bps.timeline.v2.${id}`);
@@ -596,29 +595,6 @@ function ProjectDetailContent() {
     };
     loadTimeline();
   }, [id]);
-
-  useEffect(() => {
-    setProfitLeakEmptyExpanded(false);
-  }, [id]);
-
-  // Re-load live timeline when AI assistant opens or tab changes (to catch recent completions)
-  useEffect(() => {
-    if (!id) return;
-    const refreshTimeline = async () => {
-      try {
-        const saved = await AsyncStorage.getItem(`bps.timeline.v2.${id}`);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) {
-            setLiveTimelineMilestones(parsed);
-          }
-        }
-      } catch (error) {
-        // silent
-      }
-    };
-    refreshTimeline();
-  }, [id, showAIAssistant, activeTab]);
 
   // Load activation checklist from AsyncStorage on mount
   useEffect(() => {
@@ -664,8 +640,6 @@ function ProjectDetailContent() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
   }, [activationChecklist, showActivationFlow]);
-
-  const [initialAIQuestion, setInitialAIQuestion] = useState<string | undefined>(undefined);
 
   const totalSpentFromBuckets = React.useMemo(() => {
     if (contextProjectData?.buckets && contextProjectData.buckets.length > 0) {
@@ -1849,14 +1823,49 @@ function ProjectDetailContent() {
     };
   }, [safeProjectData, currentDate, liveTimelineMilestones]); // Include liveTimelineMilestones so Schedule matches Timeline tab
 
-  const projectLeakCards = useMemo(
-    () =>
-      buildProjectLeakCards({
-        project: safeProjectData,
-        metrics: overviewMetrics,
-        liveTimelineMilestones,
-      }),
-    [safeProjectData, overviewMetrics, liveTimelineMilestones]
+  const overviewBucketNames = useMemo(
+    () => (safeProjectData?.buckets || []).map((b: { name?: string }) => String(b.name || '')).filter(Boolean),
+    [safeProjectData?.buckets]
+  );
+
+  const overviewCalibrationProjectLike = useMemo(
+    () => ({
+      ...(realProjectData || {}),
+      id,
+      projectData: contextProjectData || safeProjectData,
+      contractValue: overviewMetrics.financials.adjustedContractValue,
+      budget:
+        overviewMetrics.financials.plannedCostBudget ||
+        overviewMetrics.financials.adjustedCostBudget,
+    }),
+    [realProjectData, id, contextProjectData, safeProjectData, overviewMetrics.financials]
+  );
+
+  const {
+    estimateFeedback: overviewEstimateFeedback,
+    closeoutTipCount: overviewCloseoutTipCount,
+    linkCostsTarget: overviewLinkCostsTarget,
+  } = useProjectEstimateFeedback({
+    projectId: id,
+    status: String(safeProjectData?.status ?? realProjectData?.status ?? ''),
+    buckets: safeProjectData?.buckets || [],
+    expenses: safeProjectData?.expenses || [],
+    changeOrders: safeProjectData?.changeOrders || [],
+    plannedBudget:
+      overviewMetrics.financials.plannedCostBudget ||
+      overviewMetrics.financials.adjustedCostBudget,
+    finalCustomerPrice: overviewMetrics.financials.adjustedContractValue,
+    calibrationProjectLike: overviewCalibrationProjectLike,
+    categoryNames: overviewBucketNames,
+    enabled: projectDetailReady,
+  });
+
+  const overviewEstimateCardTheme = useMemo(
+    () => ({
+      text: darkMode ? '#F5F7FA' : Colors.text,
+      metricLabelColor: darkMode ? ESTIMATE_FLOW_TEXT_LABEL_DARK : '#64748b',
+    }),
+    [darkMode, Colors.text]
   );
 
   const operationalRiskCards = useMemo(
@@ -1876,24 +1885,24 @@ function ProjectDetailContent() {
       
       switch (activeTab) {
         case 'Overview': {
+          if (!projectDetailReady) {
+            return (
+              <View style={[styles.wideContainer, styles.tabFlowWide, styles.overviewLoadingWrap]}>
+                <View style={styles.overviewCard}>
+                  <ActivityIndicator size="large" color="#22c55e" />
+                  <Text style={styles.overviewLoadingText}>Loading project overview…</Text>
+                </View>
+              </View>
+            );
+          }
           const metrics = overviewMetrics;
           const overviewCostStatusHeadline = metrics.spendingTrendCostStatus.text
             .split(' ')
             .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
             .join(' ');
-          const pf = metrics.profitForecast;
-          const pfStatus = pf?.status;
-          const marginAccent =
-            pfStatus === 'Strong'
-              ? '#22C55E'
-              : pfStatus === 'Healthy'
-                ? '#10B981'
-                : pfStatus === 'Tight'
-                  ? '#F59E0B'
-                  : pfStatus === 'At Risk'
-                    ? '#F97316'
-                    : '#EF4444';
-          const profitLeaksEmpty = projectLeakCards.length === 0;
+          const overviewNestedCardBg = darkMode ? AI_FLOW_CARD_BG_DARK : Colors.surface2;
+          const overviewNestedCardBorder = darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line;
+          const overviewPageCaption = darkMode ? ESTIMATE_FLOW_TEXT_MUTED_DARK : '#64748b';
           return (
             <View style={[styles.wideContainer, styles.tabFlowWide]}>
               <View style={styles.overviewCard}>
@@ -2080,148 +2089,26 @@ function ProjectDetailContent() {
                     </View>
                   </View>
 
-                  <View style={styles.innerCardContainer}>
-                    <View style={[styles.innerCard, styles.overviewSectionCard]}>
-                      <Pressable
-                        onPress={() => {
-                          if (!profitLeaksEmpty) return;
-                          void Haptics.selectionAsync();
-                          setProfitLeakEmptyExpanded((v) => !v);
-                        }}
-                        disabled={!profitLeaksEmpty}
-                        accessibilityRole={profitLeaksEmpty ? 'button' : undefined}
-                        accessibilityLabel={
-                          profitLeaksEmpty
-                            ? profitLeakEmptyExpanded
-                              ? 'Profit leaks: none. Collapse section.'
-                              : 'Profit leaks: none. Expand for details.'
-                            : undefined
-                        }
-                      >
-                        <View
-                          style={[
-                            styles.overviewCardHeaderRow,
-                            profitLeaksEmpty && !profitLeakEmptyExpanded && { marginBottom: 0 },
-                          ]}
-                        >
-                          <View style={styles.overviewCardHeaderTitleCluster}>
-                            <View style={styles.iconBadge}>
-                              <Feather name="alert-triangle" size={16} color="#22c55e" />
-                            </View>
-                            <View style={styles.overviewCardHeaderTitleWrap}>
-                              <Text style={styles.overviewSectionTitle} numberOfLines={1}>
-                                Profit Leak Detector
-                              </Text>
-                            </View>
-                          </View>
-                          {profitLeaksEmpty ? (
-                            <View
-                              style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 6,
-                                flexShrink: 0,
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  fontSize: 13,
-                                  fontWeight: '600',
-                                  color: '#22c55e',
-                                }}
-                                numberOfLines={1}
-                              >
-                                No leaks
-                              </Text>
-                              <Feather
-                                name={profitLeakEmptyExpanded ? 'chevron-up' : 'chevron-down'}
-                                size={18}
-                                color={Colors.sub}
-                              />
-                            </View>
-                          ) : null}
-                        </View>
-                      </Pressable>
-
-                      {projectLeakCards.length > 0 ? (
-                        projectLeakCards.map((card, index) => {
-                          const accent =
-                            card.severity === 'high'
-                              ? '#f97316'
-                              : card.severity === 'medium'
-                                ? '#f59e0b'
-                                : '#22d3ee';
-                          return (
-                            <View
-                              key={card.id}
-                              style={[
-                                styles.projectLeakCard,
-                                index === projectLeakCards.length - 1 && { marginBottom: 0 },
-                              ]}
-                            >
-                              <View style={[styles.projectLeakAccent, { backgroundColor: accent }]} />
-                              <View style={{ flex: 1 }}>
-                                <Text style={styles.projectLeakTitle}>{card.title}</Text>
-                                <Text style={styles.projectLeakBody}>{card.body}</Text>
-                              </View>
-                            </View>
-                          );
-                        })
-                      ) : profitLeakEmptyExpanded ? (
-                        <View style={[styles.projectLeakCard, { marginBottom: 0 }]}>
-                          <View style={[styles.projectLeakAccent, { backgroundColor: '#22c55e' }]} />
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.projectLeakTitle}>No major profit leaks detected</Text>
-                            <Text style={styles.projectLeakBody}>
-                              This project looks stable right now. Keep costs, progress, and payment milestones updated so the app can flag issues early.
-                            </Text>
-                          </View>
-                        </View>
-                      ) : null}
-                    </View>
-                  </View>
-
-                  {/* Financial Health — headline + outlook only (figures live in snapshot above) */}
                   <View style={[styles.innerCardContainer, styles.overviewSectionFill]}>
-                    <View style={[styles.innerCard, styles.overviewSectionCard, styles.overviewSectionCardFill]}>
-                      <View style={styles.overviewCardHeaderRow}>
-                        <View style={styles.overviewCardHeaderTitleCluster}>
-                          <View style={styles.iconBadge}>
-                            <Feather name="pie-chart" size={16} color="#22c55e" />
-                          </View>
-                          <View style={styles.overviewCardHeaderTitleWrap}>
-                            <Text
-                              style={styles.overviewSectionTitle}
-                              numberOfLines={1}
-                              ellipsizeMode="tail"
-                            >
-                              Financial Health
-                            </Text>
-                          </View>
-                        </View>
-                        <View
-                          style={[
-                            styles.overviewFhStatusPill,
-                            styles.overviewHeaderStatusChip,
-                            {
-                              backgroundColor: `${marginAccent}29`,
-                              borderColor: `${marginAccent}38`,
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={[styles.overviewFhStatusPillText, { color: marginAccent }]}
-                            numberOfLines={1}
-                            ellipsizeMode="tail"
-                          >
-                            {pf?.status || '—'}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={styles.overviewFhSlimBody}>
-                        Profit outlook reflects spend pace versus completion progress — distinct from cost status in the snapshot above.
-                      </Text>
-                    </View>
+                      <EstimateVsActualCard
+                        estimateFeedback={overviewEstimateFeedback}
+                        closeoutTipCount={overviewCloseoutTipCount}
+                        darkMode={darkMode}
+                        nestedCardBg={overviewNestedCardBg}
+                        nestedCardBorder={overviewNestedCardBorder}
+                        theme={overviewEstimateCardTheme}
+                        pageCaption={overviewPageCaption}
+                        bidPrice={metrics.financials.adjustedContractValue}
+                        totalCategoryCount={overviewBucketNames.length}
+                        linkCostsTarget={overviewLinkCostsTarget}
+                        mapCostsOpensBudgetTab
+                        onReviewTips={() => setShowCalibrationReview(true)}
+                        onMapCosts={() => {
+                          void Haptics.selectionAsync();
+                          setActiveTab('Budget');
+                        }}
+                        showInsightsCta={DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS.actualVsEstimatedFeedback}
+                      />
                   </View>
                   </>
                   ) : projectPerms.isManager ? (
@@ -2280,6 +2167,7 @@ function ProjectDetailContent() {
                   budgetAccessMode={
                     projectPerms.budgetAccessMode === 'cost_control' ? 'cost_control' : 'owner'
                   }
+                  initialBudgetCategory={budgetCategoryParam}
                 />
               )}
             </View>
@@ -2330,7 +2218,7 @@ function ProjectDetailContent() {
         case 'Team':
           return (
             <View style={styles.wideContainer}>
-              <TeamTab embedded refreshTrigger={teamRefreshTrigger} />
+              <TeamTab embedded />
             </View>
           );
         default:
@@ -2414,48 +2302,26 @@ function ProjectDetailContent() {
     return status.charAt(0).toUpperCase() + status.slice(1);
   }, [safeProjectData?.status, showJustActivated, justActivatedDismissed]);
 
-  const projectSegmentScroll = useMemo(() => {
-    const tabDefs: { key: TabKey; label: string; icon: string }[] = [
+  const projectSegmentItems = useMemo((): SegmentNavItem[] => {
+    const items: SegmentNavItem[] = [
       { key: 'Overview', label: 'Overview', icon: 'grid-outline' },
-      ...(projectPerms.visibleTabs.includes('Budget')
-        ? [{ key: 'Budget' as TabKey, label: projectPerms.budgetTabLabel, icon: 'wallet-outline' }]
-        : []),
-      { key: 'Timeline', label: 'Timeline', icon: 'calendar-outline' },
-      { key: 'Calendar', label: 'Calendar', icon: 'calendar' },
-      ...(projectPerms.visibleTabs.includes('Team')
-        ? [{ key: 'Team' as TabKey, label: 'Team', icon: 'people-outline' }]
-        : []),
     ];
-
-    const tabs = (
-      <>
-        {tabDefs.map(({ key, label, icon }) => (
-          <SegmentTab
-            key={key}
-            label={label}
-            icon={icon}
-            isActive={activeTab === key}
-            onPress={() => handleTabPress(key)}
-            styles={styles}
-          />
-        ))}
-      </>
-    );
-
-    if (Platform.OS === 'web') {
-      return (
-        <View style={styles.segmentScrollRowWeb}>
-          <View style={[styles.segmentInner, styles.segmentInnerWeb]}>{tabs}</View>
-        </View>
-      );
+    if (projectPerms.visibleTabs.includes('Budget')) {
+      items.push({
+        key: 'Budget',
+        label: projectPerms.budgetTabLabel,
+        icon: 'wallet-outline',
+      });
     }
-
-    return (
-      <View style={styles.segmentScrollRowWeb}>
-        <View style={[styles.segmentInner, styles.segmentInnerWeb]}>{tabs}</View>
-      </View>
+    items.push(
+      { key: 'Timeline', label: 'Timeline', icon: 'calendar-outline' },
+      { key: 'Calendar', label: 'Calendar', icon: 'calendar' }
     );
-  }, [activeTab, styles, handleTabPress, projectPerms.visibleTabs, projectPerms.budgetTabLabel]);
+    if (projectPerms.visibleTabs.includes('Team')) {
+      items.push({ key: 'Team', label: 'Team', icon: 'people-outline' });
+    }
+    return items;
+  }, [projectPerms.visibleTabs, projectPerms.budgetTabLabel]);
 
   if (missingProjectData) {
     console.error('❌ Project data is undefined!');
@@ -2636,40 +2502,14 @@ function ProjectDetailContent() {
             </View>
           )}
 
-          {/* SEGMENTED CONTROL — no walkthrough gradient wrapper here: highlight ring used slate/teal tints that read as gray inside the pill */}
+          {/* SEGMENTED CONTROL — matches Dashboard pill nav */}
           <View style={styles.wideContainer}>
-            {darkMode ? (
-              <View style={[styles.segmentContainer, styles.segmentTrackDark]}>
-                {projectSegmentScroll}
-              </View>
-            ) : (
-              <BlurView
-                intensity={28}
-                tint="light"
-                style={[styles.segmentContainer, { backgroundColor: Colors.surface2 }]}
-              >
-                {projectSegmentScroll}
-              </BlurView>
-            )}
+            <SegmentNavBar
+              items={projectSegmentItems}
+              activeKey={activeTab}
+              onPress={(key) => handleTabPress(key as TabKey)}
+            />
           </View>
-
-          {projectPerms.showProjectAI ? (
-            <>
-              {/* AI PM — single stable slot under tabs (not floating over cards) */}
-              <View style={[styles.wideContainer, styles.aiPmUnderTabs]}>
-                <AiPmModePill
-                  active
-                  label={t('dashboard.aiPmModeOn')}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setShowAIAssistant(true);
-                  }}
-                  darkMode={darkMode}
-                  accessibilityLabel={t('dashboard.aiPmModeOn')}
-                />
-              </View>
-            </>
-          ) : null}
 
           {/* CONTENT */}
           <View style={styles.tabContent}>
@@ -2753,1152 +2593,23 @@ function ProjectDetailContent() {
           }}
         />
 
-        {/* AI Assistant Modal with Project Context */}
-        <AIAssistantModal
-          visible={showAIAssistant && projectPerms.showProjectAI}
-          onClose={() => {
-            setShowAIAssistant(false);
-            setInitialAIQuestion(undefined); // Reset when closing
-          }}
-          initialQuestion={initialAIQuestion}
-          context={JSON.stringify((() => {
-            // Pull estimate data for fallback financial values
-            const ed = (realProjectData as any)?.estimateData || (safeProjectData as any)?.estimateData || {};
-            const contextExpenses: any[] = Array.isArray(contextProjectData?.expenses) ? contextProjectData.expenses : [];
-            const safeExpenses: any[] = Array.isArray(safeProjectData?.expenses) ? safeProjectData.expenses : [];
-            // Merge both sources to avoid stale snapshots while chat is open.
-            const allExpenses: any[] = [...contextExpenses, ...safeExpenses].filter((expense: any, index: number, arr: any[]) => {
-              const key = expense?.id || `${expense?.date || ''}-${expense?.vendor || ''}-${expense?.amount || 0}-${expense?.category || ''}`;
-              return index === arr.findIndex((e: any) => (e?.id || `${e?.date || ''}-${e?.vendor || ''}-${e?.amount || 0}-${e?.category || ''}`) === key);
-            });
-            const computedSpent = allExpenses.reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0);
-            const fin = overviewMetrics.financials;
-            const approvedCOs = fin.approvedChangeOrderRevenue;
-            const contractValue = fin.adjustedContractValue;
-            let baseBid =
-              fin.contractValueBase > 0
-                ? fin.contractValueBase
-                : firstPositiveNumber(
-                    (realProjectData as any)?.bidPrice,
-                    (safeProjectData as any)?.bidPrice,
-                    ed?.grandTotal,
-                    ed?.bidPrice,
-                    ed?.total,
-                    ed?.totalBid
-                  );
-            // Fallback: derive bid from cost + margin when bid is missing. Default 10% if no margin.
-            if (baseBid == null) {
-              const costBase = Number(safeProjectData?.budgeted || 0);
-              const marginPct = Number((safeProjectData as any)?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
-              const effectiveMargin = marginPct > 0 && marginPct < 100 ? marginPct : 10;
-              if (costBase > 0) baseBid = costBase / (1 - effectiveMargin / 100);
-            }
-            // Pre-computed profit forecast — same as Financial Health / Budget Totals UI. AI should use these.
-            const pf = overviewMetrics?.profitForecast;
-            const ctx = {
-            screen: 'Project Detail',
-            aiScope: 'project',
-            currentProject: safeProjectData?.title || safeProjectData?.name || 'Current Project',
-            projectName: safeProjectData?.title || safeProjectData?.name || 'Current Project',
-            projectId: safeProjectData?.id,
-            status: realProjectData?.status || safeProjectData?.status || 'estimate',
-            // Financial data — pull from estimateData when top-level is 0
-            bidPrice: baseBid,
-            estimatedCost:
-              overviewMetrics?.financials?.adjustedCostBudget ||
-              pf?.forecastFinalCost ||
-              realProjectData?.estimatedCost ||
-              safeProjectData?.estimatedCost ||
-              ed?.totalCost ||
-              ed?.baseCost ||
-              0,
-            actualCost: realProjectData?.actualCost || contextProjectData?.spent || safeProjectData?.actualCost || computedSpent || 0,
-            totalSpent: realProjectData?.totalSpent || contextProjectData?.spent || safeProjectData?.totalSpent || computedSpent || 0,
-            expenses: allExpenses,
-            expensesCount: allExpenses.length,
-            bidTitle: safeProjectData?.title || safeProjectData?.name,
-            bidTotal: baseBid,
-            total: baseBid,
-            // CRITICAL: For projected profit, Revenue = contract value (bid + approved change orders)
-            approvedChangeOrdersTotal: approvedCOs,
-            contractValue: contractValue > 0 ? contractValue : baseBid,
-            adjustedCostBudget: overviewMetrics?.financials?.adjustedCostBudget,
-            // Pre-computed profit forecast — matches Financial Health / Budget Totals. AI uses these when answering "what is projected profit"
-            forecastFinalCost: pf?.forecastFinalCost,
-            projectedProfit: pf?.projectedProfit,
-            projectedMarginPct: pf?.projectedMarginPct,
-            spendToDateMarginPct: pf?.spendToDateMarginPct,
-            profitStatus: pf?.status,
-            location: safeProjectData?.location || '',
-            projectType: safeProjectData?.projectType || '',
-            // Bid margin from estimateData only — top-level margin is overwritten with realized margin by updateProject
-            margin: ed?.marginPercent ?? ed?.margin ?? ed?.marginPct ?? safeProjectData?.margin ?? 0,
-            markup: safeProjectData?.markup || ed?.markupPct || ed?.markup || 0,
-            overheadPct: ed?.overheadPct || 12,
-            progress: safeProjectData?.overallProgressPct || safeProjectData?.progress || 0,
-            // Include full estimateData so backend can access all fields; ensure marginPercent/margin so AI strip shows correct bid margin (e.g. 75%)
-            // BID margin must come from estimateData only — top-level margin gets overwritten by updateProject with realized margin
-            estimateData: (() => {
-              const bidMargin = ed?.marginPercent ?? ed?.margin ?? ed?.marginPct;
-              if (typeof bidMargin !== 'number' || !Number.isFinite(bidMargin)) return ed;
-              return { ...ed, marginPercent: bidMargin, margin: bidMargin };
-            })(),
-            materialTotal: ed?.materialTotal || 0,
-            laborTotal: ed?.laborTotal || 0,
-            overheadTotal: ed?.overheadTotal || 0,
-            profit: ed?.profit || 0,
-            activeTab: activeTab,
-            // Send computed buckets from budgetData (these are the correct/live values from estimate)
-            buckets: budgetData.lines.map((line: any) => ({
-              name: line.category,
-              budget: Number(line.unitCost) || 0,
-              bidBudget: Number(line.unitCost) || 0,
-              spent: Number(line.spent) || 0,
-            })),
-            // Pre-computed budget values — use these directly, no backend guessing needed
-            materialBudgetDirect: (() => {
-              const matLine = budgetData.lines.find((l: any) =>
-                (l.category || '').toLowerCase().includes('material')
-              );
-              return Number(matLine?.unitCost) || 0;
-            })(),
-            materialSpentDirect: (() => {
-              return allExpenses
-                .filter((e: any) => !(e.category || '').toLowerCase().includes('labor'))
-                .reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
-            })(),
-            milestoneCount: (safeProjectData?.milestones || []).length,
-            expenseCount: allExpenses.length,
-            changeOrderCount: (safeProjectData?.changeOrders || []).length,
-            startDate: safeProjectData?.startISO || safeProjectData?.startDate,
-            endDate: safeProjectData?.endISO || safeProjectData?.endDate,
-            startISO: safeProjectData?.startISO || safeProjectData?.startDate,
-            endISO: safeProjectData?.endISO || safeProjectData?.endDate,
-            calendarEvents: calendarEvents || [],
-            upcomingCalendarEvents: (calendarEvents || [])
-              .filter((e: any) => {
-                if (e.completed) return false;
-                const eventDate = new Date(e.date);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                const nextWeek = new Date(today);
-                nextWeek.setDate(nextWeek.getDate() + 7);
-                return eventDate >= today && eventDate <= nextWeek;
-              })
-              .sort((a: any, b: any) => {
-                const dateA = new Date(a.date).getTime();
-                const dateB = new Date(b.date).getTime();
-                return dateA - dateB;
-              })
-              .slice(0, 5),
-            // Project-specific crew (includes members added via AI, e.g. Jack)
-            crewMembers: (contextProjectData?.team as any)?.crewMembers || [],
-            crewMemberPhones: (contextProjectData?.team as any)?.crewMemberPhones || {},
-            // PM Mode: send live milestone data from AsyncStorage (loaded by TimelineTabV2)
-            milestones: (() => {
-              try {
-                const normalizeStatus = (m: any) => {
-                  const status = String(m?.status || '').toLowerCase();
-                  const progress = Number(m?.progressPct ?? m?.progress ?? 0);
-                  if (
-                    status.includes('complete') ||
-                    status.includes('paid') ||
-                    status.includes('collected') ||
-                    status.includes('received') ||
-                    m?.isComplete === true ||
-                    m?.completed === true ||
-                    m?.isPaid === true ||
-                    m?.paid === true ||
-                    m?.collected === true ||
-                    progress >= 100
-                  ) return 'completed';
-                  if (status.includes('progress') || progress > 0) return 'in_progress';
-                  return status || 'pending';
-                };
-                const milestoneScore = (m: any) => {
-                  const status = normalizeStatus(m);
-                  const progress = Number(m?.progressPct ?? m?.progress ?? 0);
-                  const completionBoost = status === 'completed' ? 1000 : status === 'in_progress' ? 500 : 0;
-                  const dateBoost = m?.completedAt ? 10 : 0;
-                  return completionBoost + progress + dateBoost;
-                };
-
-                // Merge milestone sources so schedule summaries stay live while assistant is open.
-                // CRITICAL: liveTimelineMilestones comes from bps.timeline.v2.<id> (AsyncStorage)
-                // which is where TimelineTabV2 saves completed/in_progress statuses.
-                // This MUST be included first so completed statuses win in dedup.
-                const rawMilestones = [
-                  ...((liveTimelineMilestones || []) as any[]),
-                  ...(((safeProjectData as any)?.milestones || []) as any[]),
-                  ...(((realProjectData as any)?.milestones || []) as any[]),
-                  ...(((contextProjectData as any)?.milestones || []) as any[]),
-                  ...(((safeProjectData as any)?.weeklyPayments || []) as any[]),
-                  ...(((realProjectData as any)?.weeklyPayments || []) as any[]),
-                  ...(((contextProjectData as any)?.weeklyPayments || []) as any[]),
-                  ...((((safeProjectData as any)?.paymentMilestones || []) as any[])),
-                  ...((((realProjectData as any)?.paymentMilestones || []) as any[])),
-                  ...((((contextProjectData as any)?.paymentMilestones || []) as any[])),
-                  ...((((safeProjectData as any)?.estimateData?.paymentMilestones || []) as any[])),
-                  ...((((realProjectData as any)?.estimateData?.paymentMilestones || []) as any[])),
-                  ...((((contextProjectData as any)?.estimateData?.paymentMilestones || []) as any[])),
-                  ...((((safeProjectData as any)?.estimateData?.weeklyPayments || []) as any[])),
-                  ...((((realProjectData as any)?.estimateData?.weeklyPayments || []) as any[])),
-                  ...((((contextProjectData as any)?.estimateData?.weeklyPayments || []) as any[])),
-                ];
-
-                // Deduplicate by id/title-date but keep the most complete/latest variant.
-                const dedupedMap = new Map<string, any>();
-                rawMilestones.forEach((m: any, index: number) => {
-                  const key =
-                    m?.id ||
-                    `${m?.title || m?.name || ""}-${m?.plannedDate || m?.dueDate || m?.date || ""}-${index}`;
-                  const existing = dedupedMap.get(key);
-                  if (!existing || milestoneScore(m) >= milestoneScore(existing)) {
-                    dedupedMap.set(key, m);
-                  }
-                });
-
-                return Array.from(dedupedMap.values()).map((m: any) => ({
-                  id: m.id,
-                  title: m.title || m.name || `Payment ${m.index || ''}`,
-                  amount: m.amount || m.paymentAmount || 0,
-                  plannedDate: m.plannedDate || m.dueDate || m.date,
-                  status: normalizeStatus(m),
-                  progressPct:
-                    Number(m.progressPct ?? m.progress ?? 0) ||
-                    (normalizeStatus(m) === 'completed' ? 100 : 0),
-                }));
-              } catch { return []; }
-            })(),
-            // PM Mode: send estimate line items for AI context
-            estimateLineItems: (() => {
-              try {
-                const est = (realProjectData as any)?.estimateData || {};
-                const materials = est.materialLineItems || est.lineItems || (realProjectData as any)?.materialLineItems || [];
-                const labor = est.laborLineItems || (realProjectData as any)?.laborLineItems || [];
-                return [...materials, ...labor].map((li: any) => ({
-                  name: li.name,
-                  qty: li.qty || li.quantity || 1,
-                  unitCost: li.unitCost || li.cost || 0,
-                  totalCost: li.totalCost || (li.qty || 1) * (li.unitCost || 0),
-                  category: li.category || 'Materials/Equipment',
-                }));
-              } catch { return []; }
-            })(),
-          };
-            return filterProjectAIContext(
-              ctx,
-              projectPerms.budgetAccessMode,
-              projectPerms.role
-            );
-          })())}
-          onAction={async (action) => {
-            console.log('📥 project-detail: Received action from AIAssistantModal:', {
-              type: action.type,
-              action: action
-            });
-            
-            // Handle AI actions
-            console.log('AI Action:', action);
-            
-            if (
-              action.type === 'add_material' ||
-              action.type === 'add_material_purchase' ||
-              action.type === 'add_material_expense'
-            ) {
-              try {
-                // First, ensure Clerk token is synced to AsyncStorage
-                const clerkToken = await getToken();
-                if (clerkToken) {
-                  await syncClerkTokenToAsyncStorage(clerkToken);
-                  console.log('✅ Synced Clerk token to AsyncStorage');
-                } else {
-                  console.warn('⚠️ No Clerk token available');
-                }
-                
-                // First, add expense to local state
-                addExpense({
-                  id: `exp-${Date.now()}`,
-                  category: action.category || 'Materials/Equipment',
-                  vendor: action.vendor || '',
-                  amount: action.amount || 0,
-                  date: new Date().toISOString(),
-                  notes: action.notes || `${action.category || 'Material'} from ${action.vendor || 'vendor'}`,
-                  receiptUri: null,
-                });
-                
-                // Then, sync to backend API
-                const expenseData = {
-                  amount: action.amount || 0,
-                  category: action.category || 'Materials/Equipment',
-                  vendor: action.vendor || '',
-                  notes: action.notes || `${action.category || 'Material'} from ${action.vendor || 'vendor'}`,
-                  date: new Date().toISOString().split('T')[0],
-                };
-                
-                const response = await api.addExpense(id, expenseData);
-                if (response.success) {
-                  console.log('✅ Added expense to backend:', response.data);
-                } else {
-                  console.error('❌ Failed to add expense to backend:', response.error);
-                  // Show error to user
-                  Alert.alert(
-                    'Authentication Error',
-                    'There was an issue adding the expense due to authentication. Please log in again and try again.',
-                    [{ text: 'OK' }]
-                  );
-                }
-              } catch (error: any) {
-                console.error('❌ Error adding expense:', error);
-                // Check if it's an authentication error
-                if (error.message?.includes('401') || error.message?.includes('403') || error.message?.includes('token') || error.message?.includes('Access token required')) {
-                  Alert.alert(
-                    'Authentication Error',
-                    'There was an issue with authentication. Please log in again and we can try adding the expense.',
-                    [{ text: 'OK' }]
-                  );
-                } else {
-                  // Show generic error
-                  Alert.alert(
-                    'Error',
-                    `Failed to add expense: ${error.message || 'Unknown error'}`,
-                    [{ text: 'OK' }]
-                  );
-                }
-              }
-              
-              console.log('✅ Added expense:', action.amount, 'for', action.category);
-            } else if (action.type === 'add_labor_expense') {
-              try {
-                // First, ensure Clerk token is synced to AsyncStorage
-                const clerkToken = await getToken();
-                if (clerkToken) {
-                  await syncClerkTokenToAsyncStorage(clerkToken);
-                  console.log('✅ Synced Clerk token to AsyncStorage');
-                } else {
-                  console.warn('⚠️ No Clerk token available');
-                }
-                
-                // First, add expense to local state
-                addExpense({
-                  id: `exp-${Date.now()}`,
-                  category: 'Labor',
-                  vendor: action.vendor || action.trade || action.laborType || '',
-                  amount: action.amount || 0,
-                  date: new Date().toISOString(),
-                  notes:
-                    action.notes ||
-                    (action.description ? String(action.description) : '') ||
-                    `${action.trade || action.laborType || 'Labor'} expense`,
-                  receiptUri: null,
-                });
-                
-                // Then, sync to backend API
-                const expenseData = {
-                  amount: action.amount || 0,
-                  category: 'Labor',
-                  vendor: action.vendor || action.trade || action.laborType || '',
-                  notes:
-                    action.notes ||
-                    (action.description ? String(action.description) : '') ||
-                    `${action.trade || action.laborType || 'Labor'} expense`,
-                  date: new Date().toISOString().split('T')[0],
-                };
-                
-                const response = await api.addExpense(id, expenseData);
-                if (response.success) {
-                  console.log('✅ Added labor expense to backend:', response.data);
-                } else {
-                  console.error('❌ Failed to add labor expense to backend:', response.error);
-                  Alert.alert(
-                    'Authentication Error',
-                    'There was an issue adding the expense due to authentication. Please log in again and try again.',
-                    [{ text: 'OK' }]
-                  );
-                }
-              } catch (error: any) {
-                console.error('❌ Error adding labor expense:', error);
-                if (error.message?.includes('401') || error.message?.includes('403') || error.message?.includes('token') || error.message?.includes('Access token required')) {
-                  Alert.alert(
-                    'Authentication Error',
-                    'There was an issue with authentication. Please log in again and we can try adding the expense.',
-                    [{ text: 'OK' }]
-                  );
-                } else {
-                  Alert.alert(
-                    'Error',
-                    `Failed to add expense: ${error.message || 'Unknown error'}`,
-                    [{ text: 'OK' }]
-                  );
-                }
-              }
-              
-              console.log('✅ Added labor expense:', action.amount);
-            } else if (action.type === 'add_purchase_order') {
-              const actionProjectId = String(action.projectId ?? '').trim();
-              const currentProjectId = String(id ?? '').trim();
-              console.log('📦 Action handler: Received add_purchase_order action', {
-                projectId: actionProjectId,
-                currentProjectId,
-                match: actionProjectId === currentProjectId,
-                poNumber: action.poNumber,
-                amount: action.amount,
-                vendor: action.vendor,
-                category: action.category
-              });
-              
-              if (actionProjectId !== currentProjectId) {
-                console.warn('⚠️ Action projectId mismatch:', {
-                  actionProjectId,
-                  currentId: currentProjectId
-                });
-                return;
-              }
-              
-              // Create purchase order with "Pending" status
-              const poData = {
-                vendor: action.vendor || '',
-                amount: Number(action.amount) || 0,
-                category: action.category || 'Materials/Equipment',
-                description: action.description || `${action.category || 'Material'} from ${action.vendor || 'vendor'}`,
-                poNumber: action.poNumber || `PO-${Date.now().toString().slice(-6)}`,
-                orderDate: new Date().toISOString(),
-                expectedDelivery: action.expectedDelivery || null,
-                status: 'Pending' as const, // CRITICAL: Always create as "Pending" - shows in Committed POs
-              };
-              
-              console.log('📦 Creating purchase order:', {
-                poNumber: poData.poNumber,
-                amount: poData.amount,
-                vendor: poData.vendor,
-                category: poData.category,
-                status: poData.status
-              });
-              
-              // Add purchase order - this updates state and saves to AsyncStorage
-              console.log('📦 Calling addPurchaseOrder with:', poData);
-              addPurchaseOrder(poData);
-              
-              console.log('✅ Called addPurchaseOrder, waiting for state update...');
-              
-              // Wait for AsyncStorage write to complete, then reload
-              // The addPurchaseOrder function saves to AsyncStorage immediately,
-              // but we need to wait a bit for the write to complete before reloading
-              setTimeout(async () => {
-                console.log('🔄 Reloading from storage after PO creation...');
-                
-                // First, verify the PO was saved to AsyncStorage
-                try {
-                  const key = `bps.project.${id}`;
-                  const saved = await AsyncStorage.getItem(key);
-                  if (saved) {
-                    const parsed = JSON.parse(saved);
-                    const savedPOs = parsed.purchaseOrders || [];
-                    const foundPO = savedPOs.find((po: any) => po.poNumber === poData.poNumber);
-                    
-                    console.log('📊 Purchase orders in AsyncStorage before reload:', {
-                      count: savedPOs.length,
-                      pending: savedPOs.filter((po: any) => po.status === 'Pending').length,
-                      committedPOs: parsed.committedPOs || 0,
-                      foundNewPO: !!foundPO,
-                      newPO: foundPO ? { id: foundPO.id, poNumber: foundPO.poNumber, amount: foundPO.amount, status: foundPO.status } : null,
-                      allPOs: savedPOs.map((po: any) => ({
-                        id: po.id,
-                        poNumber: po.poNumber,
-                        amount: po.amount,
-                        status: po.status,
-                        vendor: po.vendor
-                      }))
-                    });
-                    
-                    if (!foundPO) {
-                      console.error('❌ CRITICAL: Purchase order not found in AsyncStorage after save!');
-                      console.error('❌ Expected PO:', poData);
-                      console.error('❌ All POs in storage:', savedPOs);
-                    } else {
-                      console.log('✅ Purchase order found in AsyncStorage, proceeding with reload');
-                    }
-                  } else {
-                    console.error('❌ CRITICAL: No data found in AsyncStorage!');
-                  }
-                } catch (error) {
-                  console.error('❌ Error reading from AsyncStorage:', error);
-                }
-                
-                // Now reload from storage to update all components
-                console.log('🔄 Calling reloadFromStorage...');
-                await reloadFromStorage();
-                console.log('✅ Reloaded from storage');
-                
-                // Verify the state was updated after reload
-                setTimeout(() => {
-                  const currentPOs = contextProjectData?.purchaseOrders || [];
-                  console.log('📊 Purchase orders in contextProjectData after reload:', {
-                    count: currentPOs.length,
-                    pending: currentPOs.filter((po: any) => po.status === 'Pending').length,
-                    committedPOs: contextProjectData?.committedPOs || 0,
-                    allPOs: currentPOs.map((po: any) => ({
-                      id: po.id,
-                      poNumber: po.poNumber,
-                      amount: po.amount,
-                      status: po.status,
-                      vendor: po.vendor
-                    }))
-                  });
-                }, 200);
-              }, 1000); // Increased delay to ensure AsyncStorage write completes
-            } else if (action.type === 'mark_po_received') {
-              const actionProjectId = String(action.projectId ?? '').trim();
-              const currentProjectId = String(id ?? '').trim();
-              console.log('📦 Action handler: Received mark_po_received action', {
-                projectId: actionProjectId,
-                currentProjectId,
-                match: actionProjectId === currentProjectId,
-                poId: action.poId,
-                poNumber: action.poNumber
-              });
-              
-              if (actionProjectId !== currentProjectId) {
-                console.warn('⚠️ Action projectId mismatch:', {
-                  actionProjectId,
-                  currentId: currentProjectId
-                });
-                return;
-              }
-              
-              // Find the PO by ID or PO number
-              const currentPOs = contextProjectData?.purchaseOrders || [];
-              let poToMark = null;
-              
-              if (action.poId) {
-                poToMark = currentPOs.find((po: any) => po.id === action.poId);
-              }
-              
-              if (!poToMark && action.poNumber) {
-                poToMark = currentPOs.find((po: any) => po.poNumber === action.poNumber);
-              }
-              
-              if (!poToMark) {
-                console.error('❌ PO not found to mark as received:', {
-                  poId: action.poId,
-                  poNumber: action.poNumber,
-                  availablePOs: currentPOs.map((po: any) => ({ id: po.id, poNumber: po.poNumber, status: po.status }))
-                });
-                Alert.alert(
-                  'PO Not Found',
-                  `Could not find purchase order ${action.poNumber || action.poId} to mark as received.`
-                );
-                return;
-              }
-              
-              if (poToMark.status === 'Received') {
-                console.log('⚠️ PO already marked as received:', poToMark.poNumber);
-                Alert.alert('Already Received', `Purchase order ${poToMark.poNumber} is already marked as received.`);
-                return;
-              }
-              
-              console.log('✅ Marking PO as received:', {
-                poId: poToMark.id,
-                poNumber: poToMark.poNumber,
-                amount: poToMark.amount,
-                currentStatus: poToMark.status
-              });
-              
-              // Mark PO as received - this updates status, creates expense, and updates committedPOs
-              markPOReceived(poToMark.id);
-              
-              console.log('✅ Called markPOReceived, waiting for state update...');
-              
-              // Wait for AsyncStorage write to complete, then reload
-              setTimeout(async () => {
-                console.log('🔄 Reloading from storage after marking PO as received...');
-                
-                // Verify the PO was updated in AsyncStorage
-                try {
-                  const key = `bps.project.${id}`;
-                  const saved = await AsyncStorage.getItem(key);
-                  if (saved) {
-                    const parsed = JSON.parse(saved);
-                    const savedPOs = parsed.purchaseOrders || [];
-                    const foundPO = savedPOs.find((po: any) => 
-                      po.id === poToMark.id || po.poNumber === poToMark.poNumber
-                    );
-                    
-                    if (foundPO) {
-                      console.log('✅ PO status updated in AsyncStorage:', {
-                        poNumber: foundPO.poNumber,
-                        status: foundPO.status,
-                        expectedStatus: 'Received'
-                      });
-                    } else {
-                      console.error('❌ PO not found in AsyncStorage after update!');
-                    }
-                  }
-                } catch (error) {
-                  console.error('❌ Error reading from AsyncStorage:', error);
-                }
-                
-                // Reload from storage to update all components
-                await reloadFromStorage();
-                console.log('✅ Reloaded from storage after marking PO as received');
-                
-                // Verify the state was updated after reload
-                setTimeout(() => {
-                  const updatedPOs = contextProjectData?.purchaseOrders || [];
-                  const updatedPO = updatedPOs.find((po: any) => 
-                    po.id === poToMark.id || po.poNumber === poToMark.poNumber
-                  );
-                  
-                  console.log('📊 PO status after reload:', {
-                    found: !!updatedPO,
-                    status: updatedPO?.status,
-                    committedPOs: contextProjectData?.committedPOs || 0,
-                    totalSpent: contextProjectData?.spent || 0
-                  });
-                }, 200);
-              }, 1000);
-            // ── PM MODE: TIMELINE ACTIONS ────────────────────────────────────
-            } else if (action.type === 'mark_timeline_complete') {
-              try {
-                const storageKey = `bps.timeline.v2.${id}`;
-                const saved = await AsyncStorage.getItem(storageKey);
-                const milestones = saved ? JSON.parse(saved) : [];
-                const pct = action.progressPct != null ? Number(action.progressPct) : 100;
-                const isComplete = pct >= 100;
-                const updated = milestones.map((m: any) => {
-                  const matchId = action.itemId && m.id === action.itemId;
-                  const matchName = action.itemName && (m.title || '').toLowerCase().includes((action.itemName || '').toLowerCase());
-                  if (matchId || matchName) {
-                    return {
-                      ...m,
-                      status: isComplete ? 'completed' : (pct > 0 ? 'in_progress' : m.status),
-                      progressPct: pct,
-                      ...(isComplete ? { completedAt: action.completedAt || new Date().toISOString() } : {}),
-                    };
-                  }
-                  return m;
-                });
-                await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
-                const label = action.itemName || 'Milestone';
-                if (isComplete) {
-                  console.log('✅ Milestone marked complete in AsyncStorage');
-                  Alert.alert('✅ Done', `"${label}" marked as complete.`);
-                } else {
-                  console.log(`✅ Milestone updated to ${pct}% in AsyncStorage`);
-                  Alert.alert('✅ Updated', `"${label}" updated to ${pct}% progress.`);
-                }
-              } catch (e) {
-                console.error('❌ Error updating milestone:', e);
-                Alert.alert('Error', 'Could not update timeline. Please update it in the Timeline tab.');
-              }
-
-            } else if (action.type === 'add_timeline_payment') {
-              try {
-                const storageKey = `bps.timeline.v2.${id}`;
-                const saved = await AsyncStorage.getItem(storageKey);
-                const milestones = saved ? JSON.parse(saved) : [];
-                const newMilestone = {
-                  id: `pm-${Date.now()}`,
-                  title: action.title || 'Payment Milestone',
-                  amount: Number(action.amount) || 0,
-                  plannedDate: action.dueDate || new Date().toISOString().split('T')[0],
-                  progressPct: 0,
-                  status: 'pending',
-                  createdAt: new Date().toISOString(),
-                };
-                milestones.push(newMilestone);
-                await AsyncStorage.setItem(storageKey, JSON.stringify(milestones));
-                console.log('✅ Payment milestone added to AsyncStorage');
-                Alert.alert('✅ Added', `Payment milestone "${newMilestone.title}" ($${Number(action.amount).toLocaleString()}) added to your timeline.`);
-              } catch (e) {
-                console.error('❌ Error adding timeline payment:', e);
-                Alert.alert('Error', 'Could not add milestone. Please add it in the Timeline tab.');
-              }
-
-            // ── PM MODE: ESTIMATE ACTIONS ─────────────────────────────────────
-            } else if (action.type === 'add_estimate_line_item') {
-              try {
-                const newItem = {
-                  id: `li-${Date.now()}`,
-                  name: action.name || 'New Item',
-                  qty: Number(action.qty) || 1,
-                  unitCost: Number(action.unitCost) || 0,
-                  totalCost: (Number(action.qty) || 1) * (Number(action.unitCost) || 0),
-                  category: action.category || 'Materials/Equipment',
-                  addedByAI: true,
-                  createdAt: new Date().toISOString(),
-                };
-                // Update the project's materialLineItems via updateProject
-                const currentProject = realProjectData as any;
-                const existingItems = currentProject?.estimateData?.materialLineItems || currentProject?.materialLineItems || [];
-                const updatedItems = [...existingItems, newItem];
-                updateProject(id, {
-                  estimateData: {
-                    ...(currentProject?.estimateData || {}),
-                    materialLineItems: updatedItems,
-                  },
-                });
-                console.log('✅ Estimate line item added');
-                Alert.alert('✅ Added', `"${newItem.name}" ($${newItem.totalCost.toLocaleString()}) added to your estimate.`);
-              } catch (e) {
-                console.error('❌ Error adding estimate line item:', e);
-                Alert.alert('Error', 'Could not add line item. Please add it in the Estimate tab.');
-              }
-
-            } else if (action.type === 'assign_pm') {
-              try {
-                const targetId = (action.projectId || id) as string;
-                if (targetId !== id) {
-                  console.warn('⚠️ assign_pm for different project, ignoring');
-                  return;
-                }
-                const pmName = (action.pmName || '').trim();
-                if (!pmName) {
-                  Alert.alert('Error', 'PM name is required.');
-                  return;
-                }
-                // Remove PM from crew list so they don't appear twice (once as PM, once as crew)
-                const currentCrew = (contextProjectData?.team as any)?.crewMembers || [];
-                const currentPhones = (contextProjectData?.team as any)?.crewMemberPhones || {};
-                const crewWithoutPm = currentCrew.filter(
-                  (n: string) => n.trim().toLowerCase() !== pmName.toLowerCase()
-                );
-                updateTeam?.(true, pmName, crewWithoutPm.length, crewWithoutPm, currentPhones);
-                console.log('✅ Assigned PM:', pmName);
-                Alert.alert('✅ PM Assigned', `${pmName} is now the project manager for this project.`);
-              } catch (e) {
-                console.error('❌ Error assigning PM:', e);
-                Alert.alert('Error', 'Could not assign project manager.');
-              }
-
-            } else if (action.type === 'add_team_member') {
-              try {
-                const targetId = (action.projectId || id) as string;
-                if (targetId !== id) {
-                  console.warn('⚠️ add_team_member for different project, ignoring');
-                  return;
-                }
-                const tm = action.teamMember || {};
-                const name = (tm.name || '').trim();
-                const phone = (tm.phone || '').trim();
-                if (!name) {
-                  Alert.alert('Error', 'Team member name is required.');
-                  return;
-                }
-                const currentCrew = (contextProjectData?.team as any)?.crewMembers || [];
-                const currentPhones = (contextProjectData?.team as any)?.crewMemberPhones || {};
-                const newCrew = [...currentCrew, name];
-                const newPhones = phone ? { ...currentPhones, [name]: phone } : currentPhones;
-                updateTeam?.(
-                  Boolean((contextProjectData?.team as any)?.pmAssigned),
-                  (contextProjectData?.team as any)?.pmName,
-                  newCrew.length,
-                  newCrew,
-                  newPhones
-                );
-                console.log('✅ Added team member:', name, phone ? `(${phone})` : '');
-                Alert.alert('✅ Team Member Added', `${name} has been added to the project team.`);
-              } catch (e) {
-                console.error('❌ Error adding team member:', e);
-                Alert.alert('Error', 'Could not add team member.');
-              }
-
-            } else if (action.type === 'update_team_member_status') {
-              try {
-                const targetId = (action.projectId || id) as string;
-                if (targetId !== id) return;
-                const memberName = (action.memberName || '').trim();
-                const status = (action.status || 'active').toLowerCase().replace(/\s+/g, '_');
-                if (!memberName || (status !== 'active' && status !== 'off_duty')) {
-                  Alert.alert('Error', 'Member name and status (active or off duty) are required.');
-                  return;
-                }
-                const TEAM_STORAGE_KEY = 'bps.team.members';
-                const saved = await AsyncStorage.getItem(TEAM_STORAGE_KEY);
-                const team: Array<{ id: string; name: string; status?: string; [k: string]: any }> = saved ? JSON.parse(saved) : [];
-                const nameLower = memberName.toLowerCase();
-                const idx = team.findIndex(m => (m.name || '').trim().toLowerCase() === nameLower);
-                if (idx >= 0) {
-                  const newStatus = status === 'active' ? 'active' : 'off_duty';
-                  team[idx] = { ...team[idx], status: newStatus };
-                  await AsyncStorage.setItem(TEAM_STORAGE_KEY, JSON.stringify(team));
-                  setTeamRefreshTrigger(t => t + 1);
-                  console.log('✅ Updated team member status:', memberName, '→', newStatus);
-                  Alert.alert('✅ Status Updated', `${memberName} is now ${newStatus === 'active' ? 'active' : 'off duty'}.`);
-                } else {
-                  Alert.alert('Not Found', `Could not find a team member named "${memberName}".`);
-                }
-              } catch (e) {
-                console.error('❌ Error updating team member status:', e);
-                Alert.alert('Error', 'Could not update team member status.');
-              }
-
-            } else if (action.type === 'create_change_order') {
-              try {
-                console.log('🔄 Action handler: create_change_order', action);
-                const co = action.changeOrder || {};
-                
-                // Map backend CO fields to the format expected by ProjectDataContext
-                // Backend sends: description, cost, vendor, clientPrice, markupPct, status
-                // Context expects: title, amount, approved, notes, status
-                const mat = Number(co.materialsAmount);
-                const lab = Number(co.laborAmount);
-                const costTotal =
-                  Number(co.cost || 0) ||
-                  ((Number.isFinite(mat) ? mat : 0) + (Number.isFinite(lab) ? lab : 0));
-                const total =
-                  Number(co.clientPrice || co.amount || 0) ||
-                  (Number(co.markupPct || 0) > 0
-                    ? Math.round(costTotal * (1 + (Number(co.markupPct || 0) / 100)) * 100) / 100
-                    : costTotal);
-                const mappedCO = {
-                  id: co.id || `co-${Date.now()}`,
-                  title: co.description || co.title || 'Change Order',
-                  amount: total,
-                  approved: true, // User already approved via the dialog
-                  notes: co.vendor ? `Vendor: ${co.vendor}` : '',
-                  status: 'Approved',
-                  date: co.createdAt || new Date().toISOString(),
-                  cost: costTotal,
-                  clientPrice: total,
-                  markupPct: Number(co.markupPct || 0) || undefined,
-                  materialsAmount: Number.isFinite(mat) ? mat : 0,
-                  laborAmount: Number.isFinite(lab) ? lab : 0,
-                };
-                
-                console.log('📋 Mapped CO for context:', mappedCO);
-                
-                // Use the proper addChangeOrder from ProjectDataContext
-                // This handles budget adjustment, persistence, and PM events
-                addChangeOrder(mappedCO);
-                
-                console.log('✅ Change order approved and added:', mappedCO.title, '$' + mappedCO.amount);
-                Alert.alert(
-                  '✅ Change Order Approved',
-                  `"${mappedCO.title}"\nAmount: $${mappedCO.amount.toLocaleString()}\n\nThis has been added to your budget and change orders.`
-                );
-              } catch (e) {
-                console.error('❌ Error creating change order:', e);
-                Alert.alert('Error', 'Could not create change order. Please add it manually.');
-              }
-
-            } else if (action.type === 'populate_estimate') {
-              try {
-                console.log('📋 Action handler: populate_estimate', action);
-                const est = action.estimate;
-                const currentProject = realProjectData as any;
-                updateProject(id, {
-                  estimateData: {
-                    ...(currentProject?.estimateData || {}),
-                    materialLineItems: est.materialLineItems || [],
-                    laborLineItems: est.laborLineItems || [],
-                    overheadItems: est.overheadItems || [],
-                    materialTotal: est.materialTotal,
-                    laborTotal: est.laborTotal,
-                    overheadTotal: est.overheadTotal,
-                    totalCost: est.baseCost,
-                    markupPct: est.markupPct,
-                    markup: est.markup,
-                    totalBid: est.totalBid,
-                    profit: est.profit,
-                    marginPct: est.marginPct,
-                    perSqft: est.perSqft,
-                    generatedByAI: true,
-                    generatedAt: new Date().toISOString(),
-                  },
-                  projectType: est.projectType,
-                  squareFootage: est.squareFootage,
-                });
-                console.log('✅ Estimate populated with AI-generated data');
-                Alert.alert(
-                  '✅ Estimate Generated',
-                  `${est.materialLineItems?.length || 0} materials + ${est.laborLineItems?.length || 0} labor items\n\nTotal Bid: $${est.totalBid?.toLocaleString()}\nProfit: $${est.profit?.toLocaleString()} (${est.marginPct}%)`,
-                  [{ text: 'View Estimate', style: 'default' }]
-                );
-              } catch (e) {
-                console.error('❌ Error populating estimate:', e);
-                Alert.alert('Error', 'Could not populate estimate. Please try again.');
-              }
-
-            } else if (action.type === 'mark_payment_collected') {
-              try {
-                console.log('💸 Action handler: mark_payment_collected', action);
-                const projectFromList = getProjectById?.(id);
-                const base = realProjectData || projectFromList;
-                const mergedProject = base
-                  ? {
-                      ...base,
-                      ...(base.projectData || {}),
-                      estimateData:
-                        base.estimateData || base.projectData?.estimateData,
-                    }
-                  : null;
-
-                const { matched, updatedMilestones } =
-                  await applyMarkPaymentCollectedFromAction(
-                    String(id),
-                    {
-                      milestoneId: action.milestoneId,
-                      milestoneName: action.milestoneName,
-                      amount: action.amount,
-                      collectedAt: action.collectedAt,
-                    },
-                    () => mergedProject
-                  );
-
-                if (updatedMilestones.length > 0) {
-                  const overallProgress =
-                    computeOverallProgressExcludingDeposit(updatedMilestones);
-                  console.log(
-                    `📊 Calculated progress: ${overallProgress}% (deposit excluded)`
-                  );
-                  if (updateProject && id) {
-                    try {
-                      updateProject(id, {
-                        progress: overallProgress,
-                        overallProgressPct: overallProgress,
-                      });
-                    } catch (error) {
-                      console.error(`❌ Error calling updateProject:`, error);
-                    }
-                  }
-                }
-
-                reloadFromStorage();
-                setTimeout(() => {
-                  reloadFromStorage();
-                }, 1000);
-
-                if (matched) {
-                  console.log('✅ Payment marked as collected with progressPct: 100');
-                  Alert.alert(
-                    '✅ Payment Collected',
-                    `"${action.milestoneName || 'Payment'}" marked as collected ($${Number(action.amount || 0).toLocaleString()}).`
-                  );
-                } else {
-                  Alert.alert(
-                    'Could not update payment',
-                    'No matching payment milestone was found. Open Timeline once so the schedule is saved, or mark the payment from there.'
-                  );
-                }
-              } catch (e) {
-                console.error('❌ Error marking payment collected:', e);
-              }
-
-            } else if (action.type === 'add_daily_log') {
-              try {
-                console.log('📝 Action handler: add_daily_log', action);
-                const logKey = `daily_logs_${id}`;
-                const raw = await AsyncStorage.getItem(logKey);
-                const logs = raw ? JSON.parse(raw) : [];
-                const newLog = {
-                  id: action.id || `log-${Date.now()}`,
-                  date: action.date || new Date().toISOString().split('T')[0],
-                  noteText: action.noteText,
-                  weather: action.weather || null,
-                  crewCount: action.crewCount || null,
-                  hoursWorked: action.hoursWorked || null,
-                  createdAt: new Date().toISOString(),
-                };
-                logs.push(newLog);
-                await AsyncStorage.setItem(logKey, JSON.stringify(logs));
-                console.log('✅ Daily log saved');
-                Alert.alert('✅ Log Saved', `Daily log for ${newLog.date} recorded.`);
-              } catch (e) {
-                console.error('❌ Error saving daily log:', e);
-              }
-
-            } else if (action.type === 'project_updated') {
-              const actionProjectId = String(action.projectId ?? '').trim();
-              const currentProjectId = String(id ?? '').trim();
-              // AI assistant updated the project via backend - sync to ProjectDataContext
-              console.log('🔄 Project updated by AI assistant, syncing to ProjectDataContext', {
-                actionProjectId,
-                currentProjectId,
-                match: actionProjectId === currentProjectId,
-                expensesCount: action.expenses?.length || 0,
-                purchaseOrdersCount: action.purchaseOrders?.length || 0,
-                totalSpent: action.totalSpent || 0,
-                committedPOs: action.committedPOs,
-                expenseDetails: action.expenses?.map((e: any) => ({ id: e.id, category: e.category, amount: e.amount, vendor: e.vendor })) || [],
-                poDetails: action.purchaseOrders?.map((po: any) => ({ id: po.id, poNumber: po.poNumber, amount: po.amount, vendor: po.vendor, status: po.status })) || []
-              });
-              
-              if (actionProjectId === currentProjectId) {
-                // Sync expenses to ProjectDataContext
-                if (action.expenses && action.expenses.length > 0) {
-                  const currentExpenses = contextProjectData?.expenses || [];
-                  const expenseIds = new Set(currentExpenses.map((e: any) => e.id));
-                  
-                  console.log('📊 Current expenses in ProjectDataContext:', {
-                    count: currentExpenses.length,
-                    ids: Array.from(expenseIds)
-                  });
-                  
-                  // Add any new expenses that aren't already in ProjectDataContext
-                  let addedCount = 0;
-                  action.expenses.forEach((newExpense: any) => {
-                    if (!expenseIds.has(newExpense.id)) {
-                      console.log('➕ Adding expense to ProjectDataContext:', {
-                        id: newExpense.id,
-                        category: newExpense.category,
-                        amount: newExpense.amount,
-                        vendor: newExpense.vendor
-                      });
-                      addExpense({
-                        id: newExpense.id,
-                        category: newExpense.category || 'Materials/Equipment',
-                        vendor: newExpense.vendor || '',
-                        amount: newExpense.amount || 0,
-                        date: newExpense.date || new Date().toISOString(),
-                        notes: newExpense.notes || '',
-                        receiptUri: newExpense.receiptUri || null,
-                      });
-                      addedCount++;
-                    } else {
-                      console.log('⏭️ Skipping expense (already exists):', newExpense.id);
-                    }
-                  });
-                  
-                  console.log(`✅ Added ${addedCount} new expenses to ProjectDataContext`);
-                }
-                
-                // Sync purchase orders to ProjectDataContext
-                if (action.purchaseOrders && action.purchaseOrders.length > 0) {
-                  const currentPOs = contextProjectData?.purchaseOrders || [];
-                  const poIds = new Set(currentPOs.map((po: any) => po.id));
-                  const poNumbers = new Set(currentPOs.map((po: any) => po.poNumber).filter(Boolean));
-                  
-                  console.log('📊 Current purchase orders in ProjectDataContext:', {
-                    count: currentPOs.length,
-                    ids: Array.from(poIds),
-                    poNumbers: Array.from(poNumbers)
-                  });
-                  
-                  // Add new purchase orders OR update existing ones (e.g., when status changes to Received)
-                  let addedPOCount = 0;
-                  let updatedPOCount = 0;
-                  action.purchaseOrders.forEach((newPO: any) => {
-                    const existsById = newPO.id && poIds.has(newPO.id);
-                    const existsByNumber = newPO.poNumber && poNumbers.has(newPO.poNumber);
-                    
-                    if (!existsById && !existsByNumber) {
-                      console.log('➕ Adding purchase order to ProjectDataContext:', {
-                        id: newPO.id,
-                        poNumber: newPO.poNumber,
-                        amount: newPO.amount,
-                        vendor: newPO.vendor,
-                        status: newPO.status
-                      });
-                      
-                      // Create PO data with the ID from backend to ensure consistency
-                      const poData = {
-                        poNumber: newPO.poNumber || `PO-${Date.now().toString().slice(-6)}`,
-                        vendor: newPO.vendor || '',
-                        category: newPO.category || 'Materials/Equipment',
-                        amount: newPO.amount || 0,
-                        description: newPO.description || '',
-                        orderDate: newPO.orderDate || new Date().toISOString(),
-                        expectedDelivery: newPO.expectedDelivery || null,
-                        status: (newPO.status || 'Pending') as 'Pending' | 'Received' | 'Cancelled' | 'Archived',
-                        notes: newPO.notes,
-                      };
-                      
-                      addPurchaseOrder(poData);
-                      addedPOCount++;
-                      
-                      // Wait a bit for AsyncStorage write to complete before checking
-                      setTimeout(async () => {
-                        const key = `bps.project.${id}`;
-                        const saved = await AsyncStorage.getItem(key);
-                        if (saved) {
-                          const parsed = JSON.parse(saved);
-                          const savedPOs = parsed.purchaseOrders || [];
-                          const foundPO = savedPOs.find((po: any) => 
-                            po.poNumber === poData.poNumber || po.id === newPO.id
-                          );
-                          console.log('🔍 Verifying PO was saved:', {
-                            found: !!foundPO,
-                            poNumber: poData.poNumber,
-                            savedPOsCount: savedPOs.length
-                          });
-                        }
-                      }, 500);
-                    } else {
-                      // PO already exists - check if status changed (e.g., marked as received)
-                      const existingPO = currentPOs.find((po: any) => 
-                        (newPO.id && po.id === newPO.id) || (newPO.poNumber && po.poNumber === newPO.poNumber)
-                      );
-                      
-                      if (existingPO && existingPO.status !== newPO.status) {
-                        console.log('🔄 Updating existing purchase order status:', {
-                          poNumber: newPO.poNumber,
-                          oldStatus: existingPO.status,
-                          newStatus: newPO.status
-                        });
-                        
-                        // If status changed to Received, use markPOReceived to properly handle expense creation
-                        if (newPO.status === 'Received' && existingPO.status === 'Pending') {
-                          markPOReceived(existingPO.id);
-                          updatedPOCount++;
-                        } else {
-                          // For other status changes, use updatePurchaseOrder
-                          // Note: updatePurchaseOrder might not exist, so we'll need to handle this differently
-                          // For now, just log it
-                          console.log('⚠️ Status change not handled:', {
-                            from: existingPO.status,
-                            to: newPO.status
-                          });
-                        }
-                      } else {
-                        console.log('⏭️ Skipping purchase order (already exists with same status):', {
-                          id: newPO.id,
-                          poNumber: newPO.poNumber,
-                          status: newPO.status
-                        });
-                      }
-                    }
-                  });
-                  
-                  console.log(`✅ Added ${addedPOCount} new purchase orders and updated ${updatedPOCount} existing purchase orders in ProjectDataContext`);
-                  
-                  // Wait for AsyncStorage writes to complete, then reload
-                  setTimeout(async () => {
-                    console.log('🔄 Reloading from storage after PO addition...');
-                    await reloadFromStorage();
-                    console.log('✅ ProjectDataContext reloaded after AI update');
-                    
-                    // Verify the PO is now in context
-                    setTimeout(() => {
-                      const currentPOs = contextProjectData?.purchaseOrders || [];
-                      const foundPO = currentPOs.find((po: any) => 
-                        action.purchaseOrders?.some((newPO: any) => 
-                          po.poNumber === newPO.poNumber || po.id === newPO.id
-                        )
-                      );
-                      console.log('🔍 Verifying PO in context after reload:', {
-                        found: !!foundPO,
-                        totalPOs: currentPOs.length,
-                        committedPOs: contextProjectData?.committedPOs || 0
-                      });
-                    }, 200);
-                  }, 1000);
-                } else {
-                  // No purchase orders to add, but still reload to ensure sync
-                  reloadFromStorage().then(() => {
-                    console.log('✅ ProjectDataContext reloaded after AI update (no POs to add)');
-                  }).catch(err => {
-                    console.error('❌ Error reloading ProjectDataContext:', err);
-                  });
-                }
-              } else {
-                console.warn('⚠️ Project update skipped:', {
-                  reason: 'projectId mismatch',
-                  actionProjectId: action.projectId,
-                  currentId: id
-                });
-              }
-            }
+        <CalibrationReviewModal
+          visible={showCalibrationReview}
+          instantPresent={openRateInsightsOnEntry.current}
+          highlightLineId={rateInsightLineIdOnEntry.current}
+          closeAccessibilityLabel={
+            calibrationFromInsightLink ? "Back to Insights" : undefined
+          }
+          onClose={handleCloseCalibrationReview}
+          projectLike={overviewCalibrationProjectLike}
+          projectStatus={String(safeProjectData?.status ?? realProjectData?.status ?? '')}
+          scopeComparisons={overviewEstimateFeedback.scopeComparisons}
+          clientSuggestions={overviewEstimateFeedback.rateSuggestions}
+          budgetAccessMode="owner"
+          darkMode={darkMode}
+          onApproved={() => {
+            handleCloseCalibrationReview();
+            void reloadFromStorage?.();
           }}
         />
 
@@ -3938,56 +2649,17 @@ function ProjectDetailContent() {
   }
 }
 
-type SegmentProps = {
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  isActive: boolean;
-  onPress: () => void;
-};
-
-const SegmentTab: React.FC<SegmentProps & { styles: any }> = React.memo(({ label, icon, isActive, onPress, styles }) => {
-  const { darkMode } = useTheme();
-  
-  if (isActive) {
-    return (
-      <LinearGradient
-        colors={["#22c55e", "#22d3ee"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[styles.segmentTab, styles.segmentTabActive]}
-      >
-        <Pressable onPress={onPress}>
-          <View style={styles.segmentTabInner}>
-            <Ionicons name={icon} size={16} color={darkMode ? "#050B13" : "#071018"} />
-            <Text style={[styles.segmentLabel, styles.segmentLabelActive]} numberOfLines={1}>
-              {label}
-            </Text>
-          </View>
-        </Pressable>
-      </LinearGradient>
-    );
-  }
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={styles.segmentTab}
-    >
-      <View style={styles.segmentTabInner}>
-        <Ionicons name={icon} size={16} color={darkMode ? "#E5F7FF" : "#475569"} />
-        <Text style={styles.segmentLabel} numberOfLines={1}>
-          {label}
-        </Text>
-      </View>
-    </Pressable>
-  );
-});
-
 export default function ProjectDetailScreen() {
-  const { id } = useLocalSearchParams();
-  
+  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const routeProjectId = useMemo(() => {
+    const raw = params.id;
+    return String(Array.isArray(raw) ? raw[0] : raw ?? '');
+  }, [params.id]);
+
+  if (!routeProjectId) return null;
+
   return (
-    <ProjectDataProvider projectId={id as string}>
+    <ProjectDataProvider key={routeProjectId} projectId={routeProjectId}>
       <ProjectDetailContent />
     </ProjectDataProvider>
   );
@@ -4026,6 +2698,17 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 18,
+  },
+  overviewLoadingWrap: {
+    minHeight: 220,
+    justifyContent: 'center',
+  },
+  overviewLoadingText: {
+    marginTop: 14,
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '600',
+    color: darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub,
   },
   /** Nested section inside an overview flow card — no extra top gap */
   overviewInnerCardFlush: {
@@ -4419,69 +3102,6 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   inviteButtonContainer: {
     marginBottom: 18,
-  },
-  /** Match Dashboard tab pill: full capsule, emerald border, blur fill; horizontal scroll for 5 tabs */
-  segmentContainer: {
-    borderRadius: 999,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(25, 225, 128, 0.45)",
-    marginBottom: 18,
-  },
-  /** Dark segment track — subtle glass fill inside emerald ring */
-  segmentTrackDark: {
-    backgroundColor: "rgba(255, 255, 255, 0.04)",
-  },
-  segmentScrollView: {
-    flexGrow: 0,
-    backgroundColor: "transparent",
-  },
-  /** Web: full-width row so tabs can use flex — replaces horizontal ScrollView in JSX */
-  segmentScrollRowWeb: {
-    width: "100%",
-  },
-  segmentInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 4,
-    gap: 4,
-    backgroundColor: "transparent",
-    width: "100%",
-  },
-  segmentInnerWeb: {
-    width: "100%",
-    gap: 0,
-  },
-  segmentTab: {
-    flex: 1,
-    minWidth: 0,
-    borderRadius: 999,
-    marginHorizontal: 1,
-  },
-  segmentTabActive: {
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: darkMode ? 0.35 : 0.1,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  segmentTabInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 6,
-    gap: 6,
-  },
-  segmentLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    letterSpacing: -0.1,
-    color: darkMode ? "#FFFFFF" : Colors.text,
-  },
-  segmentLabelActive: {
-    color: darkMode ? "#050B13" : "#071018",
   },
   tabContent: {
     flex: 1,
@@ -4879,14 +3499,6 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     justifyContent: "space-between",
     alignItems: "flex-start",
     marginBottom: 2,
-  },
-  aiPmUnderTabs: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    alignItems: "center",
-    paddingHorizontal: 4,
-    marginTop: 2,
-    marginBottom: 8,
   },
   chartBox: {
     marginTop: 8,

@@ -86,6 +86,7 @@ const {
   sortCompareProjectsResults,
   normalizeAiMessageForIntent,
   appendDataFreshness,
+  isCentralCommandMutationRequest,
   buildPortfolioNextActions,
   runCompareProjectsPipeline,
   isCalendarEventCreateQuery,
@@ -6527,6 +6528,18 @@ router.post('/stream', async (req, res) => {
     } catch (e) { parsedContext = {}; }
 
     const sessionStream = getOrCreateSession(sessionId || `stream-${Date.now()}`);
+    const isCentralCommandStream = parsedContext?.assistantMode === 'central_command';
+    if (isCentralCommandStream && isCentralCommandMutationRequest(message)) {
+      const reply = appendDataFreshness(
+        'Central Command is read-only. I can analyze your projects, budgets, schedules, costs, margins, and profitability here, but I will not change stored data. Use the project Budget or Timeline tools, or Estimate Builder, to make an update.',
+        parsedContext
+      );
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+      res.write(`data: ${JSON.stringify({ type: 'token', content: reply })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id, readOnly: true })}\n\n`);
+      res.end();
+      return;
+    }
 
     // RUN-FIRST STREAM: "making enough" — use only parsedContext (same as main POST)
     const rawMsgStreamFirst = String(message ?? '').trim().toLowerCase();
@@ -7051,6 +7064,7 @@ router.post('/stream', async (req, res) => {
       bidMarginPct: typeof streamBidMarginPct === 'number' ? streamBidMarginPct : undefined,
       aiPmMode, pmAlerts: [],
       screen,
+      assistantMode: parsedContext.assistantMode || null,
       userMemory: userMemoryStream,
       profitLeakBlock: streamProfitLeakBlock,
     });
@@ -7182,6 +7196,19 @@ router.post('/', async (req, res) => {
     } catch (e) {
       console.warn('⚠️ Failed to parse context:', e.message);
       parsedContext = {};
+    }
+
+    const isCentralCommand = parsedContext?.assistantMode === 'central_command';
+    if (isCentralCommand && isCentralCommandMutationRequest(message)) {
+      return res.json({
+        reply: appendDataFreshness(
+          'Central Command is read-only. I can analyze your projects, budgets, schedules, costs, margins, and profitability here, but I will not change stored data. Use the project Budget or Timeline tools, or Estimate Builder, to make an update.',
+          parsedContext
+        ),
+        actions: [],
+        projectUpdateData: null,
+        readOnly: true,
+      });
     }
 
     // ── RUN-FIRST: "Am I making enough (money) on this job?" — use ONLY parsedContext so we never miss (e.g. project detail sends no allProjects)
@@ -8727,6 +8754,7 @@ router.post('/', async (req, res) => {
       laborBudget: laborBudgetMain, laborSpent: laborSpentMain, laborRemaining: laborRemainingMain,
       progress, aiPmMode, pmAlerts,
       screen: parsedContext.screen || 'assistant_tab',
+      assistantMode: parsedContext.assistantMode || null,
       aiScope,
       teamMembers,
       teamStats,

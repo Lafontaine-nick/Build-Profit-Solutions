@@ -20,6 +20,7 @@ import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpage
 import WebPageShell from '@/components/layout/WebPageShell';
 import { useWebProfileHelpHeaderMargins } from '@/lib/useWebProfileHelpHeaderMargins';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
+import { isLeadsNetworkingReleased } from '@/constants/releaseFlags';
 
 interface StepCardProps {
   number: number;
@@ -113,19 +114,23 @@ export default function GettingStartedScreen() {
         router.push('/(tabs)/dashboard');
       },
     },
+    ...(isLeadsNetworkingReleased()
+      ? [
+          {
+            number: 3,
+            title: 'Add Your First Lead',
+            description:
+              'Start managing leads by adding new opportunities from the Leads tab.',
+            icon: 'person-add',
+            onPress: () => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              router.push('/(tabs)/leads');
+            },
+          },
+        ]
+      : []),
     {
-      number: 3,
-      title: 'Add Your First Lead',
-      description:
-        'Start managing leads by adding new opportunities from the Leads tab.',
-      icon: 'person-add',
-      onPress: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        router.push('/(tabs)/leads');
-      },
-    },
-    {
-      number: 4,
+      number: isLeadsNetworkingReleased() ? 4 : 3,
       title: 'Create an Estimate',
       description:
         'Use the Estimate Generator to create professional project estimates with AI assistance.',
@@ -136,7 +141,7 @@ export default function GettingStartedScreen() {
       },
     },
     {
-      number: 5,
+      number: isLeadsNetworkingReleased() ? 5 : 4,
       title: 'Manage Projects',
       description:
         'Track project progress, manage budgets, and collaborate with your team.',

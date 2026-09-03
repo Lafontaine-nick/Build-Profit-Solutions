@@ -18,18 +18,16 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
-import { BlurView } from "expo-blur";
+import { SegmentNavBar } from '@/components/navigation/SegmentNavBar';
+import { AI_FLOW_CARD_BG_DARK } from "@/utils/estimateFlowCardStyle";
 import { Ionicons, Feather, MaterialIcons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useFocusEffect } from "expo-router";
 import { useNavigation } from "@react-navigation/native";
 import { goToProjectsTab, projectsTabForDisplayStatus, type ProjectsTabParam } from "@/lib/navigation/goToProjectsTab";
 import { useProjectList } from "@/contexts/ProjectListContext";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
-import { useAIManagerMode } from "@/hooks/useAIManagerMode";
-import AIAssistantModal from "@/components/AIAssistantModal";
-import { AiPmModePill } from "@/components/AiPmModePill";
+import { useAIManagerMode } from "@/state/useAIManagerMode";
 import ProfileAnalytics from "@/components/ProfileAnalytics";
 import GreyCalendar from "@/components/GreyCalendar";
 import {
@@ -76,13 +74,24 @@ import Constants from "expo-constants";
 import { useUser } from "@clerk/clerk-react";
 import {
   bucketForNextStep,
+  filterInsightsActionStepsAfterHero,
   firstSupportingSentence,
+  compactActionStepTitle,
+  compactInsightBody,
+  frameInsightForDisplay,
+  frameNextStepForDisplay,
+  formatHeroImpactPhrase,
   groupNextStepsByBucket,
   heroKickerForInsight,
+  heroKickerForLeakType,
   humanizeNextStepLabel,
   inferCtaFromStep,
+  isCompletedProjectStatus,
+  pickOverviewInsightPreview,
   portfolioPatternBullets,
+  resolveInsightImpactDollars,
   sortNextStepsForControlCenter,
+  summarizeProjectLineOverruns,
   type ActionBucket,
 } from "@/utils/aiInsightsUi";
 import { computeProjectListRowFinancials } from "@/lib/projectListRowMetrics";
@@ -110,6 +119,19 @@ import {
   applyWorkspaceTimelineProgressToMaps,
   loadWorkspaceTimelineProgressByProjectId,
 } from "@/utils/workspaceTimelineProgress";
+import {
+  buildPortfolioBudgetInsights,
+  projectToPortfolioBudgetInput,
+} from "@/utils/portfolioBudgetInsights";
+import {
+  buildInsightNavigationParams,
+  insightActionCtaLabel,
+  navigateToInsightTarget,
+  parseDashboardReturnTab,
+  resolveInsightActionTarget,
+  type AiInsightActionTarget,
+} from "@/utils/insightNavigation";
+import { resolveProjectEstimateData } from "@/utils/rateInsightComparisons";
 
 const AI_DASHBOARD_FETCH_TIMEOUT_MS = 60_000;
 
@@ -354,7 +376,7 @@ function buildFallbackDailyBrief(
           : insight.type === "opportunity"
             ? "medium"
             : "low",
-      impactEstimate: Number(insight.impactScore || 0) * 1000,
+      impactEstimate: resolveInsightImpactDollars(insight) ?? 0,
       headline: insight.title,
       body: insight.body,
       evidence: insight.evidence || [],
@@ -2663,6 +2685,7 @@ const DashboardScreen: React.FC = () => {
     refresh: refreshWorkspaceEntitlement,
   } = useRestrictedWorkspaceFinancials();
   const router = useRouter();
+  const dashboardParams = useLocalSearchParams<{ tab?: string | string[] }>();
   const navigation = useNavigation();
   const { t } = useTranslation();
   const { theme, darkMode } = useTheme();
@@ -2702,11 +2725,23 @@ const DashboardScreen: React.FC = () => {
   );
 
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
-  const [showAIAssistant, setShowAIAssistant] = useState(false);
-  const [aiPmMode, setAiPmMode] = useState<boolean>(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      const tab = parseDashboardReturnTab(dashboardParams.tab);
+      if (!tab) return;
+      setActiveTab(tab);
+      requestAnimationFrame(() => {
+        router.setParams({ tab: '' });
+      });
+    }, [dashboardParams.tab, router])
+  );
+
+  const { enabled: aiDailyBriefEnabled } = useAIManagerMode();
   const [aiData, setAiData] = useState<AiDashboardResponse | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [aiFetchDegraded, setAiFetchDegraded] = useState(false);
   const [timelineProgress, setTimelineProgress] = useState<Record<string, number>>({});
   /** Max planned date (ms) from live timeline storage — extends schedule anchor past stale project endDate. */
   const [timelineLatestPlannedMs, setTimelineLatestPlannedMs] = useState<Record<string, number>>({});
@@ -2959,7 +2994,7 @@ const DashboardScreen: React.FC = () => {
       setAiLoading(false);
       return;
     }
-    if (!aiPmMode && !forceRefresh) {
+    if (!aiDailyBriefEnabled && !forceRefresh) {
       setAiData(null);
       setAiError(null);
       return;
@@ -3026,6 +3061,8 @@ const DashboardScreen: React.FC = () => {
             createdAt: p.createdAt,
             updatedAt: p.updatedAt,
             lineItems: p.estimateData?.materialLineItems || p.projectData?.buckets || [],
+            estimateData: resolveProjectEstimateData(p),
+            buckets: p.projectData?.buckets || [],
             receipts: p.projectData?.receipts || [],
             hasReceiptsAttached: Boolean(p.projectData?.receipts?.length),
             hasPermitFees: Boolean(p.estimateData?.hasPermitFees || p.projectData?.hasPermitFees),
@@ -3187,6 +3224,7 @@ const DashboardScreen: React.FC = () => {
           deletedProjectRecords
         ) ?? filteredDataWithRetrospectives
       );
+      setAiFetchDegraded(false);
     } catch (err: any) {
       if (seq !== aiDashboardReqSeqRef.current) return;
 
@@ -3200,6 +3238,7 @@ const DashboardScreen: React.FC = () => {
           console.warn("⚠️  AI dashboard request timed out or was aborted");
         }
         setAiData(createEmptyAiDashboardResponse());
+        setAiFetchDegraded(true);
         setAiError(null);
         return;
       }
@@ -3216,6 +3255,7 @@ const DashboardScreen: React.FC = () => {
           console.log("ℹ️  AI dashboard endpoint not available, skipping AI insights");
         }
         setAiData(createEmptyAiDashboardResponse());
+        setAiFetchDegraded(true);
         setAiError(null);
         return;
       }
@@ -3234,6 +3274,7 @@ const DashboardScreen: React.FC = () => {
           console.warn("⚠️  Cannot connect to backend for AI insights:", err.message);
         }
         setAiData(createEmptyAiDashboardResponse());
+        setAiFetchDegraded(true);
         setAiError(null);
         return;
       }
@@ -3269,11 +3310,11 @@ const DashboardScreen: React.FC = () => {
         setAiLoading(false);
       }
     }
-  }, [aiPmMode, activeProjects, estimates, timelineProgress, deletedProjectRecords, restrictedWorkspaceFinancials]);
+  }, [aiDailyBriefEnabled, activeProjects, estimates, timelineProgress, deletedProjectRecords, restrictedWorkspaceFinancials]);
 
   // Drop stale insight cards immediately when projects are deleted/completed (don't wait on API).
   useEffect(() => {
-    if (!aiPmMode || !aiData || restrictedWorkspaceFinancials) return;
+    if (!aiDailyBriefEnabled || !aiData || restrictedWorkspaceFinancials) return;
     const pruned = filterAiDashboardResponse(
       aiData,
       activeProjects,
@@ -3284,18 +3325,15 @@ const DashboardScreen: React.FC = () => {
     if (pruned && aiDashboardResponsesDiffer(aiData, pruned)) {
       setAiData(pruned);
     }
-  }, [aiPmMode, aiData, activeProjects, estimates, timelineProgress, deletedProjectRecords, restrictedWorkspaceFinancials]);
+  }, [aiDailyBriefEnabled, aiData, activeProjects, estimates, timelineProgress, deletedProjectRecords, restrictedWorkspaceFinancials]);
 
   // Debounced refetch when portfolio fingerprint changes
   useEffect(() => {
-    if (!aiPmMode || restrictedWorkspaceFinancials) {
-      setAiData(null);
-      setAiError(null);
+    if (!aiDailyBriefEnabled || restrictedWorkspaceFinancials) {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = null;
       }
-      lastPortfolioIdCountRef.current = 0;
       return;
     }
 
@@ -3323,21 +3361,30 @@ const DashboardScreen: React.FC = () => {
         clearTimeout(debounceTimerRef.current);
       }
     };
-  }, [aiPmMode, activeProjects, estimates, timelineProgress, computeAiRefreshHash, fetchAiData, restrictedWorkspaceFinancials]);
+  }, [aiDailyBriefEnabled, activeProjects, estimates, timelineProgress, computeAiRefreshHash, fetchAiData, restrictedWorkspaceFinancials]);
 
-  // Initial fetch when AI PM mode is toggled ON (no debounce)
+  // Clear API brief when user disables it in settings
+  useEffect(() => {
+    if (!aiDailyBriefEnabled) {
+      setAiData(null);
+      setAiError(null);
+      setAiLoading(false);
+    }
+  }, [aiDailyBriefEnabled]);
+
+  // Initial fetch (no debounce)
   useEffect(() => {
     if (restrictedWorkspaceFinancials) return;
-    if (aiPmMode && !aiData && !aiLoading) {
+    if (aiDailyBriefEnabled && !aiData && !aiLoading) {
       lastProjectsHashRef.current = computeAiRefreshHash();
       fetchAiData(false);
     }
-  }, [aiPmMode, aiData, aiLoading, computeAiRefreshHash, fetchAiData, restrictedWorkspaceFinancials]);
+  }, [aiDailyBriefEnabled, aiData, aiLoading, computeAiRefreshHash, fetchAiData, restrictedWorkspaceFinancials]);
 
   // Periodic refresh: every 5 minutes, but only refresh rule-based checks
   // (AI layer is cached, so we don't need to call OpenAI every 5 min)
   useEffect(() => {
-    if (!aiPmMode || restrictedWorkspaceFinancials) return;
+    if (!aiDailyBriefEnabled || restrictedWorkspaceFinancials) return;
 
     const interval = setInterval(() => {
       // Only refresh if we have data (don't spam on initial load)
@@ -3347,7 +3394,7 @@ const DashboardScreen: React.FC = () => {
     }, 5 * 60 * 1000); // 5 minutes
 
     return () => clearInterval(interval);
-  }, [aiPmMode, aiData, fetchAiData, restrictedWorkspaceFinancials]);
+  }, [aiDailyBriefEnabled, aiData, fetchAiData, restrictedWorkspaceFinancials]);
 
   // Manual refresh function (bypasses cache)
   const handleManualRefresh = useCallback(() => {
@@ -3370,7 +3417,7 @@ const DashboardScreen: React.FC = () => {
           );
 
           await loadTimelineProgress();
-          if (cancelled || !aiPmMode) return;
+          if (cancelled || !aiDailyBriefEnabled) return;
 
           if (aiData?.insights?.length) {
             deleted = await reconcileDeletedProjectsFromInsights(aiData.insights, knownIds);
@@ -3408,7 +3455,7 @@ const DashboardScreen: React.FC = () => {
       loadTimelineProgress,
       computeAiRefreshHash,
       fetchAiData,
-      aiPmMode,
+      aiDailyBriefEnabled,
       activeProjects,
       estimates,
       timelineProgress,
@@ -3427,19 +3474,91 @@ const DashboardScreen: React.FC = () => {
     [activeProjects, estimates, timelineProgress, deletedProjectRecords]
   );
 
-  const filteredInsights = useMemo(() => {
+  const clientBudgetInsights = useMemo(() => {
+    if (restrictedWorkspaceFinancials) {
+      return { insights: [] as AiInsight[], nextSteps: [] as AiNextStep[] };
+    }
+    const rows = dedupeProjectsByBestStatus([...activeProjects, ...estimates])
+      .map((project) => {
+        const pid = String(project?.id ?? "");
+        const override = projectDataOverrides[pid];
+        const merged = override
+          ? {
+              ...project,
+              estimateData: override?.estimateData
+                ? { ...(project?.estimateData || {}), ...override.estimateData }
+                : project?.estimateData,
+              projectData: {
+                ...(project?.projectData || {}),
+                ...override,
+              },
+            }
+          : project;
+        return projectToPortfolioBudgetInput(merged as Record<string, unknown>);
+      })
+      .filter((row): row is NonNullable<typeof row> => row != null);
+    return buildPortfolioBudgetInsights(rows);
+  }, [activeProjects, estimates, projectDataOverrides, restrictedWorkspaceFinancials]);
+
+  const apiFilteredInsights = useMemo(() => {
     if (!aiData?.insights) return [];
     return dedupeAiInsightsByNormalizedTitle(
       aiData.insights.filter((insight) => filterAiInsightForPortfolio(insight, portfolioFilterCtx))
     );
   }, [aiData?.insights, portfolioFilterCtx]);
 
-  const filteredNextSteps = useMemo(() => {
+  const completedProjectIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const project of [...activeProjects, ...estimates]) {
+      if (isCompletedProjectStatus(project?.status)) {
+        ids.add(String(project.id));
+      }
+    }
+    return ids;
+  }, [activeProjects, estimates]);
+
+  const filteredInsights = useMemo(() => {
+    const merged = dedupeAiInsightsByNormalizedTitle([
+      ...apiFilteredInsights,
+      ...clientBudgetInsights.insights,
+    ]);
+    return merged.map((insight) =>
+      frameInsightForDisplay(
+        insight,
+        Boolean(insight.projectId && completedProjectIds.has(String(insight.projectId)))
+      )
+    );
+  }, [apiFilteredInsights, clientBudgetInsights.insights, completedProjectIds]);
+
+  const apiFilteredNextSteps = useMemo(() => {
     if (!aiData?.nextSteps) return [];
     return dedupeAiNextStepsByNormalizedLabel(
       aiData.nextSteps.filter((step) => filterAiNextStepForPortfolio(step, portfolioFilterCtx))
     );
   }, [aiData?.nextSteps, portfolioFilterCtx]);
+
+  const filteredNextSteps = useMemo(() => {
+    const merged = dedupeAiNextStepsByNormalizedLabel([
+      ...apiFilteredNextSteps,
+      ...clientBudgetInsights.nextSteps,
+    ]);
+    return merged.map((step) =>
+      frameNextStepForDisplay(
+        step,
+        Boolean(step.projectId && completedProjectIds.has(String(step.projectId)))
+      )
+    );
+  }, [apiFilteredNextSteps, clientBudgetInsights.nextSteps, completedProjectIds]);
+
+  const insightsAlertCount = useMemo(
+    () =>
+      filteredInsights.filter((insight) =>
+        ["line_over_estimate", "category_over_budget", "over_budget"].includes(
+          insight.leakType ?? ""
+        )
+      ).length,
+    [filteredInsights]
+  );
 
   // Transform projects data - only show submitted and above (hide draft/estimate)
   const projects = useMemo(() => {
@@ -3642,6 +3761,14 @@ const DashboardScreen: React.FC = () => {
     []
   );
 
+  const handleInsightPress = useCallback(
+    (insight: AiInsight) => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      navigateToInsightTarget(router, insight, { returnToDashboardTab: 'overview' });
+    },
+    [router]
+  );
+
   // Active projects = currently in progress (won, in_progress) — excludes completed
   const activeCount = useMemo(() => {
     return projects.filter((p) => p.status === "Active").length;
@@ -3701,22 +3828,22 @@ const DashboardScreen: React.FC = () => {
             titleStyle={desktopWeb ? styles.headerTitleDesktop : undefined}
             subtitleStyle={desktopWeb ? styles.headerSubtitleDesktop : undefined}
             belowTitle={(() => {
-              const aiStatusText = aiPmMode
-                ? "AI PM Active"
-                : "AI monitoring paused · Manual mode";
               const isDark = darkMode;
-              const aiStatusColor = aiPmMode
-                ? (isDark ? "#6ee7b7" : "#16a34a")
-                : (isDark ? "#FFFFFF" : "#475569");
-              const dotColor = aiPmMode
-                ? "#22c55e"
-                : (isDark ? "#FFFFFF" : "#475569");
+              const aiStatusColor = isDark ? "#6ee7b7" : "#16a34a";
+              const dotColor = "#22c55e";
               const ruleBasedTime = aiData?.ruleBasedUpdatedAt
                 ? formatTimeShort(aiData.ruleBasedUpdatedAt)
                 : null;
               const aiTime = aiData?.aiUpdatedAt
                 ? formatTimeShort(aiData.aiUpdatedAt)
                 : null;
+              const statusText = aiDailyBriefEnabled
+                ? aiData
+                  ? "Insights synced"
+                  : aiLoading
+                    ? "Syncing insights…"
+                    : "Budget alerts active"
+                : "Budget alerts active · AI brief off";
 
               return (
                 <View style={styles.aiStatusRow}>
@@ -3727,30 +3854,30 @@ const DashboardScreen: React.FC = () => {
                     ]}
                   />
                   <Text style={[styles.aiStatusText, { color: aiStatusColor }]}>
-                    {aiStatusText}
+                    {statusText}
                   </Text>
-                  {aiPmMode && aiData && (
+                  {aiDailyBriefEnabled && aiData ? (
                     <View style={styles.aiTimestampContainer}>
-                      {ruleBasedTime && (
+                      {ruleBasedTime ? (
                         <Text style={styles.aiTimestampText}>
                           Data: {ruleBasedTime}
                         </Text>
-                      )}
-                      {aiTime && (
+                      ) : null}
+                      {aiTime ? (
                         <Text style={styles.aiTimestampText}>
                           AI: {aiTime}
                         </Text>
-                      )}
-                      {!aiLoading && (
+                      ) : null}
+                      {!aiLoading ? (
                         <Pressable
                           onPress={handleManualRefresh}
                           style={styles.refreshButton}
                         >
                           <Ionicons name="refresh" size={14} color={aiStatusColor} />
                         </Pressable>
-                      )}
+                      ) : null}
                     </View>
-                  )}
+                  ) : null}
                 </View>
               );
             })()}
@@ -3774,34 +3901,33 @@ const DashboardScreen: React.FC = () => {
 
         {/* SEGMENTED CONTROL */}
         <View style={styles.wideContainer}>
-          <BlurView intensity={35} tint={darkMode ? "dark" : "light"} style={styles.segmentContainer}>
-            <View style={styles.segmentInner}>
-            <SegmentTab
-              label={t('dashboard.overview')}
-              icon="grid-outline"
-              isActive={activeTab === "overview"}
-              onPress={() => handleTabPress("overview")}
-            />
-            <SegmentTab
-              label={t('dashboard.analytics')}
-              icon="bar-chart-outline"
-              isActive={activeTab === "analytics"}
-              onPress={() => handleTabPress("analytics")}
-            />
-            <SegmentTab
-              label="Calendar"
-              icon="calendar"
-              isActive={activeTab === "calendar"}
-              onPress={() => handleTabPress("calendar")}
-            />
-            <SegmentTab
-              label={t('dashboard.insights')}
-              icon="bulb-outline"
-              isActive={activeTab === "insights"}
-              onPress={() => handleTabPress("insights")}
-            />
-          </View>
-        </BlurView>
+          <SegmentNavBar
+            items={[
+              {
+                key: 'overview',
+                label: t('dashboard.overview'),
+                icon: 'grid-outline',
+              },
+              {
+                key: 'analytics',
+                label: t('dashboard.analytics'),
+                icon: 'bar-chart-outline',
+              },
+              {
+                key: 'calendar',
+                label: 'Calendar',
+                icon: 'calendar',
+              },
+              {
+                key: 'insights',
+                label: t('dashboard.insights'),
+                icon: 'bulb',
+                badgeCount: activeTab === 'insights' ? 0 : insightsAlertCount,
+              },
+            ]}
+            activeKey={activeTab}
+            onPress={(key) => handleTabPress(key as TabKey)}
+          />
         </View>
 
         {/* CONTENT */}
@@ -3812,12 +3938,14 @@ const DashboardScreen: React.FC = () => {
             projects={projects}
             openProjectsTab={openProjectsTab}
             onCreateEstimate={() => router.push("/(tabs)/estimate-generator")}
-            aiPmMode={aiPmMode}
             aiData={aiData}
             aiLoading={aiLoading}
             aiError={aiError}
+            aiFetchDegraded={aiFetchDegraded}
             filteredInsights={filteredInsights}
             filteredNextSteps={filteredNextSteps}
+            onInsightPress={handleInsightPress}
+            onOpenInsights={() => handleTabPress("insights")}
             timelineLatestPlannedMs={timelineLatestPlannedMs}
             hideFinancialMetrics={restrictedWorkspaceFinancials}
             activeProjectCount={activeProjectCount}
@@ -3852,9 +3980,9 @@ const DashboardScreen: React.FC = () => {
             projects={projects}
             filteredNextSteps={filteredNextSteps}
             filteredInsights={filteredInsights}
-            aiPmMode={aiPmMode}
             aiLoading={aiLoading}
             aiError={aiError}
+            aiFetchDegraded={aiFetchDegraded}
             aiData={aiData}
           />
         ))}
@@ -3865,99 +3993,9 @@ const DashboardScreen: React.FC = () => {
       <TabScreenBottomScrollFade />
         </View>
 
-      {/* FLOATING AI PROJECT MANAGER MODE BADGE */}
-      {!restrictedWorkspaceFinancials ? (
-        <AiPmModePill
-          active={aiPmMode}
-          label={aiPmMode ? t('dashboard.aiPmModeOn') : t('dashboard.aiPmModeOff')}
-          onPress={() => setAiPmMode((prev) => !prev)}
-          darkMode={darkMode}
-          size={activeTab === "calendar" ? "compact" : "default"}
-          elevated
-          style={[
-            styles.aiFloatingWrapper,
-            activeTab === "calendar" && styles.aiFloatingWrapperCalendarTab,
-          ]}
-        />
-      ) : null}
-
-      {/* AI Assistant Modal */}
-      <AIAssistantModal
-        visible={showAIAssistant && !restrictedWorkspaceFinancials}
-        onClose={() => setShowAIAssistant(false)}
-        context={JSON.stringify({
-          screen: "Dashboard",
-          aiScope: "portfolio",
-          allProjects: [...activeProjects, ...estimates].map((p) => {
-            const st = ((p as any).status || '').toLowerCase();
-            const isActive = ['won', 'active', 'in_progress', 'in-progress'].includes(st);
-            const isCompleted = st === 'completed';
-            return {
-              id: p.id,
-              title: p.title,
-              customerName: (p as any).client || p.title,
-              status: (p as any).status,
-              isActive,
-              isCompleted,
-              bidPrice: p.bidPrice || 0,
-              estimatedCost: p.estimatedCost || 0,
-              totalBudget: p.estimatedCost || p.bidPrice || 0,
-            };
-          }),
-        })}
-      />
     </SafeAreaView>
   );
 };
-
-type SegmentProps = {
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  isActive: boolean;
-  onPress: () => void;
-};
-
-const SegmentTab = React.memo(function SegmentTab({ label, icon, isActive, onPress }: SegmentProps) {
-  const { theme, darkMode } = useTheme();
-  const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useDashboardStyles(Colors);
-  
-  if (isActive) {
-    // Web/Safari: outer Pressable ensures the full tab hit target receives clicks (gradient as outer
-    // wrapper can swallow or shrink the interactive region with some RN-web + LinearGradient combos).
-    return (
-      <Pressable onPress={onPress} style={[styles.segmentTab, { flex: 1 }]}>
-        <LinearGradient
-          colors={["#22c55e", "#22d3ee"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[StyleSheet.absoluteFillObject, styles.segmentTabActive]}
-        >
-          <View style={styles.segmentTabInner}>
-            <Ionicons name={icon} size={16} color="#050B13" />
-            <Text style={[styles.segmentLabel, styles.segmentLabelActive]}>
-              {label}
-            </Text>
-          </View>
-        </LinearGradient>
-      </Pressable>
-    );
-  }
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={styles.segmentTab}
-    >
-      <View style={styles.segmentTabInner}>
-        <Ionicons name={icon} size={16} color={darkMode ? "#FFFFFF" : "#334155"} />
-        <Text style={styles.segmentLabel}>
-          {label}
-        </Text>
-      </View>
-    </Pressable>
-  );
-});
 
 /* ----------------- ENHANCED METRIC CARD ----------------- */
 
@@ -4168,8 +4206,8 @@ const InsightsActionRow = ({
   const styles = useDashboardStyles(Colors);
   const bucket = bucketForNextStep(step);
   const chipVis = bucketChipVisual(bucket, darkMode);
-  const title = humanizeNextStepLabel(step.label);
-  const { cta } = inferCtaFromStep(step.label);
+  const title = compactActionStepTitle(step);
+  const { cta } = inferCtaFromStep(step.label, step);
 
   return (
     <View style={styles.insightsActionCard}>
@@ -4230,10 +4268,12 @@ const InsightItem = ({
   type,
   title,
   body,
+  onPress,
 }: {
   type: "alert" | "opportunity" | "info";
   title: string;
   body: string;
+  onPress?: () => void;
 }) => {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -4271,7 +4311,15 @@ const InsightItem = ({
   }, [body]);
 
   return (
-    <View style={styles.insightRow}>
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      style={({ pressed }) => [
+        styles.insightRow,
+        onPress && pressed ? { opacity: 0.88 } : null,
+      ]}
+      accessibilityRole={onPress ? "button" : undefined}
+    >
       <View style={[styles.insightIconCircle, { borderColor: colorMap[type] }]}>
         <Ionicons name={iconMap[type]} size={16} color={colorMap[type]} />
       </View>
@@ -4313,8 +4361,13 @@ const InsightItem = ({
           </View>
         )}
         <Text style={styles.insightBody}>{transformedBody}</Text>
+        {onPress ? (
+          <Text style={[styles.insightBody, styles.insightTapToOpen]}>
+            Tap to open →
+          </Text>
+        ) : null}
       </View>
-    </View>
+    </Pressable>
   );
 };
 
@@ -4322,7 +4375,6 @@ const InsightItem = ({
 
 type DashboardProjectSummaryCardProps = {
   project: any;
-  aiPmMode: boolean;
   timelineLatestPlannedMs: Record<string, number>;
   onPress: () => void;
   hideFinancialMetrics?: boolean;
@@ -4330,7 +4382,6 @@ type DashboardProjectSummaryCardProps = {
 
 const DashboardProjectSummaryCard = ({
   project,
-  aiPmMode,
   timelineLatestPlannedMs,
   onPress,
   hideFinancialMetrics = false,
@@ -4368,12 +4419,6 @@ const DashboardProjectSummaryCard = ({
           {!hideFinancials ? (
           <View style={styles.projectSummaryValueRow}>
             <Text style={styles.projectSummaryAmount}>{formatMoneyUSD(project.amount)}</Text>
-            {aiPmMode ? (
-              <View style={styles.aiTagChip}>
-                <Ionicons name="sparkles-outline" size={10} color="#22C55E" />
-                <Text style={[styles.aiTagText, { color: "#22C55E" }]}>AI</Text>
-              </View>
-            ) : null}
           </View>
           ) : null}
         </View>
@@ -4428,12 +4473,14 @@ interface OverviewSectionProps {
   projects: any[];
   openProjectsTab: (tab?: ProjectsTabParam) => void;
   onCreateEstimate: () => void;
-  aiPmMode: boolean;
   aiData: AiDashboardResponse | null;
   aiLoading: boolean;
   aiError: string | null;
+  aiFetchDegraded?: boolean;
   filteredInsights: any[];
   filteredNextSteps: any[];
+  onInsightPress: (insight: AiInsight) => void;
+  onOpenInsights: () => void;
   timelineLatestPlannedMs: Record<string, number>;
   hideFinancialMetrics?: boolean;
   activeProjectCount?: number;
@@ -4445,12 +4492,14 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   projects,
   openProjectsTab,
   onCreateEstimate,
-  aiPmMode,
   aiData,
   aiLoading,
   aiError,
+  aiFetchDegraded = false,
   filteredInsights,
   filteredNextSteps,
+  onInsightPress,
+  onOpenInsights,
   timelineLatestPlannedMs,
   hideFinancialMetrics = false,
   activeProjectCount = 0,
@@ -4462,36 +4511,33 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useDashboardStyles(Colors);
-  /** Collapsed by default — long lists expand on demand; preview still shows first N */
-  const [aiInsightsExpanded, setAiInsightsExpanded] = useState(false);
+  const OVERVIEW_INSIGHT_PREVIEW_COUNT = 2;
   const overviewInsightsSorted = useMemo(
     () => sortInsightsForOverview(filteredInsights),
     [filteredInsights],
   );
   const insightCount = overviewInsightsSorted.length;
-  const INSIGHT_PREVIEW_COUNT = 2;
+  const overviewPreviewInsights = useMemo(
+    () =>
+      pickOverviewInsightPreview(
+        overviewInsightsSorted,
+        OVERVIEW_INSIGHT_PREVIEW_COUNT
+      ),
+    [overviewInsightsSorted]
+  );
   const showPreviewPanel =
-    aiPmMode &&
-    !aiError &&
-    insightCount > 0 &&
-    !aiInsightsExpanded &&
-    (!aiLoading || aiData != null);
-  const insightsHiddenCount = Math.max(0, insightCount - INSIGHT_PREVIEW_COUNT);
+    !aiError && insightCount > 0 && (!aiLoading || aiData != null);
   const showAllProjectsLoading = !projectsReady && projects.length === 0;
 
-  const aiInsightsCollapsedHint = useMemo(() => {
-    const expandVerb = desktopWideWeb ? "Click" : "Tap";
+  const overviewAlertsQuietText = useMemo(() => {
     if (aiError) return aiError;
-    if (!aiPmMode) return "Turn on AI PM Mode to see insights.";
-    if (aiLoading && !aiData) return "Analyzing your projects…";
-    if (insightCount === 0) return `No major issues detected. ${expandVerb} to expand.`;
-    return `${insightCount} insight${insightCount === 1 ? "" : "s"} · ${expandVerb} to expand`;
-  }, [aiLoading, aiData, aiError, aiPmMode, insightCount, desktopWideWeb]);
-
-  const toggleAiInsights = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setAiInsightsExpanded((prev) => !prev);
-  }, []);
+    if (aiLoading && !aiData && insightCount === 0) return "Analyzing your projects…";
+    if (aiFetchDegraded && insightCount === 0) {
+      return "Couldn't reach AI brief. Check connection, or log costs to surface budget alerts.";
+    }
+    if (insightCount === 0) return "All projects on track.";
+    return "";
+  }, [aiLoading, aiData, aiError, aiFetchDegraded, insightCount]);
 
   return (
     <>
@@ -4623,46 +4669,28 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
 
       {!hideFinancialMetrics ? (
       <>
-      {/* AI INSIGHTS PANEL */}
-      <Pressable
-        onPress={toggleAiInsights}
-        style={({ pressed }) => [
-          styles.sectionHeaderRow,
-          styles.aiInsightsHeaderTopSpacing,
-          { alignItems: "center" },
-          pressed && { opacity: 0.88 },
-        ]}
-        accessibilityRole="button"
-        accessibilityLabel={
-          aiInsightsExpanded
-            ? "Collapse AI insights section"
-            : "Expand AI insights section"
-        }
-        accessibilityState={{ expanded: aiInsightsExpanded }}
+      {/* BUDGET ALERTS PREVIEW — full list lives on Insights tab */}
+      <View
+        style={[styles.sectionHeaderRow, styles.aiInsightsHeaderTopSpacing]}
       >
-        <View style={{ flex: 1, paddingRight: 8 }}>
-          <Text style={styles.sectionTitle}>AI Insights for Today</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.sectionTitle}>Needs attention</Text>
           <Text style={[styles.sectionSubtitle, styles.overviewAiInsightsSubtitle]}>
-            Top issues first · expand for the full list
+            Budget alerts from logged costs
           </Text>
         </View>
-        <Ionicons
-          name={aiInsightsExpanded ? "chevron-up" : "chevron-down"}
-          size={22}
-          color={darkMode ? "rgba(255,255,255,0.88)" : "#475569"}
-        />
-      </Pressable>
+      </View>
 
-      {!aiInsightsExpanded && !showPreviewPanel && (
+      {overviewAlertsQuietText ? (
         <View
           style={[
             styles.wideContainer,
             styles.aiInsightsSectionBottomSpacing,
           ]}
         >
-          <Text style={styles.aiInsightsCollapsedHint}>{aiInsightsCollapsedHint}</Text>
+          <Text style={styles.aiInsightsCollapsedHint}>{overviewAlertsQuietText}</Text>
         </View>
-      )}
+      ) : null}
 
       {showPreviewPanel && (
         <View
@@ -4671,99 +4699,45 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             styles.aiInsightsSectionBottomSpacing,
           ]}
         >
-          <LinearGradient
-            colors={BRAND_FRAME_GRADIENT_COLORS}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
-            style={styles.aiPanelBorder}
-          >
-            <View style={styles.aiPanelInner}>
-              {overviewInsightsSorted.slice(0, INSIGHT_PREVIEW_COUNT).map((insight) => (
+          <View style={styles.aiPanel}>
+              {aiFetchDegraded ? (
+                <Text style={[styles.aiPanelPausedText, { marginBottom: 10 }]}>
+                  Server brief unavailable — showing alerts from your logged costs.
+                </Text>
+              ) : null}
+              {overviewPreviewInsights.map((insight) => (
                 <InsightItem
                   key={insight.id}
                   type={insight.type}
                   title={insight.title}
-                  body={insight.body}
+                  body={compactInsightBody(insight)}
+                  onPress={
+                    insight.projectId
+                      ? () => onInsightPress(insight)
+                      : undefined
+                  }
                 />
               ))}
-              {insightsHiddenCount > 0 && (
-                <Pressable
-                  onPress={toggleAiInsights}
-                  style={({ pressed }) => [
-                    styles.aiInsightsShowMoreRow,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`View all insights, ${insightsHiddenCount} more`}
-                >
-                  <View style={styles.aiInsightsShowMoreInner}>
-                    <Text style={styles.aiInsightsShowMorePrimary}>View all insights</Text>
-                    <Text style={styles.aiInsightsShowMoreSecondary}>
-                      +{insightsHiddenCount} more
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-down" size={16} color={darkMode ? "rgba(255,255,255,0.88)" : "#475569"} />
-                </Pressable>
-              )}
-            </View>
-          </LinearGradient>
-        </View>
-      )}
-
-      {aiInsightsExpanded && (
-      <View
-        style={[
-          styles.wideContainer,
-          styles.aiInsightsSectionBottomSpacing,
-          !aiPmMode && { opacity: 0.4 },
-        ]}
-      >
-        <LinearGradient
-          colors={BRAND_FRAME_GRADIENT_COLORS}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
-          style={styles.aiPanelBorder}
-        >
-          <View style={styles.aiPanelInner}>
-            {aiError && (
-              <Text style={styles.aiPanelPausedText}>{aiError}</Text>
-            )}
-
-            {!aiError && !aiPmMode && (
-              <View style={styles.aiEmptyState}>
-                <Ionicons name="sparkles-outline" size={32} color={darkMode ? "rgba(255,255,255,0.8)" : "#475569"} style={{ marginBottom: 12 }} />
-                <Text style={styles.aiEmptyStateTitle}>
-                  Turn on AI PM Mode
+              <Pressable
+                onPress={onOpenInsights}
+                style={({ pressed }) => [
+                  styles.aiInsightsOpenTabRow,
+                  pressed && { opacity: 0.85 },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`Open Insights, ${insightCount} alert${insightCount === 1 ? "" : "s"}`}
+              >
+                <Text style={styles.linkText}>
+                  Open Insights ({insightCount})
                 </Text>
-                <Text style={styles.aiPanelPausedText}>
-                  Get your daily brief with smart insights and next steps
-                </Text>
-              </View>
-            )}
-
-            {!aiError && aiPmMode && aiLoading && !aiData && (
-              <Text style={styles.aiPanelPausedText}>Analyzing your projects…</Text>
-            )}
-
-            {!aiError && aiPmMode && !aiLoading && (aiData?.insights ?? []).length === 0 && (
-              <Text style={styles.aiPanelPausedText}>
-                No major issues detected. All projects look on track.
-              </Text>
-            )}
-
-            {aiPmMode &&
-              !aiError &&
-              overviewInsightsSorted.map((insight) => (
-                <InsightItem
-                  key={insight.id}
-                  type={insight.type}
-                  title={insight.title}
-                  body={insight.body}
+                <Ionicons
+                  name="chevron-forward"
+                  size={16}
+                  color={BPS_BRAND_GREEN}
                 />
-              ))}
+              </Pressable>
           </View>
-        </LinearGradient>
-      </View>
+        </View>
       )}
 
       </>
@@ -4828,7 +4802,6 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                   <DashboardProjectSummaryCard
                     key={project.id}
                     project={project}
-                    aiPmMode={aiPmMode}
                     timelineLatestPlannedMs={timelineLatestPlannedMs}
                     hideFinancialMetrics={hideFinancialMetrics}
                     onPress={() =>
@@ -4843,7 +4816,6 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                   <DashboardProjectSummaryCard
                     key={project.id}
                     project={project}
-                    aiPmMode={aiPmMode}
                     timelineLatestPlannedMs={timelineLatestPlannedMs}
                     hideFinancialMetrics={hideFinancialMetrics}
                     onPress={() =>
@@ -5051,9 +5023,9 @@ interface InsightsSectionProps {
   projects: any[];
   filteredNextSteps: AiNextStep[];
   filteredInsights: AiInsight[];
-  aiPmMode: boolean;
   aiLoading: boolean;
   aiError: string | null;
+  aiFetchDegraded?: boolean;
   aiData: AiDashboardResponse | null;
 }
 
@@ -5061,9 +5033,9 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
   projects,
   filteredNextSteps,
   filteredInsights,
-  aiPmMode,
   aiLoading,
   aiError,
+  aiFetchDegraded = false,
   aiData,
 }) => {
   const { theme, darkMode } = useTheme();
@@ -5129,15 +5101,6 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
     }
   }, []);
 
-  const urgentProjects = useMemo(() => {
-    return projects.filter(
-      (p) =>
-        (p.status === "Active" || p.status === "In Progress") &&
-        p.progress < 0.3 &&
-        p.dateLabel.includes("Schedule")
-    );
-  }, [projects]);
-
   const avgMargin = useMemo(() => {
     const pcts: number[] = [];
     for (const row of projects) {
@@ -5167,11 +5130,6 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
     [filteredNextSteps, dismissedNextStepIds]
   );
 
-  const sortedSteps = useMemo(
-    () => sortNextStepsForControlCenter(stepsAfterDismiss),
-    [stepsAfterDismiss]
-  );
-  const grouped = useMemo(() => groupNextStepsByBucket(stepsAfterDismiss), [stepsAfterDismiss]);
   const dailyBrief = useMemo(
     () => aiData?.dailyBrief || buildFallbackDailyBrief(filteredInsights, filteredNextSteps, projects),
     [aiData?.dailyBrief, filteredInsights, filteredNextSteps, projects]
@@ -5179,11 +5137,89 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
   const dailyRisk = dailyBrief?.topProfitRisks?.[0];
   const dailyAction = dailyBrief?.topActions?.[0];
   const nextPayment = dailyBrief?.upcomingPayments?.[0];
+  const completedProjectIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const row of projects) {
+      if (row.status === "Completed") ids.add(String(row.id));
+    }
+    return ids;
+  }, [projects]);
+  const dailyRiskCompleted = Boolean(
+    dailyRisk?.projectId && completedProjectIds.has(String(dailyRisk.projectId))
+  );
+  const primaryInsightCompleted = Boolean(
+    primaryInsight?.projectId &&
+      completedProjectIds.has(String(primaryInsight.projectId))
+  );
+
+  const heroProjectId = dailyRisk?.projectId ? String(dailyRisk.projectId) : null;
+  const heroLineSummary = heroProjectId
+    ? summarizeProjectLineOverruns(sortedInsights, heroProjectId)
+    : null;
+  const heroUsesAggregate = Boolean(
+    heroLineSummary &&
+      heroLineSummary.lineCount >= 2 &&
+      dailyRisk?.type === "line_over_estimate"
+  );
+  const heroProjectTitle = heroProjectId
+    ? projectNameById.get(heroProjectId) || dailyRisk?.projectTitle || "Project"
+    : "";
+
+  const stepsAfterHeroDedup = useMemo(
+    () =>
+      filterInsightsActionStepsAfterHero(
+        stepsAfterDismiss,
+        dailyRisk,
+        heroUsesAggregate,
+        heroProjectId
+      ),
+    [stepsAfterDismiss, dailyRisk, heroUsesAggregate, heroProjectId]
+  );
+
+  const sortedSteps = useMemo(
+    () => sortNextStepsForControlCenter(stepsAfterHeroDedup),
+    [stepsAfterHeroDedup]
+  );
+  const grouped = useMemo(
+    () => groupNextStepsByBucket(stepsAfterHeroDedup),
+    [stepsAfterHeroDedup]
+  );
 
   const visibleSteps = useMemo(() => {
     if (showAllActions) return sortedSteps;
     return sortedSteps.slice(0, 3);
   }, [sortedSteps, showAllActions]);
+  const heroHeadline =
+    heroUsesAggregate && heroProjectTitle
+      ? `${heroLineSummary!.lineCount} estimate lines over on ${heroProjectTitle}`
+      : dailyRisk?.headline;
+  const heroImpactPhrase = heroUsesAggregate
+    ? formatHeroImpactPhrase("line_over_estimate", heroLineSummary!.totalOver)
+    : formatHeroImpactPhrase(dailyRisk?.type, dailyRisk?.impactEstimate);
+  const heroSupport = (() => {
+    if (!dailyRisk) return "";
+    if (!heroProjectTitle && !dailyRisk.projectTitle) {
+      return "The command center is tracking your highest-value risks and actions.";
+    }
+    const scopePhrase =
+      heroUsesAggregate &&
+      heroLineSummary!.materialsCount > 0 &&
+      heroLineSummary!.laborCount > 0
+        ? " across materials & labor"
+        : "";
+    const base = heroUsesAggregate
+      ? `${heroProjectTitle}${heroImpactPhrase}${scopePhrase}.`
+      : `${dailyRisk.projectTitle || heroProjectTitle}${heroImpactPhrase}.`;
+    if (heroUsesAggregate) return base;
+    if (dailyAction?.label) {
+      return `${base} Next move: ${compactActionStepTitle(dailyAction)}.`;
+    }
+    if (nextPayment?.projectTitle) {
+      return `${base} Next payment: ${nextPayment.projectTitle}${nextPayment.date ? ` due ${formatDateShort(nextPayment.date)}` : ""}.`;
+    }
+    return base;
+  })();
+  const showHeroCta = Boolean(dailyRisk?.projectId);
 
   const patterns = useMemo(
     () => portfolioPatternBullets(filteredInsights, filteredNextSteps),
@@ -5202,16 +5238,26 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
       : primaryInsight.type === "opportunity"
         ? BPS_BRAND_GREEN
         : BPS_BRAND_TEAL
-    : urgentProjects.length > 0
-      ? "#f97316"
-      : avgMargin > 80
+    : avgMargin > 80
         ? BPS_BRAND_GREEN
         : BPS_BRAND_TEAL;
 
-  const openProject = (projectId?: string | null) => {
+  const openProject = (
+    projectId?: string | null,
+    actionTarget?: AiInsightActionTarget
+  ) => {
     if (Platform.OS === "ios") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (projectId) router.push(`/(tabs)/project-detail/${projectId}`);
-    else router.push("/(tabs)/projects");
+    if (!projectId) {
+      router.push("/(tabs)/projects");
+      return;
+    }
+    const params = buildInsightNavigationParams(projectId, actionTarget, {
+      returnToDashboardTab: 'insights',
+    });
+    router.push({
+      pathname: "/(tabs)/project-detail/[id]",
+      params,
+    } as never);
   };
 
   const renderActionGroup = (label: string, steps: AiNextStep[]) => {
@@ -5229,7 +5275,12 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                 ? projectNameById.get(String(step.projectId))
                 : undefined
             }
-            onRowPress={() => openProject(step.projectId)}
+            onRowPress={() =>
+              openProject(
+                step.projectId,
+                resolveInsightActionTarget(step)
+              )
+            }
             onDismiss={() => dismissNextStep(step)}
           />
         ))}
@@ -5247,25 +5298,27 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
             <View style={styles.insightsHeroEyebrowRow}>
               <Ionicons name="sparkles" size={14} color={heroAccent} />
               <Text style={[styles.insightsHeroEyebrow, { color: heroAccent }]}>
-                {aiPmMode
-                  ? dailyRisk
-                    ? "Daily command center"
-                    : primaryInsight
-                    ? heroKickerForInsight(primaryInsight.type)
-                    : urgentProjects.length > 0
-                      ? "Schedule pressure"
-                      : avgMargin > 80
-                        ? "Margin strength"
-                        : "AI control center"
-                  : "AI PM off"}
+                {dailyRisk
+                  ? heroKickerForLeakType(dailyRisk.type, {
+                      projectCompleted: dailyRiskCompleted,
+                    })
+                  : primaryInsight
+                  ? heroKickerForLeakType(primaryInsight.leakType, {
+                      projectCompleted: primaryInsightCompleted,
+                    })
+                  : avgMargin > 80
+                      ? "Margin strength"
+                      : aiFetchDegraded
+                        ? "Logged-cost alerts"
+                        : "Insights"}
               </Text>
             </View>
 
-            {aiPmMode && aiLoading && (
+            {aiLoading && (
               <Text style={styles.insightsHeroHeadline}>Syncing your brief…</Text>
             )}
 
-            {aiPmMode && !aiLoading && aiError && (
+            {!aiLoading && aiError && (
               <>
                 <Text style={styles.insightsHeroHeadline}>Insights unavailable</Text>
                 <Text style={styles.insightsHeroSupport}>
@@ -5274,16 +5327,15 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
               </>
             )}
 
-            {aiPmMode && !aiLoading && !aiError && dailyRisk && (
+            {!aiLoading && !aiError && dailyRisk && (
               <>
                 <Text style={styles.insightsHeroHeadline} numberOfLines={3}>
-                  {dailyRisk.headline}
+                  {heroHeadline}
                 </Text>
                 <Text style={styles.insightsHeroSupport} numberOfLines={4}>
-                  {dailyRisk.projectTitle
-                    ? `${dailyRisk.projectTitle}${dailyRisk.impactEstimate ? ` · impact ~${formatAiDashboardUsdCompact(dailyRisk.impactEstimate)}` : ""}. ${dailyAction?.label ? `Next move: ${dailyAction.label}.` : ""}${nextPayment?.projectTitle ? ` Next payment: ${nextPayment.projectTitle}${nextPayment.date ? ` due ${formatDateShort(nextPayment.date)}` : ""}.` : ""}`
-                    : "The command center is tracking your highest-value risks and actions."}
+                  {heroSupport}
                 </Text>
+                {showHeroCta ? (
                 <LinearGradient
                   colors={[BPS_BRAND_GREEN, BPS_BRAND_TEAL]}
                   start={{ x: 0, y: 0 }}
@@ -5295,18 +5347,37 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                       styles.insightsHeroCtaInner,
                       { opacity: pressed ? 0.88 : 1 },
                     ]}
-                    onPress={() => openProject(dailyRisk.projectId)}
+                    onPress={() => {
+                      const heroInsight =
+                        sortedInsights.find((i) => String(i.id) === String(dailyRisk.id)) ?? {
+                          projectId: dailyRisk.projectId,
+                          leakType: dailyRisk.type,
+                        };
+                      openProject(
+                        dailyRisk.projectId,
+                        resolveInsightActionTarget(heroInsight)
+                      );
+                    }}
                   >
                     <Text style={styles.insightsHeroCtaText}>
-                      {dailyRisk.projectId ? "Review top risk" : "Open portfolio"}
+                      {dailyRisk.projectId
+                        ? insightActionCtaLabel(
+                            resolveInsightActionTarget(
+                              sortedInsights.find((i) => String(i.id) === String(dailyRisk.id)) ?? {
+                                leakType: dailyRisk.type,
+                              }
+                            )
+                          )
+                        : "Open portfolio"}
                     </Text>
                     <Ionicons name="arrow-forward" size={18} color="#050B13" />
                   </Pressable>
                 </LinearGradient>
+                ) : null}
               </>
             )}
 
-            {aiPmMode && !aiLoading && !aiError && !dailyRisk && primaryInsight && (
+            {!aiLoading && !aiError && !dailyRisk && primaryInsight && (
               <>
                 <Text style={styles.insightsHeroHeadline} numberOfLines={3}>
                   {primaryInsight.title}
@@ -5325,10 +5396,17 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                       styles.insightsHeroCtaInner,
                       { opacity: pressed ? 0.88 : 1 },
                     ]}
-                    onPress={() => openProject(primaryInsight.projectId)}
+                    onPress={() =>
+                      openProject(
+                        primaryInsight.projectId,
+                        resolveInsightActionTarget(primaryInsight)
+                      )
+                    }
                   >
                     <Text style={styles.insightsHeroCtaText}>
-                      {primaryInsight.projectId ? "Review project" : "View portfolio"}
+                      {primaryInsight.projectId
+                        ? insightActionCtaLabel(resolveInsightActionTarget(primaryInsight))
+                        : "View portfolio"}
                     </Text>
                     <Ionicons name="arrow-forward" size={18} color="#050B13" />
                   </Pressable>
@@ -5336,20 +5414,20 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
               </>
             )}
 
-            {aiPmMode && !aiLoading && !aiError && !primaryInsight && (
+            {!aiLoading && !aiError && !dailyRisk && !primaryInsight && (
               <>
                 <Text style={styles.insightsHeroHeadline} numberOfLines={2}>
-                  {urgentProjects.length > 0
-                    ? `${urgentProjects.length} active job${urgentProjects.length > 1 ? "s" : ""} need timeline attention`
-                    : avgMargin > 80
-                      ? `Completed jobs averaging ${avgMargin.toFixed(1)}% net profit`
+                  {avgMargin > 80
+                    ? `Completed jobs averaging ${avgMargin.toFixed(1)}% net profit`
+                    : aiFetchDegraded
+                      ? "AI brief unavailable"
                       : "No major portfolio flags"}
                 </Text>
                 <Text style={styles.insightsHeroSupport} numberOfLines={3}>
-                  {urgentProjects.length > 0
-                    ? "Pull crew forward on in-progress work to protect dates."
-                    : avgMargin > 80
-                      ? "Strong spreads—tighten markup discipline on new bids."
+                  {avgMargin > 80
+                    ? "Strong spreads—tighten markup discipline on new bids."
+                    : aiFetchDegraded
+                      ? "Budget alerts from logged costs still appear below when costs exceed estimate."
                       : "Add live costs to sharpen risk and next actions."}
                 </Text>
                 <LinearGradient
@@ -5372,11 +5450,6 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
               </>
             )}
 
-            {!aiPmMode && (
-              <Text style={styles.insightsHeroSupport}>
-                Turn on AI PM Mode for a daily brief, ranked actions, and portfolio patterns.
-              </Text>
-            )}
           </View>
         </View>
       </View>
@@ -5391,11 +5464,11 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
 
       <View style={styles.wideContainer}>
         <View style={styles.insightsActionsPanel}>
-          {aiPmMode && aiLoading && (
+          {aiLoading && (
             <Text style={styles.insightsAuxText}>Loading actions…</Text>
           )}
 
-          {aiPmMode && !aiLoading && !aiError && sortedSteps.length > 0 && (
+          {!aiLoading && !aiError && sortedSteps.length > 0 && (
             <>
               {showAllActions ? (
                 <>
@@ -5414,7 +5487,12 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
                         ? projectNameById.get(String(step.projectId))
                         : undefined
                     }
-                    onRowPress={() => openProject(step.projectId)}
+                    onRowPress={() =>
+              openProject(
+                step.projectId,
+                resolveInsightActionTarget(step)
+              )
+            }
                     onDismiss={() => dismissNextStep(step)}
                   />
                 ))
@@ -5441,28 +5519,20 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
             </>
           )}
 
-          {!aiPmMode && (
-            <View style={styles.aiEmptyState}>
-              <Ionicons name="sparkles-outline" size={32} color={darkMode ? "rgba(255,255,255,0.8)" : "#475569"} style={{ marginBottom: 12 }} />
-              <Text style={styles.aiEmptyStateTitle}>AI PM Mode is off</Text>
-                <Text style={styles.insightsAuxText}>
-                  Toggle the floating badge to enable ranked actions.
-                </Text>
-            </View>
-          )}
-
-          {aiPmMode && !aiLoading && !aiError && sortedSteps.length === 0 && (
+          {!aiLoading && !aiError && sortedSteps.length === 0 && (
             <Text style={styles.insightsAuxText}>
-              {filteredNextSteps.length > 0
+              {filteredNextSteps.length > 0 && dismissedNextStepIds.size > 0
                 ? "All current actions are dismissed. New ones will show when your dashboard refreshes."
-                : "No queued actions. Nice work."}
+                : stepsAfterDismiss.length > 0 && dailyRisk
+                  ? "Line details are in the hero above — tap View rate insights to review."
+                  : "No queued actions. Nice work."}
             </Text>
           )}
         </View>
       </View>
 
       {/* Portfolio patterns */}
-      {aiPmMode && !aiLoading && !aiError && (
+      {!aiLoading && !aiError && (
         <View style={[styles.sectionHeaderRow, { marginTop: 22 }]}>
           <View>
             <Text style={styles.sectionTitle}>What we&apos;re seeing</Text>
@@ -5471,7 +5541,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
         </View>
       )}
 
-      {aiPmMode && !aiLoading && !aiError && (
+      {!aiLoading && !aiError && (
         <View style={styles.wideContainer}>
           <View style={styles.insightsPatternsCard}>
             {patterns.map((line, i) => (
@@ -5490,7 +5560,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
         </View>
       )}
 
-      {aiPmMode && !aiLoading && !aiError && dailyBrief?.upcomingPayments?.length ? (
+      {!aiLoading && !aiError && dailyBrief?.upcomingPayments?.length ? (
         <>
           <View style={[styles.sectionHeaderRow, { marginTop: 22 }]}>
             <View>
@@ -5675,56 +5745,6 @@ const getStyles = (
     textAlign: "center",
     textTransform: "lowercase",
   },
-  segmentContainer: {
-    borderRadius: 999,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(25, 225, 128, 0.45)",
-    marginBottom: desktopWeb ? 22 : 18,
-  },
-  segmentScrollView: {
-    flexGrow: 0,
-  },
-  segmentInner: {
-    flexDirection: "row",
-    padding: desktopWeb ? 5 : 4,
-    backgroundColor:
-      Colors.bg === "#000000"
-        ? "rgba(255, 255, 255, 0.04)"
-        : Colors.surface2,
-    minWidth: "100%",
-  },
-  segmentTab: {
-    flex: 1,
-    borderRadius: 999,
-    marginHorizontal: 1,
-    /** Clip the active gradient to the pill; otherwise RN draws a square fill inside a rounded pressable. */
-    overflow: "hidden",
-  },
-  segmentTabActive: {
-    borderRadius: 999,
-    backgroundColor: Colors.bg === '#000000' ? "transparent" : "#FFFFFF",
-    shadowColor: Colors.bg === '#000000' ? "#22c55e" : "#000",
-    shadowOpacity: Colors.bg === '#000000' ? 0.4 : 0.12,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  segmentTabInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: desktopWeb ? 10 : 8,
-    paddingHorizontal: desktopWeb ? 6 : 4,
-    gap: 6,
-  },
-  segmentLabel: {
-    fontSize: desktopWeb ? 14 : 13,
-    fontWeight: "600",
-    color: Colors.bg === '#000000' ? "#FFFFFF" : Colors.text,
-  },
-  segmentLabelActive: {
-    color: Colors.bg === '#000000' ? "#050B13" : "#071018",
-  },
 
   // GENERIC CARD — matches Estimates / Build with AI flow cards
   card: {
@@ -5884,7 +5904,7 @@ const getStyles = (
   insightsActionsPanel: {
     borderRadius: 20,
     padding: 16,
-    paddingBottom: 12,
+    paddingBottom: 16,
     backgroundColor: Colors.bg === '#000000' ? "#1C1C1E" : Colors.surface,
     borderWidth: 1,
     borderColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.08)" : Colors.line,
@@ -5901,7 +5921,7 @@ const getStyles = (
   },
   insightsActionCard: {
     borderRadius: 14,
-    marginBottom: 10,
+    marginBottom: 14,
     /* Light: gray tile inside the tinted panel — avoid stark white (dark unchanged) */
     backgroundColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.05)" : Colors.surface2,
     borderWidth: 1,
@@ -6049,7 +6069,7 @@ const getStyles = (
   linkText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#15E08A",
+    color: BPS_BRAND_GREEN,
   },
   metricsSwipeHint: {
     fontSize: 11,
@@ -6626,62 +6646,32 @@ const getStyles = (
           : "#475569",
     paddingHorizontal: 4,
   },
-  aiInsightsShowMoreRow: {
+  aiInsightsOpenTabRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    marginTop: 2,
-    paddingVertical: 8,
+    gap: 6,
+    marginTop: 4,
+    paddingVertical: 10,
     paddingHorizontal: 6,
-  },
-  aiInsightsShowMoreInner: {
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 2,
-  },
-  aiInsightsShowMorePrimary: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Colors.bg === '#000000' ? "#e5e7eb" : Colors.text,
-  },
-  aiInsightsShowMoreSecondary: {
-    fontSize: 11,
-    fontWeight: "500",
-    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.82)" : "#475569",
-  },
-  aiInsightsShowMoreText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Colors.bg === '#000000' ? "#22c55e" : Colors.primary,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor:
+      Colors.bg === "#000000"
+        ? "rgba(255,255,255,0.12)"
+        : "rgba(15, 23, 42, 0.1)",
   },
   /** Space below AI Insights (hint, preview, or expanded card) before All Projects */
   aiInsightsSectionBottomSpacing: {
     marginBottom: 16,
   },
 
-  // AI INSIGHTS PANEL
-  aiPanelBorder: {
-    borderRadius: 20,
-    padding: 1,
-  },
-  aiPanelInner: {
-    backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.surface, // Use surfaceSoft in light mode
-    borderRadius: 18,
-    padding: 14,
-  },
+  // AI INSIGHTS PANEL (Overview preview)
   aiPanel: {
-    backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.surface, // Use surfaceSoft in light mode
+    backgroundColor: Colors.bg === '#000000' ? AI_FLOW_CARD_BG_DARK : Colors.surface,
     borderRadius: 20,
-    padding: 16,
-    borderWidth: Colors.bg === '#000000' ? 1 : 0,
-    borderColor: Colors.line,
-    marginBottom: 16,
-    shadowColor: Colors.bg === '#000000' ? "transparent" : "#0F172A",
-    shadowOpacity: Colors.bg === '#000000' ? 0 : 0.05,
-    shadowRadius: Colors.bg === '#000000' ? 0 : 10,
-    shadowOffset: { width: 0, height: Colors.bg === '#000000' ? 0 : 4 },
-    elevation: Colors.bg === '#000000' ? 0 : 2,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.08)" : Colors.line,
   },
   aiPanelWide: {
     marginHorizontal: -8,
@@ -6721,6 +6711,11 @@ const getStyles = (
     lineHeight: 16,
     color: Colors.bg === '#000000' ? "rgba(255,255,255,0.9)" : "#475569",
     marginTop: 2,
+  },
+  insightTapToOpen: {
+    color: BPS_BRAND_GREEN,
+    marginTop: 6,
+    fontWeight: "700",
   },
 
   // NEXT STEPS
@@ -6789,17 +6784,6 @@ const getStyles = (
     fontWeight: "600",
   },
 
-  // FLOATING AI BADGE — web: sit lower (more space above tab chrome); native unchanged
-  aiFloatingWrapper: {
-    position: "absolute",
-    right: desktopWeb ? 28 : 18,
-    bottom: Platform.OS === "web" ? 56 : 96,
-    zIndex: 10,
-  },
-  aiFloatingWrapperCalendarTab: {
-    opacity: 0.9,
-    bottom: Platform.OS === "web" ? 62 : 102,
-  },
 });
 };
 
