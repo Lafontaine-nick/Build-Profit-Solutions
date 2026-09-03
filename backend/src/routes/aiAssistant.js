@@ -87,6 +87,7 @@ const {
   normalizeAiMessageForIntent,
   appendDataFreshness,
   isCentralCommandMutationRequest,
+  isCentralCommandReadOnlyTool,
   buildPortfolioNextActions,
   runCompareProjectsPipeline,
   isCalendarEventCreateQuery,
@@ -3596,6 +3597,17 @@ function runProjectsListIntelligence(parsedContext) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function runCompareProjects(parsedContext) {
+  // Keep the legacy POST shortcut on the same canonical analysis path as
+  // streaming and tool execution so financial definitions cannot drift.
+  const canonical = runCompareProjectsPipeline({
+    allProjects: Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [],
+    parsedContext,
+    args: {},
+  });
+  if (canonical?.success) {
+    return buildPortfolioComparisonReply(canonical.sorted || []);
+  }
+
   // Prefer client-provided compareProjectsData (matches Projects page exactly — includes overrides & timeline)
   let precomputed = Array.isArray(parsedContext?.compareProjectsData) ? parsedContext.compareProjectsData : [];
   const progressByProjectId = parsedContext?.progressByProjectId || {};
@@ -6909,10 +6921,11 @@ router.post('/stream', async (req, res) => {
     const msgForBudgetStream = normalizedMessage || (message || '').replace(/[\u2018\u2019]/g, "'") || '';
     const isOverBudgetStream = isSimpleProjectBudgetStatusQuery(msgForBudgetStream);
     if (isOverBudgetStream) {
-      const streamBudget = Number(parsedContext.estimatedCost || parsedContext.contractValue || parsedContext.bidTotal || 0);
-      const streamSpent = Number(parsedContext.actualCost ?? parsedContext.totalSpent ?? 0);
+      const streamFinancials = getProjectFinancialSnapshot({ parsedContext });
+      const streamBudget = streamFinancials.estimatedCost;
+      const streamSpent = streamFinancials.spent ?? 0;
       const streamProjName = parsedContext.currentProject || parsedContext.projectName || 'This project';
-      if (streamBudget > 0) {
+      if (streamBudget != null && streamBudget > 0) {
         const fullReply = appendDataFreshness(buildBudgetStatusReply({ projectName: streamProjName, budget: streamBudget, spent: streamSpent }), parsedContext);
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
         res.write(`data: ${JSON.stringify({ type: 'token', content: fullReply })}\n\n`);
@@ -7671,10 +7684,14 @@ router.post('/', async (req, res) => {
     // ── FIRST-PRIORITY: single-project "am I over budget?" / "budget status" → deterministic (never LLM); not portfolio list
     const isOverBudgetQuestion = isSimpleProjectBudgetStatusQuery(rawBodyMsg);
     if (isOverBudgetQuestion && (projectId || currentProjectData || (Array.isArray(parsedContext.allProjects) && parsedContext.allProjects.length > 0))) {
-      const budget = Number(estimatedCost || contractValue || 0);
-      const spent = Number(actualCost || 0);
+      const financials = getProjectFinancialSnapshot({
+        parsedContext,
+        project: currentProjectData,
+      });
+      const budget = financials.estimatedCost;
+      const spent = financials.spent ?? 0;
       const projName = parsedContext.currentProject || parsedContext.projectName || currentProjectData?.title || currentProjectData?.name || 'This project';
-      if (budget > 0) {
+      if (budget != null && budget > 0) {
         const overBy = spent - budget;
         const reply = buildBudgetStatusReply({ projectName: projName, budget, spent });
         console.log('✅ FIRST-PRIORITY OVER BUDGET: deterministic reply for', projName, overBy > 0 ? 'over' : 'within');
@@ -9429,7 +9446,10 @@ router.post('/', async (req, res) => {
     ] : [];
 
     // Final tool list: core + PM tools (when on) + Command Center tools (schedule queries when PM off)
-    const functions = [...coreTools, ...pmTools, ...commandCenterTools];
+    const allFunctions = [...coreTools, ...pmTools, ...commandCenterTools];
+    const functions = parsedContext?.assistantMode === 'central_command'
+      ? allFunctions.filter((tool) => isCentralCommandReadOnlyTool(tool?.function?.name))
+      : allFunctions;
 
     // Helper function to execute get_project_by_name (enhanced fuzzy matching, additive)
     async function executeGetProjectByName(args) {
@@ -12650,6 +12670,36 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
       for (const toolCall of toolCalls) {
         const functionName = toolCall.function.name;
         let functionArgs = JSON.parse(toolCall.function.arguments);
+
+        if (
+          parsedContext?.assistantMode === 'central_command' &&
+          !isCentralCommandReadOnlyTool(functionName)
+        ) {
+          const reason = 'Central Command only permits read-only analysis tools';
+          console.warn(`🛑 Central Command blocked tool ${functionName}`);
+          writeAuditLog({
+            event: 'central_command_tool_blocked',
+            tool: functionName,
+            args: functionArgs,
+            reason,
+            projectId,
+            userId: req.user?.userId,
+            pmMode: aiPmMode,
+            userMessage: message,
+          });
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({
+              success: false,
+              status: 'read_only_blocked',
+              blocked: true,
+              readOnly: true,
+              error: reason,
+            }),
+          });
+          continue;
+        }
         
         // CRITICAL FIX: Correct scenario analysis tool calls where AI confused scenario with projectId
         if (functionName === 'run_scenario_analysis') {

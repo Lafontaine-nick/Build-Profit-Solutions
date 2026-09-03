@@ -22,4 +22,31 @@ describe('portfolioBudgetInsights', () => {
     expect(result.insights.some((i) => i.leakType === 'line_over_estimate')).toBe(true);
     expect(result.insights[0].actionTarget).toBeDefined();
   });
+
+  test('uses the full project budget when buckets are only partial', () => {
+    const result = buildPortfolioBudgetInsights([{
+      id: 'p2',
+      title: 'Kitchen Remodel',
+      status: 'active',
+      estimatedCost: 70000,
+      buckets: [{ name: 'Materials', budget: 10000, spent: 20000 }],
+      expenses: [{ id: 'e1', category: 'Materials', amount: 20000 }],
+    }]);
+
+    expect(result.insights.find((i) => i.leakType === 'over_budget')).toBeUndefined();
+  });
+
+  test('does not generate operational alerts for completed projects', () => {
+    const result = buildPortfolioBudgetInsights([{
+      id: 'p3',
+      title: 'Closed Remodel',
+      status: 'completed',
+      estimatedCost: 10000,
+      buckets: [{ name: 'Materials', budget: 10000, spent: 15000 }],
+      expenses: [{ id: 'e1', category: 'Materials', amount: 15000 }],
+    }]);
+
+    expect(result.insights).toEqual([]);
+    expect(result.nextSteps).toEqual([]);
+  });
 });

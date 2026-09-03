@@ -18,7 +18,7 @@ import { PROJECT_WIDE_CONTAINER_CARD_INSET } from '@/constants/ScreenLayout';
 import { formatMoneyFull } from '@/src/lib/budgetUtils';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
-import { estimateFlowCardStyle, ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, ESTIMATE_FLOW_TRACK_BG_DARK } from '@/utils/estimateFlowCardStyle';
+import { estimateFlowCardStyle, ESTIMATE_FLOW_CHIP_GREEN_BG, ESTIMATE_FLOW_NESTED_FIELD_BG_DARK, ESTIMATE_FLOW_TRACK_BG_DARK } from '@/utils/estimateFlowCardStyle';
 import {
   getEstimateLineSpendSummaries,
   getUnlinkedExpensesForKind,
@@ -223,7 +223,12 @@ export default function EstimateLinePicker({
             onPress={open}
             style={[
               styles.selector,
-              { backgroundColor: colors.card, borderColor: selected ? colors.accent : colors.border },
+              selected
+                ? { backgroundColor: colors.card, borderColor: colors.accent }
+                : {
+                    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+                    borderColor: colors.accent,
+                  },
             ]}
             accessibilityRole="button"
             accessibilityLabel={selected ? `Selected ${selected.name}` : `Select estimate ${title}`}
@@ -233,7 +238,7 @@ export default function EstimateLinePicker({
                 selectedSummaryContent
               ) : (
                 <>
-                  <Text style={[styles.selectorTitle, { color: colors.secondary }]}>
+                  <Text style={[styles.selectorTitle, { color: colors.accent }]}>
                     Choose from estimate
                   </Text>
                   <Text style={[styles.selectorSubtitle, { color: colors.secondary }]}>
@@ -242,7 +247,11 @@ export default function EstimateLinePicker({
                 </>
               )}
             </View>
-            <MaterialIcons name="chevron-right" size={24} color={colors.secondary} />
+            <MaterialIcons
+              name="chevron-right"
+              size={24}
+              color={selected ? colors.secondary : colors.accent}
+            />
           </Pressable>
         )}
         {selected && !readOnly ? (

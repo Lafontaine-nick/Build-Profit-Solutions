@@ -12,8 +12,12 @@ const {
 const {
   analyzePortfolioProject,
   buildDailyCommandCenter,
+  getProjectFinancialSnapshot,
+  isTerminalProjectStatus,
+  normalizeProjectStatus,
 } = require('./aiAssistantCore');
 const { buildPortfolioBudgetInsights } = require('./portfolioBudgetInsights');
+const { createOpenAiChatCompletion } = require('../utils/openaiChatCompletionParams');
 
 const aiModels = getAiModels();
 const aiRuntime = getAiRuntimeSettings();
@@ -54,9 +58,13 @@ function computeAiSnapshotHash(
       bidPrice: p.bidPrice,
       estimatedCost: p.estimatedCost,
       actualCost: p.actualCost,
+      committedPOs: p.committedPOs,
       marginPct: p.marginPct,
       markupPct: p.markupPct,
-      profit: p.profit,
+      netProfit: p.netProfit,
+      spendToDateProfit: p.spendToDateProfit,
+      projectedProfit: p.projectedProfit,
+      profitAvailable: p.profitAvailable,
       budgetVariance: p.budgetVariance,
       receiptsCoveragePct: p.receiptsCoveragePct,
       hasReceiptsAttached: p.hasReceiptsAttached,
@@ -377,14 +385,31 @@ async function buildAiDashboardForUser(
 
   // 2) Build compact payload with enhanced metrics
   const projectsForModel = projects.map((p) => {
-    const bidPrice = Number(p.bidPrice ?? 0);
-    const estimatedCost = Number(p.estimatedCost ?? 0);
-    const actualCost = Number(p.actualCost ?? 0);
-    const margin = Number(p.margin ?? 0); // Already stored as percentage
+    const financials = getProjectFinancialSnapshot({ project: p });
+    const bidPrice = financials.revenue;
+    const estimatedCost = financials.estimatedCost;
+    const actualCost = financials.spent;
+    const storedMargin = p.margin ?? p.marginPct;
+    const margin = storedMargin != null && Number.isFinite(Number(storedMargin))
+      ? Number(storedMargin)
+      : financials.projectedMarginPct;
     const markup = Number(p.markup ?? 0);
 
-    const profit = bidPrice - actualCost;
-    const budgetVariance = actualCost - estimatedCost; // >0 = over budget
+    const status = normalizeProjectStatus(p.status);
+    const completed = isTerminalProjectStatus(status) ||
+      Number(financials.progress || 0) >= 100;
+    const netProfit = completed && bidPrice > 0 && actualCost != null
+      ? bidPrice - actualCost
+      : null;
+    const spendToDateProfit = !completed && bidPrice > 0 && actualCost != null
+      ? bidPrice - actualCost
+      : null;
+    const projectedProfit = !completed && financials.projectedProfit != null
+      ? financials.projectedProfit
+      : null;
+    const profit = netProfit ?? projectedProfit ?? spendToDateProfit;
+    const budgetVariance =
+      actualCost != null && estimatedCost != null ? actualCost - estimatedCost : null;
     const receiptsTotal = Array.isArray(p.receipts)
       ? p.receipts.reduce((sum, r) => sum + Number(r.amount ?? 0), 0)
       : 0;
@@ -402,12 +427,7 @@ async function buildAiDashboardForUser(
     const hasPermitFeesFlag =
       p.hasPermitFees === true || p.permitFeesIncluded === true;
 
-    const progressPct =
-      typeof p.overallProgressPct === 'number'
-        ? p.overallProgressPct
-        : typeof p.progress === 'number'
-        ? p.progress
-        : 0;
+    const progressPct = financials.progress;
 
     // Parse location
     const location = p.location || '';
@@ -432,9 +452,14 @@ async function buildAiDashboardForUser(
       bidPrice,
       estimatedCost,
       actualCost,
+      committedPOs: financials.committedPOs,
       marginPct: margin,
       markupPct: markup,
       profit,
+      netProfit,
+      spendToDateProfit,
+      projectedProfit,
+      profitAvailable: profit != null,
       budgetVariance, // >0 over budget, <0 under
 
       // Documentation / risk flags
@@ -451,6 +476,7 @@ async function buildAiDashboardForUser(
       createdAt: p.createdAt ?? null,
       updatedAt: p.updatedAt ?? null,
       progressPct,
+      isCompleted: completed,
 
       // Raw line items/receipts so the model can reference them if needed
       lineItems: p.lineItems ?? [],
@@ -464,14 +490,28 @@ async function buildAiDashboardForUser(
     totals: {
       totalBid: projectsForModel.reduce((s, p) => s + p.bidPrice, 0),
       totalEstimatedCost: projectsForModel.reduce(
-        (s, p) => s + p.estimatedCost,
+        (s, p) => s + Number(p.estimatedCost || 0),
         0
       ),
       totalActualCost: projectsForModel.reduce(
-        (s, p) => s + p.actualCost,
+        (s, p) => s + Number(p.actualCost || 0),
         0
       ),
-      totalProfit: projectsForModel.reduce((s, p) => s + p.profit, 0),
+      knownRevenueProjectCount: projectsForModel.filter((p) => p.bidPrice > 0).length,
+      knownEstimatedCostProjectCount: projectsForModel.filter((p) => p.estimatedCost != null).length,
+      knownActualCostProjectCount: projectsForModel.filter((p) => p.actualCost != null).length,
+      totalNetProfit: projectsForModel
+        .filter((p) => p.netProfit != null)
+        .reduce((s, p) => s + p.netProfit, 0),
+      totalProjectedProfit: projectsForModel
+        .filter((p) => p.projectedProfit != null)
+        .reduce((s, p) => s + p.projectedProfit, 0),
+      totalSpendToDateProfit: projectsForModel
+        .filter((p) => p.spendToDateProfit != null)
+        .reduce((s, p) => s + p.spendToDateProfit, 0),
+      profitCoverage: projectsForModel.length > 0
+        ? projectsForModel.filter((p) => p.profitAvailable).length / projectsForModel.length
+        : 0,
     },
     statusBreakdown: projectsForModel.reduce(
       (acc, p) => {
@@ -704,9 +744,13 @@ async function buildAiDashboardForUser(
         bidPrice: p.bidPrice,
         estimatedCost: p.estimatedCost,
         actualCost: p.actualCost,
+        committedPOs: p.committedPOs,
         marginPct: p.marginPct,
         markupPct: p.markupPct,
-        profit: p.profit,
+        netProfit: p.netProfit,
+        spendToDateProfit: p.spendToDateProfit,
+        projectedProfit: p.projectedProfit,
+        profitAvailable: p.profitAvailable,
         budgetVariance: p.budgetVariance,
         receiptsCoveragePct: p.receiptsCoveragePct,
         hasReceiptsAttached: p.hasReceiptsAttached,
@@ -737,7 +781,7 @@ async function buildAiDashboardForUser(
         .filter(m => typeof m.changePct30d === 'number' && Math.abs(m.changePct30d) >= 5),
       closedProjectIds: [...closedProjectIdsForAiGuard],
       instruction:
-        'closedProjectIds are finished jobs. NEVER generate operational insights for those ids (no permits, progress, follow-ups, securing bids, or budget variance as if work is ongoing). Retrospective baseInsights for those ids are already provided.',
+        'closedProjectIds are finished jobs. NEVER generate operational insights for those ids (no permits, progress, follow-ups, securing bids, or budget variance as if work is ongoing). Retrospective baseInsights for those ids are already provided. Use netProfit only for finished jobs, projectedProfit only for open jobs, and spendToDateProfit only as recorded contribution; null means unknown, not zero. Never invent remaining costs or treat partial budget data as the full budget.',
     };
 
     console.log('[AI Dashboard] Calling OpenAI with:', {
@@ -753,7 +797,7 @@ async function buildAiDashboardForUser(
     let rawContent = '{}';
 
     try {
-      const completion = await openai.chat.completions.create({
+      const completion = await createOpenAiChatCompletion(openai, {
         model: aiModels.dashboard.summary,
         response_format: aiRuntime.dashboard.summary.responseFormat,
         temperature: aiRuntime.dashboard.summary.temperature,
@@ -776,8 +820,11 @@ Your job:
    - If baseNextSteps exist, add steps that complement them.
    - If baseNextSteps is empty, generate steps from scratch.
 
-CRITICAL: You MUST always return at least 3 insights and 3 nextSteps, even if projects look healthy.
-If everything looks good, generate positive insights like:
+Return only evidence-backed insights and nextSteps. Do not invent risks, costs,
+remaining work, or positive conclusions when required values are null. If there
+are fewer than 3 defensible items, return fewer items. If a forecast is
+unavailable, say so and point to the missing data instead of treating it as $0.
+If everything looks good and the data supports it, generate positive insights like:
 - "Portfolio margin is strong at X%"
 - "All projects are on track"
 - "Consider optimizing material costs"

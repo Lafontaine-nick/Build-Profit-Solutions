@@ -40,6 +40,7 @@ import {
   isDesktopWebLayoutWidth,
   DASHBOARD_WEB_MAX_CONTENT_WIDTH,
 } from "@/constants/ScreenLayout";
+import { resolveTextInputKeyboardProps } from "@/constants/inputKeyboardPresets";
 import GradientRingBackInner from "@/components/GradientRingBackInner";
 import {
   BRAND_FRAME_GRADIENT_COLORS,
@@ -826,9 +827,9 @@ function buildTodayBriefFromContext(parsedContext: any, userFirstName?: string |
       recommendedActions.push({ label: `Review ${lowest.title} costs`, prompt: `Review labor costs and expenses on ${lowest.title}` });
       biggestRisk = {
         title: lowest.title,
-        message: `${lowest.title} margin dropped to ${Math.round(lowest.margin)}%`,
-        detail: 'Labor costs may be higher than estimated.',
-        prompt: `Review labor costs and expenses on ${lowest.title}`,
+        message: `${lowest.title} margin at ${Math.round(lowest.margin)}% — your lowest`,
+        detail: 'Review costs to protect this margin before it erodes further.',
+        prompt: `Give me a full health check on ${lowest.title} — budget, margin, risks, and what I should do next`,
         cta: 'Review Project',
       };
     }
@@ -965,6 +966,32 @@ const QUICK_ACTIONS = [
   "Find Subcontractors",
 ];
 
+const CENTRAL_COMMAND_PROMPTS = [
+  {
+    label: "Compare projects",
+    prompt: "Compare all my projects for profitability and risk",
+    icon: "compare-arrows",
+  },
+  {
+    label: "Review budget alerts",
+    prompt: "Which projects have budget risks? Show me specifics.",
+    icon: "warning-amber",
+  },
+  {
+    label: "Check projected profit",
+    prompt: "Forecast profit across my entire portfolio — show projected numbers",
+    icon: "trending-up",
+  },
+  {
+    label: "Summarize today",
+    prompt: "What should I focus on today? Give me my top priorities.",
+    icon: "today",
+  },
+] as const;
+
+const CENTRAL_COMPOSER_MIN_HEIGHT = 54;
+const CENTRAL_COMPOSER_MAX_HEIGHT = 118;
+
 const AI_REQUEST_TIMEOUT_MS = 45000;
 
 const SUMMARY_REFRESH_KEYWORDS = [
@@ -1086,6 +1113,7 @@ const AIAssistantModal: React.FC<Props> = ({
     suggestedFollowUps: { label: string; prompt: string }[];
     biggestRisk?: { title: string; message: string; detail: string; prompt: string } | null;
   } | null>(null);
+  const [briefUpdatedAt, setBriefUpdatedAt] = useState<Date | null>(null);
   const [teamMembersData, setTeamMembersData] = useState<any[] | null>(null);
   const autoRefreshInFlightRef = useRef(false);
   const autoRefreshIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1106,6 +1134,9 @@ const AIAssistantModal: React.FC<Props> = ({
   const pendingPOResumeRef = useRef<{ poNumber: string } | null>(null);
   const pendingScenarioResumeRef = useRef<{ scenario: string } | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [composerFocused, setComposerFocused] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(CENTRAL_COMPOSER_MIN_HEIGHT);
+  const centralInputValueRef = useRef("");
   const isUserScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const overlayBlocksKeyboardRef = useRef(overlayBlocksKeyboard);
@@ -1287,6 +1318,7 @@ const AIAssistantModal: React.FC<Props> = ({
           suggestedFollowUps: data.suggestedFollowUps || [],
           biggestRisk: data.biggestRisk || null,
         });
+        setBriefUpdatedAt(new Date());
       }
     } catch (_e) {
       // Keep existing brief on error
@@ -1306,17 +1338,19 @@ const AIAssistantModal: React.FC<Props> = ({
     if ((parsed.screen || '').toLowerCase() !== 'ai assistant tab') return;
     if (greetingShownRef.current) return;
     greetingShownRef.current = true;
+    if (!todayBriefData) setBriefUpdatedAt(new Date());
 
     refreshTodayBrief().catch(() => {
       greetingShownRef.current = false;
     });
-  }, [visible, messages.length, loading, initialQuestion, context, refreshTodayBrief]);
+  }, [visible, messages.length, loading, initialQuestion, context, refreshTodayBrief, todayBriefData]);
 
   // Reset greeting ref and today brief when modal closes so it shows again on next open
   useEffect(() => {
     if (!visible) {
       greetingShownRef.current = false;
       setTodayBriefData(null);
+      setBriefUpdatedAt(null);
       setPendingPaymentSelection(null);
     }
   }, [visible]);
@@ -1604,6 +1638,31 @@ const AIAssistantModal: React.FC<Props> = ({
   }, [context, user]);
 
   const displayBrief = todayBriefData || todayBriefFromContext;
+  const centralCommandStatus = useMemo(() => {
+    if (!isGlobalAssistantContext) return null;
+    const projects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+    if (projects.length === 0) {
+      return { label: "Not enough current project data yet", attention: false };
+    }
+    const activeProjects = projects.filter((project: any) =>
+      ["won", "active", "in_progress", "in-progress"].includes(
+        String(project?.status || project?.projectData?.status || "").toLowerCase(),
+      ),
+    );
+    if (activeProjects.length === 0) {
+      return { label: "No active-project alerts", attention: false };
+    }
+    const reviewCount = Math.max(
+      displayBrief?.recommendedActions?.length || 0,
+      displayBrief?.biggestRisk ? 1 : 0,
+    );
+    return reviewCount > 0
+      ? {
+          label: `${reviewCount} item${reviewCount === 1 ? "" : "s"} to review`,
+          attention: true,
+        }
+      : { label: "No active-project alerts", attention: false };
+  }, [displayBrief, isGlobalAssistantContext, parsedContext?.allProjects]);
 
   // Flow-specific chips: detect from last assistant message
   const compactChipFlow = useMemo(() => {
@@ -2930,6 +2989,7 @@ const AIAssistantModal: React.FC<Props> = ({
 
     setMessages((prev) => [...prev, newMessage]);
     setInput("");
+    setComposerHeight(CENTRAL_COMPOSER_MIN_HEIGHT);
     setLoading(true);
     setIsTyping(true);
 
@@ -3476,7 +3536,8 @@ const AIAssistantModal: React.FC<Props> = ({
       // ── Streaming fast-path (opt-in, auto-fallback) ────────────────────
       // Project assistants should prefer the full POST path so every write-capable
       // flow can resolve tools / actions / projectUpdate reliably. Streaming is
-      // still fine for the standalone assistant tab and other read-only contexts.
+      // Central Command also uses POST so deterministic portfolio handlers and
+      // their scope/financial labels are always applied before rendering.
       const isProjectScopedAssistant =
         parsedContext?.screen === 'Projects' ||
         parsedContext?.screen === 'Project Detail' ||
@@ -3491,6 +3552,7 @@ const AIAssistantModal: React.FC<Props> = ({
       if (
         STREAMING_ENABLED &&
         !isProjectScopedAssistant &&
+        !isGlobalAssistantContext &&
         isStreamSafeMessage(newMessage.content, messages)
       ) {
         const streamPlaceholderId = `${Date.now()}-stream`;
@@ -4295,6 +4357,7 @@ const AIAssistantModal: React.FC<Props> = ({
       const userMsg: Message = { id: Date.now().toString(), role: "user", content: messageToSend.trim(), timestamp: new Date() };
       setMessages((prev) => [...prev, userMsg]);
       setInput("");
+      setComposerHeight(CENTRAL_COMPOSER_MIN_HEIGHT);
       setLoading(true);
       setIsTyping(true);
       try {
@@ -4540,7 +4603,14 @@ const AIAssistantModal: React.FC<Props> = ({
       if (bulletMatch) {
         const metric = splitMetricText(bulletMatch[1]);
         elements.push(
-          <View key={`bullet-${index}`} style={[styles.messageBulletRow, metric && styles.messageMetricRow]}>
+          <View
+            key={`bullet-${index}`}
+            style={[
+              styles.messageBulletRow,
+              metric && styles.messageMetricRow,
+              metric && isCentralCommandReadOnly && styles.centralMessageMetricRow,
+            ]}
+          >
             <Text style={[styles.messageBullet, light({ color: "#16a34a" })]}>•</Text>
             <Text style={[styles.messageListItem, light({ color: ThemeColors.text })]}>
               {metric
@@ -4556,7 +4626,14 @@ const AIAssistantModal: React.FC<Props> = ({
       if (numberMatch) {
         const metric = splitMetricText(numberMatch[2]);
         elements.push(
-          <View key={`number-${index}`} style={[styles.messageNumberRow, metric && styles.messageMetricRow]}>
+          <View
+            key={`number-${index}`}
+            style={[
+              styles.messageNumberRow,
+              metric && styles.messageMetricRow,
+              metric && isCentralCommandReadOnly && styles.centralMessageMetricRow,
+            ]}
+          >
             <Text style={[styles.messageNumberIndex, light({ color: ThemeColors.sub }), darkModeChatMutedWhite]}>{numberMatch[1]}.</Text>
             <Text style={[styles.messageListItem, light({ color: ThemeColors.text })]}>
               {metric
@@ -4617,6 +4694,7 @@ const AIAssistantModal: React.FC<Props> = ({
               style={[
                 styles.messageBubble,
                 styles.userBubble,
+                isCentralCommandReadOnly && styles.centralUserBubble,
               ]}
             >
               <Text style={styles.messageText} numberOfLines={undefined}>
@@ -4659,7 +4737,11 @@ const AIAssistantModal: React.FC<Props> = ({
         ) : (
           <View style={styles.assistantBubbleWrapper}>
             <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
+              colors={
+                isCentralCommandReadOnly
+                  ? ["rgba(148, 163, 184, 0.2)", "rgba(148, 163, 184, 0.2)"]
+                  : BRAND_FRAME_GRADIENT_COLORS
+              }
               start={BRAND_FRAME_GRADIENT_START}
               end={BRAND_FRAME_GRADIENT_END}
               style={styles.assistantBubbleBorder}
@@ -4668,12 +4750,15 @@ const AIAssistantModal: React.FC<Props> = ({
                 style={[
                   styles.messageBubble,
                   styles.assistantBubble,
+                  isCentralCommandReadOnly && styles.centralAssistantBubble,
                   light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }),
                 ]}
               >
                 <View style={styles.assistantLabelRow}>
                   <Ionicons name="sparkles" size={12} color={darkMode ? Colors.green : "#16a34a"} />
-                  <Text style={[styles.assistantLabelText, light({ color: "#16a34a" })]}>AI Assistant</Text>
+                  <Text style={[styles.assistantLabelText, light({ color: "#16a34a" })]}>
+                    {isCentralCommandReadOnly ? "Central Command" : "AI Assistant"}
+                  </Text>
                 </View>
                 {/* Text-first rendering (keeps classic chat format) */}
                 {renderFormattedText(item.content)}
@@ -4796,7 +4881,11 @@ const AIAssistantModal: React.FC<Props> = ({
       <View style={styles.typingIndicatorContainer}>
         <View style={styles.assistantBubbleWrapper}>
           <LinearGradient
-            colors={BRAND_FRAME_GRADIENT_COLORS}
+            colors={
+              isCentralCommandReadOnly
+                ? ["rgba(148, 163, 184, 0.2)", "rgba(148, 163, 184, 0.2)"]
+                : BRAND_FRAME_GRADIENT_COLORS
+            }
             start={BRAND_FRAME_GRADIENT_START}
             end={BRAND_FRAME_GRADIENT_END}
             style={styles.assistantBubbleBorder}
@@ -4806,12 +4895,15 @@ const AIAssistantModal: React.FC<Props> = ({
                 styles.messageBubble,
                 styles.assistantBubble,
                 styles.typingBubble,
+                isCentralCommandReadOnly && styles.centralAssistantBubble,
                 light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }),
               ]}
             >
               <View style={styles.assistantLabelRow}>
                 <Ionicons name="sparkles" size={12} color={darkMode ? Colors.green : "#16a34a"} />
-                <Text style={[styles.assistantLabelText, light({ color: "#16a34a" })]}>AI Assistant</Text>
+                <Text style={[styles.assistantLabelText, light({ color: "#16a34a" })]}>
+                  {isCentralCommandReadOnly ? "Central Command" : "AI Assistant"}
+                </Text>
               </View>
               <View style={styles.typingDots}>
                 <Animated.View style={[styles.typingDot, { opacity: dotAnim1 }]} />
@@ -4826,6 +4918,32 @@ const AIAssistantModal: React.FC<Props> = ({
   };
 
   const keyboardOpen = keyboardHeight > 0;
+  const centralComposerExpanded =
+    isCentralCommandReadOnly &&
+    (input.includes("\n") || composerHeight > CENTRAL_COMPOSER_MIN_HEIGHT);
+  const handleCentralComposerContentSize = useCallback(
+    (contentHeight: number) => {
+      const current = centralInputValueRef.current;
+      if (!current.trim() && !current.includes("\n")) {
+        setComposerHeight((prev) =>
+          prev === CENTRAL_COMPOSER_MIN_HEIGHT ? prev : CENTRAL_COMPOSER_MIN_HEIGHT,
+        );
+        return;
+      }
+      const next = Math.max(
+        CENTRAL_COMPOSER_MIN_HEIGHT,
+        Math.min(CENTRAL_COMPOSER_MAX_HEIGHT, contentHeight + 14),
+      );
+      setComposerHeight((prev) => (prev === next ? prev : next));
+    },
+    [],
+  );
+  const centralComposerActive =
+    isCentralCommandReadOnly && Boolean(input.trim()) && !loading && isContextReady;
+  const centralComposerBorderColor = "rgba(148, 163, 184, 0.42)";
+  const MessageListComponent: any = isCentralCommandReadOnly ? FlatList : KeyboardAwareFlatList;
+
+  centralInputValueRef.current = input;
 
   // RN-web: a mounted <Modal visible={false}> can still leave a full-screen portal that captures
   // all clicks — dashboard + tabs feel “frozen”. Do not mount the modal tree on web until open.
@@ -4834,7 +4952,12 @@ const AIAssistantModal: React.FC<Props> = ({
   }
 
   return (
-    <Modal visible={visible} animationType={Platform.OS === "ios" ? "slide" : "fade"} onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      presentationStyle={isGlobalAssistantContext ? "fullScreen" : undefined}
+      animationType={Platform.OS === "ios" ? "slide" : "fade"}
+      onRequestClose={onClose}
+    >
       <KeyboardAvoidingView
         style={[styles.flex, { backgroundColor: darkMode ? Colors.bg : ThemeColors.bg }]}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -4860,7 +4983,7 @@ const AIAssistantModal: React.FC<Props> = ({
                 paddingHorizontal: aiWideColumnPadding,
               }}
             >
-            {/* Header — full title strip when idle; back-only when keyboard is open */}
+            {/* Header — remains visible while the keyboard is open */}
             <View
               style={[
                 styles.header,
@@ -4892,9 +5015,7 @@ const AIAssistantModal: React.FC<Props> = ({
                   </GradientRingBackInner>
                 </LinearGradient>
               </View>
-              {!keyboardOpen && (
-                <>
-                  <View style={styles.headerContent}>
+              <View style={styles.headerContent}>
                     <View style={styles.headerTitleRow}>
                       <View style={styles.headerTitleCenter}>
                         <Ionicons name="sparkles-sharp" size={18} color={Colors.green} />
@@ -4907,7 +5028,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       <View style={styles.headerContextStack}>
                         <Text style={[styles.headerSubtitle, light({ color: ThemeColors.sub })]}>
                           {isGlobalAssistantContext
-                            ? 'Central Command • All Projects'
+                            ? 'All projects · Read-only'
                             : isProjectsScreenContext
                               ? selectedProjectHintId
                                 ? (() => {
@@ -4919,11 +5040,6 @@ const AIAssistantModal: React.FC<Props> = ({
                                 ? `Estimate • ${parsedContext?.stepTitle || 'Bid'}`
                                 : `${projectInfo!.title} • ${projectInfo!.phase}`}
                         </Text>
-                        {isCentralCommandReadOnly && (
-                          <Text style={[styles.headerMeta, light({ color: ThemeColors.sub })]}>
-                            Portfolio data • Read-only
-                          </Text>
-                        )}
                         {projectInfo &&
                           !isProjectsScreenContext &&
                           !isGlobalAssistantContext &&
@@ -4935,17 +5051,16 @@ const AIAssistantModal: React.FC<Props> = ({
                         )}
                       </View>
                     )}
-                  </View>
-                  <View style={styles.headerSpacer} />
-                </>
-              )}
-              {keyboardOpen && <View style={{ flex: 1 }} />}
+                </View>
+                <View style={styles.headerSpacer} />
             </View>
 
             {/* Messages - Everything scrolls together */}
             <View style={{ flex: 1, minHeight: 0 }}>
-            <KeyboardAwareFlatList
-              innerRef={setFlatListRef}
+                <MessageListComponent
+              {...(isCentralCommandReadOnly
+                ? { ref: setFlatListRef }
+                : { innerRef: setFlatListRef })}
               style={styles.messageList}
               data={messages}
               keyExtractor={(item) => item.id}
@@ -4958,14 +5073,22 @@ const AIAssistantModal: React.FC<Props> = ({
                 contentContainerStyle={[
                   styles.messagesContainer,
                   {
-                    paddingBottom: keyboardHeight > 0 ? listPaddingBottomKeyboardOpen : 200,
-                    ...(keyboardHeight > 0 ? {} : { minHeight: minContentHeight }),
+                    paddingBottom: isCentralCommandReadOnly
+                      ? 12
+                      : keyboardHeight > 0
+                        ? listPaddingBottomKeyboardOpen
+                        : 200,
+                    ...(isCentralCommandReadOnly || keyboardHeight > 0
+                      ? {}
+                      : { minHeight: minContentHeight }),
                   },
                 ]}
                 showsVerticalScrollIndicator={true}
               scrollEnabled={true}
                 nestedScrollEnabled={false}
-              {...KEYBOARD_SCROLL_DEFAULTS}
+              {...(isCentralCommandReadOnly
+                ? { keyboardShouldPersistTaps: "handled", keyboardDismissMode: "none" }
+                : KEYBOARD_SCROLL_DEFAULTS)}
                 removeClippedSubviews={false}
                 bounces={Platform.OS === 'ios'}
                 alwaysBounceVertical={false}
@@ -5030,7 +5153,7 @@ const AIAssistantModal: React.FC<Props> = ({
               ListHeaderComponent={
                 <>
                   {/* Global AI: Today Brief card — hero, insight-first */}
-                  {isGlobalAssistantContext && displayBrief && (
+                  {isGlobalAssistantContext && displayBrief && messages.length === 0 && (
                     <>
                       <View
                         style={[styles.todayBriefCard, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line })]}
@@ -5038,19 +5161,21 @@ const AIAssistantModal: React.FC<Props> = ({
                         accessibilityRole="summary"
                       >
                         <LinearGradient
-                          colors={["rgba(0, 100, 90, 0.16)", "rgba(0, 70, 65, 0.08)"]}
+                          colors={["rgba(0, 166, 255, 0.14)", "rgba(45, 255, 196, 0.06)"]}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 1, y: 1 }}
                           style={styles.todayBriefGradient}
                         >
                           <Text style={[styles.todayBriefCardTitle, light({ color: ThemeColors.sub })]}>
-                            Today Brief
+                            Today’s Brief
                           </Text>
                           <Text style={[styles.todayBriefGreeting, light({ color: ThemeColors.text })]}>
                             {displayBrief.reply.split('\n\n')[0]}
                           </Text>
-                          <Text style={[styles.todayBriefSubGreeting, light({ color: ThemeColors.sub })]}>
-                            Here's what needs attention today.
+                          <Text style={[styles.todayBriefFreshness, light({ color: ThemeColors.sub })]}>
+                            {briefUpdatedAt
+                              ? `Updated ${briefUpdatedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · Project data`
+                              : "Using the current project snapshot"}
                           </Text>
                           {displayBrief.insights.length > 0 ? (
                             <View style={styles.todayBriefInsights}>
@@ -5065,13 +5190,26 @@ const AIAssistantModal: React.FC<Props> = ({
                             </View>
                           ) : (
                             <Text style={[styles.todayBriefInsightItem, styles.todayBriefEmptyInsight, light({ color: ThemeColors.sub })]}>
-                              Your portfolio looks quiet — no urgent items.
+                              {centralCommandStatus?.label}
                             </Text>
+                          )}
+                          {displayBrief.insights.length > 0 && centralCommandStatus && (
+                            <View style={styles.todayBriefStatusRow}>
+                              <View
+                                style={[
+                                  styles.todayBriefStatusDot,
+                                  centralCommandStatus.attention && styles.todayBriefStatusDotAttention,
+                                ]}
+                              />
+                              <Text style={[styles.todayBriefStatusText, light({ color: ThemeColors.sub })]}>
+                                {centralCommandStatus.label}
+                              </Text>
+                            </View>
                           )}
                         </LinearGradient>
                       </View>
 
-                      {/* Biggest Risk card — or All clear when no risks */}
+                      {/* Biggest Risk card — only shown when an active-project issue needs attention */}
                       {displayBrief.biggestRisk ? (
                         <View style={[styles.biggestRiskCard, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line })]}>
                           <View style={styles.biggestRiskHeader}>
@@ -5101,90 +5239,55 @@ const AIAssistantModal: React.FC<Props> = ({
                             </Text>
                           </TouchableOpacity>
                         </View>
-                      ) : (
-                        <View
-                          style={[styles.allClearCard, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line })]}
-                          accessibilityLabel="All clear. No critical risks across your projects."
-                          accessibilityRole="summary"
-                        >
-                          <Ionicons name="checkmark-circle" size={20} color="rgba(34, 197, 94, 0.8)" />
-                          <View>
-                            <Text style={[styles.allClearTitle, light({ color: ThemeColors.text })]}>
-                              All clear
-                            </Text>
-                            <Text style={[styles.allClearSubtitle, light({ color: ThemeColors.sub })]}>
-                              No critical risks across your projects.
-                            </Text>
+                      ) : null}
+
+                      {/* Prompt grid — flows directly below the brief */}
+                      {!keyboardOpen ? (
+                        <View style={styles.centralCommandPromptSection}>
+                          <Text
+                            style={[
+                              styles.todayBriefSectionLabel,
+                              styles.commandCenterSectionRail,
+                              { marginBottom: 10, marginHorizontal: 0 },
+                              light({ color: ThemeColors.sub }),
+                            ]}
+                          >
+                            Ask about your business
+                          </Text>
+                          <View style={styles.commandPromptGrid}>
+                            {CENTRAL_COMMAND_PROMPTS.map((prompt) => {
+                              const promptDisabled = !isContextReady;
+                              return (
+                                <TouchableOpacity
+                                  key={prompt.label}
+                                  onPress={() => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                    handleQuickAction(prompt.prompt);
+                                  }}
+                                  disabled={promptDisabled}
+                                  accessibilityLabel={prompt.label}
+                                  accessibilityRole="button"
+                                  style={[
+                                    styles.commandPromptCard,
+                                    promptDisabled && { opacity: 0.5 },
+                                    light({
+                                      backgroundColor: ThemeColors.surface,
+                                      borderColor: ThemeColors.line,
+                                    }),
+                                  ]}
+                                >
+                                  <View style={styles.commandPromptIcon}>
+                                    <MaterialIcons name={prompt.icon} size={18} color="#38BDF8" />
+                                  </View>
+                                  <Text style={[styles.commandPromptText, light({ color: ThemeColors.text })]}>
+                                    {prompt.label}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
                           </View>
                         </View>
-                      )}
-
-                      {/* Quick actions */}
-                      <Text
-                        style={[
-                          styles.todayBriefSectionLabel,
-                          styles.commandCenterSectionRail,
-                          { marginTop: 22, marginBottom: 10, marginHorizontal: 0 },
-                          light({ color: ThemeColors.sub }),
-                        ]}
-                      >
-                        Quick actions
-                      </Text>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.todayBriefChipsScroll, { marginLeft: 0 }]} contentContainerStyle={styles.todayBriefChipsContent}>
-                        {(displayBrief.quickActions || []).slice(0, 6).map((qa, i) => {
-                          const isCompareChip = /\b(compare|profitability|risk|forecast|budget|receipts|deadlines|portfolio)\b/i.test(qa.prompt || qa.label || '');
-                          const chipDisabled = isCompareChip && !isContextReady;
-                          return (
-                          <TouchableOpacity
-                            key={i}
-                            onPress={() => {
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                              handleQuickAction(qa.prompt);
-                            }}
-                            disabled={chipDisabled}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            accessibilityLabel={qa.label}
-                            accessibilityRole="button"
-                            style={[styles.todayBriefQuickChip, chipDisabled && { opacity: 0.5 }, light({ borderColor: "#16a34a", backgroundColor: "rgba(22,163,74,0.08)" })]}
-                          >
-                            <Text style={[styles.todayBriefQuickChipText, light({ color: "#16a34a" })]}>
-                              {qa.label}
-                            </Text>
-                          </TouchableOpacity>
-                          );
-                        })}
-                      </ScrollView>
-
-                      {/* Suggested questions */}
-                      <Text
-                        style={[
-                          styles.todayBriefSectionLabel,
-                          styles.commandCenterSectionRail,
-                          { marginTop: 18, marginBottom: 10, marginHorizontal: 0 },
-                          light({ color: ThemeColors.sub }),
-                        ]}
-                      >
-                        Suggested questions
-                      </Text>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.todayBriefChipsScroll, { marginLeft: 0 }]} contentContainerStyle={styles.todayBriefChipsContent}>
-                        {(displayBrief.suggestedFollowUps || []).slice(0, 6).map((sf, i) => (
-                          <TouchableOpacity
-                            key={i}
-                            onPress={() => {
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                              handleQuickAction(sf.prompt);
-                            }}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            accessibilityLabel={sf.label}
-                            accessibilityRole="button"
-                            style={[styles.todayBriefFollowChip, light({ borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface })]}
-                          >
-                            <Text style={[styles.todayBriefFollowChipText, light({ color: ThemeColors.text })]}>
-                              {sf.label}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
+                      ) : null}
                     </>
                   )}
                   {/* AI Daily Brief card - hidden on Projects, Global Assistant, and Estimate Generator */}
@@ -5614,12 +5717,9 @@ const AIAssistantModal: React.FC<Props> = ({
 
             {/* Input bar — hidden while estimate builder/review overlay is open */}
             {!overlayBlocksKeyboard ? (
-            <View style={[styles.inputContainer, { 
-              position: 'absolute',
-              bottom: 0,
-              left: aiWideColumnPadding,
-              right: aiWideColumnPadding,
-              paddingBottom: Math.max(insets.bottom, 10) + 6,
+            <View style={[styles.inputContainer, {
+              marginHorizontal: 0,
+              paddingBottom: keyboardOpen ? 6 : Math.max(insets.bottom, 10) + 6,
               paddingTop: 6,
               backgroundColor: darkMode ? Colors.bg : ThemeColors.bg,
             }, light({ borderTopColor: ThemeColors.line, shadowOpacity: 0.05 })]}>
@@ -5875,15 +5975,154 @@ const AIAssistantModal: React.FC<Props> = ({
                   ))}
                 </ScrollView>
               )}
-              <View style={styles.inputRow}>
+              <View
+                style={[
+                  styles.inputRow,
+                  isCentralCommandReadOnly &&
+                    (centralComposerExpanded
+                      ? styles.centralInputRowExpanded
+                      : styles.centralInputRowCompact),
+                ]}
+              >
               <View style={styles.inputInnerWrapper}>
+                {isCentralCommandReadOnly ? (
+                  <View
+                    style={[
+                      styles.centralComposerShell,
+                      {
+                        height: composerHeight,
+                        minHeight: composerHeight,
+                        borderColor: centralComposerBorderColor,
+                      },
+                    ]}
+                  >
+                  <View
+                    style={[
+                      styles.inputInner,
+                      styles.centralInputInner,
+                      {
+                        flex: 0,
+                        flexGrow: 0,
+                        height: composerHeight - 2,
+                        minHeight: composerHeight - 2,
+                        maxHeight: composerHeight - 2,
+                      },
+                    ]}
+                  >
+                    {isRecording ? (
+                      <View style={styles.recordingRow}>
+                        <View style={styles.recordingInner}>
+                          <View style={[
+                            styles.recordingDot,
+                            { opacity: recordingDuration % 2 === 0 ? 1 : 0.5 }
+                          ]} />
+                          <Text style={[styles.recordingText, light({ color: "#ef4444" })]}>
+                            Recording... {recordingDuration}s
+                          </Text>
+                        </View>
+                      </View>
+                    ) : (
+                      <TextInput
+                        style={[
+                          styles.input,
+                          isCentralCommandReadOnly && styles.centralInputText,
+                          isCentralCommandReadOnly &&
+                            !centralComposerExpanded &&
+                            styles.centralInputTextCompact,
+                          isCentralCommandReadOnly &&
+                            centralComposerExpanded &&
+                            styles.centralInputTextExpanded,
+                          light({ color: ThemeColors.text }),
+                        ]}
+                        placeholder={!isContextReady ? "Syncing project data…" : (isGlobalAssistantContext ? "Ask about your projects…" : isProjectsScreenContext ? "Compare projects, check budgets…" : isEstimateContext ? "Ask about this estimate, line items…" : "Ask anything about this project…")}
+                        placeholderTextColor={darkMode ? 'rgba(226, 232, 240, 0.42)' : '#6B7280'}
+                        value={input}
+                        onChangeText={(text) => {
+                          centralInputValueRef.current = text;
+                          setInput(text);
+                          if (isCentralCommandReadOnly && !text.trim() && !text.includes("\n")) {
+                            setComposerHeight(CENTRAL_COMPOSER_MIN_HEIGHT);
+                          }
+                        }}
+                        multiline={Platform.OS !== "web"}
+                        maxLength={500}
+                        textAlignVertical={
+                          isCentralCommandReadOnly && !centralComposerExpanded ? "center" : "top"
+                        }
+                        scrollEnabled={
+                          isCentralCommandReadOnly
+                            ? centralComposerExpanded && composerHeight >= CENTRAL_COMPOSER_MAX_HEIGHT
+                            : undefined
+                        }
+                        returnKeyType={
+                          isCentralCommandReadOnly
+                            ? "default"
+                            : Platform.OS === "web"
+                              ? "send"
+                              : "default"
+                        }
+                        blurOnSubmit={isCentralCommandReadOnly ? false : false}
+                        onSubmitEditing={
+                          Platform.OS === "web"
+                            ? () => {
+                                if (input.trim() && !loading && isContextReady) void sendMessage();
+                              }
+                            : undefined
+                        }
+                        onContentSizeChange={(event) => {
+                          if (!isCentralCommandReadOnly) return;
+                          handleCentralComposerContentSize(
+                            Math.ceil(event.nativeEvent.contentSize.height),
+                          );
+                        }}
+                          onFocus={() => {
+                            setComposerFocused(true);
+                            const timeout = Platform.OS === 'ios' ? 350 : 150;
+                            setTimeout(() => {
+                              if (flatListRef.current && messages.length > 0 && !isUserScrollingRef.current) {
+                                flatListRef.current.scrollToEnd({ animated: true });
+                              }
+                            }, timeout);
+                          }}
+                          onBlur={() => setComposerFocused(false)}
+                        {...(isCentralCommandReadOnly
+                          ? {}
+                          : resolveTextInputKeyboardProps({
+                              multiline: Platform.OS !== "web",
+                            }))}
+                      />
+                    )}
+                    {/* Microphone button */}
+                    <TouchableOpacity
+                      onPress={isRecording ? stopRecording : startRecording}
+                      disabled={loading}
+                      style={[
+                        styles.micButton,
+                        centralComposerExpanded && styles.centralMicButtonExpanded,
+                      ]}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name={isRecording ? "stop-circle" : "mic"}
+                        size={20}
+                        color={isRecording ? "#ef4444" : Colors.green}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  </View>
+                ) : (
                 <LinearGradient
                   colors={BRAND_FRAME_GRADIENT_COLORS}
                   start={BRAND_FRAME_GRADIENT_START}
                   end={BRAND_FRAME_GRADIENT_END}
                   style={styles.inputInnerBorder}
                 >
-                  <View style={[styles.inputInner, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}>
+                  <View
+                    style={[
+                      styles.inputInner,
+                      light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }),
+                    ]}
+                  >
                     <Ionicons
                       name="chatbox-ellipses-outline"
                       size={18}
@@ -5904,8 +6143,11 @@ const AIAssistantModal: React.FC<Props> = ({
                       </View>
                     ) : (
                       <TextInput
-                        style={[styles.input, light({ color: ThemeColors.text })]}
-                        placeholder={!isContextReady ? "Syncing project data…" : (isGlobalAssistantContext || isProjectsScreenContext ? "Compare projects, check budgets…" : isEstimateContext ? "Ask about this estimate, line items…" : "Ask anything about this project…")}
+                        style={[
+                          styles.input,
+                          light({ color: ThemeColors.text }),
+                        ]}
+                        placeholder={!isContextReady ? "Syncing project data…" : (isGlobalAssistantContext ? "Ask about your projects…" : isProjectsScreenContext ? "Compare projects, check budgets…" : isEstimateContext ? "Ask about this estimate, line items…" : "Ask anything about this project…")}
                         placeholderTextColor={darkMode ? 'rgba(226, 232, 240, 0.42)' : '#6B7280'}
                         value={input}
                         onChangeText={setInput}
@@ -5922,7 +6164,7 @@ const AIAssistantModal: React.FC<Props> = ({
                             : undefined
                         }
                           onFocus={() => {
-                            // Scroll to bottom when input is focused (only if user isn't manually scrolling)
+                            setComposerFocused(true);
                             const timeout = Platform.OS === 'ios' ? 350 : 150;
                             setTimeout(() => {
                               if (flatListRef.current && messages.length > 0 && !isUserScrollingRef.current) {
@@ -5930,9 +6172,12 @@ const AIAssistantModal: React.FC<Props> = ({
                               }
                             }, timeout);
                           }}
+                          onBlur={() => setComposerFocused(false)}
+                        {...resolveTextInputKeyboardProps({
+                          multiline: Platform.OS !== "web",
+                        })}
                       />
                     )}
-                    {/* Microphone button */}
                     <TouchableOpacity
                       onPress={isRecording ? stopRecording : startRecording}
                       disabled={loading}
@@ -5947,16 +6192,32 @@ const AIAssistantModal: React.FC<Props> = ({
                     </TouchableOpacity>
                   </View>
                 </LinearGradient>
+                )}
               </View>
               <Animated.View style={[styles.sendButtonWrapper, { transform: [{ scale: sendButtonScale }] }]}>
                 <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  colors={
+                    isCentralCommandReadOnly
+                      ? centralComposerActive
+                        ? [Colors.green, Colors.green]
+                        : ["rgba(148, 163, 184, 0.22)", "rgba(148, 163, 184, 0.22)"]
+                      : BRAND_FRAME_GRADIENT_COLORS
+                  }
                   start={BRAND_FRAME_GRADIENT_START}
                   end={BRAND_FRAME_GRADIENT_END}
-                  style={styles.sendButtonBorder}
+                  style={[
+                    styles.sendButtonBorder,
+                    isCentralCommandReadOnly && styles.centralSendButtonBorder,
+                  ]}
                 >
                   <TouchableOpacity
-                    style={[styles.sendButtonInner, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 })]}
+                    style={[
+                      styles.sendButtonInner,
+                      light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line, borderWidth: 1 }),
+                      isCentralCommandReadOnly && styles.centralSendButtonInner,
+                      isCentralCommandReadOnly &&
+                        (centralComposerActive ? styles.centralSendActive : styles.centralSendIdle),
+                    ]}
                     onPress={() => sendMessage()}
                     disabled={!input.trim() || loading || !isContextReady}
                     activeOpacity={0.7}
@@ -5964,7 +6225,11 @@ const AIAssistantModal: React.FC<Props> = ({
                     {loading ? (
                       <ActivityIndicator size="small" color={darkMode ? "#FFFFFF" : "#000000"} />
                     ) : (
-                      <Ionicons name="send" size={20} color={darkMode ? "#FFFFFF" : "#000000"} />
+                      <Ionicons
+                        name="send"
+                        size={20}
+                        color={centralComposerActive ? "#071018" : darkMode ? "#94A3B8" : "#000000"}
+                      />
                     )}
                   </TouchableOpacity>
                 </LinearGradient>
@@ -6127,6 +6392,11 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.green,
     borderBottomRightRadius: 4,
   },
+  centralUserBubble: {
+    backgroundColor: "#0D1E27",
+    borderColor: "rgba(0, 166, 255, 0.26)",
+    borderWidth: 1,
+  },
   /** ~90% of chat column — small side margins like Project AI (not edge-to-edge, not a skinny column) */
   assistantBubbleWrapper: {
     alignSelf: "flex-start",
@@ -6150,6 +6420,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 16,
     flexShrink: 1,
+  },
+  centralAssistantBubble: {
+    backgroundColor: "#171B20",
+    borderColor: "rgba(148, 163, 184, 0.18)",
   },
   assistantLabelRow: {
     flexDirection: "row",
@@ -6333,6 +6607,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(141, 160, 184, 0.08)",
   },
+  centralMessageMetricRow: {
+    paddingVertical: 6,
+    paddingHorizontal: 0,
+    borderRadius: 0,
+    borderWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(148, 163, 184, 0.12)",
+    backgroundColor: "transparent",
+  },
   messageMetricLabel: {
     color: "#F8FAFC",
     fontWeight: "800",
@@ -6429,6 +6712,19 @@ const styles = StyleSheet.create({
     /** Gradient ring + device curve; avoids clipping the send control at the right edge */
     paddingRight: 6,
   },
+  centralInputRowCompact: {
+    alignItems: "center",
+  },
+  centralInputRowExpanded: {
+    alignItems: "flex-end",
+  },
+  centralComposerShell: {
+    width: "100%",
+    borderRadius: 24,
+    borderWidth: 1,
+    backgroundColor: "#171B20",
+    overflow: "hidden",
+  },
   inputInnerWrapper: {
     flex: 1,
   },
@@ -6450,6 +6746,11 @@ const styles = StyleSheet.create({
       ios: { paddingVertical: 0 },
       default: { paddingVertical: 0 },
     }),
+  },
+  centralInputInner: {
+    backgroundColor: "#171B20",
+    flex: 0,
+    flexGrow: 0,
   },
   inputLeadIcon: {
     marginLeft: 10,
@@ -6487,6 +6788,29 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  centralInputText: {
+    flex: 1,
+    fontSize: 16,
+    lineHeight: 21,
+    paddingLeft: 14,
+    paddingRight: 6,
+    minWidth: 0,
+    alignSelf: "stretch",
+    paddingTop: 0,
+    paddingBottom: 0,
+    maxHeight: CENTRAL_COMPOSER_MAX_HEIGHT - 18,
+    ...Platform.select({
+      ios: { alignSelf: "stretch" as const },
+      default: {},
+    }),
+  },
+  centralInputTextCompact: {
+    maxHeight: CENTRAL_COMPOSER_MIN_HEIGHT - 2,
+  },
+  centralInputTextExpanded: {
+    paddingTop: 10,
+    paddingBottom: 2,
+  },
   recordingRow: {
     flex: 1,
     flexDirection: 'row',
@@ -6516,6 +6840,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  centralMicButtonExpanded: {
+    marginBottom: 8,
+    marginRight: 8,
+  },
   sendButtonWrapper: {
     marginLeft: 0,
     flexShrink: 0,
@@ -6527,6 +6855,11 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
   },
+  centralSendButtonBorder: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+  },
   sendButtonInner: {
     width: "100%",
     height: "100%",
@@ -6534,6 +6867,15 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
+  },
+  centralSendButtonInner: {
+    borderRadius: 25,
+  },
+  centralSendActive: {
+    backgroundColor: Colors.green,
+  },
+  centralSendIdle: {
+    backgroundColor: "#171B20",
   },
   sendButtonDisabled: {
     opacity: 0.4,
@@ -6592,10 +6934,10 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     borderRadius: 22,
     overflow: "hidden",
-    backgroundColor: Colors.card,
+    backgroundColor: "#0D1E27",
     borderWidth: 1,
-    borderColor: "rgba(16, 242, 151, 0.11)",
-    shadowColor: "rgba(0, 100, 90, 0.16)",
+    borderColor: "rgba(0, 166, 255, 0.28)",
+    shadowColor: "rgba(0, 120, 180, 0.22)",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 1,
     shadowRadius: 20,
@@ -6654,6 +6996,7 @@ const styles = StyleSheet.create({
   todayBriefGradient: {
     padding: 22,
     borderRadius: 21,
+    backgroundColor: "rgba(0, 80, 110, 0.16)",
   },
   todayBriefCardTitle: {
     color: "rgba(148, 163, 184, 0.92)",
@@ -6664,7 +7007,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   todayBriefGreeting: {
-    color: Colors.text,
+    color: "rgba(241, 245, 249, 0.86)",
     fontSize: 26,
     fontWeight: "800",
     marginBottom: 6,
@@ -6675,6 +7018,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     marginBottom: 16,
+  },
+  todayBriefFreshness: {
+    color: "rgba(148, 163, 184, 0.82)",
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 14,
   },
   todayBriefInsights: {
     marginBottom: 8,
@@ -6699,8 +7048,29 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   todayBriefEmptyInsight: {
-    fontStyle: "italic",
-    color: "rgba(148, 163, 184, 0.88)",
+    fontStyle: "normal",
+    color: "rgba(226, 232, 240, 0.92)",
+  },
+  todayBriefStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    marginTop: 10,
+  },
+  todayBriefStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(34, 197, 94, 0.9)",
+  },
+  todayBriefStatusDotAttention: {
+    backgroundColor: "rgba(251, 146, 60, 0.95)",
+  },
+  todayBriefStatusText: {
+    color: "rgba(186, 198, 215, 0.86)",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "600",
   },
   todayBriefSectionLabel: {
     color: Colors.sub,
@@ -6729,78 +7099,40 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
-  /** No maxHeight — a tight cap clips chip labels (descenders) on iOS/Android. */
-  todayBriefChipsScroll: {
-    marginBottom: 6,
-    flexGrow: 0,
+  centralCommandPromptSection: {
+    marginTop: 20,
+    paddingBottom: 4,
   },
-  todayBriefChipsContent: {
+  commandPromptGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
-    alignItems: "center",
-    paddingVertical: 4,
-    paddingRight: 4,
   },
-  todayBriefQuickChip: {
-    flexDirection: "row",
+  commandPromptCard: {
+    width: "48%",
+    minHeight: 66,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.16)",
+    backgroundColor: "rgba(255, 255, 255, 0.045)",
+    justifyContent: "space-between",
+  },
+  commandPromptIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    paddingBottom: 11,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(45, 255, 196, 0.36)",
-    backgroundColor: "rgba(45, 255, 196, 0.06)",
+    backgroundColor: "rgba(0, 166, 255, 0.12)",
+    marginBottom: 8,
   },
-  todayBriefQuickChipText: {
-    color: "#2DFFC4",
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: "700",
-    ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
-  },
-  todayBriefFollowChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    paddingBottom: 11,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.045)",
-  },
-  todayBriefFollowChipText: {
+  commandPromptText: {
     color: "rgba(241, 245, 249, 0.96)",
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: "600",
-    ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
-  },
-  allClearCard: {
-    marginHorizontal: 0,
-    marginTop: 8,
-    marginBottom: 10,
-    borderRadius: 20,
-    padding: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    backgroundColor: "rgba(34, 197, 94, 0.07)",
-    borderWidth: 1,
-    borderColor: "rgba(34, 197, 94, 0.16)",
-  },
-  allClearTitle: {
-    color: Colors.text,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  allClearSubtitle: {
-    color: Colors.sub,
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "700",
   },
   biggestRiskCard: {
     marginHorizontal: 0,
@@ -6808,9 +7140,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderRadius: 20,
     padding: 18,
-    backgroundColor: "rgba(251, 146, 60, 0.055)",
+    backgroundColor: "rgba(251, 146, 60, 0.10)",
     borderWidth: 1,
-    borderColor: "rgba(251, 146, 60, 0.22)",
+    borderColor: "rgba(251, 146, 60, 0.32)",
   },
   biggestRiskHeader: {
     flexDirection: "row",

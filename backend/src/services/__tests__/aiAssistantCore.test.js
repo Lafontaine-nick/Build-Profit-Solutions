@@ -3,9 +3,15 @@ const {
   buildDailyCommandCenter,
   parseCalendarEventCreate,
   runCompareProjectsPipeline,
+  buildPortfolioComparisonReply,
   isCentralCommandMutationRequest,
   appendDataFreshness,
   buildBudgetStatusReply,
+  getProjectFinancialSnapshot,
+  getProjectMilestones,
+  collectPaymentBuckets,
+  isPaymentCollectedForAI,
+  isCentralCommandReadOnlyTool,
 } = require('../aiAssistantCore');
 const {
   deepClone,
@@ -66,6 +72,39 @@ describe('aiAssistantCore', () => {
     expect(pipeline.dailyBrief.topActions.length).toBeGreaterThan(0);
   });
 
+  test('portfolio comparison scopes attention to active work and preserves profit labels', () => {
+    const reply = buildPortfolioComparisonReply([
+      {
+        title: 'Active Job',
+        status: 'active',
+        revenue: 100000,
+        projectedProfit: 20000,
+        margin: 20,
+        marginLabel: 'Current margin',
+        profitLabel: 'Projected Profit',
+        missingReceipts: 1,
+        riskFlags: ['missing_receipts'],
+      },
+      {
+        title: 'Closed Job',
+        status: 'completed',
+        revenue: 80000,
+        projectedProfit: 30000,
+        margin: 37.5,
+        marginLabel: 'Margin',
+        profitLabel: 'Net Profit',
+        missingReceipts: 2,
+        riskFlags: ['missing_receipts'],
+      },
+    ]);
+
+    expect(reply).toContain('Current attention flags use active projects only (1 active)');
+    expect(reply).toContain('Active Job');
+    expect(reply).not.toContain('Closed Job — upload missing receipts');
+    expect(reply).toContain('Projected Profit: $20,000.00');
+    expect(reply).toContain('Net Profit: $30,000.00');
+  });
+
   test('generic calendar create requests ask for both event details and date', () => {
     const parsed = parseCalendarEventCreate('Can you create an event for my calendar?', {
       allProjects: [{ id: 'p1', title: 'Duplex Build' }],
@@ -108,5 +147,116 @@ describe('aiAssistantCore', () => {
 
   test('does not manufacture a budget answer when the budget is unavailable', () => {
     expect(buildBudgetStatusReply({ projectName: 'Unpriced Job', spent: 1200 })).toBeNull();
+  });
+
+  test('uses realized spend for completed projects without progress', () => {
+    const analyzed = analyzePortfolioProject({
+      id: 'closed-no-progress',
+      title: 'Closed Remodel',
+      status: 'completed',
+      bidPrice: 120000,
+      estimatedCost: 95000,
+      actualCost: 100000,
+    });
+    expect(analyzed.profitLabel).toBe('Net Profit');
+    expect(analyzed.projectedProfit).toBe(20000);
+    expect(analyzed.estimatedProfit).toBe(25000);
+  });
+
+  test('keeps undated payments unscheduled instead of overdue', () => {
+    const buckets = collectPaymentBuckets({
+      currentProject: {
+        id: 'p1',
+        title: 'Unscheduled Remodel',
+        status: 'active',
+        milestones: [{ title: 'Final draw', amount: 5000 }],
+      },
+      now: new Date('2026-09-03T00:00:00.000Z'),
+    });
+    expect(buckets.overdue).toHaveLength(0);
+    expect(buckets.unscheduled).toHaveLength(1);
+  });
+
+  test('does not treat unpaid or incomplete statuses as collected', () => {
+    expect(isPaymentCollectedForAI({ status: 'unpaid' })).toBe(false);
+    expect(isPaymentCollectedForAI({ status: 'incomplete' })).toBe(false);
+    expect(isPaymentCollectedForAI({ status: 'paid' })).toBe(true);
+  });
+
+  test('uses expense and received PO spend while excluding pending POs', () => {
+    const financials = getProjectFinancialSnapshot({
+      project: {
+        bidPrice: 50000,
+        estimatedCost: 30000,
+        expenses: [{ amount: 4000 }],
+        purchaseOrders: [
+          { amount: 3000, status: 'received' },
+          { amount: 2000, status: 'pending' },
+        ],
+      },
+    });
+    expect(financials.spent).toBe(7000);
+    expect(financials.committedPOs).toBe(2000);
+  });
+
+  test('does not let an empty milestone source mask a populated fallback', () => {
+    expect(getProjectMilestones({
+      milestones: [],
+      projectData: { weeklyPayments: [{ title: 'Progress draw', amount: 2500 }] },
+    })).toEqual([{ title: 'Progress draw', amount: 2500 }]);
+  });
+
+  test('allows only analytical tools in Central Command', () => {
+    expect(isCentralCommandReadOnlyTool('compare_projects')).toBe(true);
+    expect(isCentralCommandReadOnlyTool('run_scenario_analysis')).toBe(true);
+    expect(isCentralCommandReadOnlyTool('add_material_expense')).toBe(false);
+    expect(isCentralCommandReadOnlyTool('message_team_member')).toBe(false);
+  });
+
+  test('blocks common mutation wording before model routing', () => {
+    expect(isCentralCommandMutationRequest('Put $450 of lumber on the kitchen job')).toBe(true);
+    expect(isCentralCommandMutationRequest('Send a message to John saying call me')).toBe(true);
+    expect(isCentralCommandMutationRequest('Place an order for $500 from Home Depot')).toBe(true);
+    expect(isCentralCommandMutationRequest('Please schedule an inspection tomorrow')).toBe(true);
+    expect(isCentralCommandMutationRequest('What if labor increases by $2,000?')).toBe(false);
+  });
+
+  test('uses weighted portfolio margin and preserves negative profit', () => {
+    const result = runCompareProjectsPipeline({
+      allProjects: [
+        { id: 'positive', title: 'Positive', status: 'active', bidPrice: 100, estimatedCost: 80 },
+        { id: 'loss', title: 'Loss', status: 'active', bidPrice: 100, estimatedCost: 110 },
+      ],
+    });
+
+    expect(result.portfolioTotals.totalProjectedProfit).toBe(10);
+    expect(result.portfolioTotals.averageMargin).toBe(5);
+  });
+
+  test('excludes a 100-percent project from active-only comparisons', () => {
+    const result = runCompareProjectsPipeline({
+      allProjects: [
+        { id: 'finished', title: 'Finished', status: 'active', bidPrice: 100, estimatedCost: 80, progress: 100 },
+        { id: 'open', title: 'Open', status: 'active', bidPrice: 100, estimatedCost: 80, progress: 50 },
+      ],
+      args: { activeOnly: true },
+    });
+
+    expect(result.projects.map((project) => project.title)).toEqual(['Open']);
+  });
+
+  test('comparison calculations do not mutate project context', () => {
+    const project = {
+      id: 'scenario-project',
+      title: 'Scenario Project',
+      status: 'active',
+      bidPrice: 100000,
+      estimatedCost: 70000,
+      actualCost: 30000,
+      progress: 40,
+    };
+    const before = JSON.stringify(project);
+    runCompareProjectsPipeline({ allProjects: [project] });
+    expect(JSON.stringify(project)).toBe(before);
   });
 });

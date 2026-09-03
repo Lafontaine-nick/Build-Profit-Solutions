@@ -14,10 +14,6 @@ const ACTIVE_PIPELINE_STATUSES = new Set([
   'won',
   'in_progress',
   'active',
-  'completed',
-  'complete',
-  'done',
-  'finished',
 ]);
 
 function normalizeStatus(status) {
@@ -60,7 +56,9 @@ function normalizeExpense(expense) {
   return {
     id: String(expense.id || ''),
     category: expense.category != null ? String(expense.category) : undefined,
-    amount: Number(expense.amount) || 0,
+    amount: Number.isFinite(Number(expense.amount)) && Number(expense.amount) >= 0
+      ? Number(expense.amount)
+      : 0,
     linkedLineId: expense.linkedLineId != null ? String(expense.linkedLineId) : undefined,
   };
 }
@@ -149,14 +147,22 @@ function buildPortfolioBudgetInsights(projects) {
       : Array.isArray(project.projectData?.buckets)
         ? project.projectData.buckets
         : [];
-    const expenses = (Array.isArray(project.expenses) ? project.expenses : [])
+    const rawExpenses = Array.isArray(project.expenses)
+      ? project.expenses
+      : Array.isArray(project.projectData?.expenses)
+        ? project.projectData.expenses
+        : [];
+    const expenses = rawExpenses
       .map(normalizeExpense)
       .filter(Boolean);
 
-    const plannedBudget =
-      buckets.reduce((sum, bucket) => sum + (Number(bucket.budget) || 0), 0) ||
-      Number(project.estimatedCost) ||
-      0;
+    const bucketBudget = buckets.reduce((sum, bucket) => sum + (Number(bucket.budget) || 0), 0);
+    const projectBudget = Number(project.estimatedCost);
+    // A partial category breakdown must not replace an authoritative
+    // project-level cost budget.
+    const plannedBudget = Number.isFinite(projectBudget) && projectBudget > 0
+      ? Math.max(projectBudget, bucketBudget)
+      : bucketBudget;
     const totalSpent = expenses.reduce((sum, expense) => sum + expense.amount, 0);
 
     const projectOver = totalSpent - plannedBudget;

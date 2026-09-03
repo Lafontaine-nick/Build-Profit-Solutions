@@ -3,16 +3,14 @@ const router = express.Router();
 const { buildAiDashboardForUser } = require('../services/aiDashboardService');
 const { authenticateToken } = require('../middleware/authenticateToken');
 
-const authenticateTokenOptional = authenticateToken;
-
 /**
  * POST /api/ai/dashboard-insights
  * Generate AI insights and next steps for the user's dashboard
  */
-router.post('/dashboard-insights', authenticateTokenOptional, async (req, res) => {
+router.post('/dashboard-insights', authenticateToken, async (req, res) => {
   try {
     // Prefer authenticated user id if available
-    const authUserId = req.user?.userId || req.user?.id;
+    const authUserId = req.user?.userId || req.user?.id || req.user?.sub;
     const bodyUserId = req.body.userId;
 
     const userId = authUserId || bodyUserId;

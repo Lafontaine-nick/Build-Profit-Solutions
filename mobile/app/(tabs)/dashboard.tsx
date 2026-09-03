@@ -3097,9 +3097,9 @@ const DashboardScreen: React.FC = () => {
         "/api/ai/dashboard-insights",
         { userId, projects: allProjects, completedSummaries, forceRefresh },
         {
-          // This endpoint supports optional auth and can use userId from body.
-          // Force-empty Authorization to avoid stale/expired token failures.
-          headers: { Authorization: '' },
+          // apiService supplies the current authenticated token, including
+          // its Clerk refresh fallback. Do not override it with an empty
+          // Authorization header.
           signal: abortController.signal,
         }
       );
