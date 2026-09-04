@@ -63,7 +63,7 @@ export const SCENARIO_SELECTION_ID_PATTERN =
 
 /** Command Center / All Projects: schedule, calendar, payments+deadlines — aggregate active jobs; never ask "which project?" */
 export const PORTFOLIO_SCHEDULE_CALENDAR_PATTERN =
-  /\b(?:payments?\s+or\s+deadlines|deadlines?\s+or\s+payments|what\s+payments?\s+or\s+deadlines|upcoming\s+(?:deadlines?|payments?|events?)|what'?s\s+on\s+(?:my\s+)?(?:the\s+)?calendar|calendar\s+events?|on\s+my\s+schedule|do\s+i\s+have\s+(?:any\s+)?events?|inspections?\s+coming|any\s+inspections)\b/i;
+  /\b(?:payments?\s+or\s+deadlines|deadlines?\s+or\s+payments|what\s+payments?\s+or\s+deadlines|upcoming\s+(?:deadlines?|payments?|events?|schedule)|what\s+(?:does|is)\s+(?:my\s+)?(?:upcoming\s+)?schedule(?:\s+look\s+like)?|what'?s\s+on\s+(?:my\s+)?(?:the\s+)?calendar|calendar\s+events?|on\s+my\s+schedule|do\s+i\s+have\s+(?:any\s+)?events?|inspections?\s+coming|any\s+inspections)\b/i;
 
 export function isConversationCancelQuery(query: string): boolean {
   return /^\s*(cancel|never mind|nevermind|stop|forget (?:it|that)|scratch that|don't|do not)\b/i.test(String(query || '').trim());
@@ -80,6 +80,9 @@ export function isExplicitExpenseLogQuery(query: string): boolean {
 
 export function isWriteOrMutationRequest(query: string): boolean {
   const text = String(query || '').toLowerCase();
+  // Reading the schedule contains the word "schedule", but must not be
+  // treated as a write in Central Command's read-only mode.
+  if (PORTFOLIO_SCHEDULE_CALENDAR_PATTERN.test(text)) return false;
   const mutationVerb =
     /\b(?:add|record|log|create|save|update|edit|modify|mark|apply|remove|delete|rename|put|place|send|message|notify|schedule|assign|approve|submit|purchase)\b/i;
   const mutationObject =
@@ -95,6 +98,7 @@ export function isGeneralKnowledgeQuery(query: string): boolean {
   if (/\b(?:what is my|what's my|how's my|how is my|projected profit|over budget)\b/i.test(q)) return false;
   return (
     /\b(explain|what is the difference|what's the difference|difference between|why can|why do|why would|how should i (?:account|count|think|price)|what (?:questions|scope) (?:should|might|could|items)|can you guarantee|what should i (?:review|ask|know|look)|what is (?:an |the )?(?:estimate|actual expense|committed cost|markup|margin))\b/i.test(q) ||
+    /\bwhat are some\b[\s\S]{0,80}\b(?:project\s+)?scopes?\b[\s\S]{0,60}\b(?:missing|include|cover)\b/i.test(q) ||
     /\b(?:markup|margin|estimate|actual|committed)\s+(?:versus|vs\.?)\b/i.test(q)
   );
 }
@@ -146,9 +150,9 @@ export function detectProjectIntent(query: string): ProjectIntent {
   // CRITICAL: Team management, health check, forecast, etc. - map to correct intent, not generic analysis
   const isTeamManagementRequest = /\b(team\s+management|help.*team|team\s+help)\b/i.test(lowerQuery);
   const isHealthCheckRequest =
-    /\b(health\s+check|project\s+health|check\s+(project|budget)|budget\s+check|budget\s+status|stay\s+on\s+budget|keep\s+(?:the\s+)?(?:job|project)\s+on\s+budget|(?:am|are)\s+i\s+(?:over|on)\s+budget|current\s+(?:job|project)\s+(?:risk|risks)|current\s+risk(?:s)?[\s\S]{0,40}(?:job|project)|risk(?:s)?\s+(?:on|for)\s+(?:this|my|the|current)\s+(?:job|project))\b/i.test(
+    /\b(health\s+check|project\s+health|check\s+(project|budget)|budget\s+check|budget\s+status|budget\s+variance|variance\s+(?:against|from|to)\s+(?:the\s+)?budget|remaining\s+(?:cost|budget)|(?:cost|budget)[\s\S]{0,25}(?:remaining|left)|standalone\s+margin|current\s+margin|best[\s\S]{0,60}(?:paint|painting|demo|demolition|outdoor)|(?:good|better)\s+day[\s\S]{0,60}(?:paint|painting|demo|demolition|outdoor)|which\s+day[\s\S]{0,60}(?:paint|painting|demo|demolition|outdoor)|how\s+is\s+the\s+weather|what\s+is\s+the\s+weather|weather\s+(?:today|this\s+week)|how\s+much[\s\S]{0,40}\b(?:cost\s+)?budget[\s\S]{0,20}\b(?:already\s+)?spent|how\s+much[\s\S]{0,40}\bspent[\s\S]{0,20}\b(?:cost\s+)?budget|what\s+(?:portion|percentage|percent)\s+of[\s\S]{0,30}\bbudget[\s\S]{0,20}\b(?:spent|used)|stay\s+on\s+budget|keep\s+(?:the\s+)?(?:job|project)\s+on\s+budget|(?:am|are)\s+i\s+(?:over|on)\s+budget|current\s+(?:job|project)\s+(?:risk|risks)|current\s+risk(?:s)?[\s\S]{0,40}(?:job|project)|risk(?:s)?\s+(?:on|for)\s+(?:this|my|the|current)\s+(?:job|project))\b/i.test(
       lowerQuery
-    );
+    ) || lowerQuery === 'margin';
   const isForecastRequest = /\b(forecast|what\s+if|scenario\s+analysis)\b/i.test(lowerQuery);
   
   // Project-specific keywords (including "my project", "this job", "our estimate")

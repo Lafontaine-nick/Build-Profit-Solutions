@@ -764,6 +764,40 @@ function buildTodayBriefFromContext(parsedContext: any, userFirstName?: string |
     recommendedActions.push({ label: 'Upload missing receipts', prompt: 'Which projects have missing receipts? I want to upload them.' });
   }
 
+  const upcomingCalendarEvents = portfolioForBrief
+    .flatMap((project: any) => {
+      const events = Array.isArray(project?.calendarEvents)
+        ? project.calendarEvents
+        : Array.isArray(project?.projectData?.calendarEvents)
+          ? project.projectData.calendarEvents
+          : [];
+      return events
+        .filter((event: any) => !event?.completed && event?.date)
+        .map((event: any) => ({
+          ...event,
+          projectTitle: project?.title || project?.name || 'Project',
+          parsedDate: safeDate(event.date),
+        }));
+    })
+    .filter((event: any) => {
+      if (!event.parsedDate) return false;
+      const daysAhead = (event.parsedDate.getTime() - now.getTime()) / 864e5;
+      return daysAhead >= -0.01 && daysAhead <= 14;
+    })
+    .sort((a: any, b: any) => a.parsedDate.getTime() - b.parsedDate.getTime());
+
+  if (upcomingCalendarEvents.length > 0) {
+    const nextEvent = upcomingCalendarEvents[0];
+    const dateLabel = nextEvent.parsedDate.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+    insights.push(
+      `Upcoming: ${nextEvent.title || 'Calendar event'} · ${nextEvent.projectTitle} · ${dateLabel}`
+    );
+  }
+
   const withMargin = portfolioForBrief
     .map((p: any) => {
       const title = p?.title || p?.name || 'Project';
@@ -945,9 +979,9 @@ const CENTRAL_COMMAND_PROMPTS = [
     icon: "trending-up",
   },
   {
-    label: "Summarize today",
-    prompt: "What should I focus on today? Give me my top priorities.",
-    icon: "today",
+    label: "Upcoming schedule",
+    prompt: "What does my calendar look like?",
+    icon: "event",
   },
 ] as const;
 
@@ -1640,7 +1674,18 @@ const AIAssistantModal: React.FC<Props> = ({
     return buildTodayBriefFromContext(parsed, userFirstName);
   }, [context, user]);
 
-  const displayBrief = todayBriefData || todayBriefFromContext;
+  const displayBrief = useMemo(() => {
+    if (!todayBriefData) return todayBriefFromContext;
+    const localScheduleInsights = (todayBriefFromContext?.insights || []).filter((insight) =>
+      String(insight).startsWith('Upcoming:')
+    );
+    return {
+      ...todayBriefData,
+      // Greeting responses can be generated before the local calendar snapshot
+      // finishes loading. Preserve any locally-known schedule notification.
+      insights: [...todayBriefData.insights, ...localScheduleInsights].slice(0, 5),
+    };
+  }, [todayBriefData, todayBriefFromContext]);
   const centralCommandStatus = useMemo(() => {
     if (!isGlobalAssistantContext) return null;
     const projects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
@@ -1999,10 +2044,13 @@ const AIAssistantModal: React.FC<Props> = ({
           const t = String(title || '').trim();
           if (t.length >= 3) deletedRecords.push({ id: '', title: t, deletedAt: '' });
         }
-        baseContext.allProjects = filterProjectsForPortfolioAi(
+        const filteredPortfolioProjects = filterProjectsForPortfolioAi(
           baseContext.allProjects,
           deletedRecords
         );
+        if (filteredPortfolioProjects.length > 0 || baseContext.allProjects.length === 0) {
+          baseContext.allProjects = filteredPortfolioProjects;
+        }
         if (Array.isArray(baseContext.compareProjectsData)) {
           const allowedIds = new Set(
             baseContext.allProjects.map((p: any) => String(p?.id ?? '')).filter(Boolean)
@@ -3018,6 +3066,15 @@ const AIAssistantModal: React.FC<Props> = ({
     if (!messageToSend || loading) return;
     const isCancelTurn = isConversationCancelQuery(messageToSend);
     const isGeneralTurn = isGeneralKnowledgeQuery(messageToSend);
+    const isTypedAnalysisChoice =
+      /^(?:quick\s+health\s+check|quick\s+health|full\s+breakdown|full\s+analysis|breakdown)\.?$/i.test(messageToSend);
+    // A pending chip is not permission to reinterpret every new message as its answer.
+    // Only the explicit analysis-choice text may continue that flow; all other new
+    // messages are reclassified from scratch.
+    if (pendingAnalysisType && !isTypedAnalysisChoice) {
+      setPendingAnalysisType(null);
+    }
+    const pendingAnalysisTypeForTurn = isTypedAnalysisChoice ? pendingAnalysisType : null;
     const isReadOnlyWriteTurn = isCentralCommandReadOnly && isWriteOrMutationRequest(messageToSend);
     if (isCancelTurn || isGeneralTurn || isReadOnlyWriteTurn) {
       clearPendingConversationFlows();
@@ -3294,7 +3351,7 @@ const AIAssistantModal: React.FC<Props> = ({
       // Include Command Center (AI Assistant Tab) so "Compare Projects" button works without asking "Which project?"
       const isPortfolioScopeMessage =
         (isProjectsScreenContext || isGlobalAssistantContext) &&
-        /\b(compare\s+(all\s+)?(my\s+)?(active\s+)?projects?|compare\s+my\s+projects|all\s+(of\s+)?my\s+projects|all\s+active\s+projects|which\s+project\s+is\s+most\s+profitable|identify\s+budget\s+risks|current\s+risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|what\s+are\s+(?:the\s+)?current\s+risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|(?:order|rank|sort|list|show|tell\s+me)\b[\s\S]{0,50}\bcurrent\s+risk(?:s)?\b[\s\S]{0,50}\b(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|across\s+my\s+projects|across\s+all\s+projects|across\s+my\s+active\s+projects|health\s+check\s+across\s+all|forecast\s+(profit|across)|budget\s+risks|missing\s+receipts|upcoming\s+(deadlines|payments)|payments?\s+or\s+deadlines|deadlines?\s+or\s+payments|what\s+payments?\s+or\s+deadlines|(?:payments?|deadlines?|events?)\s+(?:are\s+)?coming\s+up|what'?s\s+on\s+(?:my\s+)?(?:the\s+)?calendar|calendar\s+events?|on\s+my\s+schedule|where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak|(yes\s+)?completed\s+projects?|completed\s+jobs?|review\s+(my\s+)?completed|compare\s+(my\s+)?completed|(which\s+)?(active\s+)?projects?\s+(are\s+)?over\s+budget|show\s+projects?\s+over\s+budget|over\s+budget(\s+and\s+by\s+how\s+much)?|identify\s+budget\s+risks|budget\s+risks)\b/i.test(
+        /\b(compare\s+(all\s+)?(my\s+)?(active\s+)?projects?|compare\s+my\s+projects|all\s+(of\s+)?my\s+projects|all\s+active\s+projects|which\s+project\s+is\s+most\s+profitable|identify\s+budget\s+risks|current\s+risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|what\s+are\s+(?:the\s+)?current\s+risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|(?:order|rank|sort|list|show|tell\s+me)\b[\s\S]{0,50}\bcurrent\s+risk(?:s)?\b[\s\S]{0,50}\b(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|across\s+my\s+projects|across\s+all\s+projects|across\s+my\s+active\s+projects|health\s+check\s+across\s+all|forecast\s+(profit|across)|budget\s+risks|missing\s+receipts|upcoming\s+(deadlines|payments)|payments?\s+or\s+deadlines|deadlines?\s+or\s+payments|what\s+payments?\s+or\s+deadlines|(?:payments?|deadlines?|events?)\s+(?:are\s+)?coming\s+up|what'?s\s+on\s+(?:my\s+)?(?:the\s+)?calendar|calendar\s+events?|on\s+my\s+schedule|what\s+(?:does|is)\s+(?:my\s+)?(?:upcoming\s+)?schedule(?:\s+look\s+like)?|(?:my\s+)?upcoming\s+schedule|where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak|(yes\s+)?completed\s+projects?|completed\s+jobs?|review\s+(my\s+)?completed|compare\s+(my\s+)?completed|(which\s+)?(active\s+)?projects?\s+(are\s+)?over\s+budget|show\s+projects?\s+over\s+budget|over\s+budget(\s+and\s+by\s+how\s+much)?|identify\s+budget\s+risks|budget\s+risks)\b/i.test(
           messageToSend
         );
 
@@ -3335,7 +3392,7 @@ const AIAssistantModal: React.FC<Props> = ({
       const messageLower = newMessage.content.toLowerCase();
       
       // Check if this is a follow-up after chip selection (project ID might be in pendingAnalysisType)
-      if (pendingAnalysisType && !intent.needsProject) {
+      if (pendingAnalysisTypeForTurn && !intent.needsProject) {
         // This is the analysis type selection, use the pending project ID
         resolvedProjectId = pendingAnalysisType.projectId;
       }
@@ -3470,7 +3527,7 @@ const AIAssistantModal: React.FC<Props> = ({
               SCENARIO_SELECTION_ID_PATTERN.test(newMessage.content.trim());
             // CRITICAL: Skip analysis-type flow when resuming from payment card tap — bind to mark_payment_completed, not health check
             // CRITICAL: On Estimate Generator, messages often say "project title / Step 2" — those match project_analysis but are bid workflow, not PM health checks
-            if (!isPaymentSelectionResume && !isPortfolioScopeMessage && !pendingAnalysisType && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && !isMakingEnoughOrMargin && !isScenarioRequest && !isEstimateContext && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
+            if (!isPaymentSelectionResume && !isPortfolioScopeMessage && !pendingAnalysisTypeForTurn && !isExpenseLikeIntent && !isChangeOrderIntent && !isAssignPMIntent && !isTeamActionIntent && !isMakingEnoughOrMargin && !isScenarioRequest && !isEstimateContext && intent.analysisType === 'unspecified' && (intent.type === 'project_analysis' || intent.type === 'project_health')) {
               setPendingAnalysisType({
                 query: newMessage.content,
                 projectId: resolvedProjectId,
@@ -4000,12 +4057,23 @@ const AIAssistantModal: React.FC<Props> = ({
         responseProjectName && typeof data.reply === 'string'
           ? data.reply
               .replace(/"This project"/g, `"${responseProjectName}"`)
-              .replace(/\bThis project project\b/g, `${responseProjectName} project`)
+              .replace(/\bthis project project\b/gi, `${responseProjectName} project`)
+              .replace(/\bthis job job\b/gi, `${responseProjectName} job`)
+              .replace(/\bthis project\b/gi, responseProjectName)
+              .replace(/\bthis job\b/gi, responseProjectName)
           : data.reply;
+      const responseText = typeof responseContent === 'string' ? responseContent : '';
+      const containsNumericGuidance = /\b(?:markup|margin|projected profit|estimated cost|target bid|price range|forecast)\b/i.test(responseText);
+      const numericGuidanceDisclaimer =
+        '[DISCLAIMER]Numbers are illustrative planning guidance based on the project data and assumptions provided—not a quote, guarantee, or legal, tax, accounting, or professional recommendation. Verify scope, labor, materials, overhead, taxes, insurance, local requirements, pricing, and contract terms before relying on or sending them.[/DISCLAIMER]';
+      const finalResponseContent =
+        containsNumericGuidance && !/\[DISCLAIMER\]/i.test(responseText)
+          ? `${responseText}\n\n${numericGuidanceDisclaimer}`
+          : responseContent;
       const assistantMessage: Message = {
         id: hasSelectionCards ? Date.now().toString() + "-ai-selection-clarification" : Date.now().toString() + "-ai",
         role: "assistant",
-        content: responseContent ?? "Sorry, I couldn't generate a response.",
+        content: finalResponseContent ?? "Sorry, I couldn't generate a response.",
         timestamp: new Date(),
         // Attach server-computed analysis card if present
         ...(data.analysisCard ? { analysisCard: data.analysisCard } : {}),
@@ -4338,7 +4406,17 @@ const AIAssistantModal: React.FC<Props> = ({
       }, 100);
       
       // Handle AI actions if any - but first show confirmation
-      if (data.actions && Array.isArray(data.actions) && onAction && !isCentralCommandReadOnly) {
+      const calendarActionsOnly =
+        isCentralCommandReadOnly &&
+        Array.isArray(data.actions) &&
+        data.actions.length > 0 &&
+        data.actions.every((action: any) => action?.type === 'create_calendar_event');
+      if (
+        data.actions &&
+        Array.isArray(data.actions) &&
+        (onAction || calendarActionsOnly) &&
+        (!isCentralCommandReadOnly || calendarActionsOnly)
+      ) {
         console.log('🔍 AIAssistantModal: Received actions from backend:', {
           actionsCount: data.actions.length,
           actions: data.actions.map((a: any) => ({ type: a.type, projectId: a.projectId, amount: a.amount, vendor: a.vendor }))
@@ -5257,7 +5335,7 @@ const AIAssistantModal: React.FC<Props> = ({
     <Modal
       visible={visible}
       presentationStyle={isGlobalAssistantContext ? "fullScreen" : undefined}
-      animationType={Platform.OS === "ios" ? "slide" : "fade"}
+      animationType={isGlobalAssistantContext ? "fade" : Platform.OS === "ios" ? "slide" : "fade"}
       onRequestClose={handleBackNavigation}
     >
       <KeyboardAvoidingView

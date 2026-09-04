@@ -52,11 +52,22 @@ export interface DailyBriefUpcomingPayment {
   projectTitle?: string;
 }
 
+export interface DailyBriefUpcomingScheduleItem {
+  id?: string;
+  title: string;
+  type?: "inspection" | "delivery" | "work" | "payment" | "deadline" | "other" | string;
+  date?: string | null;
+  time?: string | null;
+  projectId?: string | null;
+  projectTitle?: string;
+  notes?: string | null;
+}
+
 export interface AiDailyBrief {
   topProfitRisks: DailyBriefRisk[];
   topActions: AiNextStep[];
   upcomingPayments: DailyBriefUpcomingPayment[];
-  upcomingScheduleItems: Array<Record<string, any>>;
+  upcomingScheduleItems: DailyBriefUpcomingScheduleItem[];
   portfolioSummary: {
     activeProjectCount: number;
     totalProjectCount: number;

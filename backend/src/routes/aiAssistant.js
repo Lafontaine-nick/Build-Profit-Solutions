@@ -227,18 +227,34 @@ function buildProjectedVsEstimateReply({ project = null, parsedContext = {} } = 
   );
 }
 
-function buildCalculationFollowUpReply({ parsedContext = {}, allProjects = [], history = [] } = {}) {
+function buildCalculationFollowUpReply({ parsedContext = {}, allProjects = [], history = [], currentMessage = '' } = {}) {
   const priorMessages = Array.isArray(history) ? history : [];
   const lastUserMessage = String(
-    [...priorMessages].reverse().find((item) => item?.role === 'user')?.content || ''
+    currentMessage ||
+    [...priorMessages].reverse().find((item) => item?.role === 'user')?.content ||
+    ''
   );
   const lastAssistantMessage = String(
     [...priorMessages].reverse().find((item) => item?.role === 'assistant')?.content || ''
   );
   const topic = `${lastUserMessage} ${lastAssistantMessage}`.toLowerCase();
+  const projectsForFollowUp =
+    allProjects.length > 0
+      ? allProjects
+      : (
+        parsedContext.assistantMode === 'central_command' &&
+        String(parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || '').trim()
+          ? [{
+              ...parsedContext,
+              id: parsedContext.projectId || parsedContext.resolvedProjectId || 'context-current-project',
+              title: parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle,
+            }]
+          : []
+      );
   const targetProject =
-    findProjectMentionedInMessage(allProjects, lastUserMessage) ||
-    allProjects.find((project) => String(project?.id) === String(parsedContext?.projectId)) ||
+    findProjectMentionedInMessage(projectsForFollowUp, lastUserMessage) ||
+    projectsForFollowUp.find((project) => String(project?.id) === String(parsedContext?.projectId)) ||
+    (projectsForFollowUp.length === 1 ? projectsForFollowUp[0] : null) ||
     null;
   const scopedContext = targetProject
     ? {
@@ -258,6 +274,48 @@ function buildCalculationFollowUpReply({ parsedContext = {}, allProjects = [], h
     parsedContext.projectName ||
     'this project';
   const money = (value) => `$${Math.round(Number(value || 0)).toLocaleString()}`;
+
+  if (/\bmarkup\b/i.test(lastUserMessage) && /\bmargin\b/i.test(lastUserMessage)) {
+    const plannedProfit =
+      snapshot.revenue != null && snapshot.estimatedCost != null
+        ? snapshot.revenue - snapshot.estimatedCost
+        : null;
+    const plannedMarkup =
+      plannedProfit != null && snapshot.estimatedCost > 0
+        ? (plannedProfit / snapshot.estimatedCost) * 100
+        : null;
+    const plannedMargin =
+      plannedProfit != null && snapshot.revenue > 0
+        ? (plannedProfit / snapshot.revenue) * 100
+        : null;
+    const spendProfit =
+      snapshot.revenue != null && snapshot.spent != null
+        ? snapshot.revenue - snapshot.spent
+        : null;
+    const spendMarkup =
+      spendProfit != null && snapshot.spent > 0
+        ? (spendProfit / snapshot.spent) * 100
+        : null;
+    const spendMargin =
+      spendProfit != null && snapshot.revenue > 0
+        ? (spendProfit / snapshot.revenue) * 100
+        : null;
+    return [
+      `**Markup vs. margin — ${projectName}**`,
+      '',
+      '**Markup** is profit divided by cost: `(price − cost) ÷ cost`.',
+      '**Margin** is profit divided by selling price: `(price − cost) ÷ price`.',
+      '',
+      plannedProfit != null
+        ? `Using the planned estimate: **${money(snapshot.revenue)}** price − **${money(snapshot.estimatedCost)}** cost = **${money(plannedProfit)}** profit, which is **${plannedMarkup?.toFixed(1)}% markup** and **${plannedMargin?.toFixed(1)}% margin**.`
+        : '',
+      spendProfit != null
+        ? `Using recorded spend to date: **${money(snapshot.revenue)}** price − **${money(snapshot.spent)}** spent = **${money(spendProfit)}** difference, which is **${spendMarkup?.toFixed(1)}% spend-based markup** and **${spendMargin?.toFixed(1)}% spend-to-date margin**.`
+        : '',
+      '',
+      'They are different percentages because markup uses the cost denominator, while margin uses the customer price denominator.',
+    ].filter(Boolean).join('\n');
+  }
 
   if (/\b(budget|over budget|budget alert|overrun)\b/i.test(topic) &&
       snapshot.estimatedCost != null && snapshot.spent != null) {
@@ -282,7 +340,8 @@ function buildCalculationFollowUpReply({ parsedContext = {}, allProjects = [], h
     }
   }
 
-  if (/\b(profit|forecast|projected)\b/i.test(topic) &&
+  if (!/\bmargin\b/i.test(lastUserMessage) &&
+      /\b(profit|forecast|projected)\b/i.test(topic) &&
       snapshot.revenue != null &&
       snapshot.projectedFinalCost != null) {
     const projectedProfit = snapshot.revenue - snapshot.projectedFinalCost;
@@ -602,6 +661,266 @@ function trackEstimateSessionEvent(session, type, data = {}) {
   });
   if (session.estimateEvents.length > 25) {
     session.estimateEvents = session.estimateEvents.slice(-20);
+  }
+}
+
+function isWeatherQuery(message = '') {
+  const text = String(message || '');
+  const weatherTerm = /\b(weather|rain(?:ing)?|temperature|temp|wind|storm|snow|sunny|outdoor conditions)\b/i;
+  const weatherForecast = /\bforecast\b[\s\S]{0,30}\b(weather|rain|temperature|wind|storm|snow|outdoor)\b|\b(weather|rain|temperature|wind|storm|snow|outdoor)\b[\s\S]{0,30}\bforecast\b/i;
+  const outdoorDayQuestion = /\b(?:what|which)\s+day\b[\s\S]{0,60}\b(?:paint|painting|demo|demolition|outdoor|outside)\b/i;
+  const outdoorRecommendation =
+    /\b(?:recommend|best|good|should)\b[\s\S]{0,60}\b(?:paint|painting|demo|demolition|outdoor|outside)\b/i.test(text) &&
+    /\b(?:paint|painting|demo|demolition|outdoor|outside)\b/i.test(text);
+  return weatherTerm.test(text) || weatherForecast.test(text) || outdoorDayQuestion.test(text) || outdoorRecommendation;
+}
+
+function isWeatherLocationFollowUp(message = '', history = []) {
+  if (!/^\s*(?:\d{5}(?:-\d{4})?|[A-Za-z][A-Za-z .'-]{1,40})\s*$/.test(String(message || ''))) return false;
+  const priorAssistant = [...(Array.isArray(history) ? history : [])]
+    .reverse()
+    .find((item) => item?.role === 'assistant');
+  return /\b(?:city|zip|job-site|location)\b[\s\S]{0,80}\bweather\b|\bweather\b[\s\S]{0,80}\b(?:city|zip|location)\b/i.test(
+    String(priorAssistant?.content || priorAssistant?.text || '')
+  );
+}
+
+function isWeatherConversationFollowUp(message = '', history = []) {
+  if (!/\b(?:today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(String(message || ''))) return false;
+  const priorAssistant = [...(Array.isArray(history) ? history : [])]
+    .reverse()
+    .find((item) => item?.role === 'assistant');
+  return /\b(?:weather|forecast|rain|temperature|wind|painting|outdoor)\b/i.test(
+    String(priorAssistant?.content || priorAssistant?.text || '')
+  );
+}
+
+function isRemainingBudgetQuery(message = '') {
+  return /\b(?:remaining|left)\b[\s\S]{0,25}\b(?:cost|budget)\b|\b(?:cost|budget)\b[\s\S]{0,25}\b(?:remaining|left)\b/i.test(
+    String(message || '')
+  );
+}
+
+function buildRemainingBudgetReply({ projectName = 'This project', snapshot = {} } = {}) {
+  if (!(snapshot.estimatedCost > 0) || snapshot.spent == null) return null;
+  const spent = Number(snapshot.spent);
+  const remaining = Number(snapshot.remainingCostBudget ?? Math.max(0, snapshot.estimatedCost - spent));
+  const usedPct = snapshot.estimatedCost > 0 ? (spent / snapshot.estimatedCost) * 100 : 0;
+  return [
+    `**Remaining cost budget for ${projectName}**`,
+    '',
+    `- **Cost budget:** $${Number(snapshot.estimatedCost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    `- **Spent to date:** $${spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    `- **Remaining:** **$${remaining.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}**`,
+    `- **Budget used:** ${usedPct.toFixed(1)}%`,
+  ].join('\n');
+}
+
+function weatherLocationFromContext({ message = '', parsedContext = {}, currentProjectData = null, allProjects = [], history = [] } = {}) {
+  const explicitMatch = String(message || '').match(/\b(?:weather|forecast|conditions?)\b[\s\S]{0,20}\b(?:in|near|at|for)\s+([^?.!,]+?)(?=$|[?.!,])/i);
+  const standaloneLocation = /^\s*(?:\d{5}(?:-\d{4})?|[A-Za-z][A-Za-z .'-]{1,40})\s*$/.test(String(message || ''))
+    ? String(message || '').trim()
+    : '';
+  const priorZip = [...(Array.isArray(history) ? history : [])]
+    .reverse()
+    .map((item) => String(item?.content || item?.text || ''))
+    .map((text) => text.match(/\b\d{5}(?:-\d{4})?\b/))
+    .find(Boolean)?.[0] || '';
+  const project =
+    currentProjectData ||
+    allProjects.find((item) => String(item?.id || '') === String(parsedContext?.projectId || '')) ||
+    null;
+  return String(
+    explicitMatch?.[1] ||
+    standaloneLocation ||
+    priorZip ||
+    parsedContext?.location ||
+    project?.location ||
+    project?.projectData?.location ||
+    ''
+  ).trim();
+}
+
+async function buildWeatherReply({ message = '', parsedContext = {}, currentProjectData = null, allProjects = [], history = [] } = {}) {
+  const location = weatherLocationFromContext({ message, parsedContext, currentProjectData, allProjects, history });
+  if (!location) {
+    return 'What city, ZIP code, or job-site location should I check for the weather?';
+  }
+
+  try {
+    const geocodeUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`;
+    const geocodeResponse = await fetch(geocodeUrl);
+    if (!geocodeResponse.ok) throw new Error(`geocoding_${geocodeResponse.status}`);
+    const geocode = await geocodeResponse.json();
+    const result = geocode?.results?.[0];
+    if (!result) {
+      return `I couldn't find a weather location for **${location}**. Try a city and state or a ZIP code.`;
+    }
+
+    const weatherUrl =
+      `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(result.latitude)}` +
+      `&longitude=${encodeURIComponent(result.longitude)}` +
+      '&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m' +
+      '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max' +
+      '&forecast_days=7' +
+      '&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto';
+    const weatherResponse = await fetch(weatherUrl);
+    if (!weatherResponse.ok) throw new Error(`weather_${weatherResponse.status}`);
+    const weather = await weatherResponse.json();
+    const current = weather?.current || {};
+    const weatherLabels = {
+      0: 'clear skies',
+      1: 'mostly clear',
+      2: 'partly cloudy',
+      3: 'overcast',
+      45: 'foggy',
+      48: 'freezing fog',
+      51: 'light drizzle',
+      53: 'drizzle',
+      55: 'heavy drizzle',
+      61: 'light rain',
+      63: 'rain',
+      65: 'heavy rain',
+      71: 'light snow',
+      73: 'snow',
+      75: 'heavy snow',
+      80: 'rain showers',
+      81: 'rain showers',
+      82: 'heavy rain showers',
+      95: 'thunderstorms',
+      96: 'thunderstorms with hail',
+      99: 'thunderstorms with hail',
+    };
+    const place = [result.name, result.admin1, result.country_code].filter(Boolean).join(', ');
+    const recommendationQuery =
+      /\b(?:recommend|best|good|should)\b[\s\S]{0,60}\b(?:day|today|tomorrow|paint|painting|demo|demolition|outdoor|outside|work)\b/i.test(message) &&
+      /\b(?:paint|painting|demo|demolition|outdoor|outside|work|job)\b/i.test(message);
+    const requestedDayMatch = String(message || '').match(
+      /\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i
+    );
+    const historyText = (Array.isArray(history) ? history : [])
+      .map((item) => String(item?.content || item?.text || ''))
+      .join(' ');
+    if (requestedDayMatch && Array.isArray(weather?.daily?.time)) {
+      const requestedDay = requestedDayMatch[1].toLowerCase();
+      const requestedIndex = requestedDay === 'today'
+        ? 0
+        : requestedDay === 'tomorrow'
+          ? 1
+          : weather.daily.time.findIndex((date) => {
+              const weekday = new Date(`${date}T12:00:00`)
+                .toLocaleDateString('en-US', { weekday: 'long' })
+                .toLowerCase();
+              return weekday === requestedDay;
+            });
+      const dayIndex = requestedIndex >= 0 ? requestedIndex : 0;
+      const dayDate = weather.daily.time[dayIndex];
+      const dayMax = Number(weather.daily.temperature_2m_max?.[dayIndex]);
+      const dayMin = Number(weather.daily.temperature_2m_min?.[dayIndex]);
+      const dayRain = Number(weather.daily.precipitation_probability_max?.[dayIndex] ?? 100);
+      const dayWind = Number(weather.daily.wind_speed_10m_max?.[dayIndex] ?? 99);
+      const isPainting = /\b(?:paint|painting)\b/i.test(`${message} ${historyText}`);
+      const isDemo = /\b(?:demo|demolition)\b/i.test(`${message} ${historyText}`);
+      const isSuitable = dayRain <= 30 &&
+        dayWind <= (isPainting ? 15 : 25) &&
+        dayMin >= (isPainting ? 50 : 40) &&
+        dayMax <= (isPainting ? 90 : 100);
+      const dayLabel = new Date(`${dayDate}T12:00:00`).toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+      });
+      const taskLabel = isPainting ? 'exterior painting' : isDemo ? 'demolition' : 'outdoor work';
+      return [
+        `**${dayLabel} forecast near ${place}**`,
+        '',
+        `- **Rain probability:** ${dayRain}%`,
+        `- **Temperature range:** ${Math.round(dayMin)}–${Math.round(dayMax)}°F`,
+        `- **Maximum wind:** ${Math.round(dayWind)} mph`,
+        '',
+        isSuitable
+          ? `For ${taskLabel}, **${dayLabel.split(',')[0]} looks workable** based on the current forecast.`
+          : `For ${taskLabel}, **${dayLabel.split(',')[0]} does not look ideal** based on the current forecast${dayRain > 30 ? ` because rain probability is ${dayRain}%` : dayWind > (isPainting ? 15 : 25) ? ` because wind may be too high` : ' because temperatures may be outside a comfortable working range'}.`,
+        'Recheck the forecast the morning of the job because conditions can change.',
+      ].join('\n');
+    }
+    if (recommendationQuery && Array.isArray(weather?.daily?.time)) {
+      const task = /\b(?:demo|demolition)\b/i.test(message)
+        ? 'demolition'
+        : /\b(?:paint|painting)\b/i.test(message)
+          ? 'exterior painting'
+          : 'outdoor work';
+      const days = weather.daily.time.map((date, index) => {
+        const rainChance = Number(weather.daily.precipitation_probability_max?.[index] ?? 100);
+        const maxTemp = Number(weather.daily.temperature_2m_max?.[index]);
+        const minTemp = Number(weather.daily.temperature_2m_min?.[index]);
+        const wind = Number(weather.daily.wind_speed_10m_max?.[index] ?? 99);
+        const code = Number(weather.daily.weather_code?.[index]);
+        const stormOrSnow = [65, 75, 82, 95, 96, 99].includes(code);
+        const comfortableTemperature = task === 'exterior painting'
+          ? minTemp >= 50 && maxTemp <= 90
+          : minTemp >= 40 && maxTemp <= 100;
+        const score =
+          (100 - Math.min(100, rainChance)) * 0.55 +
+          (comfortableTemperature ? 25 : 0) +
+          (wind <= (task === 'exterior painting' ? 15 : 25) ? 20 : 0) -
+          (stormOrSnow ? 60 : 0);
+        return {
+          date,
+          rainChance,
+          maxTemp,
+          minTemp,
+          wind,
+          score,
+          stormOrSnow,
+        };
+      });
+      const bestDay = [...days].sort((a, b) => b.score - a.score)[0];
+      const bestDate = new Date(`${bestDay.date}T12:00:00`);
+      const dayName = bestDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+      const alternatives = days
+        .filter((day) => day.date !== bestDay.date && !day.stormOrSnow)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 2)
+        .map((day) => new Date(`${day.date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short' }))
+        .join(' or ');
+      return [
+        `**Best upcoming day for ${task} near ${place}**`,
+        '',
+        `I recommend **${dayName}** based on the current 7-day forecast.`,
+        `- Rain probability: **${bestDay.rainChance}%**`,
+        `- Temperature range: **${Math.round(bestDay.minTemp)}–${Math.round(bestDay.maxTemp)}°F**`,
+        `- Maximum wind: **${Math.round(bestDay.wind)} mph**`,
+        alternatives ? `Backup options: **${alternatives}**.` : '',
+        '',
+        `Recheck the forecast the morning of the job. For ${task}, weather can change quickly and product labels may require specific temperature, humidity, or drying conditions.`,
+      ].filter(Boolean).join('\n');
+    }
+    const temperature = Number.isFinite(Number(current.temperature_2m))
+      ? `${Math.round(Number(current.temperature_2m))}°F`
+      : 'unavailable';
+    const feelsLike = Number.isFinite(Number(current.apparent_temperature))
+      ? `${Math.round(Number(current.apparent_temperature))}°F`
+      : 'unavailable';
+    const wind = Number.isFinite(Number(current.wind_speed_10m))
+      ? `${Math.round(Number(current.wind_speed_10m))} mph`
+      : 'unavailable';
+    const precipitation = Number.isFinite(Number(current.precipitation))
+      ? `${Number(current.precipitation).toFixed(1)} mm`
+      : 'unavailable';
+    return [
+      `**Current weather for ${place}**`,
+      '',
+      `- **Conditions:** ${weatherLabels[current.weather_code] || 'current conditions'}`,
+      `- **Temperature:** ${temperature} (feels like ${feelsLike})`,
+      `- **Wind:** ${wind}`,
+      `- **Precipitation:** ${precipitation}`,
+      '',
+      'For outdoor work, check the forecast again before scheduling and follow local lightning, heat, and severe-weather guidance.',
+    ].join('\n');
+  } catch (error) {
+    console.warn('Weather lookup failed:', error?.message || error);
+    return `I couldn't retrieve live weather for **${location}** right now. Please check a local weather service before scheduling outdoor work.`;
   }
 }
 
@@ -1053,7 +1372,7 @@ function runScenarioAllPresetsInline(ctx = {}) {
     job_runs_long_4: { weeks: 4, label: 'Job Runs Long (4 weeks)' },
     job_runs_long_6: { weeks: 6, label: 'Job Runs Long (6 weeks)' },
   };
-  const disclaimer = '\n\n[DISCLAIMER]Scenario results are projections based on applied cost adjustments—not guarantees of actual outcomes. Use for planning only.[/DISCLAIMER]';
+  const disclaimer = '\n\n[DISCLAIMER]Scenario results are planning estimates based on the costs and assumptions provided—not guarantees, quotes, or legal, tax, or professional advice. Verify scope, costs, and contract terms before relying on them.[/DISCLAIMER]';
   const presets = ['typical_friction', 'bad_remodel', 'smooth_job', 'job_runs_long', 'job_runs_long_4'];
   const baselineShort = baselineLabel && baselineLabel.includes('live forecast')
     ? 'Current live forecast'
@@ -1229,7 +1548,7 @@ function runScenarioSingleInline(scenario, ctx = {}) {
   }
   const profitChange = newProfit - originalProfit;
   const projectName = (() => { const p = currentProject?.title || currentProject?.name || ctx.bidTitle; return typeof p === 'string' && p ? p : ''; })();
-  const disclaimer = '\n\n[DISCLAIMER]Scenario results are projections based on applied cost adjustments—not guarantees of actual outcomes. Use for planning only.[/DISCLAIMER]';
+  const disclaimer = '\n\n[DISCLAIMER]Scenario results are planning estimates based on the costs and assumptions provided—not guarantees, quotes, or legal, tax, or professional advice. Verify scope, costs, and contract terms before relying on them.[/DISCLAIMER]';
   return formatScenarioFullResponse({
     adj,
     baselineLabel: baselineLabel || '',
@@ -2426,6 +2745,25 @@ function matchesEstimatePriceGuidanceQuery(msgLower) {
     t.includes('what should i price this at') ||
     /\bhow much\b.*\b(?:charge|bid|price)\b/.test(t) ||
     /\b(?:charge|bid|price)\b.*\b(?:enough|too low|fair)\b/.test(t)
+  );
+}
+
+function isMarkupAdviceQuestion(message = '') {
+  const t = String(message || '').toLowerCase();
+  return (
+    /\bwhat\s+should\s+i\s+(?:put|use|set)\b[\s\S]{0,50}\bmarkup\b/i.test(t) ||
+    /\b(?:current|recommended|target|suggested)\s+markup\b/i.test(t) ||
+    /\bmarkup\b[\s\S]{0,50}\b(?:recommend|should|suggest)\b/i.test(t)
+  );
+}
+
+function isEstimateBudgetAdviceQuestion(message = '') {
+  const t = String(message || '').toLowerCase();
+  return (
+    /\b(?:overall|current|total|working|internal)\s+budget\b/i.test(t) ||
+    /\bwhat\s+should\s+(?:my|the)\s+(?:estimate|project)?\s*budget\b/i.test(t) ||
+    /\bhow\s+much\s+should\s+i\s+budget\b/i.test(t) ||
+    /\bwhat\s+budget\s+should\s+i\s+use\b/i.test(t)
   );
 }
 
@@ -4749,7 +5087,7 @@ function runMissingCostScan({ projectName, estimatedCost, estimateData, bidTotal
     reply += `⚠️ Potential missing costs:\n`;
     gaps.forEach((g, i) => { reply += `${i + 1}. ${g.title} — ${g.reason} (impact: +$${g.range.min.toLocaleString()} to +$${g.range.max.toLocaleString()})\n`; });
     reply += `\n💰 Potential underestimation impact: +$${totalMin.toLocaleString()} to +$${totalMax.toLocaleString()}.\n`;
-    reply += `[DISCLAIMER]Impact ranges are estimates based on typical project costs—not real-time market data.[/DISCLAIMER]\n\n`;
+    reply += `[DISCLAIMER]Impact ranges are illustrative planning estimates—not quotes, guarantees, or legal, tax, accounting, or professional advice. Verify current costs and project-specific assumptions before relying on them.[/DISCLAIMER]\n\n`;
     reply += `➡️ Want me to add these as estimate line items now?`;
   }
   return reply;
@@ -4932,11 +5270,16 @@ function appendEstimateAssistantDisclaimer(reply) {
   if (base.includes(ESTIMATE_ASSISTANT_DISCLAIMER_SNIP)) return base;
   return (
     base +
-    '\n\n[DISCLAIMER]Guidance only, not legal, tax, or professional advice. Numbers and benchmarks are illustrative, not live market pricing. Verify scope, pricing, and contract terms before sending.[/DISCLAIMER]'
+    '\n\n[DISCLAIMER]Guidance only—not legal, tax, accounting, or professional advice, and not a quote or guarantee of cost, price, margin, or profit. Numbers and benchmarks are illustrative, based on the project data and assumptions provided, and are not live market pricing. Verify scope, labor, materials, overhead, taxes, insurance, local requirements, pricing, and contract terms with qualified professionals before relying on or sending them.[/DISCLAIMER]'
   );
 }
 
 const ESTIMATE_PRICING_BENCHMARKS = {
+  painting: {
+    label: 'residential painting / repaint',
+    markup: { min: 18, max: 30, optimal: 22 },
+    sqft: { min: 75, max: 125, avg: 100 },
+  },
   kitchen: {
     label: 'kitchen remodel',
     markup: { min: 18, max: 30, optimal: 22 },
@@ -5000,13 +5343,24 @@ const ESTIMATE_REGION_MULTIPLIERS = {
   national: 1.0,
 };
 
-function getEstimatePricingBenchmarkContext({ estimateData, parsedContext }) {
-  const projectType = String(
+function getEstimatePricingBenchmarkContext({ estimateData, parsedContext, projectName }) {
+  const declaredProjectType = String(
     estimateData?.projectType ||
     parsedContext?.estimateData?.projectType ||
     parsedContext?.bidData?.projectType ||
     'other'
   ).toLowerCase();
+  const projectTitle = String(
+    projectName ||
+    parsedContext?.currentProject ||
+    parsedContext?.projectName ||
+    parsedContext?.projectTitle ||
+    parsedContext?.bidTitle ||
+    ''
+  ).toLowerCase();
+  const projectType = /\b(?:paint|painting|repaint|repainting|interior\s+and\s+exterior)\b/.test(projectTitle)
+    ? 'painting'
+    : declaredProjectType;
   const benchmark = ESTIMATE_PRICING_BENCHMARKS[projectType] || ESTIMATE_PRICING_BENCHMARKS.other;
 
   const rawState = String(
@@ -5072,7 +5426,7 @@ function buildEstimatePriceGuidanceReply({ parsedContext, estimateData, projectN
     stateKey,
     regionMultiplier,
     squareFootage,
-  } = getEstimatePricingBenchmarkContext({ estimateData, parsedContext });
+  } = getEstimatePricingBenchmarkContext({ estimateData, parsedContext, projectName: title });
   const riskBufferMid = missingScan.gaps.length > 0
     ? Math.round(((missingScan.totalMin + missingScan.totalMax) / 2) * 100) / 100
     : 0;
@@ -5130,6 +5484,16 @@ function buildEstimatePriceGuidanceReply({ parsedContext, estimateData, projectN
     currentAssessment,
   ];
 
+  if (benchmark?.markup?.optimal) {
+    const targetMarkup = benchmark.markup.optimal;
+    lines.push(
+      '',
+      markupPct > 0 && markupPct < targetMarkup
+        ? `**Markup recommendation:** I recommend about **${targetMarkup}% markup** for this ${benchmark.label}. Your current markup is **${Math.round(markupPct * 10) / 10}%**, so it is below that target.`
+        : `**Markup recommendation:** about **${targetMarkup}% markup** is a reasonable target for this ${benchmark.label}.`
+    );
+  }
+
   lines.push('', '**How I am figuring it out**');
   lines.push(`- **Base estimate math:** I start with your current estimated cost of **$${Math.round(subtotal).toLocaleString()}** and calculate protected bid prices from margin targets.`);
   if (benchmark?.markup) {
@@ -5169,6 +5533,76 @@ function buildEstimatePriceGuidanceReply({ parsedContext, estimateData, projectN
       { label: 'Review This Bid', prompt: 'Review this bid before I send it.' },
       { label: 'Find Missing Costs', prompt: 'Scan this estimate for missing costs.' },
       { label: 'Make This Safer', prompt: 'Make this estimate safer.' },
+    ],
+  };
+}
+
+function buildEstimateBudgetGuidanceReply({ parsedContext, estimateData, projectName, bidTotal }) {
+  const calcTotals = parsedContext?.calcTotals || {};
+  const subtotal = Number(
+    calcTotals?.subtotal ??
+    estimateData?.subtotal ??
+    estimateData?.totalCost ??
+    estimateData?.baseCost ??
+    0
+  );
+  const currentMarkup = Number(estimateData?.markupPct ?? estimateData?.markup ?? 0);
+  const benchmarkContext = getEstimatePricingBenchmarkContext({
+    estimateData,
+    parsedContext,
+    projectName,
+  });
+  const missingScan = computeEstimateMissingCostScan({
+    estimatedCost: subtotal,
+    estimateData,
+    bidTotal: Number(bidTotal || estimateData?.totalBid || 0),
+    actualCost: parsedContext?.actualCost || parsedContext?.totalSpent || 0,
+    expenses: parsedContext?.expenses || [],
+    parsedContext,
+    currentProjectData: parsedContext?.currentProjectData || null,
+  });
+  const riskBuffer = missingScan.gaps.length > 0
+    ? Math.round(((missingScan.totalMin + missingScan.totalMax) / 2) * 100) / 100
+    : 0;
+  const workingBudget = subtotal + riskBuffer;
+  const targetMarkup = currentMarkup > 0
+    ? currentMarkup
+    : Number(benchmarkContext.benchmark?.markup?.optimal || 20);
+  const customerPrice = workingBudget > 0
+    ? Math.round(workingBudget * (1 + targetMarkup / 100) * 100) / 100
+    : 0;
+  const title = projectName || estimateData?.title || parsedContext?.bidTitle || 'this estimate';
+
+  if (subtotal <= 0) {
+    return {
+      reply: appendEstimateAssistantDisclaimer(
+        `I can calculate the overall budget for **${title}**, but the estimate does not yet contain a reliable material and labor cost total. Add those costs first so I do not invent a budget.`
+      ),
+      suggestedFollowUps: [{ label: 'Find Missing Costs', prompt: 'Scan this estimate for missing costs.' }],
+    };
+  }
+
+  const lines = [
+    `**Overall budget guidance for ${title}**`,
+    '',
+    `- **Current estimated direct cost:** **$${Math.round(subtotal).toLocaleString()}**`,
+    ...(riskBuffer > 0
+      ? [`- **Suggested contingency for identified gaps:** about **$${Math.round(riskBuffer).toLocaleString()}**`]
+      : ['- **Identified contingency:** none from the current estimate data']),
+    `- **Suggested internal working budget:** **$${Math.round(workingBudget).toLocaleString()}**`,
+    '',
+    `Using **${targetMarkup.toFixed(1)}% markup** on that working budget, the indicative customer-facing price is about **$${Math.round(customerPrice).toLocaleString()}**.`,
+    '',
+    riskBuffer > 0
+      ? `I found potential cost gaps such as **${missingScan.gaps.slice(0, 2).map((gap) => gap.title).join('** and **')}**, so confirm those before locking the estimate.`
+      : 'Confirm labor, materials, permits, equipment, overhead, taxes, and scope before locking the estimate.',
+  ];
+
+  return {
+    reply: appendEstimateAssistantDisclaimer(lines.join('\n')),
+    suggestedFollowUps: [
+      { label: 'Review Markup', prompt: 'Review my markup and margin for this estimate.' },
+      { label: 'Find Missing Costs', prompt: 'Scan this estimate for missing costs.' },
     ],
   };
 }
@@ -6694,7 +7128,11 @@ router.post('/scan-missing-costs', async (req, res) => {
     }
     const projectName = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle;
     const projectId = parsedContext.projectId || parsedContext.activeProjectId || parsedContext.resolvedProjectId;
-    let allProjects = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : [];
+    let allProjects = Array.isArray(parsedContext.allProjects)
+      ? parsedContext.allProjects
+      : Array.isArray(parsedContext.projects)
+        ? parsedContext.projects
+        : [];
     // Central Command can intentionally remove project IDs for portfolio questions.
     // If that leaves the backend with only the current project's snapshot, keep it
     // available for read-only analysis instead of incorrectly reporting no projects.
@@ -6709,6 +7147,9 @@ router.post('/scan-missing-costs', async (req, res) => {
         id: parsedContext.projectId || parsedContext.resolvedProjectId || 'context-current-project',
         title: parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle,
       }];
+    }
+    if (allProjects.length > 0 && !Array.isArray(parsedContext.allProjects)) {
+      parsedContext.allProjects = allProjects;
     }
     let currentProjectData = null;
     if (projectId && allProjects.length > 0) {
@@ -6814,7 +7255,10 @@ router.post('/stream', async (req, res) => {
 
     const sessionStream = getOrCreateSession(sessionId || `stream-${Date.now()}`);
     const isCentralCommandStream = parsedContext?.assistantMode === 'central_command';
-    if (isCentralCommandStream && isCentralCommandMutationRequest(message)) {
+    const isMarkupAdviceStream = isMarkupAdviceQuestion(message);
+    const isEstimateBudgetAdviceStream = isEstimateBudgetAdviceQuestion(message);
+    const isCalendarWriteStream = shouldUseCalendarCreateParser(message, history);
+    if (isCentralCommandStream && isCentralCommandMutationRequest(message) && !isMarkupAdviceStream && !isEstimateBudgetAdviceStream && !isCalendarWriteStream) {
       const reply = appendDataFreshness(
         'Central Command is read-only. I can analyze your projects, budgets, schedules, costs, margins, and profitability here, but I will not change stored data. Use the project Budget or Timeline tools, or Estimate Builder, to make an update.',
         parsedContext
@@ -6826,12 +7270,44 @@ router.post('/stream', async (req, res) => {
       return;
     }
 
+    if (isCentralCommandStream && (isMarkupAdviceStream || isEstimateBudgetAdviceStream)) {
+      const estimateData = parsedContext?.estimateData || parsedContext?.bidData || {};
+      const guidance = isEstimateBudgetAdviceStream
+        ? buildEstimateBudgetGuidanceReply({
+            parsedContext,
+            estimateData,
+            projectName:
+              parsedContext.currentProject ||
+              parsedContext.projectName ||
+              parsedContext.projectTitle ||
+              parsedContext.bidTitle,
+            bidTotal: parsedContext.bidTotal || parsedContext.total || parsedContext.bidPrice,
+          })
+        : buildEstimatePriceGuidanceReply({
+            parsedContext,
+            estimateData,
+            projectName:
+              parsedContext.currentProject ||
+              parsedContext.projectName ||
+              parsedContext.projectTitle ||
+              parsedContext.bidTitle,
+            bidTotal: parsedContext.bidTotal || parsedContext.total || parsedContext.bidPrice,
+          });
+      const reply = appendDataFreshness(guidance.reply, parsedContext);
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+      res.write(`data: ${JSON.stringify({ type: 'token', content: reply })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: guidance.suggestedFollowUps || [], sessionId: sessionStream?.id })}\n\n`);
+      res.end();
+      return;
+    }
+
     const isCalculationFollowUpStream = isCalculationFollowUpQuery(message);
     if (isCalculationFollowUpStream) {
       const calculationReplyStream = buildCalculationFollowUpReply({
         parsedContext,
         allProjects: parsedContext?.allProjects || [],
         history,
+        currentMessage: message,
       });
       const reply = appendDataFreshness(calculationReplyStream, parsedContext);
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
@@ -6915,14 +7391,15 @@ router.post('/stream', async (req, res) => {
 
     const customCostIncreaseStream = parseCustomRemainingCostIncrease(userMsgTrimStream, histStream);
     if (customCostIncreaseStream?.type === 'remaining_increase') {
-      const namedIncreaseProjectStream = findProjectMentionedInMessage(parsedContext.allProjects, userMsgTrimStream);
+      const namedIncreaseProjectStream = findProjectMentionedInMessage(allProjects, userMsgTrimStream);
       const increaseProjectStream = namedIncreaseProjectStream ||
-        parsedContext.allProjects?.find((p) => String(p?.id) === String(parsedContext.projectId)) ||
+        allProjects.find((p) => String(p?.id) === String(parsedContext.projectId)) ||
         null;
       const increaseReplyStream = appendDataFreshness(buildRemainingCostIncreaseReply({
         project: increaseProjectStream,
         parsedContext: increaseProjectStream ? {} : parsedContext,
         percent: customCostIncreaseStream.percent,
+        basis: customCostIncreaseStream.basis,
       }), parsedContext);
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
       res.write(`data: ${JSON.stringify({ type: 'token', content: increaseReplyStream })}\n\n`);
@@ -6958,7 +7435,11 @@ router.post('/stream', async (req, res) => {
 
     const session = sessionStream;
     const aiPmMode = user_settings.ai_project_manager_mode || false;
-    let allProjects = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : [];
+    let allProjects = Array.isArray(parsedContext.allProjects)
+      ? parsedContext.allProjects
+      : Array.isArray(parsedContext.projects)
+        ? parsedContext.projects
+        : [];
     // Streaming Central Command can strip project IDs for portfolio questions.
     // Preserve the current project snapshot as an analytical candidate when no
     // project list was sent, instead of surfacing a false "No projects available."
@@ -6974,12 +7455,91 @@ router.post('/stream', async (req, res) => {
         title: parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle,
       }];
     }
+    if (allProjects.length > 0 && !Array.isArray(parsedContext.allProjects)) {
+      parsedContext.allProjects = allProjects;
+    }
     const screen = parsedContext.screen || 'assistant_tab';
     const screenLower = screen.toLowerCase();
     const isCommandCenter = screenLower === 'projects' || screenLower === 'ai assistant tab';
 
-    const projectIdStream = parsedContext.projectId;
+    let projectIdStream = parsedContext.projectId;
+    let currentProjectDataStream =
+      allProjects.find((item) => String(item?.id || '') === String(projectIdStream || '')) || null;
+    if (!currentProjectDataStream && allProjects.length > 0) {
+      const recoveredProjectStream =
+        (parsedContext.currentProject || parsedContext.projectName
+          ? resolveProjectByQuery(
+              allProjects,
+              parsedContext.currentProject || parsedContext.projectName,
+              { minScore: 35 },
+            ).project
+          : null) ||
+        (allProjects.length === 1 ? allProjects[0] : null);
+      if (recoveredProjectStream) {
+        currentProjectDataStream = recoveredProjectStream;
+        projectIdStream = recoveredProjectStream.id;
+        parsedContext = {
+          ...parsedContext,
+          projectId: recoveredProjectStream.id,
+          resolvedProjectId: recoveredProjectStream.id,
+        };
+      }
+    }
     const rawBodyMsgStream = String(message ?? '').toLowerCase();
+
+    if (isRemainingBudgetQuery(rawBodyMsgStream)) {
+      const remainingProject = currentProjectDataStream ||
+        allProjects.find((item) => String(item?.id || '') === String(projectIdStream || '')) ||
+        (allProjects.length === 1 ? allProjects[0] : null);
+      const remainingSnapshot = getProjectFinancialSnapshot({
+        parsedContext: remainingProject ? {} : parsedContext,
+        project: remainingProject,
+      });
+      const remainingReply = buildRemainingBudgetReply({
+        projectName: remainingProject?.title || remainingProject?.name || parsedContext.currentProject || parsedContext.projectName || 'This project',
+        snapshot: remainingSnapshot,
+      });
+      if (remainingReply) {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no-cache' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: remainingReply })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+
+    if (isWeatherQuery(rawBodyMsgStream) || isWeatherLocationFollowUp(message, history) || isWeatherConversationFollowUp(message, history)) {
+      const weatherReply = await buildWeatherReply({
+        message,
+        parsedContext,
+        currentProjectData: currentProjectDataStream ||
+          allProjects.find((item) => String(item?.id || '') === String(projectIdStream || '')) ||
+          null,
+        allProjects,
+        history,
+      });
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no-cache' });
+      res.write(`data: ${JSON.stringify({ type: 'token', content: weatherReply })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id })}\n\n`);
+      res.end();
+      return;
+    }
+
+    if (isEstimateAssistantScreen(parsedContext) && isEstimateBudgetAdviceQuestion(rawBodyMsgStream)) {
+      const estimateData = parsedContext?.estimateData || parsedContext?.bidData || {};
+      const budgetGuidance = buildEstimateBudgetGuidanceReply({
+        parsedContext,
+        estimateData,
+        projectName: parsedContext.currentProject || parsedContext.projectName || parsedContext.projectTitle || parsedContext.bidTitle,
+        bidTotal: parsedContext.bidTotal || parsedContext.total || parsedContext.bidPrice,
+      });
+      const reply = appendDataFreshness(budgetGuidance.reply, parsedContext);
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+      res.write(`data: ${JSON.stringify({ type: 'token', content: reply })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: budgetGuidance.suggestedFollowUps || [], sessionId: session?.id })}\n\n`);
+      res.end();
+      return;
+    }
 
     // EARLY STREAM: Estimate Assistant — how much to charge / pricing guidance (must match POST / — streaming was skipping this and hitting the LLM)
     if (isEstimateAssistantScreen(parsedContext) && matchesEstimatePriceGuidanceQuery(rawBodyMsgStream)) {
@@ -7182,7 +7742,7 @@ router.post('/stream', async (req, res) => {
     }
     const isProjectedVsEstimateStream =
       /\b(?:compare|compared|comparison)\b/i.test(msgForProfitStream) &&
-      /\b(?:projected|current)\s+profit\b/i.test(msgForProfitStream) &&
+      /\b(?:projected|current|estimated)\b[\s\S]{0,30}\bprofit\b/i.test(msgForProfitStream) &&
       /\b(?:estimate|estimates|estimated|bid)\b/i.test(msgForProfitStream);
     if (isProjectedVsEstimateStream) {
       const streamProjects = Array.isArray(allProjects) ? allProjects : [];
@@ -7657,7 +8217,10 @@ router.post('/', async (req, res) => {
     }
 
     const isCentralCommand = parsedContext?.assistantMode === 'central_command';
-    if (isCentralCommand && isCentralCommandMutationRequest(message)) {
+    const isMarkupAdvice = isMarkupAdviceQuestion(message);
+    const isEstimateBudgetAdvice = isEstimateBudgetAdviceQuestion(message);
+    const isCalendarWrite = shouldUseCalendarCreateParser(message, history);
+    if (isCentralCommand && isCentralCommandMutationRequest(message) && !isMarkupAdvice && !isEstimateBudgetAdvice && !isCalendarWrite) {
       return res.json({
         reply: appendDataFreshness(
           'Central Command is read-only. I can analyze your projects, budgets, schedules, costs, margins, and profitability here, but I will not change stored data. Use the project Budget or Timeline tools, or Estimate Builder, to make an update.',
@@ -7669,9 +8232,56 @@ router.post('/', async (req, res) => {
       });
     }
 
+    if (isCentralCommand && (isMarkupAdvice || isEstimateBudgetAdvice)) {
+      const estimateData = parsedContext?.estimateData || parsedContext?.bidData || {};
+      const guidance = isEstimateBudgetAdvice
+        ? buildEstimateBudgetGuidanceReply({
+            parsedContext,
+            estimateData,
+            projectName:
+              parsedContext.currentProject ||
+              parsedContext.projectName ||
+              parsedContext.projectTitle ||
+              parsedContext.bidTitle,
+            bidTotal: parsedContext.bidTotal || parsedContext.total || parsedContext.bidPrice,
+          })
+        : buildEstimatePriceGuidanceReply({
+            parsedContext,
+            estimateData,
+            projectName:
+              parsedContext.currentProject ||
+              parsedContext.projectName ||
+              parsedContext.projectTitle ||
+              parsedContext.bidTitle,
+            bidTotal: parsedContext.bidTotal || parsedContext.total || parsedContext.bidPrice,
+          });
+      return res.json({
+        reply: appendDataFreshness(guidance.reply, parsedContext),
+        actions: [],
+        projectUpdateData: null,
+        readOnly: true,
+      });
+    }
+
     // ── RUN-FIRST: "Am I making enough (money) on this job?" — use ONLY parsedContext so we never miss (e.g. project detail sends no allProjects)
     const rawMsgFirst = String(req.body?.message ?? message ?? '').trim();
     const rawMsgLower = rawMsgFirst.toLowerCase();
+
+    if (isEstimateAssistantScreen(parsedContext) && isEstimateBudgetAdviceQuestion(rawMsgLower)) {
+      const estimateData = parsedContext?.estimateData || parsedContext?.bidData || {};
+      const budgetGuidance = buildEstimateBudgetGuidanceReply({
+        parsedContext,
+        estimateData,
+        projectName: parsedContext.currentProject || parsedContext.projectName || parsedContext.projectTitle || parsedContext.bidTitle,
+        bidTotal: parsedContext.bidTotal || parsedContext.total || parsedContext.bidPrice,
+      });
+      return res.json({
+        reply: appendDataFreshness(budgetGuidance.reply, parsedContext),
+        actions: [],
+        projectUpdateData: null,
+        readOnly: true,
+      });
+    }
 
     // ── RUN-FIRST: Estimate — "what should I charge" / charging enough (before any other handler or LLM)
     if (isEstimateAssistantScreen(parsedContext) && matchesEstimatePriceGuidanceQuery(rawMsgLower)) {
@@ -7805,15 +8415,16 @@ router.post('/', async (req, res) => {
       });
     }
     if (customCostIncrease?.type === 'remaining_increase') {
-      const namedIncreaseProject = findProjectMentionedInMessage(parsedContext.allProjects, userMsgTrim);
+      const namedIncreaseProject = findProjectMentionedInMessage(allProjects, userMsgTrim);
       const increaseProject = namedIncreaseProject ||
-        parsedContext.allProjects?.find((p) => String(p?.id) === String(parsedContext.projectId)) ||
+        allProjects.find((p) => String(p?.id) === String(parsedContext.projectId)) ||
         null;
       return res.json({
         reply: appendDataFreshness(buildRemainingCostIncreaseReply({
           project: increaseProject,
           parsedContext: increaseProject ? {} : parsedContext,
           percent: customCostIncrease.percent,
+          basis: customCostIncrease.basis,
         }), parsedContext),
         actions: [],
         suggestedFollowUps: buildAssistantFollowUps(userMsgTrim),
@@ -7867,7 +8478,31 @@ router.post('/', async (req, res) => {
     const selectedProjectIdHint = parsedContext.selectedProjectId || null;
     const lastOpenedProjectIdHint = parsedContext.lastOpenedProjectId || null;
     let projectId = parsedContext.projectId || parsedContext.activeProjectId || parsedContext.resolvedProjectId || selectedProjectIdHint || lastOpenedProjectIdHint;
-    const allProjects = parsedContext.allProjects || [];
+    let allProjects = Array.isArray(parsedContext.allProjects)
+      ? parsedContext.allProjects
+      : Array.isArray(parsedContext.projects)
+        ? parsedContext.projects
+        : [];
+    // Central Command may have a current-project snapshot even when the portfolio
+    // list is temporarily empty during hydration. Preserve that snapshot for
+    // read-only analysis instead of reporting that no projects were returned.
+    if (
+      allProjects.length === 0 &&
+      parsedContext.assistantMode === 'central_command' &&
+      parsedContext.screen !== 'Estimate Generator' &&
+      String(parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || '').trim()
+    ) {
+      allProjects = [{
+        ...parsedContext,
+        id: parsedContext.projectId || parsedContext.resolvedProjectId || 'context-current-project',
+        title: parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle,
+      }];
+    }
+    // Calendar and deterministic portfolio handlers use parsedContext.allProjects.
+    // Keep the normalized fallback list available to those handlers as well.
+    if (allProjects.length > 0 && !Array.isArray(parsedContext.allProjects)) {
+      parsedContext.allProjects = allProjects;
+    }
     
     // Reduced logging to prevent terminal glitching (was: full context dump)
     if (process.env.DEBUG_AI_CONTEXT) {
@@ -7894,8 +8529,62 @@ router.post('/', async (req, res) => {
       currentProjectData = allProjects.find(p => String(p.id) === String(projectId));
       if (process.env.DEBUG_AI_CONTEXT) console.log('✅ AI Assistant: Found currentProjectData for', projectId);
     }
+    // A deleted/recreated project can leave a stale ID in Central Command
+    // context. Resolve the live record by name (or the only available record)
+    // before handing context to the health-check tools.
+    if (!currentProjectData && allProjects.length > 0) {
+      const recoveredProject =
+        (projectName
+          ? resolveProjectByQuery(allProjects, projectName, { minScore: 35 }).project
+          : null) ||
+        (allProjects.length === 1 ? allProjects[0] : null);
+      if (recoveredProject) {
+        currentProjectData = recoveredProject;
+        projectId = recoveredProject.id;
+        parsedContext = {
+          ...parsedContext,
+          projectId: recoveredProject.id,
+          resolvedProjectId: recoveredProject.id,
+        };
+        if (process.env.DEBUG_AI_CONTEXT) {
+          console.log('✅ AI Assistant: Recovered stale project context', {
+            staleProjectId: parsedContext.projectId,
+            recoveredProjectId: recoveredProject.id,
+          });
+        }
+      }
+    }
 
     const rawBodyMsg = String(req.body?.message ?? message ?? '').toLowerCase();
+
+    if (isRemainingBudgetQuery(rawBodyMsg)) {
+      const remainingSnapshot = getProjectFinancialSnapshot({
+        parsedContext,
+        project: currentProjectData || null,
+      });
+      const remainingReply = buildRemainingBudgetReply({
+        projectName: currentProjectData?.title || currentProjectData?.name || parsedContext.currentProject || parsedContext.projectName || 'This project',
+        snapshot: remainingSnapshot,
+      });
+      if (remainingReply) {
+        return res.json({ reply: remainingReply, actions: [], suggestedFollowUps: [] });
+      }
+    }
+
+    if (isWeatherQuery(rawBodyMsg) || isWeatherLocationFollowUp(req.body?.message ?? message, history) || isWeatherConversationFollowUp(req.body?.message ?? message, history)) {
+      const weatherReply = await buildWeatherReply({
+        message: req.body?.message ?? message,
+        parsedContext,
+        currentProjectData,
+        allProjects,
+        history,
+      });
+      return res.json({
+        reply: weatherReply,
+        actions: [],
+        suggestedFollowUps: [],
+      });
+    }
 
     // ── EARLY: "Am I making enough (money)? (on this job/project)?" → answer before router so we never get "quick health check or full breakdown?"
     // Match any phrasing that clearly asks about making enough (money) on this job/project
@@ -8006,9 +8695,9 @@ router.post('/', async (req, res) => {
       if (!proj && projectsList.length === 1) proj = projectsList[0];
       const snapshot = getProjectFinancialSnapshot({ project: proj, parsedContext });
       if (snapshot.revenue > 0 && snapshot.estimatedCost != null) {
-        const originalProfit = snapshot.revenue - snapshot.estimatedCost;
-        const originalMargin = (originalProfit / snapshot.revenue) * 100;
-        const name = proj?.title || proj?.name || parsedContext.currentProject || 'This project';
+        const originalProfit = snapshot.originalEstimateProfit ?? (snapshot.revenue - snapshot.estimatedCost);
+        const originalMargin = snapshot.originalEstimateMarginPct ?? ((originalProfit / snapshot.revenue) * 100);
+        const name = proj?.title || proj?.name || parsedContext.currentProject || parsedContext.projectName || parsedContext.projectTitle || 'This project';
         const reply =
           `The original estimate forecast for the "${name}" project was **$${Math.round(originalProfit).toLocaleString()} profit** ` +
           `(${originalMargin.toFixed(1)}% margin): contract value $${Math.round(snapshot.revenue).toLocaleString()} ` +
@@ -8020,7 +8709,7 @@ router.post('/', async (req, res) => {
 
     const isProjectedVsEstimateQ =
       /\b(?:compare|compared|comparison)\b/i.test(rawBodyMsg) &&
-      /\b(?:projected|current)\s+profit\b/i.test(rawBodyMsg) &&
+      /\b(?:projected|current|estimated)\b[\s\S]{0,30}\bprofit\b/i.test(rawBodyMsg) &&
       /\b(?:estimate|estimates|estimated|bid)\b/i.test(rawBodyMsg);
     if (isProjectedVsEstimateQ) {
       const projectsList = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : [];
@@ -8259,6 +8948,7 @@ router.post('/', async (req, res) => {
         parsedContext,
         allProjects,
         history,
+        currentMessage: rawBodyMsg,
       });
       return res.json({
         reply: appendDataFreshness(calculationReply, parsedContext),
@@ -8306,6 +8996,8 @@ router.post('/', async (req, res) => {
     const isProfitabilityQ =
       /\bam I making enough money (?:on )?(?:this )?(?:job|project)\b/i.test(rawBodyMsg) ||
       /\bmaking enough (?:on |on this )?(?:job|project)\b/i.test(rawBodyMsg) ||
+      /\b(?:can|could|will)\s+(?:you|this|it)\s+(?:guarantee|ensure)\b[\s\S]{0,80}\b(?:profitable|profit|make money)\b/i.test(rawBodyMsg) ||
+      /\bguarantee\b[\s\S]{0,80}\b(?:profitable|profit|make money)\b/i.test(rawBodyMsg) ||
       /\bis \d+% margin healthy/i.test(rawBodyMsg) ||
       /\bmargin healthy for this kind/i.test(rawBodyMsg) ||
       /\b(?:what'?s|what is) the biggest threat to profit/i.test(rawBodyMsg) ||
@@ -8318,27 +9010,54 @@ router.post('/', async (req, res) => {
       /\bcharge to protect (?:a )?\d+% margin\b/i.test(rawBodyMsg) ||
       /\bwhat happens if overhead increases from \d+% to \d+%\b/i.test(rawBodyMsg) ||
       /\boverhead increases from \d+% to \d+%\b/i.test(rawBodyMsg) ||
-      /\bshow me (?:a )?worst[- ]?case scenario/i.test(rawBodyMsg) ||
-      /\bworst[- ]?case scenario (?:for )?(?:this )?estimate\b/i.test(rawBodyMsg);
+      /\b(?:best|base|worst)[- ]?case scenario\b/i.test(rawBodyMsg);
     if (isProfitabilityQ && (projectId || currentProjectData || (Array.isArray(parsedContext.allProjects) && parsedContext.allProjects.length > 0))) {
       const proj = currentProjectData || (Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : []).find(p => String(p?.id) === String(projectId)) || (Array.isArray(parsedContext.allProjects) && parsedContext.allProjects.length > 0 ? parsedContext.allProjects[0] : null);
+      const financialSnapshot = getProjectFinancialSnapshot({
+        parsedContext,
+        project: proj,
+      });
       const ed = proj?.estimateData || parsedContext.estimateData || estimateData || {};
-      const revenue = Number(contractValue || proj?.contractValue || proj?.bidPrice || proj?.bidTotal || parsedContext.bidTotal || parsedContext.contractValue || bidTotal || 0);
-      const cost = Number(estimatedCost || proj?.estimatedCost || parsedContext.estimatedCost || ed?.totalCost || ed?.baseCost || 0);
-      const spent = Number(actualCost || proj?.totalSpent || proj?.actualCost || parsedContext.actualCost || parsedContext.totalSpent || 0);
+      const revenue = Number(financialSnapshot.revenue ?? (contractValue || proj?.contractValue || proj?.bidPrice || proj?.bidTotal || parsedContext.bidTotal || parsedContext.contractValue || bidTotal || 0));
+      const cost = Number(financialSnapshot.estimatedCost ?? (estimatedCost || proj?.estimatedCost || parsedContext.estimatedCost || ed?.totalCost || ed?.baseCost || 0));
+      const spent = Number(financialSnapshot.spent ?? (actualCost || proj?.totalSpent || proj?.actualCost || parsedContext.actualCost || parsedContext.totalSpent || 0));
       if (process.env.DEBUG_AI_CONTEXT) console.log('✅ PROFITABILITY INTELLIGENCE: matched');
-      const prog = Math.max(0, Math.min(100, Number(proj?.progress ?? proj?.overallProgressPct ?? progress ?? 0)));
+      const prog = Math.max(0, Math.min(100, Number(financialSnapshot.progress ?? proj?.progress ?? proj?.overallProgressPct ?? progress ?? 0)));
       const matTotal = Number(ed?.materialTotal ?? ed?.materials ?? 0) || sumLineItems(ed?.materialLineItems ?? ed?.materialsCart, (x) => (typeof x === 'number' && Number.isFinite(x)) ? x : Number(x) || 0);
       const labTotal = Number(ed?.laborTotal ?? ed?.labor ?? 0) || sumLineItems(ed?.laborLineItems, (x) => (typeof x === 'number' && Number.isFinite(x)) ? x : Number(x) || 0);
       const overTotal = Number(parsedContext.overhead ?? proj?.overhead ?? ed?.overheadTotal ?? 0);
-      const projName = parsedContext.currentProject || parsedContext.projectName || proj?.title || proj?.name || 'This project';
+      const contextProjectName = (Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : [])
+        .find((item) => item?.title || item?.name);
+      const projName =
+        parsedContext.currentProject ||
+        parsedContext.projectName ||
+        parsedContext.projectTitle ||
+        proj?.title ||
+        proj?.name ||
+        contextProjectName?.title ||
+        contextProjectName?.name ||
+        'This project';
       const currentMarginPct = revenue > 0 && spent >= 0
         ? ((revenue - spent) / revenue) * 100
         : (revenue > 0 && cost > 0 ? (revenue - cost) / revenue * 100 : null);
       const bidMarginPctVal = typeof parsedContext.bidMarginPct === 'number' ? parsedContext.bidMarginPct : (proj?.bidMarginPct ?? ed?.marginPct);
       let reply = null;
 
-      if (/\bam I making enough money/i.test(rawBodyMsg) || /\bmaking enough (?:on )?(?:this )?(?:job|project)\b/i.test(rawBodyMsg)) {
+      if (/\b(?:guarantee|ensure)\b[\s\S]{0,80}\b(?:profitable|profit|make money)\b/i.test(rawBodyMsg)) {
+        if (revenue > 0 && cost > 0) {
+          const estimateProfit = revenue - cost;
+          const estimateMargin = (estimateProfit / revenue) * 100;
+          reply =
+            `No—I cannot guarantee that **${projName}** will be profitable. ` +
+            `Based on the current estimate, the planned contract value is **$${Math.round(revenue).toLocaleString()}** ` +
+            `and planned cost is **$${Math.round(cost).toLocaleString()}**, implying about **$${Math.round(estimateProfit).toLocaleString()}** ` +
+            `in planned profit (**${estimateMargin.toFixed(1)}% margin). ` +
+            `Actual results depend on labor, material costs, scope changes, overhead, and collections.`;
+        } else {
+          reply = `No—I cannot guarantee that **${projName}** will be profitable because the current estimate does not contain enough reliable contract and cost data to calculate a supported profit figure.`;
+        }
+        reply = appendEstimateAssistantDisclaimer(reply);
+      } else if (/\bam I making enough money/i.test(rawBodyMsg) || /\bmaking enough (?:on )?(?:this )?(?:job|project)\b/i.test(rawBodyMsg)) {
         const m = currentMarginPct != null ? Number(currentMarginPct).toFixed(1) : (bidMarginPctVal != null ? Number(bidMarginPctVal).toFixed(1) : null);
         if (m) {
           const above = parseFloat(m) >= 20 ? 'above' : (parseFloat(m) >= 15 ? 'at' : 'below');
@@ -8422,29 +9141,51 @@ router.post('/', async (req, res) => {
           reply = `If overhead goes from **${fromPct}%** to **${toPct}%**, that adds about **$${Math.round(addOverhead).toLocaleString()}** to cost. `;
           if (newMargin != null) reply += `New margin would be about **${Number(newMargin).toFixed(1)}%**.`;
         }
+      } else if (/\b(?:best|base)[- ]?case scenario\b/i.test(rawBodyMsg)) {
+        const isBestCase = /\bbest[- ]?case scenario\b/i.test(rawBodyMsg);
+        const caseLabel = isBestCase ? 'Best-case' : 'Base-case';
+        const estimateProfit = revenue - cost;
+        const estimateMargin = revenue > 0 ? (estimateProfit / revenue) * 100 : null;
+        reply = `**${caseLabel} scenario** for **${projName}**: I do not have evidence for an outcome better than the original estimate, so the most favorable supported case is finishing at the planned cost. `;
+        reply += `Contract value: **$${Math.round(revenue).toLocaleString()}**. Planned cost: **$${Math.round(cost).toLocaleString()}**. `;
+        reply += `Projected profit: **$${Math.round(estimateProfit).toLocaleString()}**`;
+        if (estimateMargin != null) reply += ` (**${estimateMargin.toFixed(1)}% margin)`;
+        reply += '.';
+        if (spent > 0 && cost > 0) {
+          reply += ` You have spent **$${Math.round(spent).toLocaleString()}**, leaving about **$${Math.max(0, cost - spent).toLocaleString()}** of the planned cost budget.`;
+        }
+        reply += ' This is the planned-estimate case, not a guarantee.';
       } else if (/\bworst[- ]?case scenario\b/i.test(rawBodyMsg)) {
         // Prefer PROJECT baseline (forecast final cost) when available — matches Budget Totals
-        const forecastCost = Number(parsedContext.forecastFinalCost || proj?.forecastFinalCost || 0);
+        const forecastCost = Number(financialSnapshot.projectedFinalCost || parsedContext.forecastFinalCost || proj?.forecastFinalCost || 0);
         const projMarginPct = typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct) ? parsedContext.projectedMarginPct : proj?.projectedMarginPct;
         const baseCostForWorst = forecastCost > 0 ? forecastCost : (revenue > 0 && typeof projMarginPct === 'number') ? revenue * (1 - projMarginPct / 100) : cost;
         const useProjectBaselineWorst = (forecastCost > 0 || (revenue > 0 && typeof projMarginPct === 'number')) && baseCostForWorst > 0;
-        let worstCost, costUp, worstMargin, cushion;
+        let worstCost, costUp, worstMargin, cushion, assumptionLine, calculationLine;
         if (useProjectBaselineWorst) {
           const worstMultiplier = 1.15;
           worstCost = baseCostForWorst * worstMultiplier;
           costUp = worstCost - baseCostForWorst;
           worstMargin = revenue > 0 ? ((revenue - worstCost) / revenue) * 100 : null;
           cushion = revenue > 0 ? revenue - worstCost : 0;
+          assumptionLine = 'a 15% stress buffer applied to the current forecast final cost';
+          calculationLine = `Baseline forecast cost: **$${Math.round(baseCostForWorst).toLocaleString()}** + stress buffer: **$${Math.round(costUp).toLocaleString()}**`;
         } else {
           const mat = matTotal || cost * 0.5;
           const lab = labTotal || cost * 0.5;
           const over = overTotal || (cost * 0.12);
+          const addedMaterials = mat * 0.1;
+          const addedLabor = lab * 0.1;
+          const addedOverhead = over * 0.25;
           worstCost = mat * 1.1 + lab * 1.1 + over * 1.25;
-          costUp = worstCost - cost;
+          costUp = addedMaterials + addedLabor + addedOverhead;
           worstMargin = revenue > 0 ? ((revenue - worstCost) / revenue) * 100 : null;
           cushion = revenue > 0 ? revenue - worstCost : 0;
+          assumptionLine = 'materials +10%, labor +10%, overhead +25%';
+          calculationLine = `Added stress cost: materials **$${Math.round(addedMaterials).toLocaleString()}** + labor **$${Math.round(addedLabor).toLocaleString()}** + overhead **$${Math.round(addedOverhead).toLocaleString()}**`;
         }
-        reply = `**Worst-case scenario** for **${projName}** (materials +10%, labor +10%, overhead +25%): cost **$${Math.round(worstCost).toLocaleString()}** (up **$${Math.round(costUp).toLocaleString()}**). `;
+        reply = `**Worst-case scenario** for **${projName}** — this is a stress test using ${assumptionLine}. `;
+        reply += `${calculationLine}. Worst-case cost: **$${Math.round(worstCost).toLocaleString()}**. `;
         if (worstMargin != null) reply += `Margin would be **${Number(worstMargin).toFixed(1)}%**, profit **$${Math.round(cushion).toLocaleString()}**. `;
         reply += cushion >= 0 ? `You’d still have **${Math.round(cushion).toLocaleString()}** cushion before break-even.` : `You’d be **${Math.round(-cushion).toLocaleString()}** past break-even — consider tightening costs or a price increase.`;
         if (useProjectBaselineWorst) reply += ` _Based on your project forecast._`;
@@ -8768,7 +9509,7 @@ router.post('/', async (req, res) => {
           reply += `\n`;
         }
       }
-      reply += `[DISCLAIMER]Delay scenario uses explicit cost additions (labor, materials, overhead) — not progress-ratio forecasting. Schedule delays are modeled as additional expected cost.[/DISCLAIMER]\n\n`;
+      reply += `[DISCLAIMER]Delay scenario uses explicit cost additions (labor, materials, overhead)—not progress-ratio forecasting. It is an illustrative planning estimate, not a quote, guarantee, or legal, tax, accounting, or professional recommendation. Verify project-specific assumptions before relying on it.[/DISCLAIMER]\n\n`;
       reply += `➡️ Want me to run a what-if scenario (Typical Friction, Bad Remodel, or Job Runs Long) to pressure-test this?`;
 
       console.log('✅ EARLY delay-scenario profit projection (two-layer model) — returning immediately');
@@ -9007,7 +9748,7 @@ router.post('/', async (req, res) => {
           reply += `${i + 1}. ${g.title} — ${g.reason} (impact: +$${g.range.min.toLocaleString()} to +$${g.range.max.toLocaleString()})\n`;
         });
         reply += `\n💰 Potential underestimation impact: +$${totalMin.toLocaleString()} to +$${totalMax.toLocaleString()}.\n`;
-        reply += `[DISCLAIMER]Impact ranges are estimates based on typical project costs—not real-time market data.[/DISCLAIMER]\n\n`;
+        reply += `[DISCLAIMER]Impact ranges are illustrative planning estimates—not quotes, guarantees, or legal, tax, accounting, or professional advice. Verify current costs and project-specific assumptions before relying on them.[/DISCLAIMER]\n\n`;
         reply += `➡️ Want me to add these as estimate line items now?`;
       }
 
@@ -9360,7 +10101,7 @@ router.post('/', async (req, res) => {
       drivers.slice(0, 3).forEach((d, i) => {
         reply += `${i + 1}. ${d}\n`;
       });
-      reply += `\n[DISCLAIMER]Forecasts are projections based on current burn rate and progress—not guarantees of actual final cost or profit.[/DISCLAIMER]\n\n`;
+        reply += `\n[DISCLAIMER]Forecasts are illustrative projections based on current burn rate, progress, and available project data—not quotes, guarantees, or legal, tax, accounting, or professional advice. Actual final cost and profit may differ; verify assumptions before relying on them.[/DISCLAIMER]\n\n`;
       reply += `➡️ Want me to run a what-if scenario (Typical Friction, Bad Remodel, or Job Runs Long) to pressure-test this forecast?`;
 
       return res.json({ reply, actions: [] });
@@ -14525,7 +15266,7 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
             job_runs_long_6:   { weeks: 6, label: 'Job Runs Long (6 weeks)' },
           };
 
-          const disclaimer = '\n\n[DISCLAIMER]Scenario results are projections based on applied cost adjustments—not guarantees of actual outcomes. Use for planning only.[/DISCLAIMER]';
+          const disclaimer = '\n\n[DISCLAIMER]Scenario results are planning estimates based on the costs and assumptions provided—not guarantees, quotes, or legal, tax, or professional advice. Verify scope, costs, and contract terms before relying on them.[/DISCLAIMER]';
 
           if (scenario === 'all_presets') {
             const presets = ['typical_friction', 'bad_remodel', 'smooth_job', 'job_runs_long', 'job_runs_long_4'];

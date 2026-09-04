@@ -15,6 +15,7 @@ const {
   getProjectFinancialSnapshot,
   isTerminalProjectStatus,
   normalizeProjectStatus,
+  collectUpcomingCalendarEvents,
 } = require('./aiAssistantCore');
 const { buildPortfolioBudgetInsights } = require('./portfolioBudgetInsights');
 const { createOpenAiChatCompletion } = require('../utils/openaiChatCompletionParams');
@@ -530,7 +531,16 @@ async function buildAiDashboardForUser(
       compareItem: { margin: project.marginPct },
     })
   );
-  const dailyBrief = buildDailyCommandCenter(analyzedProjects);
+  const dailyBrief = buildDailyCommandCenter(analyzedProjects, {
+    // Calendar events live on the client project snapshot. Keep them in the
+    // deterministic brief so Insights can show schedule notifications even
+    // when the generative AI cache is stale or unavailable.
+    upcomingScheduleItems: collectUpcomingCalendarEvents({
+      allProjects: projectsForModel,
+      now: new Date(),
+      daysAhead: 14,
+    }),
+  });
   const baseInsights = [];
   const baseNextSteps = [];
 

@@ -56,7 +56,9 @@ function isCalculationFollowUpQuery(message = '') {
   const normalized = normalizeAiMessageForIntent(message);
   return (
     /\b(show|give|explain|walk me through|how did you get)\b[\s\S]*\b(calculation|math|formula|numbers)\b/i.test(normalized) ||
-    /\bhow did you calculate\b/i.test(normalized)
+    /\bhow did you calculate\b/i.test(normalized) ||
+    /\bbudget\s+variance\b/i.test(normalized) ||
+    /\bmargin\b/i.test(normalized)
   );
 }
 
@@ -112,31 +114,41 @@ function parseCustomRemainingCostIncrease(message = '', history = []) {
     type: 'remaining_increase',
     percent,
     replacePrevious: makeThat || /\banother\b/i.test(text),
-    basis: /\bremaining\s+costs?\b/i.test(text) ? 'remaining' : 'remaining',
+    basis: /\b(?:over|above)\s+(?:the\s+)?(?:cost\s+)?budget\b/i.test(text)
+      ? 'budget'
+      : 'remaining',
   };
 }
 
-function buildRemainingCostIncreaseReply({ project = null, parsedContext = {}, percent = 0 } = {}) {
+function buildRemainingCostIncreaseReply({ project = null, parsedContext = {}, percent = 0, basis = 'remaining' } = {}) {
   const snapshot = getProjectFinancialSnapshot({ project, parsedContext });
   const revenue = Number(snapshot.revenue || 0);
   const spent = Number(snapshot.spent || 0);
+  const increaseBasis = basis === 'budget' ? 'budget' : 'remaining';
   const baselineFinal = snapshot.projectedFinalCost != null
     ? Number(snapshot.projectedFinalCost)
     : Number(snapshot.estimatedCost || 0);
+  const baselineBudget = Number(snapshot.estimatedCost || 0);
   const remaining = Math.max(0, baselineFinal - spent);
   const raisedRemaining = remaining * (1 + (Number(percent) / 100));
-  const finalCost = spent + raisedRemaining;
-  const baselineProfit = revenue - baselineFinal;
+  const finalCost = increaseBasis === 'budget'
+    ? baselineBudget * (1 + (Number(percent) / 100))
+    : spent + raisedRemaining;
+  const baselineProfit = revenue - (increaseBasis === 'budget' ? baselineBudget : baselineFinal);
   const projectedProfit = revenue - finalCost;
   const margin = revenue > 0 ? (projectedProfit / revenue) * 100 : null;
   const money = (value) => `$${Math.round(Number(value || 0)).toLocaleString()}`;
   const title = project?.title || project?.name || parsedContext.currentProject || parsedContext.projectName || 'this project';
   return [
-    `**If remaining costs increase ${Number(percent)}% — ${title}**`,
+    increaseBasis === 'budget'
+      ? `**If the cost budget increases ${Number(percent)}% — ${title}**`
+      : `**If remaining costs increase ${Number(percent)}% — ${title}**`,
     '',
     `This is a hypothetical. It does not change saved project data.`,
     '',
-    `Remaining costs: ${money(remaining)} → ${money(raisedRemaining)}`,
+    increaseBasis === 'budget'
+      ? `Original cost budget: ${money(baselineBudget)} → scenario cost budget: ${money(finalCost)}`
+      : `Remaining costs: ${money(remaining)} → ${money(raisedRemaining)}`,
     `Projected final cost: ${money(finalCost)}`,
     `Projected profit: ${money(projectedProfit)}`,
     margin == null ? '' : `Projected margin: ${margin.toFixed(1)}%`,
@@ -609,6 +621,24 @@ function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progr
   const currentMarginPct = spent != null && spent > 0
     ? spendToDateMarginPct
     : (projectedMarginPct != null ? projectedMarginPct : (bidMarginPct > 0 ? bidMarginPct : null));
+  const originalEstimateProfit =
+    revenue != null && estimatedCost != null ? revenue - estimatedCost : null;
+  const originalEstimateMarginPct =
+    revenue > 0 && originalEstimateProfit != null
+      ? (originalEstimateProfit / revenue) * 100
+      : null;
+  const remainingCostBudget =
+    estimatedCost != null && spent != null
+      ? Math.max(0, estimatedCost - actualPlusCommitted)
+      : null;
+  const forecastMethod =
+    isCompletedProject && spent != null
+      ? 'completed'
+      : hasCurrentForecastInputs && progress > 5
+        ? 'run-rate'
+        : projectedFinalCost != null
+          ? 'budget-fallback'
+          : null;
 
   return {
     approvedChangeOrders,
@@ -625,6 +655,12 @@ function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progr
     projectedFinalCost,
     projectedProfit,
     projectedMarginPct,
+    originalEstimateProfit,
+    originalEstimateMarginPct,
+    currentProjectedProfit: projectedProfit,
+    currentProjectedMarginPct: projectedMarginPct,
+    remainingCostBudget,
+    forecastMethod,
     currentMarginPct,
     dataQuality: {
       progressStatusConflict,
@@ -1721,6 +1757,9 @@ function appendDataFreshness(text = '', parsedContext = {}) {
 function isCentralCommandMutationRequest(message = '') {
   const text = normalizeAiMessageForIntent(message);
   if (!text) return false;
+  // Reading upcoming schedule/calendar data contains words like "schedule"
+  // and "calendar" but must remain allowed in Central Command read-only mode.
+  if (isCalendarEventsListQuery(text)) return false;
 
   const mutationVerb =
     /\b(?:add|record|log|create|save|update|edit|modify|mark|apply|remove|delete|rename|put|place|send|message|notify|schedule|assign|approve|submit|purchase)\b/i;
@@ -1757,7 +1796,7 @@ function isCalendarEventCreateQuery(message = '') {
 function isCalendarEventsListQuery(message = '') {
   const s = normalizeAiMessageForIntent(message);
   if (isCalendarEventCreateQuery(s)) return false;
-  return /\b(?:upcoming\s+events?|events?\s+coming\s+up|what'?s\s+on\s+(?:my\s+)?(?:the\s+)?calendar|calendar\s+events?|on\s+my\s+schedule|(?:what|any|show)\s+(?:me\s+)?(?:my\s+)?events?|do\s+i\s+have\s+(?:any\s+)?events?|inspections?\s+coming|any\s+inspections\b|when\s+(?:is|are)\s+(?:my\s+)?inspections?|show\s+(?:me\s+)?(?:my\s+)?(?:upcoming\s+)?(?:schedule|calendar)|anything\s+on\s+(?:my\s+)?calendar|upcoming\s+deadlines?|what\s+(?:are\s+)?(?:my\s+)?deadlines?|deadlines?\s+(?:coming|up|ahead)|payments?\s+or\s+deadlines|what\s+payments?\s+or\s+deadlines|(?:coming\s+up|what)\s+(?:for\s+)?(?:payments?\s+and\s+deadlines|deadlines?\s+and\s+payments))\b/i.test(s);
+  return /\b(?:upcoming\s+events?|events?\s+coming\s+up|what'?s\s+on\s+(?:my\s+)?(?:the\s+)?calendar|calendar\s+events?|on\s+my\s+schedule|(?:what|any|show)\s+(?:me\s+)?(?:my\s+)?events?|do\s+i\s+have\s+(?:any\s+)?events?|inspections?\s+coming|any\s+inspections\b|when\s+(?:is|are)\s+(?:my\s+)?inspections?|show\s+(?:me\s+)?(?:my\s+)?(?:upcoming\s+)?(?:schedule|calendar)|what\s+(?:is|does)\s+(?:my\s+)?(?:upcoming\s+)?schedule(?:\s+look\s+like)?|(?:my\s+)?upcoming\s+schedule|anything\s+on\s+(?:my\s+)?calendar|upcoming\s+deadlines?|what\s+(?:are\s+)?(?:my\s+)?deadlines?|deadlines?\s+(?:coming|up|ahead)|payments?\s+or\s+deadlines|what\s+payments?\s+or\s+deadlines|(?:coming\s+up|what)\s+(?:for\s+)?(?:payments?\s+and\s+deadlines|deadlines?\s+and\s+payments))\b/i.test(s);
 }
 
 /** Optional filter for event type (inspection, delivery, …). */
@@ -1873,8 +1912,24 @@ function buildCalendarAndPaymentsCombinedReply({
   filterLabel = null,
 } = {}) {
   const calPart = buildCalendarEventsReply({ events, filterLabel });
-  const upcoming = Array.isArray(paymentBuckets.upcoming) ? paymentBuckets.upcoming : [];
-  const overdue = Array.isArray(paymentBuckets.overdue) ? paymentBuckets.overdue : [];
+  const dedupePayments = (items) => {
+    const seen = new Set();
+    return (Array.isArray(items) ? items : []).filter((payment) => {
+      const key = [
+        payment?.projectId || payment?.projectTitle || '',
+        payment?.name || '',
+        payment?.date || '',
+        Math.round(Number(payment?.amount || 0) * 100) / 100,
+      ]
+        .join('|')
+        .toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const upcoming = dedupePayments(paymentBuckets.upcoming);
+  const overdue = dedupePayments(paymentBuckets.overdue);
   const unscheduled = Array.isArray(paymentBuckets.unscheduled) ? paymentBuckets.unscheduled : [];
   let payPart = '\n\n### 💰 Upcoming payments (Timeline)\n\n';
   if (upcoming.length) {
@@ -1888,7 +1943,16 @@ function buildCalendarAndPaymentsCombinedReply({
     payPart += '_No dated upcoming payments in your timeline — set dates in **Project → Timeline**._\n';
   }
   if (overdue.length) {
-    payPart += `\n⚠️ **Overdue:** ${overdue.slice(0, 6).map((x) => `**${x.name}** (${x.projectTitle})`).join('; ')}`;
+    payPart += '\n⚠️ **Overdue payments**\n';
+    overdue.slice(0, 6).forEach((payment) => {
+      const dateStr = payment.date
+        ? (typeof payment.date === 'string' ? payment.date : new Date(payment.date).toLocaleDateString())
+        : 'date not set';
+      const amount = Number(payment.amount || 0) > 0
+        ? ` — $${Math.round(Number(payment.amount)).toLocaleString()}`
+        : '';
+      payPart += `• **${payment.name || 'Payment'}** — **${payment.projectTitle || 'Project'}**${amount} — ${dateStr}\n`;
+    });
   }
   if (unscheduled.length && upcoming.length < 3) {
     payPart += `\n\n_Unscheduled milestones:_ ${unscheduled.slice(0, 4).map((u) => `**${u.name}** $${Math.round(u.amount).toLocaleString()}`).join('; ')}${unscheduled.length > 4 ? '…' : ''}`;

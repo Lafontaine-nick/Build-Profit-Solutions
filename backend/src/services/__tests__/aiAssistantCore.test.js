@@ -25,6 +25,9 @@ const {
   shouldContinueExpenseWorkflow,
   parseCustomRemainingCostIncrease,
   buildRemainingCostIncreaseReply,
+  isCalendarEventsListQuery,
+  isCalendarEventCreateQuery,
+  shouldUseCalendarCreateParser,
 } = require('../aiAssistantCore');
 const {
   deepClone,
@@ -33,6 +36,14 @@ const {
 } = require('../../../test-fixtures/aiEvalFixtures');
 
 describe('aiAssistantCore', () => {
+  test('recognizes budget variance as a calculation follow-up', () => {
+    expect(isCalculationFollowUpQuery('Budget variance')).toBe(true);
+  });
+
+  test('recognizes margin as a calculation follow-up', () => {
+    expect(isCalculationFollowUpQuery('Margin')).toBe(true);
+  });
+
   test('builds a daily brief from deterministic profit leak signals', () => {
     const analyzed = deepClone(dashboardProjects).map((project) =>
       analyzePortfolioProject(project, {
@@ -157,6 +168,24 @@ describe('aiAssistantCore', () => {
     expect(reply).toContain('does not change saved project data');
   });
 
+  test('uses the original cost budget for an over-budget scenario', () => {
+    const parsed = parseCustomRemainingCostIncrease('What if this job goes 20% over budget?');
+    expect(parsed?.basis).toBe('budget');
+    const reply = buildRemainingCostIncreaseReply({
+      basis: parsed.basis,
+      percent: parsed.percent,
+      project: {
+        title: 'Overrun Job',
+        bidPrice: 30000,
+        estimatedCost: 24000,
+        totalSpent: 10000,
+        progress: 50,
+      },
+    });
+    expect(reply).toContain('Original cost budget: $24,000 → scenario cost budget: $28,800');
+    expect(reply).toContain('Projected profit: $1,200');
+  });
+
   test('recognizes natural-language downside and calculation follow-ups', () => {
     expect(isBadOutcomeScenarioQuery('What is my projected profit if things go bad?')).toBe(true);
     expect(isBadOutcomeScenarioQuery('What is my projected profit?')).toBe(false);
@@ -204,6 +233,12 @@ describe('aiAssistantCore', () => {
 
     expect(parsed.needsMore).toBe('details_and_date');
     expect(parsed.ok).toBe(false);
+  });
+
+  test('routes calendar reads and creates as calendar capabilities', () => {
+    expect(isCalendarEventsListQuery('Do I have any upcoming event events on my calendar?')).toBe(true);
+    expect(isCalendarEventCreateQuery('Can you create an event to my calendar?')).toBe(true);
+    expect(shouldUseCalendarCreateParser('Can you create an event to my calendar?', [])).toBe(true);
   });
 
   test('date-only follow-up does not become the calendar event title', () => {
@@ -329,6 +364,11 @@ describe('aiAssistantCore', () => {
     expect(financials.projectedFinalCost).toBeCloseTo(14750, 2);
     expect(financials.projectedProfit).toBeCloseTo(16023.23, 2);
     expect(financials.projectedMarginPct).toBeCloseTo(52.07, 2);
+    expect(financials.originalEstimateProfit).toBeCloseTo(4013.90, 2);
+    expect(financials.originalEstimateMarginPct).toBeCloseTo(13.04, 2);
+    expect(financials.currentProjectedProfit).toBeCloseTo(16023.23, 2);
+    expect(financials.remainingCostBudget).toBeCloseTo(14959.33, 2);
+    expect(financials.forecastMethod).toBe('run-rate');
   });
 
   test('uses timeline milestone progress when direct project progress is stale', () => {

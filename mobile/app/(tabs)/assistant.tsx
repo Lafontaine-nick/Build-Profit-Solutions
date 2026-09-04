@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import AIAssistantModal from '@/components/AIAssistantModal';
@@ -42,12 +42,6 @@ const getStyles = (Colors: any) => StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.bg,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: Colors.bg,
-  },
 });
 
 export default function AssistantScreen() {
@@ -57,12 +51,11 @@ export default function AssistantScreen() {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(() => getStyles(Colors), [Colors]);
-  const { activeProjects, estimates, projects } = useProjectList();
+  const { activeProjects, estimates, projects, projectsReady } = useProjectList();
   const allProjectsForTimeline = projects?.length > 0 ? projects : [...activeProjects, ...estimates];
   const { compareData: compareProjectsData, progressByProjectId, timelineMilestonesByProjectId, isLoaded: isTimelineLoaded } = useProjectsCompareData(activeProjects, estimates, allProjectsForTimeline);
   const [showAIAssistant, setShowAIAssistant] = useState(false); // Start false to prevent flash
   const [assistantResetSignal, setAssistantResetSignal] = useState(0);
-  const [isReady, setIsReady] = useState(false);
   const [dailyLogsByProjectId, setDailyLogsByProjectId] = useState<Record<string, any[]>>({});
   const [calendarEventsByProjectId, setCalendarEventsByProjectId] = useState<Record<string, any[]>>({});
   const [projectSnapshotsById, setProjectSnapshotsById] = useState<Record<string, any>>({});
@@ -119,13 +112,11 @@ export default function AssistantScreen() {
   // whole app (all tabs). Leaving `visible` true after switching to Dashboard freezes web + native.
   useFocusEffect(
     React.useCallback(() => {
-      setIsReady(true);
       setAssistantResetSignal((signal) => signal + 1);
-      const timer = setTimeout(() => {
-        setShowAIAssistant(true);
-      }, 50);
+      // Open the shell immediately; project/timeline/calendar data and the
+      // Today’s Brief can hydrate behind it without making the tab feel stuck.
+      setShowAIAssistant(true);
       return () => {
-        clearTimeout(timer);
         setShowAIAssistant(false);
       };
     }, [])
@@ -135,10 +126,16 @@ export default function AssistantScreen() {
   const { context, projectOptions } = React.useMemo(() => {
     const rawProjectsList =
       projects?.length > 0 ? projects : [...activeProjects, ...estimates];
-    const allProjectsList = filterProjectsForPortfolioAi(
+    const filteredProjectsList = filterProjectsForPortfolioAi(
       dedupeProjectsForAssistantAi(rawProjectsList),
       deletedProjectRecords
     );
+    // Do not let a stale deleted-project record or an unexpected status shape
+    // erase the entire Central Command portfolio when the dashboard has rows.
+    const allProjectsList =
+      filteredProjectsList.length > 0 || rawProjectsList.length === 0
+        ? filteredProjectsList
+        : dedupeProjectsForAssistantAi(rawProjectsList);
     const safeNum = (value: unknown) => {
       const n = Number(value || 0);
       return Number.isFinite(n) ? n : 0;
@@ -402,7 +399,9 @@ export default function AssistantScreen() {
   const hasComparePayload =
     compareProjectsData.length > 0 || Object.keys(progressByProjectId || {}).length > 0;
   const isCompareContextReady =
-    isTimelineLoaded && (totalProjectCount === 0 || hasComparePayload);
+    projectsReady &&
+    isTimelineLoaded &&
+    (totalProjectCount === 0 || (hasComparePayload && projectOptions.length > 0));
 
   const handleReturnHome = () => {
     // The back arrow is the Central Command home action. Clear the chat
@@ -424,11 +423,6 @@ export default function AssistantScreen() {
       contentStyle={{ paddingTop: insets.top, paddingBottom: 24 }}
     >
     <View style={[styles.container, { paddingTop: 0, flex: 1, backgroundColor: Colors.bg }]}>
-      {!isReady && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#22c55e" />
-        </View>
-      )}
       <AIAssistantModal
         visible={showAIAssistant}
         onClose={handleReturnHome}

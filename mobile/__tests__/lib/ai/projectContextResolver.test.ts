@@ -13,6 +13,7 @@ describe('projectContextResolver conversation routing', () => {
     expect(isGeneralKnowledgeQuery('Can you explain markup versus margin for me?')).toBe(true);
     expect(isGeneralKnowledgeQuery('Why can a profitable job still have cash flow problems?')).toBe(true);
     expect(isGeneralKnowledgeQuery('What scope items could possibly be missing from a repaint job or bathroom remodel?')).toBe(true);
+    expect(isGeneralKnowledgeQuery('What are some project scopes that would be missing from a kitchen remodel')).toBe(true);
     expect(isGeneralKnowledgeQuery('Can you guarantee this estimate will be profitable?')).toBe(true);
     expect(isGeneralKnowledgeQuery('How should I count for prep work masking access and cleanup?')).toBe(true);
     expect(isGeneralKnowledgeQuery('What is my projected profit?')).toBe(false);
@@ -70,6 +71,47 @@ describe('projectContextResolver conversation routing', () => {
     const result = detectProjectIntent('What is the current risk that my current job is facing?');
     expect(result.type).toBe('project_health');
     expect(result.analysisType).toBe('quick');
+  });
+
+  test('routes cost-budget-spent questions directly to a health check', () => {
+    const result = detectProjectIntent('How much of my cost budget have I already spent?');
+    expect(result.type).toBe('project_health');
+    expect(result.analysisType).toBe('quick');
+  });
+
+  test('routes remaining-cost questions directly to a health check', () => {
+    const result = detectProjectIntent("What's my remaining cost for my current project?");
+    expect(result.type).toBe('project_health');
+    expect(result.analysisType).toBe('quick');
+  });
+
+  test('routes budget variance follow-ups directly to a health check', () => {
+    const result = detectProjectIntent('Budget variance');
+    expect(result.type).toBe('project_health');
+    expect(result.analysisType).toBe('quick');
+  });
+
+  test('routes outdoor-work weather recommendations away from project analysis', () => {
+    const result = detectProjectIntent('Which day this week would be best for me to paint exterior?');
+    expect(result.type).toBe('project_health');
+    expect(result.analysisType).toBe('quick');
+  });
+
+  test('asks which project when a current-project question has multiple active projects', () => {
+    const result = resolveProjectContext(
+      'How much of my cost budget have I already spent?',
+      { currentScreen: 'AI Assistant Tab' },
+      [
+        { id: 'p1', title: 'Interior Repaint', status: 'won', isActive: true },
+        { id: 'p2', title: 'Kitchen Remodel', status: 'in_progress', isActive: true },
+      ]
+    );
+    expect(result.needsClarification).toBe(true);
+    expect(result.clarificationType).toBe('project_selection');
+    expect(result.options?.map((option) => option.title)).toEqual([
+      'Interior Repaint',
+      'Kitchen Remodel',
+    ]);
   });
 
   test('treats current risks across projects as a portfolio question', () => {

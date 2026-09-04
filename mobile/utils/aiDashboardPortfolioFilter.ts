@@ -478,10 +478,30 @@ export function filterAiDashboardResponse(
     timelineProgress,
     deletedRecords
   );
+  const isVisibleBriefProject = (projectId?: string | null) => {
+    if (!projectId) return true;
+    const id = String(projectId);
+    return ctx.dashboardListedIds.has(id) && ctx.openPipelineIds.has(id);
+  };
+  const dailyBrief = data.dailyBrief
+    ? {
+        ...data.dailyBrief,
+        topProfitRisks: (data.dailyBrief.topProfitRisks ?? []).filter((risk) =>
+          isVisibleBriefProject(risk.projectId)
+        ),
+        upcomingPayments: (data.dailyBrief.upcomingPayments ?? []).filter((payment) =>
+          isVisibleBriefProject(payment.projectId)
+        ),
+        upcomingScheduleItems: (data.dailyBrief.upcomingScheduleItems ?? []).filter((item) =>
+          isVisibleBriefProject(item.projectId)
+        ),
+      }
+    : data.dailyBrief;
   return {
     ...data,
     insights: (data.insights ?? []).filter((insight) => filterAiInsightForPortfolio(insight, ctx)),
     nextSteps: (data.nextSteps ?? []).filter((step) => filterAiNextStepForPortfolio(step, ctx)),
+    dailyBrief,
   };
 }
 

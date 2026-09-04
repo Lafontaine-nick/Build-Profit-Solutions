@@ -36,7 +36,12 @@ import {
 } from "@/components/CalendarUpcomingFooter";
 import * as Haptics from "expo-haptics";
 import { apiService } from "@/services/api";
-import type { AiDashboardResponse, AiInsight, AiNextStep } from "@/types/aiDashboard";
+import type {
+  AiDashboardResponse,
+  AiInsight,
+  AiNextStep,
+  DailyBriefUpcomingScheduleItem,
+} from "@/types/aiDashboard";
 import { clerkAuthService } from "@/services/clerkAuth";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -388,7 +393,7 @@ function buildFallbackDailyBrief(
     topProfitRisks,
     topActions: (nextSteps || []).slice(0, 5),
     upcomingPayments: [],
-    upcomingScheduleItems: [],
+    upcomingScheduleItems: buildFallbackUpcomingScheduleItems(projects),
     portfolioSummary: {
       activeProjectCount: Array.isArray(projects) ? projects.filter((p) => p.status === "Active").length : 0,
       totalProjectCount: Array.isArray(projects) ? projects.length : 0,
@@ -397,6 +402,49 @@ function buildFallbackDailyBrief(
       highestRiskProject: topProfitRisks[0]?.projectTitle || null,
     },
   };
+}
+
+function buildFallbackUpcomingScheduleItems(
+  projects: any[],
+  daysAhead = 14
+): DailyBriefUpcomingScheduleItem[] {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const cutoff = today + daysAhead * 864e5;
+  const items: DailyBriefUpcomingScheduleItem[] = [];
+
+  for (const project of projects || []) {
+    const events = Array.isArray(project?.calendarEvents)
+      ? project.calendarEvents
+      : Array.isArray(project?.projectData?.calendarEvents)
+        ? project.projectData.calendarEvents
+        : [];
+    for (const event of events) {
+      if (!event || event.completed || !event.date) continue;
+      const date = new Date(String(event.date).includes("T") ? event.date : `${event.date}T12:00:00`);
+      if (!Number.isFinite(date.getTime())) continue;
+      const time = date.getTime();
+      if (time < today || time > cutoff) continue;
+      items.push({
+        id: event.id,
+        title: event.title || "Calendar event",
+        type: event.type || "other",
+        date: event.date,
+        time: event.time || null,
+        projectId: project.id ?? null,
+        projectTitle: project.name || project.title || "Project",
+        notes: event.notes || null,
+      });
+    }
+  }
+
+  return items
+    .sort((a, b) => {
+      const aTime = a.date ? new Date(`${a.date}T12:00:00`).getTime() : Infinity;
+      const bTime = b.date ? new Date(`${b.date}T12:00:00`).getTime() : Infinity;
+      return aTime - bTime;
+    })
+    .slice(0, 5);
 }
 
 function collectTruthyDateStrings(...vals: unknown[]): string[] {
@@ -3934,6 +3982,7 @@ const DashboardScreen: React.FC = () => {
         <View style={styles.tabPanel}>
         {activeTab === "overview" && (
           <OverviewSection
+            activeTab={activeTab}
             metrics={metrics}
             projects={projects}
             openProjectsTab={openProjectsTab}
@@ -4463,6 +4512,7 @@ const DashboardProjectSummaryCard = ({
 };
 
 interface OverviewSectionProps {
+  activeTab: TabKey;
   metrics: {
     totalBids: string;
     activeProjects: string;
@@ -4490,7 +4540,19 @@ interface OverviewSectionProps {
   projectsReady?: boolean;
 }
 
+function formatUpcomingScheduleItem(
+  item: DailyBriefUpcomingScheduleItem & { amount?: number; kind?: "event" | "payment" }
+): string {
+  const project = item.projectTitle || "Project";
+  const date = item.date ? formatDateShort(item.date) : "Date to be scheduled";
+  const amount = item.kind === "payment" && item.amount
+    ? ` · ${formatAiDashboardUsdCompact(item.amount)}`
+    : "";
+  return `${project} · ${item.title}${amount} · ${date}`;
+}
+
 const OverviewSection: React.FC<OverviewSectionProps> = ({
+  activeTab,
   metrics,
   projects,
   openProjectsTab,
@@ -4515,7 +4577,76 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useDashboardStyles(Colors);
+  const router = useRouter();
   const OVERVIEW_INSIGHT_PREVIEW_COUNT = 2;
+  const [localScheduleItems, setLocalScheduleItems] = useState<DailyBriefUpcomingScheduleItem[]>([]);
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      (async () => {
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setDate(end.getDate() + 14);
+        const collected: DailyBriefUpcomingScheduleItem[] = [];
+        await Promise.all(
+          projects.map(async (project) => {
+            try {
+              const raw = await AsyncStorage.getItem(`calendar_events_${project.id}`);
+              const events = raw ? JSON.parse(raw) : [];
+              if (!Array.isArray(events)) return;
+              for (const event of events) {
+                if (!event || event.completed || !event.date) continue;
+                const date = new Date(`${event.date}T12:00:00`);
+                if (!Number.isFinite(date.getTime()) || date < start || date > end) continue;
+                collected.push({
+                  id: event.id,
+                  title: event.title || "Calendar event",
+                  type: event.type || "other",
+                  date: event.date,
+                  time: event.time || null,
+                  projectId: project.id ?? null,
+                  projectTitle: project.name || project.title || "Project",
+                });
+              }
+            } catch {
+              // Ignore malformed local calendar data.
+            }
+          })
+        );
+        if (alive) setLocalScheduleItems(collected);
+      })();
+      return () => {
+        alive = false;
+      };
+    }, [projects, activeTab])
+  );
+  const overviewScheduleItems = useMemo(() => {
+    const items = [
+      ...(aiData?.dailyBrief?.upcomingScheduleItems || []),
+      ...localScheduleItems,
+      ...(aiData?.dailyBrief?.upcomingPayments || []).map((payment, index) => ({
+        id: `payment-${payment.projectId || "portfolio"}-${payment.name}-${index}`,
+        title: payment.name || "Payment",
+        type: "payment",
+        date: payment.date || null,
+        projectId: payment.projectId || null,
+        projectTitle: payment.projectTitle || "Project",
+        amount: payment.amount,
+        kind: "payment" as const,
+      })),
+    ];
+    const seen = new Set<string>();
+    return items
+      .filter((item) => {
+        const key = `${item.projectId || ""}:${item.title}:${item.date || ""}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
+      .slice(0, 3);
+  }, [aiData?.dailyBrief?.upcomingPayments, aiData?.dailyBrief?.upcomingScheduleItems, localScheduleItems]);
   const overviewInsightsSorted = useMemo(
     () => sortInsightsForOverview(filteredInsights),
     [filteredInsights],
@@ -4748,6 +4879,60 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
       )}
 
       </>
+      ) : null}
+
+      {overviewScheduleItems.length > 0 ? (
+        <>
+          <View style={[styles.sectionHeaderRow, styles.aiInsightsHeaderTopSpacing]}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.sectionTitle}>Upcoming schedule</Text>
+              <Text style={[styles.sectionSubtitle, styles.overviewAiInsightsSubtitle]}>
+                Payments, inspections, and project events
+              </Text>
+            </View>
+          </View>
+          <View style={[styles.wideContainer, styles.aiInsightsSectionBottomSpacing]}>
+            <View style={styles.aiPanel}>
+              {overviewScheduleItems.map((item, index) => (
+                <Pressable
+                  key={`${item.projectId || "portfolio"}-${item.title}-${index}`}
+                  style={[
+                    styles.insightsPatternRow,
+                    index === overviewScheduleItems.length - 1 && { marginBottom: 0 },
+                  ]}
+                  onPress={() => {
+                    if (!item.projectId) return;
+                    router.push({
+                      pathname: "/(tabs)/project-detail/[id]",
+                      params: {
+                        id: String(item.projectId),
+                        activeTab: item.type === "payment" ? "Timeline" : "Calendar",
+                      },
+                    } as never);
+                  }}
+                  disabled={!item.projectId}
+                >
+                  <Ionicons
+                    name={item.type === "payment" ? "cash-outline" : "calendar-outline"}
+                    size={17}
+                    color={item.type === "payment" ? BPS_BRAND_GREEN : BPS_BRAND_TEAL}
+                  />
+                  <Text style={styles.insightsPatternText}>
+                    {formatUpcomingScheduleItem(item)}
+                  </Text>
+                </Pressable>
+              ))}
+              <Pressable
+                onPress={onOpenInsights}
+                style={styles.aiInsightsOpenTabRow}
+                accessibilityRole="button"
+              >
+                <Text style={styles.linkText}>View all schedule insights</Text>
+                <Ionicons name="chevron-forward" size={16} color={BPS_BRAND_GREEN} />
+              </Pressable>
+            </View>
+          </View>
+        </>
       ) : null}
 
       {/* ALL PROJECTS */}
@@ -5051,6 +5236,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
   const router = useRouter();
   const [showAllActions, setShowAllActions] = useState(false);
   const [dismissedNextStepIds, setDismissedNextStepIds] = useState<Set<string>>(() => new Set());
+  const [localScheduleItems, setLocalScheduleItems] = useState<DailyBriefUpcomingScheduleItem[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -5070,6 +5256,51 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
       alive = false;
     };
   }, []);
+
+  // The Calendar tab also reads project-scoped local events. Load the same
+  // source here because the AI/API snapshot may not include a newly-created
+  // event until its workspace sync completes.
+  useFocusEffect(useCallback(() => {
+    let alive = true;
+    (async () => {
+      const today = new Date();
+      const startMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+      const endMs = startMs + 14 * 864e5;
+      const collected: DailyBriefUpcomingScheduleItem[] = [];
+
+      await Promise.all(
+        projects.map(async (project) => {
+          try {
+            const raw = await AsyncStorage.getItem(`calendar_events_${project.id}`);
+            const events = raw ? JSON.parse(raw) : [];
+            if (!Array.isArray(events)) return;
+            for (const event of events) {
+              if (!event || event.completed || !event.date) continue;
+              const date = new Date(`${event.date}T12:00:00`);
+              if (!Number.isFinite(date.getTime())) continue;
+              if (date.getTime() < startMs || date.getTime() > endMs) continue;
+              collected.push({
+                id: event.id,
+                title: event.title || "Calendar event",
+                type: event.type || "other",
+                date: event.date,
+                time: event.time || null,
+                projectId: project.id ?? null,
+                projectTitle: project.name || project.title || "Project",
+                notes: event.notes || null,
+              });
+            }
+          } catch {
+            // A missing or malformed local calendar should not block Insights.
+          }
+        })
+      );
+      if (alive) setLocalScheduleItems(collected);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projects]));
 
   /** Drop dismissals that no longer match the current feed (e.g. after API refresh). */
   useEffect(() => {
@@ -5144,6 +5375,40 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
   const dailyRisk = dailyBrief?.topProfitRisks?.[0];
   const dailyAction = dailyBrief?.topActions?.[0];
   const nextPayment = dailyBrief?.upcomingPayments?.[0];
+  const upcomingSchedule = useMemo(() => {
+    const scheduleItems = [
+      ...(dailyBrief?.upcomingScheduleItems || []),
+      ...localScheduleItems,
+    ].map((item) => ({
+      ...item,
+      kind: "event" as const,
+    }));
+    const paymentItems = (dailyBrief?.upcomingPayments || []).map((payment, index) => ({
+      id: `payment-${payment.projectId || "portfolio"}-${payment.name}-${index}`,
+      title: payment.name || "Payment",
+      type: "payment",
+      date: payment.date || null,
+      time: null,
+      projectId: payment.projectId || null,
+      projectTitle: payment.projectTitle || "Project",
+      amount: payment.amount,
+      kind: "payment" as const,
+    }));
+    const seen = new Set<string>();
+    return [...scheduleItems, ...paymentItems]
+      .filter((item) => {
+        const key = `${item.kind}:${item.projectId || ""}:${item.title}:${item.date || ""}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => {
+        const aDate = a.date ? new Date(`${a.date}T12:00:00`).getTime() : Infinity;
+        const bDate = b.date ? new Date(`${b.date}T12:00:00`).getTime() : Infinity;
+        return aDate - bDate;
+      })
+      .slice(0, 5);
+  }, [dailyBrief?.upcomingPayments, dailyBrief?.upcomingScheduleItems, localScheduleItems]);
   const completedProjectIds = useMemo(() => {
     const ids = new Set<string>();
     for (const row of projects) {
@@ -5470,7 +5735,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
       </View>
 
       <View style={styles.wideContainer}>
-        <View style={styles.insightsActionsPanel}>
+        <View>
           {aiLoading && (
             <Text style={styles.insightsAuxText}>Loading actions…</Text>
           )}
@@ -5565,29 +5830,74 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
         </View>
       )}
 
-      {!aiLoading && !aiError && dailyBrief?.upcomingPayments?.length ? (
+      {!aiLoading && !aiError && upcomingSchedule.length ? (
         <>
           <View style={[styles.sectionHeaderRow, { marginTop: 22 }]}>
             <View>
-              <Text style={styles.sectionTitle}>Upcoming money</Text>
-              <Text style={styles.sectionSubtitle}>Soonest payment milestones first</Text>
+              <Text style={styles.sectionTitle}>Upcoming schedule</Text>
+              <Text style={styles.sectionSubtitle}>Payments, inspections, and project events</Text>
             </View>
           </View>
           <View style={styles.wideContainer}>
             <View style={styles.insightsPatternsCard}>
-              {dailyBrief.upcomingPayments.slice(0, 3).map((payment, index) => (
-                <View
-                  key={`${payment.projectId || "portfolio"}-${payment.name}-${index}`}
+              {upcomingSchedule.map((item, index) => (
+                <Pressable
+                  key={`${item.kind}-${item.id || item.title}-${index}`}
                   style={[
                     styles.insightsPatternRow,
-                    index === dailyBrief.upcomingPayments.slice(0, 3).length - 1 && { marginBottom: 0 },
+                    index === upcomingSchedule.length - 1 && { marginBottom: 0 },
                   ]}
+                  onPress={() => {
+                    if (!item.projectId) return;
+                    if (Platform.OS === "ios") {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }
+                    router.push({
+                      pathname: "/(tabs)/project-detail/[id]",
+                      params: {
+                        id: String(item.projectId),
+                        activeTab: item.kind === "payment" ? "Timeline" : "Calendar",
+                      },
+                    } as never);
+                  }}
+                  disabled={!item.projectId}
+                  accessibilityRole={item.projectId ? "button" : undefined}
+                  accessibilityLabel={`${item.title}, ${item.projectTitle || "Project"}`}
                 >
-                  <View style={styles.insightsPatternDot} />
-                  <Text style={styles.insightsPatternText}>
-                    {`${payment.projectTitle || "Project"} · ${payment.name || "Payment"} · ${formatAiDashboardUsdCompact(payment.amount || 0)}${payment.date ? ` · due ${formatDateShort(payment.date)}` : ""}`}
-                  </Text>
-                </View>
+                  <Ionicons
+                    name={
+                      item.kind === "payment"
+                        ? "cash-outline"
+                        : item.type === "inspection"
+                          ? "clipboard-outline"
+                          : item.type === "delivery"
+                            ? "cube-outline"
+                            : item.type === "deadline"
+                              ? "flag-outline"
+                              : "calendar-outline"
+                    }
+                    size={17}
+                    color={
+                      item.kind === "payment"
+                        ? BPS_BRAND_GREEN
+                        : item.type === "inspection"
+                          ? "#f59e0b"
+                          : item.type === "deadline"
+                            ? "#f97316"
+                            : BPS_BRAND_TEAL
+                    }
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.insightsPatternText}>
+                      {`${item.projectTitle || "Project"} · ${item.title}${item.kind === "payment" ? ` · ${formatAiDashboardUsdCompact(item.amount || 0)}` : ""}`}
+                    </Text>
+                    <Text style={styles.insightsScheduleMeta}>
+                      {item.date ? formatDateShort(item.date) : "Date to be scheduled"}
+                      {item.time ? ` · ${item.time}` : ""}
+                      {item.kind === "payment" ? " · payment due" : ` · ${item.type || "event"}`}
+                    </Text>
+                  </View>
+                </Pressable>
               ))}
             </View>
           </View>
@@ -5906,15 +6216,6 @@ const getStyles = (
     fontWeight: "700",
     color: "#050B13",
   },
-  insightsActionsPanel: {
-    borderRadius: 20,
-    padding: 16,
-    paddingBottom: 16,
-    backgroundColor: Colors.bg === '#000000' ? "#1C1C1E" : Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.08)" : Colors.line,
-    marginBottom: 4,
-  },
   insightsGroupLabel: {
     fontSize: 12,
     fontWeight: "700",
@@ -5927,8 +6228,8 @@ const getStyles = (
   insightsActionCard: {
     borderRadius: 14,
     marginBottom: 14,
-    /* Light: gray tile inside the tinted panel — avoid stark white (dark unchanged) */
-    backgroundColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.05)" : Colors.surface2,
+    /* Match the gray schedule/pattern cards in dark mode. */
+    backgroundColor: Colors.bg === '#000000' ? "#1C1C1E" : Colors.surface2,
     borderWidth: 1,
     borderColor: Colors.bg === '#000000' ? "rgba(255,255,255,0.07)" : Colors.line,
     overflow: "hidden",
@@ -6051,6 +6352,13 @@ const getStyles = (
     lineHeight: 19,
     fontWeight: "500",
     color: Colors.bg === '#000000' ? "rgba(255,255,255,0.94)" : "#334155",
+  },
+  insightsScheduleMeta: {
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 16,
+    color: Colors.bg === '#000000' ? "rgba(255,255,255,0.62)" : "#64748b",
+    textTransform: "capitalize",
   },
   /** Loading / empty copy on Insights tab — brighter than generic panel text */
   insightsAuxText: {
