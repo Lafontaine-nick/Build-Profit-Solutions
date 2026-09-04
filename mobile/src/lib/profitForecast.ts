@@ -38,10 +38,17 @@ export interface ProfitForecastOutput {
   committedPOs: number;
   forecastFinalCost: number;
   projectedProfit: number;
+  /** Current projected profit at completion, explicitly named for AI responses. */
+  currentProjectedProfit: number;
   /** Spend-to-date margin: (contract - actualExpenses) / contract */
   spendToDateMarginPct: number;
   /** Expected margin at completion: (contract - forecastFinalCost) / contract. Uses run-rate (actualExpenses/progress) for forecast. */
   projectedMarginPct: number;
+  /** Original estimate profit/margin based on the planned cost baseline. */
+  originalEstimateProfit: number;
+  originalEstimateMarginPct: number;
+  /** Planned cost budget remaining after actual expenses and commitments. */
+  remainingCostBudget: number;
   /** Estimated profit = contractValue - estimatedCostBaseline */
   estimatedProfit: number;
   /** Profit variance = projectedProfit - estimatedProfit (positive = profit improved) */
@@ -275,6 +282,9 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
 
   const estimatedProfit = contractValue - costForVariance;
   const profitVarianceVsEstimate = projectedProfit - estimatedProfit;
+  const originalEstimateMarginPct =
+    contractValue > 0 ? (estimatedProfit / contractValue) * 100 : 0;
+  const remainingCostBudget = Math.max(0, adjustedBudget - actualPlusCommitted);
   const status = getProfitStatus(projectedMarginPct);
 
   return {
@@ -284,8 +294,12 @@ export function computeProfitForecast(input: ProfitForecastInput): ProfitForecas
     committedPOs,
     forecastFinalCost,
     projectedProfit,
+    currentProjectedProfit: projectedProfit,
     spendToDateMarginPct,
     projectedMarginPct,
+    originalEstimateProfit: estimatedProfit,
+    originalEstimateMarginPct,
+    remainingCostBudget,
     estimatedProfit,
     profitVarianceVsEstimate,
     status,

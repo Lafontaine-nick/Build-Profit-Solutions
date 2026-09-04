@@ -41,7 +41,6 @@ import {
 } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
-import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from 'react-i18next';
 import Slider from '@react-native-community/slider';
 import { useApi } from '@/contexts/ApiContext';
@@ -330,7 +329,7 @@ export default function ProfileScreen() {
   useRequireAuth();
   const { canViewTaxCenter } = useRestrictedWorkspaceFinancials();
 
-  const { darkMode, setDarkMode, theme: themeContext } = useTheme();
+  const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { width: layoutWidth } = useWindowDimensions();
   const tabScrollBottomInset = useTabScrollBottomInset();
@@ -359,7 +358,6 @@ export default function ProfileScreen() {
   const styles = useMemo(() => getStyles(Colors, darkMode, desktopWeb), [Colors, darkMode, desktopWeb]);
   const { updateProfile, updatePreferences, logout: apiLogout } = useApi();
   const { clearProjectsLocal } = useProjectList();
-  const { currentLanguage, changeLanguage } = useLanguage();
   const { t } = useTranslation(); // Use directly for reactivity
 
   const [user, setUser] = useState(DEFAULT_CONTRACTOR_USER);
@@ -433,33 +431,6 @@ export default function ProfileScreen() {
   const [editModal, setEditModal] = useState(false);
   const [settingsModal, setSettingsModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedLanguage, setSelectedLanguage] = useState(currentLanguage);
-
-  // Sync selectedLanguage with currentLanguage when it changes
-  useEffect(() => {
-    setSelectedLanguage(currentLanguage);
-  }, [currentLanguage]);
-
-  // Language options
-  const languageOptions = [
-    { label: 'English', value: 'en' },
-    { label: 'Español', value: 'es' },
-    { label: 'Français', value: 'fr' },
-    { label: 'Deutsch', value: 'de' },
-    { label: 'Italiano', value: 'it' },
-    { label: 'Português', value: 'pt' },
-    { label: '中文', value: 'zh' },
-    { label: '日本語', value: 'ja' },
-    { label: '한국어', value: 'ko' },
-    { label: 'العربية', value: 'ar' },
-    { label: 'Русский', value: 'ru' },
-    { label: 'Polski', value: 'pl' },
-  ];
-
-  const getLanguageLabel = (value: string) => {
-    return languageOptions.find(l => l.value === value)?.label || 'English';
-  };
-
   // Format phone number as (XXX) XXX-XXXX
   const formatPhoneNumber = (value: string): string => {
     if (!value) return '';
@@ -611,8 +582,11 @@ export default function ProfileScreen() {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [passwordModalFocusedField, setPasswordModalFocusedField] = useState<string | null>(null);
+  const currentPasswordRef = useRef<TextInput>(null);
+  const newPasswordRef = useRef<TextInput>(null);
+  const confirmPasswordRef = useRef<TextInput>(null);
   const [notificationsModal, setNotificationsModal] = useState(false);
-  const [languageModal, setLanguageModal] = useState(false);
   const [companyModal, setCompanyModal] = useState(false);
   const [licensesModal, setLicensesModal] = useState(false);
   const [insuranceModal, setInsuranceModal] = useState(false);
@@ -677,6 +651,43 @@ export default function ProfileScreen() {
     }),
     []
   );
+
+  const passwordFieldFocusHandlers = useCallback(
+    (field: string) => ({
+      onFocus: () => setPasswordModalFocusedField(field),
+      onBlur: () =>
+        setPasswordModalFocusedField((current) => (current === field ? null : current)),
+    }),
+    []
+  );
+
+  const passwordFieldInputStyle = useCallback(
+    (field: string, value: string) => [
+      styles.editModalFieldInput,
+      styles.passwordFieldInput,
+      {
+        color:
+          passwordModalFocusedField === field || String(value || '').trim()
+            ? theme.text
+            : theme.fieldMuted,
+      },
+    ],
+    [passwordModalFocusedField, theme.text, theme.fieldMuted]
+  );
+
+  const trimmedCurrentPassword = currentPassword.trim();
+  const trimmedNewPassword = newPassword.trim();
+  const trimmedConfirmPassword = confirmPassword.trim();
+  const passwordsMatch =
+    trimmedConfirmPassword.length > 0 && trimmedNewPassword === trimmedConfirmPassword;
+  const passwordMeetsLength = trimmedNewPassword.length >= 8;
+  const passwordIsDifferent =
+    trimmedNewPassword.length > 0 && trimmedNewPassword !== trimmedCurrentPassword;
+  const passwordFormValid =
+    trimmedCurrentPassword.length > 0 &&
+    passwordMeetsLength &&
+    passwordsMatch &&
+    passwordIsDifferent;
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -952,90 +963,91 @@ export default function ProfileScreen() {
   }, [user]);
 
   // Settings handlers
-  const handleChangePassword = useCallback(() => {
-    // Reset password fields when opening modal
+  const closePasswordModal = useCallback(() => {
+    setPasswordModal(false);
     setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
+    setPasswordModalFocusedField(null);
+  }, []);
+
+  const handleChangePassword = useCallback(() => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
+    setPasswordModalFocusedField(null);
     setPasswordModal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   }, []);
 
   const handleUpdatePassword = useCallback(async () => {
-    if (!currentPassword.trim()) {
+    if (!trimmedCurrentPassword) {
       Alert.alert('Error', 'Please enter your current password');
       return;
     }
 
-    if (!newPassword.trim()) {
+    if (!trimmedNewPassword) {
       Alert.alert('Error', 'Please enter a new password');
       return;
     }
 
-    if (newPassword.length < 8) {
+    if (!passwordMeetsLength) {
       Alert.alert('Error', 'Password must be at least 8 characters long');
       return;
     }
 
-    if (newPassword !== confirmPassword) {
+    if (!passwordIsDifferent) {
+      Alert.alert('Error', 'New password must be different from your current password');
+      return;
+    }
+
+    if (!passwordsMatch) {
       Alert.alert('Error', 'Passwords do not match');
+      return;
+    }
+
+    if (!isClerkEnabled || !clerkUser) {
+      Alert.alert(
+        'Unable to update password',
+        'Password changes are only available for email sign-in accounts. Contact support if you need help.'
+      );
       return;
     }
 
     setPasswordLoading(true);
     try {
-      if (isClerkEnabled && clerkUser) {
-        // Use Clerk's API to update password
-        await clerkUser.updatePassword({
-          currentPassword: currentPassword.trim(),
-          newPassword: newPassword.trim(),
-        });
-        
-        Alert.alert(
-          'Success',
-          'Password updated successfully!',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                setPasswordModal(false);
-                setCurrentPassword('');
-                setNewPassword('');
-                setConfirmPassword('');
-                Haptics.notificationAsync(
-                  Haptics.NotificationFeedbackType.Success
-                );
-              },
-            },
-          ]
-        );
-      } else {
-        // Fallback: show success message (backend API would go here if needed)
-        Alert.alert(
-          'Success',
-          'Password updated successfully!',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                setPasswordModal(false);
-                setCurrentPassword('');
-                setNewPassword('');
-                setConfirmPassword('');
-                Haptics.notificationAsync(
-                  Haptics.NotificationFeedbackType.Success
-                );
-              },
-            },
-          ]
-        );
-      }
+      await clerkUser.updatePassword({
+        currentPassword: trimmedCurrentPassword,
+        newPassword: trimmedNewPassword,
+      });
+
+      Alert.alert('Success', 'Password updated successfully!', [
+        {
+          text: 'OK',
+          onPress: () => {
+            closePasswordModal();
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          },
+        },
+      ]);
     } catch (error: any) {
       console.error('Password update error:', error);
-      const errorMessage = error?.errors?.[0]?.message || error?.message || 'Failed to update password. Please try again.';
-      
-      // Check if it's a current password error
-      if (errorMessage.includes('current') || errorMessage.includes('Current') || errorMessage.includes('incorrect')) {
+      const errorMessage =
+        error?.errors?.[0]?.message ||
+        error?.message ||
+        'Failed to update password. Please try again.';
+
+      if (
+        errorMessage.includes('current') ||
+        errorMessage.includes('Current') ||
+        errorMessage.includes('incorrect')
+      ) {
         Alert.alert('Error', 'Current password is incorrect. Please try again.');
       } else {
         Alert.alert('Error', errorMessage);
@@ -1043,15 +1055,19 @@ export default function ProfileScreen() {
     } finally {
       setPasswordLoading(false);
     }
-  }, [currentPassword, newPassword, confirmPassword, isClerkEnabled, clerkUser]);
+  }, [
+    trimmedCurrentPassword,
+    trimmedNewPassword,
+    passwordMeetsLength,
+    passwordIsDifferent,
+    passwordsMatch,
+    isClerkEnabled,
+    clerkUser,
+    closePasswordModal,
+  ]);
 
   const handleNotificationPreferences = useCallback(() => {
     setNotificationsModal(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  }, []);
-
-  const handleLanguageRegion = useCallback(() => {
-    setLanguageModal(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   }, []);
 
@@ -2529,33 +2545,6 @@ export default function ProfileScreen() {
         {/* Preferences */}
         {renderSection('Preferences', (
           <>
-            {filterSettings('Appearance') && (
-              <View style={styles.settingItem}>
-                <View style={styles.settingLeft}>
-                  <View style={[styles.settingIconContainer, { backgroundColor: theme.iconBg }]}>
-                    <MaterialIcons name='brightness-4' size={20} color={theme.accent} />
-                  </View>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={[styles.settingText, { color: theme.text }]}>Appearance</Text>
-                    <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-                      {darkMode ? 'Dark' : 'Light'}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.switchWrapper}>
-                  <Switch
-                    value={!darkMode}
-                    onValueChange={async (value) => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      await setDarkMode(!value);
-                    }}
-                    trackColor={{ false: theme.border, true: theme.accent }}
-                    thumbColor='#fff'
-                    ios_backgroundColor={theme.border}
-                  />
-                </View>
-              </View>
-            )}
             {filterSettings('Push Notifications') && (
               <View style={styles.settingItem}>
                 <View style={styles.settingLeft}>
@@ -2692,29 +2681,6 @@ export default function ProfileScreen() {
                   />
                 </View>
               </View>
-            )}
-            {filterSettings('Language') && (
-              <TouchableOpacity
-                style={styles.settingItem}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  setLanguageModal(true);
-                }}
-                activeOpacity={0.6}
-              >
-                <View style={styles.settingLeft}>
-                  <View style={[styles.settingIconContainer, { backgroundColor: theme.iconBg }]}>
-                    <MaterialIcons name='language' size={20} color={theme.accent} />
-                  </View>
-                  <Text style={[styles.settingText, { color: theme.text }]}>{t('profile.language')}</Text>
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={[styles.settingText, { color: theme.subtext, fontSize: 14, opacity: darkMode ? 1 : 0.85 }]}>
-                    {getLanguageLabel(selectedLanguage)}
-                  </Text>
-                  <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.7 }} />
-                </View>
-              </TouchableOpacity>
             )}
           </>
         ))}
@@ -3345,193 +3311,227 @@ export default function ProfileScreen() {
       {/* Change Password Modal */}
       <Modal
         visible={passwordModal}
-        animationType='slide'
+        animationType='fade'
         transparent={true}
-        onRequestClose={() => setPasswordModal(false)}
+        onRequestClose={closePasswordModal}
       >
-        <View style={[styles.container, { backgroundColor: Colors.bg }]}>
+        <View style={styles.modalOverlay}>
           <KeyboardAvoidingView
-            style={styles.passwordModalOverlay}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.passwordModalKeyboardWrap}
           >
-            <ScrollView
-              contentContainerStyle={styles.passwordModalScrollContent}
-              showsVerticalScrollIndicator={false}
-              {...FORM_KEYBOARD_SCROLL_PROPS}
+            <TouchableOpacity
+              style={styles.passwordModalDismissArea}
+              activeOpacity={1}
+              onPress={closePasswordModal}
             >
-              {/* Password change card - matching language & edit profile modal */}
-              <View style={[styles.passwordModalCard, styles.passwordModalCardWeb, { 
-                backgroundColor: darkMode ? '#2a2a2a' : '#f0f0f0',
-                borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-              }]}>
-                <View style={styles.passwordModalHeader}>
-                  <Text style={[styles.passwordModalTitle, { color: theme.text }]}>
-                    Change Password
-                  </Text>
-                  <TouchableOpacity 
-                    onPress={() => setPasswordModal(false)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={(e) => e.stopPropagation()}
+                style={[
+                  styles.modalContent,
+                  styles.modalContentPassword,
+                  Platform.OS === 'web' ? styles.modalContentWebEditProfile : null,
+                  {
+                    backgroundColor: theme.card,
+                    borderColor: theme.border,
+                  },
+                ]}
+              >
+                <View style={[styles.modalHeader, styles.passwordModalHeader, { borderBottomColor: theme.border }]}>
+                  <Text style={[styles.modalTitle, { color: theme.text }]}>Change Password</Text>
+                  <TouchableOpacity
+                    onPress={closePasswordModal}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <MaterialIcons name='close' size={24} color={theme.text} />
+                    <MaterialIcons name='close' size={22} color={theme.subtext} />
                   </TouchableOpacity>
                 </View>
 
-                <View style={styles.passwordInputGroup}>
-                  <Text style={[styles.passwordInputLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-                    Current Password
+                <ScrollView
+                  contentContainerStyle={styles.passwordModalScrollContent}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps='handled'
+                  {...FORM_KEYBOARD_SCROLL_PROPS}
+                >
+                  <Text style={[styles.passwordModalHint, { color: theme.subtext, opacity: darkMode ? 0.9 : 0.85 }]}>
+                    Enter your current password, then choose a new one.
                   </Text>
-                  <View style={[styles.passwordInputContainer, { 
-                    backgroundColor: darkMode ? '#2a2a2a' : '#e8e8e8',
-                    borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)',
-                  }]}>
-                    <TextInput
-                      style={[styles.passwordTextInput, { color: darkMode ? '#ffffff' : '#000000' }]}
-                      placeholder='Enter current password'
-                      placeholderTextColor={darkMode ? '#888' : '#666'}
-                      secureTextEntry={!showCurrentPassword}
-                      value={currentPassword}
-                      onChangeText={setCurrentPassword}
-                      editable={!passwordLoading}
-                      autoCapitalize='none'
-                      autoCorrect={false}
-                      {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
-                    />
-                    <TouchableOpacity
-                      style={styles.passwordEyeIcon}
-                      onPress={() => setShowCurrentPassword(!showCurrentPassword)}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <MaterialIcons
-                        name={showCurrentPassword ? 'visibility' : 'visibility-off'}
-                        size={20}
-                        color={theme.subtext}
-                        style={{ opacity: darkMode ? 1 : 0.85 }}
-                      />
-                    </TouchableOpacity>
-                  </View>
-                </View>
 
-                <View style={styles.passwordInputGroup}>
-                  <Text style={[styles.passwordInputLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-                    New Password
-                  </Text>
-                  <View style={[styles.passwordInputContainer, { 
-                    backgroundColor: darkMode ? '#2a2a2a' : '#e8e8e8',
-                    borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)',
-                  }]}>
-                    <TextInput
-                      style={[styles.passwordTextInput, { color: darkMode ? '#ffffff' : '#000000' }]}
-                      placeholder='Enter new password'
-                      placeholderTextColor={darkMode ? '#888' : '#666'}
-                      secureTextEntry={!showNewPassword}
-                      value={newPassword}
-                      onChangeText={setNewPassword}
-                      editable={!passwordLoading}
-                      autoCapitalize='none'
-                      autoCorrect={false}
-                      {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
-                    />
-                    <TouchableOpacity
-                      style={styles.passwordEyeIcon}
-                      onPress={() => setShowNewPassword(!showNewPassword)}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <MaterialIcons
-                        name={showNewPassword ? 'visibility' : 'visibility-off'}
-                        size={20}
-                        color={theme.subtext}
-                        style={{ opacity: darkMode ? 1 : 0.85 }}
-                      />
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={[styles.passwordHelperText, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-                    Must be at least 8 characters
-                  </Text>
-                </View>
+                  <View style={[styles.editModalGroupedCard, { backgroundColor: theme.cardInset, borderColor: theme.border }]}>
+                    <View style={styles.passwordModalFieldRow}>
+                      <Text style={[styles.editModalFieldLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
+                        Current password
+                      </Text>
+                      <View style={styles.passwordFieldRow}>
+                        <TextInput
+                          ref={currentPasswordRef}
+                          style={passwordFieldInputStyle('current', currentPassword)}
+                          placeholder='Enter current password'
+                          placeholderTextColor={theme.fieldPlaceholder}
+                          secureTextEntry={!showCurrentPassword}
+                          value={currentPassword}
+                          onChangeText={setCurrentPassword}
+                          editable={!passwordLoading}
+                          autoCapitalize='none'
+                          autoCorrect={false}
+                          textContentType='password'
+                          onSubmitEditing={() => newPasswordRef.current?.focus()}
+                          {...passwordFieldFocusHandlers('current')}
+                          {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
+                        />
+                        <TouchableOpacity
+                          style={styles.passwordEyeButton}
+                          onPress={() => setShowCurrentPassword((prev) => !prev)}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
+                          <MaterialIcons
+                            name={showCurrentPassword ? 'visibility' : 'visibility-off'}
+                            size={20}
+                            color={theme.subtext}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
 
-                <View style={styles.passwordInputGroup}>
-                  <Text style={[styles.passwordInputLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-                    Confirm New Password
-                  </Text>
-                  <View style={[styles.passwordInputContainer, { 
-                    backgroundColor: darkMode ? '#2a2a2a' : '#e8e8e8',
-                    borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)',
-                  }]}>
-                    <TextInput
-                      style={[styles.passwordTextInput, { color: darkMode ? '#ffffff' : '#000000' }]}
-                      placeholder='Confirm new password'
-                      placeholderTextColor={darkMode ? '#888' : '#666'}
-                      secureTextEntry={!showConfirmPassword}
-                      value={confirmPassword}
-                      onChangeText={setConfirmPassword}
-                      editable={!passwordLoading}
-                      autoCapitalize='none'
-                      autoCorrect={false}
-                      {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
-                    />
-                    <TouchableOpacity
-                      style={styles.passwordEyeIcon}
-                      onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <MaterialIcons
-                        name={showConfirmPassword ? 'visibility' : 'visibility-off'}
-                        size={20}
-                        color={theme.subtext}
-                        style={{ opacity: darkMode ? 1 : 0.85 }}
-                      />
-                    </TouchableOpacity>
-                  </View>
-                  {confirmPassword && newPassword === confirmPassword && (
-                    <Text style={[styles.passwordMatchText, { color: theme.success }]}>
-                      ✓ Passwords match
-                    </Text>
-                  )}
-                  {confirmPassword && newPassword !== confirmPassword && (
-                    <Text style={[styles.passwordMismatchText, { color: theme.error }]}>
-                      Passwords do not match
-                    </Text>
-                  )}
-                </View>
+                    <View style={[styles.editModalDivider, { backgroundColor: theme.border }]} />
 
-                <View style={styles.passwordModalButtonRow}>
+                    <View style={styles.passwordModalFieldRow}>
+                      <Text style={[styles.editModalFieldLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
+                        New password
+                      </Text>
+                      <View style={styles.passwordFieldRow}>
+                        <TextInput
+                          ref={newPasswordRef}
+                          style={passwordFieldInputStyle('new', newPassword)}
+                          placeholder='Enter new password'
+                          placeholderTextColor={theme.fieldPlaceholder}
+                          secureTextEntry={!showNewPassword}
+                          value={newPassword}
+                          onChangeText={setNewPassword}
+                          editable={!passwordLoading}
+                          autoCapitalize='none'
+                          autoCorrect={false}
+                          textContentType='newPassword'
+                          onSubmitEditing={() => confirmPasswordRef.current?.focus()}
+                          {...passwordFieldFocusHandlers('new')}
+                          {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
+                        />
+                        <TouchableOpacity
+                          style={styles.passwordEyeButton}
+                          onPress={() => setShowNewPassword((prev) => !prev)}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
+                          <MaterialIcons
+                            name={showNewPassword ? 'visibility' : 'visibility-off'}
+                            size={20}
+                            color={theme.subtext}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                      <Text
+                        style={[
+                          styles.passwordValidationHint,
+                          {
+                            color: passwordMeetsLength
+                              ? theme.success
+                              : theme.subtext,
+                            opacity: passwordMeetsLength ? 1 : darkMode ? 0.75 : 0.85,
+                          },
+                        ]}
+                      >
+                        {passwordMeetsLength ? '✓ At least 8 characters' : 'Must be at least 8 characters'}
+                      </Text>
+                      {trimmedNewPassword.length > 0 && !passwordIsDifferent && (
+                        <Text style={[styles.passwordValidationHint, { color: theme.error }]}>
+                          Must be different from current password
+                        </Text>
+                      )}
+                    </View>
+
+                    <View style={[styles.editModalDivider, { backgroundColor: theme.border }]} />
+
+                    <View style={styles.passwordModalFieldRow}>
+                      <Text style={[styles.editModalFieldLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
+                        Confirm new password
+                      </Text>
+                      <View style={styles.passwordFieldRow}>
+                        <TextInput
+                          ref={confirmPasswordRef}
+                          style={passwordFieldInputStyle('confirm', confirmPassword)}
+                          placeholder='Confirm new password'
+                          placeholderTextColor={theme.fieldPlaceholder}
+                          secureTextEntry={!showConfirmPassword}
+                          value={confirmPassword}
+                          onChangeText={setConfirmPassword}
+                          editable={!passwordLoading}
+                          autoCapitalize='none'
+                          autoCorrect={false}
+                          textContentType='newPassword'
+                          onSubmitEditing={() => {
+                            if (passwordFormValid && !passwordLoading) {
+                              void handleUpdatePassword();
+                            }
+                          }}
+                          {...passwordFieldFocusHandlers('confirm')}
+                          {...resolveTextInputKeyboardProps({ secureTextEntry: true })}
+                        />
+                        <TouchableOpacity
+                          style={styles.passwordEyeButton}
+                          onPress={() => setShowConfirmPassword((prev) => !prev)}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
+                          <MaterialIcons
+                            name={showConfirmPassword ? 'visibility' : 'visibility-off'}
+                            size={20}
+                            color={theme.subtext}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                      {trimmedConfirmPassword.length > 0 && (
+                        <Text
+                          style={[
+                            styles.passwordValidationHint,
+                            { color: passwordsMatch ? theme.success : theme.error },
+                          ]}
+                        >
+                          {passwordsMatch ? '✓ Passwords match' : 'Passwords do not match'}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                </ScrollView>
+
+                <View style={[styles.passwordModalFooter, { borderTopColor: theme.border }]}>
                   <TouchableOpacity
                     style={[
-                      styles.passwordModalButton,
-                      styles.passwordCancelButton,
-                      { 
-                        backgroundColor: darkMode ? '#323232' : '#e8e8e8',
-                        borderColor: darkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)',
-                      },
-                    ]}
-                    onPress={() => setPasswordModal(false)}
-                    disabled={passwordLoading}
-                  >
-                    <Text style={[styles.passwordCancelButtonText, { color: darkMode ? '#ffffff' : '#000000' }]}>
-                      Cancel
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.passwordModalButton,
-                      styles.passwordSaveButton,
+                      styles.editModalSaveButton,
                       { backgroundColor: theme.accent },
-                      (passwordLoading || !currentPassword || !newPassword || newPassword.length < 8 || newPassword !== confirmPassword) && { opacity: 0.5 },
+                      (!passwordFormValid || passwordLoading) && { opacity: 0.45 },
                     ]}
                     onPress={handleUpdatePassword}
-                    disabled={passwordLoading || !currentPassword || !newPassword || newPassword.length < 8 || newPassword !== confirmPassword}
+                    disabled={!passwordFormValid || passwordLoading}
+                    activeOpacity={0.85}
                   >
                     {passwordLoading ? (
-                      <ActivityIndicator color="#fff" />
+                      <ActivityIndicator color={Colors.onPrimary} />
                     ) : (
-                      <Text style={styles.passwordSaveButtonText}>
+                      <Text style={[styles.editModalSaveButtonText, { color: Colors.onPrimary }]}>
                         Update Password
                       </Text>
                     )}
                   </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.passwordModalCancelLink}
+                    onPress={closePasswordModal}
+                    disabled={passwordLoading}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.passwordModalCancelLinkText, { color: theme.subtext }]}>Cancel</Text>
+                  </TouchableOpacity>
                 </View>
-              </View>
-            </ScrollView>
+              </TouchableOpacity>
+            </TouchableOpacity>
           </KeyboardAvoidingView>
         </View>
       </Modal>
@@ -3655,84 +3655,6 @@ export default function ProfileScreen() {
             </View>
           </View>
         </View>
-      </Modal>
-
-      {/* Language Selection Modal */}
-      <Modal
-        visible={languageModal}
-        animationType='fade'
-        transparent={true}
-        onRequestClose={() => setLanguageModal(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setLanguageModal(false);
-          }}
-        >
-          <TouchableOpacity
-            activeOpacity={1}
-            onPress={(e) => e.stopPropagation()}
-            style={[styles.languageModalContent, { 
-              backgroundColor: darkMode ? '#2a2a2a' : '#f0f0f0',
-              borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-            }]}
-          >
-            <View style={styles.languageModalHeader}>
-              <Text style={[styles.languageModalTitle, { color: theme.text }]}>
-                {t('profile.selectLanguage')}
-              </Text>
-              <TouchableOpacity 
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setLanguageModal(false);
-                }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <MaterialIcons name='close' size={24} color={theme.subtext} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              style={styles.languageModalScrollView}
-              showsVerticalScrollIndicator={true}
-              contentContainerStyle={styles.languageModalScrollContent}
-              nestedScrollEnabled={true}
-            >
-              {languageOptions.map((lang) => (
-                <TouchableOpacity
-                  key={lang.value}
-                  style={[
-                    styles.languageOptionItem,
-                    { 
-                      borderBottomColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                      backgroundColor: darkMode ? '#323232' : '#ffffff',
-                    },
-                    selectedLanguage === lang.value && { backgroundColor: darkMode ? 'rgba(67, 206, 162, 0.1)' : 'rgba(67, 206, 162, 0.15)' }
-                  ]}
-                  onPress={async () => {
-                    await changeLanguage(lang.value);
-                    setSelectedLanguage(lang.value);
-                    // Save to backend preferences
-                    await updatePreferences({ language: lang.value });
-                    setLanguageModal(false);
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                  }}
-                  activeOpacity={0.6}
-                >
-                  <Text style={[styles.languageOptionText, { color: theme.text }]}>
-                    {lang.label}
-                  </Text>
-                  {selectedLanguage === lang.value && (
-                    <MaterialIcons name='check-circle' size={24} color={theme.accent} />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </TouchableOpacity>
-        </TouchableOpacity>
       </Modal>
 
       {/* Company Information Modal */}
@@ -5370,166 +5292,81 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Password Modal Specific Styles - Matching sign-in page format
-  passwordModalOverlay: {
-    flex: 1,
-  },
-  passwordModalScrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-  },
-  passwordModalCard: {
-    borderRadius: 20,
-    paddingHorizontal: 24,
-    paddingVertical: 24,
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  /** Web: cap width on large viewports (matches Edit Profile modal). */
-  passwordModalCardWeb: Platform.OS === 'web'
-    ? {
-        maxWidth: 460,
-        alignSelf: 'center',
-        width: '100%' as const,
-      }
-    : {},
-  passwordModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  passwordModalTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-  },
-  passwordInputGroup: {
-    marginBottom: 14,
-  },
-  passwordInputLabel: {
-    fontSize: 13,
-    marginBottom: 6,
-  },
-  // Language Modal Specific Styles
-  languageModalContent: {
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    maxHeight: '75%',
-    width: '90%',
-    alignSelf: 'center',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 16,
-    elevation: 10,
+  // Change Password modal
+  modalContentPassword: {
+    minHeight: 0,
+    width: '94%',
+    maxHeight: '90%',
     ...(Platform.OS === 'web'
       ? {
-          maxWidth: 400,
+          maxWidth: 500,
           width: '100%' as const,
         }
       : {}),
   },
-  languageModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-  },
-  languageModalTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-  },
-  languageModalScrollView: {
-    maxHeight: 400,
-  },
-  languageModalScrollContent: {
-    paddingBottom: 20,
-  },
-  languageOptionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    marginHorizontal: 12,
-    marginVertical: 4,
-    borderBottomWidth: 1,
-    minHeight: 56,
-  },
-  languageOptionText: {
-    fontSize: 16,
-    fontWeight: '400',
-  },
-  passwordInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  passwordTextInput: {
+  passwordModalKeyboardWrap: {
     flex: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 14,
+    width: '100%',
   },
-  passwordEyeIcon: {
-    paddingRight: 14,
-    paddingLeft: 8,
-  },
-  passwordHelperText: {
-    fontSize: 12,
-    marginTop: 4,
-    marginLeft: 2,
-  },
-  passwordMatchText: {
-    fontSize: 12,
-    marginTop: 4,
-    marginLeft: 2,
-  },
-  passwordMismatchText: {
-    fontSize: 12,
-    marginTop: 4,
-    marginLeft: 2,
-  },
-  passwordModalButtonRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  passwordModalButton: {
+  passwordModalDismissArea: {
     flex: 1,
-    height: 44,
-    borderRadius: 12,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 12,
+    paddingVertical: 28,
   },
-  passwordCancelButton: {
-    borderWidth: 1,
+  passwordModalScrollContent: {
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 12,
   },
-  passwordCancelButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
+  passwordModalHint: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 18,
   },
-  passwordSaveButton: {
-    backgroundColor: '#43cea2',
+  passwordModalHeader: {
+    paddingHorizontal: 18,
+    paddingVertical: 16,
   },
-  passwordSaveButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
+  passwordModalFieldRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+  },
+  passwordFieldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 28,
+  },
+  passwordFieldInput: {
+    flex: 1,
+    paddingRight: 10,
+    paddingVertical: 4,
+  },
+  passwordEyeButton: {
+    paddingLeft: 6,
+    paddingVertical: 4,
+  },
+  passwordValidationHint: {
+    fontSize: 12,
+    marginTop: 8,
+    lineHeight: 17,
+  },
+  passwordModalFooter: {
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 18,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 12,
+  },
+  passwordModalCancelLink: {
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  passwordModalCancelLinkText: {
+    fontSize: 15,
+    fontWeight: '500',
   },
   cancelButton: {
     backgroundColor: 'transparent',

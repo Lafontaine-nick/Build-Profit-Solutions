@@ -14,9 +14,9 @@ export default function ProjectTaxSummaryList({ projects, formatMoney, formatPer
     <View style={styles.card}>
       <Text style={styles.title}>Project-by-project tax summary</Text>
       <Text style={styles.subtitle}>
-        Revenue is cash collected in the selected tax year. Expenses paid follow cash-basis dates (including when
-        purchase orders are received or completed). Outstanding receivables and committed costs are informational only
-        in this view.
+        Revenue is cash collected in the selected tax year. Expenses paid follow cash-basis dates, and purchase orders
+        require an explicit paid status or payment date. Outstanding receivables and unpaid purchase orders are
+        informational only in this view.
       </Text>
 
       {projects.length === 0 ? (

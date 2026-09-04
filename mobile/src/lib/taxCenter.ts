@@ -5,13 +5,15 @@ import {
   getApprovedChangeOrderPaymentRows,
   collectUniqueChangeOrders,
   formatChangeOrderPaymentRowTitle,
+  computeProjectFinancials,
   type ChangeOrderPaymentRow,
 } from '@/src/lib/projectFinancials';
 
 /**
- * Tax year bucketing uses **business-facing dates** (typically `YYYY-MM-DD` or localized date strings)
- * parsed with `new Date(string)`. Prefer date-only fields for tax anchors (`actualDate`, `paidAt`,
- * `collectedAt`, expense `date`, PO `receivedAt`, etc.) to reduce UTC midnight surprises. Year membership
+ * Tax year bucketing uses **business-facing dates** (typically `YYYY-MM-DD` or localized date strings).
+ * Date-only values are parsed at local noon so a user's timezone cannot move Jan 1 / Dec 31 into
+ * the adjacent tax year. Prefer date-only fields for tax anchors (`actualDate`, `paidAt`,
+ * `collectedAt`, expense `date`, PO `paidAt`/`paidDate`, etc.) to reduce UTC midnight surprises. Year membership
  * is calendar `getFullYear()` on the parsed value — do not silently invent dates for missing fields
  * (readiness warnings surface gaps instead).
  */
@@ -107,11 +109,11 @@ export type TaxCenterSummary = {
   outstandingReceivables: number;
   /**
    * Cash-basis expenses paid in the tax year: non-PO lines use paid date when present, otherwise
-   * paid-status + line date; POs only when `isPoPaidForTax`, bucketed by paid/received/delivery dates.
-   * Pending POs are excluded and appear under `committedCosts`.
+   * paid-status + line date; POs require an explicit paid status/date.
+   * Unpaid POs are excluded and appear under `committedCosts`.
    */
   totalExpenses: number;
-  /** Sum of **Pending** purchase orders only (not yet received/paid); aligns with Budget “Committed POs”. */
+  /** Sum of unpaid purchase orders only; not included in cash-basis expenses. */
   committedCosts: number;
   /** `grossIncomeCollected - totalExpenses` for the selected tax year. */
   netProfit: number;
@@ -169,9 +171,23 @@ const toNumber = (value: unknown): number => {
 
 const asArray = <T = any>(value: unknown): T[] => (Array.isArray(value) ? value : []);
 
+/** Tax Center includes only current jobs, matching the Projects screen's Active tab. */
+export const isCurrentTaxProject = (project: any): boolean => {
+  const status = String(project?.status || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  return status === 'won' || status === 'in_progress' || status === 'active';
+};
+
 const parseDate = (value: unknown): Date | null => {
-  if (!value) return null;
-  const date = new Date(String(value));
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  // `new Date('2026-01-01')` is UTC midnight, which is Dec 31 in US time zones.
+  // Treat business date-only strings as local calendar dates instead.
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+    ? new Date(`${raw}T12:00:00`)
+    : new Date(raw);
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
@@ -209,6 +225,20 @@ const paymentDate = (payment: any): string | undefined =>
   payment?.dueDate ||
   payment?.plannedDate ||
   payment?.date;
+
+/** Actual collection/payment date only; never falls back to a scheduled date. */
+const paymentCollectedDate = (payment: any): string | undefined => {
+  const isChangeOrderPayment =
+    String(payment?.type || '').toLowerCase() === 'change_order' ||
+    String(payment?.id || '').startsWith('bps-co-');
+  // Approved change-order rows can carry a generic paymentDate while payment
+  // is still outstanding. Only explicit collection fields qualify as
+  // cash-basis revenue for change orders.
+  if (isChangeOrderPayment) {
+    return payment?.actualDate || payment?.collectedAt || payment?.paidAt;
+  }
+  return payment?.actualDate || payment?.collectedAt || payment?.paidAt || payment?.paymentDate;
+};
 
 /**
  * Which tax year an **uncollected** milestone belongs to for AR: prefer Timeline / schedule fields
@@ -301,7 +331,10 @@ export function projectByIdFromList(projects: any[], projectId: string): any | u
 const expenseExplicitlyUnpaid = (expense: any): boolean => {
   const ps = String(expense?.paymentStatus || '').toLowerCase();
   const st = String(expense?.status || '').toLowerCase();
-  return ps === 'unpaid' || ps === 'pending' || st === 'unpaid' || st === 'pending';
+  return (
+    ['unpaid', 'pending', 'scheduled', 'draft', 'open', 'cancelled', 'void'].includes(ps) ||
+    ['unpaid', 'pending', 'scheduled', 'draft', 'open', 'cancelled', 'void'].includes(st)
+  );
 };
 
 const expenseExplicitlyPaid = (expense: any): boolean => {
@@ -323,12 +356,13 @@ const expenseExplicitlyPaid = (expense: any): boolean => {
 
 const cashBasisPoPaidYearDate = (po: any): string | undefined =>
   String(po?.paidAt || '').trim() ||
-  String(po?.receivedAt || '').trim() ||
-  String(po?.updatedAt || '').trim() ||
-  String(poDate(po) || '').trim() ||
+  String(po?.paidDate || '').trim() ||
+  String(po?.paymentDate || '').trim() ||
   undefined;
 
 const cashBasisNonPoExpensePaidYearDate = (expense: any): string | undefined => {
+  // An explicit unpaid/pending marker wins over a stale paidAt or record date.
+  if (expenseExplicitlyUnpaid(expense)) return undefined;
   const paidAt = String(expense?.paidAt || '').trim();
   if (paidAt) return paidAt;
   if (expenseExplicitlyPaid(expense)) {
@@ -339,27 +373,24 @@ const cashBasisNonPoExpensePaidYearDate = (expense: any): string | undefined => 
       undefined
     );
   }
-  if (!expenseExplicitlyUnpaid(expense)) {
-    return (
-      String(expense?.date || '').trim() ||
-      String(expense?.orderDate || '').trim() ||
-      String(expense?.createdAt || '').trim() ||
-      undefined
-    );
-  }
-  return undefined;
+  return (
+    String(expense?.date || '').trim() ||
+    String(expense?.orderDate || '').trim() ||
+    String(expense?.createdAt || '').trim() ||
+    undefined
+  );
 };
 
 /**
- * Cash-basis: expense counts in a tax year when it was actually paid/received (not when a bill was
- * first recorded, unless that is the only dated field and the line is not marked unpaid).
+ * Cash-basis: expense counts in a tax year when it was actually paid. Regular expense entries
+ * without an explicit unpaid marker retain the app's existing transaction-date model; purchase
+ * orders require an explicit paid status/date.
  */
 export function isCashBasisExpensePaidInTaxYear(expense: any, year: number, project?: any): boolean {
   if (expense?.__isPurchaseOrder) {
     if (!isPoPaidForTax(expense)) return false;
     const d = cashBasisPoPaidYearDate(expense);
-    if (d) return dateInYear(d, year);
-    return project ? projectOverlapsYear(project, year) : false;
+    return !!d && dateInYear(d, year);
   }
   const d = cashBasisNonPoExpensePaidYearDate(expense);
   if (d) return dateInYear(d, year);
@@ -385,6 +416,14 @@ export function isExpenseRecordDatedInTaxYear(expense: any, year: number, projec
 }
 
 const isPaymentCollected = (payment: any): boolean => {
+  const isChangeOrderPayment =
+    String(payment?.type || '').toLowerCase() === 'change_order' ||
+    String(payment?.id || '').startsWith('bps-co-');
+  const hasExplicitChangeOrderCollectionDate =
+    !!String(payment?.actualDate || '').trim() ||
+    !!String(payment?.collectedAt || '').trim() ||
+    !!String(payment?.paidAt || '').trim();
+  if (isChangeOrderPayment && !hasExplicitChangeOrderCollectionDate) return false;
   if (payment?.paid === true || payment?.collected === true || payment?.isPaid === true) return true;
   if (payment?.completed === true || payment?.isComplete === true) return true;
   const status = String(payment?.status || '').toLowerCase();
@@ -399,6 +438,11 @@ const isPaymentCollected = (payment: any): boolean => {
   const amt = toNumber(payment?.amount ?? payment?.paymentAmount ?? payment?.collectedAmount);
   if (amt > 0 && (Number(payment?.progressPct) || 0) >= 99.5) return true;
   return false;
+};
+
+const isPaymentExcludedFromReceivables = (payment: any): boolean => {
+  const status = String(payment?.status || '').toLowerCase();
+  return ['cancelled', 'canceled', 'void', 'draft'].includes(status);
 };
 
 const paymentAmount = (payment: any): number =>
@@ -420,18 +464,21 @@ const uniqueByKey = <T>(items: T[], getKey: (item: T, index: number) => string):
 };
 
 /**
- * PO amounts that count as realized spend for tax summaries (same meaning as Budget: Received = paid).
- * Pending = still committed; Cancelled/Archived are excluded from both paid and committed buckets.
+ * PO amounts that count as realized spend for tax summaries.
+ * A received PO is not necessarily paid, so it remains outside cash-basis expenses until it has an
+ * explicit paid status or payment date. Cancelled/Archived are excluded from both buckets.
  */
 export function isPoPaidForTax(po: any): boolean {
-  if (po?.isPaid === true) return true;
+  if (po?.isPaid === true || po?.paid === true) return true;
   const status = String(po?.status || '').toLowerCase();
   if (status === 'cancelled' || status === 'archived') return false;
   return (
     status === 'paid' ||
     status === 'completed' ||
     status === 'complete' ||
-    status === 'received'
+    status === 'cleared' ||
+    status === 'settled' ||
+    !!String(po?.paidAt || po?.paidDate || po?.paymentDate || '').trim()
   );
 }
 
@@ -559,25 +606,59 @@ export function collectAllProjectExpenseAndPoLines(project: any): TaxExpense[] {
   return [...collectProjectExpenseLinesOnly(project), ...collectProjectPurchaseOrderLines(project)];
 }
 
-/** Taxable expense lines: regular expenses + only paid POs */
+/** Taxable expense lines: regular expenses + only explicitly paid POs */
 export function collectTaxableExpenseLines(project: any): TaxExpense[] {
   const regular = collectProjectExpenseLinesOnly(project);
   const pos = collectProjectPurchaseOrderLines(project).filter((po) => isPoPaidForTax(po));
   return [...regular, ...pos];
 }
 
-/** Pending POs only — matches Budget “Committed POs” (excludes Received, Cancelled, Archived). */
+/** Unpaid POs — includes received-but-not-paid orders so they are not silently omitted. */
 export function collectUnpaidPurchaseOrderLines(project: any): TaxExpense[] {
-  return collectProjectPurchaseOrderLines(project).filter(
-    (po) => String(po?.status || '').toLowerCase() === 'pending'
-  );
+  return collectProjectPurchaseOrderLines(project).filter((po) => {
+    const status = String(po?.status || '').toLowerCase();
+    return status !== 'cancelled' && status !== 'archived' && !isPoPaidForTax(po);
+  });
 }
 
 function collectProjectInvoices(project: any): any[] {
   const sources = [project?.invoices, project?.projectData?.invoices, project?.estimateData?.invoices];
   return uniqueByKey(sources.flatMap((s) => asArray<any>(s)), (inv, i) =>
-    inv?.id ? String(inv.id) : `inv:${i}:${inv?.number || ''}`
+    inv?.id
+      ? String(inv.id)
+      : String(inv?.number || '').trim()
+        ? `inv:number:${String(inv.number).trim()}`
+        : `inv:${i}`
   );
+}
+
+/** Normalize an invoice's open balance before it contributes to receivables. */
+function invoiceOpenBalance(invoice: any): number {
+  const status = String(invoice?.status || '').toLowerCase();
+  if (['paid', 'settled', 'completed', 'complete'].includes(status)) return 0;
+
+  const total = toNumber(invoice?.total ?? invoice?.subtotal);
+  const paidAmount = toNumber(invoice?.paidAmount);
+  const reportedBalance =
+    invoice?.balance != null && invoice?.balance !== ''
+      ? Math.max(0, toNumber(invoice.balance))
+      : Math.max(0, total - paidAmount);
+
+  // A stale balance should not exceed the invoice total when a total is available.
+  return total > 0 ? Math.min(reportedBalance, total) : reportedBalance;
+}
+
+/**
+ * A project's open receivables cannot exceed its remaining contract value after collected payments.
+ * This prevents duplicated/stale milestone rows from producing impossible AR totals.
+ */
+function projectReceivableCeiling(project: any, payments: TaxPayment[]): number {
+  const adjustedContractValue = Number(computeProjectFinancials(project, {}).adjustedContractValue) || 0;
+  if (!(adjustedContractValue > 0)) return Number.POSITIVE_INFINITY;
+  const collected = payments
+    .filter((payment) => isPaymentCollected(payment))
+    .reduce((sum, payment) => sum + paymentAmount(payment), 0);
+  return Math.max(0, adjustedContractValue - collected);
 }
 
 /**
@@ -595,7 +676,8 @@ function collectProjectInvoices(project: any): any[] {
  */
 export function calculateOutstandingInvoices(project: any, selectedYear: number): number {
   const invoices = collectProjectInvoices(project).filter((inv) => {
-    if (String(inv?.status || '').toLowerCase() === 'cancelled') return false;
+    const status = String(inv?.status || '').toLowerCase();
+    if (['cancelled', 'draft', 'void', 'archived'].includes(status)) return false;
     const d = inv?.issueDate || inv?.createdAt;
     return dateInYear(d, selectedYear);
   });
@@ -606,6 +688,7 @@ export function calculateOutstandingInvoices(project: any, selectedYear: number)
     (p) =>
       dateInYear(arMilestoneYearBucketDate(p), selectedYear) &&
       !isPaymentCollected(p) &&
+      !isPaymentExcludedFromReceivables(p) &&
       !shouldExcludeChangeOrderPaymentFromOutstandingReceivables(project, p)
   );
   const scheduleTotal = openSchedule.reduce((s, p) => s + paymentAmount(p), 0);
@@ -613,18 +696,18 @@ export function calculateOutstandingInvoices(project: any, selectedYear: number)
 
   if (invoices.length > 0) {
     const billed = invoices.reduce((sum, inv) => {
-      const total = toNumber(inv.total ?? inv.subtotal);
-      const paidOnInvoice = toNumber(inv.paidAmount);
-      const balance =
-        inv.balance != null && inv.balance !== ''
-          ? Math.max(0, toNumber(inv.balance))
-          : Math.max(0, total - paidOnInvoice);
-      return sum + balance;
+      return sum + invoiceOpenBalance(inv);
     }, 0);
-    return Math.max(0, billed + coSupplement);
+    return Math.min(
+      Math.max(0, billed + coSupplement),
+      projectReceivableCeiling(project, mergedPayments)
+    );
   }
 
-  return Math.max(0, scheduleTotal + coSupplement);
+  return Math.min(
+    Math.max(0, scheduleTotal + coSupplement),
+    projectReceivableCeiling(project, mergedPayments)
+  );
 }
 
 function collectProjectPayments(project: any): TaxPayment[] {
@@ -788,7 +871,9 @@ export function getTaxCenterDataInputs(
 export function getYearCollectedPayments(projects: any[], selectedYear: number): TaxPayment[] {
   const inputs = getTaxCenterDataInputs(projects);
   return inputs.payments.filter(
-    (payment) => isPaymentCollected(payment) && dateInYear(paymentDate(payment), selectedYear)
+    (payment) =>
+      isPaymentCollected(payment) &&
+      dateInYear(paymentCollectedDate(payment), selectedYear)
   );
 }
 
@@ -827,7 +912,9 @@ export function buildProjectTaxSummaries(projects: any[], selectedYear: number):
       );
       const expensesPaid = taxable.reduce((sum, e) => sum + expenseAmount(e), 0);
       const payments = collectProjectPayments(project).filter(
-        (payment) => isPaymentCollected(payment) && dateInYear(paymentDate(payment), selectedYear)
+        (payment) =>
+          isPaymentCollected(payment) &&
+          dateInYear(paymentCollectedDate(payment), selectedYear)
       );
       const cashCollectedInYear = payments.reduce((sum, payment) => sum + paymentAmount(payment), 0);
       const revenueCollected = cashCollectedInYear;
@@ -912,7 +999,11 @@ function grossRecognizedRevenueFromProjects(
       seen.add(id);
     }
     const cashInYear = collectProjectPayments(project)
-      .filter((payment) => isPaymentCollected(payment) && dateInYear(paymentDate(payment), selectedYear))
+      .filter(
+        (payment) =>
+          isPaymentCollected(payment) &&
+          dateInYear(paymentCollectedDate(payment), selectedYear)
+      )
       .reduce((s, p) => s + paymentAmount(p), 0);
     sum += cashInYear;
   }
@@ -921,7 +1012,7 @@ function grossRecognizedRevenueFromProjects(
     .filter(
       (p) =>
         isPaymentCollected(p) &&
-        dateInYear(paymentDate(p), selectedYear) &&
+        dateInYear(paymentCollectedDate(p), selectedYear) &&
         (!p.projectId || !projectIds.has(String(p.projectId)))
     )
     .reduce((s, p) => s + paymentAmount(p), 0);
@@ -939,7 +1030,7 @@ export function computeTaxCenterSummary(
   /**
    * VALIDATION (read-only): Portfolio Tax Center uses `selectedYear`, cash-basis expense inclusion via
    * `isCashBasisExpensePaidInTaxYear`, revenue via `grossRecognizedRevenueFromProjects`, AR via
-   * `calculateOutstandingInvoices` (informational), committed POs via pending-status POs dated in-year.
+   * `calculateOutstandingInvoices` (informational), unpaid POs dated in-year.
    * Pending receivables / committed costs are not added to net income here. If any of that appears wrong,
    * add a TODO rather than changing formulas without an explicit product decision.
    */
@@ -1231,14 +1322,16 @@ export function getRevenueCollectedDetailPayments(
       seenProject.add(id);
     }
     const list = collectProjectPayments(project).filter(
-      (payment) => isPaymentCollected(payment) && dateInYear(paymentDate(payment), selectedYear)
+      (payment) =>
+        isPaymentCollected(payment) &&
+        dateInYear(paymentCollectedDate(payment), selectedYear)
     );
     for (const p of list) pushPayment(p);
   }
 
   const projectIds = new Set(asArray<any>(projects).map((p) => String(p?.id ?? '')).filter(Boolean));
   for (const p of asArray<TaxPayment>(allPayments)) {
-    if (!isPaymentCollected(p) || !dateInYear(paymentDate(p), selectedYear)) continue;
+    if (!isPaymentCollected(p) || !dateInYear(paymentCollectedDate(p), selectedYear)) continue;
     if (!p.projectId || !projectIds.has(String(p.projectId))) {
       pushPayment(p);
     }
@@ -1268,12 +1361,14 @@ export function getOutstandingReceivablesDetailRows(
   const out: OutstandingReceivableDetailRow[] = [];
 
   for (const project of asArray<any>(projects)) {
+    const projectRowStart = out.length;
     const projectId = String(project?.id || '');
     const projectName = normalizeProjectName(project);
     const customerName = customerNameFromProject(project);
 
     const invoices = collectProjectInvoices(project).filter((inv) => {
-      if (String(inv?.status || '').toLowerCase() === 'cancelled') return false;
+      const status = String(inv?.status || '').toLowerCase();
+      if (['cancelled', 'draft', 'void', 'archived'].includes(status)) return false;
       const d = inv?.issueDate || inv?.createdAt;
       return dateInYear(d, selectedYear);
     });
@@ -1286,18 +1381,14 @@ export function getOutstandingReceivablesDetailRows(
       (p) =>
         dateInYear(arMilestoneYearBucketDate(p), selectedYear) &&
         !isPaymentCollected(p) &&
+        !isPaymentExcludedFromReceivables(p) &&
         !shouldExcludeChangeOrderPaymentFromOutstandingReceivables(project, p)
     );
     const coSupplement = approvedChangeOrderReceivableSupplement(project, selectedYear, openSchedule);
 
     if (invoices.length > 0) {
       for (const inv of invoices) {
-        const total = toNumber(inv.total ?? inv.subtotal);
-        const paidOnInvoice = toNumber(inv.paidAmount);
-        const balance =
-          inv.balance != null && inv.balance !== ''
-            ? Math.max(0, toNumber(inv.balance))
-            : Math.max(0, total - paidOnInvoice);
+        const balance = invoiceOpenBalance(inv);
         if (balance <= 0) continue;
         out.push({
           projectId,
@@ -1351,6 +1442,18 @@ export function getOutstandingReceivablesDetailRows(
         });
       }
     }
+
+    let remaining = projectReceivableCeiling(project, mergedPayments);
+    for (let i = projectRowStart; i < out.length; i += 1) {
+      const amount = Math.min(out[i].amount, Math.max(0, remaining));
+      out[i] = { ...out[i], amount };
+      remaining -= amount;
+    }
+    out.splice(
+      projectRowStart,
+      out.length - projectRowStart,
+      ...out.slice(projectRowStart).filter((row) => row.amount > 0)
+    );
   }
 
   return out;
@@ -1363,7 +1466,7 @@ export type CommittedCostDetailRow = {
   committedDate: string;
   amount: number;
   status: string;
-  receivedOrPaid: string;
+  includedInCashBasis: string;
 };
 
 export function getCommittedCostsDetailRows(projects: any[], selectedYear: number): CommittedCostDetailRow[] {
@@ -1379,7 +1482,7 @@ export function getCommittedCostsDetailRows(projects: any[], selectedYear: numbe
         committedDate: String(poDate(po) || '').trim(),
         amount: expenseAmount(po),
         status: String(po.status || 'pending').trim(),
-        receivedOrPaid: 'No',
+        includedInCashBasis: 'No',
       });
     }
   }
@@ -1444,7 +1547,6 @@ export function getReceiptCountDetailRows(
 export type TaxYearBucketAnomalies = {
   paymentsMissingCollectedDate: number;
   expensesMissingPaidDate: number;
-  expenseLinesUsedProjectOverlapFallback: number;
 };
 
 /**
@@ -1463,32 +1565,28 @@ export function getTaxCenterYearBucketAnomalies(
     const hasPrimary =
       !!String(p.actualDate || '').trim() ||
       !!String(p.collectedAt || '').trim() ||
-      !!String(p.paidAt || '').trim();
+      !!String(p.paidAt || '').trim() ||
+      !!String(p.paymentDate || '').trim();
     if (!hasPrimary) paymentsMissingCollectedDate += 1;
   }
 
   let expensesMissingPaidDate = 0;
-  let expenseLinesUsedProjectOverlapFallback = 0;
 
   for (const e of inputs.expenses) {
-    const pid = String(e.projectId || '');
-    const proj = pid ? projectByIdFromList(projects, pid) : undefined;
-    if (!isCashBasisExpensePaidInTaxYear(e, selectedYear, proj)) continue;
-    if (e.__isPurchaseOrder) {
-      const d = cashBasisPoPaidYearDate(e);
-      if (!String(d || '').trim()) {
+    if (!isCashBasisExpensePaidInTaxYear(e, selectedYear)) {
+      if (
+        e.__isPurchaseOrder &&
+        isPoPaidForTax(e) &&
+        !String(cashBasisPoPaidYearDate(e) || '').trim() &&
+        dateInYear(poDate(e), selectedYear)
+      ) {
         expensesMissingPaidDate += 1;
-        if (proj && projectOverlapsYear(proj, selectedYear)) expenseLinesUsedProjectOverlapFallback += 1;
       }
-    } else {
-      const d = cashBasisNonPoExpensePaidYearDate(e);
-      if (!String(d || '').trim()) expensesMissingPaidDate += 1;
     }
   }
 
   return {
     paymentsMissingCollectedDate,
     expensesMissingPaidDate,
-    expenseLinesUsedProjectOverlapFallback,
   };
 }

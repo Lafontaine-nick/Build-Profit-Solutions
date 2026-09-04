@@ -50,6 +50,7 @@ import {
   getYearCollectedPayments,
   getYearExpenses,
   groupExpensesByTaxCategory,
+  isCurrentTaxProject,
   type TaxCenterSummary,
 } from '@/src/lib/taxCenter';
 import { computeTaxCenterReadiness, type ReadinessChecklistItem } from '@/src/lib/taxCenterReadiness';
@@ -211,6 +212,7 @@ export default function TaxCenterScreen() {
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { canViewTaxCenter } = useRestrictedWorkspaceFinancials();
   const { projects, refreshProjects, rehydrateProjectsFromStorage } = useProjectList();
+  const currentProjects = useMemo(() => projects.filter(isCurrentTaxProject), [projects]);
   const refreshProjectsRef = useRef(refreshProjects);
   const rehydrateProjectsRef = useRef(rehydrateProjectsFromStorage);
   refreshProjectsRef.current = refreshProjects;
@@ -260,7 +262,10 @@ export default function TaxCenterScreen() {
   );
   const { vendors, quickBooksCategoryMap, addVendor } = useVendorDirectory();
   const currentYear = new Date().getFullYear();
-  const yearOptions = useMemo(() => getTaxYearOptions(projects, currentYear), [projects, currentYear]);
+  const yearOptions = useMemo(
+    () => getTaxYearOptions(currentProjects, currentYear),
+    [currentProjects, currentYear]
+  );
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [exportingType, setExportingType] = useState<
     'pdf' | 'receipts' | 'workbook' | 'cpa1099' | null
@@ -273,10 +278,13 @@ export default function TaxCenterScreen() {
 
   const yearRange = useMemo(() => getTaxYearRange(selectedYear), [selectedYear]);
   const summary = useMemo(
-    () => computeTaxCenterSummary(projects, [], [], [], selectedYear, vendors),
-    [projects, selectedYear, vendors]
+    () => computeTaxCenterSummary(currentProjects, [], [], [], selectedYear, vendors),
+    [currentProjects, selectedYear, vendors]
   );
-  const yearExpenses = useMemo(() => getYearExpenses(projects, selectedYear), [projects, selectedYear]);
+  const yearExpenses = useMemo(
+    () => getYearExpenses(currentProjects, selectedYear),
+    [currentProjects, selectedYear]
+  );
   const categoryRows = useMemo(
     () =>
       groupExpensesByTaxCategory(yearExpenses, (cat) => {
@@ -286,8 +294,8 @@ export default function TaxCenterScreen() {
     [yearExpenses, quickBooksCategoryMap]
   );
   const projectSummaries = useMemo(
-    () => buildProjectTaxSummaries(projects, selectedYear),
-    [projects, selectedYear]
+    () => buildProjectTaxSummaries(currentProjects, selectedYear),
+    [currentProjects, selectedYear]
   );
   const subcontractors = useMemo(
     () => buildSubcontractorPaymentSummary(yearExpenses, selectedYear, vendors),
@@ -298,38 +306,38 @@ export default function TaxCenterScreen() {
     [subcontractors]
   );
 
-  const taxInputs = useMemo(() => getTaxCenterDataInputs(projects), [projects]);
+  const taxInputs = useMemo(() => getTaxCenterDataInputs(currentProjects), [currentProjects]);
   const revenueDetailPayments = useMemo(
-    () => getRevenueCollectedDetailPayments(projects, selectedYear, taxInputs.payments),
-    [projects, selectedYear, taxInputs.payments]
+    () => getRevenueCollectedDetailPayments(currentProjects, selectedYear, taxInputs.payments),
+    [currentProjects, selectedYear, taxInputs.payments]
   );
   const revenueCustomerByProjectId = useMemo(() => {
     const m: Record<string, string> = {};
-    for (const p of projects) {
+    for (const p of currentProjects) {
       const id = String(p?.id || '').trim();
       if (id) m[id] = customerNameFromProject(p);
     }
     return m;
-  }, [projects]);
+  }, [currentProjects]);
   const arDetailRows = useMemo(
-    () => getOutstandingReceivablesDetailRows(projects, selectedYear),
-    [projects, selectedYear]
+    () => getOutstandingReceivablesDetailRows(currentProjects, selectedYear),
+    [currentProjects, selectedYear]
   );
   const committedDetailRows = useMemo(
-    () => getCommittedCostsDetailRows(projects, selectedYear),
-    [projects, selectedYear]
+    () => getCommittedCostsDetailRows(currentProjects, selectedYear),
+    [currentProjects, selectedYear]
   );
   const receiptDetailRows = useMemo(
-    () => getReceiptCountDetailRows(projects, selectedYear),
-    [projects, selectedYear]
+    () => getReceiptCountDetailRows(currentProjects, selectedYear),
+    [currentProjects, selectedYear]
   );
   const subcontractorExpenseRows = useMemo(
     () => yearExpenses.filter((e) => expenseCountsTowardSubcontractorPayments(e, vendors)),
     [yearExpenses, vendors]
   );
   const taxBucketAnomalies = useMemo(
-    () => getTaxCenterYearBucketAnomalies(projects, selectedYear),
-    [projects, selectedYear]
+    () => getTaxCenterYearBucketAnomalies(currentProjects, selectedYear),
+    [currentProjects, selectedYear]
   );
   const review1099 = useMemo(
     () =>
@@ -343,8 +351,8 @@ export default function TaxCenterScreen() {
   );
 
   const yearCollectedPayments = useMemo(
-    () => getYearCollectedPayments(projects, selectedYear),
-    [projects, selectedYear]
+    () => getYearCollectedPayments(currentProjects, selectedYear),
+    [currentProjects, selectedYear]
   );
 
   const readiness = useMemo(
@@ -374,7 +382,7 @@ export default function TaxCenterScreen() {
         projectSummaries,
         subcontractorSummary: subcontractors,
         aiTaxInsight: aiInsightLines,
-        projects,
+        projects: currentProjects,
         yearExpenses,
         yearCollectedPayments,
         vendors,
@@ -387,7 +395,7 @@ export default function TaxCenterScreen() {
       projectSummaries,
       subcontractors,
       aiInsightLines,
-      projects,
+      currentProjects,
       yearExpenses,
       yearCollectedPayments,
       vendors,
@@ -561,6 +569,11 @@ export default function TaxCenterScreen() {
             },
           ]}
         >
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={[styles.content, { flexGrow: 1, paddingBottom: 24 + insets.bottom }]}
+            showsVerticalScrollIndicator={false}
+          >
           <View style={styles.headerRow}>
             <View style={styles.backButtonWrapper}>
             <LinearGradient
@@ -601,11 +614,6 @@ export default function TaxCenterScreen() {
           </View>
         </View>
 
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={[styles.content, { flexGrow: 1, paddingBottom: 24 + insets.bottom }]}
-          showsVerticalScrollIndicator={false}
-        >
           <TaxGradientFrame innerStyle={styles.readinessFrameInner}>
             <Text style={styles.readinessTitle}>Tax Center Readiness</Text>
             <Text style={styles.readinessSub}>
@@ -758,8 +766,8 @@ export default function TaxCenterScreen() {
             </Text>
 
             <Text style={styles.taxCenterDisclaimer}>
-              Tax Center uses project activity dated within the selected tax year. Active projects are included only
-              for payments collected, expenses paid, invoices, receipts, and vendor activity recorded in that year.
+              Tax Center uses only current active projects and activity dated within the selected tax year. Deleted,
+              completed, and submitted projects are excluded from these totals.
               Pending receivables and committed costs are shown for review but may not be counted as taxable income or
               deductible expenses until collected or paid, depending on your accounting method.
             </Text>
@@ -828,7 +836,7 @@ export default function TaxCenterScreen() {
                 label="Expenses Paid"
                 value={money(summary.totalExpenses)}
                 icon="receipt-long"
-                helper="Expenses and received/paid purchase orders dated within the selected tax year."
+                helper="Expenses and purchase orders actually paid within the selected tax year."
                 onPress={() => {
                   Haptics.selectionAsync();
                   setDetailKind('expenses');
@@ -838,7 +846,7 @@ export default function TaxCenterScreen() {
                 label="Committed Costs"
                 value={money(summary.committedCosts)}
                 icon="inventory"
-                helper="Pending purchase orders and committed costs not yet paid or received. Shown for review only."
+                helper="Unpaid purchase orders and committed costs. Shown for review only."
                 onPress={() => {
                   Haptics.selectionAsync();
                   setDetailKind('committed');

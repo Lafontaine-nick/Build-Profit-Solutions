@@ -18,7 +18,6 @@ export type TaxCenterReadinessResult = {
   revenueNeedsAttention: boolean;
   paymentsMissingCollectedDate: number;
   expensesMissingPaidDate: number;
-  expenseLinesUsedProjectOverlapFallback: number;
   checklist: ReadinessChecklistItem[];
   missingSummaryLines: string[];
 };
@@ -46,7 +45,6 @@ export function computeTaxCenterReadiness(args: {
   const anomalies = args.anomalies ?? {
     paymentsMissingCollectedDate: 0,
     expensesMissingPaidDate: 0,
-    expenseLinesUsedProjectOverlapFallback: 0,
   };
 
   const missingReceipts = countMissingReceipts(yearExpenses);
@@ -57,8 +55,7 @@ export function computeTaxCenterReadiness(args: {
 
   const datesOk =
     anomalies.paymentsMissingCollectedDate === 0 &&
-    anomalies.expensesMissingPaidDate === 0 &&
-    anomalies.expenseLinesUsedProjectOverlapFallback === 0;
+    anomalies.expensesMissingPaidDate === 0;
 
   const checklist: ReadinessChecklistItem[] = [
     {
@@ -138,12 +135,6 @@ export function computeTaxCenterReadiness(args: {
       `${anomalies.expensesMissingPaidDate} expense line${anomalies.expensesMissingPaidDate === 1 ? '' : 's'} missing paid date`
     );
   }
-  if (anomalies.expenseLinesUsedProjectOverlapFallback > 0) {
-    missingSummaryLines.push(
-      `${anomalies.expenseLinesUsedProjectOverlapFallback} paid PO line${anomalies.expenseLinesUsedProjectOverlapFallback === 1 ? '' : 's'} used project overlap for tax year — confirm dates`
-    );
-  }
-
   const allReady = checklist.every((c) => c.ok);
 
   return {
@@ -156,7 +147,6 @@ export function computeTaxCenterReadiness(args: {
     revenueNeedsAttention,
     paymentsMissingCollectedDate: anomalies.paymentsMissingCollectedDate,
     expensesMissingPaidDate: anomalies.expensesMissingPaidDate,
-    expenseLinesUsedProjectOverlapFallback: anomalies.expenseLinesUsedProjectOverlapFallback,
     checklist,
     missingSummaryLines,
   };

@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import i18n from '../i18n/config';
 
 interface LanguageContextType {
   currentLanguage: string;
@@ -15,42 +14,28 @@ const LANGUAGE_STORAGE_KEY = '@app_language';
 
 export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { t, i18n: i18nInstance } = useTranslation();
-  const [currentLanguage, setCurrentLanguage] = useState(i18nInstance.language || 'en');
+  const [currentLanguage, setCurrentLanguage] = useState('en');
 
   useEffect(() => {
-    // Load saved language on mount
-    const loadLanguage = async () => {
+    const ensureEnglish = async () => {
       try {
-        const savedLanguage = await AsyncStorage.getItem(LANGUAGE_STORAGE_KEY);
-        if (savedLanguage && savedLanguage !== currentLanguage) {
-          await i18nInstance.changeLanguage(savedLanguage);
-          setCurrentLanguage(savedLanguage);
+        await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'en');
+        if (i18nInstance.language !== 'en') {
+          await i18nInstance.changeLanguage('en');
         }
+        setCurrentLanguage('en');
       } catch (error) {
-        console.error('Error loading language:', error);
+        console.error('Error ensuring English locale:', error);
       }
     };
-    loadLanguage();
-  }, []);
-
-  // Listen for language changes
-  useEffect(() => {
-    const handleLanguageChange = (lng: string) => {
-      setCurrentLanguage(lng);
-    };
-
-    i18nInstance.on('languageChanged', handleLanguageChange);
-
-    return () => {
-      i18nInstance.off('languageChanged', handleLanguageChange);
-    };
+    void ensureEnglish();
   }, [i18nInstance]);
 
-  const changeLanguage = async (language: string) => {
+  const changeLanguage = async (_language: string) => {
     try {
-      await i18nInstance.changeLanguage(language);
-      await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, language);
-      setCurrentLanguage(language);
+      await i18nInstance.changeLanguage('en');
+      await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'en');
+      setCurrentLanguage('en');
     } catch (error) {
       console.error('Error changing language:', error);
     }

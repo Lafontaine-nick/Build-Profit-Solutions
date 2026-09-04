@@ -231,7 +231,7 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
   </div>`;
 
   const PORTFOLIO_BELOW_NOTE =
-    'Portfolio totals use cash-basis activity dated in the selected tax year: payments when collected, expenses when paid or when purchase orders are received or completed. Outstanding receivables and committed costs are informational and are not included in revenue or expenses paid until collected or paid, depending on your accounting method. Confirm treatment with your CPA.';
+    'Portfolio totals use cash-basis activity dated in the selected tax year: payments when collected, regular expenses treated as paid by the app, and purchase orders with an explicit paid status or payment date. Outstanding receivables and unpaid purchase orders are informational and are not included in revenue or expenses paid until collected or paid. Confirm treatment with your CPA.';
 
   const execCards: Array<{
     label: string;
@@ -249,7 +249,7 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
       label: 'Expenses Paid',
       value: money(p.expensesPaid),
       cls: cardValueClass('expense', p.expensesPaid),
-      hint: 'Expenses and received/paid purchase orders dated within the selected tax year.',
+      hint: 'Expenses and purchase orders actually paid within the selected tax year.',
     },
     {
       label: 'Net Income',
@@ -267,7 +267,7 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
       label: 'Committed Costs',
       value: money(p.committedCosts),
       cls: cardValueClass('committed', p.committedCosts),
-      hint: 'Pending purchase orders and committed costs not yet paid or received. Shown for review only.',
+      hint: 'Unpaid purchase orders and committed costs. Shown for review only.',
     },
     {
       label: 'Receipt Count',

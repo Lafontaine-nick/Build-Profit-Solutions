@@ -2167,6 +2167,7 @@ function ProjectDetailContent() {
                   budgetAccessMode={
                     projectPerms.budgetAccessMode === 'cost_control' ? 'cost_control' : 'owner'
                   }
+                  onRequestOpenTimeline={() => setActiveTab('Timeline')}
                   initialBudgetCategory={budgetCategoryParam}
                 />
               )}

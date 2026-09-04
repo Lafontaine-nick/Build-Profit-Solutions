@@ -119,6 +119,7 @@ type Props = {
   openChangeOrderEditId?: string | null;
   onConsumedOpenChangeOrderEditId?: () => void;
   onRequestOpenChangeOrder?: (changeOrderId: string) => void;
+  onRequestOpenTimeline?: () => void;
 };
 
 export default function CategoryDetailModal({
@@ -129,6 +130,7 @@ export default function CategoryDetailModal({
   openChangeOrderEditId = null,
   onConsumedOpenChangeOrderEditId,
   onRequestOpenChangeOrder,
+  onRequestOpenTimeline,
 }: Props) {
   const DEBUG_MODAL = false;
   const debugLog = (...args: any[]) => { if (DEBUG_MODAL) console.log(...args); };
@@ -1096,7 +1098,7 @@ export default function CategoryDetailModal({
           )}
 
           {isChangeOrdersCategory && (
-            <View
+            <TouchableOpacity
               style={[
                 styles.coTimelineReminder,
                 {
@@ -1104,7 +1106,13 @@ export default function CategoryDetailModal({
                   borderColor: darkMode ? "rgba(34, 197, 94, 0.3)" : "rgba(34, 197, 94, 0.28)",
                 },
               ]}
-              accessibilityRole="text"
+              activeOpacity={0.82}
+              accessibilityRole="button"
+              accessibilityLabel="Open Timeline to mark a change order as completed"
+              onPress={() => {
+                onClose();
+                onRequestOpenTimeline?.();
+              }}
             >
               <MaterialIcons name="event-available" size={22} color="#22c55e" style={{ marginTop: 1 }} />
               <Text
@@ -1113,11 +1121,11 @@ export default function CategoryDetailModal({
                   { color: darkMode ? "rgba(226, 232, 240, 0.92)" : Colors.text },
                 ]}
               >
-                When payment is received, mark the matching line as{" "}
+                When payment is received, tap here to open Timeline and mark the matching line as{" "}
                 <Text style={{ fontWeight: "800", color: "#22c55e" }}>Completed</Text> in the
                 Timeline tab.
               </Text>
-            </View>
+            </TouchableOpacity>
           )}
 
           {/* Transactions List */}

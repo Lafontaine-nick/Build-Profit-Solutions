@@ -4,8 +4,8 @@
 
 import {
   expenseAmount,
-  expenseDate,
   inferVendorTypeFromTaxCategory,
+  isCashBasisExpensePaidInTaxYear,
   isPoPaidForTax,
   mapExpenseToTaxCategory,
   matchVendorForExpense,
@@ -19,17 +19,6 @@ import { getPotential1099ReviewThreshold } from '@/src/lib/taxReviewThresholds';
 
 const WORKBOOK_INFO_NOTE =
   'Informational only. Not tax advice. Review with your CPA or tax professional.';
-
-const parseDate = (value: unknown): Date | null => {
-  if (!value) return null;
-  const date = new Date(String(value));
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const dateInYear = (value: unknown, year: number): boolean => {
-  const date = parseDate(value);
-  return !!date && date.getFullYear() === year;
-};
 
 function displayVendorName(e: TaxExpense): string {
   const n = String(e.vendorName || e.vendor || '').trim();
@@ -51,15 +40,19 @@ function w9Blocking(status: W9Status | 'unknown' | undefined): boolean {
   return status === 'missing' || status === 'requested' || status === 'unknown' || status === undefined;
 }
 
-/** Paid / collected / completed — excludes obvious unpaid rows for 1099 threshold math. */
+/** Paid / collected / completed — aligned with Tax Center's cash-basis expense inclusion. */
 function expenseIndicatesPaidFor1099(e: TaxExpense): boolean {
   if (e.__isPurchaseOrder) return isPoPaidForTax(e);
   const ps = String(e.paymentStatus || '').toLowerCase();
   const st = String(e.status || '').toLowerCase();
   if (st === 'cancelled' || st === 'void') return false;
   if (['pending', 'unpaid', 'scheduled', 'draft', 'open'].includes(ps)) return false;
+  if (['pending', 'unpaid', 'scheduled', 'draft', 'open'].includes(st)) return false;
   if (['paid', 'collected', 'completed', 'complete', 'cleared', 'posted'].includes(ps)) return true;
-  return false;
+  if (['paid', 'collected', 'completed', 'complete', 'cleared', 'posted'].includes(st)) return true;
+  // Regular expense entries are treated as paid by Tax Center when they have a
+  // paidAt date or no explicit unpaid status.
+  return !!String(e.paidAt || e.date || e.orderDate || e.createdAt || '').trim();
 }
 
 function requires1099Override(linked: Vendor | undefined, anyExpenseFlag: boolean): boolean {
@@ -180,7 +173,9 @@ export function build1099ReviewSummary(args: {
   const groups = new Map<string, Agg>();
 
   for (const e of expenses) {
-    if (!dateInYear(expenseDate(e), selectedYear)) continue;
+    // Tax Center passes year-filtered rows, but keep this function safe when
+    // called directly by applying the same cash-basis inclusion rule here.
+    if (!isCashBasisExpensePaidInTaxYear(e, selectedYear)) continue;
     const linked = resolveVendorForExpense(e, vendors);
     const displayName = linked?.businessName || displayVendorName(e);
     const savedVendorId = linked?.id ?? null;
@@ -203,8 +198,9 @@ export function build1099ReviewSummary(args: {
       groups.set(key, g);
     }
     const amt = expenseAmount(e);
-    g.totalPaid += amt;
-    if (expenseIndicatesPaidFor1099(e)) {
+    const paid = expenseIndicatesPaidFor1099(e);
+    if (paid) {
+      g.totalPaid += amt;
       g.paid1099Total += amt;
     }
     if (e.projectName) g.projects.add(e.projectName);

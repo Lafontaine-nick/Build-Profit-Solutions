@@ -6,9 +6,9 @@ export const TAX_CENTER_METHODOLOGY_BODY = `This report uses Cash Basis by defau
 
 Revenue Collected includes payments actually collected during the selected tax year based on the app's current Tax Center logic.
 
-Expenses Paid includes expenses and eligible purchase orders dated within the selected tax year based on the app's current Tax Center logic.
+Expenses Paid includes regular expenses treated as paid by the app and purchase orders with an explicit paid status or payment date in the selected tax year.
 
-Outstanding Receivables and Committed Costs are shown for review only and may not be included in Cash Basis Net Income unless collected or paid.
+Outstanding Receivables and unpaid purchase orders are shown for review only and are not included in Cash Basis Net Income until collected or paid.
 
 Project activity is grouped by the selected tax year. Active projects may appear when they have payments, expenses, invoices, receipts, vendor activity, or other dated activity inside the selected year.
 

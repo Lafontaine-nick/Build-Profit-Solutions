@@ -65,7 +65,7 @@ type Props = {
     committedDate: string;
     amount: number;
     status: string;
-    receivedOrPaid: string;
+    includedInCashBasis: string;
   }[];
   subcontractorExpenseRows: TaxExpense[];
   receiptRows: ReceiptCountDetailRow[];
@@ -582,7 +582,7 @@ export default function TaxCenterSummaryDetailModal({
 
     if (kind === 'committed') {
       return committedRows.length === 0 ? (
-        <Text style={styles.empty}>No committed (pending) purchase orders in this tax year.</Text>
+        <Text style={styles.empty}>No unpaid purchase orders in this tax year.</Text>
       ) : (
         committedRows.map((r, idx) => {
           const vendor = displayLabel(r.vendor, 'Not added');
@@ -601,10 +601,10 @@ export default function TaxCenterSummaryDetailModal({
                 <Text style={committed.warn ? styles.metaWarn : undefined}>{committed.text}</Text>
                 <Text style={styles.rowMeta}>{` · ${r.status}`}</Text>
               </Text>
-              <Text style={styles.rowMetaSub}>Pending · Not received</Text>
+              <Text style={styles.rowMetaSub}>Unpaid · Not included in cash-basis expenses</Text>
               <Text style={styles.rowDetailMuted}>
-                Project: {displayLabel(r.projectName, 'Not added')} · PO: {po} · Received / paid:{' '}
-                {r.receivedOrPaid}
+                Project: {displayLabel(r.projectName, 'Not added')} · PO: {po} · Included in cash-basis expenses:{' '}
+                {r.includedInCashBasis}
               </Text>
             </View>
           );

@@ -219,6 +219,7 @@ export default function BudgetTab({
   profitForecastOverride,
   budgetAccessMode = 'owner',
   initialBudgetCategory = null,
+  onRequestOpenTimeline,
 }: {
   data?: BudgetData;
   onRefetch?: () => void;
@@ -229,6 +230,8 @@ export default function BudgetTab({
   budgetAccessMode?: 'owner' | 'cost_control';
   /** Deep-link from dashboard insights — opens category detail on mount */
   initialBudgetCategory?: string | null;
+  /** Opens the project's Timeline tab from the Change Orders guidance card. */
+  onRequestOpenTimeline?: () => void;
 }) {
   const { darkMode, theme: themeTokens } = useTheme();
   const Colors = useMemo(() => getColors(themeTokens), [themeTokens]);
@@ -1993,6 +1996,7 @@ export default function BudgetTab({
           setPendingChangeOrderEditId(coId);
           setSelectedCategory("Change Orders");
         }}
+        onRequestOpenTimeline={onRequestOpenTimeline}
         theme={theme}
       />
 
