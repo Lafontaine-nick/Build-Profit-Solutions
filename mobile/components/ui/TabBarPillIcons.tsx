@@ -144,13 +144,19 @@ export function TabBarLeadsIcon({ focused, darkMode, size = 26 }: IconBaseProps)
   );
 }
 
-/** Assistant — always filled star (spec) */
-export function TabBarAssistantStar({ size = 22 }: { size?: number }) {
+/** Assistant — filled star (spec); optional fill for active gradient state */
+export function TabBarAssistantStar({
+  size = 22,
+  color = TAB_ASSISTANT_STAR,
+}: {
+  size?: number;
+  color?: string;
+}) {
   return (
     <Svg width={size} height={size} viewBox="0 0 22 22">
       <Path
         d="M11 3L12.8 8.2H18.2L13.8 11.5L15.5 17L11 13.5L6.5 17L8.2 11.5L3.8 8.2H9.2L11 3Z"
-        fill={TAB_ASSISTANT_STAR}
+        fill={color}
       />
     </Svg>
   );

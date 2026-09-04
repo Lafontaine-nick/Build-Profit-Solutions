@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { authenticateToken } = require('../middleware/authenticateToken');
+const { isTeamWorkspaceReleased } = require('../constants/releaseFlags');
 const { buildSystemPrompt, buildRouterPrompt } = require('./promptSystem');
 const { createOpenAiClient, getAiModels, getAiRuntimeSettings } = require('../config/aiConfig');
 const { createOpenAiChatCompletion } = require('../utils/openaiChatCompletionParams');
@@ -77,8 +78,15 @@ const {
   buildDailyCommandCenter,
   buildProfitLeakPromptBlock,
   buildPortfolioComparisonReply,
+  buildPortfolioOverBudgetReply,
+  buildProjectBudgetExplanationReply,
+  buildPortfolioBudgetRisksReply,
+  buildPortfolioBudgetRisksReplyForProjects,
   isPortfolioLosingMoneyQuery,
   isPortfolioOverBudgetListQuery,
+  isBadOutcomeScenarioQuery,
+  isCalculationFollowUpQuery,
+  isPortfolioBudgetRisksQuery,
   isSimpleProjectBudgetStatusQuery,
   isPortfolioCompareActiveQuery,
   isPortfolioFocusTodayQuery,
@@ -101,6 +109,153 @@ const {
   buildCalendarAndPaymentsCombinedReply,
   parseCalendarEventCreate,
 } = require('../services/aiAssistantCore');
+
+function findProjectMentionedInMessage(projects, message) {
+  const normalizedMessage = normalizeProjectSearchText(message);
+  if (!normalizedMessage || !Array.isArray(projects)) return null;
+  const messageTokens = new Set(normalizedMessage.split(/\s+/).filter(Boolean));
+  const ignoredTitleTokens = new Set(['project', 'projects', 'job', 'jobs', 'house']);
+  const ranked = projects
+    .map((project) => {
+      const title = normalizeProjectSearchText(project?.title || project?.name || '');
+      const customer = normalizeProjectSearchText(project?.customerName || project?.client || '');
+      if (!title && !customer) return { project, score: 0 };
+      if ((title && normalizedMessage.includes(title)) || (customer && normalizedMessage.includes(customer))) {
+        return { project, score: 100 };
+      }
+      const titleTokens = title
+        .split(/\s+/)
+        .filter((token) => token.length >= 4 && !ignoredTitleTokens.has(token));
+      const customerTokens = customer
+        .split(/\s+/)
+        .filter((token) => token.length >= 4 && !ignoredTitleTokens.has(token));
+      const matched = [...titleTokens, ...customerTokens].filter((token) =>
+        messageTokens.has(token) || normalizedMessage.includes(` ${token} `)
+      );
+      return { project, score: matched.length };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+  if (ranked.length === 0) return null;
+  if (ranked.length > 1 && ranked[0].score === ranked[1].score && ranked[0].score < 100) return null;
+  return ranked[0].project;
+}
+
+function buildCalculationFollowUpReply({ parsedContext = {}, allProjects = [], history = [] } = {}) {
+  const priorMessages = Array.isArray(history) ? history : [];
+  const lastUserMessage = String(
+    [...priorMessages].reverse().find((item) => item?.role === 'user')?.content || ''
+  );
+  const lastAssistantMessage = String(
+    [...priorMessages].reverse().find((item) => item?.role === 'assistant')?.content || ''
+  );
+  const topic = `${lastUserMessage} ${lastAssistantMessage}`.toLowerCase();
+  const targetProject =
+    findProjectMentionedInMessage(allProjects, lastUserMessage) ||
+    allProjects.find((project) => String(project?.id) === String(parsedContext?.projectId)) ||
+    null;
+  const scopedContext = targetProject
+    ? {
+        ...parsedContext,
+        projectId: targetProject.id,
+        currentProject: targetProject.title || targetProject.name,
+      }
+    : parsedContext;
+  const snapshot = getProjectFinancialSnapshot({
+    parsedContext: targetProject ? {} : scopedContext,
+    project: targetProject,
+  });
+  const projectName =
+    targetProject?.title ||
+    targetProject?.name ||
+    parsedContext.currentProject ||
+    parsedContext.projectName ||
+    'this project';
+  const money = (value) => `$${Math.round(Number(value || 0)).toLocaleString()}`;
+
+  if (/\b(budget|over budget|budget alert|overrun)\b/i.test(topic) &&
+      snapshot.estimatedCost != null && snapshot.spent != null) {
+    const variance = snapshot.spent - snapshot.estimatedCost;
+    return [
+      `**Budget calculation — ${projectName}**`,
+      '',
+      `Recorded spend: ${money(snapshot.spent)}`,
+      `Cost budget: ${money(snapshot.estimatedCost)}`,
+      `Variance: ${money(snapshot.spent)} − ${money(snapshot.estimatedCost)} = **${variance >= 0 ? `${money(variance)} over budget` : `${money(Math.abs(variance))} under budget`}**`,
+    ].join('\n');
+  }
+
+  if (/\b(profit|forecast|projected)\b/i.test(topic) &&
+      snapshot.revenue != null &&
+      snapshot.projectedFinalCost != null) {
+    const projectedProfit = snapshot.revenue - snapshot.projectedFinalCost;
+    const margin = snapshot.revenue > 0 ? (projectedProfit / snapshot.revenue) * 100 : null;
+    return [
+      `**Projected profit calculation — ${projectName}**`,
+      '',
+      `Contract value: ${money(snapshot.revenue)}`,
+      `Projected final cost: ${money(snapshot.projectedFinalCost)}`,
+      `Projected profit: ${money(snapshot.revenue)} − ${money(snapshot.projectedFinalCost)} = **${money(projectedProfit)}**`,
+      margin == null ? '' : `Projected margin: ${margin.toFixed(1)}%`,
+    ].filter(Boolean).join('\n');
+  }
+
+  if (/\b(margin)\b/i.test(topic) && snapshot.revenue > 0 && snapshot.spent != null) {
+    const margin = ((snapshot.revenue - snapshot.spent) / snapshot.revenue) * 100;
+    return [
+      `**Margin calculation — ${projectName}**`,
+      '',
+      `Contract value: ${money(snapshot.revenue)}`,
+      `Recorded spend: ${money(snapshot.spent)}`,
+      `Spend-to-date margin: (${money(snapshot.revenue)} − ${money(snapshot.spent)}) ÷ ${money(snapshot.revenue)} = **${margin.toFixed(1)}%**`,
+    ].join('\n');
+  }
+
+  return 'Which calculation should I show: projected profit, budget variance, or margin?';
+}
+
+function buildAssistantFollowUps(message = '') {
+  const text = String(message || '').toLowerCase();
+  if (/\bwhy\b[\s\S]*\bover\s+budget\b/i.test(text)) {
+    return [
+      { label: 'Show calculation', prompt: 'Show me the budget calculation' },
+      { label: 'Review budget lines', prompt: 'Show the budget line items behind this alert' },
+      { label: 'Check projected profit', prompt: 'What is the projected profit for this project?' },
+    ];
+  }
+  if (/\bprojects?\s+(?:are\s+)?over\s+budget\b|\bover\s+budget\s+and\s+by\s+how\s+much\b/i.test(text)) {
+    return [
+      { label: 'Show calculation', prompt: 'Show me the budget calculation' },
+      { label: 'Review budget alerts', prompt: 'Which projects have budget risks? Show me specifics.' },
+      { label: 'Compare active projects', prompt: 'Compare my active projects for profitability and risk' },
+    ];
+  }
+  if (/\b(?:things\s+go\s+bad|bad\s+outcome|goes?\s+badly)\b/i.test(text)) {
+    return [
+      { label: 'Show assumptions', prompt: 'Show the assumptions behind this scenario' },
+      { label: 'Run typical friction', prompt: 'Run the typical friction scenario' },
+      { label: 'Show calculation', prompt: 'Show me the scenario calculation' },
+    ];
+  }
+  if (/\b(?:projected|expected|estimated)\s+profit\b|\bprofit\s+(?:for|on)\b/i.test(text)) {
+    return [
+      { label: 'Show calculation', prompt: 'Show me the profit calculation' },
+      { label: 'Run bad outcome', prompt: 'What is my projected profit if things go bad?' },
+      { label: 'Check PO commitments', prompt: 'Are there purchase orders that could change this forecast?' },
+    ];
+  }
+  if (/\b(?:focus|priorit|attention)\b/i.test(text)) {
+    return [
+      { label: 'Review budget alerts', prompt: 'Which projects have budget risks? Show me specifics.' },
+      { label: 'Show upcoming payments', prompt: 'What payments are coming due?' },
+      { label: 'Compare active projects', prompt: 'Compare my active projects for profitability and risk' },
+    ];
+  }
+  return [
+    { label: 'Portfolio overview', prompt: 'Give me a quick portfolio overview with key numbers' },
+    { label: 'Where am I losing money?', prompt: 'Where am I losing money across my active projects? Show me the biggest profit leaks.' },
+  ];
+}
 
 /**
  * Current margin % for display — matches Projects page (profitForecast.projectedMarginPct or estimate margin).
@@ -388,6 +543,7 @@ function generateSmartSuggestions(message, reply, parsedContext, session) {
 
   if (replyLower.includes('over budget') || replyLower.includes('overrun') || replyLower.includes('above estimate')) {
     if (mentionedProject) {
+      suggestions.push({ label: 'Show the calculation', prompt: `Show the budget calculation behind ${mentionedProject}'s alert` });
       suggestions.push({ label: `Break down ${mentionedProject} expenses`, prompt: `Show me an expense breakdown for ${mentionedProject} by category and vendor` });
     }
     suggestions.push({ label: 'Check all budget risks', prompt: 'Which projects have budget risks?' });
@@ -1299,6 +1455,7 @@ function inferCOFieldsFromUserMessages(userMessages = [], allMessages = []) {
   let vendor = null;
   let materialsAmount;
   let laborAmount;
+  let match;
 
   // Intent phrases that should NOT be treated as descriptions
   const intentPhrases = /^(create|add|make|i need|i want|give me|start)(\s+\w+)*\s+(change\s+(?:the\s+)?order|scope\s+change|extra\s+work)s?$/i;
@@ -1964,26 +2121,30 @@ function buildProjectDataSnapshot(parsedContext) {
   };
 
   const projectId = parsedContext?.projectId;
-  const hasOverview = parsedContext && (typeof parsedContext.spendToDateMarginPct === 'number' || typeof parsedContext.projectedMarginPct === 'number');
   const isCurrentProjectMatch = (p) => projectId != null && String(p?.id) === String(projectId);
 
   const lines = allProjects.map((p) => {
     const title = p?.title || p?.name || 'Untitled';
-    const status = (p?.status || 'unknown').replace(/_/g, ' ');
+    const status = String(p?.status || 'unknown')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
     const isCurrent = isCurrentProjectMatch(p);
-    const contract = fmt(p?.contractValue || p?.bidPrice || (isCurrent ? parsedContext?.contractValue : null) || (isCurrent ? parsedContext?.bidTotal : null));
-    const spent = fmt(isCurrent ? (parsedContext?.actualCost ?? parsedContext?.totalSpent ?? p?.totalSpent ?? p?.actualCost) : (p?.totalSpent || p?.actualCost));
-    const estimated = fmt(p?.estimatedCost);
-    const profit = contract > 0 ? contract - (estimated || spent) : 0;
-    const currentMarginPct = (hasOverview && isCurrent && typeof parsedContext.spendToDateMarginPct === 'number')
-      ? parsedContext.spendToDateMarginPct.toFixed(1)
-      : (contract > 0 ? ((contract - spent) / contract * 100).toFixed(1) : '0.0');
-    const projectedMarginPct = (hasOverview && isCurrent && typeof parsedContext.projectedMarginPct === 'number')
-      ? parsedContext.projectedMarginPct.toFixed(1)
+    const financials = getProjectFinancialSnapshot({
+      project: p,
+      parsedContext: isCurrent ? parsedContext : {},
+    });
+    const contract = fmt(financials.revenue);
+    const spent = fmt(financials.spent);
+    const estimated = fmt(financials.estimatedCost);
+    const profit = fmt(financials.projectedProfit ?? (contract > 0 ? contract - estimated : 0));
+    const currentMarginPct = financials.spendToDateMarginPct != null
+      ? Number(financials.spendToDateMarginPct).toFixed(1)
+      : '—';
+    const projectedMarginPct = financials.projectedMarginPct != null
+      ? Number(financials.projectedMarginPct).toFixed(1)
       : null;
-    const progress = fmt(p?.progress);
-    const bidMarginVal = p?.bidMarginPct;
-    const bidMargin = bidMarginVal != null && !Number.isNaN(Number(bidMarginVal)) ? `${Number(bidMarginVal)}%` : null;
+    const progress = fmt(financials.progress);
+    const bidMargin = financials.bidMarginPct > 0 ? `${Number(financials.bidMarginPct).toFixed(1)}%` : null;
 
     let parts = [`**${title}** (${status}) | Progress: ${progress}%`];
     if (bidMargin) parts.push(`Bid margin (from estimate): ${bidMargin}`);
@@ -6553,6 +6714,21 @@ router.post('/stream', async (req, res) => {
       return;
     }
 
+    const isCalculationFollowUpStream = isCalculationFollowUpQuery(message);
+    if (isCalculationFollowUpStream) {
+      const calculationReplyStream = buildCalculationFollowUpReply({
+        parsedContext,
+        allProjects: parsedContext?.allProjects || [],
+        history,
+      });
+      const reply = appendDataFreshness(calculationReplyStream, parsedContext);
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+      res.write(`data: ${JSON.stringify({ type: 'token', content: reply })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id })}\n\n`);
+      res.end();
+      return;
+    }
+
     // RUN-FIRST STREAM: "making enough" — use only parsedContext (same as main POST)
     const rawMsgStreamFirst = String(message ?? '').trim().toLowerCase();
     const isMakingEnoughStreamFirst = /\bmaking\s+enough\b/i.test(rawMsgStreamFirst) && (/\b(?:on\s+)?(?:this\s+)?(?:job|project)\b/i.test(rawMsgStreamFirst) || /\bmoney\b/i.test(rawMsgStreamFirst) || /\bjob\b/i.test(rawMsgStreamFirst) || /\b(?:am\s+i|are\s+we|is\s+this)\s+making\s+enough/i.test(rawMsgStreamFirst));
@@ -6561,10 +6737,10 @@ router.post('/stream', async (req, res) => {
       const projNameStreamFirst = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || 'This project';
       const financeStreamFirst = getProjectFinancialSnapshot({ parsedContext });
       if (financeStreamFirst.currentMarginPct != null && Number.isFinite(Number(financeStreamFirst.currentMarginPct))) {
-        const replyStreamFirst = appendDataFreshness(buildMakingEnoughReply(projNameStreamFirst, financeStreamFirst.currentMarginPct), parsedContext);
+        const replyStreamFirst = appendDataFreshness(buildMakingEnoughReply(projNameStreamFirst, financeStreamFirst.currentMarginPct, financeStreamFirst.dataQuality), parsedContext);
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
         res.write(`data: ${JSON.stringify({ type: 'token', content: replyStreamFirst })}\n\n`);
-        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: buildAssistantFollowUps(userMsgTrimStream), sessionId: sessionStream?.id })}\n\n`);
         res.end();
         return;
       }
@@ -6620,6 +6796,31 @@ router.post('/stream', async (req, res) => {
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
         res.write(`data: ${JSON.stringify({ type: 'token', content: singleScenarioReply })}\n\n`);
         res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: sessionStream?.id })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+
+    const asksForBadOutcomeStream = isBadOutcomeScenarioQuery(userMsgTrimStream);
+    if (asksForBadOutcomeStream) {
+      const namedProjectStream = findProjectMentionedInMessage(parsedContext.allProjects, userMsgTrimStream);
+      const projectForScenarioStream = namedProjectStream ||
+        parsedContext.allProjects?.find((p) => String(p?.id) === String(parsedContext.projectId)) ||
+        parsedContext;
+      const scenarioContextStream = {
+        ...parsedContext,
+        currentProject: projectForScenarioStream,
+      };
+      if (namedProjectStream) {
+        ['projectId', 'contractValue', 'bidTotal', 'total', 'actualCost', 'totalSpent', 'forecastFinalCost', 'projectedMarginPct'].forEach((key) => {
+          delete scenarioContextStream[key];
+        });
+      }
+      const badOutcomeReplyStream = runScenarioSingleInline('bad_remodel', scenarioContextStream);
+      if (badOutcomeReplyStream) {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no-cache' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: badOutcomeReplyStream })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: buildAssistantFollowUps(userMsgTrimStream), sessionId: sessionStream?.id })}\n\n`);
         res.end();
         return;
       }
@@ -6691,7 +6892,7 @@ router.post('/stream', async (req, res) => {
       const projNameS = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || 'This project';
       const financeStream = getProjectFinancialSnapshot({ parsedContext });
       if (financeStream.currentMarginPct != null && Number.isFinite(Number(financeStream.currentMarginPct))) {
-        const replyS = appendDataFreshness(buildMakingEnoughReply(projNameS, financeStream.currentMarginPct), parsedContext);
+        const replyS = appendDataFreshness(buildMakingEnoughReply(projNameS, financeStream.currentMarginPct, financeStream.dataQuality), parsedContext);
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
         res.write(`data: ${JSON.stringify({ type: 'token', content: replyS })}\n\n`);
         res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
@@ -6823,15 +7024,18 @@ router.post('/stream', async (req, res) => {
         if (nameFromMsg) targetStream = resolveProjectByQuery(streamProjects, nameFromMsg, { minScore: 35 }).project;
       }
       if (targetStream) {
-        const fromOverview = typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct);
-        const profitSnapshot = getProjectFinancialSnapshot({ project: targetStream, parsedContext: fromOverview ? parsedContext : {} });
-        const marginPct = fromOverview ? parsedContext.projectedMarginPct : profitSnapshot.projectedMarginPct;
-        let projectedProfit = profitSnapshot.projectedProfit != null ? Math.round(profitSnapshot.projectedProfit) : null;
-        if (fromOverview && typeof parsedContext.projectedProfit === 'number' && Number.isFinite(parsedContext.projectedProfit)) {
-          projectedProfit = Math.round(parsedContext.projectedProfit);
-        }
+        const profitSnapshot = getProjectFinancialSnapshot({ project: targetStream, parsedContext });
+        const marginPct = profitSnapshot.projectedMarginPct;
+        const projectedProfit = profitSnapshot.projectedProfit != null
+          ? Math.round(profitSnapshot.projectedProfit)
+          : null;
         const name = targetStream.title || targetStream.name || 'This project';
-        const r = buildProjectedProfitReply({ projectName: name, projectedProfit, marginPct });
+        const r = buildProjectedProfitReply({
+          projectName: name,
+          projectedProfit,
+          marginPct,
+          dataQuality: profitSnapshot.dataQuality,
+        });
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
         res.write(`data: ${JSON.stringify({ type: 'token', content: r })}\n\n`);
         res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
@@ -6915,6 +7119,25 @@ router.post('/stream', async (req, res) => {
       res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
       res.end();
       return;
+    }
+
+    // SPECIFIC PROJECT BUDGET QUESTION: resolve the named project before the
+    // portfolio over-budget shortcut so "why is Repaint over budget?" does not
+    // become a generic comparison.
+    const budgetWhyStream = /\bwhy\b[\s\S]*\bover\s+budget\b/i.test(String(message || ''));
+    const namedBudgetProjectStream = budgetWhyStream
+      ? findProjectMentionedInMessage(allProjects, String(message || ''))
+      : null;
+    if (namedBudgetProjectStream) {
+      const projectBudgetReplyStream = buildProjectBudgetExplanationReply(namedBudgetProjectStream);
+      if (projectBudgetReplyStream) {
+        const r = appendDataFreshness(projectBudgetReplyStream, parsedContext);
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: r })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+        res.end();
+        return;
+      }
     }
 
     // SIMPLE OVER BUDGET: "am I over budget", "over budget", "budget status" — deterministic (not portfolio list)
@@ -7021,15 +7244,12 @@ router.post('/stream', async (req, res) => {
 
     // PORTFOLIO PARITY (Command Center / Projects): same compare_projects shortcuts as main POST — deterministic, no LLM
     const portfolioMsgStream = normalizeAiMessageForIntent(String(message || ''));
-    const streamPortfolioFollowUps = [
-      { label: 'Portfolio overview', prompt: 'Give me a quick portfolio overview with key numbers' },
-      { label: 'Where am I losing money?', prompt: 'Where am I losing money across my active projects? Show me the biggest profit leaks.' },
-      { label: 'Projects over budget', prompt: 'Which active projects are over budget and by how much?' },
-    ];
+    const streamPortfolioFollowUps = buildAssistantFollowUps(message);
     if (isCommandCenter && Array.isArray(allProjects) && allProjects.length > 0) {
       let streamCompareArgs = null;
       if (isPortfolioLosingMoneyQuery(portfolioMsgStream)) streamCompareArgs = { activeOnly: true };
-      else if (isPortfolioOverBudgetListQuery(portfolioMsgStream)) streamCompareArgs = { sortBy: 'overBudget' };
+      else if (isPortfolioBudgetRisksQuery(portfolioMsgStream)) streamCompareArgs = { activeOnly: true, _budgetRisksIntent: true };
+      else if (isPortfolioOverBudgetListQuery(portfolioMsgStream)) streamCompareArgs = { sortBy: 'overBudget', _overBudgetIntent: true };
       else if (isPortfolioCompareActiveQuery(portfolioMsgStream)) streamCompareArgs = { activeOnly: true };
       else if (isPortfolioFocusTodayQuery(portfolioMsgStream)) streamCompareArgs = { activeOnly: true };
       else if (isPortfolioWorstProjectQuery(portfolioMsgStream)) streamCompareArgs = { activeOnly: true, sortBy: 'lowMargin' };
@@ -7037,10 +7257,14 @@ router.post('/stream', async (req, res) => {
         const cr = runCompareProjectsPipeline({ allProjects, parsedContext, args: streamCompareArgs });
         if (cr.success) {
           let portfolioText = '';
-          if (!cr.sorted || cr.sorted.length === 0) {
+          if (streamCompareArgs._overBudgetIntent) {
+            portfolioText = buildPortfolioOverBudgetReply(cr.sorted || []);
+          } else if (!cr.sorted || cr.sorted.length === 0) {
             portfolioText = streamCompareArgs.activeOnly
               ? 'You have **no active projects** in this view (or none matched the filter). Open **Projects** or pull to refresh, then ask again.'
               : '**No projects matched** this filter in the current view. Pull to refresh if you recently added or updated jobs.';
+          } else if (streamCompareArgs._budgetRisksIntent) {
+            portfolioText = buildPortfolioBudgetRisksReplyForProjects(allProjects, parsedContext);
           } else {
             portfolioText = buildPortfolioComparisonReply(cr.sorted);
             const nextMoves = buildPortfolioNextActions(cr.sorted);
@@ -7149,7 +7373,7 @@ router.post('/stream', async (req, res) => {
       res.end();
     } catch (streamErr) {
       console.error('Stream error:', streamErr.message);
-      res.write(`data: ${JSON.stringify({ type: 'error', message: streamErr.message })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'error', message: "I couldn't complete that answer right now. Please try again." })}\n\n`);
       res.end();
     }
   } catch (err) {
@@ -7286,7 +7510,7 @@ router.post('/', async (req, res) => {
       const projNameFirst = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || 'This project';
       const financeRunFirst = getProjectFinancialSnapshot({ parsedContext });
       if (financeRunFirst.currentMarginPct != null && Number.isFinite(Number(financeRunFirst.currentMarginPct))) {
-        const replyFirst = buildMakingEnoughReply(projNameFirst, financeRunFirst.currentMarginPct);
+        const replyFirst = buildMakingEnoughReply(projNameFirst, financeRunFirst.currentMarginPct, financeRunFirst.dataQuality);
         if (process.env.DEBUG_AI_CONTEXT) console.log('✅ RUN-FIRST "making enough":', projNameFirst, Number(financeRunFirst.currentMarginPct).toFixed(1) + '%');
         return res.json({ reply: replyFirst, actions: [] });
       }
@@ -7334,6 +7558,34 @@ router.post('/', async (req, res) => {
       if (singleReply) {
         if (process.env.DEBUG_AI_CONTEXT) console.log('✅ RUN-FIRST scenario card tap:', selectedScenarioRunFirst);
         return res.json({ reply: singleReply, actions: [] });
+      }
+    }
+
+    // Natural-language downside requests should run the Bad Remodel preset
+    // directly instead of falling through to the simpler profit answer.
+    const asksForBadOutcome = isBadOutcomeScenarioQuery(userMsgTrim);
+    if (asksForBadOutcome) {
+      const namedProject = findProjectMentionedInMessage(parsedContext.allProjects, userMsgTrim);
+      const projectForScenario = namedProject ||
+        parsedContext.allProjects?.find((p) => String(p?.id) === String(parsedContext.projectId)) ||
+        parsedContext;
+      const scenarioContext = {
+        ...parsedContext,
+        currentProject: projectForScenario,
+      };
+      if (namedProject) {
+        ['projectId', 'contractValue', 'bidTotal', 'total', 'actualCost', 'totalSpent', 'forecastFinalCost', 'projectedMarginPct'].forEach((key) => {
+          delete scenarioContext[key];
+        });
+      }
+      const badOutcomeReply = runScenarioSingleInline('bad_remodel', scenarioContext);
+      if (badOutcomeReply) {
+        if (process.env.DEBUG_AI_CONTEXT) console.log('✅ RUN-FIRST bad-outcome scenario');
+        return res.json({
+          reply: badOutcomeReply,
+          actions: [],
+          suggestedFollowUps: buildAssistantFollowUps(userMsgTrim),
+        });
       }
     }
 
@@ -7402,7 +7654,7 @@ router.post('/', async (req, res) => {
       const projName = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || proj?.title || proj?.name || 'This project';
       const financeEarly = getProjectFinancialSnapshot({ parsedContext, project: proj });
       if (financeEarly.currentMarginPct != null && Number.isFinite(Number(financeEarly.currentMarginPct))) {
-        const reply = buildMakingEnoughReply(projName, financeEarly.currentMarginPct);
+        const reply = buildMakingEnoughReply(projName, financeEarly.currentMarginPct, financeEarly.dataQuality);
         console.log('✅ EARLY "making enough": deterministic reply for', projName, Number(financeEarly.currentMarginPct).toFixed(1) + '%');
         return res.json({ reply, actions: [] });
       }
@@ -7491,14 +7743,17 @@ router.post('/', async (req, res) => {
       }
       const name = proj ? (proj.title || proj.name || 'This project') : 'this project';
       if (proj) {
-        const fromOverview = typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct);
-        const profitSnapshot = getProjectFinancialSnapshot({ project: proj, parsedContext: fromOverview ? parsedContext : {} });
-        const marginPct = fromOverview ? parsedContext.projectedMarginPct : profitSnapshot.projectedMarginPct;
-        let projectedProfit = profitSnapshot.projectedProfit != null ? Math.round(profitSnapshot.projectedProfit) : null;
-        if (fromOverview && typeof parsedContext.projectedProfit === 'number' && Number.isFinite(parsedContext.projectedProfit)) {
-          projectedProfit = Math.round(parsedContext.projectedProfit);
-        }
-        const reply = buildProjectedProfitReply({ projectName: name, projectedProfit, marginPct });
+        const profitSnapshot = getProjectFinancialSnapshot({ project: proj, parsedContext });
+        const marginPct = profitSnapshot.projectedMarginPct;
+        const projectedProfit = profitSnapshot.projectedProfit != null
+          ? Math.round(profitSnapshot.projectedProfit)
+          : null;
+        const reply = buildProjectedProfitReply({
+          projectName: name,
+          projectedProfit,
+          marginPct,
+          dataQuality: profitSnapshot.dataQuality,
+        });
         console.log('✅ SIMPLE PROJECTED PROFIT (first-priority): short response for', name);
         return res.json({ reply, actions: [] });
       }
@@ -7680,6 +7935,37 @@ router.post('/', async (req, res) => {
     const overhead = parsedContext.overhead || parsedContext.overheadTotal || currentProjectData?.overhead || estimateData?.overheadTotal || 0;
     const progress = parsedContext.progress || currentProjectData?.progress || currentProjectData?.overallProgressPct || 0;
     const activeTab = parsedContext.activeTab || '';
+
+    const isCalculationFollowUp = isCalculationFollowUpQuery(rawBodyMsg);
+    if (isCalculationFollowUp) {
+      const calculationReply = buildCalculationFollowUpReply({
+        parsedContext,
+        allProjects,
+        history,
+      });
+      return res.json({
+        reply: appendDataFreshness(calculationReply, parsedContext),
+        actions: [],
+        suggestedFollowUps: buildAssistantFollowUps(rawBodyMsg),
+      });
+    }
+
+    // Resolve named-project "why over budget" questions before the generic
+    // project budget-status handler, which otherwise uses the current project.
+    const budgetWhyQuestion = /\bwhy\b[\s\S]*\bover\s+budget\b/i.test(String(rawBodyMsg || ''));
+    const namedBudgetProject = budgetWhyQuestion
+      ? findProjectMentionedInMessage(allProjects, String(rawBodyMsg || ''))
+      : null;
+    if (namedBudgetProject) {
+      const projectBudgetReply = buildProjectBudgetExplanationReply(namedBudgetProject);
+      if (projectBudgetReply) {
+        return res.json({
+          reply: appendDataFreshness(projectBudgetReply, parsedContext),
+          actions: [],
+          suggestedFollowUps: buildAssistantFollowUps(rawBodyMsg),
+        });
+      }
+    }
 
     // ── FIRST-PRIORITY: single-project "am I over budget?" / "budget status" → deterministic (never LLM); not portfolio list
     const isOverBudgetQuestion = isSimpleProjectBudgetStatusQuery(rawBodyMsg);
@@ -8039,6 +8325,16 @@ router.post('/', async (req, res) => {
         console.log('✅ EARLY compare all projects — returning immediately (bypassing router/LLM)');
         return res.json({ reply, actions: [] });
       }
+    }
+
+    // ── EARLY: Budget risks / alerts — active projects with spend or margin issues only ──
+    if (allProjects.length > 0 && isPortfolioBudgetRisksQuery(msgLowerEarly)) {
+      const reply = appendDataFreshness(
+        buildPortfolioBudgetRisksReplyForProjects(allProjects, parsedContext),
+        parsedContext
+      );
+      console.log('✅ EARLY budget risks — returning immediately (bypassing router/LLM)');
+      return res.json({ reply, actions: [] });
     }
 
     // ── EARLY: "X weeks too long" / "goes long" profit projection (NOT scenario analysis) ──
@@ -8689,10 +8985,9 @@ router.post('/', async (req, res) => {
       const optimisticProfit = contractValueFinal - optimisticFinalCost;
       const conservativeProfit = contractValueFinal - conservativeFinalCost;
 
-      const optimisticDelta = optimisticFinalCost - contractValueFinal;
-      const likelyDelta = likelyFinalCostUse - contractValueFinal;
-      const conservativeDelta = conservativeFinalCost - contractValueFinal;
-      const fmtDelta = (delta) => {
+      const fmtCostBudgetVariance = (finalCost) => {
+        if (!(baseEstimate > 0)) return 'No cost budget baseline';
+        const delta = finalCost - baseEstimate;
         if (Math.abs(delta) < 1) return 'On budget';
         return delta > 0
           ? `Over budget by $${Math.round(delta).toLocaleString()}`
@@ -8711,7 +9006,13 @@ router.post('/', async (req, res) => {
       if (materialBudget > 0 && materialSpent / materialBudget > 0.75) {
         drivers.push(`Material burn is high (${Math.round((materialSpent / materialBudget) * 100)}% used).`);
       }
-      if (drivers.length === 0) drivers.push('Current burn appears consistent with the budget baseline.');
+      if (drivers.length === 0) {
+        drivers.push(
+          progressRatio <= 0.01 && actual <= 0
+            ? 'No recorded spend or progress is available; this is an estimate-based forecast.'
+            : 'Current burn appears consistent with the cost budget baseline.'
+        );
+      }
 
       const isSimpleProfitQ = /estimated profit|projected profit|expected profit|what is my profit|what'?s my profit|my profit on this job|profit on this job/i.test(msgLower) && !msgLower.includes('forecast');
       let reply = '';
@@ -8728,9 +9029,9 @@ router.post('/', async (req, res) => {
       reply += `- Method: ${forecastMethod}\n\n`;
 
       reply += `💰 Forecast (EAC):\n`;
-      reply += `- Optimistic Final Cost: $${Math.round(optimisticFinalCost).toLocaleString()} (${fmtDelta(optimisticDelta)}) → Profit: $${Math.round(optimisticProfit).toLocaleString()} (${optimisticMarginPct.toFixed(1)}%)\n`;
-      reply += `- Likely Final Cost: $${Math.round(likelyFinalCostUse).toLocaleString()} (${fmtDelta(likelyDelta)}) → Profit: $${Math.round(likelyProfit).toLocaleString()} (${likelyMarginPct.toFixed(1)}%)${hasPrecomputed ? ' ← matches app UI' : ''}\n`;
-      reply += `- Worst-case (risk-adjusted) Final Cost: $${Math.round(conservativeFinalCost).toLocaleString()} (${fmtDelta(conservativeDelta)}) → Profit: $${Math.round(conservativeProfit).toLocaleString()} (${conservativeMarginPct.toFixed(1)}%)\n\n`;
+      reply += `- Optimistic Final Cost: $${Math.round(optimisticFinalCost).toLocaleString()} (${fmtCostBudgetVariance(optimisticFinalCost)}) → Projected Profit: $${Math.round(optimisticProfit).toLocaleString()} (${optimisticMarginPct.toFixed(1)}%)\n`;
+      reply += `- Likely Final Cost: $${Math.round(likelyFinalCostUse).toLocaleString()} (${fmtCostBudgetVariance(likelyFinalCostUse)}) → Projected Profit: $${Math.round(likelyProfit).toLocaleString()} (${likelyMarginPct.toFixed(1)}%)${hasPrecomputed ? ' ← matches app UI' : ''}\n`;
+      reply += `- Worst-case (risk-adjusted) Final Cost: $${Math.round(conservativeFinalCost).toLocaleString()} (${fmtCostBudgetVariance(conservativeFinalCost)}) → Projected Profit: $${Math.round(conservativeProfit).toLocaleString()} (${conservativeMarginPct.toFixed(1)}%)\n\n`;
 
       reply += `⚠️ Key drivers:\n`;
       drivers.slice(0, 3).forEach((d, i) => {
@@ -10261,6 +10562,7 @@ router.post('/', async (req, res) => {
     // Helper function to execute add_material_expense
     async function executeAddMaterialExpense(args, req) {
       let targetProjectId;
+      let baseUrl;
       try {
         // Validate required fields
         if (!args.amount || args.amount <= 0) {
@@ -10324,8 +10626,8 @@ router.post('/', async (req, res) => {
 
         // Determine base URL for API calls
         // Try to use the same host as the current request
-        let baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 
-                      process.env.API_BASE_URL;
+        baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ||
+                  process.env.API_BASE_URL;
         
         if (!baseUrl && req) {
           baseUrl = `${req.protocol || 'http'}://${req.get('host') || 'localhost:3001'}`;
@@ -10354,35 +10656,39 @@ router.post('/', async (req, res) => {
           projectInfo = currentProjectData;
         }
         
-        // CRITICAL: Get current expenses from project context to send to backend
-        // This ensures deleted expenses don't get restored
-        // PRIORITY: parsedContext.expenses is the source of truth (comes from frontend AsyncStorage)
-        // Only use allProjects expenses as last resort if parsedContext doesn't have them
+        // Only use expense snapshots when they explicitly belong to the target project.
+        // Never copy a current/portfolio project's expense array into another target project.
         let currentExpenses = [];
-        
-        // FIRST: Use expenses from parsedContext (most current, from frontend AsyncStorage)
-        if (expenses && Array.isArray(expenses) && expenses.length > 0) {
+        const contextProjectId =
+          parsedContext?.projectId ||
+          parsedContext?.activeProjectId ||
+          parsedContext?.resolvedProjectId ||
+          parsedContext?.selectedProjectId ||
+          null;
+        const contextMatchesTarget =
+          contextProjectId != null &&
+          String(contextProjectId) === String(targetProjectId);
+
+        if (contextMatchesTarget && Array.isArray(expenses)) {
           currentExpenses = expenses;
-          console.log('✅ Using expenses from parsedContext (source of truth):', currentExpenses.length);
+          console.log('✅ Using target-project expenses from parsedContext:', currentExpenses.length);
         }
-        // SECOND: Check projectInfo (from allProjects - might be stale)
-        else if (projectInfo) {
+        else if (projectInfo && String(projectInfo.id) === String(targetProjectId)) {
           if (projectInfo.projectData && projectInfo.projectData.expenses && Array.isArray(projectInfo.projectData.expenses)) {
             currentExpenses = projectInfo.projectData.expenses;
-            console.log('⚠️ Using expenses from projectInfo.projectData (might be stale):', currentExpenses.length);
+            console.log('⚠️ Using target-project expenses from projectInfo.projectData:', currentExpenses.length);
           } else if (projectInfo.expenses && Array.isArray(projectInfo.expenses)) {
             currentExpenses = projectInfo.expenses;
-            console.log('⚠️ Using expenses from projectInfo (might be stale):', currentExpenses.length);
+            console.log('⚠️ Using target-project expenses from projectInfo:', currentExpenses.length);
           }
         }
-        // THIRD: Fallback to currentProjectData (from allProjects - might be stale)
-        else if (currentProjectData) {
+        else if (currentProjectData && String(currentProjectData.id) === String(targetProjectId)) {
           if (currentProjectData.projectData && currentProjectData.projectData.expenses && Array.isArray(currentProjectData.projectData.expenses)) {
             currentExpenses = currentProjectData.projectData.expenses;
-            console.log('⚠️ Using expenses from currentProjectData.projectData (might be stale):', currentExpenses.length);
+            console.log('⚠️ Using target-project expenses from currentProjectData.projectData:', currentExpenses.length);
           } else if (currentProjectData.expenses && Array.isArray(currentProjectData.expenses)) {
             currentExpenses = currentProjectData.expenses;
-            console.log('⚠️ Using expenses from currentProjectData (might be stale):', currentExpenses.length);
+            console.log('⚠️ Using target-project expenses from currentProjectData:', currentExpenses.length);
           }
         }
         
@@ -10438,6 +10744,7 @@ router.post('/', async (req, res) => {
               'Authorization': `Bearer ${tokenToUse}`,
               'Content-Type': 'application/json',
             },
+            timeout: TOOL_EXEC_TIMEOUT_MS,
           }
         );
 
@@ -10506,6 +10813,12 @@ router.post('/', async (req, res) => {
     // Helper function to execute message_team_member
     async function executeMessageTeamMember(args) {
       try {
+        if (!isTeamWorkspaceReleased()) {
+          return {
+            success: false,
+            error: 'Team messaging is not available on this plan. I can still help with project costs, budgets, schedules, and forecasts.',
+          };
+        }
         const { teamMemberName, messageContent } = args;
         
         if (!teamMemberName || !messageContent) {
@@ -10545,6 +10858,11 @@ router.post('/', async (req, res) => {
           phoneNumber: teamMember.phone,
           message: messageContent,
           teamMemberName: teamMember.name
+        }, {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+          timeout: TOOL_EXEC_TIMEOUT_MS,
         });
 
         if (response.data.success) {
@@ -10571,6 +10889,12 @@ router.post('/', async (req, res) => {
     // Helper function to execute notify_team
     async function executeNotifyTeam(args) {
       try {
+        if (!isTeamWorkspaceReleased()) {
+          return {
+            success: false,
+            error: 'Team messaging is not available on this plan. I can still help with project costs, budgets, schedules, and forecasts.',
+          };
+        }
         const { messageContent } = args;
         
         if (!messageContent) {
@@ -10599,6 +10923,11 @@ router.post('/', async (req, res) => {
         const response = await axios.post(`${baseUrl}/api/team/notify`, {
           phoneNumbers,
           message: messageContent
+        }, {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+          timeout: TOOL_EXEC_TIMEOUT_MS,
         });
 
         if (response.data.success) {
@@ -10731,6 +11060,16 @@ router.post('/', async (req, res) => {
     const lastAssistantLower = lastAssistantForAdd.toLowerCase();
     const askedForNameToAdd = /(?:name of the team member you'?d like to add|team member you'?d like to add|team member.*like to add)/i.test(lastAssistantLower);
     const looksLikeName = message.trim().length >= 2 && message.trim().length <= 50 && !/\d{3,}/.test(message) && !message.includes('$');
+    if (!isTeamWorkspaceReleased() && (
+      askedForNameToAdd ||
+      /\b(?:add|assign|appoint|message|text|notify)\b.*\b(?:team|crew|pm|project manager)\b/i.test(messageLower)
+    )) {
+      return res.json({
+        reply: 'Team workspace features are not available on this plan. I can still help with project costs, budgets, schedules, and forecasts.',
+        actions: [],
+        projectUpdateData: null,
+      });
+    }
     if (askedForNameToAdd && looksLikeName && projectId) {
       const memberName = message.trim();
       console.log('🛑 PRE-ROUTER: Add team member (name provided) — asking for phone');
@@ -11017,6 +11356,7 @@ router.post('/', async (req, res) => {
     const completedProjectsPreCheck = /\b(yes\s+)?(completed\s+projects?|completed\s+jobs?|review\s+(my\s+)?completed|(where|how)\s+(did\s+I\s+)?(lose|make)\s+(money\s+)?(on\s+)?completed|profit\s+(on\s+)?completed|compare\s+(my\s+)?completed)\b/i.test(messageLower);
     // PRE-ROUTER: "Which projects are over budget" → compare with sortBy overBudget; AI already knows projects
     const overBudgetPreCheck = isPortfolioOverBudgetListQuery(messageLower);
+    const budgetRisksPreCheck = isPortfolioBudgetRisksQuery(messageLower);
     const compareActivePreCheck = isPortfolioCompareActiveQuery(messageLower);
     const worstProjectPreCheck = isPortfolioWorstProjectQuery(messageLower);
     let routerResult;
@@ -11041,6 +11381,17 @@ router.post('/', async (req, res) => {
         clarification_question: null,
         confidence: 0.99,
         _completedProjectsIntent: true,
+      };
+    } else if (budgetRisksPreCheck) {
+      console.log('🛡️ PRE-ROUTER: Budget risks / alerts intent → skipping router, forcing compare_projects (activeOnly, budget alerts reply)');
+      routerResult = {
+        domain: 'portfolio',
+        proposed_tool: 'compare_projects',
+        tool_args_draft: { activeOnly: true },
+        required_fields_missing: [],
+        clarification_question: null,
+        confidence: 0.99,
+        _budgetRisksIntent: true,
       };
     } else if (overBudgetPreCheck) {
       console.log('🛡️ PRE-ROUTER: Over budget intent → skipping router, forcing compare_projects (active + completed, sortBy overBudget)');
@@ -11516,6 +11867,7 @@ router.post('/', async (req, res) => {
       { regex: /\bbad_remodel\b/i, value: 'bad_remodel' }, // From card id
       { regex: /\bbad\s*remodel\b/i, value: 'bad_remodel' },
       { regex: /\bbad\s+remodel\b/i, value: 'bad_remodel' }, // Match with space
+      { regex: /\b(?:things\s+go\s+bad|bad\s+outcome|goes?\s+badly)\b/i, value: 'bad_remodel' },
       { regex: /\bsmooth_job\b/i, value: 'smooth_job' }, // From card id
       { regex: /\bsmooth\s*job\b/i, value: 'smooth_job' },
       { regex: /\bsmooth\s+job\b/i, value: 'smooth_job' }, // Match with space
@@ -12048,11 +12400,7 @@ router.post('/', async (req, res) => {
     // POST previously sent the full system prompt + history on the first OpenAI call; Tier 1 TPM (~30k) then failed before compare_projects ran.
     const screenLowerPortfolioPost = String(parsedContext?.screen || '').toLowerCase();
     const postCommandCenterPortfolio = screenLowerPortfolioPost === 'projects' || screenLowerPortfolioPost === 'ai assistant tab';
-    const portfolioPostFollowUps = [
-      { label: 'Portfolio overview', prompt: 'Give me a quick portfolio overview with key numbers' },
-      { label: 'Where am I losing money?', prompt: 'Where am I losing money across my active projects? Show me the biggest profit leaks.' },
-      { label: 'Projects over budget', prompt: 'Which active projects are over budget and by how much?' },
-    ];
+    const portfolioPostFollowUps = buildAssistantFollowUps(message);
     if (
       postCommandCenterPortfolio &&
       Array.isArray(allProjects) &&
@@ -12064,6 +12412,7 @@ router.post('/', async (req, res) => {
       const postShortCircuitPortfolio =
         routerResult._focusTodayIntent ||
         routerResult._losingMoneyIntent ||
+        routerResult._budgetRisksIntent ||
         routerResult._overBudgetIntent ||
         routerResult._compareActiveIntent ||
         routerResult._worstProjectIntent ||
@@ -12078,6 +12427,12 @@ router.post('/', async (req, res) => {
               parsedContext,
               allProjects,
             });
+          } else if (routerResult._budgetRisksIntent) {
+            replyPost = buildPortfolioBudgetRisksReplyForProjects(allProjects, parsedContext);
+            replyPost = appendDataFreshness(replyPost, parsedContext);
+          } else if (routerResult._overBudgetIntent) {
+            replyPost = buildPortfolioOverBudgetReply(crPost.sorted || []);
+            replyPost = appendDataFreshness(replyPost, parsedContext);
           } else if (!crPost.sorted || crPost.sorted.length === 0) {
             replyPost =
               postCompareDraft.activeOnly === true
@@ -13673,18 +14028,22 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
               const response = await axios.patch(
                 `${baseUrl}/api/projects/${targetPid}/milestones/complete`,
                 { itemId: functionArgs.itemId, itemName: functionArgs.itemName, completedAt, progressPct },
-                { headers: { Authorization: `Bearer ${authToken}` } }
+                { headers: { Authorization: `Bearer ${authToken}` }, timeout: TOOL_EXEC_TIMEOUT_MS }
               );
               const label = functionArgs.itemName || functionArgs.itemId || 'Milestone';
               functionResult = response.data?.success
                 ? { success: true, message: isComplete ? `✅ Marked "${label}" as complete.` : `✅ Updated "${label}" to ${progressPct}% progress.`, projectId: targetPid }
                 : { success: false, error: response.data?.error || 'Failed to update milestone.' };
             } catch (e) {
-              // Fallback: return an action for the mobile app to handle
-              const action = { type: 'mark_timeline_complete', projectId: targetPid, itemId: functionArgs.itemId, itemName: functionArgs.itemName, completedAt, progressPct };
-              actions.push(action);
-              const label = functionArgs.itemName || 'Milestone';
-              functionResult = { success: true, message: isComplete ? `✅ "${label}" marked complete.` : `✅ "${label}" updated to ${progressPct}%.`, action };
+              if (e?.code === 'ECONNABORTED' || e?.code === 'ETIMEDOUT' || e?.name === 'TimeoutError') {
+                functionResult = { success: false, error: 'The timeline update timed out. No retry was queued automatically.' };
+              } else {
+                // Fallback: return an action for the mobile app to handle
+                const action = { type: 'mark_timeline_complete', projectId: targetPid, itemId: functionArgs.itemId, itemName: functionArgs.itemName, completedAt, progressPct };
+                actions.push(action);
+                const label = functionArgs.itemName || 'Milestone';
+                functionResult = { success: true, message: isComplete ? `✅ "${label}" marked complete.` : `✅ "${label}" updated to ${progressPct}%.`, action };
+              }
             }
           }
 
@@ -13696,15 +14055,19 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
             const response = await axios.post(
               `${baseUrl}/api/projects/${targetPid}/milestones`,
               { title: functionArgs.title, amount: functionArgs.amount, dueDate: functionArgs.dueDate, type: 'payment' },
-              { headers: { Authorization: `Bearer ${authToken}` } }
+              { headers: { Authorization: `Bearer ${authToken}` }, timeout: TOOL_EXEC_TIMEOUT_MS }
             );
             functionResult = response.data?.success
               ? { success: true, message: `✅ Added payment milestone "${functionArgs.title}" for $${functionArgs.amount?.toLocaleString()}.`, projectId: targetPid }
               : { success: false, error: response.data?.error || 'Failed to add payment milestone.' };
           } catch (e) {
-            const action = { type: 'add_timeline_payment', projectId: targetPid, title: functionArgs.title, amount: functionArgs.amount, dueDate: functionArgs.dueDate };
-            actions.push(action);
-            functionResult = { success: true, message: `✅ Payment milestone "${functionArgs.title}" ($${functionArgs.amount?.toLocaleString()}) queued. The app will add it to your timeline.`, action };
+            if (e?.code === 'ECONNABORTED' || e?.code === 'ETIMEDOUT' || e?.name === 'TimeoutError') {
+              functionResult = { success: false, error: 'The payment milestone request timed out. No retry was queued automatically.' };
+            } else {
+              const action = { type: 'add_timeline_payment', projectId: targetPid, title: functionArgs.title, amount: functionArgs.amount, dueDate: functionArgs.dueDate };
+              actions.push(action);
+              functionResult = { success: true, message: `✅ Payment milestone "${functionArgs.title}" ($${functionArgs.amount?.toLocaleString()}) queued. The app will add it to your timeline.`, action };
+            }
           }
 
         // ── PM MODE: ESTIMATE TOOLS ──────────────────────────────────────────
@@ -13733,15 +14096,19 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
             const response = await axios.post(
               `${baseUrl}/api/projects/${targetPid}/estimate/line-items`,
               { name: functionArgs.name, qty: functionArgs.qty || 1, unitCost: functionArgs.unitCost, totalCost, category: functionArgs.category || 'Materials/Equipment' },
-              { headers: { Authorization: `Bearer ${authToken}` } }
+              { headers: { Authorization: `Bearer ${authToken}` }, timeout: TOOL_EXEC_TIMEOUT_MS }
             );
             functionResult = response.data?.success
               ? { success: true, message: `✅ Added "${functionArgs.name}" ($${totalCost.toLocaleString()}) to the estimate.`, projectId: targetPid }
               : { success: false, error: response.data?.error || 'Failed to add line item.' };
           } catch (e) {
-            const action = { type: 'add_estimate_line_item', projectId: targetPid, name: functionArgs.name, qty: functionArgs.qty || 1, unitCost: functionArgs.unitCost, category: functionArgs.category || 'Materials/Equipment' };
-            actions.push(action);
-            functionResult = { success: true, message: `✅ "${functionArgs.name}" ($${((functionArgs.qty || 1) * functionArgs.unitCost).toLocaleString()}) queued to be added to the estimate.`, action };
+            if (e?.code === 'ECONNABORTED' || e?.code === 'ETIMEDOUT' || e?.name === 'TimeoutError') {
+              functionResult = { success: false, error: 'The estimate update timed out. No retry was queued automatically.' };
+            } else {
+              const action = { type: 'add_estimate_line_item', projectId: targetPid, name: functionArgs.name, qty: functionArgs.qty || 1, unitCost: functionArgs.unitCost, category: functionArgs.category || 'Materials/Equipment' };
+              actions.push(action);
+              functionResult = { success: true, message: `✅ "${functionArgs.name}" ($${((functionArgs.qty || 1) * functionArgs.unitCost).toLocaleString()}) queued to be added to the estimate.`, action };
+            }
           }
 
         // ── SCENARIO ANALYSIS EXECUTOR ─────────────────────────────────────────
@@ -14070,6 +14437,7 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
           // Calculate new totals
           const currentBudget = Number(ctx.materialBudgetDirect || estimateData.totalCost || 0);
           const currentBid = Number(estimateData.totalBid || currentProject.bidPrice || 0);
+          const coAmount = clientPrice;
           const newBudget = currentBudget + coAmount;
           const newBid = currentBid + coAmount;
 
@@ -14090,6 +14458,12 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
 
         // ── ASSIGN PM EXECUTOR ─────────────────────────────────────────────────
         } else if (functionName === 'assign_pm') {
+          if (!isTeamWorkspaceReleased()) {
+            functionResult = {
+              success: false,
+              error: 'Team workspace features are not available on this plan. I can still analyze your projects and budgets.',
+            };
+          } else {
           const targetPid = functionArgs.projectId || projectId;
           const pmName = (functionArgs.pmName || '').trim();
           if (!targetPid || !pmName) {
@@ -14108,9 +14482,16 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
               projectId: targetPid,
             };
           }
+          }
 
         // ── ADD TEAM MEMBER EXECUTOR ───────────────────────────────────────────
         } else if (functionName === 'add_team_member') {
+          if (!isTeamWorkspaceReleased()) {
+            functionResult = {
+              success: false,
+              error: 'Team workspace features are not available on this plan. I can still analyze your projects and budgets.',
+            };
+          } else {
           const targetPid = functionArgs.projectId || projectId;
           const name = (functionArgs.name || '').trim();
           const role = (functionArgs.role || 'Crew Member').trim();
@@ -14132,6 +14513,7 @@ Do NOT say "Let me calculate" or "Let's calculate the exact figures" - call the 
               message: `✅ Added ${name} to the team. They'll appear in your Team tab.`,
               projectId: targetPid,
             };
+          }
           }
 
         // ── UPDATE TEAM MEMBER STATUS EXECUTOR ───────────────────────────────────
@@ -14616,6 +14998,8 @@ RULES:
                       projectedProfit: snap.projectedProfit ?? snap.projectedProfitDollars ?? null,
                       projectedMarginPct: snap.projectedMarginPct ?? null,
                       spendToDateMarginPct: snap.spendToDateMarginPct ?? null,
+                      projectedFinalCost: snap.projectedFinalCost ?? null,
+                      dataQuality: snap.dataQuality || {},
                       summary: 'Forecast snapshot from latest project financials.',
                     };
                   } else {
@@ -15384,7 +15768,7 @@ RULES:
     if (err?.name === 'TimeoutError') {
       return res.status(504).json({
         error: 'AI request timeout',
-        message: err.message || 'AI request timed out',
+        message: "I couldn't complete that answer in time. Please try again.",
       });
     }
 
@@ -15400,36 +15784,32 @@ RULES:
     if (isNetworkError) {
       return res.status(503).json({
         error: 'AI service unreachable',
-        message: "Can't reach OpenAI. Check your internet connection and that api.openai.com is accessible. If you're on a VPN or restricted network, try disconnecting or using a different network.",
+        message: "The AI service isn't responding right now. Please try again.",
       });
     }
 
     // Handle OpenAI-specific errors
     if (err.response) {
       const statusCode = err.response.status;
-      const errorMessage = err.response.data?.error?.message || err.message;
 
       if (statusCode === 429) {
         return res.status(429).json({
           error: 'Rate limit exceeded',
-          message: 'OpenAI API rate limit exceeded. Please wait a moment and try again.',
-          details: errorMessage,
+          message: 'The AI service is busy right now. Please wait a moment and try again.',
         });
       }
 
       if (statusCode === 401 || statusCode === 403) {
         return res.status(statusCode).json({
           error: 'OpenAI API authentication failed',
-          message: 'Invalid OpenAI API key. Please check your configuration.',
-          details: errorMessage,
+          message: 'The AI service is temporarily unavailable. Please try again later.',
         });
       }
     }
 
     return res.status(500).json({
       error: 'AI Assistant error',
-      message: err.message || 'An unexpected error occurred',
-      details: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+      message: "I couldn't complete that answer right now. Please try again.",
     });
   }
 });

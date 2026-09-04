@@ -12,6 +12,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useProjectsCompareData } from '@/hooks/useProjectsCompareData';
 import WebPageShell from '@/components/layout/WebPageShell';
 import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
+import {
+  loadDeletedProjectRecords,
+  filterProjectsForPortfolioAi,
+  type DeletedProjectRecord,
+} from '@/utils/aiDashboardPortfolioFilter';
 import { computeProjectFinancials, sumPlannedCostFromBuckets } from '@/src/lib/projectFinancials';
 import {
   computeProfitForecast,
@@ -55,10 +60,22 @@ export default function AssistantScreen() {
   const allProjectsForTimeline = projects?.length > 0 ? projects : [...activeProjects, ...estimates];
   const { compareData: compareProjectsData, progressByProjectId, timelineMilestonesByProjectId, isLoaded: isTimelineLoaded } = useProjectsCompareData(activeProjects, estimates, allProjectsForTimeline);
   const [showAIAssistant, setShowAIAssistant] = useState(false); // Start false to prevent flash
+  const [assistantResetSignal, setAssistantResetSignal] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [dailyLogsByProjectId, setDailyLogsByProjectId] = useState<Record<string, any[]>>({});
   const [calendarEventsByProjectId, setCalendarEventsByProjectId] = useState<Record<string, any[]>>({});
   const [projectSnapshotsById, setProjectSnapshotsById] = useState<Record<string, any>>({});
+  const [deletedProjectRecords, setDeletedProjectRecords] = useState<DeletedProjectRecord[]>([]);
+
+  useEffect(() => {
+    void loadDeletedProjectRecords().then(setDeletedProjectRecords);
+  }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      void loadDeletedProjectRecords().then(setDeletedProjectRecords);
+    }, [])
+  );
 
   // Load daily logs and calendar events from AsyncStorage for all projects
   useEffect(() => {
@@ -102,6 +119,7 @@ export default function AssistantScreen() {
   useFocusEffect(
     React.useCallback(() => {
       setIsReady(true);
+      setAssistantResetSignal((signal) => signal + 1);
       const timer = setTimeout(() => {
         setShowAIAssistant(true);
       }, 50);
@@ -114,8 +132,11 @@ export default function AssistantScreen() {
 
   // Build context and project options for AI Assistant — use full projects list for chips (includes all statuses)
   const { context, projectOptions } = React.useMemo(() => {
-    const allProjectsList = dedupeProjectsForAssistantAi(
-      projects?.length > 0 ? projects : [...activeProjects, ...estimates]
+    const rawProjectsList =
+      projects?.length > 0 ? projects : [...activeProjects, ...estimates];
+    const allProjectsList = filterProjectsForPortfolioAi(
+      dedupeProjectsForAssistantAi(rawProjectsList),
+      deletedProjectRecords
     );
     const safeNum = (value: unknown) => {
       const n = Number(value || 0);
@@ -133,6 +154,7 @@ export default function AssistantScreen() {
         ...(p || {}),
         projectData: mergedProjectData,
       };
+      const projectStatus = mergedProject.status || mergedProject.projectData?.status || 'unknown';
       const title =
         mergedProject.title ||
         mergedProject.name ||
@@ -227,16 +249,16 @@ export default function AssistantScreen() {
         progressPct: safeNum(progress),
         contractCollectedPct,
         elapsedTimePct,
-        isCompleted: String(mergedProject.status || '').toLowerCase() === 'completed',
+        isCompleted: String(projectStatus).toLowerCase() === 'completed',
       });
-      const st = String(mergedProject.status || '').toLowerCase();
+      const st = String(projectStatus).toLowerCase();
       const isActive = ['won', 'active', 'in_progress', 'in-progress'].includes(st);
       const isCompleted = st === 'completed';
       return {
       id: mergedProject.id,
       title,
       customerName: mergedProject.client || title,
-      status: mergedProject.status,
+      status: projectStatus,
       isActive,
       isCompleted,
       bidPrice,
@@ -280,7 +302,9 @@ export default function AssistantScreen() {
     // When 2+ active projects exist, do NOT pre-fill projectId — let the AI ask "which project?"
     let currentProject: any = null;
     const activeOnly = allProjectsList.filter((p: any) =>
-      ['won', 'active', 'in_progress', 'in-progress'].includes((p.status || '').toLowerCase())
+      ['won', 'active', 'in_progress', 'in-progress'].includes(
+        (p.status || p.projectData?.status || '').toLowerCase()
+      )
     );
     if (allProjectsList.length === 1) {
       currentProject = allProjectsList[0];
@@ -305,10 +329,28 @@ export default function AssistantScreen() {
       readOnly: true,
       aiScope: "portfolio",
       allProjects: mappedProjects,
+      deletedProjectIds: deletedProjectRecords.map((r) => r.id).filter(Boolean),
+      deletedProjectTitles: [
+        ...new Set(
+          deletedProjectRecords
+            .map((r) => String(r.title || '').trim())
+            .filter((t) => t.length >= 3)
+        ),
+      ],
     };
     if (compareProjectsData.length > 0) {
+      const allowedIds = new Set(mappedProjects.map((p: any) => String(p.id ?? '')));
+      const allowedTitles = new Set(
+        mappedProjects.map((p: any) => String(p.title || p.name || '').toLowerCase().trim())
+      );
       // Ensure compare data progress always uses timeline progress when available.
-      contextObj.compareProjectsData = compareProjectsData.map((item: any) => {
+      contextObj.compareProjectsData = compareProjectsData
+        .filter((item: any) => {
+          const title = String(item?.title || '').toLowerCase().trim();
+          const id = String(item?.id ?? '');
+          return (id && allowedIds.has(id)) || (title && allowedTitles.has(title));
+        })
+        .map((item: any) => {
         const key = String(item?.title || '').trim().toLowerCase();
         const slug = key.replace(/\s+/g, '-');
         const resolvedProgress = progressByProjectId[key] ?? progressByProjectId[slug] ?? progressByProjectId[String(item?.id ?? '')] ?? item?.progress;
@@ -351,7 +393,7 @@ export default function AssistantScreen() {
       context: JSON.stringify(contextObj),
       projectOptions,
     };
-  }, [projects, activeProjects, estimates, compareProjectsData, progressByProjectId, timelineMilestonesByProjectId, dailyLogsByProjectId, calendarEventsByProjectId, projectSnapshotsById]);
+  }, [projects, activeProjects, estimates, compareProjectsData, progressByProjectId, timelineMilestonesByProjectId, dailyLogsByProjectId, calendarEventsByProjectId, projectSnapshotsById, deletedProjectRecords]);
 
   // Do not allow compare actions until we have loaded for the CURRENT project set.
   // This prevents stale ProjectListContext progress (e.g. old 60%) from being used.
@@ -361,14 +403,16 @@ export default function AssistantScreen() {
   const isCompareContextReady =
     isTimelineLoaded && (totalProjectCount === 0 || hasComparePayload);
 
-  const handleClose = () => {
-    // Close the modal first, then navigate to dashboard
-    console.log('✅ Back button pressed in Assistant tab, navigating to dashboard');
+  const handleReturnHome = () => {
+    // The back arrow is the Central Command home action. Clear the chat
+    // in-place so the full-screen modal never flashes black.
+    setAssistantResetSignal((signal) => signal + 1);
+    setShowAIAssistant(true);
+  };
+
+  const handleExitToDashboard = () => {
     setShowAIAssistant(false);
-    // Use replace to avoid going back to this tab when back is pressed
-    setTimeout(() => {
-      router.replace('/(tabs)/dashboard');
-    }, 150);
+    router.replace('/(tabs)/dashboard');
   };
 
   return (
@@ -386,8 +430,10 @@ export default function AssistantScreen() {
       )}
       <AIAssistantModal
         visible={showAIAssistant}
-        onClose={handleClose}
+        onClose={handleReturnHome}
+        onExit={handleExitToDashboard}
         context={context}
+        resetSignal={assistantResetSignal}
         projectOptionsOverride={projectOptions}
         isContextReady={isCompareContextReady}
       />

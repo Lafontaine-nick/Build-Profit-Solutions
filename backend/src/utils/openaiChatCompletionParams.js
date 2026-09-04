@@ -30,6 +30,12 @@ function normalizeOpenAiChatCompletionParams(params = {}) {
   if (isNewOpenAiChatModel(next.model)) {
     delete next.temperature;
     delete next.top_p;
+    // Terra rejects reasoning-enabled function calls on chat completions.
+    // Explicitly disable reasoning when tools are used; plain text calls keep
+    // the model default behavior.
+    if (Array.isArray(next.tools) && next.tools.length > 0 && next.reasoning_effort == null) {
+      next.reasoning_effort = 'none';
+    }
     if (tokenLimit != null) {
       next.max_completion_tokens = tokenLimit;
     }

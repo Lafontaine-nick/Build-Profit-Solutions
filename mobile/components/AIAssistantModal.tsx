@@ -69,6 +69,10 @@ import ProjectSelectionChips from "@/lib/ai/projectSelectionChips";
 import PaymentSelectionChips from "@/lib/ai/paymentSelectionChips";
 import AnalysisTypeChips from "@/lib/ai/analysisTypeChips";
 import SelectionCards from "@/lib/ai/SelectionCards";
+import {
+  filterProjectsForPortfolioAi,
+  type DeletedProjectRecord,
+} from "@/utils/aiDashboardPortfolioFilter";
 
 /** Hosted backend origin (no path). TestFlight / App Store builds must use this on cellular, not LAN. */
 const PRODUCTION_AI_ORIGIN = "https://build-profit-solutions-backend.onrender.com";
@@ -221,11 +225,6 @@ function resolveAIBaseUrl(): string {
   return localhostFallback;
 }
 
-function isProductionAiAppBundle(): boolean {
-  const extra = Constants.expoConfig?.extra as { appEnv?: string } | undefined;
-  return process.env.EXPO_PUBLIC_APP_ENV === "production" || extra?.appEnv === "production";
-}
-
 /** True when OpenAI’s message indicates account billing / hard quota (not the same as short RPM/TPM throttling). */
 function isOpenAiBillingOrHardQuotaMessage(message: string): boolean {
   const m = message.toLowerCase();
@@ -261,84 +260,34 @@ function isOpenAiThrottleOr429Message(message: string): boolean {
 }
 
 /** User-facing copy for AI POST/stream failures (avoid blaming Wi‑Fi when OpenAI quota is the cause). */
-function formatAiAssistantRequestError(error: any, urlsToTry: string[]): string {
+function formatAiAssistantRequestError(error: any): string {
   const raw = String(error?.message || error || "").trim();
-  const triedHosted =
-    urlsToTry.some((u) => /onrender\.com|\.render\.com/i.test(u)) || isProductionAiAppBundle();
-  const looksHostedOrOpenAi =
-    triedHosted ||
-    /onrender\.com|openai\.com|api\.openai|gpt-\d|organization\s+org-|tokens per min|\btpm\b|request too large/i.test(
-      raw
-    ) ||
-    resolveAIBaseUrl().startsWith("https://");
 
   if (error?.name === "AbortError" || raw.includes("aborted") || raw.toLowerCase().includes("timeout")) {
-    if (isProductionAiAppBundle() || triedHosted) {
-      return (
-        "The AI request timed out.\n\n" +
-        "Try again in a moment. The hosted service may have been waking from sleep, or the network was slow."
-      );
-    }
-    return (
-      "The request timed out.\n\n" +
-      "1. Check your network\n" +
-      "2. If you use a local backend: cd backend && npm start\n" +
-      "3. Health: http://localhost:3001/health"
-    );
+    return "I couldn't complete that answer in time. Please try again.";
   }
 
   if (isOpenAiBillingOrHardQuotaMessage(raw)) {
-    return (
-      "OpenAI reported a billing or quota problem for the API key on your server (not your phone’s Wi‑Fi).\n\n" +
-      "Fix it in the OpenAI account that owns the secret you set on Render (Environment → OpenAI API key). Add credits or a payment method, or paste a new secret from that same org.\n\n" +
-      "Funding a different OpenAI account than the one tied to Render will not change this error."
-    );
+    return "The AI service is temporarily unavailable. Please try again later.";
   }
 
   if (isOpenAiTpmOrRequestTooLargeMessage(raw)) {
-    return (
-      "OpenAI blocked this because the request was too large for your org’s current token-per-minute (TPM) limit.\n\n" +
-      "The app sends your bid/estimate as context plus your question — that can go past a 30k TPM cap in one shot (your error showed something like 55k requested vs 30k allowed).\n\n" +
-      "This is not “connect TestFlight to your Mac.” TestFlight already talks to your Render backend on the internet.\n\n" +
-      "What helps: wait one minute and ask a narrower question, or raise TPM / usage tier under OpenAI → Organization → Limits, or use a higher-limit org."
-    );
+    return "The AI service is busy processing requests. Please wait a moment and try again.";
   }
 
   if (isOpenAiThrottleOr429Message(raw)) {
-    return (
-      "OpenAI rate-limited this request (tokens or requests per minute). A new API key does not remove per-minute caps — it can still happen with a funded account.\n\n" +
-      "Wait 30–60 seconds and try again. Long prompts (full estimates, bid context) use more tokens and hit limits faster.\n\n" +
-      "After changing the key on Render: save Environment, then Manual Deploy or Restart so the service reloads. TestFlight always uses Render, not your Mac .env files."
-    );
+    return "The AI service is busy right now. Please wait a moment and try again.";
   }
 
   if (raw.includes("Network request failed") || raw.includes("Failed to fetch")) {
-    return triedHosted
-      ? "Could not reach the AI service over the internet. Check cellular or Wi‑Fi and try again."
-      : `Cannot reach the AI backend at ${resolveAIBaseUrl()}.\n\n` +
-        "If you expect a local server: run cd backend && npm start on your machine and use the same network as this device.";
+    return "The AI service isn't responding right now. Please try again.";
   }
 
   if (raw.includes("Can't reach OpenAI") || raw.includes("internet connection") || raw.includes("api.openai.com")) {
-    return raw;
+    return "The AI service isn't responding right now. Please try again.";
   }
 
-  if (isProductionAiAppBundle() || triedHosted) {
-    return raw
-      ? `Something went wrong with the AI service.\n\n${raw}`
-      : "Something went wrong with the AI service. Please try again.";
-  }
-
-  if (looksHostedOrOpenAi) {
-    return raw ? `AI request failed.\n\n${raw}` : "AI request failed. Please try again.";
-  }
-
-  return (
-    `Connection error: ${raw || "Unknown error"}\n\n` +
-    "If this persists:\n" +
-    "1. Backend running: cd backend && npm start\n" +
-    "2. Health check: http://localhost:3001/health"
-  );
+  return "I couldn't complete that answer right now. Please try again.";
 }
 
 /** ISO timestamp so backend can show “data as of …” in financial/trust footers */
@@ -347,6 +296,11 @@ function stampAiContextSnapshot(ctxStr: string | null | undefined): string | nul
   try {
     const o = JSON.parse(ctxStr);
     o.snapshotAt = new Date().toISOString();
+    try {
+      o.snapshotTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+    } catch {
+      // Some native runtimes do not expose the device timezone.
+    }
     return JSON.stringify(o);
   } catch {
     return ctxStr;
@@ -929,6 +883,8 @@ type Message = {
 type Props = {
   visible: boolean;
   onClose: () => void;
+  /** Exit the Central Command tab when the homepage back button is pressed. */
+  onExit?: () => void;
   // optional extra context from the current screen
   context?: string;
   // callback for AI actions (e.g., add material, update budget)
@@ -948,6 +904,8 @@ type Props = {
   projectOptionsOverride?: Array<{ id: string; title: string; status?: string }>;
   /** When false, disables send until timeline/project data is loaded (avoids stale progress in compare) */
   isContextReady?: boolean;
+  /** Increment to clear the current conversation without remounting the full-screen modal. */
+  resetSignal?: number;
   /** Estimate only: open the paste-notes → draft builder flow */
   onBuildWithAi?: () => void;
   /** Estimate only: bid has no materials/labor yet — emphasize Build with AI */
@@ -1024,6 +982,7 @@ const isHealthRefreshMessage = (m: Message) => {
 const AIAssistantModal: React.FC<Props> = ({
   visible,
   onClose,
+  onExit,
   context,
   onAction,
   defaultZip = '89141',
@@ -1033,6 +992,7 @@ const AIAssistantModal: React.FC<Props> = ({
   onProjectUpdated,
   projectOptionsOverride,
   isContextReady = true,
+  resetSignal = 0,
   onBuildWithAi,
   estimateBidIsEmpty = false,
   overlayBlocksKeyboard = false,
@@ -1055,7 +1015,8 @@ const AIAssistantModal: React.FC<Props> = ({
   const [loading, setLoading] = useState(false);
   const [showContractorModal, setShowContractorModal] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
-  const [chatSuggestions, setChatSuggestions] = useState<Array<{label: string; prompt: string}>>([]);
+  // Conversation state intentionally lives only for the current app session.
+  // A cold launch starts clean and cannot restore stale project context.
   const [sessionId] = useState(() => `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
   const [streamingText, setStreamingText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -1141,6 +1102,39 @@ const AIAssistantModal: React.FC<Props> = ({
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const overlayBlocksKeyboardRef = useRef(overlayBlocksKeyboard);
   overlayBlocksKeyboardRef.current = overlayBlocksKeyboard;
+
+  // Return to the Central Command homepage without unmounting the modal.
+  // Remounting a visible RN Modal creates a brief black frame on iOS.
+  useEffect(() => {
+    if (resetSignal === 0) return;
+    setMessages([]);
+    setInput("");
+    setLoading(false);
+    setIsTyping(false);
+    setStreamingText("");
+    setIsStreaming(false);
+    setRecentSummary(null);
+    setRecentSummaryExpanded(false);
+    setPendingProjectSelection(null);
+    setPendingAnalysisType(null);
+    setPendingPaymentSelection(null);
+    setPendingExpenseTypeSelection(null);
+    setPendingPOSelection(null);
+    setPendingScenarioSelection(null);
+    pendingResolvedProjectIdRef.current = null;
+    pendingPaymentProjectIdRef.current = null;
+    pendingPaymentProjectNameRef.current = null;
+    pendingPOProjectIdRef.current = null;
+    pendingPOProjectNameRef.current = null;
+    pendingExpenseTypeResumeRef.current = null;
+    pendingPOResumeRef.current = null;
+    pendingScenarioResumeRef.current = null;
+    centralInputValueRef.current = "";
+    isUserScrollingRef.current = false;
+    setTimeout(() => {
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+    }, 0);
+  }, [resetSignal]);
   
   // Minimum list content height when keyboard is closed (short threads still scroll).
   // When keyboard is open, do NOT set minHeight — KeyboardAvoidingView already shrinks the list; a large minHeight + extra paddingBottom created huge dead scroll space.
@@ -1377,7 +1371,8 @@ const AIAssistantModal: React.FC<Props> = ({
     }
   }, [keyboardHeight, messages.length]);
 
-  // On close: return to home state on next open, but preserve the latest summary as preview.
+  // On close, preserve the latest summary as a compact preview for this app
+  // session. A cold launch starts with a clean conversation.
   useEffect(() => {
     const wasVisible = wasVisibleRef.current;
     if (wasVisible && !visible) {
@@ -1389,9 +1384,6 @@ const AIAssistantModal: React.FC<Props> = ({
         });
       }
       setRecentSummaryExpanded(false);
-      if (messages.length > 0) {
-        setMessages([]);
-      }
     }
     wasVisibleRef.current = visible;
   }, [visible, messages]);
@@ -1537,17 +1529,13 @@ const AIAssistantModal: React.FC<Props> = ({
       .trim();
     return shortened.length <= 24 ? shortened : `${shortened.slice(0, 21)}...`;
   }, [estimateAssistantBrief?.bestNextAction?.label]);
-  /** Portfolio/receipt chips are irrelevant on Estimate; backend also filters, this hides any stale payloads. */
-  const displayChatSuggestions = useMemo(() => {
-    if (!isEstimateContext) return chatSuggestions;
-    const skip = new Set(["show all missing receipts", "portfolio overview"]);
-    return chatSuggestions.filter((s) => !skip.has((s.label || "").trim().toLowerCase()));
-  }, [isEstimateContext, chatSuggestions]);
   const isProjectsScreenContext = parsedContext?.screen === 'Projects';
-  const isGlobalAssistantContext = parsedContext?.screen === 'AI Assistant Tab';
+  const isGlobalAssistantContext =
+    parsedContext?.screen === 'AI Assistant Tab' ||
+    parsedContext?.screen === 'AI Assistant';
   const isCentralCommandReadOnly =
     parsedContext?.assistantMode === 'central_command' && parsedContext?.readOnly === true;
-  /** Dark mode: reply body, footer suggestions, timestamps — all contexts including Estimate */
+  /** Dark mode: reply body and timestamps — all contexts including Estimate */
   const darkModeChatMutedWhite = useMemo(
     () => (darkMode ? ({ color: "#FFFFFF" } as TextStyle) : undefined),
     [darkMode],
@@ -1661,7 +1649,10 @@ const AIAssistantModal: React.FC<Props> = ({
           label: `${reviewCount} item${reviewCount === 1 ? "" : "s"} to review`,
           attention: true,
         }
-      : { label: "No active-project alerts", attention: false };
+      : {
+          label: `${activeProjects.length} active project${activeProjects.length === 1 ? "" : "s"} · No alerts`,
+          attention: false,
+        };
   }, [displayBrief, isGlobalAssistantContext, parsedContext?.allProjects]);
 
   // Flow-specific chips: detect from last assistant message
@@ -1974,6 +1965,43 @@ const AIAssistantModal: React.FC<Props> = ({
           };
           list.push(synthetic);
           baseContext.allProjects = list;
+        }
+      }
+
+      const isCentralCommandPortfolio =
+        baseContext.assistantMode === 'central_command' && baseContext.readOnly === true;
+      if (isCentralCommandPortfolio && Array.isArray(baseContext.allProjects)) {
+        const deletedRecords: DeletedProjectRecord[] = [];
+        for (const id of Array.isArray(baseContext.deletedProjectIds)
+          ? baseContext.deletedProjectIds
+          : []) {
+          const pid = String(id || '').trim();
+          if (pid) deletedRecords.push({ id: pid, title: '', deletedAt: '' });
+        }
+        for (const title of Array.isArray(baseContext.deletedProjectTitles)
+          ? baseContext.deletedProjectTitles
+          : []) {
+          const t = String(title || '').trim();
+          if (t.length >= 3) deletedRecords.push({ id: '', title: t, deletedAt: '' });
+        }
+        baseContext.allProjects = filterProjectsForPortfolioAi(
+          baseContext.allProjects,
+          deletedRecords
+        );
+        if (Array.isArray(baseContext.compareProjectsData)) {
+          const allowedIds = new Set(
+            baseContext.allProjects.map((p: any) => String(p?.id ?? '')).filter(Boolean)
+          );
+          const allowedTitles = new Set(
+            baseContext.allProjects.map((p: any) =>
+              String(p?.title || p?.name || '').toLowerCase().trim()
+            )
+          );
+          baseContext.compareProjectsData = baseContext.compareProjectsData.filter((item: any) => {
+            const title = String(item?.title || '').toLowerCase().trim();
+            const id = String(item?.id ?? '');
+            return (id && allowedIds.has(id)) || (title && allowedTitles.has(title));
+          });
         }
       }
 
@@ -3646,13 +3674,17 @@ const AIAssistantModal: React.FC<Props> = ({
 
       // Check for error response
       if (data.error) {
-        let errorMessage = data.message || "Sorry, I couldn't generate a response.";
+        const genericErrorMessage = "I couldn't complete that answer right now. Please try again.";
+        const serverMessage = String(data.message || '');
+        const containsTechnicalDetails =
+          /gpt-\d|reasoning[_\s-]?effort|function tools|\/v\d\/|chat\/completions|stack trace|openai api key/i.test(serverMessage);
+        let errorMessage = containsTechnicalDetails
+          ? genericErrorMessage
+          : (serverMessage || genericErrorMessage);
         
         // Provide helpful message for rate limit errors
-        if (data.details && data.details.includes("Rate limit")) {
-          errorMessage = "I've hit the API rate limit. Please wait about 20 seconds and try again. To avoid this, you can add a payment method to your OpenAI account for higher limits.";
-        } else if (data.details) {
-          errorMessage = `${data.message}\n\nDetails: ${data.details}`;
+        if (/rate limit|service is busy/i.test(`${serverMessage} ${data.error}`)) {
+          errorMessage = "The AI service is busy right now. Please wait a moment and try again.";
         }
         
         const errorMessageObj: Message = {
@@ -4011,13 +4043,6 @@ const AIAssistantModal: React.FC<Props> = ({
       setIsTyping(false);
       setMessages((prev) => [...prev, assistantMessage]);
 
-      // Update smart suggestions from response
-      if (data.suggestedFollowUps && Array.isArray(data.suggestedFollowUps) && data.suggestedFollowUps.length > 0) {
-        setChatSuggestions(data.suggestedFollowUps);
-      } else {
-        setChatSuggestions([]);
-      }
-      
       // Smooth scroll to bottom
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
@@ -4153,18 +4178,6 @@ const AIAssistantModal: React.FC<Props> = ({
                 },
               ]);
             }
-            if (Array.isArray(result?.suggestedFollowUps)) {
-              const nextSuggestions = result.undoable
-                ? [
-                    { label: 'Undo last AI change', prompt: 'Undo last AI change' },
-                    ...result.suggestedFollowUps,
-                  ]
-                : result.suggestedFollowUps;
-              const deduped = nextSuggestions.filter((item: any, index: number, arr: any[]) =>
-                index === arr.findIndex((other: any) => other?.label === item?.label && other?.prompt === item?.prompt)
-              );
-              setChatSuggestions(deduped.slice(0, 5));
-            }
             if (action.type === 'show_contract' && result?.pdfUri) {
               setMessages((prev) => {
                 const updated = [...prev];
@@ -4250,7 +4263,7 @@ const AIAssistantModal: React.FC<Props> = ({
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error: any) {
       console.warn("AI request failed", error);
-      const errorMessage = formatAiAssistantRequestError(error, urlsToTry);
+      const errorMessage = formatAiAssistantRequestError(error);
 
       setMessages((prev) => [
         ...prev,
@@ -4315,9 +4328,6 @@ const AIAssistantModal: React.FC<Props> = ({
               timestamp: new Date(),
             },
           ]);
-        }
-        if (Array.isArray(result?.suggestedFollowUps)) {
-          setChatSuggestions(result.suggestedFollowUps.slice(0, 5));
         }
       }
       return;
@@ -4558,6 +4568,22 @@ const AIAssistantModal: React.FC<Props> = ({
         elements.push(
           <Text key={`heading-${index}`} style={[styles.messageHeading, light({ color: ThemeColors.text })]}>
             {trimmedLine.replace(/^#{2,3}\s*/, '')}
+          </Text>
+        );
+        return;
+      }
+
+      // Some backend responses use a bold lead-in followed by a summary
+      // (for example, "**Budget alert summary** — ..."). Render that lead-in
+      // explicitly so raw Markdown markers never appear in the chat card.
+      const boldLeadMatch = cleanedLine.match(/^\*\*([^*]+)\*\*(.*)$/);
+      if (boldLeadMatch) {
+        elements.push(
+          <Text key={`lead-${index}`} style={[styles.messageText, light({ color: ThemeColors.text })]}>
+            <Text style={[styles.messageBold, light({ color: ThemeColors.text })]}>
+              {boldLeadMatch[1]}
+            </Text>
+            {renderInlineMarkdown(boldLeadMatch[2], `lead-${index}-suffix`, [styles.messageText, light({ color: ThemeColors.text })])}
           </Text>
         );
         return;
@@ -4918,30 +4944,17 @@ const AIAssistantModal: React.FC<Props> = ({
   };
 
   const keyboardOpen = keyboardHeight > 0;
-  const centralComposerExpanded =
-    isCentralCommandReadOnly &&
-    (input.includes("\n") || composerHeight > CENTRAL_COMPOSER_MIN_HEIGHT);
-  const handleCentralComposerContentSize = useCallback(
-    (contentHeight: number) => {
-      const current = centralInputValueRef.current;
-      if (!current.trim() && !current.includes("\n")) {
-        setComposerHeight((prev) =>
-          prev === CENTRAL_COMPOSER_MIN_HEIGHT ? prev : CENTRAL_COMPOSER_MIN_HEIGHT,
-        );
-        return;
-      }
-      const next = Math.max(
-        CENTRAL_COMPOSER_MIN_HEIGHT,
-        Math.min(CENTRAL_COMPOSER_MAX_HEIGHT, contentHeight + 14),
-      );
-      setComposerHeight((prev) => (prev === next ? prev : next));
-    },
-    [],
-  );
   const centralComposerActive =
     isCentralCommandReadOnly && Boolean(input.trim()) && !loading && isContextReady;
   const centralComposerBorderColor = "rgba(148, 163, 184, 0.42)";
   const MessageListComponent: any = isCentralCommandReadOnly ? FlatList : KeyboardAwareFlatList;
+  const handleBackNavigation = useCallback(() => {
+    if (isCentralCommandReadOnly && messages.length === 0 && onExit) {
+      onExit();
+      return;
+    }
+    onClose();
+  }, [isCentralCommandReadOnly, messages.length, onClose, onExit]);
 
   centralInputValueRef.current = input;
 
@@ -4956,7 +4969,7 @@ const AIAssistantModal: React.FC<Props> = ({
       visible={visible}
       presentationStyle={isGlobalAssistantContext ? "fullScreen" : undefined}
       animationType={Platform.OS === "ios" ? "slide" : "fade"}
-      onRequestClose={onClose}
+      onRequestClose={handleBackNavigation}
     >
       <KeyboardAvoidingView
         style={[styles.flex, { backgroundColor: darkMode ? Colors.bg : ThemeColors.bg }]}
@@ -5007,7 +5020,7 @@ const AIAssistantModal: React.FC<Props> = ({
                     onPress={() => {
                       console.log('🔙 Back button pressed in AIAssistantModal');
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      onClose();
+                      handleBackNavigation();
                     }}
                     style={[styles.backButton, light({ backgroundColor: ThemeColors.bg })]}
                   >
@@ -5020,15 +5033,17 @@ const AIAssistantModal: React.FC<Props> = ({
                       <View style={styles.headerTitleCenter}>
                         <Ionicons name="sparkles-sharp" size={18} color={Colors.green} />
                         <Text style={[styles.headerTitle, light({ color: ThemeColors.text })]}>
-                          {isGlobalAssistantContext ? 'Central Command' : 'AI Assistant'}
+                          {isCentralCommandReadOnly ? 'Central Command' : 'AI Assistant'}
                         </Text>
                       </View>
                     </View>
                     {(projectInfo || isProjectsScreenContext || isGlobalAssistantContext) && (
                       <View style={styles.headerContextStack}>
                         <Text style={[styles.headerSubtitle, light({ color: ThemeColors.sub })]}>
-                          {isGlobalAssistantContext
+                          {isCentralCommandReadOnly
                             ? 'All projects · Read-only'
+                            : isGlobalAssistantContext
+                              ? 'All projects'
                             : isProjectsScreenContext
                               ? selectedProjectHintId
                                 ? (() => {
@@ -5094,29 +5109,7 @@ const AIAssistantModal: React.FC<Props> = ({
                 alwaysBounceVertical={false}
                 scrollEventThrottle={16}
               ListFooterComponent={() => (
-                <>
-                  {renderTypingIndicator()}
-                  {!isTyping && displayChatSuggestions.length > 0 && messages.length > 0 && (
-                    <View style={styles.footerSuggestionsWrap}>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.footerSuggestionsContent}>
-                        {displayChatSuggestions.map((s, i) => (
-                          <TouchableOpacity
-                            key={`suggestion-${i}`}
-                            onPress={() => {
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                              setChatSuggestions([]);
-                              handleQuickAction(s.prompt);
-                            }}
-                            style={styles.footerSuggestionChip}
-                            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                          >
-                            <Text style={[styles.footerSuggestionChipText, darkModeChatMutedWhite]}>{s.label}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-                </>
+                renderTypingIndicator()
               )}
                 refreshControl={
                   isGlobalAssistantContext && displayBrief ? (
@@ -5978,10 +5971,7 @@ const AIAssistantModal: React.FC<Props> = ({
               <View
                 style={[
                   styles.inputRow,
-                  isCentralCommandReadOnly &&
-                    (centralComposerExpanded
-                      ? styles.centralInputRowExpanded
-                      : styles.centralInputRowCompact),
+                  isCentralCommandReadOnly && styles.centralInputRowCompact,
                 ]}
               >
               <View style={styles.inputInnerWrapper}>
@@ -5992,6 +5982,7 @@ const AIAssistantModal: React.FC<Props> = ({
                       {
                         height: composerHeight,
                         minHeight: composerHeight,
+                        maxHeight: composerHeight,
                         borderColor: centralComposerBorderColor,
                       },
                     ]}
@@ -6024,35 +6015,27 @@ const AIAssistantModal: React.FC<Props> = ({
                     ) : (
                       <TextInput
                         style={[
-                          styles.input,
+                          !isCentralCommandReadOnly && styles.input,
                           isCentralCommandReadOnly && styles.centralInputText,
-                          isCentralCommandReadOnly &&
-                            !centralComposerExpanded &&
-                            styles.centralInputTextCompact,
-                          isCentralCommandReadOnly &&
-                            centralComposerExpanded &&
-                            styles.centralInputTextExpanded,
+                          isCentralCommandReadOnly && styles.centralInputTextSingleLine,
                           light({ color: ThemeColors.text }),
                         ]}
                         placeholder={!isContextReady ? "Syncing project data…" : (isGlobalAssistantContext ? "Ask about your projects…" : isProjectsScreenContext ? "Compare projects, check budgets…" : isEstimateContext ? "Ask about this estimate, line items…" : "Ask anything about this project…")}
                         placeholderTextColor={darkMode ? 'rgba(226, 232, 240, 0.42)' : '#6B7280'}
                         value={input}
                         onChangeText={(text) => {
-                          centralInputValueRef.current = text;
-                          setInput(text);
-                          if (isCentralCommandReadOnly && !text.trim() && !text.includes("\n")) {
-                            setComposerHeight(CENTRAL_COMPOSER_MIN_HEIGHT);
-                          }
+                          const next = isCentralCommandReadOnly
+                            ? text.replace(/\n/g, " ")
+                            : text;
+                          centralInputValueRef.current = next;
+                          setInput(next);
                         }}
-                        multiline={Platform.OS !== "web"}
+                        multiline={false}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
                         maxLength={500}
                         textAlignVertical={
-                          isCentralCommandReadOnly && !centralComposerExpanded ? "center" : "top"
-                        }
-                        scrollEnabled={
-                          isCentralCommandReadOnly
-                            ? centralComposerExpanded && composerHeight >= CENTRAL_COMPOSER_MAX_HEIGHT
-                            : undefined
+                          isCentralCommandReadOnly ? "center" : "top"
                         }
                         returnKeyType={
                           isCentralCommandReadOnly
@@ -6061,7 +6044,7 @@ const AIAssistantModal: React.FC<Props> = ({
                               ? "send"
                               : "default"
                         }
-                        blurOnSubmit={isCentralCommandReadOnly ? false : false}
+                        blurOnSubmit={false}
                         onSubmitEditing={
                           Platform.OS === "web"
                             ? () => {
@@ -6069,12 +6052,6 @@ const AIAssistantModal: React.FC<Props> = ({
                               }
                             : undefined
                         }
-                        onContentSizeChange={(event) => {
-                          if (!isCentralCommandReadOnly) return;
-                          handleCentralComposerContentSize(
-                            Math.ceil(event.nativeEvent.contentSize.height),
-                          );
-                        }}
                           onFocus={() => {
                             setComposerFocused(true);
                             const timeout = Platform.OS === 'ios' ? 350 : 150;
@@ -6088,7 +6065,8 @@ const AIAssistantModal: React.FC<Props> = ({
                         {...(isCentralCommandReadOnly
                           ? {}
                           : resolveTextInputKeyboardProps({
-                              multiline: Platform.OS !== "web",
+                              multiline: true,
+                              multilineMode: "growable",
                             }))}
                       />
                     )}
@@ -6096,10 +6074,7 @@ const AIAssistantModal: React.FC<Props> = ({
                     <TouchableOpacity
                       onPress={isRecording ? stopRecording : startRecording}
                       disabled={loading}
-                      style={[
-                        styles.micButton,
-                        centralComposerExpanded && styles.centralMicButtonExpanded,
-                      ]}
+                      style={styles.micButton}
                       activeOpacity={0.7}
                     >
                       <Ionicons
@@ -6151,7 +6126,9 @@ const AIAssistantModal: React.FC<Props> = ({
                         placeholderTextColor={darkMode ? 'rgba(226, 232, 240, 0.42)' : '#6B7280'}
                         value={input}
                         onChangeText={setInput}
-                        multiline={Platform.OS !== "web"}
+                        multiline={false}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
                         maxLength={500}
                         textAlignVertical="center"
                         returnKeyType={Platform.OS === "web" ? "send" : "default"}
@@ -6174,7 +6151,8 @@ const AIAssistantModal: React.FC<Props> = ({
                           }}
                           onBlur={() => setComposerFocused(false)}
                         {...resolveTextInputKeyboardProps({
-                          multiline: Platform.OS !== "web",
+                          multiline: true,
+                          multilineMode: "growable",
                         })}
                       />
                     )}
@@ -6303,7 +6281,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   headerSpacer: {
-    width: 40,
+    // Match the back-button slot (44px button + 12px right spacing) so the
+    // title/subtitle remain centered in the full header, not shifted right.
+    width: 56,
   },
   headerTitleRow: {
     flexDirection: "row",
@@ -6790,6 +6770,7 @@ const styles = StyleSheet.create({
   },
   centralInputText: {
     flex: 1,
+    color: Colors.text,
     fontSize: 16,
     lineHeight: 21,
     paddingLeft: 14,
@@ -6799,17 +6780,12 @@ const styles = StyleSheet.create({
     paddingTop: 0,
     paddingBottom: 0,
     maxHeight: CENTRAL_COMPOSER_MAX_HEIGHT - 18,
-    ...Platform.select({
-      ios: { alignSelf: "stretch" as const },
-      default: {},
-    }),
   },
-  centralInputTextCompact: {
+  centralInputTextSingleLine: {
+    height: CENTRAL_COMPOSER_MIN_HEIGHT - 2,
     maxHeight: CENTRAL_COMPOSER_MIN_HEIGHT - 2,
-  },
-  centralInputTextExpanded: {
-    paddingTop: 10,
-    paddingBottom: 2,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   recordingRow: {
     flex: 1,
@@ -6836,7 +6812,7 @@ const styles = StyleSheet.create({
   },
   micButton: {
     padding: 4,
-    marginRight: 6,
+    marginRight: 2,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -7342,28 +7318,6 @@ const styles = StyleSheet.create({
   aiWatchingText: {
     color: "#BBF7D0",
     fontSize: 11,
-    fontWeight: "600",
-  },
-  footerSuggestionsWrap: {
-    paddingHorizontal: 0,
-    paddingTop: 12,
-    paddingBottom: 6,
-  },
-  footerSuggestionsContent: {
-    gap: 10,
-    paddingRight: 4,
-  },
-  footerSuggestionChip: {
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.048)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.11)",
-  },
-  footerSuggestionChipText: {
-    fontSize: 12,
-    color: "rgba(214, 237, 226, 0.96)",
     fontWeight: "600",
   },
   bottomRailSection: {

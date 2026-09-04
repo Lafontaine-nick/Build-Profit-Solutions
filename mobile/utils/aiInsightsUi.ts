@@ -225,20 +225,12 @@ export function filterInsightsActionStepsAfterHero(
     | undefined
     | null,
   heroUsesAggregate: boolean,
-  heroProjectId: string | null
+  _heroProjectId: string | null
 ): AiNextStep[] {
   if (!dailyRisk) return steps;
-  if (
-    heroUsesAggregate &&
-    heroProjectId &&
-    dailyRisk.type === "line_over_estimate"
-  ) {
-    return steps.filter(
-      (step) =>
-        String(step.projectId) !== heroProjectId ||
-        step.leakType !== "line_over_estimate"
-    );
-  }
+  // Aggregate hero summarizes multiple lines on one project — keep per-line cards
+  // in Prioritized actions so users can tap into each rate insight.
+  if (heroUsesAggregate) return steps;
   return steps.filter((step) => !nextStepMatchesDailyRisk(step, dailyRisk));
 }
 
@@ -268,11 +260,17 @@ export function compactInsightBody(insight: AiInsight): string {
 
 export function bucketForNextStep(step: AiNextStep): ActionBucket {
   const chip = String(step.chip || "").toLowerCase();
+  const isBudgetOverrun =
+    step.leakType === "line_over_estimate" ||
+    step.leakType === "category_over_budget" ||
+    step.leakType === "over_budget";
+
+  if (step.priority === "high") return "critical";
+  // Budget overruns need review even when the dollar gap is small — never "quick win".
+  if (step.priority === "medium" || isBudgetOverrun) return "today";
   if (/\b(5|10|15)\s*min|quick|fast\b/.test(chip) && step.priority !== "high") {
     return "quick";
   }
-  if (step.priority === "high") return "critical";
-  if (step.priority === "medium") return "today";
   return "quick";
 }
 

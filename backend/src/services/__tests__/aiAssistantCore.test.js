@@ -4,14 +4,23 @@ const {
   parseCalendarEventCreate,
   runCompareProjectsPipeline,
   buildPortfolioComparisonReply,
+  buildPortfolioOverBudgetReply,
+  buildProjectBudgetExplanationReply,
+  buildPortfolioBudgetRisksReply,
+  buildPortfolioBudgetRisksReplyForProjects,
   isCentralCommandMutationRequest,
   appendDataFreshness,
   buildBudgetStatusReply,
+  buildMakingEnoughReply,
+  buildProjectedProfitReply,
   getProjectFinancialSnapshot,
   getProjectMilestones,
   collectPaymentBuckets,
   isPaymentCollectedForAI,
   isCentralCommandReadOnlyTool,
+  isPortfolioOverBudgetListQuery,
+  isBadOutcomeScenarioQuery,
+  isCalculationFollowUpQuery,
 } = require('../aiAssistantCore');
 const {
   deepClone,
@@ -103,6 +112,44 @@ describe('aiAssistantCore', () => {
     expect(reply).not.toContain('Closed Job — upload missing receipts');
     expect(reply).toContain('Projected Profit: $20,000.00');
     expect(reply).toContain('Net Profit: $30,000.00');
+  });
+
+  test('over-budget list intent is distinct from a named project question', () => {
+    expect(isPortfolioOverBudgetListQuery('Which projects are over budget?')).toBe(true);
+    expect(isPortfolioOverBudgetListQuery('Why is the repaint project over budget?')).toBe(false);
+  });
+
+  test('recognizes natural-language downside and calculation follow-ups', () => {
+    expect(isBadOutcomeScenarioQuery('What is my projected profit if things go bad?')).toBe(true);
+    expect(isBadOutcomeScenarioQuery('What is my projected profit?')).toBe(false);
+    expect(isCalculationFollowUpQuery('Show me the calculation')).toBe(true);
+    expect(isCalculationFollowUpQuery('What should I focus on today?')).toBe(false);
+  });
+
+  test('over-budget reply lists only projects above their total cost budget', () => {
+    const reply = buildPortfolioOverBudgetReply([
+      {
+        title: 'Over Job',
+        status: 'in_progress',
+        spent: 60000,
+        budget: 50000,
+        overBudgetPct: 20,
+        progress: 60,
+      },
+      {
+        title: 'Under Job',
+        status: 'active',
+        spent: 30000,
+        budget: 50000,
+        overBudgetPct: -40,
+        progress: 60,
+      },
+    ]);
+
+    expect(reply).toContain('Over Job');
+    expect(reply).toContain('In progress');
+    expect(reply).not.toContain('Under Job');
+    expect(reply).toContain('Over budget by: $10,000.00');
   });
 
   test('generic calendar create requests ask for both event details and date', () => {
@@ -199,6 +246,67 @@ describe('aiAssistantCore', () => {
     expect(financials.committedPOs).toBe(2000);
   });
 
+  test('keeps projected profit and margin on the same cost basis', () => {
+    const financials = getProjectFinancialSnapshot({
+      project: {
+        id: 'repaint-1',
+        bidPrice: 32273.23,
+        estimatedCost: 23534,
+        progress: 100,
+        projectedProfit: 3530,
+        projectedMarginPct: 71.4,
+        expenses: [{ amount: 25888 }],
+      },
+    });
+
+    expect(financials.projectedProfit).toBe(6385.23);
+    expect(financials.projectedMarginPct).toBeCloseTo(19.78, 2);
+  });
+
+  test('does not use another project context for a portfolio target', () => {
+    const financials = getProjectFinancialSnapshot({
+      project: {
+        id: 'target',
+        bidPrice: 10000,
+        estimatedCost: 7000,
+        expenses: [{ amount: 1000 }],
+      },
+      parsedContext: {
+        projectId: 'other',
+        contractValue: 50000,
+        expenses: [{ amount: 49000 }],
+      },
+    });
+
+    expect(financials.revenue).toBe(10000);
+    expect(financials.spent).toBe(1000);
+  });
+
+  test('labels estimate-only and conflicting progress data instead of overstating certainty', () => {
+    const financials = getProjectFinancialSnapshot({
+      project: {
+        id: 'closed-job',
+        title: 'Closed Job',
+        status: 'completed',
+        bidPrice: 10000,
+        estimatedCost: 7000,
+        progress: 0,
+        expenses: [],
+      },
+    });
+
+    expect(financials.dataQuality.estimateOnlyForecast).toBe(true);
+    expect(financials.dataQuality.progressStatusConflict).toBe(true);
+    expect(buildMakingEnoughReply('Closed Job', financials.currentMarginPct, financials.dataQuality))
+      .toContain('not a performance-based result');
+    expect(buildProjectedProfitReply({
+      projectName: 'Closed Job',
+      projectedProfit: financials.projectedProfit,
+      marginPct: financials.projectedMarginPct,
+      dataQuality: financials.dataQuality,
+    })).toContain('confirm that status');
+  });
+
   test('does not let an empty milestone source mask a populated fallback', () => {
     expect(getProjectMilestones({
       milestones: [],
@@ -243,6 +351,112 @@ describe('aiAssistantCore', () => {
     });
 
     expect(result.projects.map((project) => project.title)).toEqual(['Open']);
+  });
+
+  test('excludes estimate drafts and deleted projects from portfolio comparisons', () => {
+    const result = runCompareProjectsPipeline({
+      allProjects: [
+        { id: 'active-1', title: 'Active Job', status: 'active', bidPrice: 100, estimatedCost: 80 },
+        { id: 'done-1', title: 'Finished Job', status: 'completed', bidPrice: 100, estimatedCost: 80 },
+        { id: 'est-1', title: 'Old Estimate', status: 'estimate', bidPrice: 100, estimatedCost: 80 },
+        { id: 'deleted-1', title: 'Deleted Job', status: 'completed', bidPrice: 100, estimatedCost: 80 },
+        { id: 'new-1', title: 'Deleted Job', status: 'active', bidPrice: 100, estimatedCost: 80 },
+      ],
+      parsedContext: {
+        deletedProjectIds: ['deleted-1'],
+        deletedProjectTitles: ['Deleted Job'],
+      },
+    });
+
+    expect(result.projects.map((project) => project.title).sort()).toEqual([
+      'Active Job',
+      'Deleted Job',
+      'Finished Job',
+    ]);
+  });
+
+  test('budget risks reply focuses on active alerts, not full comparison', () => {
+    const rows = [
+      {
+        title: 'Active Job',
+        status: 'active',
+        progress: 40,
+        margin: 18,
+        spent: 12000,
+        budget: 10000,
+        overBudgetPct: 20,
+        riskFlags: ['over_budget'],
+        profitLeaks: [{ type: 'over_budget' }],
+      },
+      {
+        title: 'Healthy Job',
+        status: 'active',
+        progress: 50,
+        margin: 22,
+        spent: 4000,
+        budget: 10000,
+        overBudgetPct: 0,
+        riskFlags: [],
+        profitLeaks: [],
+      },
+      {
+        title: 'Done Job',
+        status: 'completed',
+        progress: 100,
+        margin: 30,
+        spent: 9000,
+        budget: 10000,
+        overBudgetPct: 0,
+        riskFlags: ['over_budget'],
+        profitLeaks: [],
+      },
+    ];
+
+    const compareReply = buildPortfolioComparisonReply(rows);
+    const budgetReply = buildPortfolioBudgetRisksReply(rows);
+
+    expect(compareReply).toContain('profitability and risk');
+    expect(compareReply).toContain('Healthy Job');
+    expect(budgetReply).toContain('Budget alert summary');
+    expect(budgetReply).toContain('Active Job');
+    expect(budgetReply).not.toContain('Healthy Job');
+    expect(budgetReply).not.toContain('profitability and risk');
+  });
+
+  test('budget risks reply includes closeout line overruns from dashboard insights', () => {
+    const allProjects = [
+      {
+        id: 'repaint-1',
+        title: 'Interior and Exterior House Repaint',
+        status: 'completed',
+        progress: 100,
+        estimatedCost: 7312,
+        estimateData: {
+          materialLineItems: [
+            { id: 'walls', name: 'Walls — materials', total: 1306.5 },
+            { id: 'prep', name: 'Prep & Masking — materials', total: 270 },
+          ],
+        },
+        buckets: [{ name: 'Materials/Equipment', budget: 7312, spent: 4235 }],
+        expenses: [
+          { id: 'e1', category: 'Materials', amount: 1600, linkedLineId: 'walls' },
+          { id: 'e2', category: 'Materials', amount: 280, linkedLineId: 'prep' },
+        ],
+      },
+    ];
+
+    const budgetReply = buildPortfolioBudgetRisksReplyForProjects(allProjects, {});
+
+    expect(budgetReply).toContain('completed jobs with estimate lines to review');
+    expect(budgetReply).toContain('Walls — materials');
+    expect(budgetReply).toContain('Prep & Masking');
+    expect(budgetReply).not.toContain('No active budget alerts right now');
+  });
+
+  test('isPortfolioBudgetRisksQuery matches alert prompts but not compare-all', () => {
+    const { isPortfolioBudgetRisksQuery } = require('../aiAssistantCore');
+    expect(isPortfolioBudgetRisksQuery('Which projects have budget risks? Show me specifics.')).toBe(true);
+    expect(isPortfolioBudgetRisksQuery('Compare all my projects for profitability and risk')).toBe(false);
   });
 
   test('comparison calculations do not mutate project context', () => {

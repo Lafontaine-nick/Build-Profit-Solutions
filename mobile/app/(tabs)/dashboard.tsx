@@ -3944,6 +3944,7 @@ const DashboardScreen: React.FC = () => {
             aiFetchDegraded={aiFetchDegraded}
             filteredInsights={filteredInsights}
             filteredNextSteps={filteredNextSteps}
+            attentionInsightCount={insightsAlertCount}
             onInsightPress={handleInsightPress}
             onOpenInsights={() => handleTabPress("insights")}
             timelineLatestPlannedMs={timelineLatestPlannedMs}
@@ -4479,6 +4480,8 @@ interface OverviewSectionProps {
   aiFetchDegraded?: boolean;
   filteredInsights: any[];
   filteredNextSteps: any[];
+  /** Budget alerts only — matches Insights tab badge and actionable items. */
+  attentionInsightCount: number;
   onInsightPress: (insight: AiInsight) => void;
   onOpenInsights: () => void;
   timelineLatestPlannedMs: Record<string, number>;
@@ -4498,6 +4501,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   aiFetchDegraded = false,
   filteredInsights,
   filteredNextSteps,
+  attentionInsightCount,
   onInsightPress,
   onOpenInsights,
   timelineLatestPlannedMs,
@@ -4517,6 +4521,9 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
     [filteredInsights],
   );
   const insightCount = overviewInsightsSorted.length;
+  /** Needs-attention preview is budget alerts; exclude hidden closeout profit summaries. */
+  const openInsightsCount =
+    attentionInsightCount > 0 ? attentionInsightCount : insightCount;
   const overviewPreviewInsights = useMemo(
     () =>
       pickOverviewInsightPreview(
@@ -4725,10 +4732,10 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                   pressed && { opacity: 0.85 },
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel={`Open Insights, ${insightCount} alert${insightCount === 1 ? "" : "s"}`}
+                accessibilityLabel={`Open Insights, ${openInsightsCount} alert${openInsightsCount === 1 ? "" : "s"}`}
               >
                 <Text style={styles.linkText}>
-                  Open Insights ({insightCount})
+                  Open Insights ({openInsightsCount})
                 </Text>
                 <Ionicons
                   name="chevron-forward"
@@ -5523,9 +5530,7 @@ const InsightsSection: React.FC<InsightsSectionProps> = ({
             <Text style={styles.insightsAuxText}>
               {filteredNextSteps.length > 0 && dismissedNextStepIds.size > 0
                 ? "All current actions are dismissed. New ones will show when your dashboard refreshes."
-                : stepsAfterDismiss.length > 0 && dailyRisk
-                  ? "Line details are in the hero above — tap View rate insights to review."
-                  : "No queued actions. Nice work."}
+                : "No queued actions. Nice work."}
             </Text>
           )}
         </View>

@@ -420,6 +420,22 @@ export function filterAiNextStepForPortfolio(
   return true;
 }
 
+export function filterProjectsForPortfolioAi(
+  projects: any[],
+  deletedRecords: DeletedProjectRecord[] = []
+): any[] {
+  const deletedIds = new Set(deletedRecords.map((r) => r.id).filter(Boolean));
+
+  return dedupeProjectsByBestStatus(projects).filter((p) => {
+    const id = String(p?.id ?? '').trim();
+    if (id && deletedIds.has(id)) return false;
+    return isDashboardListedProject({
+      ...p,
+      status: p?.status ?? p?.projectData?.status,
+    });
+  });
+}
+
 export function filterAiDashboardResponse(
   data: AiDashboardResponse | null,
   activeProjects: any[],

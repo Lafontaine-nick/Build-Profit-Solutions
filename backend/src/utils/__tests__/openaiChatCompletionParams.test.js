@@ -50,6 +50,21 @@ describe('openaiChatCompletionParams', () => {
     });
   });
 
+  it('disables reasoning for GPT-5 function tools on chat completions', () => {
+    expect(
+      normalizeOpenAiChatCompletionParams({
+        model: 'gpt-5.6-terra',
+        tools: [{ type: 'function', function: { name: 'test_tool' } }],
+        max_tokens: 900,
+      })
+    ).toEqual({
+      model: 'gpt-5.6-terra',
+      tools: [{ type: 'function', function: { name: 'test_tool' } }],
+      reasoning_effort: 'none',
+      max_completion_tokens: 900,
+    });
+  });
+
   it('preserves temperature for legacy models', () => {
     expect(
       normalizeOpenAiChatCompletionParams({

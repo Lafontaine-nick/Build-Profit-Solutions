@@ -23,7 +23,6 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Text as SvgText } from 'react-native-svg';
@@ -257,10 +256,10 @@ const getSegmentStyles = (Colors: any) => StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'transparent',
+    backgroundColor: Colors.surface2,
   },
   segmentTabActive: {
-    borderWidth: 0,
+    backgroundColor: Colors.primary,
   },
   segmentTabInner: {
     flexDirection: 'row',
@@ -289,12 +288,7 @@ const SegmentTab: React.FC<SegmentTabProps> = ({ label, icon, isActive, onPress 
 
   if (isActive) {
     return (
-      <LinearGradient
-        colors={["#22c55e", "#22d3ee"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[styles.segmentTab, styles.segmentTabActive]}
-      >
+      <View style={[styles.segmentTab, styles.segmentTabActive]}>
         <Pressable onPress={handlePress}>
           <View style={styles.segmentTabInner}>
             <Ionicons name={icon as any} size={18} color="#050B13" />
@@ -303,7 +297,7 @@ const SegmentTab: React.FC<SegmentTabProps> = ({ label, icon, isActive, onPress 
             </Text>
           </View>
         </Pressable>
-      </LinearGradient>
+      </View>
     );
   }
 
@@ -662,7 +656,7 @@ export default function ProfileScreen() {
   // Use theme from ThemeContext (already defined above)
   const theme = useMemo(() => ({
     background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
-    card: Colors.surface2,
+    card: darkMode ? '#1C1D20' : Colors.surface2,
     text: Colors.text,
     subtext: Colors.sub,
     accent: Colors.primary,
@@ -2920,16 +2914,11 @@ export default function ProfileScreen() {
 
   return (
     <>
-      <LinearGradient colors={theme.background} style={styles.container}>
+      <View style={[styles.container, { backgroundColor: Colors.bg }]}>
       {/* Header with Back Button and Title */}
       <View style={[styles.headerRow, webProfileHeaderMargins]}>
         <View style={styles.backButtonWrapper}>
-          <LinearGradient
-            colors={BRAND_FRAME_GRADIENT_COLORS}
-            start={{ x: 0.05, y: 0.15 }}
-            end={{ x: 0.95, y: 0.85 }}
-            style={styles.backButtonBorder}
-          >
+          <View style={styles.backButtonBorder}>
             <GradientRingBackInner
               darkMode={darkMode}
               onPress={() => {
@@ -2940,7 +2929,7 @@ export default function ProfileScreen() {
             >
               <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
             </GradientRingBackInner>
-          </LinearGradient>
+          </View>
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.screenTitle}>Profile</Text>
@@ -2951,7 +2940,7 @@ export default function ProfileScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingBottom: tabScrollBottomInset },
+          { paddingBottom: tabScrollBottomInset + 32 },
           Platform.OS === 'web' && { paddingHorizontal: 0, paddingTop: 0 },
           webScrollContentCap,
         ]}
@@ -2959,13 +2948,7 @@ export default function ProfileScreen() {
       >
         <WebPageShell size="profile" scroll={false} contentStyle={{ paddingBottom: 0 }}>
         <View style={styles.profileShellBleed}>
-        <LinearGradient
-          colors={["#2DFFC4", "#00A6FF"]}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
-          style={{ borderRadius: 24, padding: 1, marginHorizontal: 0, marginBottom: 16 }}
-        >
-          <View style={styles.contentCard}>
+        <View style={styles.contentCard}>
           <View style={styles.content}>
         {/* Tab Navigation */}
         <View style={styles.wideContainer}>
@@ -3015,10 +2998,9 @@ export default function ProfileScreen() {
         {activeTab === 'overview' && renderOverviewTab()}
         {activeTab === 'settings' && renderSettingsTab()}
         
-        {/* Close gradient border - closes right after logout button (settings) or overview content */}
+        {/* Close the profile content card after the active tab content. */}
         </View>
       </View>
-      </LinearGradient>
 
       {/* Footer - Outside Gradient Border, directly below it */}
       {activeTab === 'overview' && (
@@ -3411,10 +3393,7 @@ export default function ProfileScreen() {
         transparent={true}
         onRequestClose={() => setPasswordModal(false)}
       >
-        <LinearGradient
-          colors={theme.background}
-          style={{ flex: 1 }}
-        >
+        <View style={[styles.container, { backgroundColor: Colors.bg }]}>
           <KeyboardAvoidingView
             style={styles.passwordModalOverlay}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -3598,7 +3577,7 @@ export default function ProfileScreen() {
               </View>
             </ScrollView>
           </KeyboardAvoidingView>
-        </LinearGradient>
+        </View>
       </Modal>
 
       {/* Notification Preferences Modal */}
@@ -3609,10 +3588,7 @@ export default function ProfileScreen() {
         onRequestClose={() => setNotificationsModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <LinearGradient
-            colors={theme.background}
-            style={[styles.modalContent, { borderColor: theme.border }]}
-          >
+          <View style={[styles.modalContent, { borderColor: theme.border }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 Notification Preferences
@@ -3721,7 +3697,7 @@ export default function ProfileScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
-          </LinearGradient>
+          </View>
         </View>
       </Modal>
 
@@ -4068,7 +4044,7 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
-    </LinearGradient>
+    </View>
     </>
   );
 }
@@ -4085,6 +4061,9 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     alignItems: 'center',
     marginTop: 60,
     marginBottom: 12,
+    backgroundColor: Colors.bg,
+    zIndex: 2,
+    elevation: 2,
     // Web: horizontal inset comes from `webProfileHeaderMargins` (aligned with WebPageShell).
     ...(Platform.OS === 'web' ? {} : { marginHorizontal: edge }),
   },
@@ -4112,24 +4091,27 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   backButtonBorder: {
     borderRadius: 20,
-    padding: 1,
+    borderWidth: 1,
+    borderColor: Colors.line,
+    backgroundColor: Colors.surface2,
     overflow: "hidden",
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 19,
-    backgroundColor: darkMode ? Colors.card : Colors.bg,
+    backgroundColor: Colors.surface2,
     justifyContent: 'center',
     alignItems: 'center',
   },
   contentCard: {
-    borderRadius: 23,
-    backgroundColor: darkMode ? Colors.card : Colors.bg,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
     overflow: 'visible',
   },
   content: {
-    padding: 16,
+    paddingHorizontal: 0,
+    paddingVertical: 16,
     backgroundColor: 'transparent',
   },
   /** Segments sit inside `content` (16px padding). Do not use dashboard `-edge` bleed — that pulled tabs past the padded column and misaligned the teal frame vs cards. */
@@ -4140,7 +4122,8 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     borderRadius: 999,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#19E180',
+    borderColor: Colors.line,
+    backgroundColor: Colors.surface2,
   },
   segmentInner: {
     flexDirection: 'row',
@@ -4149,12 +4132,10 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   segmentTab: {
     flex: 1,
     borderRadius: 999,
+    backgroundColor: Colors.card,
   },
   segmentTabActive: {
-    shadowColor: '#22c55e',
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
+    backgroundColor: Colors.primary,
   },
   segmentTabInner: {
     flexDirection: 'row',
@@ -4573,7 +4554,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   emptyBioContainer: {
     alignItems: 'center',
-    paddingVertical: 24,
+    paddingVertical: 16,
     paddingHorizontal: 16,
   },
   emptyBioIconContainer: {
@@ -4583,13 +4564,13 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     backgroundColor: 'rgba(67, 206, 162, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   emptyBioTitle: {
     fontSize: 15,
     fontWeight: '500',
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 14,
     lineHeight: 22,
     opacity: 0.9,
   },

@@ -13,9 +13,13 @@ const SIMPLE_PROJECT_BUDGET_STATUS_PATTERN =
 const PORTFOLIO_LOSING_MONEY_PATTERN =
   /\b(where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak)\b/i;
 
-// Must not match generic "over budget on this job" — require portfolio phrasing
+// Portfolio list phrasing only. Singular project questions must be resolved
+// against a named project before this predicate is used.
 const PORTFOLIO_OVER_BUDGET_LIST_PATTERN =
-  /\b(which\s+)?(active\s+)?projects?\s+(are\s+)?over\s+budget|(show\s+)?projects?\s+over\s+budget|over\s+budget\s+and\s+by\s+how\s+much|identify\s+budget\s+risks|budget\s+risks\b/i;
+  /\b(which\s+)?(active\s+)?projects\s+(are\s+)?over\s+budget\b|\b(show\s+)?projects\s+over\s+budget\b/i;
+
+const PORTFOLIO_BUDGET_RISKS_PATTERN =
+  /\b(budget\s+risks?|budget\s+alerts?|identify\s+budget\s+risks?|review\s+budget\s+alerts?|which\s+projects?\s+have\s+budget\s+risks?)\b/i;
 
 const PORTFOLIO_COMPARE_ACTIVE_PATTERN =
   /\bcompare\s+(?:my\s+)?active\s+(?:projects?|jobs?)\b|\bcompare\s+all\s+my\s+active\s+(?:projects?|jobs?)\b|\bcompare\s+my\s+active\s+work\b/i;
@@ -34,6 +38,27 @@ function isPortfolioLosingMoneyQuery(message = '') {
 
 function isPortfolioOverBudgetListQuery(message = '') {
   return PORTFOLIO_OVER_BUDGET_LIST_PATTERN.test(normalizeAiMessageForIntent(message));
+}
+
+function isBadOutcomeScenarioQuery(message = '') {
+  const normalized = normalizeAiMessageForIntent(message);
+  return (
+    /\b(?:if|when)\s+(?:things|this|the\s+job|it)\s+(?:go|goes|turns?)\s+(?:bad|badly|wrong)\b/i.test(normalized) ||
+    /\bwhat\s+if\b[\s\S]*\b(?:go|goes|turns?)\s+(?:bad|badly|wrong)\b/i.test(normalized) ||
+    /\b(?:bad\s+outcome|things\s+go\s+bad)\b/i.test(normalized)
+  );
+}
+
+function isCalculationFollowUpQuery(message = '') {
+  const normalized = normalizeAiMessageForIntent(message);
+  return (
+    /\b(show|give|explain|walk me through|how did you get)\b[\s\S]*\b(calculation|math|formula|numbers)\b/i.test(normalized) ||
+    /\bhow did you calculate\b/i.test(normalized)
+  );
+}
+
+function isPortfolioBudgetRisksQuery(message = '') {
+  return PORTFOLIO_BUDGET_RISKS_PATTERN.test(normalizeAiMessageForIntent(message));
 }
 
 /** Single-project budget status ("am I over budget?") — excludes portfolio list questions */
@@ -129,6 +154,40 @@ function isActiveProjectStatus(status) {
   return ['won', 'active', 'in_progress'].includes(normalizeProjectStatus(status));
 }
 
+/** Same visibility as Dashboard → All Projects (excludes estimate/draft-only rows). */
+function isDashboardListedProjectForAi(project) {
+  const status = normalizeProjectStatus(project?.status);
+  if (status === 'draft' || status === 'estimate') return false;
+  return [
+    'bid_submitted',
+    'submitted',
+    'won',
+    'in_progress',
+    'active',
+    'completed',
+    'complete',
+    'closed',
+    'done',
+    'finished',
+  ].includes(status);
+}
+
+function filterPortfolioProjectsForAi(allProjects, parsedContext = {}) {
+  const deletedIds = new Set(
+    (Array.isArray(parsedContext?.deletedProjectIds) ? parsedContext.deletedProjectIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+  );
+  return (Array.isArray(allProjects) ? allProjects : []).filter((project) => {
+    const id = String(project?.id ?? '').trim();
+    if (id && deletedIds.has(id)) return false;
+    return isDashboardListedProjectForAi({
+      ...project,
+      status: project?.status ?? project?.projectData?.status,
+    });
+  });
+}
+
 function hasFiniteNonNegativeValue(value) {
   const num = Number(value);
   return value !== null && value !== undefined && Number.isFinite(num) && num >= 0;
@@ -143,16 +202,34 @@ function firstKnownMoneyValue(values = []) {
 }
 
 function getProjectExpenses(project, parsedContext = {}) {
+  const contextProjectId =
+    parsedContext?.projectId ||
+    parsedContext?.activeProjectId ||
+    parsedContext?.resolvedProjectId ||
+    parsedContext?.selectedProjectId ||
+    null;
+  const canUseContextExpenses =
+    !project ||
+    (contextProjectId != null && String(contextProjectId) === String(project?.id));
   const expenses =
-    (Array.isArray(parsedContext?.expenses) ? parsedContext.expenses : null) ||
+    (canUseContextExpenses && Array.isArray(parsedContext?.expenses) ? parsedContext.expenses : null) ||
     (Array.isArray(project?.expenses) ? project.expenses : null) ||
     (Array.isArray(project?.projectData?.expenses) ? project.projectData.expenses : null);
   return Array.isArray(expenses) ? expenses : [];
 }
 
 function getProjectPurchaseOrders(project, parsedContext = {}) {
+  const contextProjectId =
+    parsedContext?.projectId ||
+    parsedContext?.activeProjectId ||
+    parsedContext?.resolvedProjectId ||
+    parsedContext?.selectedProjectId ||
+    null;
+  const canUseContextPurchaseOrders =
+    !project ||
+    (contextProjectId != null && String(contextProjectId) === String(project?.id));
   const purchaseOrders =
-    (Array.isArray(parsedContext?.purchaseOrders) ? parsedContext.purchaseOrders : null) ||
+    (canUseContextPurchaseOrders && Array.isArray(parsedContext?.purchaseOrders) ? parsedContext.purchaseOrders : null) ||
     (Array.isArray(project?.purchaseOrders) ? project.purchaseOrders : null) ||
     (Array.isArray(project?.projectData?.purchaseOrders) ? project.projectData.purchaseOrders : null);
   return Array.isArray(purchaseOrders) ? purchaseOrders : [];
@@ -262,10 +339,21 @@ function isPaymentCollectedForAI(milestone, opts = {}) {
 }
 
 function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progressOverride = null } = {}) {
-  const estimateData = project?.estimateData || project?.projectData?.estimateData || parsedContext?.estimateData || {};
-  const changeOrders = parsedContext?.changeOrders || project?.changeOrders || project?.projectData?.changeOrders || [];
+  const contextProjectId =
+    parsedContext?.projectId ||
+    parsedContext?.activeProjectId ||
+    parsedContext?.resolvedProjectId ||
+    parsedContext?.selectedProjectId ||
+    null;
+  const scopedContext =
+    !project ||
+    (contextProjectId != null && String(contextProjectId) === String(project?.id))
+      ? parsedContext
+      : {};
+  const estimateData = project?.estimateData || project?.projectData?.estimateData || scopedContext?.estimateData || {};
+  const changeOrders = scopedContext?.changeOrders || project?.changeOrders || project?.projectData?.changeOrders || [];
   const costBuckets =
-    parsedContext?.buckets ??
+    scopedContext?.buckets ??
     project?.buckets ??
     project?.projectData?.buckets ??
     [];
@@ -278,25 +366,25 @@ function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progr
     project?.forecastFinalCost ??
     project?.projectData?.forecastFinalCost;
   const projectForecastFinalCost = normalizeMoneyValue(rawProjectForecastFinalCost);
-  const approvedChangeOrders = parsedContext?.approvedChangeOrdersTotal != null
-    ? normalizeMoneyValue(parsedContext.approvedChangeOrdersTotal)
+  const approvedChangeOrders = scopedContext?.approvedChangeOrdersTotal != null
+    ? normalizeMoneyValue(scopedContext.approvedChangeOrdersTotal)
     : getApprovedChangeOrdersTotal(changeOrders);
   const baseBid = firstKnownMoneyValue([
-    parsedContext?.bidTotal,
-    parsedContext?.total,
-    parsedContext?.bidPrice,
+    scopedContext?.bidTotal,
+    scopedContext?.total,
+    scopedContext?.bidPrice,
     project?.bidPrice,
     project?.bidTotal,
     estimateData?.totalBid,
   ]);
-  const contextRevenue = firstKnownMoneyValue([parsedContext?.contractValue]);
+  const contextRevenue = firstKnownMoneyValue([scopedContext?.contractValue]);
   const revenue = contextRevenue != null
     ? contextRevenue
     : (baseBid != null ? baseBid + approvedChangeOrders : null);
   const estimatedCost = firstKnownMoneyValue([
-    parsedContext?.adjustedCostBudget,
+    scopedContext?.adjustedCostBudget,
     rawProjectAdjustedCostBudget != null ? projectAdjustedCostBudget : null,
-    parsedContext?.estimatedCost,
+    scopedContext?.estimatedCost,
     project?.estimatedCost,
     project?.estimateData?.totalCost,
     project?.estimateData?.baseCost,
@@ -307,14 +395,14 @@ function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progr
   const spendBreakdown = getProjectSpendBreakdown(project, parsedContext);
   const spent = spendBreakdown.hasKnownSpent ? spendBreakdown.spent : null;
   const progressRaw = progressOverride ??
-    parsedContext?.progress ??
+    scopedContext?.progress ??
     project?.progress ??
     project?.overallProgressPct ??
     project?.projectData?.progress ??
     0;
   const progress = Math.max(0, Math.min(100, normalizeMoneyValue(progressRaw)));
 
-  const rawBidMargin = parsedContext?.bidMarginPct ??
+  const rawBidMargin = scopedContext?.bidMarginPct ??
     project?.bidMarginPct ??
     project?.marginPct ??
     estimateData?.marginPercent ??
@@ -328,37 +416,40 @@ function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progr
   }
 
   const computedSpendToDateMarginPct = revenue > 0 && spent != null ? ((revenue - spent) / revenue * 100) : null;
-  const contextSpendToDateMarginPct = parsedContext?.spendToDateMarginPct ?? project?.spendToDateMarginPct ?? project?.projectData?.spendToDateMarginPct;
+  const contextSpendToDateMarginPct = scopedContext?.spendToDateMarginPct ?? project?.spendToDateMarginPct ?? project?.projectData?.spendToDateMarginPct;
   const spendToDateMarginPct =
     typeof contextSpendToDateMarginPct === 'number' && Number.isFinite(contextSpendToDateMarginPct)
       ? contextSpendToDateMarginPct
       : computedSpendToDateMarginPct;
   const contextProjectedFinalCostValue = firstKnownMoneyValue([
-    parsedContext?.forecastFinalCost,
+    scopedContext?.forecastFinalCost,
     rawProjectForecastFinalCost != null ? projectForecastFinalCost : null,
   ]);
   const contextProjectedFinalCost =
     contextProjectedFinalCostValue != null && contextProjectedFinalCostValue > 0
       ? contextProjectedFinalCostValue
       : null;
-  const projectStatus = normalizeProjectStatus(project?.status || parsedContext?.status);
+  const projectStatus = normalizeProjectStatus(project?.status || scopedContext?.status);
   const isCompletedProject = isTerminalProjectStatus(projectStatus) || progress >= 100;
-  const derivedProjectedFinalCost = isCompletedProject && spent != null
+  const progressStatusConflict = isTerminalProjectStatus(projectStatus) && progress < 100;
+  const derivedProjectedFinalCost = isCompletedProject && spent != null && spent > 0
     ? spent
     : (progress > 5 && spent != null && spent > 0 ? (spent / (progress / 100)) : estimatedCost);
   const projectedFinalCost = contextProjectedFinalCost ?? derivedProjectedFinalCost;
-  const contextProjectedProfit = parsedContext?.projectedProfit ?? project?.projectedProfit ?? project?.projectData?.projectedProfit;
+  const contextProjectedProfit = scopedContext?.projectedProfit ?? project?.projectedProfit ?? project?.projectData?.projectedProfit;
   const derivedProjectedProfit =
     revenue > 0 && projectedFinalCost != null ? revenue - projectedFinalCost : null;
+  // Profit and margin must come from the same cost basis. Prefer the projected
+  // final cost when available; otherwise keep a supplied profit, then derive
+  // margin from that profit instead of trusting an independent percentage.
   const projectedProfit =
-    typeof contextProjectedProfit === 'number' && Number.isFinite(contextProjectedProfit)
-      ? contextProjectedProfit
-      : derivedProjectedProfit;
-  const contextProjectedMarginPct = parsedContext?.projectedMarginPct ?? project?.projectedMarginPct ?? project?.projectData?.projectedMarginPct;
+    derivedProjectedProfit != null
+      ? derivedProjectedProfit
+      : (typeof contextProjectedProfit === 'number' && Number.isFinite(contextProjectedProfit)
+        ? contextProjectedProfit
+        : null);
   const projectedMarginPct =
-    typeof contextProjectedMarginPct === 'number' && Number.isFinite(contextProjectedMarginPct)
-      ? contextProjectedMarginPct
-      : revenue > 0 && projectedProfit != null ? (projectedProfit / revenue) * 100 : null;
+    revenue > 0 && projectedProfit != null ? (projectedProfit / revenue) * 100 : null;
   const currentMarginPct = spent != null && spent > 0
     ? spendToDateMarginPct
     : (projectedMarginPct != null ? projectedMarginPct : (bidMarginPct > 0 ? bidMarginPct : null));
@@ -379,25 +470,53 @@ function getProjectFinancialSnapshot({ parsedContext = {}, project = null, progr
     projectedProfit,
     projectedMarginPct,
     currentMarginPct,
+    dataQuality: {
+      progressStatusConflict,
+      estimateOnlyForecast: (spent == null || spent === 0) && progress === 0,
+      hasActivity: spent != null && spent > 0,
+    },
   };
 }
 
-function buildMakingEnoughReply(projectName, marginPct) {
+function buildMakingEnoughReply(projectName, marginPct, dataQuality = {}) {
   const m = Number(marginPct).toFixed(1);
   const above = parseFloat(m) >= 20 ? 'above' : (parseFloat(m) >= 15 ? 'at' : 'below');
-  let reply = `Your current margin on **${projectName}** is **${m}%** based on the current numbers in this view. Many contractors target 15–25%; you're **${above}** that. `;
+  const marginLabel = dataQuality.estimateOnlyForecast ? 'estimated margin' : 'current margin';
+  let reply = `The ${marginLabel} on **${projectName}** is **${m}%** based on the current numbers in this view. Many contractors target 15–25%; you're **${above}** that. `;
+  if (dataQuality.estimateOnlyForecast) {
+    reply += `No spend or progress is recorded yet, so this is not a performance-based result. `;
+  }
+  if (dataQuality.progressStatusConflict) {
+    reply += `The project is marked completed but its progress field is below 100%; confirm that status before treating this as final. `;
+  }
   reply += parseFloat(m) < 15 ? `Consider tightening costs or revisiting pricing on the next phase.` : `You're in a healthy range.`;
   reply += `\n\n➡️ Want me to check your biggest profit threat or run a scenario?`;
   return reply;
 }
 
-function buildProjectedProfitReply({ projectName = 'This project', projectedProfit = null, marginPct = null, followUp = 'Want me to check your PO commitments or run a what-if scenario if the job runs longer?' } = {}) {
+function buildProjectedProfitReply({
+  projectName = 'This project',
+  projectedProfit = null,
+  marginPct = null,
+  dataQuality = {},
+  followUp = 'Want me to check your PO commitments or run a what-if scenario if the job runs longer?',
+} = {}) {
   const projProfitStr = projectedProfit != null ? `$${Math.round(projectedProfit).toLocaleString()}` : '—';
   const marginStr = marginPct != null ? `${Number(marginPct).toFixed(1)}%` : '—';
   let reply = `The projected profit for the "${projectName}" project is ${projProfitStr}`;
   if (marginStr !== '—') reply += `, with a ${marginStr} margin`;
   reply += `. `;
-  if (projectedProfit != null && projectedProfit >= 0) reply += `The project is on track, with no profit at risk. `;
+  if (projectedProfit != null && projectedProfit >= 0) {
+    reply += `That is a positive projected result, but it does not by itself mean the job is under its cost budget. `;
+  } else if (projectedProfit != null) {
+    reply += `The projection is currently negative, so cost or scope changes need attention. `;
+  }
+  if (dataQuality.estimateOnlyForecast) {
+    reply += `This is estimate-based because no spend or progress is recorded yet; it is not a performance-based forecast. `;
+  }
+  if (dataQuality.progressStatusConflict) {
+    reply += `The project status is completed, but its progress field is below 100%, so confirm that status before treating this as final. `;
+  }
   reply += followUp;
   return reply;
 }
@@ -930,7 +1049,7 @@ function analyzePortfolioProject(project, opts = {}) {
     now = new Date(),
   } = opts;
   const title = project?.title || project?.name || 'Untitled Project';
-  const financials = getProjectFinancialSnapshot({ project, progressOverride });
+  const financials = getProjectFinancialSnapshot({ project, parsedContext, progressOverride });
   const budget = financials.estimatedCost;
   const spent = financials.spent;
   const revenue = financials.revenue;
@@ -985,7 +1104,11 @@ function analyzePortfolioProject(project, opts = {}) {
     status: project?.status || 'unknown',
     margin: marginRounded,
     currentMargin: marginRounded,
-    marginLabel: isCompletedProject ? 'Margin' : 'Current margin',
+    marginLabel: isCompletedProject
+      ? 'Margin'
+      : financials.dataQuality?.estimateOnlyForecast
+        ? 'Estimated margin'
+        : 'Current margin',
     profitLabel: isCompletedProject ? 'Net Profit' : 'Projected Profit',
     spent,
     budget,
@@ -1062,15 +1185,26 @@ function buildPortfolioComparisonReply(data = []) {
     const riskStr = riskParts.length > 0 ? `Risk: ${riskParts.join(', ')}` : 'Risk: None';
     const profitLabel = item.profitLabel || (isCompleted(item) ? 'Net Profit' : 'Projected Profit');
     const marginLabel = item.marginLabel || (isCompleted(item) ? 'Margin' : 'Current margin');
+    const status = getStatus(item);
+    const statusLabel = status === 'in_progress'
+      ? 'In progress'
+      : status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     reply += `**${item.title}**\n`;
     reply += `• ${marginLabel}: ${item.margin}%\n`;
     reply += `• Spent: $${fmt(item.spent || 0)}\n`;
+    if (item.budget != null && Number(item.budget) > 0) {
+      reply += `• Cost budget: $${fmt(item.budget)}\n`;
+    }
     if (item.committedPOs != null && item.committedPOs > 0) reply += `• Committed POs: $${fmt(item.committedPOs)}\n`;
     reply += `• ${profitLabel}: $${fmt(item.projectedProfit || 0)}\n`;
     if (item.revenue != null && item.revenue > 0) reply += `• Revenue: $${fmt(item.revenue)}\n`;
     if (item.budgetUsedPct != null && item.budgetUsedPct > 0) reply += `• Budget used: ${item.budgetUsedPct}%\n`;
-    if (item.progress != null) reply += `• Progress: ${Math.round(item.progress)}%\n`;
-    if (item.status) reply += `• Status: ${item.status}\n`;
+    if (isCompleted(item) && Number(item.progress || 0) === 0) {
+      reply += '• Progress: Not available (project marked completed)\n';
+    } else if (item.progress != null) {
+      reply += `• Progress: ${Math.round(item.progress)}%\n`;
+    }
+    if (item.status) reply += `• Status: ${statusLabel}\n`;
     reply += `• ${riskStr}\n\n`;
   });
 
@@ -1089,6 +1223,304 @@ function buildPortfolioComparisonReply(data = []) {
   return reply;
 }
 
+function buildPortfolioOverBudgetReply(data = []) {
+  const safeData = Array.isArray(data) ? data : [];
+  const overBudget = safeData.filter((item) =>
+    Number.isFinite(Number(item?.overBudgetPct)) && Number(item.overBudgetPct) > 0
+  );
+  const fmt = (n) => Number(n).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const statusLabel = (item) => {
+    const status = String(item?.status || '').toLowerCase().replace(/[\s-]+/g, '_');
+    if (status === 'in_progress') return 'In progress';
+    return status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || 'Unknown';
+  };
+
+  if (overBudget.length === 0) {
+    return [
+      '**No projects are over their total cost budget based on recorded spend.**',
+      '',
+      'This checks total project spend against the current cost budget. Estimate-line alerts and completed-project closeout items are tracked separately.',
+    ].join('\n');
+  }
+
+  let reply = `**${overBudget.length} project${overBudget.length === 1 ? '' : 's'} over total cost budget**\n\n`;
+  overBudget.forEach((item) => {
+    const overBy = Math.max(0, Number(item.spent || 0) - Number(item.budget || 0));
+    reply += `**${item.title}**\n`;
+    reply += `• Status: ${statusLabel(item)}\n`;
+    reply += `• Spent: $${fmt(item.spent || 0)}\n`;
+    reply += `• Cost budget: $${fmt(item.budget || 0)}\n`;
+    reply += `• Over budget by: $${fmt(overBy)} (${Number(item.overBudgetPct).toFixed(1)}%)\n`;
+    if (item.progress != null) reply += `• Progress: ${Math.round(item.progress)}%\n`;
+    reply += '\n';
+  });
+  reply += 'This is based on recorded spend versus the total cost budget; estimate-line overruns may explain the variance.';
+  return reply.trim();
+}
+
+function buildProjectBudgetExplanationReply(project) {
+  if (!project) return null;
+  const title = project.title || project.name || 'This project';
+  // This explanation is explicitly scoped to `project`; never let a caller's
+  // current-project context overwrite the selected project's financials.
+  const snapshot = getProjectFinancialSnapshot({ project, parsedContext: {} });
+  const budget = snapshot.estimatedCost;
+  const spent = snapshot.spent ?? 0;
+  const variance = budget != null ? spent - budget : null;
+  const overPct = budget > 0 ? (variance / budget) * 100 : null;
+  const { activeGroups, closeoutGroups } = buildDashboardInsightSections([project]);
+  const lineGroups = [...activeGroups, ...closeoutGroups];
+  const lineAlerts = lineGroups.flatMap((group) => group.insights || []);
+  const status = normalizeProjectStatus(project.status);
+  const isCompletedProject = isTerminalProjectStatus(status) || snapshot.progress >= 100;
+
+  let reply = `**Budget review — ${title}**\n\n`;
+  if (budget != null && budget > 0) {
+    reply += `Recorded spend is **$${Number(spent).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}** against a **$${Number(budget).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}** cost budget`;
+    if (variance > 0) {
+      reply += ` — **$${Math.round(variance).toLocaleString()} over budget (${overPct.toFixed(1)}%)**.\n`;
+    } else {
+      reply += ` — **$${Math.round(Math.abs(variance)).toLocaleString()} remaining**.\n`;
+    }
+  } else {
+    reply += 'I do not have a usable total cost budget for this project, so I cannot calculate a total overage.\n';
+  }
+
+  if (lineAlerts.length > 0) {
+    reply += '\n**Budget line causes**\n';
+    lineAlerts.forEach((insight) => {
+      reply += `• ${insight.body}\n`;
+    });
+  } else {
+    reply += '\nI do not have a category-level budget alert for this project in the current data.';
+  }
+
+  if (isCompletedProject) {
+    reply += '\n\nThis project is marked completed, so any line-item variance should be treated as a closeout review.';
+  }
+  return reply.trim();
+}
+
+function projectHasBudgetAlert(item) {
+  const flags = Array.isArray(item?.riskFlags) ? item.riskFlags : [];
+  const budgetFlagTypes = new Set(['over_budget', 'spend_ahead_of_progress', 'margin_erosion', 'low_margin']);
+  if (flags.some((flag) => budgetFlagTypes.has(flag))) return true;
+  if (Number(item?.overBudgetPct || 0) > 0) return true;
+  const leaks = Array.isArray(item?.profitLeaks) ? item.profitLeaks : [];
+  return leaks.some((leak) => ['over_budget', 'spend_ahead_of_progress', 'margin_erosion'].includes(leak?.type));
+}
+
+function budgetAlertScore(item) {
+  let score = 0;
+  const overPct = Number(item?.overBudgetPct || 0);
+  if (overPct > 0) score += 20 + Math.min(overPct, 50);
+  const flags = Array.isArray(item?.riskFlags) ? item.riskFlags : [];
+  if (flags.includes('over_budget')) score += 25;
+  if (flags.includes('spend_ahead_of_progress')) score += 18;
+  if (flags.includes('margin_erosion')) score += 14;
+  if (flags.includes('low_margin')) score += 8;
+  return score;
+}
+
+function describeBudgetAlertLines(item) {
+  const fmt = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const lines = [];
+  const seen = new Set();
+  const add = (line) => {
+    const key = String(line || '').trim().toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    lines.push(line);
+  };
+
+  const overPct = Number(item?.overBudgetPct || 0);
+  if (overPct > 0 && item.budget != null && item.spent != null) {
+    add(`Over budget by ${overPct}% — $${fmt(item.spent)} spent vs $${fmt(item.budget)} budget`);
+  }
+
+  const leaks = Array.isArray(item?.profitLeaks) ? item.profitLeaks : [];
+  for (const leak of leaks) {
+    if (leak?.type === 'spend_ahead_of_progress') add('Spending ahead of job progress');
+    if (leak?.type === 'over_budget' && overPct <= 0) add('Spending has exceeded the current cost budget');
+    if (leak?.type === 'margin_erosion') add('Projected margin is eroding vs the original estimate');
+  }
+
+  const flags = Array.isArray(item?.riskFlags) ? item.riskFlags : [];
+  if (flags.includes('low_margin') && item.margin != null) {
+    add(`Low margin at ${item.margin}%`);
+  }
+  if (flags.includes('over_budget') && overPct <= 0) add('Flagged as over budget');
+
+  if (item.progress != null) add(`Progress: ${Math.round(item.progress)}%`);
+  if (item.projectedMarginPct != null && flags.includes('margin_erosion')) {
+    add(`Projected margin: ${item.projectedMarginPct}%`);
+  }
+
+  return lines;
+}
+
+const { buildPortfolioBudgetInsights } = require('./portfolioBudgetInsights');
+
+const DASHBOARD_BUDGET_LEAK_TYPES = new Set([
+  'line_over_estimate',
+  'category_over_budget',
+  'over_budget',
+]);
+
+function projectTitleFromDashboardInsight(insight, projectById) {
+  const pid = String(insight?.projectId ?? '');
+  const proj = projectById.get(pid);
+  if (proj) return String(proj.title || proj.name || 'Project').trim() || 'Project';
+  const m = /\bon\s+(.+)$/i.exec(String(insight?.title || ''));
+  return m?.[1]?.trim() || 'Project';
+}
+
+function isProjectCloseoutForBudgetInsight(proj) {
+  if (!proj) return false;
+  const status = normalizeProjectStatus(proj.status);
+  const progress = Number(
+    proj.progress ?? proj.overallProgressPct ?? proj.projectData?.progress ?? 0
+  );
+  return isTerminalProjectStatus(status) || progress >= 100;
+}
+
+function buildDashboardInsightSections(allProjects) {
+  if (!Array.isArray(allProjects) || allProjects.length === 0) {
+    return { activeGroups: [], closeoutGroups: [] };
+  }
+  const pack = buildPortfolioBudgetInsights(allProjects);
+  const raw = (pack.insights || []).filter((i) => DASHBOARD_BUDGET_LEAK_TYPES.has(i.leakType));
+  const projectById = new Map(
+    allProjects
+      .filter((p) => p?.id != null)
+      .map((p) => [String(p.id), p])
+  );
+
+  const groupMap = new Map();
+  for (const ins of raw) {
+    const pid = String(ins.projectId ?? '');
+    if (!groupMap.has(pid)) {
+      const proj = projectById.get(pid);
+      groupMap.set(pid, {
+        projectId: pid,
+        title: projectTitleFromDashboardInsight(ins, projectById),
+        closeout: isProjectCloseoutForBudgetInsight(proj),
+        insights: [],
+      });
+    }
+    groupMap.get(pid).insights.push(ins);
+  }
+
+  const activeGroups = [];
+  const closeoutGroups = [];
+  for (const group of groupMap.values()) {
+    if (group.closeout) closeoutGroups.push(group);
+    else activeGroups.push(group);
+  }
+
+  const sortGroups = (groups) =>
+    [...groups].sort(
+      (a, b) =>
+        b.insights.reduce((s, i) => s + Number(i.impactDollars || 0), 0) -
+        a.insights.reduce((s, i) => s + Number(i.impactDollars || 0), 0)
+    );
+
+  return {
+    activeGroups: sortGroups(activeGroups),
+    closeoutGroups: sortGroups(closeoutGroups),
+  };
+}
+
+function appendDashboardInsightGroupBlock(reply, group) {
+  let out = reply;
+  const label = group.closeout ? ' (closeout review)' : '';
+  out += `**${group.title}**${label}\n`;
+  for (const ins of group.insights) {
+    out += `• ${ins.body}\n`;
+  }
+  out += '\n';
+  return out;
+}
+
+function buildPortfolioBudgetRisksReply(data = [], options = {}) {
+  const safeData = Array.isArray(data) ? data : [];
+  const allProjects = Array.isArray(options.allProjects) ? options.allProjects : [];
+  const getStatus = (item) => String(item?.status || '').toLowerCase().replace(/[\s-]+/g, '_');
+  const isCompleted = (item) => isTerminalProjectStatus(getStatus(item)) || Number(item?.progress || 0) >= 100;
+  const activeData = safeData.filter((item) => !isCompleted(item));
+  const activeAlerts = activeData
+    .filter(projectHasBudgetAlert)
+    .sort((a, b) => budgetAlertScore(b) - budgetAlertScore(a));
+
+  const { activeGroups, closeoutGroups } = buildDashboardInsightSections(allProjects);
+  const hasCompareAlerts = activeAlerts.length > 0;
+  const hasActiveLineAlerts = activeGroups.length > 0;
+  const hasCloseoutAlerts = closeoutGroups.length > 0;
+
+  if (!hasCompareAlerts && !hasActiveLineAlerts && !hasCloseoutAlerts) {
+    return [
+      '**No active budget alerts right now.**',
+      '',
+      'Your in-progress projects are within budget based on current spend and estimates.',
+      'I’ll flag anything that goes over budget, burns faster than progress, or shows margin erosion.',
+    ].join('\n');
+  }
+
+  let reply = '';
+
+  if (hasCompareAlerts) {
+    reply += `**Budget alert summary** — ${activeAlerts.length} active project${activeAlerts.length === 1 ? '' : 's'} need budget attention:\n\n`;
+    activeAlerts.forEach((item) => {
+      reply += `**${item.title}**\n`;
+      for (const line of describeBudgetAlertLines(item)) {
+        reply += `• ${line}\n`;
+      }
+      reply += '\n';
+    });
+    const nextMoves = buildPortfolioNextActions(activeAlerts, 3);
+    if (nextMoves) reply += `${nextMoves}\n`;
+  }
+
+  if (hasActiveLineAlerts) {
+    if (!hasCompareAlerts) {
+      reply += '**Budget alert summary** — estimate lines over on active work:\n\n';
+    } else {
+      reply += '**Estimate line alerts (active jobs)**\n\n';
+    }
+    for (const group of activeGroups) {
+      reply = appendDashboardInsightGroupBlock(reply, group);
+    }
+  }
+
+  if (hasCloseoutAlerts) {
+    if (!hasCompareAlerts && !hasActiveLineAlerts) {
+      reply += '**Budget alert summary** — completed jobs with estimate lines to review:\n\n';
+    } else {
+      reply += '**Closeout review — estimate line alerts**\n\n';
+    }
+    for (const group of closeoutGroups) {
+      reply = appendDashboardInsightGroupBlock(reply, group);
+    }
+    if (!hasCompareAlerts && !hasActiveLineAlerts) {
+      reply += 'No active in-progress projects need budget attention right now.\n';
+    }
+  }
+
+  return reply.trim();
+}
+
+function buildPortfolioBudgetRisksReplyForProjects(allProjects = [], parsedContext = {}) {
+  const cr = runCompareProjectsPipeline({
+    allProjects,
+    parsedContext,
+    args: { activeOnly: true },
+  });
+  return buildPortfolioBudgetRisksReply(cr?.sorted || [], { allProjects });
+}
+
 /** Trust copy: snapshot timing when client sends it; otherwise generic. */
 function buildDataFreshnessFooter(parsedContext = {}) {
   const raw = parsedContext.snapshotAt || parsedContext.dataAsOf || parsedContext.contextTimestamp;
@@ -1096,9 +1528,21 @@ function buildDataFreshnessFooter(parsedContext = {}) {
     try {
       const d = new Date(raw);
       if (Number.isFinite(d.getTime())) {
-        // ISO instant from client; show UTC so server timezone doesn’t mislead users
-        const utc = `${d.toISOString().slice(0, 10)} ${d.toISOString().slice(11, 16)} UTC`;
-        return `\n\n_Numbers reflect your project data as of **${utc}**. Pull to refresh if you’ve updated costs._`;
+        const requestedTimeZone = String(parsedContext.snapshotTimeZone || '').trim();
+        let displayTime;
+        try {
+          displayTime = requestedTimeZone
+            ? new Intl.DateTimeFormat('en-US', {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+              timeZone: requestedTimeZone,
+            }).format(d)
+            : null;
+        } catch (_) {
+          displayTime = null;
+        }
+        const fallbackUtc = `${d.toISOString().slice(0, 10)} ${d.toISOString().slice(11, 16)} UTC`;
+        return `\n\n_Numbers reflect your project data as of **${displayTime || fallbackUtc}**. Pull to refresh if you’ve updated costs._`;
       }
     } catch (_) { /* ignore */ }
   }
@@ -1712,7 +2156,9 @@ function runCompareProjectsPipeline({ allProjects = [], parsedContext = {}, args
       ? args.projectNames.map((n) => String(n).toLowerCase().trim()).filter(Boolean)
       : [];
 
-    let candidates = dedupeAllProjectsForCompare(Array.isArray(allProjects) ? [...allProjects] : []);
+    let candidates = dedupeAllProjectsForCompare(
+      filterPortfolioProjectsForAi(allProjects, parsedContext)
+    );
     if (statusFilter) {
       candidates = candidates.filter((p) => String(p?.status || '').toLowerCase().includes(statusFilter));
     }
@@ -1808,6 +2254,7 @@ function runCompareProjectsPipeline({ allProjects = [], parsedContext = {}, args
           const upcomingPayments = unpaidM.filter((m) => {
             const date = getDate(m);
             if (!date) return false;
+            const dt = new Date(date);
             if (!Number.isFinite(dt.getTime())) return false;
             const days = Math.ceil((dt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
             return days >= 0;
@@ -1896,6 +2343,9 @@ module.exports = {
   normalizeAiMessageForIntent,
   isPortfolioLosingMoneyQuery,
   isPortfolioOverBudgetListQuery,
+  isBadOutcomeScenarioQuery,
+  isCalculationFollowUpQuery,
+  isPortfolioBudgetRisksQuery,
   isSimpleProjectBudgetStatusQuery,
   isPortfolioCompareActiveQuery,
   isPortfolioFocusTodayQuery,
@@ -1942,6 +2392,10 @@ module.exports = {
   buildProfitLeakPromptBlock,
   analyzePortfolioProject,
   buildPortfolioComparisonReply,
+  buildPortfolioOverBudgetReply,
+  buildProjectBudgetExplanationReply,
+  buildPortfolioBudgetRisksReply,
+  buildPortfolioBudgetRisksReplyForProjects,
   buildDataFreshnessFooter,
   appendDataFreshness,
   isCentralCommandMutationRequest,

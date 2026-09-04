@@ -36,17 +36,24 @@ describe('portfolioBudgetInsights', () => {
     expect(result.insights.find((i) => i.leakType === 'over_budget')).toBeUndefined();
   });
 
-  test('does not generate operational alerts for completed projects', () => {
+  test('completed projects get line closeout insights but not project-level operational alerts', () => {
     const result = buildPortfolioBudgetInsights([{
       id: 'p3',
       title: 'Closed Remodel',
       status: 'completed',
       estimatedCost: 10000,
       buckets: [{ name: 'Materials', budget: 10000, spent: 15000 }],
-      expenses: [{ id: 'e1', category: 'Materials', amount: 15000 }],
+      estimateData: {
+        materialLineItems: [
+          { id: 'w', name: 'Walls — materials', total: 1306 },
+        ],
+      },
+      expenses: [{ id: 'e1', category: 'Materials', amount: 1600, linkedLineId: 'w' }],
     }]);
 
-    expect(result.insights).toEqual([]);
-    expect(result.nextSteps).toEqual([]);
+    expect(result.insights.some((i) => i.leakType === 'line_over_estimate')).toBe(true);
+    expect(result.insights.some((i) => i.leakType === 'over_budget')).toBe(false);
+    expect(result.insights.some((i) => i.leakType === 'category_over_budget')).toBe(false);
+    expect(result.nextSteps.some((s) => s.leakType === 'line_over_estimate')).toBe(true);
   });
 });

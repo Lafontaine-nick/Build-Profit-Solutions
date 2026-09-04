@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import React, { useMemo, useEffect, type ComponentType } from 'react';
-import { View, StyleSheet, Text, useWindowDimensions, Platform, InteractionManager, type TextStyle, type ViewStyle } from 'react-native';
+import { View, StyleSheet, useWindowDimensions, Platform, InteractionManager, type TextStyle, type ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { HapticTab } from '@/components/HapticTab';
 import { useAIManagerMode } from '@/state/useAIManagerMode';
@@ -148,20 +148,50 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
 
         tabBarIcon: ({ focused }: { focused: boolean }) => {
           if (route.name === 'assistant') {
+            const circleSize = desktopWebSidebar ? 44 : 40;
+            const starSize = desktopWebSidebar ? 20 : 18;
             return (
               <View style={styles.iconWrapper}>
-                <LinearGradient
-                  colors={['rgba(255, 255, 255, 0.06)', 'rgba(74, 222, 128, 0.07)']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={[styles.assistantCircle, styles.assistantCircleAIEnabled]}
-                >
-                  <TabBarAssistantStar size={desktopWebSidebar ? 22 : 20} />
-                  <View style={styles.aiBadge}>
-                    <Text style={styles.aiBadgeText}>AI</Text>
+                {focused ? (
+                  <LinearGradient
+                    colors={['#22c55e', '#22d3ee']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[
+                      styles.assistantCircle,
+                      styles.assistantCircleFocused,
+                      {
+                        width: circleSize,
+                        height: circleSize,
+                        borderRadius: circleSize / 2,
+                      },
+                    ]}
+                  >
+                    <TabBarAssistantStar size={starSize} color="#050B13" />
+                  </LinearGradient>
+                ) : (
+                  <View
+                    style={[
+                      styles.assistantCircle,
+                      styles.assistantCircleInactive,
+                      {
+                        width: circleSize,
+                        height: circleSize,
+                        borderRadius: circleSize / 2,
+                      },
+                    ]}
+                  >
+                    <TabBarAssistantStar size={starSize} />
                   </View>
-                </LinearGradient>
-                {hasAlerts && !focused && <View style={styles.alertDot} />}
+                )}
+                {hasAlerts && !focused ? (
+                  <View
+                    style={[
+                      styles.assistantAlertDot,
+                      { right: desktopWebSidebar ? 10 : 6 },
+                    ]}
+                  />
+                ) : null}
               </View>
             );
           }
@@ -199,18 +229,17 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
         }}
       />
       <Tabs.Screen
-        name="assistant"
-        options={{
-          title: t('tabs.assistant'),
-          tabBarActiveTintColor: ASSISTANT_LABEL_COLOR,
-          tabBarInactiveTintColor: ASSISTANT_LABEL_COLOR,
-        }}
-      />
-      <Tabs.Screen
         name="estimate-generator"
         options={{
           title: t('tabs.estimate'),
           href: canAccessEstimateAndLeads ? undefined : null,
+        }}
+      />
+      <Tabs.Screen
+        name="assistant"
+        options={{
+          title: t('tabs.assistant'),
+          tabBarActiveTintColor: ASSISTANT_LABEL_COLOR,
         }}
       />
       <Tabs.Screen
@@ -243,39 +272,37 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   assistantCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 3,
     overflow: 'visible',
   },
-  assistantCircleAIEnabled: {
-    borderColor: 'rgba(74, 222, 128, 0.15)',
+  assistantCircleInactive: {
+    borderWidth: 1,
+    borderColor: 'rgba(74, 222, 128, 0.32)',
+    backgroundColor: 'rgba(74, 222, 128, 0.1)',
+    shadowColor: '#22c55e',
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
-  aiBadge: {
+  assistantCircleFocused: {
+    borderWidth: 0,
+    shadowColor: '#22c55e',
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
+  },
+  assistantAlertDot: {
     position: 'absolute',
-    top: -2,
-    right: -4,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: '#22C55E',
-  },
-  aiBadgeText: {
-    color: '#021B3A',
-    fontSize: 8.5,
-    fontWeight: '700',
-    letterSpacing: 0.4,
-  },
-  alertDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#F97316',
-    marginTop: 4,
+    top: 0,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#fbbf24',
+    borderWidth: 1.5,
+    borderColor: 'rgba(12, 12, 14, 0.9)',
   },
 });

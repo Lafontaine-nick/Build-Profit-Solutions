@@ -1,6 +1,20 @@
 const express = require('express');
 const router = express.Router();
 const { sendSMS, sendBulkSMS, formatPhoneNumber } = require('../services/twilioService');
+const { authenticateToken } = require('../middleware/authenticateToken');
+const { isTeamWorkspaceReleased } = require('../constants/releaseFlags');
+
+// SMS is an external side effect. Both endpoints must be authenticated.
+router.use(authenticateToken);
+router.use((req, res, next) => {
+  if (!isTeamWorkspaceReleased()) {
+    return res.status(404).json({
+      success: false,
+      error: 'Team messaging is not available on this plan.',
+    });
+  }
+  return next();
+});
 
 /**
  * POST /api/team/message

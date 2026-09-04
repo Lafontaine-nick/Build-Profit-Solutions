@@ -1,5 +1,6 @@
 import type { AiInsight, AiNextStep } from '@/types/aiDashboard';
 import {
+  bucketForNextStep,
   compactActionStepTitle,
   compactInsightBody,
   filterInsightsActionStepsAfterHero,
@@ -116,7 +117,7 @@ describe('aiInsightsUi refinements', () => {
     expect(compact).toContain('rate insights');
   });
 
-  it('hides per-line actions when hero aggregates multiple line overruns', () => {
+  it('keeps per-line actions when hero aggregates multiple line overruns', () => {
     const steps = [
       {
         id: 'walls',
@@ -148,7 +149,20 @@ describe('aiInsightsUi refinements', () => {
       'p1'
     );
 
-    expect(filtered).toHaveLength(1);
-    expect(filtered[0]?.projectId).toBe('p2');
+    expect(filtered).toHaveLength(3);
+    expect(filtered.map((s) => s.id)).toEqual(['walls', 'prep', 'other']);
+  });
+
+  it('buckets small budget overruns as today, not quick win', () => {
+    expect(
+      bucketForNextStep({
+        id: 'prep',
+        label: 'Prep & Masking — materials',
+        chip: 'Rate insight',
+        projectId: 'p1',
+        priority: 'low',
+        leakType: 'line_over_estimate',
+      })
+    ).toBe('today');
   });
 });

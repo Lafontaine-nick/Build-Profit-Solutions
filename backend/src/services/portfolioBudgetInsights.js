@@ -16,6 +16,14 @@ const ACTIVE_PIPELINE_STATUSES = new Set([
   'active',
 ]);
 
+const CLOSEOUT_PIPELINE_STATUSES = new Set([
+  'completed',
+  'complete',
+  'done',
+  'finished',
+  'closed',
+]);
+
 function normalizeStatus(status) {
   return String(status || '')
     .toLowerCase()
@@ -135,7 +143,9 @@ function buildPortfolioBudgetInsights(projects) {
 
   for (const project of projects || []) {
     const status = normalizeStatus(project.status);
-    if (!ACTIVE_PIPELINE_STATUSES.has(status)) continue;
+    const isActivePipeline = ACTIVE_PIPELINE_STATUSES.has(status);
+    const isCloseoutPipeline = CLOSEOUT_PIPELINE_STATUSES.has(status);
+    if (!isActivePipeline && !isCloseoutPipeline) continue;
 
     const title = String(project.title || project.name || 'Project');
     const projectId = String(project.id || '');
@@ -166,7 +176,7 @@ function buildPortfolioBudgetInsights(projects) {
     const totalSpent = expenses.reduce((sum, expense) => sum + expense.amount, 0);
 
     const projectOver = totalSpent - plannedBudget;
-    if (plannedBudget > 0 && projectOver >= MIN_PROJECT_OVER_USD) {
+    if (isActivePipeline && plannedBudget > 0 && projectOver >= MIN_PROJECT_OVER_USD) {
       insights.push({
         id: `budget-insight-${projectId}-project`,
         type: 'alert',
@@ -189,7 +199,7 @@ function buildPortfolioBudgetInsights(projects) {
       });
     }
 
-    for (const bucket of buckets) {
+    if (isActivePipeline) for (const bucket of buckets) {
       const budget = Number(bucket.budget) || 0;
       const spent = Number(bucket.spent) || 0;
       const overBy = spent - budget;

@@ -453,35 +453,28 @@ router.post('/:id/expenses', authenticateToken, [
       projectIds: projects.map(p => ({ id: p.id, title: p.title || p.name, userId: p.userId })).slice(0, 10)
     });
     
-    // Try to find project - check multiple userId fields for compatibility with estimates
-    // Also handle string/number ID mismatches
+    // Find by ID, then enforce ownership. Never fall back to an unscoped lookup:
+    // a valid ID belonging to another user must not be mutated.
     let projectIndex = projects.findIndex(p => {
-      // Check ID match (handle string/number mismatch)
       const idMatch = String(p.id) === String(id) || p.id === id;
       if (!idMatch) return false;
-      // Check multiple possible userId fields (for estimates that might use different field names)
-      return p.userId === userId || 
-             p.ownerId === userId || 
-             p.createdBy === userId ||
-             !p.userId; // If project has no userId, allow it (for legacy/estimate projects)
+      return [p.userId, p.ownerId, p.createdBy].some(
+        ownerId => ownerId != null && String(ownerId) === String(userId)
+      );
     });
     
     console.log('🔍 First search result', { projectIndex, searchedWithUserId: true });
-    
-    // If still not found, try without userId check (for estimates that might not have userId)
-    // Also handle string/number ID mismatches
-    if (projectIndex === -1) {
-      projectIndex = projects.findIndex(p => String(p.id) === String(id) || p.id === id);
-      console.log('⚠️ Expense: Found project without userId check', { 
-        id, 
-        idType: typeof id,
-        found: projectIndex !== -1,
-        projectTitle: projectIndex !== -1 ? (projects[projectIndex].title || projects[projectIndex].name) : null,
-        foundProjectId: projectIndex !== -1 ? projects[projectIndex].id : null,
-        foundProjectIdType: projectIndex !== -1 ? typeof projects[projectIndex].id : null
+
+    const matchingProjectIndex = projects.findIndex(
+      p => String(p.id) === String(id) || p.id === id
+    );
+    if (projectIndex === -1 && matchingProjectIndex !== -1) {
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have access to this project.',
       });
     }
-    
+
     if (projectIndex === -1) {
       console.log('⚠️ Expense: Project not found, attempting to create from context', { 
         id, 
@@ -550,21 +543,12 @@ router.post('/:id/expenses', authenticateToken, [
       createdAt: new Date().toISOString(),
     };
     
-    // CRITICAL: Use currentExpenses from request body as source of truth (frontend has latest state)
-    // This prevents deleted expenses from being restored
-    let currentExpenses = [];
-    if (req.body.currentExpenses && Array.isArray(req.body.currentExpenses)) {
-      // Frontend sent current expenses list - use it as source of truth
-      currentExpenses = req.body.currentExpenses;
-      console.log('✅ Using currentExpenses from request body:', currentExpenses.length, 'expenses');
-      console.log('✅ Current expense IDs:', currentExpenses.map(e => e.id).join(', '));
-    } else {
-      // Fallback to backend storage if frontend didn't send currentExpenses
-      // This should rarely happen - frontend should always send currentExpenses
-      currentExpenses = projects[projectIndex].expenses || [];
-      console.log('⚠️ WARNING: No currentExpenses in request, using backend storage (might include deleted items):', currentExpenses.length, 'expenses');
-      console.log('⚠️ Backend expense IDs:', currentExpenses.map(e => e.id).join(', '));
-    }
+    // Backend storage is authoritative for mutations. Do not accept a client-provided
+    // expense array here: it can belong to a different project or be stale.
+    const currentExpenses = Array.isArray(projects[projectIndex].expenses)
+      ? projects[projectIndex].expenses
+      : [];
+    console.log('✅ Using authenticated project expenses from backend:', currentExpenses.length, 'expenses');
     
     // Add new expense to the current expenses list
     const updatedExpenses = [...currentExpenses, expense];
