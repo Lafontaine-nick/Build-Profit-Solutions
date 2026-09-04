@@ -153,30 +153,26 @@ export default function ContractorPricingMemorySettings({ compact = false }: Pro
 
   return (
     <View>
-      {!compact ? (
-        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 8 }}>
-          Contractor pricing memory
-        </Text>
-      ) : null}
-      <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 12, lineHeight: 17 }}>
-        Saves rates you type or confirm manually — per-unit or flat allowances (permits, plans, fees). Not
-        auto-calculated splits. Pricing is saved from Step 3 when you apply the bid. Suggestions always
-        require your approval.
+      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 8 }}>
+        {compact ? 'Pricing Memory' : 'Contractor pricing memory'}
       </Text>
-      {row('Enable pricing memory', 'pricingMemoryEnabled')}
+      <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 12, lineHeight: 17 }}>
+        BPS can remember rates you approve and suggest them on future estimates.
+      </Text>
+      {row('Remember my pricing', 'pricingMemoryEnabled')}
       {row('Exclude test/demo bids', 'excludeTestBids')}
       <View style={{ marginTop: 4, marginBottom: 8 }}>
         {browseRow(
           'Pricing library',
           rateCount === 0
-            ? 'No saved rates yet — tap to learn more'
+            ? 'View and manage saved rates'
             : `${rateCount} saved rate${rateCount === 1 ? '' : 's'}`,
           () => setShowLibrary(true)
         )}
         {browseRow(
-          'Saved bid templates',
+          'Bid templates',
           templateCount === 0
-            ? 'No templates yet — tap to learn more'
+            ? 'Manage reusable estimates'
             : `${templateCount} template${templateCount === 1 ? '' : 's'}`,
           () => setShowTemplates(true)
         )}
@@ -192,7 +188,7 @@ export default function ContractorPricingMemorySettings({ compact = false }: Pro
             fontWeight: '700',
           }}
         >
-          Reset all saved pricing
+          Reset saved pricing
         </Text>
       </TouchableOpacity>
 

@@ -15,6 +15,7 @@ import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScroll
 import {
   loadDeletedProjectRecords,
   filterProjectsForPortfolioAi,
+  resolvePortfolioProjectStatus,
   type DeletedProjectRecord,
 } from '@/utils/aiDashboardPortfolioFilter';
 import { computeProjectFinancials, sumPlannedCostFromBuckets } from '@/src/lib/projectFinancials';
@@ -154,7 +155,7 @@ export default function AssistantScreen() {
         ...(p || {}),
         projectData: mergedProjectData,
       };
-      const projectStatus = mergedProject.status || mergedProject.projectData?.status || 'unknown';
+      const projectStatus = resolvePortfolioProjectStatus(mergedProject) || 'unknown';
       const title =
         mergedProject.title ||
         mergedProject.name ||

@@ -19,8 +19,12 @@ const {
   isPaymentCollectedForAI,
   isCentralCommandReadOnlyTool,
   isPortfolioOverBudgetListQuery,
+  isPortfolioActiveFilterQuery,
   isBadOutcomeScenarioQuery,
   isCalculationFollowUpQuery,
+  shouldContinueExpenseWorkflow,
+  parseCustomRemainingCostIncrease,
+  buildRemainingCostIncreaseReply,
 } = require('../aiAssistantCore');
 const {
   deepClone,
@@ -119,11 +123,50 @@ describe('aiAssistantCore', () => {
     expect(isPortfolioOverBudgetListQuery('Why is the repaint project over budget?')).toBe(false);
   });
 
+  test('does not keep an abandoned expense workflow on a new question', () => {
+    expect(shouldContinueExpenseWorkflow(
+      'How is it going today?',
+      'What type of expense are you logging?'
+    )).toBe(false);
+    expect(shouldContinueExpenseWorkflow(
+      'What is my project profit for my completed jobs?',
+      'What type of expense are you logging?'
+    )).toBe(false);
+    expect(shouldContinueExpenseWorkflow('Labor', 'What type of expense are you logging?')).toBe(true);
+    expect(shouldContinueExpenseWorkflow('Add a $500 expense to Repaint', '')).toBe(true);
+  });
+
+  test('parses remaining-cost increases and does not stack them', () => {
+    expect(parseCustomRemainingCostIncrease('What if remaining costs increase by 10%?')?.percent).toBe(10);
+    expect(parseCustomRemainingCostIncrease('Actually, make that 20% instead.')?.percent).toBe(20);
+    expect(parseCustomRemainingCostIncrease('Go back to the original forecast')?.type).toBe('restore');
+    const reply = buildRemainingCostIncreaseReply({
+      percent: 10,
+      project: {
+        title: 'Test Job',
+        bidPrice: 30000,
+        estimatedCost: 24000,
+        totalSpent: 10000,
+        progress: 0,
+      },
+    });
+    expect(reply).toContain('$15,400');
+    expect(reply).toContain('$25,400');
+    expect(reply).toContain('$4,600');
+    expect(reply).toContain('15.3%');
+    expect(reply).toContain('does not change saved project data');
+  });
+
   test('recognizes natural-language downside and calculation follow-ups', () => {
     expect(isBadOutcomeScenarioQuery('What is my projected profit if things go bad?')).toBe(true);
     expect(isBadOutcomeScenarioQuery('What is my projected profit?')).toBe(false);
     expect(isCalculationFollowUpQuery('Show me the calculation')).toBe(true);
     expect(isCalculationFollowUpQuery('What should I focus on today?')).toBe(false);
+  });
+
+  test('recognizes active-project filtering as a portfolio follow-up', () => {
+    expect(isPortfolioActiveFilterQuery('Only show me the active projects')).toBe(true);
+    expect(isPortfolioActiveFilterQuery('Compare my active projects')).toBe(false);
   });
 
   test('over-budget reply lists only projects above their total cost budget', () => {
@@ -263,6 +306,47 @@ describe('aiAssistantCore', () => {
     expect(financials.projectedMarginPct).toBeCloseTo(19.78, 2);
   });
 
+  test('recomputes stale forecast fields from the selected project inputs', () => {
+    const financials = getProjectFinancialSnapshot({
+      project: {
+        id: 'repaint-live',
+        contractValue: 30773.23,
+        adjustedCostBudget: 26759.33,
+        progress: 80,
+        forecastFinalCost: 47200,
+        projectedProfit: -16427,
+        expenses: [{ amount: 11800 }],
+      },
+      parsedContext: {
+        projectId: 'repaint-live',
+        progress: 0,
+        forecastFinalCost: 47200,
+        projectedProfit: -16427,
+      },
+    });
+
+    expect(financials.progress).toBe(80);
+    expect(financials.projectedFinalCost).toBeCloseTo(14750, 2);
+    expect(financials.projectedProfit).toBeCloseTo(16023.23, 2);
+    expect(financials.projectedMarginPct).toBeCloseTo(52.07, 2);
+  });
+
+  test('uses timeline milestone progress when direct project progress is stale', () => {
+    const financials = getProjectFinancialSnapshot({
+      project: {
+        id: 'repaint-live',
+        contractValue: 30773.23,
+        adjustedCostBudget: 26759.33,
+        progress: 0,
+        expenses: [{ amount: 11800 }],
+        milestones: [{ title: 'Painting', progressPct: 80 }],
+      },
+    });
+
+    expect(financials.progress).toBe(80);
+    expect(financials.projectedProfit).toBeCloseTo(16023.23, 2);
+  });
+
   test('does not use another project context for a portfolio target', () => {
     const financials = getProjectFinancialSnapshot({
       project: {
@@ -375,6 +459,26 @@ describe('aiAssistantCore', () => {
     ]);
   });
 
+  test('recovers an active nested status when the top-level estimate status is stale', () => {
+    const result = runCompareProjectsPipeline({
+      allProjects: [
+        {
+          id: 'recovered-1',
+          title: 'Recovered Active Job',
+          status: 'estimate',
+          projectData: { status: 'in_progress' },
+          bidPrice: 100,
+          estimatedCost: 80,
+          progress: 20,
+        },
+      ],
+      parsedContext: {},
+      args: { activeOnly: true },
+    });
+
+    expect(result.projects.map((project) => project.title)).toEqual(['Recovered Active Job']);
+  });
+
   test('budget risks reply focuses on active alerts, not full comparison', () => {
     const rows = [
       {
@@ -456,6 +560,8 @@ describe('aiAssistantCore', () => {
   test('isPortfolioBudgetRisksQuery matches alert prompts but not compare-all', () => {
     const { isPortfolioBudgetRisksQuery } = require('../aiAssistantCore');
     expect(isPortfolioBudgetRisksQuery('Which projects have budget risks? Show me specifics.')).toBe(true);
+    expect(isPortfolioBudgetRisksQuery('What are the current risks of my active projects?')).toBe(true);
+    expect(isPortfolioBudgetRisksQuery('Order the current risk of my current projects')).toBe(true);
     expect(isPortfolioBudgetRisksQuery('Compare all my projects for profitability and risk')).toBe(false);
   });
 

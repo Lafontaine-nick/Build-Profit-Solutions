@@ -56,6 +56,10 @@ import {
   resolveProjectContext, 
   requiresProjectContext,
   detectProjectIntent,
+  isGeneralKnowledgeQuery,
+  isConversationCancelQuery,
+  isWriteOrMutationRequest,
+  isExplicitExpenseLogQuery,
   SCENARIO_SELECTION_ID_PATTERN,
   type UIState,
   type RecentProject,
@@ -978,6 +982,17 @@ const isHealthRefreshMessage = (m: Message) => {
   const lc = (m.content || "").toLowerCase();
   return HEALTH_REFRESH_KEYWORDS.some((kw) => lc.includes(kw));
 };
+
+function collapseDuplicatedVoiceText(text: string): string {
+  const words = String(text || "").trim().split(/\s+/).filter(Boolean);
+  if (words.length < 8 || words.length % 2 !== 0) return String(text || "").trim();
+  const midpoint = words.length / 2;
+  const firstHalf = words.slice(0, midpoint).join(" ");
+  const secondHalf = words.slice(midpoint).join(" ");
+  return firstHalf.toLowerCase() === secondHalf.toLowerCase()
+    ? firstHalf
+    : String(text || "").trim();
+}
 
 const AIAssistantModal: React.FC<Props> = ({
   visible,
@@ -2302,9 +2317,7 @@ const AIAssistantModal: React.FC<Props> = ({
     // Check if we need to ask about analysis type
     const intent = detectProjectIntent(query);
     // CRITICAL: Detect expense logging requests - must catch "log expense", "log an expense", "can you log", etc.
-    const expenseLoggingPattern = /\b(log|record|add|need to log|can you log)\s+(an?\s+)?expense/i;
-    const isExpenseLikeQuery = expenseLoggingPattern.test(query) ||
-                              /\b(expense|expenses|material|materials|labor|labour|spent|bought|purchased)\b/i.test(query);
+    const isExpenseLikeQuery = isExplicitExpenseLogQuery(query);
     // CRITICAL: Detect change order requests - must catch "create change order", "create a change order", etc.
     const changeOrderPattern = /\b(create|add|make|i need|i want|give me|start)\s+(me\s+)?(a\s+)?(change\s+order|changeorder)\b/i;
     const isChangeOrderQuery = changeOrderPattern.test(query) ||
@@ -2983,9 +2996,58 @@ const AIAssistantModal: React.FC<Props> = ({
     }
   };
 
+  const clearPendingConversationFlows = () => {
+    setPendingProjectSelection(null);
+    setPendingAnalysisType(null);
+    setPendingPaymentSelection(null);
+    setPendingExpenseTypeSelection(null);
+    setPendingPOSelection(null);
+    setPendingScenarioSelection(null);
+    pendingResolvedProjectIdRef.current = null;
+    pendingPaymentProjectIdRef.current = null;
+    pendingPaymentProjectNameRef.current = null;
+    pendingPOProjectIdRef.current = null;
+    pendingPOProjectNameRef.current = null;
+    pendingExpenseTypeResumeRef.current = null;
+    pendingPOResumeRef.current = null;
+    pendingScenarioResumeRef.current = null;
+  };
+
   const sendMessage = async (messageOverride?: string) => {
-    const messageToSend = messageOverride || input.trim();
+    const messageToSend = collapseDuplicatedVoiceText(messageOverride || input.trim());
     if (!messageToSend || loading) return;
+    const isCancelTurn = isConversationCancelQuery(messageToSend);
+    const isGeneralTurn = isGeneralKnowledgeQuery(messageToSend);
+    const isReadOnlyWriteTurn = isCentralCommandReadOnly && isWriteOrMutationRequest(messageToSend);
+    if (isCancelTurn || isGeneralTurn || isReadOnlyWriteTurn) {
+      clearPendingConversationFlows();
+    } else if (
+      !isExplicitExpenseLogQuery(messageToSend) &&
+      !SCENARIO_SELECTION_ID_PATTERN.test(messageToSend.trim())
+    ) {
+      setPendingExpenseTypeSelection(null);
+      pendingExpenseTypeResumeRef.current = null;
+      setPendingScenarioSelection(null);
+      pendingScenarioResumeRef.current = null;
+    }
+    if (isCancelTurn) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const cancelUser: Message = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: messageToSend,
+        timestamp: new Date(),
+      };
+      const cancelReply: Message = {
+        id: Date.now().toString() + '-cancel',
+        role: 'assistant',
+        content: 'Okay — I stopped that. What would you like to check next?',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, cancelUser, cancelReply]);
+      setInput('');
+      return;
+    }
     let urlsToTry: string[] = [];
 
     // Haptic feedback on send
@@ -3021,6 +3083,207 @@ const AIAssistantModal: React.FC<Props> = ({
     setLoading(true);
     setIsTyping(true);
 
+    // Keep "original forecast" tied to the original estimate basis. This
+    // question must not fall through to a stale projected-profit response.
+    if (isCentralCommandReadOnly && /\boriginal\s+(?:estimate|forecast|projection)\b/i.test(messageToSend)) {
+      const contextNumber = (...values: unknown[]) => {
+        for (const value of values) {
+          const parsed = Number(String(value ?? '').replace(/[$,\s]/g, ''));
+          if (Number.isFinite(parsed) && parsed > 0) return parsed;
+        }
+        return 0;
+      };
+      const positiveNumber = (...values: unknown[]) => {
+        for (const value of values) {
+          const parsed = Number(String(value ?? '').replace(/[$,\s]/g, ''));
+          if (Number.isFinite(parsed) && parsed > 0) return parsed;
+        }
+        return 0;
+      };
+      const contractValue = contextNumber(
+        parsedContext?.contractValue,
+        parsedContext?.bidTotal,
+        parsedContext?.total
+      );
+      const plannedCost = contextNumber(
+        parsedContext?.adjustedCostBudget,
+        parsedContext?.estimatedCost
+      );
+      if (contractValue > 0 && plannedCost > 0) {
+        const originalProfit = contractValue - plannedCost;
+        const originalMargin = (originalProfit / contractValue) * 100;
+        const projectName =
+          parsedContext?.currentProject ||
+          parsedContext?.projectName ||
+          parsedContext?.bidTitle ||
+          'This project';
+        const localReply: Message = {
+          id: `${Date.now()}-original-forecast`,
+          role: 'assistant',
+          content:
+            `The original estimate forecast for the "${projectName}" project was ` +
+            `**$${Math.round(originalProfit).toLocaleString()} profit** ` +
+            `(${originalMargin.toFixed(1)}% margin): contract value ` +
+            `$${contractValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ` +
+            `less planned cost $${plannedCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. ` +
+            `That is separate from the current projected profit, which uses actual spending and progress.`,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, localReply]);
+        setLoading(false);
+        setIsTyping(false);
+        return;
+      }
+    }
+
+    // Current-job risk questions should use the live Central Command snapshot
+    // directly; do not let a stale project-id lookup replace it with estimate data.
+    if (
+      isCentralCommandReadOnly &&
+      !/\b(?:projects|jobs)\b/i.test(messageToSend) &&
+      /\b(?:current\s+risk|risk|risks)\b[\s\S]{0,50}\b(?:current\s+)?(?:job|project)\b/i.test(messageToSend)
+    ) {
+      const contextNumber = (...values: unknown[]) => {
+        for (const value of values) {
+          const parsed = Number(String(value ?? '').replace(/[$,\s]/g, ''));
+          if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+        }
+        return 0;
+      };
+      const positiveNumber = (...values: unknown[]) => {
+        for (const value of values) {
+          const parsed = Number(String(value ?? '').replace(/[$,\s]/g, ''));
+          if (Number.isFinite(parsed) && parsed > 0) return parsed;
+        }
+        return 0;
+      };
+      const allContextProjects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
+      const activeStatuses = new Set(['won', 'active', 'in_progress', 'in-progress']);
+      const liveProjects = [...(activeProjects || []), ...(estimates || [])];
+      const liveProject =
+        allContextProjects.find((p: any) => String(p?.id) === String(parsedContext?.projectId)) ||
+        allContextProjects.find((p: any) => activeStatuses.has(String(p?.status || p?.projectData?.status).toLowerCase())) ||
+        liveProjects.find((p: any) => String(p?.id) === String(parsedContext?.projectId)) ||
+        liveProjects.find((p: any) => activeStatuses.has(String(p?.status || p?.projectData?.status).toLowerCase())) ||
+        (allContextProjects.length === 1 ? allContextProjects[0] : null) ||
+        (liveProjects.length === 1 ? liveProjects[0] : null);
+      const source: any = liveProject || parsedContext || {};
+      const expenses = Array.isArray(source?.expenses)
+        ? source.expenses
+        : Array.isArray(source?.projectData?.expenses)
+          ? source.projectData.expenses
+          : Array.isArray(parsedContext?.expenses)
+            ? parsedContext.expenses
+            : [];
+      const buckets = Array.isArray(source?.buckets)
+        ? source.buckets
+        : Array.isArray(source?.projectData?.buckets)
+          ? source.projectData.buckets
+          : [];
+      const estimateData = source?.estimateData || source?.projectData?.estimateData || parsedContext?.estimateData || {};
+      const categoryBudget = (name: string, estimateKey: string) =>
+        contextNumber(
+          estimateData?.[estimateKey],
+          buckets.find((bucket: any) => String(bucket?.name || '').toLowerCase().includes(name))?.budget
+        );
+      const categorySpent = (name: string) =>
+        expenses.reduce(
+          (sum: number, expense: any) =>
+            String(expense?.category || '').toLowerCase().includes(name)
+              ? sum + contextNumber(expense?.amount)
+              : sum,
+          0
+        ) || buckets.reduce(
+          (sum: number, bucket: any) =>
+            String(bucket?.name || '').toLowerCase().includes(name)
+              ? sum + contextNumber(bucket?.spent)
+              : sum,
+          0
+        );
+      const materialBudget = categoryBudget('material', 'materialTotal') || categoryBudget('equipment', 'materialTotal');
+      const laborBudget = categoryBudget('labor', 'laborTotal');
+      const materialSpent = categorySpent('material') + categorySpent('equipment');
+      const laborSpent = categorySpent('labor');
+      const actualCost = positiveNumber(
+        source?.actualCost,
+        source?.totalSpent,
+        source?.spent,
+        source?.projectData?.actualCost,
+        source?.projectData?.totalSpent,
+        source?.projectData?.spent,
+        parsedContext?.actualCost,
+        parsedContext?.totalSpent,
+        materialSpent + laborSpent
+      );
+      const costBudget = positiveNumber(
+        source?.adjustedCostBudget,
+        source?.estimatedCost,
+        source?.projectData?.adjustedCostBudget,
+        source?.projectData?.estimatedCost,
+        parsedContext?.adjustedCostBudget,
+        parsedContext?.estimatedCost
+      );
+      const projectedProfit = contextNumber(source?.projectedProfit, parsedContext?.projectedProfit);
+      const contractValue = contextNumber(
+        source?.contractValue,
+        source?.bidPrice,
+        source?.projectData?.bidPrice,
+        parsedContext?.contractValue,
+        parsedContext?.bidTotal
+      );
+      const progress = contextNumber(
+        source?.progress,
+        source?.overallProgressPct,
+        source?.projectData?.progress,
+        source?.projectData?.overallProgressPct,
+        parsedContext?.progress
+      );
+      const calculatedForecastCost =
+        actualCost > 0 && progress > 5
+          ? actualCost / (progress / 100)
+          : costBudget;
+      const calculatedProjectedProfit =
+        contractValue > 0 && calculatedForecastCost > 0
+          ? contractValue - calculatedForecastCost
+          : projectedProfit;
+      const calculatedProjectedMargin =
+        contractValue > 0 && calculatedProjectedProfit != null
+          ? (calculatedProjectedProfit / contractValue) * 100
+          : contextNumber(source?.projectedMarginPct, parsedContext?.projectedMarginPct);
+      const projectName =
+        source?.title ||
+        source?.name ||
+        parsedContext?.currentProject ||
+        parsedContext?.projectName ||
+        parsedContext?.bidTitle ||
+        'Current project';
+      const budgetUsedPct = costBudget > 0 ? (actualCost / costBudget) * 100 : null;
+      const budgetRemaining = costBudget > 0 ? Math.max(0, costBudget - actualCost) : null;
+      const materialLine = materialBudget > 0
+        ? `Materials are $${Math.round(materialSpent).toLocaleString()} of $${materialBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${((materialSpent / materialBudget) * 100).toFixed(1)}%).`
+        : '';
+      const laborLine = laborBudget > 0
+        ? `Labor is $${Math.round(laborSpent).toLocaleString()} of $${laborBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
+        : '';
+      const localReply: Message = {
+        id: `${Date.now()}-current-risk`,
+        role: 'assistant',
+        content:
+          `For the **${projectName}** project, the main current risk is **budget pressure**. ` +
+          `${materialLine} ${laborLine}\n\n` +
+          `Total actual costs are **$${Math.round(actualCost).toLocaleString()}** of the ` +
+          `**$${costBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}** cost budget` +
+          `${budgetUsedPct != null ? ` (**${budgetUsedPct.toFixed(1)}% used**, with **$${Math.round(budgetRemaining || 0).toLocaleString()} remaining)` : ''}` +
+          `${calculatedProjectedProfit > 0 ? `, with a current projected profit of **$${Math.round(calculatedProjectedProfit).toLocaleString()}** (${calculatedProjectedMargin.toFixed(1)}% margin).` : '.'}` +
+          `\n\nWatch material commitments, labor burn, unapproved scope changes, and missing receipts.`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, localReply]);
+      setLoading(false);
+      setIsTyping(false);
+      return;
+    }
+
     // Scroll to bottom
     setTimeout(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
@@ -3031,7 +3294,7 @@ const AIAssistantModal: React.FC<Props> = ({
       // Include Command Center (AI Assistant Tab) so "Compare Projects" button works without asking "Which project?"
       const isPortfolioScopeMessage =
         (isProjectsScreenContext || isGlobalAssistantContext) &&
-        /\b(compare\s+(all\s+)?(my\s+)?(active\s+)?projects?|compare\s+my\s+projects|all\s+(of\s+)?my\s+projects|all\s+active\s+projects|which\s+project\s+is\s+most\s+profitable|identify\s+budget\s+risks|across\s+my\s+projects|across\s+all\s+projects|across\s+my\s+active\s+projects|health\s+check\s+across\s+all|forecast\s+(profit|across)|budget\s+risks|missing\s+receipts|upcoming\s+(deadlines|payments)|payments?\s+or\s+deadlines|deadlines?\s+or\s+payments|what\s+payments?\s+or\s+deadlines|(?:payments?|deadlines?|events?)\s+(?:are\s+)?coming\s+up|what'?s\s+on\s+(?:my\s+)?(?:the\s+)?calendar|calendar\s+events?|on\s+my\s+schedule|where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak|(yes\s+)?completed\s+projects?|completed\s+jobs?|review\s+(my\s+)?completed|compare\s+(my\s+)?completed|(which\s+)?(active\s+)?projects?\s+(are\s+)?over\s+budget|show\s+projects?\s+over\s+budget|over\s+budget(\s+and\s+by\s+how\s+much)?|identify\s+budget\s+risks|budget\s+risks)\b/i.test(
+        /\b(compare\s+(all\s+)?(my\s+)?(active\s+)?projects?|compare\s+my\s+projects|all\s+(of\s+)?my\s+projects|all\s+active\s+projects|which\s+project\s+is\s+most\s+profitable|identify\s+budget\s+risks|current\s+risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|what\s+are\s+(?:the\s+)?current\s+risks?\s+(?:of\s+)?(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|(?:order|rank|sort|list|show|tell\s+me)\b[\s\S]{0,50}\bcurrent\s+risk(?:s)?\b[\s\S]{0,50}\b(?:my\s+)?(?:active\s+|current\s+)?(?:projects?|jobs?)|across\s+my\s+projects|across\s+all\s+projects|across\s+my\s+active\s+projects|health\s+check\s+across\s+all|forecast\s+(profit|across)|budget\s+risks|missing\s+receipts|upcoming\s+(deadlines|payments)|payments?\s+or\s+deadlines|deadlines?\s+or\s+payments|what\s+payments?\s+or\s+deadlines|(?:payments?|deadlines?|events?)\s+(?:are\s+)?coming\s+up|what'?s\s+on\s+(?:my\s+)?(?:the\s+)?calendar|calendar\s+events?|on\s+my\s+schedule|where am I losing money|losing money across|profit leak|biggest profit leak|show me the biggest profit leak|(yes\s+)?completed\s+projects?|completed\s+jobs?|review\s+(my\s+)?completed|compare\s+(my\s+)?completed|(which\s+)?(active\s+)?projects?\s+(are\s+)?over\s+budget|show\s+projects?\s+over\s+budget|over\s+budget(\s+and\s+by\s+how\s+much)?|identify\s+budget\s+risks|budget\s+risks)\b/i.test(
           messageToSend
         );
 
@@ -3096,7 +3359,7 @@ const AIAssistantModal: React.FC<Props> = ({
       }
       
       // Skip project resolver for portfolio/compare-all messages — send directly to backend
-      if (!isPortfolioScopeMessage && (intent.needsProject || resolvedProjectId)) {
+      if (!isPortfolioScopeMessage && !isGeneralTurn && !isReadOnlyWriteTurn && (intent.needsProject || resolvedProjectId)) {
         try {
           const recentProjects: RecentProject[] = [...activeProjects, ...estimates].map(p => {
             const status = ((p.status || '') as string).toLowerCase();
@@ -3179,9 +3442,7 @@ const AIAssistantModal: React.FC<Props> = ({
             
             // Check if we need to ask about analysis type (only if not already selected)
             // CRITICAL: Detect expense logging requests - must catch "log expense", "log an expense", "can you log", etc.
-            const expensePattern = /\b(log|record|add|need to log|can you log)\s+(an?\s+)?expense/i;
-            const isExpenseLikeIntent = expensePattern.test(newMessage.content) ||
-                                      /\b(expense|expenses|material|materials|labor|labour|spent|bought|purchased)\b/i.test(newMessage.content);
+            const isExpenseLikeIntent = isExplicitExpenseLogQuery(newMessage.content);
             // CRITICAL: Detect change order requests - must catch "create change order", "create a change order", etc.
             const changeOrderPattern = /\b(create|add|make|i need|i want|give me|start)\s+(me\s+)?(a\s+)?(change\s+order|changeorder)\b/i;
             const isChangeOrderIntent = changeOrderPattern.test(newMessage.content) ||
@@ -3713,10 +3974,38 @@ const AIAssistantModal: React.FC<Props> = ({
       const hasScenarioSelectionOptions = Array.isArray(data.scenarioSelectionOptions) && data.scenarioSelectionOptions.length > 0;
       const hasSelectionCards = hasPaymentSelectionOptions || hasExpenseTypeSelectionOptions || hasPOSelectionOptions || hasScenarioSelectionOptions;
       const selectionType = hasPaymentSelectionOptions ? 'payment' : hasExpenseTypeSelectionOptions ? 'expense_type' : hasPOSelectionOptions ? 'po' : hasScenarioSelectionOptions ? 'scenario' : null;
+      let responseContext: any = parsedContext;
+      try {
+        const parsedResponseContext = JSON.parse(contextToSend || '');
+        if (parsedResponseContext && typeof parsedResponseContext === 'object') {
+          responseContext = parsedResponseContext;
+        }
+      } catch {
+        // Keep the already parsed context when the request context is unavailable.
+      }
+      const responseProjects = [
+        ...(Array.isArray(responseContext?.allProjects) ? responseContext.allProjects : []),
+        ...(Array.isArray(responseContext?.compareProjectsData) ? responseContext.compareProjectsData : []),
+        ...(Array.isArray(activeProjects) ? activeProjects : []),
+        ...(Array.isArray(estimates) ? estimates : []),
+      ];
+      const responseProjectName =
+        responseContext?.currentProject ||
+        responseContext?.projectName ||
+        responseContext?.projectTitle ||
+        responseProjects.find((project: any) => project?.title || project?.name)?.title ||
+        responseProjects.find((project: any) => project?.title || project?.name)?.name ||
+        '';
+      const responseContent =
+        responseProjectName && typeof data.reply === 'string'
+          ? data.reply
+              .replace(/"This project"/g, `"${responseProjectName}"`)
+              .replace(/\bThis project project\b/g, `${responseProjectName} project`)
+          : data.reply;
       const assistantMessage: Message = {
         id: hasSelectionCards ? Date.now().toString() + "-ai-selection-clarification" : Date.now().toString() + "-ai",
         role: "assistant",
-        content: data.reply ?? "Sorry, I couldn't generate a response.",
+        content: responseContent ?? "Sorry, I couldn't generate a response.",
         timestamp: new Date(),
         // Attach server-computed analysis card if present
         ...(data.analysisCard ? { analysisCard: data.analysisCard } : {}),
@@ -6032,7 +6321,7 @@ const AIAssistantModal: React.FC<Props> = ({
                         }}
                         multiline={false}
                         numberOfLines={1}
-                        ellipsizeMode="tail"
+                        scrollEnabled
                         maxLength={500}
                         textAlignVertical={
                           isCentralCommandReadOnly ? "center" : "top"
@@ -6070,19 +6359,6 @@ const AIAssistantModal: React.FC<Props> = ({
                             }))}
                       />
                     )}
-                    {/* Microphone button */}
-                    <TouchableOpacity
-                      onPress={isRecording ? stopRecording : startRecording}
-                      disabled={loading}
-                      style={styles.micButton}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name={isRecording ? "stop-circle" : "mic"}
-                        size={20}
-                        color={isRecording ? "#ef4444" : Colors.green}
-                      />
-                    </TouchableOpacity>
                   </View>
                   </View>
                 ) : (
@@ -6128,7 +6404,7 @@ const AIAssistantModal: React.FC<Props> = ({
                         onChangeText={setInput}
                         multiline={false}
                         numberOfLines={1}
-                        ellipsizeMode="tail"
+                        scrollEnabled
                         maxLength={500}
                         textAlignVertical="center"
                         returnKeyType={Platform.OS === "web" ? "send" : "default"}
@@ -6156,18 +6432,6 @@ const AIAssistantModal: React.FC<Props> = ({
                         })}
                       />
                     )}
-                    <TouchableOpacity
-                      onPress={isRecording ? stopRecording : startRecording}
-                      disabled={loading}
-                      style={styles.micButton}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name={isRecording ? "stop-circle" : "mic"}
-                        size={20}
-                        color={isRecording ? "#ef4444" : Colors.green}
-                      />
-                    </TouchableOpacity>
                   </View>
                 </LinearGradient>
                 )}
@@ -6743,7 +7007,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     textAlign: "left",
     paddingRight: 6,
-    maxHeight: 100,
+    height: 46,
+    minHeight: 46,
+    maxHeight: 46,
     lineHeight: 20,
     ...Platform.select({
       web: {
@@ -6809,12 +7075,6 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     fontSize: 14,
     fontWeight: '600',
-  },
-  micButton: {
-    padding: 4,
-    marginRight: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   centralMicButtonExpanded: {
     marginBottom: 8,

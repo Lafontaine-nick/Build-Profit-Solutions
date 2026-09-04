@@ -86,9 +86,13 @@ const {
   isPortfolioOverBudgetListQuery,
   isBadOutcomeScenarioQuery,
   isCalculationFollowUpQuery,
+  shouldContinueExpenseWorkflow,
+  parseCustomRemainingCostIncrease,
+  buildRemainingCostIncreaseReply,
   isPortfolioBudgetRisksQuery,
   isSimpleProjectBudgetStatusQuery,
   isPortfolioCompareActiveQuery,
+  isPortfolioActiveFilterQuery,
   isPortfolioFocusTodayQuery,
   isPortfolioWorstProjectQuery,
   sortCompareProjectsResults,
@@ -141,6 +145,88 @@ function findProjectMentionedInMessage(projects, message) {
   return ranked[0].project;
 }
 
+/** "for my active jobs" is a scope, not a project title. */
+function extractProjectNameHintFromMessage(message) {
+  const match = String(message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i);
+  if (!match) return null;
+  const hint = String(match[1] || '').trim();
+  if (!hint) return null;
+  if (/^(?:my\s+)?(?:active|current|this|the|our)?\s*(?:jobs?|projects?)$/i.test(hint)) return null;
+  if (/^(?:this|my|the|our)\s+(?:job|project)s?$/i.test(hint)) return null;
+  return hint;
+}
+
+function isActiveStatusForProfit(status) {
+  return ['won', 'active', 'in_progress', 'in-progress'].includes(String(status || '').toLowerCase());
+}
+
+function pickActiveProjectForProfit(projects = []) {
+  const list = Array.isArray(projects) ? projects : [];
+  const active = list.filter((p) =>
+    isActiveStatusForProfit(p?.status) || isActiveStatusForProfit(p?.projectData?.status)
+  );
+  if (active.length === 1) return active[0];
+  if (list.length === 1) return list[0];
+  return null;
+}
+
+function buildProjectedVsEstimateReply({ project = null, parsedContext = {} } = {}) {
+  const snapshot = getProjectFinancialSnapshot({ project, parsedContext });
+  if (!(snapshot.revenue > 0) || snapshot.projectedProfit == null || snapshot.estimatedCost == null) {
+    return null;
+  }
+  const originalProfit = snapshot.revenue - snapshot.estimatedCost;
+  const difference = snapshot.projectedProfit - originalProfit;
+  const contextProjects = Array.isArray(parsedContext?.allProjects)
+    ? parsedContext.allProjects
+    : [];
+  const comparisonProjects = Array.isArray(parsedContext?.compareProjectsData)
+    ? parsedContext.compareProjectsData
+    : [];
+  const contextProject =
+    contextProjects.find((item) => String(item?.id) === String(parsedContext?.projectId)) ||
+    contextProjects.find((item) =>
+      isActiveStatusForProfit(item?.status) ||
+      isActiveStatusForProfit(item?.projectData?.status)
+    ) ||
+    contextProjects.find((item) => item?.title || item?.name) ||
+    comparisonProjects.find((item) => item?.title || item?.name) ||
+    null;
+  const projectNameFromData =
+    project?.title ||
+    project?.name ||
+    project?.projectData?.title ||
+    project?.projectData?.name ||
+    contextProject?.title ||
+    contextProject?.name ||
+    contextProject?.projectData?.title ||
+    contextProject?.projectData?.name;
+  const projectName =
+    projectNameFromData ||
+    parsedContext.currentProject ||
+    parsedContext.currentProjectName ||
+    parsedContext.projectName ||
+    parsedContext.projectTitle ||
+    parsedContext.selectedProjectName ||
+    parsedContext.activeProjectName ||
+    parsedContext.currentJob ||
+    parsedContext.jobName ||
+    parsedContext.bidTitle ||
+    contextProject?.title ||
+    contextProject?.name ||
+    'This project';
+  return (
+    `For the "${projectName}" project:\n\n` +
+    `- **Current projected profit:** $${Math.round(snapshot.projectedProfit).toLocaleString()} ` +
+    `(${Number(snapshot.projectedMarginPct).toFixed(1)}% margin)\n` +
+    `- **Original estimate profit:** $${Math.round(originalProfit).toLocaleString()} ` +
+    `(${((originalProfit / snapshot.revenue) * 100).toFixed(1)}% margin)\n` +
+    `- **Difference:** ${difference >= 0 ? '+' : '-'}$${Math.abs(Math.round(difference)).toLocaleString()}\n\n` +
+    `The current projection uses actual spending and timeline progress. ` +
+    `The original estimate uses the planned cost budget.`
+  );
+}
+
 function buildCalculationFollowUpReply({ parsedContext = {}, allProjects = [], history = [] } = {}) {
   const priorMessages = Array.isArray(history) ? history : [];
   const lastUserMessage = String(
@@ -183,6 +269,17 @@ function buildCalculationFollowUpReply({ parsedContext = {}, allProjects = [], h
       `Cost budget: ${money(snapshot.estimatedCost)}`,
       `Variance: ${money(snapshot.spent)} − ${money(snapshot.estimatedCost)} = **${variance >= 0 ? `${money(variance)} over budget` : `${money(Math.abs(variance))} under budget`}**`,
     ].join('\n');
+  }
+
+  if (/\bremaining costs? increase|hypothetical\b/i.test(topic)) {
+    const increase = parseCustomRemainingCostIncrease(lastUserMessage, history);
+    if (increase?.type === 'remaining_increase') {
+      return buildRemainingCostIncreaseReply({
+        project: targetProject,
+        parsedContext: scopedContext,
+        percent: increase.percent,
+      });
+    }
   }
 
   if (/\b(profit|forecast|projected)\b/i.test(topic) &&
@@ -6597,7 +6694,22 @@ router.post('/scan-missing-costs', async (req, res) => {
     }
     const projectName = parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle;
     const projectId = parsedContext.projectId || parsedContext.activeProjectId || parsedContext.resolvedProjectId;
-    const allProjects = parsedContext.allProjects || [];
+    let allProjects = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : [];
+    // Central Command can intentionally remove project IDs for portfolio questions.
+    // If that leaves the backend with only the current project's snapshot, keep it
+    // available for read-only analysis instead of incorrectly reporting no projects.
+    if (
+      allProjects.length === 0 &&
+      parsedContext.assistantMode === 'central_command' &&
+      parsedContext.screen !== 'Estimate Generator' &&
+      String(parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || '').trim()
+    ) {
+      allProjects = [{
+        ...parsedContext,
+        id: parsedContext.projectId || parsedContext.resolvedProjectId || 'context-current-project',
+        title: parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle,
+      }];
+    }
     let currentProjectData = null;
     if (projectId && allProjects.length > 0) {
       currentProjectData = allProjects.find(p => String(p.id) === String(projectId));
@@ -6801,6 +6913,24 @@ router.post('/stream', async (req, res) => {
       }
     }
 
+    const customCostIncreaseStream = parseCustomRemainingCostIncrease(userMsgTrimStream, histStream);
+    if (customCostIncreaseStream?.type === 'remaining_increase') {
+      const namedIncreaseProjectStream = findProjectMentionedInMessage(parsedContext.allProjects, userMsgTrimStream);
+      const increaseProjectStream = namedIncreaseProjectStream ||
+        parsedContext.allProjects?.find((p) => String(p?.id) === String(parsedContext.projectId)) ||
+        null;
+      const increaseReplyStream = appendDataFreshness(buildRemainingCostIncreaseReply({
+        project: increaseProjectStream,
+        parsedContext: increaseProjectStream ? {} : parsedContext,
+        percent: customCostIncreaseStream.percent,
+      }), parsedContext);
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+      res.write(`data: ${JSON.stringify({ type: 'token', content: increaseReplyStream })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: buildAssistantFollowUps(userMsgTrimStream), sessionId: sessionStream?.id })}\n\n`);
+      res.end();
+      return;
+    }
+
     const asksForBadOutcomeStream = isBadOutcomeScenarioQuery(userMsgTrimStream);
     if (asksForBadOutcomeStream) {
       const namedProjectStream = findProjectMentionedInMessage(parsedContext.allProjects, userMsgTrimStream);
@@ -6828,7 +6958,22 @@ router.post('/stream', async (req, res) => {
 
     const session = sessionStream;
     const aiPmMode = user_settings.ai_project_manager_mode || false;
-    const allProjects = parsedContext.allProjects || [];
+    let allProjects = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : [];
+    // Streaming Central Command can strip project IDs for portfolio questions.
+    // Preserve the current project snapshot as an analytical candidate when no
+    // project list was sent, instead of surfacing a false "No projects available."
+    if (
+      allProjects.length === 0 &&
+      parsedContext.assistantMode === 'central_command' &&
+      parsedContext.screen !== 'Estimate Generator' &&
+      String(parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || '').trim()
+    ) {
+      allProjects = [{
+        ...parsedContext,
+        id: parsedContext.projectId || parsedContext.resolvedProjectId || 'context-current-project',
+        title: parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle,
+      }];
+    }
     const screen = parsedContext.screen || 'assistant_tab';
     const screenLower = screen.toLowerCase();
     const isCommandCenter = screenLower === 'projects' || screenLower === 'ai assistant tab';
@@ -6965,15 +7110,16 @@ router.post('/stream', async (req, res) => {
       let targetStream = streamProjects.find(p => String(p?.id) === String(parsedContext.projectId));
       if (!targetStream && parsedContext.currentProject) targetStream = resolveProjectByQuery(streamProjects, parsedContext.currentProject, { minScore: 35 }).project;
       if (targetStream) {
-        const contractVal = Number(targetStream.contractValue || targetStream.bidPrice || targetStream.bidTotal || 0);
-        const actual = Number(targetStream.totalSpent || targetStream.actualCost || 0);
-        const committedPOs = Number(parsedContext?.committedPOs ?? targetStream.committedPOs ?? 0) ||
-          (Array.isArray(targetStream.purchaseOrders) ? targetStream.purchaseOrders.filter(po => (po?.status || '').toLowerCase() === 'pending').reduce((s, po) => s + Number(po?.amount || 0), 0) : 0);
-        const progressPct = Math.max(0, Math.min(100, Number(targetStream.progress || targetStream.overallProgressPct || 0)));
-        const progressRatio = progressPct > 0 ? progressPct / 100 : 0;
-        const runRateCost = progressRatio > 0.01 && actual > 0 ? actual / progressRatio : 0;
-        const estCost = Number(targetStream.estimatedCost || 0);
-        const baseForecastFinalCost = Math.max(actual + committedPOs, runRateCost > 0 ? runRateCost : (estCost || actual));
+        const snapshot = getProjectFinancialSnapshot({ project: targetStream, parsedContext });
+        const contractVal = Number(snapshot.revenue || 0);
+        const actual = Number(snapshot.spent || 0);
+        const committedPOs = Number(snapshot.committedPOs || 0);
+        const progressPct = Math.max(0, Math.min(100, Number(snapshot.progress || 0)));
+        const estCost = Number(snapshot.estimatedCost || 0);
+        const baseForecastFinalCost = Number(
+          snapshot.projectedFinalCost ??
+          Math.max(actual + committedPOs, estCost || actual)
+        );
         const ed = targetStream.estimateData || parsedContext.estimateData || {};
         const buckets = parsedContext.buckets || targetStream.buckets || [];
         const laborBudget = Number(ed?.laborTotal ?? targetStream.laborTotal ?? 0) || buckets.filter(b => (b.name || '').toLowerCase().includes('labor')).reduce((s, b) => s + (Number(b.budget || b.bidBudget) || 0), 0);
@@ -7004,6 +7150,53 @@ router.post('/stream', async (req, res) => {
 
     // SIMPLE PROJECTED PROFIT: "projected profit for this job" / "expected profit" — use Overview's numbers (NOT delay scenario)
     const msgForProfitStream = (normalizedMessage || (message || '').replace(/[\u2018\u2019]/g, "'") || '').toLowerCase();
+    const isOriginalForecastStream =
+      /\boriginal\s+(?:estimate|forecast|projection)\b/i.test(msgForProfitStream) ||
+      /\b(?:projected|estimated)\s+profit\s+(?:from|in|on)\s+(?:my\s+)?estimates?\b/i.test(msgForProfitStream);
+    if (isOriginalForecastStream) {
+      const streamProjects = Array.isArray(allProjects) ? allProjects : [];
+      let targetStream = streamProjects.find(p => String(p?.id) === String(parsedContext.projectId));
+      if (!targetStream && parsedContext.currentProject) {
+        targetStream = resolveProjectByQuery(streamProjects, parsedContext.currentProject, { minScore: 35 }).project;
+      }
+      if (!targetStream) targetStream = pickActiveProjectForProfit(streamProjects);
+      if (!targetStream && streamProjects.length === 1) targetStream = streamProjects[0];
+      const snapshot = getProjectFinancialSnapshot({ project: targetStream, parsedContext });
+      if (snapshot.revenue > 0 && snapshot.estimatedCost != null) {
+        const originalProfit = snapshot.revenue - snapshot.estimatedCost;
+        const originalMargin = (originalProfit / snapshot.revenue) * 100;
+        const name = targetStream?.title || targetStream?.name || parsedContext.currentProject || 'This project';
+        const r =
+          `The original estimate forecast for the "${name}" project was ` +
+          `**$${Math.round(originalProfit).toLocaleString()} profit** ` +
+          `(${originalMargin.toFixed(1)}% margin): ` +
+          `contract value $${Math.round(snapshot.revenue).toLocaleString()} ` +
+          `less planned cost $${Math.round(snapshot.estimatedCost).toLocaleString()}. ` +
+          `That is different from the current projected profit, which uses actual spend and progress.`;
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: r })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+    const isProjectedVsEstimateStream =
+      /\b(?:compare|compared|comparison)\b/i.test(msgForProfitStream) &&
+      /\b(?:projected|current)\s+profit\b/i.test(msgForProfitStream) &&
+      /\b(?:estimate|estimates|estimated|bid)\b/i.test(msgForProfitStream);
+    if (isProjectedVsEstimateStream) {
+      const streamProjects = Array.isArray(allProjects) ? allProjects : [];
+      let targetStream = streamProjects.find(p => String(p?.id) === String(parsedContext.projectId));
+      if (!targetStream) targetStream = pickActiveProjectForProfit(streamProjects);
+      const comparisonReply = buildProjectedVsEstimateReply({ project: targetStream, parsedContext });
+      if (comparisonReply) {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no-cache' });
+        res.write(`data: ${JSON.stringify({ type: 'token', content: comparisonReply })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
+        res.end();
+        return;
+      }
+    }
     const isSimpleProfitStream = !msgForProfitStream.includes('forecast') && !isDelayScenarioStream && (
       /\b(projected|expected|estimated)\s+profit\b/i.test(msgForProfitStream) ||
       /\bprofit\s+(?:for|on)\s+(?:this\s+)?job\b/i.test(msgForProfitStream)
@@ -7019,17 +7212,29 @@ router.post('/stream', async (req, res) => {
         }
       }
       if (!targetStream) {
-        const forMatch = (message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i);
-        const nameFromMsg = forMatch ? forMatch[1].trim() : null;
+        const nameFromMsg = extractProjectNameHintFromMessage(message);
         if (nameFromMsg) targetStream = resolveProjectByQuery(streamProjects, nameFromMsg, { minScore: 35 }).project;
       }
-      if (targetStream) {
-        const profitSnapshot = getProjectFinancialSnapshot({ project: targetStream, parsedContext });
+      if (!targetStream) targetStream = pickActiveProjectForProfit(streamProjects);
+      if (!targetStream && streamProjects.length === 1) targetStream = streamProjects[0];
+      const displayStreamProject =
+        targetStream ||
+        pickActiveProjectForProfit(streamProjects) ||
+        streamProjects.find((p) => p?.title || p?.name) ||
+        null;
+      const profitSnapshot = getProjectFinancialSnapshot({ project: targetStream, parsedContext });
+      if (profitSnapshot.revenue > 0 && (targetStream || profitSnapshot.projectedProfit != null)) {
         const marginPct = profitSnapshot.projectedMarginPct;
         const projectedProfit = profitSnapshot.projectedProfit != null
           ? Math.round(profitSnapshot.projectedProfit)
           : null;
-        const name = targetStream.title || targetStream.name || 'This project';
+        const name =
+          displayStreamProject?.title ||
+          displayStreamProject?.name ||
+          parsedContext.currentProject ||
+          parsedContext.projectName ||
+          parsedContext.bidTitle ||
+          'This project';
         const r = buildProjectedProfitReply({
           projectName: name,
           projectedProfit,
@@ -7081,10 +7286,10 @@ router.post('/stream', async (req, res) => {
         }
       }
       if (!targetStream) {
-        const forMatch = (message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i);
-        const nameFromMsg = forMatch ? forMatch[1].trim() : null;
+        const nameFromMsg = extractProjectNameHintFromMessage(message);
         if (nameFromMsg) targetStream = resolveProjectByQuery(streamProjects, nameFromMsg, { minScore: 35 }).project;
       }
+      if (!targetStream) targetStream = pickActiveProjectForProfit(streamProjects);
       const streamReply = targetStream
         ? (() => {
             const isCurrentProject = isCurrentProjectMatch(targetStream, parsedContext);
@@ -7094,7 +7299,19 @@ router.post('/stream', async (req, res) => {
               followUp: '➡️ Want a detailed breakdown of your margin, or check on any other upcoming payments or project details?',
             })?.reply;
           })()
-        : (() => { const nameHint = (message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i)?.[1]?.trim() || 'this project'; return `I don't have ${nameHint}'s data in this view. Open the project and ask again, or ask from the project screen.`; })();
+        : (() => {
+            const snapshot = getProjectFinancialSnapshot({ parsedContext });
+            if (snapshot.revenue > 0 && snapshot.projectedProfit != null) {
+              const name = parsedContext.currentProject || parsedContext.projectName || 'This project';
+              return buildProjectedProfitReply({
+                projectName: name,
+                projectedProfit: snapshot.projectedProfit,
+                marginPct: snapshot.projectedMarginPct,
+                dataQuality: snapshot.dataQuality,
+              });
+            }
+            return 'I do not see an active project in this view. Open Projects and ask again.';
+          })();
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
       res.write(`data: ${JSON.stringify({ type: 'token', content: appendDataFreshness(streamReply, parsedContext) })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: 'done', suggestedFollowUps: [], sessionId: session?.id })}\n\n`);
@@ -7250,7 +7467,11 @@ router.post('/stream', async (req, res) => {
       if (isPortfolioLosingMoneyQuery(portfolioMsgStream)) streamCompareArgs = { activeOnly: true };
       else if (isPortfolioBudgetRisksQuery(portfolioMsgStream)) streamCompareArgs = { activeOnly: true, _budgetRisksIntent: true };
       else if (isPortfolioOverBudgetListQuery(portfolioMsgStream)) streamCompareArgs = { sortBy: 'overBudget', _overBudgetIntent: true };
-      else if (isPortfolioCompareActiveQuery(portfolioMsgStream)) streamCompareArgs = { activeOnly: true };
+      else if (
+        isPortfolioCompareActiveQuery(portfolioMsgStream) ||
+        (isPortfolioActiveFilterQuery(portfolioMsgStream) &&
+          histStream.some((item) => /\b(compare|comparison|profitability|risk)\b/i.test(String(item?.content || ''))))
+      ) streamCompareArgs = { activeOnly: true };
       else if (isPortfolioFocusTodayQuery(portfolioMsgStream)) streamCompareArgs = { activeOnly: true };
       else if (isPortfolioWorstProjectQuery(portfolioMsgStream)) streamCompareArgs = { activeOnly: true, sortBy: 'lowMargin' };
       if (streamCompareArgs) {
@@ -7563,6 +7784,42 @@ router.post('/', async (req, res) => {
 
     // Natural-language downside requests should run the Bad Remodel preset
     // directly instead of falling through to the simpler profit answer.
+    const customCostIncrease = parseCustomRemainingCostIncrease(userMsgTrim, hist);
+    if (customCostIncrease?.type === 'restore') {
+      const restoreProject = findProjectMentionedInMessage(parsedContext.allProjects, userMsgTrim) ||
+        parsedContext.allProjects?.find((p) => String(p?.id) === String(parsedContext.projectId)) ||
+        null;
+      const restoreSnapshot = getProjectFinancialSnapshot({
+        project: restoreProject,
+        parsedContext: restoreProject ? {} : parsedContext,
+      });
+      return res.json({
+        reply: appendDataFreshness(buildProjectedProfitReply({
+          projectName: restoreProject?.title || restoreProject?.name || parsedContext.currentProject || 'this project',
+          projectedProfit: restoreSnapshot.projectedProfit,
+          marginPct: restoreSnapshot.projectedMarginPct,
+          dataQuality: restoreSnapshot.dataQuality,
+        }), parsedContext),
+        actions: [],
+        suggestedFollowUps: buildAssistantFollowUps(userMsgTrim),
+      });
+    }
+    if (customCostIncrease?.type === 'remaining_increase') {
+      const namedIncreaseProject = findProjectMentionedInMessage(parsedContext.allProjects, userMsgTrim);
+      const increaseProject = namedIncreaseProject ||
+        parsedContext.allProjects?.find((p) => String(p?.id) === String(parsedContext.projectId)) ||
+        null;
+      return res.json({
+        reply: appendDataFreshness(buildRemainingCostIncreaseReply({
+          project: increaseProject,
+          parsedContext: increaseProject ? {} : parsedContext,
+          percent: customCostIncrease.percent,
+        }), parsedContext),
+        actions: [],
+        suggestedFollowUps: buildAssistantFollowUps(userMsgTrim),
+      });
+    }
+
     const asksForBadOutcome = isBadOutcomeScenarioQuery(userMsgTrim);
     if (asksForBadOutcome) {
       const namedProject = findProjectMentionedInMessage(parsedContext.allProjects, userMsgTrim);
@@ -7702,11 +7959,11 @@ router.post('/', async (req, res) => {
         }
       }
       if (!proj) {
-        const forM = (req.body?.message || message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i);
-        const nameFromMsg = forM ? forM[1].trim() : null;
+        const nameFromMsg = extractProjectNameHintFromMessage(req.body?.message || message);
         if (nameFromMsg) proj = resolveProjectByQuery(projectsList, nameFromMsg, { minScore: 35 }).project;
       }
-      const name = proj ? (proj.title || proj.name || 'This project') : ((req.body?.message || message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i)?.[1]?.trim()) || 'this project';
+      if (!proj) proj = pickActiveProjectForProfit(projectsList);
+      const name = proj ? (proj.title || proj.name || 'This project') : (parsedContext.currentProject || parsedContext.projectName || 'this project');
       if (proj) {
         const isCurrent = isCurrentProjectMatch(proj, parsedContext);
         const marginResult = buildMarginReplyForProject(proj, {
@@ -7718,9 +7975,61 @@ router.post('/', async (req, res) => {
         console.log('✅ SIMPLE MARGIN (first-priority): short response for', name, 'spend-to-date', spendToDateStr);
         return res.json({ reply: marginResult?.reply || `I don't have ${name}'s data in this view. Open the project and ask again, or ask from the project screen.`, actions: [] });
       }
-      const fallback = `I don't have ${name}'s data in this view. Open the project and ask again, or ask from the project screen.`;
+      const snapshotFallback = getProjectFinancialSnapshot({ parsedContext });
+      if (snapshotFallback.revenue > 0 && snapshotFallback.projectedProfit != null) {
+        return res.json({
+          reply: buildProjectedProfitReply({
+            projectName: name,
+            projectedProfit: snapshotFallback.projectedProfit,
+            marginPct: snapshotFallback.projectedMarginPct,
+            dataQuality: snapshotFallback.dataQuality,
+          }),
+          actions: [],
+        });
+      }
+      const fallback = 'I do not see an active project in this view. Open Projects and ask again.';
       console.log('🛡️ SIMPLE MARGIN (first-priority): no project, returning fallback');
       return res.json({ reply: fallback, actions: [] });
+    }
+
+    // ── FIRST-PRIORITY: "original forecast" → use the original estimate basis,
+    // not current actuals/progress and not a cached projected-profit field.
+    const isOriginalForecastQ =
+      /\boriginal\s+(?:estimate|forecast|projection)\b/i.test(rawBodyMsg) ||
+      /\b(?:projected|estimated)\s+profit\s+(?:from|in|on)\s+(?:my\s+)?estimates?\b/i.test(rawBodyMsg);
+    if (isOriginalForecastQ) {
+      const projectsList = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : [];
+      let proj = currentProjectData ||
+        (projectId ? projectsList.find(p => String(p?.id) === String(projectId)) : null) ||
+        (projectName ? resolveProjectByQuery(projectsList, projectName, { minScore: 35 }).project : null);
+      if (!proj) proj = pickActiveProjectForProfit(projectsList);
+      if (!proj && projectsList.length === 1) proj = projectsList[0];
+      const snapshot = getProjectFinancialSnapshot({ project: proj, parsedContext });
+      if (snapshot.revenue > 0 && snapshot.estimatedCost != null) {
+        const originalProfit = snapshot.revenue - snapshot.estimatedCost;
+        const originalMargin = (originalProfit / snapshot.revenue) * 100;
+        const name = proj?.title || proj?.name || parsedContext.currentProject || 'This project';
+        const reply =
+          `The original estimate forecast for the "${name}" project was **$${Math.round(originalProfit).toLocaleString()} profit** ` +
+          `(${originalMargin.toFixed(1)}% margin): contract value $${Math.round(snapshot.revenue).toLocaleString()} ` +
+          `less planned cost $${Math.round(snapshot.estimatedCost).toLocaleString()}. ` +
+          `That is different from the current projected profit, which uses actual spend and progress.`;
+        return res.json({ reply, actions: [] });
+      }
+    }
+
+    const isProjectedVsEstimateQ =
+      /\b(?:compare|compared|comparison)\b/i.test(rawBodyMsg) &&
+      /\b(?:projected|current)\s+profit\b/i.test(rawBodyMsg) &&
+      /\b(?:estimate|estimates|estimated|bid)\b/i.test(rawBodyMsg);
+    if (isProjectedVsEstimateQ) {
+      const projectsList = Array.isArray(parsedContext.allProjects) ? parsedContext.allProjects : [];
+      let proj = currentProjectData ||
+        (projectId ? projectsList.find(p => String(p?.id) === String(projectId)) : null) ||
+        (projectName ? resolveProjectByQuery(projectsList, projectName, { minScore: 35 }).project : null);
+      if (!proj) proj = pickActiveProjectForProfit(projectsList);
+      const comparisonReply = buildProjectedVsEstimateReply({ project: proj, parsedContext });
+      if (comparisonReply) return res.json({ reply: comparisonReply, actions: [] });
     }
 
     // ── FIRST-PRIORITY: "projected profit" / "expected profit" question → use Overview's numbers (matches badge)
@@ -7737,13 +8046,21 @@ router.post('/', async (req, res) => {
         }
       }
       if (!proj) {
-        const forM = (req.body?.message || message || '').match(/\b(?:for|on|about)\s+([A-Za-z][A-Za-z0-9\s\-']*?)(?:\s*\?|\s*$)/i);
-        const nameFromMsg = forM ? forM[1].trim() : null;
+        const nameFromMsg = extractProjectNameHintFromMessage(req.body?.message || message);
         if (nameFromMsg) proj = resolveProjectByQuery(projectsList, nameFromMsg, { minScore: 35 }).project;
       }
-      const name = proj ? (proj.title || proj.name || 'This project') : 'this project';
-      if (proj) {
-        const profitSnapshot = getProjectFinancialSnapshot({ project: proj, parsedContext });
+      if (!proj) proj = pickActiveProjectForProfit(projectsList);
+      if (!proj && projectsList.length === 1) proj = projectsList[0];
+      const displayProject =
+        proj ||
+        pickActiveProjectForProfit(projectsList) ||
+        projectsList.find((p) => p?.title || p?.name) ||
+        null;
+      const name = proj
+        ? (proj.title || proj.name || parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || 'This project')
+        : (displayProject?.title || displayProject?.name || parsedContext.currentProject || parsedContext.projectName || parsedContext.bidTitle || 'This project');
+      const profitSnapshot = getProjectFinancialSnapshot({ project: proj, parsedContext });
+      if (profitSnapshot.revenue > 0 && (proj || profitSnapshot.projectedProfit != null || profitSnapshot.estimatedCost != null)) {
         const marginPct = profitSnapshot.projectedMarginPct;
         const projectedProfit = profitSnapshot.projectedProfit != null
           ? Math.round(profitSnapshot.projectedProfit)
@@ -8371,18 +8688,24 @@ router.post('/', async (req, res) => {
     const isWeeksOverrunRequest = extraWeeks > 0 && (hasWeeksOverrunIntent || hasDelayIntentNoWeeks);
 
     if (isWeeksOverrunRequest && extraWeeks > 0) {
-      const contractVal = Number(contractValue || 0) || (Number(bidTotal || 0) + Number(approvedChangeOrdersTotal || 0));
-      const actual = Number(actualCost || 0);
-      const committedPOs = Number(parsedContext?.committedPOs ?? currentProjectData?.committedPOs ?? 0) ||
-        (Array.isArray(currentProjectData?.purchaseOrders) ? currentProjectData.purchaseOrders
-          .filter(po => (po?.status || '').toLowerCase() === 'pending')
-          .reduce((s, po) => s + Number(po?.amount || 0), 0) : 0);
-      const progressPct = Math.max(0, Math.min(100, Number(progress || 0)));
+      const snapshot = getProjectFinancialSnapshot({
+        project: currentProjectData,
+        parsedContext,
+        progressOverride: null,
+      });
+      const contractVal = Number(snapshot.revenue || contractValue || 0) ||
+        (Number(bidTotal || 0) + Number(approvedChangeOrdersTotal || 0));
+      const actual = Number(snapshot.spent ?? actualCost ?? 0);
+      const committedPOs = Number(snapshot.committedPOs || 0);
+      const progressPct = Math.max(0, Math.min(100, Number(snapshot.progress ?? progress ?? 0)));
       const progressRatio = progressPct > 0 ? progressPct / 100 : 0;
 
       // Layer 1: Baseline forecast (progress-ratio for trend; NOT for delay scenario)
       const runRateCost = progressRatio > 0.01 && actual > 0 ? actual / progressRatio : 0;
-      const baseForecastFinalCost = Math.max(actual + committedPOs, runRateCost > 0 ? runRateCost : (Number(estimatedCost || estimateData?.totalCost || estimateData?.baseCost || 0) || actual));
+      const baseForecastFinalCost = Number(
+        snapshot.projectedFinalCost ??
+        Math.max(actual + committedPOs, runRateCost > 0 ? runRateCost : (Number(snapshot.estimatedCost || estimatedCost || estimateData?.totalCost || estimateData?.baseCost || 0) || actual))
+      );
 
       // Layer 2: Delay scenario — explicit cost additions (labor, materials, overhead, equipment)
       const laborBudget = Number(estimateData?.laborTotal || parsedContext?.laborTotal || currentProjectData?.laborTotal || 0) ||
@@ -9856,6 +10179,9 @@ router.post('/', async (req, res) => {
           match = resolveProjectByQuery(allProjects, requestedProjectName, { minScore: 35 }).project;
         }
         if (!match) {
+          match = pickActiveProjectForProfit(allProjects);
+        }
+        if (!match) {
           const syntheticTitle = String(requestedProjectName || '').trim();
           if (syntheticTitle) {
             match = {
@@ -10066,11 +10392,22 @@ router.post('/', async (req, res) => {
         };
         candidates = dedupeProjects(candidates);
         const searchName = String(args.projectName || '').toLowerCase().trim();
-        if (searchName) {
+        const genericSearch = /^(?:my\s+)?(?:active|current|this|the|our)?\s*(?:jobs?|projects?)$/i.test(searchName);
+        if (searchName && !genericSearch) {
           const resolved = resolveProjectByQuery(candidates, searchName, { minScore: 35 });
           candidates = resolved?.project ? [resolved.project] : [];
         }
-        if (candidates.length === 0) return { success: false, error: searchName ? `No project found matching "${args.projectName}".` : 'No projects available.' };
+        if (candidates.length === 0) {
+          const fallback = pickActiveProjectForProfit(allProjects) || (parsedContext.currentProject || parsedContext.projectName
+            ? {
+                ...parsedContext,
+                id: parsedContext.projectId || 'context-current-project',
+                title: parsedContext.currentProject || parsedContext.projectName,
+              }
+            : null);
+          if (fallback) candidates = [fallback];
+        }
+        if (candidates.length === 0) return { success: false, error: searchName && !genericSearch ? `No project found matching "${args.projectName}".` : 'No projects available.' };
 
         const forecasts = candidates.map(p => {
           const title = p?.title || p?.name || 'Project';
@@ -10987,22 +11324,11 @@ router.post('/', async (req, res) => {
     // Catch expense logging requests BEFORE router runs to prevent misclassification
     // BUT skip if user is in a daily log flow
     if (!inDailyLogContext) {
-      const recentUserTurns = allUserMessages
-        .slice(-8)
-        .map((m) => String(m?.content || '').trim())
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      const combinedMessage = `${recentUserTurns} ${messageLower}`.replace(/\s+/g, ' ').trim();
-      const hasLogKeyword =
-        /\b(log|record|add|create|make|enter|submit)\b/i.test(combinedMessage) ||
-        /\b(login\s+expense|log\s+in\s+expense)\b/i.test(combinedMessage) ||
-        /\b(material|materials)\s+expense\b/i.test(combinedMessage);
-      const hasExpenseKeyword =
-        /\bexpense/i.test(combinedMessage) ||
-        /\b(spent|bought|purchased)\b/i.test(combinedMessage);
-      const preRouterIsExpenseLogging = hasLogKeyword && hasExpenseKeyword;
-      const preRouterHasExpenseType = /\b(material|materials|labor|labour)\b/i.test(combinedMessage);
+      const lastAssistantForExpensePre = String(
+        [...messages].reverse().find((item) => item?.role === 'assistant')?.content || ''
+      );
+      const preRouterIsExpenseLogging = shouldContinueExpenseWorkflow(String(message || ''), lastAssistantForExpensePre);
+      const preRouterHasExpenseType = /\b(material|materials|labor|labour|equipment|permit|other)\b/i.test(String(message || ''));
       
       // If this is clearly an expense logging request without type, return early with green-card options
       if (preRouterIsExpenseLogging && !preRouterHasExpenseType) {
@@ -11325,25 +11651,21 @@ router.post('/', async (req, res) => {
     // More flexible detection - check for "log" + "expense" anywhere in the message
     // Handles patterns like "can you log an expense", "i need to log an expense", "log expense", etc.
     // BUT exclude if it's a daily log request
-    const hasLogKeywordForExpense =
-      /\b(log|record|add|create|make|enter|submit)\b/i.test(combinedMessageForExpense) ||
-      /\b(login\s+expense|log\s+in\s+expense)\b/i.test(combinedMessageForExpense) ||
-      /\b(material|materials)\s+expense\b/i.test(combinedMessageForExpense);
-    const hasExpenseKeywordForExpense =
-      /\bexpense/i.test(combinedMessageForExpense) ||
-      /\b(spent|bought|purchased)\b/i.test(combinedMessageForExpense);
-    const isExpenseLoggingRequest = hasLogKeywordForExpense && hasExpenseKeywordForExpense && !inDailyLogContextForExpense;
+    const lastAssistantForExpense = String(
+      [...messages].reverse().find((item) => item?.role === 'assistant')?.content || ''
+    );
+    const isExpenseLoggingRequest =
+      !inDailyLogContextForExpense &&
+      shouldContinueExpenseWorkflow(String(message || ''), lastAssistantForExpense);
     
     // Check if expense type is already specified (materials/labor) or from green-card selection
     const expenseTypeFromCards = parsedContext?.expenseTypeSelectionResume && parsedContext?.selectedExpenseType;
     const hasExpenseType = expenseTypeFromCards ||
-      /\b(material|materials|labor|labour|equipment|permit|other)\b/i.test(combinedMessageForExpense);
+      /\b(material|materials|labor|labour|equipment|permit|other)\b/i.test(String(message || ''));
     
     console.log('🔍 Expense logging detection:', { 
       isExpenseLoggingRequest, 
       hasExpenseType,
-      hasLogKeywordForExpense,
-      hasExpenseKeywordForExpense,
       inDailyLogContextForExpense,
       message: message?.substring(0, 50),
       lastUserContent: lastUserContent.substring(0, 50),
@@ -11358,6 +11680,8 @@ router.post('/', async (req, res) => {
     const overBudgetPreCheck = isPortfolioOverBudgetListQuery(messageLower);
     const budgetRisksPreCheck = isPortfolioBudgetRisksQuery(messageLower);
     const compareActivePreCheck = isPortfolioCompareActiveQuery(messageLower);
+    const activeFilterFollowUpPreCheck = isPortfolioActiveFilterQuery(messageLower) &&
+      history.some((item) => /\b(compare|comparison|profitability|risk)\b/i.test(String(item?.content || '')));
     const worstProjectPreCheck = isPortfolioWorstProjectQuery(messageLower);
     let routerResult;
     if (losingMoneyPreCheck) {
@@ -11404,7 +11728,7 @@ router.post('/', async (req, res) => {
         confidence: 0.99,
         _overBudgetIntent: true,
       };
-    } else if (compareActivePreCheck) {
+    } else if (compareActivePreCheck || activeFilterFollowUpPreCheck) {
       console.log('🛡️ PRE-ROUTER: Compare active projects → skipping router, forcing compare_projects (activeOnly)');
       routerResult = {
         domain: 'portfolio',
@@ -11897,10 +12221,13 @@ router.post('/', async (req, res) => {
       selectedScenario = parsedContext.selectedScenario;
       console.log('🛡️ Scenario guard: user selected from card', selectedScenario);
     }
+    const hasExplicitPercentScenario = /\d+(?:\.\d+)?\s*%/.test(String(message || ''));
     const isGenericScenarioRequest =
       (scenarioIntentRegex.test(String(message || '')) || profitScenariosIntentRegex.test(String(message || ''))) &&
       !selectedScenario &&
-      !delayOverrunContext;
+      !delayOverrunContext &&
+      !hasExplicitPercentScenario &&
+      !parseCustomRemainingCostIncrease(String(message || ''), history);
     // "What are my profit scenarios" / "show me profit scenarios" etc. → run all three immediately (same response as What If button + Yes)
     const isDirectProfitScenariosAsk = profitScenariosIntentRegex.test(String(message || '').trim());
     // User said "all" / "all of them" / "yes" / "yes all of them" (after "which scenario?") → run all three presets

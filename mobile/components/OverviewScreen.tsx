@@ -143,6 +143,8 @@ const CircularProgress = ({
 interface OverviewScreenProps {
   project: ProjectOverview;
   theme?: 'dark' | 'light';
+  /** Live milestone progress supplied by Project Detail so Overview matches Timeline. */
+  scheduleProgressPct?: number;
   onAssignPM?: () => void;
   onAddCrew?: () => void;
   onEditProject?: () => void;
@@ -155,6 +157,7 @@ interface OverviewScreenProps {
 export default function OverviewScreen({
   project,
   theme = 'dark',
+  scheduleProgressPct,
 }: OverviewScreenProps) {
   const { theme: themeContext, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
@@ -294,6 +297,9 @@ export default function OverviewScreen({
   };
 
   const getScheduleProgress = () => {
+    if (typeof scheduleProgressPct === 'number' && Number.isFinite(scheduleProgressPct)) {
+      return Math.min(100, Math.max(0, scheduleProgressPct));
+    }
     if (project.overallProgressPct !== undefined && project.overallProgressPct !== null) {
       return Math.min(100, Math.max(0, project.overallProgressPct));
     }
@@ -343,7 +349,8 @@ export default function OverviewScreen({
     : 'Invalid Date';
   const projectStatus = String((project as any)?.status ?? '').toLowerCase();
   const isProjectCompleted = projectStatus === 'completed';
-  const progressForForecast = isProjectCompleted ? 100 : (project.overallProgressPct ?? 0);
+  // Use the same schedule progress displayed above and in Timeline for the EAC forecast.
+  const progressForForecast = isProjectCompleted ? 100 : scheduleProgress;
   const elapsedTimePct = computeElapsedCalendarPct(project.startISO, project.endISO);
   const profitForecast = computeProfitForecast({
     contractValue: financials.adjustedContractValue,

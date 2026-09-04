@@ -48,8 +48,8 @@ export default function SelectionCards({
   const textColor = darkMode ? '#F9FAFB' : '#1e293b';
   const subtextColor = darkMode ? '#F3F4F6' : '#64748b';
   const gradientColors: readonly [string, string] = darkMode
-    ? ['rgba(45, 255, 196, 0.15)', 'rgba(0, 166, 255, 0.15)']
-    : ['rgba(45, 255, 196, 0.1)', 'rgba(0, 166, 255, 0.1)'];
+    ? ['rgba(71, 85, 105, 0.42)', 'rgba(30, 41, 59, 0.72)']
+    : ['rgba(226, 232, 240, 0.92)', 'rgba(203, 213, 225, 0.92)'];
 
   return (
     <View style={styles.container}>
@@ -104,17 +104,24 @@ const styles = StyleSheet.create({
   },
   chipWrapper: {
     marginBottom: 8,
+    borderRadius: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.22,
+    shadowRadius: 5,
+    elevation: 2,
   },
   chipWrapperCompact: {
     marginBottom: 4,
   },
   chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
+    paddingHorizontal: 17,
+    paddingVertical: 11,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(45, 255, 196, 0.3)',
+    borderColor: 'rgba(148, 163, 184, 0.34)',
     minWidth: 120,
+    overflow: 'hidden',
   },
   chipCompact: {
     paddingHorizontal: 10,
@@ -122,12 +129,12 @@ const styles = StyleSheet.create({
     minWidth: 80,
   },
   chipText: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
     marginBottom: 2,
   },
   chipSubtext: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
   },
 });

@@ -527,11 +527,41 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
                 (Array.isArray(estimate.lines) && estimate.lines.length > 0))
           );
         };
+        let savedCurrentBid: Record<string, unknown> | undefined;
+        let savedEstimate: Record<string, unknown> | undefined;
+        try {
+          const currentBidRaw = await AsyncStorage.getItem('bps.currentBid.v2');
+          if (currentBidRaw) {
+            const parsedBid = JSON.parse(currentBidRaw) as Record<string, unknown>;
+            if (String(parsedBid?.id ?? '') === String(projectId ?? '')) {
+              savedCurrentBid = parsedBid;
+            }
+          }
+          const savedEstimatesRaw = await AsyncStorage.getItem('savedEstimates');
+          if (savedEstimatesRaw) {
+            const parsedEstimates = JSON.parse(savedEstimatesRaw);
+            if (Array.isArray(parsedEstimates)) {
+              savedEstimate = parsedEstimates.find(
+                (estimate: Record<string, unknown>) =>
+                  String(estimate?.id ?? '') === String(projectId ?? ''),
+              );
+            }
+          }
+        } catch {
+          /* Ignore an unavailable or malformed current-bid snapshot. */
+        }
         const listEstimateData =
-          (estimateHasLineItems(unified?.estimateData)
-            ? unified?.estimateData
-            : (listProjectData as ProjectOverview).estimateData) ||
-          unified?.estimateData;
+          [
+            unified?.estimateData,
+            (listProjectData as ProjectOverview).estimateData,
+            savedCurrentBid,
+            savedEstimate?.data,
+            savedEstimate,
+          ].find(estimateHasLineItems) ||
+          unified?.estimateData ||
+          (listProjectData as ProjectOverview).estimateData ||
+          savedCurrentBid ||
+          savedEstimate;
         const hydrateEstimateData = (candidate: ProjectOverview): ProjectOverview =>
           estimateHasLineItems(candidate.estimateData) || !listEstimateData
             ? candidate

@@ -749,6 +749,16 @@ const pushProjectsToBackend = async (list: UnifiedProject[]): Promise<any[]> => 
   }
 };
 
+const estimateDataHasLineItems = (value: unknown): boolean => {
+  const estimate = value as Record<string, unknown> | undefined;
+  return Boolean(
+    estimate &&
+      ((Array.isArray(estimate.materialLineItems) && estimate.materialLineItems.length > 0) ||
+        (Array.isArray(estimate.laborLineItems) && estimate.laborLineItems.length > 0) ||
+        (Array.isArray(estimate.lines) && estimate.lines.length > 0))
+  );
+};
+
 /** Merge server rows with local-only drafts and preserve completed status from the app. */
 const mergeLocalAndBackend = (
   local: UnifiedProject[],
@@ -827,7 +837,25 @@ const mergeLocalAndBackend = (
         id: serverP.id,
       };
     }
-    return serverP;
+    const localEstimateData =
+      localP.estimateData || localP.projectData?.estimateData;
+    const serverEstimateData =
+      serverP.estimateData || serverP.projectData?.estimateData;
+    const preservedEstimateData = estimateDataHasLineItems(localEstimateData)
+      ? localEstimateData
+      : estimateDataHasLineItems(serverEstimateData)
+        ? serverEstimateData
+        : localEstimateData || serverEstimateData;
+    return preservedEstimateData
+      ? {
+          ...serverP,
+          estimateData: preservedEstimateData,
+          projectData: {
+            ...(serverP.projectData || {}),
+            estimateData: preservedEstimateData,
+          },
+        }
+      : serverP;
   });
 
   if (options?.workspaceMember) {

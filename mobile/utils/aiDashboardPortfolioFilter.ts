@@ -21,6 +21,37 @@ const AI_DASHBOARD_PROJECT_STATUSES = new Set([
   'active',
 ]);
 
+const PORTFOLIO_VISIBLE_STATUSES = new Set([
+  'bid_submitted',
+  'submitted',
+  'won',
+  'in_progress',
+  'active',
+  'completed',
+  'complete',
+  'closed',
+  'done',
+  'finished',
+]);
+
+/**
+ * Saved project snapshots can retain a stale top-level "estimate" status after
+ * the same project has been converted to won/in-progress in projectData.
+ * Prefer the nested lifecycle status when it is the more advanced, dashboard-
+ * visible value so AI receives the same active project the app displays.
+ */
+export function resolvePortfolioProjectStatus(project: any): string {
+  const topLevel = normalizePortfolioStatus(project?.status);
+  const nested = normalizePortfolioStatus(project?.projectData?.status);
+  if (
+    (topLevel === 'draft' || topLevel === 'estimate') &&
+    PORTFOLIO_VISIBLE_STATUSES.has(nested)
+  ) {
+    return nested;
+  }
+  return topLevel || nested;
+}
+
 export function isProjectEligibleForAiDashboardInsights(
   p: { id?: unknown; status?: unknown } | null | undefined
 ): boolean {
@@ -30,7 +61,7 @@ export function isProjectEligibleForAiDashboardInsights(
 
 /** Same visibility rules as Dashboard → All Projects (hides draft/estimate-only rows). */
 export function isDashboardListedProject(p: { status?: unknown } | null | undefined): boolean {
-  const status = normalizePortfolioStatus(p?.status);
+  const status = resolvePortfolioProjectStatus(p);
   if (status === 'draft' || status === 'estimate') return false;
   return (
     status === 'bid_submitted' ||
@@ -111,8 +142,8 @@ export function dedupeProjectsByBestStatus(projects: any[]): any[] {
       m.set(id, p);
       continue;
     }
-    const ra = STATUS_RANK_FOR_AI_DEDUPE[normalizePortfolioStatus(p.status)] ?? 0;
-    const rb = STATUS_RANK_FOR_AI_DEDUPE[normalizePortfolioStatus(prev.status)] ?? 0;
+    const ra = STATUS_RANK_FOR_AI_DEDUPE[resolvePortfolioProjectStatus(p)] ?? 0;
+    const rb = STATUS_RANK_FOR_AI_DEDUPE[resolvePortfolioProjectStatus(prev)] ?? 0;
     if (ra > rb) m.set(id, p);
   }
   return [...m.values()];
@@ -429,10 +460,7 @@ export function filterProjectsForPortfolioAi(
   return dedupeProjectsByBestStatus(projects).filter((p) => {
     const id = String(p?.id ?? '').trim();
     if (id && deletedIds.has(id)) return false;
-    return isDashboardListedProject({
-      ...p,
-      status: p?.status ?? p?.projectData?.status,
-    });
+    return isDashboardListedProject(p);
   });
 }
 

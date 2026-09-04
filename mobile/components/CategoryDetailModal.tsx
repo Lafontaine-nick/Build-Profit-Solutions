@@ -569,10 +569,20 @@ export default function CategoryDetailModal({
   // Check for duplicate transactions
   const checkForDuplicates = (transaction: any): boolean => {
     const expenses = projectData.expenses || [];
+    const normalizeItemText = (value: unknown): string =>
+      String(value || '')
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim();
+    const transactionItem = normalizeItemText(
+      transaction.material || transaction.description || transaction.notes
+    );
     const duplicate = expenses.find(exp => 
       exp.vendor === transaction.vendor &&
       Math.abs(exp.amount - transaction.amount) < 0.01 &&
-      Math.abs(new Date(exp.date).getTime() - new Date(transaction.date).getTime()) < 86400000 // Same day
+      Math.abs(new Date(exp.date).getTime() - new Date(transaction.date).getTime()) < 86400000 && // Same day
+      transactionItem.length > 0 &&
+      normalizeItemText(exp.material || exp.description || exp.notes) === transactionItem
     );
     return !!duplicate;
   };

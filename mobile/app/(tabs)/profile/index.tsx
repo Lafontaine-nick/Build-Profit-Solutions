@@ -24,8 +24,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
-import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Text as SvgText } from 'react-native-svg';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -248,7 +246,7 @@ interface SegmentTabProps {
 }
 
 // Helper function to get segment styles
-const getSegmentStyles = (Colors: any) => StyleSheet.create({
+const getSegmentStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
   segmentTab: {
     flex: 1,
     paddingVertical: 10,
@@ -256,10 +254,12 @@ const getSegmentStyles = (Colors: any) => StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surface2,
+    backgroundColor: 'transparent',
   },
   segmentTabActive: {
-    backgroundColor: Colors.primary,
+    backgroundColor: darkMode ? 'rgba(67, 206, 162, 0.14)' : 'rgba(67, 206, 162, 0.12)',
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(67, 206, 162, 0.35)' : 'rgba(67, 206, 162, 0.4)',
   },
   segmentTabInner: {
     flexDirection: 'row',
@@ -269,48 +269,36 @@ const getSegmentStyles = (Colors: any) => StyleSheet.create({
   segmentLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.text,
+    color: Colors.sub,
   },
   segmentLabelActive: {
-    color: '#050B13',
+    color: Colors.primary,
   },
 });
 
 const SegmentTab: React.FC<SegmentTabProps> = ({ label, icon, isActive, onPress }) => {
-  const { theme } = useTheme();
+  const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const styles = useMemo(() => getSegmentStyles(Colors), [Colors]);
+  const styles = useMemo(() => getSegmentStyles(Colors, darkMode), [Colors, darkMode]);
   
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPress();
   };
 
-  if (isActive) {
-    return (
-      <View style={[styles.segmentTab, styles.segmentTabActive]}>
-        <Pressable onPress={handlePress}>
-          <View style={styles.segmentTabInner}>
-            <Ionicons name={icon as any} size={18} color="#050B13" />
-            <Text style={[styles.segmentLabel, styles.segmentLabelActive]}>
-              {label}
-            </Text>
-          </View>
-        </Pressable>
-      </View>
-    );
-  }
+  const iconColor = isActive ? Colors.primary : Colors.sub;
+  const labelStyle = isActive
+    ? [styles.segmentLabel, styles.segmentLabelActive]
+    : styles.segmentLabel;
 
   return (
     <Pressable
       onPress={handlePress}
-      style={styles.segmentTab}
+      style={[styles.segmentTab, isActive && styles.segmentTabActive]}
     >
       <View style={styles.segmentTabInner}>
-        <Ionicons name={icon as any} size={18} color={Colors.text} />
-        <Text style={styles.segmentLabel}>
-          {label}
-        </Text>
+        <Ionicons name={icon as any} size={18} color={iconColor} />
+        <Text style={labelStyle}>{label}</Text>
       </View>
     </Pressable>
   );
@@ -368,12 +356,6 @@ export default function ProfileScreen() {
   }, [layoutWidth]);
   /** Web: column shell handles insets; native keeps edge bleed. */
   const profileShellBleedActive = Platform.OS !== 'web';
-  const footerSvgWidth = Math.max(
-    1,
-    profileShellBleedActive
-      ? layoutWidth - (desktopWeb ? 16 : 8)
-      : Math.min(layoutWidth, getWebPageShellMaxWidth('profile')) - edge * 2
-  );
   const styles = useMemo(() => getStyles(Colors, darkMode, desktopWeb), [Colors, darkMode, desktopWeb]);
   const { updateProfile, updatePreferences, logout: apiLogout } = useApi();
   const { clearProjectsLocal } = useProjectList();
@@ -451,7 +433,6 @@ export default function ProfileScreen() {
   const [editModal, setEditModal] = useState(false);
   const [settingsModal, setSettingsModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [settingsSearch, setSettingsSearch] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState(currentLanguage);
 
   // Sync selectedLanguage with currentLanguage when it changes
@@ -644,6 +625,8 @@ export default function ProfileScreen() {
   const [newLicenseText, setNewLicenseText] = useState('');
   const [isEditingBio, setIsEditingBio] = useState(false);
   const [isEditingPortfolio, setIsEditingPortfolio] = useState(false);
+  const [previewModalVisible, setPreviewModalVisible] = useState(false);
+  const [editModalFocusedField, setEditModalFocusedField] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const licenseInputRefs = useRef<(TextInput | null)[]>([]);
   const addLicenseInputRef = useRef<TextInput>(null);
@@ -657,6 +640,9 @@ export default function ProfileScreen() {
   const theme = useMemo(() => ({
     background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
     card: darkMode ? '#1C1D20' : Colors.surface2,
+    cardInset: darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.92)',
+    fieldMuted: darkMode ? 'rgba(255, 255, 255, 0.55)' : 'rgba(15, 23, 42, 0.55)',
+    fieldPlaceholder: darkMode ? 'rgba(255, 255, 255, 0.35)' : 'rgba(15, 23, 42, 0.35)',
     text: Colors.text,
     subtext: Colors.sub,
     accent: Colors.primary,
@@ -668,8 +654,29 @@ export default function ProfileScreen() {
     iconBg: Colors.iconBg,
     inputBg: Colors.surface2,
     softBorder: Colors.line,
-  }), [Colors]);
+  }), [Colors, darkMode]);
 
+  const editFieldInputStyle = useCallback(
+    (field: string, value: string, extra?: object) => [
+      styles.editModalFieldInput,
+      extra,
+      {
+        color:
+          editModalFocusedField === field || String(value || '').trim()
+            ? theme.text
+            : theme.fieldMuted,
+      },
+    ],
+    [editModalFocusedField, theme.text, theme.fieldMuted]
+  );
+
+  const editFieldFocusHandlers = useCallback(
+    (field: string) => ({
+      onFocus: () => setEditModalFocusedField(field),
+      onBlur: () => setEditModalFocusedField((current) => (current === field ? null : current)),
+    }),
+    []
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -910,6 +917,7 @@ export default function ProfileScreen() {
         console.error('Failed to save profile to AsyncStorage:', error);
       }
       
+      setEditModalFocusedField(null);
       setEditModal(false);
       Alert.alert('Success', 'Profile updated successfully!');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -932,12 +940,14 @@ export default function ProfileScreen() {
       city: user.location?.split(', ')[0] || '',
       state: user.location?.split(', ')[1] || '',
     });
+    setEditModalFocusedField(null);
     setEditModal(false);
   }, [user]);
 
   const openEditProfileModal = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEditForm(buildEditFormFromUser(user));
+    setEditModalFocusedField(null);
     setEditModal(true);
   }, [user]);
 
@@ -1425,12 +1435,10 @@ export default function ProfileScreen() {
     return Math.round((completedFields / totalFields) * 100);
   }, [user]);
 
-  // Filter settings based on search query
-  const filterSettings = useCallback((settingText: string): boolean => {
-    if (!settingsSearch || settingsSearch.trim() === '') return true;
-    const searchLower = settingsSearch.toLowerCase();
-    return settingText.toLowerCase().includes(searchLower);
-  }, [settingsSearch]);
+  // Filter settings based on search query (search UI removed — always show all)
+  const filterSettings = useCallback((_settingText: string): boolean => {
+    return true;
+  }, []);
 
   const performLogout = useCallback(async () => {
     try {
@@ -1607,6 +1615,57 @@ export default function ProfileScreen() {
     }
   }, []);
 
+  const getProfileCompletionNextStep = useCallback((): { label: string; onPress: () => void } => {
+    if (!user.company?.trim()) {
+      return { label: 'Add your company name', onPress: openEditProfileModal };
+    }
+    if (!profileHasCustomAvatar(user.avatar)) {
+      return { label: 'Upload your company logo', onPress: openEditProfileModal };
+    }
+    if (!user.phone?.trim()) {
+      return { label: 'Add your phone number', onPress: openEditProfileModal };
+    }
+    if (!user.location?.trim()) {
+      return { label: 'Add your service area', onPress: openEditProfileModal };
+    }
+    if (!user.companyBio?.trim()) {
+      return { label: 'Add your company bio', onPress: () => setIsEditingBio(true) };
+    }
+    if (!user.projectPortfolio?.length) {
+      return {
+        label: 'Add your first portfolio photo',
+        onPress: () => {
+          setIsEditingPortfolio(true);
+          handleAddPortfolioImage();
+        },
+      };
+    }
+    if (!user.licenses?.length) {
+      return { label: 'Add your contractor license', onPress: () => setIsEditingLicenses(true) };
+    }
+    if (!user.insurance || !Object.values(user.insurance).some((v) => v === true)) {
+      return {
+        label: 'Add insurance coverage',
+        onPress: () => scrollViewRef.current?.scrollToEnd({ animated: true }),
+      };
+    }
+    if (!user.name?.trim()) {
+      return { label: 'Add your contact name', onPress: openEditProfileModal };
+    }
+    return { label: 'Review your profile', onPress: () => setPreviewModalVisible(true) };
+  }, [user, openEditProfileModal, handleAddPortfolioImage]);
+
+  const commitNewLicense = useCallback(() => {
+    const trimmed = newLicenseText.trim();
+    if (!trimmed) return;
+    setUser((prev) => ({
+      ...prev,
+      licenses: [...prev.licenses, trimmed],
+    }));
+    setNewLicenseText('');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  }, [newLicenseText]);
+
   // Calculate real stats from leads data
   const realStats = useMemo(() => {
     const totalLeads = leadsData.length;
@@ -1640,6 +1699,18 @@ export default function ProfileScreen() {
   }, [leadsData]);
 
   const profileCompletion = calculateProfileCompletion();
+  const completionNextStep = getProfileCompletionNextStep();
+  const displayCompany = user.company?.trim() || 'Your Company';
+  const displayRole = user.role || 'General Contractor';
+  const displayLocation = user.location?.trim();
+  const hasLicenseOnFile = Boolean(user.licenses?.length);
+  const hasInsurance = Boolean(user.insurance && Object.values(user.insurance).some((v) => v === true));
+  const hasVerifiedIdentity = Boolean(user.email?.trim());
+  const trustBadges = [
+    hasVerifiedIdentity ? { icon: 'verified' as const, label: 'Identity verified' } : null,
+    hasLicenseOnFile ? { icon: 'badge' as const, label: 'License on file' } : null,
+    hasInsurance ? { icon: 'security' as const, label: 'Insured' } : null,
+  ].filter(Boolean);
 
   const renderOverviewTab = () => (
     <>
@@ -1653,10 +1724,10 @@ export default function ProfileScreen() {
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
-              Profile Completion
+              Complete your profile
             </Text>
             <Text style={[styles.sectionTitle, { color: theme.accent, marginBottom: 0, fontSize: 14 }]}>
-              {profileCompletion}%
+              {profileCompletion}% complete
             </Text>
           </View>
           <View style={styles.progressBar}>
@@ -1670,9 +1741,22 @@ export default function ProfileScreen() {
               ]}
             />
           </View>
-          <Text style={[styles.profileCompletionHint, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-            Complete your profile to get better lead matches
+          <Text style={[styles.profileCompletionHint, { color: theme.subtext, opacity: darkMode ? 1 : 0.85, marginTop: 8 }]}>
+            Next: {completionNextStep.label}
           </Text>
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              completionNextStep.onPress();
+            }}
+            activeOpacity={0.7}
+            style={styles.profileCompletionCta}
+          >
+            <Text style={[styles.profileCompletionCtaText, { color: theme.accent }]}>
+              Continue profile
+            </Text>
+            <MaterialIcons name='arrow-forward' size={16} color={theme.accent} />
+          </TouchableOpacity>
         </View>
       )}
 
@@ -1705,31 +1789,35 @@ export default function ProfileScreen() {
                 onError={() => console.log('Profile image failed to load')}
               />
             </View>
-            <TouchableOpacity
-              style={styles.editAvatarButton}
-              onPress={handleImageUpload}
-            >
-              <MaterialIcons name='camera-alt' size={18} color='#fff' />
-            </TouchableOpacity>
           </View>
           <View style={styles.profileInfo}>
             <Text style={[styles.userName, { color: theme.text }]}>
-              {user.name}
+              {displayCompany}
             </Text>
             <Text style={[styles.userRole, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-              {user.role}
+              {displayRole}
             </Text>
-            <Text style={[styles.userCompany, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-              {user.company}
-            </Text>
+            {displayLocation ? (
+              <Text style={[styles.userCompany, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
+                {displayLocation}
+              </Text>
+            ) : null}
           <View style={styles.ratingContainer}>
             <MaterialIcons name='star' size={16} color='#FFD700' />
-            <Text style={[styles.ratingText, { color: theme.text }]}>
-              {user.averageRating}
-            </Text>
-            <Text style={[styles.reviewCount, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-              ({user.reviewCount} reviews)
-            </Text>
+            {user.reviewCount > 0 ? (
+              <>
+                <Text style={[styles.ratingText, { color: theme.text }]}>
+                  {user.averageRating}
+                </Text>
+                <Text style={[styles.reviewCount, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
+                  ({user.reviewCount} reviews)
+                </Text>
+              </>
+            ) : (
+              <Text style={[styles.reviewCount, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
+                New · No reviews yet
+              </Text>
+            )}
           </View>
           <View style={styles.memberSinceContainer}>
             <MaterialIcons name='event' size={14} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.85 }} />
@@ -1742,21 +1830,30 @@ export default function ProfileScreen() {
             </Text>
           </View>
 
-          {/* Trust Micro-Row */}
-          <View style={styles.trustMicroRow}>
-            <View style={styles.trustBadge}>
-              <MaterialIcons name='verified' size={14} color='#22c55e' />
-              <Text style={styles.trustBadgeText}>Verified Contractor</Text>
+          {trustBadges.length > 0 && (
+            <View style={styles.trustMicroRow}>
+              {trustBadges.map((badge) => (
+                <View key={badge.label} style={styles.trustBadge}>
+                  <MaterialIcons name={badge.icon} size={14} color='#22c55e' />
+                  <Text style={styles.trustBadgeText}>{badge.label}</Text>
+                </View>
+              ))}
             </View>
-            <View style={styles.trustBadge}>
-              <MaterialIcons name='badge' size={14} color='#22c55e' />
-              <Text style={styles.trustBadgeText}>License on File</Text>
-            </View>
-            <View style={styles.trustBadge}>
-              <MaterialIcons name='security' size={14} color='#22c55e' />
-              <Text style={styles.trustBadgeText}>Insured</Text>
-            </View>
-          </View>
+          )}
+
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setPreviewModalVisible(true);
+            }}
+            activeOpacity={0.7}
+            style={styles.previewProfileLink}
+          >
+            <Text style={[styles.previewProfileLinkText, { color: theme.accent }]}>
+              Preview customer view
+            </Text>
+            <MaterialIcons name='arrow-forward' size={14} color={theme.accent} />
+          </TouchableOpacity>
         </View>
         </View>
 
@@ -1792,7 +1889,14 @@ export default function ProfileScreen() {
           <>
             <TextInput
               ref={bioInputRef}
-              style={[styles.bioInput, { color: theme.text, borderColor: theme.accent }]}
+              style={[
+                styles.bioInput,
+                {
+                  color: theme.text,
+                  backgroundColor: darkMode ? '#2a2a2a' : '#f0f0f0',
+                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.14)',
+                },
+              ]}
               value={user.companyBio || ''}
               onChangeText={(text) => {
                 if (text.length <= 500) {
@@ -1834,16 +1938,13 @@ export default function ProfileScreen() {
             </Text>
           ) : (
             <View style={styles.emptyBioContainer}>
-              <View style={styles.emptyBioIconContainer}>
-                <MaterialIcons name='business-center' size={32} color={theme.accent} />
-              </View>
-              <Text style={[styles.emptyBioTitle, { color: theme.text }]}>
-                Tell clients what makes your company different.
+              <Text style={[styles.emptyBioTitle, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
+                Tell homeowners what you specialize in and why they should hire you.
               </Text>
               <TouchableOpacity
-                style={[styles.addBioButton, { 
-                  backgroundColor: darkMode ? 'rgba(67, 206, 162, 0.15)' : 'rgba(67, 206, 162, 0.1)',
-                  borderColor: theme.accent,
+                style={[styles.addBioButtonCompact, {
+                  backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  borderColor: darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
                 }]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -1851,15 +1952,13 @@ export default function ProfileScreen() {
                 }}
                 activeOpacity={0.7}
               >
-                <View style={[styles.addBioButtonIconContainer, { backgroundColor: theme.accent }]}>
-                  <MaterialIcons name='add' size={20} color='#000' />
-                </View>
-                <Text style={[styles.addBioButtonText, { color: theme.accent }]}>
-                  Add Company Bio
+                <MaterialIcons name='add' size={18} color={theme.accent} />
+                <Text style={[styles.addBioButtonTextCompact, { color: theme.text }]}>
+                  Add company bio
                 </Text>
               </TouchableOpacity>
-              <Text style={[styles.bioHint, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-                Profiles with bios get 27% more inquiries
+              <Text style={[styles.bioHint, { color: theme.subtext, opacity: darkMode ? 0.7 : 0.65 }]}>
+                Complete profiles tend to receive more inquiries.
               </Text>
             </View>
           )
@@ -1892,14 +1991,18 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
         
-        {isEditingPortfolio && (
+        {isEditingPortfolio && user.projectPortfolio && user.projectPortfolio.length > 0 && (
           <TouchableOpacity
             onPress={handleAddPortfolioImage}
-            style={[styles.addPortfolioButton, { backgroundColor: theme.accent + '20', borderColor: theme.accent }]}
+            style={[styles.addPortfolioButtonCompact, {
+              backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+              borderColor: darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+              marginBottom: 12,
+            }]}
           >
-            <MaterialIcons name='add-photo-alternate' size={20} color={theme.accent} />
-            <Text style={[styles.addPortfolioButtonText, { color: theme.accent }]}>
-              Add Portfolio Images
+            <MaterialIcons name='add-photo-alternate' size={18} color={theme.accent} />
+            <Text style={[styles.addPortfolioButtonTextCompact, { color: theme.text }]}>
+              Add portfolio photo
             </Text>
           </TouchableOpacity>
         )}
@@ -1991,19 +2094,16 @@ export default function ProfileScreen() {
           </ScrollView>
         ) : (
           <View style={styles.emptyPortfolio}>
-            <View style={styles.emptyPortfolioIconContainer}>
-              <MaterialIcons name='photo-library' size={32} color={theme.accent} />
-            </View>
-            <Text style={[styles.emptyPortfolioTitle, { color: theme.text }]}>
-              Add your first project
+            <Text style={[styles.emptyPortfolioTitle, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
+              Show customers examples of your work.
             </Text>
-            <Text style={[styles.emptyPortfolioSubtitle, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-              Before & after photos work best
+            <Text style={[styles.emptyPortfolioSubtitle, { color: theme.subtext, opacity: darkMode ? 0.7 : 0.65 }]}>
+              Before-and-after photos work especially well.
             </Text>
             <TouchableOpacity
-              style={[styles.addPortfolioButton, { 
-                backgroundColor: darkMode ? 'rgba(67, 206, 162, 0.15)' : 'rgba(67, 206, 162, 0.1)',
-                borderColor: theme.accent,
+              style={[styles.addPortfolioButtonCompact, {
+                backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                borderColor: darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
               }]}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -2012,13 +2112,10 @@ export default function ProfileScreen() {
               }}
               activeOpacity={0.7}
             >
-              <View style={[styles.addPortfolioButtonIconContainer, { backgroundColor: theme.accent }]}>
-                <MaterialIcons name='add-photo-alternate' size={18} color='#000' />
-              </View>
-              <Text style={[styles.addPortfolioButtonText, { color: theme.accent }]}>
-                Add Project
+              <MaterialIcons name='add-photo-alternate' size={18} color={theme.accent} />
+              <Text style={[styles.addPortfolioButtonTextCompact, { color: theme.text }]}>
+                Add first project
               </Text>
-              <MaterialIcons name='arrow-forward' size={18} color={theme.accent} style={{ marginLeft: 6 }} />
             </TouchableOpacity>
           </View>
         )}
@@ -2038,82 +2135,41 @@ export default function ProfileScreen() {
           </Text>
         </View>
 
-        {/* Action-First Layout with Pill Buttons */}
-            <View style={styles.contactActions}>
-              <TouchableOpacity
-                style={[styles.contactPillButton, { backgroundColor: theme.accent + '20', borderColor: theme.accent }]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  Linking.openURL(`tel:${user.phone}`);
-                }}
-              >
-                <MaterialIcons name='phone' size={18} color={theme.accent} />
-                <Text style={[styles.contactPillText, { color: theme.accent }]}>Call</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.contactPillButton, { backgroundColor: theme.accent + '20', borderColor: theme.accent }]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  Linking.openURL(`mailto:${user.email}`);
-                }}
-              >
-                <MaterialIcons name='email' size={18} color={theme.accent} />
-                <Text style={[styles.contactPillText, { color: theme.accent }]}>Email</Text>
-              </TouchableOpacity>
-              {user.website && (
-                <TouchableOpacity
-                  style={[styles.contactPillButton, { backgroundColor: theme.accent + '20', borderColor: theme.accent }]}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    Linking.openURL(user.website.startsWith('http') ? user.website : `https://${user.website}`);
-                  }}
-                >
-                  <MaterialIcons name='language' size={18} color={theme.accent} />
-                  <Text style={[styles.contactPillText, { color: theme.accent }]}>Website</Text>
-                </TouchableOpacity>
-              )}
+        <View style={styles.contactDetails}>
+          {user.phone?.trim() ? (
+            <View style={styles.contactLabeledRow}>
+              <Text style={[styles.contactLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Phone</Text>
+              <Text style={[styles.contactValue, { color: theme.text }]}>{formatPhoneNumber(user.phone)}</Text>
             </View>
-
-            {/* Contact Details */}
-            <View style={styles.contactDetails}>
-              <View style={styles.contactItem}>
-                <View style={[styles.contactIconContainer, { backgroundColor: theme.iconBg }]}>
-                  <MaterialIcons name='phone' size={20} color={theme.accent} />
-                </View>
-                <Text style={[styles.contactText, { color: theme.text }]}>
-                  {user.phone}
-                </Text>
-              </View>
-              <View style={styles.contactItem}>
-                <View style={[styles.contactIconContainer, { backgroundColor: theme.iconBg }]}>
-                  <MaterialIcons name='email' size={20} color={theme.accent} />
-                </View>
-                <Text style={[styles.contactText, { color: theme.text }]}>
-                  {user.email}
-                </Text>
-              </View>
-              {user.website && (
-                <View style={styles.contactItem}>
-                  <View style={[styles.contactIconContainer, { backgroundColor: theme.iconBg }]}>
-                    <MaterialIcons name='language' size={20} color={theme.accent} />
-                  </View>
-                  <Text style={[styles.contactText, { color: theme.text }]}>
-                    {user.website}
-                  </Text>
-                </View>
-              )}
-              <View style={styles.contactItem}>
-                <View style={[styles.contactIconContainer, { backgroundColor: theme.iconBg }]}>
-                  <MaterialIcons name='location-on' size={20} color={theme.accent} />
-                </View>
-                <Text style={[styles.contactText, { color: theme.text }]}>
-                  {user.location}
-                </Text>
-              </View>
+          ) : null}
+          {user.email?.trim() ? (
+            <View style={styles.contactLabeledRow}>
+              <Text style={[styles.contactLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Email</Text>
+              <Text style={[styles.contactValue, { color: theme.text }]}>{user.email}</Text>
             </View>
+          ) : null}
+          {user.website?.trim() ? (
+            <TouchableOpacity
+              style={styles.contactLabeledRow}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                Linking.openURL(user.website.startsWith('http') ? user.website : `https://${user.website}`);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.contactLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Website</Text>
+              <Text style={[styles.contactValue, { color: theme.text }]}>{user.website}</Text>
+            </TouchableOpacity>
+          ) : null}
+          {displayLocation ? (
+            <View style={styles.contactLabeledRow}>
+              <Text style={[styles.contactLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Service Area</Text>
+              <Text style={[styles.contactValue, { color: theme.text }]}>{displayLocation}</Text>
+            </View>
+          ) : null}
+        </View>
 
-            {/* Privacy Hint */}
-            <View style={styles.privacyHint}>
+        <View style={styles.privacyHint}>
               <MaterialIcons name='lock' size={14} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.85 }} />
               <Text style={[styles.privacyHintText, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
                 Your contact details are only shared after a lead match.
@@ -2162,8 +2218,15 @@ export default function ProfileScreen() {
                 <MaterialIcons name='verified' size={18} color={theme.subtext} />
               </View>
               <Text style={[styles.certificationText, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-                No licenses added
+                No license added
               </Text>
+              <TouchableOpacity
+                onPress={() => setIsEditingLicenses(true)}
+                style={{ marginLeft: 'auto' }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}>+ Add license</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <>
@@ -2231,62 +2294,58 @@ export default function ProfileScreen() {
               ))}
               
               {isEditingLicenses && (
-                <View style={[styles.addLicenseContainer, { 
-                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-                  borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                <View style={[styles.addLicenseCard, {
+                  backgroundColor: theme.cardInset,
+                  borderColor: theme.border,
                 }]}>
+                  <Text style={[styles.addLicenseLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
+                    Add license
+                  </Text>
+                  <Text style={[styles.addLicenseHint, { color: theme.subtext, opacity: darkMode ? 0.7 : 0.65 }]}>
+                    e.g. Utah General Contractor #123456
+                  </Text>
                   <TextInput
                     ref={addLicenseInputRef}
-                    style={[styles.licenseInput, { 
+                    style={[styles.addLicenseInput, {
                       color: theme.text,
-                      backgroundColor: darkMode ? '#2a2a2a' : '#e8e8e8',
-                      borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                      backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+                      borderColor: theme.border,
                     }]}
                     value={newLicenseText}
                     onChangeText={setNewLicenseText}
-                    placeholder='Add new license...'
+                    placeholder='License type and number'
                     placeholderTextColor={theme.subtext}
                     onFocus={() => {
-                      // Scroll to add license input when focused
                       setTimeout(() => {
                         addLicenseInputRef.current?.measureInWindow((x, y, width, height) => {
                           scrollViewRef.current?.scrollTo({ y: y - 150, animated: true });
                         });
                       }, 100);
                     }}
-                    onSubmitEditing={() => {
-                      if (newLicenseText.trim()) {
-                        setUser(prev => ({
-                          ...prev,
-                          licenses: [...prev.licenses, newLicenseText.trim()],
-                        }));
-                        setNewLicenseText('');
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      }
-                    }}
+                    onSubmitEditing={commitNewLicense}
+                    {...resolveTextInputKeyboardProps()}
                   />
                   <TouchableOpacity
-                    onPress={() => {
-                      if (newLicenseText.trim()) {
-                        setUser(prev => ({
-                          ...prev,
-                          licenses: [...prev.licenses, newLicenseText.trim()],
-                        }));
-                        setNewLicenseText('');
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      }
-                    }}
-                    style={[styles.addLicenseButton, { 
-                      backgroundColor: newLicenseText.trim() ? theme.accent : 'rgba(67, 206, 162, 0.2)',
-                    }]}
+                    onPress={commitNewLicense}
                     disabled={!newLicenseText.trim()}
+                    style={[styles.addLicenseSubmit, {
+                      backgroundColor: newLicenseText.trim()
+                        ? theme.accent
+                        : (darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'),
+                      borderColor: theme.border,
+                    }]}
                     activeOpacity={0.7}
                   >
                     <MaterialIcons
                       name='add'
-                      size={20}
-                      color={newLicenseText.trim() ? '#000' : theme.subtext}
+                      size={18}
+                      color={newLicenseText.trim() ? '#050B13' : theme.subtext}
                     />
+                    <Text style={[styles.addLicenseSubmitText, {
+                      color: newLicenseText.trim() ? '#050B13' : theme.subtext,
+                    }]}>
+                      Add license
+                    </Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -2434,7 +2493,7 @@ export default function ProfileScreen() {
         return false;
       });
       
-      if (!hasMatches && settingsSearch.trim() !== '') return null;
+      if (!hasMatches) return null;
       
       return (
         <View key={title} style={[styles.settingsGroupContainer, isFirst && { marginTop: 0 }]}>
@@ -2456,46 +2515,7 @@ export default function ProfileScreen() {
     };
 
     return (
-      <ScrollView 
-        style={styles.tabContent}
-        contentContainerStyle={styles.settingsTabContentScroll}
-        showsVerticalScrollIndicator={true}
-      >
-        {/* Settings Search - iOS Style Rounded Pill */}
-        <View style={styles.searchSection}>
-          <View
-            style={[
-              styles.searchContainer,
-              { backgroundColor: theme.card, borderColor: theme.border },
-            ]}
-          >
-            <MaterialIcons name='search' size={20} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.85 }} />
-            <TextInput
-              style={[styles.searchInput, { color: theme.text }]}
-              placeholder="Search settings"
-              placeholderTextColor={theme.subtext}
-              value={settingsSearch}
-              onChangeText={(text) => {
-                setSettingsSearch(text);
-                if (text.length > 0) {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }
-              }}
-            />
-            {settingsSearch.length > 0 && (
-              <TouchableOpacity
-                onPress={() => {
-                  setSettingsSearch('');
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-                style={styles.searchClearButton}
-              >
-                <MaterialIcons name='close' size={18} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.85 }} />
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
+      <View style={styles.settingsTabWrap}>
         {/* Account & Security - Top Priority */}
         {renderSection('Account & Security', (
           <>
@@ -2503,64 +2523,24 @@ export default function ProfileScreen() {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               handleChangePassword();
             })}
-            {renderSettingItem('reset-onboarding', 'refresh', 'Reset Onboarding', async () => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              Alert.alert(
-                'Reset Onboarding',
-                'This will show the onboarding flow again and clear all current estimate data. Continue?',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Reset & View',
-                    onPress: async () => {
-                      try {
-                        // Clear onboarding flags
-                        if (clerkUser?.id) {
-                          await clearOnboardingCompleteForUser(clerkUser.id);
-                        } else {
-                          await clearAllOnboardingCompletionKeys();
-                        }
-                        await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'true');
-                        await AsyncStorage.setItem('bps.showEstimateGuideRail', 'true');
-                        await AsyncStorage.removeItem('bps.dismissEstimateGuideRail');
-                        await AsyncStorage.setItem('bps.isFirstTimeEstimate', 'true');
-                        await AsyncStorage.setItem('bps.forceEstimateOnboarding', 'true');
-                        
-                        // Clear all bid storage keys to remove customer information and bid data
-                        await AsyncStorage.removeItem('bps.currentBid.v2');
-                        await AsyncStorage.removeItem('bps.currentBid');
-                        await AsyncStorage.removeItem('bps.currentBid.v1');
-                        
-                        // Clear first estimate flags
-                        await AsyncStorage.removeItem('bps.firstEstimateCreated');
-                        await AsyncStorage.removeItem('bps.firstEstimateSubmitted');
-                        await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY);
-                        await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY);
-                        await resetActiveProjectWalkthroughStorage();
-                        
-                        router.push('/onboarding');
-                      } catch (error) {
-                        console.error('Error resetting onboarding:', error);
-                        Alert.alert('Error', 'Failed to reset onboarding.');
-                      }
-                    },
-                  },
-                ]
-              );
-            })}
           </>
         ), true)}
 
         {/* Preferences */}
         {renderSection('Preferences', (
           <>
-            {filterSettings('Light Mode') && (
+            {filterSettings('Appearance') && (
               <View style={styles.settingItem}>
                 <View style={styles.settingLeft}>
                   <View style={[styles.settingIconContainer, { backgroundColor: theme.iconBg }]}>
                     <MaterialIcons name='brightness-4' size={20} color={theme.accent} />
                   </View>
-                  <Text style={[styles.settingText, { color: theme.text }]}>Light Mode</Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[styles.settingText, { color: theme.text }]}>Appearance</Text>
+                    <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
+                      {darkMode ? 'Dark' : 'Light'}
+                    </Text>
+                  </View>
                 </View>
                 <View style={styles.switchWrapper}>
                   <Switch
@@ -2763,18 +2743,7 @@ export default function ProfileScreen() {
         ))}
 
         {/* Estimating — pricing library learn + Step 2 saved-rate suggestions */}
-        {(!settingsSearch.trim() ||
-          [
-            'pricing memory',
-            'pricing library',
-            'saved pricing',
-            'saved template',
-            'learn when',
-            'enable pricing',
-            'contractor pricing',
-            'estimating',
-          ].some((term) => filterSettings(term))) && (
-          <View style={styles.settingsGroupContainer}>
+        <View style={styles.settingsGroupContainer}>
             <Text
               style={[
                 styles.settingsGroupTitle,
@@ -2794,7 +2763,59 @@ export default function ProfileScreen() {
               </View>
             </View>
           </View>
-        )}
+
+        {/* App & Data */}
+        {renderSection('App & Data', (
+          <>
+            {renderSettingItem(
+              'restart-setup',
+              'refresh',
+              'Restart setup guide',
+              () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                Alert.alert(
+                  'Restart setup guide?',
+                  'This will show the onboarding flow again and clear current estimate data on this device. Continue?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Restart',
+                      onPress: async () => {
+                        try {
+                          if (clerkUser?.id) {
+                            await clearOnboardingCompleteForUser(clerkUser.id);
+                          } else {
+                            await clearAllOnboardingCompletionKeys();
+                          }
+                          await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'true');
+                          await AsyncStorage.setItem('bps.showEstimateGuideRail', 'true');
+                          await AsyncStorage.removeItem('bps.dismissEstimateGuideRail');
+                          await AsyncStorage.setItem('bps.isFirstTimeEstimate', 'true');
+                          await AsyncStorage.setItem('bps.forceEstimateOnboarding', 'true');
+                          await AsyncStorage.removeItem('bps.currentBid.v2');
+                          await AsyncStorage.removeItem('bps.currentBid');
+                          await AsyncStorage.removeItem('bps.currentBid.v1');
+                          await AsyncStorage.removeItem('bps.firstEstimateCreated');
+                          await AsyncStorage.removeItem('bps.firstEstimateSubmitted');
+                          await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY);
+                          await AsyncStorage.removeItem(FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY);
+                          await resetActiveProjectWalkthroughStorage();
+                          router.push('/onboarding');
+                        } catch (error) {
+                          console.error('Error restarting setup guide:', error);
+                          Alert.alert('Error', 'Failed to restart setup guide.');
+                        }
+                      },
+                    },
+                  ]
+                );
+              },
+              true,
+              undefined,
+              'Replay onboarding and estimate walkthrough'
+            )}
+          </>
+        ))}
 
         {/* Legal & Support */}
         {renderSection('Legal & Support', (
@@ -2908,7 +2929,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-      </ScrollView>
+      </View>
     );
   };
 
@@ -2937,6 +2958,7 @@ export default function ProfileScreen() {
       </View>
 
       <ScrollView
+        ref={scrollViewRef}
         style={{ flex: 1 }}
         contentContainerStyle={[
           styles.scrollContent,
@@ -2952,46 +2974,27 @@ export default function ProfileScreen() {
           <View style={styles.content}>
         {/* Tab Navigation */}
         <View style={styles.wideContainer}>
-          {darkMode ? (
-            <BlurView intensity={35} tint="dark" style={styles.segmentContainer}>
-              <View style={styles.segmentInner}>
-                <SegmentTab
-                  label="Overview"
-                  icon="person-outline"
-                  isActive={activeTab === 'overview'}
-                  onPress={() => handleTabPress('overview')}
-                />
-                <SegmentTab
-                  label="Settings"
-                  icon="settings-outline"
-                  isActive={activeTab === 'settings'}
-                  onPress={() => handleTabPress('settings')}
-                />
-              </View>
-            </BlurView>
-          ) : (
-            <View
-              style={[
-                styles.segmentContainer,
-                { backgroundColor: Colors.surface2, borderColor: Colors.line },
-              ]}
-            >
-              <View style={styles.segmentInner}>
-                <SegmentTab
-                  label="Overview"
-                  icon="person-outline"
-                  isActive={activeTab === 'overview'}
-                  onPress={() => handleTabPress('overview')}
-                />
-                <SegmentTab
-                  label="Settings"
-                  icon="settings-outline"
-                  isActive={activeTab === 'settings'}
-                  onPress={() => handleTabPress('settings')}
-                />
-              </View>
+          <View
+            style={[
+              styles.segmentContainer,
+              { backgroundColor: theme.card, borderColor: theme.border },
+            ]}
+          >
+            <View style={styles.segmentInner}>
+              <SegmentTab
+                label="Overview"
+                icon="person-outline"
+                isActive={activeTab === 'overview'}
+                onPress={() => handleTabPress('overview')}
+              />
+              <SegmentTab
+                label="Settings"
+                icon="settings-outline"
+                isActive={activeTab === 'settings'}
+                onPress={() => handleTabPress('settings')}
+              />
             </View>
-          )}
+          </View>
         </View>
 
         {/* Tab Content */}
@@ -3005,95 +3008,125 @@ export default function ProfileScreen() {
       {/* Footer - Outside Gradient Border, directly below it */}
       {activeTab === 'overview' && (
         <View style={styles.settingsFooter}>
-          <View style={styles.gradientTextWrapper}>
-            <Svg height="20" width={footerSvgWidth}>
-              <Defs>
-                <SvgLinearGradient id="gradientOverview" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <Stop offset="0%" stopColor="#22c55e" stopOpacity="1" />
-                  <Stop offset="100%" stopColor="#22d3ee" stopOpacity="1" />
-                </SvgLinearGradient>
-              </Defs>
-              <SvgText
-                fill="url(#gradientOverview)"
-                fontSize="14"
-                fontWeight="500"
-                x={footerSvgWidth / 2}
-                y="16"
-                textAnchor="middle"
-              >
-                Build Profit Solutions
-              </SvgText>
-            </Svg>
-          </View>
-          <View style={styles.gradientTextWrapper}>
-            <Svg height="16" width={footerSvgWidth}>
-              <Defs>
-                <SvgLinearGradient id="gradientVersionOverview" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <Stop offset="0%" stopColor="#22c55e" stopOpacity="1" />
-                  <Stop offset="100%" stopColor="#22d3ee" stopOpacity="1" />
-                </SvgLinearGradient>
-              </Defs>
-              <SvgText
-                fill="url(#gradientVersionOverview)"
-                fontSize="12"
-                fontWeight="400"
-                x={footerSvgWidth / 2}
-                y="14"
-                textAnchor="middle"
-              >
-                {`Version ${Constants.expoConfig?.version || '1.0.0'}`}
-              </SvgText>
-            </Svg>
-          </View>
+          <Text style={[styles.footerBrandText, { color: theme.subtext, opacity: darkMode ? 0.7 : 0.65 }]}>
+            © 2026 Build Profit Solutions
+          </Text>
         </View>
       )}
       {activeTab === 'settings' && (
         <View style={styles.settingsFooter}>
-          <View style={styles.gradientTextWrapper}>
-            <Svg height="20" width={footerSvgWidth}>
-              <Defs>
-                <SvgLinearGradient id="gradientSettings" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <Stop offset="0%" stopColor="#22c55e" stopOpacity="1" />
-                  <Stop offset="100%" stopColor="#22d3ee" stopOpacity="1" />
-                </SvgLinearGradient>
-              </Defs>
-              <SvgText
-                fill="url(#gradientSettings)"
-                fontSize="14"
-                fontWeight="500"
-                x={footerSvgWidth / 2}
-                y="16"
-                textAnchor="middle"
-              >
-                Build Profit Solutions
-              </SvgText>
-            </Svg>
-          </View>
-          <View style={styles.gradientTextWrapper}>
-            <Svg height="16" width={footerSvgWidth}>
-              <Defs>
-                <SvgLinearGradient id="gradientVersionSettings" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <Stop offset="0%" stopColor="#22c55e" stopOpacity="1" />
-                  <Stop offset="100%" stopColor="#22d3ee" stopOpacity="1" />
-                </SvgLinearGradient>
-              </Defs>
-              <SvgText
-                fill="url(#gradientVersionSettings)"
-                fontSize="12"
-                fontWeight="400"
-                x={footerSvgWidth / 2}
-                y="14"
-                textAnchor="middle"
-              >
-                {`Version ${Constants.expoConfig?.version || '1.0.0'}`}
-              </SvgText>
-            </Svg>
-          </View>
+          <Text style={[styles.footerBrandText, { color: theme.subtext, opacity: darkMode ? 0.7 : 0.65 }]}>
+            © 2026 Build Profit Solutions
+          </Text>
         </View>
       )}
         </View>
         </WebPageShell>
       </ScrollView>
+
+      {/* Preview Public Profile Modal */}
+      <Modal
+        visible={previewModalVisible}
+        animationType='slide'
+        transparent={true}
+        onRequestClose={() => setPreviewModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, {
+            backgroundColor: darkMode ? '#1a1a1a' : '#f5f5f5',
+            borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            maxHeight: '85%',
+          }]}>
+            <View style={[styles.modalHeader, {
+              borderBottomColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            }]}>
+              <Text style={[styles.modalTitle, { color: darkMode ? '#ffffff' : '#000000' }]}>
+                Customer View
+              </Text>
+              <TouchableOpacity onPress={() => setPreviewModalVisible(false)}>
+                <MaterialIcons name='close' size={24} color={darkMode ? '#ffffff' : '#000000'} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ padding: 20, paddingBottom: 32 }}
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={[styles.previewModalHint, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
+                This is what homeowners see when you are matched with a lead.
+              </Text>
+              <View style={[styles.previewCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 16 }}>
+                  <Image
+                    source={getProfileAvatarImageSource(user.avatar)}
+                    style={[styles.previewAvatar, !profileHasCustomAvatar(user.avatar) && styles.profileImageDefaultLogo]}
+                    defaultSource={DEFAULT_PROFILE_AVATAR_SOURCE}
+                    resizeMode="contain"
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.previewCompanyName, { color: theme.text }]}>{displayCompany}</Text>
+                    <Text style={[styles.previewRole, { color: theme.subtext }]}>{displayRole}</Text>
+                    {displayLocation ? (
+                      <Text style={[styles.previewLocation, { color: theme.subtext }]}>{displayLocation}</Text>
+                    ) : null}
+                  </View>
+                </View>
+                {trustBadges.length > 0 && (
+                  <View style={[styles.trustMicroRow, { marginTop: 0, marginBottom: 12 }]}>
+                    {trustBadges.map((badge) => (
+                      <View key={badge.label} style={styles.trustBadge}>
+                        <MaterialIcons name={badge.icon} size={14} color='#22c55e' />
+                        <Text style={styles.trustBadgeText}>{badge.label}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                {user.companyBio?.trim() ? (
+                  <View style={{ marginBottom: 16 }}>
+                    <Text style={[styles.previewSectionLabel, { color: theme.subtext }]}>About</Text>
+                    <Text style={[styles.previewBodyText, { color: theme.text }]}>{user.companyBio}</Text>
+                  </View>
+                ) : null}
+                {user.projectPortfolio && user.projectPortfolio.length > 0 ? (
+                  <View style={{ marginBottom: 16 }}>
+                    <Text style={[styles.previewSectionLabel, { color: theme.subtext }]}>Recent Work</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                      {user.projectPortfolio.slice(0, 4).map((item, index) => (
+                        <Image
+                          key={item.id || index}
+                          source={{ uri: item.uri }}
+                          style={styles.previewPortfolioThumb}
+                          resizeMode='cover'
+                        />
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
+                {hasLicenseOnFile ? (
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={[styles.previewSectionLabel, { color: theme.subtext }]}>License</Text>
+                    {user.licenses.map((license, i) => (
+                      <Text key={i} style={[styles.previewBodyText, { color: theme.text }]}>{license}</Text>
+                    ))}
+                  </View>
+                ) : null}
+                {hasInsurance ? (
+                  <View>
+                    <Text style={[styles.previewSectionLabel, { color: theme.subtext }]}>Insurance</Text>
+                    {Object.entries(user.insurance)
+                      .filter(([, covered]) => covered)
+                      .map(([type]) => (
+                        <Text key={type} style={[styles.previewBodyText, { color: theme.text }]}>
+                          {type.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase())}
+                        </Text>
+                      ))}
+                  </View>
+                ) : null}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Edit Profile Modal */}
       <Modal
@@ -3103,22 +3136,20 @@ export default function ProfileScreen() {
         onRequestClose={handleCancelEdit}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, styles.modalContentWebEditProfile, { 
-            backgroundColor: darkMode ? '#2a2a2a' : '#f0f0f0',
-            borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          <View style={[styles.modalContent, styles.modalContentWebEditProfile, {
+            backgroundColor: theme.card,
+            borderColor: theme.border,
           }]}>
-            <View style={[styles.modalHeader, {
-              borderBottomColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-            }]}>
-              <Text style={[styles.modalTitle, { color: darkMode ? '#ffffff' : '#000000' }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>
                 {t('profile.editProfile')}
               </Text>
-              <TouchableOpacity onPress={handleCancelEdit}>
-                <MaterialIcons name='close' size={24} color={darkMode ? '#ffffff' : '#000000'} />
+              <TouchableOpacity onPress={handleCancelEdit} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialIcons name='close' size={22} color={theme.subtext} />
               </TouchableOpacity>
             </View>
 
-            <KeyboardAvoidingView 
+            <KeyboardAvoidingView
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               style={{ flex: 1 }}
               keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
@@ -3126,259 +3157,184 @@ export default function ProfileScreen() {
               <ScrollView
                 ref={modalScrollViewRef}
                 style={{ flex: 1, width: '100%' }}
-                contentContainerStyle={{ paddingBottom: 100, paddingTop: 20, paddingHorizontal: 20, flexGrow: 1 }}
+                contentContainerStyle={styles.editModalScrollContent}
                 showsVerticalScrollIndicator={true}
                 {...FORM_KEYBOARD_SCROLL_PROPS}
               >
-              {/* Profile Information Fields */}
-              <View style={[styles.modalFormGroup, { backgroundColor: darkMode ? '#323232' : '#ffffff', marginBottom: 12 }]}>
-                <View style={styles.modalInputRow}>
-                  <Text style={[styles.modalInputLabel, { color: darkMode ? '#ffffff' : '#000000' }]}>
-                    First Name
-                  </Text>
-                  <TextInput
-                    style={[
-                      styles.modalTextInput,
-                      {
-                        backgroundColor: darkMode ? '#2a2a2a' : '#e8e8e8',
-                        color: darkMode ? '#ffffff' : '#000000',
-                        borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                      },
-                    ]}
-                    value={editForm.firstName}
-                    onChangeText={text =>
-                      setEditForm(prev => ({ ...prev, firstName: text }))
-                    }
-                    placeholder='Enter your first name'
-                    placeholderTextColor={darkMode ? '#888' : '#666'}
-                    autoCapitalize='words'
-                    {...resolveTextInputKeyboardProps()}
-                  />
-                </View>
-              </View>
-
-              <View style={[styles.modalFormGroup, { backgroundColor: darkMode ? '#323232' : '#ffffff', marginBottom: 12 }]}>
-                <View style={styles.modalInputRow}>
-                  <Text style={[styles.modalInputLabel, { color: darkMode ? '#ffffff' : '#000000' }]}>
-                    Last Name
-                  </Text>
-                  <TextInput
-                    style={[
-                      styles.modalTextInput,
-                      {
-                        backgroundColor: darkMode ? '#2a2a2a' : '#e8e8e8',
-                        color: darkMode ? '#ffffff' : '#000000',
-                        borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                      },
-                    ]}
-                    value={editForm.lastName}
-                    onChangeText={text =>
-                      setEditForm(prev => ({ ...prev, lastName: text }))
-                    }
-                    placeholder='Enter your last name'
-                    placeholderTextColor={darkMode ? '#888' : '#666'}
-                    autoCapitalize='words'
-                    {...resolveTextInputKeyboardProps()}
-                  />
-                </View>
-              </View>
-
-              <View style={[styles.modalFormGroup, { backgroundColor: darkMode ? '#323232' : '#ffffff', marginBottom: 12 }]}>
-                <View style={styles.modalInputRow}>
-                  <Text style={[styles.modalInputLabel, { color: darkMode ? '#ffffff' : '#000000' }]}>
-                    Email
-                  </Text>
-                  <TextInput
-
-                    style={[
-                      styles.modalTextInput,
-                      {
-                        backgroundColor: darkMode ? '#2a2a2a' : '#e8e8e8',
-                        color: darkMode ? '#ffffff' : '#000000',
-                        borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                      },
-                    ]}
-                    value={editForm.email}
-                    onChangeText={text =>
-                      setEditForm(prev => ({ ...prev, email: text }))
-                    }
-                    placeholder='Enter your email'
-                    placeholderTextColor={darkMode ? '#888' : '#666'}
-                    keyboardType='email-address'
-                    autoCapitalize='none'
-                    autoCorrect={false}
-                    {...resolveTextInputKeyboardProps({ keyboardType: 'email-address' })}
-                  />
-                </View>
-              </View>
-
-              <View style={[styles.modalFormGroup, { backgroundColor: darkMode ? '#323232' : '#ffffff', marginBottom: 12 }]}>
-                <View style={styles.modalInputRow}>
-                  <Text style={[styles.modalInputLabel, { color: darkMode ? '#ffffff' : '#000000' }]}>
-                    Phone
-                  </Text>
-                  <TextInput
-
-                    style={[
-                      styles.modalTextInput,
-                      {
-                        backgroundColor: darkMode ? '#2a2a2a' : '#e8e8e8',
-                        color: darkMode ? '#ffffff' : '#000000',
-                        borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                      },
-                    ]}
-                    value={editForm.phone}
-                    onChangeText={text => {
-                      const formatted = formatPhoneNumber(text);
-                      setEditForm(prev => ({ ...prev, phone: formatted }));
-                    }}
-                    placeholder='(555) 123-4567'
-                    placeholderTextColor={darkMode ? '#888' : '#666'}
-                    keyboardType='numeric'
-                    onSubmitEditing={() => Keyboard.dismiss()}
-                    maxLength={14}
-                    {...nativeNumericKeyboardProps}
-                  />
-                </View>
-              </View>
-
-              <View style={[styles.modalFormGroup, { backgroundColor: darkMode ? '#323232' : '#ffffff', marginBottom: 12 }]}>
-                <View style={styles.modalInputRow}>
-                  <Text style={[styles.modalInputLabel, { color: darkMode ? '#ffffff' : '#000000' }]}>
-                    Company
-                  </Text>
-                  <TextInput
-
-                    style={[
-                      styles.modalTextInput,
-                      {
-                        backgroundColor: darkMode ? '#2a2a2a' : '#e8e8e8',
-                        color: darkMode ? '#ffffff' : '#000000',
-                        borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                      },
-                    ]}
-                    value={editForm.company}
-                    onChangeText={text =>
-                      setEditForm(prev => ({ ...prev, company: text }))
-                    }
-                    placeholder='Enter your company'
-                    placeholderTextColor={darkMode ? '#888' : '#666'}
-                    autoCapitalize='words'
-                    {...resolveTextInputKeyboardProps()}
-                  />
-                </View>
-              </View>
-
-              <View style={[styles.modalFormGroup, { backgroundColor: darkMode ? '#323232' : '#ffffff', marginBottom: 12 }]}>
-                <View style={styles.modalInputRow}>
-                  <Text style={[styles.modalInputLabel, { color: darkMode ? '#ffffff' : '#000000' }]}>
-                    Role
-                  </Text>
-                  <TextInput
-
-                    style={[
-                      styles.modalTextInput,
-                      {
-                        backgroundColor: darkMode ? '#2a2a2a' : '#e8e8e8',
-                        color: darkMode ? '#ffffff' : '#000000',
-                        borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                      },
-                    ]}
-                    value={editForm.role}
-                    onChangeText={text =>
-                      setEditForm(prev => ({ ...prev, role: text }))
-                    }
-                    placeholder='Enter your role'
-                    placeholderTextColor={darkMode ? '#888' : '#666'}
-                    autoCapitalize='words'
-                    {...resolveTextInputKeyboardProps()}
-                  />
-                </View>
-              </View>
-
-              <View 
-                ref={locationSectionRef}
-                style={[styles.modalFormGroup, { backgroundColor: darkMode ? '#333333' : '#ffffff', marginBottom: 12 }]}
-                onLayout={(event) => {
-                  const { y } = event.nativeEvent.layout;
-                  (locationSectionRef.current as any)._layoutY = y;
-                }}
-              >
-                <View style={styles.modalInputRow}>
-                  <Text style={[styles.modalInputLabel, { color: darkMode ? '#ffffff' : '#000000' }]}>
-                    Location
-                  </Text>
-                  <View style={{ flexDirection: 'row', gap: 12 }}>
-                    <TextInput
-                      ref={cityInputRef}
-
+                <TouchableOpacity
+                  style={styles.editModalLogoSection}
+                  onPress={handleImageUpload}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.editModalLogoWrap}>
+                    <Image
+                      source={getProfileAvatarImageSource(user.avatar)}
                       style={[
-                        styles.modalTextInput,
-                        {
-                          backgroundColor: darkMode ? '#2a2a2a' : '#e8e8e8',
-                          color: darkMode ? '#ffffff' : '#000000',
-                          borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                          flex: 2,
-                        },
+                        styles.editModalLogoImage,
+                        !profileHasCustomAvatar(user.avatar) && styles.profileImageDefaultLogo,
                       ]}
-                      value={editForm.city}
-                      onChangeText={text =>
-                        setEditForm(prev => ({ ...prev, city: text }))
-                      }
-                      placeholder='City'
-                      placeholderTextColor={darkMode ? '#888' : '#666'}
-                      autoCapitalize='words'
-                      onFocus={() => {
-                        // Don't auto-scroll - let the user manually scroll if needed
-                        // The keyboard will push the content up naturally
-                      }}
-                      {...resolveTextInputKeyboardProps()}
+                      defaultSource={DEFAULT_PROFILE_AVATAR_SOURCE}
+                      resizeMode="contain"
                     />
-                    <TextInput
-                      ref={stateInputRef}
+                    <View style={styles.editModalLogoBadge}>
+                      <MaterialIcons name='photo-camera' size={14} color='#fff' />
+                    </View>
+                  </View>
+                  <Text style={[styles.editModalLogoTitle, { color: theme.text }]}>
+                    {displayCompany}
+                  </Text>
+                  <Text style={[styles.editModalLogoHint, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
+                    Tap to change company logo
+                  </Text>
+                </TouchableOpacity>
 
-                      style={[
-                        styles.modalTextInput,
-                        {
-                          backgroundColor: darkMode ? '#2a2a2a' : '#e8e8e8',
-                          color: darkMode ? '#ffffff' : '#000000',
-                          borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                          flex: 1,
-                        },
-                      ]}
-                      value={editForm.state}
-                      onChangeText={text =>
-                        setEditForm(prev => ({ ...prev, state: text }))
-                      }
-                      placeholder='State'
-                      placeholderTextColor={darkMode ? '#888' : '#666'}
-                      autoCapitalize='characters'
-                      maxLength={2}
-                      onFocus={() => {
-                        // Don't auto-scroll - let the user manually scroll if needed
-                        // The keyboard will push the content up naturally
-                      }}
+                <View style={[styles.editModalGroupedCard, { backgroundColor: theme.cardInset, borderColor: theme.border }]}>
+                  <View style={styles.editModalFieldRow}>
+                    <Text style={[styles.editModalFieldLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>First name</Text>
+                    <TextInput
+                      style={editFieldInputStyle('firstName', editForm.firstName)}
+                      value={editForm.firstName}
+                      onChangeText={(text) => setEditForm((prev) => ({ ...prev, firstName: text }))}
+                      placeholder='Your first name'
+                      placeholderTextColor={theme.fieldPlaceholder}
+                      autoCapitalize='words'
+                      {...editFieldFocusHandlers('firstName')}
                       {...resolveTextInputKeyboardProps()}
                     />
                   </View>
+                  <View style={[styles.editModalDivider, { backgroundColor: theme.border }]} />
+                  <View style={styles.editModalFieldRow}>
+                    <Text style={[styles.editModalFieldLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Last name</Text>
+                    <TextInput
+                      style={editFieldInputStyle('lastName', editForm.lastName)}
+                      value={editForm.lastName}
+                      onChangeText={(text) => setEditForm((prev) => ({ ...prev, lastName: text }))}
+                      placeholder='Your last name'
+                      placeholderTextColor={theme.fieldPlaceholder}
+                      autoCapitalize='words'
+                      {...editFieldFocusHandlers('lastName')}
+                      {...resolveTextInputKeyboardProps()}
+                    />
+                  </View>
+                  <View style={[styles.editModalDivider, { backgroundColor: theme.border }]} />
+                  <View style={styles.editModalFieldRow}>
+                    <Text style={[styles.editModalFieldLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Email</Text>
+                    <TextInput
+                      style={editFieldInputStyle('email', editForm.email)}
+                      value={editForm.email}
+                      onChangeText={(text) => setEditForm((prev) => ({ ...prev, email: text }))}
+                      placeholder='you@company.com'
+                      placeholderTextColor={theme.fieldPlaceholder}
+                      keyboardType='email-address'
+                      autoCapitalize='none'
+                      autoCorrect={false}
+                      {...editFieldFocusHandlers('email')}
+                      {...resolveTextInputKeyboardProps({ keyboardType: 'email-address' })}
+                    />
+                  </View>
+                  <View style={[styles.editModalDivider, { backgroundColor: theme.border }]} />
+                  <View style={styles.editModalFieldRow}>
+                    <Text style={[styles.editModalFieldLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Phone</Text>
+                    <TextInput
+                      style={editFieldInputStyle('phone', editForm.phone)}
+                      value={editForm.phone}
+                      onChangeText={(text) => {
+                        const formatted = formatPhoneNumber(text);
+                        setEditForm((prev) => ({ ...prev, phone: formatted }));
+                      }}
+                      placeholder='(555) 123-4567'
+                      placeholderTextColor={theme.fieldPlaceholder}
+                      keyboardType='numeric'
+                      onSubmitEditing={() => Keyboard.dismiss()}
+                      maxLength={14}
+                      {...editFieldFocusHandlers('phone')}
+                      {...nativeNumericKeyboardProps}
+                    />
+                  </View>
                 </View>
-              </View>
+
+                <View style={[styles.editModalGroupedCard, { backgroundColor: theme.cardInset, borderColor: theme.border, marginTop: 12 }]}>
+                  <View style={styles.editModalFieldRow}>
+                    <Text style={[styles.editModalFieldLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Company</Text>
+                    <TextInput
+                      style={editFieldInputStyle('company', editForm.company)}
+                      value={editForm.company}
+                      onChangeText={(text) => setEditForm((prev) => ({ ...prev, company: text }))}
+                      placeholder='Your company name'
+                      placeholderTextColor={theme.fieldPlaceholder}
+                      autoCapitalize='words'
+                      {...editFieldFocusHandlers('company')}
+                      {...resolveTextInputKeyboardProps()}
+                    />
+                  </View>
+                  <View style={[styles.editModalDivider, { backgroundColor: theme.border }]} />
+                  <View style={styles.editModalFieldRow}>
+                    <Text style={[styles.editModalFieldLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Trade / role</Text>
+                    <TextInput
+                      style={editFieldInputStyle('role', editForm.role)}
+                      value={editForm.role}
+                      onChangeText={(text) => setEditForm((prev) => ({ ...prev, role: text }))}
+                      placeholder='General Contractor'
+                      placeholderTextColor={theme.fieldPlaceholder}
+                      autoCapitalize='words'
+                      {...editFieldFocusHandlers('role')}
+                      {...resolveTextInputKeyboardProps()}
+                    />
+                  </View>
+                  <View style={[styles.editModalDivider, { backgroundColor: theme.border }]} />
+                  <View
+                    ref={locationSectionRef}
+                    style={styles.editModalFieldRow}
+                    onLayout={(event) => {
+                      const { y } = event.nativeEvent.layout;
+                      (locationSectionRef.current as any)._layoutY = y;
+                    }}
+                  >
+                    <Text style={[styles.editModalFieldLabel, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>Service area</Text>
+                    <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-end' }}>
+                      <View style={{ flex: 2 }}>
+                        <Text style={[styles.editModalSubLabel, { color: theme.subtext, opacity: darkMode ? 0.7 : 0.65 }]}>City</Text>
+                        <TextInput
+                          ref={cityInputRef}
+                          style={editFieldInputStyle('city', editForm.city)}
+                          value={editForm.city}
+                          onChangeText={(text) => setEditForm((prev) => ({ ...prev, city: text }))}
+                          placeholder='City'
+                          placeholderTextColor={theme.fieldPlaceholder}
+                          autoCapitalize='words'
+                          {...editFieldFocusHandlers('city')}
+                          {...resolveTextInputKeyboardProps()}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.editModalSubLabel, { color: theme.subtext, opacity: darkMode ? 0.7 : 0.65 }]}>State</Text>
+                        <TextInput
+                          ref={stateInputRef}
+                          style={editFieldInputStyle('state', editForm.state)}
+                          value={editForm.state}
+                          onChangeText={(text) =>
+                            setEditForm((prev) => ({ ...prev, state: text.toUpperCase() }))
+                          }
+                          placeholder='ST'
+                          placeholderTextColor={theme.fieldPlaceholder}
+                          autoCapitalize='characters'
+                          maxLength={2}
+                          {...editFieldFocusHandlers('state')}
+                          {...resolveTextInputKeyboardProps()}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                </View>
               </ScrollView>
 
-              {/* Save Button */}
-              <View style={[styles.modalFooter, {
-                borderTopColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                backgroundColor: darkMode ? '#2a2a2a' : '#f0f0f0',
-              }]}>
+              <View style={[styles.editModalFooter, { borderTopColor: theme.border }]}>
                 <TouchableOpacity
-                  style={[styles.modalSaveButton, {
-                    backgroundColor: theme.accent,
-                  }]}
+                  style={[styles.editModalSaveButton, { backgroundColor: theme.accent }]}
                   onPress={handleSaveProfile}
+                  activeOpacity={0.85}
                 >
-                  <Text style={[styles.modalSaveButtonText, { color: '#ffffff' }]}>
-                    Save Changes
-                  </Text>
+                  <Text style={styles.editModalSaveButtonText}>Save changes</Text>
                 </TouchableOpacity>
               </View>
             </KeyboardAvoidingView>
@@ -4059,8 +4015,8 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 60,
-    marginBottom: 12,
+    marginTop: 52,
+    marginBottom: 8,
     backgroundColor: Colors.bg,
     zIndex: 2,
     elevation: 2,
@@ -4085,9 +4041,10 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     marginRight: 12,
   },
   screenTitle: {
-    fontSize: 32,
-    fontWeight: "800",
+    fontSize: 28,
+    fontWeight: "700",
     color: darkMode ? "#f9fafb" : "#000000",
+    letterSpacing: -0.3,
   },
   backButtonBorder: {
     borderRadius: 20,
@@ -4122,8 +4079,6 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     borderRadius: 999,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: Colors.line,
-    backgroundColor: Colors.surface2,
   },
   segmentInner: {
     flexDirection: 'row',
@@ -4154,6 +4109,10 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   tabContent: {
     flex: 1,
+  },
+  settingsTabWrap: {
+    width: '100%',
+    alignSelf: 'stretch',
   },
   tabContentScroll: {
     flexGrow: 1,
@@ -4272,10 +4231,10 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     flex: 1,
   },
   userName: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: '700',
     marginBottom: 2,
-    letterSpacing: 0.3,
+    letterSpacing: -0.2,
   },
   userRole: {
     fontSize: 14,
@@ -4325,7 +4284,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     paddingVertical: 10,
     borderRadius: 12,
     gap: 6,
-    shadowColor: '#43cea2',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.4,
     shadowRadius: 6,
@@ -4404,27 +4363,24 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     marginBottom: 12,
     gap: 12,
   },
-  contactActions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-    flexWrap: 'wrap',
-  },
-  contactPillButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    gap: 6,
-  },
-  contactPillText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
   contactDetails: {
-    marginBottom: 12,
+    marginBottom: 4,
+  },
+  contactLabeledRow: {
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+  },
+  contactLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  contactValue: {
+    fontSize: 15,
+    fontWeight: '500',
   },
   contactItem: {
     flexDirection: 'row',
@@ -4511,6 +4467,45 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     borderRadius: 10,
     borderWidth: 1.5,
   },
+  addLicenseCard: {
+    marginTop: 10,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 8,
+  },
+  addLicenseLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  addLicenseHint: {
+    fontSize: 12,
+    lineHeight: 16,
+    marginBottom: 2,
+  },
+  addLicenseInput: {
+    fontSize: 15,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    fontWeight: '500',
+  },
+  addLicenseSubmit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  addLicenseSubmitText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
   addLicenseButton: {
     width: 36,
     height: 36,
@@ -4553,9 +4548,9 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     opacity: 0.9,
   },
   emptyBioContainer: {
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    alignItems: 'flex-start',
+    paddingVertical: 4,
+    paddingHorizontal: 0,
   },
   emptyBioIconContainer: {
     width: 64,
@@ -4567,12 +4562,26 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     marginBottom: 12,
   },
   emptyBioTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    textAlign: 'center',
-    marginBottom: 14,
-    lineHeight: 22,
-    opacity: 0.9,
+    fontSize: 14,
+    fontWeight: '400',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  addBioButtonCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 6,
+    marginBottom: 8,
+    alignSelf: 'stretch',
+  },
+  addBioButtonTextCompact: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   addBioButton: {
     flexDirection: 'row',
@@ -4605,10 +4614,8 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   bioHint: {
     fontSize: 12,
-    textAlign: 'center',
-    marginTop: 4,
+    marginTop: 2,
     opacity: 0.7,
-    fontStyle: 'italic',
   },
   characterCount: {
     fontSize: 11,
@@ -4702,10 +4709,9 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     lineHeight: 16,
   },
   emptyPortfolio: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 24,
-    paddingHorizontal: 16,
+    alignItems: 'flex-start',
+    paddingVertical: 4,
+    paddingHorizontal: 0,
   },
   emptyPortfolioIconContainer: {
     width: 64,
@@ -4717,19 +4723,30 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     marginBottom: 16,
   },
   emptyPortfolioTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    textAlign: 'center',
-    marginBottom: 8,
-    lineHeight: 22,
-    opacity: 0.9,
+    fontSize: 14,
+    fontWeight: '400',
+    lineHeight: 20,
+    marginBottom: 4,
   },
   emptyPortfolioSubtitle: {
     fontSize: 13,
-    textAlign: 'center',
-    marginBottom: 20,
-    opacity: 0.7,
+    marginBottom: 12,
     lineHeight: 18,
+  },
+  addPortfolioButtonCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 6,
+    alignSelf: 'stretch',
+  },
+  addPortfolioButtonTextCompact: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   emptyPortfolioText: {
     marginTop: 12,
@@ -4801,7 +4818,9 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     flex: 1,
   },
   settingsGroupContainer: {
-    marginBottom: 24,
+    marginBottom: 16,
+    width: '100%',
+    alignSelf: 'stretch',
   },
   settingsGroupTitle: {
     fontSize: 11,
@@ -4814,10 +4833,11 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     textTransform: 'uppercase',
   },
   settingsGroup: {
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    overflow: 'visible',
-    marginHorizontal: 0,
+    overflow: 'hidden',
+    width: '100%',
+    alignSelf: 'stretch',
   },
   settingItem: {
     flexDirection: 'row',
@@ -4906,7 +4926,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
   },
   deleteButton: {
     // iOS-style destructive button
-    marginTop: 4,
+    marginTop: 12,
   },
   buttonIcon: {
     marginRight: 8,
@@ -4961,9 +4981,83 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     shadowRadius: 6,
   },
   profileCompletionHint: {
-    fontSize: 12,
+    fontSize: 13,
     marginTop: 10,
-    fontStyle: 'italic',
+    fontWeight: '500',
+  },
+  profileCompletionCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 10,
+    alignSelf: 'flex-start',
+  },
+  profileCompletionCtaText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  previewProfileLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 10,
+  },
+  previewProfileLinkText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  previewModalHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  previewCard: {
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  previewAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: '#43cea2',
+    backgroundColor: '#000',
+  },
+  previewCompanyName: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  previewRole: {
+    fontSize: 14,
+    marginBottom: 2,
+  },
+  previewLocation: {
+    fontSize: 13,
+  },
+  previewSectionLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+  },
+  previewBodyText: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 4,
+  },
+  previewPortfolioThumb: {
+    width: 100,
+    height: 100,
+    borderRadius: 10,
+    marginRight: 8,
+  },
+  footerBrandText: {
+    fontSize: 12,
+    textAlign: 'center',
     fontWeight: '500',
   },
   searchSection: {
@@ -5019,7 +5113,7 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     width: '90%',
     maxHeight: '85%',
     minHeight: 550,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     overflow: 'hidden',
     backgroundColor: '#142850',
@@ -5070,6 +5164,101 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  editModalScrollContent: {
+    paddingBottom: 24,
+    paddingTop: 16,
+    paddingHorizontal: 16,
+    flexGrow: 1,
+  },
+  editModalLogoSection: {
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingVertical: 4,
+  },
+  editModalLogoWrap: {
+    position: 'relative',
+    marginBottom: 10,
+  },
+  editModalLogoImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 2,
+    borderColor: '#43cea2',
+    backgroundColor: '#000',
+  },
+  editModalLogoBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#43cea2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#1C1D20',
+  },
+  editModalLogoTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  editModalLogoHint: {
+    fontSize: 13,
+  },
+  editModalGroupedCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  editModalFieldRow: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  editModalFieldLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  editModalFieldInput: {
+    fontSize: 16,
+    fontWeight: '500',
+    paddingVertical: 2,
+    ...(Platform.OS === 'web'
+      ? { outlineStyle: 'none' as const, outlineWidth: 0 }
+      : {}),
+  },
+  editModalSubLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  editModalDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 14,
+  },
+  editModalFooter: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  editModalSaveButton: {
+    width: '100%',
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editModalSaveButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#050B13',
+    letterSpacing: -0.2,
   },
   modalInputRow: {
     paddingHorizontal: 16,

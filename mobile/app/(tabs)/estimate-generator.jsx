@@ -22425,6 +22425,19 @@ export default function EstimateGeneratorScreen() {
     return null;
   }
 
+  const profileName =
+    String(contractorProfile?.name || '').trim() ||
+    String(clerkUser?.fullName || '').trim() ||
+    [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(' ').trim();
+  const profileInitials =
+    profileName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join('')
+      .toUpperCase() || '👤';
+
   return (
     <SafeAreaView
       style={[s.container, Platform.OS === 'web' && desktopWeb && s.rootDesktopWeb]}
@@ -22478,7 +22491,40 @@ export default function EstimateGeneratorScreen() {
             </Text>
           </View>
 
-          {/* + New bid — solid green utility */}
+          {/* Profile shortcut keeps account navigation available from Estimates. */}
+          <LinearGradient
+            colors={BRAND_FRAME_GRADIENT_COLORS}
+            start={BRAND_FRAME_GRADIENT_START}
+            end={BRAND_FRAME_GRADIENT_END}
+            style={{
+              width: 54,
+              height: 54,
+              borderRadius: 27,
+              padding: 2,
+            }}
+          >
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => router.push('/(tabs)/profile')}
+              accessibilityRole="button"
+              accessibilityLabel="Profile"
+              style={{
+                flex: 1,
+                borderRadius: 25,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#000000',
+              }}
+            >
+              <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700' }}>
+                {profileInitials}
+              </Text>
+            </TouchableOpacity>
+          </LinearGradient>
+        </View>
+
+        {/* New bid stays directly below the title so it does not compete with Profile. */}
+        <View style={{ alignItems: 'flex-end', marginTop: 10 }}>
           <TouchableOpacity
             activeOpacity={0.88}
             style={estimateHeaderNewBidButtonStyle()}

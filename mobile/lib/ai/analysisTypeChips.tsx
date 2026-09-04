@@ -6,7 +6,6 @@
 
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 
 type AnalysisTypeChipsProps = {
@@ -34,14 +33,14 @@ export default function AnalysisTypeChips({
           activeOpacity={0.7}
           style={styles.chipWrapper}
         >
-          <LinearGradient
-            colors={darkMode 
-              ? ['rgba(45, 255, 196, 0.15)', 'rgba(0, 166, 255, 0.15)']
-              : ['rgba(45, 255, 196, 0.1)', 'rgba(0, 166, 255, 0.1)']
-            }
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.chip}
+          <View
+            style={[
+              styles.chip,
+              {
+                backgroundColor: darkMode ? '#2A2B2E' : '#F1F5F9',
+                borderColor: darkMode ? '#3A3B3F' : '#CBD5E1',
+              },
+            ]}
           >
             <Text style={[styles.chipText, { color: darkMode ? '#F9FAFB' : '#1e293b' }]}>
               Quick Health Check
@@ -49,7 +48,7 @@ export default function AnalysisTypeChips({
             <Text style={[styles.chipSubtext, { color: darkMode ? '#FFFFFF' : '#64748b' }]}>
               Status, budget, progress
             </Text>
-          </LinearGradient>
+          </View>
         </TouchableOpacity>
         
         <TouchableOpacity
@@ -57,14 +56,14 @@ export default function AnalysisTypeChips({
           activeOpacity={0.7}
           style={styles.chipWrapper}
         >
-          <LinearGradient
-            colors={darkMode 
-              ? ['rgba(45, 255, 196, 0.15)', 'rgba(0, 166, 255, 0.15)']
-              : ['rgba(45, 255, 196, 0.1)', 'rgba(0, 166, 255, 0.1)']
-            }
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.chip}
+          <View
+            style={[
+              styles.chip,
+              {
+                backgroundColor: darkMode ? '#2A2B2E' : '#F1F5F9',
+                borderColor: darkMode ? '#3A3B3F' : '#CBD5E1',
+              },
+            ]}
           >
             <Text style={[styles.chipText, { color: darkMode ? '#F9FAFB' : '#1e293b' }]}>
               Full Breakdown
@@ -72,7 +71,7 @@ export default function AnalysisTypeChips({
             <Text style={[styles.chipSubtext, { color: darkMode ? '#FFFFFF' : '#64748b' }]}>
               Detailed analysis & insights
             </Text>
-          </LinearGradient>
+          </View>
         </TouchableOpacity>
       </View>
     </View>

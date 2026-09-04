@@ -2222,7 +2222,13 @@ function ProjectDetailContent() {
             </View>
           );
         default:
-          return <OverviewScreen project={safeProjectData} theme='dark' />;
+          return (
+            <OverviewScreen
+              project={safeProjectData}
+              theme='dark'
+              scheduleProgressPct={overviewMetrics.scheduleProgress}
+            />
+          );
       }
     } catch (error) {
       console.error('Error rendering tab content:', error);
