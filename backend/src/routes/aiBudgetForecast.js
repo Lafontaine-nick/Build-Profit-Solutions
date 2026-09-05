@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/authenticateToken');
+const { requireEntitlement } = require('../middleware/requireEntitlement');
 
 router.use(authenticateToken);
+router.use(requireEntitlement());
 
 // AI Budget Forecasting endpoint
 router.post('/budget-forecast', async (req, res) => {

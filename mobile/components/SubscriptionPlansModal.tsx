@@ -36,6 +36,9 @@ import {
   filterLaunchSubscriptionPlans,
   isTeamWorkspaceReleased,
 } from '@/constants/releaseFlags';
+import IosFoundingSubscriptionPanel from '@/components/IosFoundingSubscriptionPanel';
+import { isAppleBillingAvailable } from '@/services/appleBillingService';
+import { useBusinessEntitlement } from '@/hooks/useBusinessEntitlement';
 
 function planShortName(name: string): string {
   return name.replace(/\s+Plan\s*$/i, '').trim() || name;
@@ -89,6 +92,8 @@ export default function SubscriptionPlansModal({
   const [loading, setLoading] = useState(false);
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
   const [detectingCurrentPlan, setDetectingCurrentPlan] = useState(true);
+  const { hasFoundingFull, refresh: refreshEntitlement } = useBusinessEntitlement();
+  const useIosBilling = Platform.OS === 'ios' && isAppleBillingAvailable();
 
   let userEmail: string | null =
     clerkUser?.primaryEmailAddress?.emailAddress ||
@@ -235,6 +240,13 @@ export default function SubscriptionPlansModal({
       return;
     }
     try {
+      if (Platform.OS === 'ios') {
+        Alert.alert(
+          'App Store billing',
+          'On iPhone, subscribe with the App Store buttons below. External checkout is not used on iOS.',
+        );
+        return;
+      }
       console.log('🚀 Starting subscription for plan:', plan);
       console.log('🚀 handleSubscribe function called successfully');
       console.log('🚀 Plan ID:', plan.id, 'Plan name:', plan.name);
@@ -745,8 +757,9 @@ export default function SubscriptionPlansModal({
     );
   };
 
-  const subtitleCopy =
-    'Simple pricing for serious builders. Start in minutes—upgrade or downgrade anytime.';
+  const subtitleCopy = useIosBilling
+    ? 'Subscribe through the App Store. Founding access stays active while your subscription remains continuously active.'
+    : 'Simple pricing for serious builders. Start in minutes—upgrade or downgrade anytime.';
 
   const billingChromeTree = (
     <LinearGradient
@@ -764,7 +777,25 @@ export default function SubscriptionPlansModal({
           },
         ]}
       >
-        {plans.map(renderPlan)}
+        {useIosBilling ? (
+          <IosFoundingSubscriptionPanel
+            colors={{
+              text: theme.text,
+              subtext: theme.subtext,
+              card: theme.card,
+              border: theme.border,
+              accent: theme.accent,
+              success: theme.success,
+            }}
+            darkMode={darkMode}
+            isActive={hasFoundingFull}
+            onEntitlementRefreshed={() => {
+              void refreshEntitlement();
+            }}
+          />
+        ) : (
+          plans.map(renderPlan)
+        )}
 
         <View
           style={[
@@ -775,7 +806,9 @@ export default function SubscriptionPlansModal({
             },
           ]}
         >
-          <Text style={[styles.footerText, { color: theme.text }]}>Start with a 7-day free trial</Text>
+          <Text style={[styles.footerText, { color: theme.text }]}>
+        {useIosBilling ? 'Prices shown by Apple' : 'Start with a 7-day free trial'}
+      </Text>
           <Text style={[styles.footerMuted, { color: theme.subtext }]}>Cancel anytime · No setup fees</Text>
         </View>
       </View>
