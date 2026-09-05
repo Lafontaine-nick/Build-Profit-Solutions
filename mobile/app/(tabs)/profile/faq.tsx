@@ -125,7 +125,7 @@ const faqData: FAQItem[] = [
     id: '7',
     question: 'What are the subscription plans?',
     answer:
-      'You can upgrade, downgrade, or cancel anytime—no contracts. We offer two subscription plans: Basic ($45/month) and Professional ($89/month). Each plan includes different features and limits, and you can change your plan at any time from your Profile settings.',
+      'BPS offers one Professional plan at $99/month (or $990/year) with full platform access — estimating, Build with AI, job costing, supplier lookup, Tax Center, and contractor-branded PDFs. New subscribers get a 7-day free trial. You can cancel anytime from Payment & Billing in your Profile; access continues through the end of your billing period.',
     category: 'billing',
   },
   {

@@ -629,7 +629,7 @@ export const ExampleSettingsScreen = () => {
               Professional Plan
             </BpsText.H3>
             <BpsText.Body muted>
-              $89/month • Unlimited projects • Full AI Estimator
+              $99/month • Full platform access • 7-day free trial
             </BpsText.Body>
 
             <BpsButton

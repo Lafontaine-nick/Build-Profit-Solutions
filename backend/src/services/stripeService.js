@@ -6,18 +6,17 @@ const {
 } = require('./stripeEntitlementStore');
 
 const SUBSCRIPTION_PLANS = {
-  basic: {
-    id: process.env.STRIPE_PRICE_BASIC || 'price_basic_monthly',
-    name: 'Basic Plan',
-    price: 4500, // $45.00 in cents (display / legacy; live checkout uses Stripe Price)
-    features: ['Lead Management', 'Basic Analytics', 'Email Support']
-  },
   premium: {
-    id: process.env.STRIPE_PRICE_PREMIUM || 'price_premium_monthly', 
-    name: 'Premium Plan',
-    price: 8900, // $89.00 in cents (display / legacy; live checkout uses Stripe Price)
-    features: ['Lead Management', 'Advanced Analytics', 'AI Lead Scoring', 'Priority Support', 'Data Export']
-  }
+    id: process.env.STRIPE_PRICE_PREMIUM || 'price_premium_monthly',
+    name: 'Professional',
+    price: 9900, // $99.00 in cents (display / legacy; live checkout uses Stripe Price)
+    features: [
+      'Full estimating & project management',
+      'Build with AI & AI Assistant',
+      'SKU lookup & Tax Center',
+      'Contractor-branded PDFs',
+    ],
+  },
 };
 
 const createCustomer = async (email, name) => {

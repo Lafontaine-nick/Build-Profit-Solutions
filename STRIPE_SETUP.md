@@ -11,92 +11,82 @@
 
 ### 2. Update Backend .env File
 
-Edit `/Users/nick_lafontaine/build-profit-solutions/backend/.env` and replace:
+Edit `backend/.env` and set:
 
 ```env
 STRIPE_SECRET_KEY=sk_test_your_actual_key_here
 STRIPE_PUBLISHABLE_KEY=pk_test_your_actual_key_here
+STRIPE_PRODUCT_PROFESSIONAL=prod_...
+STRIPE_PRICE_PREMIUM=price_...   # Professional $99/month
+STRIPE_PRICE_PROFESSIONAL_ANNUAL=price_...  # optional $990/year
+STRIPE_PRICE_BUSINESS=price_...  # Business $199/month (when team workspace ships)
 ```
 
 **Note:** The webhook secret is optional for now. You can leave it as `whsec_your_webhook_secret_here` until you set up webhooks.
 
 ### 3. Restart Backend Server
 
-After updating the .env file, restart the backend server:
-
-```bash
-# Stop the current server (find the process and kill it, or use Ctrl+C)
-# Then restart:
-cd /Users/nick_lafontaine/build-profit-solutions/backend
-npm start
-```
+After updating the `.env` file, restart the backend server.
 
 ### 4. Create Stripe Products & Prices
 
-You have two options:
-
 #### Option A: Use the Setup Script (Recommended)
+
 ```bash
-cd /Users/nick_lafontaine/build-profit-solutions/backend
+cd backend
 node setup-stripe.js
 ```
 
-This will create:
-- Basic Plan ($25/month)
-- Professional Plan ($49/month)  
-- Business Plan ($79/month)
+This creates:
+
+- **Professional** — $99/month (+ optional $990/year)
+- **Business** — $199/month (hidden in app until team workspace launches)
 
 #### Option B: Create Manually in Stripe Dashboard
 
 1. Go to [Stripe Dashboard - Products](https://dashboard.stripe.com/test/products)
-2. Click "Add product"
-3. Create each plan:
-   - **Basic Plan**: $25/month recurring
-   - **Professional Plan**: $49/month recurring
-   - **Business Plan**: $79/month recurring
-4. Copy the Price IDs (start with `price_...`) and update them in:
-   - `backend/.env` (STRIPE_PRICE_BASIC, STRIPE_PRICE_PREMIUM)
-   - `mobile/services/stripeService.ts` (lines 177, 200, 221)
+2. Create **Professional** at **$99/month** recurring
+3. Optionally add **$990/year** as a second price on the same product
+4. Set the monthly price as the product **Default price**
+5. Copy Price IDs (start with `price_...`) into `backend/.env`
 
 ### 5. Test the Integration
 
-Once configured:
-1. Open your mobile app
-2. Navigate to Payment & Billing
-3. Click "View Plans"
-4. Click "Start with Basic" (or any plan)
+1. Open the mobile app
+2. Navigate to **Payment & Billing**
+3. Tap **View Plans**
+4. Subscribe to **Professional** ($99/mo, 7-day trial if configured in Stripe)
 5. You should be redirected to Stripe Checkout
 
-## Current Price IDs in Code
+## Launch pricing (current)
 
-The mobile app is configured to use these Price IDs:
-- Basic: `price_1S61YbAEo74nL2FWa0EZt4CE`
-- Professional: `price_1S61YbAEo74nL2FWJQzrcFFG`
-- Business: `price_1S61YbAEo74nL2FWTfBusiness` (placeholder - needs to be created)
+| Plan | Price | App visibility |
+|------|-------|----------------|
+| Professional | $99/mo or $990/yr | Shown to all new subscribers |
+| Business | $199/mo | Hidden until `BUSINESS_PLAN_ENABLED=true` |
 
-**Important:** Make sure the Price IDs in Stripe match the ones in your code, or update the code to match your Stripe Price IDs.
+Legacy Basic ($45) and older Professional ($89) Stripe prices still resolve to **Professional** access for existing subscribers.
 
 ## Troubleshooting
 
 ### Error: "Stripe API key not configured"
+
 - Make sure you've updated `STRIPE_SECRET_KEY` in `backend/.env`
-- Restart the backend server after updating .env
+- Restart the backend server after updating `.env`
 
 ### Error: "Stripe API key is invalid"
+
 - Check that your key starts with `sk_test_` (for test mode)
-- Make sure there are no extra spaces in the .env file
-- Verify the key is copied correctly from Stripe Dashboard
+- Make sure there are no extra spaces in the `.env` file
 
 ### Error: "Price ID not found"
-- Make sure you've created the products/prices in Stripe Dashboard
-- Verify the Price IDs match between Stripe and your code
-- Price IDs should start with `price_`
+
+- Create the $99 Professional price in Stripe Dashboard
+- Set `STRIPE_PRICE_PREMIUM` to the live `price_...` id
+- Or set `STRIPE_PRODUCT_PROFESSIONAL` to the product id and mark the $99 price as **Default**
 
 ## Need Help?
 
 - [Stripe Documentation](https://stripe.com/docs)
 - [Stripe Test Cards](https://stripe.com/docs/testing#cards)
 - [Stripe Dashboard](https://dashboard.stripe.com/test)
-
-
-

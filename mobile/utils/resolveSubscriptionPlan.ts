@@ -5,7 +5,14 @@ export const LIVE_BUSINESS_STRIPE_PRICE_ID = 'price_1THzFnAEo74nL2FWaVZo8JXA';
 const PLAN_TIER: Record<string, number> = {
   business: 3,
   premium: 2,
-  basic: 1,
+  professional: 2,
+  basic: 2, // legacy Basic subscribers → same tier as Professional
+};
+
+/** Legacy Stripe price IDs (retired tiers) still map to Professional for billing display. */
+const LEGACY_PRICE_ID_TO_PLAN_ID: Record<string, string> = {
+  price_1THzBgAEo74nL2FWYjwMWqcX: 'premium', // legacy Basic $45
+  price_1THzkTAEo74nL2FWxRsZvwXL: 'premium', // legacy Professional $89
 };
 
 export function normalizeSubscriptionPlanId(planId: unknown): string | null {
@@ -13,6 +20,7 @@ export function normalizeSubscriptionPlanId(planId: unknown): string | null {
   const normalized = planId.trim().toLowerCase();
   if (!normalized) return null;
   if (normalized === 'professional') return 'premium';
+  if (normalized === 'basic') return 'premium';
   return normalized;
 }
 
@@ -33,6 +41,11 @@ export function priceIdToPlanId(
 
   if (priceId === LIVE_BUSINESS_STRIPE_PRICE_ID) {
     return 'business';
+  }
+
+  const legacyPlanId = LEGACY_PRICE_ID_TO_PLAN_ID[priceId];
+  if (legacyPlanId) {
+    return normalizeSubscriptionPlanId(legacyPlanId);
   }
 
   return null;

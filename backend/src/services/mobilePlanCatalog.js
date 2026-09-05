@@ -2,78 +2,58 @@
  * Canonical subscription catalog for the mobile app.
  * Display amounts are loaded from Stripe so UI matches what customers pay.
  *
- * Professional / premium: optional STRIPE_PRODUCT_PROFESSIONAL=prod_...
+ * Launch: single Professional tier ($99/mo). Business is gated until team workspace ships.
+ *
+ * Professional: optional STRIPE_PRODUCT_PROFESSIONAL=prod_...
  * If set, uses that Product's **Default price** in Stripe (the one with the blue "Default" badge).
- * Fixes cases where STRIPE_PRICE_PREMIUM still points at an old archived price id.
  */
 
 const { filterLaunchSubscriptionPlans } = require('../constants/releaseFlags');
 
 const PLAN_DEFINITIONS = [
   {
-    id: 'basic',
-    envVar: 'STRIPE_PRICE_BASIC',
-    stripePriceIdFallback: 'price_1THzBgAEo74nL2FWYjwMWqcX',
-    priceFallback: 45,
-    name: 'Basic Plan',
-    description: 'Get started with essential tools for solo contractors.',
-    tag: 'Starter',
-    cta: 'Start with Basic',
-    recommended: false,
-    features: [
-      '3–5 active projects',
-      'Basic project dashboard',
-      'Material & labor costing',
-      'AI Estimate Assistant (lite usage)',
-      'Save/export estimates (BPS branding)',
-      'Leads tab (view only)',
-      'Simple customer CRM',
-      'Email support',
-    ],
-  },
-  {
     id: 'premium',
     envVar: 'STRIPE_PRICE_PREMIUM',
     stripePriceIdFallback: 'price_1THzkTAEo74nL2FWxRsZvwXL',
-    priceFallback: 89,
-    name: 'Professional Plan',
-    description: 'Built to protect margins and scale profitably.',
-    tag: 'Most Popular',
-    cta: 'Upgrade to Professional',
-    recommended: true,
+    priceFallback: 99,
+    name: 'Professional',
+    description:
+      'Full platform access — estimating, AI, job costing, supplier lookup, and tax organization in one place.',
+    tag: 'All features included',
+    cta: 'Start 7-day free trial',
+    recommended: false,
     features: [
       'Unlimited projects',
-      'Full AI Estimator',
-      'Custom branded estimate PDFs',
-      'Live job costing & profitability tracking',
-      'Overhead & markup automation',
-      'Full Leads tab (filters + management)',
-      'Budget vs. actuals tracking',
-      'Find Subcontractors & verified directory (full access)',
-      'Price spike alerts',
-      'Supplier integrations',
-      'Priority support',
+      'Full 8-step estimating & bid builder',
+      'Build with AI & AI Assistant (fair-use)',
+      'Plan/PDF takeoff & photo scope detection',
+      'SKU barcode scan & Home Depot / Lowe’s lookup',
+      'Tax Center & receipt OCR',
+      'Contractor-branded estimate PDFs',
+      'Job costing, budgets & change orders',
+      'Project photos, daily logs & calendars',
+      'One user · $990/year available',
     ],
   },
   {
     id: 'business',
     envVar: 'STRIPE_PRICE_BUSINESS',
     stripePriceIdFallback: 'price_1THzFnAEo74nL2FWaVZo8JXA',
-    priceFallback: 179,
-    name: 'Business Plan',
+    priceFallback: 199,
+    name: 'Business',
     description:
-      'One company workspace with up to 5 team seats, individual logins, shared project records, and role-based access for growing construction teams.',
-    tag: 'Business Team Workspace',
+      'Company workspace with up to 5 team seats, individual logins, shared project records, and role-based access.',
+    tag: 'Team workspace',
     cta: 'Upgrade to Business',
     recommended: false,
     features: [
+      'Everything in Professional',
       'Company workspace',
       'Up to 5 team seats',
       'Individual team logins',
       'Shared project records',
       'Notes, expenses, logs, and calendar events',
-      'Role-based access foundation',
-      'Activity tracking foundation',
+      'Role-based access',
     ],
   },
 ];
@@ -137,7 +117,7 @@ async function getMobilePlansCatalog(stripeClient) {
   for (const def of PLAN_DEFINITIONS) {
     let stripePriceId = resolvePriceId(def);
     let price = def.priceFallback;
-    /** Set when Stripe returns a price; use to verify env points at the intended Price (e.g. 8900 vs 7900). */
+    /** Set when Stripe returns a price; use to verify env points at the intended Price. */
     let unitAmountCents = null;
 
     if (def.id === 'premium') {

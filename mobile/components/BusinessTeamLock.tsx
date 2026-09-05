@@ -38,11 +38,9 @@ export default function BusinessTeamLock({
   const currentPlanLabel =
     currentPlanId === 'business'
       ? 'Business'
-      : currentPlanId === 'premium'
+      : currentPlanId === 'premium' || currentPlanId === 'basic'
         ? 'Professional'
-        : currentPlanId === 'basic'
-          ? 'Basic'
-          : 'No active plan';
+        : 'No active plan';
 
   return (
     <View style={[styles.root, { backgroundColor: Colors.bg }]}>
@@ -65,7 +63,7 @@ export default function BusinessTeamLock({
           </View>
 
           <Text style={[styles.eyebrow, { color: '#22c55e' }]}>
-            Business Plan · $179/mo
+            Business Plan · $199/mo
           </Text>
           <Text style={[styles.title, { color: Colors.text }]}>
             Unlock Team Workspace
