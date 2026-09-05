@@ -6,65 +6,52 @@ async function setupStripeProducts() {
     console.log('Setting up Stripe products and prices...');
     console.log('Using Stripe key:', process.env.STRIPE_SECRET_KEY ? 'Found' : 'Not found');
 
-    // Create Basic Plan Product
-    const basicProduct = await stripe.products.create({
-      name: 'Basic Plan',
-      description: 'Basic subscription plan with lead management and analytics',
+    const professionalProduct = await stripe.products.create({
+      name: 'Professional',
+      description:
+        'Full platform access — estimating, AI, job costing, supplier lookup, and tax organization.',
     });
 
-    const basicPrice = await stripe.prices.create({
-      product: basicProduct.id,
-      unit_amount: 2500, // $25.00
+    const professionalPrice = await stripe.prices.create({
+      product: professionalProduct.id,
+      unit_amount: 9900, // $99.00
       currency: 'usd',
       recurring: { interval: 'month' },
     });
 
-    console.log('✅ Basic Plan created:');
-    console.log(`   Product ID: ${basicProduct.id}`);
-    console.log(`   Price ID: ${basicPrice.id}`);
-
-    // Create Premium Plan Product
-    const premiumProduct = await stripe.products.create({
-      name: 'Premium Plan',
-      description: 'Premium subscription plan with advanced features and AI',
-    });
-
-    const premiumPrice = await stripe.prices.create({
-      product: premiumProduct.id,
-      unit_amount: 5000, // $50.00
+    const professionalAnnual = await stripe.prices.create({
+      product: professionalProduct.id,
+      unit_amount: 99000, // $990.00/year
       currency: 'usd',
-      recurring: { interval: 'month' },
+      recurring: { interval: 'year' },
     });
 
-    console.log('✅ Premium Plan created:');
-    console.log(`   Product ID: ${premiumProduct.id}`);
-    console.log(`   Price ID: ${premiumPrice.id}`);
+    console.log('✅ Professional created:');
+    console.log(`   Product ID: ${professionalProduct.id}`);
+    console.log(`   Monthly Price ID: ${professionalPrice.id}`);
+    console.log(`   Annual Price ID: ${professionalAnnual.id}`);
 
-    // Create Business Plan Product
     const businessProduct = await stripe.products.create({
-      name: 'Business Plan',
-      description: 'For GC teams that need forecasting, AI bids, and integrations',
+      name: 'Business',
+      description: 'Team workspace with up to 5 seats (launch when team features ship).',
     });
 
     const businessPrice = await stripe.prices.create({
       product: businessProduct.id,
-      unit_amount: 7900, // $79.00
+      unit_amount: 19900, // $199.00
       currency: 'usd',
       recurring: { interval: 'month' },
     });
 
-    console.log('✅ Business Plan created:');
+    console.log('✅ Business created (hidden until BUSINESS_PLAN_ENABLED):');
     console.log(`   Product ID: ${businessProduct.id}`);
     console.log(`   Price ID: ${businessPrice.id}`);
 
-    console.log('\n📝 Add these to your .env file:');
-    console.log(`STRIPE_PRICE_BASIC=${basicPrice.id}`);
-    console.log(`STRIPE_PRICE_PREMIUM=${premiumPrice.id}`);
+    console.log('\n📝 Add these to your backend .env file:');
+    console.log(`STRIPE_PRODUCT_PROFESSIONAL=${professionalProduct.id}`);
+    console.log(`STRIPE_PRICE_PREMIUM=${professionalPrice.id}`);
+    console.log(`STRIPE_PRICE_PROFESSIONAL_ANNUAL=${professionalAnnual.id}`);
     console.log(`STRIPE_PRICE_BUSINESS=${businessPrice.id}`);
-    
-    console.log('\n📝 Update mobile/services/stripeService.ts with:');
-    console.log(`   Business Plan stripePriceId: ${businessPrice.id}`);
-
   } catch (error) {
     console.error('Error setting up Stripe products:', error);
   }

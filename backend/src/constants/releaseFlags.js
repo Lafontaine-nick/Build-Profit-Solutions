@@ -21,8 +21,11 @@ function isTeamWorkspaceReleased() {
 }
 
 function filterLaunchSubscriptionPlans(plans) {
-  if (isBusinessPlanReleased()) return plans;
-  return (plans || []).filter((plan) => plan?.id !== 'business');
+  let filtered = (plans || []).filter((plan) => plan?.id !== 'basic');
+  if (!isBusinessPlanReleased()) {
+    filtered = filtered.filter((plan) => plan?.id !== 'business');
+  }
+  return filtered;
 }
 
 module.exports = {

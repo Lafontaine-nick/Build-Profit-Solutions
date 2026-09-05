@@ -475,7 +475,7 @@ export default function PaymentScreen() {
               </View>
               <View style={styles.currentPlanDetails}>
                 <Text style={[styles.planDetailText, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
-                  Subscribe to a plan to unlock premium features
+                  Subscribe to Professional to unlock the full platform
                 </Text>
               </View>
             </>
