@@ -2,6 +2,7 @@ import {
   APPLE_PRODUCT_IDS,
   ENTITLEMENT_FOUNDING_FULL,
   ENTITLEMENT_TO_PLAN_ID,
+  FOUNDING_PLAN_FEATURES,
   REVENUECAT_OFFERING_ID,
   entitlementToPlanId,
   isKnownAppleProductId,
@@ -25,5 +26,10 @@ describe('billingCatalog', () => {
 
   it('uses founding offering id', () => {
     expect(REVENUECAT_OFFERING_ID).toBe('founding');
+  });
+
+  it('exposes founding plan feature list for billing UI', () => {
+    expect(FOUNDING_PLAN_FEATURES.length).toBeGreaterThan(0);
+    expect(FOUNDING_PLAN_FEATURES[0]).toMatch(/Unlimited projects/i);
   });
 });

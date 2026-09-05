@@ -23,6 +23,18 @@ export const ENTITLEMENT_TO_PLAN_ID: Record<string, string> = {
 
 export const FOUNDING_PLAN_DISPLAY_NAME = 'Founding Professional';
 
+/** Shown on iOS billing surfaces when founding_full is active (not hardcoded prices). */
+export const FOUNDING_PLAN_FEATURES = [
+  'Unlimited projects',
+  'Build with AI & AI Assistant',
+  'Plan/PDF takeoff & photo scope',
+  'SKU scan & supplier price lookup',
+  'Tax Center & receipt OCR',
+  'Contractor-branded estimate PDFs',
+  'Job costing, budgets & change orders',
+  'Project photos, daily logs & calendars',
+] as const;
+
 export const ALL_APPLE_PRODUCT_IDS = Object.values(APPLE_PRODUCT_IDS);
 
 export function isKnownAppleProductId(productId: string | null | undefined): boolean {

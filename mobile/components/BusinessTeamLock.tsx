@@ -65,7 +65,7 @@ export default function BusinessTeamLock({
           </View>
 
           <Text style={[styles.eyebrow, { color: '#22c55e' }]}>
-            Business Plan · $179/mo
+            Business Plan · $199/mo
           </Text>
           <Text style={[styles.title, { color: Colors.text }]}>
             Unlock Team Workspace
