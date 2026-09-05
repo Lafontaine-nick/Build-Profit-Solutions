@@ -28,6 +28,12 @@ import {
   priceIdToPlanId,
   resolveBestPlanIdFromSubscriptions,
 } from '@/utils/resolveSubscriptionPlan';
+import { isAppleBillingAvailable } from '@/services/appleBillingService';
+import { fetchBillingEntitlement } from '@/services/billingEntitlementService';
+import {
+  FOUNDING_PLAN_DISPLAY_NAME,
+  FOUNDING_PLAN_FEATURES,
+} from '@/constants/billingCatalog';
 
 const CACHED_PLAN_KEY = 'bps.cachedPlanId';
 
@@ -172,7 +178,26 @@ export default function PaymentScreen() {
     try {
       console.log('🚀 fetchCurrentPlan called');
       setLoading(true);
-      setError(null); // Clear any previous errors
+      setError(null);
+
+      if (Platform.OS === 'ios' && isAppleBillingAvailable()) {
+        const entitlement = await fetchBillingEntitlement().catch(() => null);
+        if (entitlement?.isActive) {
+          setCurrentPlan({
+            name: FOUNDING_PLAN_DISPLAY_NAME,
+            features: [...FOUNDING_PLAN_FEATURES],
+          });
+          setSubscriptionStatus(entitlement.status || 'active');
+          await AsyncStorage.setItem(CACHED_PLAN_KEY, 'premium');
+          setError(null);
+        } else {
+          setCurrentPlan(null);
+          setSubscriptionStatus(entitlement?.status || null);
+          setError(null);
+        }
+        return;
+      }
+
       // Use stored email as final fallback
       const emailToUse = userEmail || storedEmail;
       console.log('📋 Fetching current plan, user email:', emailToUse || 'not available');
@@ -333,15 +358,20 @@ export default function PaymentScreen() {
 
   // Wait for AsyncStorage profile read (max ~4s fail-safe). Do not gate on Clerk `isLoaded` — if Clerk
   // never flips loaded, we would never fetch and "Loading plan..." would never clear.
+  const useIosBilling = Platform.OS === 'ios' && isAppleBillingAvailable();
+
   useFocusEffect(
     React.useCallback(() => {
-      if (!emailLoaded) {
+      if (!emailLoaded && !useIosBilling) {
         setLoading(true);
         return;
       }
       const emailToUse = userEmail || storedEmail;
-      if (emailToUse) {
-        console.log('🔄 useFocusEffect triggered - fetching plan with email:', emailToUse);
+      if (useIosBilling || emailToUse) {
+        console.log(
+          '🔄 useFocusEffect triggered - fetching plan',
+          useIosBilling ? '(App Store)' : `with email: ${emailToUse}`,
+        );
         fetchCurrentPlan().catch((error) => {
           console.error('❌ Unexpected error in fetchCurrentPlan:', error);
           setLoading(false);
@@ -352,14 +382,14 @@ export default function PaymentScreen() {
         setCurrentPlan(null);
         setError('No email found. Please sign in again.');
       }
-    }, [userEmail, storedEmail, emailLoaded, planCatalog])
+    }, [userEmail, storedEmail, emailLoaded, planCatalog, useIosBilling])
   );
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
     await fetchCurrentPlan();
     setRefreshing(false);
-  }, [userEmail, storedEmail, planCatalog]);
+  }, [userEmail, storedEmail, planCatalog, useIosBilling]);
 
   return (
     <LinearGradient colors={theme.background as [string, string, string]} style={styles.container}>

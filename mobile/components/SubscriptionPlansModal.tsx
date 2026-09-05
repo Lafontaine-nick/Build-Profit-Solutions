@@ -759,7 +759,15 @@ export default function SubscriptionPlansModal({
 
   const subtitleCopy = useIosBilling
     ? 'Subscribe through the App Store. Founding access stays active while your subscription remains continuously active.'
-    : 'Simple pricing for serious builders. Start in minutes—upgrade or downgrade anytime.';
+    : plans.length <= 1
+      ? 'One plan with everything included. Cancel anytime.'
+      : 'Simple pricing for serious builders. Start in minutes—upgrade or downgrade anytime.';
+
+  const planScreenTitle = useIosBilling
+    ? 'Founding Professional'
+    : plans.length <= 1
+      ? 'Founding Professional'
+      : 'Choose Your Plan';
 
   const billingChromeTree = (
     <LinearGradient
@@ -853,7 +861,7 @@ export default function SubscriptionPlansModal({
             </LinearGradient>
           </View>
           <View style={styles.headerTitleBlock}>
-            <Text style={[styles.screenTitle, { color: theme.text }]}>Choose Your Plan</Text>
+            <Text style={[styles.screenTitle, { color: theme.text }]}>{planScreenTitle}</Text>
             <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>{subtitleCopy}</Text>
           </View>
         </View>
@@ -864,7 +872,7 @@ export default function SubscriptionPlansModal({
             <MaterialIcons name="close" size={24} color={theme.text} />
           </TouchableOpacity>
           <View style={styles.titleContainer}>
-            <Text style={[styles.title, { color: theme.text }]}>Choose Your Plan</Text>
+            <Text style={[styles.title, { color: theme.text }]}>{planScreenTitle}</Text>
           </View>
           <View style={{ width: 40 }} />
         </View>

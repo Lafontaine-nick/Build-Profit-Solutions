@@ -626,10 +626,10 @@ export const ExampleSettingsScreen = () => {
         <Section title="Subscription">
           <BpsCard elevated>
             <BpsText.H3 style={{ marginBottom: bpsTheme.spacing.sm }}>
-              Professional Plan
+              Founding Professional
             </BpsText.H3>
             <BpsText.Body muted>
-              $89/month • Unlimited projects • Full AI Estimator
+              Full platform access · Prices shown at purchase
             </BpsText.Body>
 
             <BpsButton

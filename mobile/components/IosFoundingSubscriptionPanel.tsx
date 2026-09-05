@@ -13,6 +13,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import type { PurchasesPackage } from 'react-native-purchases';
 import {
   FOUNDING_PLAN_DISPLAY_NAME,
+  FOUNDING_PLAN_FEATURES,
 } from '@/constants/billingCatalog';
 import {
   getFoundingOffering,
@@ -38,16 +39,7 @@ type Props = {
   onEntitlementRefreshed?: () => void;
 };
 
-const FEATURES = [
-  'Unlimited projects',
-  'Build with AI & AI Assistant',
-  'Plan/PDF takeoff & photo scope',
-  'SKU scan & supplier price lookup',
-  'Tax Center & receipt OCR',
-  'Contractor-branded estimate PDFs',
-  'Job costing, budgets & change orders',
-  'Project photos, daily logs & calendars',
-];
+const FEATURES = [...FOUNDING_PLAN_FEATURES];
 
 export default function IosFoundingSubscriptionPanel({
   colors,
