@@ -2,6 +2,8 @@ const express = require('express');
 const axios = require('axios');
 const { searchHomeDepotProduct } = require('../services/homeDepotProductSearch');
 const { searchLowesProduct } = require('../services/lowesProductSearch');
+const { authenticateToken } = require('../middleware/authenticateToken');
+const { requireEntitlement } = require('../middleware/requireEntitlement');
 
 const router = express.Router();
 
@@ -709,7 +711,7 @@ const lookupUpcItemDbProduct = async (rawCode) => {
   }
 };
 
-router.post('/lookup', async (req, res) => {
+router.post('/lookup', authenticateToken, requireEntitlement(), async (req, res) => {
   const { code = '', codeType = 'unknown', sourceHint = '', zip = '' } = req.body || {};
   const rawCode = normalizeBarcodeCode(code);
   if (!rawCode) {

@@ -125,7 +125,7 @@ const faqData: FAQItem[] = [
     id: '7',
     question: 'What are the subscription plans?',
     answer:
-      'You can upgrade, downgrade, or cancel anytime—no contracts. We offer two subscription plans: Basic ($45/month) and Professional ($89/month). Each plan includes different features and limits, and you can change your plan at any time from your Profile settings.',
+      'BPS offers Founding Professional through the App Store on iPhone: full platform access with monthly or annual billing. Prices and any introductory trial are shown by Apple at purchase. You can restore purchases or manage your subscription in Payment & Billing or in iPhone Settings → Apple ID → Subscriptions. Web billing via Stripe may be offered separately in the future.',
     category: 'billing',
   },
   {

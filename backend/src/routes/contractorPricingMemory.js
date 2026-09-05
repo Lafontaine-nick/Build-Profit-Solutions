@@ -16,6 +16,7 @@ const {
 const { getPricingProposal, toLegacyProposal } = require('../services/pricingEngine');
 const { updateEntry, deleteEntry, deleteEntriesForProject, getLibraryGrouped, listLibraryEntries } = require('../services/contractorPricingMemory/storage');
 const { enrichDraft } = require('../services/estimateDraftEnrichment');
+const { requireEntitlement } = require('../middleware/requireEntitlement');
 
 const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -189,7 +190,7 @@ router.delete('/project/:projectId', (req, res) => {
   res.json({ success: true, ...result });
 });
 
-router.post('/saved-pricing-proposal', async (req, res) => {
+router.post('/saved-pricing-proposal', requireEntitlement(), async (req, res) => {
   try {
     const userId = req.user.userId;
     const draft = req.body.draft ? enrichDraft(req.body.draft) : null;
@@ -210,7 +211,7 @@ router.post('/saved-pricing-proposal', async (req, res) => {
   }
 });
 
-router.post('/rough-pricing-proposal', async (req, res) => {
+router.post('/rough-pricing-proposal', requireEntitlement(), async (req, res) => {
   try {
     const userId = req.user.userId;
     const draft = req.body.draft ? enrichDraft(req.body.draft) : null;

@@ -3,8 +3,10 @@ const router = express.Router();
 const { enrichDraft } = require('../services/estimateDraftEnrichment');
 const { getPricingProposal, toLegacyProposal } = require('../services/pricingEngine');
 const { authenticateToken } = require('../middleware/authenticateToken');
+const { requireEntitlement } = require('../middleware/requireEntitlement');
 
 router.use(authenticateToken);
+router.use(requireEntitlement());
 
 router.post('/proposal', async (req, res) => {
   try {

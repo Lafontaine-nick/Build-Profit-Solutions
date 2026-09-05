@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { authenticateToken } = require('../middleware/authenticateToken');
+const { requireEntitlement } = require('../middleware/requireEntitlement');
 const { isTeamWorkspaceReleased } = require('../constants/releaseFlags');
 const { buildSystemPrompt, buildRouterPrompt } = require('./promptSystem');
 const { createOpenAiClient, getAiModels, getAiRuntimeSettings } = require('../config/aiConfig');
@@ -29,8 +30,7 @@ const {
 // Every AI operation can expose project data or spend provider credits.
 // Keep authentication at the router boundary so new endpoints fail closed.
 router.use(authenticateToken);
-
-// Additive: persistent per-user memory. All calls are best-effort and wrapped
+router.use(requireEntitlement());
 // in try/catch so existing request logic is never blocked if this fails.
 let _userMemory = null;
 try {

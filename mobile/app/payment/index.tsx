@@ -475,7 +475,9 @@ export default function PaymentScreen() {
               </View>
               <View style={styles.currentPlanDetails}>
                 <Text style={[styles.planDetailText, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
-                  Subscribe to a plan to unlock premium features
+                  {Platform.OS === 'ios'
+                    ? 'Subscribe to Founding Professional through the App Store to unlock the full platform.'
+                    : 'Subscribe to a plan to unlock premium features'}
                 </Text>
               </View>
             </>
