@@ -10,6 +10,7 @@ const {
 } = require('../services/pdfBrowser');
 const { getChromeInstallMountStatus } = require('../services/puppeteerChromeInstall');
 const { authenticateToken } = require('../middleware/authenticateToken');
+const { requireEntitlement } = require('../middleware/requireEntitlement');
 
 const router = express.Router();
 
@@ -41,7 +42,7 @@ async function getBrowser() {
   }
 }
 
-router.post('/render-pdf', authenticateToken, async (req, res) => {
+router.post('/render-pdf', authenticateToken, requireEntitlement(), async (req, res) => {
   const html = String(req.body?.html || '').trim();
   const filename = sanitizeFilename(req.body?.filename || 'contract.pdf');
   const footerLeft = escapeHtmlFooterText(req.body?.footerLeft);

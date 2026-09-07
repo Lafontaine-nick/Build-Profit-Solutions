@@ -22,10 +22,13 @@ export function isTeamWorkspaceReleased(): boolean {
 
 export type LaunchGatedPlan = { id: string };
 
-/** Remove Business from pricing/catalog surfaces when the plan is not released. */
+/** Hide legacy Basic and unreleased Business from pricing/catalog surfaces. */
 export function filterLaunchSubscriptionPlans<T extends LaunchGatedPlan>(plans: T[]): T[] {
-  if (isBusinessPlanReleased()) return plans;
-  return plans.filter((plan) => plan.id !== 'business');
+  let filtered = plans.filter((plan) => plan.id !== 'basic');
+  if (!isBusinessPlanReleased()) {
+    filtered = filtered.filter((plan) => plan.id !== 'business');
+  }
+  return filtered;
 }
 
 export type ProjectDetailTabName = 'Overview' | 'Budget' | 'Timeline' | 'Calendar' | 'Team';

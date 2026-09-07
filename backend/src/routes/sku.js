@@ -1,6 +1,8 @@
 const express = require('express');
 const axios = require('axios');
 const { searchSku, scoreAndSortResults } = require('../services/sku/skuSearchService');
+const { authenticateToken } = require('../middleware/authenticateToken');
+const { requireEntitlement } = require('../middleware/requireEntitlement');
 const router = express.Router();
 
 /**
@@ -8,7 +10,7 @@ const router = express.Router();
  * Returns [{ sku, title, price, unit, url, store, zip }]
  * This endpoint matches what AttachSkuModal expects
  */
-router.get('/search', async (req, res) => {
+router.get('/search', authenticateToken, requireEntitlement(), async (req, res) => {
   const { store = 'hd', zip = '', q = '', useMock = 'false' } = req.query;
 
   try {

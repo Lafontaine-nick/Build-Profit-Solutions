@@ -36,15 +36,14 @@ import {
   filterLaunchSubscriptionPlans,
   isTeamWorkspaceReleased,
 } from '@/constants/releaseFlags';
-import { useAppleBilling } from '@/hooks/useAppleBilling';
-import { FOUNDING_PROFESSIONAL_FEATURES, FOUNDING_PROFESSIONAL_FALLBACK_PRICE } from '@/constants/billingCatalog';
+import IosFoundingSubscriptionPanel from '@/components/IosFoundingSubscriptionPanel';
 import {
-  formatApplePackageDisplayPrice,
   getAppleBillingSetupBlocker,
   getAppleSubscriptionSetupMessage,
-  getFoundingMonthlyPackage,
-  hasAppleEntitlement,
+  isAppleBillingAvailable,
 } from '@/services/appleBillingService';
+import { useBusinessEntitlement } from '@/hooks/useBusinessEntitlement';
+import { FOUNDING_PROFESSIONAL_FALLBACK_PRICE } from '@/constants/billingCatalog';
 
 function planShortName(name: string): string {
   return name.replace(/\s+Plan\s*$/i, '').trim() || name;
@@ -92,23 +91,17 @@ export default function SubscriptionPlansModal({
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { user: clerkUser } = useUser();
-  const appleBilling = useAppleBilling();
   const insets = useSafeAreaInsets();
   const { width: layoutWidth } = useWindowDimensions();
   const iosBillingSetupBlocker = useMemo(
     () => (Platform.OS === 'ios' ? getAppleBillingSetupBlocker() : null),
     [],
   );
-  const iosProductsUnavailable =
-    Platform.OS === 'ios' &&
-    !iosBillingSetupBlocker &&
-    !getFoundingMonthlyPackage(appleBilling.packages) &&
-    !appleBilling.loading;
   const foundingPlanBase = useMemo(
     () => ({
       id: 'founding',
       name: 'Founding Professional',
-      features: FOUNDING_PROFESSIONAL_FEATURES,
+      features: [] as string[],
       stripePriceId: 'apple-app-store',
       description: 'Full platform access for one contractor account.',
       tag: 'All features included',
@@ -130,6 +123,8 @@ export default function SubscriptionPlansModal({
   const [loading, setLoading] = useState(false);
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
   const [detectingCurrentPlan, setDetectingCurrentPlan] = useState(true);
+  const { hasFoundingFull, refresh: refreshEntitlement } = useBusinessEntitlement();
+  const useIosBilling = Platform.OS === 'ios' && isAppleBillingAvailable();
 
   let userEmail: string | null =
     clerkUser?.primaryEmailAddress?.emailAddress ||
@@ -175,28 +170,6 @@ export default function SubscriptionPlansModal({
   }, []);
 
   useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-
-    const monthlyPkg = getFoundingMonthlyPackage(appleBilling.packages);
-    const displayPrice =
-      formatApplePackageDisplayPrice(monthlyPkg, 'monthly') ?? FOUNDING_PROFESSIONAL_FALLBACK_PRICE;
-
-    setPlans([
-      {
-        ...foundingPlanBase,
-        price: monthlyPkg?.product.price ?? 99,
-        displayPrice,
-      },
-    ]);
-  }, [appleBilling.packages, foundingPlanBase]);
-
-  useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-    if (!visible && mode !== 'screen') return;
-    void appleBilling.refresh();
-  }, [appleBilling.refresh, mode, visible]);
-
-  useEffect(() => {
     if (Platform.OS === 'ios') return;
     if (!visible && mode !== 'screen') return;
     let cancelled = false;
@@ -212,7 +185,7 @@ export default function SubscriptionPlansModal({
 
   useEffect(() => {
     if (Platform.OS === 'ios') {
-      setCurrentPlanId(appleBilling.entitled ? 'founding' : null);
+      setCurrentPlanId(hasFoundingFull ? 'founding' : null);
       setDetectingCurrentPlan(false);
       return;
     }
@@ -250,7 +223,7 @@ export default function SubscriptionPlansModal({
     } else if (!userEmail && !storedEmail) {
       setDetectingCurrentPlan(false);
     }
-  }, [appleBilling.entitled, userEmail, storedEmail, plans]);
+  }, [hasFoundingFull, userEmail, storedEmail, plans]);
 
   // Align tokens with payment/index.tsx (Payment & Billing)
   const theme = useMemo(
@@ -305,6 +278,13 @@ export default function SubscriptionPlansModal({
       return;
     }
     try {
+      if (Platform.OS === 'ios') {
+        Alert.alert(
+          'App Store billing',
+          'On iPhone, subscribe with the App Store buttons below. External checkout is not used on iOS.',
+        );
+        return;
+      }
       console.log('🚀 Starting subscription for plan:', plan);
       console.log('🚀 handleSubscribe function called successfully');
       console.log('🚀 Plan ID:', plan.id, 'Plan name:', plan.name);
@@ -314,24 +294,6 @@ export default function SubscriptionPlansModal({
       // Haptic feedback (only on mobile)
       if (Platform.OS !== 'web') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      }
-
-      if (Platform.OS === 'ios') {
-        const monthlyPkg = getFoundingMonthlyPackage(appleBilling.packages);
-        if (!monthlyPkg) {
-          Alert.alert('Subscription unavailable', getAppleSubscriptionSetupMessage());
-          return;
-        }
-
-        const result = await appleBilling.purchaseFoundingMonthly();
-        if (result.info && hasAppleEntitlement(result.info)) {
-          Alert.alert('Subscription active', 'Your Founding Professional access is now active.');
-          onUpgradeComplete?.();
-          handleClose();
-        } else if (result.error) {
-          Alert.alert('Purchase failed', result.error);
-        }
-        return;
       }
 
       // Stripe requires https:// URLs. Native cannot use the marketing domain unless it hosts this app.
@@ -823,8 +785,7 @@ export default function SubscriptionPlansModal({
             disabled={
               loading ||
               detectingCurrentPlan ||
-              currentPlanId === plan.id ||
-              (Platform.OS === 'ios' && !getFoundingMonthlyPackage(appleBilling.packages))
+              currentPlanId === plan.id
             }
             activeOpacity={0.88}
           >
@@ -846,8 +807,9 @@ export default function SubscriptionPlansModal({
     );
   };
 
-  const subtitleCopy =
-    'Simple pricing for serious builders. Start in minutes—upgrade or downgrade anytime.';
+  const subtitleCopy = useIosBilling
+    ? 'Subscribe through the App Store. Founding access stays active while your subscription remains continuously active.'
+    : 'Simple pricing for serious builders. Start in minutes—upgrade or downgrade anytime.';
 
   const billingChromeTree = (
     <LinearGradient
@@ -865,9 +827,27 @@ export default function SubscriptionPlansModal({
           },
         ]}
       >
-        {plans.map(renderPlan)}
+        {useIosBilling ? (
+          <IosFoundingSubscriptionPanel
+            colors={{
+              text: theme.text,
+              subtext: theme.subtext,
+              card: theme.card,
+              border: theme.border,
+              accent: theme.accent,
+              success: theme.success,
+            }}
+            darkMode={darkMode}
+            isActive={hasFoundingFull}
+            onEntitlementRefreshed={() => {
+              void refreshEntitlement();
+            }}
+          />
+        ) : (
+          plans.map(renderPlan)
+        )}
 
-        {Platform.OS === 'ios' && (iosBillingSetupBlocker || iosProductsUnavailable) ? (
+        {Platform.OS === 'ios' && iosBillingSetupBlocker ? (
           <View
             style={[
               styles.setupNotice,
@@ -892,7 +872,9 @@ export default function SubscriptionPlansModal({
             },
           ]}
         >
-          <Text style={[styles.footerText, { color: theme.text }]}>Start with a 7-day free trial</Text>
+          <Text style={[styles.footerText, { color: theme.text }]}>
+        {useIosBilling ? 'Prices shown by Apple' : 'Start with a 7-day free trial'}
+      </Text>
           <Text style={[styles.footerMuted, { color: theme.subtext }]}>Cancel anytime · No setup fees</Text>
         </View>
       </View>

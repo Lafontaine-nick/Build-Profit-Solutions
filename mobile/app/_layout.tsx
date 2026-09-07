@@ -206,6 +206,18 @@ function AuthGateWithClerk() {
           user?.emailAddresses?.[0]?.emailAddress ||
           null;
         await syncClerkTokenToAsyncStorage(token, email);
+        if (user?.id) {
+          try {
+            const { logInAppleBilling, isAppleBillingAvailable } = await import(
+              '@/services/appleBillingService'
+            );
+            if (isAppleBillingAvailable()) {
+              await logInAppleBilling(user.id);
+            }
+          } catch (billingError) {
+            console.warn('AuthGate - Apple billing login failed:', billingError);
+          }
+        }
       } catch (error) {
         console.warn('AuthGate - token sync failed:', error);
       }

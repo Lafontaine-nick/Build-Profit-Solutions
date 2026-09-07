@@ -1,5 +1,6 @@
 import { clerkAuthService } from './clerkAuth';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
 import { filterLaunchSubscriptionPlans } from '@/constants/releaseFlags';
 
@@ -134,6 +135,11 @@ class StripeService {
     cancelUrl: string,
     userEmail?: string | null
   ): Promise<CheckoutSession> {
+    if (Platform.OS === 'ios') {
+      throw new Error(
+        'Stripe checkout is not available on iOS. Subscribe through the App Store in Payment & Billing.',
+      );
+    }
     console.log('🔑 Creating checkout session with:', { priceId, successUrl, cancelUrl });
     return this.createCheckoutSessionWithFallback(priceId, successUrl, cancelUrl, userEmail);
   }

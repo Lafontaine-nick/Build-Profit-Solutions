@@ -93,6 +93,7 @@ const betaFeedbackRoutes = require('./routes/betaFeedback');
 const telemetryRoutes = require('./routes/telemetry');
 const workspaceRoutes = require('./routes/workspaces');
 const benchmarkRoutes = require('./routes/benchmarks');
+const billingRoutes = require('./routes/billing');
 const { initializeDatabase } = require('./services/database');
 
 const app = express();

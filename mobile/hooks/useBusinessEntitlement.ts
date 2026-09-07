@@ -1,8 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import { clerkAuthService } from '@/services/clerkAuth';
 import { stripeService } from '@/services/stripeService';
+import {
+  fetchBillingEntitlement,
+} from '@/services/billingEntitlementService';
+import {
+  isAppleBillingAvailable,
+  logInAppleBilling,
+  logOutAppleBilling,
+} from '@/services/appleBillingService';
 import businessWorkspaceService, {
   type BusinessWorkspaceAccess,
 } from '@/services/businessWorkspaceService';
@@ -24,6 +33,8 @@ type EntitlementState = {
   canUseBusinessWorkspace: boolean;
   workspaceAccess: BusinessWorkspaceAccess | null;
   currentPlanId: string | null;
+  hasFoundingFull: boolean;
+  billingStatus: string | null;
   loading: boolean;
   initialized: boolean;
   error: string | null;
@@ -51,6 +62,8 @@ export function useBusinessEntitlement(): EntitlementState {
     clerkUser?.emailAddresses?.[0]?.emailAddress ||
     null;
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
+  const [billingStatus, setBillingStatus] = useState<string | null>(null);
+  const [hasFoundingFull, setHasFoundingFull] = useState(false);
   const [hasWorkspaceAccess, setHasWorkspaceAccess] = useState(false);
   const [workspaceAccess, setWorkspaceAccess] = useState<BusinessWorkspaceAccess | null>(
     null
@@ -128,7 +141,22 @@ export function useBusinessEntitlement(): EntitlementState {
       }
 
       try {
-        if (email) {
+        if (Platform.OS === 'ios' && isAppleBillingAvailable()) {
+          const clerkUserId = clerkUser?.id;
+          if (clerkUserId) {
+            await logInAppleBilling(clerkUserId);
+          }
+          const entitlement = await fetchBillingEntitlement().catch(() => null);
+          if (entitlement) {
+            setBillingStatus(entitlement.status);
+            setHasFoundingFull(entitlement.isActive);
+            await applyPlanId(entitlement.isActive ? entitlement.planId : null);
+          } else {
+            setBillingStatus(null);
+            setHasFoundingFull(false);
+            await applyPlanId(null);
+          }
+        } else if (email) {
           const [plans, subscriptions] = await Promise.all([
             stripeService
               .fetchSubscriptionPlans()
@@ -138,8 +166,16 @@ export function useBusinessEntitlement(): EntitlementState {
           await applyPlanId(
             resolveBestPlanIdFromSubscriptions(subscriptions, plans)
           );
+          setBillingStatus(null);
+          setHasFoundingFull(
+            normalizeSubscriptionPlanId(
+              resolveBestPlanIdFromSubscriptions(subscriptions, plans),
+            ) === 'premium'
+          );
         } else {
           await applyPlanId(null);
+          setBillingStatus(null);
+          setHasFoundingFull(false);
         }
       } catch (planErr) {
         if (__DEV__) {
@@ -159,6 +195,7 @@ export function useBusinessEntitlement(): EntitlementState {
     isLoaded,
     isSignedIn,
     resolveEmail,
+    clerkUser?.id,
   ]);
 
   useEffect(() => {
@@ -189,6 +226,13 @@ export function useBusinessEntitlement(): EntitlementState {
     if (!isLoaded) return;
     void refresh();
   }, [isLoaded, isSignedIn, refresh]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (!isSignedIn) {
+      void logOutAppleBilling();
+    }
+  }, [isLoaded, isSignedIn]);
 
   const hasBusiness = useMemo(
     () => normalizeSubscriptionPlanId(currentPlanId) === 'business',
@@ -222,6 +266,8 @@ export function useBusinessEntitlement(): EntitlementState {
     canUseBusinessWorkspace,
     workspaceAccess,
     currentPlanId,
+    hasFoundingFull,
+    billingStatus,
     loading,
     initialized,
     error,

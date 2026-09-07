@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/authenticateToken');
+const { requireEntitlement } = require('../middleware/requireEntitlement');
 
 router.use(authenticateToken);
+router.use(requireEntitlement());
 
 // AI Expense Validation endpoint
 router.post('/expense-validation', async (req, res) => {

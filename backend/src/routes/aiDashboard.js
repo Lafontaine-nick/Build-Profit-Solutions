@@ -2,13 +2,13 @@ const express = require('express');
 const router = express.Router();
 const { buildAiDashboardForUser } = require('../services/aiDashboardService');
 const { authenticateToken } = require('../middleware/authenticateToken');
-const { requireRevenueCatEntitlement } = require('../middleware/requireRevenueCatEntitlement');
+const { requireEntitlement } = require('../middleware/requireEntitlement');
 
 /**
  * POST /api/ai/dashboard-insights
  * Generate AI insights and next steps for the user's dashboard
  */
-router.post('/dashboard-insights', authenticateToken, requireRevenueCatEntitlement, async (req, res) => {
+router.post('/dashboard-insights', authenticateToken, requireEntitlement(), async (req, res) => {
   try {
     // Prefer authenticated user id if available
     const authUserId = req.user?.userId || req.user?.id || req.user?.sub;
@@ -56,4 +56,3 @@ router.post('/dashboard-insights', authenticateToken, requireRevenueCatEntitleme
 });
 
 module.exports = router;
-

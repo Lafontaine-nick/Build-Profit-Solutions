@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
+const { authenticateToken } = require('../middleware/authenticateToken');
+const { requireEntitlement } = require('../middleware/requireEntitlement');
 
 /**
  * GET /api/materials/search?store=hd|lowes&zip=89109&q=pex
  * Returns [{ sku, title, price, unit, url, store, zip }]
  */
-router.get('/search', async (req, res) => {
+router.get('/search', authenticateToken, requireEntitlement(), async (req, res) => {
   const { store = 'hd', zip = '', q = '' } = req.query;
   
   if (!q || !zip) {

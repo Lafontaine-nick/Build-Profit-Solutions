@@ -1,140 +1,210 @@
-const REVENUECAT_API_BASE = 'https://api.revenuecat.com/v1';
-const ENTITLEMENT_ID = 'founding_full';
-const { getPool } = require('./database');
-let schemaPromise = null;
-const memoryEntitlements = new Map();
+const {
+  ENTITLEMENT_FOUNDING_FULL,
+  isKnownAppleProductId,
+} = require('../constants/billingCatalog');
+const { upsertEntitlement } = require('./billingEntitlementStore');
 
-function getRevenueCatSecret() {
+const RC_API_BASE = 'https://api.revenuecat.com/v1';
+
+function getSecretKey() {
   return String(process.env.REVENUECAT_SECRET_API_KEY || '').trim();
 }
 
-function getWebhookAuth() {
-  return String(process.env.REVENUECAT_WEBHOOK_AUTH || '').trim();
+function isRevenueCatConfigured() {
+  const key = getSecretKey();
+  return key.length > 0 && !key.includes('your_');
 }
 
-function isEntitlementActive(entitlement) {
-  if (!entitlement || !entitlement.expires_date) return Boolean(entitlement);
-  return new Date(entitlement.expires_date).getTime() > Date.now();
-}
-
-async function fetchCustomerInfo(appUserId) {
-  const secret = getRevenueCatSecret();
+async function fetchSubscriber(appUserId) {
+  const secret = getSecretKey();
   if (!secret) {
-    const error = new Error('RevenueCat server API key is not configured');
-    error.statusCode = 503;
-    throw error;
+    throw new Error('RevenueCat is not configured');
   }
-
-  const response = await fetch(
-    `${REVENUECAT_API_BASE}/subscribers/${encodeURIComponent(appUserId)}`,
-    {
-      headers: {
-        Authorization: `Bearer ${secret}`,
-        Accept: 'application/json',
-      },
+  const id = encodeURIComponent(String(appUserId).trim());
+  const response = await fetch(`${RC_API_BASE}/subscribers/${id}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      'Content-Type': 'application/json',
     },
-  );
-
-  const payload = await response.json().catch(() => ({}));
+  });
+  const json = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(
-      payload?.message || `RevenueCat customer lookup failed (${response.status})`,
-    );
-    error.statusCode = response.status >= 500 ? 502 : response.status;
-    throw error;
+    const message =
+      json?.message || json?.code || `RevenueCat subscriber fetch failed (${response.status})`;
+    const err = new Error(message);
+    err.status = response.status;
+    throw err;
   }
-  return payload?.subscriber || payload;
+  return json;
 }
 
-function entitlementFromCustomerInfo(customerInfo) {
-  const entitlement = customerInfo?.entitlements?.[ENTITLEMENT_ID];
+function parseIsoDate(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function mapRcEntitlementToStatus(entitlementInfo) {
+  if (!entitlementInfo || typeof entitlementInfo !== 'object') {
+    return { status: 'none', isActive: false };
+  }
+
+  const expiresDate = parseIsoDate(entitlementInfo.expires_date);
+  const graceExpires = parseIsoDate(entitlementInfo.grace_period_expires_date);
+  const billingIssue = parseIsoDate(entitlementInfo.billing_issues_detected_at);
+  const unsubscribeDetected = parseIsoDate(entitlementInfo.unsubscribe_detected_at);
+  const now = new Date();
+
+  if (graceExpires && new Date(graceExpires) > now) {
+    return {
+      status: 'grace_period',
+      expiresAt: expiresDate,
+      gracePeriodExpiresAt: graceExpires,
+      cancelAtPeriodEnd: Boolean(unsubscribeDetected),
+      isActive: true,
+    };
+  }
+
+  if (expiresDate && new Date(expiresDate) <= now) {
+    return {
+      status: 'expired',
+      expiresAt: expiresDate,
+      gracePeriodExpiresAt: graceExpires,
+      cancelAtPeriodEnd: Boolean(unsubscribeDetected),
+      isActive: false,
+    };
+  }
+
+  if (billingIssue && (!expiresDate || new Date(expiresDate) > now)) {
+    return {
+      status: 'grace_period',
+      expiresAt: expiresDate,
+      gracePeriodExpiresAt: graceExpires,
+      cancelAtPeriodEnd: Boolean(unsubscribeDetected),
+      isActive: true,
+    };
+  }
+
+  const periodType = String(entitlementInfo.period_type || '').toLowerCase();
+  const isTrial = periodType === 'trial' || periodType === 'intro';
+
   return {
-    entitlementId: ENTITLEMENT_ID,
-    active: isEntitlementActive(entitlement),
-    productId: entitlement?.product_identifier || null,
-    expiresAt: entitlement?.expires_date || null,
-    purchasedAt: entitlement?.purchase_date || null,
-    store: entitlement?.store || null,
-    originalAppUserId: customerInfo?.original_app_user_id || null,
+    status: isTrial ? 'trialing' : 'active',
+    expiresAt: expiresDate,
+    gracePeriodExpiresAt: graceExpires,
+    cancelAtPeriodEnd: Boolean(unsubscribeDetected),
+    isActive: true,
   };
 }
 
-async function ensureSchema() {
-  if (!process.env.DATABASE_URL) return null;
-  if (!schemaPromise) {
-    const pool = getPool();
-    schemaPromise = pool
-      .query(`
-        CREATE TABLE IF NOT EXISTS revenuecat_entitlements (
-          app_user_id TEXT PRIMARY KEY,
-          entitlement_id TEXT NOT NULL,
-          active BOOLEAN NOT NULL DEFAULT FALSE,
-          product_id TEXT,
-          expires_at TIMESTAMPTZ,
-          purchased_at TIMESTAMPTZ,
-          store TEXT,
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        CREATE INDEX IF NOT EXISTS revenuecat_entitlements_active_idx
-          ON revenuecat_entitlements (active);
-      `)
-      .then(() => pool)
-      .catch((error) => {
-        schemaPromise = null;
-        throw error;
-      });
+function extractFoundingEntitlement(subscriberPayload) {
+  const entitlements = subscriberPayload?.subscriber?.entitlements || {};
+  const founding = entitlements[ENTITLEMENT_FOUNDING_FULL];
+  if (!founding) {
+    return null;
   }
-  return schemaPromise;
+
+  const mapped = mapRcEntitlementToStatus(founding);
+  const productId =
+    founding.product_identifier ||
+    subscriberPayload?.subscriber?.subscriptions?.[founding.product_identifier]?.product_identifier ||
+    null;
+
+  return {
+    ...mapped,
+    productId: productId && isKnownAppleProductId(productId) ? productId : founding.product_identifier,
+    originalTransactionId:
+      subscriberPayload?.subscriber?.subscriptions?.[founding.product_identifier]
+        ?.store_transaction_id || null,
+  };
 }
 
-async function upsertEntitlement(appUserId, entitlement) {
-  const value = { appUserId, ...entitlement };
-  memoryEntitlements.set(appUserId, value);
-  const pool = await ensureSchema();
-  if (!pool) return value;
-  await pool.query(
-    `INSERT INTO revenuecat_entitlements
-      (app_user_id, entitlement_id, active, product_id, expires_at, purchased_at, store)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT (app_user_id) DO UPDATE SET
-       entitlement_id = EXCLUDED.entitlement_id,
-       active = EXCLUDED.active,
-       product_id = EXCLUDED.product_id,
-       expires_at = EXCLUDED.expires_at,
-       purchased_at = EXCLUDED.purchased_at,
-       store = EXCLUDED.store,
-       updated_at = NOW()`,
-    [
-      appUserId,
-      entitlement.entitlementId,
-      entitlement.active,
-      entitlement.productId,
-      entitlement.expiresAt,
-      entitlement.purchasedAt,
-      entitlement.store,
-    ],
+async function syncEntitlementFromRevenueCat(clerkUserId) {
+  const payload = await fetchSubscriber(clerkUserId);
+  const parsed = extractFoundingEntitlement(payload);
+
+  if (!parsed || !parsed.isActive) {
+    const record = await upsertEntitlement({
+      clerkUserId,
+      entitlement: ENTITLEMENT_FOUNDING_FULL,
+      status: parsed?.status || 'expired',
+      expiresAt: parsed?.expiresAt || null,
+      gracePeriodExpiresAt: parsed?.gracePeriodExpiresAt || null,
+      cancelAtPeriodEnd: parsed?.cancelAtPeriodEnd === true,
+      productId: parsed?.productId || null,
+      originalTransactionId: parsed?.originalTransactionId || null,
+    });
+    return { record, subscriber: payload, isActive: false };
+  }
+
+  const record = await upsertEntitlement({
+    clerkUserId,
+    entitlement: ENTITLEMENT_FOUNDING_FULL,
+    status: parsed.status,
+    expiresAt: parsed.expiresAt,
+    gracePeriodExpiresAt: parsed.gracePeriodExpiresAt,
+    cancelAtPeriodEnd: parsed.cancelAtPeriodEnd,
+    productId: parsed.productId,
+    originalTransactionId: parsed.originalTransactionId,
+  });
+
+  return { record, subscriber: payload, isActive: true };
+}
+
+function mapWebhookEventToEntitlement(event) {
+  const appUserId = event?.app_user_id || event?.subscriber?.app_user_id;
+  const eventType = String(event?.type || '').toUpperCase();
+  const productId =
+    event?.product_id ||
+    event?.new_product_id ||
+    event?.entitlement_ids?.[0] ||
+    null;
+
+  let status = 'active';
+  if (eventType.includes('EXPIRATION') || eventType === 'EXPIRED') {
+    status = 'expired';
+  } else if (eventType.includes('CANCELLATION') || eventType === 'CANCELLATION') {
+    status = 'cancelled';
+  } else if (eventType.includes('BILLING_ISSUE')) {
+    status = 'grace_period';
+  } else if (eventType.includes('REFUND')) {
+    status = 'refunded';
+  } else if (eventType.includes('INITIAL_PURCHASE') || eventType.includes('RENEWAL')) {
+    status = 'active';
+  } else if (eventType.includes('TRIAL')) {
+    status = 'trialing';
+  }
+
+  const expiresAt = parseIsoDate(
+    event?.expiration_at_ms != null ? Number(event.expiration_at_ms) : event?.expiration_at,
   );
-  return value;
-}
+  const gracePeriodExpiresAt = parseIsoDate(
+    event?.grace_period_expiration_at_ms != null
+      ? Number(event.grace_period_expiration_at_ms)
+      : event?.grace_period_expiration_at,
+  );
 
-async function resolveEntitlement(appUserId) {
-  const customerInfo = await fetchCustomerInfo(appUserId);
-  return upsertEntitlement(appUserId, entitlementFromCustomerInfo(customerInfo));
-}
-
-function assertWebhookAuthorized(request) {
-  const expected = getWebhookAuth();
-  if (!expected) return process.env.NODE_ENV !== 'production';
-  const provided = String(request.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  return provided === expected;
+  return {
+    clerkUserId: appUserId,
+    entitlement: ENTITLEMENT_FOUNDING_FULL,
+    status,
+    productId,
+    expiresAt,
+    gracePeriodExpiresAt,
+    cancelAtPeriodEnd: status === 'cancelled',
+    originalTransactionId: event?.original_transaction_id || event?.transaction_id || null,
+  };
 }
 
 module.exports = {
-  ENTITLEMENT_ID,
-  assertWebhookAuthorized,
-  entitlementFromCustomerInfo,
-  ensureSchema,
-  fetchCustomerInfo,
-  resolveEntitlement,
-  upsertEntitlement,
+  isRevenueCatConfigured,
+  fetchSubscriber,
+  syncEntitlementFromRevenueCat,
+  extractFoundingEntitlement,
+  mapWebhookEventToEntitlement,
 };

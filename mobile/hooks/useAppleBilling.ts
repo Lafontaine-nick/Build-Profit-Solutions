@@ -77,9 +77,8 @@ export function useAppleBilling() {
       setLoading(true);
       setError(null);
       try {
-        const info = await purchaseApplePackage(pkg);
+        const { customerInfo: info } = await purchaseApplePackage(pkg);
         setCustomerInfo(info);
-        await syncAppleEntitlement(info);
         return { info, error: null as string | null, cancelled: false };
       } catch (cause) {
         const cancelled = Boolean((cause as { userCancelled?: boolean })?.userCancelled);
@@ -101,9 +100,8 @@ export function useAppleBilling() {
     setLoading(true);
     setError(null);
     try {
-      const info = await restoreApplePurchases();
+      const { customerInfo: info } = await restoreApplePurchases();
       setCustomerInfo(info);
-      await syncAppleEntitlement(info);
       return info;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Purchases could not be restored.');

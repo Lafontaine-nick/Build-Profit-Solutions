@@ -9,6 +9,8 @@ const {
   hasValidOpenAiKey,
 } = require('../config/aiConfig');
 const { normalizeOpenAiChatCompletionParams } = require('../utils/openaiChatCompletionParams');
+const { authenticateToken } = require('../middleware/authenticateToken');
+const { requireEntitlement } = require('../middleware/requireEntitlement');
 const ENABLE_MOCK_OCR = process.env.ENABLE_MOCK_OCR === 'true';
 const aiModels = getAiModels();
 const aiRuntime = getAiRuntimeSettings();
@@ -149,7 +151,7 @@ const upload = multer({
  * Process receipt image with OCR
  * Uses OpenAI Vision API if available; only uses mock data if no key.
  */
-router.post('/receipt', upload.single('image'), async (req, res) => {
+router.post('/receipt', authenticateToken, requireEntitlement(), upload.single('image'), async (req, res) => {
   try {
     if (!req.file && !req.body.image) {
       return res.status(400).json({
@@ -248,7 +250,7 @@ router.post('/receipt', upload.single('image'), async (req, res) => {
  * POST /api/ocr/receipt/openai
  * Process receipt using OpenAI Vision API (production implementation)
  */
-router.post('/receipt/openai', upload.single('image'), async (req, res) => {
+router.post('/receipt/openai', authenticateToken, requireEntitlement(), upload.single('image'), async (req, res) => {
   try {
     const client = getOcrClient();
 

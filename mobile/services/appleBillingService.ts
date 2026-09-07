@@ -3,23 +3,36 @@ import Constants from 'expo-constants';
 import Purchases, {
   type CustomerInfo,
   type Offerings,
+  type PurchasesOffering,
   type PurchasesPackage,
+  PURCHASES_ERROR_CODE,
 } from 'react-native-purchases';
 import RevenueCatUI from 'react-native-purchases-ui';
-import { clerkAuthService } from '@/services/clerkAuth';
 import {
   APPLE_PRODUCT_IDS,
+  ENTITLEMENT_FOUNDING_FULL,
   PRODUCTION_IOS_BUNDLE_ID,
   REVENUECAT_ENTITLEMENT_ID,
   REVENUECAT_OFFERING_ID,
 } from '@/constants/billingCatalog';
-import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
+import { syncBillingEntitlement } from '@/services/billingEntitlementService';
 
 type BillingExtra = {
   revenueCatIosApiKey?: string;
 };
 
+export type AppleBillingPackage = {
+  id: string;
+  packageType: string;
+  productId: string;
+  priceString: string;
+  billingPeriodLabel: string;
+};
+
+export type AppleBillingPeriod = 'monthly' | 'annual';
+
 let configured = false;
+let configuredForUserId: string | null = null;
 
 function getPurchasesModule() {
   if (!Purchases || typeof Purchases.configure !== 'function') {
@@ -34,7 +47,10 @@ function getPurchasesModule() {
 function getIosApiKey(): string {
   const extra = (Constants.expoConfig?.extra || {}) as BillingExtra;
   return String(
-    process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || extra.revenueCatIosApiKey || '',
+    process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY ||
+      process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ||
+      extra.revenueCatIosApiKey ||
+      '',
   ).trim();
 }
 
@@ -45,19 +61,27 @@ function assertIos() {
 }
 
 export function isAppleBillingAvailable(): boolean {
+  const apiKey = getIosApiKey();
   return (
     Platform.OS === 'ios' &&
-    Boolean(getIosApiKey()) &&
+    Boolean(apiKey) &&
+    !apiKey.includes('your_') &&
     Boolean(Purchases) &&
     typeof Purchases.configure === 'function'
   );
 }
 
 export async function configureAppleBilling(appUserId?: string | null): Promise<void> {
+  if (!isAppleBillingAvailable()) return;
   assertIos();
   const purchases = getPurchasesModule();
+  const userId = String(appUserId || '').trim();
+
   if (configured) {
-    if (appUserId) await purchases.logIn(appUserId);
+    if (userId && configuredForUserId !== userId) {
+      await purchases.logIn(userId);
+      configuredForUserId = userId;
+    }
     return;
   }
 
@@ -86,14 +110,33 @@ export async function configureAppleBilling(appUserId?: string | null): Promise<
   );
   await purchases.configure({
     apiKey,
-    appUserID: appUserId || undefined,
+    appUserID: userId || undefined,
   });
   configured = true;
+  configuredForUserId = userId || null;
+}
+
+export async function logInAppleBilling(clerkUserId: string): Promise<void> {
+  await configureAppleBilling(clerkUserId);
+  await getPurchasesModule().logIn(clerkUserId);
+  configuredForUserId = clerkUserId;
+}
+
+export async function logOutAppleBilling(): Promise<void> {
+  if (!isAppleBillingAvailable()) return;
+  try {
+    await getPurchasesModule().logOut();
+  } catch {
+    // non-blocking
+  }
+  configured = false;
+  configuredForUserId = null;
 }
 
 export async function identifyAppleUser(appUserId: string): Promise<CustomerInfo> {
   await configureAppleBilling(appUserId);
   const result = await getPurchasesModule().logIn(appUserId);
+  configuredForUserId = appUserId;
   return result.customerInfo;
 }
 
@@ -107,7 +150,37 @@ export async function getAppleOfferings(): Promise<Offerings> {
   return getPurchasesModule().getOfferings();
 }
 
-export type AppleBillingPeriod = 'monthly' | 'annual';
+function labelForPackage(pkg: PurchasesPackage): string {
+  const type = String(pkg.packageType || '').toLowerCase();
+  if (type.includes('annual') || type.includes('year')) return 'Annual';
+  if (type.includes('month')) return 'Monthly';
+  return 'Subscription';
+}
+
+export async function getFoundingOffering(): Promise<{
+  offering: PurchasesOffering | null;
+  packages: AppleBillingPackage[];
+}> {
+  if (!isAppleBillingAvailable()) {
+    return { offering: null, packages: [] };
+  }
+
+  const offerings = await getAppleOfferings();
+  const offering =
+    offerings.all[REVENUECAT_OFFERING_ID] || offerings.current || null;
+
+  const packages: AppleBillingPackage[] = (offering?.availablePackages || []).map(
+    (pkg) => ({
+      id: pkg.identifier,
+      packageType: String(pkg.packageType),
+      productId: pkg.product.identifier,
+      priceString: pkg.product.priceString,
+      billingPeriodLabel: labelForPackage(pkg),
+    }),
+  );
+
+  return { offering, packages };
+}
 
 export function formatApplePackageDisplayPrice(
   pkg: PurchasesPackage | undefined,
@@ -203,15 +276,58 @@ export function findApplePackages(offerings: Offerings): {
   };
 }
 
-export async function purchaseApplePackage(pkg: PurchasesPackage): Promise<CustomerInfo> {
-  await configureAppleBilling();
-  const result = await getPurchasesModule().purchasePackage(pkg);
-  return result.customerInfo;
+function hasFoundingEntitlement(info: CustomerInfo): boolean {
+  const active = info.entitlements.active[ENTITLEMENT_FOUNDING_FULL];
+  return Boolean(active?.isActive);
 }
 
-export async function restoreApplePurchases(): Promise<CustomerInfo> {
+export async function purchaseApplePackage(
+  pkg: PurchasesPackage,
+): Promise<{ customerInfo: CustomerInfo; serverSynced: boolean }> {
+  if (!isAppleBillingAvailable()) {
+    throw new Error('In-app purchases are only available on iOS.');
+  }
+
   await configureAppleBilling();
-  return getPurchasesModule().restorePurchases();
+  try {
+    const { customerInfo } = await getPurchasesModule().purchasePackage(pkg);
+    let serverSynced = false;
+    if (hasFoundingEntitlement(customerInfo)) {
+      await syncBillingEntitlement();
+      serverSynced = true;
+    }
+    return { customerInfo, serverSynced };
+  } catch (error: any) {
+    if (error?.code === PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR) {
+      const cancelled = new Error('Purchase cancelled');
+      (cancelled as any).code = 'PURCHASE_CANCELLED';
+      throw cancelled;
+    }
+    if (error?.code === PURCHASES_ERROR_CODE.PAYMENT_PENDING_ERROR) {
+      const pending = new Error('Purchase pending approval');
+      (pending as any).code = 'PURCHASE_PENDING';
+      throw pending;
+    }
+    throw error;
+  }
+}
+
+export async function restoreApplePurchases(): Promise<{
+  customerInfo: CustomerInfo;
+  serverSynced: boolean;
+}> {
+  if (!isAppleBillingAvailable()) {
+    throw new Error('Restore is only available on iOS.');
+  }
+
+  await configureAppleBilling();
+  const customerInfo = await getPurchasesModule().restorePurchases();
+  let serverSynced = false;
+  if (hasFoundingEntitlement(customerInfo)) {
+    await syncBillingEntitlement();
+    serverSynced = true;
+  }
+  return { customerInfo, serverSynced };
 }
 
 export function hasAppleEntitlement(customerInfo: CustomerInfo | null | undefined): boolean {
@@ -231,26 +347,14 @@ export async function presentAppleCustomerCenter(): Promise<void> {
   await RevenueCatUI.presentCustomerCenter();
 }
 
-export async function syncAppleEntitlement(customerInfo?: CustomerInfo): Promise<void> {
-  const info = customerInfo || (await getAppleCustomerInfo());
-  const token = clerkAuthService.getToken();
-  if (!token) return;
+export function openAppleSubscriptionManagement(): void {
+  if (Platform.OS !== 'ios') return;
+  void getPurchasesModule().showManageSubscriptions();
+}
 
-  const response = await fetch(`${resolveBackendRestApiBaseUrl()}/billing/sync`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      entitlementId: REVENUECAT_ENTITLEMENT_ID,
-      active: hasAppleEntitlement(info),
-    }),
-  });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload?.error || `Billing sync failed (${response.status})`);
-  }
+export async function syncAppleEntitlement(_customerInfo?: CustomerInfo): Promise<void> {
+  if (!isAppleBillingAvailable()) return;
+  await syncBillingEntitlement();
 }
 
 export function addAppleCustomerInfoListener(
