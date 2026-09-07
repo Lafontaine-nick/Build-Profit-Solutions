@@ -1,6 +1,13 @@
 import React, { useMemo } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import {
+  ESTIMATE_FLOW_APPLY_GREEN_BORDER,
+  ESTIMATE_FLOW_CHIP_GREEN,
+  ESTIMATE_FLOW_CHIP_GREEN_BG,
+  ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
+  ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
+} from '@/utils/estimateFlowCardStyle';
 
 type Props = {
   label: string;
@@ -67,7 +74,7 @@ function TaxSummaryCardValue({ value }: { value: string }) {
   );
 }
 
-export default function TaxSummaryCard({ label, value, icon, accent = '#2DFFC4', helper, onPress }: Props) {
+export default function TaxSummaryCard({ label, value, icon, accent = ESTIMATE_FLOW_CHIP_GREEN, helper, onPress }: Props) {
   const inner = (
     <>
       <View style={[styles.iconWrap, { backgroundColor: `${accent}22` }]}>
@@ -101,11 +108,11 @@ export default function TaxSummaryCard({ label, value, icon, accent = '#2DFFC4',
 const styles = StyleSheet.create({
   card: {
     width: '48%',
-    borderRadius: 18,
-    padding: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 14,
+    padding: 12,
+    backgroundColor: ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(148, 163, 184, 0.12)',
   },
   iconWrap: {
     width: 34,
@@ -116,7 +123,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   label: {
-    color: 'rgba(148, 163, 184, 0.95)',
+    color: ESTIMATE_FLOW_TEXT_SECONDARY_DARK,
     fontSize: 12,
     lineHeight: 16,
     marginBottom: 6,
@@ -156,7 +163,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   helper: {
-    color: '#7FDAC5',
+    color: ESTIMATE_FLOW_CHIP_GREEN,
     fontSize: 11,
     marginTop: 6,
   },

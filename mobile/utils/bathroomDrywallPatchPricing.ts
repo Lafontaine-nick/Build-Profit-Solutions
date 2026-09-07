@@ -16,11 +16,15 @@ import {
 } from '@/utils/bathroomDrywallPaintScope';
 import {
   checklistItemInScope,
-  type QuantitySource,
-  type ScopeItemQuantityValue,
   type ScopeItemSuggestedPricing,
   type ScopeMeasurementsInputExtended,
 } from '@/utils/scopeItemQuantities';
+import {
+  bathroomPaintRepairSeverityMultiplier,
+  resolveBathroomPaintRepairSeverity,
+  syncBathroomPaintRepairFlow,
+  type BathroomPaintRepairSeverity,
+} from '@/utils/bathroomPaintRepairFlow';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 
 const PATCH_SCOPE_IDS = new Set([
@@ -106,6 +110,7 @@ export function isDrywallPatchSuggestedBlock(pricingRecordId?: string | null): b
   const id = String(pricingRecordId || '');
   return (
     id.startsWith('bps_national:drywall:bathroom_patch_texture:') ||
+    id.startsWith('bps_national:drywall:kitchen_patch_texture:') ||
     id.startsWith('bps_national:drywall_paint:bathroom_combined:')
   );
 }
@@ -121,21 +126,42 @@ export function drywallPatchSqftFromPricingRecord(pricingRecordId?: string | nul
 export function buildDrywallPatchPricingDetails(params: {
   sqft: number;
   combined?: boolean;
+  severity?: BathroomPaintRepairSeverity | string | null;
 }) {
-  const scaledTotal = scaleBathroomRepairAllowance(
-    params.combined ? COMBINED_BASE.total : DRYWALL_PATCH_BASE.total,
-    params.sqft
+  const severityMultiplier =
+    params.combined === true
+      ? bathroomPaintRepairSeverityMultiplier(
+          resolveBathroomPaintRepairSeverity(params.severity)
+        )
+      : 1;
+  const scaledTotal = round2(
+    scaleBathroomRepairAllowance(
+      params.combined ? COMBINED_BASE.total : DRYWALL_PATCH_BASE.total,
+      params.sqft
+    ) * severityMultiplier
   );
   const split = params.combined
     ? {
-        material: round2(scaleBathroomRepairAllowance(COMBINED_BASE.material, params.sqft)),
-        labor: round2(scaleBathroomRepairAllowance(COMBINED_BASE.labor, params.sqft)),
+        material: round2(
+          scaleBathroomRepairAllowance(COMBINED_BASE.material, params.sqft) *
+            severityMultiplier
+        ),
+        labor: round2(
+          scaleBathroomRepairAllowance(COMBINED_BASE.labor, params.sqft) *
+            severityMultiplier
+        ),
       }
     : splitMaterialLabor(scaledTotal, 0.25);
   const range = params.combined
     ? {
-        low: scaleBathroomRepairAllowance(COMBINED_BASE.range.low, params.sqft),
-        high: scaleBathroomRepairAllowance(COMBINED_BASE.range.high, params.sqft),
+        low: round2(
+          scaleBathroomRepairAllowance(COMBINED_BASE.range.low, params.sqft) *
+            severityMultiplier
+        ),
+        high: round2(
+          scaleBathroomRepairAllowance(COMBINED_BASE.range.high, params.sqft) *
+            severityMultiplier
+        ),
       }
     : {
         low: scaleBathroomRepairAllowance(DRYWALL_PATCH_BASE.range.low, params.sqft),
@@ -203,14 +229,36 @@ export function formatBathroomDrywallPatchSqftHint(params: {
 
 export function parseEnteredBathroomPatchSqft(params: {
   paintRepairQuantity?: number | null;
+  paintRepairUnit?: string | null;
+  sqftBasisQuantity?: number | null;
+  wallPaintSqft?: string | number | null;
   /** @deprecated Legacy fallback — avoid for paint_repair card display/pricing. */
   drywallQuantity?: number | null;
   /** @deprecated Legacy fallback — avoid for paint_repair card display/pricing. */
   drywallSqft?: number | null;
 }): number | null {
-  if (params.paintRepairQuantity != null && params.paintRepairQuantity > 0) {
+  if (params.sqftBasisQuantity != null && params.sqftBasisQuantity > 0) {
+    return params.sqftBasisQuantity;
+  }
+  const unit = String(params.paintRepairUnit || 'sqft').toLowerCase();
+  const wallSf = parseScopeMeasurementInput(String(params.wallPaintSqft ?? ''));
+  if (
+    (unit === 'each' || unit === 'allowance' || unit === 'lump_sum') &&
+    wallSf != null &&
+    wallSf > 0
+  ) {
+    return wallSf;
+  }
+  if (
+    params.paintRepairQuantity != null &&
+    params.paintRepairQuantity > 0 &&
+    unit !== 'each' &&
+    unit !== 'allowance' &&
+    unit !== 'lump_sum'
+  ) {
     return params.paintRepairQuantity;
   }
+  if (wallSf != null && wallSf > 0) return wallSf;
   const legacy = [params.drywallQuantity, params.drywallSqft];
   for (const value of legacy) {
     if (value != null && value > 0) return value;
@@ -233,12 +281,47 @@ export function resolvePlanningBathroomPatchSqft(params: {
   return estimated > 0 ? estimated : BATHROOM_DRYWALL_PATCH_REF_SQFT;
 }
 
+/** Kitchen remodel — localized patch + texture scaled from $400 @ 36 SF reference. */
+export function resolveKitchenDrywallPatchSuggestedPricing(params: {
+  quantity?: number | null;
+}): ScopeItemSuggestedPricing | undefined {
+  const sqft = params.quantity;
+  if (sqft == null || !(sqft > 0)) return undefined;
+
+  const details = buildDrywallPatchPricingDetails({ sqft, combined: false });
+
+  return {
+    fill: {
+      material: details.material,
+      labor: details.labor,
+      total: details.total,
+      materialSource: 'national_average',
+      laborSource: 'national_average',
+      rateSourceLabel:
+        'Suggested budget split · Localized kitchen patch + texture (primer and paint separate)',
+      helper: `${DRYWALL_PATCH_TEXTURE_INCLUDES_SCOPE} Paint is priced on the Paint line.`,
+      mode: 'suggested_price',
+      basis: { quantity: sqft, unit: 'sqft' },
+      comparisonRange: details.range,
+      pricingRecordId: `bps_national:drywall:kitchen_patch_texture:${sqft}sf`,
+      productionStatus: 'review_required',
+      benchmarkLevel: 'component',
+      benchmarkScopeKey: 'drywall',
+      benchmarkAction: 'price_ready',
+      storedTotalExact: details.total,
+      splitConfidence: 'medium',
+    },
+    comparison: null,
+  };
+}
+
 export function resolveBathroomDrywallPatchSuggestedPricing(params: {
   checklistItems?: Array<Pick<ScopeChecklistItem, 'id' | 'state' | 'choiceId'>> | null;
   quantity?: number | null;
   showerWallTileSqft?: number | null;
   useCombinedAssembly?: boolean | null;
   paintRepairScope?: string | null;
+  severity?: string | null;
 }): ScopeItemSuggestedPricing | undefined {
   const items = params.checklistItems;
   if (!items?.length) return undefined;
@@ -251,7 +334,12 @@ export function resolveBathroomDrywallPatchSuggestedPricing(params: {
     paintRepairScope: params.paintRepairScope,
   });
 
-  const details = buildDrywallPatchPricingDetails({ sqft, combined });
+  const severity = resolveBathroomPaintRepairSeverity(params.severity);
+  const details = buildDrywallPatchPricingDetails({
+    sqft,
+    combined,
+    severity: combined ? severity : undefined,
+  });
 
   if (combined) {
     return {
@@ -264,9 +352,9 @@ export function resolveBathroomDrywallPatchSuggestedPricing(params: {
         rateSourceLabel: 'Suggested budget split · Combined drywall, texture, primer, and localized paint',
         helper: `${DRYWALL_PAINT_COMBINED_SUMMARY_LABEL} ${DRYWALL_PAINT_WET_AREA_NOTE}`,
         mode: 'suggested_price',
-        basis: { quantity: 1, unit: 'each' },
+        basis: { quantity: sqft, unit: 'sqft' },
         comparisonRange: details.range,
-        pricingRecordId: `bps_national:drywall_paint:bathroom_combined:${sqft}sf`,
+        pricingRecordId: `bps_national:drywall_paint:bathroom_combined:${severity}:${sqft}sf`,
         productionStatus: 'review_required',
         benchmarkLevel: 'component',
         benchmarkScopeKey: 'drywall',
@@ -302,33 +390,22 @@ export function resolveBathroomDrywallPatchSuggestedPricing(params: {
   };
 }
 
-const PAINT_REPAIR_USER_LOCKED_SOURCES = new Set<QuantitySource>([
-  'user_entered',
-  'manual_override',
-  'calculated_confirmed',
-  'notes',
-  'plan_vision',
-]);
-
-function paintRepairQuantityIsUserLocked(entry?: ScopeItemQuantityValue): boolean {
-  const source = entry?.quantitySource;
-  return source != null && PAINT_REPAIR_USER_LOCKED_SOURCES.has(source);
-}
-
 /** SF for paint_repair count from Quick measurements + selected paint scope. */
 export function resolveBathroomPaintRepairQuantityFromMeasurements(params: {
   measurementsInput: ScopeMeasurementsInputExtended;
   checklistItems?: Array<Pick<ScopeChecklistItem, 'id' | 'state' | 'choiceId'>> | null;
   paintRepairScope?: string | null;
 }): number | null {
+  void params.checklistItems;
+  const fromQm = parseScopeMeasurementInput(
+    String(params.measurementsInput.wallPaintSqft ?? '')
+  );
+  if (fromQm != null && fromQm > 0) return Math.round(fromQm);
+
   const scope = resolveBathroomPaintRepairScope(
     params.paintRepairScope ?? params.measurementsInput.bathroomPaintRepairScope
   );
   if (scope === 'full_room') {
-    const fromQm = parseScopeMeasurementInput(
-      String(params.measurementsInput.wallPaintSqft ?? '')
-    );
-    if (fromQm != null && fromQm > 0) return Math.round(fromQm);
     return defaultBathroomEntireRoomPaintSqft({
       wallPaintSqft: params.measurementsInput.wallPaintSqft,
       bathroomFloorSqft: params.measurementsInput.bathroomFloorSqft,
@@ -337,40 +414,10 @@ export function resolveBathroomPaintRepairQuantityFromMeasurements(params: {
   return null;
 }
 
-/** Mirror Quick measurements / scope selection into paint_repair count when the user has not typed SF. */
+/** Mirror Quick measurements Paint SF into paint_repair count and infer scope/combined defaults. */
 export function syncBathroomPaintRepairItemQuantity(
   input: ScopeMeasurementsInputExtended,
   checklistItems?: Array<Pick<ScopeChecklistItem, 'id' | 'state' | 'choiceId'>> | null
 ): ScopeMeasurementsInputExtended {
-  const existing = input.itemQuantities?.paint_repair;
-  if (paintRepairQuantityIsUserLocked(existing)) return input;
-
-  const sqft = resolveBathroomPaintRepairQuantityFromMeasurements({
-    measurementsInput: input,
-    checklistItems,
-  });
-
-  if (sqft == null || sqft <= 0) {
-    if (existing?.quantitySource === 'inferred' && String(existing.quantity || '').trim()) {
-      const itemQuantities = { ...(input.itemQuantities || {}) };
-      delete itemQuantities.paint_repair;
-      return { ...input, itemQuantities };
-    }
-    return input;
-  }
-
-  const currentQty = parseScopeMeasurementInput(String(existing?.quantity ?? ''));
-  if (currentQty === sqft && existing?.quantitySource === 'inferred') return input;
-
-  return {
-    ...input,
-    itemQuantities: {
-      ...(input.itemQuantities || {}),
-      paint_repair: {
-        quantity: String(sqft),
-        unit: 'sqft',
-        quantitySource: 'inferred',
-      },
-    },
-  };
+  return syncBathroomPaintRepairFlow(input, checklistItems);
 }

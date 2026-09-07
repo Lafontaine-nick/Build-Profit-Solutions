@@ -1,14 +1,16 @@
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
 import { resolveBathroomGlassDoorSuggestedPricing } from '@/utils/bathroomGlassDoorPricing';
+import { resolveKitchenBacksplashDemoSuggestedPricing } from '@/utils/kitchenBacksplashDemoPricing';
 import {
   parseEnteredBathroomPatchSqft,
   resolveBathroomDrywallPatchSuggestedPricing,
+  resolveKitchenDrywallPatchSuggestedPricing,
 } from '@/utils/bathroomDrywallPatchPricing';
 import {
-  hasPaintRepairScopeSelection,
   resolveBathroomPaintRepairScope,
   shouldUseCombinedDrywallPaintAssembly,
 } from '@/utils/bathroomDrywallPaintScope';
+import { paintRepairScopeSelectionComplete } from '@/utils/bathroomPaintRepairFlow';
 import { resolveBathroomInteriorPaintSuggestedPricing } from '@/utils/bathroomInteriorPaintPricing';
 import { resolveBathroomPaintRepairSuggestedPricing } from '@/utils/bathroomPaintRepairPricing';
 import { resolveBathroomPlumbingRoughSuggestedPricing } from '@/utils/bathroomPlumbingRoughPricing';
@@ -51,7 +53,8 @@ export type Step2PricingPromptKey =
   | 'vanity_countertop_material'
   | 'paint_repair_scope'
   | 'interior_paint_scope'
-  | 'glass_door_style';
+  | 'glass_door_style'
+  | 'backsplash_demo_difficulty';
 
 export type Step2PricingTierConfig = {
   tier: Step2PricingTier;
@@ -215,6 +218,27 @@ const PLUMBING_SERVICE_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig
   gas_line: { tier: 'auto_planning' },
 };
 
+const KITCHEN_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
+  cabinet_demo: { tier: 'auto_planning' },
+  countertop_demo: { tier: 'auto_planning' },
+  backsplash_demo: {
+    tier: 'prompt_first',
+    promptKey: 'backsplash_demo_difficulty',
+    takeoffLabel: 'backsplash demo area',
+    benchmarkUnitHint: '$4.50–$12/SF by removal difficulty · moderate default $7.50/SF',
+  },
+  drywall: {
+    tier: 'takeoff_required',
+    takeoffLabel: 'patch/repair SF',
+    benchmarkUnitHint: '$400 localized patch + texture @ ~36 SF reference',
+  },
+  patch_repair: {
+    tier: 'takeoff_required',
+    takeoffLabel: 'patch/repair SF',
+    benchmarkUnitHint: '$400 localized patch + texture @ ~36 SF reference',
+  },
+};
+
 export function resolveStep2PricingTier(
   itemId: string,
   templateKey?: string | null
@@ -255,6 +279,9 @@ export function resolveStep2PricingTier(
   }
   if (template === 'bathroom' && BATHROOM_STEP2_PRICING_TIER[itemId]) {
     return BATHROOM_STEP2_PRICING_TIER[itemId];
+  }
+  if (template === 'kitchen' && KITCHEN_STEP2_PRICING_TIER[itemId]) {
+    return KITCHEN_STEP2_PRICING_TIER[itemId];
   }
   if (template === 'plumbing_service' && PLUMBING_SERVICE_STEP2_PRICING_TIER[itemId]) {
     return PLUMBING_SERVICE_STEP2_PRICING_TIER[itemId];
@@ -355,9 +382,51 @@ export function resolveStep2ComponentSuggestedPricing(
   params: Step2ComponentSuggestedPricingParams
 ): ScopeItemSuggestedPricing | undefined {
   const template = String(params.templateKey || '').toLowerCase();
+  const { itemId, measurementsInput, resolved } = params;
+  const qty = resolved.quantity;
+
+  if (
+    template === 'kitchen' &&
+    itemId === 'backsplash_demo' &&
+    resolved.unit === 'sqft' &&
+    qty != null &&
+    qty > 0
+  ) {
+    const backsplash = resolveKitchenBacksplashDemoSuggestedPricing({
+      sqft: qty,
+      difficulty: measurementsInput.kitchenBacksplashDemoDifficulty,
+    });
+    if (backsplash !== undefined) return backsplash;
+    return undefined;
+  }
+
+  if (template === 'kitchen') {
+    const itemQuantities = measurementsInput.itemQuantities || {};
+    if (
+      shouldSuppressSuggestedPricingAfterApply(
+        itemId,
+        itemQuantities,
+        measurementsInput.pricingAcceptance
+      )
+    ) {
+      return { fill: null, comparison: null };
+    }
+
+    if (
+      (itemId === 'drywall' || itemId === 'patch_repair') &&
+      qty != null &&
+      qty > 0
+    ) {
+      const patch = resolveKitchenDrywallPatchSuggestedPricing({ quantity: qty });
+      if (patch !== undefined) return patch;
+    }
+
+    return undefined;
+  }
+
   if (template !== 'bathroom') return undefined;
 
-  const { itemId, measurementsInput, resolved, pricingContext } = params;
+  const { pricingContext } = params;
   // Bathroom Interior Finishes is a planning host only — never an applyable fill.
   if (resolveStep2PricingTier(itemId, params.templateKey).tier === 'comparison_only') {
     return { fill: null, comparison: null };
@@ -375,7 +444,6 @@ export function resolveStep2ComponentSuggestedPricing(
   }
 
   const checklistItems = pricingContext?.checklistItems;
-  const qty = resolved.quantity;
 
   if (itemId === 'demo') {
     const storedBasis = readStoredSqftPricingBasis(itemQuantities, itemId);
@@ -440,13 +508,22 @@ export function resolveStep2ComponentSuggestedPricing(
 
   if (itemId === 'paint_repair') {
     const showerWallTileSqft = parseScopeMeasurementInput(measurementsInput.showerWallTileSqft);
+    const paintRepairEntry = measurementsInput.itemQuantities?.paint_repair;
     const paintRepairQty = parseScopeMeasurementInput(
-      String(measurementsInput.itemQuantities?.paint_repair?.quantity ?? '')
+      String(paintRepairEntry?.quantity ?? '')
     );
     const enteredPatchSf = parseEnteredBathroomPatchSqft({
       paintRepairQuantity:
         paintRepairQty ??
         (resolved.unit === 'sqft' && qty != null && qty > 0 ? qty : null),
+      paintRepairUnit: paintRepairEntry?.unit,
+      sqftBasisQuantity: parseScopeMeasurementInput(
+        String(
+          measurementsInput.itemQuantities?.paint_repair__sqft_basis?.quantity ??
+            ''
+        )
+      ),
+      wallPaintSqft: measurementsInput.wallPaintSqft,
     });
     const planningPatchSf = enteredPatchSf;
     const paintRepairScope = measurementsInput.bathroomPaintRepairScope;
@@ -455,9 +532,14 @@ export function resolveStep2ComponentSuggestedPricing(
     // No ready/applyable paint price until the contractor picks affected-area
     // or full-room. Prevents sticky entireRoom flags from pre-counting paint.
     if (
-      !hasPaintRepairScopeSelection({
+      !paintRepairScopeSelectionComplete({
         localizedScope: paintRepairScope,
+        entireRoom: measurementsInput.bathroomPaintRepairEntireRoom,
+        legacyScope: paintRepairScope,
         scopeSource: measurementsInput.bathroomPaintRepairScopeSource,
+        wallPaintSqft: measurementsInput.wallPaintSqft,
+        bathroomFloorSqft: measurementsInput.bathroomFloorSqft,
+        enteredTakeoffSqft: planningPatchSf,
       })
     ) {
       return { fill: null, comparison: null };
@@ -477,6 +559,7 @@ export function resolveStep2ComponentSuggestedPricing(
         showerWallTileSqft,
         useCombinedAssembly: true,
         paintRepairScope,
+        severity: measurementsInput.bathroomPaintRepairSeverity,
       });
       if (assembly?.fill) {
         return {
@@ -505,6 +588,7 @@ export function resolveStep2ComponentSuggestedPricing(
       interiorPaintSurface: measurementsInput.bathroomInteriorPaintSurface,
       interiorPaintCondition: measurementsInput.bathroomInteriorPaintCondition,
       useCombinedAssembly,
+      severity: measurementsInput.bathroomPaintRepairSeverity,
     });
     if (paintRepair !== undefined) return paintRepair;
     return undefined;
@@ -570,6 +654,9 @@ export function step2PricingPromptKey(
     return config.promptKey;
   }
   if (config.promptKey === 'glass_door_style') {
+    return config.promptKey;
+  }
+  if (config.promptKey === 'backsplash_demo_difficulty') {
     return config.promptKey;
   }
   return null;

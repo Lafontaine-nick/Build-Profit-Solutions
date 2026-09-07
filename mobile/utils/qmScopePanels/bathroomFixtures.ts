@@ -4,7 +4,9 @@ import {
   BATHROOM_VANITY_COUNTERTOP_MATERIAL_OPTIONS,
   bathroomVanityCountertopScopeLabel,
   inferBathroomVanityCountertopMaterialFromNotes,
+  normalizeBathroomVanityCountertopMaterialType,
   resolveBathroomVanityCountertopMaterialType,
+  type BathroomVanityCountertopMaterialType,
 } from '@/utils/bathroomVanityCountertopPricing';
 import type { QmPanelDefinition, QmPanelHydrateContext } from '@/utils/qmScopePanels/types';
 
@@ -25,6 +27,75 @@ function positiveCount(value: unknown): number | null {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.round(n);
+}
+
+function parseCountertopSqft(value: unknown): number {
+  const n = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** New countertop is in scope when sqft is entered or a priced material type is selected. */
+export function isBathroomCountertopInstallInScope(params: {
+  install?: BathroomInstallFixtureCounts;
+  countertopSqft?: string | null;
+  materialType?: string | null;
+}): boolean {
+  if (positiveCount(params.install?.bathroomInstallCounterCount) != null) return true;
+  if (parseCountertopSqft(params.countertopSqft) > 0) return true;
+  const material = normalizeBathroomVanityCountertopMaterialType(params.materialType);
+  return (
+    material === 'cultured_marble_prefab' ||
+    material === 'prefab_quartz_stone' ||
+    material === 'custom_quartz_granite'
+  );
+}
+
+/** Sync install counter from sqft / material — replaces the New countertop stepper. */
+export function resolveBathroomInstallCounterCount(params: {
+  countertopSqft?: string | null;
+  materialType?: string | null;
+}): number | null {
+  if (parseCountertopSqft(params.countertopSqft) > 0) return 1;
+  const material = normalizeBathroomVanityCountertopMaterialType(params.materialType);
+  if (
+    material === 'cultured_marble_prefab' ||
+    material === 'prefab_quartz_stone' ||
+    material === 'custom_quartz_granite'
+  ) {
+    return 1;
+  }
+  return null;
+}
+
+/** Pre-fill remove rows when existing + new align; respects manual demo overrides. */
+export function suggestBathroomFixtureDemoFromExistingInstall(params: {
+  existing: BathroomExistingFixtureCounts;
+  install: BathroomInstallFixtureCounts;
+  demo: BathroomDemoFixtureCounts;
+  countertopSqft?: string | null;
+  materialType?: BathroomVanityCountertopMaterialType | string | null;
+  overrides?: Partial<Record<BathroomFixtureDemoOverrideKey, boolean>>;
+}): BathroomDemoFixtureCounts {
+  const next = { ...params.demo };
+  const overrides = params.overrides || {};
+  const counterInScope = isBathroomCountertopInstallInScope({
+    install: params.install,
+    countertopSqft: params.countertopSqft,
+    materialType: params.materialType,
+  });
+
+  if (!positiveCount(params.existing.bathroomExistingVanityCount)) {
+    next.bathroomDemoVanityCount = null;
+  } else if (!overrides.bathroomDemoVanityCount) {
+    next.bathroomDemoVanityCount =
+      positiveCount(params.install.bathroomInstallVanityCount) != null ? 1 : null;
+  }
+  if (!positiveCount(params.existing.bathroomExistingCounterCount)) {
+    next.bathroomDemoCounterCount = null;
+  } else if (!overrides.bathroomDemoCounterCount) {
+    next.bathroomDemoCounterCount = counterInScope ? 1 : null;
+  }
+  return next;
 }
 
 export type BathroomExistingFixtureCounts = {
@@ -523,6 +594,14 @@ function hydrateBathroomFixtures(ctx: QmPanelHydrateContext): Record<string, unk
   if (!savedSqft && positiveCount(install.bathroomInstallCounterCount) != null) {
     const inferred = inferBathroomCountertopSqftFromNotes(ctx.notes);
     if (inferred) patch.countertopSqft = inferred;
+  }
+  const resolvedCounter = resolveBathroomInstallCounterCount({
+    countertopSqft: String(patch.countertopSqft ?? saved.countertopSqft ?? '').trim(),
+    materialType:
+      saved.bathroomVanityCountertopMaterialType ?? patch.bathroomVanityCountertopMaterialType,
+  });
+  if (resolvedCounter != null) {
+    patch.bathroomInstallCounterCount = resolvedCounter;
   }
   if (
     !saved.bathroomVanityCountertopMaterialType &&

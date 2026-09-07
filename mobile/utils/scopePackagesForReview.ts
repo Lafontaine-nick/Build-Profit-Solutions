@@ -24,6 +24,8 @@ import {
   expandHvacEquipmentScopeDisplayItems,
   getQmEmbeddedScopeIds,
   isPhotoNotesScopeJob,
+  KITCHEN_QM_EMBEDDED_IDS,
+  shouldHideKitchenScopeCardInQmEmbed,
   syncQmPanelScopeItems,
 } from '@/utils/qmScopePanels';
 import type { QmPhotoNotesContext } from '@/utils/qmScopePanels/types';
@@ -189,6 +191,8 @@ export function isScopeCardHiddenInQmEmbed(
   if (!qmEmbeddedScopeIds.has(itemId)) return false;
   if (shouldHideBathroomFixtureScopeCardInQmEmbed(itemId, measurements, displayItems)) return true;
   if (BATHROOM_FIXTURES_QM_EMBEDDED_IDS.has(itemId)) return false;
+  if (shouldHideKitchenScopeCardInQmEmbed(itemId, measurements, displayItems)) return true;
+  if (KITCHEN_QM_EMBEDDED_IDS.has(itemId)) return false;
   return true;
 }
 

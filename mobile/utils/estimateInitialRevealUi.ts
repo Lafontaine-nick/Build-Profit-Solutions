@@ -5,6 +5,7 @@ import {
   getScopePackages,
   isComplexEstimateTier,
 } from '@/utils/estimateAiDraft';
+import { summarizePlumbingNoteBullets } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { sumStep3ReviewBudgetTotals } from '@/utils/benchmarkReasonablenessContext';
 import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import {
@@ -115,6 +116,37 @@ export function countInitialRevealAttentionItems(draft: EstimateAiDraft): number
 export function getInitialRevealScopeMetaLabel(count: number): string {
   if (count <= 0) return '';
   return count === 1 ? '1 scope item' : `${count} scope items`;
+}
+
+function isPlumbingRevealDraft(draft: EstimateAiDraft): boolean {
+  const templateKey = String(
+    draft.scopeChecklist?.templateKey || draft.projectType || ''
+  ).toLowerCase();
+  return ['plumbing', 'plumbing_service'].includes(templateKey);
+}
+
+function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
+  const packageCount = getScopePackages(draft).length;
+  if (packageCount > 0) return packageCount;
+  return (
+    draft.scopeChecklist?.items?.filter((item) => item.state !== 'exclude').length ||
+    0
+  );
+}
+
+/** Checklist rows for Scope found when priced packages are not built yet. */
+export function getInitialRevealChecklistScopePreview(
+  draft: EstimateAiDraft
+): Array<{ name: string; amount: number }> {
+  const items = draft.scopeChecklist?.items || [];
+  if (!items.length) return [];
+  return items
+    .filter((item) => item.state !== 'exclude')
+    .slice(0, 12)
+    .map((item) => ({
+      name: String(item.label || item.id || 'Scope item').trim(),
+      amount: 0,
+    }));
 }
 
 export function shouldDefaultExpandInitialRevealScope(_scopeItemCount: number): boolean {
@@ -254,6 +286,16 @@ export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
   });
   if (positive) return plainLanguageReviewItem(positive);
 
+  if (isPlumbingRevealDraft(draft)) {
+    const cardCount =
+      draft.scopeChecklist?.items?.filter((item) => item.state !== 'exclude')
+        .length || 0;
+    if (cardCount > 0) {
+      return `${cardCount} plumbing scope cards ready to confirm`;
+    }
+    return 'Plumbing scope ready to confirm';
+  }
+
   if (draft.projectType && draft.projectType !== 'other') {
     return `${getInitialRevealDisplayTitle(draft)} scope identified`;
   }
@@ -305,6 +347,17 @@ export function getInitialRevealHeroDisplay(
 }
 
 export function getInitialRevealUnderstoodBullets(draft: EstimateAiDraft, max = 3): string[] {
+  if (isPlumbingRevealDraft(draft)) {
+    const fromNotes = summarizePlumbingNoteBullets(draft.originalNotes || '', max);
+    if (fromNotes.length > 0) return fromNotes;
+    const fromChecklist = (draft.scopeChecklist?.items || [])
+      .filter((item) => item.state !== 'exclude')
+      .slice(0, max)
+      .map((item) => String(item.label || item.id || '').trim())
+      .filter(Boolean);
+    if (fromChecklist.length > 0) return fromChecklist;
+  }
+
   const fromAi = summarizeWhatAiDidForDisplay(draft.whatAiDid || [], max + 2)
     .map(plainLanguageReviewItem)
     .filter(
@@ -424,7 +477,7 @@ export function getInitialRevealTotals(
     labor,
     allowance,
     estimatedWithMarkup,
-    scopeItemCount: getScopePackages(draft).length,
+    scopeItemCount: countInitialRevealScopeItems(draft),
   };
 }
 

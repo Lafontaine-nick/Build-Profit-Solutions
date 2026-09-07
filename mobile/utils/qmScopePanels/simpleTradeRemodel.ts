@@ -343,6 +343,18 @@ const ROOFING_OPTIONS: TradeOption[] = [
   { id: 'cleanup', label: 'Cleanup', canonicalId: 'cleanup' },
 ];
 
+/** Roofing quick-measurement keys owned by the scope chip panel. */
+export const ROOFING_EMBEDDED_QUICK_MEASUREMENT_KEYS = [
+  ...new Set([
+    ...ROOFING_OPTIONS.map(option => option.measurementKey).filter(
+      (key): key is QuickMeasurementFieldKey => Boolean(key)
+    ),
+    'roofAreaSqft',
+    'roofPitch',
+    'storyCount',
+  ]),
+] as const satisfies readonly QuickMeasurementFieldKey[];
+
 export const SIMPLE_TRADE_SPECS: Record<SimpleTradeScopeKey, TradeSpec> = {
   deck_patio: {
     scopeKey: 'deck_patio',

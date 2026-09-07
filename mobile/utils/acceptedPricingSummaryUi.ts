@@ -19,6 +19,7 @@ import {
   getChecklistItemQuantityRuleOrDefault,
   hasCompleteUserSelectedPricing,
   hasOnlySuggestedPrefillPricing,
+  hasUserEnteredMaterialLaborSplit,
   isPlaceholderAllowancePricing,
   roughAllowanceSubKey,
   shouldSuppressSuggestedPricingAfterApply,
@@ -1366,4 +1367,79 @@ export function finalizeScopePricingAfterEditorClose(params: {
 export function parsePricingAmount(value: string | number | null | undefined): number | null {
   const parsed = Number(String(value ?? '').replace(/,/g, ''));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/** Live editor mirror — not the catalog/benchmark alternative row. */
+export function isUserEnteredMirrorSuggestedBlock(
+  block: SuggestedPricingBlock | null | undefined
+): boolean {
+  if (!block) return false;
+  return /user[- ]entered material and labor|^user entered$|^user adjusted$/i.test(
+    String(block.rateSourceLabel || '').trim()
+  );
+}
+
+export function hasUserCommittedScopePricing(
+  itemId: string,
+  itemQuantities: Record<
+    string,
+    ScopeItemQuantityValue | { quantity: string; unit: string; quantitySource?: string }
+  >,
+  pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>
+): boolean {
+  const status = pricingAcceptance?.[itemId]?.selectionStatus;
+  if (status === 'user_entered' || status === 'manual_adjusted') {
+    return true;
+  }
+  return hasUserEnteredMaterialLaborSplit(itemQuantities, itemId);
+}
+
+/**
+ * Compact alternative row under applied pricing — original benchmark when user
+ * entered a price, or the live manual draft when national is applied.
+ */
+export function resolveConfirmScopePricingAlternativeBlock(params: {
+  suggestedFill: SuggestedPricingBlock | null;
+  suggestedComparison: SuggestedPricingBlock | null;
+  liveManualBlock?: SuggestedPricingBlock | null;
+  acceptance?: ScopePricingAcceptanceMetadata | null;
+  currentTotal?: number | null;
+}): SuggestedPricingBlock | null {
+  const userCommitted =
+    params.acceptance?.selectionStatus === 'user_entered' ||
+    params.acceptance?.selectionStatus === 'manual_adjusted' ||
+    params.acceptance?.pricingSourceKind === 'user_entered';
+
+  if (userCommitted) {
+    if (params.suggestedComparison) return params.suggestedComparison;
+    if (
+      params.suggestedFill &&
+      !isUserEnteredMirrorSuggestedBlock(params.suggestedFill)
+    ) {
+      return params.suggestedFill;
+    }
+    return null;
+  }
+
+  const current = Number(params.currentTotal);
+  const manual = params.liveManualBlock;
+  if (
+    manual &&
+    isUserEnteredMirrorSuggestedBlock(manual) &&
+    Number.isFinite(current) &&
+    Math.abs(manual.total - current) >= 0.01
+  ) {
+    return manual;
+  }
+
+  if (
+    params.suggestedFill &&
+    !isUserEnteredMirrorSuggestedBlock(params.suggestedFill) &&
+    Number.isFinite(current) &&
+    Math.abs(params.suggestedFill.total - current) >= 0.01
+  ) {
+    return params.suggestedFill;
+  }
+
+  return params.suggestedComparison ?? null;
 }

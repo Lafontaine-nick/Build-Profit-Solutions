@@ -11,10 +11,14 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
     /\b(remove|demo|tear[\s-]?out)\b[^.]{0,50}\b(shower\s+(?:pan|floor|base)|pan\s+insert|mud\s+pan)\b|\b(shower\s+(?:pan|floor|base)|prefab\s+pan)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out)\b/,
   vanity_demo:
     /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\bvanity\b|\bvanity\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b/,
+  cabinet_demo:
+    /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\b(?:cabinets?|built[\s-]?ins?)\b|\b(?:cabinets?|built[\s-]?ins?)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b|\btear[\s-]?out\s+old\s+cabinets?\b/,
   countertop_demo:
     /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\b(countertops?|counters?)\b|\b(countertops?|counters?)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b/,
   backsplash_demo:
     /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\bbacksplash\b|\bbacksplash\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b/,
+  island_demo:
+    /\b(?:demo|remove|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,40}\b(?:island\s+(?:cabinet|base)|island)\b|\b(?:island\s+(?:cabinet|base)|island)\b[^.]{0,40}\b(?:demo|remove|tear[\s-]?out|rip[\s-]?out)\b/,
   shower_tile: /\b(shower\s+wall\s+tile|shower\s+tile|tile\s+shower|new\s+shower\s+tile|tile\s+(?:the\s+)?(?:shower\s+)?walls?)\b/,
   wet_area_install: /\b(tub\s+install|new\s+tub|shower\s+pan|prefab\s+pan|tile\s+pan|mud\s+pan|tub[\s-]to[\s-]shower|prefab\s+shower\s+enclosure)\b/,
   shower_floor_tile: /\b(shower\s+floor\s+tile|tile\s+shower\s+floor|tile\s+(?:the\s+)?shower\s+floor)\b/,
@@ -38,7 +42,8 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   backsplash: /\b(backsplash)\b/,
   appliances:
     /\b(appliance\s+reinstall|reinstall(?:ing)?\s+(?:old\s+|existing\s+)?appliances?|appliance\s+install|install\s+appliances?|appliance\s+allowance|hookup\s+appliances?|reconnect\s+appliances?|appliance\s+hookup|appliances?\s+(?:&|and)?\s*hookup)\b/,
-  island: /\b(island)\b/,
+  island:
+    /\b(?:new|install|build|add|replace)\b[^.]{0,30}\bisland\b(?!\s+(?:countertops?|counters?)\b)|\bkitchen\s+island\b/,
   paint: /\b(paint(?:ing)?|bathroom\s+paint)\b/,
   prep: /\b(paint(?:ing)?|primer|surface\s+prep|masking|patch(?:ing)?)\b/,
   door_paint:
@@ -51,10 +56,12 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   plumbing_rough: /\b(plumb(?:ing)?\s+rough|rough[\s-]?in|relocat.*plumb)\b/,
   plumbing_trim:
     /\b(?:(?:final\s+)?plumbing\s+(?:fixtures?|trim(?:[\s-]?out)?)|(?:new\s+)?plumbing\s+fixtures?|fixture\s+hookups?|faucets?,?\s+toilet(?:\s+set)?|toilet\s+set(?:\s+and\s+hookups?)?)\b/,
+  electrical:
+    /\b(electrical|new\s+circuits?|wiring|outlets?|switches?|gfci|panel|recessed\s+(?:lights?|cans?))\b/,
   electrical_rough:
     /\b(electrical\s+rough(?:[\s-]?in)?|rough[\s-]?in(?:\s+electrical)?|new\s+circuits?|rewire|branch\s+(?:circuits?|wiring)|whole[\s-]?house\s+(?:electrical|rewire))\b/,
   electrical_trim:
-    /\b(?:electrical\s+(?:trim(?:[\s-]?out)?|fixtures?)|trim[\s-]?out|finish(?:ing)?\s+electrical|devices?\s+and\s+plates|install\s+devices?(?:\s+and\s+plates)?)\b/,
+    /\b(electrical\s+(?:trim|trim[\s-]?out|devices?|fixtures?)|outlets?|switches?|lighting|recessed\s+(?:lights?|cans?)|finish(?:ing)?\s+electrical|devices?\s+and\s+plates|install\s+devices?(?:\s+and\s+plates)?)\b/,
   electrical_recessed_light: /\b(?:recessed|canless)\s+(?:lights?|cans?|fixtures?)\b/,
   electrical_standard_receptacle: /\b(?:standard\s+)?(?:outlets?|receptacles?)\b/,
   electrical_gfci_receptacle: /\bgfci(?:\s+outlets?|\s+receptacles?)?\b/,
@@ -85,8 +92,60 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   finish_tape: /\b(tape|mud|finish\s+drywall)\b/,
   interior_paint: /\b(interior\s+paint|paint\s+(?:walls|interior))\b/,
   exterior_paint: /\b(exterior\s+paint|paint\s+exterior)\b/,
-  permits: /\b(permit)\b/,
+  permits:
+    /\b(include\s+permits?|permits?\s+included|pull\s+permits?|contractor\s+pulls?\s+permits?|permits?\s+in\s+(?:the\s+)?(?:bid|price|scope)|permit\s+fees?\s+included)\b/i,
   cleanup: /\b(cleanup|disposal|dumpster|debris|final\s+clean)\b/,
+  plumbing:
+    /\b(plumb(?:ing)?|rough\s+plumb(?:ing)?|water\s+lines?|drain(?:age)?|sewer|bathroom\s+rough)\b/,
+  plans_engineering:
+    /\b(plans?|drawings?|engineering|architect(?:ural)?|design\s+docs?)\b/,
+  utility_coordination:
+    /\b(utility\s+coordination|utility\s+coord|coordinate\s+utilities|utility\s+company)\b/,
+  sitework: /\b(site\s*work|site\s+prep|lot\s+prep|clearing|grubbing)\b/,
+  landscaping:
+    /\b(landscap(?:e|ing)|sod|irrigation|site\s+walls?|fence(?:s|ing)?|gates?)\b/,
+  excavation:
+    /\b(excavat(?:e|ion)|dig(?:ging)?|trench(?:ing)?|cut\s+foundation)\b/,
+  grading: /\b(grading|grade\s+site|rough\s+grade|final\s+grade)\b/,
+  utility_trenching:
+    /\b(utility\s+trench(?:ing)?|trench(?:ing)?\s+(?:for\s+)?utilities|water\s+line|sewer\s+line|gas\s+line)\b/,
+  foundation: /\b(foundation|footings?|slab|stem\s+wall|crawlspace|basement)\b/,
+  concrete: /\b(concrete|slab|footings?|foundation\s+pour)\b/,
+  framing: /\b(fram(?:e|ing)|wall\s+framing|roof\s+framing|shell)\b/,
+  openings:
+    /\b(?:re[-\s]?frame|new\s+(?:window|door)?\s*opening|resize(?:d|ing)?\s+(?:the\s+)?(?:window|door)?\s*opening|enlarge(?:d|ing)?\s+(?:the\s+)?(?:window|door)?\s*opening)\b/,
+  roof_tie_in:
+    /\b(roof\s+tie[\s-]?in|tie\s+into\s+(?:the\s+)?roof|roofing\s+tie[\s-]?in|roofing)\b/,
+  windows: /\bwindows?\b/,
+  exterior_doors: /\b(exterior\s+doors?|entry\s+doors?|iron\s+doors?)\b/,
+  sliding_doors: /\b(sliding\s+doors?|patio\s+doors?|sliders?)\b/,
+  garage_doors: /\bgarage\s+doors?\b/,
+  windows_doors:
+    /\b(?:windows?|exterior\s+doors?|entry\s+doors?|sliding\s+doors?|patio\s+doors?|sliders?)\b/,
+  exterior_finishes:
+    /\b(exterior\s+finishes|siding|soffit|fascia|exterior\s+trim|sheeting|osb|house\s*wrap|weather\s+barrier|exterior\s+plywood|stucco|eifs)\b/,
+  hvac: /\b(hvac|furnace|air\s+condition|heat\s+pump|duct(?:work)?|mini[\s-]?split)\b/,
+  insulation: /\b(insulat(?:e|ion)|batt\s+insulation|spray\s+foam)\b/,
+  cabinets_counters:
+    /\b(cabinets?|cabinetry|counters?|countertops?|kitchenette|quartz|granite)\b/,
+  tile: /\b(tile|shower\s+tile|floor\s+tile|backsplash)\b/,
+  interior_trim:
+    /\b(finish\s+(?:trim|carpentry)|interior\s+(?:trim|doors?)|baseboards?|casing|closet\s+shelving)\b/,
+  hvac_startup:
+    /\b(hvac\s+(?:startup|registers?|trim)|registers?|start\s+up\s+hvac)\b/,
+  final_inspections:
+    /\b(final\s+inspection|final\s+inspections|inspection\s+closeout)\b/,
+  contingency: /\b(contingency|contingency\s+allowance)\b/,
+  roofing: /\b(roof(?:ing)?|shingles?|roof\s+install)\b/,
+  stucco:
+    /\b(stucco|exterior\s+wall\s+finish|exterior\s+plaster|synthetic\s+stucco|efis|eifs)\b/,
+  exterior: /\b(exterior\s+envelope)\b/,
+  mep_rough:
+    /\b(mep|mechanical|electrical|plumbing|rough[\s-]?in|rough\s+mechanical)\b/,
+  utility_taps:
+    /\b(utility\s+taps?|water\s+tap|sewer\s+tap|gas\s+tap|utility\s+connections?)\b/,
+  trim_finish:
+    /\btrim\s*&?\s*finish\b|\b(?:window|door)\s+casing\b|\bstool\s*(?:\/|and)?\s*apron\b/i,
 };
 
 const CHECKLIST_NO_HINTS: Record<string, RegExp> = {
@@ -95,6 +154,12 @@ const CHECKLIST_NO_HINTS: Record<string, RegExp> = {
   appliance_removal:
     /\b(appliances?\s+have\s+(?:all\s+)?(?:already\s+)?been\s+removed|appliances?\s+already\s+(?:been\s+)?(?:removed|out|gone)|already\s+(?:been\s+)?removed\s+(?:the\s+)?appliances?|appliances?\s+(?:are|were)\s+already\s+(?:removed|out|gone))\b/,
   permits: /\b(no\s+permits|permits\s+not\s+included|owner\s+pulls?\s+permits)\b/,
+  foundation:
+    /\b(no|without|not\s+including)\s+(?:new\s+)?(?:foundation|footings?|slab)\b|\b(?:foundation|footings?|slab)\s+(?:not\s+included|excluded)\b/,
+  roof_tie_in:
+    /\b(no|without|not\s+including)\b[^.]{0,40}\b(?:roof(?:ing)?|roof\s+tie[\s-]?in|roof\s+work)\b|\b(?:roof(?:ing)?|roof\s+tie[\s-]?in|roof\s+work)\s+(?:not\s+included|excluded)\b/,
+  roofing:
+    /\b(no|without|not\s+including)\b[^.]{0,40}\b(?:roof(?:ing)?|roof\s+work)\b|\b(?:roof(?:ing)?|roof\s+work)\s+(?:not\s+included|excluded)\b/,
 };
 
 /**

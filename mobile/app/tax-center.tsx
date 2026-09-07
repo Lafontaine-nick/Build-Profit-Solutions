@@ -72,6 +72,14 @@ import { buildTaxSummaryExportPayload, type TaxSummaryExportPayload } from '@/sr
 import { getContractorCompanyNameAsync, getDocumentContactEmailAsync } from '@/lib/documentContactEmail';
 import { decodeBase64ToUint8Array, triggerBrowserFileDownload } from '@/utils/triggerBrowserFileDownload';
 import { probePdfBackendReadiness } from '@/lib/pdf/renderHtmlPdfViaBackend';
+import {
+  ESTIMATE_FLOW_APPLY_GREEN_BG,
+  ESTIMATE_FLOW_APPLY_GREEN_BORDER,
+  ESTIMATE_FLOW_CHIP_GREEN,
+  ESTIMATE_FLOW_CHIP_GREEN_BG,
+  ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
+  ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
+} from '@/utils/estimateFlowCardStyle';
 
 const money = (value: number): string =>
   new Intl.NumberFormat('en-US', {
@@ -601,13 +609,13 @@ export default function TaxCenterScreen() {
               </GradientRingBackInner>
             </LinearGradient>
           </View>
-          <View style={{ flex: 1 }}>
+          <View style={styles.headerCopy}>
             <Text style={styles.kicker}>TAX-READY REPORT</Text>
             <Text style={styles.title}>Tax Center</Text>
-            <Text style={styles.headerSubtitle}>
+            <Text style={[styles.headerSubtitle, styles.headerCenteredText]}>
               CPA-ready summaries, receipt backup, and vendor review from your project data.
             </Text>
-            <Text style={styles.headerHelper}>
+            <Text style={[styles.headerHelper, styles.headerCenteredText]}>
               Prepare clean year-end reports from your project income, expenses, receipts, vendors, and project
               summaries.
             </Text>
@@ -749,7 +757,7 @@ export default function TaxCenterScreen() {
 
           <TaxGradientFrame innerStyle={styles.frameIntroInner}>
             <View style={styles.heroIcon}>
-              <MaterialIcons name="request-quote" size={26} color="#2DFFC4" />
+              <MaterialIcons name="request-quote" size={26} color={ESTIMATE_FLOW_CHIP_GREEN} />
             </View>
             <Text style={styles.heroTitle}>Project-first job costing with tax-ready exports</Text>
             <Text style={styles.heroText}>
@@ -856,7 +864,7 @@ export default function TaxCenterScreen() {
                 label="Net Income"
                 value={money(summary.netProfit)}
                 icon="trending-up"
-                accent={summary.netProfit >= 0 ? '#2DFFC4' : '#FCA5A5'}
+                accent={summary.netProfit >= 0 ? ESTIMATE_FLOW_CHIP_GREEN : '#FCA5A5'}
                 helper="Revenue collected minus expenses paid for the selected tax year."
                 onPress={() => {
                   Haptics.selectionAsync();
@@ -930,7 +938,7 @@ export default function TaxCenterScreen() {
                 <MaterialIcons
                   name={taxBreakdownExpanded ? 'expand-less' : 'expand-more'}
                   size={28}
-                  color="#2DFFC4"
+                  color={ESTIMATE_FLOW_CHIP_GREEN}
                   style={styles.collapseChevron}
                 />
               </View>
@@ -974,7 +982,7 @@ export default function TaxCenterScreen() {
                 <MaterialIcons
                   name={vendorReviewExpanded ? 'expand-less' : 'expand-more'}
                   size={28}
-                  color="#2DFFC4"
+                  color={ESTIMATE_FLOW_CHIP_GREEN}
                   style={styles.collapseChevron}
                 />
               </View>
@@ -1080,7 +1088,7 @@ export default function TaxCenterScreen() {
               </View>
               <View style={styles.recommendedRow}>
                 <View style={styles.recommendedIconWrap}>
-                  <MaterialIcons name="grid-on" size={22} color="#2DFFC4" />
+                  <MaterialIcons name="grid-on" size={22} color={ESTIMATE_FLOW_CHIP_GREEN} />
                 </View>
                 <View style={styles.recommendedTextCol}>
                   <Text style={styles.recommendedTitle}>Export Accountant Workbook</Text>
@@ -1215,7 +1223,7 @@ function ExportButton({
       disabled={disabled}
     >
       <View style={styles.exportIcon}>
-        <MaterialIcons name={icon} size={19} color="#2DFFC4" />
+        <MaterialIcons name={icon} size={19} color={ESTIMATE_FLOW_CHIP_GREEN} />
       </View>
       <Text style={styles.exportButtonText}>{title}</Text>
       <MaterialIcons name="chevron-right" size={20} color="rgba(148, 163, 184, 0.75)" />
@@ -1247,14 +1255,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   frameIntroInner: {
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 18,
+    paddingHorizontal: 4,
+    paddingTop: 6,
+    paddingBottom: 6,
   },
   collapseFrameInner: {
-    paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingHorizontal: 4,
+    paddingTop: 6,
+    paddingBottom: 6,
   },
   collapseHeader: {
     flexDirection: 'row',
@@ -1286,7 +1294,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   collapseCta: {
-    color: '#2DFFC4',
+    color: ESTIMATE_FLOW_CHIP_GREEN,
     fontSize: 13,
     fontWeight: '800',
     marginTop: 12,
@@ -1298,10 +1306,10 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   vendorExplainerCard: {
-    backgroundColor: 'rgba(45, 255, 196, 0.08)',
+    backgroundColor: ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(45, 255, 196, 0.22)',
+    borderColor: 'rgba(148, 163, 184, 0.12)',
     padding: 14,
     marginBottom: 16,
   },
@@ -1328,24 +1336,38 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 8,
   },
-  /** Single gradient frame for AI insight + bookkeeping disclaimer */
+  /** Single flow card for AI insight + bookkeeping disclaimer */
   aiInsightDisclaimerInner: {
-    paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 28,
+    paddingHorizontal: 4,
+    paddingTop: 6,
+    paddingBottom: 20,
   },
   /** Per-frame override so disclaimer text is not clipped by the gradient inner mask. */
   aiFrameInnerNoClip: {
     overflow: 'visible' as const,
   },
   headerRow: {
-    flexDirection: 'row',
+    position: 'relative',
+    width: '100%',
+    minHeight: 168,
     alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 4,
-    marginBottom: 10,
+    marginBottom: 14,
   },
   backButtonWrapper: {
-    marginRight: 12,
+    position: 'absolute',
+    left: 0,
+    top: -4,
+    zIndex: 2,
+  },
+  headerCopy: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 44,
+  },
+  headerCenteredText: {
+    textAlign: 'center',
   },
   backButtonBorder: {
     width: 42,
@@ -1362,17 +1384,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   kicker: {
-    color: '#2DFFC4',
+    color: ESTIMATE_FLOW_CHIP_GREEN,
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
+    textAlign: 'center',
   },
   title: {
     color: '#FFFFFF',
     fontSize: 30,
     fontWeight: '900',
     marginTop: 2,
+    textAlign: 'center',
   },
   content: {
     paddingTop: 8,
@@ -1381,10 +1405,12 @@ const styles = StyleSheet.create({
   heroIcon: {
     width: 46,
     height: 46,
-    borderRadius: 16,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(45, 255, 196, 0.12)',
+    backgroundColor: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.12)',
     marginBottom: 14,
   },
   heroTitle: {
@@ -1399,7 +1425,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   rangeText: {
-    color: '#2DFFC4',
+    color: ESTIMATE_FLOW_CHIP_GREEN,
     fontSize: 13,
     fontWeight: '800',
     marginTop: 14,
@@ -1429,13 +1455,13 @@ const styles = StyleSheet.create({
     borderRadius: 99,
     paddingHorizontal: 18,
     paddingVertical: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(148, 163, 184, 0.12)',
   },
   yearPillActive: {
-    backgroundColor: 'rgba(45, 255, 196, 0.14)',
-    borderColor: 'rgba(45, 255, 196, 0.65)',
+    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+    borderColor: ESTIMATE_FLOW_APPLY_GREEN_BORDER,
   },
   yearText: {
     color: 'rgba(148, 163, 184, 0.95)',
@@ -1463,14 +1489,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 9,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(148, 163, 184, 0.12)',
+    backgroundColor: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
   },
   basisPillActive: {
-    backgroundColor: 'rgba(45, 255, 196, 0.14)',
-    borderColor: 'rgba(45, 255, 196, 0.65)',
+    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+    borderColor: ESTIMATE_FLOW_APPLY_GREEN_BORDER,
   },
   basisPillDisabled: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
     opacity: 0.55,
   },
   basisPillTextActive: {
@@ -1509,8 +1536,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
     marginBottom: 12,
-    paddingHorizontal: 14,
-    paddingTop: 14,
+    paddingHorizontal: 4,
+    paddingTop: 6,
   },
   /** AI + disclaimer share one gradient inner; avoid double horizontal padding */
   exportTitleInInsightFrame: {
@@ -1518,19 +1545,19 @@ const styles = StyleSheet.create({
     paddingTop: 0,
   },
   exportBusyText: {
-    color: '#7FDAC5',
+    color: ESTIMATE_FLOW_CHIP_GREEN,
     fontSize: 12,
     marginTop: -6,
     marginBottom: 8,
     fontWeight: '700',
-    paddingHorizontal: 14,
+    paddingHorizontal: 4,
   },
   exportButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingVertical: 13,
-    paddingHorizontal: 14,
+    paddingHorizontal: 4,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',
   },
@@ -1546,7 +1573,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(45, 255, 196, 0.1)',
+    backgroundColor: ESTIMATE_FLOW_NESTED_FIELD_BG_DARK,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.1)',
   },
   exportIconMuted: {
     backgroundColor: 'rgba(148, 163, 184, 0.12)',
@@ -1589,7 +1618,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   exportDisclosureLink: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 4,
     paddingTop: 10,
     paddingBottom: 16,
   },
@@ -1598,13 +1627,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 17,
     textDecorationLine: 'underline',
-    textDecorationColor: 'rgba(45, 255, 196, 0.45)',
+    textDecorationColor: 'rgba(52, 211, 153, 0.45)',
   },
   exportWorkbookHint: {
     color: 'rgba(148, 163, 184, 0.9)',
     fontSize: 11,
     lineHeight: 16,
-    paddingHorizontal: 14,
+    paddingHorizontal: 4,
     paddingBottom: 10,
     marginTop: -4,
   },
@@ -1628,9 +1657,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 18,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 16,
     marginTop: 16,
     marginBottom: 8,
     backgroundColor: 'rgba(251, 191, 36, 0.10)',
@@ -1651,9 +1680,9 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   readinessFrameInner: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 16,
+    paddingHorizontal: 4,
+    paddingTop: 6,
+    paddingBottom: 6,
   },
   readinessTitle: {
     color: '#FFFFFF',
@@ -1710,9 +1739,9 @@ const styles = StyleSheet.create({
     color: 'rgba(253, 224, 71, 0.92)',
   },
   beforeExportFrameInner: {
-    paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 12,
+    paddingHorizontal: 4,
+    paddingTop: 6,
+    paddingBottom: 6,
   },
   beforeExportTitle: {
     color: '#FFFFFF',
@@ -1748,11 +1777,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 16,
     marginTop: 14,
-    paddingHorizontal: 14,
+    paddingHorizontal: 4,
     paddingBottom: 2,
   },
   exportDisclaimerMini: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 4,
     marginBottom: 8,
   },
   exportDisclaimerMiniText: {
@@ -1761,24 +1790,24 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   recommendedExportCard: {
-    marginHorizontal: 14,
+    marginHorizontal: 4,
     marginBottom: 6,
-    borderRadius: 16,
-    padding: 14,
-    backgroundColor: 'rgba(45, 255, 196, 0.08)',
+    borderRadius: 14,
+    padding: 12,
+    backgroundColor: ESTIMATE_FLOW_NESTED_CARD_BG_DARK,
     borderWidth: 1,
-    borderColor: 'rgba(45, 255, 196, 0.35)',
+    borderColor: ESTIMATE_FLOW_APPLY_GREEN_BORDER,
   },
   recommendedBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(45, 255, 196, 0.18)',
+    backgroundColor: ESTIMATE_FLOW_APPLY_GREEN_BG,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 8,
     marginBottom: 10,
   },
   recommendedBadgeText: {
-    color: '#2DFFC4',
+    color: ESTIMATE_FLOW_CHIP_GREEN,
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 0.6,
@@ -1794,7 +1823,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(45, 255, 196, 0.16)',
+    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
+    borderWidth: 1,
+    borderColor: ESTIMATE_FLOW_APPLY_GREEN_BORDER,
   },
   recommendedTextCol: {
     flex: 1,
@@ -1821,7 +1852,7 @@ const styles = StyleSheet.create({
     color: 'rgba(148, 163, 184, 0.85)',
     fontSize: 11,
     lineHeight: 16,
-    paddingHorizontal: 14,
+    paddingHorizontal: 4,
     marginTop: -6,
     marginBottom: 10,
   },
@@ -1829,7 +1860,7 @@ const styles = StyleSheet.create({
     color: 'rgba(251, 191, 36, 0.95)',
     fontSize: 11,
     lineHeight: 16,
-    paddingHorizontal: 14,
+    paddingHorizontal: 4,
     marginTop: -4,
     marginBottom: 8,
     fontWeight: '600',

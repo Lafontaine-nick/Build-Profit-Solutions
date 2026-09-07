@@ -707,6 +707,31 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 6,
   },
+  measurementsCardTitle: {
+    fontSize: 9,
+    fontWeight: 800,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: "#64748B",
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  measurementsSectionHeader: {
+    fontSize: 8.5,
+    fontWeight: 800,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    color: "#94A3B8",
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  measurementsNote: {
+    fontSize: 9.5,
+    color: "#64748B",
+    lineHeight: 1.35,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
   measurementsRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1203,7 +1228,52 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
               <BulletList items={contractCopy.includedWorkBullets} />
             </View>
           ) : null}
-          {sanitizedDoc.scope.measurementLines?.length ? (
+          {sanitizedDoc.scope.measurementCards?.length ? (
+            <>
+              <Text style={styles.appendixContextTitle}>Measurements</Text>
+              {sanitizedDoc.scope.measurementCards.map((card) => (
+                <View key={card.title} style={styles.measurementsCard}>
+                  <Text style={styles.measurementsCardTitle}>{card.title.toUpperCase()}</Text>
+                  {card.lines.map((line, index) => {
+                    if (line.note) {
+                      return (
+                        <Text key={`${line.label}-${index}`} style={styles.measurementsNote}>
+                          {line.label}
+                        </Text>
+                      );
+                    }
+                    if (line.sectionHeader) {
+                      return (
+                        <Text
+                          key={`${line.label}-${index}`}
+                          style={styles.measurementsSectionHeader}
+                        >
+                          {line.label}
+                        </Text>
+                      );
+                    }
+                    const lastDataIndex = card.lines.reduce(
+                      (acc, row, rowIndex) =>
+                        !row.note && !row.sectionHeader ? rowIndex : acc,
+                      -1,
+                    );
+                    return (
+                      <View
+                        key={`${line.label}-${index}`}
+                        style={[
+                          styles.measurementsRow,
+                          index === lastDataIndex ? styles.measurementsRowLast : null,
+                        ]}
+                      >
+                        <Text style={styles.measurementsLabel}>{line.label}</Text>
+                        <Text style={styles.measurementsValue}>{line.quantity}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              ))}
+            </>
+          ) : sanitizedDoc.scope.measurementLines?.length ? (
             <>
               <Text style={styles.appendixContextTitle}>Measurements</Text>
               <View style={styles.measurementsCard}>

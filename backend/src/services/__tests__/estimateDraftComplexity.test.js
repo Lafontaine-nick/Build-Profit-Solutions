@@ -189,6 +189,18 @@ describe('estimateDraftComplexity', () => {
     expect(checklist.items.some((i) => i.id === 'wet_area_install')).toBe(true);
     expect(checklist.items.some((i) => i.id === 'shower_floor_tile')).toBe(true);
     expect(checklist.items.some((i) => i.id === 'exhaust_fan')).toBe(true);
+    expect(checklist.items.some((i) => i.id === 'adhesive_mastic_removal')).toBe(false);
+    expect(checklist.items.find((i) => i.id === 'permits')?.state).toBe('unsure');
+  });
+
+  test('bathroom remodel includes permits only when notes explicitly include them', () => {
+    const draft = { projectType: 'bathroom', rooms: [] };
+    const checklist = buildScopeChecklist(
+      draft,
+      'room_remodel',
+      'Bathroom remodel with permits included in the bid.'
+    );
+    expect(checklist.items.find((i) => i.id === 'permits')?.state).toBe('included');
   });
 
   test('plumbing trim in bathroom notes does not auto-include trim & baseboard scope', () => {
@@ -337,17 +349,16 @@ describe('estimateDraftComplexity', () => {
 
     const checklist = buildScopeChecklist(draft, 'addition', notes);
     expect(checklist.templateKey).toBe('addition');
+    expect(checklist.items.find((i) => i.id === 'permits')?.state).toBe('unsure');
     expect(checklist.items.filter((item) => item.state === 'included').map((item) => item.id)).toEqual(
       expect.arrayContaining([
         'plans_engineering',
-        'permits',
         'utility_trenching',
         'foundation',
         'framing',
         'roof_tie_in',
         'windows_doors',
         'plumbing_rough',
-        'electrical_rough',
         'hvac',
         'insulation',
         'drywall',
@@ -362,6 +373,14 @@ describe('estimateDraftComplexity', () => {
         'contingency',
       ])
     );
+    expect(
+      checklist.items.filter((item) => item.state === 'included').map((item) => item.id)
+    ).toEqual(expect.arrayContaining(['excavation', 'concrete']));
+    expect(
+      checklist.items
+        .filter((item) => item.state === 'included')
+        .some((item) => String(item.id).startsWith('electrical'))
+    ).toBe(true);
 
     const confirmed = checklist.items.filter((item) => item.state === 'included');
     const next = applyScopeAssumptions({ ...draft, scopeChecklist: checklist }, confirmed, {
@@ -374,14 +393,13 @@ describe('estimateDraftComplexity', () => {
     expect(packageNames).toEqual(
       expect.arrayContaining([
         'Plans / engineering',
-        'Permits / fees',
+        'Excavation',
         'Utility trenching',
         'Footings / slab / foundation',
         'Framing / shell',
         'Roofing / tie-in',
         'Windows & exterior doors',
         'Rough plumbing',
-        'Rough electrical',
         'HVAC',
         'Insulation',
         'Drywall',
@@ -419,12 +437,12 @@ describe('estimateDraftComplexity', () => {
     const includedIds = checklist.items.filter((item) => item.state === 'included').map((item) => item.id);
     const excludedIds = checklist.items.filter((item) => item.state === 'excluded').map((item) => item.id);
 
+    expect(checklist.items.find((i) => i.id === 'permits')?.state).toBe('unsure');
     expect(includedIds).toEqual(
       expect.arrayContaining([
-        'permits',
         'framing',
         'windows_doors',
-        'electrical_rough',
+        'electrical_trim',
         'hvac',
         'insulation',
         'drywall',
@@ -447,10 +465,9 @@ describe('estimateDraftComplexity', () => {
     const packageNames = (next.rooms || []).map((room) => room.name);
     expect(packageNames).toEqual(
       expect.arrayContaining([
-        'Permits / fees',
         'Framing / shell',
         'Windows & exterior doors',
-        'Rough electrical',
+        'Electrical devices / fixtures',
         'HVAC',
         'Insulation',
         'Drywall',
@@ -467,6 +484,44 @@ describe('estimateDraftComplexity', () => {
     expect(packageNames.some((name) => /bathroom|kitchen|lvp flooring installation/i.test(name))).toBe(false);
     expect(next.rooms.every((room) => room.status === 'missing_price')).toBe(true);
     expect(next.rooms.every((room) => room.applyEligible === false)).toBe(true);
+  });
+
+  test('short garage conversion office notes default core conversion phases', () => {
+    const notes =
+      'Convert 2-car garage to office/studio, about 400 sqft. Insulate walls and ceiling, drywall hang and finish, paint, add 4 recessed lights and a few outlets, mini split HVAC. Keep existing garage door for now.';
+    const draft = {
+      projectType: 'garage_conversion',
+      estimateTier: 'addition',
+      originalNotes: notes,
+      rooms: [],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+
+    const checklist = buildScopeChecklist(draft, 'addition', notes);
+    const includedIds = checklist.items.filter((item) => item.state === 'included').map((item) => item.id);
+    const excludedIds = checklist.items.filter((item) => item.state === 'excluded').map((item) => item.id);
+
+    expect(includedIds).toEqual(
+      expect.arrayContaining([
+        'framing',
+        'exterior_finishes',
+        'insulation',
+        'drywall',
+        'paint',
+        'flooring',
+        'interior_trim',
+        'electrical_rough',
+        'electrical_trim',
+        'hvac',
+        'hvac_startup',
+        'cleanup',
+      ]),
+    );
+    expect(excludedIds).toEqual(expect.arrayContaining(['foundation', 'roof_tie_in']));
+    expect(includedIds).not.toContain('windows_doors');
   });
 
   test('basement finish stays room_remodel and creates generic multi-trade phase packages', () => {
@@ -487,6 +542,7 @@ describe('estimateDraftComplexity', () => {
     expect(checklist.templateKey).toBe('room_remodel');
 
     const includedIds = checklist.items.filter((item) => item.state === 'included').map((item) => item.id);
+    expect(checklist.items.find((i) => i.id === 'permits')?.state).toBe('unsure');
     expect(includedIds).toEqual(
       expect.arrayContaining([
         'framing',
@@ -497,7 +553,6 @@ describe('estimateDraftComplexity', () => {
         'flooring',
         'paint',
         'trim',
-        'permits',
         'cleanup',
       ])
     );
@@ -525,7 +580,6 @@ describe('estimateDraftComplexity', () => {
         'Flooring install',
         'Interior painting',
         'Trim & doors',
-        'Permits & inspections',
         'Cleanup, haul-off & disposal',
       ])
     );

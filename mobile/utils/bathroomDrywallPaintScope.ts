@@ -1,4 +1,8 @@
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
+import {
+  paintRepairScopeSelectionComplete,
+  parseBathroomWallPaintSqft,
+} from '@/utils/bathroomPaintRepairFlow';
 import { checklistItemInScope } from '@/utils/scopeItemQuantities';
 
 export const BATHROOM_DRYWALL_PATCH_REF_SQFT = 36;
@@ -313,22 +317,28 @@ export function formatPaintRepairQuantityLine(scope: BathroomPaintRepairScope): 
 export function resolveBathroomPaintRepairMissingLabel(params: {
   bathroomPaintRepairScope?: string | null;
   bathroomPaintRepairEntireRoom?: boolean | null;
+  bathroomPaintRepairScopeSource?: 'user_selected' | 'ai_inferred' | null;
+  wallPaintSqft?: string | number | null;
+  bathroomFloorSqft?: string | number | null;
   enteredTakeoffSqft?: number | null;
 }): string | null {
   if (
-    !hasPaintRepairScopeSelection({
+    !paintRepairScopeSelectionComplete({
       localizedScope: params.bathroomPaintRepairScope,
       entireRoom: params.bathroomPaintRepairEntireRoom,
       legacyScope: params.bathroomPaintRepairScope,
+      scopeSource: params.bathroomPaintRepairScopeSource,
+      wallPaintSqft: params.wallPaintSqft,
+      bathroomFloorSqft: params.bathroomFloorSqft,
+      enteredTakeoffSqft: params.enteredTakeoffSqft,
     })
   ) {
     return 'Select paint scope';
   }
+  const sqft =
+    params.enteredTakeoffSqft ?? parseBathroomWallPaintSqft(params.wallPaintSqft);
+  if (sqft != null && sqft > 0) return null;
   const scope = resolveBathroomPaintRepairScope(params.bathroomPaintRepairScope);
-  if (scope === 'full_room') {
-    if (!(params.enteredTakeoffSqft != null && params.enteredTakeoffSqft > 0)) {
-      return 'Enter room wall/ceiling SF';
-    }
-  }
-  return null;
+  if (scope === 'full_room') return 'Enter room wall/ceiling SF';
+  return 'Enter patch/repair SF';
 }

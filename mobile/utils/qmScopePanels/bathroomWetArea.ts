@@ -136,6 +136,8 @@ function syncBathroom(items: ScopeChecklistItem[], m: Record<string, unknown>): 
     demo: readWetAreaDemoCounts(m),
     reuseExistingShowerDoor: Boolean(m.reuseExistingShowerDoor),
     installShowerDoorCount: m.showerDoorCount as number | null,
+    showerWallTileSqft: m.showerWallTileSqft as string | number | null | undefined,
+    bathroomFloorSqft: m.bathroomFloorSqft as string | number | null | undefined,
   });
   return syncWaterproofingFromTileScopeItems(next);
 }

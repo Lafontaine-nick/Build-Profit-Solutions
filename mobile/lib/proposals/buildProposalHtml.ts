@@ -95,6 +95,52 @@ function isOrphanScopeSectionHeading(text: string): boolean {
   return /^(inclusions?|exclusions?|scope( items)?|measurements?)$/i.test(String(text || "").trim());
 }
 
+function renderMeasurementCardsHtml(
+  cards: NonNullable<ContractDoc["scope"]["measurementCards"]>
+): string {
+  if (!cards.length) return "";
+  return `<h3 class="appendix-context-title">Measurements</h3>${cards
+    .map((card) => {
+      const rows = card.lines
+        .map((line) => {
+          if (line.note) {
+            return `<div class="measurements-note">${esc(line.label)}</div>`;
+          }
+          if (line.sectionHeader) {
+            return `<div class="measurements-section-header">${esc(line.label)}</div>`;
+          }
+          return `<div class="measurements-row">
+              <span class="measurements-label">${esc(line.label)}</span>
+              <span class="measurements-value">${esc(line.quantity)}</span>
+            </div>`;
+        })
+        .join("");
+      return `<div class="measurements-card">
+          <div class="measurements-card-title">${esc(card.title.toUpperCase())}</div>
+          ${rows}
+        </div>`;
+    })
+    .join("")}`;
+}
+
+function renderMeasurementLinesHtml(
+  lines: NonNullable<ContractDoc["scope"]["measurementLines"]>
+): string {
+  if (!lines.length) return "";
+  return `<h3 class="appendix-context-title">Measurements</h3>
+        <div class="measurements-card">
+          ${lines
+            .map(
+              (line) => `
+            <div class="measurements-row">
+              <span class="measurements-label">${esc(line.label)}</span>
+              <span class="measurements-value">${esc(line.quantity)}</span>
+            </div>`
+            )
+            .join("")}
+        </div>`;
+}
+
 function dedupeScopeBulletsForDisplay(bullets: string[]): string[] {
   const items = bullets.map((bullet) => stripEditorListPrefix(bullet).trim()).filter(Boolean);
   const seen = new Set<string>();
@@ -616,21 +662,13 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     const includedWorkHtml = renderScopeBulletList(displayScopeBullets);
     const showScopeNarrative = displayScopeBullets.length === 0;
     const measurementLines = sanitizedDoc.scope.measurementLines || [];
+    const measurementCards = sanitizedDoc.scope.measurementCards || [];
     const measurementsHtml =
-      measurementLines.length > 0
-        ? `<h3 class="appendix-context-title">Measurements</h3>
-        <div class="measurements-card">
-          ${measurementLines
-            .map(
-              (line) => `
-            <div class="measurements-row">
-              <span class="measurements-label">${esc(line.label)}</span>
-              <span class="measurements-value">${esc(line.quantity)}</span>
-            </div>`
-            )
-            .join("")}
-        </div>`
-        : "";
+      measurementCards.length > 0
+        ? renderMeasurementCardsHtml(measurementCards)
+        : measurementLines.length > 0
+          ? renderMeasurementLinesHtml(measurementLines)
+          : "";
 
     return `
     <section class="page page--scope-pricing-flow appendix-page">
@@ -1429,6 +1467,28 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       margin: 2px 0 8px;
       page-break-inside: avoid;
       break-inside: avoid;
+    }
+    .measurements-card-title {
+      font-size: 9pt;
+      font-weight: 800;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: #64748b;
+      margin: 6px 0 8px;
+    }
+    .measurements-section-header {
+      font-size: 8.5pt;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: #94a3b8;
+      padding: 8px 0 4px;
+    }
+    .measurements-note {
+      font-size: 9pt;
+      color: #64748b;
+      line-height: 1.35;
+      padding: 4px 0 8px;
     }
     .measurements-row {
       display: flex;

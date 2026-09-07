@@ -84,13 +84,94 @@ function allQty(text, re) {
 }
 
 function pickSqftNearPattern(text, pattern) {
-  const re = new RegExp(SQFT_RE.source, SQFT_RE.flags);
+  const source = String(text || '');
+  const lower = source.toLowerCase();
+  const patternRe = new RegExp(
+    pattern instanceof RegExp ? pattern.source : String(pattern),
+    pattern instanceof RegExp
+      ? pattern.flags.includes('g')
+        ? pattern.flags
+        : `${pattern.flags}g`
+      : 'gi'
+  );
+  const patternPositions = [];
+  let patternMatch;
+  while ((patternMatch = patternRe.exec(lower)) !== null) {
+    patternPositions.push(patternMatch.index);
+  }
+  if (!patternPositions.length) return null;
+
+  const sqftRe = new RegExp(SQFT_RE.source, SQFT_RE.flags);
+  let bestQty = null;
+  let bestDistance = Infinity;
   let m;
-  while ((m = re.exec(text)) !== null) {
-    const start = Math.max(0, m.index - 25);
-    const end = Math.min(text.length, m.index + m[0].length + 25);
-    const window = text.slice(start, end).toLowerCase();
-    if (pattern.test(window)) return parseQty(m);
+  while ((m = sqftRe.exec(source)) !== null) {
+    const qty = parseQty(m);
+    if (!qty) continue;
+    const qtyIndex = m.index;
+    for (const patternIndex of patternPositions) {
+      const distance = Math.abs(qtyIndex - patternIndex);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestQty = qty;
+      }
+    }
+  }
+  // Ignore pairings beyond a short local window (comma-separated scope lists).
+  if (bestDistance > 50) return null;
+  return bestQty;
+}
+
+function kitchenFlooringScopeExcluded(text) {
+  return (
+    /\b(?:customer|owner|homeowner|client)\s+(?:is\s+)?(?:handling|doing|providing|taking\s+care\s+of)\s+(?:the\s+)?floor(?:ing)?\b/i.test(
+      text
+    ) ||
+    /\bfloor(?:ing)?\s+by\s+others\b/i.test(text) ||
+    /\bno\s+kitchen\s+floor\b/i.test(text) ||
+    /\bkitchen\s+floor\s+(?:by\s+others|excluded|not\s+included|n[\/.]?a)\b/i.test(
+      text
+    )
+  );
+}
+
+function parseKitchenFloorSqftFromClauses(clauses, text) {
+  if (kitchenFlooringScopeExcluded(text)) return null;
+  for (const clause of clauses) {
+    const lower = clause.toLowerCase();
+    if (
+      /\bno\s+kitchen\s+floor\b/.test(lower) ||
+      /\bfloor(?:ing)?\s+by\s+others\b/.test(lower) ||
+      /\bhandling\s+floor(?:ing)?\b/.test(lower)
+    ) {
+      continue;
+    }
+    if (/\bback\s*splash|backsplash/.test(lower)) continue;
+
+    if (/\bkitchen\s+floor\b/.test(lower)) {
+      const near = pickSqftNearPattern(clause, /\bkitchen\s+floor\b/);
+      if (near) return near;
+      const q = firstQty(clause, SQFT_RE);
+      if (q) return q;
+    }
+
+    if (
+      /\bkitchen\b/.test(lower) &&
+      /\b(?:floor(?:ing)?|tile\s+floor|lvp|laminate|vinyl|carpet)\b/.test(
+        lower
+      ) &&
+      /\b(?:demo|demolition|remove|removal|tear[\s-]?out|install|installation|replace|new)\b/.test(
+        lower
+      )
+    ) {
+      const near = pickSqftNearPattern(
+        clause,
+        /\bkitchen\b.*\b(?:floor(?:ing)?|tile\s+floor|lvp|laminate|vinyl|carpet)\b/
+      );
+      if (near) return near;
+      const q = firstQty(clause, SQFT_RE);
+      if (q) return q;
+    }
   }
   return null;
 }
@@ -289,13 +370,8 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     firstGenericBathroomSqft();
   if (bathFloor) out.bathroomFloorSqft = bathFloor;
 
-  // Kitchen floor — only when notes explicitly mention kitchen/floor tile (not backsplash or paint)
-  const kitchenFloor = pickSqftFromClauses([
-    /\bkitchen\s+floor\b/,
-    /\bkitchen\b.*\b(?:floor(?:ing)?|tile\s+floor|lvp|laminate|vinyl)\b/,
-    /\b(?:floor(?:ing)?|tile\s+floor|lvp|laminate|vinyl)\b.*\bkitchen\b/,
-    /\bfloor(?:ing)?\s+(?:demo|removal|install)\b/,
-  ]);
+  // Kitchen floor — only when notes explicitly scope kitchen floor work (not backsplash / exclusions)
+  const kitchenFloor = parseKitchenFloorSqftFromClauses(clauses, text);
   if (kitchenFloor) out.kitchenFloorSqft = kitchenFloor;
 
   // Backsplash
@@ -695,9 +771,6 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     return max > 0 ? max : null;
   })();
   if (floorAreaSqft) out.floorAreaSqft = floorAreaSqft;
-  if (floorAreaSqft && !out.kitchenFloorSqft && (projectType === 'kitchen' || templateKey === 'kitchen')) {
-    out.kitchenFloorSqft = floorAreaSqft;
-  }
 
   const deckSqft = pickSqftFromClauses([/\bdeck(?:ing)?\b/]);
   if (deckSqft) out.deckSqft = deckSqft;

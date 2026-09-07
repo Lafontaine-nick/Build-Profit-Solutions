@@ -1,8 +1,10 @@
-import React from 'react';
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import React, { useMemo } from 'react';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
+import { useTheme } from '@/contexts/ThemeContext';
+import { getColors } from '@/theme/getColors';
+import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
-/** Green → blue ring + inner fill — same ring geometry as Profile (`profile.tsx` main content `LinearGradient`). */
+/** Gray flow card shell — matches Build with AI / Confirm Scope (`estimateFlowCardStyle`). */
 export default function TaxGradientFrame({
   children,
   style,
@@ -12,28 +14,16 @@ export default function TaxGradientFrame({
   style?: StyleProp<ViewStyle>;
   innerStyle?: StyleProp<ViewStyle>;
 }) {
+  const { theme, darkMode } = useTheme();
+  const Colors = useMemo(() => getColors(theme), [theme]);
+  const shell = useMemo(
+    () => estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 }),
+    [Colors, darkMode]
+  );
+
   return (
-    <LinearGradient
-      colors={['#2DFFC4', '#00A6FF']}
-      start={{ x: 0.05, y: 0.15 }}
-      end={{ x: 0.95, y: 0.85 }}
-      style={[styles.ring, style]}
-    >
-      <View style={[styles.inner, innerStyle]}>{children}</View>
-    </LinearGradient>
+    <View style={[shell, style]}>
+      <View style={innerStyle}>{children}</View>
+    </View>
   );
 }
-
-const styles = StyleSheet.create({
-  ring: {
-    borderRadius: 24,
-    padding: 1,
-    marginBottom: 16,
-    overflow: 'hidden',
-  },
-  inner: {
-    backgroundColor: '#000000',
-    borderRadius: 23,
-    overflow: 'hidden',
-  },
-});

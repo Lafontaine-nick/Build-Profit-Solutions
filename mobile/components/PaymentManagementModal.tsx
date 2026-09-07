@@ -29,6 +29,7 @@ import WebPageShell, {
   getWebPageShellMaxWidth,
   WEB_PAGE_SHELL_HORIZONTAL_PADDING,
 } from '@/components/layout/WebPageShell';
+import { useAppleBilling } from '@/hooks/useAppleBilling';
 
 type PlanCatalogEntry = {
   id: string;
@@ -67,6 +68,7 @@ export default function PaymentManagementModal({
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { user: clerkUser } = useUser();
+  const appleBilling = useAppleBilling();
   const isScreenMode = mode === 'screen';
 
   /** Web: align header with WebPageShell column (same math as Profile). */
@@ -148,10 +150,12 @@ export default function PaymentManagementModal({
   }), [Colors]);
 
   useEffect(() => {
+    if (Platform.OS === 'ios') return;
     stripeService.fetchSubscriptionPlans().then(setPlanCatalog).catch(() => {});
   }, []);
 
   useEffect(() => {
+    if (Platform.OS === 'ios') return;
     if (visible || isScreenMode) {
       loadSubscriptions();
     }
@@ -567,7 +571,38 @@ export default function PaymentManagementModal({
     </View>
   );
 
-  const content = (
+  const appleContent = (
+    <LinearGradient colors={theme.background} style={styles.container}>
+      <View style={styles.content}>
+        <TouchableOpacity onPress={handleClose} style={styles.backButton}>
+          <MaterialIcons name="arrow-back" size={24} color={theme.text} />
+        </TouchableOpacity>
+        <Text style={[styles.title, { color: theme.text }]}>Manage Subscription</Text>
+        <Text style={[styles.subtitle, { color: theme.subtext }]}>
+          Your Apple subscription is managed through the App Store.
+        </Text>
+        <TouchableOpacity
+          style={[styles.actionButton, { backgroundColor: theme.accent }]}
+          onPress={() => void appleBilling.presentCustomerCenter()}
+        >
+          <Text style={styles.actionButtonText}>Manage with Apple</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.secondaryButton, { borderColor: theme.border }]}
+          onPress={() => void appleBilling.restore()}
+        >
+          <Text style={[styles.secondaryButtonText, { color: theme.text }]}>
+            Restore Purchases
+          </Text>
+        </TouchableOpacity>
+        {appleBilling.error ? (
+          <Text style={[styles.errorText, { color: theme.error }]}>{appleBilling.error}</Text>
+        ) : null}
+      </View>
+    </LinearGradient>
+  );
+
+  const content = Platform.OS === 'ios' ? appleContent : (
     <LinearGradient colors={theme.background} style={styles.container}>
       {isScreenMode && Platform.OS === 'web' && (
         <View
@@ -857,6 +892,38 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 20,
+    paddingTop: 24,
+  },
+  subtitle: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 12,
+    marginBottom: 24,
+  },
+  actionButton: {
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  actionButtonText: {
+    color: '#07111f',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  secondaryButton: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  errorText: {
+    marginTop: 16,
+    lineHeight: 20,
   },
   loadingContainer: {
     alignItems: 'center',

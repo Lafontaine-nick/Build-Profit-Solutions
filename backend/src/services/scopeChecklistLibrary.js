@@ -151,15 +151,7 @@ const CHECKLIST_TEMPLATES = {
         inputType: "yes_no",
         label: "Bathroom floor demo / removal",
         helperText:
-          "Remove bathroom floor tile, LVP, or vinyl — often includes thinset grind (separate from shower).",
-        category: "demo",
-      },
-      {
-        id: "adhesive_mastic_removal",
-        inputType: "yes_no",
-        label: "Adhesive, mastic or thinset removal",
-        helperText:
-          "Optional additional scraping or grinding beyond ordinary removal. Standard flooring demo rates exclude extensive adhesive, mastic, or thinset removal.",
+          "Remove bathroom floor tile, LVP, or vinyl. Standard demo includes ordinary thinset scrape and haul-off.",
         category: "demo",
       },
       {
@@ -328,17 +320,11 @@ const CHECKLIST_TEMPLATES = {
         category: "trades",
       },
       {
-        id: "drywall",
+        id: "paint_repair",
         inputType: "yes_no",
-        label: "Drywall repair / patching",
-        helperText: "Patch or replace after layout changes.",
-        category: "trades",
-      },
-      {
-        id: "paint",
-        inputType: "yes_no",
-        label: "Interior painting (prep + labor + paint)",
-        helperText: "Prep, labor, and paint for walls/ceiling.",
+        label: "Interior painting/patch and repair",
+        helperText:
+          "Uses your Paint measurement when available — pick patchwork level, then apply pricing.",
         category: "trades",
       },
       {
@@ -386,10 +372,19 @@ const CHECKLIST_TEMPLATES = {
     intro: "Confirm what work is in this bid before pricing.",
     items: [
       {
-        id: "demo",
+        id: "cabinet_demo",
         inputType: "yes_no",
-        label: "Cabinet & countertop demo",
-        helperText: "Remove cabinets, counters, and built-ins.",
+        label: "Cabinet demo / removal",
+        helperText:
+          "Disconnect, remove, and haul kitchen cabinet boxes — countertop demo is a separate line.",
+        category: "demo",
+      },
+      {
+        id: "countertop_demo",
+        inputType: "yes_no",
+        label: "Countertop demo / removal",
+        helperText:
+          "Remove and haul existing countertops — cabinet demo is a separate line.",
         category: "demo",
       },
       {
@@ -408,10 +403,11 @@ const CHECKLIST_TEMPLATES = {
         category: "demo",
       },
       {
-        id: "wall_demo",
+        id: "island_demo",
         inputType: "yes_no",
-        label: "Wall / soffit demo",
-        helperText: "Remove walls, soffits, or bulkheads.",
+        label: "Island demo / removal",
+        helperText:
+          "Detach, remove, and haul one standard kitchen island cabinet/base. Countertop, appliances, utility disconnections, and floor repair are separate.",
         category: "demo",
       },
       {
@@ -467,8 +463,9 @@ const CHECKLIST_TEMPLATES = {
       {
         id: "island",
         inputType: "yes_no",
-        label: "Kitchen island (cabinet + counter)",
-        helperText: "New or expanded island.",
+        label: "Island set & anchor",
+        helperText:
+          "Set, level, join and secure island base cabinets; install basic finished panels and toe kick. Cabinet boxes, countertop, utilities, appliances, and specialty supports are separate.",
         category: "cabinets",
       },
       {
@@ -2184,6 +2181,8 @@ const CHECKLIST_YES_HINTS = {
     /\b(appliance\s+reinstall|reinstall(?:ing)?\s+(?:old\s+|existing\s+)?appliances?|appliance\s+install|install\s+appliances?|appliance\s+allowance|hookup\s+appliances?|reconnect\s+appliances?|appliance\s+hookup|appliances?\s+(?:&|and)?\s*hookup)\b/,
   island: /\b(island)\b/,
   paint: /\b(paint(?:ing)?|bathroom\s+paint)\b/,
+  paint_repair:
+    /\b(paint(?:ing)?|bathroom\s+paint|drywall\s+patch|patch(?:ing)?\s+(?:drywall|sheetrock)|interior\s+painting)\b/,
   lighting: /\b(new\s+lighting|lighting|light\s+fixtures?)\b/,
   glass_door:
     /\b(shower\s+door|glass\s+shower|shower\s+doors?\s*(?:&|and)\s*mirrors?)\b/,
@@ -2227,7 +2226,7 @@ const CHECKLIST_YES_HINTS = {
   windows_doors:
     /\b(?:windows?|exterior\s+doors?|entry\s+doors?|sliding\s+doors?|patio\s+doors?|sliders?)\b/,
   exterior_finishes:
-    /\b(exterior\s+finishes|siding|soffit|fascia|exterior\s+trim)\b/,
+    /\b(exterior\s+finishes|siding|soffit|fascia|exterior\s+trim|sheeting|osb|house\s*wrap|weather\s+barrier|exterior\s+plywood|stucco|eifs)\b/,
   hvac: /\b(hvac|furnace|air\s+condition|heat\s+pump|duct(?:work)?|mini\s*split)\b/,
   insulation: /\b(insulat(?:e|ion)|batt\s+insulation|spray\s+foam)\b/,
   drywall: /\b(drywall|sheetrock|gypsum|hang\s+and\s+finish)\b/,
@@ -2240,7 +2239,7 @@ const CHECKLIST_YES_HINTS = {
   plumbing_trim:
     /\b(?:(?:final\s+)?plumbing\s+(?:fixtures?|trim(?:[\s-]?out)?)|(?:new\s+)?plumbing\s+fixtures?|fixture\s+hookups?|faucets?,?\s+toilet(?:\s+set)?|toilet\s+set(?:\s+and\s+hookups?)?)\b/,
   electrical_trim:
-    /\b(electrical\s+(?:trim|trim[\s-]?out|devices?|fixtures?)|outlets?|switches?|lighting)\b/,
+    /\b(electrical\s+(?:trim|trim[\s-]?out|devices?|fixtures?)|outlets?|switches?|lighting|recessed\s+(?:lights?|cans?)|finish(?:ing)?\s+electrical|devices?\s+and\s+plates|install\s+devices?(?:\s+and\s+plates)?)\b/,
   hvac_startup:
     /\b(hvac\s+(?:startup|registers?|trim)|registers?|start\s+up\s+hvac)\b/,
   final_inspections:
@@ -2292,7 +2291,8 @@ const CHECKLIST_YES_HINTS = {
   finish_tape: /\b(tape|mud|finish\s+drywall)\b/,
   interior_paint: /\b(interior\s+paint|paint\s+(?:walls|interior))\b/,
   exterior_paint: /\b(exterior\s+paint|paint\s+exterior)\b/,
-  permits: /\b(permits?)\b/,
+  permits:
+    /\b(include\s+permits?|permits?\s+included|pull\s+permits?|contractor\s+pulls?\s+permits?|permits?\s+in\s+(?:the\s+)?(?:bid|price|scope)|permit\s+fees?\s+included)\b/,
   cleanup: /\b(cleanup|disposal|dumpster|debris|final\s+clean)\b/,
 };
 
@@ -2389,6 +2389,14 @@ function checklistTemplateKey(draft, estimateTier) {
     /\b(landscap(?:e|ing)|irrigation|sod|mulch|pavers|grading)\b/i.test(notes)
   ) {
     return "landscaping";
+  }
+  if (
+    projectType === "plumbing" ||
+    /\b(plumb(?:ing)?\s+(?:bid|only|rough|trim)|kitchen\s+plumb|whole[\s-]?house\s+plumb)\b/i.test(
+      notes,
+    )
+  ) {
+    return "plumbing";
   }
   if (
     projectType === "plumbing_service" ||
@@ -2662,6 +2670,115 @@ function choiceIdsToState(choiceIds) {
   return "unsure";
 }
 
+const ADDITION_CONVERSION_PROJECT_TYPES = new Set([
+  "garage_conversion",
+  "room_addition",
+  "home_addition",
+  "addition",
+  "adu",
+]);
+
+const ADDITION_CONVERSION_NOTES =
+  /\b(garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage|room\s+addition|home\s+addition|bedroom\s+addition|casita|\badu\b|accessory\s+dwelling|in[\s-]?law\s+suite|add(?:ition)?\s+(?:a\s+)?(?:new\s+)?(?:room|bedroom|bathroom|suite)|(?:new|add)\s+\d[\d,]*\s*sq\.?\s*ft\s+(?:room|addition|bedroom))\b/i;
+
+const GARAGE_CONVERSION_NOTES =
+  /\b(garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage)\b/i;
+
+const CONVERSION_CORE_DEFAULT_INCLUDED = [
+  "framing",
+  "exterior_finishes",
+  "insulation",
+  "drywall",
+  "paint",
+  "flooring",
+  "interior_trim",
+  "electrical_rough",
+  "cleanup",
+];
+
+const ROOM_ADDITION_EXTRA_DEFAULT_INCLUDED = [
+  "foundation",
+  "concrete",
+  "roof_tie_in",
+  "windows_doors",
+  "final_inspections",
+];
+
+const GARAGE_CONVERSION_DEFAULT_EXCLUDED = new Set([
+  "foundation",
+  "roof_tie_in",
+  "excavation",
+  "sitework",
+  "grading",
+  "utility_trenching",
+  "concrete",
+]);
+
+const BATHROOM_CONVERSION_INCLUDED = [
+  "plumbing_rough",
+  "plumbing_trim",
+  "tile",
+];
+
+function isAdditionConversionJob(templateKey, projectType, notes) {
+  if (String(templateKey || "").toLowerCase() !== "addition") return false;
+  const pt = String(projectType || "").toLowerCase();
+  if (ADDITION_CONVERSION_PROJECT_TYPES.has(pt)) return true;
+  return ADDITION_CONVERSION_NOTES.test(String(notes || ""));
+}
+
+function isGarageConversionJob(projectType, notes) {
+  const pt = String(projectType || "").toLowerCase();
+  if (pt === "garage_conversion") return true;
+  return GARAGE_CONVERSION_NOTES.test(String(notes || ""));
+}
+
+/** Default shell + interior phases for garage conversions and room additions. */
+function applyAdditionConversionScopeDefaults(items, options = {}) {
+  const { templateKey, projectType, notes } = options;
+  if (!isAdditionConversionJob(templateKey, projectType, notes)) return items;
+
+  const n = String(notes || "");
+  const garage = isGarageConversionJob(projectType, notes);
+  const defaultIncluded = new Set([
+    ...CONVERSION_CORE_DEFAULT_INCLUDED,
+    ...(garage ? [] : ROOM_ADDITION_EXTRA_DEFAULT_INCLUDED),
+  ]);
+
+  if (/\b(bath(?:room)?|shower|tub|toilet|vanity|wet\s+bar)\b/i.test(n)) {
+    BATHROOM_CONVERSION_INCLUDED.forEach((id) => defaultIncluded.add(id));
+  }
+
+  const byId = new Map(items.map((item) => [item.id, item]));
+  if (
+    byId.get("hvac")?.state === "included" ||
+    inferItemStateFromNotes("hvac", n) === "included"
+  ) {
+    defaultIncluded.add("hvac_startup");
+  }
+  if (
+    byId.get("electrical_trim")?.state === "included" ||
+    inferItemStateFromNotes("electrical_trim", n) === "included"
+  ) {
+    defaultIncluded.add("electrical_trim");
+  }
+
+  return items.map((item) => {
+    if (item.state !== "unsure") return item;
+    if (inferItemStateFromNotes(item.id, n) === "excluded") return item;
+
+    if (garage && GARAGE_CONVERSION_DEFAULT_EXCLUDED.has(item.id)) {
+      if (inferItemStateFromNotes(item.id, n) === "included") return item;
+      return { ...item, state: "excluded" };
+    }
+
+    if (defaultIncluded.has(item.id)) {
+      return { ...item, state: "included" };
+    }
+    return item;
+  });
+}
+
 module.exports = {
   FIXTURE_CHOICE_OPTIONS,
   FIXTURE_CHOICE_NO_RELOCATE,
@@ -2675,4 +2792,5 @@ module.exports = {
   inferChoicesFromNotes,
   choiceToState,
   choiceIdsToState,
+  applyAdditionConversionScopeDefaults,
 };

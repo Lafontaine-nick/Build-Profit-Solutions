@@ -172,7 +172,7 @@ describe('bathroomFixtureChoicePricing', () => {
       block: pricing!.fill!,
     });
     expect(display.splitLine).toBe(
-      'Toilet and plumbing relocation materials $500 · Plumbing relocation and installation labor $1,600'
+      'Estimated planning split · Toilet and plumbing relocation materials $500 · Plumbing relocation and installation labor $1,600'
     );
     expect(display.statusLine).toBe(TOILET_RELOCATE_UNSURE_STATUS);
     expect(display.allowanceExtraNote).toBe('Planning range: $1,600–$2,500 each');

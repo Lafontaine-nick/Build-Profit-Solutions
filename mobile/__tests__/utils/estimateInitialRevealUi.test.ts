@@ -1,4 +1,5 @@
 import {
+  getInitialRevealChecklistScopePreview,
   getInitialRevealConfirmItems,
   getInitialRevealDisplayTitle,
   getInitialRevealHeroDisplay,
@@ -7,6 +8,8 @@ import {
   getInitialRevealPriorityItems,
   getInitialRevealScopeMetaLabel,
   getInitialRevealStatusLabel,
+  getInitialRevealTagline,
+  getInitialRevealUnderstoodBullets,
   plainLanguageReviewItem,
   shouldDefaultExpandInitialRevealScope,
   shouldShowInitialRevealWhatWeFound,
@@ -188,5 +191,27 @@ describe('estimateInitialRevealUi', () => {
   it('uses project title for display heading', () => {
     const draft = { projectTitle: 'Master bath remodel' } as EstimateAiDraft;
     expect(getInitialRevealDisplayTitle(draft)).toBe('Master bath remodel');
+  });
+
+  it('fills Scope found with plumbing note bullets and checklist preview', () => {
+    const draft = {
+      projectTitle: 'Plumbing bid',
+      projectType: 'plumbing',
+      originalNotes:
+        '12 plumbing rough-in points. 150 LF of water line. 80 LF sewer line. 2 water heaters.',
+      scopeChecklist: {
+        templateKey: 'plumbing',
+        items: [
+          { id: 'plumbing_rough', label: 'Plumbing rough-in', state: 'unsure' },
+          { id: 'water_line', label: 'Water line', state: 'unsure' },
+        ],
+      },
+      scopePackages: [],
+    } as EstimateAiDraft;
+    expect(getInitialRevealTagline(draft)).toContain('2 plumbing scope cards');
+    expect(getInitialRevealUnderstoodBullets(draft, 3)).toEqual(
+      expect.arrayContaining(['12 rough-in points', '150 LF water line'])
+    );
+    expect(getInitialRevealChecklistScopePreview(draft)).toHaveLength(2);
   });
 });

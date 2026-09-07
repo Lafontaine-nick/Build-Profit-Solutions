@@ -11,6 +11,7 @@ import {
   resolveChecklistItemQuantity,
   checklistItemInScope,
 } from '@/utils/scopeItemQuantities';
+import { resolveKitchenCountertopTakeoffSqft } from '@/utils/qmScopePanels/kitchenRemodel';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
 import {
@@ -73,6 +74,9 @@ import {
   PLUMBING_PLAN_QUICK_MEASUREMENT_KEYS,
   PLUMBING_REVIEW_MEASUREMENT_KEYS,
   buildPlumbingStructuredMeasurements,
+  buildStandalonePlumbingChecklistItems,
+  resolveStandalonePlumbingTemplateKey,
+  summarizePlumbingNoteBullets,
   syncPlumbingScopeItems,
   type PlumbingPerformerMode,
   type PlumbingWorkflowMode,
@@ -394,6 +398,8 @@ export type ScopeMeasurements = {
   quarterRoundLf?: number | null;
   backsplashSqft?: number | null;
   countertopSqft?: number | null;
+  /** Kitchen QM — island counter area rolled into countertops pricing when island install is on. */
+  kitchenIslandCounterSqft?: number | null;
   cabinetLf?: number | null;
   wallDemoSqft?: number | null;
   wallDemoLf?: number | null;
@@ -659,6 +665,9 @@ export type ScopeMeasurements = {
     | 'user_selected'
     | 'ai_inferred'
     | null;
+  /** Patchwork intensity for combined affected-area paint/repair. */
+  bathroomPaintRepairSeverity?: string | null;
+  bathroomPaintRepairSeveritySource?: 'user_selected' | 'ai_inferred' | null;
   /** Interior paint mobilization — bundled vs standalone minimum. */
   bathroomInteriorPaintMobilization?: string | null;
   bathroomInteriorPaintMobilizationSource?:
@@ -672,6 +681,9 @@ export type ScopeMeasurements = {
   /** Shower door style tier — standard slider vs premium frameless. */
   bathroomGlassDoorStyle?: string | null;
   bathroomGlassDoorStyleSource?: 'user_selected' | 'ai_inferred' | null;
+  /** Kitchen backsplash demo difficulty tier — light / moderate / extensive. */
+  kitchenBacksplashDemoDifficulty?: string | null;
+  kitchenBacksplashDemoDifficultySource?: 'user_selected' | 'ai_inferred' | null;
   /** Demo tear-out selections derived from existing + install (QM). */
   demoTubCount?: number | null;
   demoTileWallCount?: number | null;
@@ -817,6 +829,9 @@ export type ScopeMeasurements = {
   plumbingCleanupCount?: number | null;
   plumbingWorkflowMode?: PlumbingWorkflowMode | null;
   plumbingPerformerMode?: PlumbingPerformerMode | null;
+  plumbingRoomContext?:
+    | import('@/utils/subcontractorTrade/plumbingPlanConvergence').PlumbingRoomContext
+    | null;
   /** Framing canonical plan export / notes selections. */
   framingScope?: string[] | null;
   framedAreaSqft?: number | null;
@@ -2145,6 +2160,9 @@ export type PlanImportPayload = {
   tradeWorkflowSource?: 'standalone_trade' | null;
   plumbingWorkflowMode?: PlumbingWorkflowMode | null;
   plumbingPerformerMode?: PlumbingPerformerMode | null;
+  plumbingRoomContext?:
+    | import('@/utils/subcontractorTrade/plumbingPlanConvergence').PlumbingRoomContext
+    | null;
 };
 
 type LivePlanImportMeasurementMetadata = {
@@ -3138,12 +3156,18 @@ export function seedPlanFloorAreaItemQuantities(
       } else if (id === 'cabinets' && Number(scopeMeasurements.cabinetLf) > 0) {
         primaryQuantity = Number(scopeMeasurements.cabinetLf);
         primaryUnit = 'lf';
-      } else if (
-        id === 'countertops' &&
-        Number(scopeMeasurements.countertopSqft) > 0
-      ) {
-        primaryQuantity = Number(scopeMeasurements.countertopSqft);
-        primaryUnit = 'sqft';
+      } else if (id === 'countertops') {
+        const templateKey = String(draft.scopeChecklist?.templateKey || '').toLowerCase();
+        const combined =
+          templateKey === 'kitchen'
+            ? resolveKitchenCountertopTakeoffSqft(
+                scopeMeasurements as Record<string, unknown>
+              )
+            : Number(scopeMeasurements.countertopSqft) || 0;
+        if (combined > 0) {
+          primaryQuantity = combined;
+          primaryUnit = 'sqft';
+        }
       } else if (
         id === 'shower_tile' &&
         Number(scopeMeasurements.showerWallTileSqft) > 0
@@ -3252,11 +3276,18 @@ export function seedPlanFloorAreaItemQuantities(
     } else if (id === 'cabinets' && Number(scopeMeasurements.cabinetLf) > 0) {
       qty = Number(scopeMeasurements.cabinetLf);
       unit = 'lf';
-    } else if (
-      id === 'countertops' &&
-      Number(scopeMeasurements.countertopSqft) > 0
-    ) {
-      qty = Number(scopeMeasurements.countertopSqft);
+    } else if (id === 'countertops') {
+      const templateKey = String(draft.scopeChecklist?.templateKey || '').toLowerCase();
+      const combined =
+        templateKey === 'kitchen'
+          ? resolveKitchenCountertopTakeoffSqft(
+              scopeMeasurements as Record<string, unknown>
+            )
+          : Number(scopeMeasurements.countertopSqft) || 0;
+      if (combined > 0) {
+        qty = combined;
+        unit = 'sqft';
+      }
     } else if (
       id === 'shower_tile' &&
       Number(scopeMeasurements.showerWallTileSqft) > 0
@@ -4087,34 +4118,6 @@ function standaloneDrywallChecklistItems(): ScopeChecklistItem[] {
   ];
 }
 
-function standalonePlumbingChecklistItems(
-  mode: PlumbingWorkflowMode | null | undefined
-): ScopeChecklistItem[] {
-  const ids =
-    mode === 'service'
-      ? ['service_call', 'fixture_repair', 'fixture_replace', 'drain_cleaning']
-      : [
-          'plumbing_rough',
-          'plumbing_trim',
-          'water_line',
-          'sewer_line',
-          'gas_line',
-        ];
-  return ids.flatMap(id => {
-    const card = PLUMBING_CARDS.find(item => item.itemId === id);
-    if (!card) return [];
-    return [
-      {
-        id: card.itemId,
-        label: card.label,
-        helperText: card.helper,
-        category: card.groupTitle,
-        state: 'unsure' as const,
-      },
-    ];
-  });
-}
-
 function standaloneHvacChecklistItems(): ScopeChecklistItem[] {
   return HVAC_CARDS.map(card => ({
     id: card.itemId,
@@ -4123,6 +4126,52 @@ function standaloneHvacChecklistItems(): ScopeChecklistItem[] {
     category: card.groupTitle,
     state: 'unsure' as const,
   }));
+}
+
+/** Bootstrap a Plumbing-only bid without routing through a bathroom remodel checklist. */
+export function createStandalonePlumbingDraft(
+  notes: string,
+  payload: Partial<PlanImportPayload> & {
+    plumbingWorkflowMode?: PlumbingWorkflowMode | null;
+    plumbingPerformerMode?: PlumbingPerformerMode | null;
+  } = {}
+): EstimateAiDraft {
+  const mode = payload.plumbingWorkflowMode || 'bathroom_remodel';
+  const templateKey = resolveStandalonePlumbingTemplateKey(mode);
+  const trimmedNotes = String(notes || '').trim();
+  const noteBullets = summarizePlumbingNoteBullets(trimmedNotes, 6);
+  const baseDraft = {
+    projectType: templateKey === 'plumbing_service' ? 'plumbing_service' : 'plumbing',
+    estimateTier: 'trade_scope',
+    projectTitle: 'Plumbing bid',
+    originalNotes: trimmedNotes,
+    whatAiDid: noteBullets.length
+      ? noteBullets
+      : ['Plumbing scope cards ready to confirm'],
+    requiresScopeConfirmation: true,
+    scopeChecklist: {
+      templateKey,
+      title: 'Plumbing — confirm project scope',
+      intro:
+        mode === 'service'
+          ? 'Confirm plumbing service scope before pricing.'
+          : 'Confirm the plumbing scope before pricing.',
+      items: buildStandalonePlumbingChecklistItems(mode),
+    },
+    scopePackages: [],
+    rooms: [],
+    scopeMeasurements: {},
+  } as EstimateAiDraft;
+
+  return applyPlanImportToDraft(baseDraft, {
+    estimatingMode: 'selected_trade',
+    selectedTrade: 'plumbing',
+    tradeWorkflowSource: 'standalone_trade',
+    plumbingWorkflowMode: mode,
+    plumbingPerformerMode: payload.plumbingPerformerMode ?? null,
+    measurements: payload.measurements || {},
+    ...payload,
+  });
 }
 
 export function applyPlanImportToDraft(
@@ -4322,6 +4371,7 @@ export function applyPlanImportToDraft(
       tradeWorkflowSource: 'standalone_trade',
       plumbingWorkflowMode: payload.plumbingWorkflowMode || 'bathroom_remodel',
       plumbingPerformerMode: payload.plumbingPerformerMode || null,
+      plumbingRoomContext: payload.plumbingRoomContext ?? null,
       planImportMode: null,
       planImportTradeKey: null,
       planImportFingerprint: null,
@@ -4408,7 +4458,7 @@ export function applyPlanImportToDraft(
     planImportTradeKey
   );
   const selectedTradeItems = standalonePlumbingWorkflow
-    ? standalonePlumbingChecklistItems(payload.plumbingWorkflowMode)
+    ? buildStandalonePlumbingChecklistItems(payload.plumbingWorkflowMode)
     : planImportTradeKey === 'framing'
       ? standaloneFramingChecklistItems()
       : planImportTradeKey === 'insulation'
@@ -4448,7 +4498,9 @@ export function applyPlanImportToDraft(
                         : planImportTradeKey === 'garage_doors'
                           ? 'garage_doors'
                         : planImportTradeKey === 'plumbing'
-                          ? 'plumbing_service'
+                          ? resolveStandalonePlumbingTemplateKey(
+                              payload.plumbingWorkflowMode
+                            )
                           : planImportTradeKey === 'electrical'
                             ? 'electrical'
                             : next.scopeChecklist?.templateKey ||

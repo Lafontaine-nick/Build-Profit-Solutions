@@ -24,4 +24,16 @@ describe('scopeItemNoteHints trim inference', () => {
       inferItemStateFromNotes('floor_tile', 'Install bathroom floor tile outside the shower.')
     ).toBe('included');
   });
+
+  test('does not auto-include permits from vague inspection language', () => {
+    expect(
+      inferItemStateFromNotes(
+        'permits',
+        'Bathroom remodel with final inspection and cleanup.'
+      )
+    ).toBe('unsure');
+    expect(
+      inferItemStateFromNotes('permits', 'Include permits in the bid for this remodel.')
+    ).toBe('included');
+  });
 });

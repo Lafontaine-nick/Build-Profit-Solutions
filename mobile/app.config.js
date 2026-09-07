@@ -133,6 +133,7 @@ export default {
       // Make environment variables available to the app
       clerkPublishableKey: process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY,
       stripePublishableKey: process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+      revenueCatIosApiKey: process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || '',
         // ROOT CAUSE FIX: Always default to production backend
         // The app will work without local backend running
         // To use local backend, explicitly set: EXPO_PUBLIC_API_BASE_URL=http://192.168.0.201:3001/api

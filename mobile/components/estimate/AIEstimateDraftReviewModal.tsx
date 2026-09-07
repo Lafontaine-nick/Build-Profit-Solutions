@@ -9,6 +9,7 @@ import {
   StatusBar,
   ActivityIndicator,
   Switch,
+  useWindowDimensions,
 } from 'react-native';
 import {
   ScrollView as GestureScrollView,
@@ -17,6 +18,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getEmbeddedAiFlowFooterBottomInset } from '@/constants/ScreenLayout';
+import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
@@ -143,6 +145,7 @@ export default function AIEstimateDraftReviewModal({
   children,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
 
@@ -182,16 +185,11 @@ export default function AIEstimateDraftReviewModal({
     ? draft.needsReviewItems
     : draft?.missingInfo || [];
   const [footerExpanded, setFooterExpanded] = useState(false);
-  const embeddedFooterBottomInset = embedded
+  const tabBarClearance = embedded
     ? getEmbeddedAiFlowFooterBottomInset(insets.bottom)
-    : insets.bottom;
-  const footerScrollPadding = scopeOnly
-    ? 96 + embeddedFooterBottomInset
-    : footerExpanded
-      ? 280 + embeddedFooterBottomInset
-      : onToggleSaveToPricingLibrary
-        ? 120 + embeddedFooterBottomInset
-        : 88 + embeddedFooterBottomInset;
+    : Math.max(insets.bottom, 16);
+  const footerBottomPad = tabBarClearance;
+  const scrollPaddingBottom = 12;
   const showFooterTotal =
     Boolean(footerTotalLabel) &&
     !(step3Totals?.heroAmount != null && step3Totals.heroAmount > 0);
@@ -214,7 +212,12 @@ export default function AIEstimateDraftReviewModal({
   if (!visible) return null;
 
   const body = (
-    <View style={{ flex: 1, backgroundColor: Colors.bg }}>
+    <View
+      style={[
+        { flex: 1, backgroundColor: Colors.bg },
+        embedded ? { height: windowHeight } : null,
+      ]}
+    >
       <AIEstimateFlowHeader
         title="Review draft"
         subtitle={
@@ -233,7 +236,10 @@ export default function AIEstimateDraftReviewModal({
 
       <GestureScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 16, paddingBottom: footerScrollPadding }}
+        contentContainerStyle={{
+          padding: 16,
+          paddingBottom: scrollPaddingBottom,
+        }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         delayContentTouches={false}
@@ -308,13 +314,16 @@ export default function AIEstimateDraftReviewModal({
           </>
         )}
 
+        {!scopeOnly || scopeHasPricing ? (
+          <AIEstimateDisclaimer variant="compact" />
+        ) : null}
       </GestureScrollView>
 
       <View
         style={{
           paddingHorizontal: 16,
           paddingTop: footerExpanded ? 8 : 6,
-          paddingBottom: Math.max(embeddedFooterBottomInset, 16),
+          paddingBottom: footerBottomPad,
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
           backgroundColor: Colors.bg,
@@ -404,8 +413,6 @@ export default function AIEstimateDraftReviewModal({
             </View>
           </>
         ) : null}
-
-        {!scopeOnly || scopeHasPricing ? <AIEstimateDisclaimer variant="compact" /> : null}
 
         {scopeOnly && scopeHasPricing ? (
           <ReliableFlowPress
@@ -521,6 +528,7 @@ export default function AIEstimateDraftReviewModal({
     return (
       <View style={[StyleSheet.absoluteFillObject, styles.embeddedShell, { backgroundColor: Colors.bg }]}>
         {shell}
+        <TabScreenBottomScrollFade />
       </View>
     );
   }

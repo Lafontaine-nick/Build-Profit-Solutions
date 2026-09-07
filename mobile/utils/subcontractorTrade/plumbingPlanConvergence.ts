@@ -36,6 +36,17 @@ export type PlumbingPerformerMode =
   | 'subcontracted'
   | 'existing_quote';
 
+export type PlumbingRoomContext = 'bathroom' | 'kitchen' | 'whole_house' | null;
+
+/** Confirm Scope plumbing routing — chosen after notes imply a plumbing bid. */
+export type NotesScopeMode =
+  | 'whole_project'
+  | 'plumbing'
+  | 'plumbing_service'
+  | 'plumbing_new_construction'
+  | 'plumbing_bathroom'
+  | 'plumbing_kitchen';
+
 export type PlumbingCardGroupId =
   | 'service'
   | 'fixtures'
@@ -622,6 +633,221 @@ export function parsePlumbingMeasurementsFromNotes(
   return out;
 }
 
+/** Short reveal bullets from explicit plumbing note quantities. */
+export function summarizePlumbingNoteBullets(
+  notes: string,
+  max = 4
+): string[] {
+  const parsed = parsePlumbingMeasurementsFromNotes(notes);
+  const bullets: string[] = [];
+  const pushCount = (value: number | undefined, singular: string, plural?: string) => {
+    if (!value || value <= 0) return;
+    const label = value === 1 ? singular : plural || `${singular}s`;
+    bullets.push(`${value} ${label}`);
+  };
+  const pushLf = (value: number | undefined, label: string) => {
+    if (!value || value <= 0) return;
+    bullets.push(`${value} LF ${label}`);
+  };
+
+  pushCount(parsed.plumbingRoughPointCount, 'rough-in point', 'rough-in points');
+  pushCount(parsed.plumbingTrimHookupCount, 'trim hookup', 'trim hookups');
+  pushLf(parsed.waterLineLf, 'water line');
+  pushLf(parsed.sewerLineLf, 'sewer line');
+  pushLf(parsed.gasLineLf, 'gas piping');
+  pushCount(parsed.waterHeaterCount, 'water heater', 'water heaters');
+  pushCount(
+    parsed.plumbingFixturesHardwareCount,
+    'fixture & hardware allowance',
+    'fixtures & hardware'
+  );
+  pushCount(parsed.serviceCallCount, 'service call', 'service calls');
+  pushCount(parsed.fixtureRepairCount, 'fixture repair', 'fixture repairs');
+  pushCount(parsed.drainCleaningCount, 'drain cleaning', 'drain cleanings');
+
+  return bullets.slice(0, max);
+}
+
+/** Bathroom, kitchen, home remodel, addition, and similar GC-scope notes. */
+export function notesDescribeGeneralContractorProject(notes: string): boolean {
+  const text = String(notes || '').toLowerCase();
+  const remodelWord = /\bremodel(?:ing)?\b/.test(text);
+  const roomContext =
+    /\b(?:bath(?:room)?|kitchen|hall\s+bath|master\s+bath|powder\s+room|primary\s+bath)\b/.test(
+      text
+    );
+  const homeContext =
+    /\b(?:whole[\s-]?(?:house|home)|entire\s+home|full[\s-]home|home|house|gut\s+rehab|flip)\b/.test(
+      text
+    );
+  const additionContext =
+    /\b(?:addition|add[\s-]on|bump[\s-]out|adu|accessory\s+dwelling|second\s+story)\b/.test(
+      text
+    );
+  const finishTrades =
+    /\b(?:tile|vanity|toilet|tub|shower|paint|floor(?:ing)?|drywall|demo|backsplash|cabinet|counter(?:top)?s?|surround|ceiling|roof|siding|window|door|framing|insulation|hvac|electrical)\b/.test(
+      text
+    );
+
+  if (/\b(?:bath(?:room)?|kitchen|home|house|whole[\s-]?(?:house|home)|gut)\s+remodel\b/.test(text)) {
+    return true;
+  }
+  if (/\bremodel(?:ing)?\s+(?:the\s+)?(?:bath(?:room)?|kitchen|home|house)\b/.test(text)) {
+    return true;
+  }
+  if (additionContext) return true;
+  if (remodelWord && (roomContext || homeContext)) return true;
+  if (roomContext && finishTrades) return true;
+  if (homeContext && finishTrades) return true;
+  return false;
+}
+
+/** @deprecated Use notesDescribeGeneralContractorProject */
+export function notesDescribeRoomRemodel(notes: string): boolean {
+  return notesDescribeGeneralContractorProject(notes);
+}
+
+const STRONG_PLUMBING_PARSE_KEYS = new Set<PlumbingQuantityKey>([
+  'plumbingRoughPointCount',
+  'plumbingTrimHookupCount',
+  'waterLineLf',
+  'sewerLineLf',
+  'gasLineLf',
+  'waterHeaterCount',
+  'gasApplianceConnectionCount',
+  'serviceCallCount',
+  'drainCleaningCount',
+  'fixtureRepairCount',
+  'fixtureReplacementCount',
+  'plumbingFixturesHardwareCount',
+]);
+
+/** Strong whole-house / trade-plumbing signals that should not be treated as a room remodel. */
+function notesSuggestStandalonePlumbingTrade(notes: string): boolean {
+  const text = String(notes || '').trim();
+  if (!text) return false;
+  const parsed = parsePlumbingMeasurementsFromNotes(text);
+  if (
+    Object.keys(parsed).some((key) =>
+      STRONG_PLUMBING_PARSE_KEYS.has(key as PlumbingQuantityKey)
+    )
+  ) {
+    return true;
+  }
+  return /\b(?:whole[\s-]?house|house)\s+plumbing\b|\bplumbing\s+(?:rough|trim|bid|scope)\b|\b(?:water|sewer|gas)\s+(?:line|piping|pipe)\b|\brough[\s-]?in\s+points?\b|\btrim\s+hookups?\b/i.test(
+    text
+  );
+}
+
+export function notesSuggestPlumbingBid(notes: string): boolean {
+  const text = String(notes || '').trim();
+  if (!text) return false;
+  const standalone = notesSuggestStandalonePlumbingTrade(text);
+  if (notesDescribeGeneralContractorProject(text) && !standalone) {
+    return false;
+  }
+  return standalone;
+}
+
+export function inferPlumbingWorkflowModeFromNotes(
+  notes: string
+): PlumbingWorkflowMode {
+  const text = String(notes || '').toLowerCase();
+  if (
+    /\b(?:service\s+call|drain\s+clean|fixture\s+repair|clog|leak\s+repair)\b/.test(
+      text
+    )
+  ) {
+    return 'service';
+  }
+  if (/\bnew\s+(?:build|construction|home)\b|\bground[\s-]?up\b/.test(text)) {
+    return 'new_construction';
+  }
+  return 'bathroom_remodel';
+}
+
+export function inferPlumbingRoomContextFromNotes(
+  notes: string
+): PlumbingRoomContext {
+  const text = String(notes || '').toLowerCase();
+  if (/\b(?:whole[\s-]?house|house)\s+plumbing\b/.test(text)) {
+    return 'whole_house';
+  }
+  if (/\bkitchen\b/.test(text)) return 'kitchen';
+  if (/\bbath(?:room)?\b/.test(text)) return 'bathroom';
+  return null;
+}
+
+export function resolveNotesScopeModeFromPlumbingState(params: {
+  tradeWorkflowSource?: 'standalone_trade' | null;
+  plumbingWorkflowMode?: PlumbingWorkflowMode | null;
+  plumbingRoomContext?: PlumbingRoomContext;
+}): NotesScopeMode {
+  if (params.tradeWorkflowSource !== 'standalone_trade') {
+    return 'whole_project';
+  }
+  if (params.plumbingWorkflowMode === 'service') return 'plumbing_service';
+  if (params.plumbingWorkflowMode === 'new_construction') {
+    return 'plumbing_new_construction';
+  }
+  if (params.plumbingRoomContext === 'bathroom') return 'plumbing_bathroom';
+  if (params.plumbingRoomContext === 'kitchen') return 'plumbing_kitchen';
+  return 'plumbing';
+}
+
+export function plumbingStateFromNotesScopeMode(mode: NotesScopeMode): {
+  tradeWorkflowSource: 'standalone_trade' | null;
+  plumbingWorkflowMode: PlumbingWorkflowMode | null;
+  plumbingRoomContext: PlumbingRoomContext;
+  checklistMode: PlumbingWorkflowMode | null;
+} {
+  switch (mode) {
+    case 'whole_project':
+      return {
+        tradeWorkflowSource: null,
+        plumbingWorkflowMode: null,
+        plumbingRoomContext: null,
+        checklistMode: null,
+      };
+    case 'plumbing_service':
+      return {
+        tradeWorkflowSource: 'standalone_trade',
+        plumbingWorkflowMode: 'service',
+        plumbingRoomContext: null,
+        checklistMode: 'service',
+      };
+    case 'plumbing_new_construction':
+      return {
+        tradeWorkflowSource: 'standalone_trade',
+        plumbingWorkflowMode: 'new_construction',
+        plumbingRoomContext: 'whole_house',
+        checklistMode: 'new_construction',
+      };
+    case 'plumbing_bathroom':
+      return {
+        tradeWorkflowSource: 'standalone_trade',
+        plumbingWorkflowMode: 'bathroom_remodel',
+        plumbingRoomContext: 'bathroom',
+        checklistMode: 'bathroom_remodel',
+      };
+    case 'plumbing_kitchen':
+      return {
+        tradeWorkflowSource: 'standalone_trade',
+        plumbingWorkflowMode: 'bathroom_remodel',
+        plumbingRoomContext: 'kitchen',
+        checklistMode: 'bathroom_remodel',
+      };
+    case 'plumbing':
+    default:
+      return {
+        tradeWorkflowSource: 'standalone_trade',
+        plumbingWorkflowMode: 'bathroom_remodel',
+        plumbingRoomContext: null,
+        checklistMode: 'bathroom_remodel',
+      };
+  }
+}
+
 export function plumbingMeasurementKeyForItemId(
   itemId: string | null | undefined
 ): PlumbingQuantityKey | null {
@@ -721,6 +947,45 @@ export function plumbingScopeGroups(): Array<{
   return PLUMBING_PLAN_EXPORT_CHECKLIST_GROUPS.map(group => ({
     title: group.title,
     itemIds: [...group.itemIds],
+  }));
+}
+
+const PLUMBING_SERVICE_CHECKLIST_ITEM_IDS = new Set([
+  'service_call',
+  'fixture_repair',
+  'fixture_replace',
+  'drain_cleaning',
+]);
+
+/** Confirm Scope template — service vs remodel / new construction. */
+export function resolveStandalonePlumbingTemplateKey(
+  mode?: PlumbingWorkflowMode | null
+): 'plumbing' | 'plumbing_service' {
+  return mode === 'service' ? 'plumbing_service' : 'plumbing';
+}
+
+/** Checklist rows for a first-class Plumbing bid (not a bathroom remodel overlay). */
+export function buildStandalonePlumbingChecklistItems(
+  mode?: PlumbingWorkflowMode | null
+): Array<{
+  id: string;
+  label: string;
+  helperText: string;
+  category: string;
+  state: 'unsure';
+}> {
+  const cards =
+    mode === 'service'
+      ? PLUMBING_CARDS.filter(card =>
+          PLUMBING_SERVICE_CHECKLIST_ITEM_IDS.has(card.itemId)
+        )
+      : PLUMBING_CARDS;
+  return cards.map(card => ({
+    id: card.itemId,
+    label: card.label,
+    helperText: card.helper,
+    category: card.groupTitle,
+    state: 'unsure' as const,
   }));
 }
 

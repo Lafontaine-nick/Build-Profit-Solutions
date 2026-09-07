@@ -29,6 +29,7 @@ import {
   type PlumbingPerformerMode,
   type PlumbingQuantityKey,
   type PlumbingWorkflowMode,
+  type PlumbingRoomContext,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
   HVAC_CARDS,
@@ -193,6 +194,12 @@ import {
 } from '@/utils/bathroomVanityCountertopPricing';
 import { resolveBathroomFixtureChoiceSuggestedPricing } from '@/utils/bathroomFixtureChoicePricing';
 import { resolveKitchenGarbageDisposalChoiceSuggestedPricing } from '@/utils/kitchenGarbageDisposalChoicePricing';
+import { resolveKitchenBacksplashDemoSuggestedPricing } from '@/utils/kitchenBacksplashDemoPricing';
+import {
+  patchKitchenMeasurementItemQuantities,
+  resolveKitchenCountertopQuantity,
+  resolveKitchenCountertopTakeoffSqft,
+} from '@/utils/qmScopePanels/kitchenRemodel';
 import {
   mergeBathroomPaintRepairEntireRoom,
   mergeBathroomPaintRepairLocalizedScope,
@@ -510,6 +517,11 @@ export const DUAL_QUANTITY_FIELD_LABELS: Record<
     countUnit: 'sqft',
     allowance: 'Calculated total ($)',
   },
+  mirror_accessories: {
+    count: 'Accessory count',
+    countUnit: 'each',
+    allowance: 'Calculated total ($)',
+  },
 };
 
 /** Clear editor label for count/area fields — never leave measurement-needed scopes as bare "Quantity". */
@@ -565,6 +577,7 @@ export type NormalizedScopeMeasurements = {
   quarterRoundLf: number | null;
   backsplashSqft: number | null;
   countertopSqft: number | null;
+  kitchenIslandCounterSqft: number | null;
   cabinetLf: number | null;
   landscapeSqft: number | null;
   artificialTurfSqft: number | null;
@@ -889,8 +902,8 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   },
   floor_demo: {
     unit: 'sqft',
-    material: 0.3,
-    labor: 2.7,
+    material: 0.5,
+    labor: 5,
     materialBucketLabel: 'Equipment, protection, haul-off & disposal',
     sourceLabel:
       'Suggested budget split · National Average planning estimate · flooring demolition',
@@ -1236,6 +1249,22 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     category: 'demo',
     pricingMethod: 'material_labor',
   },
+  cabinet_demo: {
+    unit: 'lf',
+    material: 2,
+    labor: 23,
+    materialBucketLabel: 'Protection / disposal materials',
+    laborBucketLabel: 'Cabinet disconnect, removal & haul labor',
+    sourceLabel:
+      'Suggested budget split · National Average · kitchen cabinet removal',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'demo',
+    category: 'demo',
+    pricingMethod: 'material_labor',
+  },
   countertop_demo: {
     unit: 'each',
     material: 0,
@@ -1243,6 +1272,69 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     laborBucketLabel: 'Countertop demo & haul labor',
     sourceLabel:
       'Suggested budget split · National Average · countertop removal',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'demo',
+    category: 'demo',
+    pricingMethod: 'material_labor',
+  },
+  appliance_removal: {
+    unit: 'each',
+    material: 25,
+    labor: 150,
+    materialBucketLabel: 'Protection / haul materials',
+    laborBucketLabel: 'Disconnect, remove & haul appliance labor',
+    sourceLabel:
+      'Suggested budget split · National Average · appliance disconnect & haul',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'demo',
+    category: 'demo',
+    pricingMethod: 'material_labor',
+  },
+  appliances: {
+    unit: 'each',
+    material: 0,
+    labor: 225,
+    laborBucketLabel: 'Appliance reconnect & hookup labor',
+    sourceLabel:
+      'Suggested budget split · National Average · appliance hookup labor (no appliance purchase)',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'appliances',
+    category: 'interior',
+    pricingMethod: 'material_labor',
+  },
+  island: {
+    unit: 'each',
+    material: 150,
+    labor: 800,
+    materialBucketLabel: 'Panels, shims, fasteners & install supplies',
+    laborBucketLabel: 'Island set, level, join & floor-anchor labor',
+    sourceLabel:
+      'Suggested budget split · National Average · island cabinet set & anchor (boxes & countertop separate)',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'cabinets',
+    category: 'cabinets',
+    pricingMethod: 'material_labor',
+  },
+  island_demo: {
+    unit: 'each',
+    material: 50,
+    labor: 275,
+    materialBucketLabel: 'Protection / disposal materials',
+    laborBucketLabel: 'Island cabinet detach, removal & haul labor',
+    sourceLabel:
+      'Suggested budget split · National Average · kitchen island cabinet/base detach & haul (no utility disconnect)',
     rateSource: 'bps_national_benchmark',
     scopeProfileSource: 'bps_standard_assumption',
     productionStatus: 'review_required',
@@ -1299,13 +1391,13 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     pricingMethod: 'material_labor',
   },
   mirror_accessories: {
-    unit: 'allowance',
-    material: 200,
-    labor: 175,
-    materialBucketLabel: 'Accessories allowance',
+    unit: 'each',
+    material: 50,
+    labor: 75,
+    materialBucketLabel: 'Accessory materials',
     laborBucketLabel: 'Install labor',
     sourceLabel:
-      'Suggested budget split · National Average · bath accessories allowance',
+      'Suggested budget split · National Average · bath accessory (each)',
     rateSource: 'bps_national_benchmark',
     scopeProfileSource: 'bps_standard_assumption',
     productionStatus: 'review_required',
@@ -1998,7 +2090,6 @@ export const PLACEHOLDER_ALLOWANCE_ITEM_IDS = [
   'cleanup',
   'plumbing_trim',
   'electrical_trim',
-  'mirror_accessories',
   'plans_engineering',
   'contingency',
   'appliances',
@@ -4796,13 +4887,13 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   mirror_accessories: {
     category: 'fixtures',
     rootCause:
-      'Build Profit national-average bath accessories (~$375 allowance) covers towel bars, hooks, and paper holders with install — not shower doors or medicine cabinets.',
+      'Build Profit national-average bath accessories (~$125 each) prices towel bars, hooks, and paper holders per piece with install — not shower doors or medicine cabinets.',
     assumptions: [
       assumption(
         'accessories_material',
         'included',
-        'Accessories allowance',
-        'Standard bath accessory material allowance is included.'
+        'Accessory materials',
+        'Standard bath accessory material per piece is included.'
       ),
       assumption(
         'accessories_install',
@@ -5453,9 +5544,16 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     defaultQuantity: 1,
     quantityHelper: 'Assuming 1 vanity cabinet removal. Edit if multiple.',
   },
+  cabinet_demo: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'each', 'lump_sum', 'allowance'],
+    measurementKey: 'cabinetLf',
+    defaultQuantity: 1,
+    quantityHelper: 'Uses cabinet LF from notes when available.',
+  },
   countertop_demo: {
     defaultUnit: 'each',
-    allowedUnits: ['each', 'lump_sum', 'allowance'],
+    allowedUnits: ['each', 'lump_sum', 'allowance', 'sqft'],
     defaultQuantity: 1,
     quantityHelper: 'Assuming 1 countertop removal. Edit if multiple.',
   },
@@ -5626,12 +5724,13 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper: 'Assuming 1 bath fan. Edit if different.',
   },
   mirror_accessories: {
-    defaultUnit: 'allowance',
+    defaultUnit: 'each',
     allowedUnits: ['each', 'allowance', 'lump_sum', 'sqft'],
-    defaultQuantity: 1,
+    defaultQuantity: 3,
     requiresUserQuantity: false,
-    quantityHelper: 'Towel bars/hooks allowance — not shower doors.',
-    missingMessage: 'Enter accessories allowance.',
+    quantityHelper:
+      'Count towel bars, hooks, holders, etc. — priced per piece, not shower doors.',
+    missingMessage: 'Enter bath accessory count.',
   },
   floor_prep: {
     defaultUnit: 'sqft',
@@ -5743,6 +5842,24 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     allowedUnits: ['each', 'lump_sum'],
     defaultQuantity: 1,
     quantityHelper: 'Price appliance removal by count with material and labor.',
+  },
+  island: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    defaultQuantity: 1,
+    requiresUserQuantity: false,
+    quantityHelper:
+      'Set, level, join and anchor island base — cabinet boxes (LF) and countertop (sqft) are separate.',
+    missingMessage: 'Set island install count on Quick measurements.',
+  },
+  island_demo: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'lump_sum', 'allowance'],
+    defaultQuantity: 1,
+    requiresUserQuantity: false,
+    quantityHelper:
+      'Detach, remove, and haul island cabinet/base — no utility disconnect. Priced per island from Demo / tear-out steppers.',
+    missingMessage: 'Set island demo count on Quick measurements.',
   },
   cabinets: {
     defaultUnit: 'lf',
@@ -6867,6 +6984,7 @@ export function normalizeScopeMeasurements(
     quarterRoundLf: num(measurements?.quarterRoundLf),
     backsplashSqft: num(measurements?.backsplashSqft),
     countertopSqft: num(measurements?.countertopSqft),
+    kitchenIslandCounterSqft: num(measurements?.kitchenIslandCounterSqft),
     cabinetLf: num(measurements?.cabinetLf),
     landscapeSqft: num(measurements?.landscapeSqft),
     artificialTurfSqft: num(measurements?.artificialTurfSqft),
@@ -7343,12 +7461,21 @@ const KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   string,
   ScopeItemQuantityRule
 > = {
-  demo: {
-    defaultUnit: 'lump_sum',
-    allowedUnits: ['lump_sum', 'allowance', 'lf'],
+  cabinet_demo: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'each', 'lump_sum', 'allowance'],
+    measurementKey: 'cabinetLf',
     defaultQuantity: 1,
+    quantityHelper: 'Uses cabinet LF from notes when available.',
+  },
+  countertop_demo: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'each', 'lump_sum', 'allowance'],
+    measurementKey: 'countertopSqft',
+    requiresUserQuantity: true,
     quantityHelper:
-      'Assuming 1 cabinet/counter demo lump sum. Edit LF if priced by run.',
+      'Perimeter + island counter SF for removal — same takeoff as countertop install.',
+    missingMessage: 'Enter countertop demo sqft.',
   },
   floor_demo: {
     defaultUnit: 'sqft',
@@ -7366,6 +7493,42 @@ const KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper: 'Enter backsplash sqft for removal.',
     missingMessage: 'Enter backsplash demo sqft.',
   },
+  appliance_removal: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'lump_sum', 'allowance'],
+    defaultQuantity: 1,
+    quantityHelper:
+      'Disconnect and haul — priced per appliance set from Demo / tear-out steppers.',
+  },
+  appliances: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    defaultQuantity: 1,
+    requiresUserQuantity: false,
+    lumpSumOnly: false,
+    quantityHelper:
+      'Hookup/labor only — priced per appliance set from Quick measurements. Edit for allowance if needed.',
+    missingMessage: 'Set appliance hookup count on Quick measurements.',
+  },
+  island: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    defaultQuantity: 1,
+    requiresUserQuantity: false,
+    lumpSumOnly: false,
+    quantityHelper:
+      'Set, level, join and anchor island base — cabinet boxes (LF) and countertop (sqft) are separate.',
+    missingMessage: 'Set island install count on Quick measurements.',
+  },
+  island_demo: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'lump_sum', 'allowance'],
+    defaultQuantity: 1,
+    requiresUserQuantity: false,
+    quantityHelper:
+      'Detach, remove, and haul island cabinet/base — no utility disconnect. Priced per island from Demo / tear-out steppers.',
+    missingMessage: 'Set island demo count on Quick measurements.',
+  },
   electrical: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.electrical,
     quantityHelper:
@@ -7381,6 +7544,12 @@ const KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     ],
     quantityHelper: 'Enter kitchen floor sqft for flooring install.',
     missingMessage: 'Enter kitchen floor sqft.',
+  },
+  countertops: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.countertops,
+    quantityHelper:
+      'Perimeter counter SF plus island counter SF (when applicable) — priced together on this line.',
+    missingMessage: 'Enter countertop sqft in Quick measurements.',
   },
 };
 
@@ -8250,6 +8419,165 @@ export function usesAllowanceSplitEditor(rule: ScopeItemQuantityRule): boolean {
   return !rule.dualAllowanceField;
 }
 
+function isMoneyBasisUnit(unit: string | null | undefined): boolean {
+  return ['allowance', 'lump_sum'].includes(
+    normalizeBasisUnit(String(unit || ''))
+  );
+}
+
+function usesPhysicalTakeoffUnit(rule: ScopeItemQuantityRule): boolean {
+  return !isMoneyBasisUnit(rule.defaultUnit || 'allowance');
+}
+
+function allowanceSplitAppliedTotal(
+  itemQuantities: Record<string, ScopeItemQuantityLike> | undefined,
+  itemId: string,
+  rule?: ScopeItemQuantityRule
+): number | null {
+  const allowance = parseScopeMeasurementInput(
+    String(
+      itemQuantities?.[allowanceSplitSubKey(itemId, 'allowance')]?.quantity ?? ''
+    )
+  );
+  const material = parseScopeMeasurementInput(
+    String(
+      itemQuantities?.[allowanceSplitSubKey(itemId, 'material')]?.quantity ?? ''
+    )
+  );
+  const labor = parseScopeMeasurementInput(
+    String(
+      itemQuantities?.[allowanceSplitSubKey(itemId, 'labor')]?.quantity ?? ''
+    )
+  );
+  const splitTotal = (material ?? 0) + (labor ?? 0);
+  const physicalUnit = normalizeBasisUnit(rule?.defaultUnit || 'each');
+  const maxReasonable =
+    physicalUnit === 'each'
+      ? 2500
+      : physicalUnit === 'sqft'
+        ? 250000
+        : 50000;
+  if (allowance != null && allowance > 0 && allowance <= maxReasonable) {
+    return allowance;
+  }
+  if (splitTotal > 0 && splitTotal <= maxReasonable) return splitTotal;
+  return null;
+}
+
+function allowanceSplitQuantityLooksLikeDollarTotal(
+  itemId: string,
+  qty: number | string,
+  unit: string | null | undefined,
+  itemQuantities: Record<string, ScopeItemQuantityLike> | undefined,
+  rule: ScopeItemQuantityRule
+): boolean {
+  const numericQty =
+    typeof qty === 'number'
+      ? qty
+      : parseScopeMeasurementInput(String(qty ?? ''));
+  if (numericQty == null || !Number.isFinite(numericQty) || numericQty <= 0) {
+    return false;
+  }
+  if (!usesPhysicalTakeoffUnit(rule)) return false;
+  const appliedTotal = allowanceSplitAppliedTotal(
+    itemQuantities,
+    itemId,
+    rule
+  );
+  if (appliedTotal != null && Math.abs(numericQty - appliedTotal) < 0.02) {
+    return true;
+  }
+  if (isMoneyBasisUnit(unit)) return true;
+  const physicalUnit = normalizeBasisUnit(rule.defaultUnit || 'each');
+  if (physicalUnit === 'each' && numericQty > 25) return true;
+  return false;
+}
+
+function inferPhysicalCountFromAppliedSplit(
+  itemId: string,
+  splitTotal: number,
+  rule: ScopeItemQuantityRule
+): number | null {
+  const unit = normalizeBasisUnit(rule.defaultUnit || 'each');
+  if (isMoneyBasisUnit(unit)) return null;
+  const national = getNationalAverageBudgetSplit(itemId, unit);
+  const perUnit = national ? national.material + national.labor : 0;
+  if (!(perUnit > 0)) return rule.defaultQuantity ?? 1;
+  const inferred = Math.round(splitTotal / perUnit);
+  if (inferred >= 1 && inferred <= 99) return inferred;
+  return rule.defaultQuantity ?? 1;
+}
+
+function resolveAllowanceSplitPhysicalTakeoff(
+  itemId: string,
+  measurements: NormalizedScopeMeasurements,
+  rule: ScopeItemQuantityRule,
+  override?: ScopeItemQuantityValue | null,
+  splitTotal?: number | null
+): { quantity: number; unit: string } | null {
+  if (!usesPhysicalTakeoffUnit(rule)) return null;
+  const physicalUnit = normalizeBasisUnit(rule.defaultUnit || 'each');
+  const itemQuantities = measurements.itemQuantities;
+
+  const storedBasis = parseStoredItemQuantity(
+    measurements,
+    allowanceSplitSubKey(itemId, 'sqft_basis')
+  );
+  if (storedBasis?.quantity != null && storedBasis.quantity > 0) {
+    const storedUnit = normalizeBasisUnit(
+      String(storedBasis.unit || physicalUnit)
+    );
+    if (
+      !allowanceSplitQuantityLooksLikeDollarTotal(
+        itemId,
+        storedBasis.quantity,
+        storedUnit,
+        itemQuantities,
+        rule
+      )
+    ) {
+      return { quantity: storedBasis.quantity, unit: storedUnit };
+    }
+  }
+
+  if (override?.quantity != null && override.quantity > 0) {
+    const overrideUnit = normalizeBasisUnit(
+      String(override.unit || physicalUnit)
+    );
+    if (
+      !allowanceSplitQuantityLooksLikeDollarTotal(
+        itemId,
+        override.quantity,
+        overrideUnit,
+        itemQuantities,
+        rule
+      ) &&
+      !plumbingStoredQuantityLooksLikeDollarTotal(
+        itemId,
+        override,
+        itemQuantities
+      )
+    ) {
+      return { quantity: override.quantity, unit: overrideUnit };
+    }
+  }
+
+  const total =
+    splitTotal ??
+    allowanceSplitAppliedTotal(itemQuantities, itemId, rule);
+  if (total != null && total > 0) {
+    const inferred = inferPhysicalCountFromAppliedSplit(itemId, total, rule);
+    if (inferred != null) {
+      return { quantity: inferred, unit: physicalUnit };
+    }
+  }
+
+  if (rule.defaultQuantity != null && rule.defaultQuantity > 0) {
+    return { quantity: rule.defaultQuantity, unit: physicalUnit };
+  }
+  return null;
+}
+
 /** Applied/stored material+labor split — wins over a stale primary count (e.g. 1 allowance). */
 function resolveStoredAllowanceSplitQuantity(
   itemId: string,
@@ -8270,10 +8598,6 @@ function resolveStoredAllowanceSplitQuantity(
   const storedAllowance = parseStoredItemQuantity(
     measurements,
     allowanceSplitSubKey(itemId, 'allowance')
-  );
-  const storedBasis = parseStoredItemQuantity(
-    measurements,
-    allowanceSplitSubKey(itemId, 'sqft_basis')
   );
   const splitTotal =
     (materialEntry?.quantity ?? 0) + (laborEntry?.quantity ?? 0);
@@ -8298,20 +8622,13 @@ function resolveStoredAllowanceSplitQuantity(
 
   if (total == null || total <= 0) return null;
 
-  const physicalOverride =
-    override &&
-    override.quantity != null &&
-    override.quantity > 0 &&
-    !['allowance', 'lump_sum'].includes(
-      normalizeBasisUnit(String(override.unit || ''))
-    ) &&
-    !plumbingStoredQuantityLooksLikeDollarTotal(
-      itemId,
-      override,
-      measurements.itemQuantities
-    )
-      ? override
-      : null;
+  const physicalTakeoff = resolveAllowanceSplitPhysicalTakeoff(
+    itemId,
+    measurements,
+    rule,
+    override ?? measurements.itemQuantities?.[itemId],
+    total
+  );
 
   const quantitySource =
     storedAllowance?.quantitySource ||
@@ -8320,27 +8637,56 @@ function resolveStoredAllowanceSplitQuantity(
     override?.quantitySource ||
     'user_entered';
 
+  let displayMaterial = materialEntry;
+  let displayLabor = laborEntry;
+  if (physicalTakeoff && total != null && total > 0 && total <= 2500) {
+    const national = getNationalAverageBudgetSplit(
+      itemId,
+      physicalTakeoff.unit
+    );
+    const expectedTotal =
+      physicalTakeoff.quantity *
+      ((national?.material ?? 0) + (national?.labor ?? 0));
+    const splitSum = (materialEntry?.quantity ?? 0) + (laborEntry?.quantity ?? 0);
+    if (
+      national &&
+      expectedTotal > 0 &&
+      splitSum > expectedTotal * 4 &&
+      physicalTakeoff.quantity <= 25
+    ) {
+      displayMaterial = {
+        quantity: national.material * physicalTakeoff.quantity,
+        unit: 'allowance',
+        quantitySource,
+      };
+      displayLabor = {
+        quantity: national.labor * physicalTakeoff.quantity,
+        unit: 'allowance',
+        quantitySource,
+      };
+    }
+  }
+
   // Split pricing stores both the dollar total and the physical takeoff. The
   // card must display the takeoff (for example, 50 sqft), never the dollar
   // total (for example, $108.50) as if it were a measurement.
   return {
-    quantity: physicalOverride
-      ? physicalOverride.quantity
-      : storedBasis?.quantity > 0
-        ? storedBasis.quantity
-        : total,
-    unit: physicalOverride
-      ? normalizeBasisUnit(String(physicalOverride.unit || rule.defaultUnit))
-      : storedBasis?.quantity > 0
-        ? storedBasis.unit
-        : 'allowance',
+    quantity: physicalTakeoff?.quantity ?? total,
+    unit: physicalTakeoff?.unit ?? 'allowance',
     quantitySource,
     sourceLabel: sourceLabel(quantitySource),
     pricingReady: true,
     quantityHelper: rule.quantityHelper,
     showInput: true,
-    dualMaterial: materialEntry,
-    dualLabor: laborEntry,
+    dualCount: physicalTakeoff
+      ? {
+          quantity: physicalTakeoff.quantity,
+          unit: physicalTakeoff.unit,
+          quantitySource,
+        }
+      : undefined,
+    dualMaterial: displayMaterial,
+    dualLabor: displayLabor,
   };
 }
 
@@ -8821,7 +9167,8 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
     sink_faucet: { unit: 'each' },
     garbage_disposal: { unit: 'each' },
     cabinet_hardware: { unit: 'each' },
-    island: { unit: 'lf', measurementKeys: ['cabinetLf'] },
+    island: { unit: 'each' },
+    island_demo: { unit: 'each' },
     plumbing: { unit: 'each' },
     electrical: { unit: 'each' },
     windows: { unit: 'each', measurementKeys: ['windowCount'] },
@@ -9006,9 +9353,11 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<
     cabinets: { unit: 'lf', measurementKeys: ['cabinetLf'] },
     countertops: {
       unit: 'sqft',
-      measurementKeys: ['countertopSqft', 'kitchenFloorSqft'],
+      measurementKeys: ['countertopSqft'],
     },
     backsplash: { unit: 'sqft', measurementKeys: ['backsplashSqft'] },
+    island: { unit: 'each' },
+    island_demo: { unit: 'each' },
   },
 };
 
@@ -9379,7 +9728,9 @@ export function resolveAllowanceEditorPricingBasis(
   const basisKey = allowanceSplitSubKey(itemId, 'sqft_basis');
   const stored = measurementsInput.itemQuantities[basisKey];
   const storedQty = parseScopeMeasurementInput(String(stored?.quantity ?? ''));
-  const storedUnit = String(stored?.unit || 'sqft').toLowerCase();
+  const storedUnit = String(
+    stored?.unit || preferredUnit || rule.defaultUnit || 'sqft'
+  ).toLowerCase();
   const storedIsStale = isStaleLivingSfPricingBasis({
     itemId,
     storedQty: storedQty ?? 0,
@@ -9393,8 +9744,34 @@ export function resolveAllowanceEditorPricingBasis(
     sumMeasurementKeys: preferred?.sumMeasurementKeys,
     defaultUnit: rule.defaultUnit,
   });
-  if (storedQty && storedQty > 0 && !storedIsStale) {
-    return { quantity: storedQty, unit: stored?.unit || 'sqft' };
+  if (
+    storedQty &&
+    storedQty > 0 &&
+    !storedIsStale &&
+    !allowanceSplitQuantityLooksLikeDollarTotal(
+      itemId,
+      storedQty,
+      storedUnit,
+      measurementsInput.itemQuantities,
+      rule
+    )
+  ) {
+    return { quantity: storedQty, unit: stored?.unit || preferredUnit };
+  }
+
+  if (usesPhysicalTakeoffUnit(rule)) {
+    const physical = resolveAllowanceSplitPhysicalTakeoff(
+      itemId,
+      buildNormalizedScopeMeasurementsFromInput(measurementsInput),
+      rule,
+      measurementsInput.itemQuantities[itemId],
+      allowanceSplitAppliedTotal(
+        measurementsInput.itemQuantities,
+        itemId,
+        rule
+      )
+    );
+    if (physical) return physical;
   }
 
   // A committed physical takeoff is the source of truth for the editor.
@@ -9551,6 +9928,21 @@ export function resolveAllowanceEditorPricingBasis(
     rule.defaultUnit !== 'allowance' &&
     rule.defaultUnit !== 'lump_sum'
   ) {
+    const physical = resolveAllowanceSplitPhysicalTakeoff(
+      itemId,
+      buildNormalizedScopeMeasurementsFromInput(measurementsInput),
+      rule,
+      measurementsInput.itemQuantities[itemId],
+      allowanceSplitAppliedTotal(
+        measurementsInput.itemQuantities,
+        itemId,
+        rule
+      )
+    );
+    if (physical) return physical;
+    if (rule.defaultQuantity != null && rule.defaultQuantity > 0) {
+      return { quantity: rule.defaultQuantity, unit: rule.defaultUnit };
+    }
     return null;
   }
   if (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit))) {
@@ -9805,8 +10197,13 @@ function parseStoredItemQuantity(
 ): { quantity: number; unit: string; quantitySource?: QuantitySource } | null {
   const override = measurements.itemQuantities[key];
   if (override?.quantity != null && override.quantity > 0) {
+    const quantity =
+      typeof override.quantity === 'number'
+        ? override.quantity
+        : parseScopeMeasurementInput(String(override.quantity));
+    if (quantity == null || quantity <= 0) return null;
     return {
-      quantity: override.quantity,
+      quantity,
       unit: override.unit || 'each',
       quantitySource: override.quantitySource,
     };
@@ -9911,10 +10308,83 @@ function explicitItemQuantityOverride(
     : null;
   const splitTotal =
     (materialEntry?.quantity ?? 0) + (laborEntry?.quantity ?? 0);
+  const quantitySource = override.quantitySource || 'user_entered';
+  if (usesAllowanceSplitEditor(rule)) {
+    const appliedTotal = allowanceSplitAppliedTotal(
+      measurements.itemQuantities,
+      itemId,
+      rule
+    );
+    const physical = resolveAllowanceSplitPhysicalTakeoff(
+      itemId,
+      measurements,
+      rule,
+      override,
+      appliedTotal ?? (splitTotal > 0 ? splitTotal : null)
+    );
+    if (physical) {
+      let displayMaterial = materialEntry;
+      let displayLabor = laborEntry;
+      const total = appliedTotal ?? splitTotal;
+      if (total > 0 && total <= 2500) {
+        const national = getNationalAverageBudgetSplit(
+          itemId,
+          physical.unit
+        );
+        const expectedTotal =
+          physical.quantity *
+          ((national?.material ?? 0) + (national?.labor ?? 0));
+        const splitSum =
+          (materialEntry?.quantity ?? 0) + (laborEntry?.quantity ?? 0);
+        if (
+          national &&
+          expectedTotal > 0 &&
+          splitSum > expectedTotal * 4 &&
+          physical.quantity <= 25
+        ) {
+          displayMaterial = {
+            quantity: national.material * physical.quantity,
+            unit: 'allowance',
+            quantitySource,
+          };
+          displayLabor = {
+            quantity: national.labor * physical.quantity,
+            unit: 'allowance',
+            quantitySource,
+          };
+        }
+      }
+      return {
+        quantity: physical.quantity,
+        unit: physical.unit,
+        quantitySource,
+        sourceLabel: combinedCabinetsCounters
+          ? `Combined total · cabinets + counters · ${baseLabel}`
+          : baseLabel,
+        pricingReady: true,
+        quantityHelper: rule.quantityHelper,
+        showInput: true,
+        dualCount: {
+          quantity: physical.quantity,
+          unit: physical.unit,
+          quantitySource,
+        },
+        dualMaterial: displayMaterial,
+        dualLabor: displayLabor,
+        ...(combinedCabinetsCounters
+          ? {
+              combinedAllowanceRole: 'combined_total' as const,
+              combinedAllowanceTotal: override.quantity,
+            }
+          : {}),
+      };
+    }
+  }
   let quantity = override.quantity;
   if (
     usesAllowanceSplitEditor(rule) &&
     splitTotal > 0 &&
+    isMoneyBasisUnit(rule.defaultUnit || 'allowance') &&
     ['allowance', 'lump_sum'].includes(
       normalizeBasisUnit(String(override.unit || ''))
     ) &&
@@ -9931,7 +10401,7 @@ function explicitItemQuantityOverride(
       override.unit,
       rule
     ),
-    quantitySource: override.quantitySource || 'user_entered',
+    quantitySource,
     sourceLabel: combinedCabinetsCounters
       ? `Combined total · cabinets + counters · ${baseLabel}`
       : baseLabel,
@@ -10384,7 +10854,7 @@ export function hasUserEnteredMaterialLaborSplit(
   );
 }
 
-/** Sqft takeoff stored when the user tapped Apply (demo__sqft_basis). */
+/** Physical takeoff stored when the user tapped Apply (e.g. demo__sqft_basis). */
 export function readStoredSqftPricingBasis(
   itemQuantities: Record<string, ScopeItemQuantityLike>,
   itemId: string
@@ -10393,6 +10863,21 @@ export function readStoredSqftPricingBasis(
   const unit = String(entry?.unit || '').toLowerCase();
   const qty = Number(String(entry?.quantity ?? '').replace(/,/g, ''));
   if (unit === 'sqft' && Number.isFinite(qty) && qty > 0) return qty;
+  const rule = getChecklistItemQuantityRuleOrDefault(itemId);
+  if (
+    unit === String(rule.defaultUnit || '').toLowerCase() &&
+    Number.isFinite(qty) &&
+    qty > 0 &&
+    !allowanceSplitQuantityLooksLikeDollarTotal(
+      itemId,
+      qty,
+      unit,
+      itemQuantities,
+      rule
+    )
+  ) {
+    return qty;
+  }
   return null;
 }
 
@@ -13072,6 +13557,7 @@ function withUserEnteredNationalBenchmarkFallback(
       planFacts: measurementsInput.planFacts,
       projectComplexity: measurementsInput.projectComplexity,
       plumbingComplexityFactors: measurementsInput.plumbingComplexityFactors,
+      plumbingWorkflowMode: measurementsInput.plumbingWorkflowMode,
       planImportMode: measurementsInput.planImportMode,
       planImportTradeKey: measurementsInput.planImportTradeKey,
       planImportFingerprint: measurementsInput.planImportFingerprint,
@@ -14339,6 +14825,7 @@ export function resolveScopeItemSuggestedPricing(
         planFacts: measurementsInput.planFacts,
         projectComplexity: measurementsInput.projectComplexity,
         plumbingComplexityFactors: measurementsInput.plumbingComplexityFactors,
+        plumbingWorkflowMode: measurementsInput.plumbingWorkflowMode,
         planImportMode: measurementsInput.planImportMode,
         planImportTradeKey: measurementsInput.planImportTradeKey,
         planImportFingerprint: measurementsInput.planImportFingerprint,
@@ -14887,16 +15374,52 @@ export function resolveScopeItemSuggestedPricing(
     return empty;
   }
 
-  // Kitchen backsplash removal has a dedicated national benchmark. Keep this
-  // explicit because the scope-profile catalog also contains a backsplash
-  // demolition definition, which must not be mistaken for a rate record.
-  if (itemId === 'backsplash_demo') {
-    const measuredCount = Number(
-      String(measurementsInput.backsplashSqft ?? '').replace(/,/g, '')
+  if (itemId === 'cabinet_demo') {
+    const measuredLf = Number(
+      String(measurementsInput.cabinetLf ?? '').replace(/,/g, '')
     );
     const count =
-      Number.isFinite(measuredCount) && measuredCount > 0
-        ? measuredCount
+      Number.isFinite(measuredLf) && measuredLf > 0
+        ? measuredLf
+        : Number(resolved.dualCount?.quantity ?? resolved.quantity);
+    const unit = String(
+      resolved.dualCount?.unit ?? resolved.unit ?? 'lf'
+    ).toLowerCase();
+    if (Number.isFinite(count) && count > 0 && unit === 'lf') {
+      const material = round2(count * 2);
+      const labor = round2(count * 23);
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel:
+            'Suggested budget split · National Average · kitchen cabinet removal',
+          helper: `Based on ${count.toLocaleString()} LF`,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity: count, unit: 'lf' },
+          benchmarkAction: 'price_ready',
+          pricingRecordId: 'bps_national:cabinet_demo:lf',
+          productionStatus: 'review_required',
+        },
+        comparison: null,
+      };
+    }
+  }
+
+  if (itemId === 'countertop_demo') {
+    const measuredSqft =
+      String(templateKey || '').toLowerCase() === 'kitchen'
+        ? resolveKitchenCountertopTakeoffSqft(
+            measurementsInput as Record<string, unknown>
+          )
+        : Number(String(measurementsInput.countertopSqft ?? '').replace(/,/g, ''));
+    const count =
+      Number.isFinite(measuredSqft) && measuredSqft > 0
+        ? measuredSqft
         : Number(resolved.dualCount?.quantity ?? resolved.quantity);
     const unit = String(
       resolved.dualCount?.unit ?? resolved.unit ?? 'sqft'
@@ -14912,13 +15435,13 @@ export function resolveScopeItemSuggestedPricing(
           materialSource: 'national_average',
           laborSource: 'national_average',
           rateSourceLabel:
-            'Suggested budget split · National Average · backsplash removal',
+            'Suggested budget split · National Average · countertop removal',
           helper: `Based on ${count.toLocaleString()} sqft`,
           mode: 'suggested_price',
           lumpSumOnly: false,
           basis: { quantity: count, unit: 'sqft' },
           benchmarkAction: 'price_ready',
-          pricingRecordId: 'bps_national:backsplash_demo:sqft',
+          pricingRecordId: 'bps_national:countertop_demo:sqft',
           productionStatus: 'review_required',
         },
         comparison: null,
@@ -14926,13 +15449,43 @@ export function resolveScopeItemSuggestedPricing(
     }
   }
 
+  // Kitchen backsplash removal uses difficulty-tier planning rates (light /
+  // moderate / extensive). Keep explicit so scope-profile demolition rows are
+  // not mistaken for the kitchen benchmark card.
+  if (itemId === 'backsplash_demo' && String(templateKey || '').toLowerCase() === 'kitchen') {
+    const measuredCount = Number(
+      String(measurementsInput.backsplashSqft ?? '').replace(/,/g, '')
+    );
+    const count =
+      Number.isFinite(measuredCount) && measuredCount > 0
+        ? measuredCount
+        : Number(resolved.dualCount?.quantity ?? resolved.quantity);
+    const unit = String(
+      resolved.dualCount?.unit ?? resolved.unit ?? 'sqft'
+    ).toLowerCase();
+    if (Number.isFinite(count) && count > 0 && unit === 'sqft') {
+      const tiered = resolveKitchenBacksplashDemoSuggestedPricing({
+        sqft: count,
+        difficulty: measurementsInput.kitchenBacksplashDemoDifficulty,
+      });
+      if (tiered) return tiered;
+    }
+  }
+
   // An explicit countertop takeoff is authoritative for the national-average
   // card. Do not let a notes-derived or stale per-SF split override 35 + 25
   // installed pricing when the user entered the countertop area.
   if (itemId === 'countertops') {
-    const count = Number(
-      String(measurementsInput.countertopSqft ?? '').replace(/,/g, '')
-    );
+    const fromKitchen =
+      String(templateKey || '').toLowerCase() === 'kitchen'
+        ? resolveKitchenCountertopTakeoffSqft(
+            measurementsInput as Record<string, unknown>
+          )
+        : 0;
+    const count =
+      fromKitchen > 0
+        ? fromKitchen
+        : Number(String(measurementsInput.countertopSqft ?? '').replace(/,/g, ''));
     if (Number.isFinite(count) && count > 0) {
       const material = round2(count * 35);
       const labor = round2(count * 25);
@@ -19411,6 +19964,113 @@ function resolveCustomScopeChecklistItemQuantity(
   };
 }
 
+function resolveKitchenApplianceStepperQuantity(
+  itemId: string,
+  measurements: NormalizedScopeMeasurements,
+  ctx: { templateKey?: string | null },
+  rule: ScopeItemQuantityRule
+): ResolvedItemQuantity | null {
+  if (String(ctx.templateKey || '').toLowerCase() !== 'kitchen') return null;
+
+  if (itemId === 'appliance_removal') {
+    const count = Number(measurements.kitchenDemoApplianceCount);
+    if (!Number.isFinite(count) || count <= 0) return null;
+    return applyPricingReadyFlags(
+      {
+        quantity: Math.round(count),
+        unit: 'each',
+        quantitySource: 'user_entered',
+        sourceLabel: 'Kitchen demo · Quick Measurements',
+        pricingReady: true,
+        quantityHelper: rule.quantityHelper,
+        showInput: true,
+      },
+      itemId,
+      ctx
+    );
+  }
+
+  if (itemId === 'appliances') {
+    const count = Number(measurements.kitchenInstallApplianceCount);
+    if (!Number.isFinite(count) || count <= 0) return null;
+    return applyPricingReadyFlags(
+      {
+        quantity: Math.round(count),
+        unit: 'each',
+        quantitySource: 'user_entered',
+        sourceLabel: 'Kitchen install · Quick Measurements',
+        pricingReady: true,
+        quantityHelper: rule.quantityHelper,
+        showInput: true,
+      },
+      itemId,
+      ctx
+    );
+  }
+
+  if (itemId === 'island') {
+    const count = Number(measurements.kitchenInstallIslandCount);
+    if (!Number.isFinite(count) || count <= 0) return null;
+    return applyPricingReadyFlags(
+      {
+        quantity: Math.round(count),
+        unit: 'each',
+        quantitySource: 'user_entered',
+        sourceLabel: 'Kitchen install · Quick Measurements',
+        pricingReady: true,
+        quantityHelper: rule.quantityHelper,
+        showInput: true,
+      },
+      itemId,
+      ctx
+    );
+  }
+
+  if (itemId === 'island_demo') {
+    const count = Number(measurements.kitchenDemoIslandCount);
+    if (!Number.isFinite(count) || count <= 0) return null;
+    return applyPricingReadyFlags(
+      {
+        quantity: Math.round(count),
+        unit: 'each',
+        quantitySource: 'user_entered',
+        sourceLabel: 'Kitchen demo · Quick Measurements',
+        pricingReady: true,
+        quantityHelper: rule.quantityHelper,
+        showInput: true,
+      },
+      itemId,
+      ctx
+    );
+  }
+
+  const kitchenCountertop = resolveKitchenCountertopQuantity(
+    itemId,
+    measurements as Record<string, unknown>,
+    ctx,
+    rule
+  );
+  if (kitchenCountertop) {
+    return applyPricingReadyFlags(kitchenCountertop, itemId, ctx);
+  }
+
+  return null;
+}
+
+function resolveKitchenQuickMeasurementQuantity(
+  itemId: string,
+  measurements: NormalizedScopeMeasurements,
+  ctx: { templateKey?: string | null },
+  _rule: ScopeItemQuantityRule
+): ResolvedItemQuantity | null {
+  if (String(ctx.templateKey || '').toLowerCase() !== 'kitchen') return null;
+  if (itemId !== 'flooring' && itemId !== 'floor_demo') return null;
+  // Kitchen floor sqft / demo takeoff is resolved through measurement keys and
+  // allowance-split pricing. Do not short-circuit here — that path dropped
+  // material/labor on the resolved quantity and showed $0 after a card edit.
+  return null;
+}
+
 function resolveChecklistItemQuantityCore(
   itemId: string,
   measurements: NormalizedScopeMeasurements,
@@ -19485,6 +20145,26 @@ function resolveChecklistItemQuantityCore(
         return applyPricingReadyFlags(plumbingQuickMeasurement, itemId, ctx);
       }
     }
+  }
+
+  const kitchenApplianceStepper = resolveKitchenApplianceStepperQuantity(
+    itemId,
+    measurements,
+    ctx,
+    rule
+  );
+  if (kitchenApplianceStepper) {
+    return kitchenApplianceStepper;
+  }
+
+  const kitchenQuickMeasurement = resolveKitchenQuickMeasurementQuantity(
+    itemId,
+    measurements,
+    ctx,
+    rule
+  );
+  if (kitchenQuickMeasurement) {
+    return kitchenQuickMeasurement;
   }
 
   const hasExplicitInsulationTakeoff =
@@ -20276,6 +20956,11 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
     test: /\bvanity\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,40}\bvanity\b|\bremove\s+existing\s+vanity\b/i,
     key: 'vanity_demo',
   },
+  // Kitchen cabinet demo before countertop-only demo — combined legacy labels match here first.
+  {
+    test: /\bcabinet\s+demo\b|\bremove\s+cabinets?\b|\bcabinet[s\s&/,]*counter.*\bdemo\b|\bdemo\b.*\bcabinets?\b|\bkitchen\s+demo\b/i,
+    key: 'cabinet_demo',
+  },
   {
     test: /\b(countertops?|counters?)\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,40}\b(countertops?|counters?)\b/i,
     key: 'countertop_demo',
@@ -20326,10 +21011,6 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
     test: /\bappliance\s*reinstall\b|\breinstall\b.*\bappliances?\b|\bappliances?\s*(?:&|and)?\s*hookup\b|\bappliance\s+hookup\b|\bappliances?\b/i,
     key: 'appliances',
   },
-  {
-    test: /\bcabinet[s\s&/,]*counter.*\bdemo\b|\bdemo\b.*\bcabinets?\b|\bkitchen\s+demo\b/i,
-    key: 'demo',
-  },
   // Cabinet paint before cabinets LF rates.
   {
     test: /\b(?:paint|painting|stain|refinish)\b[^.]{0,40}\bcabinets?\b|\bcabinets?\b[^.]{0,40}\b(?:paint|painting|stain|refinish)\b/i,
@@ -20340,6 +21021,11 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
     key: 'island',
   },
   {
+    test:
+      /\b(?:demo|remove|tear[\s-]?out)\b[^.]{0,40}\b(?:island\s+(?:cabinet|base)|island)\b|\b(?:island\s+(?:cabinet|base)|island)\b[^.]{0,40}\b(?:demo|remove|tear[\s-]?out)\b/i,
+    key: 'island_demo',
+  },
+  {
     test: /\bcabinets?\s*(?:&|and|\/)\s*counters?|\bcounters?\s*(?:&|and|\/)\s*cabinets?/i,
     key: 'cabinets_counters',
   },
@@ -20348,13 +21034,7 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
     test: /(?<!after\s)(?<!before\s)\b(?:new\s+)?cabinets?\b(?!\s*hardware)/i,
     key: 'cabinets',
   },
-  // Countertop demo before countertop install rates.
-  {
-    test: /\bcountertops?\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out)\b[^.]{0,40}\bcountertops?\b/i,
-    key: 'demo',
-  },
-  // "Counters" (ground-up package label) must map here — `\bcountertop` alone misses it,
-  // so Step 3 fell through to kitchen $/living-SF rates (~$55+$95 × living SF).
+  // Countertop install rates — countertop demo is matched earlier in the table.
   {
     test: /\bcounters?\b|\bcounter\s*tops?\b|\bcountertop/i,
     key: 'countertops',
@@ -21393,6 +22073,9 @@ export function scopeMeasurementsToPayload(
     quarterRoundLf: parseScopeMeasurementInput(sanitized.quarterRoundLf),
     backsplashSqft: parseScopeMeasurementInput(sanitized.backsplashSqft),
     countertopSqft: parseScopeMeasurementInput(sanitized.countertopSqft),
+    kitchenIslandCounterSqft: parseScopeMeasurementInput(
+      sanitized.kitchenIslandCounterSqft
+    ),
     cabinetLf: parseScopeMeasurementInput(sanitized.cabinetLf),
     landscapeSqft: parseScopeMeasurementInput(sanitized.landscapeSqft),
     artificialTurfSqft: parseScopeMeasurementInput(
@@ -21847,6 +22530,17 @@ export function scopeMeasurementsToPayload(
       sanitized.bathroomDrywallPaintUseCombinedAssemblySource === 'ai_inferred'
         ? sanitized.bathroomDrywallPaintUseCombinedAssemblySource
         : null,
+    bathroomPaintRepairSeverity:
+      sanitized.bathroomPaintRepairSeverity === 'minor' ||
+      sanitized.bathroomPaintRepairSeverity === 'moderate' ||
+      sanitized.bathroomPaintRepairSeverity === 'heavy'
+        ? sanitized.bathroomPaintRepairSeverity
+        : null,
+    bathroomPaintRepairSeveritySource:
+      sanitized.bathroomPaintRepairSeveritySource === 'user_selected' ||
+      sanitized.bathroomPaintRepairSeveritySource === 'ai_inferred'
+        ? sanitized.bathroomPaintRepairSeveritySource
+        : null,
     bathroomInteriorPaintMobilization:
       sanitized.bathroomInteriorPaintMobilization === 'bundled' ||
       sanitized.bathroomInteriorPaintMobilization === 'standalone' ||
@@ -21893,6 +22587,18 @@ export function scopeMeasurementsToPayload(
       sanitized.bathroomGlassDoorStyleSource === 'user_selected' ||
       sanitized.bathroomGlassDoorStyleSource === 'ai_inferred'
         ? sanitized.bathroomGlassDoorStyleSource
+        : null,
+    kitchenBacksplashDemoDifficulty:
+      sanitized.kitchenBacksplashDemoDifficulty === 'light' ||
+      sanitized.kitchenBacksplashDemoDifficulty === 'moderate' ||
+      sanitized.kitchenBacksplashDemoDifficulty === 'extensive' ||
+      sanitized.kitchenBacksplashDemoDifficulty === 'unsure'
+        ? sanitized.kitchenBacksplashDemoDifficulty
+        : null,
+    kitchenBacksplashDemoDifficultySource:
+      sanitized.kitchenBacksplashDemoDifficultySource === 'user_selected' ||
+      sanitized.kitchenBacksplashDemoDifficultySource === 'ai_inferred'
+        ? sanitized.kitchenBacksplashDemoDifficultySource
         : null,
     demoTubCount:
       sanitized.demoTubCount != null && Number(sanitized.demoTubCount) > 0
@@ -22187,6 +22893,9 @@ export function scopeMeasurementsInputFromPayload(
     flooringSqft: measurementFieldString(payload.flooringSqft),
     backsplashSqft: measurementFieldString(payload.backsplashSqft),
     countertopSqft: measurementFieldString(payload.countertopSqft),
+    kitchenIslandCounterSqft: measurementFieldString(
+      payload.kitchenIslandCounterSqft
+    ),
     cabinetLf: measurementFieldString(payload.cabinetLf),
     landscapeSqft: measurementFieldString(payload.landscapeSqft),
     artificialTurfSqft: measurementFieldString(payload.artificialTurfSqft),
@@ -22658,6 +23367,29 @@ export function scopeMeasurementsInputFromPayload(
       payload.bathroomGlassDoorStyleSource === 'ai_inferred'
         ? payload.bathroomGlassDoorStyleSource
         : null,
+    kitchenBacksplashDemoDifficulty:
+      payload.kitchenBacksplashDemoDifficulty === 'light' ||
+      payload.kitchenBacksplashDemoDifficulty === 'moderate' ||
+      payload.kitchenBacksplashDemoDifficulty === 'extensive' ||
+      payload.kitchenBacksplashDemoDifficulty === 'unsure'
+        ? payload.kitchenBacksplashDemoDifficulty
+        : null,
+    kitchenBacksplashDemoDifficultySource:
+      payload.kitchenBacksplashDemoDifficultySource === 'user_selected' ||
+      payload.kitchenBacksplashDemoDifficultySource === 'ai_inferred'
+        ? payload.kitchenBacksplashDemoDifficultySource
+        : null,
+    bathroomPaintRepairSeverity:
+      payload.bathroomPaintRepairSeverity === 'minor' ||
+      payload.bathroomPaintRepairSeverity === 'moderate' ||
+      payload.bathroomPaintRepairSeverity === 'heavy'
+        ? payload.bathroomPaintRepairSeverity
+        : null,
+    bathroomPaintRepairSeveritySource:
+      payload.bathroomPaintRepairSeveritySource === 'user_selected' ||
+      payload.bathroomPaintRepairSeveritySource === 'ai_inferred'
+        ? payload.bathroomPaintRepairSeveritySource
+        : null,
     demoTubCount:
       payload.demoTubCount != null && Number(payload.demoTubCount) > 0
         ? Math.round(Number(payload.demoTubCount))
@@ -22982,6 +23714,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   paintApplicationMethodConfirmed?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintApplicationMethodConfirmed'];
   plumbingWorkflowMode?: PlumbingWorkflowMode | null;
   plumbingPerformerMode?: PlumbingPerformerMode | null;
+  plumbingRoomContext?: PlumbingRoomContext | null;
   projectComplexity?: ProjectComplexitySettings | null;
   plumbingComplexityFactors?: Array<{ key?: string; label?: string }> | null;
   plumbingWaterHeaterDetail?: import('@/utils/estimateAiDraft').ScopeMeasurements['plumbingWaterHeaterDetail'];
@@ -23103,6 +23836,8 @@ export type ScopeMeasurementsInputExtended = ReturnType<
     | 'user_selected'
     | 'ai_inferred'
     | null;
+  bathroomPaintRepairSeverity?: string | null;
+  bathroomPaintRepairSeveritySource?: 'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintMobilization?: string | null;
   bathroomInteriorPaintMobilizationSource?:
     | 'user_selected'
@@ -23141,6 +23876,8 @@ export type ScopeMeasurementsInputExtended = ReturnType<
     priceableFields?: string[];
     blockedFields?: string[];
   } | null;
+  /** Kitchen QM — island counter SF (rolled into countertops when island install is on). */
+  kitchenIslandCounterSqft?: string | number | null;
 } & Partial<
     Record<ElectricalQuantityKey | PlumbingQuantityKey, string | number | null>
   >;
@@ -23387,6 +24124,28 @@ export function initialScopeMeasurementInputExtended(
       return '';
     }
 
+    // Backsplash sqft must not resurrect a stale kitchen-floor measurement.
+    if (key === 'kitchenFloorSqft') {
+      const flooringExcluded =
+        /\b(?:customer|owner|homeowner|client)\s+(?:is\s+)?(?:handling|doing|providing)\s+(?:the\s+)?floor(?:ing)?\b/i.test(
+          scopeNotes
+        ) ||
+        /\bfloor(?:ing)?\s+by\s+others\b/i.test(scopeNotes) ||
+        /\bno\s+kitchen\s+floor\b/i.test(scopeNotes);
+      if (flooringExcluded && parsedNoteValue == null) return '';
+      const savedNum = s != null ? Number(s) : null;
+      const suggestedNum =
+        suggested?.kitchenFloorSqft != null
+          ? Number(suggested.kitchenFloorSqft)
+          : null;
+      const leakedBacksplash =
+        backsplashFromNotes != null &&
+        ((savedNum != null && savedNum === Number(backsplashFromNotes)) ||
+          (suggestedNum != null &&
+            suggestedNum === Number(backsplashFromNotes)));
+      if (leakedBacksplash && parsedNoteValue == null) return '';
+    }
+
     // Paint sqft often stale at 45 when it duplicated backsplash on older drafts / parsers
     if (key === 'wallPaintSqft' && fromNotes != null && Number(fromNotes) > 0) {
       const savedNum = s != null ? Number(s) : null;
@@ -23499,6 +24258,7 @@ export function initialScopeMeasurementInputExtended(
     quarterRoundLf: pick('quarterRoundLf'),
     backsplashSqft: pick('backsplashSqft'),
     countertopSqft: pick('countertopSqft'),
+    kitchenIslandCounterSqft: pick('kitchenIslandCounterSqft'),
     cabinetLf: pick('cabinetLf'),
     landscapeSqft: pick('landscapeSqft'),
     artificialTurfSqft: pick('artificialTurfSqft'),
@@ -24099,6 +24859,26 @@ export function initialScopeMeasurementInputExtended(
         ...result.itemQuantities.cabinets,
         includesCountertops: true,
       };
+    }
+  }
+
+  const kitchenTemplate =
+    String(draft?.scopeChecklist?.templateKey || draft?.projectType || '')
+      .toLowerCase() === 'kitchen';
+  if (kitchenTemplate) {
+    for (const key of [
+      'cabinetLf',
+      'countertopSqft',
+      'backsplashSqft',
+      'kitchenFloorSqft',
+    ] as const) {
+      const val = String(result[key] ?? '').trim();
+      if (!val) continue;
+      result.itemQuantities = patchKitchenMeasurementItemQuantities(
+        result.itemQuantities || {},
+        key,
+        val
+      );
     }
   }
 

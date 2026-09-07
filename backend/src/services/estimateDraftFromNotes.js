@@ -15,6 +15,7 @@ const VALID_PROJECT_TYPES = new Set([
   'roofing',
   'flooring',
   'deck_patio',
+  'plumbing',
   'plumbing_service',
   'electrical',
   'electrical_service',

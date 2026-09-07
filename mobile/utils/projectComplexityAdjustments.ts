@@ -1,3 +1,5 @@
+import type { PlumbingWorkflowMode } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+
 export type ProjectConstructionType =
   | 'production'
   | 'standard'
@@ -40,6 +42,7 @@ export type ProjectComplexityMeasurementContext = {
   storyCount?: unknown;
   planFacts?: PlanFactsLike;
   plumbingComplexityFactors?: Array<{ key?: string; label?: string }> | null;
+  plumbingWorkflowMode?: PlumbingWorkflowMode | null;
   planImportMode?: string | null;
   planImportTradeKey?: string | null;
   planImportFingerprint?: string | null;
@@ -48,6 +51,13 @@ export type ProjectComplexityMeasurementContext = {
   /** When false, never infer living SF / stories from planFacts (notes-only jobs). */
   allowPlanFactsFallback?: boolean;
 };
+
+/** Bathroom remodel plumbing uses story-only complexity — not whole-home living SF. */
+export function plumbingWorkflowUsesLivingAreaComplexity(
+  mode?: PlumbingWorkflowMode | null
+): boolean {
+  return mode !== 'bathroom_remodel' && mode !== 'service';
+}
 
 /** Contractor explicitly entered living area for complexity (not plan-detected). */
 export function isMepUserEnteredLivingArea(
@@ -65,6 +75,9 @@ export function isMepUserEnteredLivingArea(
 export function shouldApplySquareFootageComplexity(
   input: ProjectComplexityMeasurementContext = {}
 ): boolean {
+  if (!plumbingWorkflowUsesLivingAreaComplexity(input.plumbingWorkflowMode)) {
+    return false;
+  }
   if (isMepUserEnteredLivingArea(input)) return true;
   const trade = String(input.planImportTradeKey || '').toLowerCase();
   if (
@@ -672,6 +685,7 @@ export function applyProjectComplexityToSuggestedPricing(
     planFacts: measurementsInput.planFacts,
     projectComplexity: measurementsInput.projectComplexity,
     plumbingComplexityFactors: measurementsInput.plumbingComplexityFactors,
+    plumbingWorkflowMode: measurementsInput.plumbingWorkflowMode,
     planImportMode: measurementsInput.planImportMode,
     planImportTradeKey: measurementsInput.planImportTradeKey,
     planImportFingerprint: measurementsInput.planImportFingerprint,

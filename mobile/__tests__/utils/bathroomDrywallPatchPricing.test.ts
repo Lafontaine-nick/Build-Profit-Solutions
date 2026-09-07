@@ -11,9 +11,12 @@ import {
 import {
   defaultBathroomDrywallPatchSqft,
   formatBathroomDrywallPatchSqftHint,
+  parseEnteredBathroomPatchSqft,
   resolveBathroomDrywallPatchSuggestedPricing,
+  resolveKitchenDrywallPatchSuggestedPricing,
   syncBathroomPaintRepairItemQuantity,
 } from '@/utils/bathroomDrywallPatchPricing';
+import { syncBathroomPaintRepairFlow } from '@/utils/bathroomPaintRepairFlow';
 import { detectDrywallPaintInteriorOverlap } from '@/utils/bathroomDrywallPaintScope';
 import {
   buildBathroomDrywallPaintCombinedSummary,
@@ -66,9 +69,24 @@ describe('resolveBathroomDrywallPatchSuggestedPricing', () => {
       showerWallTileSqft: 80,
       useCombinedAssembly: true,
       paintRepairScope: 'affected_area',
+      severity: 'moderate',
     });
     expect(result?.fill?.total).toBe(700);
-    expect(result?.fill?.basis).toEqual({ quantity: 1, unit: 'each' });
+    expect(result?.fill?.basis).toEqual({ quantity: 36, unit: 'sqft' });
+    expect(result?.fill?.pricingRecordId).toBe(
+      'bps_national:drywall_paint:bathroom_combined:moderate:36sf'
+    );
+  });
+
+  it('scales combined assembly by patchwork severity', () => {
+    const heavy = resolveBathroomDrywallPatchSuggestedPricing({
+      checklistItems: [item('paint_repair'), item('shower_tile')],
+      quantity: 36,
+      useCombinedAssembly: true,
+      paintRepairScope: 'affected_area',
+      severity: 'heavy',
+    });
+    expect(heavy?.fill?.total).toBe(Math.round(700 * 1.22));
   });
 
   it('does not use combined assembly for full-room scope', () => {
@@ -81,6 +99,20 @@ describe('resolveBathroomDrywallPatchSuggestedPricing', () => {
     });
     expect(result?.fill?.total).toBe(400);
     expect(result?.fill?.basis).toEqual({ quantity: 36, unit: 'sqft' });
+  });
+});
+
+describe('resolveKitchenDrywallPatchSuggestedPricing', () => {
+  it('prices 80 sqft kitchen patch at scaled $400 @ 36 SF reference', () => {
+    const result = resolveKitchenDrywallPatchSuggestedPricing({ quantity: 80 });
+    expect(result?.fill?.total).toBe(889);
+    expect(result?.fill?.material).toBe(222.25);
+    expect(result?.fill?.labor).toBe(666.75);
+    expect(result?.fill?.basis).toEqual({ quantity: 80, unit: 'sqft' });
+    expect(result?.fill?.pricingRecordId).toBe(
+      'bps_national:drywall:kitchen_patch_texture:80sf'
+    );
+    expect(result?.fill?.helper).toMatch(/Paint is priced on the Paint line/i);
   });
 });
 
@@ -152,6 +184,27 @@ describe('resolveBathroomPaintRepairSuggestedPricing', () => {
       useCombinedAssembly: false,
     });
     expect(result?.fill?.total).toBe(500);
+  });
+
+  it('scales paint-only affected area by patchwork severity', () => {
+    const moderate = resolveBathroomPaintRepairSuggestedPricing({
+      checklistItems: [item('paint_repair'), item('shower_tile')],
+      patchSqft: 36,
+      showerWallTileSqft: 80,
+      paintRepairScope: 'affected_area',
+      useCombinedAssembly: false,
+      severity: 'moderate',
+    });
+    const heavy = resolveBathroomPaintRepairSuggestedPricing({
+      checklistItems: [item('paint_repair'), item('shower_tile')],
+      patchSqft: 36,
+      showerWallTileSqft: 80,
+      paintRepairScope: 'affected_area',
+      useCombinedAssembly: false,
+      severity: 'heavy',
+    });
+    expect(moderate?.fill?.total).toBe(500);
+    expect(heavy?.fill?.total).toBe(610);
   });
 
   it('suppresses paint-only when combined assembly is active for affected area', () => {
@@ -262,17 +315,48 @@ describe('syncBathroomPaintRepairItemQuantity', () => {
     });
   });
 
-  it('does not auto-fill affected-area patch SF from shower tile', () => {
+  it('mirrors Paint SF into affected-area patch count', () => {
     const next = syncBathroomPaintRepairItemQuantity(
       {
-        wallPaintSqft: '350',
+        wallPaintSqft: '100',
         showerWallTileSqft: '80',
         bathroomPaintRepairScope: 'affected_area',
         itemQuantities: {},
       },
       [item('shower_tile'), item('demo')]
     );
-    expect(next.itemQuantities?.paint_repair).toBeUndefined();
+    expect(next.itemQuantities?.paint_repair).toEqual({
+      quantity: '100',
+      unit: 'sqft',
+      quantitySource: 'inferred',
+    });
+  });
+
+  it('infers affected-area combined defaults from Paint measurement', () => {
+    const next = syncBathroomPaintRepairFlow(
+      {
+        wallPaintSqft: '100',
+        itemQuantities: {},
+      },
+      [item('paint_repair')]
+    );
+    expect(next.bathroomPaintRepairScope).toBe('affected_area');
+    expect(next.bathroomPaintRepairScopeSource).toBe('ai_inferred');
+    expect(next.bathroomDrywallPaintUseCombinedAssembly).toBe(true);
+    expect(next.bathroomPaintRepairSeverity).toBe('moderate');
+    expect(next.itemQuantities?.paint_repair?.quantity).toBe('100');
+  });
+
+  it('infers full-room scope from large Paint measurement', () => {
+    const next = syncBathroomPaintRepairFlow(
+      {
+        wallPaintSqft: '320',
+        itemQuantities: {},
+      },
+      [item('paint_repair')]
+    );
+    expect(next.bathroomPaintRepairScope).toBe('full_room');
+    expect(next.itemQuantities?.paint_repair?.quantity).toBe('320');
   });
 
   it('does not overwrite user-entered paint_repair SF', () => {
@@ -283,7 +367,8 @@ describe('syncBathroomPaintRepairItemQuantity', () => {
         paint_repair: { quantity: '280', unit: 'sqft', quantitySource: 'user_entered' as const },
       },
     };
-    expect(syncBathroomPaintRepairItemQuantity(input, [item('shower_tile')])).toBe(input);
+    const next = syncBathroomPaintRepairItemQuantity(input, [item('shower_tile')]);
+    expect(next.itemQuantities?.paint_repair).toEqual(input.itemQuantities.paint_repair);
   });
 
   it('updates inferred count when Quick measurements Paint changes', () => {
@@ -333,5 +418,28 @@ describe('paint_repair quantity resolution', () => {
     const resolved = resolveChecklistItemQuantity('paint_repair', norm, { templateKey: 'bathroom' });
     expect(resolved.quantity).toBe(80);
     expect(resolved.quantitySource).toBe('user_entered');
+  });
+});
+
+describe('parseEnteredBathroomPatchSqft', () => {
+  it('uses wall Paint SF when applied combined pricing stored 1 each', () => {
+    expect(
+      parseEnteredBathroomPatchSqft({
+        paintRepairQuantity: 1,
+        paintRepairUnit: 'each',
+        wallPaintSqft: '100',
+      })
+    ).toBe(100);
+  });
+
+  it('prefers explicit sqft basis over lump each quantity', () => {
+    expect(
+      parseEnteredBathroomPatchSqft({
+        paintRepairQuantity: 1,
+        paintRepairUnit: 'each',
+        sqftBasisQuantity: 80,
+        wallPaintSqft: '100',
+      })
+    ).toBe(80);
   });
 });

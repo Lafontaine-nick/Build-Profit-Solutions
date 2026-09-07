@@ -23,6 +23,7 @@ import {
   BRAND_FRAME_GRADIENT_START,
 } from '@/constants/brandFrameGradient';
 import { useTheme } from '@/contexts/ThemeContext';
+import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
 import { getColors } from '@/theme/getColors';
 import type { PricingProposal, PricingScopeItemProposal } from '@/utils/estimateAiDraftPricing';
 import {
@@ -1406,6 +1407,7 @@ export default function AIEstimatePricingProposalModal({
         ]}
       >
         {shell}
+        <TabScreenBottomScrollFade />
       </View>
     );
   }

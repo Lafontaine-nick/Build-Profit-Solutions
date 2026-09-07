@@ -34,8 +34,9 @@ describe('kitchen package rule keys do not steal cabinet LF/rates', () => {
   });
 
   test('Cabinet demo maps to demo, not cabinets', () => {
-    expect(lookupRuleKeyForPackage('Cabinet & countertop demo')).toBe('demo');
-    expect(lookupRuleKeyForPackage('Kitchen Demo')).toBe('demo');
+    expect(lookupRuleKeyForPackage('Cabinet demo / removal')).toBe('cabinet_demo');
+    expect(lookupRuleKeyForPackage('Cabinet & countertop demo')).toBe('cabinet_demo');
+    expect(lookupRuleKeyForPackage('Kitchen Demo')).toBe('cabinet_demo');
   });
 });
 
@@ -85,7 +86,8 @@ describe('cross-trade package rule keys do not steal qty/rates', () => {
   });
 
   test('countertop demo does not inherit countertop install', () => {
-    expect(lookupRuleKeyForPackage('Countertop demo')).toBe('demo');
+    expect(lookupRuleKeyForPackage('Countertop demo / removal')).toBe('countertop_demo');
+    expect(lookupRuleKeyForPackage('Countertop demo')).toBe('countertop_demo');
     expect(lookupRuleKeyForPackage('Countertop fabrication & install')).toBe('countertops');
   });
 

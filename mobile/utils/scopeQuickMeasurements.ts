@@ -2238,6 +2238,7 @@ export function resolveQuickMeasurementTemplateKey(
   if (pt === 'painting') return 'painting';
   if (pt === 'stucco' || pt === 'exterior_finish') return 'stucco';
   if (pt === 'concrete') return 'concrete';
+  if (pt === 'plumbing' || pt === 'plumbing_service') return 'plumbing';
   if (pt === 'deck_patio') return 'deck_patio';
   if (pt === 'excavation') return 'excavation';
   return tk || 'room_remodel';

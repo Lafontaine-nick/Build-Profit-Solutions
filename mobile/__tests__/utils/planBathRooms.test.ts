@@ -1,8 +1,11 @@
 import {
   checklistChoiceFromWetAreaFinish,
   countBathPlanRooms,
+  hydrateWetAreaStepperCounts,
   isBathPlanRoom,
+  isSplitTileWetAreaCounts,
   listBathPlanRooms,
+  migrateLegacyPlanTileShowerCounts,
   resolveBathCount,
   resolveEffectiveWetAreaFinish,
   resolveShowerDoorCount,
@@ -136,5 +139,47 @@ describe('planBathRooms', () => {
     expect(
       resolveTilePanBathCount({ bathCount: 1, templateKey: 'bathroom' })
     ).toBeNull();
+  });
+
+  test('isSplitTileWetAreaCounts includes bathroom remodel and plan export jobs', () => {
+    expect(
+      isSplitTileWetAreaCounts({ templateKey: 'bathroom', wholeHomeLayout: false })
+    ).toBe(true);
+    expect(
+      isSplitTileWetAreaCounts({ templateKey: 'ground_up', wholeHomeLayout: false })
+    ).toBe(true);
+    expect(
+      isSplitTileWetAreaCounts({ templateKey: 'addition', wholeHomeLayout: false })
+    ).toBe(true);
+    expect(
+      isSplitTileWetAreaCounts({ templateKey: 'kitchen', planBathRoomCount: 2 })
+    ).toBe(true);
+    expect(
+      isSplitTileWetAreaCounts({ templateKey: 'ground_up', wholeHomeLayout: true })
+    ).toBe(false);
+    expect(
+      isSplitTileWetAreaCounts({ templateKey: 'kitchen', planBathRoomCount: 0 })
+    ).toBe(false);
+  });
+
+  test('migrateLegacyPlanTileShowerCounts seeds pan from legacy tile shower count', () => {
+    expect(
+      migrateLegacyPlanTileShowerCounts(
+        { bathCount: 2, tilePanBathCount: null, prefabBathCount: null, prefabEnclosureBathCount: null, tubBathCount: null, bathFloorTileCount: null, showerDoorCount: null },
+        { templateKey: 'ground_up' }
+      ).tilePanBathCount
+    ).toBe(2);
+    expect(
+      migrateLegacyPlanTileShowerCounts(
+        { bathCount: 1, tilePanBathCount: null, prefabBathCount: null, prefabEnclosureBathCount: null, tubBathCount: null, bathFloorTileCount: null, showerDoorCount: null },
+        { templateKey: 'bathroom' }
+      ).tilePanBathCount
+    ).toBeNull();
+    expect(
+      hydrateWetAreaStepperCounts({
+        measurements: { bathCount: 1 },
+        templateKey: 'ground_up',
+      }).tilePanBathCount
+    ).toBe(1);
   });
 });

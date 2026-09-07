@@ -21,6 +21,7 @@ const {
   inferChoicesFromNotes,
   choiceToState,
   choiceIdsToState,
+  applyAdditionConversionScopeDefaults,
 } = require('./scopeChecklistLibrary');
 
 const VALID_ESTIMATE_TIERS = new Set([
@@ -233,7 +234,7 @@ const NOTE_BACKED_TEMPLATE_ALIASES = {
   interior_paint: ['paint'],
 };
 
-function noteBackedChecklistItems(templateItems, parsedMeasurements) {
+function noteBackedChecklistItems(templateItems, parsedMeasurements, templateKey) {
   const itemQuantities = parsedMeasurements?.itemQuantities || {};
   const templateIds = new Set(templateItems.map((item) => item.id));
   const added = new Set();
@@ -242,6 +243,12 @@ function noteBackedChecklistItems(templateItems, parsedMeasurements) {
   for (const key of Object.keys(itemQuantities)) {
     const itemId = key.replace(/__(?:material|labor|allowance)$/, '');
     if (!itemId || added.has(itemId) || templateIds.has(itemId)) continue;
+    if (
+      itemId === 'adhesive_mastic_removal' &&
+      String(templateKey || '').toLowerCase() === 'bathroom'
+    ) {
+      continue;
+    }
     const aliases = NOTE_BACKED_TEMPLATE_ALIASES[itemId] || [];
     if (aliases.some((alias) => templateIds.has(alias))) continue;
     const rule = getRuleForChecklistItem(itemId);
@@ -317,6 +324,13 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     }
   }
 
+  const withConversionDefaults = applyAdditionConversionScopeDefaults(items, {
+    templateKey,
+    projectType: draft.projectType,
+    notes,
+  });
+  items.splice(0, items.length, ...withConversionDefaults);
+
   const panIdx = items.findIndex((i) => i.id === 'wet_area_install' || i.id === 'shower_pan');
   const showerFloorIdx = items.findIndex((i) => i.id === 'shower_floor_tile');
   const panChoice = panIdx >= 0 ? items[panIdx].choiceId : null;
@@ -375,7 +389,23 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     }
   }
 
-  items.push(...noteBackedChecklistItems(items, parsedMeasurements));
+  items.push(...noteBackedChecklistItems(items, parsedMeasurements, templateKey));
+
+  if (templateKey !== 'ground_up') {
+    const explicitPermits = inferItemStateFromNotes('permits', notes) === 'included';
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.id !== 'permits' || item.state !== 'included') continue;
+      if (explicitPermits) continue;
+      items[i] = { ...item, state: 'unsure', noteBacked: false };
+    }
+  }
+
+  if (templateKey === 'bathroom') {
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (items[i].id === 'adhesive_mastic_removal') items.splice(i, 1);
+    }
+  }
 
   if (templateKey === 'bathroom' && !items.some((i) => i.id === 'toilet')) {
     const templateToilet = template.items.find((i) => i.id === 'toilet');

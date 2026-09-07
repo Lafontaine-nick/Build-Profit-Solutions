@@ -1,5 +1,53 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { AiDashboardResponse, AiInsight, AiNextStep } from '@/types/aiDashboard';
+import { ESTIMATE_BID_STORAGE_KEY } from '@/utils/estimateSessionHydration';
+
+const SAVED_ESTIMATES_STORAGE_KEY = 'savedEstimates';
+
+export type EstimateInsightContext = {
+  currentBidId: string | null;
+  savedBidArchiveIds: Set<string>;
+};
+
+export const EMPTY_ESTIMATE_INSIGHT_CONTEXT: EstimateInsightContext = {
+  currentBidId: null,
+  savedBidArchiveIds: new Set(),
+};
+
+export async function loadEstimateInsightContext(): Promise<EstimateInsightContext> {
+  try {
+    const [currentRaw, savedRaw] = await Promise.all([
+      AsyncStorage.getItem(ESTIMATE_BID_STORAGE_KEY),
+      AsyncStorage.getItem(SAVED_ESTIMATES_STORAGE_KEY),
+    ]);
+
+    let currentBidId: string | null = null;
+    if (currentRaw) {
+      const parsed = JSON.parse(currentRaw) as { id?: unknown };
+      const id = String(parsed?.id ?? '').trim();
+      currentBidId = id || null;
+    }
+
+    const savedBidArchiveIds = new Set<string>();
+    if (savedRaw) {
+      const parsed = JSON.parse(savedRaw);
+      if (Array.isArray(parsed)) {
+        for (const entry of parsed) {
+          const id = String(
+            (entry as { id?: unknown; data?: { id?: unknown } })?.id ??
+              (entry as { data?: { id?: unknown } })?.data?.id ??
+              ''
+          ).trim();
+          if (id) savedBidArchiveIds.add(id);
+        }
+      }
+    }
+
+    return { currentBidId, savedBidArchiveIds };
+  } catch {
+    return EMPTY_ESTIMATE_INSIGHT_CONTEXT;
+  }
+}
 
 /** Normalize status for comparisons (matches dashboard.tsx). */
 export function normalizePortfolioStatus(status: unknown): string {
@@ -316,6 +364,11 @@ export type AiPortfolioFilterContext = {
   knownProjectIds: Set<string>;
   dashboardListedIds: Set<string>;
   openPipelineIds: Set<string>;
+  preActiveProjectIds: Set<string>;
+  workingEstimateIds: Set<string>;
+  inactiveDraftEstimateIds: Set<string>;
+  inactiveDraftEstimateTitles: string[];
+  estimateInsightEligibleTitles: string[];
   closedIds: Set<string>;
   openPipelineTitles: string[];
   closedTitles: string[];
@@ -329,7 +382,8 @@ export function buildAiPortfolioFilterContext(
   activeProjects: any[],
   estimates: any[],
   timelineProgress: Record<string, number>,
-  deletedRecords: DeletedProjectRecord[] = []
+  deletedRecords: DeletedProjectRecord[] = [],
+  estimateInsightCtx: EstimateInsightContext = EMPTY_ESTIMATE_INSIGHT_CONTEXT
 ): AiPortfolioFilterContext {
   const merged = dedupeProjectsByBestStatus([...activeProjects, ...estimates]);
   const closedIds = buildDashboardClosedProjectIdSet(activeProjects, estimates, timelineProgress);
@@ -346,6 +400,35 @@ export function buildAiPortfolioFilterContext(
       !isProjectClosedForDashboardAi(p, timelineProgress)
   );
   const openPipelineIds = new Set(openPipeline.map((p) => String(p.id ?? '')));
+  const preActiveProjectIds = new Set(
+    merged
+      .filter((p) => isPreActivePortfolioStatus(resolvePortfolioProjectStatus(p)))
+      .map((p) => String(p.id ?? ''))
+      .filter((id) => id.length > 0)
+  );
+  const workingEstimateIds = new Set(
+    merged
+      .filter((p) => isEligibleEstimateInsightProject(p, estimateInsightCtx))
+      .map((p) => String(p.id ?? ''))
+      .filter((id) => id.length > 0)
+  );
+  const inactiveDraftEstimateIds = new Set(
+    merged
+      .filter((p) => {
+        const status = resolvePortfolioProjectStatus(p);
+        return (
+          isPreActivePortfolioStatus(status) && !isEligibleEstimateInsightProject(p, estimateInsightCtx)
+        );
+      })
+      .map((p) => String(p.id ?? ''))
+      .filter((id) => id.length > 0)
+  );
+  const estimateInsightEligibleTitles = projectTitles(
+    merged.filter((p) => isEligibleEstimateInsightProject(p, estimateInsightCtx))
+  );
+  const inactiveDraftEstimateTitles = projectTitles(
+    merged.filter((p) => inactiveDraftEstimateIds.has(String(p.id ?? '')))
+  );
   const closedProjects = merged.filter((p) => closedIds.has(String(p.id ?? '')));
   const deletedProjectIds = new Set(deletedRecords.map((r) => r.id).filter(Boolean));
   const deletedTitles = [
@@ -359,6 +442,11 @@ export function buildAiPortfolioFilterContext(
     knownProjectIds,
     dashboardListedIds,
     openPipelineIds,
+    preActiveProjectIds,
+    workingEstimateIds,
+    inactiveDraftEstimateIds,
+    inactiveDraftEstimateTitles,
+    estimateInsightEligibleTitles,
     closedIds,
     openPipelineTitles: projectTitles(openPipeline),
     closedTitles: projectTitles(closedProjects),
@@ -389,9 +477,17 @@ export function filterAiInsightForPortfolio(
   const refId = pid || embeddedId;
   if (refId && !ctx.knownProjectIds.has(refId)) return false;
 
+  if (refId && ctx.inactiveDraftEstimateIds.has(refId)) return false;
+
   if (!retrospective) {
     if (refId && !ctx.dashboardListedIds.has(refId)) return false;
     if (refId && !ctx.openPipelineIds.has(refId)) return false;
+    if (isEstimateWorkflowInsight(insight)) {
+      if (refId) return ctx.workingEstimateIds.has(refId);
+      if (referencesInactiveDraftEstimateCopy(blob, ctx)) return false;
+      if (ctx.estimateInsightEligibleTitles.length === 0) return false;
+      if (!aiTextReferencesJobTitle(blob, ctx.estimateInsightEligibleTitles)) return false;
+    }
     if (aiTextReferencesJobTitle(blob, ctx.closedTitles)) return false;
     if (
       insightReferencesRemovedOpenJob(
@@ -414,6 +510,98 @@ export function filterAiInsightForPortfolio(
   return true;
 }
 
+function isEstimateWorkflowStep(step: AiNextStep): boolean {
+  const chip = String(step.chip || '').toLowerCase();
+  const label = String(step.label || '').toLowerCase();
+  if (step.leakType === 'estimate_needs_review' || step.leakType === 'bid_submitted') return true;
+  if (chip === 'estimate') return true;
+  return /\bfinish\b/.test(label) && /\bestimate\b/.test(label);
+}
+
+function isEstimateWorkflowInsight(insight: AiInsight): boolean {
+  if (insight.leakType === 'estimate_needs_review' || insight.leakType === 'bid_submitted') {
+    return true;
+  }
+  const blob = `${insight.title || ''} ${insight.body || ''}`.toLowerCase();
+  return blob.includes('estimate needs review') || blob.includes('pricing card');
+}
+
+function referencesInactiveDraftEstimateCopy(
+  blob: string,
+  ctx: AiPortfolioFilterContext
+): boolean {
+  return (
+    ctx.inactiveDraftEstimateTitles.length > 0 &&
+    aiTextReferencesJobTitle(blob, ctx.inactiveDraftEstimateTitles)
+  );
+}
+
+export function filterClientGeneratedPortfolioInsight(
+  insight: AiInsight,
+  ctx: AiPortfolioFilterContext
+): boolean {
+  const pid = normalizeInsightProjectId(insight);
+  const embeddedId = extractProjectIdFromInsightId(insight.id);
+  const refId = pid || embeddedId;
+  const blob = `${insight.title || ''} ${insight.body || ''}`;
+
+  if (
+    (refId && ctx.deletedProjectIds.has(refId)) ||
+    (ctx.deletedTitles.length > 0 && aiTextReferencesJobTitle(blob, ctx.deletedTitles))
+  ) {
+    return false;
+  }
+
+  if (refId && !ctx.knownProjectIds.has(refId)) return false;
+
+  if (refId && ctx.inactiveDraftEstimateIds.has(refId)) return false;
+
+  if (isEstimateWorkflowInsight(insight)) {
+    if (refId) return ctx.workingEstimateIds.has(refId);
+    if (referencesInactiveDraftEstimateCopy(blob, ctx)) return false;
+    if (ctx.estimateInsightEligibleTitles.length === 0) return false;
+    return aiTextReferencesJobTitle(blob, ctx.estimateInsightEligibleTitles);
+  }
+
+  if (refId && ctx.closedIds.has(refId)) {
+    return insight.leakType === 'cost_overrun_risk' || insight.leakType === 'over_budget';
+  }
+
+  return true;
+}
+
+export function filterClientGeneratedPortfolioNextStep(
+  step: AiNextStep,
+  ctx: AiPortfolioFilterContext
+): boolean {
+  const pid = normalizeInsightProjectId(step);
+  const embeddedId = extractProjectIdFromInsightId(step.id);
+  const refId = pid || embeddedId;
+  const stepBlob = `${step.label || ''} ${step.chip || ''}`;
+
+  if (
+    (refId && ctx.deletedProjectIds.has(refId)) ||
+    (ctx.deletedTitles.length > 0 && aiTextReferencesJobTitle(stepBlob, ctx.deletedTitles))
+  ) {
+    return false;
+  }
+
+  if (refId && !ctx.knownProjectIds.has(refId)) return false;
+
+  if (refId && ctx.inactiveDraftEstimateIds.has(refId)) return false;
+
+  if (isEstimateWorkflowStep(step)) {
+    if (refId) return ctx.workingEstimateIds.has(refId);
+    if (referencesInactiveDraftEstimateCopy(stepBlob, ctx)) return false;
+    if (ctx.estimateInsightEligibleTitles.length === 0) return false;
+    return aiTextReferencesJobTitle(stepBlob, ctx.estimateInsightEligibleTitles);
+  }
+
+  if (refId && ctx.closedIds.has(refId)) return false;
+
+  return true;
+}
+
 export function filterAiNextStepForPortfolio(
   step: AiNextStep,
   ctx: AiPortfolioFilterContext
@@ -433,11 +621,17 @@ export function filterAiNextStepForPortfolio(
   }
   if (refId) {
     if (!ctx.knownProjectIds.has(refId)) return false;
+    if (ctx.inactiveDraftEstimateIds.has(refId)) return false;
     if (!ctx.dashboardListedIds.has(refId)) return false;
     if (ctx.closedIds.has(refId)) return false;
     if (!ctx.openPipelineIds.has(refId)) return false;
   } else if (aiTextReferencesJobTitle(stepBlob, ctx.closedTitles)) {
     return false;
+  } else if (referencesInactiveDraftEstimateCopy(stepBlob, ctx)) {
+    return false;
+  } else if (isEstimateWorkflowStep(step)) {
+    if (ctx.estimateInsightEligibleTitles.length === 0) return false;
+    if (!aiTextReferencesJobTitle(stepBlob, ctx.estimateInsightEligibleTitles)) return false;
   } else if (
     insightReferencesRemovedOpenJob(
       String(step.label || ''),
@@ -449,6 +643,88 @@ export function filterAiNextStepForPortfolio(
     return false;
   }
   return true;
+}
+
+const OPERATIONAL_INSIGHT_ELIGIBLE_STATUSES = new Set([
+  'draft',
+  'estimate',
+  'bid_submitted',
+  'submitted',
+  'won',
+  'in_progress',
+  'active',
+  'completed',
+  'complete',
+  'closed',
+  'done',
+  'finished',
+]);
+
+/** Draft / estimate / submitted bid — not yet won or in progress. */
+export function isPreActivePortfolioStatus(status: unknown): boolean {
+  const s = normalizePortfolioStatus(status);
+  return (
+    s === 'draft' ||
+    s === 'estimate' ||
+    s === 'bid_submitted' ||
+    s === 'submitted'
+  );
+}
+
+/**
+ * Estimate notifications: the open bid in Estimate tab, plus any submitted bids in Projects.
+ * Saved-bids archive copies and other stale draft rows are excluded.
+ */
+export function isEligibleEstimateInsightProject(
+  project: { id?: unknown; status?: unknown } | null | undefined,
+  ctx: EstimateInsightContext = EMPTY_ESTIMATE_INSIGHT_CONTEXT
+): boolean {
+  const id = String(project?.id ?? '').trim();
+  if (!id) return false;
+  const status = resolvePortfolioProjectStatus(project);
+
+  if (status === 'bid_submitted' || status === 'submitted') {
+    return true;
+  }
+
+  if (!isPreActivePortfolioStatus(status)) {
+    return false;
+  }
+
+  return Boolean(ctx.currentBidId && id === ctx.currentBidId);
+}
+
+/** @deprecated Use isEligibleEstimateInsightProject */
+export const isCurrentlyWorkingEstimate = isEligibleEstimateInsightProject;
+
+/**
+ * Current portfolio rows for rule-based insights: active, completed, and open estimates.
+ * Drops deleted jobs and dedupes estimate + active copies (prefers the more advanced status).
+ */
+export function filterProjectsForOperationalInsights(
+  activeProjects: any[],
+  estimates: any[],
+  deletedRecords: DeletedProjectRecord[] = []
+): any[] {
+  const deletedIds = new Set(deletedRecords.map((r) => r.id).filter(Boolean));
+  const deletedTitleSet = new Set(
+    deletedRecords
+      .map((r) => String(r.title || '').toLowerCase().trim())
+      .filter((t) => t.length >= 3)
+  );
+
+  return dedupeProjectsByBestStatus([...activeProjects, ...estimates]).filter((p) => {
+    const id = String(p?.id ?? '').trim();
+    if (id && deletedIds.has(id)) return false;
+
+    const title = String(p?.title || p?.name || '').toLowerCase().trim();
+    if (title.length >= 3 && deletedTitleSet.has(title)) return false;
+
+    const status = resolvePortfolioProjectStatus(p);
+    if (!OPERATIONAL_INSIGHT_ELIGIBLE_STATUSES.has(status)) return false;
+    if (status === 'lost' || status === 'cancelled' || status === 'canceled') return false;
+    return true;
+  });
 }
 
 export function filterProjectsForPortfolioAi(
@@ -469,14 +745,16 @@ export function filterAiDashboardResponse(
   activeProjects: any[],
   estimates: any[],
   timelineProgress: Record<string, number>,
-  deletedRecords: DeletedProjectRecord[] = []
+  deletedRecords: DeletedProjectRecord[] = [],
+  estimateInsightCtx: EstimateInsightContext = EMPTY_ESTIMATE_INSIGHT_CONTEXT
 ): AiDashboardResponse | null {
   if (!data) return null;
   const ctx = buildAiPortfolioFilterContext(
     activeProjects,
     estimates,
     timelineProgress,
-    deletedRecords
+    deletedRecords,
+    estimateInsightCtx
   );
   const isVisibleBriefProject = (projectId?: string | null) => {
     if (!projectId) return true;

@@ -82,6 +82,29 @@ describe('resolveQuickMeasurementFields', () => {
     expect(byKey.cabinetLf.state).toBe('needs_confirmation');
   });
 
+  test('a user-entered value clears needs_confirmation even when the field was flagged for review', () => {
+    const rows = quickMeasurementRowsForInput(
+      'kitchen',
+      'kitchen',
+      emptyQuickMeasurementInput(),
+      ['paint']
+    );
+    const measurements = {
+      ...emptyQuickMeasurementInput(),
+      wallPaintSqft: '100',
+    };
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements,
+      sourceMap: { wallPaintSqft: 'user_entered' },
+      userOverrides: { wallPaintSqft: true },
+      includedScopeKeys: ['paint'],
+      templateKey: 'kitchen',
+    });
+    const byKey = Object.fromEntries(results.map(r => [r.key, r]));
+    expect(byKey.wallPaintSqft.state).toBe('confirmed');
+  });
+
   test('ground_up keeps the full Quick measurements list visible even with sparse included scopes', () => {
     const rows = groundUpRows();
     const measurements = {
@@ -309,12 +332,13 @@ describe('groupQuickMeasurementFields', () => {
       expect.arrayContaining(['roofSquares', 'concreteCy', 'excavationCy'])
     );
     expect(groups.needsConfirmation.map(r => r.key)).toEqual(
-      expect.arrayContaining([
-        'cabinetLf',
-        'showerWallTileSqft',
-        'concreteSqft',
-      ])
+      expect.arrayContaining(['cabinetLf', 'concreteSqft'])
     );
+    // Split wet-area mode — shower wall SF unlocks from steppers in the wet area panel.
+    expect(groups.needsConfirmation.map(r => r.key)).not.toContain(
+      'showerWallTileSqft'
+    );
+    expect(groups.more.map(r => r.key)).toContain('showerWallTileSqft');
     expect(groups.needsConfirmation.map(r => r.key)).not.toContain(
       'kitchenFloorSqft'
     );

@@ -146,8 +146,8 @@ const FIXTURE_PLANNING_RATES_LOCAL: Record<
     laborLabel: 'Exhaust fan install labor',
   },
   mirror_accessories: {
-    material: 125,
-    labor: 175,
+    material: 50,
+    labor: 75,
     materialLabel: 'Bath accessory materials',
     laborLabel: 'Bath accessory install labor',
   },

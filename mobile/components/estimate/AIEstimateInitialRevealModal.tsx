@@ -6,6 +6,7 @@ import {
   StyleSheet,
   StatusBar,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import {
   ScrollView as GestureScrollView,
@@ -26,6 +27,7 @@ import {
   countInitialRevealAttentionItems,
   draftNeedsScopeConfirmation,
   getInitialRevealHeaderCopy,
+  getInitialRevealChecklistScopePreview,
   getInitialRevealConfirmItems,
   getInitialRevealDisplayTitle,
   getInitialRevealHeroDisplay,
@@ -42,6 +44,7 @@ import {
 } from '@/utils/estimateInitialRevealUi';
 import { estimateFlowCardStyle, estimateFlowDividerColor, aiFlowCardBackground } from '@/utils/estimateFlowCardStyle';
 import { getEmbeddedAiFlowFooterBottomInset } from '@/constants/ScreenLayout';
+import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
 import { BRAND_FRAME_GRADIENT_END, BRAND_FRAME_GRADIENT_START } from '@/constants/brandFrameGradient';
 
 type Props = {
@@ -133,6 +136,7 @@ function AIEstimateInitialRevealModal({
   onConfirmScope,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
@@ -171,11 +175,15 @@ function AIEstimateInitialRevealModal({
       scopeMetaLabel: getInitialRevealScopeMetaLabel(totals.scopeItemCount),
       planningDisclaimer: getInitialRevealPlanningDisclaimer(totals, attentionCount),
       defaultScopeExpanded: shouldDefaultExpandInitialRevealScope(totals.scopeItemCount),
-      scopePreview: getScopePackagesForReview(draft).map((pkg) => {
-        const name = String(pkg.name || pkg.scope || 'Scope item').trim();
-        const amount = scopePackagePricedAmount(pkg, draft);
-        return { name, amount };
-      }),
+      scopePreview: (() => {
+        const fromPackages = getScopePackagesForReview(draft).map((pkg) => {
+          const name = String(pkg.name || pkg.scope || 'Scope item').trim();
+          const amount = scopePackagePricedAmount(pkg, draft);
+          return { name, amount };
+        });
+        if (fromPackages.length > 0) return fromPackages;
+        return getInitialRevealChecklistScopePreview(draft);
+      })(),
     };
   }, [draft, markupPct]);
 
@@ -243,13 +251,40 @@ function AIEstimateInitialRevealModal({
     startTransition(() => setDetailsExpanded((v) => !v));
   }, []);
 
-  const footerBottomPad = embedded
+  const tabBarClearance = embedded
     ? getEmbeddedAiFlowFooterBottomInset(insets.bottom)
     : Math.max(insets.bottom, 12);
 
-  const scrollPaddingBottom = useMemo(
-    () => footerBottomPad + 76,
-    [footerBottomPad]
+  const scrollPaddingBottom = embedded ? 12 : tabBarClearance + 76;
+
+  const primaryFooter = (
+    <View
+      style={[
+        styles.footer,
+        {
+          paddingBottom: tabBarClearance,
+          borderTopColor: darkMode ? 'rgba(255,255,255,0.06)' : Colors.line,
+          backgroundColor: Colors.bg,
+        },
+      ]}
+    >
+      <ReliablePress
+        disabled={!draft}
+        onPress={handlePrimary}
+        style={[
+          styles.primaryBtn,
+          { opacity: draft ? 1 : 0.55 },
+        ]}
+        accessibilityLabel={viewModel?.primaryCta ?? 'Continue'}
+      >
+        <Text style={styles.primaryBtnText}>{viewModel?.primaryCta ?? 'Continue'}</Text>
+        <MaterialIcons
+          name={viewModel?.needsScopeConfirmation ? 'chevron-right' : 'arrow-forward'}
+          size={22}
+          color="#0f172a"
+        />
+      </ReliablePress>
+    </View>
   );
 
   if (!visible) return null;
@@ -259,7 +294,13 @@ function AIEstimateInitialRevealModal({
   const body = (
     <>
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
-      <View style={[styles.screen, { backgroundColor: Colors.bg }]}>
+      <View
+        style={[
+          styles.screen,
+          { backgroundColor: Colors.bg },
+          embedded ? { height: windowHeight } : null,
+        ]}
+      >
         <AIEstimateFlowHeader
           title={viewModel?.headerCopy.title ?? 'Initial estimate'}
           subtitle={viewModel?.headerCopy.subtitle ?? 'Quick summary before detailed review'}
@@ -503,41 +544,22 @@ function AIEstimateInitialRevealModal({
           )}
         </GestureScrollView>
 
-        <View
-          style={[
-            styles.footer,
-            {
-              paddingBottom: footerBottomPad,
-              borderTopColor: darkMode ? 'rgba(255,255,255,0.06)' : Colors.line,
-              backgroundColor: Colors.bg,
-            },
-          ]}
-        >
-          <ReliablePress
-            disabled={!draft}
-            onPress={handlePrimary}
-            style={[
-              styles.primaryBtn,
-              { opacity: draft ? 1 : 0.55 },
-            ]}
-            accessibilityLabel={viewModel?.primaryCta ?? 'Continue'}
-          >
-            <Text style={styles.primaryBtnText}>{viewModel?.primaryCta ?? 'Continue'}</Text>
-            <MaterialIcons
-              name={viewModel?.needsScopeConfirmation ? 'chevron-right' : 'arrow-forward'}
-              size={22}
-              color="#0f172a"
-            />
-          </ReliablePress>
-        </View>
+        {primaryFooter}
       </View>
     </>
   );
 
   if (embedded) {
     return (
-      <View style={[StyleSheet.absoluteFillObject, styles.embeddedShell]}>
+      <View
+        style={[
+          StyleSheet.absoluteFillObject,
+          styles.embeddedShell,
+          { backgroundColor: Colors.bg },
+        ]}
+      >
         {body}
+        <TabScreenBottomScrollFade />
       </View>
     );
   }

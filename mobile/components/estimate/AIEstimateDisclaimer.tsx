@@ -5,8 +5,8 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 
 type Props = {
-  /** compact: quiet one-liner (Step 1 / Step 3 footer). review: Step 2 box. apply: liability above Apply. */
-  variant?: 'compact' | 'review' | 'apply';
+  /** builder: Step 1 before draft. compact: Step 3 footer. review: Step 2 box. apply: liability above Apply. */
+  variant?: 'builder' | 'compact' | 'review' | 'apply';
 };
 
 export const AI_ESTIMATE_DISCLAIMER_LINES = [
@@ -21,6 +21,12 @@ const COMPACT_DISCLAIMER =
 
 const COMPACT_PREVIEW =
   'Suggested prices are a planning guide — always review before applying.';
+
+const BUILDER_PREVIEW =
+  'AI drafts are a planning guide — review scope and pricing before applying.';
+
+const BUILDER_DISCLAIMER =
+  'AI-generated scope and pricing are planning guides only — not a finished bid or quote. Always review before applying or sending to a client.';
 
 export default function AIEstimateDisclaimer({ variant = 'compact' }: Props) {
   const { theme, darkMode } = useTheme();
@@ -42,9 +48,17 @@ export default function AIEstimateDisclaimer({ variant = 'compact' }: Props) {
     );
   }
 
-  if (variant === 'compact') {
+  if (variant === 'compact' || variant === 'builder') {
+    const preview = variant === 'builder' ? BUILDER_PREVIEW : COMPACT_PREVIEW;
+    const expanded =
+      variant === 'builder' ? BUILDER_DISCLAIMER : COMPACT_DISCLAIMER;
     return (
-      <View style={styles.compactWrap}>
+      <View
+        style={[
+          styles.compactWrap,
+          variant === 'builder' ? styles.compactWrapBelowActions : null,
+        ]}
+      >
         <TouchableOpacity
           activeOpacity={0.75}
           onPress={() => setCompactExpanded((open) => !open)}
@@ -59,7 +73,7 @@ export default function AIEstimateDisclaimer({ variant = 'compact' }: Props) {
             style={styles.compactIcon}
           />
           <Text style={[styles.compactInlineText, { color: bodyColor }]}>
-            {compactExpanded ? COMPACT_DISCLAIMER : COMPACT_PREVIEW}
+            {compactExpanded ? expanded : preview}
             {!compactExpanded ? (
               <Text style={{ color: darkMode ? 'rgba(251,191,36,0.85)' : '#b45309', fontWeight: '700' }}>
                 {' '}
@@ -114,6 +128,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 2,
     paddingHorizontal: 4,
+  },
+  compactWrapBelowActions: {
+    marginTop: 10,
+    marginBottom: 0,
   },
   compactInline: {
     flexDirection: 'row',

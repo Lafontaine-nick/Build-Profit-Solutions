@@ -44,6 +44,15 @@ export interface ContractDoc {
     materialLineItems?: MaterialLineItem[];
     laborLineItems?: LaborLineItem[];
     measurementLines?: Array<{ label: string; quantity: string }>;
+    measurementCards?: Array<{
+      title: string;
+      lines: Array<{
+        label: string;
+        quantity: string;
+        sectionHeader?: boolean;
+        note?: boolean;
+      }>;
+    }>;
   };
   allowances?: Allowance[];
   milestones: Milestone[];

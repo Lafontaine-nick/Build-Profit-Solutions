@@ -19,6 +19,9 @@ import {
   pricingSourceLabelFromBlock,
   resolveAcceptedMoneyTotal,
   resolveAcceptedPricingDisplay,
+  hasUserCommittedScopePricing,
+  isUserEnteredMirrorSuggestedBlock,
+  resolveConfirmScopePricingAlternativeBlock,
   shouldHideSuggestedPanel,
   shouldShowConfidenceBadge,
 } from '@/utils/acceptedPricingSummaryUi';
@@ -1025,22 +1028,22 @@ describe('acceptedPricingSummaryUi', () => {
 
   it('shows applied bath accessories total after Apply, not $1 allowance count', () => {
     const acceptance = buildAcceptanceFromSuggestedBlock(
-      suggestedBlock({ total: 375, material: 200, labor: 175 })
+      suggestedBlock({ total: 375, material: 150, labor: 225 })
     );
     const display = resolveAcceptedPricingDisplay({
       itemId: 'mirror_accessories',
       resolved: {
-        quantity: 1,
-        unit: 'allowance',
+        quantity: 3,
+        unit: 'each',
         quantitySource: 'user_entered',
         sourceLabel: 'User entered',
         pricingReady: true,
         showInput: true,
-        dualMaterial: { quantity: 200, unit: 'allowance' },
-        dualLabor: { quantity: 175, unit: 'allowance' },
+        dualMaterial: { quantity: 150, unit: 'allowance' },
+        dualLabor: { quantity: 225, unit: 'allowance' },
       },
       acceptance,
-      suggestedBlock: suggestedBlock({ total: 375, material: 200, labor: 175 }),
+      suggestedBlock: suggestedBlock({ total: 375, material: 150, labor: 225 }),
       intelligence: intelligence(),
     });
     expect(display.totalLabel).toBe('$375');
@@ -1384,5 +1387,116 @@ describe('acceptedPricingSummaryUi', () => {
       intelligence: intelligence(),
     });
     expect(display.totalLabel).toBe('$5,548');
+  });
+
+  it('detects user-entered mirror blocks vs catalog suggestions', () => {
+    expect(
+      isUserEnteredMirrorSuggestedBlock({
+        total: 1380,
+        material: 480,
+        labor: 900,
+        rateSourceLabel: 'User-entered material and labor',
+      } as never)
+    ).toBe(true);
+    expect(
+      isUserEnteredMirrorSuggestedBlock({
+        total: 1380,
+        material: 480,
+        labor: 900,
+        rateSourceLabel: 'National average comparison',
+        isComparison: true,
+      } as never)
+    ).toBe(false);
+  });
+
+  it('shows national comparison as alternative when user pricing is committed', () => {
+    const manual = {
+      total: 1500,
+      material: 500,
+      labor: 1000,
+      rateSourceLabel: 'User-entered material and labor',
+    } as never;
+    const national = {
+      total: 1380,
+      material: 480,
+      labor: 900,
+      rateSourceLabel: 'National average comparison',
+      isComparison: true,
+    } as never;
+    expect(
+      resolveConfirmScopePricingAlternativeBlock({
+        suggestedFill: manual,
+        suggestedComparison: national,
+        liveManualBlock: manual,
+        acceptance: {
+          selectionStatus: 'manual_adjusted',
+          pricingSourceKind: 'user_entered',
+          totalAmount: 1500,
+        } as never,
+        currentTotal: 1500,
+      })
+    ).toBe(national);
+  });
+
+  it('shows manual draft as alternative when national pricing is applied', () => {
+    const manual = {
+      total: 1500,
+      material: 500,
+      labor: 1000,
+      rateSourceLabel: 'User-entered material and labor',
+    } as never;
+    const national = {
+      total: 1380,
+      material: 480,
+      labor: 900,
+      rateSourceLabel: 'Suggested · National Average',
+    } as never;
+    expect(
+      resolveConfirmScopePricingAlternativeBlock({
+        suggestedFill: national,
+        suggestedComparison: null,
+        liveManualBlock: manual,
+        acceptance: {
+          selectionStatus: 'accepted',
+          pricingSourceKind: 'national_average',
+          totalAmount: 1380,
+        } as never,
+        currentTotal: 1380,
+      })
+    ).toBe(manual);
+  });
+
+  it('keeps alternative visible for manual pricing even when totals match benchmark', () => {
+    const itemQuantities = {
+      floor_tile__material: {
+        quantity: '480',
+        unit: 'allowance',
+        quantitySource: 'user_entered' as const,
+      },
+      floor_tile__labor: {
+        quantity: '900',
+        unit: 'allowance',
+        quantitySource: 'user_entered' as const,
+      },
+    };
+    const pricingAcceptance = {
+      floor_tile: {
+        selectionStatus: 'manual_adjusted' as const,
+        pricingSourceLabel: 'User adjusted',
+        pricingSourceKind: 'user_entered' as const,
+        totalAmount: 1380,
+      },
+    };
+    expect(
+      hasUserCommittedScopePricing('floor_tile', itemQuantities, pricingAcceptance)
+    ).toBe(true);
+    expect(
+      shouldHideSuggestedPanel({
+        itemId: 'floor_tile',
+        itemQuantities,
+        pricingAcceptance,
+        suggestedTotal: 1380,
+      })
+    ).toBe(false);
   });
 });

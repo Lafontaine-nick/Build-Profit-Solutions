@@ -87,10 +87,17 @@ const BENCHMARK_PRICING_META = {
 const NATIONAL_TRADE_AVERAGES = {
   demo: {
     unit: "sqft",
-    material: 0.3,
-    labor: 2.7,
+    material: 0.5,
+    labor: 5,
     materialLabel: "Equipment, protection & disposal",
     laborLabel: "Demo labor",
+  },
+  floor_demo: {
+    unit: "sqft",
+    material: 0.5,
+    labor: 5,
+    materialLabel: "Equipment, protection, haul-off & disposal",
+    laborLabel: "Floor demo labor",
   },
   flooring: {
     unit: "sqft",

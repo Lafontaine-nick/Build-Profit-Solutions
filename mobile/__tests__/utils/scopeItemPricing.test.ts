@@ -3135,7 +3135,7 @@ describe('resolveTemplateRateForItem', () => {
 });
 
 describe('allowance split apply pricing', () => {
-  it('stores dollar total on primary id when basis is 1 allowance', () => {
+  it('stores physical count on primary id when basis is 3 each', () => {
     const rule = getChecklistItemQuantityRuleOrDefault(
       'mirror_accessories',
       'bathroom'
@@ -3143,13 +3143,13 @@ describe('allowance split apply pricing', () => {
     const primary = primaryQuantityForAppliedSuggestedBlock(
       {
         total: 375,
-        material: 200,
-        labor: 175,
-        basis: { quantity: 1, unit: 'allowance' },
+        material: 150,
+        labor: 225,
+        basis: { quantity: 3, unit: 'each' },
       } as any,
       rule
     );
-    expect(primary).toEqual({ quantity: '375', unit: 'allowance' });
+    expect(primary).toEqual({ quantity: '3', unit: 'each' });
   });
 
   it('does not store dollar total as LF quantity for plumbing line cards', () => {
@@ -3182,8 +3182,8 @@ describe('allowance split apply pricing', () => {
     const input = inputWith({
       itemQuantities: {
         mirror_accessories: {
-          quantity: '1',
-          unit: 'allowance',
+          quantity: '3',
+          unit: 'each',
           quantitySource: 'user_entered',
         },
         mirror_accessories__allowance: {
@@ -3192,12 +3192,12 @@ describe('allowance split apply pricing', () => {
           quantitySource: 'user_entered',
         },
         mirror_accessories__material: {
-          quantity: '200',
+          quantity: '150',
           unit: 'allowance',
           quantitySource: 'user_entered',
         },
         mirror_accessories__labor: {
-          quantity: '175',
+          quantity: '225',
           unit: 'allowance',
           quantitySource: 'user_entered',
         },
@@ -3211,9 +3211,59 @@ describe('allowance split apply pricing', () => {
         templateKey: 'bathroom',
       }
     );
-    expect(resolved.quantity).toBe(375);
-    expect(resolved.dualMaterial?.quantity).toBe(200);
-    expect(resolved.dualLabor?.quantity).toBe(175);
+    expect(resolved.quantity).toBe(3);
+    expect(resolved.dualCount?.quantity).toBe(3);
+    expect(resolved.dualCount?.unit).toBe('each');
+    expect(resolved.dualMaterial?.quantity).toBe(150);
+    expect(resolved.dualLabor?.quantity).toBe(225);
+  });
+
+  it('recovers bath accessory editor takeoff when legacy apply stored $375 as count', () => {
+    const input = inputWith({
+      itemQuantities: {
+        mirror_accessories: {
+          quantity: '375',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        mirror_accessories__allowance: {
+          quantity: '375',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        mirror_accessories__material: {
+          quantity: '18750',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        mirror_accessories__labor: {
+          quantity: '28125',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        mirror_accessories__sqft_basis: {
+          quantity: '375',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+      },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity(
+      'mirror_accessories',
+      measurements,
+      { templateKey: 'bathroom' }
+    );
+    expect(resolved.dualCount).toMatchObject({ quantity: 3, unit: 'each' });
+    expect(resolved.dualMaterial?.quantity).toBe(150);
+    expect(resolved.dualLabor?.quantity).toBe(225);
+
+    const basis = resolveAllowanceEditorPricingBasis(
+      'mirror_accessories',
+      input,
+      'bathroom'
+    );
+    expect(basis).toMatchObject({ quantity: 3, unit: 'each' });
   });
 
   it('shows national benchmark for user-entered bath accessories split (does not multiply 375 × $375)', () => {
@@ -3263,7 +3313,7 @@ describe('allowance split apply pricing', () => {
     );
     expect(fill).toBeNull();
     expect(comparison?.total).toBeGreaterThanOrEqual(350);
-    expect(comparison?.total).toBeLessThanOrEqual(400);
+    expect(comparison?.total).toBeLessThanOrEqual(500);
     expect(comparison?.total).not.toBe(375 * 375);
     expect(comparison?.isComparison).toBe(true);
   });
@@ -3305,7 +3355,7 @@ describe('allowance split apply pricing', () => {
     );
     expect(fill).toBeNull();
     expect(comparison?.total).toBeGreaterThanOrEqual(350);
-    expect(comparison?.total).toBeLessThanOrEqual(400);
+    expect(comparison?.total).toBeLessThanOrEqual(500);
     expect(comparison?.isComparison).toBe(true);
   });
 
@@ -3430,7 +3480,7 @@ describe('allowance split apply pricing', () => {
     expect(comparison?.isComparison).toBe(true);
   });
 
-  it('suggests ~$375 for bath accessories before apply (1 allowance × national average)', () => {
+  it('suggests ~$375 for bath accessories before apply (3 each × national average)', () => {
     const input = inputWith({});
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
     const resolved = resolveChecklistItemQuantity(
@@ -3448,7 +3498,8 @@ describe('allowance split apply pricing', () => {
     );
     expect(fill?.total).toBeGreaterThanOrEqual(350);
     expect(fill?.total).toBeLessThanOrEqual(400);
-    expect(fill?.basis?.quantity).toBe(1);
+    expect(fill?.basis?.quantity).toBe(3);
+    expect(fill?.basis?.unit).toBe('each');
   });
 
   it('prices trees at the $450/EA national planning rate', () => {

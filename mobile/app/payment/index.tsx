@@ -28,6 +28,8 @@ import {
   priceIdToPlanId,
   resolveBestPlanIdFromSubscriptions,
 } from '@/utils/resolveSubscriptionPlan';
+import { useAppleBilling } from '@/hooks/useAppleBilling';
+import { FOUNDING_PROFESSIONAL_FEATURES } from '@/constants/billingCatalog';
 
 const CACHED_PLAN_KEY = 'bps.cachedPlanId';
 
@@ -35,6 +37,7 @@ export default function PaymentScreen() {
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { user: clerkUser } = useUser();
+  const appleBilling = useAppleBilling();
   const [currentPlan, setCurrentPlan] = useState<{
     name: string;
     features: string[];
@@ -44,6 +47,19 @@ export default function PaymentScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [planCatalog, setPlanCatalog] = useState(() => stripeService.getMockSubscriptionPlans());
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    if (appleBilling.entitled) {
+      setCurrentPlan({ name: 'Founding Professional', features: FOUNDING_PROFESSIONAL_FEATURES });
+      setSubscriptionStatus('active');
+    } else {
+      setCurrentPlan(null);
+      setSubscriptionStatus(null);
+    }
+    setLoading(appleBilling.loading);
+    setError(appleBilling.error);
+  }, [appleBilling.entitled, appleBilling.error, appleBilling.loading]);
 
   useEffect(() => {
     stripeService.fetchSubscriptionPlans().then(setPlanCatalog).catch(() => {});
@@ -335,6 +351,10 @@ export default function PaymentScreen() {
   // never flips loaded, we would never fetch and "Loading plan..." would never clear.
   useFocusEffect(
     React.useCallback(() => {
+      if (Platform.OS === 'ios') {
+        void appleBilling.refresh();
+        return;
+      }
       if (!emailLoaded) {
         setLoading(true);
         return;
@@ -352,14 +372,18 @@ export default function PaymentScreen() {
         setCurrentPlan(null);
         setError('No email found. Please sign in again.');
       }
-    }, [userEmail, storedEmail, emailLoaded, planCatalog])
+    }, [appleBilling.refresh, userEmail, storedEmail, emailLoaded, planCatalog])
   );
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
-    await fetchCurrentPlan();
+    if (Platform.OS === 'ios') {
+      await appleBilling.refresh();
+    } else {
+      await fetchCurrentPlan();
+    }
     setRefreshing(false);
-  }, [userEmail, storedEmail, planCatalog]);
+  }, [appleBilling.refresh, userEmail, storedEmail, planCatalog]);
 
   return (
     <LinearGradient colors={theme.background as [string, string, string]} style={styles.container}>

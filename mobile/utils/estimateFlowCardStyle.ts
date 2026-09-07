@@ -147,6 +147,9 @@ export function estimateFlowScopeCardAlignStyle(): ViewStyle {
 
 /** Solid primary CTAs — Continue to review, Generate Estimate Draft, Apply. */
 export const ESTIMATE_FLOW_GREEN = '#22c55e';
+/** Ghost Apply + selected Yes on Confirm Scope cards. */
+export const ESTIMATE_FLOW_APPLY_GREEN_BG = 'rgba(34, 197, 94, 0.14)';
+export const ESTIMATE_FLOW_APPLY_GREEN_BORDER = 'rgba(34, 197, 94, 0.35)';
 /** Selection chips — Paint Scope, trade picks (Confirm scope). */
 export const ESTIMATE_FLOW_CHIP_GREEN = '#34d399';
 export const ESTIMATE_FLOW_CHIP_GREEN_BG = 'rgba(52, 211, 153, 0.12)';
@@ -375,9 +378,9 @@ export function confirmScopeApplyButtonStyle(): ViewStyle {
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(34, 197, 94, 0.14)',
+    backgroundColor: ESTIMATE_FLOW_APPLY_GREEN_BG,
     borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.35)',
+    borderColor: ESTIMATE_FLOW_APPLY_GREEN_BORDER,
     paddingVertical: 10,
     paddingHorizontal: 16,
   };
@@ -391,12 +394,12 @@ export function confirmScopeApplyButtonTextStyle(): TextStyle {
   };
 }
 
-/** Confirm Scope — Yes / included choice (tinted ring, not solid fill). */
+/** Confirm Scope — Yes / included choice (matches ghost Apply). */
 export function confirmScopeChoiceSelectedYesColors() {
   return {
-    borderColor: ESTIMATE_FLOW_CHIP_GREEN,
-    backgroundColor: ESTIMATE_FLOW_CHIP_GREEN_BG,
-    textColor: ESTIMATE_FLOW_CHIP_GREEN,
+    borderColor: ESTIMATE_FLOW_APPLY_GREEN_BORDER,
+    backgroundColor: ESTIMATE_FLOW_APPLY_GREEN_BG,
+    textColor: ESTIMATE_FLOW_GREEN,
   };
 }
 

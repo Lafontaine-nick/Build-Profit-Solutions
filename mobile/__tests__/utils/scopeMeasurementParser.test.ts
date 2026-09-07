@@ -319,6 +319,90 @@ describe('mobile scope measurement parser', () => {
     expect(floorTile).toMatchObject({ quantity: 45, unit: 'sqft', pricingReady: true });
   });
 
+  it('Smith kitchen: backsplash sqft not stolen from earlier countertop sqft', () => {
+    const notes =
+      'Kitchen remodel at the Smith house. Tear out old cabinets and counters. New cabinets about 18 linear feet, quartz counters roughly 55 sqft, tile backsplash 28 sqft. Customer is handling flooring themselves.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+      projectType: 'kitchen',
+    });
+    expect(parsed.cabinetLf).toBe(18);
+    expect(parsed.countertopSqft).toBe(55);
+    expect(parsed.backsplashSqft).toBe(28);
+    expect(parsed.kitchenFloorSqft).toBeUndefined();
+
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'kitchen',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'kitchen' },
+    });
+    expect(input.kitchenFloorSqft).toBe('');
+  });
+
+  it('does not steal backsplash sqft for kitchen floor when flooring is excluded', () => {
+    const notes =
+      'Kitchen remodel with 18 LF cabinets, 55 sqft counters, 28 sqft backsplash, flooring by others.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+      projectType: 'kitchen',
+    });
+    expect(parsed.backsplashSqft).toBe(28);
+    expect(parsed.kitchenFloorSqft).toBeUndefined();
+
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'kitchen',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'kitchen' },
+      scopeMeasurements: {
+        kitchenFloorSqft: 28,
+        backsplashSqft: 28,
+        cabinetLf: 18,
+        countertopSqft: 55,
+      },
+    });
+    expect(input.kitchenFloorSqft).toBe('');
+  });
+
+  it('parses 50 sqft kitchen floor and prices flooring from kitchenFloorSqft not stale itemQuantities', () => {
+    const notes =
+      'Kitchen remodel. New cabinets about 18 linear feet, quartz counters roughly 55 sqft, tile backsplash 28 sqft. Install kitchen floor tile 50 sqft.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+      projectType: 'kitchen',
+    });
+    expect(parsed.kitchenFloorSqft).toBe(50);
+
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'kitchen',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'kitchen' },
+      scopeMeasurements: {
+        kitchenFloorSqft: '50',
+        itemQuantities: {
+          flooring: { quantity: '5', unit: 'sqft', quantitySource: 'user_entered' },
+        },
+      },
+    });
+    expect(input.itemQuantities?.flooring?.quantity).toBe('50');
+    const resolved = resolveChecklistItemQuantity(
+      'flooring',
+      normalizeScopeMeasurements(input),
+      { templateKey: 'kitchen', notes }
+    );
+    expect(Number(resolved.quantity)).toBe(50);
+  });
+
+  it('does not infer kitchen floor from no-kitchen-floor exclusion language', () => {
+    const notes =
+      'Kitchen: 18 LF cabinets, 55 sqft counters, 28 sqft backsplash. No kitchen floor work.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+      projectType: 'kitchen',
+    });
+    expect(parsed.backsplashSqft).toBe(28);
+    expect(parsed.kitchenFloorSqft).toBeUndefined();
+  });
+
   it('parses kitchen mixed scope without stealing backsplash sqft for paint', () => {
     const notes =
       'Kitchen remodel. Cabinets 20 LF. Countertops 48 sqft allowance $5,000. Backsplash tile 35 sqft material $8/sqft labor $12/sqft. Paint walls and ceiling 320 sqft $1.50/sqft labor. Appliance install allowance $1,200. Demo $850 lump sum.';

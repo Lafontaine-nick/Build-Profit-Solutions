@@ -410,6 +410,7 @@ export type DemoWetAreaInferenceInput = {
   floorDemoIncluded?: boolean;
   floorTileIncluded?: boolean;
   bathroomFloorSqft?: string | number | null;
+  showerWallTileSqft?: string | number | null;
 };
 
 function setDemoIf(

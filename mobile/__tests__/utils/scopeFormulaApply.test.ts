@@ -591,9 +591,9 @@ describe('resolveFormulaQuantityApplyTarget', () => {
 
     expect(resolved.quantity).toBe(40);
     expect(pricing.fill).toMatchObject({
-      material: 20,
-      labor: 200,
-      total: 220,
+      material: 30,
+      labor: 270,
+      total: 300,
       basis: { quantity: 40, unit: 'sqft' },
     });
   });

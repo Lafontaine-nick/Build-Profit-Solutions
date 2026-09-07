@@ -116,9 +116,18 @@ import {
   filterAiDashboardResponse,
   filterAiInsightForPortfolio,
   filterAiNextStepForPortfolio,
+  filterClientGeneratedPortfolioInsight,
+  filterClientGeneratedPortfolioNextStep,
+  filterProjectsForOperationalInsights,
+  isEligibleEstimateInsightProject,
   loadDeletedProjectRecords,
+  loadEstimateInsightContext,
   reconcileDeletedProjectsFromInsights,
+  resolvePortfolioProjectStatus,
+  isPreActivePortfolioStatus,
   type DeletedProjectRecord,
+  type EstimateInsightContext,
+  EMPTY_ESTIMATE_INSIGHT_CONTEXT,
 } from "@/utils/aiDashboardPortfolioFilter";
 import {
   applyWorkspaceTimelineProgressToMaps,
@@ -128,6 +137,11 @@ import {
   buildPortfolioBudgetInsights,
   projectToPortfolioBudgetInput,
 } from "@/utils/portfolioBudgetInsights";
+import {
+  buildPortfolioOperationalInsights,
+  countPortfolioOperationalFlags,
+  getDashboardProjectOperationalSignal,
+} from "@/utils/portfolioOperationalInsights";
 import {
   buildInsightNavigationParams,
   insightActionCtaLabel,
@@ -626,52 +640,6 @@ function getEarliestJobStartDate(projectRecord: any): Date | null {
   }
   return best;
 }
-
-/** One subtle operational line per dashboard project card */
-const getDashboardProjectOperationalSignal = (
-  project: {
-    rawProject: any;
-    margin: number;
-    progress: number;
-    status: string;
-    amount: number;
-    marginDisplay: string;
-  },
-  timelineLatestPlannedMs?: number | null
-): { text: string; variant: "risk" | "watch" | "muted" } => {
-  const raw = project.rawProject || {};
-  const isCompleted = project.status === "Completed";
-
-  const spent = Number(
-    raw.actualCost ||
-      raw.projectData?.spent ||
-      raw.projectData?.totalSpent ||
-      raw.totalSpent ||
-      0
-  );
-  const contract = Number(project.amount || 0);
-  if (contract > 0 && spent > 0 && !isCompleted) {
-    const ratio = spent / contract;
-    if (ratio > 0.98) return { text: "Cost overrun risk", variant: "risk" };
-    if (ratio > 0.88) return { text: "Spend nearing budget", variant: "watch" };
-  }
-
-  const m = Number(project.margin || 0);
-  if (!isCompleted && m > 0 && m < 10) {
-    return { text: "Low margin risk", variant: "risk" };
-  }
-  if (!isCompleted && m >= 10 && m < 16) {
-    return { text: "Margin watch", variant: "watch" };
-  }
-
-  if (isCompleted) {
-    return { text: project.marginDisplay || "Closed out", variant: "muted" };
-  }
-  if (project.progress >= 0.92) {
-    return { text: "Nearing completion", variant: "muted" };
-  }
-  return { text: "On track", variant: "muted" };
-};
 
 const getDashboardProjectProgressSignal = (project: {
   status?: string;
@@ -2795,6 +2763,19 @@ const DashboardScreen: React.FC = () => {
   const [timelineLatestPlannedMs, setTimelineLatestPlannedMs] = useState<Record<string, number>>({});
   const [projectDataOverrides, setProjectDataOverrides] = useState<Record<string, any>>({});
   const [deletedProjectRecords, setDeletedProjectRecords] = useState<DeletedProjectRecord[]>([]);
+  const [estimateInsightCtx, setEstimateInsightCtx] = useState<EstimateInsightContext>(
+    EMPTY_ESTIMATE_INSIGHT_CONTEXT
+  );
+
+  const refreshEstimateInsightContext = useCallback(async () => {
+    const ctx = await loadEstimateInsightContext();
+    setEstimateInsightCtx(ctx);
+    return ctx;
+  }, []);
+
+  useEffect(() => {
+    void refreshEstimateInsightContext();
+  }, [refreshEstimateInsightContext]);
 
   // Debounce refs for project changes
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3269,7 +3250,8 @@ const DashboardScreen: React.FC = () => {
           activeProjects,
           estimates,
           timelineProgress,
-          deletedProjectRecords
+          deletedProjectRecords,
+          estimateInsightCtx
         ) ?? filteredDataWithRetrospectives
       );
       setAiFetchDegraded(false);
@@ -3358,7 +3340,7 @@ const DashboardScreen: React.FC = () => {
         setAiLoading(false);
       }
     }
-  }, [aiDailyBriefEnabled, activeProjects, estimates, timelineProgress, deletedProjectRecords, restrictedWorkspaceFinancials]);
+  }, [aiDailyBriefEnabled, activeProjects, estimates, timelineProgress, deletedProjectRecords, estimateInsightCtx, restrictedWorkspaceFinancials]);
 
   // Drop stale insight cards immediately when projects are deleted/completed (don't wait on API).
   useEffect(() => {
@@ -3368,12 +3350,13 @@ const DashboardScreen: React.FC = () => {
       activeProjects,
       estimates,
       timelineProgress,
-      deletedProjectRecords
+      deletedProjectRecords,
+      estimateInsightCtx
     );
     if (pruned && aiDashboardResponsesDiffer(aiData, pruned)) {
       setAiData(pruned);
     }
-  }, [aiDailyBriefEnabled, aiData, activeProjects, estimates, timelineProgress, deletedProjectRecords, restrictedWorkspaceFinancials]);
+  }, [aiDailyBriefEnabled, aiData, activeProjects, estimates, timelineProgress, deletedProjectRecords, estimateInsightCtx, restrictedWorkspaceFinancials]);
 
   // Debounced refetch when portfolio fingerprint changes
   useEffect(() => {
@@ -3459,6 +3442,7 @@ const DashboardScreen: React.FC = () => {
       const interaction = InteractionManager.runAfterInteractions(() => {
         void (async () => {
           let deleted = await loadDeletedProjectRecords();
+          const estimateCtx = await refreshEstimateInsightContext();
           const mergedKnown = dedupeProjectsByBestStatus([...activeProjects, ...estimates]);
           const knownIds = new Set(
             mergedKnown.map((p) => String(p?.id ?? '')).filter(Boolean)
@@ -3479,7 +3463,8 @@ const DashboardScreen: React.FC = () => {
               activeProjects,
               estimates,
               timelineProgress,
-              deleted
+              deleted,
+              estimateCtx
             );
             return pruned ?? prev;
           });
@@ -3508,6 +3493,7 @@ const DashboardScreen: React.FC = () => {
       estimates,
       timelineProgress,
       aiData,
+      refreshEstimateInsightContext,
     ])
   );
 
@@ -3517,16 +3503,21 @@ const DashboardScreen: React.FC = () => {
         activeProjects,
         estimates,
         timelineProgress,
-        deletedProjectRecords
+        deletedProjectRecords,
+        estimateInsightCtx
       ),
-    [activeProjects, estimates, timelineProgress, deletedProjectRecords]
+    [activeProjects, estimates, timelineProgress, deletedProjectRecords, estimateInsightCtx]
   );
 
   const clientBudgetInsights = useMemo(() => {
     if (restrictedWorkspaceFinancials) {
       return { insights: [] as AiInsight[], nextSteps: [] as AiNextStep[] };
     }
-    const rows = dedupeProjectsByBestStatus([...activeProjects, ...estimates])
+    const rows = filterProjectsForOperationalInsights(
+      activeProjects,
+      estimates,
+      deletedProjectRecords
+    )
       .map((project) => {
         const pid = String(project?.id ?? "");
         const override = projectDataOverrides[pid];
@@ -3546,7 +3537,82 @@ const DashboardScreen: React.FC = () => {
       })
       .filter((row): row is NonNullable<typeof row> => row != null);
     return buildPortfolioBudgetInsights(rows);
-  }, [activeProjects, estimates, projectDataOverrides, restrictedWorkspaceFinancials]);
+  }, [activeProjects, estimates, projectDataOverrides, restrictedWorkspaceFinancials, deletedProjectRecords]);
+
+  const portfolioOperationalInsights = useMemo(() => {
+    if (restrictedWorkspaceFinancials) {
+      return { insights: [] as AiInsight[], nextSteps: [] as AiNextStep[] };
+    }
+    const rows = filterProjectsForOperationalInsights(
+      activeProjects,
+      estimates,
+      deletedProjectRecords
+    )
+      .filter((project) => {
+        const status = resolvePortfolioProjectStatus(project);
+        if (
+          isPreActivePortfolioStatus(status) &&
+          !isEligibleEstimateInsightProject(project, estimateInsightCtx)
+        ) {
+          return false;
+        }
+        return (
+          status !== "completed" &&
+          status !== "complete" &&
+          status !== "closed" &&
+          status !== "done" &&
+          status !== "finished"
+        );
+      })
+      .map((project) => {
+        const pid = String(project?.id ?? "");
+        const override = projectDataOverrides[pid];
+        const mergedProject = override
+          ? {
+              ...project,
+              estimateData: override?.estimateData
+                ? { ...(project?.estimateData || {}), ...override.estimateData }
+                : project?.estimateData,
+              projectData: {
+                ...(project?.projectData || {}),
+                ...override,
+              },
+            }
+          : project;
+        const progressPct = deriveUnifiedProgressPct(mergedProject, pid, timelineProgress);
+        const fin = computeProjectListRowFinancials({
+          mergedProject,
+          originalRow: project,
+          progressPct,
+        });
+        return {
+          id: pid,
+          title: String(mergedProject.title || mergedProject.name || "Untitled Project"),
+          displayStatus: fin.displayStatus,
+          slugForUi: fin.slugForUi,
+          portfolioStatus: resolvePortfolioProjectStatus(mergedProject),
+          isWorkingEstimate: isEligibleEstimateInsightProject(mergedProject, estimateInsightCtx),
+          margin: fin.margin,
+          progress: fin.finalProgress,
+          amount: fin.displayAmount,
+          rawProject: mergedProject as Record<string, unknown>,
+        };
+      });
+    return buildPortfolioOperationalInsights(rows);
+  }, [
+    activeProjects,
+    estimates,
+    projectDataOverrides,
+    timelineProgress,
+    restrictedWorkspaceFinancials,
+    deletedProjectRecords,
+    estimateInsightCtx,
+  ]);
+
+  const portfolioFlagCount = useMemo(
+    () => countPortfolioOperationalFlags(portfolioOperationalInsights),
+    [portfolioOperationalInsights]
+  );
 
   const apiFilteredInsights = useMemo(() => {
     if (!aiData?.insights) return [];
@@ -3568,7 +3634,12 @@ const DashboardScreen: React.FC = () => {
   const filteredInsights = useMemo(() => {
     const merged = dedupeAiInsightsByNormalizedTitle([
       ...apiFilteredInsights,
-      ...clientBudgetInsights.insights,
+      ...clientBudgetInsights.insights.filter((insight) =>
+        filterClientGeneratedPortfolioInsight(insight, portfolioFilterCtx)
+      ),
+      ...portfolioOperationalInsights.insights.filter((insight) =>
+        filterClientGeneratedPortfolioInsight(insight, portfolioFilterCtx)
+      ),
     ]);
     return merged.map((insight) =>
       frameInsightForDisplay(
@@ -3576,7 +3647,13 @@ const DashboardScreen: React.FC = () => {
         Boolean(insight.projectId && completedProjectIds.has(String(insight.projectId)))
       )
     );
-  }, [apiFilteredInsights, clientBudgetInsights.insights, completedProjectIds]);
+  }, [
+    apiFilteredInsights,
+    clientBudgetInsights.insights,
+    portfolioOperationalInsights.insights,
+    completedProjectIds,
+    portfolioFilterCtx,
+  ]);
 
   const apiFilteredNextSteps = useMemo(() => {
     if (!aiData?.nextSteps) return [];
@@ -3588,7 +3665,12 @@ const DashboardScreen: React.FC = () => {
   const filteredNextSteps = useMemo(() => {
     const merged = dedupeAiNextStepsByNormalizedLabel([
       ...apiFilteredNextSteps,
-      ...clientBudgetInsights.nextSteps,
+      ...clientBudgetInsights.nextSteps.filter((step) =>
+        filterClientGeneratedPortfolioNextStep(step, portfolioFilterCtx)
+      ),
+      ...portfolioOperationalInsights.nextSteps.filter((step) =>
+        filterClientGeneratedPortfolioNextStep(step, portfolioFilterCtx)
+      ),
     ]);
     return merged.map((step) =>
       frameNextStepForDisplay(
@@ -3596,14 +3678,27 @@ const DashboardScreen: React.FC = () => {
         Boolean(step.projectId && completedProjectIds.has(String(step.projectId)))
       )
     );
-  }, [apiFilteredNextSteps, clientBudgetInsights.nextSteps, completedProjectIds]);
+  }, [
+    apiFilteredNextSteps,
+    clientBudgetInsights.nextSteps,
+    portfolioOperationalInsights.nextSteps,
+    completedProjectIds,
+    portfolioFilterCtx,
+  ]);
 
   const insightsAlertCount = useMemo(
     () =>
       filteredInsights.filter((insight) =>
-        ["line_over_estimate", "category_over_budget", "over_budget"].includes(
-          insight.leakType ?? ""
-        )
+        [
+          "line_over_estimate",
+          "category_over_budget",
+          "over_budget",
+          "margin_watch",
+          "low_margin_risk",
+          "cost_overrun_risk",
+          "spend_nearing_budget",
+          "estimate_needs_review",
+        ].includes(insight.leakType ?? "")
       ).length,
     [filteredInsights]
   );
@@ -3890,8 +3985,8 @@ const DashboardScreen: React.FC = () => {
                   ? "Insights synced"
                   : aiLoading
                     ? "Syncing insights…"
-                    : "Budget alerts active"
-                : "Budget alerts active · AI brief off";
+                    : "Portfolio alerts active"
+                : "Portfolio alerts active";
 
               return (
                 <View style={styles.aiStatusRow}>
@@ -3994,6 +4089,7 @@ const DashboardScreen: React.FC = () => {
             filteredInsights={filteredInsights}
             filteredNextSteps={filteredNextSteps}
             attentionInsightCount={insightsAlertCount}
+            portfolioFlagCount={portfolioFlagCount}
             onInsightPress={handleInsightPress}
             onOpenInsights={() => handleTabPress("insights")}
             timelineLatestPlannedMs={timelineLatestPlannedMs}
@@ -4443,7 +4539,7 @@ const DashboardProjectSummaryCard = ({
   const hideFinancials = hideFinancialMetrics || Boolean(project.hideFinancials);
   const op = hideFinancials
     ? getDashboardProjectProgressSignal(project)
-    : getDashboardProjectOperationalSignal(project, timelineMs);
+    : getDashboardProjectOperationalSignal(project);
   const signalStyle =
     op.variant === "risk"
       ? styles.projectSummarySignalRisk
@@ -4530,8 +4626,9 @@ interface OverviewSectionProps {
   aiFetchDegraded?: boolean;
   filteredInsights: any[];
   filteredNextSteps: any[];
-  /** Budget alerts only — matches Insights tab badge and actionable items. */
+  /** Budget + operational alerts — matches Insights tab badge. */
   attentionInsightCount: number;
+  portfolioFlagCount?: number;
   onInsightPress: (insight: AiInsight) => void;
   onOpenInsights: () => void;
   timelineLatestPlannedMs: Record<string, number>;
@@ -4564,6 +4661,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   filteredInsights,
   filteredNextSteps,
   attentionInsightCount,
+  portfolioFlagCount = 0,
   onInsightPress,
   onOpenInsights,
   timelineLatestPlannedMs,
@@ -4666,6 +4764,10 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   const showPreviewPanel =
     !aiError && insightCount > 0 && (!aiLoading || aiData != null);
   const showAllProjectsLoading = !projectsReady && projects.length === 0;
+  const projectsMetricContext =
+    portfolioFlagCount > 0
+      ? `${portfolioFlagCount} job${portfolioFlagCount === 1 ? "" : "s"} flagged for review`
+      : "No flags right now";
 
   const overviewAlertsQuietText = useMemo(() => {
     if (aiError) return aiError;
@@ -4744,7 +4846,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                 timeframe="In Progress"
                 trend={hideFinancialMetrics ? "—" : "+4.1%"}
                 trendDirection="up"
-                context={hideFinancialMetrics ? "Assigned active jobs" : "3 jobs flagged for review"}
+                context={hideFinancialMetrics ? "Assigned active jobs" : projectsMetricContext}
               />
               {!hideFinancialMetrics ? (
               <EnhancedMetricCard
@@ -4786,7 +4888,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             timeframe="In Progress"
             trend={hideFinancialMetrics ? "—" : "+4.1%"}
             trendDirection="up"
-            context={hideFinancialMetrics ? "Assigned active jobs" : "3 jobs flagged for review"}
+            context={hideFinancialMetrics ? "Assigned active jobs" : projectsMetricContext}
           />
           {!hideFinancialMetrics ? (
           <EnhancedMetricCard
@@ -4814,7 +4916,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
         <View style={{ flex: 1 }}>
           <Text style={styles.sectionTitle}>Needs attention</Text>
           <Text style={[styles.sectionSubtitle, styles.overviewAiInsightsSubtitle]}>
-            Budget alerts from logged costs
+            Margin, estimate review, and budget alerts
           </Text>
         </View>
       </View>

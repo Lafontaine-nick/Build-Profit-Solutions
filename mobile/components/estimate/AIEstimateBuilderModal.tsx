@@ -24,6 +24,7 @@ import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import { aiFlowCardBackground, estimateStep1InputCardStyle, ESTIMATE_FLOW_GREEN } from '@/utils/estimateFlowCardStyle';
 import { getEmbeddedAiFlowFooterBottomInset } from '@/constants/ScreenLayout';
+import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
 import {
   buildPlanImportSteps,
   type AiGeneratePhaseId,
@@ -47,6 +48,7 @@ import type {
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import { syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
 import { useKeyboard } from '@/services/MobileOptimization';
+import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
 import { resolveTextInputKeyboardProps } from '@/constants/inputKeyboardPresets';
 import {
   buildImportedPlanSummaryText,
@@ -61,10 +63,6 @@ import {
   BRAND_FRAME_GRADIENT_START,
 } from '@/constants/brandFrameGradient';
 import { getPlanTradeConfiguration } from '@/utils/planImportTradeConfig';
-import type {
-  PlumbingPerformerMode,
-  PlumbingWorkflowMode,
-} from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 
 type Props = {
   visible: boolean;
@@ -188,7 +186,6 @@ export default function AIEstimateBuilderModal({
   const revealGenerateAfterPasteRef = useRef(false);
   const [notesInputSessionKey, setNotesInputSessionKey] = useState(0);
   const { keyboardHeight, isKeyboardVisible } = useKeyboard();
-  const keyboardWasVisibleRef = useRef(false);
   const [notes, setNotes] = useState('');
   const notesRef = useRef('');
   const [notesSyncTick, setNotesSyncTick] = useState(0);
@@ -264,11 +261,6 @@ export default function AIEstimateBuilderModal({
     hasAnalyzed: false,
   });
   const [planImport, setPlanImport] = useState<PlanImportPayload | null>(null);
-  const [plumbingOnly, setPlumbingOnly] = useState(false);
-  const [plumbingWorkflowMode, setPlumbingWorkflowMode] =
-    useState<PlumbingWorkflowMode>('bathroom_remodel');
-  const [plumbingPerformerMode, setPlumbingPerformerMode] =
-    useState<PlumbingPerformerMode | null>(null);
   const [planSummaryExpanded, setPlanSummaryExpanded] = useState(false);
   const [localGenerating, setLocalGenerating] = useState(false);
   const [planImportBusy, setPlanImportBusy] = useState(false);
@@ -312,16 +304,6 @@ export default function AIEstimateBuilderModal({
       });
       // Restore plan import when resuming a draft session; otherwise start clean.
       setPlanImport(initialPlanImport || null);
-      const standalonePlumbing =
-        initialPlanImport?.tradeWorkflowSource === 'standalone_trade' &&
-        initialPlanImport.selectedTrade === 'plumbing';
-      setPlumbingOnly(standalonePlumbing);
-      setPlumbingWorkflowMode(
-        initialPlanImport?.plumbingWorkflowMode || 'bathroom_remodel'
-      );
-      setPlumbingPerformerMode(
-        initialPlanImport?.plumbingPerformerMode || null
-      );
       setPlanSummaryExpanded(false);
     }
     if (!visible) {
@@ -345,23 +327,6 @@ export default function AIEstimateBuilderModal({
       setLocalGenerating(false);
     }
   }, [generating]);
-
-  useEffect(() => {
-    if (isKeyboardVisible) {
-      keyboardWasVisibleRef.current = true;
-      return;
-    }
-    if (!keyboardWasVisibleRef.current) return;
-    keyboardWasVisibleRef.current = false;
-    // The keyboard spacer is removed when the keyboard hides. Reconcile the
-    // ScrollView offset after that layout pass so the footer does not briefly
-    // sit high above a large black gap.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        scrollRef.current?.scrollToEnd({ animated: false });
-      });
-    });
-  }, [isKeyboardVisible]);
 
   useEffect(() => {
     if (!visible || Platform.OS === 'web') return;
@@ -433,9 +398,6 @@ export default function AIEstimateBuilderModal({
 
   const handlePlanApplied = (result: PlanImportApplyResult) => {
     // Notes-only routing must not leak into the Plan Export flow.
-    setPlumbingOnly(false);
-    setPlumbingWorkflowMode('new_construction');
-    setPlumbingPerformerMode(null);
     if (semanticsOn) {
       // Keep Job notes user-editable; structured plan data stays authoritative.
       const userNotes = stripPlanTakeoffFromNotes(result.mergedNotes || '');
@@ -627,24 +589,7 @@ export default function AIEstimateBuilderModal({
       const notesForGenerate =
         contractorIntentNotes(trimmed) ||
         (semanticsOn && importedPlanSummary ? importedPlanSummary : trimmed);
-      const hasActualPlan =
-        Boolean(planImport) &&
-        (Object.keys(planImport?.measurements || {}).length > 0 ||
-          Boolean(planImport?.planImportFingerprint) ||
-          Boolean(planImport?.rooms?.length) ||
-          Boolean(planImport?.scopeDetections?.length));
-      const routePlanImport = plumbingOnly
-        ? {
-            ...(planImport || {}),
-            estimatingMode: 'selected_trade' as const,
-            selectedTrade: 'plumbing' as const,
-            ...(hasActualPlan
-              ? {}
-              : { tradeWorkflowSource: 'standalone_trade' as const }),
-            plumbingWorkflowMode,
-            plumbingPerformerMode,
-          }
-        : planImport;
+      const routePlanImport = planImport;
       await onGenerate(
         notesForGenerate,
         photoDetections,
@@ -700,7 +645,6 @@ export default function AIEstimateBuilderModal({
             setSitePhotos([]);
             onSitePhotosChange?.([]);
             setPhotoState({ photoCount: 0, hasAnalyzed: false });
-            setPlumbingOnly(false);
             setPlanSummaryExpanded(false);
             onStartFresh();
           },
@@ -773,9 +717,8 @@ export default function AIEstimateBuilderModal({
   const tabBarClearance = embedded
     ? getEmbeddedAiFlowFooterBottomInset(insets.bottom)
     : Math.max(insets.bottom, 16);
-  // Generate CTA + Start fresh + footer top padding
-  const footerChromeHeight = 96;
-  const keyboardUp = isKeyboardVisible;
+  // Generate CTA + Start fresh + disclaimer + footer top padding
+  const footerChromeHeight = 118;
   const canGenerate = useMemo(
     () =>
       Boolean(
@@ -886,9 +829,14 @@ export default function AIEstimateBuilderModal({
       </ReliableFlowPress>
     ) : null;
 
-  const scrollBottomPad = keyboardUp
-    ? Math.max(keyboardHeight, Platform.OS === 'ios' ? 320 : 280) + 24
-    : footerChromeHeight + tabBarClearance + 16;
+  // iOS: native inset animation via FORM_KEYBOARD_SCROLL_PROPS — do not also pad by keyboard height.
+  const androidKeyboardBoost =
+    Platform.OS === 'android' && isKeyboardVisible
+      ? Math.max(keyboardHeight, 280) + 24
+      : 0;
+  const scrollContentPadBottom =
+    (embedded ? tabBarClearance + 8 : footerChromeHeight + tabBarClearance + 16) +
+    androidKeyboardBoost;
 
   const embeddedShellStyle = embedded
     ? {
@@ -1240,179 +1188,6 @@ export default function AIEstimateBuilderModal({
           />
         </View>
       </View>
-
-      {false && notes.trim() && !hasPlanImport ? (
-        <View
-          style={{
-            borderRadius: 14,
-            borderWidth: 1,
-            borderColor: Colors.line,
-            backgroundColor: darkMode
-              ? 'rgba(255,255,255,0.035)'
-              : Colors.surface2,
-            padding: 12,
-            marginTop: 14,
-          }}
-        >
-          <Text
-            style={{
-              color: Colors.text,
-              fontSize: 13,
-              fontWeight: '800',
-              marginBottom: 8,
-            }}
-          >
-            Notes estimate scope
-          </Text>
-          <View style={{ gap: 7 }}>
-            {[
-              ['whole_project', 'Whole Project / General Contractor'],
-              ['plumbing_only', 'Single Trade / Plumbing Only'],
-            ].map(([id, label]) => {
-              const active =
-                id === 'plumbing_only' ? plumbingOnly : !plumbingOnly;
-              return (
-                <TouchableOpacity
-                  key={id}
-                  disabled={busy}
-                  onPress={() => {
-                    const nextPlumbingOnly = id === 'plumbing_only';
-                    setPlumbingOnly(nextPlumbingOnly);
-                    if (!nextPlumbingOnly) {
-                      setPlumbingPerformerMode(null);
-                      setPlumbingWorkflowMode('bathroom_remodel');
-                    }
-                  }}
-                  style={{
-                    borderRadius: 10,
-                    borderWidth: 1,
-                    borderColor: active ? '#22c55e' : Colors.line,
-                    backgroundColor: active
-                      ? 'rgba(34,197,94,0.12)'
-                      : 'transparent',
-                    paddingHorizontal: 11,
-                    paddingVertical: 8,
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: Colors.text,
-                      fontSize: 12,
-                      fontWeight: '700',
-                    }}
-                  >
-                    {label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-          {plumbingOnly ? (
-            <>
-              <Text
-                style={{
-                  color: Colors.text,
-                  fontSize: 12,
-                  fontWeight: '700',
-                  marginTop: 10,
-                  marginBottom: 6,
-                }}
-              >
-                Plumbing mode
-              </Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {(
-                  [
-                    ['bathroom_remodel', 'Bathroom Remodel'],
-                    ['service', 'Service'],
-                    ['new_construction', 'New Construction'],
-                  ] as Array<[PlumbingWorkflowMode, string]>
-                ).map(([mode, label]) => (
-                  <TouchableOpacity
-                    key={mode}
-                    disabled={busy}
-                    onPress={() => setPlumbingWorkflowMode(mode)}
-                    style={{
-                      borderRadius: 15,
-                      borderWidth: 1,
-                      borderColor:
-                        plumbingWorkflowMode === mode ? '#22c55e' : Colors.line,
-                      backgroundColor:
-                        plumbingWorkflowMode === mode
-                          ? 'rgba(34,197,94,0.12)'
-                          : 'transparent',
-                      paddingHorizontal: 9,
-                      paddingVertical: 6,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: Colors.text,
-                        fontSize: 11,
-                        fontWeight: '700',
-                      }}
-                    >
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <Text
-                style={{
-                  color: Colors.text,
-                  fontSize: 12,
-                  fontWeight: '700',
-                  marginTop: 10,
-                  marginBottom: 6,
-                }}
-              >
-                Performer
-              </Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {(
-                  [
-                    ['self_performed', 'I do the work'],
-                    ['subcontracted', 'I hire a plumber'],
-                    ['existing_quote', 'Existing quote'],
-                  ] as Array<[PlumbingPerformerMode, string]>
-                ).map(([mode, label]) => (
-                  <TouchableOpacity
-                    key={mode}
-                    disabled={busy}
-                    onPress={() => setPlumbingPerformerMode(mode)}
-                    style={{
-                      borderRadius: 15,
-                      borderWidth: 1,
-                      borderColor:
-                        plumbingPerformerMode === mode
-                          ? '#22c55e'
-                          : Colors.line,
-                      backgroundColor:
-                        plumbingPerformerMode === mode
-                          ? 'rgba(34,197,94,0.12)'
-                          : 'transparent',
-                      paddingHorizontal: 9,
-                      paddingVertical: 6,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: Colors.text,
-                        fontSize: 11,
-                        fontWeight: '700',
-                      }}
-                    >
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </>
-          ) : null}
-        </View>
-      ) : null}
-
-      <AIEstimateDisclaimer variant='compact' />
     </>
   );
 
@@ -1427,15 +1202,16 @@ export default function AIEstimateBuilderModal({
       }}
     >
       {generateActions}
+      <AIEstimateDisclaimer variant="builder" />
     </View>
   );
 
   const scrollContentStyle = embedded
     ? {
         flexGrow: 1,
-        paddingBottom: keyboardUp ? scrollBottomPad : tabBarClearance + 8,
+        paddingBottom: scrollContentPadBottom,
       }
-    : { paddingBottom: scrollBottomPad };
+    : { paddingBottom: scrollContentPadBottom };
 
   const body = (
     <View
@@ -1466,18 +1242,9 @@ export default function AIEstimateBuilderModal({
         ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={[styles.scrollContent, scrollContentStyle]}
-        keyboardShouldPersistTaps='always'
-        keyboardDismissMode='none'
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled={false}
-        {...(Platform.OS === 'ios' && !embedded
-          ? {
-              maintainVisibleContentPosition: {
-                minIndexForVisible: 0,
-                autoscrollToTopThreshold: 100,
-              },
-            }
-          : null)}
+        {...FORM_KEYBOARD_SCROLL_PROPS}
       >
         {notesField}
         {embedded ? <View style={{ flexGrow: 1, minHeight: 16 }} /> : null}
@@ -1491,6 +1258,7 @@ export default function AIEstimateBuilderModal({
     return (
       <View style={[embeddedShellStyle, styles.embeddedShell]}>
         {body}
+        <TabScreenBottomScrollFade />
         <AIEstimateGeneratingOverlay
           visible={busy}
           phase={overlayPhase}

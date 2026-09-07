@@ -94,6 +94,8 @@ const clerkSharedMainEntry = path.join(
   'dist',
   'index.js',
 );
+/** Single ProjectListContext instance — duplicate copies break `useProjectList` after Fast Refresh. */
+const projectListContextEntry = path.join(__dirname, 'contexts', 'ProjectListContext.tsx');
 
 const defaultResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
@@ -102,6 +104,13 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   }
   if (moduleName === '@clerk/shared') {
     return { type: 'sourceFile', filePath: clerkSharedMainEntry };
+  }
+  if (
+    moduleName === '@/contexts/ProjectListContext' ||
+    moduleName.endsWith('/contexts/ProjectListContext') ||
+    moduleName.endsWith('/contexts/ProjectListContext.tsx')
+  ) {
+    return { type: 'sourceFile', filePath: projectListContextEntry };
   }
   if (platform === 'web' && moduleName === 'react-native-reanimated') {
     return { filePath: reanimatedWebShimEntry, type: 'sourceFile' };
@@ -131,7 +140,15 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     return { filePath: yogaShimEntry, type: 'sourceFile' };
   }
   if (defaultResolveRequest) {
-    return defaultResolveRequest(context, moduleName, platform);
+    const resolved = defaultResolveRequest(context, moduleName, platform);
+    if (
+      resolved?.type === 'sourceFile' &&
+      resolved.filePath &&
+      resolved.filePath.replace(/\\/g, '/').endsWith('/contexts/ProjectListContext.tsx')
+    ) {
+      return { type: 'sourceFile', filePath: projectListContextEntry };
+    }
+    return resolved;
   }
   return context.resolveRequest(context, moduleName, platform);
 };

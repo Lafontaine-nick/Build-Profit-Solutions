@@ -8,6 +8,14 @@ import {
   PLUMBING_REVIEW_MEASUREMENT_KEYS,
   syncPlumbingScopeItems,
   plumbingScopeSyncSignature,
+  buildStandalonePlumbingChecklistItems,
+  inferPlumbingRoomContextFromNotes,
+  inferPlumbingWorkflowModeFromNotes,
+  notesSuggestPlumbingBid,
+  notesDescribeGeneralContractorProject,
+  notesDescribeRoomRemodel,
+  plumbingStateFromNotesScopeMode,
+  resolveNotesScopeModeFromPlumbingState,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { groupScopeChecklistItems } from '@/utils/estimateScopeChecklistUi';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
@@ -19,7 +27,7 @@ import {
   resolveScopeItemSuggestedPricing,
   scopeMeasurementsPayloadForPersist,
 } from '@/utils/scopeItemQuantities';
-import { applyPlanImportToDraft, planImportPayloadFromDraft } from '@/utils/estimateAiDraft';
+import { applyPlanImportToDraft, createStandalonePlumbingDraft, planImportPayloadFromDraft } from '@/utils/estimateAiDraft';
 import {
   filterChecklistItemsForTrade,
   filterPlanMeasurementsForTrade,
@@ -168,6 +176,27 @@ describe('plumbing canonical architecture', () => {
     expect(next.scopeMeasurements?.plumbingWorkflowMode).toBe('service');
     expect(next.scopeMeasurements?.plumbingPerformerMode).toBe('subcontracted');
     expect(next.scopeMeasurements?.bathroomFloorSqft).toBeUndefined();
+  });
+
+  it('bootstraps a first-class plumbing remodel bid without a bathroom template', () => {
+    const draft = createStandalonePlumbingDraft('Kitchen sink rough-in and gas line', {
+      plumbingWorkflowMode: 'bathroom_remodel',
+    });
+    expect(draft.projectType).toBe('plumbing');
+    expect(draft.scopeChecklist?.templateKey).toBe('plumbing');
+    expect(draft.scopeChecklist?.items.length).toBe(PLUMBING_CARDS.length);
+    expect(draft.scopeChecklist?.items.map(item => item.id)).toEqual(
+      PLUMBING_CARDS.map(card => card.itemId)
+    );
+    expect(draft.scopeMeasurements?.tradeWorkflowSource).toBe('standalone_trade');
+  });
+
+  it('bootstraps new-construction plumbing with the plumbing template key', () => {
+    const draft = createStandalonePlumbingDraft('Whole-house rough-in', {
+      plumbingWorkflowMode: 'new_construction',
+    });
+    expect(draft.scopeChecklist?.templateKey).toBe('plumbing');
+    expect(draft.scopeMeasurements?.plumbingWorkflowMode).toBe('new_construction');
   });
 
   it('normalizes Plan aliases without using living area', () => {
@@ -837,6 +866,99 @@ describe('plumbing canonical architecture', () => {
     );
     expect(next.scopeMeasurements?.plumbingScope).not.toEqual(
       expect.arrayContaining(['plumbing_rough', 'plumbing_trim'])
+    );
+  });
+});
+
+describe('plumbing notes routing', () => {
+  const gcNotesShouldNotRouteToPlumbing = [
+    'Hall bath remodel, 45 sqft. New tile floor, vanity, toilet, paint. Homeowner bought the plumbing fixtures.',
+    'Kitchen remodel with tile backsplash, new cabinets, counters, and paint.',
+    'Whole house remodel — new floors, paint, two bathrooms, and kitchen update.',
+    'Full home gut remodel. Demo, framing, MEP, drywall, paint, new kitchen and baths.',
+    '400 SF rear addition with full bath, kitchenette, and tie-in to existing HVAC.',
+    'Master bath refresh — new shower tile, vanity, toilet, mirror. Customer-supplied plumbing fixtures.',
+    'Powder room update, new vanity and toilet, paint only.',
+  ];
+
+  it('does not route bathroom, kitchen, home remodel, or addition notes to plumbing', () => {
+    for (const notes of gcNotesShouldNotRouteToPlumbing) {
+      expect(notesSuggestPlumbingBid(notes)).toBe(false);
+      expect(notesDescribeGeneralContractorProject(notes)).toBe(true);
+    }
+  });
+
+  it('detects explicit and trade-language plumbing notes', () => {
+    expect(
+      notesSuggestPlumbingBid(
+        'Whole-house plumbing rough-in for 2,400 SF new build. 12 rough-in points. 150 LF water line.'
+      )
+    ).toBe(true);
+    expect(notesSuggestPlumbingBid('Kitchen remodel with tile and vanity.')).toBe(
+      false
+    );
+    expect(
+      notesSuggestPlumbingBid(
+        'Hall bath remodel, 45 sqft. New tile floor, vanity, toilet, paint. Homeowner bought the plumbing fixtures.'
+      )
+    ).toBe(false);
+    expect(notesDescribeRoomRemodel('Hall bath remodel with tile and vanity')).toBe(
+      true
+    );
+    expect(
+      notesSuggestPlumbingBid(
+        'Bathroom remodel — need 80 LF sewer line repipe only, no tile.'
+      )
+    ).toBe(true);
+  });
+
+  it('infers workflow and room context from notes', () => {
+    expect(
+      inferPlumbingWorkflowModeFromNotes(
+        'Whole-house plumbing rough-in for 2,400 SF new build.'
+      )
+    ).toBe('new_construction');
+    expect(
+      inferPlumbingRoomContextFromNotes(
+        'Whole-house plumbing rough-in for 2,400 SF new build.'
+      )
+    ).toBe('whole_house');
+    expect(
+      inferPlumbingRoomContextFromNotes('Kitchen sink and dishwasher hookups.')
+    ).toBe('kitchen');
+  });
+
+  it('maps scope mode choices onto plumbing state', () => {
+    expect(plumbingStateFromNotesScopeMode('plumbing_kitchen')).toMatchObject({
+      tradeWorkflowSource: 'standalone_trade',
+      plumbingRoomContext: 'kitchen',
+      checklistMode: 'bathroom_remodel',
+    });
+    expect(
+      resolveNotesScopeModeFromPlumbingState({
+        tradeWorkflowSource: 'standalone_trade',
+        plumbingWorkflowMode: 'new_construction',
+        plumbingRoomContext: 'whole_house',
+      })
+    ).toBe('plumbing_new_construction');
+  });
+
+  it('bootstraps standalone plumbing drafts from whole-house notes', () => {
+    const notes =
+      'Whole-house plumbing rough-in for 2,400 SF new build. 12 plumbing rough-in points. 150 LF of water line.';
+    const draft = createStandalonePlumbingDraft(notes, {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      tradeWorkflowSource: 'standalone_trade',
+      plumbingWorkflowMode: inferPlumbingWorkflowModeFromNotes(notes),
+      plumbingRoomContext: inferPlumbingRoomContextFromNotes(notes),
+    });
+    expect(draft.scopeChecklist?.templateKey).toBe('plumbing');
+    expect(draft.scopeMeasurements?.tradeWorkflowSource).toBe('standalone_trade');
+    expect(draft.scopeMeasurements?.plumbingWorkflowMode).toBe('new_construction');
+    expect(draft.scopeMeasurements?.plumbingRoomContext).toBe('whole_house');
+    expect(buildStandalonePlumbingChecklistItems('new_construction').length).toBeGreaterThan(
+      4
     );
   });
 });

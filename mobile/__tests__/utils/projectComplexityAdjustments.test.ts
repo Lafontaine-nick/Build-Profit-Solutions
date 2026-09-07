@@ -7,6 +7,7 @@ import {
   inferProjectComplexitySettings,
   isMepUserEnteredLivingArea,
   isProjectComplexityEligibleItem,
+  plumbingWorkflowUsesLivingAreaComplexity,
   resolveStoryCountFromProjectContext,
   seedMepProjectComplexityFromPlanImport,
   shouldApplySquareFootageComplexity,
@@ -162,6 +163,42 @@ describe('projectComplexityAdjustments', () => {
       })
     ).toBe(true);
     expect(isMepUserEnteredLivingArea({ quickMeasurementSources: { floorAreaSqft: 'user_entered' } })).toBe(true);
+  });
+
+  test('bathroom remodel plumbing uses story-only complexity — not living SF', () => {
+    expect(plumbingWorkflowUsesLivingAreaComplexity('bathroom_remodel')).toBe(
+      false
+    );
+    expect(plumbingWorkflowUsesLivingAreaComplexity('new_construction')).toBe(
+      true
+    );
+    expect(
+      shouldApplySquareFootageComplexity({
+        plumbingWorkflowMode: 'bathroom_remodel',
+        floorAreaSqft: '3200',
+        quickMeasurementUserOverrides: { floorAreaSqft: true },
+      })
+    ).toBe(false);
+    expect(
+      inferProjectComplexitySettings({
+        plumbingWorkflowMode: 'bathroom_remodel',
+        floorAreaSqft: '3200',
+        storyCount: '2',
+        quickMeasurementUserOverrides: { floorAreaSqft: true },
+      })
+    ).toMatchObject({
+      squareFootage: null,
+      stories: 2,
+    });
+    expect(
+      calculateProjectComplexityMultiplier(
+        inferProjectComplexitySettings({
+          plumbingWorkflowMode: 'bathroom_remodel',
+          floorAreaSqft: '3200',
+          storyCount: '2',
+        })
+      ).totalMultiplier
+    ).toBe(1.1);
   });
 
   test('hydrates persisted measurements and confirm-scope input from planFacts', () => {

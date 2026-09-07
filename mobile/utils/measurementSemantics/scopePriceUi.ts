@@ -347,6 +347,10 @@ export function missingStatusDisplayLabel(
       return 'Needs paintable wall and ceiling SF';
     case 'appliances':
       return 'Needs install pricing';
+    case 'island':
+      return 'Needs island install count';
+    case 'island_demo':
+      return 'Needs island demo count';
     case 'tile_flooring':
     case 'flooring':
     case 'tile':

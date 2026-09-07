@@ -3,6 +3,8 @@ import {
   inferBathroomFixtureInstallFromIntent,
   inferExistingBathroomFixturesFromNotes,
   resolveBathroomFixtureDemoFromIntent,
+  resolveBathroomInstallCounterCount,
+  suggestBathroomFixtureDemoFromExistingInstall,
   syncBathroomFixtureQmScopeItems,
   syncPairedBathroomDemoFromInstall,
   bathroomFixtureScopeCardVisible,
@@ -105,6 +107,64 @@ describe('bathroomFixturesQm', () => {
   test('inferBathroomCountertopSqftFromNotes reads sqft near counter keywords', () => {
     expect(inferBathroomCountertopSqftFromNotes('Install 12 sqft quartz vanity top.')).toBe('12');
     expect(inferBathroomCountertopSqftFromNotes('No measurements here')).toBeNull();
+  });
+
+  test('resolveBathroomInstallCounterCount uses sqft or material type', () => {
+    expect(
+      resolveBathroomInstallCounterCount({
+        countertopSqft: '12',
+        materialType: null,
+      })
+    ).toBe(1);
+    expect(
+      resolveBathroomInstallCounterCount({
+        countertopSqft: '',
+        materialType: 'prefab_quartz_stone',
+      })
+    ).toBe(1);
+    expect(
+      resolveBathroomInstallCounterCount({
+        countertopSqft: '',
+        materialType: null,
+      })
+    ).toBeNull();
+  });
+
+  test('suggest demo rows when existing and new align', () => {
+    const demo = suggestBathroomFixtureDemoFromExistingInstall({
+      existing: { bathroomExistingVanityCount: 1, bathroomExistingCounterCount: 1 },
+      install: { bathroomInstallVanityCount: 1, bathroomInstallCounterCount: null },
+      demo: { bathroomDemoVanityCount: null, bathroomDemoCounterCount: null },
+      countertopSqft: '10',
+      materialType: 'custom_quartz_granite',
+    });
+    expect(demo.bathroomDemoVanityCount).toBe(1);
+    expect(demo.bathroomDemoCounterCount).toBe(1);
+  });
+
+  test('suggest demo respects manual overrides', () => {
+    const demo = suggestBathroomFixtureDemoFromExistingInstall({
+      existing: { bathroomExistingVanityCount: 1, bathroomExistingCounterCount: 1 },
+      install: { bathroomInstallVanityCount: 1, bathroomInstallCounterCount: 1 },
+      demo: { bathroomDemoVanityCount: null, bathroomDemoCounterCount: null },
+      countertopSqft: '10',
+      overrides: { bathroomDemoVanityCount: true },
+    });
+    expect(demo.bathroomDemoVanityCount).toBeNull();
+    expect(demo.bathroomDemoCounterCount).toBe(1);
+  });
+
+  test('clearing existing clears remove even with manual demo override', () => {
+    const demo = suggestBathroomFixtureDemoFromExistingInstall({
+      existing: { bathroomExistingVanityCount: null, bathroomExistingCounterCount: null },
+      install: { bathroomInstallVanityCount: 1, bathroomInstallCounterCount: 1 },
+      demo: { bathroomDemoVanityCount: 1, bathroomDemoCounterCount: 1 },
+      countertopSqft: '10',
+      materialType: 'custom_quartz_granite',
+      overrides: { bathroomDemoVanityCount: true, bathroomDemoCounterCount: true },
+    });
+    expect(demo.bathroomDemoVanityCount).toBeNull();
+    expect(demo.bathroomDemoCounterCount).toBeNull();
   });
 
   test('scope cards show when QM steppers are set', () => {

@@ -111,6 +111,7 @@ import {
   applyPhotoDetectionsToDraft,
   applyPhotoExistingFeaturesToDraft,
   applyPlanImportToDraft,
+  createStandalonePlumbingDraft,
   applyScopeAssumptionsToDraft,
   fetchEstimateDraftFromNotes,
   fetchSuggestedDraftSplits,
@@ -129,6 +130,12 @@ import {
   buildPaintingPdfMeasurementLines,
   stripConfirmedMeasurementsFromScopeDescription,
 } from '../../utils/subcontractorTrade/paintingPlanConvergence';
+import { buildWetAreaInstallPdfMeasurementCard } from '../../utils/wetAreaInstallPdfExport';
+import {
+  inferPlumbingRoomContextFromNotes,
+  inferPlumbingWorkflowModeFromNotes,
+  notesSuggestPlumbingBid,
+} from '../../utils/subcontractorTrade/plumbingPlanConvergence';
 import { sumStep3ReviewBudgetTotals } from '../../utils/benchmarkReasonablenessContext';
 import { getBidAllowanceLineItemsTotal } from '../../utils/estimateAllowances';
 import { getEstimateStep5MarginTargetFeedback } from '../../utils/estimateStep5MarginTarget';
@@ -251,7 +258,7 @@ import { buildProductNotes, supplierStoreFromProduct } from '../../lib/products/
 import { exportContractPdf } from '../../lib/proposals/exportContractPdf';
 import { resolveContractBranding, resolveBrandImageUrl, resolveContractCoverImageUrl, validateContractPreflight, getContractLanguageDefaults, mergeContractLanguageDraftsIntoOptions } from '../../lib/proposals/contractTemplate';
 import { applyDocumentContactEmailToProfile, getDocumentContactEmailAsync } from '@/lib/documentContactEmail';
-import { useProjectList } from '../../contexts/ProjectListContext';
+import { useProjectList } from '@/contexts/ProjectListContext';
 import { computeProfitForecast } from '../../src/lib/profitForecast';
 import { unifiedLeadService } from '../../services/unifiedLeadService';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -324,6 +331,7 @@ const PROJECT_TYPES = [
   { label: "New Build", value: "new_build" },
   { label: "Roofing", value: "roofing" },
   { label: "Deck & Patio", value: "deck_patio" },
+  { label: "Plumbing Bid", value: "plumbing" },
   { label: "Plumbing Service", value: "plumbing_service" },
   { label: "Landscaping", value: "landscaping" },
   { label: "Other", value: "other" },
@@ -339,6 +347,7 @@ const PROJECT_CATEGORY_SLUGS = {
   new_build: 'new-build',
   roofing: 'roofing',
   deck_patio: 'deck-patio',
+  plumbing: 'plumbing-bid',
   plumbing_service: 'plumbing-service',
   landscaping: 'landscaping',
   other: 'other',
@@ -378,6 +387,7 @@ const SECTIONS = {
   new_build: ["Sitework", "Foundation", "Framing", "Sheathing", "Roofing", "MEP Rough", "Insulation", "Drywall", "Finishes"],
   roofing: ["Demolition", "Roof Deck", "Underlayment", "Roofing", "Flashing", "Gutters"],
   deck_patio: ["Demolition", "Footings", "Framing", "Decking", "Railing", "Concrete & Pavers"],
+  plumbing: ["Rough-in", "Trim & Hookups", "Lines & Equipment", "Service", "Closeout"],
   plumbing_service: ["Diagnostics", "Plumbing", "Fixtures", "Water Heater", "Finish & Cleanup"],
   landscaping: ["Hardscape", "Softscape & Plants", "Irrigation", "Lighting"],
   other: ["Materials", "Equipment", "Permits", "Other"],
@@ -4903,20 +4913,34 @@ export default function EstimateGeneratorScreen() {
         : null,
     [aiDraft, aiDraftNotes]
   );
+  /** Keep Confirm scope mounted/hydrated while other AI flow screens are open. */
+  const prepareAiScopeWhileHidden = useMemo(() => {
+    if (!aiDraft || showAiScopeAssumptionsModal) return false;
+    if (draftNeedsScopeConfirmation(aiDraft)) {
+      return showAiInitialRevealModal || showAiBuilderModal;
+    }
+    if (
+      isComplexEstimateTier(aiDraft) &&
+      (aiDraft.scopeAssumptionsConfirmed || aiDraft.confirmedAssumptions?.length)
+    ) {
+      return showAiInitialRevealModal || showAiDraftReviewModal;
+    }
+    return false;
+  }, [
+    aiDraft,
+    showAiScopeAssumptionsModal,
+    showAiInitialRevealModal,
+    showAiBuilderModal,
+    showAiDraftReviewModal,
+  ]);
   const shouldMountAiScopeModal = useMemo(
     () =>
       Boolean(
         aiDraft &&
-          (showAiScopeAssumptionsModal ||
-            ((showAiInitialRevealModal || showAiBuilderModal) &&
-              draftNeedsScopeConfirmation(aiDraft)))
+          (showAiScopeAssumptionsModal || prepareAiScopeWhileHidden)
       ),
-    [aiDraft, showAiScopeAssumptionsModal, showAiInitialRevealModal, showAiBuilderModal]
+    [aiDraft, showAiScopeAssumptionsModal, prepareAiScopeWhileHidden]
   );
-  const prepareAiScopeWhileHidden =
-    (showAiInitialRevealModal || showAiBuilderModal) &&
-    !showAiScopeAssumptionsModal &&
-    Boolean(aiDraft && draftNeedsScopeConfirmation(aiDraft));
   const aiBuilderInitialPlanImport = useMemo(
     () => aiLastPlanImport || planImportPayloadFromDraft(aiDraft),
     [aiLastPlanImport, aiDraft]
@@ -5416,7 +5440,11 @@ export default function EstimateGeneratorScreen() {
         }
         if (!saved?.draft?.scopeChecklist) return;
         let restoredDraft = saved.draft;
-        if (saved.planImport?.estimatingMode === 'selected_trade') {
+        const shouldApplySavedPlanImport =
+          saved.planImport?.estimatingMode === 'selected_trade' ||
+          (saved.planImport?.tradeWorkflowSource === 'standalone_trade' &&
+            saved.planImport?.selectedTrade === 'plumbing');
+        if (shouldApplySavedPlanImport) {
           restoredDraft = applyPlanImportToDraft(restoredDraft, saved.planImport);
         }
         setAiDraft(restoredDraft);
@@ -5748,8 +5776,19 @@ export default function EstimateGeneratorScreen() {
       // Whole-home plan takeoffs must classify as ground_up — otherwise Confirm Scope
       // gets remodel cards (Demo / Framing or layout changes) instead of excavation,
       // flatwork, framing, MEP, exterior paint, etc.
+      const hasStructuredPlanTakeoff = Boolean(
+        effectivePlanImport &&
+          (Object.keys(effectivePlanImport.measurements || {}).length > 0 ||
+            (effectivePlanImport.rooms?.length || 0) > 0 ||
+            (effectivePlanImport.scopeDetections?.length || 0) > 0 ||
+            effectivePlanImport.planFacts ||
+            effectivePlanImport.buildingAreas)
+      );
+      const isStandalonePlumbingBid =
+        !hasStructuredPlanTakeoff && notesSuggestPlumbingBid(notes);
       const isSingleTradePlanImport =
-        effectivePlanImport?.estimatingMode === 'selected_trade';
+        effectivePlanImport?.estimatingMode === 'selected_trade' ||
+        isStandalonePlumbingBid;
       const notesForDraft = isSingleTradePlanImport
         ? notes
         : ensureGroundUpPlanNotes(
@@ -5760,23 +5799,33 @@ export default function EstimateGeneratorScreen() {
         console.warn('🤖 calling estimate-draft-from-notes', {
           notesLength: String(notesForDraft || '').length,
           templateCount: templates.length,
+          standalonePlumbing: isStandalonePlumbingBid,
         });
       }
       advanceGeneratePhase('building_scope');
-      let draft = await Promise.race([
-        fetchEstimateDraftFromNotes(notesForDraft, templates, authToken),
-        new Promise((_, reject) => {
-          setTimeout(
-            () =>
-              reject(
-                new Error(
-                  'Draft generation timed out. Confirm your phone is on the same Wi‑Fi as your Mac, then try again.'
-                )
-              ),
-            45000
-          );
-        }),
-      ]);
+      let draft = isStandalonePlumbingBid
+        ? createStandalonePlumbingDraft(notesForDraft, {
+            ...(effectivePlanImport || {}),
+            estimatingMode: 'selected_trade',
+            selectedTrade: 'plumbing',
+            tradeWorkflowSource: 'standalone_trade',
+            plumbingWorkflowMode: inferPlumbingWorkflowModeFromNotes(notes),
+            plumbingRoomContext: inferPlumbingRoomContextFromNotes(notes),
+          })
+        : await Promise.race([
+            fetchEstimateDraftFromNotes(notesForDraft, templates, authToken),
+            new Promise((_, reject) => {
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      'Draft generation timed out. Confirm your phone is on the same Wi‑Fi as your Mac, then try again.'
+                    )
+                  ),
+                45000
+              );
+            }),
+          ]);
       if (!isCurrentOperation()) return;
       void AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
       // Photo detections apply directly to the Step 2 checklist (structured vision
@@ -5794,12 +5843,13 @@ export default function EstimateGeneratorScreen() {
       }
       // Step 1 plan import: seed Quick measurements + draft scope detections.
       if (
-        (effectivePlanImport?.measurements && Object.keys(effectivePlanImport.measurements).length) ||
-        effectivePlanImport?.rooms?.length ||
-        effectivePlanImport?.scopeDetections?.length ||
-        effectivePlanImport?.planFacts ||
-        effectivePlanImport?.buildingAreas ||
-        effectivePlanImport?.tradeWorkflowSource === 'standalone_trade'
+        !isStandalonePlumbingBid &&
+        ((effectivePlanImport?.measurements && Object.keys(effectivePlanImport.measurements).length) ||
+          effectivePlanImport?.rooms?.length ||
+          effectivePlanImport?.scopeDetections?.length ||
+          effectivePlanImport?.planFacts ||
+          effectivePlanImport?.buildingAreas ||
+          effectivePlanImport?.tradeWorkflowSource === 'standalone_trade')
       ) {
         if (generateSteps.includes('applying_plan')) {
           advanceGeneratePhase('applying_plan');
@@ -6278,19 +6328,29 @@ export default function EstimateGeneratorScreen() {
   );
 
   const reopenConfirmScopeFromReview = useCallback(() => {
-    setShowAiScopeAssumptionsModal(true);
-    requestAnimationFrame(() => {
-      setAiDraft((prev) => {
-        if (!prev) return prev;
-        const withMeasurements = syncConfirmScopeMeasurementsFromPackages(prev);
-        latestScopeMeasurementsRef.current = withMeasurements.scopeMeasurements || null;
-        return syncDraftWithLatestScopeMeasurements(withMeasurements);
-      });
-    });
     setShowAiDraftReviewModal(false);
     setShowAiBuilderModal(false);
     setShowAiInitialRevealModal(false);
+    setShowAiScopeAssumptionsModal(true);
+    setAiDraft((prev) => {
+      if (!prev) return prev;
+      const withMeasurements = syncConfirmScopeMeasurementsFromPackages(prev);
+      latestScopeMeasurementsRef.current = withMeasurements.scopeMeasurements || null;
+      return syncDraftWithLatestScopeMeasurements(withMeasurements);
+    });
   }, [syncDraftWithLatestScopeMeasurements]);
+
+  /** Step 2 in the 3-step AI flow — Confirm scope (complex) or Initial estimate (simple). */
+  const returnToAiFlowStep2 = useCallback(() => {
+    if (aiDraft && isComplexEstimateTier(aiDraft)) {
+      reopenConfirmScopeFromReview();
+      return;
+    }
+    setShowAiInitialRevealModal(true);
+    setShowAiDraftReviewModal(false);
+    setShowAiScopeAssumptionsModal(false);
+    setShowAiBuilderModal(false);
+  }, [aiDraft, reopenConfirmScopeFromReview]);
 
   const handleConfirmScopeItemFromPricing = useCallback((_scopeName) => {
     aiDraftReviewResumeRef.current = false;
@@ -6305,8 +6365,14 @@ export default function EstimateGeneratorScreen() {
   }, [reopenConfirmScopeFromReview]);
 
   const handleInitialRevealBack = useCallback(() => {
+    // "Initial estimate" (post-scope) should return to Confirm scope, not Step 1.
+    // "Scope found" (pre-scope) still returns to Build with AI.
+    if (aiDraft && isComplexEstimateTier(aiDraft) && !draftNeedsScopeConfirmation(aiDraft)) {
+      returnToAiFlowStep2();
+      return;
+    }
     transitionToAiBuilder();
-  }, [transitionToAiBuilder]);
+  }, [aiDraft, returnToAiFlowStep2, transitionToAiBuilder]);
 
   const handlePriceScopeItemFromPricingModal = useCallback(
     (scopeName) => {
@@ -8512,7 +8578,10 @@ export default function EstimateGeneratorScreen() {
     if (slug.includes('new_build') || slug.includes('new-build') || slug.includes('newhome') || slug.includes('custom')) return 'new_build';
     if (slug.includes('roof')) return 'roofing';
     if (slug.includes('deck') || slug.includes('patio')) return 'deck_patio';
-    if (slug.includes('plumbing') || slug.includes('service')) return 'plumbing_service';
+    if (slug.includes('plumbing_service') || slug.includes('plumbing-service')) {
+      return 'plumbing_service';
+    }
+    if (slug.includes('plumbing')) return 'plumbing';
     if (slug.includes('landscape')) return 'landscaping';
     return 'other';
   }, []);
@@ -10850,6 +10919,13 @@ export default function EstimateGeneratorScreen() {
     const paintingMeasurementLines = buildPaintingPdfMeasurementLines(
       bidData.aiEstimateDraftSnapshot?.draft?.scopeMeasurements
     );
+    const wetAreaInstallCard = buildWetAreaInstallPdfMeasurementCard({
+      measurements: bidData.aiEstimateDraftSnapshot?.draft?.scopeMeasurements,
+      checklistItems: bidData.aiEstimateDraftSnapshot?.draft?.scopeChecklist?.items,
+      templateKey:
+        bidData.aiEstimateDraftSnapshot?.draft?.scopeChecklist?.templateKey ||
+        bidData.projectType,
+    });
     const strippedScope = stripConfirmedMeasurementsFromScopeDescription(
       bidData.scopeDescription || ''
     );
@@ -10857,6 +10933,7 @@ export default function EstimateGeneratorScreen() {
       paintingMeasurementLines.length > 0
         ? paintingMeasurementLines
         : strippedScope.measurementLines;
+    const measurementCards = wetAreaInstallCard ? [wetAreaInstallCard] : [];
     const scopeDescription = strippedScope.description;
     const scopeBullets = scopeDescription
       ? scopeDescription.split('\n').filter(line => line.trim())
@@ -10964,6 +11041,7 @@ export default function EstimateGeneratorScreen() {
         ownerResponsibilities: [],
         materialLineItems: materialLineItems,
         measurementLines,
+        measurementCards,
         laborLineItems: (bidData.laborLineItems || []).map(item => {
           const resolved = resolveLaborContractLineItem(item, bidData.sqft);
           return {
@@ -12823,7 +12901,7 @@ export default function EstimateGeneratorScreen() {
         return (
           <View style={[s.wideContainer, {
             paddingTop: 0,
-            paddingBottom: 32,
+            paddingBottom: 0,
             backgroundColor: 'transparent',
             marginBottom: ESTIMATE_FLOW_CARD_GAP,
             marginTop: 0,
@@ -22383,7 +22461,7 @@ export default function EstimateGeneratorScreen() {
     (walkthroughScrollPadBottom != null
       ? Math.max(walkthroughScrollPadBottom, tabScrollBottomInset)
       : step === 0
-        ? Math.max(260, tabScrollBottomInset)
+        ? tabScrollBottomInset
         : step === 1 ||
             step === 2 ||
             (step === 5 && (equipmentRentalFocused || markupPctFocused))
@@ -22456,7 +22534,7 @@ export default function EstimateGeneratorScreen() {
               paddingHorizontal: Platform.OS === 'web' ? 0 : estimateScrollPadH,
               paddingTop: Platform.OS === 'web' ? 0 : desktopWeb ? 24 : 32,
               paddingBottom: estimatesScrollContentPadBottom,
-              flexGrow: 1,
+              ...(step !== 0 ? { flexGrow: 1 } : null),
             },
             webScrollContentCap,
           ]}
@@ -23490,14 +23568,7 @@ export default function EstimateGeneratorScreen() {
             setShowAiSavedPricingModal(false);
             setShowAiRoughPricingModal(false);
             setShowAiManualPricingModal(false);
-            if (isComplexEstimateTier(aiDraft)) {
-              reopenConfirmScopeFromReview();
-            } else {
-              setShowAiInitialRevealModal(true);
-              setShowAiDraftReviewModal(false);
-              setShowAiScopeAssumptionsModal(false);
-              setShowAiBuilderModal(false);
-            }
+            returnToAiFlowStep2();
           }
         }}
         onClose={() => {

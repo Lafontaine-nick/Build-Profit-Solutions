@@ -27,6 +27,7 @@ import {
   BRAND_FRAME_GRADIENT_START,
 } from '@/constants/brandFrameGradient';
 import { FORM_KEYBOARD_SCROLL_PROPS } from '@/constants/keyboardScrollProps';
+import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 import { useKeyboard } from '@/services/MobileOptimization';
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
@@ -863,6 +864,7 @@ export default function AIEstimateManualPricingModal({
         ]}
       >
         {shell}
+        <TabScreenBottomScrollFade />
       </View>
     );
   }

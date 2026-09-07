@@ -206,6 +206,10 @@ describe('scopeQuickMeasurements', () => {
       'fixtureRepairCount',
       'waterLineLf',
       'sewerLineLf',
+      'plumbingFixturesHardwareCount',
+      'waterHeaterCount',
+      'gasLineLf',
+      'gasApplianceConnectionCount',
     ]);
     expect(keys).not.toEqual(
       expect.arrayContaining([
@@ -301,6 +305,10 @@ describe('scopeQuickMeasurements', () => {
       'fixtureRepairCount',
       'waterLineLf',
       'sewerLineLf',
+      'plumbingFixturesHardwareCount',
+      'waterHeaterCount',
+      'gasLineLf',
+      'gasApplianceConnectionCount',
       'serviceCallCount',
       'drainCleaningCount',
     ]);

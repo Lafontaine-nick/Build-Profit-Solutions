@@ -57,13 +57,42 @@ function positiveCount(value: unknown): number | null {
   return Math.round(n);
 }
 
-/** Photo/notes single-bath jobs split tile walls vs tile pan steppers. */
+/**
+ * Split tile walls vs pan steppers — bathroom remodels and plan-style jobs
+ * (ground-up, addition, baths on plan). Whole-home keeps the legacy combined steppers.
+ */
 export function isSplitTileWetAreaCounts(params: {
   templateKey?: string | null;
   wholeHomeLayout?: boolean;
+  planBathRoomCount?: number;
 }): boolean {
   if (params.wholeHomeLayout) return false;
-  return String(params.templateKey || '').toLowerCase() === 'bathroom';
+  const key = String(params.templateKey || '').toLowerCase();
+  if (key === 'bathroom' || key === 'ground_up' || key === 'addition') return true;
+  return (params.planBathRoomCount ?? 0) > 0;
+}
+
+/** Legacy plan export stored combined tile showers in bathCount — seed pan stepper too. */
+export function migrateLegacyPlanTileShowerCounts(
+  counts: WetAreaStepperCounts,
+  params: {
+    templateKey?: string | null;
+    wholeHomeLayout?: boolean;
+    planBathRoomCount?: number;
+  }
+): WetAreaStepperCounts {
+  if (!isSplitTileWetAreaCounts(params)) return counts;
+  const key = String(params.templateKey || '').toLowerCase();
+  const legacyPlanExport =
+    key === 'ground_up' || key === 'addition' || (params.planBathRoomCount ?? 0) > 0;
+  if (
+    legacyPlanExport &&
+    positiveCount(counts.bathCount) &&
+    !positiveCount(counts.tilePanBathCount)
+  ) {
+    return { ...counts, tilePanBathCount: counts.bathCount };
+  }
+  return counts;
 }
 
 /** Max quantity on bathroom quick-measurement steppers (multi-shower / multi-fixture). */
@@ -247,6 +276,7 @@ export function hydrateWetAreaStepperCounts(params: {
   notes?: string | null;
   templateKey?: string | null;
   wholeHomeLayout?: boolean;
+  planBathRoomCount?: number;
 }): WetAreaStepperCounts {
   const split = isSplitTileWetAreaCounts(params);
   const base: WetAreaStepperCounts = {
@@ -259,8 +289,9 @@ export function hydrateWetAreaStepperCounts(params: {
     showerDoorCount: positiveCount(params.measurements.showerDoorCount),
   };
   if (!split) return base;
+  const migrated = migrateLegacyPlanTileShowerCounts(base, params);
   const choice = params.wetAreaInstallChoiceId;
-  if (choice === 'staying' || choice === 'not_in_scope') return base;
+  if (choice === 'staying' || choice === 'not_in_scope') return migrated;
 
   const notesDriven = Boolean(String(params.notes ?? '').trim());
   const inferred = inferWetAreaInstallSteppersFromIntent({
@@ -273,7 +304,7 @@ export function hydrateWetAreaStepperCounts(params: {
     bathFloorTileIncluded: params.bathFloorTileIncluded,
     glassDoorIncluded: params.glassDoorIncluded,
   });
-  return applyNotesInferredWetAreaInstallSteppers(base, inferred, { notes: params.notes });
+  return applyNotesInferredWetAreaInstallSteppers(migrated, inferred, { notes: params.notes });
 }
 
 /** Primary wet_area_install choice for legacy single-select sync. */

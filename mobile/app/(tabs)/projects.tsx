@@ -10,13 +10,11 @@ import {
   TouchableOpacity,
   Modal,
   InteractionManager,
-  Animated,
   LayoutAnimation,
   Platform,
   UIManager,
   Dimensions,
   BackHandler,
-  PanResponder,
   useWindowDimensions,
 } from 'react-native';
 
@@ -24,7 +22,6 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
@@ -66,6 +63,10 @@ import { TabScreenHeader } from '@/components/ui/TabScreenHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
 import TabScreenBottomScrollFade from '@/components/layout/TabScreenBottomScrollFade';
 import { tabFlowCardStyle } from '@/components/layout/TabFlowCard';
+import {
+  ProjectsStatusBanner,
+} from '@/components/projects/ProjectsStatusBanner';
+import { PROJECT_ACTIVATED_BANNER_BODY } from '@/utils/projectsStatusBannerCopy';
 import { AI_FLOW_CARD_BG_DARK, ESTIMATE_FLOW_NESTED_CARD_BG_DARK } from '@/utils/estimateFlowCardStyle';
 import { formatMoneyUSD, formatMoneyCompact, formatDateShort } from '@/utils/formatters';
 /** UI-only: polish unknown location strings without changing stored data. */
@@ -376,102 +377,12 @@ export default function ProjectsScreen() {
     () => getStyles(Colors, darkMode, tabScrollBottomInset, desktopWeb, insets.bottom),
     [Colors, darkMode, tabScrollBottomInset, desktopWeb, insets.bottom]
   );
-  const { activeProjects, estimates, deleteProject, convertBidToProject, updateProject, refreshProjects } = useProjectList();
+  const { activeProjects, estimates, deleteProject, convertBidToProject, refreshProjects } = useProjectList();
   const params = useLocalSearchParams();
   const [activeTab, setActiveTab] = useState<'active' | 'submitted' | 'completed'>(() => {
     return tabFromRouteParam(params.tab) ?? 'active';
   });
   const [showSubmitBanner, setShowSubmitBanner] = useState(false);
-  const submitBannerTranslateY = useRef(new Animated.Value(0)).current;
-  const submitBannerOpacity = useRef(new Animated.Value(0)).current;
-  const submitBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const submitBannerPanStartY = useRef(0);
-  const submitBannerClosingRef = useRef(false);
-
-  const dismissSubmitBannerAnimated = useCallback(() => {
-    if (submitBannerClosingRef.current) return;
-    submitBannerClosingRef.current = true;
-    if (submitBannerTimerRef.current) {
-      clearTimeout(submitBannerTimerRef.current);
-      submitBannerTimerRef.current = null;
-    }
-    Animated.parallel([
-      Animated.timing(submitBannerTranslateY, {
-        toValue: -72,
-        duration: 260,
-        useNativeDriver: true,
-      }),
-      Animated.timing(submitBannerOpacity, {
-        toValue: 0,
-        duration: 220,
-        useNativeDriver: true,
-      }),
-    ]).start(({ finished }) => {
-      submitBannerClosingRef.current = false;
-      if (finished) setShowSubmitBanner(false);
-    });
-  }, [submitBannerTranslateY, submitBannerOpacity]);
-
-  const submitBannerPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_, g) =>
-          Math.abs(g.dy) > Math.abs(g.dx) && g.dy < -8,
-        onPanResponderGrant: () => {
-          submitBannerTranslateY.stopAnimation((v) => {
-            submitBannerPanStartY.current = v;
-          });
-        },
-        onPanResponderMove: (_, g) => {
-          const next = Math.min(0, submitBannerPanStartY.current + g.dy);
-          submitBannerTranslateY.setValue(next);
-        },
-        onPanResponderRelease: (_, g) => {
-          if (g.dy < -36 || g.vy < -0.55) {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            dismissSubmitBannerAnimated();
-          } else {
-            Animated.spring(submitBannerTranslateY, {
-              toValue: 0,
-              useNativeDriver: true,
-              tension: 78,
-              friction: 11,
-            }).start();
-          }
-        },
-      }),
-    [submitBannerTranslateY, dismissSubmitBannerAnimated]
-  );
-
-  useEffect(() => {
-    if (!showSubmitBanner) return;
-    submitBannerClosingRef.current = false;
-    submitBannerTranslateY.setValue(-52);
-    submitBannerOpacity.setValue(0);
-    Animated.parallel([
-      Animated.spring(submitBannerTranslateY, {
-        toValue: 0,
-        useNativeDriver: true,
-        tension: 72,
-        friction: 12,
-      }),
-      Animated.timing(submitBannerOpacity, {
-        toValue: 1,
-        duration: 280,
-        useNativeDriver: true,
-      }),
-    ]).start();
-    submitBannerTimerRef.current = setTimeout(() => {
-      dismissSubmitBannerAnimated();
-    }, 4000);
-    return () => {
-      if (submitBannerTimerRef.current) {
-        clearTimeout(submitBannerTimerRef.current);
-        submitBannerTimerRef.current = null;
-      }
-    };
-  }, [showSubmitBanner, dismissSubmitBannerAnimated, submitBannerTranslateY, submitBannerOpacity]);
 
   const [projectDataOverrides, setProjectDataOverrides] = useState<Record<string, any>>({});
   const [timelineProgress, setTimelineProgress] = useState<Record<string, number>>({});
@@ -832,14 +743,18 @@ export default function ProjectsScreen() {
     } else if (activeTab === 'completed') {
       return allProjects.filter(p => p.status === 'Completed' || p.rawStatus === 'completed');
     } else {
-      return allProjects.filter(
-        (p) =>
+      return allProjects.filter((p) => {
+        const raw = String(p.rawStatus || '')
+          .toLowerCase()
+          .replace(/\s+/g, '_');
+        return (
           p.status === 'Active' ||
-          p.rawStatus === 'won' ||
-          p.rawStatus === 'in_progress' ||
-          p.rawStatus === 'in-progress' ||
-          p.rawStatus === 'active'
-      );
+          raw === 'won' ||
+          raw === 'in_progress' ||
+          raw === 'in-progress' ||
+          raw === 'active'
+        );
+      });
     }
   }, [allProjects, activeTab]);
 
@@ -850,97 +765,6 @@ export default function ProjectsScreen() {
   const [markAsWonModalVisible, setMarkAsWonModalVisible] = useState(false);
   const [selectedProjectForWon, setSelectedProjectForWon] = useState<any>(null);
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
-  const [successProjectName, setSuccessProjectName] = useState('');
-  const successBannerTranslateY = useRef(new Animated.Value(0)).current;
-  const successBannerOpacity = useRef(new Animated.Value(0)).current;
-  const successBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const successBannerPanStartY = useRef(0);
-  const successBannerClosingRef = useRef(false);
-
-  const dismissSuccessBannerAnimated = useCallback(() => {
-    if (successBannerClosingRef.current) return;
-    successBannerClosingRef.current = true;
-    if (successBannerTimerRef.current) {
-      clearTimeout(successBannerTimerRef.current);
-      successBannerTimerRef.current = null;
-    }
-    Animated.parallel([
-      Animated.timing(successBannerTranslateY, {
-        toValue: -72,
-        duration: 260,
-        useNativeDriver: true,
-      }),
-      Animated.timing(successBannerOpacity, {
-        toValue: 0,
-        duration: 220,
-        useNativeDriver: true,
-      }),
-    ]).start(({ finished }) => {
-      successBannerClosingRef.current = false;
-      if (finished) setShowSuccessBanner(false);
-    });
-  }, [successBannerTranslateY, successBannerOpacity]);
-
-  const successBannerPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_, g) =>
-          Math.abs(g.dy) > Math.abs(g.dx) && g.dy < -8,
-        onPanResponderGrant: () => {
-          successBannerTranslateY.stopAnimation((v) => {
-            successBannerPanStartY.current = v;
-          });
-        },
-        onPanResponderMove: (_, g) => {
-          const next = Math.min(0, successBannerPanStartY.current + g.dy);
-          successBannerTranslateY.setValue(next);
-        },
-        onPanResponderRelease: (_, g) => {
-          if (g.dy < -36 || g.vy < -0.55) {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            dismissSuccessBannerAnimated();
-          } else {
-            Animated.spring(successBannerTranslateY, {
-              toValue: 0,
-              useNativeDriver: true,
-              tension: 78,
-              friction: 11,
-            }).start();
-          }
-        },
-      }),
-    [successBannerTranslateY, dismissSuccessBannerAnimated]
-  );
-
-  useEffect(() => {
-    if (!showSuccessBanner) return;
-    successBannerClosingRef.current = false;
-    successBannerTranslateY.setValue(-52);
-    successBannerOpacity.setValue(0);
-    Animated.parallel([
-      Animated.spring(successBannerTranslateY, {
-        toValue: 0,
-        useNativeDriver: true,
-        tension: 72,
-        friction: 12,
-      }),
-      Animated.timing(successBannerOpacity, {
-        toValue: 1,
-        duration: 280,
-        useNativeDriver: true,
-      }),
-    ]).start();
-    successBannerTimerRef.current = setTimeout(() => {
-      dismissSuccessBannerAnimated();
-    }, 4000);
-    return () => {
-      if (successBannerTimerRef.current) {
-        clearTimeout(successBannerTimerRef.current);
-        successBannerTimerRef.current = null;
-      }
-    };
-  }, [showSuccessBanner, dismissSuccessBannerAnimated, successBannerTranslateY, successBannerOpacity]);
 
   const {
     hydrated: wtHydrated,
@@ -1160,19 +984,29 @@ export default function ProjectsScreen() {
 
   const confirmMarkAsWon = async () => {
     if (!selectedProjectForWon) return;
-    const projectName = selectedProjectForWon.name;
     const projectId = selectedProjectForWon.id;
+    const rawProject = selectedProjectForWon.rawProject ?? null;
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setMarkAsWonModalVisible(false);
     setSelectedProjectForWon(null);
 
+    skipNextRefreshRef.current = true;
+    const cancelSkipRefresh = setTimeout(() => {
+      skipNextRefreshRef.current = false;
+    }, 5000);
+
     try {
       const walkthroughDone = wtHydrated && !shouldShowFirstProject;
-      if (!walkthroughDone) {
-        await setPendingActiveProjectWalkthroughProjectId(projectId);
-        setApWtPendingProjectId(projectId);
+      const didConvert = await convertBidToProject(projectId, rawProject);
+      if (!didConvert) {
+        throw new Error('Project not found');
       }
+      if (!walkthroughDone) {
+        setApWtPendingProjectId(projectId);
+        void setPendingActiveProjectWalkthroughProjectId(projectId);
+      }
+      setTimelineProgress((prev) => ({ ...prev, [projectId]: 0 }));
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setActiveTab('active');
       try {
@@ -1180,27 +1014,17 @@ export default function ProjectsScreen() {
       } catch {
         /* ignore */
       }
-      convertBidToProject(projectId);
-      updateProject(projectId, { progress: 0, overallProgressPct: 0 });
-      setTimelineProgress((prev) => ({ ...prev, [projectId]: 0 }));
-      try {
-        await AsyncStorage.setItem(
-          `bps.project.${projectId}.progress`,
-          JSON.stringify({
-            progress: 0,
-            overallProgressPct: 0,
-            updatedAt: new Date().toISOString(),
-          })
-        );
-      } catch {
-        /* ignore */
-      }
 
-      setSuccessProjectName(projectName);
+      setShowSubmitBanner(false);
       setShowSuccessBanner(true);
     } catch (error) {
       console.error('Error marking project as won:', error);
       Alert.alert('Error', 'Failed to mark project as won');
+    } finally {
+      clearTimeout(cancelSkipRefresh);
+      setTimeout(() => {
+        skipNextRefreshRef.current = false;
+      }, 2000);
     }
   };
 
@@ -1304,6 +1128,31 @@ export default function ProjectsScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+
+        {(showSubmitBanner && !showSuccessBanner) || showSuccessBanner ? (
+          <View style={[styles.wideContainer, styles.statusBannerStrip]}>
+            <ProjectsStatusBanner
+              visible={showSubmitBanner && !showSuccessBanner}
+              variant="submitted"
+              title="Bid submitted"
+              body="Mark as won when the client accepts."
+              darkMode={darkMode}
+              Colors={Colors}
+              onDismiss={() => setShowSubmitBanner(false)}
+              bodyLines={2}
+            />
+            <ProjectsStatusBanner
+              visible={showSuccessBanner}
+              variant="activated"
+              title="Project activated"
+              body={PROJECT_ACTIVATED_BANNER_BODY}
+              darkMode={darkMode}
+              Colors={Colors}
+              onDismiss={() => setShowSuccessBanner(false)}
+              bodyLines={1}
+            />
+          </View>
+        ) : null}
 
         {/* ALL PROJECTS CARD — highlight ring while active-project walkthrough intro is showing */}
         <FirstEstimateWalkthroughHighlight active={activeProjectWalkthroughIntroVisible}>
@@ -1592,86 +1441,6 @@ export default function ProjectsScreen() {
       </ScrollView>
       <TabScreenBottomScrollFade />
       </View>
-
-      {/* Submit bid — floating glass toast (auto-dismiss + swipe up) */}
-      {showSubmitBanner ? (
-        <Animated.View
-          pointerEvents="box-none"
-          style={[
-            styles.submitBannerWrap,
-            {
-              top: insets.top + 10,
-              opacity: submitBannerOpacity,
-              transform: [{ translateY: submitBannerTranslateY }],
-            },
-          ]}
-          {...submitBannerPanResponder.panHandlers}
-        >
-          <BlurView
-            intensity={darkMode ? 38 : 44}
-            tint={darkMode ? 'dark' : 'light'}
-            style={styles.submitBannerBlur}
-          >
-            <LinearGradient
-              colors={['rgba(34, 197, 94, 0.55)', 'rgba(45, 255, 196, 0.2)']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.submitBannerTopAccent}
-            />
-            <View style={styles.submitBannerInner}>
-              <View style={styles.submitBannerIconWrap}>
-                <Ionicons name="checkmark-circle" size={17} color="#4ade80" />
-              </View>
-              <View style={styles.submitBannerTextCol}>
-                <Text style={styles.submitBannerTitle}>Bid submitted</Text>
-                <Text style={styles.submitBannerBody}>
-                  Ready to convert into a project.
-                </Text>
-              </View>
-            </View>
-          </BlurView>
-        </Animated.View>
-      ) : null}
-
-      {/* Project activated — same glass toast as bid submitted (auto-dismiss + swipe up) */}
-      {showSuccessBanner ? (
-        <Animated.View
-          pointerEvents="box-none"
-          style={[
-            styles.submitBannerWrap,
-            {
-              top: insets.top + 10,
-              opacity: successBannerOpacity,
-              transform: [{ translateY: successBannerTranslateY }],
-            },
-          ]}
-          {...successBannerPanResponder.panHandlers}
-        >
-          <BlurView
-            intensity={darkMode ? 38 : 44}
-            tint={darkMode ? 'dark' : 'light'}
-            style={styles.submitBannerBlur}
-          >
-            <LinearGradient
-              colors={['rgba(34, 197, 94, 0.55)', 'rgba(45, 255, 196, 0.2)']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.submitBannerTopAccent}
-            />
-            <View style={styles.submitBannerInner}>
-              <View style={styles.submitBannerIconWrap}>
-                <Ionicons name="checkmark-circle" size={17} color="#4ade80" />
-              </View>
-              <View style={styles.submitBannerTextCol}>
-                <Text style={styles.submitBannerTitle}>Project activated</Text>
-                <Text style={styles.submitBannerBody} numberOfLines={2}>
-                  {successProjectName} is now a live project.
-                </Text>
-              </View>
-            </View>
-          </BlurView>
-        </Animated.View>
-      ) : null}
 
       {/* Mark as Won Confirmation Modal (Bottom Sheet) */}
       <Modal
@@ -2102,8 +1871,13 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
   tabsContainer: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 10,
     paddingHorizontal: 4,
+  },
+  statusBannerStrip: {
+    marginTop: 0,
+    marginBottom: 8,
+    gap: 8,
   },
   tab: {
     flex: 1,
@@ -2157,75 +1931,11 @@ const getStyles = (Colors: any, darkMode: boolean, scrollBottomInset: number = 1
     fontSize: 15,
     fontWeight: '700',
   },
-  /** Walkthrough layer above ScrollView; below toast banners (3000) so glass toasts stay crisp */
+  /** Walkthrough layer above ScrollView content */
   activeProjectWalkthroughLayer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 2500,
     elevation: 2500,
-  },
-  submitBannerWrap: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    /** Above FirstEstimateWalkthroughSheetShell (zIndex 2000) so dim/blur doesn’t flatten the glass toast */
-    zIndex: 3000,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: darkMode ? 0.35 : 0.12,
-        shadowRadius: 16,
-      },
-      android: {
-        elevation: 3000,
-      },
-    }),
-  },
-  submitBannerBlur: {
-    borderRadius: 14,
-    overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: darkMode ? 'rgba(74, 222, 128, 0.22)' : 'rgba(34, 197, 94, 0.18)',
-    backgroundColor: darkMode ? 'rgba(15, 23, 42, 0.65)' : 'rgba(255, 255, 255, 0.78)',
-  },
-  submitBannerTopAccent: {
-    height: 2,
-    width: '100%',
-    opacity: 0.95,
-  },
-  submitBannerInner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 11,
-    gap: 10,
-  },
-  submitBannerIconWrap: {
-    marginTop: 1,
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  submitBannerTextCol: {
-    flex: 1,
-    minWidth: 0,
-  },
-  submitBannerTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: -0.2,
-    color: darkMode ? Colors.text : '#0f172a',
-    marginBottom: 2,
-  },
-  submitBannerBody: {
-    fontSize: 13,
-    fontWeight: '500',
-    lineHeight: 17,
-    color: darkMode ? 'rgba(248, 250, 252, 0.78)' : 'rgba(51, 65, 85, 0.92)',
   },
   modalOverlay: {
     flex: 1,

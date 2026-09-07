@@ -36,6 +36,15 @@ import {
   filterLaunchSubscriptionPlans,
   isTeamWorkspaceReleased,
 } from '@/constants/releaseFlags';
+import { useAppleBilling } from '@/hooks/useAppleBilling';
+import { FOUNDING_PROFESSIONAL_FEATURES, FOUNDING_PROFESSIONAL_FALLBACK_PRICE } from '@/constants/billingCatalog';
+import {
+  formatApplePackageDisplayPrice,
+  getAppleBillingSetupBlocker,
+  getAppleSubscriptionSetupMessage,
+  getFoundingMonthlyPackage,
+  hasAppleEntitlement,
+} from '@/services/appleBillingService';
 
 function planShortName(name: string): string {
   return name.replace(/\s+Plan\s*$/i, '').trim() || name;
@@ -58,6 +67,7 @@ interface SubscriptionPlan {
   tag?: string;
   cta?: string;
   recommended?: boolean;
+  displayPrice?: string;
 }
 
 interface SubscriptionPlansModalProps {
@@ -82,9 +92,40 @@ export default function SubscriptionPlansModal({
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { user: clerkUser } = useUser();
+  const appleBilling = useAppleBilling();
   const insets = useSafeAreaInsets();
   const { width: layoutWidth } = useWindowDimensions();
-  const [plans, setPlans] = useState<SubscriptionPlan[]>(() => stripeService.getMockSubscriptionPlans());
+  const iosBillingSetupBlocker = useMemo(
+    () => (Platform.OS === 'ios' ? getAppleBillingSetupBlocker() : null),
+    [],
+  );
+  const iosProductsUnavailable =
+    Platform.OS === 'ios' &&
+    !iosBillingSetupBlocker &&
+    !getFoundingMonthlyPackage(appleBilling.packages) &&
+    !appleBilling.loading;
+  const foundingPlanBase = useMemo(
+    () => ({
+      id: 'founding',
+      name: 'Founding Professional',
+      features: FOUNDING_PROFESSIONAL_FEATURES,
+      stripePriceId: 'apple-app-store',
+      description: 'Full platform access for one contractor account.',
+      tag: 'All features included',
+      cta: 'Subscribe',
+      recommended: true,
+    }),
+    [],
+  );
+  const [plans, setPlans] = useState<SubscriptionPlan[]>(() =>
+    Platform.OS === 'ios'
+      ? [{
+          ...foundingPlanBase,
+          price: 99,
+          displayPrice: FOUNDING_PROFESSIONAL_FALLBACK_PRICE,
+        }]
+      : stripeService.getMockSubscriptionPlans()
+  );
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
@@ -121,6 +162,7 @@ export default function SubscriptionPlansModal({
   }, []);
 
   useEffect(() => {
+    if (Platform.OS === 'ios') return;
     let cancelled = false;
     stripeService.fetchSubscriptionPlans().then((next) => {
       if (!cancelled && next.length > 0) {
@@ -133,6 +175,29 @@ export default function SubscriptionPlansModal({
   }, []);
 
   useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+
+    const monthlyPkg = getFoundingMonthlyPackage(appleBilling.packages);
+    const displayPrice =
+      formatApplePackageDisplayPrice(monthlyPkg, 'monthly') ?? FOUNDING_PROFESSIONAL_FALLBACK_PRICE;
+
+    setPlans([
+      {
+        ...foundingPlanBase,
+        price: monthlyPkg?.product.price ?? 99,
+        displayPrice,
+      },
+    ]);
+  }, [appleBilling.packages, foundingPlanBase]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    if (!visible && mode !== 'screen') return;
+    void appleBilling.refresh();
+  }, [appleBilling.refresh, mode, visible]);
+
+  useEffect(() => {
+    if (Platform.OS === 'ios') return;
     if (!visible && mode !== 'screen') return;
     let cancelled = false;
     stripeService.fetchSubscriptionPlans().then((next) => {
@@ -146,6 +211,11 @@ export default function SubscriptionPlansModal({
   }, [visible, mode]);
 
   useEffect(() => {
+    if (Platform.OS === 'ios') {
+      setCurrentPlanId(appleBilling.entitled ? 'founding' : null);
+      setDetectingCurrentPlan(false);
+      return;
+    }
     const fetchCurrentPlan = async () => {
       setDetectingCurrentPlan(true);
       try {
@@ -180,7 +250,7 @@ export default function SubscriptionPlansModal({
     } else if (!userEmail && !storedEmail) {
       setDetectingCurrentPlan(false);
     }
-  }, [userEmail, storedEmail, plans]);
+  }, [appleBilling.entitled, userEmail, storedEmail, plans]);
 
   // Align tokens with payment/index.tsx (Payment & Billing)
   const theme = useMemo(
@@ -244,6 +314,24 @@ export default function SubscriptionPlansModal({
       // Haptic feedback (only on mobile)
       if (Platform.OS !== 'web') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+
+      if (Platform.OS === 'ios') {
+        const monthlyPkg = getFoundingMonthlyPackage(appleBilling.packages);
+        if (!monthlyPkg) {
+          Alert.alert('Subscription unavailable', getAppleSubscriptionSetupMessage());
+          return;
+        }
+
+        const result = await appleBilling.purchaseFoundingMonthly();
+        if (result.info && hasAppleEntitlement(result.info)) {
+          Alert.alert('Subscription active', 'Your Founding Professional access is now active.');
+          onUpgradeComplete?.();
+          handleClose();
+        } else if (result.error) {
+          Alert.alert('Purchase failed', result.error);
+        }
+        return;
       }
 
       // Stripe requires https:// URLs. Native cannot use the marketing domain unless it hosts this app.
@@ -665,9 +753,17 @@ export default function SubscriptionPlansModal({
 
           <View style={styles.priceBlock}>
             <View style={styles.priceRow}>
-              <Text style={[styles.priceCurrency, { color: theme.subtext }]}>$</Text>
-              <Text style={[styles.priceAmount, { color: theme.text }]}>{formatDisplayPrice(plan.price)}</Text>
-              <Text style={[styles.pricePeriod, { color: theme.subtext }]}>/month</Text>
+              {plan.displayPrice ? (
+                <Text style={[styles.priceAmount, { color: theme.text }]}>{plan.displayPrice}</Text>
+              ) : (
+                <>
+                  <Text style={[styles.priceCurrency, { color: theme.subtext }]}>$</Text>
+                  <Text style={[styles.priceAmount, { color: theme.text }]}>
+                    {formatDisplayPrice(plan.price)}
+                  </Text>
+                  <Text style={[styles.pricePeriod, { color: theme.subtext }]}>/month</Text>
+                </>
+              )}
             </View>
             {badge ? (
               <View
@@ -724,7 +820,12 @@ export default function SubscriptionPlansModal({
               }
               handleSubscribe(plan);
             }}
-            disabled={loading || detectingCurrentPlan || currentPlanId === plan.id}
+            disabled={
+              loading ||
+              detectingCurrentPlan ||
+              currentPlanId === plan.id ||
+              (Platform.OS === 'ios' && !getFoundingMonthlyPackage(appleBilling.packages))
+            }
             activeOpacity={0.88}
           >
             {detectingCurrentPlan && !currentPlanId ? (
@@ -765,6 +866,22 @@ export default function SubscriptionPlansModal({
         ]}
       >
         {plans.map(renderPlan)}
+
+        {Platform.OS === 'ios' && (iosBillingSetupBlocker || iosProductsUnavailable) ? (
+          <View
+            style={[
+              styles.setupNotice,
+              {
+                backgroundColor: darkMode ? 'rgba(250, 204, 21, 0.1)' : 'rgba(234, 179, 8, 0.12)',
+                borderColor: darkMode ? 'rgba(250, 204, 21, 0.35)' : 'rgba(202, 138, 4, 0.35)',
+              },
+            ]}
+          >
+            <Text style={[styles.setupNoticeText, { color: theme.text }]}>
+              {iosBillingSetupBlocker || getAppleSubscriptionSetupMessage()}
+            </Text>
+          </View>
+        ) : null}
 
         <View
           style={[
@@ -1104,6 +1221,16 @@ const styles = StyleSheet.create({
   },
   ctaCurrentLabel: {
     marginLeft: 8,
+  },
+  setupNotice: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 14,
+  },
+  setupNoticeText: {
+    fontSize: 13,
+    lineHeight: 19,
   },
   footer: {
     borderRadius: 20,

@@ -15,6 +15,18 @@ describe('scopeMeasurementParser', () => {
     expect(parsed.backsplashSqft).toBe(45);
   });
 
+  test('Smith kitchen: backsplash sqft not stolen from earlier countertop sqft', () => {
+    const notes =
+      'Kitchen remodel at the Smith house. Tear out old cabinets and counters. New cabinets about 18 linear feet, quartz counters roughly 55 sqft, tile backsplash 28 sqft. Customer is handling flooring themselves.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+      projectType: 'kitchen',
+    });
+    expect(parsed.cabinetLf).toBe(18);
+    expect(parsed.countertopSqft).toBe(55);
+    expect(parsed.backsplashSqft).toBe(28);
+  });
+
   test('Martinez kitchen one line: paint sqft not stolen from backsplash', () => {
     const notes =
       'Kitchen remodel Martinez, Backsplash tile 45 sqft - material $8/sqft, labor $12/sqft, Paint walls/ceiling 320 sqft - $1.50/sqft labor, Demo $850';

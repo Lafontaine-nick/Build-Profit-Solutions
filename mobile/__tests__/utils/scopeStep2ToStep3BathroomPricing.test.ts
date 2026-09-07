@@ -80,7 +80,7 @@ function bathroomChecklistItems(): ScopeChecklistItem[] {
 
 function bathroomDraftWithAppliedPricing(): EstimateAiDraft {
   const draft0 = {
-    scopeChecklist: { templateKey: 'bathroom' },
+    scopeChecklist: { templateKey: 'bathroom', items: bathroomChecklistItems() },
     projectType: 'bathroom',
     estimateTier: 'room_remodel',
     scopeAssumptionsConfirmed: true,

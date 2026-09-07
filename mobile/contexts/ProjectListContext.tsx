@@ -137,7 +137,7 @@ interface ProjectListContextType {
 
   // Active Projects
   activeProjects: UnifiedProject[];
-  convertBidToProject: (bidId: string) => void;
+  convertBidToProject: (bidId: string, fallback?: UnifiedProject | null) => Promise<boolean>;
   updateProjectProgress: (projectId: string, progress: number, actualCost?: number) => void;
 
   // Dashboard metrics
@@ -162,9 +162,22 @@ interface ProjectListContextType {
   projectsReady: boolean;
 }
 
-const ProjectListContext = createContext<ProjectListContextType | undefined>(
-  undefined
-);
+/** Survives Metro Fast Refresh — a reloaded module must not create a second context instance. */
+const PROJECT_LIST_CONTEXT_KEY = '__bps_ProjectListContext_v1';
+
+function getProjectListContext(): React.Context<ProjectListContextType | undefined> {
+  const scope = globalThis as typeof globalThis & {
+    [PROJECT_LIST_CONTEXT_KEY]?: React.Context<ProjectListContextType | undefined>;
+  };
+  if (!scope[PROJECT_LIST_CONTEXT_KEY]) {
+    scope[PROJECT_LIST_CONTEXT_KEY] = createContext<ProjectListContextType | undefined>(
+      undefined
+    );
+  }
+  return scope[PROJECT_LIST_CONTEXT_KEY];
+}
+
+const ProjectListContext = getProjectListContext();
 
 const sanitizePositiveNumber = (value: any): number | null => {
   if (value == null) return null;
@@ -759,6 +772,47 @@ const estimateDataHasLineItems = (value: unknown): boolean => {
   );
 };
 
+/** Higher rank = further along the project lifecycle. */
+const projectStatusRank = (status?: string | null): number => {
+  const st = normalizeStatus(status);
+  if (st === 'completed' || st === 'complete' || st === 'done') return 50;
+  if (st === 'won' || st === 'in_progress' || st === 'in-progress' || st === 'active') return 40;
+  if (st === 'bid_submitted' || st === 'submitted') return 30;
+  if (st === 'estimate' || st === 'draft' || st === 'planning') return 20;
+  if (st === 'lost' || st === 'cancelled' || st === 'canceled') return 10;
+  return 0;
+};
+
+/** Prefer the furthest-along lifecycle row when reconciling overlapping local snapshots. */
+function pickNewerLocalProjectRows(...sources: UnifiedProject[][]): UnifiedProject[] {
+  const byId = new Map<string, UnifiedProject>();
+  for (const list of sources) {
+    if (!Array.isArray(list)) continue;
+    for (const p of list) {
+      const id = normalizeProjectId(p.id);
+      if (!id) continue;
+      const existing = byId.get(id);
+      if (!existing) {
+        byId.set(id, p);
+        continue;
+      }
+      const existingRank = projectStatusRank(existing.status);
+      const nextRank = projectStatusRank(p.status);
+      if (nextRank > existingRank) {
+        byId.set(id, p);
+        continue;
+      }
+      if (nextRank < existingRank) continue;
+      const existingTime = new Date(existing.updatedAt || 0).getTime();
+      const nextTime = new Date(p.updatedAt || 0).getTime();
+      if (nextTime >= existingTime) {
+        byId.set(id, p);
+      }
+    }
+  }
+  return dedupeProjectsById(Array.from(byId.values()));
+}
+
 /** Merge server rows with local-only drafts and preserve completed status from the app. */
 const mergeLocalAndBackend = (
   local: UnifiedProject[],
@@ -823,6 +877,20 @@ const mergeLocalAndBackend = (
           localP.projectData?.completedAt ||
           serverP.completedAt ||
           serverP.projectData?.completedAt,
+        estimateData: localP.estimateData || serverP.estimateData,
+        projectData: { ...(serverP.projectData || {}), ...(localP.projectData || {}) },
+      };
+    }
+
+    const localRank = projectStatusRank(localP.status);
+    const serverRank = projectStatusRank(serverP.status);
+    if (localRank > serverRank) {
+      return {
+        ...serverP,
+        ...localP,
+        id: serverP.id,
+        status: localP.status,
+        updatedAt: new Date().toISOString(),
         estimateData: localP.estimateData || serverP.estimateData,
         projectData: { ...(serverP.projectData || {}), ...(localP.projectData || {}) },
       };
@@ -1087,8 +1155,10 @@ const ProjectListProviderCore = ({
       ) {
         return false;
       }
-      setProjects(next);
-      if (next.length > 0) setProjectListSeed(next, accountUserId);
+      const reconciled = pickNewerLocalProjectRows(next, projectsRef.current);
+      setProjects(reconciled);
+      projectsRef.current = reconciled;
+      if (reconciled.length > 0) setProjectListSeed(reconciled, accountUserId);
       return true;
     };
 
@@ -1246,7 +1316,22 @@ const ProjectListProviderCore = ({
         try {
           const backendProjects = await listBackendProjects();
           const fromServer = backendProjects.map(mapBackendProjectToUnified);
-          const merged = mergeLocalAndBackend(localParsed, fromServer);
+          let storageFresh: UnifiedProject[] = [];
+          try {
+            const freshSaved = await AsyncStorage.getItem(listKey);
+            if (freshSaved) {
+              const parsed = JSON.parse(freshSaved);
+              if (Array.isArray(parsed)) storageFresh = parsed;
+            }
+          } catch {
+            storageFresh = [];
+          }
+          const localBase = pickNewerLocalProjectRows(
+            localParsed,
+            storageFresh,
+            projectsRef.current
+          );
+          const merged = mergeLocalAndBackend(localBase, fromServer);
 
           let syncedRows = fromServer;
           if (merged.length > 0) {
@@ -1271,15 +1356,19 @@ const ProjectListProviderCore = ({
           const mapped = (Array.isArray(syncedRows) ? syncedRows : backendProjects).map(
             mapBackendProjectToUnified
           );
-          const reconciled = mergeLocalAndBackend(localParsed, mapped);
+          const reconciled = mergeLocalAndBackend(
+            pickNewerLocalProjectRows(localBase, projectsRef.current),
+            mapped
+          );
           const withKeys = await hydrateProjectDataFromStorageKeys(reconciled);
           const normalized = dedupeProjectsById(
             await applyProgressAndDatesFromStorage(withKeys)
           );
 
           if (loadSeq !== projectsLoadSeqRef.current) return;
-          commitProjects(normalized);
-          await AsyncStorage.setItem(listKey, JSON.stringify(normalized));
+          if (commitProjects(normalized)) {
+            await AsyncStorage.setItem(listKey, JSON.stringify(projectsRef.current));
+          }
           await setActiveProjectUserId(accountUserId);
           setIsHydrated(true);
           markPortfolioLoaded();
@@ -1294,7 +1383,9 @@ const ProjectListProviderCore = ({
       }
 
       if (localParsed.length > 0) {
-        const hydratedProjects = await hydrateProjectDataFromStorageKeys(localParsed);
+        const hydratedProjects = await hydrateProjectDataFromStorageKeys(
+          pickNewerLocalProjectRows(localParsed, projectsRef.current)
+        );
         const normalized = dedupeProjectsById(
           await applyProgressAndDatesFromStorage(hydratedProjects)
         );
@@ -1322,7 +1413,9 @@ const ProjectListProviderCore = ({
 
   const saveProjects = async () => {
     try {
-      await AsyncStorage.setItem(storageKeyRef.current, JSON.stringify(projects));
+      const snapshot = projectsRef.current;
+      if (!Array.isArray(snapshot) || snapshot.length === 0) return;
+      await AsyncStorage.setItem(storageKeyRef.current, JSON.stringify(snapshot));
       if (accountUserId) {
         await setActiveProjectUserId(accountUserId);
       }
@@ -1371,7 +1464,7 @@ const ProjectListProviderCore = ({
     () =>
       projects.filter((p) => {
         const status = normalizeStatus(p.status);
-        return status === 'estimate' || status === 'bid_submitted';
+        return status === 'estimate' || status === 'bid_submitted' || status === 'submitted';
       }),
     [projects]
   );
@@ -1443,28 +1536,118 @@ const ProjectListProviderCore = ({
   };
 
   // Convert won bid to active project
-  const convertBidToProject = (bidId: string) => {
-    setProjects(prev => {
-      const found = prev.find(p => p.id === bidId);
-      if (!found) return prev;
-      
-      // Check if any project matches and update it
-      let updated = false;
-      const updatedProjects = prev.map(p => {
-        if (p.id === bidId) {
-          updated = true;
-          return {
-            ...p,
-            status: 'won' as const,
+  const convertBidToProject = async (
+    bidId: string,
+    fallback?: UnifiedProject | null
+  ): Promise<boolean> => {
+    const targetId = normalizeProjectId(bidId);
+    if (!targetId) return false;
+
+    let nextProjects: UnifiedProject[] = [];
+    let didUpdate = false;
+
+    const buildWonProjectRow = (source: UnifiedProject, now: string): UnifiedProject => {
+      const nextEstimateData = source.estimateData
+        ? { ...source.estimateData, status: 'in_progress' as const }
+        : source.estimateData;
+      return {
+        ...source,
+        id: targetId,
+        status: 'in_progress' as const,
+        progress: 0,
+        overallProgressPct: 0,
+        estimateData: nextEstimateData,
+        updatedAt: now,
+      };
+    };
+
+    const resolveSource = (list: UnifiedProject[]): UnifiedProject | undefined => {
+      const found = list.find((p) => normalizeProjectId(p.id) === targetId);
+      if (found) return found;
+      if (fallback && normalizeProjectId(fallback.id) === targetId) return fallback;
+      return undefined;
+    };
+
+    const convertList = (list: UnifiedProject[]): UnifiedProject[] | null => {
+      const source = resolveSource(list);
+      if (!source) return null;
+      const now = new Date().toISOString();
+      const row = buildWonProjectRow(source, now);
+      const hasRow = list.some((p) => normalizeProjectId(p.id) === targetId);
+      return hasRow
+        ? list.map((p) => (normalizeProjectId(p.id) === targetId ? row : p))
+        : dedupeProjectsById([row, ...list]);
+    };
+
+    suppressBackendSyncRef.current = true;
+    if (syncTimerRef.current) {
+      clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = null;
+    }
+
+    setProjects((prev) => {
+      const base = prev.length > 0 ? prev : projectsRef.current;
+      const converted = convertList(base);
+      if (!converted) return prev;
+      nextProjects = converted;
+      didUpdate = true;
+      projectsRef.current = nextProjects;
+      return nextProjects;
+    });
+
+    if (!didUpdate) {
+      try {
+        const saved = await AsyncStorage.getItem(storageKeyRef.current);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            const converted = convertList(parsed);
+            if (converted) {
+              nextProjects = converted;
+              didUpdate = true;
+              setProjects(converted);
+              projectsRef.current = converted;
+            }
+          }
+        }
+      } catch (error) {
+        if (__DEV__) {
+          console.warn('convertBidToProject: storage retry failed', error);
+        }
+      }
+    }
+
+    if (!didUpdate || nextProjects.length === 0) {
+      suppressBackendSyncRef.current = false;
+      return false;
+    }
+
+    const persistConvertedProject = async () => {
+      try {
+        await AsyncStorage.setItem(storageKeyRef.current, JSON.stringify(nextProjects));
+        if (accountUserId) {
+          await setActiveProjectUserId(accountUserId);
+        }
+        await AsyncStorage.setItem(
+          `bps.project.${targetId}.progress`,
+          JSON.stringify({
             progress: 0,
             overallProgressPct: 0,
             updatedAt: new Date().toISOString(),
-          };
+          })
+        );
+        if (accountUserId && !workspaceMemberModeRef.current) {
+          await pushProjectsToBackend(nextProjects);
         }
-        return p;
-      });
-      return updatedProjects;
-    });
+      } catch (error) {
+        console.error('Error persisting won project:', error);
+      } finally {
+        suppressBackendSyncRef.current = false;
+      }
+    };
+
+    void persistConvertedProject();
+    return true;
   };
 
   // Update project progress
@@ -1773,11 +1956,15 @@ const ProjectListProviderCore = ({
       }
       if (!Array.isArray(base) || base.length === 0) return;
 
-      const hydrated = await hydrateProjectDataFromStorageKeys(base);
+      const hydrated = await hydrateProjectDataFromStorageKeys(
+        pickNewerLocalProjectRows(base, projectsRef.current)
+      );
       const normalized = dedupeProjectsById(
         await applyProgressAndDatesFromStorage(hydrated)
       );
-      setProjects(normalized);
+      const reconciled = pickNewerLocalProjectRows(normalized, projectsRef.current);
+      setProjects(reconciled);
+      projectsRef.current = reconciled;
     } catch (e) {
       if (__DEV__) {
         console.warn('rehydrateProjectsFromStorage failed', e);
@@ -1824,8 +2011,10 @@ const ProjectListProviderCore = ({
       ) {
         return false;
       }
-      setProjects(next);
-      if (next.length > 0) setProjectListSeed(next, accountUserId);
+      const reconciled = pickNewerLocalProjectRows(next, projectsRef.current);
+      setProjects(reconciled);
+      projectsRef.current = reconciled;
+      if (reconciled.length > 0) setProjectListSeed(reconciled, accountUserId);
       return true;
     };
 
@@ -1886,17 +2075,18 @@ const ProjectListProviderCore = ({
       const fromServer = backendProjects.map(mapBackendProjectToUnified);
 
       let localBase = projectsRef.current;
-      if (!localBase.length) {
+      try {
         const saved = await AsyncStorage.getItem(storageKeyRef.current);
         if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed)) localBase = parsed;
-          } catch {
-            localBase = [];
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            localBase = pickNewerLocalProjectRows(localBase, parsed);
           }
         }
+      } catch {
+        /* ignore */
       }
+      localBase = pickNewerLocalProjectRows(localBase, projectsRef.current);
 
       const merged = mergeLocalAndBackend(localBase, fromServer);
       if (accountUserId && merged.length > 0) {
@@ -1907,14 +2097,21 @@ const ProjectListProviderCore = ({
         ? await listBackendProjects()
         : backendProjects;
       const remapped = refreshedBackend.map(mapBackendProjectToUnified);
-      const reconciled = mergeLocalAndBackend(localBase, remapped);
+      const reconciled = mergeLocalAndBackend(
+        pickNewerLocalProjectRows(localBase, projectsRef.current),
+        remapped
+      );
       const withKeys = await hydrateProjectDataFromStorageKeys(reconciled);
       const normalized = dedupeProjectsById(
         await applyProgressAndDatesFromStorage(withKeys)
       );
 
-      commitRefreshProjects(normalized);
-      await AsyncStorage.setItem(storageKeyRef.current, JSON.stringify(normalized));
+      if (commitRefreshProjects(normalized)) {
+        await AsyncStorage.setItem(
+          storageKeyRef.current,
+          JSON.stringify(projectsRef.current)
+        );
+      }
       if (accountUserId) {
         await setActiveProjectUserId(accountUserId);
       }

@@ -6,7 +6,6 @@ import {
 import {
   BATHROOM_DRYWALL_PATCH_REF_SQFT,
   DRYWALL_PAINT_PRICING_DISCLAIMER,
-  DRYWALL_PAINT_WET_AREA_NOTE,
   formatPaintRepairQuantityLine,
   PAINT_REPAIR_FULL_WALL_EXCLUDED,
   PAINT_REPAIR_MATCH_ASSUMPTION,
@@ -18,6 +17,11 @@ import {
   type BathroomPaintRepairScope,
 } from '@/utils/bathroomDrywallPaintScope';
 import { roundInteriorPaintPriceToNearest25 } from '@/utils/bathroomInteriorPaintPricing';
+import {
+  bathroomPaintRepairSeverityMultiplier,
+  resolveBathroomPaintRepairSeverity,
+  type BathroomPaintRepairSeverity,
+} from '@/utils/bathroomPaintRepairFlow';
 import { checklistItemInScope } from '@/utils/scopeItemQuantities';
 import type { ScopeItemSuggestedPricing } from '@/utils/scopeItemQuantities';
 
@@ -73,13 +77,19 @@ export function paintRepairScopeFromPricingRecord(
 export function buildPaintRepairPricingDetails(params: {
   sqft: number;
   scope: 'affected_area';
+  severity?: BathroomPaintRepairSeverity | string | null;
 }) {
+  const severityMultiplier = bathroomPaintRepairSeverityMultiplier(
+    resolveBathroomPaintRepairSeverity(params.severity)
+  );
   const band = AFFECTED_AREA_BAND;
-  const total = scaleBathroomRepairAllowance(band.total, params.sqft);
+  const total = round2(
+    scaleBathroomRepairAllowance(band.total, params.sqft) * severityMultiplier
+  );
   const { material, labor } = splitMaterialLabor(total, 0.25);
   const range = {
-    low: scaleBathroomRepairAllowance(band.range.low, params.sqft),
-    high: scaleBathroomRepairAllowance(band.range.high, params.sqft),
+    low: round2(scaleBathroomRepairAllowance(band.range.low, params.sqft) * severityMultiplier),
+    high: round2(scaleBathroomRepairAllowance(band.range.high, params.sqft) * severityMultiplier),
   };
 
   return {
@@ -94,7 +104,6 @@ export function buildPaintRepairPricingDetails(params: {
     excludesNote: PAINT_REPAIR_FULL_WALL_EXCLUDED,
     planningRangeLabel: `Planning range: $${range.low.toLocaleString()}–$${range.high.toLocaleString()}`,
     matchAssumption: PAINT_REPAIR_MATCH_ASSUMPTION,
-    wetAreaNote: DRYWALL_PAINT_WET_AREA_NOTE,
     disclaimer: DRYWALL_PAINT_PRICING_DISCLAIMER,
     includes: [...PAINT_INCLUDES],
     excludes: [...PAINT_EXCLUDES],
@@ -113,6 +122,7 @@ export function resolveBathroomPaintRepairSuggestedPricing(params: {
   interiorPaintSurface?: string | null;
   interiorPaintCondition?: string | null;
   useCombinedAssembly?: boolean | null;
+  severity?: string | null;
 }): ScopeItemSuggestedPricing | undefined {
   const items = params.checklistItems;
   if (!items?.length) return undefined;
@@ -164,7 +174,11 @@ export function resolveBathroomPaintRepairSuggestedPricing(params: {
     return { fill: null, comparison: null };
   }
 
-  const details = buildPaintRepairPricingDetails({ sqft, scope: 'affected_area' });
+  const details = buildPaintRepairPricingDetails({
+    sqft,
+    scope: 'affected_area',
+    severity: params.severity,
+  });
 
   let helper = `${details.includesScopeLine}. ${PAINT_REPAIR_MATCH_ASSUMPTION}`;
 
@@ -175,7 +189,7 @@ export function resolveBathroomPaintRepairSuggestedPricing(params: {
     materialSource: 'national_average',
     laborSource: 'national_average',
     rateSourceLabel: 'Suggested budget split · Based on selected remodel conditions',
-    helper: `${helper} ${DRYWALL_PAINT_WET_AREA_NOTE}`,
+    helper,
     mode: 'suggested_price',
     basis: { quantity: 1, unit: 'each' },
     comparisonRange: details.range,
@@ -234,7 +248,7 @@ export function resolveBathroomPaintRepairFullRoomPricing(params: {
       materialSource: 'national_average',
       laborSource: 'national_average',
       rateSourceLabel: 'Suggested budget split · Full-room paint (patch included)',
-      helper: `Full-room paint on ${sqft} SF at $${FULL_ROOM_PAINT_PATCH_INCLUDED_RATE}/sq. ft. ($${FULL_ROOM_PAINT_PATCH_INCLUDED_MINIMUM.toLocaleString()} minimum). Drywall patch, texture, primer, and paint included. ${DRYWALL_PAINT_WET_AREA_NOTE}`,
+      helper: `Full-room paint on ${sqft} SF at $${FULL_ROOM_PAINT_PATCH_INCLUDED_RATE}/sq. ft. ($${FULL_ROOM_PAINT_PATCH_INCLUDED_MINIMUM.toLocaleString()} minimum). Drywall patch, texture, primer, and paint included.`,
       mode: 'suggested_price',
       basis: { quantity: sqft, unit: 'sqft' },
       comparisonRange: {
@@ -345,7 +359,7 @@ export function buildBathroomSeparateDrywallPaintSuggestedBlock(params: {
     rateSourceLabel: drywall
       ? 'Suggested budget split · Separate patch/texture and paint lines'
       : 'Suggested budget split · Full-room paint (patch included)',
-    helper: `${parts.join(' · ')}. Apply once to price all lines. ${DRYWALL_PAINT_WET_AREA_NOTE}`,
+    helper: `${parts.join(' · ')}. Apply once to price all lines.`,
     mode: 'suggested_price',
     basis: { quantity: params.patchSqft, unit: 'sqft' },
     comparisonRange: range,

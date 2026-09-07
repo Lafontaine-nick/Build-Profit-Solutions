@@ -167,7 +167,7 @@ describe('confirmScopeStep2Pricing tiers', () => {
 
   it('uses template-aware missing labels for bathroom drywall patch', () => {
     expect(resolveStep2MissingStatusLabel('drywall', 'bathroom')).toBe('Needs patch/repair SF');
-    expect(resolveStep2MissingStatusLabel('drywall', 'kitchen')).toMatch(/wall and ceiling/i);
+    expect(resolveStep2MissingStatusLabel('drywall', 'kitchen')).toBe('Needs patch/repair SF');
   });
 
   it('routes bathroom drywall pricing only after patch SF is entered', () => {
@@ -205,6 +205,41 @@ describe('confirmScopeStep2Pricing tiers', () => {
     expect(viaMain.fill?.total).toBe(400);
   });
 
+  it('routes kitchen drywall patch pricing from localized $400 @ 36 SF reference', () => {
+    const input = initialScopeMeasurementInputExtended({
+      scopeChecklist: { templateKey: 'kitchen' },
+    } as never);
+
+    const withQty = resolveStep2ComponentSuggestedPricing({
+      itemId: 'drywall',
+      templateKey: 'kitchen',
+      measurementsInput: input,
+      resolved: { quantity: 80, unit: 'sqft', quantitySource: 'user_entered' },
+    });
+    expect(withQty?.fill?.total).toBe(889);
+    expect(withQty?.fill?.material).toBe(222.25);
+    expect(withQty?.fill?.labor).toBe(666.75);
+    expect(withQty?.fill?.basis).toEqual({ quantity: 80, unit: 'sqft' });
+    expect(withQty?.fill?.pricingRecordId).toBe(
+      'bps_national:drywall:kitchen_patch_texture:80sf'
+    );
+
+    const viaMain = resolveScopeItemSuggestedPricing(
+      'drywall',
+      input,
+      'kitchen',
+      { quantity: 80, unit: 'sqft', quantitySource: 'user_entered' }
+    );
+    expect(viaMain.fill?.total).toBe(889);
+  });
+
+  it('classifies kitchen drywall patch as takeoff_required', () => {
+    expect(resolveStep2PricingTier('drywall', 'kitchen').tier).toBe('takeoff_required');
+    expect(resolveStep2PricingTier('drywall', 'kitchen').benchmarkUnitHint).toMatch(
+      /\$400 localized patch/
+    );
+  });
+
   it('classifies bathroom paint repair as prompt_first with patch SF takeoff', () => {
     expect(resolveStep2PricingTier('paint_repair', 'bathroom').tier).toBe('prompt_first');
     expect(step2TierNeedsInlineTakeoffEntry('paint_repair', 'bathroom', { pricingReady: false })).toBe(
@@ -219,6 +254,41 @@ describe('confirmScopeStep2Pricing tiers', () => {
     expect(step2TierNeedsInlineTakeoffEntry('drywall', 'bathroom', { pricingReady: false })).toBe(
       true
     );
+  });
+
+  it('classifies kitchen backsplash demo as prompt_first with difficulty tiers', () => {
+    const tier = resolveStep2PricingTier('backsplash_demo', 'kitchen');
+    expect(tier.tier).toBe('prompt_first');
+    expect(tier.promptKey).toBe('backsplash_demo_difficulty');
+    expect(step2PricingPromptKey('backsplash_demo', 'kitchen')).toBe(
+      'backsplash_demo_difficulty'
+    );
+    expect(tier.benchmarkUnitHint).toMatch(/\$7\.50\/SF/);
+
+    const input = initialScopeMeasurementInputExtended({
+      scopeChecklist: { templateKey: 'kitchen' },
+    } as never);
+    const light = resolveStep2ComponentSuggestedPricing({
+      itemId: 'backsplash_demo',
+      templateKey: 'kitchen',
+      measurementsInput: {
+        ...input,
+        kitchenBacksplashDemoDifficulty: 'light',
+      },
+      resolved: { quantity: 28, unit: 'sqft' },
+    });
+    expect(light?.fill?.total).toBe(126);
+
+    const extensive = resolveStep2ComponentSuggestedPricing({
+      itemId: 'backsplash_demo',
+      templateKey: 'kitchen',
+      measurementsInput: {
+        ...input,
+        kitchenBacksplashDemoDifficulty: 'extensive',
+      },
+      resolved: { quantity: 28, unit: 'sqft' },
+    });
+    expect(extensive?.fill?.total).toBe(336);
   });
 
   it('classifies bathroom glass door as prompt_first with style tiers', () => {
@@ -294,7 +364,7 @@ describe('confirmScopeStep2Pricing tiers', () => {
     expect(afterFullRoom?.fill?.total).toBe(1400);
   });
 
-  it('does not count an AI-inferred paint option as contractor-selected', () => {
+  it('does not count an AI-inferred paint option as contractor-selected without Paint SF', () => {
     const input = initialScopeMeasurementInputExtended({
       scopeChecklist: { templateKey: 'bathroom' },
       scopeMeasurements: {
@@ -319,6 +389,68 @@ describe('confirmScopeStep2Pricing tiers', () => {
     });
 
     expect(result).toEqual({ fill: null, comparison: null });
+  });
+
+  it('prices combined patch from Paint measurement when scope is ai-inferred', () => {
+    const input = initialScopeMeasurementInputExtended({
+      scopeChecklist: { templateKey: 'bathroom' },
+      scopeMeasurements: {
+        wallPaintSqft: '100',
+        bathroomPaintRepairScope: 'affected_area',
+        bathroomPaintRepairScopeSource: 'ai_inferred',
+        bathroomPaintRepairSeverity: 'moderate',
+        bathroomDrywallPaintUseCombinedAssembly: true,
+      },
+    } as never);
+    const checklistItems = [
+      { id: 'paint_repair', state: 'included', inputType: 'yes_no' },
+      { id: 'shower_tile', state: 'included', inputType: 'yes_no' },
+    ];
+
+    const combined = resolveStep2ComponentSuggestedPricing({
+      itemId: 'paint_repair',
+      templateKey: 'bathroom',
+      measurementsInput: {
+        ...input,
+        itemQuantities: {
+          paint_repair: { quantity: '100', unit: 'sqft', quantitySource: 'inferred' },
+        },
+      },
+      resolved: { quantity: 100, unit: 'sqft', quantitySource: 'inferred' },
+      pricingContext: { checklistItems },
+    });
+    expect(combined?.fill?.total).toBe(Math.round((700 * 100) / 36));
+    expect(combined?.fill?.pricingRecordId).toBe(
+      'bps_national:drywall_paint:bathroom_combined:moderate:100sf'
+    );
+  });
+
+  it('auto-prices full room when Paint measurement exceeds room threshold', () => {
+    const input = initialScopeMeasurementInputExtended({
+      scopeChecklist: { templateKey: 'bathroom' },
+      scopeMeasurements: {
+        wallPaintSqft: '320',
+        bathroomPaintRepairScope: 'full_room',
+        bathroomPaintRepairScopeSource: 'ai_inferred',
+      },
+    } as never);
+
+    const result = resolveStep2ComponentSuggestedPricing({
+      itemId: 'paint_repair',
+      templateKey: 'bathroom',
+      measurementsInput: {
+        ...input,
+        itemQuantities: {
+          paint_repair: { quantity: '320', unit: 'sqft', quantitySource: 'inferred' },
+        },
+      },
+      resolved: { quantity: 320, unit: 'sqft', quantitySource: 'inferred' },
+      pricingContext: {
+        checklistItems: [{ id: 'paint_repair', state: 'included', inputType: 'yes_no' }],
+      },
+    });
+    expect(result?.fill?.total).toBe(1400);
+    expect(result?.fill?.basis).toEqual({ quantity: 320, unit: 'sqft' });
   });
 
   it('routes combined patch + paint through paint_repair when SF is entered', () => {

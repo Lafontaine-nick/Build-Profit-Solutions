@@ -359,6 +359,26 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     quantityHelper:
       "Assuming 1 appliance set to remove. Edit count if multiple.",
   },
+  island: {
+    defaultUnit: "each",
+    allowedUnits: ["each", "allowance", "lump_sum"],
+    defaultQuantity: 1,
+    requiresUserQuantity: false,
+    pricingMethod: "each",
+    quantityHelper:
+      "Set, level, join and anchor island base — cabinet boxes (LF) and countertop (sqft) are separate.",
+    missingMessage: "Set island install count on Quick measurements.",
+  },
+  island_demo: {
+    defaultUnit: "each",
+    allowedUnits: ["each", "lump_sum", "allowance"],
+    defaultQuantity: 1,
+    requiresUserQuantity: false,
+    pricingMethod: "each",
+    quantityHelper:
+      "Detach, remove, and haul island cabinet/base — no utility disconnect. Priced per island from Demo / tear-out steppers.",
+    missingMessage: "Set island demo count on Quick measurements.",
+  },
   // Kitchen remodel
   wall_demo: {
     defaultUnit: "lump_sum",
@@ -1097,6 +1117,11 @@ const PACKAGE_NAME_TO_RULE_KEY = [
     key: "island",
   },
   {
+    test:
+      /\b(?:demo|remove|tear[\s-]?out)\b[^.]{0,40}\b(?:island\s+(?:cabinet|base)|island)\b|\b(?:island\s+(?:cabinet|base)|island)\b[^.]{0,40}\b(?:demo|remove|tear[\s-]?out)\b/i,
+    key: "island_demo",
+  },
+  {
     test: /\bcabinets?\s*(?:&|and|\/)\s*counters?|\bcounters?\s*(?:&|and|\/)\s*cabinets?/i,
     key: "cabinets_counters",
   },
@@ -1425,6 +1450,26 @@ const KITCHEN_CHECKLIST_QUANTITY_RULES = {
     quantityHelper: "Enter kitchen floor sqft for flooring removal.",
     missingMessage: "Enter kitchen floor demo sqft.",
   },
+  island: {
+    defaultUnit: "each",
+    allowedUnits: ["each", "allowance", "lump_sum"],
+    defaultQuantity: 1,
+    requiresUserQuantity: false,
+    pricingMethod: "each",
+    quantityHelper:
+      "Set, level, join and anchor island base — cabinet boxes (LF) and countertop (sqft) are separate.",
+    missingMessage: "Set island install count on Quick measurements.",
+  },
+  island_demo: {
+    defaultUnit: "each",
+    allowedUnits: ["each", "lump_sum", "allowance"],
+    defaultQuantity: 1,
+    requiresUserQuantity: false,
+    pricingMethod: "each",
+    quantityHelper:
+      "Detach, remove, and haul island cabinet/base — no utility disconnect. Priced per island from Demo / tear-out steppers.",
+    missingMessage: "Set island demo count on Quick measurements.",
+  },
 };
 
 /** Bathroom shares checklist ids with kitchen — shower demo vs bath floor demo are separate lines. */
@@ -1449,6 +1494,15 @@ const BATHROOM_CHECKLIST_QUANTITY_RULES = {
     quantityHelper:
       "Uses bathroom floor sqft — often includes thinset removal (separate from shower demo).",
     missingMessage: "Enter bathroom floor demo sqft.",
+  },
+  paint_repair: {
+    defaultUnit: "sqft",
+    allowedUnits: ["sqft", "each", "allowance", "lump_sum"],
+    requiresUserQuantity: true,
+    pricingMethod: "unit_rate",
+    quantityHelper:
+      "Enter patch SF (affected area) or room wall/ceiling SF (full room), pick paint scope above, then apply pricing. Quick measurements Paint can pre-fill room SF.",
+    missingMessage: "Enter SF and select paint scope.",
   },
   plumbing_rough: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.plumbing_rough,

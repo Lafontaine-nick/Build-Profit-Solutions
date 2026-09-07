@@ -9,6 +9,7 @@ import {
   HVAC_VENTILATION_IDLE_HINT,
   HVAC_CAPACITY_OPTION_ID,
   HVAC_EMBEDDED_QUICK_MEASUREMENT_KEYS,
+  ROOFING_EMBEDDED_QUICK_MEASUREMENT_KEYS,
   HVAC_EQUIPMENT_OPTION_IDS,
   HVAC_SCOPE_EQUIPMENT_EXPAND_HIGHLIGHT,
   HVAC_SYSTEMS_OPTION_ID,
@@ -242,6 +243,18 @@ describe('simple trade QM panels', () => {
         'hvacSystemTons',
         'hvacDuctworkLf',
         'hvacThermostatCount',
+      ])
+    );
+  });
+
+  it('embeds roofing chip-owned quick measurement keys in the scope panel', () => {
+    expect(ROOFING_EMBEDDED_QUICK_MEASUREMENT_KEYS).toEqual(
+      expect.arrayContaining([
+        'roofSquares',
+        'roofDripEdgeLf',
+        'roofRidgeCapLf',
+        'roofDeckingReplacementSqft',
+        'storyCount',
       ])
     );
   });
