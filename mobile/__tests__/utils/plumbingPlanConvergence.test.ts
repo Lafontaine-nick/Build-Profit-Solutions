@@ -903,6 +903,11 @@ describe('plumbing notes routing', () => {
   it('detects explicit and trade-language plumbing notes', () => {
     expect(
       notesSuggestPlumbingBid(
+        'Full interior refresh on a 1,900 sqft house. Paint all walls and ceilings, new LVP throughout main floor about 1,100 sqft, update 6 interior doors and trim, patch drywall where needed. No exterior work on this one.'
+      )
+    ).toBe(false);
+    expect(
+      notesSuggestPlumbingBid(
         'Whole-house plumbing rough-in for 2,400 SF new build. 12 rough-in points. 150 LF water line.'
       )
     ).toBe(true);

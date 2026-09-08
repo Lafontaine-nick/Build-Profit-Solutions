@@ -302,9 +302,7 @@ import {
   parseRoofingDeckingAllowanceFromNotes,
   suppressRoofRepairMeasurementsWhenTearOffInstall,
 } from '@/utils/scopeItemNoteHints';
-import {
-  finalizeRoofingScopeSelections,
-} from '@/utils/qmScopePanels/simpleTradeRemodel';
+import { finalizeRoofingScopeSelections } from '@/utils/qmScopePanels/simpleTradeRemodel';
 import {
   getRatePricingMatcher,
   parseScopeItemRatePricingFromNotes,
@@ -678,11 +676,7 @@ export type NormalizedScopeMeasurements = {
   additionalHaulOffLoadCount: number | null;
   concreteDemoSqft: number | null;
   concreteDemoThicknessBand:
-    | 'thin_2_3'
-    | 'standard_4'
-    | 'heavy_5_6'
-    | 'structural_7_plus'
-    | null;
+    'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
   concreteDemoThicknessBands: Array<
     'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus'
   > | null;
@@ -731,8 +725,7 @@ export type NormalizedScopeMeasurements = {
   insulationRValue: string | null;
   garageInsulationIncluded: string | null;
   insulationAssemblies:
-    | import('@/utils/estimateAiDraft').InsulationAssembly[]
-    | null;
+    import('@/utils/estimateAiDraft').InsulationAssembly[] | null;
   planFacts?: ScopeMeasurements['planFacts'];
   quickMeasurementSources?: Record<string, string>;
   railingLf: number | null;
@@ -787,8 +780,7 @@ export type ScopeItemQuantityValue = {
   includesCountertops?: boolean;
   /** Optional durable primary/pricing/benchmark roles (measurement-semantics). */
   measurementState?:
-    | import('@/utils/measurementSemantics').ScopeMeasurementState
-    | null;
+    import('@/utils/measurementSemantics').ScopeMeasurementState | null;
 };
 
 export type ResolvedItemQuantity = {
@@ -842,10 +834,7 @@ export type NationalAverageBudgetSplit = {
   rateSourceReference?: string;
   scopeProfileSource?: ScopeProfileSource;
   productionStatus?:
-    | 'production_ready'
-    | 'review_required'
-    | 'fallback_only'
-    | 'disabled';
+    'production_ready' | 'review_required' | 'fallback_only' | 'disabled';
   geographicBasis?: 'national' | 'state' | 'southern_utah';
   regionalMultiplier?: number;
   regionalStateCode?: string | null;
@@ -877,10 +866,7 @@ export type BenchmarkPricingCoverageStatus =
   | 'needs_review';
 
 export type BenchmarkPricingProductionStatus =
-  | 'production_ready'
-  | 'review_required'
-  | 'fallback_only'
-  | 'disabled';
+  'production_ready' | 'review_required' | 'fallback_only' | 'disabled';
 
 const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   string,
@@ -2294,7 +2280,8 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
       unit: 'sqft',
       material: 4.5,
       labor: 6,
-      sourceLabel: 'Suggested budget split · National Average · legacy HVAC sqft',
+      sourceLabel:
+        'Suggested budget split · National Average · legacy HVAC sqft',
     },
   },
   ductwork: {
@@ -6893,6 +6880,16 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
       'Uses the exterior paint surface area for standard exterior prep and masking.',
     missingMessage: 'Enter exterior paint sqft.',
   },
+  exterior_trim_paint: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: ['windowCount', 'exteriorDoorCount'],
+    sumMeasurementKeys: true,
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Uses window trim assembly and exterior door counts for painting only.',
+    missingMessage: 'Enter window trim and exterior door counts.',
+  },
   windows_doors: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'allowance', 'lump_sum'],
@@ -7277,8 +7274,7 @@ export function normalizeScopeMeasurements(
       Number(measurements.framingOpeningCount) > 0
         ? Math.round(Number(measurements.framingOpeningCount))
         : null,
-    reframingRequested:
-      measurements?.reframingRequested === true ? true : null,
+    reframingRequested: measurements?.reframingRequested === true ? true : null,
     ...copyElectricalQuantityFields(
       measurements as Record<string, unknown>,
       num
@@ -7395,8 +7391,7 @@ function measurementKeyQuantitySourceLabel(
   key: string
 ): string {
   const tag = measurements.quickMeasurementSources?.[key] as
-    | QuickMeasurementSourceTag
-    | undefined;
+    QuickMeasurementSourceTag | undefined;
   const fromProvenance = quickMeasurementSourceLabel(tag);
   if (fromProvenance) return fromProvenance;
   return SCOPE_PARSED_FROM_NOTES_LABEL;
@@ -8548,7 +8543,8 @@ function allowanceSplitAppliedTotal(
 ): number | null {
   const allowance = parseScopeMeasurementInput(
     String(
-      itemQuantities?.[allowanceSplitSubKey(itemId, 'allowance')]?.quantity ?? ''
+      itemQuantities?.[allowanceSplitSubKey(itemId, 'allowance')]?.quantity ??
+        ''
     )
   );
   const material = parseScopeMeasurementInput(
@@ -8564,11 +8560,7 @@ function allowanceSplitAppliedTotal(
   const splitTotal = (material ?? 0) + (labor ?? 0);
   const physicalUnit = normalizeBasisUnit(rule?.defaultUnit || 'each');
   const maxReasonable =
-    physicalUnit === 'each'
-      ? 2500
-      : physicalUnit === 'sqft'
-        ? 250000
-        : 50000;
+    physicalUnit === 'each' ? 2500 : physicalUnit === 'sqft' ? 250000 : 50000;
   if (allowance != null && allowance > 0 && allowance <= maxReasonable) {
     return allowance;
   }
@@ -8591,11 +8583,7 @@ function allowanceSplitQuantityLooksLikeDollarTotal(
     return false;
   }
   if (!usesPhysicalTakeoffUnit(rule)) return false;
-  const appliedTotal = allowanceSplitAppliedTotal(
-    itemQuantities,
-    itemId,
-    rule
-  );
+  const appliedTotal = allowanceSplitAppliedTotal(itemQuantities, itemId, rule);
   if (appliedTotal != null && Math.abs(numericQty - appliedTotal) < 0.02) {
     return true;
   }
@@ -8677,8 +8665,7 @@ function resolveAllowanceSplitPhysicalTakeoff(
   }
 
   const total =
-    splitTotal ??
-    allowanceSplitAppliedTotal(itemQuantities, itemId, rule);
+    splitTotal ?? allowanceSplitAppliedTotal(itemQuantities, itemId, rule);
   if (total != null && total > 0) {
     const inferred = inferPhysicalCountFromAppliedSplit(itemId, total, rule);
     if (inferred != null) {
@@ -8761,7 +8748,8 @@ function resolveStoredAllowanceSplitQuantity(
     const expectedTotal =
       physicalTakeoff.quantity *
       ((national?.material ?? 0) + (national?.labor ?? 0));
-    const splitSum = (materialEntry?.quantity ?? 0) + (laborEntry?.quantity ?? 0);
+    const splitSum =
+      (materialEntry?.quantity ?? 0) + (laborEntry?.quantity ?? 0);
     if (
       national &&
       expectedTotal > 0 &&
@@ -9461,7 +9449,9 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<
     hvac: { unit: 'each' },
     drywall: {
       unit: 'sqft',
-      measurementKeys: ['drywallSqft', 'floorAreaSqft'],
+      // A room-remodel note such as "patch drywall where needed" must not
+      // turn living area into a full hang/finish quantity.
+      measurementKeys: ['drywallSqft'],
     },
     flooring: {
       unit: 'sqft',
@@ -9469,7 +9459,10 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<
     },
     paint: {
       unit: 'sqft',
-      measurementKeys: ['wallPaintSqft', 'floorAreaSqft'],
+      // Prefer the calculated wall-plus-ceiling surface. The underlying
+      // floor-area reference remains visible as an assumption in Quick
+      // Measurements instead of being treated as paint quantity.
+      measurementKeys: ['combinedPaintableAreaSqft', 'wallPaintSqft'],
     },
     trim: { unit: 'lf', measurementKeys: ['baseboardLf'] },
   },
@@ -9652,11 +9645,11 @@ export function resolveSuggestAlignedEditorPricingBasis(
       isUndercountedDrywallSurface(drywallSf, livingSf);
     if (needsSurface) {
       const garageSf =
-        parseScopeMeasurementInput(String(measurementsInput.garageSqft ?? '')) ||
         parseScopeMeasurementInput(
-          String(
-            measurementsInput.planFacts?.buildingAreas?.garageSqft ?? ''
-          )
+          String(measurementsInput.garageSqft ?? '')
+        ) ||
+        parseScopeMeasurementInput(
+          String(measurementsInput.planFacts?.buildingAreas?.garageSqft ?? '')
         ) ||
         0;
       const packageSf = drywallPackageSurfacePlanningQuantity(
@@ -9682,6 +9675,29 @@ export function resolveSuggestAlignedEditorPricingBasis(
     const envelopeSf = envelope?.totalInsulationEnvelopeSqft;
     if (envelopeSf && envelopeSf > 0) {
       return { quantity: envelopeSf, unit: 'sqft' };
+    }
+    return null;
+  }
+
+  if (id === 'exterior_trim_paint' && tk === 'painting') {
+    const windows =
+      parseScopeMeasurementInput(
+        String(measurementsInput.windowCount ?? '')
+      ) || 0;
+    const exteriorDoors =
+      parseScopeMeasurementInput(
+        String(measurementsInput.exteriorDoorCount ?? '')
+      ) || 0;
+    const quantity = windows + exteriorDoors;
+    if (quantity > 0) {
+      return {
+        quantity,
+        unit: 'each',
+        quantitySource: 'inferred',
+        sourceLabel: 'Calculated',
+        quantityHelper: `${windows} window trim assemblies + ${exteriorDoors} exterior doors`,
+        pricingReady: true,
+      };
     }
     return null;
   }
@@ -9871,8 +9887,7 @@ export function resolveAllowanceEditorPricingBasis(
     garageSf,
     preferredUnit,
     preferredMeasurementKeys: preferred?.measurementKeys as
-      | string[]
-      | undefined,
+      string[] | undefined,
     sumMeasurementKeys: preferred?.sumMeasurementKeys,
     defaultUnit: rule.defaultUnit,
   });
@@ -9897,11 +9912,7 @@ export function resolveAllowanceEditorPricingBasis(
       buildNormalizedScopeMeasurementsFromInput(measurementsInput),
       rule,
       measurementsInput.itemQuantities[itemId],
-      allowanceSplitAppliedTotal(
-        measurementsInput.itemQuantities,
-        itemId,
-        rule
-      )
+      allowanceSplitAppliedTotal(measurementsInput.itemQuantities, itemId, rule)
     );
     if (physical) return physical;
   }
@@ -10016,41 +10027,37 @@ export function resolveAllowanceEditorPricingBasis(
     measurementsInput
   );
   if (fromPricingBasis) {
-    if (
-      !(
-        fromPricingBasis.unit === 'sqft' &&
-        livingSf != null &&
-        Math.abs(fromPricingBasis.quantity - livingSf) < 0.51 &&
-        (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
-          id === 'insulation' ||
-          id === 'interior_paint' ||
-          id === 'paint' ||
-          id === 'paint_trim' ||
-          id === 'drywall' ||
-          id === 'hang' ||
-          id === 'finish_tape')
-      )
-    ) {
+    if (!(
+      fromPricingBasis.unit === 'sqft' &&
+      livingSf != null &&
+      Math.abs(fromPricingBasis.quantity - livingSf) < 0.51 &&
+      (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
+        id === 'insulation' ||
+        id === 'interior_paint' ||
+        id === 'paint' ||
+        id === 'paint_trim' ||
+        id === 'drywall' ||
+        id === 'hang' ||
+        id === 'finish_tape')
+    )) {
       return fromPricingBasis;
     }
   }
   const fromRule = firstMeasurementForRule(rule, measurementsInput);
   if (fromRule) {
-    if (
-      !(
-        fromRule.unit === 'sqft' &&
-        livingSf != null &&
-        Math.abs(fromRule.quantity - livingSf) < 0.51 &&
-        (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
-          id === 'insulation' ||
-          id === 'interior_paint' ||
-          id === 'paint' ||
-          id === 'paint_trim' ||
-          id === 'drywall' ||
-          id === 'hang' ||
-          id === 'finish_tape')
-      )
-    ) {
+    if (!(
+      fromRule.unit === 'sqft' &&
+      livingSf != null &&
+      Math.abs(fromRule.quantity - livingSf) < 0.51 &&
+      (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
+        id === 'insulation' ||
+        id === 'interior_paint' ||
+        id === 'paint' ||
+        id === 'paint_trim' ||
+        id === 'drywall' ||
+        id === 'hang' ||
+        id === 'finish_tape')
+    )) {
       return fromRule;
     }
   }
@@ -10065,11 +10072,7 @@ export function resolveAllowanceEditorPricingBasis(
       buildNormalizedScopeMeasurementsFromInput(measurementsInput),
       rule,
       measurementsInput.itemQuantities[itemId],
-      allowanceSplitAppliedTotal(
-        measurementsInput.itemQuantities,
-        itemId,
-        rule
-      )
+      allowanceSplitAppliedTotal(measurementsInput.itemQuantities, itemId, rule)
     );
     if (physical) return physical;
     if (rule.defaultQuantity != null && rule.defaultQuantity > 0) {
@@ -10152,10 +10155,7 @@ export function getChecklistItemQuantityRule(
     rule = CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
   }
   const hvacCard = hvacCardForItemId(resolvedId);
-  if (
-    hvacCard &&
-    String(templateKey || '').toLowerCase() === 'hvac'
-  ) {
+  if (hvacCard && String(templateKey || '').toLowerCase() === 'hvac') {
     rule = {
       ...(rule || {}),
       defaultUnit: hvacCard.unit,
@@ -10169,7 +10169,10 @@ export function getChecklistItemQuantityRule(
         hvacCard.measurementKey as ScopeItemQuantityRule['measurementKey'],
       measurementKeys:
         hvacCard.itemId === 'hvac'
-          ? (['hvacSystemCount', 'hvacSystemTons'] as ScopeItemQuantityRule['measurementKeys'])
+          ? ([
+              'hvacSystemCount',
+              'hvacSystemTons',
+            ] as ScopeItemQuantityRule['measurementKeys'])
           : undefined,
       requiresUserQuantity: true,
       quantityHelper: hvacCard.helper,
@@ -10361,10 +10364,7 @@ export function syncDualAllowanceSqftFields(
   const sync = (
     itemId: string,
     field:
-      | 'backsplashSqft'
-      | 'wallPaintSqft'
-      | 'showerWallTileSqft'
-      | 'flooringSqft'
+      'backsplashSqft' | 'wallPaintSqft' | 'showerWallTileSqft' | 'flooringSqft'
   ) => {
     if (parseScopeMeasurementInput(String(next[field] ?? ''))) return;
     const q = sqftFromItemQuantities(input, itemId);
@@ -10460,10 +10460,7 @@ function explicitItemQuantityOverride(
       let displayLabor = laborEntry;
       const total = appliedTotal ?? splitTotal;
       if (total > 0 && total <= 2500) {
-        const national = getNationalAverageBudgetSplit(
-          itemId,
-          physical.unit
-        );
+        const national = getNationalAverageBudgetSplit(itemId, physical.unit);
         const expectedTotal =
           physical.quantity *
           ((national?.material ?? 0) + (national?.labor ?? 0));
@@ -10766,7 +10763,8 @@ function measurementsForRatePricing(
     thickenedEdgeCy: measurements.thickenedEdgeCy ?? undefined,
     gravelBaseCy: measurements.gravelBaseCy ?? undefined,
     gravelBaseDepthInches: measurements.gravelBaseDepthInches ?? undefined,
-    concretePumpReviewNeeded: measurements.concretePumpReviewNeeded ?? undefined,
+    concretePumpReviewNeeded:
+      measurements.concretePumpReviewNeeded ?? undefined,
     concretePumpCount: measurements.concretePumpCount ?? undefined,
     additionalHaulOffLoadCount:
       measurements.additionalHaulOffLoadCount ?? undefined,
@@ -11684,10 +11682,7 @@ export function resolveSuggestedBudgetSplitDisplay(
 // fill, labor-only fill, and a comparison split when notes priced both legs.
 
 export type PricingLegSource =
-  | 'notes'
-  | 'template'
-  | 'local_benchmark'
-  | 'national_average';
+  'notes' | 'template' | 'local_benchmark' | 'national_average';
 
 export type ScopePricingLineItem = {
   name?: string | null;
@@ -11931,9 +11926,7 @@ export function resolveTemplateRateForItem(
 }
 
 export type SuggestedPricingMode =
-  | 'note_total_split'
-  | 'fill_missing'
-  | 'suggested_price';
+  'note_total_split' | 'fill_missing' | 'suggested_price';
 
 /** Suggested pricing block enriched with per-leg sources for the Confirm Scope UI. */
 export type SuggestedPricingBlock = {
@@ -12470,7 +12463,9 @@ function hvacEquipmentReplacementAverage(
     const quantity = parseScopeMeasurementInput(
       String((entry as { quantity?: unknown })?.quantity ?? '')
     );
-    return key.startsWith('equipment_replace__') && quantity != null && quantity > 0;
+    return (
+      key.startsWith('equipment_replace__') && quantity != null && quantity > 0
+    );
   });
   const generic = { material: 5500, labor: 3500 };
   let material = 0;
@@ -12483,9 +12478,10 @@ function hvacEquipmentReplacementAverage(
       ...generic,
       label: 'HVAC equipment replacement',
     };
-    const quantity = parseScopeMeasurementInput(
-      String((entry as { quantity?: unknown })?.quantity ?? '')
-    ) || 0;
+    const quantity =
+      parseScopeMeasurementInput(
+        String((entry as { quantity?: unknown })?.quantity ?? '')
+      ) || 0;
     material += quantity * rate.material;
     labor += quantity * rate.labor;
     labels.push(`${quantity} ${rate.label}`);
@@ -12504,11 +12500,13 @@ function hvacEquipmentReplacementAverage(
   }, 0);
   const untypedCount = Math.max(0, (requestedCount || typedCount) - typedCount);
   if (untypedCount > 0 || typed.length === 0) {
-    const fallbackCount = typed.length === 0 ? requestedCount || 1 : untypedCount;
+    const fallbackCount =
+      typed.length === 0 ? requestedCount || 1 : untypedCount;
     material += fallbackCount * generic.material;
     labor += fallbackCount * generic.labor;
     if (typed.length === 0) labels.push('standard HVAC equipment replacement');
-    else if (untypedCount > 0) labels.push(`${untypedCount} unspecified HVAC replacement`);
+    else if (untypedCount > 0)
+      labels.push(`${untypedCount} unspecified HVAC replacement`);
   }
 
   const basisCount = requestedCount || typedCount || 1;
@@ -12516,7 +12514,8 @@ function hvacEquipmentReplacementAverage(
     unit: 'each' as const,
     material: material / basisCount,
     labor: labor / basisCount,
-    sourceLabel: 'Suggested budget split · National Average · HVAC equipment replacement',
+    sourceLabel:
+      'Suggested budget split · National Average · HVAC equipment replacement',
   };
   const adjusted =
     regional.multiplier === 1
@@ -13086,10 +13085,7 @@ function buildHvacInstalledPackageSuggestedPricing(
   };
   const adjustedSplit =
     regional && regional.multiplier !== 1
-      ? applyRegionalMultiplierToBudgetSplit(
-          baseSplit,
-          regional
-        ) || baseSplit
+      ? applyRegionalMultiplierToBudgetSplit(baseSplit, regional) || baseSplit
       : baseSplit;
   const material = round2(adjustedSplit.material);
   const labor = round2(adjustedSplit.labor);
@@ -13121,8 +13117,10 @@ function buildHvacInstalledPackageSuggestedPricing(
     material,
     labor,
     total,
-    materialSource: tier === 'plan_barometer' ? 'local_benchmark' : 'national_average',
-    laborSource: tier === 'plan_barometer' ? 'local_benchmark' : 'national_average',
+    materialSource:
+      tier === 'plan_barometer' ? 'local_benchmark' : 'national_average',
+    laborSource:
+      tier === 'plan_barometer' ? 'local_benchmark' : 'national_average',
     rateSourceLabel:
       tier === 'plan_barometer' && comparable
         ? `${comparable.projectLabel} builder budget (H64)`
@@ -13149,13 +13147,15 @@ function buildHvacInstalledPackageSuggestedPricing(
         key: 'material',
         label: 'Material',
         amount: material,
-        source: tier === 'plan_barometer' ? 'local_benchmark' : 'national_average',
+        source:
+          tier === 'plan_barometer' ? 'local_benchmark' : 'national_average',
       },
       {
         key: 'labor',
         label: 'Labor',
         amount: labor,
-        source: tier === 'plan_barometer' ? 'local_benchmark' : 'national_average',
+        source:
+          tier === 'plan_barometer' ? 'local_benchmark' : 'national_average',
       },
     ],
     pricingRecordId:
@@ -13310,9 +13310,16 @@ function resolveSouthernUtahPaintTrimSuggestedFill(params: {
     String(params.measurementsInput.scopeNotes || ''),
   ].join('\n');
   const conversionTemplate =
-    ['addition', 'garage_conversion', 'room_conversion', 'basement_conversion', 'attic_conversion'].includes(
-      String(params.templateKey || '').toLowerCase()
-    ) || /\b(?:garage|room|basement|attic)\s+conversion\b|\bconvert(?:ed|ing)?\b/i.test(pricingNotes);
+    [
+      'addition',
+      'garage_conversion',
+      'room_conversion',
+      'basement_conversion',
+      'attic_conversion',
+    ].includes(String(params.templateKey || '').toLowerCase()) ||
+    /\b(?:garage|room|basement|attic)\s+conversion\b|\bconvert(?:ed|ing)?\b/i.test(
+      pricingNotes
+    );
 
   const isConversionTrim =
     id === 'interior_trim' &&
@@ -13324,9 +13331,8 @@ function resolveSouthernUtahPaintTrimSuggestedFill(params: {
     const conversionLivingSf =
       livingSf && livingSf > 0
         ? livingSf
-        : parseScopeMeasurementInput(
-            params.measurementsInput.floorAreaSqft
-          ) || 400;
+        : parseScopeMeasurementInput(params.measurementsInput.floorAreaSqft) ||
+          400;
     const trimComparable = resolveFinishCarpentryComparable({
       livingSf: conversionLivingSf,
       state,
@@ -13457,8 +13463,7 @@ function resolveSouthernUtahPaintTrimSuggestedFill(params: {
       id === 'interior_trim' &&
       String(params.templateKey || '').toLowerCase() === 'addition' &&
       ((conversionDoorCount != null && conversionDoorCount > 0) ||
-        (params.unit === 'sqft' &&
-          Number(params.paintableOrCount) > 0));
+        (params.unit === 'sqft' && Number(params.paintableOrCount) > 0));
     if (!isGroundUp && !hasExactProject && !hasConversionDoorBasis) return null;
     const comparable = resolveFinishCarpentryComparable({ livingSf, state });
     const trimLivingSfRef = installedBudgetLivingSfReference({
@@ -14932,16 +14937,15 @@ export function resolveScopeItemSuggestedPricing(
         conversionNotes
       );
     if (conversionTemplate || isConversionNotes) {
-      const conversionTrimPricing =
-        resolveSouthernUtahPaintTrimSuggestedFill({
-          itemId,
-          templateKey,
-          measurementsInput,
-          paintableOrCount: Number(resolved.quantity),
-          unit: resolved.unit,
-          pricingContext,
-          originalNotes,
-        });
+      const conversionTrimPricing = resolveSouthernUtahPaintTrimSuggestedFill({
+        itemId,
+        templateKey,
+        measurementsInput,
+        paintableOrCount: Number(resolved.quantity),
+        unit: resolved.unit,
+        pricingContext,
+        originalNotes,
+      });
       if (conversionTrimPricing) {
         return { fill: conversionTrimPricing, comparison: null };
       }
@@ -15052,11 +15056,9 @@ export function resolveScopeItemSuggestedPricing(
       itemId === 'wall_framing' ? 'wallFramingLf' : 'framingOpeningCount';
     const input = measurementsInput as Record<string, unknown>;
     const sources = input.quickMeasurementSources as
-      | Record<string, string>
-      | undefined;
+      Record<string, string> | undefined;
     const overrides = input.quickMeasurementUserOverrides as
-      | Record<string, boolean>
-      | undefined;
+      Record<string, boolean> | undefined;
     const source = sources?.[measurementKey];
     const userEntered =
       source === 'user_entered' ||
@@ -15071,8 +15073,7 @@ export function resolveScopeItemSuggestedPricing(
     plumbingMeasurementKey &&
     (
       measurementsInput.quickMeasurementSources as
-        | Record<string, string>
-        | undefined
+        Record<string, string> | undefined
     )?.[plumbingMeasurementKey] === 'needs_confirmation'
   ) {
     return empty;
@@ -15080,11 +15081,9 @@ export function resolveScopeItemSuggestedPricing(
   const hvacCard = hvacCardForItemId(itemId);
   if (hvacCard) {
     const sources = measurementsInput.quickMeasurementSources as
-      | Record<string, string>
-      | undefined;
+      Record<string, string> | undefined;
     const provenance = measurementsInput.measurementProvenance as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     const reviewKeys =
       itemId === 'hvac'
         ? (['hvacSystemCount', 'hvacSystemTons'] as const)
@@ -15483,7 +15482,9 @@ export function resolveScopeItemSuggestedPricing(
   if (
     itemId === 'prep' &&
     String(templateKey || '').toLowerCase() === 'painting' &&
-    Number(resolved.quantity) > 0
+    (parseScopeMeasurementInput(measurementsInput.wallPaintSqft) || 0) +
+      (parseScopeMeasurementInput(measurementsInput.ceilingPaintSqft) || 0) >
+      0
   ) {
     const occupancy = measurementsInput.paintOccupancy || 'occupied';
     const application =
@@ -15498,22 +15499,40 @@ export function resolveScopeItemSuggestedPricing(
       application === 'spray' ? 1.1 : application === 'mixed' ? 1.05 : 1;
     const hasWalls =
       measurementsInput.paintScope?.includes('walls') ||
-      Number(measurementsInput.wallPaintSqft) > 0;
+      (parseScopeMeasurementInput(measurementsInput.wallPaintSqft) || 0) > 0;
     const hasCeilings =
       measurementsInput.paintScope?.includes('ceilings') ||
-      Number(measurementsInput.ceilingPaintSqft) > 0;
+      (parseScopeMeasurementInput(measurementsInput.ceilingPaintSqft) || 0) > 0;
     const hasCombinedArea =
       measurementsInput.paintPricingMethod === 'combined' &&
-      Number(
+      parseScopeMeasurementInput(
         measurementsInput.combinedPaintableAreaSqft ||
           measurementsInput.paintAreaSqft
       ) > 0;
     const hasTrim =
       measurementsInput.paintScope?.includes('trim') ||
-      Number(measurementsInput.baseboardLf) > 0;
+      (parseScopeMeasurementInput(measurementsInput.baseboardLf) || 0) > 0;
     const hasDoors =
       measurementsInput.paintScope?.includes('doors') ||
-      Number(measurementsInput.interiorDoorCount) > 0;
+      (parseScopeMeasurementInput(measurementsInput.interiorDoorCount) || 0) >
+        0;
+    const wallSurface =
+      parseScopeMeasurementInput(measurementsInput.wallPaintSqft) || 0;
+    const ceilingSurface =
+      parseScopeMeasurementInput(measurementsInput.ceilingPaintSqft) || 0;
+    const combinedSurface =
+      parseScopeMeasurementInput(
+        measurementsInput.combinedPaintableAreaSqft ||
+          measurementsInput.paintAreaSqft
+      ) || 0;
+    const fullPaintSurface =
+      wallSurface + ceilingSurface > 0
+        ? wallSurface + ceilingSurface
+        : combinedSurface;
+    const separateSurfaceMasking =
+      measurementsInput.paintPricingMethod === 'separate' &&
+      hasWalls &&
+      hasCeilings;
     const scopeMaskingMultiplier =
       hasTrim && hasDoors
         ? 0.9
@@ -15522,21 +15541,26 @@ export function resolveScopeItemSuggestedPricing(
           : hasWalls || hasCeilings
             ? 1.1
             : 1;
-    const maskingLevel =
-      hasTrim && hasDoors
+    const refinedMaskingMultiplier = separateSurfaceMasking
+      ? scopeMaskingMultiplier * 1.15
+      : scopeMaskingMultiplier;
+    const maskingLevel = separateSurfaceMasking
+      ? 'higher · separate wall/ceiling colors'
+      : hasTrim && hasDoors
         ? 'low to medium'
         : hasCombinedArea || (hasWalls && hasCeilings)
           ? 'medium'
           : hasWalls || hasCeilings
             ? 'high'
             : 'standard';
-    const quantity = Number(resolved.quantity);
-    const material = round2(quantity * 0.2 * scopeMaskingMultiplier);
+    const quantity =
+      fullPaintSurface > 0 ? fullPaintSurface : Number(resolved.quantity);
+    const material = round2(quantity * 0.2 * refinedMaskingMultiplier);
     const labor = round2(
       quantity *
         conditionPrepLaborRate *
         prepMethodMultiplier *
-        scopeMaskingMultiplier
+        refinedMaskingMultiplier
     );
     const total = round2(material + labor);
     return {
@@ -15561,9 +15585,22 @@ export function resolveScopeItemSuggestedPricing(
 
   if (
     (itemId === 'interior_paint' || itemId === 'ceiling_paint') &&
-    String(templateKey || '').toLowerCase() === 'painting' &&
-    Number(resolved.quantity) > 0
+    String(templateKey || '').toLowerCase() === 'painting'
   ) {
+    const isCombinedPaint =
+      itemId === 'interior_paint' &&
+      measurementsInput.paintPricingMethod === 'combined';
+    const paintQuantity = isCombinedPaint
+      ? parseScopeMeasurementInput(
+          measurementsInput.combinedPaintableAreaSqft ||
+            measurementsInput.paintAreaSqft
+        )
+      : parseScopeMeasurementInput(
+          itemId === 'ceiling_paint'
+            ? measurementsInput.ceilingPaintSqft
+            : measurementsInput.wallPaintSqft
+        );
+    if (!paintQuantity || paintQuantity <= 0) return empty;
     const occupancy = measurementsInput.paintOccupancy || 'occupied';
     const application =
       measurementsInput.paintApplicationMethod || 'brush_roll';
@@ -15572,7 +15609,7 @@ export function resolveScopeItemSuggestedPricing(
     const paintingMethodMultiplier =
       application === 'spray' ? 0.82 : application === 'mixed' ? 0.95 : 1;
     const ceilingLaborMultiplier = itemId === 'ceiling_paint' ? 1.15 : 1;
-    const quantity = Number(resolved.quantity);
+    const quantity = paintQuantity;
     const materialWasteFactor =
       application === 'spray' ? 1.05 : application === 'mixed' ? 1.02 : 1;
     const materialRate = 3.35 * 0.26;
@@ -15670,6 +15707,42 @@ export function resolveScopeItemSuggestedPricing(
     };
   }
 
+  if (
+    itemId === 'exterior_trim_paint' &&
+    String(templateKey || '').toLowerCase() === 'painting'
+  ) {
+    const windows =
+      parseScopeMeasurementInput(
+        String(measurementsInput.windowCount ?? '')
+      ) || 0;
+    const exteriorDoors =
+      parseScopeMeasurementInput(
+        String(measurementsInput.exteriorDoorCount ?? '')
+      ) || 0;
+    if (windows + exteriorDoors <= 0) return empty;
+    const material = round2(windows * 45 + exteriorDoors * 120);
+    const labor = round2(windows * 135 + exteriorDoors * 330);
+    const quantity = windows + exteriorDoors;
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel:
+          'Suggested · National Average · exterior trim, window trim, and door painting',
+        helper: `${windows} window trim assemblies · ${exteriorDoors} exterior doors`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'each' },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: 'bps_national:exterior_trim_paint:each',
+      },
+      comparison: null,
+    };
+  }
+
   const itemQuantities = measurementsInput.itemQuantities || {};
   if (
     !options?.bypassAppliedSuppress &&
@@ -15733,7 +15806,9 @@ export function resolveScopeItemSuggestedPricing(
         ? resolveKitchenCountertopTakeoffSqft(
             measurementsInput as Record<string, unknown>
           )
-        : Number(String(measurementsInput.countertopSqft ?? '').replace(/,/g, ''));
+        : Number(
+            String(measurementsInput.countertopSqft ?? '').replace(/,/g, '')
+          );
     const count =
       Number.isFinite(measuredSqft) && measuredSqft > 0
         ? measuredSqft
@@ -15769,7 +15844,10 @@ export function resolveScopeItemSuggestedPricing(
   // Kitchen backsplash removal uses difficulty-tier planning rates (light /
   // moderate / extensive). Keep explicit so scope-profile demolition rows are
   // not mistaken for the kitchen benchmark card.
-  if (itemId === 'backsplash_demo' && String(templateKey || '').toLowerCase() === 'kitchen') {
+  if (
+    itemId === 'backsplash_demo' &&
+    String(templateKey || '').toLowerCase() === 'kitchen'
+  ) {
     const measuredCount = Number(
       String(measurementsInput.backsplashSqft ?? '').replace(/,/g, '')
     );
@@ -15802,7 +15880,9 @@ export function resolveScopeItemSuggestedPricing(
     const count =
       fromKitchen > 0
         ? fromKitchen
-        : Number(String(measurementsInput.countertopSqft ?? '').replace(/,/g, ''));
+        : Number(
+            String(measurementsInput.countertopSqft ?? '').replace(/,/g, '')
+          );
     if (Number.isFinite(count) && count > 0) {
       const material = round2(count * 35);
       const labor = round2(count * 25);
@@ -17095,7 +17175,9 @@ export function resolveScopeItemSuggestedPricing(
     );
   }
   if (
-    (HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS as readonly string[]).includes(itemId) &&
+    (HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS as readonly string[]).includes(
+      itemId
+    ) &&
     preferredUnit === 'each'
   ) {
     const rate = HVAC_EQUIPMENT_REPLACEMENT_RATES[itemId];
@@ -17112,10 +17194,7 @@ export function resolveScopeItemSuggestedPricing(
           : applyRegionalMultiplierToBudgetSplit(base, regional) || base;
     }
   }
-  if (
-    itemId === 'drywall' &&
-    completeDrywallPackage
-  ) {
+  if (itemId === 'drywall' && completeDrywallPackage) {
     const livingSf = parseScopeMeasurementInput(
       measurementsInput.floorAreaSqft
     );
@@ -18229,8 +18308,7 @@ export function resolveScopeItemSuggestedPricing(
     const livingSf = parseScopeMeasurementInput(
       measurementsInput.floorAreaSqft
     );
-    const usePackageQuantity =
-      itemId === 'drywall' && completeDrywallPackage;
+    const usePackageQuantity = itemId === 'drywall' && completeDrywallPackage;
     const componentQuantity = usePackageQuantity
       ? resolveDrywallPackageSurfaceQuantity(
           measurementsInput as unknown as Record<string, unknown>,
@@ -18671,8 +18749,8 @@ export function resolveScopeItemSuggestedPricing(
   );
   const dynamicFlooringInstall = Boolean(
     flooringInstallAverage &&
-      unit === 'sqft' &&
-      String(templateKey || '').toLowerCase() === 'flooring'
+    unit === 'sqft' &&
+    String(templateKey || '').toLowerCase() === 'flooring'
   );
   if (dynamicFlooringInstall && flooringInstallAverage) {
     average = {
@@ -18727,8 +18805,10 @@ export function resolveScopeItemSuggestedPricing(
       measurementRecord,
       count,
       {
-        planFacts:
-          measurementRecord.planFacts as Record<string, unknown> | null,
+        planFacts: measurementRecord.planFacts as Record<
+          string,
+          unknown
+        > | null,
         completePackage: true,
       }
     );
@@ -18736,8 +18816,10 @@ export function resolveScopeItemSuggestedPricing(
       measurementRecord,
       count,
       {
-        planFacts:
-          measurementRecord.planFacts as Record<string, unknown> | null,
+        planFacts: measurementRecord.planFacts as Record<
+          string,
+          unknown
+        > | null,
         completePackage: true,
         checklistItems: pricingContext?.checklistItems,
       }
@@ -19011,9 +19093,13 @@ export function resolveScopeItemSuggestedPricing(
   const localPaintTrim =
     (!template ||
       (itemId === 'interior_trim' &&
-        (['addition', 'garage_conversion', 'room_conversion', 'basement_conversion', 'attic_conversion'].includes(
-          String(templateKey || '').toLowerCase()
-        ) ||
+        ([
+          'addition',
+          'garage_conversion',
+          'room_conversion',
+          'basement_conversion',
+          'attic_conversion',
+        ].includes(String(templateKey || '').toLowerCase()) ||
           /\b(?:garage|room|basement|attic)\s+conversion\b|\bconvert(?:ed|ing)?\b/i.test(
             conversionPricingNotes
           )) &&
@@ -19048,8 +19134,8 @@ export function resolveScopeItemSuggestedPricing(
   ].includes(String(unit || '').toLowerCase());
   const hasPhysicalTakeoffRates = Boolean(
     isPhysicalTakeoffUnit &&
-      count > 0 &&
-      hasAnyPricingRate(materialRate, laborRate)
+    count > 0 &&
+    hasAnyPricingRate(materialRate, laborRate)
   );
   if (!template && !hasPhysicalTakeoffRates) {
     const benchmarkFill = benchmarkSuggestedPricingBlock(
@@ -19160,11 +19246,11 @@ export function resolveScopeItemSuggestedPricing(
     ) {
       const expectedPackage = drywallPackageSurfacePlanningQuantity(
         livingSf,
-        parseScopeMeasurementInput(String(measurementsInput.garageSqft ?? '')) ||
+        parseScopeMeasurementInput(
+          String(measurementsInput.garageSqft ?? '')
+        ) ||
           parseScopeMeasurementInput(
-            String(
-              measurementsInput.planFacts?.buildingAreas?.garageSqft ?? ''
-            )
+            String(measurementsInput.planFacts?.buildingAreas?.garageSqft ?? '')
           ) ||
           null
       );
@@ -19176,18 +19262,18 @@ export function resolveScopeItemSuggestedPricing(
           drywallBaseline.barometerTotal * DRYWALL_INSTALLED_MATERIAL_SHARE
         );
         calculatedLabor = round2(
-          drywallBaseline.barometerTotal * (1 - DRYWALL_INSTALLED_MATERIAL_SHARE)
+          drywallBaseline.barometerTotal *
+            (1 - DRYWALL_INSTALLED_MATERIAL_SHARE)
         );
         const measurementRecord = measurementsInput as Record<string, unknown>;
-        const packageMaterialMultiplier = resolveDrywallPackageMaterialMultiplier(
-          measurementRecord,
-          count,
-          {
-            planFacts:
-              measurementRecord.planFacts as Record<string, unknown> | null,
+        const packageMaterialMultiplier =
+          resolveDrywallPackageMaterialMultiplier(measurementRecord, count, {
+            planFacts: measurementRecord.planFacts as Record<
+              string,
+              unknown
+            > | null,
             completePackage: true,
-          }
-        );
+          });
         if (packageMaterialMultiplier !== 1) {
           calculatedMaterial = round2(
             calculatedMaterial * packageMaterialMultiplier
@@ -19197,8 +19283,10 @@ export function resolveScopeItemSuggestedPricing(
           measurementRecord,
           count,
           {
-            planFacts:
-              measurementRecord.planFacts as Record<string, unknown> | null,
+            planFacts: measurementRecord.planFacts as Record<
+              string,
+              unknown
+            > | null,
             completePackage: true,
             checklistItems: pricingContext?.checklistItems,
           }
@@ -19206,9 +19294,7 @@ export function resolveScopeItemSuggestedPricing(
         if (packageLaborMultiplier !== 1) {
           calculatedLabor = round2(calculatedLabor * packageLaborMultiplier);
         }
-        calculatedFlatworkTotal = round2(
-          calculatedMaterial + calculatedLabor
-        );
+        calculatedFlatworkTotal = round2(calculatedMaterial + calculatedLabor);
       }
     }
   }
@@ -19568,8 +19654,7 @@ export function resolveScopeItemSuggestedPricing(
         })
       : null;
   const comparisonBlock =
-    nationalComparison ||
-    (itemId === 'hvac' ? hvacPlanComparison : null);
+    nationalComparison || (itemId === 'hvac' ? hvacPlanComparison : null);
   return withUserEnteredNationalBenchmarkFallback(
     itemId,
     rule,
@@ -20039,9 +20124,7 @@ function applyAutoDrywallSurfaceQuantity(
   if (!needsSurface) return resolved;
 
   const primarySf =
-    template === 'addition'
-      ? conversionPrimaryFloorSqft(measurements)
-      : living;
+    template === 'addition' ? conversionPrimaryFloorSqft(measurements) : living;
   if (primarySf == null || !(primarySf > 0)) return resolved;
   // Same package SF fallback used by Quick Measurement, kept in the
   // canonical drywall convergence module.
@@ -20050,16 +20133,15 @@ function applyAutoDrywallSurfaceQuantity(
     template === 'addition'
       ? existingShellConversion
         ? conversionDrywallSurfaceSqft(primarySf)
-        : (Number(measurements.drywallSqft) > 0
+        : Number(measurements.drywallSqft) > 0
           ? Number(measurements.drywallSqft)
-          : drywallSurfacePlanningQuantity(primarySf))
+          : drywallSurfacePlanningQuantity(primarySf)
       : (drywallPackageSurfacePlanningQuantity(
           living,
           Number.isFinite(garageSf) && garageSf > 0
             ? garageSf
-            : Number(
-                measurements.planFacts?.buildingAreas?.garageSqft ?? 0
-              ) || null
+            : Number(measurements.planFacts?.buildingAreas?.garageSqft ?? 0) ||
+                null
         ) ?? drywallSurfacePlanningQuantity(living));
   if (!(packageSf > 0)) return resolved;
 
@@ -20318,8 +20400,7 @@ function applyAutoConversionInsulationQuantity(
   if (!(envelopeSf > 0)) {
     const primarySf = conversionPrimaryFloorSqft(measurements);
     if (primarySf == null) return resolved;
-    const fallback =
-      primarySf + conversionWallInsulationSqft(primarySf);
+    const fallback = primarySf + conversionWallInsulationSqft(primarySf);
     if (!(fallback > 0)) return resolved;
     const rule = getChecklistItemQuantityRule(itemId, ctx.templateKey);
     return {
@@ -20491,7 +20572,8 @@ function parseCustomScopeMoney(value: unknown): number {
 
 export const CUSTOM_SCOPE_PRICING_UNITS = ['sqft', 'lf', 'cy'] as const;
 
-export type CustomScopePricingUnit = (typeof CUSTOM_SCOPE_PRICING_UNITS)[number];
+export type CustomScopePricingUnit =
+  (typeof CUSTOM_SCOPE_PRICING_UNITS)[number];
 
 /** Physical quantity basis for custom scope — not lump-sum allowance. */
 export function resolveCustomScopePricingUnit(
@@ -20511,10 +20593,7 @@ export function customScopePricingModeLabel(
 
 export function isCustomScopePricingApplied(
   itemId: string,
-  pricingAcceptance?: Record<
-    string,
-    { selectionStatus?: string | null }
-  > | null
+  pricingAcceptance?: Record<string, { selectionStatus?: string | null }> | null
 ): boolean {
   if (!String(itemId || '').startsWith('custom_')) return false;
   const status = pricingAcceptance?.[itemId]?.selectionStatus;
@@ -20582,8 +20661,8 @@ export function resolveCustomScopeDraftPricing(params: {
   const labor = scaleCustomScopeStoredAmount(rawLabor, basisQty);
   const treatedAsRates = Boolean(
     basisQty &&
-      ((rawMaterial > 0 && looksLikeCustomScopeUnitRate(rawMaterial, basisQty)) ||
-        (rawLabor > 0 && looksLikeCustomScopeUnitRate(rawLabor, basisQty)))
+    ((rawMaterial > 0 && looksLikeCustomScopeUnitRate(rawMaterial, basisQty)) ||
+      (rawLabor > 0 && looksLikeCustomScopeUnitRate(rawLabor, basisQty)))
   );
   return { material, labor, total: material + labor, treatedAsRates };
 }
@@ -20633,7 +20712,9 @@ function resolveCustomScopeChecklistItemQuantity(
         ? { quantity: materialAmount, unit: 'allowance' }
         : undefined,
     dualLabor:
-      laborAmount > 0 ? { quantity: laborAmount, unit: 'allowance' } : undefined,
+      laborAmount > 0
+        ? { quantity: laborAmount, unit: 'allowance' }
+        : undefined,
     dualAllowance:
       legacyLumpOnly && basisQty > 0
         ? { quantity: basisQty, unit: 'allowance' }
@@ -20769,14 +20850,13 @@ function resolveChecklistItemQuantityCore(
     measurements,
     ctx.templateKey
   );
-  if ((HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS as readonly string[]).includes(itemId)) {
+  if (
+    (HVAC_EQUIPMENT_TYPE_SCOPE_ITEM_IDS as readonly string[]).includes(itemId)
+  ) {
     const typed =
-      parseStoredItemQuantity(
-        measurements,
-        `equipment_replace__${itemId}`
-      ) || parseStoredItemQuantity(measurements, itemId);
-    const quantity =
-      typed?.quantity != null ? Number(typed.quantity) : 1;
+      parseStoredItemQuantity(measurements, `equipment_replace__${itemId}`) ||
+      parseStoredItemQuantity(measurements, itemId);
+    const quantity = typed?.quantity != null ? Number(typed.quantity) : 1;
     if (Number.isFinite(quantity) && quantity > 0) {
       return applyPricingReadyFlags(
         {
@@ -20975,8 +21055,10 @@ function resolveChecklistItemQuantityCore(
     Number(measurements.roofIceWaterShieldSqft) > 0
   ) {
     const sourceLabel =
-      measurementKeyQuantitySourceLabel(measurements, 'roofIceWaterShieldSqft') ===
-      SCOPE_PLANNING_ESTIMATE_LABEL
+      measurementKeyQuantitySourceLabel(
+        measurements,
+        'roofIceWaterShieldSqft'
+      ) === SCOPE_PLANNING_ESTIMATE_LABEL
         ? 'Ice & water shield · planning estimate'
         : 'Ice & water shield area · Quick Measurements';
     return {
@@ -21141,7 +21223,10 @@ function resolveChecklistItemQuantityCore(
       );
     }
     if (notesImplyMixedConcreteJob(ctx.notes)) {
-      const mixedQty = resolveMixedConcreteChecklistQuantity(itemId, measurements);
+      const mixedQty = resolveMixedConcreteChecklistQuantity(
+        itemId,
+        measurements
+      );
       if (mixedQty) {
         return applyPricingReadyFlags(
           {
@@ -21244,17 +21329,32 @@ function resolveChecklistItemQuantityCore(
   }
 
   const override = measurements.itemQuantities?.[itemId];
+  const isLocalizedRoomRemodelDrywall =
+    itemId === 'drywall' &&
+    String(ctx.templateKey || '').toLowerCase() === 'room_remodel' &&
+    /\b(?:patch(?:ing)?|repair)\b[^.;]{0,30}\bdrywall\b|\bdrywall\b[^.;]{0,30}\b(?:patch(?:ing)?|repair)\b/i.test(
+      String(ctx.notes || '')
+    ) &&
+    !['user_entered', 'manual_override'].includes(
+      String(override?.quantitySource || '')
+    );
+  // Do not let a stale notes/inferred full-surface quantity survive when the
+  // remodel only calls for localized drywall repair.
+  const effectiveOverride = isLocalizedRoomRemodelDrywall
+    ? undefined
+    : override;
   const explicitOverride = explicitItemQuantityOverride(
     measurements,
     itemId,
     rule,
     ctx
   );
-  if (explicitOverride) return explicitOverride;
+  if (explicitOverride && !isLocalizedRoomRemodelDrywall)
+    return explicitOverride;
 
   if (
     !rule.dualAllowanceField &&
-    override?.quantitySource !== 'user_entered' &&
+    effectiveOverride?.quantitySource !== 'user_entered' &&
     ctx.notes?.trim()
   ) {
     const parsedAllowance = parseScopeItemAllowancesFromNotes(ctx.notes, {
@@ -21299,31 +21399,37 @@ function resolveChecklistItemQuantityCore(
       itemId,
       measurements,
       rule,
-      override
+      effectiveOverride
     );
     if (allowanceSplit) return allowanceSplit;
   }
 
   if (
-    override?.quantity != null &&
-    override.quantity > 0 &&
-    !isPlaceholderAllowancePricing(override.quantity, override.unit, itemId)
+    effectiveOverride?.quantity != null &&
+    effectiveOverride.quantity > 0 &&
+    !isPlaceholderAllowancePricing(
+      effectiveOverride.quantity,
+      effectiveOverride.unit,
+      itemId
+    )
   ) {
     const includesCountertops =
-      Boolean(override.includesCountertops) ||
+      Boolean(effectiveOverride.includesCountertops) ||
       (itemId === 'cabinets' && notesHaveCombinedCabinetsCounters(ctx.notes));
-    const baseLabel = sourceLabel(override.quantitySource || 'user_entered');
+    const baseLabel = sourceLabel(
+      effectiveOverride.quantitySource || 'user_entered'
+    );
     const combinedCabinetsCounters =
       itemId === 'cabinets' && includesCountertops;
     return {
-      quantity: override.quantity,
+      quantity: effectiveOverride.quantity,
       unit: normalizedOverrideUnitForRule(
         itemId,
         ctx.templateKey,
-        override.unit,
+        effectiveOverride.unit,
         rule
       ),
-      quantitySource: override.quantitySource || 'user_entered',
+      quantitySource: effectiveOverride.quantitySource || 'user_entered',
       sourceLabel: combinedCabinetsCounters
         ? `Combined total · cabinets + counters · ${baseLabel}`
         : baseLabel,
@@ -21333,9 +21439,27 @@ function resolveChecklistItemQuantityCore(
       ...(combinedCabinetsCounters
         ? {
             combinedAllowanceRole: 'combined_total' as const,
-            combinedAllowanceTotal: override.quantity,
+            combinedAllowanceTotal: effectiveOverride.quantity,
           }
         : {}),
+    };
+  }
+
+  if (isLocalizedRoomRemodelDrywall) {
+    // A generic drywallSqft measurement is commonly a whole-house planning
+    // fallback. It is not valid for localized patching without an affected
+    // repair area in the notes or a manual quantity.
+    const repairQuantity = resolvedQuantityFromNotes(itemId, measurements, ctx);
+    if (repairQuantity) return repairQuantity;
+    return {
+      quantity: null,
+      unit: rule.defaultUnit,
+      quantitySource: 'missing',
+      sourceLabel: sourceLabel('missing'),
+      pricingReady: false,
+      quantityHelper: rule.quantityHelper,
+      missingMessage: rule.missingMessage,
+      showInput: true,
     };
   }
 
@@ -21470,7 +21594,7 @@ function resolveChecklistItemQuantityCore(
     itemId,
     measurements,
     rule,
-    override
+    effectiveOverride
   );
   if (allowanceSplitFallback) return allowanceSplitFallback;
 
@@ -21528,11 +21652,7 @@ export function resolveChecklistItemQuantity(
   );
   if (
     itemId === 'interior_trim' &&
-    isExistingShellConversionJob(
-      ctx.templateKey,
-      ctx.projectType,
-      ctx.notes
-    )
+    isExistingShellConversionJob(ctx.templateKey, ctx.projectType, ctx.notes)
   ) {
     const doors = parseScopeMeasurementInput(measurements.interiorDoorCount);
     const stored = measurements.itemQuantities?.interior_trim;
@@ -21575,19 +21695,14 @@ export function resolveChecklistItemQuantity(
   }
   if (itemId === 'trim_finish') {
     const choiceId = String(ctx.choiceId || '');
-    if (
-      !choiceId ||
-      choiceId === 'not_in_scope' ||
-      choiceId === 'unsure'
-    ) {
+    if (!choiceId || choiceId === 'not_in_scope' || choiceId === 'unsure') {
       return resolved;
     }
     const manualLf = Number(measurements.trimFinishLf);
     const fromItem = Number(
       (
         measurements.itemQuantities as
-          | Record<string, { quantity?: unknown } | undefined>
-          | undefined
+          Record<string, { quantity?: unknown } | undefined> | undefined
       )?.trim_finish?.quantity
     );
     const derived = deriveTrimFinishLfFromMeasurements(
@@ -21608,7 +21723,9 @@ export function resolveChecklistItemQuantity(
         dualCount: { quantity: lf, unit: 'lf' },
         pricingReady: true,
         quantitySource:
-          lf === derived ? 'inferred' : resolved.quantitySource ?? 'user_entered',
+          lf === derived
+            ? 'inferred'
+            : (resolved.quantitySource ?? 'user_entered'),
       };
     }
     return {
@@ -21783,8 +21900,7 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
     key: 'island',
   },
   {
-    test:
-      /\b(?:demo|remove|tear[\s-]?out)\b[^.]{0,40}\b(?:island\s+(?:cabinet|base)|island)\b|\b(?:island\s+(?:cabinet|base)|island)\b[^.]{0,40}\b(?:demo|remove|tear[\s-]?out)\b/i,
+    test: /\b(?:demo|remove|tear[\s-]?out)\b[^.]{0,40}\b(?:island\s+(?:cabinet|base)|island)\b|\b(?:island\s+(?:cabinet|base)|island)\b[^.]{0,40}\b(?:demo|remove|tear[\s-]?out)\b/i,
     key: 'island_demo',
   },
   {
@@ -21993,7 +22109,10 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /^walls?$/i, key: 'interior_paint' },
   { test: /^ceilings?$/i, key: 'ceiling_paint' },
   { test: /^prep\s*(?:&|and)\s*masking$/i, key: 'prep' },
-  { test: /^exterior\s+prep(?:\s*(?:&|and)\s*masking)?$/i, key: 'exterior_prep' },
+  {
+    test: /^exterior\s+prep(?:\s*(?:&|and)\s*masking)?$/i,
+    key: 'exterior_prep',
+  },
   { test: /^trim$/i, key: 'trim_paint' },
   {
     test: /\bbaseboards?\b[^.]{0,40}\btrim\b|\btrim\b[^.]{0,40}\b(?:molding|baseboard)\b|\bpainted?\s+trim\b/i,
@@ -22218,8 +22337,8 @@ export function checklistItemInScope(item: {
   if (item.inputType === 'choice') {
     return Boolean(
       item.choiceId &&
-        item.choiceId !== 'not_in_scope' &&
-        item.choiceId !== 'unsure'
+      item.choiceId !== 'not_in_scope' &&
+      item.choiceId !== 'unsure'
     );
   }
   return item.state === 'included';
@@ -22408,7 +22527,7 @@ export function countDraftPricingReadiness(
   if (!draft) return { ready: 0, needsMeasurement: 0 };
   const hasScopePackages = Boolean(
     (draft.scopePackages && draft.scopePackages.length > 0) ||
-      (draft.rooms && draft.rooms.length > 0)
+    (draft.rooms && draft.rooms.length > 0)
   );
   // Step 3 review always has scope packages. Prefer that count — checklist
   // "ready" counts measured items even when Confirm Scope already priced them,
@@ -22586,7 +22705,10 @@ export function seedAdditionConversionPhysicalMeasurements(
       notes
     ) &&
     !overrides.drywallSqft &&
-    (isMistakenConversionFloorAreaDrywall(primarySf, Number(next.drywallSqft)) ||
+    (isMistakenConversionFloorAreaDrywall(
+      primarySf,
+      Number(next.drywallSqft)
+    ) ||
       isMistakenConversionWholeHomeDrywall(primarySf, Number(next.drywallSqft)))
   ) {
     next = { ...next, drywallSqft: '' };
@@ -22671,7 +22793,11 @@ export function seedAdditionConversionPhysicalMeasurements(
   }
 
   if (
-    !measurementFieldFilledForSeed(next, 'exteriorWallInsulationSqft', overrides)
+    !measurementFieldFilledForSeed(
+      next,
+      'exteriorWallInsulationSqft',
+      overrides
+    )
   ) {
     next = setSeededMeasurementField(
       next,
@@ -22946,19 +23072,56 @@ function syncPaintingCombinedQuantitiesIntoItemQuantities(
   templateKey?: string | null
 ): ScopeMeasurementsInputExtended {
   const isPainting = String(templateKey || '').toLowerCase() === 'painting';
-  if (!isPainting && extended.paintPricingMethod !== 'combined')
-    return extended;
+  if (!isPainting) return extended;
+  if (extended.paintPricingMethod === 'separate') {
+    const wallQuantity =
+      parseScopeMeasurementInput(extended.wallPaintSqft) || 0;
+    const ceilingQuantity =
+      parseScopeMeasurementInput(extended.ceilingPaintSqft) || 0;
+    const splitTotal = wallQuantity + ceilingQuantity;
+    const nextItemQuantities = { ...extended.itemQuantities };
+    if (wallQuantity > 0) {
+      nextItemQuantities.interior_paint = {
+        quantity: String(wallQuantity),
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      };
+    }
+    if (ceilingQuantity > 0) {
+      nextItemQuantities.ceiling_paint = {
+        quantity: String(ceilingQuantity),
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      };
+    }
+    if (splitTotal > 0) {
+      nextItemQuantities.prep = {
+        ...(nextItemQuantities.prep || {}),
+        quantity: String(splitTotal),
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      };
+    }
+    return {
+      ...extended,
+      itemQuantities: nextItemQuantities,
+    };
+  }
   if (
     extended.paintPricingMethod === 'combined' &&
     Number(extended.combinedPaintableAreaSqft || extended.paintAreaSqft) > 0
   ) {
     const quantity = String(
-      extended.combinedPaintableAreaSqft || extended.paintAreaSqft
+      parseScopeMeasurementInput(
+        extended.combinedPaintableAreaSqft || extended.paintAreaSqft
+      )
     );
+    const nextItemQuantities = { ...(extended.itemQuantities || {}) };
+    delete nextItemQuantities.ceiling_paint;
     extended = {
       ...extended,
       itemQuantities: {
-        ...extended.itemQuantities,
+        ...nextItemQuantities,
         interior_paint: {
           quantity,
           unit: 'sqft',
@@ -22966,10 +23129,9 @@ function syncPaintingCombinedQuantitiesIntoItemQuantities(
         },
         prep: {
           ...(extended.itemQuantities?.prep || {}),
-          quantity: extended.itemQuantities?.prep?.quantity || quantity,
-          unit: extended.itemQuantities?.prep?.unit || 'sqft',
-          quantitySource:
-            extended.itemQuantities?.prep?.quantitySource || 'user_entered',
+          quantity,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
         },
       },
     };
@@ -23963,7 +24125,9 @@ export function scopeMeasurementsInputFromPayload(
     thickenedEdgeLf: measurementFieldString(payload.thickenedEdgeLf),
     thickenedEdgeCy: measurementFieldString(payload.thickenedEdgeCy),
     gravelBaseCy: measurementFieldString(payload.gravelBaseCy),
-    gravelBaseDepthInches: measurementFieldString(payload.gravelBaseDepthInches),
+    gravelBaseDepthInches: measurementFieldString(
+      payload.gravelBaseDepthInches
+    ),
     concretePumpReviewNeeded: payload.concretePumpReviewNeeded ?? null,
     concretePumpCount: measurementFieldString(payload.concretePumpCount),
     additionalHaulOffLoadCount: measurementFieldString(
@@ -24644,7 +24808,8 @@ export function prepareScopeMeasurementsInputForUi(
 
   const template = String(options?.templateKey || '').toLowerCase();
   if (['plumbing', 'plumbing_service'].includes(template)) {
-    const stripped = stripNonPlumbingTradeBleedFromMeasurements(withSouthernUtah);
+    const stripped =
+      stripNonPlumbingTradeBleedFromMeasurements(withSouthernUtah);
     Object.assign(withSouthernUtah, stripped);
   }
   if (
@@ -24692,7 +24857,8 @@ export function prepareScopeMeasurementsInputForUi(
   ) {
     withSouthernUtah.waterHeaterCount = '';
     if (withSouthernUtah.itemQuantities?.water_heater) {
-      const { water_heater: _removed, ...rest } = withSouthernUtah.itemQuantities;
+      const { water_heater: _removed, ...rest } =
+        withSouthernUtah.itemQuantities;
       withSouthernUtah.itemQuantities = rest;
     }
     if (withSouthernUtah.plumbingScope?.length) {
@@ -24750,11 +24916,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   concreteReinforcementSqft?: string | number | null;
   concreteSealerSqft?: string | number | null;
   concreteDemoThicknessBand?:
-    | 'thin_2_3'
-    | 'standard_4'
-    | 'heavy_5_6'
-    | 'structural_7_plus'
-    | null;
+    'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
   concreteDemoReinforced?: boolean | null;
   concreteDemoLimitedAccess?: boolean | null;
   concreteDemoThicknessBands?: Array<
@@ -24836,8 +24998,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
       quantitySource?: QuantitySource;
       includesCountertops?: boolean;
       measurementState?:
-        | import('@/utils/measurementSemantics').ScopeMeasurementState
-        | null;
+        import('@/utils/measurementSemantics').ScopeMeasurementState | null;
     }
   >;
   pricingAcceptance?: Record<
@@ -24871,8 +25032,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   framingOpeningCount?: number | null;
   reframingRequested?: boolean | null;
   areaReconciliation?:
-    | import('@/utils/measurementSemantics').AreaReconciliation
-    | null;
+    import('@/utils/measurementSemantics').AreaReconciliation | null;
   pricingOverrideLog?: import('@/utils/measurementSemantics').PricingOverrideLog[];
   /** Applied stage/component benchmark keys — blocks double application. */
   appliedBenchmarkKeys?: string[];
@@ -24882,9 +25042,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   bathroomToiletRelocateFloorType?: string | null;
   /** Whether toilet relocate floor type was user-selected or AI-inferred. */
   bathroomToiletRelocateFloorTypeSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   /** Opening trim & finish — include field paint/stain labor in suggested pricing. */
   trimFinishFieldPaintIncluded?: boolean | null;
   trimFinishLf?: string | number | null;
@@ -24902,40 +25060,27 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   bathroomShowerRoughWallAccessSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomShowerRoughPlumbingExposed?: string | null;
   bathroomShowerRoughPlumbingExposedSource?:
-    | 'user_selected'
-    | 'demo_detected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'demo_detected' | 'ai_inferred' | null;
   bathroomShowerRoughFloorConstruction?: string | null;
   bathroomShowerRoughFloorConstructionSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomShowerRoughSlabWorkRequired?: string | null;
   bathroomShowerRoughSlabWorkRequiredSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomDrywallPaintUseCombinedAssemblySource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomPaintRepairScope?: string | null;
   bathroomPaintRepairScopeSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomPaintRepairEntireRoom?: boolean | null;
   bathroomPaintRepairEntireRoomSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomPaintRepairEntireRoomSqft?: string | number | null;
   bathroomPaintRepairEntireRoomSqftSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomPaintRepairSeverity?: string | null;
   bathroomPaintRepairSeveritySource?: 'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintMobilization?: string | null;
   bathroomInteriorPaintMobilizationSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintSurface?: string | null;
   bathroomInteriorPaintSurfaceSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintCondition?: string | null;
@@ -24950,11 +25095,9 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   >;
   quickMeasurementFieldConfidence?: Record<string, number>;
   planImportMode?:
-    | import('@/utils/planImportTradeConfig').PlanEstimatingMode
-    | null;
+    import('@/utils/planImportTradeConfig').PlanEstimatingMode | null;
   planImportTradeKey?:
-    | import('@/utils/planImportTradeConfig').PlanTradeKey
-    | null;
+    import('@/utils/planImportTradeConfig').PlanTradeKey | null;
   planImportMissingInfo?: string[];
   electricalValidation?: {
     fields?: Record<
@@ -26003,8 +26146,9 @@ export function initialScopeMeasurementInputExtended(
   }
 
   const kitchenTemplate =
-    String(draft?.scopeChecklist?.templateKey || draft?.projectType || '')
-      .toLowerCase() === 'kitchen';
+    String(
+      draft?.scopeChecklist?.templateKey || draft?.projectType || ''
+    ).toLowerCase() === 'kitchen';
   if (kitchenTemplate) {
     for (const key of [
       'cabinetLf',
@@ -26023,10 +26167,14 @@ export function initialScopeMeasurementInputExtended(
   }
 
   const roofingTemplate =
-    String(draft?.scopeChecklist?.templateKey || draft?.projectType || '')
-      .toLowerCase() === 'roofing';
+    String(
+      draft?.scopeChecklist?.templateKey || draft?.projectType || ''
+    ).toLowerCase() === 'roofing';
   if (roofingTemplate) {
-    const roofingInferenceNotes = collectRoofingInferenceNotes(draft, scopeNotes);
+    const roofingInferenceNotes = collectRoofingInferenceNotes(
+      draft,
+      scopeNotes
+    );
     const saved = result.tradeScopeSelections?.roofing || [];
     const merged = finalizeRoofingScopeSelections(
       {
@@ -26047,7 +26195,9 @@ export function initialScopeMeasurementInputExtended(
         roofing: merged,
       };
     }
-    const deckingAllowance = parseRoofingDeckingAllowanceFromNotes(roofingInferenceNotes);
+    const deckingAllowance = parseRoofingDeckingAllowanceFromNotes(
+      roofingInferenceNotes
+    );
     if (deckingAllowance != null && deckingAllowance > 0) {
       result.itemQuantities = {
         ...(result.itemQuantities || {}),
@@ -26073,7 +26223,10 @@ export function initialScopeMeasurementInputExtended(
     if (roofingPlanning.roofDripEdgeLf && !result.roofDripEdgeLf) {
       result.roofDripEdgeLf = roofingPlanning.roofDripEdgeLf;
     }
-    if (roofingPlanning.roofIceWaterShieldSqft && !result.roofIceWaterShieldSqft) {
+    if (
+      roofingPlanning.roofIceWaterShieldSqft &&
+      !result.roofIceWaterShieldSqft
+    ) {
       result.roofIceWaterShieldSqft = roofingPlanning.roofIceWaterShieldSqft;
     }
     if (roofingPlanning.roofRidgeCapLf && !result.roofRidgeCapLf) {
@@ -26110,7 +26263,10 @@ export function initialScopeMeasurementInputExtended(
   }
 
   if (roofingTemplate) {
-    const roofingInferenceNotes = collectRoofingInferenceNotes(draft, scopeNotes);
+    const roofingInferenceNotes = collectRoofingInferenceNotes(
+      draft,
+      scopeNotes
+    );
     result = suppressRoofRepairMeasurementsWhenTearOffInstall(
       result,
       roofingInferenceNotes,

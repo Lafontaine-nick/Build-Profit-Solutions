@@ -2310,7 +2310,12 @@ export function quickMeasurementRowsForTemplate(
     key,
     projectType
   );
-  return filterGarageConversionQuickMeasurementRows(labeled, projectType, notes);
+  const garageFiltered = filterGarageConversionQuickMeasurementRows(
+    labeled,
+    projectType,
+    notes
+  );
+  return filterMixedInteriorRefreshRows(garageFiltered, key, notes);
 }
 
 function projectAreaFieldLabel(projectType?: string | null): string | null {
@@ -2393,6 +2398,36 @@ function filterGarageConversionQuickMeasurementRows(
     .map(row => row.filter(field => !GARAGE_CONVERSION_HIDDEN_MEASUREMENT_KEYS.has(field.key)))
     .filter(row => row.length > 0);
   return [...filtered, ...garageConversionOpeningMeasurementRows(filtered)];
+}
+
+function isMixedInteriorRefreshNotes(notes?: string | null): boolean {
+  const text = String(notes || '');
+  if (/\b(?:kitchen|bath(?:room)?|shower|tub|vanity|toilet)\b/i.test(text)) {
+    return false;
+  }
+  const signals = [
+    /\bpaint(?:ing)?\b/i,
+    /\b(?:lvp|laminate|vinyl|carpet|hardwood|flooring)\b/i,
+    /\b(?:interior\s+)?doors?\b|\b(?:baseboard|trim)\b/i,
+    /\bdrywall\b|\bpatch(?:ing)?\b/i,
+  ];
+  return signals.filter(pattern => pattern.test(text)).length >= 2;
+}
+
+function filterMixedInteriorRefreshRows(
+  rows: QuickMeasurementRow[],
+  templateKey?: string | null,
+  notes?: string | null
+): QuickMeasurementRow[] {
+  if (
+    String(templateKey || '').toLowerCase() !== 'room_remodel' ||
+    !isMixedInteriorRefreshNotes(notes)
+  ) {
+    return rows;
+  }
+  return rows
+    .map(row => row.filter(field => field.key !== 'bathroomFloorSqft'))
+    .filter(row => row.length > 0);
 }
 
 export function hasQuickMeasurementValue(value: unknown): boolean {

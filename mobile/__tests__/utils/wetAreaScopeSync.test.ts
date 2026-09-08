@@ -37,14 +37,11 @@ describe('wetAreaScopeSync', () => {
   });
 
   test('syncWetAreaTileScopeItems includes shower floor from SF on whole-home QM (ground_up)', () => {
-    const next = syncWetAreaTileScopeItems(
-      baseItems,
-      {
-        showerFloorTileSqft: '30',
-        showerWallTileSqft: '160',
-        splitTileWetArea: false,
-      }
-    );
+    const next = syncWetAreaTileScopeItems(baseItems, {
+      showerFloorTileSqft: '30',
+      showerWallTileSqft: '160',
+      splitTileWetArea: false,
+    });
     expect(next.find(r => r.id === 'shower_floor_tile')?.state).toBe(
       'included'
     );
@@ -428,6 +425,45 @@ describe('wetAreaScopeSync', () => {
       cabinetPaintSqft: '200',
     });
     expect(next.every(row => row.state === 'included')).toBe(true);
+  });
+
+  test('splits walls and ceilings without retaining a generic paint card', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'paint',
+        label: 'Interior painting',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'interior_paint',
+        label: 'Interior paint — walls & ceilings',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'ceiling_paint',
+        label: 'Interior paint — ceilings',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+    ];
+    const next = syncInteriorPaintScopeItems(items, {
+      wallPaintSqft: 4180,
+      ceilingPaintSqft: 1900,
+      paintPricingMethod: 'separate',
+    });
+
+    expect(next.some(row => row.id === 'paint')).toBe(false);
+    expect(next.find(row => row.id === 'interior_paint')).toEqual(
+      expect.objectContaining({
+        state: 'included',
+        label: 'Interior paint — walls',
+      })
+    );
+    expect(next.find(row => row.id === 'ceiling_paint')?.state).toBe(
+      'included'
+    );
   });
 
   test('syncInteriorPaintScopeItems targets paint_repair on bathroom checklists', () => {

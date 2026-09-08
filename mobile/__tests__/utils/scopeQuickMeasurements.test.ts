@@ -12,6 +12,18 @@ import {
 import { tradeQuickMeasurementFieldKeys } from '@/utils/planImportTradeConfig';
 
 describe('scopeQuickMeasurements', () => {
+  it('hides the generic room-floor field for mixed interior refreshes', () => {
+    const notes =
+      'Full interior refresh on a 1,900 sqft house. Paint all walls and ceilings, new LVP throughout main floor about 1,100 sqft, update 6 interior doors and trim, patch drywall where needed. No exterior work on this one.';
+    const keys = quickMeasurementRowsForTemplate('room_remodel', 'other', notes)
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).not.toContain('bathroomFloorSqft');
+    expect(keys).toContain('wallPaintSqft');
+    expect(keys).toContain('baseboardLf');
+  });
+
   it('labels addition floor area as ADU for ADU projects and marks it primary', () => {
     const rows = quickMeasurementRowsForTemplate('addition', 'adu');
     const floorArea = rows.flat().find(field => field.key === 'floorAreaSqft');

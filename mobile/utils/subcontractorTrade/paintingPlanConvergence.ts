@@ -411,7 +411,7 @@ export function applyPaintPricingMethodChoice<T extends PaintPricingMethodDraft>
   method: PaintPricingMethod,
   stashedSplit?: { wall?: string | number | null; ceiling?: string | number | null }
 ): T {
-  const wall =
+  const rawWall =
     positiveNumber(prev.wallPaintSqft) != null
       ? fieldString(prev.wallPaintSqft)
       : fieldString(stashedSplit?.wall);
@@ -419,9 +419,19 @@ export function applyPaintPricingMethodChoice<T extends PaintPricingMethodDraft>
     positiveNumber(prev.ceilingPaintSqft) != null
       ? fieldString(prev.ceilingPaintSqft)
       : fieldString(stashedSplit?.ceiling);
+  const storedCombined = positiveNumber(prev.combinedPaintableAreaSqft);
+  // After a combined-mode edit, wallPaintSqft can temporarily contain the
+  // combined total. If the ceiling value is still present, restore the
+  // original wall split before calculating either pricing mode.
+  const wall =
+    storedCombined != null &&
+    positiveNumber(rawWall) != null &&
+    positiveNumber(ceiling) != null &&
+    Math.abs((positiveNumber(rawWall) || 0) - storedCombined) < 0.001
+      ? String(Math.max(0, storedCombined - (positiveNumber(ceiling) || 0)))
+      : rawWall;
   const splitTotal =
     (positiveNumber(wall) || 0) + (positiveNumber(ceiling) || 0);
-  const storedCombined = positiveNumber(prev.combinedPaintableAreaSqft);
   const hasCompleteSplit =
     positiveNumber(wall) != null && positiveNumber(ceiling) != null;
   const floorAreaCeilingFallback =
@@ -455,6 +465,7 @@ export function applyPaintPricingMethodChoice<T extends PaintPricingMethodDraft>
     };
     nextItemQuantities.interior_paint = combinedEntry;
     nextItemQuantities.prep = combinedEntry;
+    delete nextItemQuantities.ceiling_paint;
   } else {
     delete nextItemQuantities.interior_paint;
     delete nextItemQuantities.prep;

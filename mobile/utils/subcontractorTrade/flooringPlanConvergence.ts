@@ -8,21 +8,21 @@ export type FlooringProductId =
   | 'carpet'
   | 'sheet_vinyl_vct';
 
-export type FlooringExistingTypeId =
-  | FlooringProductId
-  | 'unknown';
+export type FlooringExistingTypeId = FlooringProductId | 'unknown';
 
 /** Plan-export install area keys mapped to canonical product ids. */
-export const FLOORING_PLAN_INSTALL_AREA_KEYS: Record<string, FlooringProductId> =
-  {
-    flooringLvpSqft: 'lvp',
-    flooringLaminateSqft: 'laminate',
-    flooringEngineeredHardwoodSqft: 'engineered_hardwood',
-    flooringSolidHardwoodSqft: 'solid_hardwood',
-    flooringTileSqft: 'tile',
-    flooringCarpetSqft: 'carpet',
-    flooringSheetVinylSqft: 'sheet_vinyl_vct',
-  };
+export const FLOORING_PLAN_INSTALL_AREA_KEYS: Record<
+  string,
+  FlooringProductId
+> = {
+  flooringLvpSqft: 'lvp',
+  flooringLaminateSqft: 'laminate',
+  flooringEngineeredHardwoodSqft: 'engineered_hardwood',
+  flooringSolidHardwoodSqft: 'solid_hardwood',
+  flooringTileSqft: 'tile',
+  flooringCarpetSqft: 'carpet',
+  flooringSheetVinylSqft: 'sheet_vinyl_vct',
+};
 
 /** Optional per-type demo area keys from plan export (adapter-only). */
 export const FLOORING_PLAN_DEMO_AREA_KEYS: Record<string, FlooringProductId> = {
@@ -118,7 +118,9 @@ function readDemoAreaByProduct(
   input: Record<string, unknown>
 ): FlooringAreaByProduct {
   const merged: FlooringAreaByProduct = {};
-  for (const [planKey, product] of Object.entries(FLOORING_PLAN_DEMO_AREA_KEYS)) {
+  for (const [planKey, product] of Object.entries(
+    FLOORING_PLAN_DEMO_AREA_KEYS
+  )) {
     const n = positiveNumber(input[planKey]);
     if (n != null) merged[product] = n;
   }
@@ -224,14 +226,11 @@ export function buildFlooringStructuredMeasurements(
   const areaByProduct = readInstallAreaByProduct(input);
   const demoByProduct = readDemoAreaByProduct(input);
   const explicitProductScope = readExplicitProductScope(input);
-  const productScopeFromAreas = Object.keys(areaByProduct) as FlooringProductId[];
+  const productScopeFromAreas = Object.keys(
+    areaByProduct
+  ) as FlooringProductId[];
   const productScope = explicitProductScope?.length
-    ? [
-        ...new Set([
-          ...explicitProductScope,
-          ...productScopeFromAreas,
-        ]),
-      ]
+    ? [...new Set([...explicitProductScope, ...productScopeFromAreas])]
     : productScopeFromAreas.length
       ? productScopeFromAreas
       : null;
@@ -242,8 +241,7 @@ export function buildFlooringStructuredMeasurements(
 
   const existingTypes = readExplicitExistingTypes(input);
   const aggregateDemo = positiveNumber(input.floorDemoSqft);
-  const demoTotal =
-    sumAreaByProduct(demoByProduct) ?? aggregateDemo ?? null;
+  const demoTotal = sumAreaByProduct(demoByProduct) ?? aggregateDemo ?? null;
 
   const installItemQuantities = buildInstallItemQuantities(areaByProduct);
   const demoItemQuantities = buildDemoItemQuantities(
@@ -257,8 +255,7 @@ export function buildFlooringStructuredMeasurements(
   };
 
   const hasInstallAreas = perTypeTotal != null;
-  const installScopeCount =
-    productScope?.length && hasInstallAreas ? 1 : null;
+  const installScopeCount = productScope?.length && hasInstallAreas ? 1 : null;
   const demoScopeCount = demoTotal != null ? 1 : null;
 
   return {
@@ -302,7 +299,17 @@ export function normalizeFlooringScalarMeasurements(
     'flooringMoistureMembraneIncluded',
   ] as const;
 
-  const areaByProduct = structured.flooringAreaByProduct || {};
+  const areaByProduct = { ...(structured.flooringAreaByProduct || {}) };
+  const aggregateInstall =
+    positiveNumber(input.flooringSqft) ?? positiveNumber(input.floorAreaSqft);
+  const installTypes = structured.flooringProductScope || [];
+  if (
+    Object.keys(areaByProduct).length === 0 &&
+    aggregateInstall != null &&
+    installTypes.length === 1
+  ) {
+    areaByProduct[installTypes[0] as FlooringProductId] = aggregateInstall;
+  }
   for (const [product, area] of Object.entries(areaByProduct)) {
     const planKey = Object.entries(FLOORING_PLAN_INSTALL_AREA_KEYS).find(
       ([, id]) => id === product
@@ -315,8 +322,7 @@ export function normalizeFlooringScalarMeasurements(
     out.flooringSqft = perTypeTotal;
     out.floorAreaSqft = perTypeTotal;
   } else {
-    const aggregate =
-      positiveNumber(input.flooringSqft) ?? positiveNumber(input.floorAreaSqft);
+    const aggregate = aggregateInstall;
     if (aggregate != null) {
       out.flooringSqft = aggregate;
       if (positiveNumber(input.floorAreaSqft) != null) {
@@ -329,6 +335,15 @@ export function normalizeFlooringScalarMeasurements(
     sumAreaByProduct(readDemoAreaByProduct(input)) ??
     positiveNumber(input.floorDemoSqft);
   if (demoTotal != null) out.floorDemoSqft = demoTotal;
+  const existingTypes = structured.flooringExistingTypes || [];
+  if (demoTotal != null && existingTypes.length === 1) {
+    const demoKey = Object.entries(FLOORING_PLAN_DEMO_AREA_KEYS).find(
+      ([, product]) => product === existingTypes[0]
+    )?.[0];
+    if (demoKey && out[demoKey] == null) {
+      out[demoKey] = demoTotal;
+    }
+  }
 
   for (const key of scalarKeys) {
     if (out[key] != null) continue;
@@ -338,7 +353,12 @@ export function normalizeFlooringScalarMeasurements(
       continue;
     }
     if (typeof value === 'string' && value.trim()) {
-      if (key.includes('Method') || key.includes('Type') || key.includes('Pad') || key.includes('Membrane')) {
+      if (
+        key.includes('Method') ||
+        key.includes('Type') ||
+        key.includes('Pad') ||
+        key.includes('Membrane')
+      ) {
         out[key] = value.trim();
       } else {
         const n = positiveNumber(value);
@@ -364,7 +384,7 @@ export function flooringPlanNeedsTypeConfirmation(
   const structured = buildFlooringStructuredMeasurements(input);
   const hasPerType = Boolean(
     structured.flooringAreaByProduct &&
-      Object.keys(structured.flooringAreaByProduct).length
+    Object.keys(structured.flooringAreaByProduct).length
   );
   const hasProductScope = Boolean(structured.flooringProductScope?.length);
   const aggregate =

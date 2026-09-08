@@ -839,13 +839,11 @@ export function parsePlumbingMeasurementsFromNotes(
     'plumbingTrimHookupCount',
     count(
       new RegExp(
-        `${COUNT_TOKEN}\\s+(?:plumbing\\s+)?(?:trim|hookups?|connections?)`,
+        `${COUNT_TOKEN}\\s+(?:plumbing\\s+trim|trim\\s+hookups?|fixture\\s+hookups?|plumbing\\s+connections?)`,
         'i'
       )
     ) ??
-      (/\b(?:plumbing\s+)?(?:trim|fixture hookups?|plumbing connections?)\b/i.test(
-        text
-      )
+      (/\b(?:plumbing\s+trim|trim\s+hookups?|fixture\s+hookups?|plumbing\s+connections?)\b/i.test(text)
         ? 1
         : null)
   );

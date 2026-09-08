@@ -2011,7 +2011,7 @@ export function QmFlooringScopePanels({
                         backgroundColor: selected
                           ? 'rgba(52, 211, 153, 0.12)'
                           : darkMode
-                            ? '#27272a'
+                            ? '#3a3a3c'
                             : '#f1f5f9',
                       },
                     ]}
@@ -2055,7 +2055,7 @@ export function QmFlooringScopePanels({
                                   backgroundColor: selectedMethod
                                     ? 'rgba(52, 211, 153, 0.12)'
                                     : darkMode
-                                      ? '#27272a'
+                                      ? '#3a3a3c'
                                       : '#f1f5f9',
                                 },
                               ]}
@@ -2099,7 +2099,7 @@ export function QmFlooringScopePanels({
                                   backgroundColor: selectedSubtype
                                     ? 'rgba(52, 211, 153, 0.12)'
                                     : darkMode
-                                      ? '#27272a'
+                                      ? '#3a3a3c'
                                       : '#f1f5f9',
                                 },
                               ]}
@@ -2243,7 +2243,7 @@ export function QmFlooringScopePanels({
                     styles.qmOption,
                     {
                       borderColor: selected ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                      backgroundColor: selected ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
+                      backgroundColor: selected ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#3a3a3c' : '#f1f5f9',
                     },
                   ]}
                 >
@@ -2297,7 +2297,7 @@ export function QmFlooringScopePanels({
                                     backgroundColor: selectedSubtype
                                       ? 'rgba(52, 211, 153, 0.12)'
                                       : darkMode
-                                        ? '#27272a'
+                                        ? '#3a3a3c'
                                         : '#f1f5f9',
                                   },
                                 ]}
@@ -2442,7 +2442,7 @@ export function QmFlooringScopePanels({
                                     backgroundColor: selectedSeverity
                                       ? 'rgba(52, 211, 153, 0.12)'
                                       : darkMode
-                                        ? '#27272a'
+                                        ? '#3a3a3c'
                                         : '#f1f5f9',
                                   },
                                 ]}
@@ -3113,7 +3113,7 @@ export function QmLandscapingScopePanels({
                 {
                   marginTop: 10,
                   borderColor: demoActive ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                  backgroundColor: demoActive ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
+                  backgroundColor: demoActive ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#3a3a3c' : '#f1f5f9',
                 },
               ]}
             >
@@ -3151,7 +3151,7 @@ export function QmLandscapingScopePanels({
                       styles.qmOption,
                       {
                         borderColor: selectedLevel ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                        backgroundColor: selectedLevel ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
+                        backgroundColor: selectedLevel ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#3a3a3c' : '#f1f5f9',
                       },
                     ]}
                   >
@@ -3228,7 +3228,7 @@ export function QmLandscapingScopePanels({
                   styles.qmOption,
                   {
                     borderColor: active ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                    backgroundColor: active ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
+                    backgroundColor: active ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#3a3a3c' : '#f1f5f9',
                   },
                 ]}
               >
@@ -3276,7 +3276,7 @@ export function QmLandscapingScopePanels({
                                   backgroundColor: selectedLevel
                                     ? 'rgba(52, 211, 153, 0.12)'
                                     : darkMode
-                                      ? '#27272a'
+                                      ? '#3a3a3c'
                                       : '#f1f5f9',
                                 },
                               ]}

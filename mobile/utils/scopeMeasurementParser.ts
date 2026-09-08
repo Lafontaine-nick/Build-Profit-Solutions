@@ -434,9 +434,7 @@ export function shouldInferGarageDoorInstallFromNotes(notes: string): boolean {
   return true;
 }
 
-export function parseGarageDoorCountsFromNotes(
-  notes: string
-): Partial<{
+export function parseGarageDoorCountsFromNotes(notes: string): Partial<{
   garageDoorSingleCount: number;
   garageDoorDoubleCount: number;
   garageDoorRvCount: number;
@@ -586,7 +584,8 @@ function firstHvacCount(text: string, pattern: RegExp | string): number | null {
     four: 4,
     five: 5,
   };
-  const count = words[match[1].toLowerCase()] || Number(match[1].replace(/,/g, ''));
+  const count =
+    words[match[1].toLowerCase()] || Number(match[1].replace(/,/g, ''));
   return Number.isFinite(count) && count > 0 ? count : null;
 }
 
@@ -633,7 +632,9 @@ function parseLabeledInteriorFloorAreaTotal(text: string): number | null {
     const value = Number(match[1].replace(/,/g, ''));
     if (Number.isFinite(value) && value > 0) values.push(value);
   }
-  return values.length >= 2 ? values.reduce((sum, value) => sum + value, 0) : null;
+  return values.length >= 2
+    ? values.reduce((sum, value) => sum + value, 0)
+    : null;
 }
 
 export function parseScopeMeasurementsFromNotes(
@@ -931,18 +932,21 @@ export function parseScopeMeasurementsFromNotes(
   const labeledFloorAreaTotal = parseLabeledInteriorFloorAreaTotal(
     clauses.filter(clause => !/\bexterior\b/i.test(clause)).join(' ')
   );
+  const combinedSurface = paintSqft
+    ? floorAreaPaintLanguage
+      ? Math.round((labeledFloorAreaTotal ?? paintSqft) * 3.2)
+      : paintSqft
+    : 0;
 
-  if (
-    combinedPaintLanguage &&
-    floorAreaPaintLanguage &&
-    paintSqft &&
-    labeledFloorAreaTotal != null
-  ) {
-    const combinedSurface = Math.round(paintSqft * 3.2);
-    const ceilingSurface = Math.round(labeledFloorAreaTotal);
+  if (combinedPaintLanguage && floorAreaPaintLanguage && paintSqft) {
+    // When the notes list floor areas, use that interior total as the paint
+    // basis. A later exterior wall-area quantity must not become the interior
+    // paint reference.
+    const floorAreaReference = labeledFloorAreaTotal ?? paintSqft;
+    const ceilingSurface = Math.round(floorAreaReference);
     const wallSurface = Math.max(0, combinedSurface - ceilingSurface);
-    out.paintAreaSqft = paintSqft;
-    out.originalPaintAreaReferenceSqft = paintSqft;
+    out.paintAreaSqft = floorAreaReference;
+    out.originalPaintAreaReferenceSqft = floorAreaReference;
     out.paintAreaNeedsConfirmation = true;
     out.paintAreaBasis = 'floor_area';
     out.paintPricingMethod = 'separate';
@@ -977,8 +981,8 @@ export function parseScopeMeasurementsFromNotes(
     if (combinedPaintLanguage) {
       out.paintPricingMethod = 'combined';
       out.combinedPaintableAreaSqft = floorAreaPaintLanguage
-        ? Math.round(paintSqft * 3.2)
-        : paintSqft;
+        ? Math.round(combinedSurface)
+        : combinedSurface;
       out.paintAreaNeedsConfirmation = floorAreaPaintLanguage;
       out.paintAreaBasis = floorAreaPaintLanguage ? 'floor_area' : 'combined';
     }
@@ -1030,8 +1034,10 @@ export function parseScopeMeasurementsFromNotes(
       text,
       /\b(?:rv|oversized|extra[-\s]?wide|tall)\b[^.;\n]{0,25}\bgarage\s+doors?\b|\bgarage\s+doors?\b[^.;\n]{0,25}\b(?:rv|oversized|extra[-\s]?wide|tall)\b/i
     );
-    if (garageDoorSingleCount) out.garageDoorSingleCount = garageDoorSingleCount;
-    if (garageDoorDoubleCount) out.garageDoorDoubleCount = garageDoorDoubleCount;
+    if (garageDoorSingleCount)
+      out.garageDoorSingleCount = garageDoorSingleCount;
+    if (garageDoorDoubleCount)
+      out.garageDoorDoubleCount = garageDoorDoubleCount;
     if (garageDoorRvCount) out.garageDoorRvCount = garageDoorRvCount;
   }
 
@@ -1099,6 +1105,8 @@ export function parseScopeMeasurementsFromNotes(
   const exteriorPaintSqft = pickSqftFromClauses([
     /\bexterior\s+paint\b/,
     /\bpaint\s+exterior\b/,
+    /\bpaintable\s+(?:exterior\s+)?wall\s+area\b/,
+    /\bexterior\s+(?:wall\s+)?(?:surface|wall)\s+area\b/,
   ]);
   if (exteriorPaintSqft) out.exteriorPaintSqft = exteriorPaintSqft;
 
@@ -1158,16 +1166,37 @@ export function parseScopeMeasurementsFromNotes(
   const insulationRValue = text.match(
     /\bR[-\s]?(\d{2,3})(?:\s*(?:wall|attic|ceiling|roof))?\b/i
   )?.[0];
-  const garageInsulationIncluded = /\bgarage\b[^.;\n]{0,50}\b(insulat(?:e|ed|ion)|separation)\b/i.test(
-    text
-  )
-    ? 'yes'
-    : undefined;
+  const garageInsulationIncluded =
+    /\bgarage\b[^.;\n]{0,50}\b(insulat(?:e|ed|ion)|separation)\b/i.test(text)
+      ? 'yes'
+      : undefined;
   if (insulationMaterialType)
     out.insulationMaterialType = insulationMaterialType;
   if (insulationRValue) out.insulationRValue = insulationRValue;
   if (garageInsulationIncluded)
     out.garageInsulationIncluded = garageInsulationIncluded;
+
+  const productIsRemovalOnly = (product: string): boolean => {
+    const removal =
+      /(?:tear[\s-]?out|remove|removal|demo|demolition)\b[^.;\n]{0,45}\b(?:carpet|lvp|luxury\s+vinyl|laminate|engineered\s+hardwood|solid\s+hardwood|tile|flooring)\b/i;
+    const reverse =
+      /\b(?:carpet|lvp|luxury\s+vinyl|laminate|engineered\s+hardwood|solid\s+hardwood|tile|flooring)\b[^.;\n]{0,45}\b(?:tear[\s-]?out|remove|removal|demo|demolition)\b/i;
+    const installPattern =
+      product === 'engineered_hardwood'
+        ? 'engineered\\s+hardwood'
+        : product === 'solid_hardwood'
+          ? 'solid\\s+hardwood'
+          : product === 'lvp'
+            ? '(?:lvp|luxury\\s+vinyl)'
+            : product;
+    return (
+      (removal.test(blob) || reverse.test(blob)) &&
+      !new RegExp(
+        `\\b(?:install|installation|installing|new)\\b[^.;\\n]{0,45}\\b${installPattern}\\b`,
+        'i'
+      ).test(blob)
+    );
+  };
 
   const flooringSqft = (() => {
     let max = 0;
@@ -1199,7 +1228,8 @@ export function parseScopeMeasurementsFromNotes(
   ) {
     flooringProductScope.push('tile');
   }
-  if (/\bcarpet\b/i.test(blob)) flooringProductScope.push('carpet');
+  if (/\bcarpet\b/i.test(blob) && !productIsRemovalOnly('carpet'))
+    flooringProductScope.push('carpet');
   if (flooringProductScope.length)
     out.flooringProductScope = flooringProductScope;
   if (
@@ -1271,7 +1301,19 @@ export function parseScopeMeasurementsFromNotes(
   ];
   for (const [key, pattern] of flooringProductPatterns) {
     const quantity = pickSqftFromClauses([pattern]);
-    if (quantity) out[key] = quantity;
+    const product =
+      key === 'flooringLvpSqft'
+        ? 'lvp'
+        : key === 'flooringLaminateSqft'
+          ? 'laminate'
+          : key === 'flooringEngineeredHardwoodSqft'
+            ? 'engineered_hardwood'
+            : key === 'flooringSolidHardwoodSqft'
+              ? 'solid_hardwood'
+              : key === 'flooringTileSqft'
+                ? 'tile'
+                : 'carpet';
+    if (quantity && !productIsRemovalOnly(product)) out[key] = quantity;
   }
   const floorDemoSqft = pickSqftFromClauses([
     /\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b[^.;]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/,
@@ -1505,7 +1547,8 @@ export function parseScopeMeasurementsFromNotes(
       if (!/\bgarages?\b/i.test(clause)) continue;
       if (clauseHomeSqftBeforeGarage(clause)) {
         const inferred =
-          inferGarageSqftFromCarCount(clause) ?? inferGarageSqftFromCarCount(text);
+          inferGarageSqftFromCarCount(clause) ??
+          inferGarageSqftFromCarCount(text);
         if (inferred) return inferred;
         continue;
       }
@@ -1853,7 +1896,10 @@ export function parseScopeMeasurementsFromNotes(
   if (hvacText) {
     const systemCount =
       firstHvacCount(hvacText, '(?:hvac\\s+)?systems?') ||
-      firstHvacCount(hvacText, '(?:furnaces?|air\\s*handlers?|heat\\s*pumps?|mini[\\s-]?splits?)');
+      firstHvacCount(
+        hvacText,
+        '(?:furnaces?|air\\s*handlers?|heat\\s*pumps?|mini[\\s-]?splits?)'
+      );
     if (systemCount) out.hvacSystemCount = Math.round(systemCount);
     const tons = firstQty(hvacText, TON_RE);
     if (tons) out.hvacSystemTons = tons;
@@ -1882,7 +1928,8 @@ export function parseScopeMeasurementsFromNotes(
       hvacText,
       '(?:hvac\\s+)?(?:service|diagnostic|maintenance)\\s+calls?'
     );
-    if (serviceCallCount) out.hvacServiceCallCount = Math.round(serviceCallCount);
+    if (serviceCallCount)
+      out.hvacServiceCallCount = Math.round(serviceCallCount);
     const replacementCount = firstHvacCount(
       hvacText,
       '(?:equipment|furnace|air\\s*handler|condenser|heat\\s*pump)\\s+(?:replacement|replace(?:ment)?)'
@@ -1901,12 +1948,14 @@ export function parseScopeMeasurementsFromNotes(
       hvacText,
       'refrigerant(?:\\s+(?:service|recharge|recovery))?'
     );
-    if (refrigerantCount) out.hvacRefrigerantCount = Math.round(refrigerantCount);
+    if (refrigerantCount)
+      out.hvacRefrigerantCount = Math.round(refrigerantCount);
     const ventilationCount = firstHvacCount(
       hvacText,
       '(?:ERV|HRV|fresh[\\s-]?air\\s+ventilator|energy[\\s-]?recovery\\s+ventilator|heat[\\s-]?recovery\\s+ventilator)'
     );
-    if (ventilationCount) out.hvacVentilationCount = Math.round(ventilationCount);
+    if (ventilationCount)
+      out.hvacVentilationCount = Math.round(ventilationCount);
     if (/\b(?:permit|inspection)\b/i.test(hvacText)) {
       out.hvacPermitCount = 1;
     }
@@ -1949,7 +1998,11 @@ export function parseScopeMeasurementsFromNotes(
   }
 
   if (templateKey === 'concrete' || projectType === 'concrete') {
-    for (const key of ['floorAreaSqft', 'garageSqft', 'rockMulchSqft'] as const) {
+    for (const key of [
+      'floorAreaSqft',
+      'garageSqft',
+      'rockMulchSqft',
+    ] as const) {
       delete (out as Record<string, unknown>)[key];
     }
   }
@@ -1969,9 +2022,7 @@ export function parseScopeMeasurementsFromNotes(
   const itemAllowances = parseScopeItemAllowancesFromNotes(text, ctx);
   const itemRatePricing = parseScopeItemRatePricingFromNotes(text, out, ctx);
   const itemQuantities = { ...itemAllowances, ...itemRatePricing };
-  const openingItemMap: Array<
-    [keyof ParsedScopeMeasurements, string]
-  > = [
+  const openingItemMap: Array<[keyof ParsedScopeMeasurements, string]> = [
     ['windowCount', 'windows'],
     ['exteriorDoorCount', 'exterior_doors'],
     ['slidingDoorCount', 'sliding_doors'],

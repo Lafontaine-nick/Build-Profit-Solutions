@@ -623,11 +623,11 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     paintSqft &&
     labeledFloorAreaTotal != null
   ) {
-    const combinedSurface = Math.round(paintSqft * 3.2);
+    const combinedSurface = Math.round(labeledFloorAreaTotal * 3.2);
     const ceilingSurface = Math.round(labeledFloorAreaTotal);
     const wallSurface = Math.max(0, combinedSurface - ceilingSurface);
-    out.paintAreaSqft = paintSqft;
-    out.originalPaintAreaReferenceSqft = paintSqft;
+    out.paintAreaSqft = labeledFloorAreaTotal;
+    out.originalPaintAreaReferenceSqft = labeledFloorAreaTotal;
     out.paintAreaNeedsConfirmation = true;
     out.paintAreaBasis = 'floor_area';
     out.paintPricingMethod = 'separate';
@@ -658,7 +658,11 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     if (combinedPaintLanguage) {
       out.paintPricingMethod = 'combined';
       out.combinedPaintableAreaSqft = floorAreaPaintLanguage
-        ? Math.round(paintSqft * 3.2)
+        ? Math.round(
+            labeledFloorAreaTotal != null
+              ? labeledFloorAreaTotal * 3.2
+              : paintSqft * 3.2,
+          )
         : paintSqft;
       out.paintAreaNeedsConfirmation = floorAreaPaintLanguage;
       out.paintAreaBasis = floorAreaPaintLanguage ? 'floor_area' : 'combined';
@@ -756,7 +760,12 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     out.cabinetRunLf = (cabinetUpperLf || 0) + (cabinetLowerLf || 0) + (cabinetTallLf || 0);
   }
 
-  const exteriorPaintSqft = pickSqftFromClauses([/\bexterior\s+paint\b/, /\bpaint\s+exterior\b/]);
+  const exteriorPaintSqft = pickSqftFromClauses([
+    /\bexterior\s+paint\b/,
+    /\bpaint\s+exterior\b/,
+    /\bpaintable\s+(?:exterior\s+)?wall\s+area\b/,
+    /\bexterior\s+(?:wall\s+)?(?:surface|wall)\s+area\b/,
+  ]);
   if (exteriorPaintSqft) out.exteriorPaintSqft = exteriorPaintSqft;
 
   // Drywall

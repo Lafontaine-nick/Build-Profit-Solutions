@@ -1494,6 +1494,14 @@ const CHECKLIST_TEMPLATES = {
         category: "paint",
       },
       {
+        id: "exterior_trim_paint",
+        inputType: "yes_no",
+        label: "Exterior trim, windows & doors",
+        helperText:
+          "Paint exterior trim, window trim assemblies, and exterior door surfaces. This is painting only — window and door replacement or installation are separate.",
+        category: "paint",
+      },
+      {
         id: "cleanup",
         inputType: "yes_no",
         label: "Cleanup & disposal",
@@ -2292,7 +2300,7 @@ const CHECKLIST_YES_HINTS = {
     /\b(interior\s+paint|paint\s+(?:walls?|ceilings?|interior)|paint\s*\/\s*stain)\b/,
   prep: /\b(paint(?:ing)?|primer|surface\s+prep|masking|patch(?:ing)?)\b/,
   door_paint:
-    /\b(?:paint|painting)\b[^.;]{0,40}\b(?:interior\s+)?doors?\b|\b(?:interior\s+)?doors?\b[^.;]{0,40}\b(?:paint|painting)\b/,
+    /\b(?:paint|painting)\b[^.;]{0,60}\b(?:interior\s+)?doors?\b|\b(?:interior\s+)?doors?\b[^.;]{0,60}\b(?:paint|painting)\b/i,
   cabinet_paint:
     /\b(?:paint|painting|refinish(?:ing)?)\b[^.;]{0,40}\bcabinets?\b|\bcabinets?\b[^.;]{0,40}\b(?:paint|painting|refinish(?:ing)?)\b/,
   exterior_paint: /\b(exterior\s+paint|paint\s+exterior)\b/,
@@ -2415,6 +2423,18 @@ function checklistTemplateKey(draft, estimateTier) {
   const projectType = String(draft.projectType || "other").toLowerCase();
   const notes = notesText(draft, null);
 
+  const dedicatedPaintingIntent =
+    /\b(?:paint(?:ing)?|repaint|primer|painted)\b/i.test(notes);
+  const explicitRepaintWithoutConstruction =
+    /\b(?:repaint|repainting|whole[-\s]?house\s+(?:interior\s+and\s+exterior\s+)?repaint)\b/i.test(
+      notes,
+    ) &&
+    !/\b(?:install|replace|new|build|remodel|renovat(?:e|ion)|add(?:ition)?)\b/i.test(
+      notes,
+    );
+  if (dedicatedPaintingIntent && explicitRepaintWithoutConstruction) {
+    return "painting";
+  }
   if (estimateTier === "ground_up") return "ground_up";
   if (estimateTier === "addition") return "addition";
   if (detectAdditionConversionIntent(projectType, notes)) return "addition";
@@ -2450,8 +2470,6 @@ function checklistTemplateKey(draft, estimateTier) {
   // A dedicated repaint that mentions an existing kitchen surface is still a
   // painting job. Route it to the painting checklist unless the notes describe
   // an actual kitchen remodel/renovation or a new kitchen installation.
-  const dedicatedPaintingIntent =
-    /\b(paint(?:ing)?|repaint|primer|painted)\b/i.test(notes);
   const actualKitchenRemodelIntent =
     (/\bkitchen\s+(?:remodel|renovat(?:e|ion)|reface|addition)\b/i.test(
       notes,

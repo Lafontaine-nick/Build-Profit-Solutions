@@ -12,6 +12,22 @@ const SMITH_NOTES =
   'Floor job at Smith residence. Demo existing tile in main bath 850 sqft lump sum $2,550. Demo kitchen vinyl 180 sqft allowance $900. Install LVP in both areas 1030 total sqft not priced yet. Baseboards throughout 220 LF lump sum $1,540. Final clean and haul off $650 lump sum.';
 
 describe('mobile scope measurement parser', () => {
+  it('derives a combined wall-and-ceiling paint surface from house area context', () => {
+    const notes =
+      'Full interior refresh on a 1,900 sqft house. Paint all walls and ceilings, new LVP throughout main floor about 1,100 sqft.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'room_remodel',
+      projectType: 'other',
+    });
+
+    expect(parsed.paintAreaSqft).toBe(1900);
+    expect(parsed.originalPaintAreaReferenceSqft).toBe(1900);
+    expect(parsed.combinedPaintableAreaSqft).toBe(6080);
+    expect(parsed.wallPaintSqft).toBe(4180);
+    expect(parsed.ceilingPaintSqft).toBe(1900);
+    expect(parsed.paintAreaNeedsConfirmation).toBe(true);
+  });
+
   it('parses explicit Roofing add-on quantities without deriving them from squares', () => {
     const parsed = parseScopeMeasurementsFromNotes(
       'Roof replacement is 30 squares. Decking replacement 100 sqft. Drip edge 180 LF, ridge cap 60 LF, valley flashing 40 LF, step flashing 20 LF, wall flashing 15 LF, ridge vent 40 LF. 3 roof vents, 1 turbine vent, 4 pipe boots, 1 chimney flashing, 1 skylight, and 2 roof penetrations. Roof repairs affect 50 sqft.',
@@ -135,7 +151,7 @@ describe('mobile scope measurement parser', () => {
     expect(input.kitchenFloorSqft).toBe('194.1');
     expect(input.flooringSqft).toBe('1879');
     expect(input.concreteSqft).toBe('');
-    expect(input.planRooms?.map((r) => r.name)).toEqual(['Kitchen']);
+    expect(input.planRooms?.map(r => r.name)).toEqual(['Kitchen']);
   });
 
   it('parses Smith flooring notes for Step 2 without duplicating bath sqft into kitchen/floor area', () => {
@@ -148,11 +164,43 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.kitchenFloorSqft).toBe(180);
     expect(parsed.floorAreaSqft).toBe(1030);
     expect(parsed.baseboardLf).toBe(220);
-    expect(parsed.itemQuantities?.floor_demo).toMatchObject({ quantity: 3450, unit: 'allowance' });
+    expect(parsed.itemQuantities?.floor_demo).toMatchObject({
+      quantity: 3450,
+      unit: 'allowance',
+    });
     expect(parsed.itemQuantities?.flooring).toBeUndefined();
-    expect(parsed.itemQuantities?.trim).toMatchObject({ quantity: 1540, unit: 'allowance' });
-    expect(parsed.itemQuantities?.cleanup).toMatchObject({ quantity: 650, unit: 'lump_sum' });
+    expect(parsed.itemQuantities?.trim).toMatchObject({
+      quantity: 1540,
+      unit: 'allowance',
+    });
+    expect(parsed.itemQuantities?.cleanup).toMatchObject({
+      quantity: 650,
+      unit: 'lump_sum',
+    });
     expect(parsed.itemQuantities?.demo).toBeUndefined();
+  });
+
+  it('keeps tear-out flooring out of new-install product totals', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Main floor carpet tear out and install LVP, 1,150 sqft. Include demo and disposal. Reinstall existing baseboards about 280 linear feet after flooring.',
+      { templateKey: 'flooring', projectType: 'flooring' }
+    );
+
+    expect(parsed.flooringSqft).toBe(1150);
+    expect(parsed.flooringLvpSqft).toBe(1150);
+    expect(parsed.flooringCarpetSqft).toBeUndefined();
+    expect(parsed.flooringProductScope).toEqual(['lvp']);
+    expect(parsed.floorDemoSqft).toBe(1150);
+    expect(parsed.baseboardLf).toBe(280);
+
+    const hydrated = initialScopeMeasurementInputExtended({
+      projectType: 'flooring',
+      originalNotes:
+        'Main floor carpet tear out and install LVP, 1,150 sqft. Include demo and disposal. Reinstall existing baseboards about 280 linear feet after flooring.',
+      scopeChecklist: { templateKey: 'flooring' },
+      scopeMeasurements: { itemQuantities: {} },
+    });
+    expect(hydrated.flooringSqft).toBe('1150');
   });
 
   it('hydrates Step 2 from current notes instead of stale saved floor measurements', () => {
@@ -167,7 +215,9 @@ describe('mobile scope measurement parser', () => {
         itemQuantities: {},
       },
     });
-    const measurements = normalizeScopeMeasurements(scopeMeasurementsPayloadForPersist(input));
+    const measurements = normalizeScopeMeasurements(
+      scopeMeasurementsPayloadForPersist(input)
+    );
 
     expect(input.bathroomFloorSqft).toBe('850');
     expect(input.kitchenFloorSqft).toBe('180');
@@ -182,14 +232,32 @@ describe('mobile scope measurement parser', () => {
     expect(inferItemStateFromNotes('demo', SMITH_NOTES)).toBe('unsure');
 
     expect(
-      resolveChecklistItemQuantity('floor_demo', measurements, { templateKey: 'flooring', notes: SMITH_NOTES })
+      resolveChecklistItemQuantity('floor_demo', measurements, {
+        templateKey: 'flooring',
+        notes: SMITH_NOTES,
+      })
     ).toMatchObject({ quantity: 3450, unit: 'allowance', pricingReady: true });
-    const flooringQty = resolveChecklistItemQuantity('flooring', {
-      ...measurements,
-      itemQuantities: {},
-    }, { templateKey: 'flooring', notes: SMITH_NOTES });
-    expect(flooringQty).toMatchObject({ quantity: 1030, unit: 'sqft', pricingReady: true });
-    expect(resolveSuggestedBudgetSplitDisplay('flooring', input, 'flooring', flooringQty)).toMatchObject({
+    const flooringQty = resolveChecklistItemQuantity(
+      'flooring',
+      {
+        ...measurements,
+        itemQuantities: {},
+      },
+      { templateKey: 'flooring', notes: SMITH_NOTES }
+    );
+    expect(flooringQty).toMatchObject({
+      quantity: 1030,
+      unit: 'sqft',
+      pricingReady: true,
+    });
+    expect(
+      resolveSuggestedBudgetSplitDisplay(
+        'flooring',
+        input,
+        'flooring',
+        flooringQty
+      )
+    ).toMatchObject({
       material: 4120,
       labor: 5150,
       total: 9270,
@@ -197,10 +265,16 @@ describe('mobile scope measurement parser', () => {
       basis: { quantity: 1030, unit: 'sqft' },
     });
     expect(
-      resolveChecklistItemQuantity('trim', measurements, { templateKey: 'flooring', notes: SMITH_NOTES })
+      resolveChecklistItemQuantity('trim', measurements, {
+        templateKey: 'flooring',
+        notes: SMITH_NOTES,
+      })
     ).toMatchObject({ quantity: 1540, unit: 'allowance', pricingReady: true });
     expect(
-      resolveChecklistItemQuantity('cleanup', measurements, { templateKey: 'flooring', notes: SMITH_NOTES })
+      resolveChecklistItemQuantity('cleanup', measurements, {
+        templateKey: 'flooring',
+        notes: SMITH_NOTES,
+      })
     ).toMatchObject({ quantity: 650, unit: 'lump_sum', pricingReady: true });
   });
 
@@ -217,7 +291,10 @@ describe('mobile scope measurement parser', () => {
       notes,
     });
 
-    expect(parsed.itemQuantities?.floor_demo).toMatchObject({ quantity: 2550, unit: 'allowance' });
+    expect(parsed.itemQuantities?.floor_demo).toMatchObject({
+      quantity: 2550,
+      unit: 'allowance',
+    });
     expect(floorDemo).toMatchObject({
       quantity: 2550,
       unit: 'allowance',
@@ -236,15 +313,34 @@ describe('mobile scope measurement parser', () => {
       ...parsed,
       itemQuantities: {
         ...(parsed.itemQuantities || {}),
-        flooring: { quantity: 850, unit: 'sqft', quantitySource: 'user_entered' },
-        flooring__material: { quantity: 2550, unit: 'allowance', quantitySource: 'user_entered' },
-        flooring__labor: { quantity: 3400, unit: 'allowance', quantitySource: 'user_entered' },
-        flooring__allowance: { quantity: 5950, unit: 'allowance', quantitySource: 'user_entered' },
+        flooring: {
+          quantity: 850,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
+        flooring__material: {
+          quantity: 2550,
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        flooring__labor: {
+          quantity: 3400,
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        flooring__allowance: {
+          quantity: 5950,
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
       },
     });
 
     expect(
-      resolveChecklistItemQuantity('flooring', measurements, { templateKey: 'flooring', notes })
+      resolveChecklistItemQuantity('flooring', measurements, {
+        templateKey: 'flooring',
+        notes,
+      })
     ).toMatchObject({
       dualMaterial: { quantity: 2550 },
       dualLabor: { quantity: 3400 },
@@ -263,10 +359,26 @@ describe('mobile scope measurement parser', () => {
     });
     input.itemQuantities = {
       ...input.itemQuantities,
-      flooring: { quantity: '850', unit: 'sqft', quantitySource: 'user_entered' },
-      flooring__material: { quantity: '2550', unit: 'allowance', quantitySource: 'user_entered' },
-      flooring__labor: { quantity: '3400', unit: 'allowance', quantitySource: 'user_entered' },
-      flooring__allowance: { quantity: '5950', unit: 'allowance', quantitySource: 'user_entered' },
+      flooring: {
+        quantity: '850',
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      },
+      flooring__material: {
+        quantity: '2550',
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+      },
+      flooring__labor: {
+        quantity: '3400',
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+      },
+      flooring__allowance: {
+        quantity: '5950',
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+      },
     };
 
     const payload = scopeMeasurementsPayloadForPersist(input, {
@@ -298,10 +410,26 @@ describe('mobile scope measurement parser', () => {
       scopeMeasurements: {
         floorAreaSqft: 850,
         itemQuantities: {
-          flooring: { quantity: 850, unit: 'sqft', quantitySource: 'user_entered' },
-          flooring__material: { quantity: 2550, unit: 'allowance', quantitySource: 'user_entered' },
-          flooring__labor: { quantity: 3400, unit: 'allowance', quantitySource: 'user_entered' },
-          flooring__allowance: { quantity: 5950, unit: 'allowance', quantitySource: 'user_entered' },
+          flooring: {
+            quantity: 850,
+            unit: 'sqft',
+            quantitySource: 'user_entered',
+          },
+          flooring__material: {
+            quantity: 2550,
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+          flooring__labor: {
+            quantity: 3400,
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+          flooring__allowance: {
+            quantity: 5950,
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
         },
       },
     });
@@ -328,10 +456,14 @@ describe('mobile scope measurement parser', () => {
       projectType: 'bathroom',
     });
     const measurements = normalizeScopeMeasurements(parsed);
-    const showerTile = resolveChecklistItemQuantity('shower_tile', measurements, {
-      templateKey: 'bathroom',
-      notes,
-    });
+    const showerTile = resolveChecklistItemQuantity(
+      'shower_tile',
+      measurements,
+      {
+        templateKey: 'bathroom',
+        notes,
+      }
+    );
     const floorTile = resolveChecklistItemQuantity('floor_tile', measurements, {
       templateKey: 'bathroom',
       notes,
@@ -345,7 +477,11 @@ describe('mobile scope measurement parser', () => {
       dualLabor: { quantity: 1680 },
       dualAllowance: { quantity: 2400 },
     });
-    expect(floorTile).toMatchObject({ quantity: 45, unit: 'sqft', pricingReady: true });
+    expect(floorTile).toMatchObject({
+      quantity: 45,
+      unit: 'sqft',
+      pricingReady: true,
+    });
   });
 
   it('Smith kitchen: backsplash sqft not stolen from earlier countertop sqft', () => {
@@ -408,7 +544,11 @@ describe('mobile scope measurement parser', () => {
       scopeMeasurements: {
         kitchenFloorSqft: '50',
         itemQuantities: {
-          flooring: { quantity: '5', unit: 'sqft', quantitySource: 'user_entered' },
+          flooring: {
+            quantity: '5',
+            unit: 'sqft',
+            quantitySource: 'user_entered',
+          },
         },
       },
     });
@@ -440,10 +580,14 @@ describe('mobile scope measurement parser', () => {
       projectType: 'kitchen',
     });
     const measurements = normalizeScopeMeasurements(parsed);
-    const backsplash = resolveChecklistItemQuantity('backsplash', measurements, {
-      templateKey: 'kitchen',
-      notes,
-    });
+    const backsplash = resolveChecklistItemQuantity(
+      'backsplash',
+      measurements,
+      {
+        templateKey: 'kitchen',
+        notes,
+      }
+    );
     const paint = resolveChecklistItemQuantity('paint', measurements, {
       templateKey: 'kitchen',
       notes,
@@ -453,8 +597,14 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.countertopSqft).toBe(48);
     expect(parsed.backsplashSqft).toBe(35);
     expect(parsed.wallPaintSqft).toBe(320);
-    expect(parsed.itemQuantities?.appliances).toMatchObject({ quantity: 1200, unit: 'allowance' });
-    expect(parsed.itemQuantities?.demo).toMatchObject({ quantity: 850, unit: 'lump_sum' });
+    expect(parsed.itemQuantities?.appliances).toMatchObject({
+      quantity: 1200,
+      unit: 'allowance',
+    });
+    expect(parsed.itemQuantities?.demo).toMatchObject({
+      quantity: 850,
+      unit: 'lump_sum',
+    });
     expect(backsplash).toMatchObject({
       dualMaterial: { quantity: 280 },
       dualLabor: { quantity: 420 },
@@ -477,10 +627,24 @@ describe('mobile scope measurement parser', () => {
     const measurements = normalizeScopeMeasurements(parsed);
 
     expect(parsed.drywallSqft).toBe(1200);
-    expect(parsed.itemQuantities?.hang__material).toMatchObject({ quantity: 1800, unit: 'allowance' });
-    expect(parsed.itemQuantities?.hang__labor).toMatchObject({ quantity: 3600, unit: 'allowance' });
-    expect(parsed.itemQuantities?.finish_tape__labor).toMatchObject({ quantity: 2700, unit: 'allowance' });
-    expect(resolveChecklistItemQuantity('hang', measurements, { templateKey: 'drywall', notes })).toMatchObject({
+    expect(parsed.itemQuantities?.hang__material).toMatchObject({
+      quantity: 1800,
+      unit: 'allowance',
+    });
+    expect(parsed.itemQuantities?.hang__labor).toMatchObject({
+      quantity: 3600,
+      unit: 'allowance',
+    });
+    expect(parsed.itemQuantities?.finish_tape__labor).toMatchObject({
+      quantity: 2700,
+      unit: 'allowance',
+    });
+    expect(
+      resolveChecklistItemQuantity('hang', measurements, {
+        templateKey: 'drywall',
+        notes,
+      })
+    ).toMatchObject({
       quantity: 5400,
       unit: 'allowance',
       pricingReady: true,
@@ -499,11 +663,28 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.concreteSqft).toBe(600);
     expect(parsed.excavationCy).toBe(12);
     expect(parsed.sodSqft).toBe(900);
-    expect(parsed.itemQuantities?.concrete__material).toMatchObject({ quantity: 2400, unit: 'allowance' });
-    expect(parsed.itemQuantities?.concrete__labor).toMatchObject({ quantity: 3600, unit: 'allowance' });
-    expect(parsed.itemQuantities?.excavation).toMatchObject({ quantity: 1140, unit: 'allowance' });
-    expect(parsed.itemQuantities?.sod_turf).toMatchObject({ quantity: 1800, unit: 'allowance' });
-    expect(resolveChecklistItemQuantity('concrete', measurements, { templateKey: 'landscape', notes })).toMatchObject({
+    expect(parsed.itemQuantities?.concrete__material).toMatchObject({
+      quantity: 2400,
+      unit: 'allowance',
+    });
+    expect(parsed.itemQuantities?.concrete__labor).toMatchObject({
+      quantity: 3600,
+      unit: 'allowance',
+    });
+    expect(parsed.itemQuantities?.excavation).toMatchObject({
+      quantity: 1140,
+      unit: 'allowance',
+    });
+    expect(parsed.itemQuantities?.sod_turf).toMatchObject({
+      quantity: 1800,
+      unit: 'allowance',
+    });
+    expect(
+      resolveChecklistItemQuantity('concrete', measurements, {
+        templateKey: 'landscape',
+        notes,
+      })
+    ).toMatchObject({
       quantity: 6000,
       unit: 'allowance',
       pricingReady: true,
@@ -547,7 +728,9 @@ describe('mobile scope measurement parser', () => {
     });
 
     expect(
-      resolveChecklistItemQuantity('sod_turf', normalized, { templateKey: 'landscaping' }).quantity
+      resolveChecklistItemQuantity('sod_turf', normalized, {
+        templateKey: 'landscaping',
+      }).quantity
     ).toBeNull();
   });
 

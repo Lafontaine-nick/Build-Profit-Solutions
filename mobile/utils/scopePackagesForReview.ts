@@ -352,6 +352,21 @@ export function hydrateChecklistItemsForScopeReview(
   const templateKey = draft.scopeChecklist?.templateKey;
   const notes = draft.originalNotes || draft.scopeNotes || null;
   let items = base.map((item) => ({ ...item }));
+  if (String(templateKey || '').toLowerCase() === 'painting') {
+    const paintingItemIds = new Set([
+      'prep',
+      'interior_paint',
+      'ceiling_paint',
+      'trim_paint',
+      'door_paint',
+      'cabinet_paint',
+      'exterior_prep',
+      'exterior_paint',
+      'exterior_trim_paint',
+      'cleanup',
+    ]);
+    items = items.filter((item) => paintingItemIds.has(item.id));
+  }
   items = ensureBathroomChecklistItems(items, templateKey);
 
   const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
@@ -367,7 +382,23 @@ export function hydrateChecklistItemsForScopeReview(
   });
   items = expandBathroomFixtureScopeDisplayItems(items, measurements, templateKey);
 
-  return finalizeWetAreaInstallScopeFromMeasurements(items, measurements);
+  items = finalizeWetAreaInstallScopeFromMeasurements(items, measurements);
+  if (String(templateKey || '').toLowerCase() === 'painting') {
+    const paintingItemIds = new Set([
+      'prep',
+      'interior_paint',
+      'ceiling_paint',
+      'trim_paint',
+      'door_paint',
+      'cabinet_paint',
+      'exterior_prep',
+      'exterior_paint',
+      'exterior_trim_paint',
+      'cleanup',
+    ]);
+    items = items.filter((item) => paintingItemIds.has(item.id));
+  }
+  return items;
 }
 
 /** Same top-to-bottom order as Step 2 Confirm Scope (groups + wet-area derived rows). */

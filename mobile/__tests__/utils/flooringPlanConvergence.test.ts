@@ -48,10 +48,12 @@ describe('flooring plan convergence', () => {
   });
 
   it('does not manufacture flooring type from aggregate area only', () => {
-    expect(
-      flooringPlanNeedsTypeConfirmation({ flooringSqft: 1850 })
-    ).toBe(true);
-    const structured = buildFlooringStructuredMeasurements({ flooringSqft: 1850 });
+    expect(flooringPlanNeedsTypeConfirmation({ flooringSqft: 1850 })).toBe(
+      true
+    );
+    const structured = buildFlooringStructuredMeasurements({
+      flooringSqft: 1850,
+    });
     expect(structured.flooringProductScope).toBeNull();
     expect(structured.flooringInstallScopeCount).toBeNull();
   });
@@ -66,6 +68,25 @@ describe('flooring plan convergence', () => {
       quantity: 1000,
       unit: 'sqft',
     });
+  });
+
+  it('hydrates the existing-type removal field from aggregate demo area', () => {
+    const structured = buildFlooringStructuredMeasurements({
+      floorDemoSqft: 1200,
+      flooringExistingTypes: ['carpet'],
+      flooringLvpSqft: 1150,
+    });
+    const normalized = normalizeFlooringScalarMeasurements(
+      {
+        floorDemoSqft: 1200,
+        flooringExistingTypes: ['carpet'],
+        flooringLvpSqft: 1150,
+      },
+      structured
+    );
+
+    expect(normalized.floorDemoCarpetSqft).toBe(1200);
+    expect(normalized.flooringLvpSqft).toBe(1150);
   });
 
   it('matches manual and plan-export pricing for 1000 sqft LVP floating with carpet demo', () => {
@@ -216,7 +237,9 @@ describe('flooring plan convergence', () => {
     expect(normalized.measurements.flooringTileSqft).toBe(1500);
     expect(normalized.measurements.flooringSqft).toBe(2000);
     expect(normalized.measurements.baseboardLf).toBe(200);
-    expect(normalized.structuredMeasurements?.flooringDemoScopeCount).toBeUndefined();
+    expect(
+      normalized.structuredMeasurements?.flooringDemoScopeCount
+    ).toBeUndefined();
   });
 
   it('persists and reloads flooring convergence fields', () => {
@@ -245,7 +268,9 @@ describe('flooring plan convergence', () => {
     expect(persisted.itemQuantities?.floor_install__carpet?.quantity).toBe(500);
     const restored = scopeMeasurementsInputFromPayload(persisted);
     expect(restored.flooringSqft).toBe('2000');
-    expect(restored.itemQuantities?.floor_install__carpet?.quantity).toBe('500');
+    expect(restored.itemQuantities?.floor_install__carpet?.quantity).toBe(
+      '500'
+    );
     expect(restored.itemQuantities?.floor_demo__tile?.quantity).toBe('1500');
   });
 });
