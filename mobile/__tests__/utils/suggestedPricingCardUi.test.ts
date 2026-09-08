@@ -489,6 +489,24 @@ describe('suggestedPricingCardUi', () => {
     expect(display.splitLine).toBe('Material $11,000 · Labor $8,000');
     expect(display.splitLine).not.toMatch(/Included:/);
   });
+
+  it('does not show measurement-needed status when priced quantity is present', () => {
+    const display = buildSuggestedPricingCardDisplay({
+      itemId: 'water_heater',
+      block: block({
+        material: 2400,
+        labor: 1760,
+        total: 4160,
+        basis: { quantity: 2, unit: 'each' },
+      }),
+      quantitySource: 'notes',
+      confidenceLabel: 'Measurement needed',
+      hasPrimaryTakeoff: true,
+    });
+
+    expect(display.statusLine).toBe('National planning rate');
+    expect(display.quantityLine).toBe('2 each · From notes');
+  });
 });
 
 describe('shouldIncludeConfirmScopeBulkApplyRow', () => {

@@ -1,4 +1,6 @@
 import {
+  filterRoofingRevealAttentionItems,
+  filterPlumbingRevealAttentionItems,
   getInitialRevealChecklistScopePreview,
   getInitialRevealConfirmItems,
   getInitialRevealDisplayTitle,
@@ -9,7 +11,9 @@ import {
   getInitialRevealScopeMetaLabel,
   getInitialRevealStatusLabel,
   getInitialRevealTagline,
+  getInitialRevealTotals,
   getInitialRevealUnderstoodBullets,
+  initialRevealPricingVisible,
   plainLanguageReviewItem,
   shouldDefaultExpandInitialRevealScope,
   shouldShowInitialRevealWhatWeFound,
@@ -202,16 +206,254 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'plumbing',
         items: [
-          { id: 'plumbing_rough', label: 'Plumbing rough-in', state: 'unsure' },
-          { id: 'water_line', label: 'Water line', state: 'unsure' },
+          { id: 'plumbing_rough', label: 'Plumbing rough-in', state: 'included' },
+          { id: 'water_line', label: 'Water line', state: 'included' },
         ],
       },
       scopePackages: [],
     } as EstimateAiDraft;
-    expect(getInitialRevealTagline(draft)).toContain('2 plumbing scope cards');
+    expect(getInitialRevealTagline(draft)).toContain('2 scope lines');
     expect(getInitialRevealUnderstoodBullets(draft, 3)).toEqual(
       expect.arrayContaining(['12 rough-in points', '150 LF water line'])
     );
     expect(getInitialRevealChecklistScopePreview(draft)).toHaveLength(2);
+  });
+
+  it('hides excluded plumbing cards and fixture allowance on Scope found', () => {
+    const notes =
+      'Kitchen plumbing only. Customer supplies fixtures. 3 rough-in points. 4 trim hookups. 25 LF water line. 1 gas appliance hookup.';
+    const draft = {
+      projectType: 'plumbing',
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'plumbing',
+        items: [
+          { id: 'plumbing_rough', label: 'Plumbing rough-in', state: 'included' },
+          { id: 'plumbing_trim', label: 'Plumbing trim / hookups', state: 'included' },
+          { id: 'water_line', label: 'Water line piping', state: 'included' },
+          {
+            id: 'gas_appliance_connections',
+            label: 'Gas appliance connections',
+            state: 'included',
+          },
+          {
+            id: 'plumbing_fixtures_hardware',
+            label: 'Plumbing fixture allowance',
+            state: 'excluded',
+          },
+          { id: 'sewer_line', label: 'Sewer / drain piping', state: 'excluded' },
+        ],
+      },
+      scopePackages: [],
+      scopeMeasurements: { tradeWorkflowSource: 'standalone_trade' },
+    } as EstimateAiDraft;
+    expect(getInitialRevealTagline(draft)).toContain('Kitchen plumbing · 4 scope lines');
+    expect(getInitialRevealUnderstoodBullets(draft, 4)).toEqual([
+      '3 rough-in points',
+      '4 trim hookups',
+      '25 LF water line',
+      '1 gas appliance hookup',
+    ]);
+    expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual([
+      'Plumbing rough-in',
+      'Plumbing trim / hookups',
+      'Water line piping',
+      'Gas appliance connections',
+    ]);
+  });
+
+  it('shows master bath plumbing scope without water heater or fixture allowance', () => {
+    const notes = `Master bath plumbing — shower valve relocate and new toilet location.
+
+4 plumbing rough-in points (shower valve/head, tub drain, toilet, lav).
+4 trim hookups.
+30 LF of drain line for relocated toilet (slab on grade — core drill, not included unless noted).
+1 water heater tie-in not included.`;
+    const draft = {
+      projectTitle: 'Master bath plumbing',
+      projectType: 'plumbing',
+      originalNotes: notes,
+      scopeMeasurements: { tradeWorkflowSource: 'standalone_trade' },
+      scopeChecklist: {
+        templateKey: 'plumbing',
+        items: [
+          { id: 'plumbing_rough', label: 'Plumbing rough-in', state: 'included' },
+          { id: 'plumbing_trim', label: 'Plumbing trim / hookups', state: 'included' },
+          { id: 'sewer_line', label: 'Sewer / drain piping', state: 'included' },
+          { id: 'water_heater', label: 'Water heater', state: 'excluded' },
+          {
+            id: 'plumbing_fixtures_hardware',
+            label: 'Plumbing fixture allowance',
+            state: 'excluded',
+          },
+        ],
+      },
+      scopePackages: [],
+    } as EstimateAiDraft;
+    expect(getInitialRevealDisplayTitle(draft)).toBe('Master bath plumbing');
+    expect(getInitialRevealTagline(draft)).toContain('Bathroom plumbing · 3 scope lines');
+    expect(getInitialRevealUnderstoodBullets(draft, 4)).toEqual([
+      '4 rough-in points',
+      '4 trim hookups',
+      '30 LF sewer line',
+    ]);
+    expect(getInitialRevealChecklistScopePreview(draft)).toHaveLength(3);
+  });
+
+  it('filters roofing pricing noise before Confirm Scope', () => {
+    const draft = {
+      projectType: 'roofing',
+      scopeChecklist: {
+        templateKey: 'roofing',
+        items: [
+          {
+            id: 'roofing_system',
+            label: 'Roofing system',
+            state: 'included',
+            choiceId: 'architectural_shingles',
+          },
+          { id: 'tear_off', label: 'Tear-off', state: 'included', choiceId: 'one_layer' },
+        ],
+      },
+      originalNotes:
+        '22-square re-roof with architectural shingles, tear-off 1 layer, ice & water at eaves, drip edge',
+      stillNeededReview: [
+        'Pricing for Roofing',
+        'Full reroof contract price',
+        'Shingle color',
+        'Customer name',
+      ],
+      needsReviewItems: [],
+    } as EstimateAiDraft;
+
+    expect(
+      filterRoofingRevealAttentionItems(draft, [
+        'Pricing for Roofing',
+        'Shingle color',
+        'Customer name',
+      ])
+    ).toEqual(['Customer name']);
+
+    const buckets = getInitialRevealConfirmItems(draft);
+    expect(buckets.pricingScope.some((item) => /roofing/i.test(item))).toBe(false);
+    expect(buckets.pricingScope.some((item) => /shingle color/i.test(item))).toBe(false);
+    expect(buckets.pricingScope).toHaveLength(0);
+  });
+
+  it('hides pre-confirm pricing on Scope found until Confirm scope', () => {
+    const draft = {
+      projectType: 'roofing',
+      requiresScopeConfirmation: true,
+      scopeChecklist: {
+        templateKey: 'roofing',
+        items: [
+          {
+            id: 'roofing_system',
+            label: 'Roofing system',
+            state: 'included',
+            choiceId: 'architectural_shingles',
+          },
+          { id: 'tear_off', label: 'Tear-off', state: 'included', choiceId: 'one_layer' },
+          { id: 'drip_edge', label: 'Drip edge', state: 'included' },
+        ],
+      },
+      originalNotes:
+        '22-square re-roof with architectural shingles, tear-off 1 layer, ice & water at eaves, drip edge',
+      stillNeededReview: [],
+      needsReviewItems: [],
+    } as EstimateAiDraft;
+
+    const totals = getInitialRevealTotals(draft);
+    const hero = getInitialRevealHeroDisplay(totals, true);
+    expect(hero.hasAmount).toBe(false);
+    expect(hero.hint).toContain('Confirm scope');
+    expect(getInitialRevealUnderstoodBullets(draft, 3)).toEqual(
+      expect.arrayContaining(['Roofing system', 'Tear-off'])
+    );
+    expect(getInitialRevealUnderstoodBullets(draft, 3).join(' ')).not.toMatch(/\$/);
+    expect(getInitialRevealChecklistScopePreview(draft).every((row) => row.amount === 0)).toBe(
+      true
+    );
+  });
+
+  it('filters standalone plumbing pricing noise before Confirm Scope', () => {
+    const notes =
+      'Kitchen plumbing only. 3 plumbing rough-in points. 4 trim hookups. 25 LF water line. 1 gas appliance hookup.';
+    const draft = {
+      projectType: 'plumbing',
+      estimateConfidence: { level: 'high' },
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'plumbing',
+        items: [
+          { id: 'plumbing_rough', label: 'Plumbing rough-in', state: 'included', noteBacked: true },
+          { id: 'plumbing_trim', label: 'Plumbing trim / hookups', state: 'included', noteBacked: true },
+          { id: 'water_line', label: 'Water line piping', state: 'included', noteBacked: true },
+          {
+            id: 'gas_appliance_connections',
+            label: 'Gas appliance connections',
+            state: 'included',
+            noteBacked: true,
+          },
+        ],
+      },
+      scopeMeasurements: { tradeWorkflowSource: 'standalone_trade' },
+      stillNeededReview: [
+        'Pricing for Water line piping',
+        'Pricing for Plumbing rough-in',
+        'Pricing for Plumbing trim / hookups (material + labor)',
+        'Pricing for Gas appliance connections',
+        'Customer name',
+      ],
+      needsReviewItems: [],
+    } as EstimateAiDraft;
+
+    expect(
+      filterPlumbingRevealAttentionItems(draft, [
+        'Pricing for Water line piping',
+        'Pricing for Plumbing rough-in',
+        'Customer name',
+      ])
+    ).toEqual(['Customer name']);
+
+    const buckets = getInitialRevealConfirmItems(draft);
+    expect(buckets.pricingScope).toHaveLength(0);
+    expect(getInitialRevealStatusLabel(draft, buckets.pricingScope.length).label).toBe(
+      'Ready to send'
+    );
+  });
+
+  it('filters roofing admin noise for typical re-roof notes before Confirm Scope', () => {
+    const notes =
+      'Tear off and reroof, 22 squares architectural shingles. New underlayment, drip edge, pipe boots, haul off old shingles. Decking looks ok but put $1,000 allowance if we find bad wood.';
+    const draft = {
+      projectType: 'roofing',
+      requiresScopeConfirmation: true,
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'roofing',
+        items: [
+          {
+            id: 'roofing_system',
+            label: 'Roofing system',
+            state: 'included',
+            choiceId: 'architectural_shingles',
+          },
+          { id: 'tear_off', label: 'Tear-off', state: 'included', choiceId: 'one_layer' },
+        ],
+      },
+      stillNeededReview: [
+        'Pricing total not found in notes',
+        'Permit requirements and permit fees',
+        'Clarification of whether decking allowance covers labor, materials, or both',
+        'Pricing for drip edge',
+      ],
+      needsReviewItems: [],
+    } as EstimateAiDraft;
+
+    expect(
+      filterRoofingRevealAttentionItems(draft, draft.stillNeededReview || [])
+    ).toEqual([]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toHaveLength(0);
   });
 });

@@ -22,7 +22,7 @@ import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { formatPlanningMoney } from '@/utils/estimateAiDraft';
 import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
-import { scopePackagePricedAmount } from '@/utils/estimateDraftReviewUi';
+import { scopePackageIndicativePricedAmount } from '@/utils/estimateDraftReviewUi';
 import {
   countInitialRevealAttentionItems,
   draftNeedsScopeConfirmation,
@@ -38,6 +38,7 @@ import {
   getInitialRevealTagline,
   getInitialRevealTotals,
   getInitialRevealUnderstoodBullets,
+  initialRevealPricingVisible,
   getScopeTotalCoverageLine,
   shouldDefaultExpandInitialRevealScope,
   shouldShowInitialRevealWhatWeFound,
@@ -151,9 +152,14 @@ function AIEstimateInitialRevealModal({
     const attentionCount = countInitialRevealAttentionItems(draft);
     const totals = getInitialRevealTotals(draft, markupPct);
     const needsScopeConfirmation = draftNeedsScopeConfirmation(draft);
+    const pricingVisible = initialRevealPricingVisible(draft);
+    const suppressRevealPricing = needsScopeConfirmation || !pricingVisible;
     const confirmBuckets = getInitialRevealConfirmItems(draft);
     const tagline = getInitialRevealTagline(draft);
-    const understood = getInitialRevealUnderstoodBullets(draft, 2);
+    const understood = getInitialRevealUnderstoodBullets(
+      draft,
+      draft.projectType === 'plumbing' || draft.projectType === 'plumbing_service' ? 4 : 2
+    );
 
     return {
       attentionCount,
@@ -166,19 +172,27 @@ function AIEstimateInitialRevealModal({
       tagline,
       needsScopeConfirmation,
       primaryCta: getInitialRevealPrimaryCtaLabel(attentionCount, needsScopeConfirmation),
-      hero: getInitialRevealHeroDisplay(totals, needsScopeConfirmation),
+      hero: getInitialRevealHeroDisplay(totals, suppressRevealPricing),
       headerCopy: getInitialRevealHeaderCopy({
-        hasAmount: totals.heroTotal != null && totals.heroTotal > 0,
+        hasAmount:
+          !suppressRevealPricing &&
+          totals.heroTotal != null &&
+          totals.heroTotal > 0,
         needsScopeConfirmation,
       }),
-      totalCoverageLine: getScopeTotalCoverageLine(draft),
+      totalCoverageLine: suppressRevealPricing ? null : getScopeTotalCoverageLine(draft),
       scopeMetaLabel: getInitialRevealScopeMetaLabel(totals.scopeItemCount),
-      planningDisclaimer: getInitialRevealPlanningDisclaimer(totals, attentionCount),
+      planningDisclaimer: suppressRevealPricing
+        ? null
+        : getInitialRevealPlanningDisclaimer(totals, attentionCount),
+      suppressRevealPricing,
       defaultScopeExpanded: shouldDefaultExpandInitialRevealScope(totals.scopeItemCount),
       scopePreview: (() => {
         const fromPackages = getScopePackagesForReview(draft).map((pkg) => {
           const name = String(pkg.name || pkg.scope || 'Scope item').trim();
-          const amount = scopePackagePricedAmount(pkg, draft);
+          const amount = pricingVisible
+            ? scopePackageIndicativePricedAmount(pkg, draft)
+            : 0;
           return { name, amount };
         });
         if (fromPackages.length > 0) return fromPackages;
@@ -519,21 +533,23 @@ function AIEstimateInitialRevealModal({
                             <Text style={[styles.scopeName, { color: Colors.text }]} numberOfLines={1}>
                               {name}
                             </Text>
-                            <View style={styles.scopeAmountWrap}>
-                              {amount <= 0 ? (
-                                <View style={styles.needsPricePill}>
-                                  <Text style={styles.needsPricePillText}>Needs price</Text>
-                                </View>
-                              ) : null}
-                              <Text
-                                style={[
-                                  styles.scopeAmount,
-                                  { color: amount > 0 ? brandAccent : Colors.sub },
-                                ]}
-                              >
-                                {amount > 0 ? formatPlanningMoney(amount) : '—'}
-                              </Text>
-                            </View>
+                            {!viewModel.suppressRevealPricing ? (
+                              <View style={styles.scopeAmountWrap}>
+                                {amount <= 0 ? (
+                                  <View style={styles.needsPricePill}>
+                                    <Text style={styles.needsPricePillText}>Needs price</Text>
+                                  </View>
+                                ) : null}
+                                <Text
+                                  style={[
+                                    styles.scopeAmount,
+                                    { color: amount > 0 ? brandAccent : Colors.sub },
+                                  ]}
+                                >
+                                  {amount > 0 ? formatPlanningMoney(amount) : '—'}
+                                </Text>
+                              </View>
+                            ) : null}
                           </View>
                         ))
                       : null}

@@ -252,7 +252,7 @@ function parseElectricalMeasurementsFromNotes(notes) {
       assign('dishwasherHookupCount', matchCount(clause, new RegExp(`${COUNT_TOKEN}?\\s*dishwasher`, 'i')) || 1);
       continue;
     }
-    if (/\b(?:garbage\s+)?disposal/i.test(clause)) {
+    if (/\b(?:garbage\s+disposal|disposal\s+(?:circuit|hookup|install))\b/i.test(clause)) {
       assign('disposalHookupCount', matchCount(clause, new RegExp(`${COUNT_TOKEN}?\\s*(?:garbage\\s+)?disposal`, 'i')) || 1);
       continue;
     }

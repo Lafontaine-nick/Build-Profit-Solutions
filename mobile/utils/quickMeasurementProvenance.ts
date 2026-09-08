@@ -21,6 +21,7 @@ import {
   type QuickMeasurementEstimate,
 } from '@/utils/quickMeasurementEstimates';
 import { resolveEffectiveWetAreaFinish } from '@/utils/planBathRooms';
+import { roofingTradeChipSelectedForMeasurementKey } from '@/utils/qmScopePanels/simpleTradeRemodel';
 import type {
   MeasurementSuggestion,
   PlanFacts,
@@ -140,6 +141,9 @@ export function quickMeasurementSourceLabel(
     case 'user_entered':
     case 'user_confirmed_suggestion':
       return 'Confirmed';
+    case 'notes':
+    case 'parsed_from_notes':
+      return 'From notes';
     default:
       return null;
   }
@@ -232,6 +236,7 @@ export function resolveQuickMeasurementFields(params: {
   wholeHomeLayout?: boolean;
   keepingExistingWetArea?: boolean;
   wetAreaInstallChoiceId?: string | null;
+  tradeScopeSelections?: Record<string, string[] | null> | null;
 }): QuickMeasurementFieldResult[] {
   const noteValues = params.noteValues || {};
   const noteBackedKeys = params.noteBackedKeys || [];
@@ -240,6 +245,7 @@ export function resolveQuickMeasurementFields(params: {
     (params.measurementConflicts || []).map(conflict => conflict.field)
   );
   const includedScopeKeys = Array.from(params.includedScopeKeys);
+  const includedScopeKeySet = new Set(includedScopeKeys);
   const fields = params.rows.flat();
   const seen = new Set<QuickMeasurementFieldKey>();
   const results: QuickMeasurementFieldResult[] = [];
@@ -310,10 +316,26 @@ export function resolveQuickMeasurementFields(params: {
       hasEstimate: Boolean(estimate),
       hasConflict: conflictFields.has(field.key) && !isUserOverride,
     });
+    const roofingTemplate =
+      String(params.templateKey || '').toLowerCase() === 'roofing';
+    const roofingScopeIncluded =
+      relevance.relatedScopeKeys.some(id => includedScopeKeySet.has(id)) ||
+      roofingTradeChipSelectedForMeasurementKey(
+        field.key,
+        params.tradeScopeSelections
+      );
+    const resolvedState =
+      roofingTemplate &&
+      state === 'needs_confirmation' &&
+      filled &&
+      (sourceTag === 'estimated_from_formula' || fromNotes) &&
+      roofingScopeIncluded
+        ? ('confirmed' as const)
+        : state;
 
     results.push({
       key: field.key,
-      state,
+      state: resolvedState,
       showConfirmedBadge:
         filled && !fromNotes && sourceTag === 'user_confirmed_suggestion',
       filled,

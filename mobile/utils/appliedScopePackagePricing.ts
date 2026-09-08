@@ -284,7 +284,8 @@ function nationalAveragePricingForRuleKey(
 /** Step 3 planning price from national average when Confirm Scope has no accepted dollars yet. */
 export function resolveNationalAverageScopePackagePricing(
   pkg: EstimateDraftScopePackage,
-  draft: EstimateAiDraft | null | undefined
+  draft: EstimateAiDraft | null | undefined,
+  options?: { allowPreConfirm?: boolean }
 ): NationalAverageScopePackagePricing | null {
   if (!draft) return null;
   if (
@@ -298,7 +299,13 @@ export function resolveNationalAverageScopePackagePricing(
 
   const items = confirmScopeDisplayItemsFromDraft(draft);
   if (!items.length) return null;
-  if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) return null;
+  if (
+    !options?.allowPreConfirm &&
+    !draft.scopeAssumptionsConfirmed &&
+    !draft.confirmedAssumptions?.length
+  ) {
+    return null;
+  }
 
   const measurements = draftMeasurementsForAppliedPricing(draft);
   const quantities = measurements.itemQuantities || {};
@@ -318,7 +325,8 @@ export function resolveNationalAverageScopePackagePricing(
 
 export function resolveNationalAverageScopePackageAmount(
   pkg: EstimateDraftScopePackage,
-  draft: EstimateAiDraft | null | undefined
+  draft: EstimateAiDraft | null | undefined,
+  options?: { allowPreConfirm?: boolean }
 ): number {
-  return resolveNationalAverageScopePackagePricing(pkg, draft)?.total ?? 0;
+  return resolveNationalAverageScopePackagePricing(pkg, draft, options)?.total ?? 0;
 }

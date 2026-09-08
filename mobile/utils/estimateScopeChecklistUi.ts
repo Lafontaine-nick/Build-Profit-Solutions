@@ -20,6 +20,8 @@ import {
   ELECTRICAL_ROUGH_CARD_LABEL,
   ELECTRICAL_TRIM_CARD_HELPER,
   ELECTRICAL_TRIM_CARD_LABEL,
+  ELECTRICAL_ITEM_IDS,
+  shouldMaterializeElectricalScopeItems,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import {
   PLUMBING_ITEM_IDS,
@@ -1049,7 +1051,12 @@ export function applyScopeInferencesFromNotes(
         if (item.inputType === 'choice') {
           const choiceId = inferChoiceFromNotes(item.id, notes);
           if (choiceId && (!item.choiceId || item.choiceId === 'unsure')) {
-            return { ...item, choiceId, state: choiceIdToState(choiceId) };
+            return {
+              ...item,
+              choiceId,
+              state: choiceIdToState(choiceId),
+              noteBacked: true,
+            };
           }
           return item;
         }
@@ -1085,11 +1092,32 @@ export function applyScopeInferencesFromNotes(
     }
   );
   const withElectrical = syncElectricalScopeItems(withKitchenInferences, {
+    templateKey,
+    notes,
     electricalScope: (measurements as { electricalScope?: string[] | null })
       ?.electricalScope,
     quantities: measurements as Partial<Record<string, unknown>>,
   });
-  return applyMeasuredStuccoScopeInferences(withElectrical, measurements);
+  const withStucco = applyMeasuredStuccoScopeInferences(withElectrical, measurements);
+  return applyRoofingCloseoutInferences(withStucco, notes, templateKey);
+}
+
+function applyRoofingCloseoutInferences(
+  items: ScopeChecklistItem[],
+  notes: string | null | undefined,
+  templateKey?: string | null
+): ScopeChecklistItem[] {
+  if (String(templateKey || '').toLowerCase() !== 'roofing') return items;
+  const n = String(notes || '').toLowerCase();
+  if (!n.trim()) return items;
+  const inferCleanup =
+    /\b(cleanup|disposal|dumpster|debris|haul[\s-]?off)\b/.test(n) ||
+    /\b(re[\s-]?roof|roof\s+replacement|tear[\s-]?off|strip\s+roof)\b/.test(n);
+  if (!inferCleanup) return items;
+  return items.map(item => {
+    if (item.id !== 'cleanup' || item.state !== 'unsure') return item;
+    return { ...item, state: 'included' as const, noteBacked: true };
+  });
 }
 
 export function applyMeasuredStuccoScopeInferences(
@@ -1971,7 +1999,8 @@ function itemIdFromQuantityKey(key: string): string {
 function injectNoteBackedPricedItems(
   items: ScopeChecklistItem[],
   measurements?: NormalizedScopeMeasurements,
-  templateKey?: string | null
+  templateKey?: string | null,
+  notes?: string | null
 ): ScopeChecklistItem[] {
   const itemQuantities = measurements?.itemQuantities || {};
   const existingIds = new Set(items.map(item => item.id));
@@ -1981,6 +2010,12 @@ function injectNoteBackedPricedItems(
   for (const key of Object.keys(itemQuantities)) {
     const itemId = itemIdFromQuantityKey(key);
     if (!itemId || existingIds.has(itemId) || addedIds.has(itemId)) continue;
+    if (
+      ELECTRICAL_ITEM_IDS.includes(itemId) &&
+      !shouldMaterializeElectricalScopeItems(templateKey, notes)
+    ) {
+      continue;
+    }
     if (
       itemId === 'floor_demo' &&
       String(templateKey || '').toLowerCase() === 'bathroom' &&
@@ -2321,7 +2356,8 @@ export function hydrateScopeChecklistFromNotes(
   const withNoteBacked = injectNoteBackedPricedItems(
     scopedItems,
     measurements,
-    templateKey
+    templateKey,
+    notes
   );
   const withBathroomDefaults = ensureBathroomChecklistItems(
     withNoteBacked,

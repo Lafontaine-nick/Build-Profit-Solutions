@@ -888,6 +888,7 @@ describe('electrical canonical architecture', () => {
 
   it('materializes every selected electrical quantity into the pricing scope list', () => {
     const selected = syncElectricalScopeItems([], {
+      templateKey: 'electrical',
       quantities: {
         bathExhaustFanCount: 2,
         floorReceptacleCount: 10,
@@ -965,7 +966,7 @@ describe('electrical canonical architecture', () => {
   it('promotes a previously excluded card when a positive quantity is entered', () => {
     const next = syncElectricalScopeItems(
       [{ id: 'electrical_main_panel', state: 'excluded' }],
-      { quantities: { mainPanelCount: 1 } }
+      { templateKey: 'electrical', quantities: { mainPanelCount: 1 } }
     );
     expect(next[0].state).toBe('included');
   });
@@ -973,8 +974,26 @@ describe('electrical canonical architecture', () => {
   it('keeps a Notes-inferred Yes when no quantity was entered or cleared', () => {
     const next = syncElectricalScopeItems(
       [{ id: 'electrical_main_panel', state: 'included' }],
-      { quantities: {} }
+      { templateKey: 'electrical', quantities: {} }
     );
     expect(next[0].state).toBe('included');
+  });
+
+  it('does not inject electrical disposal on roofing jobs with stale quantities', () => {
+    const roofingNotes =
+      'I need to build a roofing repair bid, about 50 sqft area, asphalt shingles tear off and replace';
+    const next = syncElectricalScopeItems([], {
+      templateKey: 'roofing',
+      notes: roofingNotes,
+      quantities: { disposalHookupCount: 1 },
+    });
+    expect(next).toEqual([]);
+  });
+
+  it('does not parse debris disposal as garbage disposal hookup', () => {
+    const parsed = parseElectricalMeasurementsFromNotes(
+      'Electrical rough-in. Haul off debris and disposal from demo.'
+    );
+    expect(parsed.disposalHookupCount).toBeUndefined();
   });
 });

@@ -16,6 +16,17 @@ import {
   notesDescribeRoomRemodel,
   plumbingStateFromNotesScopeMode,
   resolveNotesScopeModeFromPlumbingState,
+  stripNonPlumbingTradeBleedFromMeasurements,
+  plumbingQuickMeasurementKeysForIncludedScope,
+  resolvePlumbingRevealAttentionItemId,
+  plumbingRevealNoteBackedItemIds,
+  notesExcludePlumbingScopePhrase,
+  notesExplicitPlumbingFixtureAllowance,
+  notesSuggestStandalonePlumbingTrade,
+  standalonePlumbingProjectTitle,
+  parsePlumbingProjectContextFromNotes,
+  tagPlumbingNotesMeasurementSources,
+  summarizePlumbingNoteBullets,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { groupScopeChecklistItems } from '@/utils/estimateScopeChecklistUi';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
@@ -941,6 +952,77 @@ describe('plumbing notes routing', () => {
         plumbingRoomContext: 'whole_house',
       })
     ).toBe('plumbing_new_construction');
+    const kitchenNotes =
+      'Kitchen plumbing only — not a full remodel. Relocate sink and dishwasher: 3 plumbing rough-in points.';
+    expect(
+      resolveNotesScopeModeFromPlumbingState({
+        tradeWorkflowSource: 'standalone_trade',
+        plumbingWorkflowMode: 'bathroom_remodel',
+        plumbingRoomContext: null,
+        notes: kitchenNotes,
+      })
+    ).toBe('plumbing_kitchen');
+  });
+
+  it('strips roofing bleed such as drip edge from plumbing measurements', () => {
+    const stripped = stripNonPlumbingTradeBleedFromMeasurements({
+      plumbingRoughPointCount: 3,
+      roofDripEdgeLf: '120',
+      tradeScopeSelections: { roofing: ['drip_edge', 'shingles'] },
+      itemQuantities: {
+        drip_edge: { quantity: '120', unit: 'lf', quantitySource: 'notes' },
+        plumbing_rough: { quantity: '3', unit: 'each', quantitySource: 'notes' },
+      },
+    });
+    expect(stripped.roofDripEdgeLf).toBe('');
+    expect(stripped.itemQuantities?.drip_edge).toBeUndefined();
+    expect(stripped.itemQuantities?.plumbing_rough).toBeDefined();
+    expect(stripped.tradeScopeSelections?.roofing).toBeUndefined();
+  });
+
+  it('defaults kitchen plumbing notes to included scope and excludes noise cards', () => {
+    const notes =
+      'Kitchen plumbing only — not a full remodel.\n' +
+      'Relocate sink and dishwasher: 3 plumbing rough-in points.\n' +
+      '4 trim hookups (sink, dishwasher, disposal, ice maker line).\n' +
+      '25 LF of water line from manifold to kitchen.\n' +
+      '1 gas appliance hookup for range.\n' +
+      'Customer supplies fixtures; we provide labor, pipe, fittings, and permits if required.\n' +
+      '2-story home; access through finished ceiling in adjacent pantry.';
+    const items = buildStandalonePlumbingChecklistItems('bathroom_remodel', notes);
+    const byId = new Map(items.map(item => [item.id, item.state]));
+    expect(byId.get('plumbing_rough')).toBe('included');
+    expect(byId.get('plumbing_trim')).toBe('included');
+    expect(byId.get('water_line')).toBe('included');
+    expect(byId.get('gas_appliance_connections')).toBe('included');
+    expect(byId.get('plumbing_fixtures_hardware')).toBe('excluded');
+    expect(byId.get('sewer_line')).toBe('excluded');
+    expect(byId.get('gas_line')).toBe('excluded');
+    expect(byId.get('water_heater')).toBe('excluded');
+    expect(byId.get('service_call')).toBe('excluded');
+    expect(byId.get('drain_cleaning')).toBe('excluded');
+    expect(
+      resolveNotesScopeModeFromPlumbingState({
+        tradeWorkflowSource: 'standalone_trade',
+        plumbingWorkflowMode: 'bathroom_remodel',
+        plumbingRoomContext: null,
+        notes,
+      })
+    ).toBe('plumbing_kitchen');
+    const draft = createStandalonePlumbingDraft(notes, {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      tradeWorkflowSource: 'standalone_trade',
+      plumbingWorkflowMode: inferPlumbingWorkflowModeFromNotes(notes),
+      plumbingRoomContext: inferPlumbingRoomContextFromNotes(notes),
+    });
+    expect(draft.scopeMeasurements?.plumbingRoughPointCount).toBe('3');
+    expect(draft.scopeMeasurements?.roofDripEdgeLf).toBeFalsy();
+    const draftById = new Map(
+      (draft.scopeChecklist?.items || []).map(item => [item.id, item.state])
+    );
+    expect(draftById.get('plumbing_rough')).toBe('included');
+    expect(draftById.get('service_call')).toBe('excluded');
   });
 
   it('bootstraps standalone plumbing drafts from whole-house notes', () => {
@@ -960,5 +1042,227 @@ describe('plumbing notes routing', () => {
     expect(buildStandalonePlumbingChecklistItems('new_construction').length).toBeGreaterThan(
       4
     );
+  });
+
+  it('limits quick measurements to included plumbing scope cards', () => {
+    const keys = plumbingQuickMeasurementKeysForIncludedScope([
+      'plumbing_rough',
+      'plumbing_trim',
+      'water_line',
+      'gas_appliance_connections',
+    ]);
+    expect(keys).toEqual(
+      new Set([
+        'plumbingRoughPointCount',
+        'plumbingTrimHookupCount',
+        'waterLineLf',
+        'gasApplianceConnectionCount',
+      ])
+    );
+    expect(keys.has('sewerLineLf')).toBe(false);
+    expect(keys.has('fixtureReplacementCount')).toBe(false);
+  });
+
+  it('maps reveal pricing labels back to plumbing checklist ids', () => {
+    expect(resolvePlumbingRevealAttentionItemId('Water line piping')).toBe(
+      'water_line'
+    );
+    expect(
+      resolvePlumbingRevealAttentionItemId('Plumbing trim / hookups (material + labor)')
+    ).toBe('plumbing_trim');
+    expect(resolvePlumbingRevealAttentionItemId('Gas appliance connections')).toBe(
+      'gas_appliance_connections'
+    );
+  });
+
+  it('collects note-backed plumbing reveal item ids from notes and checklist', () => {
+    const notes =
+      'Kitchen plumbing only. 3 plumbing rough-in points. 4 trim hookups. 25 LF water line. 1 gas appliance hookup.';
+    const ids = plumbingRevealNoteBackedItemIds({
+      originalNotes: notes,
+      scopeChecklist: {
+        items: [
+          { id: 'plumbing_rough', state: 'included', noteBacked: true },
+          { id: 'service_call', state: 'excluded' },
+        ],
+      },
+    });
+    expect([...ids]).toEqual(
+      expect.arrayContaining([
+        'plumbing_rough',
+        'plumbing_trim',
+        'water_line',
+        'gas_appliance_connections',
+      ])
+    );
+    expect(ids.has('service_call')).toBe(false);
+  });
+
+  const MASTER_BATH_NOTES = `Master bath plumbing — shower valve relocate and new toilet location.
+
+4 plumbing rough-in points (shower valve/head, tub drain, toilet, lav).
+4 trim hookups.
+30 LF of drain line for relocated toilet (slab on grade — core drill, not included unless noted).
+1 water heater tie-in not included.`;
+
+  it('respects not-included exclusions and skips inferred fixture allowance', () => {
+    expect(
+      notesExcludePlumbingScopePhrase(
+        MASTER_BATH_NOTES,
+        /\b(?:water\s+)?heater(?:\s+tie[\s-]?in)?\b/i
+      )
+    ).toBe(true);
+    expect(notesExplicitPlumbingFixtureAllowance(MASTER_BATH_NOTES)).toBe(false);
+    expect(notesSuggestStandalonePlumbingTrade(MASTER_BATH_NOTES)).toBe(true);
+    expect(standalonePlumbingProjectTitle(MASTER_BATH_NOTES)).toBe(
+      'Master bath plumbing'
+    );
+
+    const parsed = parsePlumbingMeasurementsFromNotes(MASTER_BATH_NOTES);
+    expect(parsed).toMatchObject({
+      plumbingRoughPointCount: 4,
+      plumbingTrimHookupCount: 4,
+      sewerLineLf: 30,
+    });
+    expect(parsed.waterHeaterCount).toBeUndefined();
+    expect(parsed.plumbingFixturesHardwareCount).toBeUndefined();
+
+    const items = buildStandalonePlumbingChecklistItems(
+      'bathroom_remodel',
+      MASTER_BATH_NOTES
+    );
+    const byId = new Map(items.map(item => [item.id, item.state]));
+    expect(byId.get('plumbing_rough')).toBe('included');
+    expect(byId.get('plumbing_trim')).toBe('included');
+    expect(byId.get('sewer_line')).toBe('included');
+    expect(byId.get('water_heater')).toBe('excluded');
+    expect(byId.get('plumbing_fixtures_hardware')).toBe('excluded');
+  });
+
+  it('bootstraps master bath standalone drafts without water heater or fixtures', () => {
+    const draft = createStandalonePlumbingDraft(MASTER_BATH_NOTES, {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      tradeWorkflowSource: 'standalone_trade',
+      plumbingWorkflowMode: inferPlumbingWorkflowModeFromNotes(MASTER_BATH_NOTES),
+      plumbingRoomContext: inferPlumbingRoomContextFromNotes(MASTER_BATH_NOTES),
+    });
+    expect(draft.projectTitle).toBe('Master bath plumbing');
+    expect(draft.scopeMeasurements?.sewerLineLf).toBe('30');
+    expect(draft.scopeMeasurements?.waterHeaterCount).toBeFalsy();
+    expect(draft.scopeMeasurements?.plumbingFixturesHardwareCount).toBeFalsy();
+    const roughQty = draft.scopeMeasurements?.itemQuantities?.plumbing_rough;
+    expect(roughQty?.quantity).toBe(4);
+    expect(roughQty?.quantitySource).toBe('notes');
+    const included = (draft.scopeChecklist?.items || []).filter(
+      item => item.state === 'included'
+    );
+    expect(included.map(item => item.id).sort()).toEqual(
+      ['plumbing_rough', 'plumbing_trim', 'sewer_line'].sort()
+    );
+  });
+
+  const WHOLE_HOUSE_NOTES = `Single-story; demo exposes plumbing in wall. Whole-house plumbing rough-in for 2,400 SF new build, 2 stories.
+
+12 plumbing rough-in points.
+12 trim hookups at fixture schedule.
+150 LF of water line (under-slab and branch runs).
+80 LF of sewer line.
+100 LF of gas piping (enter manually in measurements if not parsed).
+2 water heaters.
+6 plumbing fixtures & hardware allowance per schedule.
+3 gas appliance hookups (range, dryer, fireplace).`;
+
+  it('parses whole-house new-build plumbing notes including gas LF and living area', () => {
+    expect(inferPlumbingWorkflowModeFromNotes(WHOLE_HOUSE_NOTES)).toBe(
+      'new_construction'
+    );
+    expect(inferPlumbingRoomContextFromNotes(WHOLE_HOUSE_NOTES)).toBe(
+      'whole_house'
+    );
+    expect(standalonePlumbingProjectTitle(WHOLE_HOUSE_NOTES)).toBe(
+      'Whole-house plumbing'
+    );
+    expect(parsePlumbingProjectContextFromNotes(WHOLE_HOUSE_NOTES)).toEqual({
+      floorAreaSqft: 2400,
+      storyCount: 2,
+    });
+    expect(parsePlumbingMeasurementsFromNotes(WHOLE_HOUSE_NOTES)).toMatchObject({
+      plumbingRoughPointCount: 12,
+      plumbingTrimHookupCount: 12,
+      waterLineLf: 150,
+      sewerLineLf: 80,
+      gasLineLf: 100,
+      waterHeaterCount: 2,
+      plumbingFixturesHardwareCount: 6,
+      gasApplianceConnectionCount: 3,
+    });
+    expect(summarizePlumbingNoteBullets(WHOLE_HOUSE_NOTES, 8)).toEqual([
+      '12 rough-in points',
+      '12 trim hookups',
+      '150 LF water line',
+      '80 LF sewer line',
+      '100 LF gas piping',
+      '2 water heaters',
+      '3 gas appliance hookups',
+      '6 fixtures & hardware',
+    ]);
+  });
+
+  it('bootstraps whole-house new-build drafts with eight scope cards from notes', () => {
+    const draft = createStandalonePlumbingDraft(WHOLE_HOUSE_NOTES, {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      tradeWorkflowSource: 'standalone_trade',
+      plumbingWorkflowMode: inferPlumbingWorkflowModeFromNotes(WHOLE_HOUSE_NOTES),
+      plumbingRoomContext: inferPlumbingRoomContextFromNotes(WHOLE_HOUSE_NOTES),
+    });
+    expect(draft.projectTitle).toBe('Whole-house plumbing');
+    expect(draft.scopeMeasurements?.floorAreaSqft).toBe('2400');
+    expect(draft.scopeMeasurements?.storyCount).toBe('2');
+    expect(draft.scopeMeasurements?.gasLineLf).toBe('100');
+    expect(
+      draft.scopeMeasurements?.quickMeasurementSources?.gasLineLf
+    ).toBe('notes');
+    expect(
+      draft.scopeMeasurements?.itemQuantities?.gas_line?.quantitySource
+    ).toBe('notes');
+    const included = (draft.scopeChecklist?.items || []).filter(
+      item => item.state === 'included'
+    );
+    expect(included.map(item => item.id).sort()).toEqual(
+      [
+        'gas_appliance_connections',
+        'gas_line',
+        'plumbing_fixtures_hardware',
+        'plumbing_rough',
+        'plumbing_trim',
+        'sewer_line',
+        'water_heater',
+        'water_line',
+      ].sort()
+    );
+
+    const normalized = normalizeScopeMeasurements(draft.scopeMeasurements as never);
+    expect(
+      resolveChecklistItemQuantity('water_line', normalized, {
+        templateKey: 'plumbing',
+        notes: WHOLE_HOUSE_NOTES,
+      })
+    ).toMatchObject({
+      quantity: 150,
+      unit: 'lf',
+      quantitySource: 'notes',
+    });
+    expect(
+      resolveChecklistItemQuantity('water_heater', normalized, {
+        templateKey: 'plumbing',
+        notes: WHOLE_HOUSE_NOTES,
+      })
+    ).toMatchObject({
+      quantity: 2,
+      unit: 'each',
+      quantitySource: 'notes',
+    });
   });
 });

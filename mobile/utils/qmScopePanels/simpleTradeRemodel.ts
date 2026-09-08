@@ -1,6 +1,11 @@
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import type { QmPanelDefinition, QmPanelHydrateContext } from '@/utils/qmScopePanels/types';
 import type { QuickMeasurementFieldKey } from '@/utils/scopeQuickMeasurements';
+import {
+  collectRoofingInferenceNotes,
+  filterRoofingScopeSelectionsForTearOffInstall,
+  inferRoofingTradeScopeSelectionsFromNotes,
+} from '@/utils/scopeItemNoteHints';
 import { hvacCardForMeasurementKey } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 
 export type SimpleTradeScopeKey = 'deck_patio' | 'hvac' | 'roofing';
@@ -344,6 +349,73 @@ const ROOFING_OPTIONS: TradeOption[] = [
 ];
 
 /** Roofing quick-measurement keys owned by the scope chip panel. */
+export function inferRoofingScopeSelectionsFromMeasurements(
+  measurements: Record<string, unknown>
+): string[] {
+  const ids = new Set<string>();
+  for (const option of ROOFING_OPTIONS) {
+    if (!option.measurementKey) continue;
+    // roofAreaSqft is the general roof surface — not a premium underlayment upgrade.
+    if (option.id === 'underlayment') continue;
+    const value = positiveMeasurement(measurements[option.measurementKey]);
+    if (value != null && value > 0) ids.add(option.id);
+  }
+  return [...ids];
+}
+
+function mergeRoofingScopeSelectionIds(
+  ...groups: Array<string[] | readonly string[]>
+): string[] {
+  const merged = new Set<string>();
+  for (const group of groups) {
+    for (const id of group) merged.add(id);
+  }
+  return [...merged];
+}
+
+/** Union saved chips with note + measurement inference — never drop explicit picks. */
+export function finalizeRoofingScopeSelections(
+  ctx: QmPanelHydrateContext,
+  saved: string[],
+  inferredFromChecklist: string[],
+  inferredFromNotes: string[]
+): string[] {
+  const fromNotes =
+    inferredFromNotes.length > 0
+      ? inferredFromNotes
+      : inferRoofingTradeScopeSelectionsFromNotes(ctx.notes);
+  const fromMeasurements = inferRoofingScopeSelectionsFromMeasurements(
+    ctx.measurements
+  );
+  if (!saved.length) {
+    return filterRoofingScopeSelectionsForTearOffInstall(
+      mergeRoofingScopeSelectionIds(
+        inferredFromChecklist,
+        fromNotes,
+        fromMeasurements
+      ),
+      ctx.notes,
+      saved
+    );
+  }
+  return filterRoofingScopeSelectionsForTearOffInstall(
+    mergeRoofingScopeSelectionIds(saved, fromNotes, fromMeasurements),
+    ctx.notes,
+    saved
+  );
+}
+
+export function roofingTradeChipSelectedForMeasurementKey(
+  measurementKey: string,
+  tradeScopeSelections?: Record<string, string[] | null> | null
+): boolean {
+  const selected = tradeScopeSelections?.roofing;
+  if (!selected?.length) return false;
+  const options = ROOFING_OPTIONS.filter(row => row.measurementKey === measurementKey);
+  if (!options.length) return false;
+  return options.some(option => selected.includes(option.id));
+}
+
 export const ROOFING_EMBEDDED_QUICK_MEASUREMENT_KEYS = [
   ...new Set([
     ...ROOFING_OPTIONS.map(option => option.measurementKey).filter(
@@ -981,6 +1053,10 @@ function hydrateSimpleTrade(ctx: QmPanelHydrateContext, spec: TradeSpec): Record
     spec.scopeKey === 'hvac'
       ? inferHvacScopeSelectionsFromMeasurements(ctx.measurements)
       : [];
+  const inferredFromNotes =
+    spec.scopeKey === 'roofing'
+      ? inferRoofingTradeScopeSelectionsFromNotes(ctx.notes)
+      : [];
   const current =
     spec.scopeKey === 'hvac'
       ? finalizeHvacScopeSelections(
@@ -992,9 +1068,18 @@ function hydrateSimpleTrade(ctx: QmPanelHydrateContext, spec: TradeSpec): Record
               : inferredFromChecklist,
           spec
         )
-      : saved.length
-        ? saved
-        : inferredFromChecklist;
+      : spec.scopeKey === 'roofing'
+        ? finalizeRoofingScopeSelections(
+            ctx,
+            saved,
+            inferredFromChecklist,
+            inferredFromNotes
+          )
+        : saved.length
+          ? saved
+          : inferredFromNotes.length
+            ? inferredFromNotes
+            : inferredFromChecklist;
   const hydrated = {
     ...ctx.measurements,
     tradeScopeSelections: {
@@ -1135,4 +1220,36 @@ export function roofingOptionsForIds(
 ): TradeOption[] {
   const wanted = new Set(ids);
   return ROOFING_OPTIONS.filter((option) => wanted.has(option.id));
+}
+
+/** True when a roofing QM chip has a measurement or note-backed allowance to price. */
+export function roofingQmOptionQuantitySatisfied(
+  optionId: string,
+  measurementKey: string | undefined,
+  measurements: Record<string, unknown>
+): boolean {
+  if (measurementKey) {
+    const value = Number(
+      String(measurements[measurementKey] ?? '').replace(/,/g, '')
+    );
+    if (Number.isFinite(value) && value > 0) return true;
+  }
+  const itemQuantities = measurements.itemQuantities as
+    | Record<string, { quantity?: string | number | null }>
+    | undefined;
+  const allowance = itemQuantities?.[`${optionId}__allowance`];
+  const allowanceQty = Number(String(allowance?.quantity ?? '').replace(/,/g, ''));
+  return Number.isFinite(allowanceQty) && allowanceQty > 0;
+}
+
+export function roofingQmOptionAllowanceAmount(
+  optionId: string,
+  measurements: Record<string, unknown>
+): number | null {
+  const itemQuantities = measurements.itemQuantities as
+    | Record<string, { quantity?: string | number | null }>
+    | undefined;
+  const allowance = itemQuantities?.[`${optionId}__allowance`];
+  const allowanceQty = Number(String(allowance?.quantity ?? '').replace(/,/g, ''));
+  return Number.isFinite(allowanceQty) && allowanceQty > 0 ? allowanceQty : null;
 }

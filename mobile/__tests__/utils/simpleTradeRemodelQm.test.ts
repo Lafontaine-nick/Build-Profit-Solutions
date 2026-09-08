@@ -259,6 +259,86 @@ describe('simple trade QM panels', () => {
     );
   });
 
+  it('hydrates roofing chip selections from job notes on first open', () => {
+    const panel = simpleTradePanelFor('roofing');
+    const hydrated = panel.hydrateMeasurements({
+      templateKey: 'roofing',
+      wholeHomeLayout: false,
+      notes:
+        'Tear off and install new architectural shingles. Ice & water at eaves, ridge vent, drip edge.',
+      hasSitePhotos: false,
+      measurements: { roofSquares: '22' },
+      checklistItems: [],
+    });
+    expect(hydrated.tradeScopeSelections?.roofing).toEqual(
+      expect.arrayContaining([
+        'tear_off',
+        'shingles',
+        'ice_water_shield',
+        'ridge_vent',
+        'drip_edge',
+      ])
+    );
+  });
+
+  it('does not override saved roofing chip selections with note inference', () => {
+    const panel = simpleTradePanelFor('roofing');
+    const hydrated = panel.hydrateMeasurements({
+      templateKey: 'roofing',
+      wholeHomeLayout: false,
+      notes: 'Tear off and install new architectural shingles.',
+      hasSitePhotos: false,
+      measurements: {
+        tradeScopeSelections: { roofing: ['gutters'] },
+      },
+      checklistItems: [],
+    });
+    expect(hydrated.tradeScopeSelections?.roofing).toEqual(
+      expect.arrayContaining(['gutters', 'tear_off', 'shingles'])
+    );
+  });
+
+  it('adds ice & water when notes mention it but other chips were already saved', () => {
+    const panel = simpleTradePanelFor('roofing');
+    const hydrated = panel.hydrateMeasurements({
+      templateKey: 'roofing',
+      wholeHomeLayout: false,
+      notes:
+        '22-square re-roof with architectural shingles, tear-off 1 layer, ice & water at eaves, drip edge',
+      hasSitePhotos: false,
+      measurements: {
+        tradeScopeSelections: { roofing: ['tear_off', 'shingles', 'drip_edge'] },
+        roofSquares: '22',
+        roofDripEdgeLf: '188',
+        roofIceWaterShieldSqft: '281',
+      },
+      checklistItems: [],
+    });
+    expect(hydrated.tradeScopeSelections?.roofing).toEqual(
+      expect.arrayContaining(['ice_water_shield'])
+    );
+  });
+
+  it('adds ice & water when only a short summary is passed but full notes are in ctx', () => {
+    const panel = simpleTradePanelFor('roofing');
+    const hydrated = panel.hydrateMeasurements({
+      templateKey: 'roofing',
+      wholeHomeLayout: false,
+      notes:
+        '22 square roof replacement\n\n22-square re-roof with architectural shingles, tear-off 1 layer, ice & water at eaves, drip edge',
+      hasSitePhotos: false,
+      measurements: {
+        tradeScopeSelections: { roofing: ['drip_edge'] },
+        roofSquares: '22',
+        roofDripEdgeLf: '188',
+      },
+      checklistItems: [],
+    });
+    expect(hydrated.tradeScopeSelections?.roofing).toEqual(
+      expect.arrayContaining(['ice_water_shield'])
+    );
+  });
+
   it('infers HVAC scope chips from plan takeoff without bulk-selecting equipment types', () => {
     const inferred = inferHvacScopeSelectionsFromMeasurements({
       hvacSystemCount: '2',

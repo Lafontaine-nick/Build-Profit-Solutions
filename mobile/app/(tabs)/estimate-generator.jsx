@@ -59,7 +59,7 @@ import AIEstimatePricingProposalModal from '../../components/estimate/AIEstimate
 import AIEstimatePricingFallbackModal from '../../components/estimate/AIEstimatePricingFallbackModal';
 import AIEstimateManualPricingModal from '../../components/estimate/AIEstimateManualPricingModal';
 import AIEstimateScopeAssumptionsModal from '../../components/estimate/AIEstimateScopeAssumptionsModal';
-import { buildAiGenerateSteps } from '../../utils/aiEstimateGeneratingUi';
+import { buildAiGenerateSteps, runPhasedLocalDraftBootstrap, yieldGeneratingOverlayPaint } from '../../utils/aiEstimateGeneratingUi';
 import {
   applyPricingProposalToDraft,
   buildProposalFromMissingSuggestions,
@@ -5756,7 +5756,7 @@ export default function EstimateGeneratorScreen() {
       if (__DEV__) console.warn('🤖 draft UI state ready');
       setAiDraftGeneratingSteps(generateSteps);
       setAiDraftGenerating(true);
-      advanceGeneratePhase('building_scope');
+      advanceGeneratePhase('reading_notes');
       setAiDraftNotes(notes);
       setAiPhotoDetections(Array.isArray(photoDetections) ? photoDetections : []);
       setAiPhotoExistingFeatures(Array.isArray(photoExistingFeatures) ? photoExistingFeatures : []);
@@ -5802,35 +5802,63 @@ export default function EstimateGeneratorScreen() {
           standalonePlumbing: isStandalonePlumbingBid,
         });
       }
-      advanceGeneratePhase('building_scope');
-      let draft = isStandalonePlumbingBid
-        ? createStandalonePlumbingDraft(notesForDraft, {
-            ...(effectivePlanImport || {}),
-            estimatingMode: 'selected_trade',
-            selectedTrade: 'plumbing',
-            tradeWorkflowSource: 'standalone_trade',
-            plumbingWorkflowMode: inferPlumbingWorkflowModeFromNotes(notes),
-            plumbingRoomContext: inferPlumbingRoomContextFromNotes(notes),
-          })
-        : await Promise.race([
-            fetchEstimateDraftFromNotes(notesForDraft, templates, authToken),
-            new Promise((_, reject) => {
-              setTimeout(
-                () =>
-                  reject(
-                    new Error(
-                      'Draft generation timed out. Confirm your phone is on the same Wi‑Fi as your Mac, then try again.'
-                    )
-                  ),
-                45000
-              );
-            }),
-          ]);
+      let draft;
+      if (isStandalonePlumbingBid) {
+        await runPhasedLocalDraftBootstrap({
+          steps: generateSteps,
+          advance: advanceGeneratePhase,
+          shouldContinue: isCurrentOperation,
+          onPhase: async (phase) => {
+            if (phase === 'building_scope') {
+              draft = createStandalonePlumbingDraft(notesForDraft, {
+                ...(effectivePlanImport || {}),
+                estimatingMode: 'selected_trade',
+                selectedTrade: 'plumbing',
+                tradeWorkflowSource: 'standalone_trade',
+                plumbingWorkflowMode: inferPlumbingWorkflowModeFromNotes(notes),
+                plumbingRoomContext: inferPlumbingRoomContextFromNotes(notes),
+              });
+            }
+            if (phase === 'analyzing_photos') {
+              if (photoDetections?.length) {
+                draft = applyPhotoDetectionsToDraft(draft, photoDetections);
+              }
+              if (photoExistingFeatures?.length) {
+                draft = applyPhotoExistingFeaturesToDraft(
+                  draft,
+                  photoExistingFeatures
+                );
+              }
+            }
+          },
+        });
+        if (!isCurrentOperation()) return;
+      } else {
+        await yieldGeneratingOverlayPaint();
+        advanceGeneratePhase('building_scope');
+        draft = await Promise.race([
+          fetchEstimateDraftFromNotes(notesForDraft, templates, authToken),
+          new Promise((_, reject) => {
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    'Draft generation timed out. Confirm your phone is on the same Wi‑Fi as your Mac, then try again.'
+                  )
+                ),
+              45000
+            );
+          }),
+        ]);
+      }
       if (!isCurrentOperation()) return;
       void AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
       // Photo detections apply directly to the Step 2 checklist (structured vision
       // output, not notes-regex re-parsing) — only fills items still "unsure".
-      if (photoDetections?.length || photoExistingFeatures?.length) {
+      if (
+        !isStandalonePlumbingBid &&
+        (photoDetections?.length || photoExistingFeatures?.length)
+      ) {
         if (generateSteps.includes('analyzing_photos')) {
           advanceGeneratePhase('analyzing_photos');
         }

@@ -4,6 +4,8 @@ import {
   buildPlanImportSteps,
   aiGeneratePhaseIndex,
   aiGeneratePhaseLabel,
+  runPhasedLocalDraftBootstrap,
+  yieldGeneratingOverlayPaint,
 } from '@/utils/aiEstimateGeneratingUi';
 
 describe('aiEstimateGeneratingUi', () => {
@@ -42,5 +44,34 @@ describe('aiEstimateGeneratingUi', () => {
       AI_GENERATE_PHASE_LABELS.building_scope
     );
     expect(aiGeneratePhaseIndex(steps, 'analyzing_photos')).toBe(2);
+  });
+
+  it('runs phased local bootstrap with dwell between steps', async () => {
+    const phases: string[] = [];
+    const started = Date.now();
+    await runPhasedLocalDraftBootstrap({
+      steps: ['reading_notes', 'building_scope', 'finalizing'],
+      advance: (phase) => phases.push(phase),
+      paintFirst: false,
+      minDwellMs: 30,
+    });
+    expect(phases).toEqual(['reading_notes', 'building_scope', 'finalizing']);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(80);
+  });
+
+  it('stops phased bootstrap when shouldContinue returns false', async () => {
+    const phases: string[] = [];
+    let alive = true;
+    await runPhasedLocalDraftBootstrap({
+      steps: ['reading_notes', 'building_scope', 'finalizing'],
+      advance: (phase) => {
+        phases.push(phase);
+        if (phase === 'building_scope') alive = false;
+      },
+      paintFirst: false,
+      minDwellMs: 10,
+      shouldContinue: () => alive,
+    });
+    expect(phases).toEqual(['reading_notes', 'building_scope']);
   });
 });

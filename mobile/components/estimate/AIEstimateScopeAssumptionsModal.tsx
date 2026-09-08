@@ -73,6 +73,7 @@ import {
   PLUMBING_CARDS,
   buildPlumbingStructuredMeasurements,
   buildStandalonePlumbingChecklistItems,
+  finalizeStandalonePlumbingChecklist,
   plumbingCardForItemId,
   plumbingStateFromNotesScopeMode,
   resolveNotesScopeModeFromPlumbingState,
@@ -81,6 +82,8 @@ import {
   notesSuggestPlumbingBid,
   inferPlumbingWorkflowModeFromNotes,
   inferPlumbingRoomContextFromNotes,
+  filterChecklistItemsToPlumbingScope,
+  plumbingQuickMeasurementKeysForIncludedScope,
   type NotesScopeMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
@@ -359,6 +362,10 @@ import {
   type ScopePricingContext,
   type SuggestedPricingBlock,
 } from '@/utils/scopeItemQuantities';
+import {
+  collectRoofingInferenceNotes,
+  inferRoofingTradeScopeSelectionsFromNotes,
+} from '@/utils/scopeItemNoteHints';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import {
   evaluateFlooringDemoPrepOverlap,
@@ -3377,6 +3384,20 @@ function scoreScopeNotesForMeasurements(
   if (parsed.itemQuantities?.floor_demo?.quantity) score += 8;
   if (parsed.itemQuantities?.trim?.quantity) score += 3;
   if (/\bnot\s+priced\s+yet\b/i.test(text)) score += 3;
+  const template = String(templateKey || projectType || '').toLowerCase();
+  if (template === 'roofing') {
+    if (parsed.roofSquares) score += 10;
+    if (parsed.roofDripEdgeLf) score += 4;
+    if (parsed.roofIceWaterShieldSqft) score += 6;
+    if (
+      /\b(ice\s*[&/-]\s*water|ice\s+and\s+water|ice\s*barrier|eaves?\s+protection)\b/i.test(
+        text
+      ) ||
+      /\bice\b[^.]{0,32}\bwater\b/i.test(text)
+    ) {
+      score += 6;
+    }
+  }
   return score;
 }
 
@@ -13426,6 +13447,12 @@ function CollapsibleQuickMeasurements({
       }
       return filteredRows;
     }
+    if (notesTradeFlow) {
+      const allowed = plumbingQuickMeasurementKeysForIncludedScope(includedScopeKeys);
+      return baseRows
+        .map(row => row.filter(field => allowed.has(field.key)))
+        .filter(row => row.length > 0);
+    }
     if (
       String(effectiveTemplateKey || '').toLowerCase() === 'framing' &&
       shellPackageIncludesSheathing(measurements as Record<string, unknown>)
@@ -13583,6 +13610,7 @@ function CollapsibleQuickMeasurements({
       wholeHomeLayout,
       keepingExistingWetArea,
       wetAreaInstallChoiceId,
+      tradeScopeSelections: measurements.tradeScopeSelections,
     });
     return resolved.map(result =>
       result.key === 'floorPrepSqft' && editingFieldKey === 'floorPrepSqft'
@@ -13600,8 +13628,29 @@ function CollapsibleQuickMeasurements({
     wholeHomeLayout,
     keepingExistingWetArea,
     wetAreaInstallChoiceId,
+    measurements.tradeScopeSelections,
     editingFieldKey,
   ]);
+  const roofingEmbeddedMeasurementKeys = useMemo(
+    () => new Set(ROOFING_EMBEDDED_QUICK_MEASUREMENT_KEYS),
+    []
+  );
+  const fieldResultsForSummary = useMemo(
+    () =>
+      fieldResults.filter(result => {
+        if (roofingQmJob && roofingEmbeddedMeasurementKeys.has(result.key)) {
+          return false;
+        }
+        if (hvacQmJob && HVAC_EMBEDDED_QUICK_MEASUREMENT_KEYS.includes(result.key)) {
+          return false;
+        }
+        if (deckQmJob && (result.key === 'deckSqft' || result.key === 'railingLf')) {
+          return false;
+        }
+        return true;
+      }),
+    [fieldResults, roofingQmJob, hvacQmJob, deckQmJob, roofingEmbeddedMeasurementKeys]
+  );
   const physicalSections = useMemo(() => {
     if (!wholeHomeLayout) return [];
     const wetKeys = new Set<string>(WET_AREA_QUICK_MEASUREMENT_KEYS);
@@ -13784,8 +13833,8 @@ function CollapsibleQuickMeasurements({
   const displayGroups = groups.groups;
   const wetAreaFields = groups.wetArea;
   const summary = useMemo(
-    () => summarizeQuickMeasurementFieldStates(fieldResults),
-    [fieldResults]
+    () => summarizeQuickMeasurementFieldStates(fieldResultsForSummary),
+    [fieldResultsForSummary]
   );
   const measurementConflicts = useMemo(
     () =>
@@ -17377,6 +17426,7 @@ function CollapsibleQuickMeasurements({
                 <QmRoofingScopePanels
                   measurements={measurements}
                   setMeasurements={setMeasurements}
+                  onScopeSelectionChange={onHvacScopeSelectionChange}
                   applying={applying}
                   darkMode={darkMode}
                   Colors={Colors}
@@ -17776,6 +17826,35 @@ export default function AIEstimateScopeAssumptionsModal({
   const baseItemsRef = useRef<ScopeChecklistItem[]>([]);
   const [notesTradeMode, setNotesTradeMode] =
     useState<NotesScopeMode>('whole_project');
+  useEffect(() => {
+    if (!visible) return;
+    if (
+      !notesSuggestPlumbingBid(scopeNotes) &&
+      !['plumbing', 'plumbing_service'].includes(
+        String(checklist?.templateKey || '').toLowerCase()
+      )
+    ) {
+      return;
+    }
+    setNotesTradeMode(
+      resolveNotesScopeModeFromPlumbingState({
+        tradeWorkflowSource:
+          draft?.scopeMeasurements?.tradeWorkflowSource ?? null,
+        plumbingWorkflowMode:
+          draft?.scopeMeasurements?.plumbingWorkflowMode ?? null,
+        plumbingRoomContext:
+          draft?.scopeMeasurements?.plumbingRoomContext ?? null,
+        notes: scopeNotes,
+      })
+    );
+  }, [
+    visible,
+    scopeNotes,
+    checklist?.templateKey,
+    draft?.scopeMeasurements?.tradeWorkflowSource,
+    draft?.scopeMeasurements?.plumbingWorkflowMode,
+    draft?.scopeMeasurements?.plumbingRoomContext,
+  ]);
   const [measurements, setMeasurements] =
     useState<ScopeMeasurementsInputExtended>({
       ...emptyQuickMeasurementInput(),
@@ -18007,17 +18086,18 @@ export default function AIEstimateScopeAssumptionsModal({
       ) ||
       String(checklist?.templateKey || '').toLowerCase() === 'bathroom');
   const notesPlumbingFlow =
-    notesScopeSelectorVisible && notesTradeMode !== 'whole_project';
+    notesScopeSelectorVisible &&
+    (notesTradeMode !== 'whole_project' ||
+      measurements.tradeWorkflowSource === 'standalone_trade' ||
+      notesSuggestPlumbingBid(scopeNotes));
   const effectiveNotesTradeMode =
-    notesTradeMode === 'plumbing_service'
-      ? 'plumbing_service'
-      : notesTradeMode !== 'whole_project'
-        ? 'plumbing'
-        : measurements.plumbingWorkflowMode === 'service'
-          ? 'plumbing_service'
-          : measurements.tradeWorkflowSource === 'standalone_trade'
-            ? 'plumbing'
-            : 'whole_project';
+    notesTradeMode !== 'whole_project'
+      ? notesTradeMode
+      : measurements.plumbingWorkflowMode === 'service'
+        ? 'plumbing_service'
+        : measurements.tradeWorkflowSource === 'standalone_trade'
+          ? 'plumbing'
+          : 'whole_project';
   const plumbingItemIds = useMemo(
     () => new Set(PLUMBING_CARDS.map(card => card.itemId)),
     []
@@ -18088,7 +18168,8 @@ export default function AIEstimateScopeAssumptionsModal({
       return withDrywallLayout(
         expanded.filter(
           item =>
-            plumbingItemIds.has(item.id) || isCustomScopeChecklistItem(item)
+            (plumbingItemIds.has(item.id) || isCustomScopeChecklistItem(item)) &&
+            item.state !== 'excluded'
         )
       );
     }
@@ -18427,7 +18508,8 @@ export default function AIEstimateScopeAssumptionsModal({
           reconciled as Record<string, unknown>
         ) as ScopeMeasurementsInputExtended;
         reconciled = reconcilePlumbingEquipmentScopeMeasurements(
-          reconciled as Record<string, unknown>
+          reconciled as Record<string, unknown>,
+          scopeNotes
         ) as ScopeMeasurementsInputExtended;
         const complexityPatches = hydrateProjectComplexityInputFields({
           ...reconciled,
@@ -19009,7 +19091,8 @@ export default function AIEstimateScopeAssumptionsModal({
           initialScopeMeasurementInputExtended(draftForScope, scopeNotes),
           { notes: scopeNotes, templateKey: checklist.templateKey }
         ),
-        draft?.scopeMeasurements
+        draft?.scopeMeasurements,
+        scopeNotes
       );
       // The plan review modal can be applied before the draft persistence
       // round-trip completes. Preserve its selected-trade measurements during
@@ -19188,9 +19271,6 @@ export default function AIEstimateScopeAssumptionsModal({
         nextMeasurements = reconcilePlumbingLineScopeMeasurements(
           nextMeasurements as Record<string, unknown>
         ) as typeof nextMeasurements;
-        nextMeasurements = reconcilePlumbingEquipmentScopeMeasurements(
-          nextMeasurements as Record<string, unknown>
-        ) as typeof nextMeasurements;
         nextMeasurements = prepareScopeMeasurementsInputForUi(
           nextMeasurements,
           {
@@ -19198,6 +19278,10 @@ export default function AIEstimateScopeAssumptionsModal({
             templateKey: checklist.templateKey,
           }
         );
+        nextMeasurements = reconcilePlumbingEquipmentScopeMeasurements(
+          nextMeasurements as Record<string, unknown>,
+          scopeNotes
+        ) as typeof nextMeasurements;
         const structured = buildPlumbingStructuredMeasurements(
           nextMeasurements as Record<string, unknown>,
           'plan_detected'
@@ -19281,6 +19365,20 @@ export default function AIEstimateScopeAssumptionsModal({
           templateKey: 'hvac',
           wholeHomeLayout: false,
           notes: scopeNotes,
+          hasSitePhotos,
+          measurements: nextMeasurements as Record<string, unknown>,
+          checklistItems: sourceItems,
+        }) as typeof nextMeasurements;
+      }
+      if (String(checklist.templateKey || '').toLowerCase() === 'roofing') {
+        const roofingInferenceNotes = collectRoofingInferenceNotes(
+          draft,
+          scopeNotes
+        );
+        nextMeasurements = simpleTradePanelFor('roofing').hydrateMeasurements({
+          templateKey: 'roofing',
+          wholeHomeLayout: false,
+          notes: roofingInferenceNotes,
           hasSitePhotos,
           measurements: nextMeasurements as Record<string, unknown>,
           checklistItems: sourceItems,
@@ -19407,9 +19505,13 @@ export default function AIEstimateScopeAssumptionsModal({
           String(checklist.templateKey || '').toLowerCase()
         ) ||
         hydratedPlanTrade === 'plumbing' ||
-        hydrateTradeContext.tradeKey === 'plumbing'
+        hydrateTradeContext.tradeKey === 'plumbing' ||
+        notesSuggestPlumbingBid(scopeNotes)
       ) {
-        normalized = syncPlumbingScopeItems(normalized, {
+        normalized = filterChecklistItemsToPlumbingScope(normalized);
+        normalized = finalizeStandalonePlumbingChecklist(normalized, {
+          notes: scopeNotes,
+          mode: nextMeasurements.plumbingWorkflowMode,
           plumbingScope: nextMeasurements.plumbingScope,
           quantities: nextMeasurements as Record<string, unknown>,
         });
@@ -19514,22 +19616,14 @@ export default function AIEstimateScopeAssumptionsModal({
       setItems(normalized);
       setMeasurementsSynced(nextMeasurements);
       if (notesSuggestPlumbingBid(scopeNotes)) {
-        const fromMeasurements = resolveNotesScopeModeFromPlumbingState({
-          tradeWorkflowSource: nextMeasurements.tradeWorkflowSource,
-          plumbingWorkflowMode: nextMeasurements.plumbingWorkflowMode,
-          plumbingRoomContext: nextMeasurements.plumbingRoomContext,
-        });
-        let mode: NotesScopeMode = fromMeasurements;
-        if (fromMeasurements === 'whole_project') {
-          const wf = inferPlumbingWorkflowModeFromNotes(scopeNotes);
-          const room = inferPlumbingRoomContextFromNotes(scopeNotes);
-          if (wf === 'service') mode = 'plumbing_service';
-          else if (wf === 'new_construction') mode = 'plumbing_new_construction';
-          else if (room === 'bathroom') mode = 'plumbing_bathroom';
-          else if (room === 'kitchen') mode = 'plumbing_kitchen';
-          else mode = 'plumbing';
-        }
-        setNotesTradeMode(mode);
+        setNotesTradeMode(
+          resolveNotesScopeModeFromPlumbingState({
+            tradeWorkflowSource: nextMeasurements.tradeWorkflowSource,
+            plumbingWorkflowMode: nextMeasurements.plumbingWorkflowMode,
+            plumbingRoomContext: nextMeasurements.plumbingRoomContext,
+            notes: scopeNotes,
+          })
+        );
       } else if (
         ['plumbing', 'plumbing_service'].includes(
           String(checklist.templateKey || '').toLowerCase()
@@ -19540,6 +19634,7 @@ export default function AIEstimateScopeAssumptionsModal({
             tradeWorkflowSource: nextMeasurements.tradeWorkflowSource,
             plumbingWorkflowMode: nextMeasurements.plumbingWorkflowMode,
             plumbingRoomContext: nextMeasurements.plumbingRoomContext,
+            notes: scopeNotes,
           })
         );
       }
@@ -20836,6 +20931,43 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.roofSquares,
   ]);
 
+  // Notes can live in originalNotes while a shorter summary wins chooseBestScopeNotes.
+  // Re-merge roofing chips once hydrated so ice & water is not dropped.
+  useEffect(() => {
+    const isRoofingTemplate =
+      String(singleTradeKey || checklist?.templateKey || '').toLowerCase() ===
+      'roofing';
+    if (!isRoofingTemplate || !scopeHydrated) return;
+    const roofingInferenceNotes = collectRoofingInferenceNotes(draft, scopeNotes);
+    const inferred = inferRoofingTradeScopeSelectionsFromNotes(roofingInferenceNotes);
+    const selected = measurements.tradeScopeSelections?.roofing || [];
+    const needsIce =
+      inferred.includes('ice_water_shield') &&
+      !selected.includes('ice_water_shield');
+    const hasIceQty = Number(String(measurements.roofIceWaterShieldSqft || '').replace(/,/g, '')) > 0;
+    if (!needsIce && !(hasIceQty && !selected.includes('ice_water_shield'))) return;
+    setMeasurementsSynced((prev) =>
+      simpleTradePanelFor('roofing').hydrateMeasurements({
+        templateKey: 'roofing',
+        wholeHomeLayout: false,
+        notes: roofingInferenceNotes,
+        hasSitePhotos: false,
+        measurements: prev as Record<string, unknown>,
+        checklistItems: items,
+      }) as ScopeMeasurementsInputExtended
+    );
+  }, [
+    checklist?.templateKey,
+    singleTradeKey,
+    scopeHydrated,
+    draft,
+    scopeNotes,
+    items,
+    measurements.tradeScopeSelections?.roofing,
+    measurements.roofIceWaterShieldSqft,
+    setMeasurementsSynced,
+  ]);
+
   // Paint SF in Quick measurements → auto-select Interior painting (Yes).
   useEffect(() => {
     setItems(prev =>
@@ -20898,7 +21030,9 @@ export default function AIEstimateScopeAssumptionsModal({
       return;
     startTransition(() => {
       setItems(prev =>
-        syncPlumbingScopeItems(prev, {
+        finalizeStandalonePlumbingChecklist(prev, {
+          notes: scopeNotes,
+          mode: measurements.plumbingWorkflowMode,
           plumbingScope: measurements.plumbingScope,
           quantities: measurements as Record<string, unknown>,
         })
@@ -20907,6 +21041,8 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [
     notesPlumbingFlow,
     checklist?.templateKey,
+    scopeNotes,
+    measurements.plumbingWorkflowMode,
     measurements.plumbingScope,
     measurements.serviceCallCount,
     measurements.fixtureRepairCount,
@@ -24295,13 +24431,15 @@ export default function AIEstimateScopeAssumptionsModal({
                 const plumbingState = plumbingStateFromNotesScopeMode(mode);
                 if (mode !== 'whole_project') {
                   const plumbingItems = buildStandalonePlumbingChecklistItems(
-                    plumbingState.checklistMode
+                    plumbingState.checklistMode,
+                    scopeNotes
                   ).map(card => ({
                     id: card.id,
                     label: card.label,
                     helperText: card.helperText,
                     category: card.category,
-                    state: 'unsure' as const,
+                    state: card.state,
+                    noteBacked: card.noteBacked,
                   }));
                   setItems(plumbingItems);
                   setMeasurementsSynced(prev => ({

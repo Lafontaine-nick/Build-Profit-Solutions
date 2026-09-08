@@ -31,7 +31,13 @@ import {
   shouldStripShellFramingComponentMeasurement,
   stripShellFramingComponentMeasurements,
 } from '@/utils/subcontractorTrade/framingPlanConvergence';
-import { PLUMBING_CARDS } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import {
+  PLUMBING_CARDS,
+  notesCustomerSuppliesPlumbingFixtures,
+  notesExplicitPlumbingFixtureAllowance,
+  notesExcludePlumbingScopePhrase,
+  notesSuggestStandalonePlumbingTrade,
+} from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { hvacCardForMeasurementKey } from '@/utils/subcontractorTrade/hvacPlanConvergence';
 import {
   WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
@@ -2238,8 +2244,25 @@ export function sumPlumbingFixtureInventoryPoints(
 export function resolvePlumbingFixturesHardwareCount(
   measurements: Record<string, number | string>,
   inventory: Record<string, number> | null | undefined,
-  waterHeaterDetail?: PlumbingWaterHeaterDetail | null
+  waterHeaterDetail?: PlumbingWaterHeaterDetail | null,
+  notes?: string | null
 ): number {
+  if (notes && notesCustomerSuppliesPlumbingFixtures(notes)) {
+    return 0;
+  }
+
+  if (
+    notes &&
+    notesSuggestStandalonePlumbingTrade(notes) &&
+    !notesExplicitPlumbingFixtureAllowance(notes)
+  ) {
+    const fromInventory = sumPlumbingFixturesHardwareCount(inventory);
+    if (fromInventory > 0) return fromInventory;
+    const explicit = Number(measurements.plumbingFixturesHardwareCount);
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+    return 0;
+  }
+
   const trim = Number(measurements.plumbingTrimHookupCount);
   const rough = Number(measurements.plumbingRoughPointCount);
   const scheduleCount =
@@ -2250,10 +2273,15 @@ export function resolvePlumbingFixturesHardwareCount(
         : Number.isFinite(rough) && rough > 0
           ? rough
           : 0;
+
+  const explicit = Number(measurements.plumbingFixturesHardwareCount);
+  if (Number.isFinite(explicit) && explicit > 0) {
+    if (scheduleCount > 0 && explicit > scheduleCount) return scheduleCount;
+    return explicit;
+  }
   if (scheduleCount > 0) return scheduleCount;
 
   const fromInventory = sumPlumbingFixturesHardwareCount(inventory);
-  const explicit = Number(measurements.plumbingFixturesHardwareCount);
   const whCount = resolvePlumbingWaterHeaterCount(inventory, waterHeaterDetail);
   const raw =
     (Number.isFinite(explicit) && explicit > 0 ? explicit : 0) || fromInventory;
@@ -2407,6 +2435,7 @@ export function hydratePlumbingPlanMeasurementsFromInventory(
       key?: string | null;
       label?: string | null;
     }> | null;
+    notes?: string | null;
   }
 ): Record<string, number | string> {
   let waterHeaterDetail = options?.waterHeaterDetail ?? null;
@@ -2482,19 +2511,37 @@ export function hydratePlumbingPlanMeasurementsFromInventory(
   const resolvedFixtures = resolvePlumbingFixturesHardwareCount(
     next,
     inventory,
-    waterHeaterDetail
+    waterHeaterDetail,
+    options?.notes
   );
   if (resolvedFixtures > 0) {
     const existingFixtures = Number(next.plumbingFixturesHardwareCount);
     if (!existingFixtures || existingFixtures !== resolvedFixtures) {
       next.plumbingFixturesHardwareCount = resolvedFixtures;
     }
+  } else if (
+    options?.notes &&
+    (notesCustomerSuppliesPlumbingFixtures(options.notes) ||
+      (notesSuggestStandalonePlumbingTrade(options.notes) &&
+        !notesExplicitPlumbingFixtureAllowance(options.notes)))
+  ) {
+    next.plumbingFixturesHardwareCount = 0;
   }
   const waterHeaterCount = resolvePlumbingWaterHeaterCount(
     inventory,
     waterHeaterDetail
   );
-  if (waterHeaterCount > 0 && !Number(next.waterHeaterCount)) {
+  const waterHeaterExcluded =
+    options?.notes &&
+    notesExcludePlumbingScopePhrase(
+      options.notes,
+      /\b(?:water\s+)?heater(?:\s+tie[\s-]?in)?\b/i
+    );
+  if (
+    waterHeaterCount > 0 &&
+    !Number(next.waterHeaterCount) &&
+    !waterHeaterExcluded
+  ) {
     next.waterHeaterCount = waterHeaterCount;
   }
   const resolvedGasConnections = resolvePlumbingGasApplianceConnectionCount(
@@ -2581,7 +2628,7 @@ function isPlumbingScopeMeasurements(input: Record<string, unknown>): boolean {
 /** Upgrade equipment counts and rescale stale applied pricing on existing plumbing drafts. */
 export function reconcilePlumbingEquipmentScopeMeasurements<
   T extends Record<string, unknown>,
->(input: T): T {
+>(input: T, notes?: string | null): T {
   if (!isPlumbingScopeMeasurements(input)) return input;
 
   const expandedScope = expandResidentialGasApplianceScope(
@@ -2610,6 +2657,7 @@ export function reconcilePlumbingEquipmentScopeMeasurements<
           key?: string | null;
           label?: string | null;
         }> | null) ?? null,
+      notes,
     }
   );
 
@@ -2624,8 +2672,43 @@ export function reconcilePlumbingEquipmentScopeMeasurements<
     const hydratedValue = Number(hydrated[key]);
     const existing = Number(next[key]);
     if (
+      key === 'plumbingFixturesHardwareCount' &&
+      notes &&
+      notesCustomerSuppliesPlumbingFixtures(notes)
+    ) {
+      next[key] = 0;
+      continue;
+    }
+    if (
+      key === 'plumbingFixturesHardwareCount' &&
+      notes &&
+      notesSuggestStandalonePlumbingTrade(notes) &&
+      !notesExplicitPlumbingFixtureAllowance(notes)
+    ) {
+      next[key] = 0;
+      continue;
+    }
+    if (
+      key === 'waterHeaterCount' &&
+      notes &&
+      notesExcludePlumbingScopePhrase(
+        notes,
+        /\b(?:water\s+)?heater(?:\s+tie[\s-]?in)?\b/i
+      )
+    ) {
+      next[key] = 0;
+      continue;
+    }
+    if (
       hydratedValue > 0 &&
       (!Number.isFinite(existing) || hydratedValue > existing)
+    ) {
+      next[key] = hydratedValue;
+    } else if (
+      key === 'plumbingFixturesHardwareCount' &&
+      Number.isFinite(hydratedValue) &&
+      hydratedValue >= 0 &&
+      hydratedValue < existing
     ) {
       next[key] = hydratedValue;
     }
@@ -2692,6 +2775,39 @@ export function reconcilePlumbingEquipmentScopeMeasurements<
         targetQty
       );
     }
+  }
+
+  if (
+    notes &&
+    notesCustomerSuppliesPlumbingFixtures(notes) &&
+    !(Number(next.plumbingFixturesHardwareCount) > 0) &&
+    itemQuantities.plumbing_fixtures_hardware
+  ) {
+    delete itemQuantities.plumbing_fixtures_hardware;
+    changed = true;
+  }
+
+  if (
+    notes &&
+    notesSuggestStandalonePlumbingTrade(notes) &&
+    !notesExplicitPlumbingFixtureAllowance(notes) &&
+    !(Number(next.plumbingFixturesHardwareCount) > 0) &&
+    itemQuantities.plumbing_fixtures_hardware
+  ) {
+    delete itemQuantities.plumbing_fixtures_hardware;
+    changed = true;
+  }
+
+  if (
+    notes &&
+    notesExcludePlumbingScopePhrase(
+      notes,
+      /\b(?:water\s+)?heater(?:\s+tie[\s-]?in)?\b/i
+    ) &&
+    itemQuantities.water_heater
+  ) {
+    delete itemQuantities.water_heater;
+    changed = true;
   }
 
   if (changed) {

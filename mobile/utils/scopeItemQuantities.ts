@@ -15,6 +15,7 @@ import {
   shouldAutoPriceElectricalRoughPackage,
   shouldAutoPriceElectricalTrimPackage,
   ELECTRICAL_CARDS,
+  stripElectricalBleedFromMeasurements,
   type ElectricalQuantityKey,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import {
@@ -30,6 +31,11 @@ import {
   type PlumbingQuantityKey,
   type PlumbingWorkflowMode,
   type PlumbingRoomContext,
+  notesCustomerSuppliesPlumbingFixtures,
+  notesExplicitPlumbingFixtureAllowance,
+  notesExcludePlumbingScopePhrase,
+  notesSuggestStandalonePlumbingTrade,
+  stripNonPlumbingTradeBleedFromMeasurements,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
   HVAC_CARDS,
@@ -116,6 +122,7 @@ import {
 } from '@/utils/subcontractorTrade/electricalRoughPricing';
 import {
   SCOPE_PARSED_FROM_NOTES_LABEL,
+  SCOPE_PLANNING_ESTIMATE_LABEL,
   SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL,
   SCOPE_LABOR_PARSED_FROM_NOTES_LABEL,
 } from '@/constants/scopeNoteSourceLabels';
@@ -262,6 +269,23 @@ import {
   clearStalePricingWhenNotesUnpriced,
   parseScopeMeasurementsFromNotes,
 } from '@/utils/scopeMeasurementParser';
+import {
+  applyRoofingPlanningMeasurements,
+  mergeRoofingPlanningMeasurementSources,
+  reconcileRoofingQuickMeasurements,
+} from '@/utils/roofingPlanningMeasurements';
+import { quickMeasurementSourceLabel } from '@/utils/quickMeasurementProvenance';
+import type { QuickMeasurementSourceTag } from '@/utils/quickMeasurementProvenance';
+import {
+  collectRoofingInferenceNotes,
+  filterRoofingScopeSelectionsForTearOffInstall,
+  inferRoofingTradeScopeSelectionsFromNotes,
+  parseRoofingDeckingAllowanceFromNotes,
+  suppressRoofRepairMeasurementsWhenTearOffInstall,
+} from '@/utils/scopeItemNoteHints';
+import {
+  finalizeRoofingScopeSelections,
+} from '@/utils/qmScopePanels/simpleTradeRemodel';
 import {
   getRatePricingMatcher,
   parseScopeItemRatePricingFromNotes,
@@ -7299,6 +7323,18 @@ function aggregatedMeasurementSourceLabel(
   return 'From room measurement';
 }
 
+function measurementKeyQuantitySourceLabel(
+  measurements: NormalizedScopeMeasurements,
+  key: string
+): string {
+  const tag = measurements.quickMeasurementSources?.[key] as
+    | QuickMeasurementSourceTag
+    | undefined;
+  const fromProvenance = quickMeasurementSourceLabel(tag);
+  if (fromProvenance) return fromProvenance;
+  return SCOPE_PARSED_FROM_NOTES_LABEL;
+}
+
 export function notesHaveCombinedCabinetsCounters(
   notes?: string | null
 ): boolean {
@@ -8505,6 +8541,8 @@ function inferPhysicalCountFromAppliedSplit(
   if (!(perUnit > 0)) return rule.defaultQuantity ?? 1;
   const inferred = Math.round(splitTotal / perUnit);
   if (inferred >= 1 && inferred <= 99) return inferred;
+  // Lump-sum note allowances (e.g. $1,000 decking) must not collapse to 1 sqft.
+  if (itemId === 'decking_repair' || itemId === 'roof_repairs') return null;
   return rule.defaultQuantity ?? 1;
 }
 
@@ -19734,6 +19772,59 @@ function applyAutoFramingCoveredSfQuantity(
   };
 }
 
+function resolvePlumbingQuickMeasurementProvenance(
+  measurements: NormalizedScopeMeasurements,
+  card: { measurementKey: string },
+  itemId: string
+): Pick<ResolvedItemQuantity, 'quantitySource' | 'sourceLabel'> {
+  const storedSource = measurements.itemQuantities?.[itemId]?.quantitySource;
+  if (storedSource === 'notes') {
+    return {
+      quantitySource: 'notes',
+      sourceLabel: 'From notes · Quick Measurements',
+    };
+  }
+  const sourceTag = String(
+    measurements.quickMeasurementSources?.[card.measurementKey] || ''
+  ).toLowerCase();
+  if (sourceTag === 'notes' || sourceTag === 'parsed_from_notes') {
+    return {
+      quantitySource: 'notes',
+      sourceLabel: 'From notes · Quick Measurements',
+    };
+  }
+  const tradeWorkflow = String(
+    (measurements as Record<string, unknown>).tradeWorkflowSource || ''
+  );
+  if (
+    tradeWorkflow === 'standalone_trade' &&
+    ![
+      'plan_detected',
+      'plan_verified',
+      'ai_verified',
+      'contractor_confirmed_from_plan_review',
+    ].includes(sourceTag)
+  ) {
+    return {
+      quantitySource: 'notes',
+      sourceLabel: 'From notes · Quick Measurements',
+    };
+  }
+  if (
+    sourceTag === 'plan_detected' ||
+    sourceTag === 'plan_verified' ||
+    sourceTag === 'ai_verified' ||
+    sourceTag === 'contractor_confirmed_from_plan_review' ||
+    measurements.measurementProvenance?.[card.measurementKey] != null
+  ) {
+    return {
+      quantitySource: 'plan_detected',
+      sourceLabel: 'Quick Measurements · Plan takeoff',
+    };
+  }
+  return { quantitySource: 'inferred', sourceLabel: 'Quick Measurements' };
+}
+
 function resolvePlumbingCardQuickMeasurementQuantity(
   itemId: string,
   measurements: NormalizedScopeMeasurements,
@@ -19750,15 +19841,16 @@ function resolvePlumbingCardQuickMeasurementQuantity(
   if (!card) return null;
   const value = Number(measurements[card.measurementKey]);
   if (!Number.isFinite(value) || value <= 0) return null;
-  const sourceTag =
-    measurements.measurementProvenance?.[card.measurementKey] != null
-      ? 'plan_detected'
-      : 'inferred';
+  const provenance = resolvePlumbingQuickMeasurementProvenance(
+    measurements,
+    card,
+    itemId
+  );
   return {
     quantity: value,
     unit: card.unit,
-    quantitySource: sourceTag,
-    sourceLabel: 'Quick Measurements · Plan takeoff',
+    quantitySource: provenance.quantitySource,
+    sourceLabel: provenance.sourceLabel,
     pricingReady: true,
     showInput: true,
   };
@@ -20297,11 +20389,16 @@ function resolveChecklistItemQuantityCore(
     String(ctx.templateKey || '').toLowerCase() === 'roofing' &&
     Number(measurements.roofIceWaterShieldSqft) > 0
   ) {
+    const sourceLabel =
+      measurementKeyQuantitySourceLabel(measurements, 'roofIceWaterShieldSqft') ===
+      SCOPE_PLANNING_ESTIMATE_LABEL
+        ? 'Ice & water shield · planning estimate'
+        : 'Ice & water shield area · Quick Measurements';
     return {
       quantity: Number(measurements.roofIceWaterShieldSqft),
       unit: 'sqft',
       quantitySource: 'inferred',
-      sourceLabel: 'Ice & water shield area · Quick Measurements',
+      sourceLabel,
       pricingReady: true,
       quantityHelper:
         'Ice & water shield uses only the dedicated measured protection area.',
@@ -20671,7 +20768,7 @@ function resolveChecklistItemQuantityCore(
         quantity: val,
         unit: measurementUnitForKey(key, rule.defaultUnit),
         quantitySource: 'inferred',
-        sourceLabel: SCOPE_PARSED_FROM_NOTES_LABEL,
+        sourceLabel: measurementKeyQuantitySourceLabel(measurements, key),
         pricingReady: true,
         quantityHelper: rule.quantityHelper,
         showInput: true,
@@ -20986,9 +21083,9 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
     test: /\bmirror\b|\btowel\s+bar\b|\bbath(?:room)?\s+accessories\b/i,
     key: 'mirror_accessories',
   },
-  // Roof underlayment before floor_prep (shared "underlayment" word).
+  // Roof underlayment / ice & water package names — not generic floor underlayment.
   {
-    test: /\b(roof|shingle|ice\s*(?:&|and)\s*water|felt|synthetic)\b[^.]{0,40}\bunderlayment\b|\bunderlayment\b[^.]{0,40}\b(roof|shingle|ice\s*(?:&|and)\s*water)\b|\bice\s*(?:&|and)\s*water\b/i,
+    test: /\b(?:premium|synthetic)\s+underlayment\b|\bunderlayment\s*\/\s*ice\b|\broof\s+underlayment\b/i,
     key: 'underlayment',
   },
   {
@@ -21144,7 +21241,7 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
     key: 'demo_removal',
   },
   {
-    test: /\b(roof|shingle)\b[^.]{0,40}\bdeck(?:ing)?\b|\bdeck(?:ing)?\b[^.]{0,40}\b(repair|replace|sheath|sheathing)\b/i,
+    test: /\b(roof|shingle)\b[^.]{0,40}\bdeck(?:ing)?\b|\bdeck(?:ing)?\b[^.]{0,40}\b(repair|replace|sheath|sheathing)\b|\bdeck(?:ing)?\b[^.]{0,80}\ballowance\b|\bbad\s+wood\b[^.]{0,80}\bdeck(?:ing)?\b|\bdeck(?:ing)?\b[^.]{0,80}\bbad\s+wood\b/i,
     key: 'decking_repair',
   },
   {
@@ -21789,12 +21886,16 @@ function syncPlumbingQuantitiesIntoItemQuantities(
     }
     const sourceTag = extended.quickMeasurementSources?.[card.measurementKey];
     const source =
-      sourceTag === 'plan_detected' ||
-      sourceTag === 'plan_verified' ||
-      sourceTag === 'ai_verified' ||
-      sourceTag === 'contractor_confirmed_from_plan_review'
-        ? 'plan_detected'
-        : 'user_entered';
+      sourceTag === 'notes' || sourceTag === 'parsed_from_notes'
+        ? 'notes'
+        : sourceTag === 'plan_detected' ||
+            sourceTag === 'plan_verified' ||
+            sourceTag === 'ai_verified' ||
+            sourceTag === 'contractor_confirmed_from_plan_review'
+          ? 'plan_detected'
+          : extended.tradeWorkflowSource === 'standalone_trade'
+            ? 'notes'
+            : 'user_entered';
     nextQuantities[card.itemId] = {
       quantity: String(quantity),
       unit: card.unit,
@@ -23630,9 +23731,82 @@ export function prepareScopeMeasurementsInputForUi(
     options?.templateKey
   );
 
-  return syncMeasurementsWithSouthernUtahPlanFacts(reparsed, {
+  const withSouthernUtah = syncMeasurementsWithSouthernUtahPlanFacts(reparsed, {
     templateKey: options?.templateKey,
   });
+
+  const template = String(options?.templateKey || '').toLowerCase();
+  if (['plumbing', 'plumbing_service'].includes(template)) {
+    const stripped = stripNonPlumbingTradeBleedFromMeasurements(withSouthernUtah);
+    Object.assign(withSouthernUtah, stripped);
+  }
+  if (
+    notes &&
+    ['plumbing', 'plumbing_service'].includes(template) &&
+    notesCustomerSuppliesPlumbingFixtures(notes)
+  ) {
+    withSouthernUtah.plumbingFixturesHardwareCount = '';
+    if (withSouthernUtah.itemQuantities?.plumbing_fixtures_hardware) {
+      const { plumbing_fixtures_hardware: _removed, ...rest } =
+        withSouthernUtah.itemQuantities;
+      withSouthernUtah.itemQuantities = rest;
+    }
+    if (withSouthernUtah.plumbingScope?.length) {
+      withSouthernUtah.plumbingScope = withSouthernUtah.plumbingScope.filter(
+        id => id !== 'plumbing_fixtures_hardware'
+      );
+    }
+  }
+  if (
+    notes &&
+    ['plumbing', 'plumbing_service'].includes(template) &&
+    notesSuggestStandalonePlumbingTrade(notes) &&
+    !notesExplicitPlumbingFixtureAllowance(notes)
+  ) {
+    withSouthernUtah.plumbingFixturesHardwareCount = '';
+    if (withSouthernUtah.itemQuantities?.plumbing_fixtures_hardware) {
+      const { plumbing_fixtures_hardware: _removed, ...rest } =
+        withSouthernUtah.itemQuantities;
+      withSouthernUtah.itemQuantities = rest;
+    }
+    if (withSouthernUtah.plumbingScope?.length) {
+      withSouthernUtah.plumbingScope = withSouthernUtah.plumbingScope.filter(
+        id => id !== 'plumbing_fixtures_hardware'
+      );
+    }
+  }
+  if (
+    notes &&
+    ['plumbing', 'plumbing_service'].includes(template) &&
+    notesExcludePlumbingScopePhrase(
+      notes,
+      /\b(?:water\s+)?heater(?:\s+tie[\s-]?in)?\b/i
+    )
+  ) {
+    withSouthernUtah.waterHeaterCount = '';
+    if (withSouthernUtah.itemQuantities?.water_heater) {
+      const { water_heater: _removed, ...rest } = withSouthernUtah.itemQuantities;
+      withSouthernUtah.itemQuantities = rest;
+    }
+    if (withSouthernUtah.plumbingScope?.length) {
+      withSouthernUtah.plumbingScope = withSouthernUtah.plumbingScope.filter(
+        id => id !== 'water_heater'
+      );
+    }
+  }
+
+  const roofingReconciled =
+    String(options?.templateKey || '').toLowerCase() === 'roofing'
+      ? reconcileRoofingQuickMeasurements(withSouthernUtah, notes)
+      : withSouthernUtah;
+
+  return {
+    ...roofingReconciled,
+    quickMeasurementSources: mergeRoofingPlanningMeasurementSources(
+      roofingReconciled.quickMeasurementSources,
+      parsed.roofingPlanningKeys
+    ),
+  };
 }
 
 export type ScopeMeasurementsInputExtended = ReturnType<
@@ -24283,6 +24457,26 @@ export function initialScopeMeasurementInputExtended(
     tradeScopeSelections:
       saved?.tradeScopeSelections ?? suggested?.tradeScopeSelections ?? null,
     roofSquares: pick('roofSquares'),
+    roofAreaSqft: pick('roofAreaSqft'),
+    roofIceWaterShieldSqft: pick('roofIceWaterShieldSqft'),
+    roofDeckingReplacementSqft: pick('roofDeckingReplacementSqft'),
+    roofDripEdgeLf: pick('roofDripEdgeLf'),
+    roofRidgeCapLf: pick('roofRidgeCapLf'),
+    roofRidgeVentLf: pick('roofRidgeVentLf'),
+    roofValleyFlashingLf: pick('roofValleyFlashingLf'),
+    roofStepFlashingLf: pick('roofStepFlashingLf'),
+    roofWallFlashingLf: pick('roofWallFlashingLf'),
+    roofChimneyFlashingCount: pick('roofChimneyFlashingCount'),
+    roofPipeBootCount: pick('roofPipeBootCount'),
+    roofVentCount: pick('roofVentCount'),
+    roofTurbineVentCount: pick('roofTurbineVentCount'),
+    roofSkylightCount: pick('roofSkylightCount'),
+    roofPenetrationCount: pick('roofPenetrationCount'),
+    roofRepairAffectedSqft: pick('roofRepairAffectedSqft'),
+    roofGutterLf: pick('roofGutterLf'),
+    roofDownspoutCount: pick('roofDownspoutCount'),
+    roofPitch: pickString('roofPitch'),
+    storyCount: pick('storyCount'),
     drywallSqft: pick('drywallSqft'),
     drywallWallSqft: pick('drywallWallSqft'),
     drywallCeilingSqft: pick('drywallCeilingSqft'),
@@ -24796,7 +24990,10 @@ export function initialScopeMeasurementInputExtended(
     garageDoorOpenerCount:
       saved?.garageDoorOpenerCount ?? suggested?.garageDoorOpenerCount ?? null,
     planFacts: saved?.planFacts || suggested?.planFacts,
-    quickMeasurementSources: saved?.quickMeasurementSources,
+    quickMeasurementSources: mergeRoofingPlanningMeasurementSources(
+      saved?.quickMeasurementSources,
+      parsedFromNotes.roofingPlanningKeys
+    ),
     quickMeasurementUserOverrides: saved?.quickMeasurementUserOverrides,
     quickMeasurementSuggestionMetadata:
       saved?.quickMeasurementSuggestionMetadata,
@@ -24882,5 +25079,106 @@ export function initialScopeMeasurementInputExtended(
     }
   }
 
-  return result;
+  const roofingTemplate =
+    String(draft?.scopeChecklist?.templateKey || draft?.projectType || '')
+      .toLowerCase() === 'roofing';
+  if (roofingTemplate) {
+    const roofingInferenceNotes = collectRoofingInferenceNotes(draft, scopeNotes);
+    const saved = result.tradeScopeSelections?.roofing || [];
+    const merged = finalizeRoofingScopeSelections(
+      {
+        templateKey: 'roofing',
+        wholeHomeLayout: false,
+        notes: roofingInferenceNotes,
+        hasSitePhotos: false,
+        measurements: result as Record<string, unknown>,
+        checklistItems: draft?.scopeChecklist?.items || [],
+      },
+      saved,
+      [],
+      inferRoofingTradeScopeSelectionsFromNotes(roofingInferenceNotes)
+    );
+    if (merged.length) {
+      result.tradeScopeSelections = {
+        ...(result.tradeScopeSelections || {}),
+        roofing: merged,
+      };
+    }
+    const deckingAllowance = parseRoofingDeckingAllowanceFromNotes(roofingInferenceNotes);
+    if (deckingAllowance != null && deckingAllowance > 0) {
+      result.itemQuantities = {
+        ...(result.itemQuantities || {}),
+        decking_repair__allowance: {
+          quantity: String(deckingAllowance),
+          unit: 'allowance',
+          quantitySource: 'notes',
+        },
+      };
+      // Dollar allowances are not sqft takeoffs — drop mistaken parser bleed.
+      result.roofDeckingReplacementSqft = '';
+      delete result.itemQuantities.decking_repair;
+    }
+    const roofingPlanning = applyRoofingPlanningMeasurements(
+      {
+        roofSquares: result.roofSquares,
+        roofDripEdgeLf: result.roofDripEdgeLf,
+        roofIceWaterShieldSqft: result.roofIceWaterShieldSqft,
+        roofRidgeCapLf: result.roofRidgeCapLf,
+      },
+      roofingInferenceNotes
+    );
+    if (roofingPlanning.roofDripEdgeLf && !result.roofDripEdgeLf) {
+      result.roofDripEdgeLf = roofingPlanning.roofDripEdgeLf;
+    }
+    if (roofingPlanning.roofIceWaterShieldSqft && !result.roofIceWaterShieldSqft) {
+      result.roofIceWaterShieldSqft = roofingPlanning.roofIceWaterShieldSqft;
+    }
+    if (roofingPlanning.roofRidgeCapLf && !result.roofRidgeCapLf) {
+      result.roofRidgeCapLf = roofingPlanning.roofRidgeCapLf;
+    }
+    if (roofingPlanning.roofPipeBootCount && !result.roofPipeBootCount) {
+      result.roofPipeBootCount = roofingPlanning.roofPipeBootCount;
+    }
+    if (roofingPlanning.roofingPlanningKeys?.length) {
+      result.quickMeasurementSources = mergeRoofingPlanningMeasurementSources(
+        result.quickMeasurementSources,
+        roofingPlanning.roofingPlanningKeys
+      );
+      const remerged = finalizeRoofingScopeSelections(
+        {
+          templateKey: 'roofing',
+          wholeHomeLayout: false,
+          notes: roofingInferenceNotes,
+          hasSitePhotos: false,
+          measurements: result as Record<string, unknown>,
+          checklistItems: draft?.scopeChecklist?.items || [],
+        },
+        result.tradeScopeSelections?.roofing || [],
+        [],
+        inferRoofingTradeScopeSelectionsFromNotes(roofingInferenceNotes)
+      );
+      if (remerged.length) {
+        result.tradeScopeSelections = {
+          ...(result.tradeScopeSelections || {}),
+          roofing: remerged,
+        };
+      }
+    }
+  }
+
+  if (roofingTemplate) {
+    const roofingInferenceNotes = collectRoofingInferenceNotes(draft, scopeNotes);
+    result = suppressRoofRepairMeasurementsWhenTearOffInstall(
+      result,
+      roofingInferenceNotes,
+      saved?.tradeScopeSelections?.roofing || []
+    );
+    result = reconcileRoofingQuickMeasurements(result, scopeNotes);
+  }
+
+  return stripElectricalBleedFromMeasurements(
+    result,
+    draft?.scopeChecklist?.templateKey,
+    scopeNotes
+  );
 }

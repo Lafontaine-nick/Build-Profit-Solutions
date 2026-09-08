@@ -7,6 +7,9 @@ export const SCOPE_DETECTED_FROM_PHOTOS_LABEL = 'Detected from photos';
 /** Pill/label: a specific qty or $ value parsed from job notes. */
 export const SCOPE_PARSED_FROM_NOTES_LABEL = 'From notes';
 
+/** Pill/label: qty derived from roof squares or other planning formulas (not verbatim in notes). */
+export const SCOPE_PLANNING_ESTIMATE_LABEL = 'Planning estimate';
+
 export const SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL = 'Material from notes';
 export const SCOPE_LABOR_PARSED_FROM_NOTES_LABEL = 'Labor from notes';
 

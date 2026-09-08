@@ -1000,6 +1000,8 @@ export function syncElectricalScopeItems<
 >(
   items: T[],
   params: {
+    templateKey?: string | null;
+    notes?: string | null;
     electricalScope?: string[] | null;
     electricalIncludeRough?: boolean | null;
     electricalIncludeTrim?: boolean | null;
@@ -1009,6 +1011,15 @@ export function syncElectricalScopeItems<
     };
   }
 ): T[] {
+  if (
+    !shouldMaterializeElectricalScopeItems(
+      params.templateKey,
+      params.notes,
+      params.electricalScope
+    )
+  ) {
+    return items;
+  }
   const included = new Set(params.electricalScope || []);
   const fromQuantity = new Set<string>();
   const clearedQuantity = new Set<string>();
@@ -1199,7 +1210,7 @@ const APPLIANCE_RULES: ParseRule[] = [
   {
     key: 'disposalHookupCount',
     pattern: new RegExp(
-      String.raw`${COUNT_TOKEN}?\s*(?:garbage\s+)?disposal(?:\s+circuit|\s+hookup)?s?\b|\b(?:garbage\s+)?disposal(?:\s+circuit|\s+hookup)s?\b`,
+      String.raw`${COUNT_TOKEN}?\s*garbage\s+disposal(?:\s+(?:circuit|hookup))?s?\b|\bdisposal\s+(?:circuit|hookup|install)s?\b|\bgarbage\s+disposal\b`,
       'i'
     ),
   },
@@ -1545,10 +1556,78 @@ function parseProjectCondition(
   return null;
 }
 
-function looksLikeElectricalNotes(text: string): boolean {
+export function looksLikeElectricalNotes(text: string): boolean {
   return /\b(electrical|outlet|receptacle|gfci|afci|switch(?:es)?|dimmers?|recessed|canless|wafer|vanity\s+lights?|pendant|chandelier|panel|subpanel|circuits?|ceiling\s+fan|amp(?:ere)?s?|\d+\s*a\b|service|ev\s+charger|cat\s*6|smoke\s+detector|doorbell|cameras?|prewire|poe|remove|removal|relocat|abandon|conduit|trench(?:ing)?|rough[\s-]?in|finished[\s-]?wall|fish(?:ing)?\s+(?:in\s+)?walls?)\b/i.test(
     text
   );
+}
+
+/** Trades that may legitimately surface electrical scope cards from measurements. */
+const ELECTRICAL_HOST_TEMPLATE_KEYS = new Set([
+  'electrical',
+  'kitchen',
+  'bathroom',
+  'room_remodel',
+  'ground_up',
+  'addition',
+]);
+
+/** True when electrical checklist cards may be injected from quantities or notes. */
+export function shouldMaterializeElectricalScopeItems(
+  templateKey?: string | null,
+  notes?: string | null,
+  electricalScope?: string[] | null
+): boolean {
+  if (Array.isArray(electricalScope) && electricalScope.length > 0) return true;
+  if (looksLikeElectricalNotes(String(notes || ''))) return true;
+  return ELECTRICAL_HOST_TEMPLATE_KEYS.has(
+    String(templateKey || '').toLowerCase()
+  );
+}
+
+/** Drop stale electrical takeoff from non-electrical trades (e.g. roofing debris ≠ disposal hookup). */
+export function stripElectricalBleedFromMeasurements<
+  T extends Record<string, unknown>,
+>(input: T, templateKey?: string | null, notes?: string | null): T {
+  if (
+    shouldMaterializeElectricalScopeItems(
+      templateKey,
+      notes,
+      input.electricalScope as string[] | null | undefined
+    )
+  ) {
+    return input;
+  }
+  const next = { ...input } as T & {
+    itemQuantities?: Record<string, unknown>;
+  };
+  for (const key of ELECTRICAL_REVIEW_MEASUREMENT_KEYS) {
+    delete (next as Record<string, unknown>)[key];
+  }
+  for (const field of [
+    'electricalScope',
+    'electricalProjectCondition',
+    'electricalIncludeRough',
+    'electricalIncludeTrim',
+    'electricalConduit',
+    'electricalTrenching',
+    'electricalConduitSpecialty',
+    'electricalTrenchCondition',
+    'existingServiceAmperage',
+    'electricalPanelLocation',
+    'electricalMeterMainCombo',
+  ] as const) {
+    delete (next as Record<string, unknown>)[field];
+  }
+  const itemQuantities = { ...(next.itemQuantities || {}) };
+  for (const id of ELECTRICAL_ITEM_IDS) {
+    delete itemQuantities[id];
+    delete itemQuantities[`${id}__material`];
+    delete itemQuantities[`${id}__labor`];
+    delete itemQuantities[`${id}__allowance`];
+  }
+  next.itemQuantities = itemQuantities;
+  return next as T;
 }
 
 function isSpecializedReceptacleClause(clause: string): boolean {
@@ -1629,7 +1708,7 @@ function isSpecializedLightClause(clause: string): boolean {
 }
 
 function isApplianceOwnedCircuit(clause: string): boolean {
-  return /\brange\b|\bdryer\b|\bdishwasher\b|\bdisposal\b|\bmicrowave\b|\brefrigerator\b|\bwater[\s-]?heater\b|\bhvac\b|\bev\s+charger/i.test(
+  return /\brange\b|\bdryer\b|\bdishwasher\b|\b(?:garbage\s+)?disposal(?:\s+(?:circuit|hookup|install))?\b|\bmicrowave\b|\brefrigerator\b|\bwater[\s-]?heater\b|\bhvac\b|\bev\s+charger/i.test(
     clause
   );
 }

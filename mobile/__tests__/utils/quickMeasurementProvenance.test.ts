@@ -522,3 +522,52 @@ describe('tagPlanDetectedQuickMeasurementKeys', () => {
     expect(next.hvacSupplyRegisterCount).toBe('detected_from_plan');
   });
 });
+
+describe('roofing quick measurement summary', () => {
+  test('does not count unselected accessories or chip-confirmed planning values', () => {
+    const rows = quickMeasurementRowsForInput(
+      'roofing',
+      'roofing',
+      emptyQuickMeasurementInput(),
+      []
+    );
+    const measurements = {
+      ...emptyQuickMeasurementInput(),
+      roofSquares: '22',
+      roofDripEdgeLf: '188',
+      roofIceWaterShieldSqft: '281',
+      quickMeasurementSources: {
+        roofDripEdgeLf: 'estimated_from_formula',
+        roofIceWaterShieldSqft: 'estimated_from_formula',
+      },
+      tradeScopeSelections: {
+        roofing: ['tear_off', 'shingles', 'drip_edge', 'ice_water_shield'],
+      },
+    };
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements,
+      includedScopeKeys: [
+        'tear_off',
+        'shingles_roofing',
+        'drip_edge',
+        'ice_water_shield',
+        'roofing_system',
+      ],
+      templateKey: 'roofing',
+      tradeScopeSelections: measurements.tradeScopeSelections,
+    });
+    const embedded = new Set([
+      'roofSquares',
+      'roofDripEdgeLf',
+      'roofIceWaterShieldSqft',
+      'roofAreaSqft',
+      'roofPitch',
+      'storyCount',
+    ]);
+    const summary = summarizeQuickMeasurementFieldStates(
+      results.filter(result => !embedded.has(result.key))
+    );
+    expect(summary.needsConfirmation).toBe(0);
+  });
+});

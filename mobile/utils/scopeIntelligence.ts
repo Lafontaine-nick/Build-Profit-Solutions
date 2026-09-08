@@ -1,5 +1,9 @@
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import {
+  parsePlumbingMeasurementsFromNotes,
+  plumbingCardForItemId,
+} from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import {
   evaluateAssemblyForScope,
   evaluateProjectScopeGaps,
   type AssemblyEvaluationResult,
@@ -819,6 +823,28 @@ function noteMeasurementMatchesResolved(params: {
       return true;
     }
   }
+
+  if (
+    ['plumbing', 'plumbing_service'].includes(
+      String(params.templateKey || '').toLowerCase()
+    )
+  ) {
+    const plumbingParsed = parsePlumbingMeasurementsFromNotes(notes);
+    const card = plumbingCardForItemId(params.scopeKey);
+    if (card) {
+      const parsedValue = Number(
+        plumbingParsed[card.measurementKey as keyof typeof plumbingParsed]
+      );
+      if (
+        Number.isFinite(parsedValue) &&
+        parsedValue > 0 &&
+        parsedValue === Number(params.resolved.quantity)
+      ) {
+        return true;
+      }
+    }
+  }
+
   return false;
 }
 
@@ -967,6 +993,15 @@ function quantitySourceMetadata(params: {
       sourceLabel: 'Calculated',
       confidence: 'high',
       reason: 'The user accepted an approved formula result for this quantity.',
+    };
+  }
+
+  if (currentSource === 'plan_detected') {
+    return {
+      source: 'from_plan',
+      sourceLabel: 'From plan',
+      confidence: 'high',
+      reason: 'The quantity was detected from plan takeoff measurements.',
     };
   }
 

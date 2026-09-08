@@ -2520,6 +2520,117 @@ function inferItemStateFromNotes(itemId, notes) {
   return "unsure";
 }
 
+function inferRoofingSystemFromNotes(notes) {
+  const n = String(notes || "").toLowerCase();
+  if (!n.trim()) return null;
+
+  if (/\b(pricing[\s_-]?gap|custom\s+system|unsupported\s+system)\b/.test(n)) {
+    return "custom_other";
+  }
+  if (/\b(standing[\s-]?seam|standing\s+seam\s+metal)\b/.test(n)) {
+    return "standing_seam_metal";
+  }
+  if (
+    /\b(exposed[\s-]?fastener|screw[\s-]?down\s+metal|corrugated\s+metal|r[\s-]?panel|ag\s+panel)\b/.test(
+      n,
+    )
+  ) {
+    return "exposed_fastener_metal";
+  }
+  if (/\b(concrete\s+tile|clay\s+tile|tile\s+roof|slate\s+tile)\b/.test(n)) {
+    return "concrete_clay_tile";
+  }
+  if (/\b(tpo|thermoplastic\s+polyolefin)\b/.test(n)) return "tpo";
+  if (/\b(epdm|rubber\s+roof|rubber\s+membrane)\b/.test(n)) return "epdm";
+  if (/\b(modified\s+bitumen|torch[\s-]?down|mod[\s-]?bit)\b/.test(n)) {
+    return "modified_bitumen";
+  }
+  if (/\b(3[\s-]?tab|three[\s-]?tab)\b/.test(n)) return "three_tab_shingles";
+  if (
+    /\b(architectural|dimensional|laminate)\s+shingles?\b/.test(n) ||
+    /\b(asphalt\s+shingles?|shingle\s+roof|new\s+shingles?|shingles?\s+install)\b/.test(
+      n,
+    ) ||
+    /\b(re[\s-]?roof|roof\s+replacement|reroof)\b/.test(n)
+  ) {
+    return "architectural_shingles";
+  }
+  if (/\b(metal\s+roof|steel\s+roof)\b/.test(n)) return "standing_seam_metal";
+  return null;
+}
+
+function inferRoofingTearOffFromNotes(notes) {
+  const n = String(notes || "").toLowerCase();
+  if (!n.trim()) return null;
+
+  if (
+    /\b(new\s+construction|no\s+tear[\s-]?off|without\s+tear[\s-]?off|overlay|recover|roof[\s-]?over)\b/.test(
+      n,
+    )
+  ) {
+    return "new_construction";
+  }
+  if (/\b((?:two|2)\s+layers?|double\s+layer|2x\s+shingle)\b/.test(n)) {
+    return "two_layers";
+  }
+  if (/\b((?:three|3|4|four)\+?\s+layers?|3\+)\b/.test(n)) {
+    return "three_plus_custom";
+  }
+  if (/\b(tile\s+removal|remove\s+tile\s+roof|tear[\s-]?off\s+tile)\b/.test(n)) {
+    return "tile_removal";
+  }
+  if (
+    /\b(metal\s+roof\s+removal|remove\s+metal\s+roof|tear[\s-]?off\s+metal)\b/.test(
+      n,
+    )
+  ) {
+    return "metal_removal";
+  }
+  if (
+    /\b(membrane\s+removal|tpo\s+removal|epdm\s+removal|tear[\s-]?off\s+(?:tpo|epdm|membrane|flat))\b/.test(
+      n,
+    )
+  ) {
+    return "membrane_removal";
+  }
+  if (
+    /\b(tear[\s-]?off|tear\s+off|remove\s+shingles?|roof\s+demo|strip\s+roof)\b/.test(
+      n,
+    )
+  ) {
+    return "one_layer";
+  }
+  if (/\b(re[\s-]?roof|roof\s+replacement|reroof|new\s+roof)\b/.test(n)) {
+    return "one_layer";
+  }
+  return null;
+}
+
+function notesImplyRoofTearOffAndInstall(notes) {
+  const n = String(notes || "").toLowerCase();
+  if (!n.trim()) return false;
+
+  const tearOff = inferRoofingTearOffFromNotes(notes);
+  if (!tearOff || tearOff === "new_construction") return false;
+
+  if (inferRoofingSystemFromNotes(notes)) return true;
+
+  return (
+    /\b(?:tear[\s-]?off|tear\s+off|remove\s+shingles?|strip\s+roof)\b[^.]{0,64}\b(?:and\s+)?(?:replace|install|re[\s-]?roof)\b/.test(
+      n,
+    ) ||
+    /\b(?:replace|install|re[\s-]?roof)\b[^.]{0,64}\b(?:tear[\s-]?off|tear\s+off|remove\s+shingles?|asphalt\s+shingles?|shingles?)\b/.test(
+      n,
+    ) ||
+    /\basphalt\s+shingles?\b[^.]{0,64}\b(?:tear[\s-]?off|tear\s+off|remove)\b/.test(
+      n,
+    ) ||
+    /\b(?:tear[\s-]?off|tear\s+off|remove)\b[^.]{0,64}\basphalt\s+shingles?\b/.test(
+      n,
+    )
+  );
+}
+
 function inferChoiceFromNotes(itemId, notes) {
   const n = String(notes || "").toLowerCase();
 
@@ -2620,6 +2731,9 @@ function inferChoiceFromNotes(itemId, notes) {
     if (/\b(garbage\s+disposal|disposal\s+install)\b/.test(n))
       return "replace_install";
   }
+
+  if (itemId === "roofing_system") return inferRoofingSystemFromNotes(notes);
+  if (itemId === "tear_off") return inferRoofingTearOffFromNotes(notes);
 
   return null;
 }

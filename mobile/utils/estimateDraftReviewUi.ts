@@ -141,6 +141,32 @@ export function scopePackagePricedAmount(
   return proposalTotalForScopeName(draft?.pendingPricingProposal, pkg.name);
 }
 
+/** Scope found hero — include national-average planning $ before Confirm Scope when possible. */
+export function scopePackageIndicativePricedAmount(
+  pkg: EstimateDraftScopePackage,
+  draft?: EstimateAiDraft | null
+): number {
+  const priced = scopePackagePricedAmount(pkg, draft);
+  if (priced > 0) return priced;
+  if (!draft) return 0;
+  return resolveNationalAverageScopePackageAmount(pkg, draft, {
+    allowPreConfirm: true,
+  });
+}
+
+/** Sum of indicative scope row amounts for Scope found (pre-confirm planning totals). */
+export function sumIndicativeScopePackageTotals(
+  draft: EstimateAiDraft | null | undefined
+): number {
+  if (!draft) return 0;
+  let total = 0;
+  for (const pkg of getScopePackages(draft)) {
+    const amount = scopePackageIndicativePricedAmount(pkg, draft);
+    if (amount > 0) total += amount;
+  }
+  return Math.round(total * 100) / 100;
+}
+
 /** Scope row still needs a user-entered price (tap-to-price on review step 3). */
 export function scopePackageNeedsManualPrice(
   pkg: EstimateDraftScopePackage,

@@ -37,6 +37,35 @@ describe('mobile scope measurement parser', () => {
     });
   });
 
+  it('parses small roofing repair patch as sqft not squares', () => {
+    const notes =
+      'I need to build a roofing repair bid, about 50 sqft area, asphalt shingles tear off and replace';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'roofing',
+      projectType: 'roofing',
+    });
+    expect(parsed.roofAreaSqft).toBe(50);
+    expect(parsed.roofSquares).toBe(0.5);
+    const input = initialScopeMeasurementInputExtended(
+      { scopeChecklist: { templateKey: 'roofing' }, projectType: 'roofing' },
+      notes
+    );
+    expect(Number(input.roofAreaSqft)).toBe(50);
+    expect(Number(input.roofSquares)).toBe(0.5);
+    expect(parsed.roofRepairAffectedSqft).toBeUndefined();
+  });
+
+  it('does not treat decking dollar allowances as sqft takeoff', () => {
+    const notes =
+      'Tear off and reroof, 22 squares. Decking looks ok but put $1,000 allowance if we find bad wood.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'roofing',
+      projectType: 'roofing',
+    });
+    expect(parsed.roofDeckingReplacementSqft).toBeUndefined();
+    expect(parsed.roofSquares).toBe(22);
+  });
+
   it('parses gutters LF and downspouts EA independently from notes', () => {
     const parsed = parseScopeMeasurementsFromNotes(
       'Install 150 LF gutters and 4 downspouts on the rear elevation.',

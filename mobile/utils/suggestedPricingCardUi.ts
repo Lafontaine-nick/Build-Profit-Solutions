@@ -1089,7 +1089,17 @@ export function buildSuggestedPricingCardDisplay(input: {
       statusLine = 'Local pricing not verified';
     }
   } else if (input.confidenceLabel) {
-    statusLine = String(input.confidenceLabel).trim();
+    const label = String(input.confidenceLabel).trim();
+    if (
+      /^Measurement needed/i.test(label) &&
+      block.total > 0 &&
+      Number(block.basis?.quantity) > 0
+    ) {
+      statusTone = 'neutral';
+      statusLine = 'National planning rate';
+    } else {
+      statusLine = label;
+    }
   }
 
   const minimumProjectNote = minimumProjectNoteForSuggestedBlock(block);

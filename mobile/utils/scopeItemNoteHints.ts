@@ -213,6 +213,275 @@ export function inferItemStateFromNotes(
   return 'unsure';
 }
 
+/** Primary roofing system choice from job notes (Confirm Scope `roofing_system` card). */
+export function inferRoofingSystemFromNotes(
+  notes: string | null | undefined
+): string | null {
+  const n = String(notes || '').toLowerCase();
+  if (!n.trim()) return null;
+
+  if (/\b(pricing[\s_-]?gap|custom\s+system|unsupported\s+system)\b/.test(n)) {
+    return 'custom_other';
+  }
+  if (/\b(standing[\s-]?seam|standing\s+seam\s+metal)\b/.test(n)) {
+    return 'standing_seam_metal';
+  }
+  if (
+    /\b(exposed[\s-]?fastener|screw[\s-]?down\s+metal|corrugated\s+metal|r[\s-]?panel|ag\s+panel)\b/.test(
+      n
+    )
+  ) {
+    return 'exposed_fastener_metal';
+  }
+  if (/\b(concrete\s+tile|clay\s+tile|tile\s+roof|slate\s+tile)\b/.test(n)) {
+    return 'concrete_clay_tile';
+  }
+  if (/\b(tpo|thermoplastic\s+polyolefin)\b/.test(n)) return 'tpo';
+  if (/\b(epdm|rubber\s+roof|rubber\s+membrane)\b/.test(n)) return 'epdm';
+  if (/\b(modified\s+bitumen|torch[\s-]?down|mod[\s-]?bit)\b/.test(n)) {
+    return 'modified_bitumen';
+  }
+  if (/\b(3[\s-]?tab|three[\s-]?tab)\b/.test(n)) return 'three_tab_shingles';
+  if (
+    /\b(architectural|dimensional|laminate)\s+shingles?\b/.test(n) ||
+    /\b(asphalt\s+shingles?|shingle\s+roof|new\s+shingles?|shingles?\s+install)\b/.test(
+      n
+    ) ||
+    /\b(re[\s-]?roof|roof\s+replacement|reroof)\b/.test(n)
+  ) {
+    return 'architectural_shingles';
+  }
+  if (/\b(metal\s+roof|steel\s+roof)\b/.test(n)) return 'standing_seam_metal';
+  return null;
+}
+
+/** Tear-off depth / type from job notes (Confirm Scope `tear_off` choice card). */
+export function inferRoofingTearOffFromNotes(
+  notes: string | null | undefined
+): string | null {
+  const n = String(notes || '').toLowerCase();
+  if (!n.trim()) return null;
+
+  if (
+    /\b(new\s+construction|no\s+tear[\s-]?off|without\s+tear[\s-]?off|overlay|recover|roof[\s-]?over)\b/.test(
+      n
+    )
+  ) {
+    return 'new_construction';
+  }
+  if (/\b((?:two|2)\s+layers?|double\s+layer|2x\s+shingle)\b/.test(n)) {
+    return 'two_layers';
+  }
+  if (/\b((?:three|3|4|four)\+?\s+layers?|3\+)\b/.test(n)) {
+    return 'three_plus_custom';
+  }
+  if (/\b(tile\s+removal|remove\s+tile\s+roof|tear[\s-]?off\s+tile)\b/.test(n)) {
+    return 'tile_removal';
+  }
+  if (/\b(metal\s+roof\s+removal|remove\s+metal\s+roof|tear[\s-]?off\s+metal)\b/.test(n)) {
+    return 'metal_removal';
+  }
+  if (
+    /\b(membrane\s+removal|tpo\s+removal|epdm\s+removal|tear[\s-]?off\s+(?:tpo|epdm|membrane|flat))\b/.test(
+      n
+    )
+  ) {
+    return 'membrane_removal';
+  }
+  if (/\b(tear[\s-]?off|tear\s+off|remove\s+shingles?|roof\s+demo|strip\s+roof)\b/.test(n)) {
+    return 'one_layer';
+  }
+  if (/\b(re[\s-]?roof|roof\s+replacement|reroof|new\s+roof)\b/.test(n)) {
+    return 'one_layer';
+  }
+  return null;
+}
+
+/**
+ * Tear-off + install/replace language — price via tear_off + shingles, not the
+ * standalone Roof repairs sqft card (even when notes say "roofing repair bid").
+ */
+export function notesImplyRoofTearOffAndInstall(
+  notes: string | null | undefined
+): boolean {
+  const n = String(notes || '').toLowerCase();
+  if (!n.trim()) return false;
+
+  const tearOff = inferRoofingTearOffFromNotes(notes);
+  if (!tearOff || tearOff === 'new_construction') return false;
+
+  if (inferRoofingSystemFromNotes(notes)) return true;
+
+  return (
+    /\b(?:tear[\s-]?off|tear\s+off|remove\s+shingles?|strip\s+roof)\b[^.]{0,64}\b(?:and\s+)?(?:replace|install|re[\s-]?roof)\b/.test(
+      n
+    ) ||
+    /\b(?:replace|install|re[\s-]?roof)\b[^.]{0,64}\b(?:tear[\s-]?off|tear\s+off|remove\s+shingles?|asphalt\s+shingles?|shingles?)\b/.test(
+      n
+    ) ||
+    /\basphalt\s+shingles?\b[^.]{0,64}\b(?:tear[\s-]?off|tear\s+off|remove)\b/.test(
+      n
+    ) ||
+    /\b(?:tear[\s-]?off|tear\s+off|remove)\b[^.]{0,64}\basphalt\s+shingles?\b/.test(
+      n
+    )
+  );
+}
+
+/** Drop roof_repairs from inferred chips when notes route to tear-off + install. */
+export function filterRoofingScopeSelectionsForTearOffInstall(
+  selections: string[],
+  notes: string | null | undefined,
+  saved: string[] = []
+): string[] {
+  if (!notesImplyRoofTearOffAndInstall(notes)) return selections;
+  if (saved.includes('roof_repairs')) return selections;
+  return selections.filter(id => id !== 'roof_repairs');
+}
+
+export function suppressRoofRepairMeasurementsWhenTearOffInstall<
+  T extends {
+    roofRepairAffectedSqft?: string | number | null;
+    itemQuantities?: Record<string, unknown> | null;
+    tradeScopeSelections?: Record<string, string[] | null> | null;
+  },
+>(
+  measurements: T,
+  notes: string | null | undefined,
+  savedRoofingSelections: string[] = []
+): T {
+  if (
+    !notesImplyRoofTearOffAndInstall(notes) ||
+    savedRoofingSelections.includes('roof_repairs')
+  ) {
+    return measurements;
+  }
+
+  const next: T = { ...measurements, roofRepairAffectedSqft: '' };
+  const roofingSelections = next.tradeScopeSelections?.roofing;
+  if (roofingSelections?.length) {
+    const filtered = roofingSelections.filter(id => id !== 'roof_repairs');
+    next.tradeScopeSelections = {
+      ...next.tradeScopeSelections,
+      roofing: filtered.length ? filtered : null,
+    };
+  }
+  if (next.itemQuantities?.roof_repairs) {
+    const { roof_repairs: _removed, ...rest } = next.itemQuantities;
+    next.itemQuantities = rest;
+  }
+  return next;
+}
+
+/** Union every notes field so roofing chip inference cannot miss ice & water in originalNotes. */
+export function collectRoofingInferenceNotes(
+  draft:
+    | {
+        originalNotes?: string | null;
+        projectDescription?: string | null;
+        contractScope?: string | null;
+        scopeChecklist?: { intro?: string } | null;
+      }
+    | null
+    | undefined,
+  notesFallback?: string | null
+): string {
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const raw of [
+    notesFallback,
+    draft?.originalNotes,
+    draft?.projectDescription,
+    draft?.contractScope,
+    draft?.scopeChecklist?.intro,
+  ]) {
+    const text = String(raw || '').trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    parts.push(text);
+  }
+  return parts.join('\n\n');
+}
+
+/** Premium/synthetic upgrade only — standard felt is included in base roofing. */
+export function infersRoofingUnderlaymentUpgradeFromNotes(
+  notes: string | null | undefined
+): boolean {
+  const n = String(notes || '').toLowerCase();
+  return /\b(synthetic\s+underlayment|premium\s+underlayment|underlayment\s+upgrade)\b/.test(
+    n
+  );
+}
+
+/** Lump-sum decking allowance when notes budget for bad wood / repairs. */
+export function parseRoofingDeckingAllowanceFromNotes(
+  notes: string | null | undefined
+): number | null {
+  const text = String(notes || '');
+  if (!/\bdeck(?:ing)?\b/i.test(text)) return null;
+  if (
+    !/\ballowance\b/i.test(text) &&
+    !/\bbad\s+wood\b|\brotten\b|\bsoft\s+spot/i.test(text)
+  ) {
+    return null;
+  }
+  const patterns = [
+    /\$\s*([\d,]+(?:\.\d+)?)\s+allowance\b/i,
+    /\ballowance\s*(?:of\s*)?\$\s*([\d,]+(?:\.\d+)?)/i,
+    /\$\s*([\d,]+(?:\.\d+)?)[^.]{0,48}\ballowance\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const amount = Number(String(match[1]).replace(/,/g, ''));
+    if (Number.isFinite(amount) && amount > 0) return Math.round(amount);
+  }
+  return null;
+}
+
+/** QM roofing chip ids to pre-select from notes when the user has not tapped chips yet. */
+export function inferRoofingTradeScopeSelectionsFromNotes(
+  notes: string | null | undefined
+): string[] {
+  const n = String(notes || '').toLowerCase();
+  if (!n.trim()) return [];
+
+  const ids = new Set<string>();
+  const tearOff = inferRoofingTearOffFromNotes(notes);
+  if (tearOff && tearOff !== 'new_construction') ids.add('tear_off');
+
+  const system = inferRoofingSystemFromNotes(notes);
+  if (system === 'architectural_shingles' || system === 'three_tab_shingles') {
+    ids.add('shingles');
+  }
+
+  if (
+    /\b(ice\s*[&/-]\s*water|ice\s+and\s+water|ice\s*barrier|eaves?\s+protection)\b/.test(
+      n
+    ) ||
+    /\bice\b[^.]{0,32}\bwater\b/.test(n)
+  ) {
+    ids.add('ice_water_shield');
+  }
+  if (infersRoofingUnderlaymentUpgradeFromNotes(notes)) {
+    ids.add('underlayment');
+  }
+  if (/\b(ridge\s+vent)\b/.test(n)) ids.add('ridge_vent');
+  if (/\b(drip\s+edge)\b/.test(n)) ids.add('drip_edge');
+  if (/\b(pipe\s+boots?)\b/.test(n)) ids.add('pipe_boots');
+  if (/\b(cleanup|disposal|dumpster|haul[\s-]?off)\b/.test(n)) ids.add('cleanup');
+  if (
+    /\bdeck(?:ing)?\b/i.test(n) &&
+    (/\ballowance\b/i.test(n) ||
+      /\bbad\s+wood\b|\brotten\b|\bsoft\s+spot/i.test(n) ||
+      /\bdeck(?:ing)?\b[^.]{0,48}\b(repair|replace|sheath)/i.test(n))
+  ) {
+    ids.add('decking_repair');
+  }
+
+  return [...ids];
+}
+
 export function inferChoiceFromNotes(itemId: string, notes: string | null | undefined): string | null {
   const n = String(notes || '').toLowerCase();
 
@@ -274,6 +543,9 @@ export function inferChoiceFromNotes(itemId: string, notes: string | null | unde
     }
     if (/\b(garbage\s+disposal|disposal\s+install)\b/.test(n)) return 'replace_install';
   }
+
+  if (itemId === 'roofing_system') return inferRoofingSystemFromNotes(notes);
+  if (itemId === 'tear_off') return inferRoofingTearOffFromNotes(notes);
 
   return null;
 }

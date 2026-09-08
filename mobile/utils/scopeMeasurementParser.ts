@@ -4,6 +4,8 @@
 
 import type { ScopeItemQuantity } from '@/utils/estimateAiDraft';
 import { parseScopeItemAllowancesFromNotes } from '@/utils/scopeAllowanceParser';
+import { applyRoofingPlanningMeasurements } from '@/utils/roofingPlanningMeasurements';
+import { notesImplyRoofTearOffAndInstall } from '@/utils/scopeItemNoteHints';
 import { parseScopeItemRatePricingFromNotes } from '@/utils/scopeRatePricingParser';
 import { parseElectricalMeasurementsFromNotes } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 
@@ -98,9 +100,28 @@ export type ParsedScopeMeasurements = {
   landscapeTons?: number;
   roofAreaSqft?: number;
   roofIceWaterShieldSqft?: number;
+  roofDeckingReplacementSqft?: number;
+  roofRepairAffectedSqft?: number;
   roofSquares?: number;
+  roofDripEdgeLf?: number;
+  roofRidgeCapLf?: number;
+  roofValleyFlashingLf?: number;
+  roofStepFlashingLf?: number;
+  roofWallFlashingLf?: number;
+  roofRidgeVentLf?: number;
+  roofVentCount?: number;
+  roofTurbineVentCount?: number;
+  roofPipeBootCount?: number;
+  roofChimneyFlashingCount?: number;
+  roofSkylightCount?: number;
+  roofPenetrationCount?: number;
+  roofGutterLf?: number;
+  roofDownspoutCount?: number;
   roofPitch?: string;
   storyCount?: number;
+  roofingPlanningKeys?: Array<
+    'roofDripEdgeLf' | 'roofIceWaterShieldSqft' | 'roofRidgeCapLf'
+  >;
   hvacSystemCount?: number;
   hvacSystemTons?: number;
   hvacSupplyRegisterCount?: number;
@@ -138,7 +159,7 @@ const LF_RE =
 const WALL_LF_RE =
   /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft|feet|foot)\b/gi;
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
-const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/gi;
+const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)[\s-]*squares?\b/gi;
 const ROOF_PITCH_RE =
   /\b(\d+)\s*(?::|\/)\s*(\d+)\s*pitch\b|\bpitch\s*(\d+)\s*(?::|\/)\s*(\d+)\b/i;
 const STORY_COUNT_RE =
@@ -355,13 +376,19 @@ function pickLfNearPattern(text: string, pattern: RegExp): number | null {
 }
 
 function pickCountNearPattern(text: string, pattern: RegExp): number | null {
-  const quantityRe = /(\d[\d,]*(?:\.\d+)?)\s*(?:ea|each|count)?\b/i;
+  const quantityRe = /(\d[\d,]*(?:\.\d+)?)\s*(?:ea|each|count)?\b/gi;
   for (const clause of text.split(/[.;,\n]+/)) {
     if (!pattern.test(clause.toLowerCase())) continue;
-    const match = clause.match(quantityRe);
-    const quantity = match ? Number(String(match[1]).replace(/,/g, '')) : null;
-    if (quantity != null && Number.isFinite(quantity) && quantity > 0) {
-      return quantity;
+    if (clauseLooksLikeLumpSumAllowance(clause)) continue;
+    let match: RegExpExecArray | null;
+    while ((match = quantityRe.exec(clause)) !== null) {
+      const index = match.index ?? 0;
+      const before = clause.slice(Math.max(0, index - 1), index);
+      if (before === '$') continue;
+      const quantity = Number(String(match[1]).replace(/,/g, ''));
+      if (Number.isFinite(quantity) && quantity > 0) {
+        return quantity;
+      }
     }
   }
   return null;
@@ -439,6 +466,10 @@ function firstHvacCount(text: string, pattern: RegExp | string): number | null {
   return Number.isFinite(count) && count > 0 ? count : null;
 }
 
+function clauseLooksLikeLumpSumAllowance(clause: string): boolean {
+  return /\ballowance\b/i.test(clause) && /\$\s*[\d,]+/.test(clause);
+}
+
 function pickRoofQuantityInClause(
   text: string,
   pattern: RegExp,
@@ -446,6 +477,7 @@ function pickRoofQuantityInClause(
 ): number | null {
   for (const clause of text.split(/[.;,\n]+/)) {
     if (!pattern.test(clause.toLowerCase())) continue;
+    if (clauseLooksLikeLumpSumAllowance(clause)) continue;
     const quantity = firstQty(clause, quantityRe);
     if (quantity) return quantity;
   }
@@ -1321,6 +1353,12 @@ export function parseScopeMeasurementsFromNotes(
       ],
     ] as const;
     for (const [key, pattern] of roofSqftFields) {
+      if (
+        key === 'roofRepairAffectedSqft' &&
+        notesImplyRoofTearOffAndInstall(text)
+      ) {
+        continue;
+      }
       const quantity = pickRoofQuantityInClause(text, pattern, SQFT_RE);
       if (quantity) out[key] = quantity;
     }
@@ -1359,6 +1397,8 @@ export function parseScopeMeasurementsFromNotes(
     }
     const ridgeVentCount = pickCountNearPattern(text, /\bridge\s*vent\b/);
     if (ridgeVentCount) out.roofRidgeVentLf = Math.round(ridgeVentCount);
+
+    Object.assign(out, applyRoofingPlanningMeasurements(out, text));
   }
 
   const concreteDemoSqft = (() => {

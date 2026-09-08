@@ -73,6 +73,8 @@ import {
   hvacScopePanelMeasurementHelper,
   hvacScopePanelMeasurementValue,
   roofingOptionsForIds,
+  roofingQmOptionAllowanceAmount,
+  roofingQmOptionQuantitySatisfied,
   ROOFING_ACCESSORY_OPTION_IDS,
   ROOFING_DRAINAGE_OPTION_IDS,
   ROOFING_DEMO_OPTION_IDS,
@@ -4162,6 +4164,17 @@ function QmTradeScopeOptionList({
     const value = Number(String((measurements as Record<string, unknown>)[key] ?? '').replace(/,/g, ''));
     return Number.isFinite(value) && value > 0;
   };
+  const measurementPayload = measurements as Record<string, unknown>;
+  const optionQuantitySatisfied = (option: TradeOptionRow) =>
+    scopeKey === 'roofing'
+      ? roofingQmOptionQuantitySatisfied(
+          option.id,
+          option.measurementKey,
+          measurementPayload
+        )
+      : option.measurementKey
+        ? hasMeasurement(option.measurementKey)
+        : true;
 
   return (
     <View style={styles.qmOptionWrap}>
@@ -4172,6 +4185,11 @@ function QmTradeScopeOptionList({
         const active =
           selections.includes(option.id) ||
           (canonicalSelected && !hasAlias && option.id === firstCanonicalOption);
+        const allowanceAmount =
+          scopeKey === 'roofing' && option.id === 'decking_repair'
+            ? roofingQmOptionAllowanceAmount(option.id, measurementPayload)
+            : null;
+        const quantitySatisfied = optionQuantitySatisfied(option);
         return (
           <React.Fragment key={option.id}>
             <QmScopeChoiceChip
@@ -4184,28 +4202,35 @@ function QmTradeScopeOptionList({
               style={{ minWidth: '100%' }}
             />
             {active && option.measurementKey ? (
-              <>
-                <QmSqftMeasurementRow
-                  label={`${option.label} quantity`}
-                  helperText={
-                    option.measurementHelper ||
-                    'Enter only the quantity for this selected component.'
-                  }
-                  value={String((measurements as Record<string, unknown>)[option.measurementKey] || '')}
-                  placeholder="Enter"
-                  unitLabel={option.unit}
-                  onChangeText={(value) => setMeasurements((prev) => ({ ...prev, [option.measurementKey!]: value }))}
-                  applying={applying}
-                  darkMode={darkMode}
-                  Colors={Colors}
-                  highlighted={!hasMeasurement(option.measurementKey)}
-                />
-                {!hasMeasurement(option.measurementKey) ? (
-                  <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 5 }}>
-                    Quantity needed before this scope can be priced.
-                  </Text>
-                ) : null}
-              </>
+              allowanceAmount != null ? (
+                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 8, lineHeight: 17 }}>
+                  Allowance ${allowanceAmount.toLocaleString()} from notes — no sqft needed unless
+                  you want to price by area instead.
+                </Text>
+              ) : (
+                <>
+                  <QmSqftMeasurementRow
+                    label={`${option.label} quantity`}
+                    helperText={
+                      option.measurementHelper ||
+                      'Enter only the quantity for this selected component.'
+                    }
+                    value={String((measurements as Record<string, unknown>)[option.measurementKey] || '')}
+                    placeholder="Enter"
+                    unitLabel={option.unit}
+                    onChangeText={(value) => setMeasurements((prev) => ({ ...prev, [option.measurementKey!]: value }))}
+                    applying={applying}
+                    darkMode={darkMode}
+                    Colors={Colors}
+                    highlighted={!quantitySatisfied}
+                  />
+                  {!quantitySatisfied ? (
+                    <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 5 }}>
+                      Quantity needed before this scope can be priced.
+                    </Text>
+                  ) : null}
+                </>
+              )
             ) : null}
           </React.Fragment>
         );

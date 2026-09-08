@@ -75,9 +75,16 @@ import {
   PLUMBING_REVIEW_MEASUREMENT_KEYS,
   buildPlumbingStructuredMeasurements,
   buildStandalonePlumbingChecklistItems,
+  finalizeStandalonePlumbingChecklist,
+  inferPlumbingRoomContextFromNotes,
+  parsePlumbingMeasurementsFromNotes,
+  parsePlumbingProjectContextFromNotes,
   resolveStandalonePlumbingTemplateKey,
+  standalonePlumbingProjectTitle,
+  stripNonPlumbingTradeBleedFromMeasurements,
   summarizePlumbingNoteBullets,
   syncPlumbingScopeItems,
+  tagPlumbingNotesMeasurementSources,
   type PlumbingPerformerMode,
   type PlumbingWorkflowMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
@@ -2192,7 +2199,11 @@ function applyPlumbingEquipmentHydrationToMeasurements(
     gasApplianceScope?: PlanImportPayload['gasApplianceScope'];
     complexityFactors?: PlanImportPayload['complexityFactors'];
   },
-  options?: { skipKeys?: Set<string>; storeAsNumber?: boolean }
+  options?: {
+    skipKeys?: Set<string>;
+    storeAsNumber?: boolean;
+    notes?: string | null;
+  }
 ): boolean {
   const hydrated = hydratePlumbingPlanMeasurementsFromInventory(
     target as Record<string, number | string>,
@@ -2212,6 +2223,7 @@ function applyPlumbingEquipmentHydrationToMeasurements(
           | Array<{ key?: string | null; label?: string | null }>
           | null
           | undefined),
+      notes: options?.notes,
     }
   );
   let updated = false;
@@ -4139,11 +4151,13 @@ export function createStandalonePlumbingDraft(
   const mode = payload.plumbingWorkflowMode || 'bathroom_remodel';
   const templateKey = resolveStandalonePlumbingTemplateKey(mode);
   const trimmedNotes = String(notes || '').trim();
+  const roomContext =
+    payload.plumbingRoomContext ?? inferPlumbingRoomContextFromNotes(trimmedNotes);
   const noteBullets = summarizePlumbingNoteBullets(trimmedNotes, 6);
   const baseDraft = {
     projectType: templateKey === 'plumbing_service' ? 'plumbing_service' : 'plumbing',
     estimateTier: 'trade_scope',
-    projectTitle: 'Plumbing bid',
+    projectTitle: standalonePlumbingProjectTitle(trimmedNotes, roomContext),
     originalNotes: trimmedNotes,
     whatAiDid: noteBullets.length
       ? noteBullets
@@ -4156,7 +4170,7 @@ export function createStandalonePlumbingDraft(
         mode === 'service'
           ? 'Confirm plumbing service scope before pricing.'
           : 'Confirm the plumbing scope before pricing.',
-      items: buildStandalonePlumbingChecklistItems(mode),
+      items: buildStandalonePlumbingChecklistItems(mode, trimmedNotes),
     },
     scopePackages: [],
     rooms: [],
@@ -4376,6 +4390,33 @@ export function applyPlanImportToDraft(
       planImportTradeKey: null,
       planImportFingerprint: null,
     } as ScopeMeasurements;
+    const noteText = String(next.originalNotes || '').trim();
+    if (noteText) {
+      const parsedNotes = parsePlumbingMeasurementsFromNotes(noteText);
+      const projectContext = parsePlumbingProjectContextFromNotes(noteText);
+      scopeMeasurements = stripNonPlumbingTradeBleedFromMeasurements({
+        ...scopeMeasurements,
+        ...parsedNotes,
+        ...(projectContext.floorAreaSqft
+          ? { floorAreaSqft: String(projectContext.floorAreaSqft) }
+          : {}),
+        ...(projectContext.storyCount
+          ? { storyCount: String(projectContext.storyCount) }
+          : {}),
+      }) as ScopeMeasurements;
+      scopeMeasurements.quickMeasurementSources = {
+        ...(scopeMeasurements.quickMeasurementSources || {}),
+        ...tagPlumbingNotesMeasurementSources(
+          scopeMeasurements as Record<string, unknown>,
+          parsedNotes,
+          projectContext
+        ),
+      };
+      rebuildPlumbingStructuredScopeFromMeasurements(
+        scopeMeasurements as Record<string, unknown>,
+        'notes'
+      );
+    }
   }
   scopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
     scopeMeasurements,
@@ -4458,7 +4499,10 @@ export function applyPlanImportToDraft(
     planImportTradeKey
   );
   const selectedTradeItems = standalonePlumbingWorkflow
-    ? buildStandalonePlumbingChecklistItems(payload.plumbingWorkflowMode)
+    ? buildStandalonePlumbingChecklistItems(
+        payload.plumbingWorkflowMode,
+        next.originalNotes
+      )
     : planImportTradeKey === 'framing'
       ? standaloneFramingChecklistItems()
       : planImportTradeKey === 'insulation'
@@ -4736,14 +4780,15 @@ export function applyPlanImportToDraft(
           scopeMeasurements.plumbingComplexityFactors ??
           null,
       },
-      { storeAsNumber: true }
+      { storeAsNumber: true, notes: next.originalNotes }
     );
     reconcilePlumbingEquipmentScopeMeasurements(
-      scopeMeasurements as Record<string, unknown>
+      scopeMeasurements as Record<string, unknown>,
+      next.originalNotes
     );
     rebuildPlumbingStructuredScopeFromMeasurements(
       scopeMeasurements as Record<string, unknown>,
-      'plan_detected'
+      standalonePlumbingWorkflow ? 'notes' : 'plan_detected'
     );
     stripStalePlumbingInventoryDerivedFields(
       scopeMeasurements as Record<string, unknown>,
@@ -4859,7 +4904,9 @@ export function applyPlanImportToDraft(
     };
   }
   if (planImportTradeKey === 'plumbing') {
-    const syncedItems = syncPlumbingScopeItems(items, {
+    const syncedItems = finalizeStandalonePlumbingChecklist(items, {
+      notes: next.originalNotes,
+      mode: scopeMeasurements.plumbingWorkflowMode,
       plumbingScope: scopeMeasurements.plumbingScope,
       quantities: scopeMeasurements as Record<string, unknown>,
     });
@@ -4979,9 +5026,11 @@ export function applyPlanImportToDraft(
       next.scopeMeasurements as Record<string, unknown>,
       payload
     );
-    const syncedAfterOverlay = syncPlumbingScopeItems(
+    const syncedAfterOverlay = finalizeStandalonePlumbingChecklist(
       next.scopeChecklist?.items || [],
       {
+        notes: next.originalNotes,
+        mode: next.scopeMeasurements.plumbingWorkflowMode,
         plumbingScope: next.scopeMeasurements.plumbingScope,
         quantities: next.scopeMeasurements as Record<string, unknown>,
       }
@@ -5017,6 +5066,72 @@ export function applyPlanImportToDraft(
           items: [],
         }),
         items: syncedAfterOverlay,
+      },
+    };
+  }
+
+  if (standalonePlumbingWorkflow && String(next.originalNotes || '').trim()) {
+    const parsed = parsePlumbingMeasurementsFromNotes(next.originalNotes || '');
+    const projectContext = parsePlumbingProjectContextFromNotes(
+      next.originalNotes || ''
+    );
+    const mergedMeasurements = stripNonPlumbingTradeBleedFromMeasurements({
+      ...(next.scopeMeasurements || {}),
+      ...Object.fromEntries(
+        Object.entries(parsed).map(([key, value]) => [key, String(value)])
+      ),
+      ...(projectContext.floorAreaSqft
+        ? { floorAreaSqft: String(projectContext.floorAreaSqft) }
+        : {}),
+      ...(projectContext.storyCount
+        ? { storyCount: String(projectContext.storyCount) }
+        : {}),
+      tradeWorkflowSource: 'standalone_trade',
+      plumbingWorkflowMode:
+        next.scopeMeasurements?.plumbingWorkflowMode ||
+        payload.plumbingWorkflowMode ||
+        'bathroom_remodel',
+      plumbingRoomContext:
+        next.scopeMeasurements?.plumbingRoomContext ??
+        payload.plumbingRoomContext ??
+        null,
+    });
+    mergedMeasurements.quickMeasurementSources = {
+      ...(mergedMeasurements.quickMeasurementSources || {}),
+      ...tagPlumbingNotesMeasurementSources(
+        mergedMeasurements,
+        parsed,
+        projectContext
+      ),
+    };
+    const reconciledMeasurements = reconcilePlumbingEquipmentScopeMeasurements(
+      mergedMeasurements,
+      next.originalNotes
+    );
+    rebuildPlumbingStructuredScopeFromMeasurements(
+      reconciledMeasurements,
+      'notes'
+    );
+    const syncedAfterNotes = finalizeStandalonePlumbingChecklist(
+      next.scopeChecklist?.items || [],
+      {
+        notes: next.originalNotes,
+        mode: reconciledMeasurements.plumbingWorkflowMode,
+        plumbingScope: reconciledMeasurements.plumbingScope,
+        quantities: reconciledMeasurements,
+      }
+    );
+    next = {
+      ...next,
+      scopeMeasurements: reconciledMeasurements as ScopeMeasurements,
+      scopeChecklist: {
+        ...(next.scopeChecklist || {
+          templateKey: 'plumbing_service',
+          title: 'Plumbing — confirm project scope',
+          intro: 'Confirm Plumbing scope before pricing.',
+          items: [],
+        }),
+        items: syncedAfterNotes,
       },
     };
   }

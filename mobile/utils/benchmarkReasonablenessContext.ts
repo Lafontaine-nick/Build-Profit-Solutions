@@ -38,6 +38,8 @@ import {
   inferNationalMaterialLaborSplit,
 } from '@/utils/appliedPricingBreakdownBuckets';
 import { isWholeHomeQuickMeasurementTemplate } from '@/utils/scopeQuickMeasurements';
+import { reconcileRoofingQuickMeasurements } from '@/utils/roofingPlanningMeasurements';
+import { ROOFING_EMBEDDED_QUICK_MEASUREMENT_KEYS } from '@/utils/qmScopePanels/simpleTradeRemodel';
 
 export type ConfirmScopeAppliedPricingBreakdown = {
   total: number;
@@ -71,43 +73,70 @@ export function resolveAppliedScopeMoneyTotal(
   return 0;
 }
 
+function hasPositiveMeasurementValue(value: unknown): boolean {
+  const n = Number(String(value ?? '').replace(/,/g, '').trim());
+  return Number.isFinite(n) && n > 0;
+}
+
+function restoreBaseMeasurementsWhenSavedEmpty(
+  base: ScopeMeasurementsInputExtended,
+  merged: ScopeMeasurementsInputExtended,
+  keys: readonly string[]
+): ScopeMeasurementsInputExtended {
+  const next = { ...merged };
+  for (const key of keys) {
+    const savedVal = (merged as Record<string, unknown>)[key];
+    const baseVal = (base as Record<string, unknown>)[key];
+    if (!hasPositiveMeasurementValue(savedVal) && hasPositiveMeasurementValue(baseVal)) {
+      (next as Record<string, unknown>)[key] = baseVal;
+    }
+  }
+  return next;
+}
+
 /** Saved Confirm Scope M/L/allowance must win over note-parsed measurements on restore. */
 export function mergeConfirmScopeSavedMeasurements(
   base: ScopeMeasurementsInputExtended,
-  saved?: ScopeMeasurements | null
+  saved?: ScopeMeasurements | null,
+  notes?: string | null
 ): ScopeMeasurementsInputExtended {
-  if (!saved) return base;
-  const merged = {
-    ...base,
-    ...saved,
-    itemQuantities: {
-      ...(base.itemQuantities || {}),
-      ...(saved.itemQuantities || {}),
+  if (!saved) return reconcileRoofingQuickMeasurements(base, notes);
+  const merged = restoreBaseMeasurementsWhenSavedEmpty(
+    base,
+    {
+      ...base,
+      ...saved,
+      itemQuantities: {
+        ...(base.itemQuantities || {}),
+        ...(saved.itemQuantities || {}),
+      },
+      pricingAcceptance: saved.pricingAcceptance || base.pricingAcceptance,
+      scopeGapResolutions: saved.scopeGapResolutions || base.scopeGapResolutions,
+      appliedBenchmarkKeys: saved.appliedBenchmarkKeys || base.appliedBenchmarkKeys,
+      pricingOverrideLog: saved.pricingOverrideLog || base.pricingOverrideLog,
+      quickMeasurementSources: {
+        ...(base.quickMeasurementSources || {}),
+        ...(saved.quickMeasurementSources || {}),
+      },
+      quickMeasurementUserOverrides: {
+        ...(base.quickMeasurementUserOverrides || {}),
+        ...(saved.quickMeasurementUserOverrides || {}),
+      },
+      quickMeasurementSuggestionMetadata: {
+        ...(base.quickMeasurementSuggestionMetadata || {}),
+        ...(saved.quickMeasurementSuggestionMetadata || {}),
+      },
+      quickMeasurementFieldConfidence: {
+        ...(base.quickMeasurementFieldConfidence || {}),
+        ...(saved.quickMeasurementFieldConfidence || {}),
+      },
     },
-    pricingAcceptance: saved.pricingAcceptance || base.pricingAcceptance,
-    scopeGapResolutions: saved.scopeGapResolutions || base.scopeGapResolutions,
-    appliedBenchmarkKeys: saved.appliedBenchmarkKeys || base.appliedBenchmarkKeys,
-    pricingOverrideLog: saved.pricingOverrideLog || base.pricingOverrideLog,
-    quickMeasurementSources: {
-      ...(base.quickMeasurementSources || {}),
-      ...(saved.quickMeasurementSources || {}),
-    },
-    quickMeasurementUserOverrides: {
-      ...(base.quickMeasurementUserOverrides || {}),
-      ...(saved.quickMeasurementUserOverrides || {}),
-    },
-    quickMeasurementSuggestionMetadata: {
-      ...(base.quickMeasurementSuggestionMetadata || {}),
-      ...(saved.quickMeasurementSuggestionMetadata || {}),
-    },
-    quickMeasurementFieldConfidence: {
-      ...(base.quickMeasurementFieldConfidence || {}),
-      ...(saved.quickMeasurementFieldConfidence || {}),
-    },
-  };
-  return reconcilePlumbingEquipmentScopeMeasurements(
+    ROOFING_EMBEDDED_QUICK_MEASUREMENT_KEYS as readonly string[]
+  );
+  const reconciled = reconcilePlumbingEquipmentScopeMeasurements(
     reconcileFramingScopeMeasurements(merged) as typeof merged
   );
+  return reconcileRoofingQuickMeasurements(reconciled, notes);
 }
 
 function parseQtyMoney(entry?: { quantity?: string | number | null }): number {

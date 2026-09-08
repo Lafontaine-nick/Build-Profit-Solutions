@@ -2,11 +2,25 @@ import {
   isTanklessWaterHeater,
   resolvePlumbingWaterHeaterSuggestedPricing,
 } from '@/utils/subcontractorTrade/plumbingEquipmentPricing';
-import { hydratePlumbingPlanMeasurementsFromInventory, reconcilePlumbingEquipmentScopeMeasurements } from '@/utils/planTakeoffReviewUi';
-import { resolveScopeItemSuggestedPricing } from '@/utils/scopeItemQuantities';
+import { hydratePlumbingPlanMeasurementsFromInventory, reconcilePlumbingEquipmentScopeMeasurements, resolvePlumbingFixturesHardwareCount } from '@/utils/planTakeoffReviewUi';
+import { resolveScopeItemSuggestedPricing, prepareScopeMeasurementsInputForUi } from '@/utils/scopeItemQuantities';
 import { PLUMBING_PLAN_SCOPE_ALLOWLIST } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
+import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
 
 describe('plumbing equipment scope cards', () => {
+  test('does not infer fixture allowance from rough/trim on trade-only notes', () => {
+    const notes =
+      'Master bath plumbing. 4 plumbing rough-in points. 4 trim hookups.';
+    expect(
+      resolvePlumbingFixturesHardwareCount(
+        { plumbingRoughPointCount: 4, plumbingTrimHookupCount: 4 },
+        null,
+        null,
+        notes
+      )
+    ).toBe(0);
+  });
+
   test('plan scope allowlist includes fixtures, water heater, and gas connections', () => {
     expect(PLUMBING_PLAN_SCOPE_ALLOWLIST).toEqual(
       expect.arrayContaining([
@@ -32,6 +46,52 @@ describe('plumbing equipment scope cards', () => {
       waterHeaterCount: 1,
       gasApplianceConnectionCount: 3,
     });
+  });
+
+  test('skips fixture allowance when customer supplies fixtures', () => {
+    const notes =
+      'Kitchen plumbing only. 3 plumbing rough-in points. 4 trim hookups. Customer supplies fixtures; we provide labor.';
+    expect(
+      hydratePlumbingPlanMeasurementsFromInventory(
+        { plumbingRoughPointCount: 3, plumbingTrimHookupCount: 4 },
+        null,
+        { notes }
+      )
+    ).toMatchObject({
+      plumbingFixturesHardwareCount: 0,
+      plumbingRoughPointCount: 3,
+      plumbingTrimHookupCount: 4,
+    });
+    const reconciled = reconcilePlumbingEquipmentScopeMeasurements(
+      {
+        plumbingRoughPointCount: 3,
+        plumbingTrimHookupCount: 4,
+        plumbingFixturesHardwareCount: 3,
+        templateKey: 'plumbing',
+      },
+      notes
+    );
+    expect(reconciled.plumbingFixturesHardwareCount).toBe(0);
+    const prepared = prepareScopeMeasurementsInputForUi(
+      {
+        ...emptyQuickMeasurementInput(),
+        plumbingRoughPointCount: '3',
+        plumbingTrimHookupCount: '4',
+        plumbingFixturesHardwareCount: '3',
+        itemQuantities: {
+          plumbing_fixtures_hardware: {
+            quantity: '3',
+            unit: 'each',
+            quantitySource: 'plan_detected',
+          },
+        },
+        plumbingScope: ['plumbing_rough', 'plumbing_trim', 'plumbing_fixtures_hardware'],
+      },
+      { notes, templateKey: 'plumbing' }
+    );
+    expect(prepared.plumbingFixturesHardwareCount).toBe('');
+    expect(prepared.itemQuantities?.plumbing_fixtures_hardware).toBeUndefined();
+    expect(prepared.plumbingScope).not.toContain('plumbing_fixtures_hardware');
   });
 
   test('hydrates fixtures, water heater, and gas connection counts from plan takeoff', () => {

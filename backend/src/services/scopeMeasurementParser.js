@@ -12,7 +12,7 @@ const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:total\s+)?(?:sq\.?\s*ft|sqft|\bsf\b|f
 const LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft)/gi;
 const WALL_LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft|feet|foot)\b/gi;
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
-const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/gi;
+const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)[\s-]*squares?\b/gi;
 const ROOF_PITCH_RE = /\b(\d+)\s*(?::|\/)\s*(\d+)\s*pitch\b|\bpitch\s*(\d+)\s*(?::|\/)\s*(\d+)\b/i;
 const STORY_COUNT_RE = /\b(\d+|one|two|three|four|five)\s*[- ]?stor(?:y|ies)\b/i;
 const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:tons?)\b/gi;
@@ -190,6 +190,101 @@ function pickLfNearPatternWithRegex(text, pattern, quantityRe) {
     if (pattern.test(window)) return parseQty(m);
   }
   return null;
+}
+
+function clauseLooksLikeLumpSumAllowance(clause) {
+  return /\ballowance\b/i.test(clause) && /\$\s*[\d,]+/.test(clause);
+}
+
+function pickRoofQuantityInClause(text, pattern, quantityRe) {
+  for (const clause of String(text || '').split(/[.;,\n]+/)) {
+    if (!pattern.test(clause.toLowerCase())) continue;
+    if (clauseLooksLikeLumpSumAllowance(clause)) continue;
+    const quantity = firstQty(clause, quantityRe);
+    if (quantity) return quantity;
+  }
+  return null;
+}
+
+function estimatedRoofPerimeterLf(roofSquares) {
+  return Math.round(4 * Math.sqrt(roofSquares * 100));
+}
+
+function estimatedIceWaterShieldSqft(roofSquares) {
+  const perimeter = estimatedRoofPerimeterLf(roofSquares);
+  return Math.round((perimeter / 2) * 3);
+}
+
+function estimatedRidgeCapLf(roofSquares) {
+  return Math.round(Math.sqrt(roofSquares * 100));
+}
+
+function notesImplyRoofTearOffAndInstall(text) {
+  const n = String(text || "").toLowerCase();
+  if (!n.trim()) return false;
+  if (
+    /\b(new\s+construction|no\s+tear[\s-]?off|without\s+tear[\s-]?off|overlay|recover|roof[\s-]?over)\b/.test(
+      n,
+    )
+  ) {
+    return false;
+  }
+  const hasTearOff =
+    /\b(tear[\s-]?off|tear\s+off|remove\s+shingles?|roof\s+demo|strip\s+roof|re[\s-]?roof|roof\s+replacement|reroof)\b/.test(
+      n,
+    );
+  if (!hasTearOff) return false;
+  if (
+    /\b(architectural|dimensional|laminate)\s+shingles?\b/.test(n) ||
+    /\b(asphalt\s+shingles?|shingle\s+roof|new\s+shingles?|shingles?\s+install)\b/.test(
+      n,
+    ) ||
+    /\b(re[\s-]?roof|roof\s+replacement|reroof)\b/.test(n)
+  ) {
+    return true;
+  }
+  return (
+    /\b(?:tear[\s-]?off|tear\s+off|remove\s+shingles?|strip\s+roof)\b[^.]{0,64}\b(?:and\s+)?(?:replace|install|re[\s-]?roof)\b/.test(
+      n,
+    ) ||
+    /\b(?:replace|install|re[\s-]?roof)\b[^.]{0,64}\b(?:tear[\s-]?off|tear\s+off|remove\s+shingles?|asphalt\s+shingles?|shingles?)\b/.test(
+      n,
+    ) ||
+    /\basphalt\s+shingles?\b[^.]{0,64}\b(?:tear[\s-]?off|tear\s+off|remove)\b/.test(
+      n,
+    ) ||
+    /\b(?:tear[\s-]?off|tear\s+off|remove)\b[^.]{0,64}\basphalt\s+shingles?\b/.test(
+      n,
+    )
+  );
+}
+
+function applyRoofingPlanningMeasurements(parsed, notes) {
+  const text = String(notes || '').trim();
+  const squares = Number(parsed.roofSquares);
+  if (!text || !(squares > 0)) return parsed;
+
+  const out = { ...parsed };
+  const planningKeys = [];
+  if (/\bdrip\s*edge\b/i.test(text) && !out.roofDripEdgeLf) {
+    out.roofDripEdgeLf = estimatedRoofPerimeterLf(squares);
+    planningKeys.push("roofDripEdgeLf");
+  }
+  if (
+    /\b(ice\s*(?:&|and)\s*water\s*(?:shield|membrane)?|ice\s+barrier|eaves?\s+protection)\b/i.test(
+      text,
+    ) &&
+    !out.roofIceWaterShieldSqft
+  ) {
+    out.roofIceWaterShieldSqft = estimatedIceWaterShieldSqft(squares);
+    planningKeys.push("roofIceWaterShieldSqft");
+  }
+  if (/\bridge\s*cap\b/i.test(text) && !out.roofRidgeCapLf) {
+    out.roofRidgeCapLf = estimatedRidgeCapLf(squares);
+    planningKeys.push("roofRidgeCapLf");
+  }
+  if (planningKeys.length) out.roofingPlanningKeys = planningKeys;
+  return out;
 }
 
 function clauseMatches(clause, patterns) {
@@ -798,7 +893,11 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   if (baseboardLf) out.baseboardLf = baseboardLf;
 
   // Roofing squares (or convert roof sqft → squares)
-  if (/\broof(?:ing)?\b|\bshingles?\b|\btear[\s-]?off\b/.test(blob)) {
+  if (
+    /\broof(?:ing)?\b|\bshingles?\b|\btear[\s-]?off\b|\bgutters?\b|\bdownspouts?\b/.test(
+      blob,
+    )
+  ) {
     const pitchMatch = text.match(ROOF_PITCH_RE);
     if (pitchMatch) {
       const rise = pitchMatch[1] || pitchMatch[3];
@@ -831,6 +930,46 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
         }
       }
     }
+
+    const roofSqftFields = [
+      [
+        "roofIceWaterShieldSqft",
+        /\bice\s*(?:&|and)\s*water\s*(?:shield|membrane)?\b/,
+      ],
+      [
+        "roofDeckingReplacementSqft",
+        /\b(?:roof\s*)?deck(?:ing)?\b|\bdeck\s*replacement\b/,
+      ],
+      [
+        "roofRepairAffectedSqft",
+        /\broof(?:ing)?\s+repairs?\b|\brepair\s+affected\b/,
+      ],
+    ];
+    for (const [key, pattern] of roofSqftFields) {
+      if (
+        key === "roofRepairAffectedSqft" &&
+        notesImplyRoofTearOffAndInstall(text)
+      ) {
+        continue;
+      }
+      const quantity = pickRoofQuantityInClause(text, pattern, SQFT_RE);
+      if (quantity) out[key] = quantity;
+    }
+
+    const roofLfFields = [
+      ["roofDripEdgeLf", /\bdrip\s*edge\b/],
+      ["roofRidgeCapLf", /\bridge\s*cap\b/],
+      ["roofValleyFlashingLf", /\bvalley\s*flashing\b/],
+      ["roofStepFlashingLf", /\bstep\s*flashing\b/],
+      ["roofWallFlashingLf", /\bwall\s*flashing\b/],
+      ["roofGutterLf", /\bgutters?\b(?!\s*(?:and|&)\s*downspouts?)/],
+    ];
+    for (const [key, pattern] of roofLfFields) {
+      const quantity = pickRoofQuantityInClause(text, pattern, LF_RE);
+      if (quantity) out[key] = quantity;
+    }
+
+    Object.assign(out, applyRoofingPlanningMeasurements(out, text));
   }
 
   const concreteDemoSqft = (() => {

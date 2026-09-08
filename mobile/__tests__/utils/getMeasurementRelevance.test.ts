@@ -200,6 +200,34 @@ describe('getMeasurementRelevance', () => {
     expect(getMeasurementRelevance({ measurementKey: 'baseboardLf', includedScopeKeys: ['trim'] }).relevant).toBe(true);
   });
 
+  test('plumbing quick measurements gate on included scope cards', () => {
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'waterLineLf',
+        includedScopeKeys: ['plumbing_rough'],
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'waterLineLf',
+        includedScopeKeys: ['water_line'],
+      }).relevant
+    ).toBe(true);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'sewerLineLf',
+        includedScopeKeys: ['plumbing_trim', 'water_line'],
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'plumbingRoughPointCount',
+        includedScopeKeys: ['plumbing_rough'],
+        noteBackedKeys: ['plumbingRoughPointCount'],
+      }).relevant
+    ).toBe(true);
+  });
+
   test('shower floor SF is hidden when keeping existing tub/shower', () => {
     const staying = getMeasurementRelevance({
       measurementKey: 'showerFloorTileSqft',
@@ -253,5 +281,29 @@ describe('getMeasurementRelevance', () => {
         tilePanBathCount: 1,
       }).relevant
     ).toBe(true);
+  });
+
+  test('roofing accessory measurements are irrelevant until that scope chip is included', () => {
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'roofDripEdgeLf',
+        includedScopeKeys: [],
+        templateKey: 'roofing',
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'roofDripEdgeLf',
+        includedScopeKeys: ['drip_edge'],
+        templateKey: 'roofing',
+      }).relevant
+    ).toBe(true);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'roofValleyFlashingLf',
+        includedScopeKeys: ['tear_off', 'shingles_roofing'],
+        templateKey: 'roofing',
+      }).relevant
+    ).toBe(false);
   });
 });

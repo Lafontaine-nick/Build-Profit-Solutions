@@ -291,6 +291,94 @@ export const PLUMBING_SERVICE_QUICK_MEASUREMENT_KEYS = [
 
 export const PLUMBING_SCOPE_ALLOWLIST = [...PLUMBING_ITEM_IDS] as const;
 
+const ROOFING_SCOPE_BLEED_ITEM_IDS = new Set([
+  'roofing_system',
+  'tear_off',
+  'decking_repair',
+  'underlayment',
+  'ice_water_shield',
+  'shingles_roofing',
+  'drip_edge',
+  'ridge_cap',
+  'valley_flashing',
+  'step_flashing',
+  'wall_flashing',
+  'ridge_vent',
+  'roof_vents',
+  'turbine_vents',
+  'pipe_boots',
+  'chimney_flashing',
+  'skylight_flashing',
+  'roof_penetrations',
+  'flashing',
+  'vents_penetrations',
+  'roof_pitch_complexity_access',
+  'roof_repairs',
+  'roof_exclusions',
+  'gutters',
+  'downspouts',
+]);
+
+const ROOFING_QM_BLEED_KEYS = [
+  'roofAreaSqft',
+  'roofSquares',
+  'roofPitch',
+  'roofDeckingReplacementSqft',
+  'roofDripEdgeLf',
+  'roofRidgeCapLf',
+  'roofRidgeVentLf',
+  'roofValleyFlashingLf',
+  'roofStepFlashingLf',
+  'roofWallFlashingLf',
+  'roofChimneyFlashingCount',
+  'roofPipeBootCount',
+  'roofVentCount',
+  'roofTurbineVentCount',
+  'roofSkylightCount',
+  'roofPenetrationCount',
+  'roofRepairAffectedSqft',
+  'roofGutterLf',
+  'roofDownspoutCount',
+  'roofIceWaterShieldSqft',
+] as const;
+
+/** Drop roofing / other-trade bleed from standalone plumbing measurements. */
+export function stripNonPlumbingTradeBleedFromMeasurements<
+  T extends Record<string, unknown>,
+>(input: T): T {
+  const next = { ...input } as T & Record<string, unknown>;
+  for (const key of ROOFING_QM_BLEED_KEYS) {
+    if (!(key in next)) continue;
+    if (typeof next[key] === 'string') next[key] = '';
+    else delete next[key];
+  }
+  if (next.itemQuantities && typeof next.itemQuantities === 'object') {
+    const quantities = { ...(next.itemQuantities as Record<string, unknown>) };
+    for (const itemId of Object.keys(quantities)) {
+      if (ROOFING_SCOPE_BLEED_ITEM_IDS.has(itemId)) delete quantities[itemId];
+    }
+    next.itemQuantities = quantities;
+  }
+  if (
+    next.tradeScopeSelections &&
+    typeof next.tradeScopeSelections === 'object'
+  ) {
+    const { roofing: _roofing, ...rest } =
+      next.tradeScopeSelections as Record<string, unknown>;
+    next.tradeScopeSelections = rest;
+  }
+  return next as T;
+}
+
+export function filterChecklistItemsToPlumbingScope<
+  T extends { id: string },
+>(items: T[]): T[] {
+  const allowed = new Set(PLUMBING_ITEM_IDS);
+  return items.filter(
+    item => allowed.has(item.id) || String(item.id || '').startsWith('custom_')
+  );
+}
+
 export const PLUMBING_CARD_GROUPS: Array<{
   id: PlumbingCardGroupId;
   title: string;
@@ -511,6 +599,151 @@ function parseLength(text: string, noun: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+function parseSqftFromNotes(text: string): number | null {
+  const patterns = [
+    /(\d{1,3}(?:,\d{3})*)\s*(?:sq\.?\s*ft|sf)\b[^.\n]{0,48}\bnew\s+(?:build|construction)\b/i,
+    /\bfor\s+(\d{1,3}(?:,\d{3})*)\s*(?:sq\.?\s*ft|sf)\s+new\s+build/i,
+    /\bnew\s+(?:build|construction)[^.\n]{0,48}(\d{1,3}(?:,\d{3})*)\s*(?:sq\.?\s*ft|sf)\b/i,
+    /\b(\d{1,3}(?:,\d{3})*)\s*(?:sq\.?\s*ft|sf)\s+(?:new\s+)?(?:home|house)\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match?.[1]) continue;
+    const value = Number(String(match[1]).replace(/,/g, ''));
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+}
+
+function parseStoryCountFromNotes(text: string): number | null {
+  const matches = [
+    ...text.matchAll(/\b(\d+|one|two|three|four|five)\s*[- ]?stor(?:y|ies)\b/gi),
+  ];
+  if (!matches.length) return null;
+  const words: Record<string, number> = {
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+  };
+  let resolved = 0;
+  for (const match of matches) {
+    const raw = String(match[1] || '').toLowerCase();
+    const count = words[raw] || Number(raw);
+    if (Number.isFinite(count) && count > 0) resolved = Math.round(count);
+  }
+  return resolved > 0 ? Math.min(3, resolved) : null;
+}
+
+export type PlumbingProjectContextFromNotes = {
+  floorAreaSqft?: number;
+  storyCount?: number;
+};
+
+/** Living area and stories for whole-house / new-build plumbing notes. */
+export function parsePlumbingProjectContextFromNotes(
+  notes: string
+): PlumbingProjectContextFromNotes {
+  const text = String(notes || '').trim();
+  if (!text) return {};
+  const out: PlumbingProjectContextFromNotes = {};
+  const floorAreaSqft = parseSqftFromNotes(text);
+  if (floorAreaSqft) out.floorAreaSqft = floorAreaSqft;
+  const storyCount = parseStoryCountFromNotes(text);
+  if (storyCount) out.storyCount = storyCount;
+  return out;
+}
+
+const PLUMBING_NOTE_MEASUREMENT_KEYS: PlumbingQuantityKey[] = [
+  'plumbingRoughPointCount',
+  'plumbingTrimHookupCount',
+  'waterLineLf',
+  'sewerLineLf',
+  'gasLineLf',
+  'waterHeaterCount',
+  'plumbingFixturesHardwareCount',
+  'gasApplianceConnectionCount',
+];
+
+/** Tag parsed note quantities so QM and scope cards show From notes. */
+export function tagPlumbingNotesMeasurementSources(
+  measurements: Record<string, unknown>,
+  parsed: Record<string, number>,
+  projectContext?: PlumbingProjectContextFromNotes | null
+): Record<string, string> {
+  const sources = {
+    ...((measurements.quickMeasurementSources as Record<string, string>) || {}),
+  };
+  for (const key of PLUMBING_NOTE_MEASUREMENT_KEYS) {
+    if (positiveNumber(parsed[key]) != null) sources[key] = 'notes';
+  }
+  if (projectContext?.floorAreaSqft) sources.floorAreaSqft = 'notes';
+  if (projectContext?.storyCount) sources.storyCount = 'notes';
+  return sources;
+}
+
+const PLUMBING_NOTE_EXCLUSION_CLAUSE =
+  /\b(?:not\s+included|excluded|(?:no|without)\s+(?:\w+\s+){0,5}(?:scope|work|bid))\b/i;
+
+/** True when notes explicitly exclude a scope phrase on the same line or nearby. */
+export function notesExcludePlumbingScopePhrase(
+  notes: string,
+  scopePhrase: RegExp
+): boolean {
+  const text = String(notes || '').trim();
+  if (!text || !scopePhrase.test(text)) return false;
+
+  const fragments = text.split(/\n+|(?<=[.!?])\s+/);
+  for (const fragment of fragments) {
+    if (!scopePhrase.test(fragment)) continue;
+    if (PLUMBING_NOTE_EXCLUSION_CLAUSE.test(fragment)) return true;
+  }
+
+  const scopeMatch = scopePhrase.exec(text);
+  const exclusionMatch = /\bnot\s+included\b/i.exec(text);
+  if (
+    scopeMatch &&
+    exclusionMatch &&
+    Math.abs(scopeMatch.index - exclusionMatch.index) < 96
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Fixture product allowance is opt-in on trade-only notes — not inferred from rough/trim counts. */
+export function notesExplicitPlumbingFixtureAllowance(notes: string): boolean {
+  const text = String(notes || '').trim();
+  if (!text || notesCustomerSuppliesPlumbingFixtures(text)) return false;
+  if (notesExcludePlumbingScopePhrase(text, /\bfixture\s+allowance\b/i)) {
+    return false;
+  }
+  return (
+    /\bfixture\s+allowance\b/i.test(text) ||
+    /\b(?:provide|furnish|include|supply)\s+(?:the\s+)?(?:plumbing\s+)?fixtures?\b/i.test(
+      text
+    ) ||
+    /\bfixtures?\s+(?:allowance|package|included)\b/i.test(text) ||
+    /\d+\s+(?:plumbing\s+)?fixtures?(?:\s*&\s*hardware)?\b/i.test(text)
+  );
+}
+
+export function standalonePlumbingProjectTitle(
+  notes: string,
+  roomContext?: PlumbingRoomContext | null
+): string {
+  const text = String(notes || '').trim();
+  const room = roomContext ?? inferPlumbingRoomContextFromNotes(text);
+  if (/\bmaster\s+bath\b/i.test(text)) return 'Master bath plumbing';
+  if (room === 'whole_house' || /\bwhole[\s-]?house\s+plumbing\b/i.test(text)) {
+    return 'Whole-house plumbing';
+  }
+  if (room === 'kitchen') return 'Kitchen plumbing';
+  if (room === 'bathroom') return 'Bathroom plumbing';
+  return 'Plumbing bid';
+}
+
 /**
  * Parse explicit Plumbing Notes/Voice language onto canonical keys.
  *
@@ -562,7 +795,15 @@ export function parsePlumbingMeasurementsFromNotes(
       (/\bdrain\s+(?:cleaning|clearing|snaking)\b/i.test(text) ? 1 : null)
   );
   assign('waterLineLf', parseLength(text, '(?:water|supply)\\s+lines?'));
-  assign('sewerLineLf', parseLength(text, '(?:sewer|drain|waste)\\s+lines?'));
+  assign(
+    'sewerLineLf',
+    parseLength(text, '(?:sewer|drain|waste)\\s+lines?') ??
+      parseLength(text, 'drain\\s+line')
+  );
+  assign(
+    'gasLineLf',
+    parseLength(text, 'gas\\s+(?:line|piping|pipes?)')
+  );
   assign(
     'plumbingRoughPointCount',
     count(
@@ -603,32 +844,40 @@ export function parsePlumbingMeasurementsFromNotes(
     'plumbingCleanupCount',
     /\bplumbing\s+cleanup\b/i.test(text) ? 1 : null
   );
+  const waterHeaterPhrase = /\b(?:water\s+)?heater(?:\s+tie[\s-]?in)?\b/i;
+  const gasAppliancePhrase = /\bgas\s+appliance(?:\s+(?:hookups?|connections?))?\b/i;
   assign(
     'plumbingFixturesHardwareCount',
-    count(
-      new RegExp(
-        `${COUNT_TOKEN}\\s+(?:plumbing\\s+)?fixtures?(?:\\s*&\\s*hardware)?`,
-        'i'
-      )
-    ) ??
-      (/\b(?:plumbing\s+)?fixtures?\s*(?:&|and)\s*hardware\b/i.test(text)
-        ? 1
-        : null)
+    notesExplicitPlumbingFixtureAllowance(text)
+      ? count(
+          new RegExp(
+            `${COUNT_TOKEN}\\s+(?:plumbing\\s+)?fixtures?(?:\\s*&\\s*hardware)?`,
+            'i'
+          )
+        ) ??
+          (/\b(?:plumbing\s+)?fixtures?\s*(?:&|and)\s*hardware\b/i.test(text)
+            ? 1
+            : null)
+      : null
   );
   assign(
     'waterHeaterCount',
-    count(new RegExp(`${COUNT_TOKEN}\\s+(?:water\\s+)?heaters?`, 'i')) ??
-      (/\b(?:water\s+)?heater\b/i.test(text) ? 1 : null)
+    notesExcludePlumbingScopePhrase(text, waterHeaterPhrase)
+      ? null
+      : count(new RegExp(`${COUNT_TOKEN}\\s+(?:water\\s+)?heaters?`, 'i')) ??
+          (waterHeaterPhrase.test(text) ? 1 : null)
   );
   assign(
     'gasApplianceConnectionCount',
-    count(
-      new RegExp(
-        `${COUNT_TOKEN}\\s+(?:gas\\s+)?appliance\\s+(?:hookups?|connections?)`,
-        'i'
-      )
-    ) ??
-      (/\bgas\s+appliance\s+(?:hookups?|connections?)\b/i.test(text) ? 1 : null)
+    notesExcludePlumbingScopePhrase(text, gasAppliancePhrase)
+      ? null
+      : count(
+          new RegExp(
+            `${COUNT_TOKEN}\\s+(?:gas\\s+)?appliance\\s+(?:hookups?|connections?)`,
+            'i'
+          )
+        ) ??
+          (gasAppliancePhrase.test(text) ? 1 : null)
   );
   return out;
 }
@@ -657,6 +906,11 @@ export function summarizePlumbingNoteBullets(
   pushLf(parsed.gasLineLf, 'gas piping');
   pushCount(parsed.waterHeaterCount, 'water heater', 'water heaters');
   pushCount(
+    parsed.gasApplianceConnectionCount,
+    'gas appliance hookup',
+    'gas appliance hookups'
+  );
+  pushCount(
     parsed.plumbingFixturesHardwareCount,
     'fixture & hardware allowance',
     'fixtures & hardware'
@@ -671,6 +925,10 @@ export function summarizePlumbingNoteBullets(
 /** Bathroom, kitchen, home remodel, addition, and similar GC-scope notes. */
 export function notesDescribeGeneralContractorProject(notes: string): boolean {
   const text = String(notes || '').toLowerCase();
+  if (/\b(?:plumbing|electrical|hvac)\s+only\b/.test(text)) return false;
+  if (/\bnot\s+a\s+full\s+remodel\b/.test(text) && /\bplumbing\b/.test(text)) {
+    return false;
+  }
   const remodelWord = /\bremodel(?:ing)?\b/.test(text);
   const roomContext =
     /\b(?:bath(?:room)?|kitchen|hall\s+bath|master\s+bath|powder\s+room|primary\s+bath)\b/.test(
@@ -723,7 +981,7 @@ const STRONG_PLUMBING_PARSE_KEYS = new Set<PlumbingQuantityKey>([
 ]);
 
 /** Strong whole-house / trade-plumbing signals that should not be treated as a room remodel. */
-function notesSuggestStandalonePlumbingTrade(notes: string): boolean {
+export function notesSuggestStandalonePlumbingTrade(notes: string): boolean {
   const text = String(notes || '').trim();
   if (!text) return false;
   const parsed = parsePlumbingMeasurementsFromNotes(text);
@@ -778,13 +1036,38 @@ export function inferPlumbingRoomContextFromNotes(
   return null;
 }
 
+/** Homeowner/customer provides fixture product — labor-only plumbing bid. */
+export function notesCustomerSuppliesPlumbingFixtures(notes: string): boolean {
+  const text = String(notes || '').toLowerCase();
+  return (
+    /\b(?:customer|homeowner|owner|client)\s+supplies?\s+(?:the\s+)?(?:plumbing\s+)?fixtures?\b/.test(
+      text
+    ) ||
+    /\bfixtures?\s+(?:are\s+)?(?:customer|owner|homeowner)[\s-]supplied\b/.test(
+      text
+    ) ||
+    /\bwe\s+provide\s+labor\b.*\b(?:customer|homeowner|owner)\s+supplies?\s+fixtures?\b/.test(
+      text
+    )
+  );
+}
+
 export function resolveNotesScopeModeFromPlumbingState(params: {
   tradeWorkflowSource?: 'standalone_trade' | null;
   plumbingWorkflowMode?: PlumbingWorkflowMode | null;
   plumbingRoomContext?: PlumbingRoomContext;
+  notes?: string | null;
 }): NotesScopeMode {
   if (params.tradeWorkflowSource !== 'standalone_trade') {
     return 'whole_project';
+  }
+  if (params.notes) {
+    const room = inferPlumbingRoomContextFromNotes(params.notes);
+    const wf = inferPlumbingWorkflowModeFromNotes(params.notes);
+    if (wf === 'service') return 'plumbing_service';
+    if (wf === 'new_construction') return 'plumbing_new_construction';
+    if (room === 'bathroom') return 'plumbing_bathroom';
+    if (room === 'kitchen') return 'plumbing_kitchen';
   }
   if (params.plumbingWorkflowMode === 'service') return 'plumbing_service';
   if (params.plumbingWorkflowMode === 'new_construction') {
@@ -854,6 +1137,78 @@ export function plumbingMeasurementKeyForItemId(
   return (
     PLUMBING_CARDS.find(card => card.itemId === itemId)?.measurementKey || null
   );
+}
+
+/** Quick-measurement keys for included plumbing scope cards (standalone trade flow). */
+export function plumbingQuickMeasurementKeysForIncludedScope(
+  includedItemIds: Iterable<string>
+): Set<PlumbingQuantityKey> {
+  const keys = new Set<PlumbingQuantityKey>();
+  for (const itemId of includedItemIds) {
+    const key = plumbingMeasurementKeyForItemId(itemId);
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+/** Map Scope found "Pricing for …" copy back to a plumbing checklist item id. */
+export function resolvePlumbingRevealAttentionItemId(
+  pricingLabel: string
+): string | null {
+  const norm = pricingLabel.trim().toLowerCase();
+  for (const card of PLUMBING_CARDS) {
+    const label = card.label.toLowerCase();
+    if (norm === label || norm.startsWith(label) || label.startsWith(norm)) {
+      return card.itemId;
+    }
+  }
+  if (/water line/i.test(norm)) return 'water_line';
+  if (/sewer|drain piping/i.test(norm)) return 'sewer_line';
+  if (/gas piping/i.test(norm)) return 'gas_line';
+  if (/rough-?in/i.test(norm)) return 'plumbing_rough';
+  if (/trim|hookup/i.test(norm)) return 'plumbing_trim';
+  if (/gas appliance/i.test(norm)) return 'gas_appliance_connections';
+  if (/fixture allowance/i.test(norm)) return 'plumbing_fixtures_hardware';
+  if (/water heater/i.test(norm)) return 'water_heater';
+  if (/service call/i.test(norm)) return 'service_call';
+  if (/fixture repair/i.test(norm)) return 'fixture_repair';
+  if (/fixture replacement/i.test(norm)) return 'fixture_replace';
+  if (/drain clean/i.test(norm)) return 'drain_cleaning';
+  return null;
+}
+
+/** Checklist rows with note-backed quantities for standalone plumbing reveal. */
+export function plumbingRevealNoteBackedItemIds(draft: {
+  originalNotes?: string | null;
+  scopeChecklist?: {
+    items?: Array<{ id: string; state?: string; noteBacked?: boolean }>;
+  } | null;
+}): Set<string> {
+  const ids = new Set<string>();
+  for (const item of draft.scopeChecklist?.items || []) {
+    if (item.state === 'included' || item.noteBacked) ids.add(item.id);
+  }
+  const notes = String(draft.originalNotes || '').trim();
+  if (!notes) return ids;
+  const parsed = parsePlumbingMeasurementsFromNotes(notes);
+  for (const card of PLUMBING_CARDS) {
+    if (positiveNumber(parsed[card.measurementKey]) != null) {
+      ids.add(card.itemId);
+    }
+  }
+  return ids;
+}
+
+export function standalonePlumbingRevealDraft(draft: {
+  projectType?: string | null;
+  scopeChecklist?: { templateKey?: string | null } | null;
+  scopeMeasurements?: { tradeWorkflowSource?: string | null } | null;
+}): boolean {
+  const templateKey = String(
+    draft.scopeChecklist?.templateKey || draft.projectType || ''
+  ).toLowerCase();
+  if (!['plumbing', 'plumbing_service'].includes(templateKey)) return false;
+  return draft.scopeMeasurements?.tradeWorkflowSource === 'standalone_trade';
 }
 
 export function plumbingCardForItemId(
@@ -966,7 +1321,8 @@ export function resolveStandalonePlumbingTemplateKey(
 
 /** Checklist rows for a first-class Plumbing bid (not a bathroom remodel overlay). */
 export function buildStandalonePlumbingChecklistItems(
-  mode?: PlumbingWorkflowMode | null
+  mode?: PlumbingWorkflowMode | null,
+  notes?: string | null
 ): Array<{
   id: string;
   label: string;
@@ -980,13 +1336,96 @@ export function buildStandalonePlumbingChecklistItems(
           PLUMBING_SERVICE_CHECKLIST_ITEM_IDS.has(card.itemId)
         )
       : PLUMBING_CARDS;
-  return cards.map(card => ({
+  const items = cards.map(card => ({
     id: card.itemId,
     label: card.label,
     helperText: card.helper,
     category: card.groupTitle,
     state: 'unsure' as const,
   }));
+  if (!notes) return items;
+  return applyStandalonePlumbingChecklistDefaults(items, { notes, mode });
+}
+
+/**
+ * Promote note-backed quantities to Yes and default unrelated cards to No so
+ * trade-only plumbing bids do not open with a wall of "Not sure" cards.
+ */
+export function applyStandalonePlumbingChecklistDefaults<
+  T extends { id: string; state?: string; noteBacked?: boolean },
+>(
+  items: T[],
+  params: {
+    notes?: string | null;
+    mode?: PlumbingWorkflowMode | null;
+    quantities?: Record<string, unknown> | null;
+  }
+): T[] {
+  const notes = String(params.notes || '').trim();
+  const mode = params.mode ?? 'bathroom_remodel';
+  const parsed = notes ? parsePlumbingMeasurementsFromNotes(notes) : {};
+  const customerSuppliesFixtures =
+    notes.length > 0 && notesCustomerSuppliesPlumbingFixtures(notes);
+
+  const quantityFor = (itemId: string): number | null => {
+    const card = PLUMBING_CARDS.find(entry => entry.itemId === itemId);
+    if (!card) return null;
+    const fromQuantities = positiveNumber(
+      params.quantities?.[card.measurementKey]
+    );
+    if (fromQuantities != null) return fromQuantities;
+    return positiveNumber(parsed[card.measurementKey as keyof typeof parsed]);
+  };
+
+  const withState = (
+    item: T,
+    state: 'included' | 'excluded',
+    noteBacked = false
+  ): T =>
+    item.state === state && (!noteBacked || item.noteBacked)
+      ? item
+      : { ...item, state, ...(noteBacked ? { noteBacked: true } : {}) };
+
+  if (mode === 'service') {
+    return items.map(item => {
+      const qty = quantityFor(item.id);
+      if (qty != null && qty > 0) return withState(item, 'included', true);
+      return withState(item, 'excluded');
+    });
+  }
+
+  return items.map(item => {
+    const card = PLUMBING_CARDS.find(entry => entry.itemId === item.id);
+    if (!card) return item;
+
+    const qty = quantityFor(item.id);
+    if (qty != null && qty > 0) return withState(item, 'included', true);
+
+    if (item.id === 'plumbing_fixtures_hardware') {
+      if (customerSuppliesFixtures) return withState(item, 'excluded');
+      if (
+        notes &&
+        notesSuggestStandalonePlumbingTrade(notes) &&
+        !notesExplicitPlumbingFixtureAllowance(notes)
+      ) {
+        return withState(item, 'excluded');
+      }
+    }
+
+    if (PLUMBING_SERVICE_CHECKLIST_ITEM_IDS.has(item.id)) {
+      return withState(item, 'excluded');
+    }
+
+    if (card.groupId === 'closeout') {
+      return withState(item, 'excluded');
+    }
+
+    if (['lines', 'equipment', 'rough_trim', 'fixtures'].includes(card.groupId)) {
+      return withState(item, 'excluded');
+    }
+
+    return item;
+  });
 }
 
 function explicitlyCleared(value: unknown): boolean {
@@ -1064,6 +1503,28 @@ export function syncPlumbingScopeItems<
     }
     if (!included.has(item.id)) return item;
     return item.state === 'included' ? item : { ...item, state: 'included' };
+  });
+}
+
+export function finalizeStandalonePlumbingChecklist<
+  T extends { id: string; state?: string; noteBacked?: boolean },
+>(
+  items: T[],
+  params: {
+    notes?: string | null;
+    mode?: PlumbingWorkflowMode | null;
+    plumbingScope?: string[] | null;
+    quantities?: Record<string, unknown> | null;
+  }
+): T[] {
+  const synced = syncPlumbingScopeItems(items, {
+    plumbingScope: params.plumbingScope,
+    quantities: params.quantities ?? undefined,
+  });
+  return applyStandalonePlumbingChecklistDefaults(synced, {
+    notes: params.notes,
+    mode: params.mode,
+    quantities: params.quantities,
   });
 }
 
