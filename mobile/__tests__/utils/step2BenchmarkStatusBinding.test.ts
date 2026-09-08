@@ -190,6 +190,44 @@ describe('Step 2 benchmark + measurement-status binding', () => {
     expect(rule?.measurementKeys || []).not.toContain('floorAreaSqft');
   });
 
+  it('marks living-area physical scopes as planning allowances without takeoff', () => {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
+    const measurements = lot41Measurements();
+
+    for (const itemId of ['exterior_doors', 'sliding_doors', 'stucco', 'pour_flatwork']) {
+      const resolved = resolveChecklistItemQuantity(itemId, measurements, {
+        templateKey: 'ground_up',
+      });
+      const suggested = resolveScopeItemSuggestedPricing(
+        itemId,
+        measurements,
+        'ground_up',
+        resolved
+      );
+      expect(resolved.quantity).toBeNull();
+      expect(suggested.fill?.total).toBeGreaterThan(0);
+      expect(suggested.fill?.basis?.quantity ?? null).toBeNull();
+    }
+  });
+
+  it('prices a physical opening from its displayed count', () => {
+    const measurements = {
+      ...lot41Measurements(),
+      exteriorDoorCount: '3',
+    };
+    const resolved = resolveChecklistItemQuantity('exterior_doors', measurements, {
+      templateKey: 'ground_up',
+    });
+    const suggested = resolveScopeItemSuggestedPricing(
+      'exterior_doors',
+      measurements,
+      'ground_up',
+      resolved
+    );
+    expect(resolved.quantity).toBe(3);
+    expect(suggested.fill?.basis).toEqual({ quantity: 3, unit: 'each' });
+  });
+
   it('does not treat placeholder CY/SF values as persisted or priced', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     const empty = emptyQuickMeasurementInput();

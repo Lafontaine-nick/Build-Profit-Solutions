@@ -352,6 +352,27 @@ describe('suggestedPricingCardUi', () => {
     expect(display.splitLine).toBe('Material $4,200 · Labor $6,100');
   });
 
+  it('marks living-area installed budgets as planning allowances until takeoff', () => {
+    const display = buildSuggestedPricingCardDisplay({
+      itemId: 'stucco',
+      block: block({
+        installedBudgetBenchmark: true,
+        benchmarkLivingSf: 2800,
+        basis: null,
+        material: 0,
+        labor: 25121,
+        total: 25121,
+        splitSource: 'none',
+      }),
+    });
+
+    expect(display.pricingStatus).toBe('planning');
+    expect(display.quantityLine).toMatch(/Planning basis.*2,800 living SF/);
+    expect(display.splitLine).toMatch(/Planning allowance/);
+    expect(display.splitLine).toMatch(/exterior wall surface/i);
+    expect(display.actionLabel).toBe('Use planning allowance');
+  });
+
   it('uses blended SF pricing chrome for flooring install cards', () => {
     const display = buildSuggestedPricingCardDisplay({
       itemId: 'tile_flooring',

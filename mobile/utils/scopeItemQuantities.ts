@@ -17887,7 +17887,7 @@ export function resolveScopeItemSuggestedPricing(
     }
   }
 
-  // Exterior flatwork: blended H17 barometer + NAHB driveway when SF takeoff is missing.
+  // Exterior flatwork: planning allowance when SF takeoff is missing.
   if (
     (!count || count <= 0) &&
     itemId === 'pour_flatwork' &&
@@ -17906,7 +17906,7 @@ export function resolveScopeItemSuggestedPricing(
     });
   }
 
-  // Exterior swing / sliding doors: blended H36 / H35 packages when door count is missing.
+  // Exterior swing / sliding doors: planning allowance when count is missing.
   if (
     (!count || count <= 0) &&
     (itemId === 'exterior_doors' || itemId === 'sliding_doors') &&
@@ -18153,7 +18153,6 @@ export function resolveScopeItemSuggestedPricing(
       measurementsInput.countertopSqft
     );
     const COUNTERTOP_DEPTH_FT = 2.083;
-    const GROUND_UP_PLANNING_TOPS_SF = 80;
     const lfDepthProxy =
       cabinetLf != null &&
       cabinetLf > 0 &&
@@ -18189,7 +18188,7 @@ export function resolveScopeItemSuggestedPricing(
         reframed.average?.material != null &&
         reframed.average?.labor != null
       ) {
-        count = GROUND_UP_PLANNING_TOPS_SF;
+        count = 80;
         unit = 'sqft';
         average = reframed.average;
       }
@@ -25516,14 +25515,12 @@ export function initialScopeMeasurementInputExtended(
     showerFloorTileSqft: pick('showerFloorTileSqft'),
     wallPaintSqft:
       parsedFromNotes.paintPricingMethod === 'combined' ||
-      parsedFromNotes.paintAreaBasis === 'combined' ||
-      parsedFromNotes.paintAreaBasis === 'floor_area'
+      parsedFromNotes.paintAreaBasis === 'combined'
         ? ''
         : pick('wallPaintSqft'),
     ceilingPaintSqft:
       parsedFromNotes.paintPricingMethod === 'combined' ||
-      parsedFromNotes.paintAreaBasis === 'combined' ||
-      parsedFromNotes.paintAreaBasis === 'floor_area'
+      parsedFromNotes.paintAreaBasis === 'combined'
         ? ''
         : pick('ceilingPaintSqft'),
     paintAreaSqft: pick('paintAreaSqft'),
@@ -25548,7 +25545,7 @@ export function initialScopeMeasurementInputExtended(
     combinedPaintableAreaSqft:
       parsedFromNotes.paintPricingMethod === 'combined' ||
       parsedFromNotes.paintAreaBasis === 'combined' ||
-      parsedFromNotes.paintAreaBasis === 'floor_area'
+      parsedFromNotes.combinedPaintableAreaSqft != null
         ? String(
             parsedFromNotes.combinedPaintableAreaSqft ||
               parsedFromNotes.paintAreaSqft ||

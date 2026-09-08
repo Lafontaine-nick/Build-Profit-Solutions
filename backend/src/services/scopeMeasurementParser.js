@@ -613,8 +613,28 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     /\b(?:house|home|floor\s+area|living\s+area)\b[^.;]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(interiorPaintBlob) ||
     /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;]{0,35}\b(?:house|home|floor\s+area|living\s+area)\b/i.test(interiorPaintBlob) ||
     /\b(?:main|upper|lower|first|second|third)\s+floor\b[^.;\n]{0,18}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\b/i.test(interiorPaintBlob);
+  const labeledFloorAreaTotal = parseLabeledInteriorFloorAreaTotal(
+    clauses.filter((clause) => !/\bexterior\b/i.test(clause)).join(' ')
+  );
 
-  if (explicitWallPaintSqft && explicitCeilingPaintSqft && !combinedPaintLanguage) {
+  if (
+    combinedPaintLanguage &&
+    floorAreaPaintLanguage &&
+    paintSqft &&
+    labeledFloorAreaTotal != null
+  ) {
+    const combinedSurface = Math.round(paintSqft * 3.2);
+    const ceilingSurface = Math.round(labeledFloorAreaTotal);
+    const wallSurface = Math.max(0, combinedSurface - ceilingSurface);
+    out.paintAreaSqft = paintSqft;
+    out.originalPaintAreaReferenceSqft = paintSqft;
+    out.paintAreaNeedsConfirmation = true;
+    out.paintAreaBasis = 'floor_area';
+    out.paintPricingMethod = 'separate';
+    out.combinedPaintableAreaSqft = combinedSurface;
+    if (wallSurface > 0) out.wallPaintSqft = wallSurface;
+    if (ceilingSurface > 0) out.ceilingPaintSqft = ceilingSurface;
+  } else if (explicitWallPaintSqft && explicitCeilingPaintSqft && !combinedPaintLanguage) {
     out.paintPricingMethod = 'separate';
     out.wallPaintSqft = explicitWallPaintSqft;
     out.ceilingPaintSqft = explicitCeilingPaintSqft;

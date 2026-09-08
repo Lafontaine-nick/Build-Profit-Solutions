@@ -131,17 +131,30 @@ export function PlanTakeoffPendingConfirmationStrip({
   const panelBg = darkMode ? '#252527' : '#f1f5f9';
   const inputBg = darkMode ? 'rgba(255,255,255,0.05)' : '#ffffff';
   const titleColor = darkMode ? '#f8fafc' : '#0f172a';
+  const hasPlanContext = Boolean(
+    measurements.planImportMode ||
+      measurements.planImportTradeKey ||
+      measurements.planFacts
+  );
+  const reviewTitle = hasPlanContext
+    ? 'Unverified plan reads'
+    : 'Measurements to confirm';
+  const reviewDescription = hasPlanContext
+    ? displayReads.length === 1
+      ? 'One quantity from plan takeoff still needs confirmation.'
+      : `${displayReads.length} quantities from plan takeoff still need confirmation.`
+    : displayReads.length === 1
+      ? 'One derived measurement still needs confirmation.'
+      : `${displayReads.length} derived measurements still need confirmation.`;
 
   return (
     <View style={styles.wrap}>
       <Text style={styles.eyebrow}>Needs review</Text>
       <Text style={[styles.title, { color: titleColor }]}>
-        Unverified plan reads
+        {reviewTitle}
       </Text>
       <Text style={[styles.hint, { color: captionColor }]}>
-        {displayReads.length === 1
-          ? 'One quantity from plan takeoff still needs confirmation.'
-          : `${displayReads.length} quantities from plan takeoff still need confirmation.`}{' '}
+        {reviewDescription}{' '}
         Accept each count below or edit it in Quick measurements.
       </Text>
       <View style={styles.cardList}>
@@ -204,7 +217,13 @@ export function PlanTakeoffPendingConfirmationStrip({
                       selected={selectedValue === value}
                       label={formatPlanTakeoffQuantity(reading.field, value)}
                       subtitle={
-                        index === 0 ? 'AI plan read' : 'Other AI plan read'
+                        hasPlanContext
+                          ? index === 0
+                            ? 'Plan quantity'
+                            : 'Alternate plan quantity'
+                          : index === 0
+                            ? 'Derived from notes'
+                            : 'Alternative estimate'
                       }
                       darkMode={darkMode}
                       onPress={() => {

@@ -783,10 +783,37 @@ export function formatInstalledBudgetQuantityLine(
 ): string | null {
   const living = Number(block.benchmarkLivingSf);
   if (Number.isFinite(living) && living > 0) {
-    return `${Math.round(living).toLocaleString()} living SF · house match`;
+    return `Planning basis · ${Math.round(living).toLocaleString()} living SF house match`;
   }
   return null;
 }
+
+function installedBudgetPlanningConfirmation(itemId: string): string {
+  switch (String(itemId || '').toLowerCase()) {
+    case 'stucco':
+      return 'Confirm exterior wall surface SF before bid';
+    case 'insulation':
+      return 'Confirm wall and attic/roof-deck SF before bid';
+    case 'exterior_paint':
+      return 'Confirm exterior paint surface SF before bid';
+    case 'exterior_doors':
+    case 'sliding_doors':
+      return 'Confirm opening count before bid';
+    case 'pour_flatwork':
+      return 'Confirm exterior flatwork SF before bid';
+    default:
+      return 'Confirm the trade takeoff before bid';
+  }
+}
+
+const INSTALLED_BUDGET_TAKEOFF_SCOPE_IDS = new Set([
+  'stucco',
+  'insulation',
+  'exterior_paint',
+  'exterior_doors',
+  'sliding_doors',
+  'pour_flatwork',
+]);
 
 export function formatSuggestedUnitRateLine(
   block: SuggestedPricingBlock
@@ -938,6 +965,12 @@ export function buildSuggestedPricingCardDisplay(input: {
         ? block.rateSourceLabel.replace(/^Adjusted · /, '') || 'User adjusted'
         : block.rateSourceLabel
   );
+  const installedBudgetNeedsTakeoff =
+    Boolean(block.installedBudgetBenchmark) &&
+    INSTALLED_BUDGET_TAKEOFF_SCOPE_IDS.has(String(itemId || '').toLowerCase()) &&
+    input.hasPrimaryTakeoff !== true &&
+    !(Number(block.basis?.quantity) > 0) &&
+    !(String(itemId || '').toLowerCase() === 'insulation' && block.pricingDetail);
 
   const fallbackCopy = FALLBACK_MEASUREMENT_COPY[itemId] || null;
   const livingSf =
@@ -949,6 +982,7 @@ export function buildSuggestedPricingCardDisplay(input: {
 
   let pricingStatus: SuggestedPricingStatus = 'ready';
   if (lumpSumOnly) pricingStatus = 'allowance';
+  else if (installedBudgetNeedsTakeoff) pricingStatus = 'planning';
   else if (isFallbackPricing) pricingStatus = 'planning';
   else if (
     /planning estimate|assumptions to review|review before bid|low|review|measurement/i.test(
@@ -986,13 +1020,17 @@ export function buildSuggestedPricingCardDisplay(input: {
   } else if (block.installedBudgetBenchmark) {
     statusTone = 'amber';
     statusLine =
-      itemId === 'landscaping'
+      installedBudgetNeedsTakeoff
+        ? installedBudgetPlanningConfirmation(itemId)
+        : itemId === 'landscaping'
         ? 'Installed site package'
         : itemId === 'plumbing_trim' || itemId === 'electrical_trim'
           ? 'Installed fixture package'
           : 'Installed house budget';
     whyThisPriceLines.push(
-      itemId === 'landscaping'
+      installedBudgetNeedsTakeoff
+        ? installedBudgetPlanningConfirmation(itemId)
+        : itemId === 'landscaping'
         ? 'Landscaping + walls/gates. Material and labor were not separated in the source.'
         : itemId === 'plumbing_trim' || itemId === 'electrical_trim'
           ? 'Fixture package. Material and labor were not separated in the source.'
@@ -1236,7 +1274,11 @@ export function buildSuggestedPricingCardDisplay(input: {
   return {
     quantitySource: isFallbackPricing ? 'fallback' : quantitySource,
     pricingSource,
-    pricingStatus: block.installedBudgetBenchmark ? 'ready' : pricingStatus,
+    pricingStatus: installedBudgetNeedsTakeoff
+      ? 'planning'
+      : block.installedBudgetBenchmark
+        ? 'ready'
+        : pricingStatus,
     confidenceLevel,
     missingMeasurementKey:
       isFallbackPricing && !hasCurrentPricing ? itemId : null,
@@ -1272,7 +1314,13 @@ export function buildSuggestedPricingCardDisplay(input: {
         : isFlooringLineCard
           ? formatSuggestedSplitLine(block)
           : block.installedBudgetBenchmark || block.splitSource === 'none'
-            ? `${formatSuggestedSplitLine(block)}${insulationPricingDetailLine}`
+            ? `${
+                installedBudgetNeedsTakeoff
+                  ? `Planning allowance · ${installedBudgetPlanningConfirmation(itemId)}`
+                  : block.material > 0 && block.labor > 0
+                    ? `Material ${formatSuggestedDisplayMoney(block.material)} · Labor ${formatSuggestedDisplayMoney(block.labor)}`
+                    : formatSuggestedSplitLine(block)
+              }${installedBudgetNeedsTakeoff ? insulationPricingDetailLine : ''}`
             : lumpSumOnly
               ? 'Allowance · Flat amount'
               : `${
@@ -1295,6 +1343,8 @@ export function buildSuggestedPricingCardDisplay(input: {
       block.benchmarkAction === 'comparison_only' ||
       block.benchmarkAction === 'included_in_stage'
         ? null
+        : installedBudgetNeedsTakeoff
+          ? 'Use planning allowance'
         : suggestedActionLabel(actionType),
     allowanceExtraNote,
     whyThisPriceLines: [...new Set(whyThisPriceLines.filter(Boolean))],

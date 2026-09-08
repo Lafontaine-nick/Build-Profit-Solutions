@@ -17901,6 +17901,16 @@ export default function AIEstimateScopeAssumptionsModal({
         .join('\n'),
     [draft?.originalNotes, notesFallback, scopeNotes]
   );
+  const measurementNotes = useMemo(
+    () =>
+      String(
+        notesFallback ||
+          draft?.originalNotes ||
+          scopeNotes ||
+          ''
+      ).trim(),
+    [draft?.originalNotes, notesFallback, scopeNotes]
+  );
   const [items, setItems] = useState<ScopeChecklistItem[]>([]);
   const baseItemsRef = useRef<ScopeChecklistItem[]>([]);
   const [notesTradeMode, setNotesTradeMode] =
@@ -19130,6 +19140,7 @@ export default function AIEstimateScopeAssumptionsModal({
         measurements: draft?.scopeMeasurements,
         checklist: draft?.scopeChecklist?.items,
         notes: scopeNotes,
+        measurementNotes,
         suggested: draft?.scopeChecklist?.suggestedMeasurements,
       }),
     [
@@ -19138,6 +19149,7 @@ export default function AIEstimateScopeAssumptionsModal({
       draft?.scopeChecklist?.items,
       draft?.scopeChecklist?.suggestedMeasurements,
       scopeNotes,
+      measurementNotes,
       notesFallback,
     ]
   );
@@ -19183,9 +19195,9 @@ export default function AIEstimateScopeAssumptionsModal({
           : draft;
       let nextMeasurements = mergeConfirmScopeSavedMeasurements(
         prepareScopeMeasurementsInputForUi(
-          initialScopeMeasurementInputExtended(draftForScope, scopeNotes),
+          initialScopeMeasurementInputExtended(draftForScope, measurementNotes),
           {
-            notes: scopeNotes,
+            notes: measurementNotes,
             templateKey: checklist.templateKey,
             projectType: draftForScope?.projectType ?? draft?.projectType,
           }
@@ -19729,6 +19741,17 @@ export default function AIEstimateScopeAssumptionsModal({
             planFacts: nextMeasurements.planFacts as Record<string, unknown> | null,
           }
         );
+      }
+      if (
+        String(checklist.templateKey || '').toLowerCase() === 'painting' &&
+        nextMeasurements.paintAreaBasis === 'floor_area'
+      ) {
+        nextMeasurements = {
+          ...nextMeasurements,
+          wallPaintSqft: '',
+          ceilingPaintSqft: '',
+          paintPricingMethod: 'combined',
+        };
       }
       setItems(normalized);
       setMeasurementsSynced(nextMeasurements);

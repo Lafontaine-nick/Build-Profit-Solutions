@@ -510,4 +510,20 @@ describe('painting plan convergence', () => {
     expect(restored.ceilingPaintSqft).toBe('1345.2');
     expect(restored.paintPricingMethod).toBe('separate');
   });
+
+  it('adds the floor-area ceiling basis when combined mode lost the ceiling field', () => {
+    const combined = applyPaintPricingMethodChoice(
+      {
+        wallPaintSqft: '5280',
+        ceilingPaintSqft: '',
+        combinedPaintableAreaSqft: '5280',
+        originalPaintAreaReferenceSqft: '2400',
+        paintAreaBasis: 'floor_area',
+        paintPricingMethod: 'separate',
+      },
+      'combined'
+    );
+    expect(combined.combinedPaintableAreaSqft).toBe('7680');
+    expect(combined.paintAreaSqft).toBe('7680');
+  });
 });

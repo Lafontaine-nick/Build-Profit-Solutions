@@ -618,6 +618,9 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.paintAreaSqft).toBe(2400);
     expect(parsed.originalPaintAreaReferenceSqft).toBe(2400);
     expect(parsed.combinedPaintableAreaSqft).toBe(7680);
+    expect(parsed.paintPricingMethod).toBe('separate');
+    expect(parsed.wallPaintSqft).toBe(5280);
+    expect(parsed.ceilingPaintSqft).toBe(2400);
     expect(parsed.paintAreaBasis).toBe('floor_area');
     expect(parsed.interiorDoorCount).toBe(14);
     expect(parsed.paintScope).toEqual(
@@ -637,9 +640,9 @@ describe('mobile scope measurement parser', () => {
     });
     expect(Number(hydrated.floorAreaSqft)).toBe(2400);
     expect(Number(hydrated.combinedPaintableAreaSqft)).toBe(7680);
-    expect(hydrated.paintPricingMethod).toBe('combined');
-    expect(String(hydrated.wallPaintSqft || '')).toBe('');
-    expect(String(hydrated.ceilingPaintSqft || '')).toBe('');
+    expect(hydrated.paintPricingMethod).toBe('separate');
+    expect(Number(hydrated.wallPaintSqft)).toBe(5280);
+    expect(Number(hydrated.ceilingPaintSqft)).toBe(2400);
   });
 
   it('parses canonical Electrical notes examples onto owned keys', () => {

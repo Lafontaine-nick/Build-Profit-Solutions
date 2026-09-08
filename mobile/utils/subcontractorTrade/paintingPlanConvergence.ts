@@ -421,8 +421,25 @@ export function applyPaintPricingMethodChoice<T extends PaintPricingMethodDraft>
       : fieldString(stashedSplit?.ceiling);
   const splitTotal =
     (positiveNumber(wall) || 0) + (positiveNumber(ceiling) || 0);
+  const storedCombined = positiveNumber(prev.combinedPaintableAreaSqft);
+  const hasCompleteSplit =
+    positiveNumber(wall) != null && positiveNumber(ceiling) != null;
+  const floorAreaCeilingFallback =
+    prev.paintAreaBasis === 'floor_area' &&
+    positiveNumber(wall) != null &&
+    positiveNumber(prev.originalPaintAreaReferenceSqft) != null
+      ? (positiveNumber(wall) || 0) +
+        (positiveNumber(prev.originalPaintAreaReferenceSqft) || 0)
+      : null;
   const combinedQuantity =
-    splitTotal > 0
+    method === 'combined' &&
+    !hasCompleteSplit &&
+    floorAreaCeilingFallback != null &&
+    (storedCombined == null || storedCombined <= Number(wall))
+      ? String(floorAreaCeilingFallback)
+      : method === 'combined' && !hasCompleteSplit && storedCombined != null
+        ? String(storedCombined)
+      : splitTotal > 0
       ? String(splitTotal)
       : fieldString(
           prev.combinedPaintableAreaSqft ||

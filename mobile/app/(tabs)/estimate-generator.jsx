@@ -5778,7 +5778,9 @@ export default function EstimateGeneratorScreen() {
       setAiSitePhotos(Array.isArray(sitePhotos) ? sitePhotos : []);
       setAiDraft(null);
       latestScopeMeasurementsRef.current = null;
-      // Old progress is cleared after the network request starts.
+      // A failed generation must not leave an older draft (for example, a
+      // plumbing checklist) available for the restore effect on next mount.
+      await markAiDraftProgressCleared();
       setShowAiScopeAssumptionsModal(false);
       setShowAiInitialRevealModal(false);
       setShowAiDraftReviewModal(false);

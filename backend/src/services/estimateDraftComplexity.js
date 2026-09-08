@@ -16,6 +16,7 @@ const {
   CHECKLIST_TEMPLATES,
   CHECKLIST_LEGEND,
   checklistTemplateKey,
+  notesImplyMixedInteriorRefresh,
   detectAdditionConversionIntent,
   inferItemStateFromNotes,
   inferChoiceFromNotes,
@@ -102,6 +103,7 @@ function isSimpleUnitBid(draft, originalNotes) {
   const notes = notesText(draft, originalNotes);
   const projectType = String(draft.projectType || 'other').toLowerCase();
 
+  if (notesImplyMixedInteriorRefresh(notes)) return false;
   if (REMODEL_KEYWORDS_RE.test(notes)) return false;
   if (
     ['kitchen', 'bathroom', 'room_addition', 'home_addition', 'adu', 'garage_conversion', 'new_build'].includes(
@@ -166,6 +168,10 @@ function classifyEstimateTier(draft, originalNotes) {
   }
 
   if (projectType === 'kitchen' || /\bkitchen\s+remodel\b/i.test(notes)) {
+    return 'room_remodel';
+  }
+
+  if (notesImplyMixedInteriorRefresh(notes)) {
     return 'room_remodel';
   }
 

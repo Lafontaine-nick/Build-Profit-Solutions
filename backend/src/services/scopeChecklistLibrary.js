@@ -2166,7 +2166,7 @@ const CHECKLIST_YES_HINTS = {
   appliance_removal:
     /\b(remove|disconnect|pull|haul).*\b(appliance|ridge|dishwasher|range|refrigerator|oven|microwave|hood)\b|\b(appliance|ridge|dishwasher|range|refrigerator)\b.*\b(remove|disconnect|pull|haul)\b/,
   flooring:
-    /\bflooring\b|\b(lvp|laminate|vinyl|carpet|floor\s+tile|tile\s+floor)\b.*\binstall(?:ation)?\b|\binstall(?:ation)?\b.*\b(lvp|laminate|vinyl|carpet|flooring|floor\s+tile|tile\s+floor)\b/,
+    /\bflooring\b|\bnew\s+(?:lvp|laminate|vinyl|carpet)\b|\b(lvp|laminate|vinyl|carpet|floor\s+tile|tile\s+floor)\b.*\binstall(?:ation)?\b|\binstall(?:ation)?\b.*\b(lvp|laminate|vinyl|carpet|flooring|floor\s+tile|tile\s+floor)\b/,
   // Same-clause proximity — "demo the existing tile and tub ... install tile shower pan"
   // must not read as tub/pan demo of things being installed, or cross sentences.
   tub_demo:
@@ -2387,6 +2387,30 @@ function detectAdditionConversionIntent(projectType, notes) {
   return ADDITION_CONVERSION_NOTES.test(String(notes || ""));
 }
 
+function notesImplyMixedInteriorRefresh(notes) {
+  const n = String(notes || "");
+  if (!n.trim() || /\b(?:kitchen|bath(?:room)?|shower|tub|vanity|toilet)\b/i.test(n)) {
+    return false;
+  }
+
+  const hasPaint = /\bpaint(?:ing)?\b/i.test(n);
+  const hasFlooring = /\b(?:lvp|laminate|vinyl|carpet|hardwood|flooring)\b/i.test(n);
+  const hasDoorsOrTrim = /\b(?:interior\s+)?doors?\b|\b(?:baseboard|trim)\b/i.test(n);
+  const hasDrywall = /\bdrywall\b|\bpatch(?:ing)?\b/i.test(n);
+  const finishCount = [hasPaint, hasFlooring, hasDoorsOrTrim, hasDrywall].filter(Boolean).length;
+  if (
+    hasPaint &&
+    !hasFlooring &&
+    /\b(?:interior\s+)?repaint\b|\brepaint\b/i.test(n)
+  ) {
+    return false;
+  }
+
+  // Keep a dedicated paint-and-trim job on the painting checklist. A flooring
+  // or drywall component is the signal that this is a mixed interior refresh.
+  return finishCount >= 2 && (hasFlooring || hasDrywall);
+}
+
 function checklistTemplateKey(draft, estimateTier) {
   const projectType = String(draft.projectType || "other").toLowerCase();
   const notes = notesText(draft, null);
@@ -2419,6 +2443,9 @@ function checklistTemplateKey(draft, estimateTier) {
     )
   ) {
     return "bathroom";
+  }
+  if (notesImplyMixedInteriorRefresh(notes)) {
+    return "room_remodel";
   }
   // A dedicated repaint that mentions an existing kitchen surface is still a
   // painting job. Route it to the painting checklist unless the notes describe
@@ -3077,6 +3104,7 @@ module.exports = {
   CHECKLIST_TEMPLATES,
   CHECKLIST_LEGEND,
   checklistTemplateKey,
+  notesImplyMixedInteriorRefresh,
   notesImplyConcreteFlatwork,
   detectAdditionConversionIntent,
   inferItemStateFromNotes,

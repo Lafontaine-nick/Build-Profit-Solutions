@@ -50,6 +50,42 @@ describe('estimateDraftComplexity', () => {
     expect(buildScopeChecklist(draft, 'room_remodel', notes).templateKey).toBe('painting');
   });
 
+  test('keeps interior repaint with localized drywall repair on the painting checklist', () => {
+    const notes =
+      'Interior repaint — occupied 2-story home. Main floor: 1,400 sqft. Upper floor: 1,000 sqft. Paint walls and ceilings throughout both floors. Patch and sand approximately 18 sqft of damaged drywall in one bedroom. Repaint 14 interior doors and all baseboards. Kitchen cabinets, closets, and exterior surfaces are excluded.';
+    const draft = {
+      projectType: 'painting',
+      originalNotes: notes,
+      rooms: [{ name: 'Interior Repaint and Bedroom Drywall Repair', scope: notes }],
+    };
+
+    expect(classifyEstimateTier(draft, notes)).toBe('room_remodel');
+    expect(checklistTemplateKey(draft, 'room_remodel', notes)).toBe('painting');
+  });
+
+  test('routes a mixed interior refresh away from a stale plumbing project type', () => {
+    const notes =
+      'Full interior refresh on a 1,900 sqft house. Paint all walls and ceilings, new LVP throughout main floor about 1,100 sqft, update 6 interior doors and trim, patch drywall where needed. No exterior work on this one.';
+    const draft = {
+      projectType: 'plumbing',
+      originalNotes: notes,
+      rooms: [{ name: 'Interior refresh', scope: notes }],
+    };
+
+    const checklist = buildScopeChecklist(draft, 'room_remodel', notes);
+    const stateById = Object.fromEntries(checklist.items.map((item) => [item.id, item.state]));
+
+    expect(classifyEstimateTier(draft, notes)).toBe('room_remodel');
+    expect(checklist.templateKey).toBe('room_remodel');
+    expect(stateById.paint).toBe('included');
+    expect(stateById.flooring).toBe('included');
+    expect(stateById.trim).toBe('included');
+    expect(stateById.drywall).toBe('included');
+    expect(stateById.plumbing).not.toBe('included');
+    expect(checklist.suggestedMeasurements.flooringSqft).toBe(1100);
+    expect(checklist.suggestedMeasurements.interiorDoorCount).toBe(6);
+  });
+
   test('applying flooring checklist keeps combined notes material/labor total intact', () => {
     const notes =
       'Flooring job: demo existing tile 850 sqft labor $3/sqft. Install 850 sqft LVP material $4.50/sqft labor $3.25/sqft. Baseboards 220 LF at $7/LF.';
