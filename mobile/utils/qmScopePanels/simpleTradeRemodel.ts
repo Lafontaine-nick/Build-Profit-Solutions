@@ -484,6 +484,11 @@ function positiveMeasurement(value: unknown): number | null {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
+/** A mini-split is a specific equipment package, not a generic HVAC system. */
+export function notesImplyMiniSplitHvac(notes: string | null | undefined): boolean {
+  return /\bmini[\s-]?split\b/i.test(String(notes || ''));
+}
+
 function formatHvacQuantityCaption(value: number, unit?: string): string {
   const normalized = String(unit || 'each').toUpperCase();
   const rounded =
@@ -665,6 +670,12 @@ export function inferHvacScopeSelectionsFromMeasurements(
   }
 
   return inferred;
+}
+
+export function inferHvacScopeSelectionsFromNotes(
+  notes: string | null | undefined
+): string[] {
+  return notesImplyMiniSplitHvac(notes) ? ['mini_split'] : [];
 }
 
 function hvacOptionIsPendingTakeoffRead(
@@ -1056,12 +1067,18 @@ function hydrateSimpleTrade(ctx: QmPanelHydrateContext, spec: TradeSpec): Record
   const inferredFromNotes =
     spec.scopeKey === 'roofing'
       ? inferRoofingTradeScopeSelectionsFromNotes(ctx.notes)
-      : [];
+      : spec.scopeKey === 'hvac'
+        ? inferHvacScopeSelectionsFromNotes(ctx.notes)
+        : [];
+  const miniSplitFromNotes =
+    spec.scopeKey === 'hvac' && notesImplyMiniSplitHvac(ctx.notes);
   const current =
     spec.scopeKey === 'hvac'
       ? finalizeHvacScopeSelections(
           ctx.measurements,
-          saved.length
+          miniSplitFromNotes
+            ? mergeHvacScopeSelections(saved, inferredFromNotes)
+            : saved.length
             ? saved
             : inferredFromMeasurements.length
               ? inferredFromMeasurements
@@ -1092,7 +1109,14 @@ function hydrateSimpleTrade(ctx: QmPanelHydrateContext, spec: TradeSpec): Record
 
 function syncSimpleTrade(items: ScopeChecklistItem[], measurements: Record<string, unknown>, spec: TradeSpec): ScopeChecklistItem[] {
   const included = includedIds(spec, selectedScope(measurements, spec.scopeKey));
+  const miniSplitSelected =
+    spec.scopeKey === 'hvac' && selectedScope(measurements, 'hvac').includes('mini_split');
   let next = items.map((item) => {
+    if (spec.scopeKey === 'hvac' && item.id === 'hvac' && miniSplitSelected) {
+      return item.state === 'excluded'
+        ? item
+        : { ...item, state: 'excluded' as const, noteBacked: false };
+    }
     if (!spec.embeddedIds.includes(item.id)) return item;
     if (included.has(item.id)) return item.state === 'included' ? item : { ...item, state: 'included' as const, noteBacked: true };
     return item.state === 'included' ? { ...item, state: 'excluded' as const, noteBacked: false } : item;

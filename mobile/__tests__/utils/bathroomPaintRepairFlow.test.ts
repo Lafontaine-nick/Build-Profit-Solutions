@@ -9,6 +9,9 @@ import {
 describe('bathroomPaintRepairFlow', () => {
   it('infers affected area below full-room threshold', () => {
     expect(
+      inferBathroomPaintRepairScopeFromMeasurements({ wallPaintSqft: '176' })
+    ).toBe('affected_area');
+    expect(
       inferBathroomPaintRepairScopeFromMeasurements({ wallPaintSqft: '120' })
     ).toBe('affected_area');
   });

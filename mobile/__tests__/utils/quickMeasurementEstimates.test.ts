@@ -23,6 +23,18 @@ describe('getQuickMeasurementEstimate', () => {
     expect(getQuickMeasurementEstimate('exteriorPaintSqft', {})).toBeNull();
     expect(getQuickMeasurementEstimate('drywallSqft', {})).toBeNull();
     expect(getQuickMeasurementEstimate('wallPaintSqft', {})).toBeNull();
+    expect(getQuickMeasurementEstimate('flooringSqft', {})).toBeNull();
+  });
+
+  test('flooring estimate matches conditioned floor area on addition template', () => {
+    const estimate = getQuickMeasurementEstimate(
+      'flooringSqft',
+      { floorAreaSqft: '400' },
+      undefined,
+      'addition'
+    );
+    expect(estimate?.value).toBe(400);
+    expect(estimate?.formulaId).toBe('flooring_from_conditioned_floor_area');
   });
 
   test('roof squares uses footprint + pitch + waste, not living sqft directly', () => {

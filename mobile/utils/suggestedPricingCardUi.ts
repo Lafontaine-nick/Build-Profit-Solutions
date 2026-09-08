@@ -1282,12 +1282,6 @@ export function buildSuggestedPricingCardDisplay(input: {
                         ''
                       )
                     : formatSuggestedSplitLine(block)
-                }${
-                  block.pricingDetail &&
-                  !isFramingShellLineCard &&
-                  !isHvacPackageLineCard
-                    ? ` · ${block.pricingDetail}`
-                    : ''
                 }`,
     unitRateLine:
       unitRateLine && /reference only/i.test(unitRateLine)
@@ -1310,6 +1304,29 @@ export function buildSuggestedPricingCardDisplay(input: {
       ? insulationAssemblyDetailRows
       : null,
   };
+}
+
+/** True when Confirm Scope suggested pricing renders a quantity line above the price. */
+export function confirmScopeSuggestedCardShowsQuantityLine(input: {
+  itemId: string;
+  block: SuggestedPricingBlock;
+  quantitySource?: string | null;
+  hasPrimaryTakeoff?: boolean;
+  livingSf?: number | null;
+  confidenceLabel?: string | null;
+  adjusted?: boolean;
+  hasCurrentPricing?: boolean;
+  forceCompact?: boolean;
+}): boolean {
+  const display = buildSuggestedPricingCardDisplay(input);
+  const isInsulationAssemblyCard = isInsulationAssemblyConfirmScopePricingCard(
+    input.itemId,
+    input.block
+  );
+  const isHvacPackageLineCard = input.itemId === 'hvac';
+  return Boolean(
+    display.quantityLine && !isInsulationAssemblyCard && !isHvacPackageLineCard
+  );
 }
 
 function formatInsulationAssemblyBlendedRateLine(

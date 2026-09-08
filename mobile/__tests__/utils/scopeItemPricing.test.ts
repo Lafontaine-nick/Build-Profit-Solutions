@@ -3688,6 +3688,65 @@ describe('allowance split apply pricing', () => {
       total: 2000,
     });
 
+    const edgeFlatworkInput = inputWith({
+      concreteScope: ['driveways'],
+      concreteSqft: '900',
+      thickenedEdgeCy: '1.98',
+    });
+    const edgeFlatworkNorm = buildNormalizedScopeMeasurementsFromInput(
+      edgeFlatworkInput,
+      { templateKey: 'concrete' }
+    );
+    const edgeFlatworkResolved = resolveChecklistItemQuantity(
+      'pour_flatwork',
+      edgeFlatworkNorm,
+      { templateKey: 'concrete' }
+    );
+    const edgeFlatwork = resolveScopeItemSuggestedPricing(
+      'pour_flatwork',
+      edgeFlatworkInput,
+      'concrete',
+      edgeFlatworkResolved,
+      null
+    );
+    expect(edgeFlatwork.fill?.total).toBeGreaterThan(9000);
+
+    const gravelInput = inputWith({ gravelBaseCy: '11.11' });
+    const gravelNorm = buildNormalizedScopeMeasurementsFromInput(gravelInput, {
+      templateKey: 'concrete',
+    });
+    const gravelResolved = resolveChecklistItemQuantity(
+      'gravel_base',
+      gravelNorm,
+      { templateKey: 'concrete' }
+    );
+    const gravel = resolveScopeItemSuggestedPricing(
+      'gravel_base',
+      gravelInput,
+      'concrete',
+      gravelResolved,
+      null
+    );
+    expect(gravel.fill?.total).toBeGreaterThan(700);
+
+    const pumpInput = inputWith({ concretePumpCount: '1' });
+    const pumpNorm = buildNormalizedScopeMeasurementsFromInput(pumpInput, {
+      templateKey: 'concrete',
+    });
+    const pumpResolved = resolveChecklistItemQuantity(
+      'concrete_pumping',
+      pumpNorm,
+      { templateKey: 'concrete' }
+    );
+    const pump = resolveScopeItemSuggestedPricing(
+      'concrete_pumping',
+      pumpInput,
+      'concrete',
+      pumpResolved,
+      null
+    );
+    expect(pump.fill).toMatchObject({ material: 700, labor: 250, total: 950 });
+
     const formsInput = inputWith({
       concreteScope: ['forms'],
       concreteSqft: '200',

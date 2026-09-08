@@ -40,6 +40,29 @@ describe('scopeQuickMeasurements', () => {
 
     expect(roomAddition?.label).toBe('Room addition');
     expect(garageConversion?.label).toBe('Garage conversion');
+    expect(garageConversion?.placeholder).toBe('400');
+  });
+
+  it('hides new-build structure fields for garage conversion quick measurements', () => {
+    const notes =
+      'Convert 2-car garage to office/studio, about 400 sqft. Insulate walls and ceiling, drywall hang and finish, paint.';
+    const keys = quickMeasurementRowsForTemplate(
+      'addition',
+      'garage_conversion',
+      notes
+    )
+      .flat()
+      .map(field => field.key);
+    expect(keys).toContain('floorAreaSqft');
+    expect(keys).not.toContain('garageSqft');
+    expect(keys).not.toContain('excavationCy');
+    expect(keys).not.toContain('concreteCy');
+    expect(keys).not.toContain('roofSquares');
+    expect(keys).not.toContain('concreteSqft');
+    expect(keys).not.toContain('showerWallTileSqft');
+    expect(keys).toContain('windowCount');
+    expect(keys).toContain('exteriorDoorCount');
+    expect(keys).toContain('interiorDoorCount');
   });
 
   it('upgrades room_remodel to ground_up when plan takeoff looks like a whole home', () => {

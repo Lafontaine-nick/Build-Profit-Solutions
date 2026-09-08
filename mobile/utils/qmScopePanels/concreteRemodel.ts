@@ -1,4 +1,12 @@
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
+import {
+  applyConcretePlanningMeasurements,
+  inferConcreteScopeIds,
+} from '@/utils/concretePlanningMeasurements';
+import {
+  notesImplyExteriorFlatwork,
+  notesImplyStructuralFoundation,
+} from '@/utils/foundationPlanningMeasurements';
 import { inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
 import type { QmPanelDefinition, QmPanelHydrateContext } from '@/utils/qmScopePanels/types';
 
@@ -6,6 +14,7 @@ import type { QmPanelDefinition, QmPanelHydrateContext } from '@/utils/qmScopePa
 export const CONCRETE_QM_SYNC_SCOPE_IDS = new Set([
   'demo_removal',
   'site_prep',
+  'gravel_base',
   'excavation',
   'reinforcement',
   'pour_flatwork',
@@ -14,6 +23,7 @@ export const CONCRETE_QM_SYNC_SCOPE_IDS = new Set([
   'concrete_sealer',
   'decorative_finish',
   'additional_haul_off',
+  'concrete_pumping',
 ]);
 const CONCRETE_QM_LEGACY_BASE_IDS = new Set(['forms', 'finish_seal', 'cleanup', 'finish_options']);
 
@@ -40,6 +50,8 @@ export const CONCRETE_FLATWORK_OPTION_IDS = new Set<ConcreteFlatworkOptionId>([
 const SCOPE_ID_ALIASES: Record<string, string> = {
   footings: 'pour_foundation',
   rebar: 'reinforcement',
+  pumping: 'concrete_pumping',
+  base_gravel: 'gravel_base',
 };
 
 export function concreteScopeCanonicalId(id: string): string {
@@ -56,7 +68,8 @@ function isIncluded(items: ScopeChecklistItem[], id: string): boolean {
 }
 
 function inferredScope(notes: string, items: ScopeChecklistItem[]): string[] {
-  const ids = new Set<string>();
+  const fromMeasurements = inferConcreteScopeIds(notes, {});
+  const ids = new Set(fromMeasurements);
   const add = (id: string, pattern: RegExp, options: { allowNoteInference?: boolean } = {}) => {
     const existing = items.find((item) => item.id === id);
     const keepManualSelection = existing?.state === 'included' && existing.noteBacked !== true;
@@ -69,20 +82,28 @@ function inferredScope(notes: string, items: ScopeChecklistItem[]): string[] {
   if (/\b(?:dirt|soil|earth)\b[^.;]{0,50}\b(?:remove|excavat|dig|cut\s*(?:\/|and)?\s*fill)\b|\b(?:remove|excavat|dig|cut\s*(?:\/|and)?\s*fill)\b[^.;]{0,50}\b(?:dirt|soil|earth)\b/.test(notes)) {
     ids.delete('demo_removal');
   }
-  // A note can mention grading without supplying a priced quantity. Keep that
-  // as a review item rather than silently selecting site prep in the bid.
   add(
     'site_prep',
-    /\b(?:basic\s+)?(?:site\s+prep|grading|subgrade\s+prep)\b/,
-    { allowNoteInference: false }
+    /\b(?:site\s+prep|subgrade|gravel\s+base|base\s+gravel|compaction|grade\s+prep)\b/
   );
-  add('excavation', /\b(?:excavat(?:e|ion)|cut\s*(?:\/|and)?\s*fill|soil\s+movement|dirt|soil)\b[^.;]{0,50}\b(?:\d[\d,]*(?:\.\d+)?\s*(?:cy|cubic\s+yards?)|\d[\d,]*(?:\.\d+)?\s*(?:inches?|["″]))\b|\b(?:\d[\d,]*(?:\.\d+)?\s*(?:cy|cubic\s+yards?)|\d[\d,]*(?:\.\d+)?\s*(?:inches?|["″]))\b[^.;]{0,50}\b(?:excavat(?:e|ion)|cut\s*(?:\/|and)?\s*fill|soil\s+movement|dirt|soil)\b/);
-  add('reinforcement', /\b(?:rebar|mesh|reinforc(?:e|ement))\b/);
+  add('gravel_base', /\b(?:gravel\s+base|base\s+gravel|crushed\s+(?:rock|stone)\s+base|aggregate\s+base)\b/);
+  add(
+    'excavation',
+    /\b(?:excavat(?:e|ion)|dig(?:ging)?|dig\s+out|cut\s*(?:\/|and)?\s*fill|soil\s+movement)\b/
+  );
+  add('reinforcement', /\b(?:rebar|re[\s-]?bar|mesh|reinforc(?:e|ement))\b/);
   add('pour_foundation', /\b(?:footings?|piers?|foundation\s+pour)\b/);
-  add('complex_forming', /\b(?:complex|curved|isolated|raised|thickened|step|unusual)\b[^.;]{0,30}\b(?:forms?|formwork)\b/);
+  add(
+    'complex_forming',
+    /\b(?:forms?|formwork|thickened\s+edge|edge\s+thickening|curb\s+form)\b/
+  );
   add('concrete_sealer', /\b(?:concrete\s+)?sealer\b/);
   add('decorative_finish', /\b(?:stamped|colored|exposed\s+aggregate|decorative|specialty)\s+concrete\b/);
   add('additional_haul_off', /\b(?:extra|additional|excess)\b[^.;]{0,30}\b(?:haul[\s-]?off|disposal|debris)\b/);
+  add(
+    'concrete_pumping',
+    /\b(?:pump\s+truck|concrete\s+pump|pump(?:ing)?\s+(?:truck|if\s+needed|may\s+be|might\s+be|required))\b|\bmight\s+need\s+(?:a\s+)?pump\b/
+  );
   if (
     /\b(?:concrete\s+patio|slab|flatwork|sidewalk|driveway|walkway|rv\s+pad)\b/.test(notes) ||
     isIncluded(items, 'pour_flatwork')
@@ -119,6 +140,8 @@ function scopeSelectionActivatesItem(itemId: string, scope: string[]): boolean {
       return selected.has('footings') || selected.has('pour_foundation');
     case 'site_prep':
       return selected.has('site_prep');
+    case 'gravel_base':
+      return selected.has('gravel_base') || selected.has('base_gravel');
     case 'excavation':
       return selected.has('excavation');
     case 'reinforcement':
@@ -131,6 +154,8 @@ function scopeSelectionActivatesItem(itemId: string, scope: string[]): boolean {
       return selected.has('decorative_finish');
     case 'additional_haul_off':
       return selected.has('additional_haul_off');
+    case 'concrete_pumping':
+      return selected.has('concrete_pumping') || selected.has('pumping');
     default:
       return selected.has(itemId);
   }
@@ -144,7 +169,7 @@ export function isConcreteQmScopeItemActive(
   const legacyScope = readLegacyConcreteScope(measurements);
   const scope = readConcreteScope(measurements);
   const effectiveScope = scope.length ? scope : legacyScope;
-  if (Array.isArray(rawScope) || legacyScope.length > 0) {
+  if ((Array.isArray(rawScope) && rawScope.length > 0) || legacyScope.length > 0) {
     return scopeSelectionActivatesItem(itemId, effectiveScope);
   }
   switch (itemId) {
@@ -152,17 +177,32 @@ export function isConcreteQmScopeItemActive(
       return positiveNumber(measurements.concreteDemoSqft) != null;
     case 'site_prep':
       return positiveNumber(measurements.concreteSubgradePrepSqft) != null;
+    case 'gravel_base':
+      return positiveNumber(measurements.gravelBaseCy) != null;
     case 'excavation':
       return positiveNumber(measurements.excavationCy) != null;
     case 'reinforcement':
+      return positiveNumber(measurements.concreteReinforcementSqft) != null;
     case 'concrete_sealer':
     case 'decorative_finish':
-    case 'pour_flatwork':
       return positiveNumber(measurements.concreteSqft) != null;
+    case 'pour_flatwork':
+      return (
+        [...CONCRETE_FLATWORK_OPTION_IDS].some((id) =>
+          positiveNumber(
+            (measurements.concreteAreaByType as Record<string, unknown> | undefined)?.[id]
+          ) != null
+        ) || positiveNumber(measurements.concreteSqft) != null
+      );
     case 'complex_forming':
       return positiveNumber(measurements.complexFormingLf) != null;
     case 'additional_haul_off':
       return positiveNumber(measurements.additionalHaulOffLoadCount) != null;
+    case 'concrete_pumping':
+      return (
+        measurements.concretePumpReviewNeeded === true ||
+        positiveNumber(measurements.concretePumpCount) != null
+      );
     case 'pour_foundation':
       return positiveNumber(measurements.concreteCy) != null;
     default:
@@ -189,6 +229,7 @@ export function isConcreteConfirmScopePricingCard(itemId: string | null | undefi
 const CONCRETE_SCOPE_ITEM_LABELS: Record<string, string> = {
   demo_removal: 'Demo / removal',
   site_prep: 'Basic subgrade prep / grading',
+  gravel_base: 'Imported gravel base material',
   excavation: 'Excavation / soil movement',
   reinforcement: 'Rebar / mesh',
   pour_flatwork: 'Pour flatwork',
@@ -197,6 +238,7 @@ const CONCRETE_SCOPE_ITEM_LABELS: Record<string, string> = {
   concrete_sealer: 'Concrete sealer',
   decorative_finish: 'Decorative finish',
   additional_haul_off: 'Additional haul-off / disposal',
+  concrete_pumping: 'Concrete pump truck',
 };
 
 export function syncConcreteQmScopeItems(
@@ -243,27 +285,103 @@ export function syncConcreteQmScopeItems(
   return changed ? next : items;
 }
 
+function measurementFieldString(value: unknown): string {
+  const n = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? String(n) : '';
+}
+
 function hydrateConcrete(ctx: QmPanelHydrateContext): Record<string, unknown> {
   const saved = readConcreteScope(ctx.measurements);
   const legacy = readLegacyConcreteScope(ctx.measurements);
-  const inferred = inferredScope(String(ctx.notes || '').toLowerCase(), ctx.checklistItems);
-  const scope = saved.length ? saved : legacy.length ? legacy : inferred;
-  const hasExcavationQuantity = positiveNumber(ctx.measurements.excavationCy) != null;
+  const notes = String(ctx.notes || '').toLowerCase();
+  const planned = ctx.notes
+    ? applyConcretePlanningMeasurements({}, ctx.notes)
+    : {};
+  const mergedMeasurements = { ...ctx.measurements } as Record<string, unknown>;
+  const planningScalars: Array<[keyof typeof planned, string]> = [
+    ['gravelBaseCy', 'gravelBaseCy'],
+    ['concreteStructuralGravelBaseCy', 'concreteStructuralGravelBaseCy'],
+    ['concreteFlatworkGravelBaseCy', 'concreteFlatworkGravelBaseCy'],
+    ['concreteStructuralSubgradePrepSqft', 'concreteStructuralSubgradePrepSqft'],
+    ['concreteFlatworkSubgradePrepSqft', 'concreteFlatworkSubgradePrepSqft'],
+    ['concreteStructuralReinforcementSqft', 'concreteStructuralReinforcementSqft'],
+    ['concreteFlatworkReinforcementSqft', 'concreteFlatworkReinforcementSqft'],
+    ['gravelBaseDepthInches', 'gravelBaseDepthInches'],
+    ['concretePumpCount', 'concretePumpCount'],
+    ['thickenedEdgeLf', 'thickenedEdgeLf'],
+    ['thickenedEdgeCy', 'thickenedEdgeCy'],
+    ['complexFormingLf', 'complexFormingLf'],
+  ];
+  for (const [plannedKey, targetKey] of planningScalars) {
+    const plannedValue = positiveNumber(planned[plannedKey]);
+    if (plannedValue == null || positiveNumber(mergedMeasurements[targetKey]) != null) {
+      continue;
+    }
+    mergedMeasurements[targetKey] = measurementFieldString(plannedValue);
+  }
+  if (
+    planned.concretePumpReviewNeeded === true &&
+    mergedMeasurements.concretePumpReviewNeeded !== true
+  ) {
+    mergedMeasurements.concretePumpReviewNeeded = true;
+  }
+  const inferred = inferredScope(notes, ctx.checklistItems);
+  const fromMeasurements = inferConcreteScopeIds(notes, mergedMeasurements);
+  const mergedScope = saved.length
+    ? saved
+    : legacy.length
+      ? legacy
+      : [...new Set([...inferred, ...fromMeasurements])];
+  const hasExcavationQuantity = positiveNumber(mergedMeasurements.excavationCy) != null;
+  const hasSitePrepQuantity =
+    positiveNumber(mergedMeasurements.concreteSubgradePrepSqft) != null;
+  const notesImplySitePrep =
+    /\b(?:site\s+prep|subgrade|gravel\s+base|base\s+gravel|compaction|grade\s+prep)\b/.test(
+      notes
+    );
   const manuallyIncludedSitePrep = ctx.checklistItems.some(
     (item) => item.id === 'site_prep' && item.state === 'included' && item.noteBacked !== true
   );
   const legacyIncludedByBaseFlatwork = new Set(['forms', 'finish_seal', 'cleanup', 'finish_options']);
-  const withoutLegacyBaseItems = scope.filter((id) => !legacyIncludedByBaseFlatwork.has(id));
+  const withoutLegacyBaseItems = mergedScope.filter((id) => !legacyIncludedByBaseFlatwork.has(id));
   const cleanedScope =
-    hasExcavationQuantity || manuallyIncludedSitePrep
+    hasExcavationQuantity ||
+    manuallyIncludedSitePrep ||
+    hasSitePrepQuantity ||
+    notesImplySitePrep
       ? withoutLegacyBaseItems
       : withoutLegacyBaseItems.filter((id) => concreteScopeCanonicalId(id) !== 'site_prep');
-  const selectedFlatworkIds = cleanedScope.filter((id) => CONCRETE_FLATWORK_OPTION_IDS.has(id as ConcreteFlatworkOptionId));
-  const hasAreaBreakdown = ctx.measurements.concreteAreaByType && Object.keys(ctx.measurements.concreteAreaByType).length > 0;
+  const selectedFlatworkIds = cleanedScope.filter((id) =>
+    CONCRETE_FLATWORK_OPTION_IDS.has(id as ConcreteFlatworkOptionId)
+  );
+  const hasAreaBreakdown =
+    mergedMeasurements.concreteAreaByType &&
+    Object.keys(mergedMeasurements.concreteAreaByType).length > 0;
+  const areaByType = hasAreaBreakdown
+    ? { ...(mergedMeasurements.concreteAreaByType as Record<string, unknown>) }
+    : selectedFlatworkIds.length === 1 && positiveNumber(mergedMeasurements.concreteSqft)
+      ? { [selectedFlatworkIds[0]]: positiveNumber(mergedMeasurements.concreteSqft) }
+      : null;
+  const thicknessByType =
+    mergedMeasurements.concreteThicknessByType &&
+    Object.keys(mergedMeasurements.concreteThicknessByType).length > 0
+      ? { ...(mergedMeasurements.concreteThicknessByType as Record<string, unknown>) }
+      : selectedFlatworkIds.length === 1 &&
+          positiveNumber(mergedMeasurements.concreteThicknessInches)
+        ? {
+            [selectedFlatworkIds[0]]: positiveNumber(
+              mergedMeasurements.concreteThicknessInches
+            ),
+          }
+        : null;
   return {
-    ...ctx.measurements,
+    ...mergedMeasurements,
     concreteScope: cleanedScope.length ? cleanedScope : null,
-    ...(selectedFlatworkIds.length > 1 && !hasAreaBreakdown ? { concreteSqft: null } : {}),
+    ...(areaByType ? { concreteAreaByType: areaByType } : {}),
+    ...(thicknessByType ? { concreteThicknessByType: thicknessByType } : {}),
+    ...(selectedFlatworkIds.length > 1 && !hasAreaBreakdown && !areaByType
+      ? { concreteSqft: null }
+      : {}),
   };
 }
 
@@ -308,7 +426,16 @@ export const CONCRETE_SCOPE_OPTIONS = [
     label: 'Basic subgrade prep / grading',
     measurementKey: 'concreteSubgradePrepSqft' as const,
     unit: 'sqft',
-    helperText: 'Optional basic leveling and compaction for the affected flatwork area. National average is $2/sqft.',
+    helperText:
+      'Grading and compaction for the flatwork area ($2/sqft). Imported gravel material is separate — use Gravel base material when noted.',
+  },
+  {
+    id: 'gravel_base',
+    label: 'Imported gravel base material',
+    measurementKey: 'gravelBaseCy' as const,
+    unit: 'CY',
+    helperText:
+      'Crushed rock / aggregate base material CY. Compaction and grading are separate under subgrade prep.',
   },
   {
     id: 'excavation',
@@ -336,7 +463,8 @@ export const CONCRETE_SCOPE_OPTIONS = [
     label: 'Complex forming',
     measurementKey: 'complexFormingLf' as const,
     unit: 'LF',
-    helperText: 'Additional curved, stepped, isolated, or unusual formwork beyond a normal perimeter.',
+    helperText:
+      'Edge forming LF for thickened edges, curves, steps, or unusual formwork. Extra edge concrete CY is calculated separately when noted.',
   },
   {
     id: 'concrete_sealer',
@@ -356,6 +484,14 @@ export const CONCRETE_SCOPE_OPTIONS = [
     measurementKey: 'additionalHaulOffLoadCount' as const,
     unit: 'load',
     helperText: 'Disposal beyond normal flatwork or demolition cleanup.',
+  },
+  {
+    id: 'concrete_pumping',
+    label: 'Concrete pump truck',
+    measurementKey: 'concretePumpCount' as const,
+    unit: 'each',
+    helperText:
+      'Optional pump-truck allowance when access may require pumping. Confirm on site before sending.',
   },
 ] as const;
 

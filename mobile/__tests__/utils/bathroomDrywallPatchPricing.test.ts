@@ -86,7 +86,30 @@ describe('resolveBathroomDrywallPatchSuggestedPricing', () => {
       paintRepairScope: 'affected_area',
       severity: 'heavy',
     });
-    expect(heavy?.fill?.total).toBe(Math.round(700 * 1.22));
+    expect(heavy?.fill?.total).toBe(850);
+  });
+
+  it('blends large paint SF toward full-room rates instead of linear patch cliff', () => {
+    const moderate = resolveBathroomDrywallPatchSuggestedPricing({
+      checklistItems: [item('paint_repair'), item('shower_tile')],
+      quantity: 176,
+      useCombinedAssembly: true,
+      paintRepairScope: 'affected_area',
+      severity: 'moderate',
+    });
+    expect(moderate?.fill?.total).toBe(1750);
+    expect(moderate?.fill?.total).toBeLessThan(2500);
+    expect(moderate?.fill?.basis).toEqual({ quantity: 176, unit: 'sqft' });
+
+    const atThreshold = resolveBathroomDrywallPatchSuggestedPricing({
+      checklistItems: [item('paint_repair'), item('shower_tile')],
+      quantity: 180,
+      useCombinedAssembly: true,
+      paintRepairScope: 'affected_area',
+      severity: 'moderate',
+    });
+    expect(atThreshold?.fill?.total).toBe(1800);
+    expect(atThreshold?.fill?.total! - moderate?.fill?.total!).toBeLessThan(100);
   });
 
   it('does not use combined assembly for full-room scope', () => {

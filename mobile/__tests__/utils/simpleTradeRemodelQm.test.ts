@@ -16,6 +16,7 @@ import {
   hvacFieldHasTakeoffEvidence,
   hvacScopeChipReviewState,
   hvacScopeOptionIdForMeasurementField,
+  inferHvacScopeSelectionsFromNotes,
   inferHvacScopeSelectionsFromMeasurements,
   resolveHvacTradeScopeSelections,
   summarizeHvacScopePanel,
@@ -37,6 +38,22 @@ import {
 import { filterChecklistItemsForTrade } from '@/utils/planImportTradeConfig';
 
 describe('simple trade QM panels', () => {
+  it('routes mini-split notes to mini-split equipment pricing', () => {
+    expect(inferHvacScopeSelectionsFromNotes('Install one mini-split HVAC system.')).toEqual([
+      'mini_split',
+    ]);
+
+    const measurements = applyHvacScopeMeasurements({
+      tradeScopeSelections: { hvac: ['mini_split'] },
+    });
+    expect(measurements.hvacEquipmentReplacementCount).toBe('1');
+    expect(
+      (measurements.itemQuantities as Record<string, { quantity?: number }>)?.[
+        'mini_split'
+      ]?.quantity
+    ).toBe(1);
+  });
+
   it('defines the three remaining simple-trade templates', () => {
     expect(Object.keys(SIMPLE_TRADE_SPECS)).toEqual(
       expect.arrayContaining(['deck_patio', 'hvac', 'roofing'])

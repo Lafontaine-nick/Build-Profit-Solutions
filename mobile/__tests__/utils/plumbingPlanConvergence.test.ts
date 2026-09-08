@@ -26,6 +26,7 @@ import {
   standalonePlumbingProjectTitle,
   parsePlumbingProjectContextFromNotes,
   tagPlumbingNotesMeasurementSources,
+  restrictPlumbingMeasurementsForServiceMode,
   summarizePlumbingNoteBullets,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { groupScopeChecklistItems } from '@/utils/estimateScopeChecklistUi';
@@ -1264,5 +1265,95 @@ describe('plumbing notes routing', () => {
       unit: 'each',
       quantitySource: 'notes',
     });
+  });
+
+  const SERVICE_CALL_NOTES = `Service call for kitchen sink leak and slow tub drain.
+
+1 service call.
+1 fixture repair (kitchen faucet cartridge / supply line).
+1 drain cleaning (main bath tub).
+No rough-in or repipe.`;
+
+  it('parses service-call plumbing notes without rough-in or fixture allowance bleed', () => {
+    expect(inferPlumbingWorkflowModeFromNotes(SERVICE_CALL_NOTES)).toBe(
+      'service'
+    );
+    expect(standalonePlumbingProjectTitle(SERVICE_CALL_NOTES)).toBe(
+      'Plumbing service call'
+    );
+    expect(notesExcludePlumbingScopePhrase(SERVICE_CALL_NOTES, /\brough(?:-in| in)\b/i)).toBe(
+      true
+    );
+    expect(notesExplicitPlumbingFixtureAllowance(SERVICE_CALL_NOTES)).toBe(
+      false
+    );
+    expect(parsePlumbingMeasurementsFromNotes(SERVICE_CALL_NOTES)).toEqual({
+      serviceCallCount: 1,
+      fixtureRepairCount: 1,
+      drainCleaningCount: 1,
+    });
+    expect(
+      restrictPlumbingMeasurementsForServiceMode(
+        parsePlumbingMeasurementsFromNotes(SERVICE_CALL_NOTES)
+      )
+    ).toEqual({
+      serviceCallCount: 1,
+      fixtureRepairCount: 1,
+      drainCleaningCount: 1,
+    });
+    expect(summarizePlumbingNoteBullets(SERVICE_CALL_NOTES, 6)).toEqual([
+      '1 service call',
+      '1 fixture repair',
+      '1 drain cleaning',
+    ]);
+  });
+
+  it('bootstraps service-call drafts with three scope cards and ~$850 pricing', () => {
+    const draft = createStandalonePlumbingDraft(SERVICE_CALL_NOTES, {
+      estimatingMode: 'selected_trade',
+      selectedTrade: 'plumbing',
+      tradeWorkflowSource: 'standalone_trade',
+      plumbingWorkflowMode: inferPlumbingWorkflowModeFromNotes(SERVICE_CALL_NOTES),
+      plumbingRoomContext: inferPlumbingRoomContextFromNotes(SERVICE_CALL_NOTES),
+    });
+    expect(draft.projectTitle).toBe('Plumbing service call');
+    expect(draft.scopeChecklist?.templateKey).toBe('plumbing_service');
+    const included = (draft.scopeChecklist?.items || []).filter(
+      item => item.state === 'included'
+    );
+    expect(included.map(item => item.id).sort()).toEqual(
+      ['drain_cleaning', 'fixture_repair', 'service_call'].sort()
+    );
+    expect(
+      Number(draft.scopeMeasurements?.plumbingRoughPointCount || 0)
+    ).toBe(0);
+    expect(
+      Number(draft.scopeMeasurements?.plumbingFixturesHardwareCount || 0)
+    ).toBe(0);
+    expect(
+      draft.scopeMeasurements?.quickMeasurementSources?.serviceCallCount
+    ).toBe('notes');
+
+    const normalized = normalizeScopeMeasurements(draft.scopeMeasurements as never);
+    const priceFor = (itemId: string) => {
+      const resolved = resolveChecklistItemQuantity(itemId, normalized, {
+        templateKey: 'plumbing_service',
+        notes: SERVICE_CALL_NOTES,
+      });
+      return resolveScopeItemSuggestedPricing(
+        itemId,
+        draft.scopeMeasurements as never,
+        'plumbing_service',
+        resolved
+      ).fill?.total;
+    };
+    expect(priceFor('service_call')).toBe(250);
+    expect(priceFor('fixture_repair')).toBe(300);
+    expect(priceFor('drain_cleaning')).toBe(300);
+    expect(
+      (priceFor('service_call') || 0) +
+        (priceFor('fixture_repair') || 0) +
+        (priceFor('drain_cleaning') || 0)
+    ).toBe(850);
   });
 });

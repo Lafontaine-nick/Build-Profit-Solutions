@@ -86,7 +86,19 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   ductwork: /\b(duct(?:work)?|ducting)\b/,
   decking: /\b(deck(?:ing)?|composite\s+deck)\b/,
   railing: /\b(rail(?:ing)?|guardrail)\b/,
-  pour_flatwork: /\b(concrete\s+patio|slab|flatwork|sidewalk|driveway)\b/,
+  pour_flatwork:
+    /\b(?:concrete\s+patio|slab|flatwork|sidewalk|driveway|pour\b[^.]{0,40}\b(?:driveway|slab|patio|sidewalk|walkway))\b/,
+  site_prep:
+    /\b(site\s+prep|subgrade|gravel\s+base|base\s+gravel|compaction|grade\s+prep)\b/,
+  gravel_base:
+    /\b(gravel\s+base|base\s+gravel|crushed\s+(?:rock|stone)\s+base|aggregate\s+base)\b/,
+  reinforcement: /\b(rebar|re[\s-]?bar|wire\s+mesh|mesh\s+reinforcement|#4\s+bar)\b/,
+  complex_forming:
+    /\b(?:forms?|formwork|thickened\s+edge|edge\s+thickening|curb\s+form)\b/,
+  concrete_pumping:
+    /\b(?:pump\s+truck|concrete\s+pump|pump(?:ing)?\s+(?:truck|if\s+needed|may\s+be|might\s+be|required))\b|\bmight\s+need\s+(?:a\s+)?pump\b/,
+  decorative_finish:
+    /\b(stamped\s+concrete|exposed\s+aggregate|stain(?:ed)?\s+concrete|decorative\s+finish)\b/,
   trenching: /\b(trench(?:ing)?|utility\s+trench)\b/,
   hang: /\b(hang\s+drywall|drywall\s+hang)\b/,
   finish_tape: /\b(tape|mud|finish\s+drywall)\b/,
@@ -105,11 +117,11 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   landscaping:
     /\b(landscap(?:e|ing)|sod|irrigation|site\s+walls?|fence(?:s|ing)?|gates?)\b/,
   excavation:
-    /\b(excavat(?:e|ion)|dig(?:ging)?|trench(?:ing)?|cut\s+foundation)\b/,
+    /\b(excavat(?:e|ion)|dig(?:ging)?|dig\s+out|trench(?:ing)?|cut\s+foundation)\b/,
   grading: /\b(grading|grade\s+site|rough\s+grade|final\s+grade)\b/,
   utility_trenching:
     /\b(utility\s+trench(?:ing)?|trench(?:ing)?\s+(?:for\s+)?utilities|water\s+line|sewer\s+line|gas\s+line)\b/,
-  foundation: /\b(foundation|footings?|slab|stem\s+wall|crawlspace|basement)\b/,
+  foundation: /\b(foundation|footings?|stem\s+wall|crawlspace)\b|\b(?:pour|new)\b[^.]{0,30}\bslab\b/,
   concrete: /\b(concrete|slab|footings?|foundation\s+pour)\b/,
   framing: /\b(fram(?:e|ing)|wall\s+framing|roof\s+framing|shell)\b/,
   openings:
@@ -148,12 +160,56 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
     /\btrim\s*&?\s*finish\b|\b(?:window|door)\s+casing\b|\bstool\s*(?:\/|and)?\s*apron\b/i,
 };
 
+export type OwnerHandledScopeCategory = 'sitework' | 'utilities' | 'landscaping';
+
+const OWNER_HANDLED_SCOPE_KEYWORDS: Record<OwnerHandledScopeCategory, RegExp> = {
+  sitework:
+    /\b(?:sitework|site\s*work|excavat(?:e|ion)?|grading|site\s+prep)\b/i,
+  utilities: /\butilities?\b/i,
+  landscaping: /\blandscap(?:e|ing)\b/i,
+};
+
+const OWNER_HANDLED_SCOPE_ITEM_CATEGORIES: Partial<
+  Record<string, OwnerHandledScopeCategory>
+> = {
+  sitework: 'sitework',
+  excavation: 'sitework',
+  grading: 'sitework',
+  utility_taps: 'utilities',
+  utility_trenching: 'utilities',
+  landscaping: 'landscaping',
+};
+
+/** True when notes say the owner/customer handles sitework, utilities, or landscaping. */
+export function notesOwnerHandlesScopeCategory(
+  notes: string | null | undefined,
+  category: OwnerHandledScopeCategory
+): boolean {
+  const text = String(notes || '').trim();
+  if (!text) return false;
+  const keyword = OWNER_HANDLED_SCOPE_KEYWORDS[category];
+  const ownerClause = text.match(
+    /\b(?:customer|owner|homeowner|client)\s+(?:is\s+)?(?:handling|doing|providing|taking\s+care\s+of)\s+([^.;]+)/i
+  );
+  if (ownerClause && keyword.test(ownerClause[1])) return true;
+  if (/\bseparate\s+from\s+us\b/i.test(text) && keyword.test(text)) return true;
+  if (
+    /\b(?:by\s+others|not\s+included|excluded|owner[\s-]provided)\b/i.test(text) &&
+    keyword.test(text)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 const CHECKLIST_NO_HINTS: Record<string, RegExp> = {
   appliances: /\b(no\s+appliances|appliances\s+not\s+included|owner\s+appliances)\b/,
   // Already out of the house — removal is not in this bid.
   appliance_removal:
     /\b(appliances?\s+have\s+(?:all\s+)?(?:already\s+)?been\s+removed|appliances?\s+already\s+(?:been\s+)?(?:removed|out|gone)|already\s+(?:been\s+)?removed\s+(?:the\s+)?appliances?|appliances?\s+(?:are|were)\s+already\s+(?:removed|out|gone))\b/,
   permits: /\b(no\s+permits|permits\s+not\s+included|owner\s+pulls?\s+permits)\b/,
+  garage_doors:
+    /\b(?:keep(?:ing)?\s+(?:the\s+)?(?:existing\s+)?garage\s+door|existing\s+garage\s+door\s+(?:for\s+now|stays?|remain(?:s|ing)?)|(?:no|without|not)\s+(?:a\s+)?(?:new\s+)?garage\s+door)\b/,
   foundation:
     /\b(no|without|not\s+including)\s+(?:new\s+)?(?:foundation|footings?|slab)\b|\b(?:foundation|footings?|slab)\s+(?:not\s+included|excluded)\b/,
   roof_tie_in:
@@ -206,6 +262,13 @@ export function inferItemStateFromNotes(
   notes: string | null | undefined
 ): 'included' | 'excluded' | 'unsure' {
   const n = String(notes || '').toLowerCase();
+  const ownerCategory = OWNER_HANDLED_SCOPE_ITEM_CATEGORIES[itemId];
+  if (
+    ownerCategory &&
+    notesOwnerHandlesScopeCategory(notes, ownerCategory)
+  ) {
+    return 'excluded';
+  }
   if (CHECKLIST_NO_HINTS[itemId]?.test(n)) return 'excluded';
   if (itemId === 'floor_demo') return floorDemoNotesHint(n) ? 'included' : 'unsure';
   if (itemId === 'trim') return inferTrimStateFromNotes(n);

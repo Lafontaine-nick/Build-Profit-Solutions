@@ -234,6 +234,8 @@ export function resolveQuickMeasurementFields(params: {
   /** When ground_up / addition, show the full Quick measurements field list. */
   templateKey?: string | null;
   wholeHomeLayout?: boolean;
+  projectType?: string | null;
+  notes?: string | null;
   keepingExistingWetArea?: boolean;
   wetAreaInstallChoiceId?: string | null;
   tradeScopeSelections?: Record<string, string[] | null> | null;
@@ -282,6 +284,8 @@ export function resolveQuickMeasurementFields(params: {
       noteBackedKeys: noteKeySet,
       templateKey: params.templateKey,
       wholeHomeLayout: params.wholeHomeLayout,
+      projectType: params.projectType,
+      notes: params.notes,
       bathCount: params.measurements.bathCount,
       tilePanBathCount: params.measurements.tilePanBathCount,
       keepingExistingWetArea: keepingExisting,
@@ -304,7 +308,11 @@ export function resolveQuickMeasurementFields(params: {
             field.key,
             params.measurements,
             undefined,
-            params.templateKey
+            params.templateKey,
+            {
+              projectType: params.projectType,
+              notes: params.notes,
+            }
           )
         : null;
 

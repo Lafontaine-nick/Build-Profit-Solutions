@@ -607,6 +607,41 @@ describe('mobile scope measurement parser', () => {
     expect(Number(input.cabinetPaintSqft)).toBe(200);
   });
 
+  it('sums labeled multi-floor areas and honors excluded cabinet paint', () => {
+    const notes =
+      'Interior repaint — occupied 2-story home. Main floor: 1,400 sqft. Upper floor: 1,000 sqft. Paint walls and ceilings throughout both floors. Repaint 14 interior doors and all baseboards. Kitchen cabinets, closets, and exterior surfaces are excluded.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'painting',
+      projectType: 'painting',
+    });
+
+    expect(parsed.paintAreaSqft).toBe(2400);
+    expect(parsed.originalPaintAreaReferenceSqft).toBe(2400);
+    expect(parsed.combinedPaintableAreaSqft).toBe(7680);
+    expect(parsed.paintAreaBasis).toBe('floor_area');
+    expect(parsed.interiorDoorCount).toBe(14);
+    expect(parsed.paintScope).toEqual(
+      expect.arrayContaining(['walls', 'ceilings', 'trim', 'doors'])
+    );
+    expect(parsed.paintScope).not.toContain('cabinets');
+    expect(parsed.paintScope).not.toContain('exterior');
+    expect(parsed.cabinetPaintSqft).toBeUndefined();
+
+    const hydrated = initialScopeMeasurementInputExtended({
+      projectType: 'painting',
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'painting',
+        suggestedMeasurements: { paintAreaSqft: 1400 } as any,
+      },
+    });
+    expect(Number(hydrated.floorAreaSqft)).toBe(2400);
+    expect(Number(hydrated.combinedPaintableAreaSqft)).toBe(7680);
+    expect(hydrated.paintPricingMethod).toBe('combined');
+    expect(String(hydrated.wallPaintSqft || '')).toBe('');
+    expect(String(hydrated.ceilingPaintSqft || '')).toBe('');
+  });
+
   it('parses canonical Electrical notes examples onto owned keys', () => {
     const parsed = parseScopeMeasurementsFromNotes(
       'Install 18 recessed lights. Add 12 standard outlets. Add 4 GFCI outlets. Install a 200 amp panel. Run two dedicated 20 amp circuits. Install one 50 amp range circuit. Add 3 ceiling fans. Finished-wall fishing, include rough-in and conduit.',
@@ -669,5 +704,34 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.reframingRequested).toBe(true);
     expect(parsed.framingOpeningCount).toBe(2);
     expect(parsed.itemQuantities).not.toHaveProperty('openings');
+  });
+
+  const GARAGE_CONVERSION_NOTES =
+    'Convert 2-car garage to office/studio, about 400 sqft. Insulate walls and ceiling, drywall hang and finish, paint, add 4 recessed lights and a few outlets, mini split HVAC. Keep existing garage door for now.';
+
+  it('parses convert-garage notes into floor area — not 2-car garage planning default', () => {
+    const parsed = parseScopeMeasurementsFromNotes(GARAGE_CONVERSION_NOTES, {
+      templateKey: 'addition',
+      projectType: 'garage_conversion',
+    });
+    expect(parsed.floorAreaSqft).toBe(400);
+    expect(parsed.garageSqft).toBeUndefined();
+    expect(parsed.garageDoorDoubleCount).toBeUndefined();
+    expect(parsed.garageDoorSingleCount).toBeUndefined();
+    expect(parsed.drywallSqft).toBeUndefined();
+  });
+
+  const GROUND_UP_HOME_NOTES = `New 2,800 sqft two story home with attached 2-car garage. Standard builder grade finishes. Owner is taking care of sitework, utilities, and landscaping separate from us.`;
+
+  it('parses new-build home living area without stealing SF into garage', () => {
+    const parsed = parseScopeMeasurementsFromNotes(GROUND_UP_HOME_NOTES, {
+      templateKey: 'ground_up',
+      projectType: 'new_build',
+    });
+    expect(parsed.floorAreaSqft).toBe(2800);
+    expect(parsed.garageSqft).toBe(500);
+    expect(parsed.storyCount).toBe(2);
+    expect(parsed.garageDoorDoubleCount).toBe(1);
+    expect(parsed.garageDoorSingleCount).toBeUndefined();
   });
 });

@@ -39,6 +39,26 @@ describe('planImportPayloadFromDraft', () => {
     expect(planImportPayloadFromDraft(null)).toBeNull();
   });
 
+  it('returns null for notes-only drafts with planning estimate sources only', () => {
+    const payload = planImportPayloadFromDraft({
+      scopeMeasurements: {
+        floorAreaSqft: 400,
+        flooringSqft: 400,
+        wallPaintSqft: 944,
+        planImportMode: 'whole_project',
+        planImportTradeKey: 'general_contracting',
+        planImportFingerprint: 'stale-plan',
+        planRooms: [{ name: 'Office', areaSqft: 400, sourceType: 'notes' }],
+        quickMeasurementSources: {
+          floorAreaSqft: 'estimated_from_formula',
+          flooringSqft: 'estimated_from_formula',
+          wallPaintSqft: 'estimated_from_formula',
+        },
+      },
+    } as EstimateAiDraft);
+    expect(payload).toBeNull();
+  });
+
   it('rebuilds plan import after applyPlanImportToDraft so regenerate can re-seed', () => {
     const payload: PlanImportPayload = {
       planImportFingerprint: 'same-plan',

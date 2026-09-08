@@ -8,11 +8,13 @@ import {
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
   type ScopePricingContext,
+  type ScopeMeasurementsInputExtended,
 } from '@/utils/scopeItemQuantities';
 import {
   confirmScopeDisplayItemsFromDraft,
   scopeReviewDisplayLabel,
 } from '@/utils/scopePackagesForReview';
+import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
 import type {
   PricingProposal,
   PricingScopeItemProposal,
@@ -251,4 +253,34 @@ export function draftEligibleForConfirmScopeUnpricedPricing(
   draft: EstimateAiDraft | null | undefined
 ): boolean {
   return draftHasConfirmScope(draft);
+}
+
+/** Auto-apply planning prices for note-backed Yes scopes on bathroom Continue. */
+export function applyNoteBackedBathroomConfirmScopePricing(
+  draft: EstimateAiDraft,
+  measurements: ScopeMeasurementsInputExtended,
+  displayItems: ScopeChecklistItem[]
+): ScopeMeasurementsInputExtended {
+  if (String(draft.scopeChecklist?.templateKey || '').toLowerCase() !== 'bathroom') {
+    return measurements;
+  }
+  const noteBackedIds = new Set(
+    displayItems
+      .filter((item) => item.noteBacked && checklistItemInScope(item))
+      .map((item) => item.id)
+  );
+  if (!noteBackedIds.size) return measurements;
+
+  const rows = listConfirmScopeUnpricedPricingRows({
+    ...draft,
+    scopeMeasurements: measurements as EstimateAiDraft['scopeMeasurements'],
+  }).filter((row) => noteBackedIds.has(row.itemId));
+  if (!rows.length) return measurements;
+
+  const { measurements: nextMeasurements } = mergeSuggestedPricingBlocksIntoMeasurements(
+    measurements,
+    rows,
+    draft.scopeChecklist?.templateKey
+  );
+  return nextMeasurements;
 }

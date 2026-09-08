@@ -4,9 +4,12 @@
 
 import type { ScopeItemQuantity } from '@/utils/estimateAiDraft';
 import { parseScopeItemAllowancesFromNotes } from '@/utils/scopeAllowanceParser';
+import { applyBathroomPlanningMeasurements } from '@/utils/bathroomPlanningMeasurements';
+import { applyConcretePlanningMeasurements } from '@/utils/concretePlanningMeasurements';
 import { applyRoofingPlanningMeasurements } from '@/utils/roofingPlanningMeasurements';
 import { notesImplyRoofTearOffAndInstall } from '@/utils/scopeItemNoteHints';
 import { parseScopeItemRatePricingFromNotes } from '@/utils/scopeRatePricingParser';
+import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
 import { parseElectricalMeasurementsFromNotes } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 
 export type ParsedScopeMeasurements = {
@@ -337,6 +340,127 @@ function parseKitchenFloorSqftFromClauses(
   return null;
 }
 
+/** Home living SF from "2,800 sqft two story home" — not garage area. */
+function inferHomeFloorAreaSqftFromNotes(text: string): number | null {
+  const patterns = [
+    /\b([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+feet)\b[^.]{0,96}\b(?:two[\s-]?story\s+|single[\s-]?story\s+)?(?:home|house)\b/i,
+    /\b(?:new\s+)?(?:two[\s-]?story\s+|single[\s-]?story\s+)?(?:home|house)\b[^.]{0,48}\b(?:of\s+)?([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft)\b/i,
+    /\b([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft)\b[^.]{0,48}\b(?:two[\s-]?story|new\s+build|new\s+construction)\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const qty = Number(String(match[1]).replace(/,/g, ''));
+    if (Number.isFinite(qty) && qty >= 200) return qty;
+  }
+  return null;
+}
+
+function clauseHomeSqftBeforeGarage(clause: string): number | null {
+  const match = clause.match(
+    /\b([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft)\b[^.]{0,96}\b(?:home|house)\b[^.]{0,96}\b(?:\d[\s-]?car\s+)?garages?\b/i
+  );
+  if (!match) return null;
+  const qty = Number(String(match[1]).replace(/,/g, ''));
+  return Number.isFinite(qty) && qty >= 200 ? qty : null;
+}
+
+/** Conditioned SF for convert-garage jobs — "about 400 sqft", not 2-car planning defaults. */
+export function inferGarageConversionFloorSqftFromNotes(
+  notes: string
+): number | null {
+  const text = String(notes || '').trim();
+  if (
+    !/\b(garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage)\b/i.test(
+      text
+    )
+  ) {
+    return null;
+  }
+  const about = text.match(
+    /\b(?:about|roughly|approximately|around)\s*([\d,]+(?:\.\d+)?)\s*sq\.?\s*ft\b/i
+  );
+  if (about) {
+    const n = Number(String(about[1]).replace(/,/g, ''));
+    if (Number.isFinite(n) && n >= 80 && n <= 5000) return n;
+  }
+  const clauses = splitNoteClauses(text);
+  for (const clause of clauses) {
+    if (
+      !/\b(?:convert(?:ing)?|garage|office|studio|sqft|sq\s*ft)\b/i.test(clause)
+    ) {
+      continue;
+    }
+    const near =
+      pickSqftNearPattern(clause, /\bconvert(?:ing)?\b/) ||
+      pickSqftNearPattern(clause, /\bgarage\b/) ||
+      pickSqftNearPattern(clause, /\b(?:about|roughly|approximately|around)\b/);
+    if (near && near >= 80 && near <= 5000) return near;
+    const q = firstQty(clause, SQFT_RE);
+    if (q && q >= 80 && q <= 5000) return q;
+  }
+  return null;
+}
+
+/** Planning garage footprint when notes mention car count but not garage SF. */
+export function inferGarageSqftFromCarCount(notes: string): number | null {
+  const lower = String(notes || '').toLowerCase();
+  if (/\b(?:3|three)[\s-]?car\s+garage\b/.test(lower)) return 700;
+  if (
+    /\b(?:2|two)[\s-]?car\s+garage\b/.test(lower) ||
+    /\battached\s+(?:2|two)[\s-]?car\s+garage\b/.test(lower) ||
+    /\b(?:2|two)[\s-]?car\s+attached\s+garage\b/.test(lower)
+  ) {
+    return 500;
+  }
+  if (/\b(?:1|one)[\s-]?car\s+garage\b/.test(lower)) return 280;
+  return null;
+}
+
+/** False when notes describe keeping the existing door or converting the garage shell. */
+export function shouldInferGarageDoorInstallFromNotes(notes: string): boolean {
+  const lower = String(notes || '').toLowerCase();
+  const keepExisting =
+    /\b(?:keep(?:ing)?\s+(?:the\s+)?(?:existing\s+)?garage\s+door|existing\s+garage\s+door\s+(?:for\s+now|stays?|remain(?:s|ing)?))\b/.test(
+      lower
+    );
+  const conversion =
+    /\b(garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage)\b/.test(
+      lower
+    );
+  const newGarageDoorIntent =
+    /\b(?:new|install|replace|add)\b[^.]{0,40}\bgarage\s+doors?\b/.test(lower);
+  if (keepExisting || (conversion && !newGarageDoorIntent)) return false;
+  return true;
+}
+
+export function parseGarageDoorCountsFromNotes(
+  notes: string
+): Partial<{
+  garageDoorSingleCount: number;
+  garageDoorDoubleCount: number;
+  garageDoorRvCount: number;
+}> {
+  if (!shouldInferGarageDoorInstallFromNotes(notes)) {
+    return {};
+  }
+  const lower = String(notes || '').toLowerCase();
+  if (/\b(?:3|three)[\s-]?car\s+garage\b/.test(lower)) {
+    return { garageDoorDoubleCount: 1, garageDoorSingleCount: 1 };
+  }
+  if (
+    /\b(?:2|two)[\s-]?car\s+garage\b/.test(lower) ||
+    /\battached\s+(?:2|two)[\s-]?car\s+garage\b/.test(lower) ||
+    /\b(?:2|two)[\s-]?car\s+attached\s+garage\b/.test(lower)
+  ) {
+    return { garageDoorDoubleCount: 1 };
+  }
+  if (/\b(?:1|one)[\s-]?car\s+garage\b/.test(lower)) {
+    return { garageDoorSingleCount: 1 };
+  }
+  return {};
+}
+
 function pickSqftNearPattern(text: string, pattern: RegExp): number | null {
   const source = String(text || '');
   const lower = source.toLowerCase();
@@ -500,6 +624,18 @@ function pickLfNearPatternWithRegex(
   return null;
 }
 
+function parseLabeledInteriorFloorAreaTotal(text: string): number | null {
+  const values: number[] = [];
+  const floorAreaRe =
+    /\b(?:main|upper|lower|first|second|third)\s+floor\b[^.;\n]{0,18}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\b/gi;
+  let match: RegExpExecArray | null;
+  while ((match = floorAreaRe.exec(text)) !== null) {
+    const value = Number(match[1].replace(/,/g, ''));
+    if (Number.isFinite(value) && value > 0) values.push(value);
+  }
+  return values.length >= 2 ? values.reduce((sum, value) => sum + value, 0) : null;
+}
+
 export function parseScopeMeasurementsFromNotes(
   notes: string,
   ctx: { templateKey?: string; projectType?: string } = {}
@@ -517,7 +653,15 @@ export function parseScopeMeasurementsFromNotes(
     if (/\b(?:trim|baseboards?|casing|crown|molding|moulding)\b/i.test(text))
       scope.push('trim');
     if (/\b(?:interior\s+)?doors?\b/i.test(text)) scope.push('doors');
+    const excludesCabinetPaint =
+      /\b(?:no|not|without|exclude(?:d)?|excluding)\s+(?:any\s+)?(?:paint(?:ing)?|refinish(?:ing)?)\s+(?:of\s+)?(?:the\s+)?(?:kitchen\s+)?cabinets?\b/i.test(
+        text
+      ) ||
+      /\b(?:kitchen\s+)?cabinets?\b[^.;]{0,100}\b(?:exclude|excluded|not included)\b/i.test(
+        text
+      );
     if (
+      !excludesCabinetPaint &&
       /\bcabinets?\b/i.test(text) &&
       /\b(?:paint|painting|refinish|refinishing)\b/i.test(text)
     ) {
@@ -690,6 +834,10 @@ export function parseScopeMeasurementsFromNotes(
     /\bwall(?:s)?\s*(?:and\s+(?:the\s+)?|\/|&\s*)ceiling\b/,
     /\binterior\s+paint\b/,
   ];
+  const combinedPaintLanguage =
+    /\bwalls?\s*(?:and|&)\s*ceilings?\b|\bceilings?\s*(?:and|&)\s*walls?\b/i.test(
+      blob
+    );
   const paintSqft = (() => {
     let largestRelevantPaintSqft = 0;
     for (const clause of clauses) {
@@ -701,6 +849,17 @@ export function parseScopeMeasurementsFromNotes(
         if (near)
           largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, near);
       }
+      const q = firstQty(clause, SQFT_RE);
+      if (q) largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, q);
+    }
+    const labeledFloorAreaTotal = parseLabeledInteriorFloorAreaTotal(
+      clauses.filter(clause => !/\bexterior\b/i.test(clause)).join(' ')
+    );
+    if (labeledFloorAreaTotal != null) {
+      largestRelevantPaintSqft = Math.max(
+        largestRelevantPaintSqft,
+        labeledFloorAreaTotal
+      );
     }
     const globalPaintAreas =
       templateKey === 'painting' ||
@@ -718,19 +877,44 @@ export function parseScopeMeasurementsFromNotes(
         largestRelevantPaintSqft,
         ...globalPaintAreas
       );
-    return largestRelevantPaintSqft || pickSqftFromClauses(PAINT_SQFT_PATTERNS);
+    if (largestRelevantPaintSqft > 0) return largestRelevantPaintSqft;
+    if (combinedPaintLanguage) return 0;
+    return pickSqftFromClauses(PAINT_SQFT_PATTERNS) || 0;
   })();
   if (paintSqft) out.wallPaintSqft = paintSqft;
 
-  const ceilingPaintSqft = pickSqftFromClauses([/\bceilings?\b/]);
+  const ceilingPaintSqft = combinedPaintLanguage
+    ? null
+    : pickSqftFromClauses([/\bceilings?\b/]);
   if (ceilingPaintSqft) out.ceilingPaintSqft = ceilingPaintSqft;
 
-  const explicitWallPaintSqft = pickSqftNearPattern(text, /\bwalls?\b/);
-  const explicitCeilingPaintSqft = pickSqftNearPattern(text, /\bceilings?\b/);
-  const combinedPaintLanguage =
-    /\bwalls?\s*(?:and|&)\s*ceilings?\b|\bceilings?\s*(?:and|&)\s*walls?\b/i.test(
-      blob
-    );
+  const explicitWallPaintSqft = (() => {
+    const source = String(text || '');
+    const lower = source.toLowerCase();
+    const sqftRe = new RegExp(SQFT_RE.source, SQFT_RE.flags);
+    let match: RegExpExecArray | null;
+    while ((match = sqftRe.exec(source)) !== null) {
+      const qty = parseQty(match);
+      if (!qty) continue;
+      const before = lower.slice(Math.max(0, match.index - 45), match.index);
+      const after = lower.slice(
+        match.index,
+        match.index + match[0].length + 25
+      );
+      if (
+        /\bshower\s+wall\b|\bshower\s+tile\b|\btile\s+shower\b/.test(before)
+      ) {
+        continue;
+      }
+      if (/\bwalls?\b/.test(before) || /\bwalls?\b/.test(after)) {
+        return qty;
+      }
+    }
+    return null;
+  })();
+  const explicitCeilingPaintSqft = combinedPaintLanguage
+    ? null
+    : pickSqftNearPattern(text, /\bceilings?\b/);
   const interiorPaintBlob = clauses
     .filter(clause => !/\bexterior\b/i.test(clause))
     .join(' ');
@@ -739,6 +923,9 @@ export function parseScopeMeasurementsFromNotes(
       interiorPaintBlob
     ) ||
     /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;]{0,35}\b(?:house|home|floor\s+area|living\s+area)\b/i.test(
+      interiorPaintBlob
+    ) ||
+    /\b(?:main|upper|lower|first|second|third)\s+floor\b[^.;\n]{0,18}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\b/i.test(
       interiorPaintBlob
     );
 
@@ -767,11 +954,13 @@ export function parseScopeMeasurementsFromNotes(
     out.originalPaintAreaReferenceSqft = paintSqft;
     out.paintAreaNeedsConfirmation = true;
     out.paintAreaBasis = floorAreaPaintLanguage ? 'floor_area' : 'unknown';
-    if (combinedPaintLanguage && !floorAreaPaintLanguage) {
+    if (combinedPaintLanguage) {
       out.paintPricingMethod = 'combined';
-      out.combinedPaintableAreaSqft = paintSqft;
-      out.paintAreaNeedsConfirmation = false;
-      out.paintAreaBasis = 'combined';
+      out.combinedPaintableAreaSqft = floorAreaPaintLanguage
+        ? Math.round(paintSqft * 3.2)
+        : paintSqft;
+      out.paintAreaNeedsConfirmation = floorAreaPaintLanguage;
+      out.paintAreaBasis = floorAreaPaintLanguage ? 'floor_area' : 'combined';
     }
     delete out.wallPaintSqft;
     delete out.ceilingPaintSqft;
@@ -802,27 +991,29 @@ export function parseScopeMeasurementsFromNotes(
     text,
     /\b(?:sliding|patio|slider|multi[-\s]?panel)\s+doors?\b/i
   );
-  const garageDoorSingleCount = pickOpeningCount(
-    clauses,
-    text,
-    /\b(?:single|one[-\s]?car)\b[^.;\n]{0,25}\bgarage\s+doors?\b|\bgarage\s+doors?\b[^.;\n]{0,25}\b(?:single|one[-\s]?car)\b/i
-  );
-  const garageDoorDoubleCount = pickOpeningCount(
-    clauses,
-    text,
-    /\b(?:double|two[-\s]?car)\b[^.;\n]{0,25}\bgarage\s+doors?\b|\bgarage\s+doors?\b[^.;\n]{0,25}\b(?:double|two[-\s]?car)\b/i
-  );
-  const garageDoorRvCount = pickOpeningCount(
-    clauses,
-    text,
-    /\b(?:rv|oversized|extra[-\s]?wide|tall)\b[^.;\n]{0,25}\bgarage\s+doors?\b|\bgarage\s+doors?\b[^.;\n]{0,25}\b(?:rv|oversized|extra[-\s]?wide|tall)\b/i
-  );
   if (windowCount) out.windowCount = windowCount;
   if (exteriorDoorCount) out.exteriorDoorCount = exteriorDoorCount;
   if (slidingDoorCount) out.slidingDoorCount = slidingDoorCount;
-  if (garageDoorSingleCount) out.garageDoorSingleCount = garageDoorSingleCount;
-  if (garageDoorDoubleCount) out.garageDoorDoubleCount = garageDoorDoubleCount;
-  if (garageDoorRvCount) out.garageDoorRvCount = garageDoorRvCount;
+  if (shouldInferGarageDoorInstallFromNotes(text)) {
+    const garageDoorSingleCount = pickOpeningCount(
+      clauses,
+      text,
+      /\b(?:single|one[-\s]?car)\b[^.;\n]{0,25}\bgarage\s+doors?\b|\bgarage\s+doors?\b[^.;\n]{0,25}\b(?:single|one[-\s]?car)\b/i
+    );
+    const garageDoorDoubleCount = pickOpeningCount(
+      clauses,
+      text,
+      /\b(?:double|two[-\s]?car)\b[^.;\n]{0,25}\bgarage\s+doors?\b|\bgarage\s+doors?\b[^.;\n]{0,25}\b(?:double|two[-\s]?car)\b/i
+    );
+    const garageDoorRvCount = pickOpeningCount(
+      clauses,
+      text,
+      /\b(?:rv|oversized|extra[-\s]?wide|tall)\b[^.;\n]{0,25}\bgarage\s+doors?\b|\bgarage\s+doors?\b[^.;\n]{0,25}\b(?:rv|oversized|extra[-\s]?wide|tall)\b/i
+    );
+    if (garageDoorSingleCount) out.garageDoorSingleCount = garageDoorSingleCount;
+    if (garageDoorDoubleCount) out.garageDoorDoubleCount = garageDoorDoubleCount;
+    if (garageDoorRvCount) out.garageDoorRvCount = garageDoorRvCount;
+  }
 
   const explicitReframingLanguage =
     /\b(?:re[-\s]?frame(?:d|ing)?|new\s+(?:window|door)\s+opening|new\s+opening|resize(?:d|ing)?\s+(?:the\s+)?(?:window|door)?\s*opening|enlarge(?:d|ing)?\s+(?:the\s+)?(?:window|door)?\s*opening|modify(?:ing|ied)?\s+(?:the\s+)?(?:window|door)?\s*opening)\b/i.test(
@@ -891,8 +1082,10 @@ export function parseScopeMeasurementsFromNotes(
   ]);
   if (exteriorPaintSqft) out.exteriorPaintSqft = exteriorPaintSqft;
 
-  const drywallSqft = pickSqftFromClauses([/\bdrywall\b/, /\bsheetrock\b/]);
-  if (drywallSqft) out.drywallSqft = drywallSqft;
+  if (!isGarageConversionJob(projectType, text)) {
+    const drywallSqft = pickSqftFromClauses([/\bdrywall\b/, /\bsheetrock\b/]);
+    if (drywallSqft) out.drywallSqft = drywallSqft;
+  }
 
   const insulationSqft = (patterns: RegExp[]) => pickSqftFromClauses(patterns);
   const exteriorWallInsulationSqft = insulationSqft([
@@ -1163,7 +1356,24 @@ export function parseScopeMeasurementsFromNotes(
   })();
 
   const floorAreaSqft = (() => {
+    if (templateKey === 'bathroom' || projectType === 'bathroom') return null;
+    if (
+      isGarageConversionJob(projectType, text) ||
+      (templateKey === 'addition' &&
+        /\bconvert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage\b/i.test(text))
+    ) {
+      const conversionSf = inferGarageConversionFloorSqftFromNotes(text);
+      if (conversionSf) return conversionSf;
+    }
     if (livingAreaSqft) return livingAreaSqft;
+    const allowsHomeFloorInference =
+      templateKey === 'ground_up' ||
+      projectType === 'ground_up' ||
+      projectType === 'new_build';
+    if (allowsHomeFloorInference) {
+      const homeFloor = inferHomeFloorAreaSqftFromNotes(text);
+      if (homeFloor) return homeFloor;
+    }
     let max = 0;
     for (const clause of clauses) {
       const c = clause.toLowerCase();
@@ -1178,7 +1388,9 @@ export function parseScopeMeasurementsFromNotes(
         continue;
       }
       if (
-        /\bback\s*splash|backsplash|\bcountertop|\bpaint\b|\bshower\b/i.test(c)
+        /\bback\s*splash|backsplash|\bcountertop|\bpaint\b|\bshower\b|\bbath(?:room)?\s+floor\b/i.test(
+          c
+        )
       )
         continue;
       if (/\bwall\b|\bsoffit\b|\bbulkhead\b/i.test(c)) continue;
@@ -1195,6 +1407,12 @@ export function parseScopeMeasurementsFromNotes(
     return max > 0 ? max : null;
   })();
   if (floorAreaSqft) out.floorAreaSqft = floorAreaSqft;
+  if (
+    (templateKey === 'painting' || projectType === 'painting') &&
+    parseLabeledInteriorFloorAreaTotal(text) != null
+  ) {
+    out.floorAreaSqft = parseLabeledInteriorFloorAreaTotal(text)!;
+  }
 
   if (!out.storyCount) {
     const allowsStoryParse =
@@ -1248,6 +1466,13 @@ export function parseScopeMeasurementsFromNotes(
   if (deckSqft) out.deckSqft = deckSqft;
 
   const garageSqft = (() => {
+    if (
+      isGarageConversionJob(projectType, text) ||
+      (templateKey === 'addition' &&
+        /\bconvert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage\b/i.test(text))
+    ) {
+      return null;
+    }
     // Prefer the number immediately after "garage", not an earlier living-area SF in the same sentence.
     const after = text.match(
       /\bgarages?\b(?:\s+area)?\s*(?:is|:|of|=)?\s*([\d,]+(?:\.\d+)?)\s*sq\.?\s*ft/i
@@ -1258,12 +1483,46 @@ export function parseScopeMeasurementsFromNotes(
     }
     for (const clause of clauses) {
       if (!/\bgarages?\b/i.test(clause)) continue;
+      if (clauseHomeSqftBeforeGarage(clause)) {
+        const inferred =
+          inferGarageSqftFromCarCount(clause) ?? inferGarageSqftFromCarCount(text);
+        if (inferred) return inferred;
+        continue;
+      }
       const near = pickSqftNearPattern(clause, /\bgarages?\b/);
-      if (near && near >= 100) return near;
+      if (near && near >= 100) {
+        const homeBeforeGarage = clauseHomeSqftBeforeGarage(clause);
+        if (homeBeforeGarage && Math.abs(near - homeBeforeGarage) < 1) {
+          return (
+            inferGarageSqftFromCarCount(clause) ??
+            inferGarageSqftFromCarCount(text)
+          );
+        }
+        if (near > 1200 && /\b(?:home|house)\b/i.test(clause)) {
+          return inferGarageSqftFromCarCount(text);
+        }
+        return near;
+      }
     }
-    return null;
+    return inferGarageSqftFromCarCount(text);
   })();
   if (garageSqft) out.garageSqft = garageSqft;
+
+  const garageDoors = parseGarageDoorCountsFromNotes(text);
+  if (garageDoors.garageDoorSingleCount) {
+    out.garageDoorSingleCount = garageDoors.garageDoorSingleCount;
+  }
+  if (garageDoors.garageDoorDoubleCount) {
+    out.garageDoorDoubleCount = garageDoors.garageDoorDoubleCount;
+  }
+  if (garageDoors.garageDoorRvCount) {
+    out.garageDoorRvCount = garageDoors.garageDoorRvCount;
+  }
+  if (!shouldInferGarageDoorInstallFromNotes(text)) {
+    delete out.garageDoorSingleCount;
+    delete out.garageDoorDoubleCount;
+    delete out.garageDoorRvCount;
+  }
 
   // Plan takeoff room inventory lines: "- Kitchen: 194.1 sqft"
   const kitchenFromRoomList = (() => {
@@ -1635,6 +1894,50 @@ export function parseScopeMeasurementsFromNotes(
       out.hvacCleanupCount = 1;
     }
   }
+
+  const planned = applyConcretePlanningMeasurements(out, text);
+  for (const key of [
+    'concreteSqft',
+    'concreteAreaByType',
+    'concreteThicknessByType',
+    'concreteDrivewaySqft',
+    'concreteSidewalkSqft',
+    'concretePatioSqft',
+    'concreteWalkwaySqft',
+    'concreteRvPadSqft',
+  ] as const) {
+    if (!(key in planned)) delete (out as Record<string, unknown>)[key];
+  }
+  Object.assign(out, planned);
+
+  if (
+    (templateKey === 'concrete' || projectType === 'concrete') &&
+    !/\b(?:paint(?:ing)?|primer|stain|repaint)\b/i.test(text)
+  ) {
+    for (const key of [
+      'wallPaintSqft',
+      'ceilingPaintSqft',
+      'paintAreaSqft',
+      'combinedPaintableAreaSqft',
+      'originalPaintAreaReferenceSqft',
+      'paintPricingMethod',
+      'paintAreaNeedsConfirmation',
+      'paintAreaBasis',
+    ] as const) {
+      delete (out as Record<string, unknown>)[key];
+    }
+  }
+
+  if (templateKey === 'concrete' || projectType === 'concrete') {
+    for (const key of ['floorAreaSqft', 'garageSqft', 'rockMulchSqft'] as const) {
+      delete (out as Record<string, unknown>)[key];
+    }
+  }
+
+  Object.assign(
+    out,
+    applyBathroomPlanningMeasurements(out, text, { templateKey, projectType })
+  );
 
   const electrical = parseElectricalMeasurementsFromNotes(text);
   const electricalItemQuantities = electrical.itemQuantities || {};

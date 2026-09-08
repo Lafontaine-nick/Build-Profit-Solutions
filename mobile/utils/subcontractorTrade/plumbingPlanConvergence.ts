@@ -664,6 +664,21 @@ const PLUMBING_NOTE_MEASUREMENT_KEYS: PlumbingQuantityKey[] = [
   'waterHeaterCount',
   'plumbingFixturesHardwareCount',
   'gasApplianceConnectionCount',
+  'serviceCallCount',
+  'fixtureRepairCount',
+  'fixtureReplacementCount',
+  'drainCleaningCount',
+];
+
+/** Service/repair notes — only these quantities may promote scope cards. */
+export const PLUMBING_SERVICE_ONLY_MEASUREMENT_KEYS: PlumbingQuantityKey[] = [
+  'serviceCallCount',
+  'fixtureRepairCount',
+  'fixtureReplacementCount',
+  'drainCleaningCount',
+  'partsMaterialsCount',
+  'emergencyFeeCount',
+  'plumbingCleanupCount',
 ];
 
 /** Tag parsed note quantities so QM and scope cards show From notes. */
@@ -684,7 +699,7 @@ export function tagPlumbingNotesMeasurementSources(
 }
 
 const PLUMBING_NOTE_EXCLUSION_CLAUSE =
-  /\b(?:not\s+included|excluded|(?:no|without)\s+(?:\w+\s+){0,5}(?:scope|work|bid))\b/i;
+  /\b(?:not\s+included|excluded|(?:no|without)\s+(?:[\w-]+\s+){0,5}(?:scope|work|bid|rough(?:-in| in)?|repipe|trim|hookups?|water\s+heaters?))\b/i;
 
 /** True when notes explicitly exclude a scope phrase on the same line or nearby. */
 export function notesExcludePlumbingScopePhrase(
@@ -725,7 +740,7 @@ export function notesExplicitPlumbingFixtureAllowance(notes: string): boolean {
       text
     ) ||
     /\bfixtures?\s+(?:allowance|package|included)\b/i.test(text) ||
-    /\d+\s+(?:plumbing\s+)?fixtures?(?:\s*&\s*hardware)?\b/i.test(text)
+    /\d+\s+(?:plumbing\s+)?fixtures(?:\s*&\s*hardware)?\b/i.test(text)
   );
 }
 
@@ -734,6 +749,9 @@ export function standalonePlumbingProjectTitle(
   roomContext?: PlumbingRoomContext | null
 ): string {
   const text = String(notes || '').trim();
+  if (inferPlumbingWorkflowModeFromNotes(text) === 'service') {
+    return 'Plumbing service call';
+  }
   const room = roomContext ?? inferPlumbingRoomContextFromNotes(text);
   if (/\bmaster\s+bath\b/i.test(text)) return 'Master bath plumbing';
   if (room === 'whole_house' || /\bwhole[\s-]?house\s+plumbing\b/i.test(text)) {
@@ -804,14 +822,18 @@ export function parsePlumbingMeasurementsFromNotes(
     'gasLineLf',
     parseLength(text, 'gas\\s+(?:line|piping|pipes?)')
   );
+  const roughInPhrase = /\brough(?:-in| in)\b/i;
   assign(
     'plumbingRoughPointCount',
-    count(
-      new RegExp(
-        `${COUNT_TOKEN}\\s+(?:plumbing\\s+)?rough(?:-in| in)\\s+points?`,
-        'i'
-      )
-    ) ?? (/\b(?:plumbing\s+)?rough(?:-in| in)\b/i.test(text) ? 1 : null)
+    notesExcludePlumbingScopePhrase(text, roughInPhrase)
+      ? null
+      : count(
+          new RegExp(
+            `${COUNT_TOKEN}\\s+(?:plumbing\\s+)?rough(?:-in| in)\\s+points?`,
+            'i'
+          )
+        ) ??
+          (/\b(?:plumbing\s+)?rough(?:-in| in)\b/i.test(text) ? 1 : null)
   );
   assign(
     'plumbingTrimHookupCount',
@@ -882,6 +904,20 @@ export function parsePlumbingMeasurementsFromNotes(
   return out;
 }
 
+/** Drop remodel/new-build quantities when notes describe a service/repair visit. */
+export function restrictPlumbingMeasurementsForServiceMode(
+  parsed: Record<string, number>
+): Record<string, number> {
+  const allowed = new Set(PLUMBING_SERVICE_ONLY_MEASUREMENT_KEYS);
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (allowed.has(key as PlumbingQuantityKey) && value > 0) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 /** Short reveal bullets from explicit plumbing note quantities. */
 export function summarizePlumbingNoteBullets(
   notes: string,
@@ -899,6 +935,9 @@ export function summarizePlumbingNoteBullets(
     bullets.push(`${value} LF ${label}`);
   };
 
+  pushCount(parsed.serviceCallCount, 'service call', 'service calls');
+  pushCount(parsed.fixtureRepairCount, 'fixture repair', 'fixture repairs');
+  pushCount(parsed.drainCleaningCount, 'drain cleaning', 'drain cleanings');
   pushCount(parsed.plumbingRoughPointCount, 'rough-in point', 'rough-in points');
   pushCount(parsed.plumbingTrimHookupCount, 'trim hookup', 'trim hookups');
   pushLf(parsed.waterLineLf, 'water line');
@@ -915,9 +954,6 @@ export function summarizePlumbingNoteBullets(
     'fixture & hardware allowance',
     'fixtures & hardware'
   );
-  pushCount(parsed.serviceCallCount, 'service call', 'service calls');
-  pushCount(parsed.fixtureRepairCount, 'fixture repair', 'fixture repairs');
-  pushCount(parsed.drainCleaningCount, 'drain cleaning', 'drain cleanings');
 
   return bullets.slice(0, max);
 }
@@ -1040,7 +1076,7 @@ export function inferPlumbingRoomContextFromNotes(
 export function notesCustomerSuppliesPlumbingFixtures(notes: string): boolean {
   const text = String(notes || '').toLowerCase();
   return (
-    /\b(?:customer|homeowner|owner|client)\s+supplies?\s+(?:the\s+)?(?:plumbing\s+)?fixtures?\b/.test(
+    /\b(?:customer|homeowner|owner|client)\s+supply(?:ing|s)?\s+(?:the\s+)?(?:plumbing\s+)?fixtures?\b/.test(
       text
     ) ||
     /\bfixtures?\s+(?:are\s+)?(?:customer|owner|homeowner)[\s-]supplied\b/.test(

@@ -6,9 +6,13 @@ import {
   inferRoofingTearOffFromNotes,
   inferRoofingTradeScopeSelectionsFromNotes,
   infersRoofingUnderlaymentUpgradeFromNotes,
+  notesOwnerHandlesScopeCategory,
   parseRoofingDeckingAllowanceFromNotes,
 } from '@/utils/scopeItemNoteHints';
-import { applyScopeInferencesFromNotes } from '@/utils/estimateScopeChecklistUi';
+import {
+  applyGroundUpShellScopeDefaults,
+  applyScopeInferencesFromNotes,
+} from '@/utils/estimateScopeChecklistUi';
 
 describe('scopeItemNoteHints trim inference', () => {
   const BATH_REMODEL =
@@ -165,5 +169,82 @@ describe('scopeItemNoteHints roofing inference', () => {
     expect(inferRoofingTradeScopeSelectionsFromNotes(notes)).toContain(
       'decking_repair'
     );
+  });
+});
+
+describe('ground-up owner-handled scope exclusions', () => {
+  const GROUND_UP_HOME_NOTES = `New 2,800 sqft two story home with attached 2-car garage. Standard builder grade finishes. Owner is taking care of sitework, utilities, and landscaping separate from us.`;
+
+  test('detects owner-handled sitework, utilities, and landscaping', () => {
+    expect(notesOwnerHandlesScopeCategory(GROUND_UP_HOME_NOTES, 'sitework')).toBe(
+      true
+    );
+    expect(notesOwnerHandlesScopeCategory(GROUND_UP_HOME_NOTES, 'utilities')).toBe(
+      true
+    );
+    expect(
+      notesOwnerHandlesScopeCategory(GROUND_UP_HOME_NOTES, 'landscaping')
+    ).toBe(true);
+  });
+
+  test('excludes sitework-related cards when owner handles them', () => {
+    expect(inferItemStateFromNotes('excavation', GROUND_UP_HOME_NOTES)).toBe(
+      'excluded'
+    );
+    expect(inferItemStateFromNotes('landscaping', GROUND_UP_HOME_NOTES)).toBe(
+      'excluded'
+    );
+    expect(inferItemStateFromNotes('utility_taps', GROUND_UP_HOME_NOTES)).toBe(
+      'excluded'
+    );
+    expect(inferItemStateFromNotes('framing', GROUND_UP_HOME_NOTES)).toBe(
+      'unsure'
+    );
+  });
+
+  test('promotes shell trades on new-build ground-up notes', () => {
+    const items = applyGroundUpShellScopeDefaults(
+      [
+        { id: 'framing', label: 'Framing', inputType: 'yes_no', state: 'unsure' },
+        { id: 'drywall', label: 'Drywall', inputType: 'yes_no', state: 'unsure' },
+        {
+          id: 'excavation',
+          label: 'Excavation',
+          inputType: 'yes_no',
+          state: 'unsure',
+        },
+      ] as any,
+      { templateKey: 'ground_up', notes: GROUND_UP_HOME_NOTES }
+    );
+    expect(items.find(i => i.id === 'framing')?.state).toBe('included');
+    expect(items.find(i => i.id === 'drywall')?.state).toBe('included');
+    expect(items.find(i => i.id === 'excavation')?.state).toBe('unsure');
+  });
+
+  test('applyScopeInferencesFromNotes excludes owner sitework and includes shell', () => {
+    const items = applyScopeInferencesFromNotes(
+      [
+        { id: 'framing', label: 'Framing', inputType: 'yes_no', state: 'unsure' },
+        { id: 'roofing', label: 'Roofing', inputType: 'yes_no', state: 'unsure' },
+        {
+          id: 'landscaping',
+          label: 'Landscaping',
+          inputType: 'yes_no',
+          state: 'unsure',
+        },
+        {
+          id: 'excavation',
+          label: 'Excavation',
+          inputType: 'yes_no',
+          state: 'unsure',
+        },
+      ] as any,
+      GROUND_UP_HOME_NOTES,
+      'ground_up'
+    );
+    expect(items.find(i => i.id === 'framing')?.state).toBe('included');
+    expect(items.find(i => i.id === 'roofing')?.state).toBe('included');
+    expect(items.find(i => i.id === 'landscaping')?.state).toBe('excluded');
+    expect(items.find(i => i.id === 'excavation')?.state).toBe('excluded');
   });
 });

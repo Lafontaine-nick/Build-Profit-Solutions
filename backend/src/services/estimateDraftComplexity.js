@@ -16,6 +16,7 @@ const {
   CHECKLIST_TEMPLATES,
   CHECKLIST_LEGEND,
   checklistTemplateKey,
+  detectAdditionConversionIntent,
   inferItemStateFromNotes,
   inferChoiceFromNotes,
   inferChoicesFromNotes,
@@ -156,10 +157,7 @@ function classifyEstimateTier(draft, originalNotes) {
     return 'ground_up';
   }
 
-  if (
-    ['room_addition', 'home_addition', 'adu', 'garage_conversion'].includes(projectType) ||
-    /\b(room\s+addition|home\s+addition|casita|\badu\b|garage\s+conversion|patio\s+enclosure)\b/i.test(notes)
-  ) {
+  if (detectAdditionConversionIntent(projectType, notes)) {
     return 'addition';
   }
 
@@ -174,6 +172,20 @@ function classifyEstimateTier(draft, originalNotes) {
   if (
     REMODEL_KEYWORDS_RE.test(notes) ||
     /\b(basement\s+finish(?:ing)?|finished\s+basement|laundry\s+remodel|interior\s+renovation|insurance\s+(?:repair|restoration)|restoration|mixed\s+repair)\b/i.test(notes)
+  ) {
+    return 'room_remodel';
+  }
+
+  // Whole-home / multi-floor painting needs Confirm Scope cards for combined
+  // surface area, occupancy, prep, doors, and trim. Clear floor quantities
+  // alone must not route it through the simple-unit review page.
+  if (
+    projectType === 'painting' &&
+    (
+      /\b(?:2|two|multi)[-\s]?stor(?:y|ies)\b/i.test(notes) ||
+      /\b(?:main|upper|lower|first|second)\s+floor\b/i.test(notes) ||
+      /\bpaint(?:ing)?\b[^.;]{0,60}\b(?:walls?|ceilings?|baseboards?|trim|doors?)\b/i.test(notes)
+    )
   ) {
     return 'room_remodel';
   }

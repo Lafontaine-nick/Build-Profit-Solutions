@@ -7,6 +7,8 @@ const { splitNoteClauses } = require('./estimateDraftQuantityPrice');
 const { parseElectricalMeasurementsFromNotes } = require('./electricalCanonicalParser');
 const { parseScopeItemAllowancesFromNotes } = require('./scopeAllowanceParser');
 const { parseScopeItemRatePricingFromNotes } = require('./scopeRatePricingParser');
+const { applyBathroomPlanningMeasurements } = require('./bathroomPlanningMeasurements');
+const { applyConcretePlanningMeasurements } = require('./concretePlanningMeasurements');
 
 const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:total\s+)?(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*(?:²|2\b|\?)|square\s+(?:foot|feet))/gi;
 const LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft)/gi;
@@ -351,6 +353,18 @@ function pickOpeningCount(clauses, text, pattern) {
  * @param {string} notes
  * @param {{ templateKey?: string, projectType?: string }} [ctx]
  */
+function parseLabeledInteriorFloorAreaTotal(text) {
+  const values = [];
+  const floorAreaRe =
+    /\b(?:main|upper|lower|first|second|third)\s+floor\b[^.;\n]{0,18}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\b/gi;
+  let match;
+  while ((match = floorAreaRe.exec(text)) !== null) {
+    const value = Number(match[1].replace(/,/g, ''));
+    if (Number.isFinite(value) && value > 0) values.push(value);
+  }
+  return values.length >= 2 ? values.reduce((sum, value) => sum + value, 0) : null;
+}
+
 function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const text = String(notes || '').trim();
   if (!text) return {};
@@ -364,7 +378,18 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     if (/\bceilings?\b/i.test(text)) paintScope.push('ceilings');
     if (/\b(?:trim|baseboards?|casing|crown|molding|moulding)\b/i.test(text)) paintScope.push('trim');
     if (/\b(?:interior\s+)?doors?\b/i.test(text)) paintScope.push('doors');
-    if (/\bcabinets?\b/i.test(text) && /\b(?:paint|painting|refinish(?:ing)?)\b/i.test(text)) {
+    const excludesCabinetPaint =
+      /\b(?:no|not|without|exclude(?:d)?|excluding)\s+(?:any\s+)?(?:paint(?:ing)?|refinish(?:ing)?)\s+(?:of\s+)?(?:the\s+)?(?:kitchen\s+)?cabinets?\b/i.test(
+        text
+      ) ||
+      /\b(?:kitchen\s+)?cabinets?\b[^.;]{0,100}\b(?:exclude|excluded|not included)\b/i.test(
+        text
+      );
+    if (
+      !excludesCabinetPaint &&
+      /\bcabinets?\b/i.test(text) &&
+      /\b(?:paint|painting|refinish(?:ing)?)\b/i.test(text)
+    ) {
       paintScope.push('cabinets');
     }
     const excludesExteriorPaint =
@@ -521,6 +546,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     /\bwall(?:s)?\s*(?:and\s+(?:the\s+)?|\/|&\s*)ceiling\b/,
     /\binterior\s+paint\b/,
   ];
+  const combinedPaintLanguage = /\bwalls?\s*(?:and|&)\s*ceilings?\b|\bceilings?\s*(?:and|&)\s*walls?\b/i.test(blob);
   const paintSqft = (() => {
     let largestRelevantPaintSqft = 0;
     for (const clause of clauses) {
@@ -531,10 +557,18 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
         const near = pickSqftNearPattern(clause, pattern);
         if (near) largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, near);
       }
+      const q = firstQty(clause, SQFT_RE);
+      if (q) largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, q);
     }
-    // A common note format puts the total paintable area in the sentence
-    // immediately before "Paint all..." and then lists a smaller cabinet
-    // surface area later. Prefer the largest non-exterior paint area.
+    const labeledFloorAreaTotal = parseLabeledInteriorFloorAreaTotal(
+      clauses.filter((clause) => !/\bexterior\b/i.test(clause)).join(' ')
+    );
+    if (labeledFloorAreaTotal != null) {
+      largestRelevantPaintSqft = Math.max(
+        largestRelevantPaintSqft,
+        labeledFloorAreaTotal
+      );
+    }
     const globalPaintAreas =
       (templateKey === 'painting' ||
         projectType === 'painting' ||
@@ -547,20 +581,38 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     if (globalPaintAreas.length) {
       largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, ...globalPaintAreas);
     }
-    return largestRelevantPaintSqft || pickSqftFromClauses(PAINT_SQFT_PATTERNS);
+    if (largestRelevantPaintSqft > 0) return largestRelevantPaintSqft;
+    if (combinedPaintLanguage) return 0;
+    return pickSqftFromClauses(PAINT_SQFT_PATTERNS) || 0;
   })();
   if (paintSqft) out.wallPaintSqft = paintSqft;
 
-  const ceilingPaintSqft = pickSqftFromClauses([/\bceilings?\b/]);
+  const ceilingPaintSqft = combinedPaintLanguage ? null : pickSqftFromClauses([/\bceilings?\b/]);
   if (ceilingPaintSqft) out.ceilingPaintSqft = ceilingPaintSqft;
 
-  const explicitWallPaintSqft = pickSqftNearPattern(text, /\bwalls?\b/);
-  const explicitCeilingPaintSqft = pickSqftNearPattern(text, /\bceilings?\b/);
-  const combinedPaintLanguage = /\bwalls?\s*(?:and|&)\s*ceilings?\b|\bceilings?\s*(?:and|&)\s*walls?\b/i.test(blob);
+  const explicitWallPaintSqft = (() => {
+    const source = String(text || '');
+    const lower = source.toLowerCase();
+    const sqftRe = new RegExp(SQFT_RE.source, SQFT_RE.flags);
+    let match;
+    while ((match = sqftRe.exec(source)) !== null) {
+      const qty = parseQty(match);
+      if (!qty) continue;
+      const before = lower.slice(Math.max(0, match.index - 45), match.index);
+      const after = lower.slice(match.index, match.index + match[0].length + 25);
+      if (/\bshower\s+wall\b|\bshower\s+tile\b|\btile\s+shower\b/.test(before)) continue;
+      if (/\bwalls?\b/.test(before) || /\bwalls?\b/.test(after)) return qty;
+    }
+    return null;
+  })();
+  const explicitCeilingPaintSqft = combinedPaintLanguage
+    ? null
+    : pickSqftNearPattern(text, /\bceilings?\b/);
   const interiorPaintBlob = clauses.filter((clause) => !/\bexterior\b/i.test(clause)).join(' ');
   const floorAreaPaintLanguage =
     /\b(?:house|home|floor\s+area|living\s+area)\b[^.;]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(interiorPaintBlob) ||
-    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;]{0,35}\b(?:house|home|floor\s+area|living\s+area)\b/i.test(interiorPaintBlob);
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;]{0,35}\b(?:house|home|floor\s+area|living\s+area)\b/i.test(interiorPaintBlob) ||
+    /\b(?:main|upper|lower|first|second|third)\s+floor\b[^.;\n]{0,18}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\b/i.test(interiorPaintBlob);
 
   if (explicitWallPaintSqft && explicitCeilingPaintSqft && !combinedPaintLanguage) {
     out.paintPricingMethod = 'separate';
@@ -583,11 +635,13 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     out.originalPaintAreaReferenceSqft = paintSqft;
     out.paintAreaNeedsConfirmation = true;
     out.paintAreaBasis = floorAreaPaintLanguage ? 'floor_area' : 'unknown';
-    if (combinedPaintLanguage && !floorAreaPaintLanguage) {
+    if (combinedPaintLanguage) {
       out.paintPricingMethod = 'combined';
-      out.combinedPaintableAreaSqft = paintSqft;
-      out.paintAreaNeedsConfirmation = false;
-      out.paintAreaBasis = 'combined';
+      out.combinedPaintableAreaSqft = floorAreaPaintLanguage
+        ? Math.round(paintSqft * 3.2)
+        : paintSqft;
+      out.paintAreaNeedsConfirmation = floorAreaPaintLanguage;
+      out.paintAreaBasis = floorAreaPaintLanguage ? 'floor_area' : 'combined';
     }
     delete out.wallPaintSqft;
     delete out.ceilingPaintSqft;
@@ -846,6 +900,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
 
   // Flooring / floor-area jobs (tile demo, laminate install, etc.)
   const floorAreaSqft = (() => {
+    if (templateKey === 'bathroom' || projectType === 'bathroom') return null;
     if (livingAreaSqft) return livingAreaSqft;
     let max = 0;
     for (const clause of clauses) {
@@ -856,7 +911,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       ) {
         continue;
       }
-      if (/\bback\s*splash|backsplash|\bcountertop|\bpaint\b|\bshower\b/i.test(c)) continue;
+      if (/\bback\s*splash|backsplash|\bcountertop|\bpaint\b|\bshower\b|\bbath(?:room)?\s+floor\b/i.test(c)) continue;
       if (/\bwall\b|\bsoffit\b|\bbulkhead\b/i.test(c)) continue;
       if (isExteriorFlatworkClause(c)) continue;
       if (!/\b(demo|demolition|remove|removal|tear[\s-]?out|install|installation|laminate|tile|lvp|vinyl|flooring|floor|carpet)\b/i.test(c)) continue;
@@ -866,6 +921,12 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     return max > 0 ? max : null;
   })();
   if (floorAreaSqft) out.floorAreaSqft = floorAreaSqft;
+  if (
+    (templateKey === 'painting' || projectType === 'painting') &&
+    parseLabeledInteriorFloorAreaTotal(text) != null
+  ) {
+    out.floorAreaSqft = parseLabeledInteriorFloorAreaTotal(text);
+  }
 
   const deckSqft = pickSqftFromClauses([/\bdeck(?:ing)?\b/]);
   if (deckSqft) out.deckSqft = deckSqft;
@@ -1144,6 +1205,44 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       out.hvacCleanupCount = 1;
     }
   }
+
+  const planned = applyConcretePlanningMeasurements(out, text);
+  for (const key of [
+    'concreteSqft',
+    'concreteAreaByType',
+    'concreteThicknessByType',
+    'concreteDrivewaySqft',
+    'concreteSidewalkSqft',
+    'concretePatioSqft',
+    'concreteWalkwaySqft',
+    'concreteRvPadSqft',
+  ]) {
+    if (!(key in planned)) delete out[key];
+  }
+  Object.assign(out, planned);
+
+  if (
+    (templateKey === "concrete" || projectType === "concrete") &&
+    !/\b(?:paint(?:ing)?|primer|stain|repaint)\b/i.test(text)
+  ) {
+    for (const key of [
+      "wallPaintSqft",
+      "ceilingPaintSqft",
+      "paintAreaSqft",
+      "combinedPaintableAreaSqft",
+      "originalPaintAreaReferenceSqft",
+      "paintPricingMethod",
+      "paintAreaNeedsConfirmation",
+      "paintAreaBasis",
+    ]) {
+      delete out[key];
+    }
+  }
+
+  Object.assign(
+    out,
+    applyBathroomPlanningMeasurements(out, text, { templateKey, projectType })
+  );
 
   const electrical = parseElectricalMeasurementsFromNotes(text);
   const electricalItemQuantities = electrical.itemQuantities || {};

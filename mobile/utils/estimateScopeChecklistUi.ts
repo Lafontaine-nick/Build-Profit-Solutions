@@ -6,6 +6,16 @@ import type {
 } from '@/utils/estimateAiDraft';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
 import {
+  detectAdditionConversionIntent,
+  consolidateExistingShellConversionMeasurements,
+  existingShellConversionUsesPackageElectrical,
+  isAdditionConversionJob,
+  isExistingShellConversionJob,
+  isGarageConversionJob,
+  notesExplicitlyAddOpenings,
+  suppressAdditionConversionPhasePaintDuplicate,
+} from '@/utils/additionConversionPlanning';
+import {
   checklistItemInScope,
   formatUnitLabel,
   getChecklistItemQuantityRule,
@@ -602,21 +612,50 @@ const GROUND_UP_SOFT_COST_DEFAULT_INCLUDED = new Set([
   'permits',
 ]);
 
-const ADDITION_CONVERSION_PROJECT_TYPES = new Set([
-  'garage_conversion',
-  'room_addition',
-  'home_addition',
-  'addition',
-  'adu',
+const GROUND_UP_NOTES_PATTERN =
+  /\b(?:new\s+build|new\s+construction|new\s+home|ground[\s-]?up)\b|\b(?:two[\s-]?story|single[\s-]?story)\s+(?:home|house)\b/i;
+
+/** Shell + interior trades that default to Yes on new-build ground-up notes. */
+const GROUND_UP_SHELL_DEFAULT_INCLUDED = new Set([
+  'foundation',
+  'concrete',
+  'framing',
+  'roofing',
+  'windows',
+  'exterior_doors',
+  'sliding_doors',
+  'garage_doors',
+  'insulation',
+  'drywall',
+  'interior_paint',
+  'exterior_paint',
+  'electrical_rough',
+  'electrical_trim',
+  'plumbing_rough',
+  'plumbing_trim',
+  'hvac',
+  'tile',
+  'tile_flooring',
+  'flooring',
+  'cabinets',
+  'countertops',
+  'interior_trim',
+  'stucco',
+  'exterior_finishes',
 ]);
 
-const ADDITION_CONVERSION_NOTES =
-  /\b(garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage|room\s+addition|home\s+addition|bedroom\s+addition|casita|\badu\b|accessory\s+dwelling|in[\s-]?law\s+suite|add(?:ition)?\s+(?:a\s+)?(?:new\s+)?(?:room|bedroom|bathroom|suite)|(?:new|add)\s+\d[\d,]*\s*sq\.?\s*ft\s+(?:room|addition|bedroom))\b/i;
+const EXISTING_SHELL_CONVERSION_INCLUDED = [
+  'wall_framing',
+  'insulation',
+  'drywall',
+  'paint',
+  'flooring',
+  'interior_trim',
+  'electrical_rough',
+  'cleanup',
+] as const;
 
-const GARAGE_CONVERSION_NOTES =
-  /\b(garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage)\b/i;
-
-const CONVERSION_CORE_DEFAULT_INCLUDED = [
+const NEW_STRUCTURE_CONVERSION_INCLUDED = [
   'framing',
   'exterior_finishes',
   'insulation',
@@ -646,30 +685,43 @@ const GARAGE_CONVERSION_DEFAULT_EXCLUDED = new Set([
   'concrete',
 ]);
 
+/** Precon + site + new-shell phases hidden on existing-shell conversion Confirm Scope. */
+const EXISTING_SHELL_CONVERSION_OUT_OF_SCOPE_IDS = new Set([
+  'plans_engineering',
+  'permits',
+  'utility_coordination',
+  ...GARAGE_CONVERSION_DEFAULT_EXCLUDED,
+]);
+
+/** @deprecated use EXISTING_SHELL_CONVERSION_OUT_OF_SCOPE_IDS */
+const GARAGE_CONVERSION_OUT_OF_SCOPE_IDS =
+  EXISTING_SHELL_CONVERSION_OUT_OF_SCOPE_IDS;
+
 const BATHROOM_CONVERSION_INCLUDED = [
   'plumbing_rough',
   'plumbing_trim',
   'tile',
 ] as const;
 
-function isAdditionConversionJob(
-  templateKey?: string | null,
-  projectType?: string | null,
-  notes?: string | null
+function hasExplicitNewStructureScopeNote(
+  itemId: string,
+  notes: string
 ): boolean {
-  if (String(templateKey || '').toLowerCase() !== 'addition') return false;
-  const pt = String(projectType || '').toLowerCase();
-  if (ADDITION_CONVERSION_PROJECT_TYPES.has(pt)) return true;
-  return ADDITION_CONVERSION_NOTES.test(String(notes || ''));
-}
-
-function isGarageConversionJob(
-  projectType?: string | null,
-  notes?: string | null
-): boolean {
-  const pt = String(projectType || '').toLowerCase();
-  if (pt === 'garage_conversion') return true;
-  return GARAGE_CONVERSION_NOTES.test(String(notes || ''));
+  const explicit: Record<string, RegExp> = {
+    framing:
+      /\b(?:new|add)\b[^.]{0,50}\b(?:framing|shell|structure)\b|\b(?:framing|shell)\s+(?:package|lumber)\b/i,
+    foundation:
+      /\b(?:new|add|pour|replace|install)\b[^.]{0,50}\b(?:foundation|footings?|stem\s+wall)\b|\b(?:foundation|footings?)\s+(?:pour|work|replace)\b/i,
+    concrete:
+      /\b(?:new|pour|add|replace)\b[^.]{0,50}\b(?:concrete|slab\s+pour)\b/i,
+    excavation: /\b(?:excavat(?:e|ion|ing)|dig\s+out)\b/i,
+    sitework: /\b(?:site\s+prep|clearing|demo\s+site)\b/i,
+    grading: /\b(?:grading|regrade|cut\s+fill)\b/i,
+    utility_trenching: /\b(?:utility\s+trench|trench(?:ing)?\s+utilities)\b/i,
+    roof_tie_in:
+      /\b(?:roof\s+tie[\s-]?in|tie[\s-]?in\s+roof|new\s+roof\s+section)\b/i,
+  };
+  return explicit[itemId]?.test(String(notes)) ?? false;
 }
 
 /** Default shell + interior phases for garage conversions and room additions. */
@@ -686,10 +738,19 @@ export function applyAdditionConversionScopeDefaults(
 
   const n = String(notes || '');
   const garage = isGarageConversionJob(projectType, notes);
-  const defaultIncluded = new Set<string>([
-    ...CONVERSION_CORE_DEFAULT_INCLUDED,
-    ...(garage ? [] : ROOM_ADDITION_EXTRA_DEFAULT_INCLUDED),
-  ]);
+  const existingShell = isExistingShellConversionJob(
+    templateKey,
+    projectType,
+    notes
+  );
+  const defaultIncluded = new Set<string>(
+    existingShell
+      ? [...EXISTING_SHELL_CONVERSION_INCLUDED]
+      : [
+          ...NEW_STRUCTURE_CONVERSION_INCLUDED,
+          ...(garage ? [] : ROOM_ADDITION_EXTRA_DEFAULT_INCLUDED),
+        ]
+  );
 
   if (/\b(bath(?:room)?|shower|tub|toilet|vanity|wet\s+bar)\b/i.test(n)) {
     BATHROOM_CONVERSION_INCLUDED.forEach(id => defaultIncluded.add(id));
@@ -706,23 +767,300 @@ export function applyAdditionConversionScopeDefaults(
     byId.get('electrical_trim')?.state === 'included' ||
     inferItemStateFromNotes('electrical_trim', n) === 'included'
   ) {
-    defaultIncluded.add('electrical_trim');
+    if (!existingShell) {
+      defaultIncluded.add('electrical_trim');
+    }
   }
 
   return items.map(item => {
+    if (
+      existingShell &&
+      EXISTING_SHELL_CONVERSION_OUT_OF_SCOPE_IDS.has(item.id) &&
+      !hasExplicitNewStructureScopeNote(item.id, n)
+    ) {
+      return { ...item, state: 'excluded' as const };
+    }
+
+    if (
+      existingShell &&
+      (item.id === 'framing' || item.id === 'exterior_finishes') &&
+      !hasExplicitNewStructureScopeNote(item.id, n)
+    ) {
+      return { ...item, state: 'excluded' as const };
+    }
+
     if (item.state !== 'unsure') return item;
     if (inferItemStateFromNotes(item.id, n) === 'excluded') return item;
 
-    if (garage && GARAGE_CONVERSION_DEFAULT_EXCLUDED.has(item.id)) {
-      if (inferItemStateFromNotes(item.id, n) === 'included') return item;
+    if (
+      existingShell &&
+      item.id === 'windows_doors' &&
+      inferItemStateFromNotes(item.id, n) !== 'included' &&
+      !/\b(?:new|add|install|replace)\b[^.]{0,40}\b(?:window|exterior\s+door|sliding\s+door|entry\s+door)\b/i.test(
+        n
+      )
+    ) {
       return { ...item, state: 'excluded' as const };
     }
 
     if (defaultIncluded.has(item.id)) {
       return { ...item, state: 'included' as const };
     }
+    if (
+      existingShell &&
+      item.id === 'electrical_trim' &&
+      defaultIncluded.has('electrical_rough')
+    ) {
+      return { ...item, state: 'excluded' as const };
+    }
     return item;
   });
+}
+
+function positiveMeasurementCount(value: unknown): number {
+  const n = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Promote opening / trim scope when Quick Measurements carry explicit counts. */
+export function syncAdditionConversionScopeFromMeasurements(
+  items: ScopeChecklistItem[],
+  measurements: Record<string, unknown>,
+  options: {
+    templateKey?: string | null;
+    projectType?: string | null;
+    notes?: string | null;
+  } = {}
+): ScopeChecklistItem[] {
+  if (!isAdditionConversionJob(options.templateKey, options.projectType, options.notes)) {
+    return items;
+  }
+  const openingCount =
+    positiveMeasurementCount(measurements.windowCount) +
+    positiveMeasurementCount(measurements.exteriorDoorCount) +
+    positiveMeasurementCount(measurements.slidingDoorCount);
+  const interiorDoors = positiveMeasurementCount(measurements.interiorDoorCount);
+  return items.map(item => {
+    if (item.id === 'windows_doors' && openingCount > 0) {
+      if (
+        isExistingShellConversionJob(
+          options.templateKey,
+          options.projectType,
+          options.notes
+        ) &&
+        !notesExplicitlyAddOpenings(options.notes)
+      ) {
+        return item;
+      }
+      return { ...item, state: 'included' as const };
+    }
+    if (
+      item.id === 'interior_trim' &&
+      interiorDoors > 0 &&
+      item.state !== 'excluded'
+    ) {
+      return { ...item, state: 'included' as const };
+    }
+    return item;
+  });
+}
+
+/** Hide excluded cards on existing-shell conversions — finish-out scope only. */
+export function filterExistingShellConversionConfirmScopeItems(
+  items: ScopeChecklistItem[],
+  options: {
+    templateKey?: string | null;
+    projectType?: string | null;
+    notes?: string | null;
+  } = {}
+): ScopeChecklistItem[] {
+  if (String(options.templateKey || '').toLowerCase() !== 'addition') return items;
+  if (
+    !isExistingShellConversionJob(
+      options.templateKey,
+      options.projectType,
+      options.notes
+    )
+  ) {
+    return items;
+  }
+  return items.filter(item => item.state !== 'excluded');
+}
+
+/** @deprecated use filterExistingShellConversionConfirmScopeItems */
+export function filterGarageConversionConfirmScopeItems(
+  items: ScopeChecklistItem[],
+  options: {
+    templateKey?: string | null;
+    projectType?: string | null;
+    notes?: string | null;
+  } = {}
+): ScopeChecklistItem[] {
+  return filterExistingShellConversionConfirmScopeItems(items, options);
+}
+
+function ensureAdditionConversionChecklistItems(
+  items: ScopeChecklistItem[],
+  notes: string,
+  projectType?: string | null
+): ScopeChecklistItem[] {
+  const byId = new Map(items.map(item => [item.id, item]));
+  let changed = false;
+  const merged = [...items];
+  for (const base of buildAdditionConversionChecklistRepairItems()) {
+    if (byId.has(base.id)) continue;
+    merged.push(base);
+    changed = true;
+  }
+  if (!changed) return items;
+  return hydrateScopeChecklistFromNotes(
+    merged,
+    'addition',
+    notes,
+    undefined,
+    projectType
+  );
+}
+
+const MISROUTED_CONVERSION_TEMPLATES = new Set(['windows_doors', 'painting']);
+
+const ADDITION_CONVERSION_CHECKLIST_ITEM_IDS = [
+  'plans_engineering',
+  'permits',
+  'utility_coordination',
+  'sitework',
+  'excavation',
+  'grading',
+  'utility_trenching',
+  'foundation',
+  'concrete',
+  'framing',
+  'wall_framing',
+  'roof_tie_in',
+  'windows_doors',
+  'exterior_finishes',
+  'plumbing_rough',
+  'electrical_rough',
+  'hvac',
+  'insulation',
+  'drywall',
+  'paint',
+  'flooring',
+  'cabinets_counters',
+  'tile',
+  'interior_trim',
+  'plumbing_trim',
+  'electrical_trim',
+  'hvac_startup',
+  'appliances',
+  'final_inspections',
+  'cleanup',
+  'contingency',
+] as const;
+
+const ADDITION_CONVERSION_CHECKLIST_LABELS: Record<string, string> = {
+  plans_engineering: 'Plans / engineering',
+  permits: 'Permits / fees',
+  utility_coordination: 'Utility coordination',
+  sitework: 'Site prep',
+  excavation: 'Excavation',
+  grading: 'Grading',
+  utility_trenching: 'Utility trenching',
+  foundation: 'Footings / slab / foundation',
+  concrete: 'Concrete',
+  framing: 'Framing / shell',
+  wall_framing: 'Interior wall framing',
+  roof_tie_in: 'Roofing / tie-in',
+  windows_doors: 'Windows & exterior doors',
+  exterior_finishes: 'Exterior finishes',
+  plumbing_rough: 'Rough plumbing',
+  electrical_rough: 'Rough electrical',
+  hvac: 'HVAC',
+  insulation: 'Insulation',
+  drywall: 'Drywall',
+  paint: 'Paint',
+  flooring: 'Flooring',
+  cabinets_counters: 'Cabinets & counters',
+  tile: 'Tile',
+  interior_trim: 'Interior doors / trim',
+  plumbing_trim: 'Plumbing fixtures / trim-out',
+  electrical_trim: 'Electrical devices / fixtures',
+  hvac_startup: 'HVAC registers / startup',
+  appliances: 'Appliances',
+  final_inspections: 'Final inspections',
+  cleanup: 'Cleanup & disposal',
+  contingency: 'Contingency allowance',
+};
+
+function buildAdditionConversionChecklistRepairItems(): ScopeChecklistItem[] {
+  return ADDITION_CONVERSION_CHECKLIST_ITEM_IDS.map(id => ({
+    id,
+    label: ADDITION_CONVERSION_CHECKLIST_LABELS[id] || id,
+    inputType: 'yes_no' as const,
+    state: 'unsure' as const,
+  }));
+}
+
+/** Repair drafts misrouted to windows/doors when notes describe a garage conversion or room addition. */
+export function repairMisroutedConversionScopeChecklist(
+  draft: EstimateAiDraft,
+  notes?: string | null
+): EstimateAiDraft {
+  const text = String(notes || resolveDraftScopeNotes(draft) || '').trim();
+  if (!text || !draft.scopeChecklist?.items?.length) return draft;
+  if (!detectAdditionConversionIntent(draft.projectType, text)) return draft;
+
+  const currentTemplate = String(draft.scopeChecklist.templateKey || '').toLowerCase();
+  if (currentTemplate === 'addition') {
+    const mergedItems = ensureAdditionConversionChecklistItems(
+      draft.scopeChecklist.items,
+      text,
+      draft.projectType
+    );
+    if (mergedItems === draft.scopeChecklist.items) return draft;
+    return {
+      ...draft,
+      scopeChecklist: {
+        ...draft.scopeChecklist,
+        items: mergedItems,
+      },
+    };
+  }
+  if (!MISROUTED_CONVERSION_TEMPLATES.has(currentTemplate)) return draft;
+
+  const existingById = new Map(
+    draft.scopeChecklist.items.map(item => [item.id, item])
+  );
+  const merged = buildAdditionConversionChecklistRepairItems().map(base => {
+    const existing = existingById.get(base.id);
+    return existing
+      ? {
+          ...base,
+          ...existing,
+          label: base.label || existing.label,
+        }
+      : base;
+  });
+
+  const hydrated = hydrateScopeChecklistFromNotes(
+    merged,
+    'addition',
+    text,
+    undefined,
+    draft.projectType
+  );
+
+  return {
+    ...draft,
+    estimateTier: 'addition',
+    scopeChecklist: {
+      ...draft.scopeChecklist,
+      templateKey: 'addition',
+      title: 'Addition / conversion — confirm scope phases',
+      intro: 'Mark each phase Yes if it is part of this bid.',
+      items: hydrated,
+    },
+  };
 }
 
 export const DRYWALL_TEXTURE_CHOICE_OPTIONS: ScopeChecklistOption[] = [
@@ -1025,6 +1363,27 @@ export function applyGroundUpSoftCostDefaults(
   });
 }
 
+/** Promote core shell trades from Not sure → Yes on new-build ground-up notes. */
+export function applyGroundUpShellScopeDefaults(
+  items: ScopeChecklistItem[],
+  options: {
+    templateKey?: string | null;
+    notes?: string | null;
+  } = {}
+): ScopeChecklistItem[] {
+  const { templateKey, notes } = options;
+  if (String(templateKey || '').toLowerCase() !== 'ground_up') return items;
+  const text = String(notes || '');
+  if (!GROUND_UP_NOTES_PATTERN.test(text)) return items;
+
+  return items.map(item => {
+    if (item.state !== 'unsure') return item;
+    if (!GROUND_UP_SHELL_DEFAULT_INCLUDED.has(item.id)) return item;
+    if (inferItemStateFromNotes(item.id, text) === 'excluded') return item;
+    return { ...item, state: 'included' as const };
+  });
+}
+
 /** Set Yes/choice from note hints for items still on Not sure. */
 export function applyScopeInferencesFromNotes(
   items: ScopeChecklistItem[],
@@ -1062,7 +1421,7 @@ export function applyScopeInferencesFromNotes(
         }
         const inferredState = inferItemStateFromNotes(item.id, notes);
         if (item.state === 'unsure' && inferredState === 'included') {
-          return { ...item, state: 'included' as const };
+          return { ...item, state: 'included' as const, noteBacked: true };
         }
         if (item.state === 'unsure' && inferredState === 'excluded') {
           return { ...item, state: 'excluded' as const };
@@ -1075,8 +1434,12 @@ export function applyScopeInferencesFromNotes(
     templateKey,
     notes
   );
+  const withShellDefaults = applyGroundUpShellScopeDefaults(withSoftCosts, {
+    templateKey,
+    notes,
+  });
   const withConversionDefaults = applyAdditionConversionScopeDefaults(
-    withSoftCosts,
+    withShellDefaults,
     {
       templateKey,
       projectType,
@@ -1094,12 +1457,56 @@ export function applyScopeInferencesFromNotes(
   const withElectrical = syncElectricalScopeItems(withKitchenInferences, {
     templateKey,
     notes,
+    projectType,
     electricalScope: (measurements as { electricalScope?: string[] | null })
       ?.electricalScope,
     quantities: measurements as Partial<Record<string, unknown>>,
   });
   const withStucco = applyMeasuredStuccoScopeInferences(withElectrical, measurements);
-  return applyRoofingCloseoutInferences(withStucco, notes, templateKey);
+  return applyExistingShellConversionScopeOwnership(
+    applyBathroomCloseoutInferences(
+      applyRoofingCloseoutInferences(withStucco, notes, templateKey),
+      notes,
+      templateKey
+    ),
+    {
+      templateKey,
+      projectType,
+      notes,
+    }
+  );
+}
+
+function applyBathroomCloseoutInferences(
+  items: ScopeChecklistItem[],
+  notes: string | null | undefined,
+  templateKey?: string | null
+): ScopeChecklistItem[] {
+  if (String(templateKey || '').toLowerCase() !== 'bathroom') return items;
+  const n = String(notes || '').toLowerCase();
+  if (!n.trim()) return items;
+
+  const inferCleanup =
+    /\b(cleanup|disposal|dumpster|debris|final\s+clean|haul[\s-]?off)\b/.test(n);
+  const inferPlumbingRough =
+    /\b(walk[\s-]?in\s+shower|shower\s+pan|waterproofing|backer\s+board|shower\s+wall\s+tile|new\s+faucet|faucet\s+set)\b/.test(
+      n
+    ) &&
+    /\b(remodel|demo|replace|new|install)\b/.test(n);
+
+  return items.map(item => {
+    if (inferCleanup && item.id === 'cleanup' && item.state === 'unsure') {
+      return { ...item, state: 'included' as const, noteBacked: true };
+    }
+    if (
+      inferPlumbingRough &&
+      item.id === 'plumbing_rough' &&
+      item.state === 'unsure'
+    ) {
+      return { ...item, state: 'included' as const, noteBacked: true };
+    }
+    return item;
+  });
 }
 
 function applyRoofingCloseoutInferences(
@@ -1990,6 +2397,17 @@ const NOTE_BACKED_SCOPE_COPY: Record<
     helperText: 'Concrete labor and materials from notes.',
     category: 'from_notes',
   },
+  prep: {
+    label: 'Paint prep & masking',
+    helperText:
+      'Floor/furniture protection, masking, light sanding, caulking, spot priming, and cleanup prep before painting.',
+    category: 'prep',
+  },
+  interior_paint: {
+    label: 'Interior paint — walls & ceilings',
+    helperText: 'Wall and ceiling paint area from your notes or measurements.',
+    category: 'paint',
+  },
 };
 
 function itemIdFromQuantityKey(key: string): string {
@@ -2000,7 +2418,8 @@ function injectNoteBackedPricedItems(
   items: ScopeChecklistItem[],
   measurements?: NormalizedScopeMeasurements,
   templateKey?: string | null,
-  notes?: string | null
+  notes?: string | null,
+  projectType?: string | null
 ): ScopeChecklistItem[] {
   const itemQuantities = measurements?.itemQuantities || {};
   const existingIds = new Set(items.map(item => item.id));
@@ -2012,7 +2431,12 @@ function injectNoteBackedPricedItems(
     if (!itemId || existingIds.has(itemId) || addedIds.has(itemId)) continue;
     if (
       ELECTRICAL_ITEM_IDS.includes(itemId) &&
-      !shouldMaterializeElectricalScopeItems(templateKey, notes)
+      (!shouldMaterializeElectricalScopeItems(templateKey, notes) ||
+        existingShellConversionUsesPackageElectrical(
+          templateKey,
+          projectType,
+          notes
+        ))
     ) {
       continue;
     }
@@ -2024,6 +2448,21 @@ function injectNoteBackedPricedItems(
           ['demo', 'tub_demo', 'shower_floor_demo'].includes(i.id) &&
           (i.state === 'included' || i.noteBacked)
       )
+    ) {
+      continue;
+    }
+    if (
+      existingShellConversionUsesPackageElectrical(
+        templateKey,
+        projectType,
+        notes
+      ) &&
+      (itemId === 'interior_paint' ||
+        itemId === 'prep' ||
+        itemId === 'paint_trim' ||
+        itemId === 'ceiling_paint' ||
+        itemId === 'trim_paint') &&
+      items.some(row => row.id === 'paint' && row.state !== 'excluded')
     ) {
       continue;
     }
@@ -2342,6 +2781,111 @@ function shouldSuppressGenericDemo(
   );
 }
 
+function suppressExistingShellConversionSinglePaintCard(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null,
+  projectType?: string | null,
+  notes?: string | null
+): ScopeChecklistItem[] {
+  if (!isExistingShellConversionJob(templateKey, projectType, notes)) {
+    return items;
+  }
+  const paintIncluded = items.some(
+    row => row.id === 'paint' && row.state === 'included'
+  );
+  const granularPaintIncluded = items.some(
+    row =>
+      (row.id === 'interior_paint' ||
+        row.id === 'prep' ||
+        row.id === 'paint_trim') &&
+      row.state === 'included'
+  );
+  const phasedPaintNotes =
+    /\b(prep(?:aration)?|masking|prime|primer|separate\s+paint|walls\s+only|ceilings?\s+only)\b/i.test(
+      String(notes || '')
+    );
+  if (phasedPaintNotes) return items;
+  if (!paintIncluded && !granularPaintIncluded) return items;
+  let changed = false;
+  const next = items.map(row => {
+    if (row.id === 'paint' && row.state !== 'included') {
+      changed = true;
+      return { ...row, state: 'included' as const };
+    }
+    if (
+      (row.id === 'interior_paint' ||
+        row.id === 'prep' ||
+        row.id === 'paint_trim') &&
+      row.state !== 'excluded'
+    ) {
+      changed = true;
+      return { ...row, state: 'excluded' as const };
+    }
+    return row;
+  });
+  return changed ? next : items;
+}
+
+/** Package electrical + single paint card — no granular note-backed duplicates. */
+export function applyExistingShellConversionScopeOwnership(
+  items: ScopeChecklistItem[],
+  options: {
+    templateKey?: string | null;
+    projectType?: string | null;
+    notes?: string | null;
+  } = {}
+): ScopeChecklistItem[] {
+  if (
+    !existingShellConversionUsesPackageElectrical(
+      options.templateKey,
+      options.projectType,
+      options.notes
+    )
+  ) {
+    return items;
+  }
+
+  const paintIncluded = items.some(
+    row => row.id === 'paint' && row.state === 'included'
+  );
+  const roughIncluded = items.some(
+    row => row.id === 'electrical_rough' && row.state === 'included'
+  );
+
+  return items
+    .filter(item => {
+      if (
+        roughIncluded &&
+        ELECTRICAL_ITEM_IDS.includes(item.id) &&
+        item.id !== 'electrical_rough'
+      ) {
+        return false;
+      }
+      return true;
+    })
+    .map(item => {
+      if (
+        paintIncluded &&
+        (item.id === 'interior_paint' ||
+          item.id === 'prep' ||
+          item.id === 'paint_trim' ||
+          item.id === 'ceiling_paint' ||
+          item.id === 'trim_paint') &&
+        item.state !== 'excluded'
+      ) {
+        return { ...item, state: 'excluded' as const };
+      }
+      if (
+        roughIncluded &&
+        item.id === 'electrical_trim' &&
+        item.state !== 'excluded'
+      ) {
+        return { ...item, state: 'excluded' as const };
+      }
+      return item;
+    });
+}
+
 /** Re-apply note hints + kitchen linked allowances on each Confirm Scope open. */
 export function hydrateScopeChecklistFromNotes(
   items: ScopeChecklistItem[],
@@ -2357,7 +2901,8 @@ export function hydrateScopeChecklistFromNotes(
     scopedItems,
     measurements,
     templateKey,
-    notes
+    notes,
+    projectType
   );
   const withBathroomDefaults = ensureBathroomChecklistItems(
     withNoteBacked,
@@ -2384,11 +2929,29 @@ export function hydrateScopeChecklistFromNotes(
     measurements,
     projectType
   );
+  const dedupedPaint = suppressAdditionConversionPhasePaintDuplicate(
+    inferred,
+    templateKey
+  );
+  const conversionPaint = suppressExistingShellConversionSinglePaintCard(
+    dedupedPaint,
+    templateKey,
+    projectType,
+    notes
+  );
+  const conversionOwned = applyExistingShellConversionScopeOwnership(
+    conversionPaint,
+    {
+      templateKey,
+      projectType,
+      notes,
+    }
+  );
   return suppressBathroomInteriorPaintChecklistItems(
     suppressDefaultPermitsScope(
       suppressBathroomAdhesiveMasticRemoval(
         suppressBathroomFalsePositiveFloorDemoScope(
-          applyGroundUpStageHostDemotions(inferred, templateKey),
+          applyGroundUpStageHostDemotions(conversionOwned, templateKey),
           templateKey,
           notes,
           measurements
@@ -2981,7 +3544,7 @@ export function syncInteriorPaintScopeItems(
       params.paintPricingMethod === 'separate' &&
       row.id === 'interior_paint' &&
       row.state === 'included' &&
-      row.label === 'Walls & Ceilings'
+      row.label === 'Interior paint — walls & ceilings'
     ) {
       changed = true;
       return { ...row, label: 'Walls' };
@@ -3006,8 +3569,10 @@ export function syncInteriorPaintScopeItems(
         label:
           row.id === 'interior_paint' &&
           params.paintPricingMethod === 'combined'
-            ? 'Walls & Ceilings'
-            : row.label,
+            ? 'Interior paint — walls & ceilings'
+            : row.id === 'prep'
+              ? 'Paint prep & masking'
+              : row.label,
         state: 'included' as const,
       };
     }
@@ -3016,10 +3581,19 @@ export function syncInteriorPaintScopeItems(
       row.state === 'included' &&
       params.paintAreaBasis === 'combined'
     ) {
-      if (row.label !== 'Walls & Ceilings') {
+      if (row.label !== 'Interior paint — walls & ceilings') {
         changed = true;
-        return { ...row, label: 'Walls & Ceilings' };
+        return { ...row, label: 'Interior paint — walls & ceilings' };
       }
+    }
+    if (
+      row.id === 'prep' &&
+      row.state === 'included' &&
+      targetIds.has('prep') &&
+      row.label !== 'Paint prep & masking'
+    ) {
+      changed = true;
+      return { ...row, label: 'Paint prep & masking' };
     }
     return row;
   });
@@ -3276,7 +3850,7 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   exterior_paint:
     'Exterior paint application for siding, stucco, soffit, and fascia. Prep, masking, heavy repairs, access work, and specialty coatings are separate.',
   interior_trim:
-    'Whole-house finish carpentry package — baseboard, crown, and general trim. Opening-specific casing is on Opening trim & finish under Windows & doors.',
+    'Trim material, installation, paint, and normal prep.',
   plumbing_trim:
     'Set fixtures and finish connections — excludes toilet/vanity when those are separate scope lines.',
   plumbing_fixtures_hardware:
@@ -3333,6 +3907,21 @@ export function checklistDisplayHelper(
   return CHECKLIST_HELPER_OVERRIDES[item.id] || item.helperText;
 }
 
+const PAINT_SCOPE_LABEL_OVERRIDES: Record<string, string> = {
+  prep: 'Paint prep & masking',
+  interior_paint: 'Interior paint — walls & ceilings',
+  paint: 'Interior paint',
+  ceiling_paint: 'Interior paint — ceilings',
+};
+
+const PAINT_LABEL_TEMPLATES = new Set([
+  'addition',
+  'painting',
+  'windows_doors',
+  'room_remodel',
+  'ground_up',
+]);
+
 export function checklistDisplayLabel(
   item: ScopeChecklistItem,
   templateKey?: string | null
@@ -3366,6 +3955,12 @@ export function checklistDisplayLabel(
   }
   if (templateKey === 'electrical' && item.id === 'electrical_trim') {
     return ELECTRICAL_TRIM_CARD_LABEL;
+  }
+  if (
+    PAINT_LABEL_TEMPLATES.has(tk) &&
+    PAINT_SCOPE_LABEL_OVERRIDES[item.id]
+  ) {
+    return PAINT_SCOPE_LABEL_OVERRIDES[item.id];
   }
   return item.label;
 }
@@ -3404,6 +3999,63 @@ export type ScopeChecklistGroup = {
   title: string;
   itemIds: string[];
 };
+
+export type ScopeChecklistGroupingContext = {
+  projectType?: string | null;
+  notes?: string | null;
+};
+
+/** Finish-out workflow for garage / basement / in-place room conversions. */
+export const EXISTING_SHELL_CONVERSION_SCOPE_GROUPS: ScopeChecklistGroup[] = [
+  {
+    title: 'Prep & structure',
+    itemIds: ['wall_framing', 'insulation'],
+  },
+  {
+    title: 'Openings',
+    itemIds: [
+      'windows_doors',
+      'windows',
+      'exterior_doors',
+      'sliding_doors',
+      'garage_doors',
+      'interior_doors',
+    ],
+  },
+  {
+    title: 'MEP',
+    itemIds: ['plumbing_rough', 'electrical_rough', 'hvac'],
+  },
+  {
+    title: 'Finishes',
+    itemIds: [
+      'drywall',
+      'paint',
+      'interior_paint',
+      'prep',
+      'hang',
+      'finish_tape',
+      'texture',
+      'flooring',
+      'cabinets_counters',
+      'tile',
+    ],
+  },
+  {
+    title: 'Trim-out',
+    itemIds: [
+      'plumbing_trim',
+      'electrical_trim',
+      'hvac_startup',
+      'interior_trim',
+      'appliances',
+    ],
+  },
+  {
+    title: 'Closeout',
+    itemIds: ['final_inspections', 'cleanup', 'contingency'],
+  },
+];
 
 export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   bathroom: [
@@ -3740,6 +4392,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
       itemIds: [
         'demo_removal',
         'site_prep',
+        'gravel_base',
         'excavation',
         'reinforcement',
         'complex_forming',
@@ -3748,7 +4401,12 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Pour', itemIds: ['pour_flatwork', 'pour_foundation'] },
     {
       title: 'Upgrades / disposal',
-      itemIds: ['concrete_sealer', 'decorative_finish', 'additional_haul_off'],
+      itemIds: [
+        'concrete_sealer',
+        'decorative_finish',
+        'concrete_pumping',
+        'additional_haul_off',
+      ],
     },
   ],
   excavation: [
@@ -3783,14 +4441,29 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   electrical: electricalChecklistGroups(),
 };
 
+export function resolveScopeChecklistGroups(
+  templateKey?: string | null,
+  context: ScopeChecklistGroupingContext = {}
+): ScopeChecklistGroup[] | null {
+  const key = String(templateKey || '').toLowerCase();
+  if (
+    key === 'addition' &&
+    isExistingShellConversionJob(key, context.projectType, context.notes)
+  ) {
+    return EXISTING_SHELL_CONVERSION_SCOPE_GROUPS;
+  }
+  return SCOPE_CHECKLIST_GROUPS[key] ?? null;
+}
+
 /** @deprecated use SCOPE_CHECKLIST_GROUPS.bathroom */
 export const BATHROOM_SCOPE_GROUPS = SCOPE_CHECKLIST_GROUPS.bathroom;
 
 export function groupScopeChecklistItems(
   items: ScopeChecklistItem[],
-  templateKey?: string
+  templateKey?: string,
+  context: ScopeChecklistGroupingContext = {}
 ): Array<{ title: string; items: ScopeChecklistItem[] }> {
-  const groups = templateKey ? SCOPE_CHECKLIST_GROUPS[templateKey] : null;
+  const groups = resolveScopeChecklistGroups(templateKey, context);
   if (!groups) {
     return [{ title: '', items }];
   }
@@ -3865,16 +4538,29 @@ export function initialScopeGroupCollapse(
   grouped: Array<{ title: string; items: ScopeChecklistItem[] }>,
   measurements: NormalizedScopeMeasurements,
   templateKey?: string | null,
-  notes?: string | null
+  notes?: string | null,
+  projectType?: string | null
 ): Record<string, boolean> {
   const visualCtx = scopeItemVisualContextFromMeasurements(
     measurements,
     templateKey,
     notes
   );
+  const existingShellConversion =
+    String(templateKey || '').toLowerCase() === 'addition' &&
+    isExistingShellConversionJob(templateKey, projectType, notes);
   const collapsed: Record<string, boolean> = {};
   for (const group of grouped) {
     if (!group.title) continue;
+    if (existingShellConversion) {
+      const hasIncludedScope = group.items.some(
+        item => item.state === 'included' && checklistItemInScope(item)
+      );
+      if (hasIncludedScope) {
+        collapsed[group.title] = false;
+        continue;
+      }
+    }
     const needsAttention = group.items.some(item => {
       if (itemNeedsMeasurement(item, measurements, templateKey, notes)) {
         return true;

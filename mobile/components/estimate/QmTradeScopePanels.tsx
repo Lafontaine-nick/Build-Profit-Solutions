@@ -443,6 +443,37 @@ function QmScopeChoiceChip({
   );
 }
 
+function QmConcreteScopeChoiceChip({
+  label,
+  active,
+  onPress,
+  applying,
+  darkMode,
+  Colors,
+  style,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  applying: boolean;
+  darkMode: boolean;
+  Colors: Colors;
+  style?: object;
+}) {
+  return (
+    <QmScopeChoiceChip
+      label={label}
+      active={active}
+      onPress={onPress}
+      disabled={applying}
+      darkMode={darkMode}
+      Colors={Colors}
+      style={{ minWidth: '100%', ...style }}
+      stacked
+    />
+  );
+}
+
 export function qmNeutralScopePanelStyle(darkMode: boolean) {
   return {
     titleColor: darkMode ? '#94a3b8' : '#64748b',
@@ -3359,7 +3390,7 @@ export function QmConcreteScopePanels({
     const area = Number(concreteAreaByType[option.id]) || 0;
     const thickness = Number(measurements.concreteThicknessByType?.[option.id]) || defaultThicknessForType(option.id);
     return sum + area * (thickness / 12) / 27;
-  }, 0);
+  }, 0) + (Number(measurements.thickenedEdgeCy) || 0);
   const needsFlatworkArea =
     flatworkActive ||
     selected.includes('reinforcement') ||
@@ -3474,26 +3505,20 @@ export function QmConcreteScopePanels({
   };
   const selectedThickness = Number(measurements.concreteThicknessInches) || 4;
   const nationalFlatworkRate = 6 + 4 * (selectedThickness / 4);
-  const sitePrepOptionIds = new Set(['demo_removal', 'site_prep', 'excavation']);
+  const sitePrepOptionIds = new Set(['demo_removal', 'site_prep', 'gravel_base', 'excavation']);
   const optionalOptionIds = new Set([
     'reinforcement',
     'complex_forming',
     'concrete_sealer',
     'decorative_finish',
+    'concrete_pumping',
     'additional_haul_off',
   ]);
+  const panelStyle = qmPanelShellStyle(darkMode);
 
   return (
     <View style={{ gap: 12 }}>
-      <View
-        style={[
-          styles.qmPanel,
-          {
-            borderColor: darkMode ? 'rgba(148,163,184,0.28)' : 'rgba(100,116,139,0.24)',
-            backgroundColor: darkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.05)',
-          },
-        ]}
-      >
+      <View style={[styles.qmPanel, panelStyle]}>
       <TouchableOpacity onPress={() => setExpanded((value) => !value)} activeOpacity={0.75}>
         <Text style={[styles.qmPanelTitle, { color: darkMode ? '#cbd5e1' : '#475569' }]}>
           Flatwork & footing/foundation pour {expanded ? '⌃' : '⌄'}
@@ -3518,23 +3543,15 @@ export function QmConcreteScopePanels({
             {CONCRETE_FLATWORK_OPTIONS.map((option) => {
               const active = selected.includes(option.id);
               return (
-                <TouchableOpacity
+                <QmConcreteScopeChoiceChip
                   key={option.id}
+                  label={option.label}
+                  active={active}
                   onPress={() => toggle(option.id)}
-                  disabled={applying}
-                  activeOpacity={1}
-                  style={[
-                    styles.qmOption,
-                    {
-                      borderColor: active ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                      backgroundColor: active ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
-                    },
-                  ]}
-                >
-                  <Text style={[styles.qmOptionText, { color: active ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
-                    {active ? '✓ ' : ''}{option.label}
-                  </Text>
-                </TouchableOpacity>
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
               );
             })}
           </View>
@@ -3572,23 +3589,15 @@ export function QmConcreteScopePanels({
                             Number(measurements.concreteThicknessByType?.[option.id]) || defaultThicknessForType(option.id);
                           const thicknessActive = selectedTypeThickness === thickness.inches;
                           return (
-                            <TouchableOpacity
+                            <QmConcreteScopeChoiceChip
                               key={`${option.id}-${thickness.id}`}
+                              label={thickness.label}
+                              active={thicknessActive}
                               onPress={() => updateFlatworkThickness(option.id, thickness.inches)}
-                              disabled={applying}
-                              activeOpacity={1}
-                              style={[
-                                styles.qmOption,
-                                {
-                                  borderColor: thicknessActive ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                                  backgroundColor: thicknessActive ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
-                                },
-                              ]}
-                            >
-                              <Text style={[styles.qmOptionText, { color: thicknessActive ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
-                                {thicknessActive ? '✓ ' : ''}{thickness.label}
-                              </Text>
-                            </TouchableOpacity>
+                              applying={applying}
+                              darkMode={darkMode}
+                              Colors={Colors}
+                            />
                           );
                         })}
                       </View>
@@ -3620,7 +3629,11 @@ export function QmConcreteScopePanels({
                     Concrete volume cross-check
                   </Text>
                   <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginBottom: 0 }]}>
-                    Approximately {flatworkVolumeCrossCheckCy.toFixed(1)} CY based on each selected type’s area and thickness. This is informational only and does not replace sqft pricing.
+                    Approximately {flatworkVolumeCrossCheckCy.toFixed(1)} CY based on each selected type’s area and thickness
+                    {Number(measurements.thickenedEdgeCy) > 0
+                      ? ` plus ${Number(measurements.thickenedEdgeCy).toFixed(1)} CY thickened edge`
+                      : ''}
+                    . This is informational only and does not replace sqft pricing.
                   </Text>
                 </View>
               ) : null}
@@ -3651,23 +3664,15 @@ export function QmConcreteScopePanels({
               const active = selected.includes(option.id) || selected.includes('footings');
               return (
                 <React.Fragment key={option.id}>
-                  <TouchableOpacity
+                  <QmConcreteScopeChoiceChip
+                    label={option.label}
+                    active={active}
                     onPress={() => toggle(option.id)}
-                    disabled={applying}
-                    activeOpacity={1}
-                    style={[
-                      styles.qmOption,
-                      {
-                        marginTop: 10,
-                        borderColor: active ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                        backgroundColor: active ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.qmOptionText, { color: active ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
-                      {active ? '✓ ' : ''}{option.label}
-                    </Text>
-                  </TouchableOpacity>
+                    applying={applying}
+                    darkMode={darkMode}
+                    Colors={Colors}
+                    style={{ marginTop: 10 }}
+                  />
                   {active && 'measurementKey' in option && option.measurementKey ? (
                     <QmSqftMeasurementRow
                       label="Footing / foundation concrete quantity"
@@ -3692,15 +3697,7 @@ export function QmConcreteScopePanels({
     </View>
     {expanded ? (
       <>
-        <View
-          style={[
-            styles.qmPanel,
-            {
-              borderColor: darkMode ? 'rgba(148,163,184,0.28)' : 'rgba(100,116,139,0.24)',
-              backgroundColor: darkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.05)',
-            },
-          ]}
-        >
+        <View style={[styles.qmPanel, panelStyle]}>
           <TouchableOpacity
             onPress={() => setSitePrepExpanded((value) => !value)}
             activeOpacity={0.75}
@@ -3720,23 +3717,15 @@ export function QmConcreteScopePanels({
                   (option.id === 'pour_foundation' && selected.includes('footings'));
                 return (
                   <React.Fragment key={option.id}>
-                    <TouchableOpacity
+                    <QmConcreteScopeChoiceChip
+                      label={option.label}
+                      active={active}
                       onPress={() => toggle(option.id)}
-                      disabled={applying}
-                      activeOpacity={1}
-                      style={[
-                        styles.qmOption,
-                        {
-                          marginTop: 10,
-                          borderColor: active ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                          backgroundColor: active ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.qmOptionText, { color: active ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
-                        {active ? '✓ ' : ''}{option.label}
-                      </Text>
-                    </TouchableOpacity>
+                      applying={applying}
+                      darkMode={darkMode}
+                      Colors={Colors}
+                      style={{ marginTop: 10 }}
+                    />
                     {active && 'measurementKey' in option && option.measurementKey ? (
                       <>
                         {option.id !== 'demo_removal' && option.id !== 'excavation' ? (
@@ -3785,63 +3774,49 @@ export function QmConcreteScopePanels({
                               {CONCRETE_DEMO_THICKNESS_OPTIONS.map((thickness) => {
                                 const activeThickness = selectedDemoBands.includes(thickness.id);
                                 return (
-                                  <TouchableOpacity
+                                  <QmConcreteScopeChoiceChip
                                     key={thickness.id}
+                                    label={thickness.label}
+                                    active={activeThickness}
                                     onPress={() => toggleDemoThickness(thickness.id)}
-                                    disabled={applying}
-                                    activeOpacity={1}
-                                    style={[
-                                      styles.qmOption,
-                                      {
-                                        borderColor: activeThickness ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                                        backgroundColor: activeThickness ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
-                                      },
-                                    ]}
-                                  >
-                                    <Text style={[styles.qmOptionText, { color: activeThickness ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
-                                      {activeThickness ? '✓ ' : ''}{thickness.label}
-                                    </Text>
-                                  </TouchableOpacity>
+                                    applying={applying}
+                                    darkMode={darkMode}
+                                    Colors={Colors}
+                                  />
                                 );
                               })}
                             </View>
                             <Text style={[styles.qmPanelCaption, { color: darkMode ? '#cbd5e1' : Colors.text, marginTop: 10, marginBottom: 4 }]}>
                               Demolition conditions · select all that apply
                             </Text>
-                            <TouchableOpacity
-                              onPress={() => setMeasurements((prev) => ({ ...prev, concreteDemoReinforced: !prev.concreteDemoReinforced }))}
-                              disabled={applying}
-                              activeOpacity={1}
-                              style={[
-                                styles.qmOption,
-                                {
-                                  marginTop: 10,
-                                  borderColor: measurements.concreteDemoReinforced ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                                  backgroundColor: measurements.concreteDemoReinforced ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
-                                },
-                              ]}
-                            >
-                              <Text style={[styles.qmOptionText, { color: measurements.concreteDemoReinforced ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
-                                {measurements.concreteDemoReinforced ? '✓ ' : ''}Reinforced concrete · +$1.25/sqft
-                              </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              onPress={() => setMeasurements((prev) => ({ ...prev, concreteDemoLimitedAccess: !prev.concreteDemoLimitedAccess }))}
-                              disabled={applying}
-                              activeOpacity={1}
-                              style={[
-                                styles.qmOption,
-                                {
-                                  marginTop: 8,
-                                  borderColor: measurements.concreteDemoLimitedAccess ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                                  backgroundColor: measurements.concreteDemoLimitedAccess ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
-                                },
-                              ]}
-                            >
-                              <Text style={[styles.qmOptionText, { color: measurements.concreteDemoLimitedAccess ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
-                                {measurements.concreteDemoLimitedAccess ? '✓ ' : ''}Limited access · +$1.50/sqft
-                              </Text>
-                            </TouchableOpacity>
+                            <QmConcreteScopeChoiceChip
+                              label="Reinforced concrete · +$1.25/sqft"
+                              active={Boolean(measurements.concreteDemoReinforced)}
+                              onPress={() =>
+                                setMeasurements((prev) => ({
+                                  ...prev,
+                                  concreteDemoReinforced: !prev.concreteDemoReinforced,
+                                }))
+                              }
+                              applying={applying}
+                              darkMode={darkMode}
+                              Colors={Colors}
+                              style={{ marginTop: 10 }}
+                            />
+                            <QmConcreteScopeChoiceChip
+                              label="Limited access · +$1.50/sqft"
+                              active={Boolean(measurements.concreteDemoLimitedAccess)}
+                              onPress={() =>
+                                setMeasurements((prev) => ({
+                                  ...prev,
+                                  concreteDemoLimitedAccess: !prev.concreteDemoLimitedAccess,
+                                }))
+                              }
+                              applying={applying}
+                              darkMode={darkMode}
+                              Colors={Colors}
+                              style={{ marginTop: 8 }}
+                            />
                             {selectedDemoBands.includes('structural_7_plus') ? (
                               <QmSqftMeasurementRow
                                 label="Heavy / structural demo quantity"
@@ -3875,8 +3850,10 @@ export function QmConcreteScopePanels({
                                     : 'direct_cy');
                                 const modeActive = selectedMode === mode.id;
                                 return (
-                                  <TouchableOpacity
+                                  <QmConcreteScopeChoiceChip
                                     key={mode.id}
+                                    label={mode.label}
+                                    active={modeActive}
                                     onPress={() =>
                                       setMeasurements((prev) =>
                                         mode.id === 'direct_cy'
@@ -3893,20 +3870,10 @@ export function QmConcreteScopePanels({
                                             }
                                       )
                                     }
-                                    disabled={applying}
-                                    activeOpacity={1}
-                                    style={[
-                                      styles.qmOption,
-                                      {
-                                        borderColor: modeActive ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                                        backgroundColor: modeActive ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
-                                      },
-                                    ]}
-                                  >
-                                    <Text style={[styles.qmOptionText, { color: modeActive ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
-                                      {modeActive ? '✓ ' : ''}{mode.label}
-                                    </Text>
-                                  </TouchableOpacity>
+                                    applying={applying}
+                                    darkMode={darkMode}
+                                    Colors={Colors}
+                                  />
                                 );
                               })}
                             </View>
@@ -3973,15 +3940,7 @@ export function QmConcreteScopePanels({
             : null}
 
         </View>
-        <View
-          style={[
-            styles.qmPanel,
-            {
-              borderColor: darkMode ? 'rgba(148,163,184,0.28)' : 'rgba(100,116,139,0.24)',
-              backgroundColor: darkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.05)',
-            },
-          ]}
-        >
+        <View style={[styles.qmPanel, panelStyle]}>
           <TouchableOpacity
             onPress={() => setOptionalExpanded((value) => !value)}
             activeOpacity={0.75}
@@ -4008,23 +3967,15 @@ export function QmConcreteScopePanels({
                         }}
                       />
                     ) : null}
-                    <TouchableOpacity
+                    <QmConcreteScopeChoiceChip
+                      label={option.label}
+                      active={active}
                       onPress={() => toggle(option.id)}
-                      disabled={applying}
-                      activeOpacity={1}
-                      style={[
-                        styles.qmOption,
-                        {
-                          marginTop: 10,
-                          borderColor: active ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                          backgroundColor: active ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.qmOptionText, { color: active ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
-                        {active ? '✓ ' : ''}{option.label}
-                      </Text>
-                    </TouchableOpacity>
+                      applying={applying}
+                      darkMode={darkMode}
+                      Colors={Colors}
+                      style={{ marginTop: 10 }}
+                    />
                     {active && option.id === 'decorative_finish' ? (
                       <View
                         style={{
@@ -4040,27 +3991,20 @@ export function QmConcreteScopePanels({
                             const selectedFinish = measurements.concreteDecorativeFinish || 'integral_color';
                             const finishActive = selectedFinish === finish.id;
                             return (
-                              <TouchableOpacity
+                              <QmConcreteScopeChoiceChip
                                 key={finish.id}
-                                onPress={() => setMeasurements((prev) => ({ ...prev, concreteDecorativeFinish: finish.id }))}
-                                disabled={applying}
-                                activeOpacity={1}
-                                style={[
-                                  styles.qmOption,
-                                  {
-                                    borderColor: finishActive ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                                    backgroundColor: finishActive
-                                      ? 'rgba(52, 211, 153, 0.12)'
-                                      : darkMode
-                                        ? '#27272a'
-                                        : '#f1f5f9',
-                                  },
-                                ]}
-                              >
-                                <Text style={[styles.qmOptionText, { color: finishActive ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
-                                  {finishActive ? '✓ ' : ''}{finish.label} · +${finish.rate.toFixed(2)}/sqft
-                                </Text>
-                              </TouchableOpacity>
+                                label={`${finish.label} · +$${finish.rate.toFixed(2)}/sqft`}
+                                active={finishActive}
+                                onPress={() =>
+                                  setMeasurements((prev) => ({
+                                    ...prev,
+                                    concreteDecorativeFinish: finish.id,
+                                  }))
+                                }
+                                applying={applying}
+                                darkMode={darkMode}
+                                Colors={Colors}
+                              />
                             );
                           })}
                         </View>

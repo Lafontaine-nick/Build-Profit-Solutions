@@ -1527,6 +1527,14 @@ export function resolveDrywallProductionAssemblyBaseline(params: {
       Math.abs(packageSf - expectedPackage) / expectedPackage <= 0.1;
     if (matchesBarometerPackage) {
       const lump = DRYWALL_INSTALLED_BY_PROJECT[project.id];
+      const impliedUnitRate = roundRate(lump / packageSf);
+      if (impliedUnitRate < 1) {
+        return {
+          material: DRYWALL_PRODUCTION_ASSEMBLY_BASELINE.material,
+          labor: DRYWALL_PRODUCTION_ASSEMBLY_BASELINE.labor,
+          sourceLabel: `${DRYWALL_PRODUCTION_RATE_CARD_LABEL} · Southern Utah production baseline`,
+        };
+      }
       const material = roundRate(
         (lump * DRYWALL_INSTALLED_MATERIAL_SHARE) / packageSf
       );
@@ -1538,7 +1546,7 @@ export function resolveDrywallProductionAssemblyBaseline(params: {
         labor,
         sourceLabel: `${DRYWALL_PRODUCTION_RATE_CARD_LABEL} · ${project.label} gypsum board benchmark`,
         barometerTotal: lump,
-        impliedUnitRate: roundRate(lump / packageSf),
+        impliedUnitRate,
       };
     }
   }

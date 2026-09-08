@@ -7,6 +7,21 @@
  */
 
 import { applyElectricalServicePanelOwnership } from './electricalServicePanelPricing';
+import {
+  isAdditionConversionJob,
+  isNewStructureAdditionJob,
+} from '@/utils/additionConversionPlanning';
+
+function existingShellConversionUsesPackageElectrical(
+  templateKey?: string | null,
+  projectType?: string | null,
+  notes?: string | null
+): boolean {
+  return (
+    isAdditionConversionJob(templateKey, projectType, notes) &&
+    !isNewStructureAdditionJob(projectType, notes)
+  );
+}
 
 export type ElectricalProjectCondition =
   | 'new_construction'
@@ -1001,6 +1016,7 @@ export function syncElectricalScopeItems<
   items: T[],
   params: {
     templateKey?: string | null;
+    projectType?: string | null;
     notes?: string | null;
     electricalScope?: string[] | null;
     electricalIncludeRough?: boolean | null;
@@ -1020,11 +1036,17 @@ export function syncElectricalScopeItems<
   ) {
     return items;
   }
+  const packageOnly = existingShellConversionUsesPackageElectrical(
+    params.templateKey,
+    params.projectType,
+    params.notes
+  );
   const included = new Set(params.electricalScope || []);
   const fromQuantity = new Set<string>();
   const clearedQuantity = new Set<string>();
   for (const card of ELECTRICAL_CARDS) {
     if (card.measurementKey === 'serviceAmperage') continue;
+    if (packageOnly && card.itemId !== 'electrical_rough') continue;
     const raw = params.quantities?.[card.measurementKey];
     if (positiveNumber(raw) != null) {
       included.add(card.itemId);
@@ -1046,11 +1068,12 @@ export function syncElectricalScopeItems<
     params.electricalIncludeTrim === true ||
     params.quantities?.electricalIncludeTrim === true
   ) {
-    included.add('electrical_trim');
+    if (!packageOnly) included.add('electrical_trim');
   }
   const materializedItems = [...items];
   const existingIds = new Set(materializedItems.map(item => item.id));
   for (const card of ELECTRICAL_CARDS) {
+    if (packageOnly && card.itemId !== 'electrical_rough') continue;
     if (!included.has(card.itemId) || existingIds.has(card.itemId)) continue;
     materializedItems.push({
       id: card.itemId,
@@ -1063,6 +1086,16 @@ export function syncElectricalScopeItems<
     existingIds.add(card.itemId);
   }
   return materializedItems.map(item => {
+    if (packageOnly) {
+      if (
+        ELECTRICAL_ITEM_IDS.includes(item.id) &&
+        item.id !== 'electrical_rough'
+      ) {
+        return item.state === 'excluded'
+          ? item
+          : { ...item, state: 'excluded' as const };
+      }
+    }
     if (fromQuantity.has(item.id)) {
       return item.state === 'included' ? item : { ...item, state: 'included' };
     }
@@ -1090,9 +1123,12 @@ const WORD_COUNTS: Record<string, number> = {
   ten: 10,
   eleven: 11,
   twelve: 12,
+  couple: 2,
+  few: 3,
+  several: 4,
 };
 
-const COUNT_TOKEN = String.raw`(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)`;
+const COUNT_TOKEN = String.raw`(a\s+few|few|several|couple(?:\s+of)?|\d+|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)`;
 const LENGTH_TOKEN = String.raw`(\d+(?:\.\d+)?)`;
 const LENGTH_UNIT = String.raw`(?:lf|lin(?:eal|ear)?\s*(?:ft|feet)|feet|foot|ft)\b`;
 
@@ -1173,8 +1209,9 @@ function parseElectricalTrenchConditionFromNotes(
 }
 
 function parseCountToken(raw: string | undefined): number | null {
-  const token = String(raw || '').toLowerCase();
+  const token = String(raw || '').toLowerCase().trim();
   if (WORD_COUNTS[token] != null) return WORD_COUNTS[token];
+  if (token === 'a few') return 3;
   const n = Number(String(token).replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
 }

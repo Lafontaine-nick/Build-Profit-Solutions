@@ -1,5 +1,6 @@
 const {
   normalizeDraft,
+  inferProjectTypeFromNotes,
   parseSquareFeetFromText,
   isPerSqftAllowance,
   classifyAllowanceKind,
@@ -7,6 +8,51 @@ const {
 const { inferBuilderMode } = require('../estimateDraftEnrichment');
 
 describe('estimateDraftFromNotes sqft × allowance pricing', () => {
+  test('routes dedicated interior/exterior painting notes to painting', () => {
+    expect(
+      inferProjectTypeFromNotes(
+        'Interior and exterior painting: prep and masking, repaint walls and siding.',
+        'plumbing'
+      )
+    ).toBe('painting');
+  });
+
+  test('keeps unpriced painting scope as one package for measurement pricing', () => {
+    const draft = normalizeDraft(
+      {
+        projectType: 'kitchen',
+        rooms: [
+          { name: 'Main Floor Interior Painting', scope: '7,680 sqft paint', price: null },
+          { name: 'Upper Floor Interior Painting', scope: '7,680 sqft paint', price: null },
+          { name: 'Interior Doors and Baseboards', scope: '14 doors and trim', price: null },
+        ],
+      },
+      {
+        originalNotes:
+          'Interior repaint throughout a 2-story home. Kitchen cabinets, closets, and exterior surfaces are excluded.',
+      }
+    );
+
+    expect(draft.projectType).toBe('painting');
+    expect(draft.rooms).toHaveLength(1);
+    expect(draft.rooms[0].name).toBe('Interior Painting');
+  });
+
+  test('routes existing room conversion notes away from new-build HVAC defaults', () => {
+    expect(
+      inferProjectTypeFromNotes(
+        'Convert existing garage to office; add mini-split HVAC.',
+        'other'
+      )
+    ).toBe('garage_conversion');
+    expect(
+      inferProjectTypeFromNotes(
+        'Convert existing bonus room to studio; add mini-split HVAC.',
+        'other'
+      )
+    ).toBe('room_addition');
+  });
+
   test('parseSquareFeetFromText handles common phrasing', () => {
     expect(parseSquareFeetFromText('500 sqft floor and walls')).toBe(500);
     expect(parseSquareFeetFromText('about 500 square feet of work')).toBe(500);

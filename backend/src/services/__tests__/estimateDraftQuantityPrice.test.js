@@ -7,6 +7,7 @@ const {
   amountAppearsAsQuantityInText,
   labeledPriceMatchIsValid,
   extractScopeQuantitiesForPackage,
+  inferProjectTypeFromNotes,
 } = require('../estimateDraftQuantityPrice');
 const { expandJobScopeRooms, detectScopeTasksFromNotes } = require('../estimateDraftScopeSplit');
 
@@ -14,6 +15,14 @@ const FLOOR_NOTES =
   "OK, let's create a bid. I have a floor job. I have 1200 ft.² of tile demo. I have 1200 ft.² of laminate flooring installation and 500 linear feet of baseboard installation, caulk and paint";
 
 describe('quantity vs price parsing', () => {
+  test('classifies dedicated interior repaint notes as painting despite excluded kitchen cabinets', () => {
+    const projectType = inferProjectTypeFromNotes(
+      'Interior repaint throughout a 2-story home. Kitchen cabinets, closets, and exterior surfaces are excluded.'
+    );
+
+    expect(projectType).toBe('painting');
+  });
+
   test('extractPricingItemsFromText does not treat 1200 sqft as dollars', () => {
     const items = extractPricingItemsFromText(FLOOR_NOTES);
     const amounts = items.map((i) => i.amount).filter(Boolean);

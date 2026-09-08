@@ -34,7 +34,7 @@ export const BATHROOM_PAINT_REPAIR_SEVERITY_OPTIONS: Array<{
 ];
 
 /** Wall/ceiling SF above this reads as full-room paint (patch included). */
-export const BATHROOM_FULL_ROOM_PAINT_SQFT_THRESHOLD = 180;
+export const BATHROOM_FULL_ROOM_PAINT_SQFT_THRESHOLD = 220;
 
 export function parseBathroomWallPaintSqft(
   value: string | number | null | undefined
@@ -67,6 +67,7 @@ export function bathroomPaintRepairSeverityMultiplier(
 export function inferBathroomPaintRepairScopeFromMeasurements(params: {
   wallPaintSqft?: string | number | null;
   bathroomFloorSqft?: string | number | null;
+  notes?: string | null;
 }): BathroomPaintRepairScope | null {
   const wallSf = parseBathroomWallPaintSqft(params.wallPaintSqft);
   if (wallSf == null) {
@@ -224,20 +225,38 @@ export function syncBathroomPaintRepairFlow(
     existing?.quantitySource === 'notes' ||
     existing?.quantitySource === 'plan_vision';
 
-  if (!locked && wallSf != null && wallSf > 0 && scope) {
-    const currentQty = parseScopeMeasurementInput(String(existing?.quantity ?? ''));
-    if (currentQty !== wallSf || existing?.quantitySource !== 'inferred') {
-      next = {
-        ...next,
-        itemQuantities: {
-          ...(next.itemQuantities || {}),
-          paint_repair: {
-            quantity: String(wallSf),
-            unit: 'sqft',
-            quantitySource: 'inferred',
+  if (!locked && scope) {
+    const bathFloor = parseBathroomWallPaintSqft(next.bathroomFloorSqft);
+    const resolvedWall =
+      wallSf != null &&
+      bathFloor != null &&
+      wallSf === bathFloor
+        ? defaultBathroomEntireRoomPaintSqft({
+            wallPaintSqft: null,
+            bathroomFloorSqft: next.bathroomFloorSqft,
+          })
+        : wallSf;
+    const qty =
+      resolvedWall ??
+      defaultBathroomEntireRoomPaintSqft({
+        wallPaintSqft: next.wallPaintSqft,
+        bathroomFloorSqft: next.bathroomFloorSqft,
+      });
+    if (qty != null && qty > 0) {
+      const currentQty = parseScopeMeasurementInput(String(existing?.quantity ?? ''));
+      if (currentQty !== qty || existing?.quantitySource !== 'inferred') {
+        next = {
+          ...next,
+          itemQuantities: {
+            ...(next.itemQuantities || {}),
+            paint_repair: {
+              quantity: String(qty),
+              unit: 'sqft',
+              quantitySource: 'inferred',
+            },
           },
-        },
-      };
+        };
+      }
     }
   } else if (
     !locked &&

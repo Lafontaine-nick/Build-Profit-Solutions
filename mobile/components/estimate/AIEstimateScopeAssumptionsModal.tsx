@@ -175,6 +175,9 @@ import {
   mergeScopeProgressIntoDraft,
   partitionScopeChecklistItems,
   applyKitchenScopeInferences,
+  applyAdditionConversionScopeDefaults,
+  filterExistingShellConversionConfirmScopeItems,
+  syncAdditionConversionScopeFromMeasurements,
   hydrateScopeChecklistFromNotes,
   applyMeasuredStuccoScopeInferences,
   suppressBathroomFalsePositiveFloorDemoScope,
@@ -200,6 +203,11 @@ import {
   finalizeDrywallScopeChecklistLayout,
   stripStandaloneDrywallTextureItem,
 } from '@/utils/estimateScopeChecklistUi';
+import {
+  existingShellConversionElectricalBreakdown,
+  isExistingShellConversionJob,
+  isGarageConversionJob,
+} from '@/utils/additionConversionPlanning';
 import {
   PinnedDrywallAssemblyOptionsCard,
   DrywallTextureSelectedLabel,
@@ -607,10 +615,12 @@ import {
 } from '@/utils/measurementSemantics';
 import { PLANNING_BID_CONFIDENCE_COPY } from '@/utils/getMeasurementRelevance';
 import { step2TierNeedsInlineTakeoffEntry } from '@/utils/confirmScopeStep2Pricing';
+import { applyNoteBackedBathroomConfirmScopePricing } from '@/utils/confirmScopeUnpricedPricing';
 import BenchmarkReasonablenessCard from '@/components/estimate/BenchmarkReasonablenessCard';
 import {
   buildSuggestedPricingCardDisplay,
   compactSuggestedActionLabel,
+  confirmScopeSuggestedCardShowsQuantityLine,
   displayPriceSourceLabel,
   includeUnconfirmedSuggestedPricingFill,
   isConfirmScopePlanningBenchmarkRow,
@@ -2004,6 +2014,7 @@ function SuggestedBudgetSplitRows({
     useState(false);
   const isFramingShellLineCard = itemId === 'framing';
   const isHvacPackageLineCard = itemId === 'hvac';
+  const showDetailedPricingDetails = false;
   const packageBreakdownLines =
     isFramingShellLineCard || isHvacPackageLineCard
       ? String(block.pricingDetail || '')
@@ -2212,7 +2223,9 @@ function SuggestedBudgetSplitRows({
         </Text>
       ) : null}
 
-      {isFlooringLineCard && flooringTransitionDisplayLines.length ? (
+      {showDetailedPricingDetails &&
+      isFlooringLineCard &&
+      flooringTransitionDisplayLines.length ? (
         <View style={{ marginTop: 8, gap: 3 }}>
           <Text style={{ color: text, fontSize: 12, fontWeight: '700' }}>
             {flooringTransitionSummaryLabel}
@@ -2228,7 +2241,9 @@ function SuggestedBudgetSplitRows({
         </View>
       ) : null}
 
-      {isInsulationAssemblyCard && insulationAssemblyRows.length ? (
+      {showDetailedPricingDetails &&
+      isInsulationAssemblyCard &&
+      insulationAssemblyRows.length ? (
         <InsulationAssemblyPricingBreakdown
           rows={insulationAssemblyRows}
           material={block.material}
@@ -2238,7 +2253,7 @@ function SuggestedBudgetSplitRows({
           Colors={Colors}
           dividerColor={divider}
         />
-      ) : display.splitLine && !isFlooringLineCard ? (
+      ) : display.splitLine ? (
         <Text
           style={{
             color: caption,
@@ -2252,7 +2267,8 @@ function SuggestedBudgetSplitRows({
         </Text>
       ) : null}
 
-      {display.unitRateLine &&
+      {showDetailedPricingDetails &&
+      display.unitRateLine &&
       !isFlooringLineCard &&
       !isInsulationAssemblyCard ? (
         <Text
@@ -2266,7 +2282,8 @@ function SuggestedBudgetSplitRows({
         </Text>
       ) : null}
 
-      {(isFramingShellLineCard || isHvacPackageLineCard) &&
+      {showDetailedPricingDetails &&
+      (isFramingShellLineCard || isHvacPackageLineCard) &&
       packageBreakdownLines.length ? (
         <>
           <TouchableOpacity
@@ -2299,7 +2316,7 @@ function SuggestedBudgetSplitRows({
         </>
       ) : null}
 
-      {showFlooringBreakdownToggle ? (
+      {showDetailedPricingDetails && showFlooringBreakdownToggle ? (
         <>
           <TouchableOpacity
             onPress={() => setFlooringTransitionBreakdownOpen(open => !open)}
@@ -2337,7 +2354,7 @@ function SuggestedBudgetSplitRows({
         </>
       ) : null}
 
-      {display.statusLine ? (
+      {showDetailedPricingDetails && display.statusLine ? (
         <Text
           style={{
             color: display.statusTone === 'amber' ? statusAmber : caption,
@@ -2351,7 +2368,8 @@ function SuggestedBudgetSplitRows({
         </Text>
       ) : null}
 
-      {isToiletRelocateSuggestedBlock(block.pricingRecordId) ? (
+      {showDetailedPricingDetails &&
+      isToiletRelocateSuggestedBlock(block.pricingRecordId) ? (
         <ToiletRelocatePricingDetails
           floorType={toiletRelocateFloorTypeFromPricingRecord(
             block.pricingRecordId
@@ -2362,7 +2380,8 @@ function SuggestedBudgetSplitRows({
         />
       ) : null}
 
-      {isShowerRoughSuggestedBlock(block.pricingRecordId) ? (
+      {showDetailedPricingDetails &&
+      isShowerRoughSuggestedBlock(block.pricingRecordId) ? (
         <ShowerRoughPricingDetails
           context={
             showerRoughContextFromPricingRecord(block.pricingRecordId) ??
@@ -2374,7 +2393,8 @@ function SuggestedBudgetSplitRows({
         />
       ) : null}
 
-      {isInteriorPaintSuggestedBlock(block.pricingRecordId)
+      {showDetailedPricingDetails &&
+      isInteriorPaintSuggestedBlock(block.pricingRecordId)
         ? (() => {
             const ctx = interiorPaintContextFromPricingRecord(
               block.pricingRecordId
@@ -2395,7 +2415,7 @@ function SuggestedBudgetSplitRows({
           })()
         : null}
 
-      {stageCoversLine ? (
+      {showDetailedPricingDetails && stageCoversLine ? (
         <Text
           style={{
             color: caption,
@@ -2607,19 +2627,10 @@ function ComparisonToggle({
   }, [includedInStage, usesTemplate, block.templateName]);
 
   if (isNationalComparison) {
-    return (
-      <View style={{ marginTop: 8 }}>
-        <SuggestedBudgetSplitRows
-          block={block}
-          Colors={Colors}
-          darkMode={darkMode}
-          // Already-priced scopes keep the national row for comparison only.
-          onUsePricing={hasCurrentPricing ? undefined : onUsePricing}
-          forceCompact
-          {...cardProps}
-        />
-      </View>
-    );
+    // The card already shows its active/saved pricing. Keep the national
+    // benchmark out of the primary Confirm Scope flow rather than appending a
+    // second pricing choice underneath it.
+    return null;
   }
 
   if (includedInStage) {
@@ -4048,11 +4059,13 @@ function CustomScopePricingSection({
 function buildNormFromInput(
   input: ScopeMeasurementsInputExtended,
   notes?: string | null,
-  templateKey?: string | null
+  templateKey?: string | null,
+  projectType?: string | null
 ) {
   return buildNormalizedScopeMeasurementsFromInput(input, {
     notes,
     templateKey,
+    projectType,
   });
 }
 
@@ -5429,6 +5442,31 @@ function QuantitySection({
     floorTypeSource: measurementsInput.bathroomToiletRelocateFloorTypeSource,
     defaultSourceLabel: resolved.sourceLabel,
   });
+  const electricalConversionBreakdown =
+    itemId === 'electrical_rough' &&
+    isExistingShellConversionJob(templateKey, undefined, originalNotes)
+      ? existingShellConversionElectricalBreakdown(
+          measurementsInput as unknown as Record<string, unknown>
+        )
+      : null;
+  const electricalConversionBreakdownLabel = electricalConversionBreakdown?.total
+    ? [
+        electricalConversionBreakdown.lights > 0
+          ? `${electricalConversionBreakdown.lights} lights → ${electricalConversionBreakdown.lightCircuits} circuit${electricalConversionBreakdown.lightCircuits === 1 ? '' : 's'}`
+          : null,
+        electricalConversionBreakdown.receptacles > 0
+          ? `${electricalConversionBreakdown.receptacles} outlets → ${electricalConversionBreakdown.receptacleCircuits} circuit${electricalConversionBreakdown.receptacleCircuits === 1 ? '' : 's'}`
+          : null,
+        electricalConversionBreakdown.switches > 0
+          ? `${electricalConversionBreakdown.switches} switches → ${electricalConversionBreakdown.switchCircuits} circuit${electricalConversionBreakdown.switchCircuits === 1 ? '' : 's'}`
+          : null,
+        electricalConversionBreakdown.dedicatedHookups > 0
+          ? `${electricalConversionBreakdown.dedicatedHookups} dedicated hookup${electricalConversionBreakdown.dedicatedHookups === 1 ? '' : 's'} → ${electricalConversionBreakdown.dedicatedHookups} circuit${electricalConversionBreakdown.dedicatedHookups === 1 ? '' : 's'}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : null;
   const noteQuantity = originalNotes
     ? noteQuantityForScopeItem(
         itemId,
@@ -6134,7 +6172,8 @@ function QuantitySection({
         templateKey,
         resolved,
         pricingContext,
-        choiceId
+        choiceId,
+        originalNotes
       );
       const suppressFill = shouldSuppressSuggestedPricingAfterApply(
         itemId,
@@ -6573,7 +6612,8 @@ function QuantitySection({
     templateKey,
     resolved,
     pricingContext,
-    choiceId
+    choiceId,
+    originalNotes
   );
   const assemblyInsulationPricing =
     itemId === 'insulation'
@@ -6852,6 +6892,23 @@ function QuantitySection({
               suggestedTotal:
                 (pricingAlternativeBlock ?? suggestedBudgetSplit)?.total ?? null,
             });
+          const livingSfForPricingCard =
+            Number(
+              String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')
+            ) || null;
+          const activeSuggestedPricingBlock = !hideSuggestion
+            ? pricingAlternativeBlock ?? suggestedBudgetSplit
+            : null;
+          const suggestedCardShowsQuantityLine = activeSuggestedPricingBlock
+            ? confirmScopeSuggestedCardShowsQuantityLine({
+                itemId,
+                block: activeSuggestedPricingBlock,
+                quantitySource: resolved.quantitySource,
+                hasPrimaryTakeoff: hasPrimaryTakeoffForDisplay,
+                livingSf: livingSfForPricingCard,
+                confidenceLabel: intelligence?.pricing?.confidenceLabel,
+              })
+            : false;
           const acceptedDisplay = accepted
             ? resolveAcceptedPricingDisplay({
                 itemId,
@@ -7069,11 +7126,7 @@ function QuantitySection({
                 inlineSqftTakeoff
               ) : resolved.quantity != null &&
                 resolved.quantity > 0 &&
-                !(
-                  itemId === 'hvac' &&
-                  !hideSuggestion &&
-                  Boolean(suggestedBudgetSplit?.displayQuantityLine)
-                ) ? (
+                !suggestedCardShowsQuantityLine ? (
                 <PricingAmountRow
                   value={formatResolvedQuantityDisplay(
                     resolved.quantity ?? 0,
@@ -7091,6 +7144,18 @@ function QuantitySection({
                   darkMode={darkMode}
                   Colors={Colors}
                 />
+              ) : null}
+              {electricalConversionBreakdownLabel ? (
+                <Text
+                  style={{
+                    color: pricingLabelColor(darkMode, Colors),
+                    fontSize: 11,
+                    lineHeight: 15,
+                    marginTop: 4,
+                  }}
+                >
+                  Planning rollup: {electricalConversionBreakdownLabel}
+                </Text>
               ) : null}
               {noteVarianceNotice}
               {!(
@@ -11115,7 +11180,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   field: QuickMeasurementFieldDef;
   value: string;
   fromNotes?: boolean;
-  /** calm = detected/confirmed (no badge); needs_confirmation = yellow only; suggestion = compact Use row */
+  /** calm = detected/confirmed (no badge); needs_confirmation = needs entry; suggestion = compact Use row */
   variant: 'calm' | 'needs_confirmation' | 'suggestion' | 'more';
   estimate: QuickMeasurementEstimate | null;
   detailsOpen?: boolean;
@@ -11221,10 +11286,11 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
       return text;
     return undefined;
   })();
-  const showYellowBorder =
-    variant === 'needs_confirmation' &&
-    !inWetAreaPanel &&
-    String(inputValue).trim() === '';
+  const isEmptyMeasurement = String(inputValue).trim() === '';
+  const showYellowBorder = !inWetAreaPanel && isEmptyMeasurement;
+  const measurementInputShell = showYellowBorder
+    ? inputShellStyle(Colors, darkMode, { highlighted: true })
+    : inputShell;
   const insulationOptions =
     field.key === 'insulationMaterialType'
       ? INSULATION_TYPE_OPTIONS
@@ -11330,8 +11396,8 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
           style={[
             styles.measurementInputRow,
             {
-              borderColor: inputShell.borderColor,
-              backgroundColor: inputShell.backgroundColor,
+              borderColor: measurementInputShell.borderColor,
+              backgroundColor: measurementInputShell.backgroundColor,
             },
           ]}
         >
@@ -11501,12 +11567,8 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
             styles.measurementInputRow,
             relaxedSpacing ? { minHeight: 44 } : null,
             {
-              borderColor: showYellowBorder
-                ? darkMode
-                  ? 'rgba(251, 191, 36, 0.45)'
-                  : 'rgba(217, 119, 6, 0.4)'
-                : inputShell.borderColor,
-              backgroundColor: inputShell.backgroundColor,
+              borderColor: measurementInputShell.borderColor,
+              backgroundColor: measurementInputShell.backgroundColor,
             },
           ]}
         >
@@ -13410,6 +13472,7 @@ function CollapsibleQuickMeasurements({
               String(effectiveTemplateKey || '').toLowerCase()
             )),
         plumbingWorkflowMode: measurements.plumbingWorkflowMode,
+        scopeNotes: notes,
       }
     );
     if (singleTradeImport) {
@@ -13608,6 +13671,8 @@ function CollapsibleQuickMeasurements({
       includedScopeKeys,
       templateKey: quickMeasurementTemplateKey,
       wholeHomeLayout,
+      projectType,
+      notes,
       keepingExistingWetArea,
       wetAreaInstallChoiceId,
       tradeScopeSelections: measurements.tradeScopeSelections,
@@ -14594,7 +14659,8 @@ function CollapsibleQuickMeasurements({
   );
 
   // Use effective whole-home template — checklist may still say room_remodel after plan import.
-  const showGarageDoorSteppers = wholeHomeLayout;
+  const showGarageDoorSteppers =
+    wholeHomeLayout && !isGarageConversionJob(projectType, notes);
 
   const garageDoorPackage = useMemo(
     () =>
@@ -17822,6 +17888,19 @@ export default function AIEstimateScopeAssumptionsModal({
     () => chooseBestScopeNotes(draft, notesFallback),
     [draft, notesFallback]
   );
+  // Pricing-specific terms such as "mini-split" must come from the raw notes.
+  // The best display summary may omit equipment details while retaining area data.
+  const pricingNotes = useMemo(
+    () =>
+      [
+        scopeNotes,
+        String(notesFallback || '').trim(),
+        String(draft?.originalNotes || '').trim(),
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    [draft?.originalNotes, notesFallback, scopeNotes]
+  );
   const [items, setItems] = useState<ScopeChecklistItem[]>([]);
   const baseItemsRef = useRef<ScopeChecklistItem[]>([]);
   const [notesTradeMode, setNotesTradeMode] =
@@ -18083,8 +18162,7 @@ export default function AIEstimateScopeAssumptionsModal({
     (notesSuggestPlumbingBid(scopeNotes) ||
       ['plumbing', 'plumbing_service'].includes(
         String(checklist?.templateKey || '').toLowerCase()
-      ) ||
-      String(checklist?.templateKey || '').toLowerCase() === 'bathroom');
+      ));
   const notesPlumbingFlow =
     notesScopeSelectorVisible &&
     (notesTradeMode !== 'whole_project' ||
@@ -18144,6 +18222,15 @@ export default function AIEstimateScopeAssumptionsModal({
       measurements as Record<string, unknown>,
       checklist?.templateKey
     );
+    const conversionCtx = {
+      templateKey: checklist?.templateKey,
+      projectType: draft?.projectType,
+      notes: scopeNotes,
+    };
+    const withConversionFilter = filterExistingShellConversionConfirmScopeItems(
+      expanded,
+      conversionCtx
+    );
     const drywallLayoutCtx = {
       measurements: measurements as Record<string, unknown>,
       planImportMode: measurements.planImportMode ?? null,
@@ -18158,7 +18245,7 @@ export default function AIEstimateScopeAssumptionsModal({
     if (singleTradePlanImport && singleTradeKey) {
       return withDrywallLayout(
         filterChecklistItemsForTrade(
-          expanded,
+          withConversionFilter,
           'selected_trade',
           singleTradeKey
         )
@@ -18166,7 +18253,7 @@ export default function AIEstimateScopeAssumptionsModal({
     }
     if (notesPlumbingFlow) {
       return withDrywallLayout(
-        expanded.filter(
+        withConversionFilter.filter(
           item =>
             (plumbingItemIds.has(item.id) || isCustomScopeChecklistItem(item)) &&
             item.state !== 'excluded'
@@ -18174,14 +18261,14 @@ export default function AIEstimateScopeAssumptionsModal({
       );
     }
     if (stuccoTradeFlow) {
-      const customOnly = expanded.filter(isCustomScopeChecklistItem);
+      const customOnly = withConversionFilter.filter(isCustomScopeChecklistItem);
       return withDrywallLayout([
-        ...buildStuccoTradeChecklistItems(expanded),
+        ...buildStuccoTradeChecklistItems(withConversionFilter),
         ...customOnly,
       ]);
     }
     if (String(checklist?.templateKey || '').toLowerCase() !== 'flooring')
-      return withDrywallLayout(expanded);
+      return withDrywallLayout(withConversionFilter);
     const description = flooringDemoDescription(
       measurements,
       scopeNotes,
@@ -18206,7 +18293,7 @@ export default function AIEstimateScopeAssumptionsModal({
       }
       return 3;
     };
-    return expanded
+    return withConversionFilter
       .map((item, index) => ({
         item:
           item.id === 'floor_demo'
@@ -18899,8 +18986,16 @@ export default function AIEstimateScopeAssumptionsModal({
   ]);
 
   const scopeMeasurementsPayloadForCurrentState = useCallback(() => {
+    let measurements = measurementsRef.current;
+    if (draft) {
+      measurements = applyNoteBackedBathroomConfirmScopePricing(
+        draft,
+        measurements,
+        displayItems.length ? displayItems : items
+      );
+    }
     const payload = scopeMeasurementsPayloadForPersist(
-      measurementsRef.current,
+      measurements,
       {
         notes: scopeNotes,
         templateKey: checklist?.templateKey,
@@ -19026,7 +19121,7 @@ export default function AIEstimateScopeAssumptionsModal({
       checklist?.templateKey
     );
     return reconciled;
-  }, [checklist?.templateKey, scopeNotes]);
+  }, [checklist?.templateKey, scopeNotes, draft, displayItems, items]);
 
   const draftScopeRestoreKey = useMemo(
     () =>
@@ -19089,7 +19184,11 @@ export default function AIEstimateScopeAssumptionsModal({
       let nextMeasurements = mergeConfirmScopeSavedMeasurements(
         prepareScopeMeasurementsInputForUi(
           initialScopeMeasurementInputExtended(draftForScope, scopeNotes),
-          { notes: scopeNotes, templateKey: checklist.templateKey }
+          {
+            notes: scopeNotes,
+            templateKey: checklist.templateKey,
+            projectType: draftForScope?.projectType ?? draft?.projectType,
+          }
         ),
         draft?.scopeMeasurements,
         scopeNotes
@@ -19276,6 +19375,7 @@ export default function AIEstimateScopeAssumptionsModal({
           {
             notes: scopeNotes,
             templateKey: checklist.templateKey,
+            projectType: draftForScope?.projectType ?? draft?.projectType,
           }
         );
         nextMeasurements = reconcilePlumbingEquipmentScopeMeasurements(
@@ -19310,6 +19410,7 @@ export default function AIEstimateScopeAssumptionsModal({
           {
             notes: scopeNotes,
             templateKey: checklist.templateKey,
+            projectType: draftForScope?.projectType ?? draft?.projectType,
           }
         );
         const structured = buildFramingStructuredMeasurements(
@@ -19346,6 +19447,7 @@ export default function AIEstimateScopeAssumptionsModal({
           {
             notes: scopeNotes,
             templateKey: checklist.templateKey,
+            projectType: draftForScope?.projectType ?? draft?.projectType,
           }
         );
         const structured = buildHvacStructuredMeasurements(
@@ -19436,7 +19538,8 @@ export default function AIEstimateScopeAssumptionsModal({
       const norm = buildNormFromInput(
         nextMeasurements,
         scopeNotes,
-        checklist.templateKey
+        checklist.templateKey,
+        draft?.projectType
       );
       let normalized = hydrateScopeChecklistFromNotes(
         sourceItems,
@@ -19463,6 +19566,20 @@ export default function AIEstimateScopeAssumptionsModal({
           sourceItems
         );
       }
+      normalized = applyAdditionConversionScopeDefaults(normalized, {
+        templateKey: checklist.templateKey,
+        projectType: draft?.projectType,
+        notes: scopeNotes,
+      });
+      normalized = syncAdditionConversionScopeFromMeasurements(
+        normalized,
+        nextMeasurements as Record<string, unknown>,
+        {
+          templateKey: checklist.templateKey,
+          projectType: draft?.projectType,
+          notes: scopeNotes,
+        }
+      );
       normalized = applyMeasuredStuccoScopeInferences(normalized, norm);
       normalized = suppressBathroomFalsePositiveFloorDemoScope(
         normalized,
@@ -19643,14 +19760,19 @@ export default function AIEstimateScopeAssumptionsModal({
       setShowCustomItemInput(false);
       const grouped = groupScopeChecklistItems(
         displayForHydrate,
-        checklist.templateKey
+        checklist.templateKey,
+        {
+          projectType: draft?.projectType,
+          notes: scopeNotes,
+        }
       );
       setCollapsedGroups(
         initialScopeGroupCollapse(
           grouped,
           norm,
           checklist.templateKey,
-          scopeNotes
+          scopeNotes,
+          draft?.projectType
         )
       );
       hydratedVisibleSessionRef.current = true;
@@ -19661,6 +19783,50 @@ export default function AIEstimateScopeAssumptionsModal({
     // content signature that captures the data this effect actually reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, prepareWhileHidden, draftScopeRestoreKey, checklist?.templateKey, singleTradeKey]);
+
+  useEffect(() => {
+    if (!scopeHydrated || !checklist?.templateKey) return;
+    setItems(prev => {
+      const withDefaults = applyAdditionConversionScopeDefaults(prev, {
+        templateKey: checklist.templateKey,
+        projectType: draft?.projectType,
+        notes: scopeNotes,
+      });
+      const synced = syncAdditionConversionScopeFromMeasurements(
+        withDefaults,
+        measurements as Record<string, unknown>,
+        {
+          templateKey: checklist.templateKey,
+          projectType: draft?.projectType,
+          notes: scopeNotes,
+        }
+      );
+      if (
+        synced.length === prev.length &&
+        synced.every(item => {
+          const prior = prev.find(row => row.id === item.id);
+          return (
+            prior &&
+            prior.state === item.state &&
+            prior.choiceId === item.choiceId
+          );
+        })
+      ) {
+        return prev;
+      }
+      return synced;
+    });
+  }, [
+    scopeHydrated,
+    checklist?.templateKey,
+    draft?.projectType,
+    scopeNotes,
+    measurements.windowCount,
+    measurements.exteriorDoorCount,
+    measurements.slidingDoorCount,
+    measurements.interiorDoorCount,
+    measurements.floorAreaSqft,
+  ]);
 
   useEffect(() => {
     if (
@@ -19700,6 +19866,7 @@ export default function AIEstimateScopeAssumptionsModal({
         next = prepareScopeMeasurementsInputForUi(next, {
           notes: scopeNotes,
           templateKey: checklist?.templateKey,
+          projectType: draft?.projectType,
         });
       }
       return next;
@@ -19757,6 +19924,7 @@ export default function AIEstimateScopeAssumptionsModal({
       prepareScopeMeasurementsInputForUi(prev, {
         notes: scopeNotes,
         templateKey: checklist?.templateKey,
+        projectType: draft?.projectType,
       })
     );
   }, [visible, scopeNotes, checklist?.templateKey]);
@@ -19840,9 +20008,10 @@ export default function AIEstimateScopeAssumptionsModal({
       buildNormFromInput(
         normMeasurementInput,
         scopeNotes,
-        checklist?.templateKey
+        checklist?.templateKey,
+        draft?.projectType
       ),
-    [normMeasurementInput, scopeNotes, checklist?.templateKey]
+    [normMeasurementInput, scopeNotes, checklist?.templateKey, draft?.projectType]
   );
   const deferredNormMeasurements = useDeferredValue(normMeasurements);
   const sharedRowMeasurements =
@@ -19855,9 +20024,10 @@ export default function AIEstimateScopeAssumptionsModal({
       buildNormFromInput(
         sharedRowMeasurements,
         scopeNotes,
-        checklist?.templateKey
+        checklist?.templateKey,
+        draft?.projectType
       ),
-    [sharedRowMeasurements, scopeNotes, checklist?.templateKey]
+    [sharedRowMeasurements, scopeNotes, checklist?.templateKey, draft?.projectType]
   );
   const sharedParsedNotes = useMemo(
     () => ({
@@ -20405,16 +20575,30 @@ export default function AIEstimateScopeAssumptionsModal({
     ]
   );
 
+  const scopeGroupingContext = useMemo(
+    () => ({
+      projectType: draft?.projectType,
+      notes: scopeNotes,
+    }),
+    [draft?.projectType, scopeNotes]
+  );
+
   const groupedItems = useMemo(() => {
     const grouped = groupScopeChecklistItems(
       templateDisplayItems,
-      checklist?.templateKey
+      checklist?.templateKey,
+      scopeGroupingContext
     );
     return filterGroupedItemsWithoutPinnedTexture(
       grouped,
       pinnedDrywallFinishItem
     );
-  }, [templateDisplayItems, checklist?.templateKey, pinnedDrywallFinishItem]);
+  }, [
+    templateDisplayItems,
+    checklist?.templateKey,
+    scopeGroupingContext,
+    pinnedDrywallFinishItem,
+  ]);
   const embedQmScopeInQuickMeasurements = useMemo(() => {
     const living =
       Number(String(measurements.floorAreaSqft || '').replace(/,/g, '')) ||
@@ -20687,7 +20871,11 @@ export default function AIEstimateScopeAssumptionsModal({
     });
     const previewGroups = groupScopeChecklistItems(
       previewItems,
-      checklist?.templateKey
+      checklist?.templateKey,
+      {
+        projectType: draft?.projectType,
+        notes: scopeNotes,
+      }
     );
     const previewReadyItemIds = new Set(
       previewItems
@@ -20868,6 +21056,12 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.concreteSqft,
     measurements.concreteCy,
     measurements.excavationCy,
+    measurements.concreteSubgradePrepSqft,
+    measurements.concreteReinforcementSqft,
+    measurements.complexFormingLf,
+    measurements.concreteAreaByType,
+    measurements.concreteThicknessInches,
+    measurements.concreteThicknessByType,
   ]);
 
   useEffect(() => {
@@ -21414,7 +21608,8 @@ export default function AIEstimateScopeAssumptionsModal({
         cardTemplateKey,
         resolved,
         enrichedPricingContext,
-        item.choiceId
+        item.choiceId,
+        pricingNotes
       );
       const intelligence = resolveScopeItemIntelligence({
         scopeKey: item.id,
@@ -21887,7 +22082,9 @@ export default function AIEstimateScopeAssumptionsModal({
             nextInput,
             checklist?.templateKey,
             resolved,
-            enrichedPricingContext
+            enrichedPricingContext,
+            undefined,
+            pricingNotes
           ).fill;
 
           if (suggested) {
@@ -22071,6 +22268,46 @@ export default function AIEstimateScopeAssumptionsModal({
             unit: update.unit || rule.defaultUnit,
             quantitySource: update.quantitySource || 'user_entered',
           };
+        }
+        if (
+          !prev.pricingAcceptance?.[itemId] &&
+          pendingUpdates?.some(
+            update =>
+              update.quantitySource === 'user_entered' &&
+              /__(?:allowance|material|labor)$/.test(update.itemId)
+          )
+        ) {
+          const material = parsePricingAmount(
+            itemQuantities[allowanceSplitSubKey(itemId, 'material')]?.quantity
+          ) || 0;
+          const labor = parsePricingAmount(
+            itemQuantities[allowanceSplitSubKey(itemId, 'labor')]?.quantity
+          ) || 0;
+          const allowance = parsePricingAmount(
+            itemQuantities[allowanceSplitSubKey(itemId, 'allowance')]?.quantity
+          ) || 0;
+          const total = material + labor || allowance;
+          if (total > 0) {
+            const pricingAcceptance = {
+              ...(prev.pricingAcceptance || {}),
+              [itemId]: buildAcceptanceFromCustomScopePricing({
+                material,
+                labor,
+                total,
+                lumpSumOnly: material === 0 && labor === 0,
+              }),
+            };
+            const finalized = finalizeScopePricingAfterEditorClose({
+              itemId,
+              itemQuantities,
+              pricingAcceptance,
+            });
+            return {
+              ...prev,
+              itemQuantities: finalized.itemQuantities,
+              pricingAcceptance: finalized.pricingAcceptance,
+            };
+          }
         }
         const finalized = finalizeScopePricingAfterEditorClose({
           itemId,
@@ -23370,7 +23607,7 @@ export default function AIEstimateScopeAssumptionsModal({
         <WetAreaInstallLineCard
           item={item}
           templateKey={checklist?.templateKey}
-          originalNotes={scopeNotes}
+          originalNotes={pricingNotes}
           measurementsInput={measurementsForScopeRender}
           onItemQuantityChange={handleItemQuantityChange}
           onBatchItemQuantityChange={handleBatchItemQuantityChange}
@@ -23395,7 +23632,7 @@ export default function AIEstimateScopeAssumptionsModal({
         <MultiChoiceRow
           item={item}
           templateKey={checklist?.templateKey}
-          originalNotes={scopeNotes}
+          originalNotes={pricingNotes}
           onToggle={optionId => {
             setItems(prev =>
               prev.map(row => {
@@ -23507,7 +23744,7 @@ export default function AIEstimateScopeAssumptionsModal({
         <ChoiceRow
           item={item}
           templateKey={checklist?.templateKey}
-          originalNotes={scopeNotes}
+          originalNotes={pricingNotes}
           onSelect={choiceId => {
             const isBathroomCountertop =
               item.id === 'countertops' &&
@@ -23699,7 +23936,7 @@ export default function AIEstimateScopeAssumptionsModal({
         <MemoizedYesNoRow
           item={item}
           templateKey={scopeCardTemplateKey(item.id)}
-          originalNotes={scopeNotes}
+          originalNotes={pricingNotes}
           onSetState={state => {
             setItems(prev => {
               let next = prev.map(row =>

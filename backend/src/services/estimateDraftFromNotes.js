@@ -20,8 +20,13 @@ const VALID_PROJECT_TYPES = new Set([
   'electrical',
   'electrical_service',
   'landscaping',
+  'concrete',
   'other',
 ]);
+function inferProjectTypeFromNotes(...args) {
+  // Lazy require avoids the existing quantity-parser/enrichment cycle.
+  return require('./estimateDraftQuantityPrice').inferProjectTypeFromNotes(...args);
+}
 
 function roundMoney(n) {
   return Math.round(Number(n) || 0);
@@ -662,6 +667,38 @@ function normalizeDraft(raw, options = {}) {
     : [];
 
   const expandedRooms = expandJobScopeRooms(rooms, originalNotes, { aggressive: false });
+  const normalizedRooms =
+    projectType === 'painting' &&
+    expandedRooms.length > 1 &&
+    expandedRooms.every((room) => {
+      const blob = `${room.name} ${room.scope}`.toLowerCase();
+      return /\bpaint|baseboard|trim|door/.test(blob);
+    }) &&
+    expandedRooms.every(
+      (room) =>
+        room.price == null &&
+        !room.priceProvidedByUser &&
+        !room.pricingItems?.some((item) => item.amount != null && item.amount > 0)
+    )
+      ? [
+          {
+            name: 'Interior Painting',
+            scope: expandedRooms
+              .map((room) => `${room.name}: ${room.scope}`.trim())
+              .filter(Boolean)
+              .join('; '),
+            price: null,
+            laborPrice: null,
+            materialPrice: null,
+            priceIncludesLaborAndMaterials: false,
+            priceProvidedByUser: false,
+            pricingItems: [],
+            missingPriceItems: [
+              ...new Set(expandedRooms.flatMap((room) => room.missingPriceItems || [])),
+            ],
+          },
+        ]
+      : expandedRooms;
 
   const allowances = Array.isArray(draft.allowances)
     ? draft.allowances
@@ -705,7 +742,7 @@ function normalizeDraft(raw, options = {}) {
     projectTitle: draft.projectTitle ? String(draft.projectTitle).trim() : null,
     projectType,
     projectDescription: draft.projectDescription ? String(draft.projectDescription).trim() : null,
-    rooms: expandedRooms,
+    rooms: normalizedRooms,
     allowances,
     inclusions,
     exclusions,
@@ -749,7 +786,8 @@ CRITICAL RULES:
 7. LUMP SUM RULE (critical): When the user gives one price per room/area and does NOT state separate labor and material amounts, set price to that exact total, laborPrice null, materialPrice null, priceIncludesLaborAndMaterials true. Do NOT guess or estimate how much is labor vs materials.
 8. Only set laborPrice and materialPrice when the notes explicitly state those amounts (e.g. "$8k labor, $11k materials" or "materials $3,200 / labor $2,100"). They must sum to price when both are present. Set priceIncludesLaborAndMaterials false.
 9. Extract statedTotal only if the user gives an overall bid total.
-10. projectType must be one of: kitchen, bathroom, painting, flooring, room_addition, home_addition, adu, garage_conversion, new_build, roofing, deck_patio, plumbing_service, landscaping, other. Use painting for a dedicated interior or exterior painting job, even when the notes mention painting existing kitchen cabinets. Use flooring for floor/tile demo/laminate/baseboard jobs without bath remodel scope.
+10. projectType must be one of: kitchen, bathroom, painting, flooring, room_addition, home_addition, adu, garage_conversion, new_build, roofing, deck_patio, concrete, plumbing_service, landscaping, other. Use concrete for driveway, sidewalk, patio slab, and flatwork pours (not interior room remodel). Use painting for a dedicated interior or exterior painting job, even when the notes mention painting existing kitchen cabinets. Use flooring for floor/tile demo/laminate/baseboard jobs without bath remodel scope.
+10a. Equipment intent: "mini-split" or "mini split HVAC" means a mini-split equipment package, not a generic whole-house HVAC system. If the notes say convert an existing garage/room/basement/attic/office/studio, classify it as an existing-shell conversion workflow (garage_conversion for garages; room_addition for other existing rooms), not new construction.
 11. contractScope: write professional contract-ready scope language summarizing all rooms.
 12. projectDescription: concise summary of the overall project.
 13. customerName: extract if obvious (e.g. "Ruth bid" → customer Ruth, title Ruth bid). Otherwise null.
@@ -863,5 +901,6 @@ module.exports = {
   extractRoomQuantities,
   computeRoomUnitPricing,
   roomCategory,
+  inferProjectTypeFromNotes,
   VALID_PROJECT_TYPES,
 };

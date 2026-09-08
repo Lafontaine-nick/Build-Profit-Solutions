@@ -3,6 +3,7 @@
  * All fields render for the job type; values prefill from notes when parsed.
  */
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
+import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
 import type { PlumbingWorkflowMode } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 
 export type QuickMeasurementFieldKey =
@@ -154,7 +155,13 @@ export type QuickMeasurementFieldKey =
   | 'concreteWalkwayThicknessInches'
   | 'concreteRvPadThicknessInches'
   | 'concreteReinforcementSqft'
+  | 'concreteStructuralReinforcementSqft'
+  | 'concreteFlatworkReinforcementSqft'
   | 'concreteSubgradePrepSqft'
+  | 'concreteStructuralSubgradePrepSqft'
+  | 'concreteFlatworkSubgradePrepSqft'
+  | 'concreteStructuralGravelBaseCy'
+  | 'concreteFlatworkGravelBaseCy'
   | 'complexFormingLf'
   | 'deckSqft'
   | 'garageSqft'
@@ -2287,7 +2294,8 @@ export function isWholeHomeQuickMeasurementTemplate(
 
 export function quickMeasurementRowsForTemplate(
   templateKey?: string | null,
-  projectType?: string | null
+  projectType?: string | null,
+  notes?: string | null
 ): QuickMeasurementRow[] {
   const key = resolveQuickMeasurementTemplateKey(templateKey, projectType);
   if (key === 'windows_doors') {
@@ -2296,12 +2304,13 @@ export function quickMeasurementRowsForTemplate(
   if (key === 'garage_doors') {
     return GARAGE_DOORS_PLAN_QUICK_MEASUREMENT_ROWS;
   }
-  return applyProjectSpecificQuickMeasurementLabels(
+  const labeled = applyProjectSpecificQuickMeasurementLabels(
     SCOPE_QUICK_MEASUREMENT_ROWS[key] ||
       SCOPE_QUICK_MEASUREMENT_ROWS.room_remodel,
     key,
     projectType
   );
+  return filterGarageConversionQuickMeasurementRows(labeled, projectType, notes);
 }
 
 function projectAreaFieldLabel(projectType?: string | null): string | null {
@@ -2337,12 +2346,53 @@ function applyProjectSpecificQuickMeasurementLabels(
         ? {
             ...field,
             label: floorAreaLabel,
-            placeholder: projectType === 'adu' ? '650' : field.placeholder,
+            placeholder:
+              projectType === 'adu'
+                ? '650'
+                : projectType === 'garage_conversion'
+                  ? '400'
+                  : field.placeholder,
             primary: true,
           }
         : field
     )
   );
+}
+
+const GARAGE_CONVERSION_HIDDEN_MEASUREMENT_KEYS = new Set<QuickMeasurementFieldKey>([
+  'garageSqft',
+  'excavationCy',
+  'concreteCy',
+  'concreteSqft',
+  'roofSquares',
+  'deckSqft',
+  'bathroomFloorSqft',
+  'showerWallTileSqft',
+  'showerFloorTileSqft',
+  'kitchenFloorSqft',
+  'cabinetLf',
+  'countertopSqft',
+]);
+
+function garageConversionOpeningMeasurementRows(
+  rows: QuickMeasurementRow[]
+): QuickMeasurementRow[] {
+  const existingKeys = new Set(rows.flat().map(field => field.key));
+  return WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS.map(row =>
+    row.filter(field => !existingKeys.has(field.key))
+  ).filter(row => row.length > 0);
+}
+
+function filterGarageConversionQuickMeasurementRows(
+  rows: QuickMeasurementRow[],
+  projectType?: string | null,
+  notes?: string | null
+): QuickMeasurementRow[] {
+  if (!isGarageConversionJob(projectType, notes)) return rows;
+  const filtered = rows
+    .map(row => row.filter(field => !GARAGE_CONVERSION_HIDDEN_MEASUREMENT_KEYS.has(field.key)))
+    .filter(row => row.length > 0);
+  return [...filtered, ...garageConversionOpeningMeasurementRows(filtered)];
 }
 
 export function hasQuickMeasurementValue(value: unknown): boolean {
@@ -2393,6 +2443,7 @@ export function quickMeasurementRowsForInput(
     windowsDoorsNotesFlow?: boolean;
     plumbingNotesFlow?: boolean;
     plumbingWorkflowMode?: PlumbingWorkflowMode | null;
+    scopeNotes?: string | null;
   }
 ): QuickMeasurementRow[] {
   const resolvedKey = resolveQuickMeasurementTemplateKey(
@@ -2420,7 +2471,11 @@ export function quickMeasurementRowsForInput(
               : options.plumbingWorkflowMode === 'new_construction'
                 ? PLUMBING_PLAN_QUICK_MEASUREMENT_ROWS
                 : PLUMBING_NOTES_QUICK_MEASUREMENT_ROWS
-            : quickMeasurementRowsForTemplate(templateKey, projectType);
+            : quickMeasurementRowsForTemplate(
+                templateKey,
+                projectType,
+                options?.scopeNotes
+              );
   const baseKeys = new Set(baseRows.flatMap(r => r.map(f => f.key)));
   const plumbingRowsAreExplicit =
     plumbingTemplate &&

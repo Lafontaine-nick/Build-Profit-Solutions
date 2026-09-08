@@ -492,10 +492,37 @@ function inferProjectTypeFromNotes(notes, projectType) {
   }
   if (/\b(?:adu|casita)\b/.test(n)) return 'adu';
   if (/\bgarage\s+conversion\b/.test(n)) return 'garage_conversion';
+  if (
+    /\bconvert(?:ing)?\b[^.]{0,50}\b(?:an?\s+)?(?:existing\s+)?(?:\d[\d,]*\s*[-\s]?car\s+)?garage\b/.test(
+      n
+    )
+  ) {
+    return 'garage_conversion';
+  }
+  if (
+    /\b(?:room|bedroom|basement|attic|bonus\s+room|office|studio|shop|storage)\s+conversion\b/.test(
+      n
+    ) ||
+    /\bconvert(?:ing)?\b[^.]{0,50}\b(?:existing|room|bedroom|basement|attic|office|studio|shop|storage)\b/.test(
+      n
+    )
+  ) {
+    return 'room_addition';
+  }
   if (/\broom\s+addition\b/.test(n)) return 'room_addition';
   if (/\bhome\s+addition\b|\baddition\b.*\b(?:foundation|framing|roof|hvac|drywall)\b/.test(n)) {
     return 'home_addition';
   }
+  // A dedicated painting job wins over incidental exclusions such as
+  // "kitchen cabinets are excluded"; those words do not make this a kitchen
+  // remodel.
+  const dedicatedPainting =
+    /\b(?:interior|exterior|whole[-\s]?house)\s+(?:re)?paint(?:ing)?\b/.test(n) ||
+    /\b(?:re)?paint(?:ing)?\b[^.]{0,45}\b(?:interior|exterior|walls?|ceilings?|siding|trim|masking|prep)\b/.test(
+      n
+    ) ||
+    /\b(?:painting|paint)\s+(?:prep|masking)\b/.test(n);
+  if (dedicatedPainting) return 'painting';
   if (/\b(basement\s+finish(?:ing)?|finished\s+basement|insurance\s+(?:repair|restoration)|restoration|mixed\s+repair)\b/.test(n)) {
     return 'other';
   }
@@ -514,6 +541,8 @@ function inferProjectTypeFromNotes(notes, projectType) {
     (/\b(tile demo|laminate|baseboard)\b/.test(n) && /\b(sqft|sq\s*ft|ft²|linear\s*feet|lf)\b/.test(n));
   const bathHeavy = /\b(bath(?:room)?\s+remodel|shower|vanity|toilet|tub)\b/.test(n);
   if (floorHeavy && !bathHeavy) return 'flooring';
+  const { notesImplyConcreteFlatwork } = require('./scopeChecklistLibrary');
+  if (notesImplyConcreteFlatwork(n)) return 'concrete';
   if (
     /\b(?:recessed|canless)\s+(?:lights?|cans?|fixtures?)\b/.test(n) ||
     /\b(?:standard\s+)?(?:outlets?|receptacles?)\b/.test(n) ||

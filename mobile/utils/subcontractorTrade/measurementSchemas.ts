@@ -213,11 +213,35 @@ export const TRADE_MEASUREMENT_SCHEMAS: Partial<
     M('concreteReinforcementSqft', 'Rebar / mesh area', 'sqft', 'more', {
       quickMeasurementKey: 'concreteReinforcementSqft',
     }),
+    M('concreteStructuralReinforcementSqft', 'Rebar / mesh — structural pad', 'sqft', 'more', {
+      quickMeasurementKey: 'concreteStructuralReinforcementSqft',
+    }),
+    M('concreteFlatworkReinforcementSqft', 'Rebar / mesh — exterior flatwork', 'sqft', 'more', {
+      quickMeasurementKey: 'concreteFlatworkReinforcementSqft',
+    }),
     M('concreteSubgradePrepSqft', 'Subgrade prep / grading', 'sqft', 'more', {
       quickMeasurementKey: 'concreteSubgradePrepSqft',
     }),
+    M('concreteStructuralSubgradePrepSqft', 'Subgrade prep — structural pad', 'sqft', 'more', {
+      quickMeasurementKey: 'concreteStructuralSubgradePrepSqft',
+    }),
+    M('concreteFlatworkSubgradePrepSqft', 'Subgrade prep — exterior flatwork', 'sqft', 'more', {
+      quickMeasurementKey: 'concreteFlatworkSubgradePrepSqft',
+    }),
     M('complexFormingLf', 'Complex forming', 'LF', 'more', {
       quickMeasurementKey: 'complexFormingLf',
+    }),
+    M('gravelBaseCy', 'Imported gravel base', 'CY', 'more', {
+      quickMeasurementKey: 'gravelBaseCy',
+    }),
+    M('concreteStructuralGravelBaseCy', 'Gravel base — structural pad', 'CY', 'more', {
+      quickMeasurementKey: 'concreteStructuralGravelBaseCy',
+    }),
+    M('concreteFlatworkGravelBaseCy', 'Gravel base — exterior flatwork', 'CY', 'more', {
+      quickMeasurementKey: 'concreteFlatworkGravelBaseCy',
+    }),
+    M('concretePumpCount', 'Concrete pump truck', 'each', 'more', {
+      quickMeasurementKey: 'concretePumpCount',
     }),
   ],
   framing: [

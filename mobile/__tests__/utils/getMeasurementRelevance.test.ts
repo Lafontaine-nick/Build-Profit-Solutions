@@ -306,4 +306,45 @@ describe('getMeasurementRelevance', () => {
       }).relevant
     ).toBe(false);
   });
+
+  test('garage conversion hides new-build structure measurements', () => {
+    const notes =
+      'Convert 2-car garage to office/studio, about 400 sqft. Insulate walls and ceiling, drywall hang and finish, paint.';
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'garageSqft',
+        includedScopeKeys: [],
+        templateKey: 'addition',
+        projectType: 'garage_conversion',
+        notes,
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'excavationCy',
+        includedScopeKeys: ['framing', 'drywall', 'insulation'],
+        templateKey: 'addition',
+        projectType: 'garage_conversion',
+        notes,
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'floorAreaSqft',
+        includedScopeKeys: ['framing', 'drywall'],
+        templateKey: 'addition',
+        projectType: 'garage_conversion',
+        notes,
+      }).relevant
+    ).toBe(true);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'exteriorPaintSqft',
+        includedScopeKeys: ['exterior_finishes', 'paint'],
+        templateKey: 'addition',
+        projectType: 'garage_conversion',
+        notes,
+      }).relevant
+    ).toBe(false);
+  });
 });

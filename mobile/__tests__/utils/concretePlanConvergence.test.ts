@@ -6,6 +6,8 @@ import {
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
 import {
   buildNormalizedScopeMeasurementsFromInput,
+  initialScopeMeasurementInputExtended,
+  prepareScopeMeasurementsInputForUi,
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
   scopeMeasurementsInputFromPayload,
@@ -289,5 +291,27 @@ describe('concrete plan convergence', () => {
     expect(restored.concreteCy).toBe('32');
     expect(restored.excavationCy).toBe('100');
     expect(restored.concreteReinforcementSqft).toBe('1190');
+  });
+
+  it('keeps gravel and pump planning quantities through confirm-scope hydration', () => {
+    const drivewayNote =
+      'Pour new driveway 900 sqft, 4 inch thick with 80 ft of thickened edge. Dig out, gravel base, forms, rebar, finish broom. Might need a pump truck depending on access.';
+    const prepared = prepareScopeMeasurementsInputForUi(
+      initialScopeMeasurementInputExtended(
+        { scopeChecklist: { templateKey: 'concrete' } },
+        drivewayNote
+      ),
+      { notes: drivewayNote, templateKey: 'concrete' }
+    );
+    expect(Number(prepared.gravelBaseCy)).toBeCloseTo(11.11, 1);
+    expect(prepared.concretePumpCount).toBe('1');
+
+    const persisted = scopeMeasurementsPayloadForPersist(prepared, {
+      notes: drivewayNote,
+      templateKey: 'concrete',
+    });
+    const restored = scopeMeasurementsInputFromPayload(persisted);
+    expect(Number(restored.gravelBaseCy)).toBeCloseTo(11.11, 1);
+    expect(restored.concretePumpCount).toBe('1');
   });
 });

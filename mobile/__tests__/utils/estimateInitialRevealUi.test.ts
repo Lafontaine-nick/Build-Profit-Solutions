@@ -423,6 +423,48 @@ describe('estimateInitialRevealUi', () => {
     );
   });
 
+  it('filters concrete pricing noise and shows note bullets before Confirm Scope', () => {
+    const notes =
+      'Pour new driveway 900 sqft, 4 inch thick with 80 ft of thickened edge. Dig out, gravel base, forms, rebar, finish broom. Might need a pump truck depending on access.';
+    const draft = {
+      projectType: 'concrete',
+      requiresScopeConfirmation: true,
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'concrete',
+        items: [
+          { id: 'pour_flatwork', label: 'Pour flatwork', state: 'included', noteBacked: true },
+          {
+            id: 'excavation',
+            label: 'Excavation / soil movement',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'site_prep',
+            label: 'Basic subgrade prep / grading',
+            state: 'included',
+            noteBacked: true,
+          },
+          { id: 'reinforcement', label: 'Rebar / mesh', state: 'included', noteBacked: true },
+          { id: 'complex_forming', label: 'Complex forming', state: 'included', noteBacked: true },
+        ],
+      },
+      scopeMeasurements: { concreteSqft: 900, excavationCy: 22.22 },
+      stillNeededReview: [
+        'Pricing for Pour flatwork',
+        'Pricing for Excavation / soil movement',
+        'Pricing total not found in notes',
+      ],
+      needsReviewItems: [],
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toHaveLength(0);
+    expect(
+      getInitialRevealUnderstoodBullets(draft, 6).some((line) => /900 sqft flatwork/i.test(line))
+    ).toBe(true);
+  });
+
   it('filters roofing admin noise for typical re-roof notes before Confirm Scope', () => {
     const notes =
       'Tear off and reroof, 22 squares architectural shingles. New underlayment, drip edge, pipe boots, haul off old shingles. Decking looks ok but put $1,000 allowance if we find bad wood.';

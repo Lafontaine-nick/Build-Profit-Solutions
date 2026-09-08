@@ -45,6 +45,11 @@ export const CONCRETE_REVIEW_MEASUREMENT_KEYS = [
   'concreteReinforcementSqft',
   'concreteSubgradePrepSqft',
   'complexFormingLf',
+  'thickenedEdgeLf',
+  'thickenedEdgeCy',
+  'gravelBaseCy',
+  'gravelBaseDepthInches',
+  'concretePumpCount',
   'concreteThicknessInches',
 ] as const;
 
@@ -134,7 +139,8 @@ export function inferConcreteScopeFromMeasurements(
   }
 
   const aggregateFlatwork = positiveNumber(input.concreteSqft);
-  if (aggregateFlatwork != null && !flatworkTypes.length) {
+  const hasFoundationCy = positiveNumber(input.concreteCy) != null;
+  if (aggregateFlatwork != null && !flatworkTypes.length && !hasFoundationCy) {
     scope.add('pour_flatwork');
   } else if (flatworkTypes.length) {
     scope.add('pour_flatwork');
@@ -157,6 +163,15 @@ export function inferConcreteScopeFromMeasurements(
   }
   if (positiveNumber(input.complexFormingLf) != null) {
     scope.add('complex_forming');
+  }
+  if (positiveNumber(input.gravelBaseCy) != null) {
+    scope.add('gravel_base');
+  }
+  if (
+    input.concretePumpReviewNeeded === true ||
+    positiveNumber(input.concretePumpCount) != null
+  ) {
+    scope.add('concrete_pumping');
   }
 
   return scope.size ? [...scope] : null;
@@ -213,6 +228,11 @@ export function normalizeConcreteScalarMeasurements(
     'concreteReinforcementSqft',
     'concreteSubgradePrepSqft',
     'complexFormingLf',
+    'thickenedEdgeLf',
+    'thickenedEdgeCy',
+    'gravelBaseCy',
+    'gravelBaseDepthInches',
+    'concretePumpCount',
     'concreteThicknessInches',
   ] as const;
 

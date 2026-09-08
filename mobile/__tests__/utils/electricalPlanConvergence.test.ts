@@ -340,6 +340,14 @@ describe('electrical canonical architecture', () => {
     expect(vague.electricalScope).toBeUndefined();
   });
 
+  it('parses vague outlet counts like "a few outlets"', () => {
+    const parsed = parseElectricalMeasurementsFromNotes(
+      'Add 4 recessed lights and a few outlets in the garage office.'
+    );
+    expect(parsed.recessedLightCount).toBe(4);
+    expect(parsed.standardReceptacleCount).toBe(3);
+  });
+
   it('does not use living SF as the Electrical quantity owner', () => {
     const detailed = inputWith({
       floorAreaSqft: '1879',

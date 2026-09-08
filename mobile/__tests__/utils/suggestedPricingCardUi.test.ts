@@ -1,6 +1,7 @@
 import {
   applyPriceActionLabel,
   buildSuggestedPricingCardDisplay,
+  confirmScopeSuggestedCardShowsQuantityLine,
   displayPriceSourceLabel,
   formatCompactSuggestedLine,
   formatAppliedDisplayMoney,
@@ -336,7 +337,7 @@ describe('suggestedPricingCardUi', () => {
     ).toMatch(/living SF \(does not set price\)/);
   });
 
-  it('shows insulation component pricing details on the installed package card', () => {
+  it('keeps installed package cards to the concise split line', () => {
     const display = buildSuggestedPricingCardDisplay({
       itemId: 'insulation',
       block: block({
@@ -348,8 +349,7 @@ describe('suggestedPricingCardUi', () => {
       }),
     });
 
-    expect(display.splitLine).toMatch(/5,610 SF standard envelope/);
-    expect(display.splitLine).toMatch(/400 SF floor insulation @ \$2.75\/SF/);
+    expect(display.splitLine).toBe('Material $4,200 · Labor $6,100');
   });
 
   it('uses blended SF pricing chrome for flooring install cards', () => {
@@ -560,6 +560,41 @@ describe('shouldIncludeConfirmScopeBulkApplyRow', () => {
           rateSourceLabel: 'National Average Comparison',
         }),
         hasCommittedPricing: true,
+      })
+    ).toBe(false);
+  });
+});
+
+describe('confirmScopeSuggestedCardShowsQuantityLine', () => {
+  it('is true when suggested pricing shows a sqft quantity line', () => {
+    expect(
+      confirmScopeSuggestedCardShowsQuantityLine({
+        itemId: 'shower_waterproofing',
+        block: block({
+          material: 425,
+          labor: 595,
+          total: 1020,
+          basis: { quantity: 85, unit: 'sqft' },
+        }),
+        quantitySource: 'notes',
+        hasPrimaryTakeoff: true,
+      })
+    ).toBe(true);
+  });
+
+  it('is false for HVAC package cards that hide the quantity line', () => {
+    expect(
+      confirmScopeSuggestedCardShowsQuantityLine({
+        itemId: 'hvac',
+        block: block({
+          material: 11000,
+          labor: 8000,
+          total: 19000,
+          basis: { quantity: 2, unit: 'each' },
+          displayQuantityLine: '2 systems · 5 tons',
+        }),
+        quantitySource: 'user',
+        hasPrimaryTakeoff: true,
       })
     ).toBe(false);
   });

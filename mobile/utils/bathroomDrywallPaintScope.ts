@@ -230,6 +230,68 @@ export function scaleBathroomRepairAllowance(baseTotal: number, sqft: number): n
   return Math.round(baseTotal * (safeSqft / BATHROOM_DRYWALL_PATCH_REF_SQFT));
 }
 
+/** Combined patch + paint reference ($700 @ 36 SF moderate). */
+export const BATHROOM_COMBINED_PATCH_PAINT_REF_TOTAL = 700;
+
+/**
+ * Above ~10 SF/LF of wall+ceiling, localized patchwork pricing blends toward
+ * full-room paint rates so 176 SF does not price like 5× a 36 SF opening.
+ */
+export const BATHROOM_COMBINED_PATCH_PAINT_BLEND_START_SQFT = 72;
+export const BATHROOM_COMBINED_PATCH_PAINT_BLEND_END_SQFT = 130;
+export const BATHROOM_COMBINED_LARGE_AREA_RATE_PER_SQFT = 10;
+export const BATHROOM_FULL_ROOM_PAINT_PATCH_RATE = 4;
+export const BATHROOM_FULL_ROOM_PAINT_PATCH_MINIMUM = 1400;
+
+export function bathroomFullRoomPaintPatchRawTotal(sqft: number): number {
+  const safeSqft = Math.max(1, sqft);
+  return Math.max(
+    safeSqft * BATHROOM_FULL_ROOM_PAINT_PATCH_RATE,
+    BATHROOM_FULL_ROOM_PAINT_PATCH_MINIMUM
+  );
+}
+
+/**
+ * Combined drywall + texture + primer + paint for bathroom patchwork cards.
+ * Linear from $700 @ 36 SF for small openings; smooth blend to ~$10/SF (moderate)
+ * for large paintable areas (e.g. 176 SF wall/ceiling after tile).
+ */
+export function resolveBathroomCombinedPatchPaintScaledTotal(
+  sqft: number,
+  severityMultiplier = 1
+): number {
+  const safeSqft = Math.max(1, sqft);
+  const mult =
+    Number.isFinite(severityMultiplier) && severityMultiplier > 0
+      ? severityMultiplier
+      : 1;
+  const linear = Math.round(
+    BATHROOM_COMBINED_PATCH_PAINT_REF_TOTAL *
+      (safeSqft / BATHROOM_DRYWALL_PATCH_REF_SQFT) *
+      mult
+  );
+
+  const largeAreaTarget = Math.round(
+    Math.max(
+      bathroomFullRoomPaintPatchRawTotal(safeSqft),
+      safeSqft * BATHROOM_COMBINED_LARGE_AREA_RATE_PER_SQFT * mult
+    )
+  );
+
+  if (safeSqft <= BATHROOM_COMBINED_PATCH_PAINT_BLEND_START_SQFT) {
+    return linear;
+  }
+  if (safeSqft >= BATHROOM_COMBINED_PATCH_PAINT_BLEND_END_SQFT) {
+    return largeAreaTarget;
+  }
+
+  const span =
+    BATHROOM_COMBINED_PATCH_PAINT_BLEND_END_SQFT -
+    BATHROOM_COMBINED_PATCH_PAINT_BLEND_START_SQFT;
+  const t = (safeSqft - BATHROOM_COMBINED_PATCH_PAINT_BLEND_START_SQFT) / span;
+  return Math.round(linear * (1 - t) + largeAreaTarget * t);
+}
+
 export function splitMaterialLabor(total: number, materialRatio = 0.25): {
   material: number;
   labor: number;

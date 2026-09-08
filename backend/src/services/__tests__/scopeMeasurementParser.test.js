@@ -630,6 +630,91 @@ describe('trade-specific scope checklists', () => {
     expect(checklistTemplateKey(draft, 'room_remodel')).toBe('concrete');
   });
 
+  test('routes pour-new-driveway notes to concrete template (not room remodel)', () => {
+    const notes =
+      'Pour new driveway 900 sqft, 4 inch thick with 80 ft of thickened edge. Dig out, gravel base, forms, rebar, finish broom. Might need a pump truck depending on access.';
+    const draft = { projectType: 'other', rooms: [], originalNotes: notes };
+    const checklist = buildScopeChecklist(draft, 'room_remodel', notes);
+    expect(checklist.templateKey).toBe('concrete');
+    expect(checklist.items.map((i) => i.id)).toEqual(
+      expect.arrayContaining([
+        'pour_flatwork',
+        'excavation',
+        'site_prep',
+        'reinforcement',
+        'complex_forming',
+        'gravel_base',
+        'concrete_pumping',
+      ])
+    );
+    expect(checklist.items.find((i) => i.id === 'gravel_base')?.state).toBe('included');
+    expect(checklist.items.find((i) => i.id === 'concrete_pumping')?.state).toBe('included');
+    expect(checklist.items.find((i) => i.id === 'pour_flatwork')?.state).toBe('included');
+    expect(checklist.items.find((i) => i.id === 'reinforcement')?.state).toBe('included');
+    expect(checklist.items.some((i) => i.id === 'drywall')).toBe(false);
+  });
+
+  test('parses pour-new-driveway note into concrete quick measurements', () => {
+    const notes =
+      'Pour new driveway 900 sqft, 4 inch thick with 80 ft of thickened edge. Dig out, gravel base, forms, rebar, finish broom. Might need a pump truck depending on access.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'concrete',
+      projectType: 'concrete',
+    });
+    expect(parsed).toMatchObject({
+      concreteSqft: 900,
+      concreteThicknessInches: 4,
+      complexFormingLf: 80,
+      thickenedEdgeLf: 80,
+      concreteSubgradePrepSqft: 900,
+      concreteReinforcementSqft: 900,
+      concreteDrivewaySqft: 900,
+      gravelBaseDepthInches: 4,
+      concretePumpReviewNeeded: true,
+    });
+    expect(parsed.concreteAreaByType).toEqual({ driveways: 900 });
+    expect(parsed.concreteScope).toEqual(
+      expect.arrayContaining([
+        'driveways',
+        'pour_flatwork',
+        'excavation',
+        'site_prep',
+        'reinforcement',
+        'complex_forming',
+        'gravel_base',
+        'concrete_pumping',
+      ])
+    );
+    expect(parsed.concretePumpCount).toBe(1);
+    expect(parsed.excavationDepthInches).toBe(8);
+    expect(parsed.excavationCy).toBeCloseTo(22.22, 1);
+    expect(parsed.gravelBaseCy).toBeCloseTo(11.11, 1);
+    expect(parsed.thickenedEdgeCy).toBeCloseTo(1.98, 1);
+  });
+
+  test('parses house slab notes into foundation CY using plan-export formulas', () => {
+    const notes =
+      'Pour house slab 2400 sqft monolithic slab on grade with footings and stem walls. Excavation and gravel base. Rebar throughout. 6 inch thick.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'concrete',
+      projectType: 'concrete',
+    });
+    expect(parsed.floorAreaSqft).toBe(2400);
+    expect(parsed.concreteCy).toBeGreaterThan(50);
+    expect(parsed.excavationCy).toBeGreaterThan(15);
+    expect(parsed.concreteReinforcementSqft).toBe(2400);
+    expect(parsed.concreteSqft).toBeUndefined();
+    expect(parsed.concreteScope).toEqual(
+      expect.arrayContaining([
+        'pour_foundation',
+        'excavation',
+        'site_prep',
+        'reinforcement',
+      ])
+    );
+    expect(parsed.concreteScope).not.toContain('pour_flatwork');
+  });
+
   test('keeps a dedicated repaint with kitchen cabinets on painting cards', () => {
     const draft = {
       projectType: 'kitchen',
@@ -828,5 +913,44 @@ describe('trade-specific scope checklists', () => {
       'garage_doors',
       'openings',
     ]);
+  });
+
+  test('bathroom refresh note avoids living-area bleed and infers full-room paint', () => {
+    const notes =
+      'Bathroom refresh — same layout. Demo old floor tile and shower surround. New shower wall tile 60 sqft, shower floor 10 sqft, bathroom floor 40 sqft. Replace toilet and 36" vanity. Paint. Haul off included.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'bathroom',
+      projectType: 'bathroom',
+    });
+    expect(parsed.bathroomFloorSqft).toBe(40);
+    expect(parsed.showerWallTileSqft).toBe(60);
+    expect(parsed.showerFloorTileSqft).toBe(10);
+    expect(parsed.floorAreaSqft).toBeUndefined();
+    expect(parsed.wallPaintSqft).toBe(128);
+    expect(parsed.cabinetLf).toBe(3);
+  });
+
+  test('Johnson extensive bath note infers paint SF without floor bleed', () => {
+    const notes = `Main bathroom remodel at Johnson residence. Demo existing tile, vanity, toilet, and shower surround.
+
+Wet area: new walk-in shower with tile walls and shower pan, glass shower door, waterproofing/backer board. Shower wall tile about 85 sqft, shower floor tile 12 sqft.
+
+Vanity: remove and replace — 48" double vanity, new faucet set.
+
+Toilet: replace existing.
+
+Floor: install new tile outside the shower, bathroom floor about 55 sqft.
+
+Paint walls and ceiling after tile work.
+
+Include final clean and haul off. Customer supplying vanity and toilet fixtures; we install only.`;
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'bathroom',
+      projectType: 'bathroom',
+    });
+    expect(parsed.bathroomFloorSqft).toBe(55);
+    expect(parsed.wallPaintSqft).toBe(176);
+    expect(parsed.ceilingPaintSqft).toBeUndefined();
+    expect(parsed.cabinetLf).toBe(4);
   });
 });

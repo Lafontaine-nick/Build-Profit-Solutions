@@ -1,6 +1,7 @@
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
 import { wetAreaInScope } from '@/utils/bathroomPlumbingTrimPricing';
 import {
+  BATHROOM_COMBINED_PATCH_PAINT_REF_TOTAL,
   BATHROOM_DRYWALL_PATCH_REF_SQFT,
   defaultBathroomEntireRoomPaintSqft,
   DRYWALL_PATCH_PRIMER_PAINT_EXCLUDED,
@@ -9,6 +10,7 @@ import {
   DRYWALL_PAINT_PRICING_DISCLAIMER,
   DRYWALL_PAINT_WET_AREA_NOTE,
   formatDrywallPatchQuantityLine,
+  resolveBathroomCombinedPatchPaintScaledTotal,
   resolveBathroomPaintRepairScope,
   scaleBathroomRepairAllowance,
   shouldUseCombinedDrywallPaintAssembly,
@@ -25,6 +27,7 @@ import {
   syncBathroomPaintRepairFlow,
   type BathroomPaintRepairSeverity,
 } from '@/utils/bathroomPaintRepairFlow';
+import { roundInteriorPaintPriceToNearest25 } from '@/utils/bathroomInteriorPaintPricing';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 
 const PATCH_SCOPE_IDS = new Set([
@@ -134,34 +137,27 @@ export function buildDrywallPatchPricingDetails(params: {
           resolveBathroomPaintRepairSeverity(params.severity)
         )
       : 1;
-  const scaledTotal = round2(
-    scaleBathroomRepairAllowance(
-      params.combined ? COMBINED_BASE.total : DRYWALL_PATCH_BASE.total,
-      params.sqft
-    ) * severityMultiplier
-  );
+  const scaledTotal = params.combined
+    ? roundInteriorPaintPriceToNearest25(
+        resolveBathroomCombinedPatchPaintScaledTotal(
+          params.sqft,
+          severityMultiplier
+        )
+      )
+    : round2(
+        scaleBathroomRepairAllowance(DRYWALL_PATCH_BASE.total, params.sqft) *
+          severityMultiplier
+      );
   const split = params.combined
-    ? {
-        material: round2(
-          scaleBathroomRepairAllowance(COMBINED_BASE.material, params.sqft) *
-            severityMultiplier
-        ),
-        labor: round2(
-          scaleBathroomRepairAllowance(COMBINED_BASE.labor, params.sqft) *
-            severityMultiplier
-        ),
-      }
+    ? splitMaterialLabor(
+        scaledTotal,
+        COMBINED_BASE.material / BATHROOM_COMBINED_PATCH_PAINT_REF_TOTAL
+      )
     : splitMaterialLabor(scaledTotal, 0.25);
   const range = params.combined
     ? {
-        low: round2(
-          scaleBathroomRepairAllowance(COMBINED_BASE.range.low, params.sqft) *
-            severityMultiplier
-        ),
-        high: round2(
-          scaleBathroomRepairAllowance(COMBINED_BASE.range.high, params.sqft) *
-            severityMultiplier
-        ),
+        low: round2(scaledTotal * (COMBINED_BASE.range.low / COMBINED_BASE.total)),
+        high: round2(scaledTotal * (COMBINED_BASE.range.high / COMBINED_BASE.total)),
       }
     : {
         low: scaleBathroomRepairAllowance(DRYWALL_PATCH_BASE.range.low, params.sqft),

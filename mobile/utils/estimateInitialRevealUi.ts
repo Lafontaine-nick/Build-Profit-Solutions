@@ -1,4 +1,9 @@
-import type { EstimateAiDraft, EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
+import { filterBathroomRevealAttentionItems } from '@/utils/bathroomPlanningMeasurements';
+import {
+  filterConcreteRevealAttentionItems,
+  summarizeConcreteNoteBullets,
+  concreteRevealHasPlanningInputs,
+} from '@/utils/concretePlanningMeasurements';
 import {
   formatDraftMoney,
   formatPlanningMoney,
@@ -121,13 +126,19 @@ export function getInitialRevealConfirmItems(
   draft: EstimateAiDraft
 ): InitialRevealConfirmBuckets {
   const { items } = getCompactStillNeeded(draft, 50);
-  const prioritized = filterPlumbingRevealAttentionItems(
+  const prioritized = filterBathroomRevealAttentionItems(
     draft,
-    filterRoofingRevealAttentionItems(
+    filterConcreteRevealAttentionItems(
       draft,
-      [...items]
-        .filter((item) => !isInitialRevealBidDetailItem(item))
-        .sort((a, b) => revealItemPriority(a) - revealItemPriority(b))
+      filterPlumbingRevealAttentionItems(
+        draft,
+        filterRoofingRevealAttentionItems(
+          draft,
+          [...items]
+            .filter((item) => !isInitialRevealBidDetailItem(item))
+            .sort((a, b) => revealItemPriority(a) - revealItemPriority(b))
+        )
+      )
     )
   );
   return splitInitialRevealConfirmItems(prioritized);
@@ -154,6 +165,13 @@ function isRoofingRevealDraft(draft: EstimateAiDraft): boolean {
     draft.scopeChecklist?.templateKey || draft.projectType || ''
   ).toLowerCase();
   return templateKey === 'roofing';
+}
+
+function isConcreteRevealDraft(draft: EstimateAiDraft): boolean {
+  const templateKey = String(
+    draft.scopeChecklist?.templateKey || draft.projectType || ''
+  ).toLowerCase();
+  return templateKey === 'concrete';
 }
 
 function roofingRevealHasPlanningInputs(draft: EstimateAiDraft): boolean {
@@ -444,13 +462,19 @@ export function getInitialRevealPriorityItems(
   max = 3
 ): { items: string[]; overflow: number } {
   const { items, overflow } = getCompactStillNeeded(draft, 50);
-  const prioritized = filterPlumbingRevealAttentionItems(
+  const prioritized = filterBathroomRevealAttentionItems(
     draft,
-    filterRoofingRevealAttentionItems(
+    filterConcreteRevealAttentionItems(
       draft,
-      [...items]
-        .filter((item) => !isInitialRevealBidDetailItem(item))
-        .sort((a, b) => revealItemPriority(a) - revealItemPriority(b))
+      filterPlumbingRevealAttentionItems(
+        draft,
+        filterRoofingRevealAttentionItems(
+          draft,
+          [...items]
+            .filter((item) => !isInitialRevealBidDetailItem(item))
+            .sort((a, b) => revealItemPriority(a) - revealItemPriority(b))
+        )
+      )
     )
   );
   const visible = prioritized.slice(0, max).map(plainLanguageReviewItem);
@@ -552,6 +576,11 @@ export function getInitialRevealUnderstoodBullets(draft: EstimateAiDraft, max = 
         draft.scopeMeasurements?.plumbingRoomContext === 'whole_house' ? 8 : 6
       )
     : max;
+  if (isConcreteRevealDraft(draft) && concreteRevealHasPlanningInputs(draft)) {
+    const fromNotes = summarizeConcreteNoteBullets(draft.originalNotes || '', max + 3);
+    if (fromNotes.length > 0) return fromNotes.slice(0, max);
+  }
+
   if (isPlumbingRevealDraft(draft)) {
     const fromNotes = summarizePlumbingNoteBullets(draft.originalNotes || '', plumbingMax);
     if (fromNotes.length > 0) return fromNotes;

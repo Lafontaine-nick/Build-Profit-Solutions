@@ -10,6 +10,8 @@
  */
 import type { QuickMeasurementFieldKey } from '@/utils/scopeQuickMeasurements';
 import { isSplitTileWetAreaCounts } from '@/utils/planBathRooms';
+import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
+import { notesImplyMixedConcreteJob } from '@/utils/foundationPlanningMeasurements';
 
 export type MeasurementRelevance = {
   relevant: boolean;
@@ -75,7 +77,10 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> = 
   showerWallTileSqft: ['shower_tile', 'waterproofing', 'tile_flooring', 'tile_shower'],
   showerFloorTileSqft: ['shower_tile', 'shower_floor_tile', 'tile_flooring', 'tile_shower'],
   baseboardLf: ['trim', 'baseboard', 'interior_trim', 'paint_trim', 'trim_paint'],
-  interiorDoorCount: ['door_paint', 'trim_paint'],
+  interiorDoorCount: ['interior_doors', 'door_paint', 'trim_paint'],
+  windowCount: ['windows'],
+  exteriorDoorCount: ['exterior_doors'],
+  slidingDoorCount: ['sliding_doors'],
   cabinetPaintSqft: ['cabinet_paint'],
   cabinetRunLf: ['cabinet_paint'],
   railingLf: ['railing', 'fencing'],
@@ -118,7 +123,31 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> = 
   wallFramingLf: ['wall_framing'],
   sheathingSqft: ['shear_sheathing'],
   framingOpeningCount: ['openings'],
+  concreteReinforcementSqft: ['reinforcement'],
+  concreteSubgradePrepSqft: ['site_prep'],
+  gravelBaseCy: ['gravel_base'],
+  concreteStructuralReinforcementSqft: ['reinforcement', 'pour_foundation'],
+  concreteFlatworkReinforcementSqft: ['reinforcement', 'pour_flatwork'],
+  concreteStructuralSubgradePrepSqft: ['site_prep', 'pour_foundation'],
+  concreteFlatworkSubgradePrepSqft: ['site_prep', 'pour_flatwork'],
+  concreteStructuralGravelBaseCy: ['gravel_base', 'pour_foundation'],
+  concreteFlatworkGravelBaseCy: ['gravel_base', 'pour_flatwork'],
 };
+
+const CONCRETE_MIXED_ZONE_MEASUREMENT_KEYS = new Set<QuickMeasurementFieldKey>([
+  'concreteStructuralSubgradePrepSqft',
+  'concreteFlatworkSubgradePrepSqft',
+  'concreteStructuralReinforcementSqft',
+  'concreteFlatworkReinforcementSqft',
+  'concreteStructuralGravelBaseCy',
+  'concreteFlatworkGravelBaseCy',
+]);
+
+const CONCRETE_MIXED_AGGREGATE_MEASUREMENT_KEYS = new Set<QuickMeasurementFieldKey>([
+  'concreteSubgradePrepSqft',
+  'concreteReinforcementSqft',
+  'gravelBaseCy',
+]);
 
 const STUCCO_CORE_MEASUREMENT_KEYS = new Set<QuickMeasurementFieldKey>([
   'stuccoGrossWallSqft',
@@ -149,8 +178,10 @@ export function getMeasurementRelevance(params: {
   bathCount?: number | null;
   tilePanBathCount?: number | null;
   wholeHomeLayout?: boolean;
-  /** ground_up / addition show the full field list — not only scopes currently included. */
+  /** ground_up / addition show the full field list — not garage conversions. */
   templateKey?: string | null;
+  projectType?: string | null;
+  notes?: string | null;
   /** Retile walls only — existing tub/pan stays; shower floor SF is not used. */
   keepingExistingWetArea?: boolean;
   wetAreaInstallChoiceId?: string | null;
@@ -158,6 +189,11 @@ export function getMeasurementRelevance(params: {
   const { measurementKey } = params;
   const relatedScopeKeys = RELATED_SCOPE_KEYS[measurementKey] || [];
   const wholeHome = isWholeHomeTemplate(params.templateKey);
+  const garageConversion = isGarageConversionJob(
+    params.projectType,
+    params.notes
+  );
+  const wholeHomeShowAll = wholeHome && !garageConversion;
   const splitTile = isSplitTileWetAreaCounts({
     templateKey: params.templateKey,
     wholeHomeLayout: params.wholeHomeLayout,
@@ -223,6 +259,70 @@ export function getMeasurementRelevance(params: {
   const floorWorkScope = ['floor_tile', 'floor_demo', 'flooring', 'floor_prep'];
   const floorWorkIncluded = floorWorkScope.some((id) => includedSet.has(id));
 
+  if (garageConversion) {
+    if (measurementKey === 'garageSqft') {
+      return {
+        relevant: false,
+        blockingPrice: false,
+        relatedScopeKeys: [],
+        reason: 'Garage conversion uses the conditioned area field — not a separate garage SF.',
+      };
+    }
+    const conversionHiddenKeys = new Set<QuickMeasurementFieldKey>([
+      'excavationCy',
+      'concreteCy',
+      'concreteSqft',
+      'roofSquares',
+      'deckSqft',
+      'bathroomFloorSqft',
+      'showerWallTileSqft',
+      'showerFloorTileSqft',
+      'kitchenFloorSqft',
+      'cabinetLf',
+      'countertopSqft',
+    ]);
+    if (conversionHiddenKeys.has(measurementKey)) {
+      const scopeIncluded = relatedScopeKeys.some((id) => includedSet.has(id));
+      if (!scopeIncluded) {
+        return {
+          relevant: false,
+          blockingPrice: false,
+          relatedScopeKeys,
+          reason: 'Not typical for an existing garage conversion.',
+        };
+      }
+    }
+    if (measurementKey === 'floorAreaSqft') {
+      return {
+        relevant: true,
+        blockingPrice: true,
+        relatedScopeKeys: [
+          'framing',
+          'drywall',
+          'insulation',
+          'paint',
+          'flooring',
+        ],
+      };
+    }
+    if (measurementKey === 'exteriorPaintSqft') {
+      const notesText = String(params.notes || '');
+      const exteriorFinishInNotes =
+        /\bexterior\s+paint\b|\bpaint\s+exterior\b|\bstucco\b|\bsiding\b|\bexterior\s+finish/i.test(
+          notesText
+        );
+      if (!exteriorFinishInNotes) {
+        return {
+          relevant: false,
+          blockingPrice: false,
+          relatedScopeKeys,
+          reason:
+            'Interior garage conversion — exterior paint SF is not used unless notes call out exterior finish.',
+        };
+      }
+    }
+  }
+
   if (measurementKey === 'paintAreaSqft') {
     return {
       relevant: true,
@@ -285,6 +385,7 @@ export function getMeasurementRelevance(params: {
       'hvac',
       'plumbing',
       'plumbing_service',
+      'bathroom',
     ]).has(tradeOnlyTemplate)
   ) {
     return {
@@ -293,6 +394,39 @@ export function getMeasurementRelevance(params: {
       relatedScopeKeys,
       reason: 'Living area is not used for this trade-specific bid.',
     };
+  }
+
+  const mixedConcreteJob =
+    tradeOnlyTemplate === 'concrete' &&
+    notesImplyMixedConcreteJob(params.notes);
+  if (tradeOnlyTemplate === 'concrete') {
+    if (measurementKey === 'garageSqft' || measurementKey === 'rockMulchSqft') {
+      return {
+        relevant: false,
+        blockingPrice: false,
+        relatedScopeKeys,
+        reason: 'Not used on concrete flatwork / foundation bids.',
+      };
+    }
+    if (mixedConcreteJob) {
+      if (CONCRETE_MIXED_AGGREGATE_MEASUREMENT_KEYS.has(measurementKey)) {
+        return {
+          relevant: false,
+          blockingPrice: false,
+          relatedScopeKeys,
+          reason:
+            'Split into structural pad vs exterior flatwork on mixed foundation + flatwork jobs.',
+        };
+      }
+      if (CONCRETE_MIXED_ZONE_MEASUREMENT_KEYS.has(measurementKey)) {
+        return {
+          relevant: true,
+          blockingPrice: false,
+          relatedScopeKeys,
+          reason: undefined,
+        };
+      }
+    }
   }
 
   // Single-bath remodel — bath floor SF only when floor work is actually in the bid.
@@ -309,12 +443,13 @@ export function getMeasurementRelevance(params: {
     };
   }
 
-  if (ALWAYS_RELEVANT_KEYS.has(measurementKey) || wholeHome) {
+  if (ALWAYS_RELEVANT_KEYS.has(measurementKey) || wholeHomeShowAll) {
     return {
       relevant: true,
-      blockingPrice: ALWAYS_RELEVANT_KEYS.has(measurementKey) || relatedScopeKeys.length > 0,
+      blockingPrice:
+        ALWAYS_RELEVANT_KEYS.has(measurementKey) || relatedScopeKeys.length > 0,
       relatedScopeKeys,
-      reason: wholeHome
+      reason: wholeHomeShowAll
         ? 'Whole-home bid — keep full Quick measurements visible.'
         : 'Core structural measurement used across the bid.',
     };

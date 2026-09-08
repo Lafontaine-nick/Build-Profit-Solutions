@@ -331,6 +331,7 @@ const PROJECT_TYPES = [
   { label: "New Build", value: "new_build" },
   { label: "Roofing", value: "roofing" },
   { label: "Deck & Patio", value: "deck_patio" },
+  { label: "Painting", value: "painting" },
   { label: "Plumbing Bid", value: "plumbing" },
   { label: "Plumbing Service", value: "plumbing_service" },
   { label: "Landscaping", value: "landscaping" },
@@ -347,6 +348,7 @@ const PROJECT_CATEGORY_SLUGS = {
   new_build: 'new-build',
   roofing: 'roofing',
   deck_patio: 'deck-patio',
+  painting: 'painting',
   plumbing: 'plumbing-bid',
   plumbing_service: 'plumbing-service',
   landscaping: 'landscaping',
@@ -4866,6 +4868,9 @@ export default function EstimateGeneratorScreen() {
   });
   const [templateSavedToast, setTemplateSavedToast] = useState({ visible: false, name: '' });
   const [showAiBuilderModal, setShowAiBuilderModal] = useState(false);
+  /** True only after Step 2 Confirm scope Back — drives Continue + Start fresh on Step 1. */
+  const [aiBuilderResumeFromScopeBack, setAiBuilderResumeFromScopeBack] =
+    useState(false);
   const [showAiDraftReviewModal, setShowAiDraftReviewModal] = useState(false);
   const [showAiInitialRevealModal, setShowAiInitialRevealModal] = useState(false);
   const [aiDraftNotes, setAiDraftNotes] = useState('');
@@ -5456,6 +5461,8 @@ export default function EstimateGeneratorScreen() {
           setAiLastPlanImport(saved.planImport);
         } else if (fromDraft) {
           setAiLastPlanImport(fromDraft);
+        } else {
+          setAiLastPlanImport(null);
         }
         if (Array.isArray(saved.photoDetections)) {
           setAiPhotoDetections(saved.photoDetections);
@@ -5549,7 +5556,8 @@ export default function EstimateGeneratorScreen() {
     setShowAiBuilderModal(false);
   }, []);
 
-  const transitionToAiBuilder = useCallback(() => {
+  const transitionToAiBuilder = useCallback((options = {}) => {
+    setAiBuilderResumeFromScopeBack(Boolean(options.resumeFromScopeBack));
     setShowAiBuilderModal(true);
     setShowAiScopeAssumptionsModal(false);
     setShowAiInitialRevealModal(false);
@@ -5557,6 +5565,7 @@ export default function EstimateGeneratorScreen() {
   }, []);
 
   const transitionToAiScope = useCallback(() => {
+    setAiBuilderResumeFromScopeBack(false);
     // Switch screens in one render. Delaying the other state changes by a frame
     // briefly leaves Scope found and Confirm scope mounted together, which can
     // expose a Step 2 frame during the transition.
@@ -5583,6 +5592,7 @@ export default function EstimateGeneratorScreen() {
 
   const resumeAiDraftFromBuilder = useCallback(() => {
     if (!aiDraft) return;
+    setAiBuilderResumeFromScopeBack(false);
     if (draftNeedsScopeConfirmation(aiDraft)) {
       transitionToAiScope();
       return;
@@ -5734,11 +5744,15 @@ export default function EstimateGeneratorScreen() {
         void syncClerkTokenToAsyncStorage(authToken).catch(() => {});
       }, 0);
 
+      // An explicit null from the builder means this run is notes-only. Do not
+      // resurrect a plan imported earlier in the same mounted flow.
       const effectivePlanImport =
-        planImport ||
-        aiLastPlanImport ||
-        planImportPayloadFromDraft(aiDraft) ||
-        null;
+        planImport !== undefined
+          ? planImport
+          : aiLastPlanImport || planImportPayloadFromDraft(aiDraft) || null;
+      if (planImport === null) {
+        setAiLastPlanImport(null);
+      }
       const hasPhotos =
         (Array.isArray(photoDetections) && photoDetections.length > 0) ||
         (Array.isArray(sitePhotos) && sitePhotos.length > 0);
@@ -5757,6 +5771,7 @@ export default function EstimateGeneratorScreen() {
       setAiDraftGeneratingSteps(generateSteps);
       setAiDraftGenerating(true);
       advanceGeneratePhase('reading_notes');
+      setAiBuilderResumeFromScopeBack(false);
       setAiDraftNotes(notes);
       setAiPhotoDetections(Array.isArray(photoDetections) ? photoDetections : []);
       setAiPhotoExistingFeatures(Array.isArray(photoExistingFeatures) ? photoExistingFeatures : []);
@@ -5944,7 +5959,7 @@ export default function EstimateGeneratorScreen() {
           draft,
           notes,
           fromAssistant: aiDraftFromAssistant,
-          planImport: effectivePlanImport || planImportPayloadFromDraft(draft),
+          planImport: effectivePlanImport,
           photoDetections: Array.isArray(photoDetections) ? photoDetections : [],
           photoExistingFeatures: Array.isArray(photoExistingFeatures) ? photoExistingFeatures : [],
           sitePhotos: Array.isArray(sitePhotos) ? sitePhotos : [],
@@ -10032,6 +10047,7 @@ export default function EstimateGeneratorScreen() {
   /** Empty bid: open paste-notes flow directly (skip AI Assistant landing). */
   const handleStartAiDraftFresh = useCallback(() => {
     aiDraftPersistGenerationRef.current += 1;
+    setAiBuilderResumeFromScopeBack(false);
     setAiDraft(null);
     setAiDraftNotes('');
     setAiLastPlanImport(null);
@@ -10060,6 +10076,7 @@ export default function EstimateGeneratorScreen() {
     // Reset before mounting Step 1 so its open effect cannot capture notes
     // from the previous draft/session.
     setAiDraftFromAssistant(false);
+    setAiBuilderResumeFromScopeBack(false);
     setShowAiScopeAssumptionsModal(false);
     setShowAiInitialRevealModal(false);
     setShowAiDraftReviewModal(false);
@@ -23501,6 +23518,7 @@ export default function EstimateGeneratorScreen() {
         initialPhotoExistingFeatures={aiPhotoExistingFeatures}
         initialSitePhotos={aiSitePhotos}
         hasExistingDraft={Boolean(aiDraft)}
+        showDraftResumeActions={aiBuilderResumeFromScopeBack}
         resumeToScopeConfirm={aiDraft ? draftNeedsScopeConfirmation(aiDraft) : false}
         fromAssistant={aiDraftFromAssistant}
         onBack={() => {
@@ -23511,6 +23529,7 @@ export default function EstimateGeneratorScreen() {
             setAiDraftGeneratingSteps([]);
             return;
           }
+          setAiBuilderResumeFromScopeBack(false);
           setShowAiBuilderModal(false);
           setAiDraftFromAssistant(false);
         }}
@@ -23560,7 +23579,7 @@ export default function EstimateGeneratorScreen() {
         planImport={aiBuilderInitialPlanImport}
         onBack={() => {
           if (!aiScopeAssumptionsApplying) {
-            transitionToAiBuilder();
+            transitionToAiBuilder({ resumeFromScopeBack: true });
           }
         }}
         onConfirm={handleConfirmScopeAssumptions}

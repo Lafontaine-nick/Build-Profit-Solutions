@@ -38,6 +38,7 @@ import {
   inferNationalMaterialLaborSplit,
 } from '@/utils/appliedPricingBreakdownBuckets';
 import { isWholeHomeQuickMeasurementTemplate } from '@/utils/scopeQuickMeasurements';
+import { reconcileBathroomQuickMeasurements } from '@/utils/bathroomPlanningMeasurements';
 import { reconcileRoofingQuickMeasurements } from '@/utils/roofingPlanningMeasurements';
 import { ROOFING_EMBEDDED_QUICK_MEASUREMENT_KEYS } from '@/utils/qmScopePanels/simpleTradeRemodel';
 
@@ -100,7 +101,12 @@ export function mergeConfirmScopeSavedMeasurements(
   saved?: ScopeMeasurements | null,
   notes?: string | null
 ): ScopeMeasurementsInputExtended {
-  if (!saved) return reconcileRoofingQuickMeasurements(base, notes);
+  if (!saved) {
+    return reconcileBathroomQuickMeasurements(
+      reconcileRoofingQuickMeasurements(base, notes),
+      notes
+    );
+  }
   const merged = restoreBaseMeasurementsWhenSavedEmpty(
     base,
     {
@@ -136,7 +142,10 @@ export function mergeConfirmScopeSavedMeasurements(
   const reconciled = reconcilePlumbingEquipmentScopeMeasurements(
     reconcileFramingScopeMeasurements(merged) as typeof merged
   );
-  return reconcileRoofingQuickMeasurements(reconciled, notes);
+  return reconcileBathroomQuickMeasurements(
+    reconcileRoofingQuickMeasurements(reconciled, notes),
+    notes
+  );
 }
 
 function parseQtyMoney(entry?: { quantity?: string | number | null }): number {

@@ -18,9 +18,13 @@ const WORD_COUNTS = {
   ten: 10,
   eleven: 11,
   twelve: 12,
+  couple: 2,
+  few: 3,
+  several: 4,
 };
 
-const COUNT_TOKEN = '(\\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
+const COUNT_TOKEN =
+  '(a\\s+few|few|several|couple(?:\\s+of)?|\\d+|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
 
 const QUANTITY_ITEM_IDS = {
   mainPanelCount: 'electrical_main_panel',
@@ -79,8 +83,9 @@ const QUANTITY_ITEM_IDS = {
 };
 
 function parseCountToken(raw) {
-  const token = String(raw || '').toLowerCase();
+  const token = String(raw || '').toLowerCase().trim();
   if (WORD_COUNTS[token] != null) return WORD_COUNTS[token];
+  if (token === 'a few') return 3;
   const n = Number(String(token).replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
 }

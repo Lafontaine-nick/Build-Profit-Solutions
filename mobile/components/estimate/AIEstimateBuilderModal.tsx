@@ -79,6 +79,8 @@ type Props = {
   initialSitePhotos?: SitePhotoAttachment[];
   /** True when a Confirm Scope / review draft already exists — show Continue instead of wiping. */
   hasExistingDraft?: boolean;
+  /** Step 1 Back from Confirm scope — show Continue + Start fresh (not on other entry paths). */
+  showDraftResumeActions?: boolean;
   /** Resume opens Confirm scope (Step 2) instead of Review draft (Step 3). */
   resumeToScopeConfirm?: boolean;
   /** Notes stored with the saved draft — used for Regenerate when the field is left empty. */
@@ -161,6 +163,7 @@ export default function AIEstimateBuilderModal({
   initialPhotoExistingFeatures = [],
   initialSitePhotos = [],
   hasExistingDraft = false,
+  showDraftResumeActions = false,
   resumeToScopeConfirm = false,
   savedSessionNotes = '',
   fromAssistant = false,
@@ -457,7 +460,7 @@ export default function AIEstimateBuilderModal({
         'Plan ready',
         semanticsOn
           ? hasExistingDraft
-            ? 'Your plan is loaded. Update scope below to rebuild from this plan, or keep your current draft.'
+            ? 'Your plan is loaded. Continue below to keep your draft, or start fresh to rebuild from this plan.'
             : 'Your plan is loaded. Tap Generate Estimate Draft at the bottom to build your scope draft.'
           : [
               meas ? `${meas} measurement${meas === 1 ? '' : 's'} ready` : null,
@@ -465,7 +468,7 @@ export default function AIEstimateBuilderModal({
                 ? `${scope} scope item${scope === 1 ? '' : 's'} ready`
                 : null,
               hasExistingDraft
-                ? 'Update scope below, or keep your current draft.'
+                ? 'Continue below to keep your draft, or start fresh to rebuild from this plan.'
                 : 'Review Job notes, then Generate.',
             ]
               .filter(Boolean)
@@ -809,7 +812,7 @@ export default function AIEstimateBuilderModal({
   ]);
 
   const startFreshLink =
-    hasBuilderSessionContent && onStartFresh ? (
+    showDraftResumeActions && onStartFresh ? (
       <ReliableFlowPress
         disabled={busy}
         onPress={handleStartFresh}
@@ -859,67 +862,8 @@ export default function AIEstimateBuilderModal({
 
   const generateActions = (
     <>
-      {hasExistingDraft && onContinueDraft && !busy ? (
-        inputsChangedSinceDraft ? (
-          <>
-            <ReliableFlowPress
-              disabled={!generateBtnEnabled}
-              onPress={handleGenerate}
-              haptic='medium'
-              style={[
-                styles.generateCtaShell,
-                !generateBtnEnabled ? styles.generateCtaDisabled : null,
-                { marginBottom: 8 },
-              ]}
-            >
-              {generateBtnEnabled ? (
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={BRAND_FRAME_GRADIENT_START}
-                  end={BRAND_FRAME_GRADIENT_END}
-                  style={styles.generateCta}
-                >
-                  <MaterialIcons name='auto-awesome' size={18} color='#0f172a' />
-                  <Text style={styles.generateCtaText}>Update scope from notes</Text>
-                </LinearGradient>
-              ) : (
-                <View style={styles.generateCta}>
-                  <MaterialIcons
-                    name='auto-awesome'
-                    size={18}
-                    color={
-                      darkMode ? 'rgba(148, 163, 184, 0.55)' : Colors.sub
-                    }
-                  />
-                  <Text
-                    style={[
-                      styles.generateCtaText,
-                      {
-                        color: darkMode
-                          ? 'rgba(148, 163, 184, 0.55)'
-                          : Colors.sub,
-                      },
-                    ]}
-                  >
-                    Update scope from notes
-                  </Text>
-                </View>
-              )}
-            </ReliableFlowPress>
-            <ReliableFlowPress
-              onPress={handleContinueDraft}
-              haptic='light'
-              style={styles.regenerateLinkBtn}
-            >
-              <MaterialIcons name='arrow-forward' size={16} color={ESTIMATE_FLOW_GREEN} />
-              <Text style={[styles.regenerateLinkText, { color: ESTIMATE_FLOW_GREEN }]}>
-                Keep current draft
-              </Text>
-            </ReliableFlowPress>
-            {startFreshLink}
-          </>
-        ) : (
-          <>
+      {showDraftResumeActions && onContinueDraft && !busy ? (
+        <>
           <TouchableOpacity
             activeOpacity={0.88}
             onPress={handleContinueDraft}
@@ -936,8 +880,7 @@ export default function AIEstimateBuilderModal({
             </Text>
           </TouchableOpacity>
           {startFreshLink}
-          </>
-        )
+        </>
       ) : (
       <>
       <ReliableFlowPress
@@ -998,7 +941,6 @@ export default function AIEstimateBuilderModal({
           </View>
         )}
       </ReliableFlowPress>
-      {startFreshLink}
       </>
       )}
     </>
@@ -1014,28 +956,30 @@ export default function AIEstimateBuilderModal({
           marginBottom: 10,
         }}
       >
-        {hasExistingDraft
-          ? inputsChangedSinceDraft
-            ? 'You changed notes, photos, or plan since your last draft. Update scope to rebuild, or keep your current draft.'
-            : resumeToScopeConfirm
-              ? 'Your saved draft is ready. Continue below to confirm scope items and pricing.'
-              : 'Your saved draft is ready. Continue below to review scope pricing and apply to your bid.'
-          : 'Paste or dictate job notes — AI drafts scope for review.'}
+        {showDraftResumeActions
+          ? resumeToScopeConfirm
+            ? 'Your saved draft is ready. Continue below to confirm scope, or start fresh to clear this draft.'
+            : 'Your saved draft is ready. Continue below to review scope, or start fresh to clear this draft.'
+          : hasExistingDraft
+            ? 'Edit notes, photos, or plan if needed, then generate a new draft.'
+            : 'Paste or dictate job notes — AI drafts scope for review.'}
       </Text>
 
       <View>
-        <EstimatePlanImportStrip
-          Colors={Colors}
-          darkMode={darkMode}
-          disabled={busy}
-          existingNotes={notes}
-          existingPlanImport={planImport}
-          planReadySubtitle={planReadySubtitle}
-          embedded
-          onImportingChange={setPlanImportBusy}
-          onImportPhaseChange={setPlanImportPhase}
-          onApplied={handlePlanApplied}
-        />
+        {!showDraftResumeActions ? (
+          <EstimatePlanImportStrip
+            Colors={Colors}
+            darkMode={darkMode}
+            disabled={busy}
+            existingNotes={notes}
+            existingPlanImport={planImport}
+            planReadySubtitle={planReadySubtitle}
+            embedded
+            onImportingChange={setPlanImportBusy}
+            onImportPhaseChange={setPlanImportPhase}
+            onApplied={handlePlanApplied}
+          />
+        ) : null}
 
         <EstimateSitePhotosStrip
           ref={photosStripRef}
@@ -1224,13 +1168,13 @@ export default function AIEstimateBuilderModal({
       <AIEstimateFlowHeader
         title='Build with AI'
         subtitle={
-          hasExistingDraft
-            ? inputsChangedSinceDraft
-              ? 'Inputs changed — update or keep draft'
-              : resumeToScopeConfirm
-                ? 'Draft saved — confirm scope below'
-                : 'Draft saved — continue to review'
-            : 'Notes, photos, or plans'
+          showDraftResumeActions
+            ? resumeToScopeConfirm
+              ? 'Draft saved — confirm scope below'
+              : 'Draft saved — continue to review'
+            : hasExistingDraft
+              ? 'Edit inputs or generate a new draft'
+              : 'Notes, photos, or plans'
         }
         step={1}
         stepTotal={3}

@@ -8,6 +8,7 @@ import {
   groupScopeChecklistItems,
   normalizeScopeChecklistItems,
   WET_AREA_DERIVED_ITEM_IDS,
+  type ScopeChecklistGroupingContext,
   type ScopeChecklistItem,
 } from '@/utils/estimateScopeChecklistUi';
 import { benchmarkEngineV1Enabled } from '@/utils/benchmarkEngine';
@@ -372,11 +373,16 @@ export function hydrateChecklistItemsForScopeReview(
 /** Same top-to-bottom order as Step 2 Confirm Scope (groups + wet-area derived rows). */
 export function flattenChecklistDisplayOrder(
   items: ScopeChecklistItem[],
-  templateKey?: string | null
+  templateKey?: string | null,
+  context: ScopeChecklistGroupingContext = {}
 ): ScopeChecklistItem[] {
   const expanded = expandWetAreaDerivedScopeItems(items);
-  const groups = groupScopeChecklistItems(expanded, templateKey || undefined);
-  return groups.flatMap((group) => group.items);
+  const groups = groupScopeChecklistItems(
+    expanded,
+    templateKey || undefined,
+    context
+  );
+  return groups.flatMap(group => group.items);
 }
 
 function packageMatchesChecklistItem(

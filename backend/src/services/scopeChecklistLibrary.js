@@ -3,6 +3,10 @@
  * Each project type loads its own checklist — not one universal list.
  */
 
+const {
+  notesImplyStructuralFoundation,
+} = require("./foundationPlanningMeasurements");
+
 const FIXTURE_CHOICE_OPTIONS = [
   { id: "staying", label: "Staying" },
   { id: "replacing", label: "Replacing" },
@@ -1261,6 +1265,12 @@ const CHECKLIST_TEMPLATES = {
         category: "sitework",
       },
       {
+        id: "gravel_base",
+        inputType: "yes_no",
+        label: "Imported gravel base material",
+        category: "sitework",
+      },
+      {
         id: "excavation",
         inputType: "yes_no",
         label: "Excavation / soil movement",
@@ -1307,6 +1317,12 @@ const CHECKLIST_TEMPLATES = {
         inputType: "yes_no",
         label: "Additional haul-off / disposal",
         category: "closeout",
+      },
+      {
+        id: "concrete_pumping",
+        inputType: "yes_no",
+        label: "Concrete pump truck",
+        category: "pour",
       },
     ],
   },
@@ -1764,6 +1780,12 @@ const CHECKLIST_TEMPLATES = {
         category: "shell",
       },
       {
+        id: "wall_framing",
+        inputType: "yes_no",
+        label: "Interior wall framing",
+        category: "interior",
+      },
+      {
         id: "roof_tie_in",
         inputType: "yes_no",
         label: "Roofing / tie-in",
@@ -2206,7 +2228,18 @@ const CHECKLIST_YES_HINTS = {
   landscaping:
     /\b(landscap(?:e|ing)|sod|irrigation|site\s+walls?|fence(?:s|ing)?|gates?)\b/,
   excavation:
-    /\b(excavat(?:e|ion)|dig(?:ging)?|trench(?:ing)?|cut\s+foundation)\b/,
+    /\b(excavat(?:e|ion)|dig(?:ging)?|dig\s+out|trench(?:ing)?|cut\s+foundation)\b/,
+  site_prep:
+    /\b(site\s+prep|subgrade|gravel\s+base|base\s+gravel|compaction|grade\s+prep)\b/,
+  gravel_base:
+    /\b(gravel\s+base|base\s+gravel|crushed\s+(?:rock|stone)\s+base|aggregate\s+base)\b/,
+  reinforcement: /\b(rebar|re[\s-]?bar|wire\s+mesh|mesh\s+reinforcement|#4\s+bar)\b/,
+  complex_forming:
+    /\b(?:forms?|formwork|thickened\s+edge|edge\s+thickening|curb\s+form)\b/,
+  concrete_pumping:
+    /\b(?:pump\s+truck|concrete\s+pump|pump(?:ing)?\s+(?:truck|if\s+needed|may\s+be|might\s+be|required))\b|\bmight\s+need\s+(?:a\s+)?pump\b/,
+  decorative_finish:
+    /\b(broom\s+finish|stamped\s+concrete|exposed\s+aggregate|stain(?:ed)?\s+concrete|decorative\s+finish)\b/,
   grading: /\b(grading|grade\s+site|rough\s+grade|final\s+grade)\b/,
   utility_trenching:
     /\b(utility\s+trench(?:ing)?|trench(?:ing)?\s+(?:for\s+)?utilities|water\s+line|sewer\s+line|gas\s+line)\b/,
@@ -2285,7 +2318,8 @@ const CHECKLIST_YES_HINTS = {
   ductwork: /\b(duct(?:work)?|ducting)\b/,
   decking: /\b(deck(?:ing)?|composite\s+deck)\b/,
   railing: /\b(rail(?:ing)?|guardrail)\b/,
-  pour_flatwork: /\b(concrete\s+patio|slab|flatwork|sidewalk|driveway)\b/,
+  pour_flatwork:
+    /\b(?:concrete\s+patio|slab|flatwork|sidewalk|driveway|pour\b[^.]{0,40}\b(?:driveway|slab|patio|sidewalk|walkway))\b/,
   trenching: /\b(trench(?:ing)?|utility\s+trench)\b/,
   hang: /\b(hang\s+drywall|drywall\s+hang)\b/,
   finish_tape: /\b(tape|mud|finish\s+drywall)\b/,
@@ -2304,6 +2338,8 @@ const CHECKLIST_NO_HINTS = {
     /\b(appliances?\s+have\s+(?:all\s+)?(?:already\s+)?been\s+removed|appliances?\s+already\s+(?:been\s+)?(?:removed|out|gone)|already\s+(?:been\s+)?removed\s+(?:the\s+)?appliances?|appliances?\s+(?:are|were)\s+already\s+(?:removed|out|gone))\b/,
   permits:
     /\b(no\s+permits|permits\s+not\s+included|owner\s+pulls?\s+permits)\b/,
+  garage_doors:
+    /\b(?:keep(?:ing)?\s+(?:the\s+)?(?:existing\s+)?garage\s+door|existing\s+garage\s+door\s+(?:for\s+now|stays?|remain(?:s|ing)?)|(?:no|without|not)\s+(?:a\s+)?(?:new\s+)?garage\s+door)\b/,
   foundation:
     /\b(no|without|not\s+including)\s+(?:new\s+)?(?:foundation|footings?|slab)\b|\b(?:foundation|footings?|slab)\s+(?:not\s+included|excluded)\b/,
   roof_tie_in:
@@ -2316,12 +2352,48 @@ function notesText(draft, originalNotes) {
   return String(originalNotes || draft?.originalNotes || "").toLowerCase();
 }
 
+const CONCRETE_FLATWORK_NOTES =
+  /\b(?:concrete\s+(?:patio|slab|driveway?|flat[\s-]?work|walkway|sidewalk)|pour\s+(?:new\s+)?(?:concrete|driveway|slab|patio|sidewalk|walkway|flat[\s-]?work)|flat[\s-]?work|new\s+driveway)\b/i;
+
+const CONCRETE_FLATWORK_CONTEXT =
+  /\b(?:forms?|rebar|thickened\s+edge|broom\s+finish|pump\s+truck|gravel\s+base|dig\s+out|mesh|control\s+joints?)\b/i;
+
+function notesImplyConcreteFlatwork(notes) {
+  const n = String(notes || "");
+  if (!n.trim()) return false;
+  if (detectAdditionConversionIntent(null, notes)) return false;
+  if (CONCRETE_FLATWORK_NOTES.test(n)) return true;
+  if (
+    /\b(?:driveway|sidewalk|walkway|patio\s+slab)\b/i.test(n) &&
+    CONCRETE_FLATWORK_CONTEXT.test(n)
+  ) {
+    return true;
+  }
+  if (
+    /\b\d{2,4}\s*(?:sq\.?\s*ft|sf)\b/i.test(n) &&
+    /\b(?:\d\s*(?:inch|in)\b[^.]{0,20}thick|thickened\s+edge|rebar|broom\s+finish)\b/i.test(
+      n,
+    ) &&
+    !/\b(?:bath(?:room)?|kitchen|shower|interior\s+paint|drywall)\b/i.test(n)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function detectAdditionConversionIntent(projectType, notes) {
+  const pt = String(projectType || "").toLowerCase();
+  if (ADDITION_CONVERSION_PROJECT_TYPES.has(pt)) return true;
+  return ADDITION_CONVERSION_NOTES.test(String(notes || ""));
+}
+
 function checklistTemplateKey(draft, estimateTier) {
   const projectType = String(draft.projectType || "other").toLowerCase();
   const notes = notesText(draft, null);
 
   if (estimateTier === "ground_up") return "ground_up";
   if (estimateTier === "addition") return "addition";
+  if (detectAdditionConversionIntent(projectType, notes)) return "addition";
   const dedicatedWindowsDoorsIntent =
     projectType === "windows_doors" ||
     projectType === "windows_and_doors" ||
@@ -2432,9 +2504,8 @@ function checklistTemplateKey(draft, estimateTier) {
   }
   if (
     projectType === "concrete" ||
-    /\b(?:concrete\s+(?:patio|slab|drive|flat[\s-]?work|walkway|sidewalk)|pour\s+concrete|flat[\s-]?work)\b/i.test(
-      notes,
-    )
+    notesImplyConcreteFlatwork(notes) ||
+    notesImplyStructuralFoundation(notes)
   ) {
     return "concrete";
   }
@@ -2793,7 +2864,59 @@ const ADDITION_CONVERSION_PROJECT_TYPES = new Set([
 ]);
 
 const ADDITION_CONVERSION_NOTES =
-  /\b(garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage|room\s+addition|home\s+addition|bedroom\s+addition|casita|\badu\b|accessory\s+dwelling|in[\s-]?law\s+suite|add(?:ition)?\s+(?:a\s+)?(?:new\s+)?(?:room|bedroom|bathroom|suite)|(?:new|add)\s+\d[\d,]*\s*sq\.?\s*ft\s+(?:room|addition|bedroom))\b/i;
+  /\b(garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage|(?:convert(?:ing)?|conversion\s+of)\s+(?:an?\s+)?(?:existing\s+)?(?:room|bedroom|basement|attic|bonus\s+room|office|studio|shop|storage)|room\s+conversion|basement\s+conversion|attic\s+conversion|room\s+addition|home\s+addition|bedroom\s+addition|casita|\badu\b|accessory\s+dwelling|in[\s-]?law\s+suite|add(?:ition)?\s+(?:a\s+)?(?:new\s+)?(?:room|bedroom|bathroom|suite)|(?:new|add)\s+\d[\d,]*\s*sq\.?\s*ft\s+(?:room|addition|bedroom))\b/i;
+
+const EXISTING_SHELL_CONVERSION_NOTES =
+  /\b(?:garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage|(?:convert(?:ing)?|conversion\s+of)\s+(?:an?\s+)?(?:existing\s+)?(?:room|bedroom|basement|attic|bonus\s+room|office|studio|shop|storage|garage)|room\s+conversion|basement\s+conversion|attic\s+conversion)\b/i;
+
+const NEW_STRUCTURE_ADDITION_NOTES =
+  /\b(?:room\s+addition|home\s+addition|bedroom\s+addition|(?:add|adding)\s+(?:a\s+)?(?:new\s+)?(?:room|bedroom|bathroom|suite|wing)|(?:new|add)\s+\d[\d,]*\s*sq\.?\s*ft\s+(?:room|addition|bedroom)|detached\s+(?:adu|casita|guest\s+house)|accessory\s+dwelling\s+unit)\b/i;
+
+const NEW_STRUCTURE_ADDITION_PROJECT_TYPES = new Set([
+  "room_addition",
+  "home_addition",
+  "adu",
+]);
+
+const EXISTING_SHELL_CONVERSION_INCLUDED = [
+  "wall_framing",
+  "insulation",
+  "drywall",
+  "paint",
+  "flooring",
+  "interior_trim",
+  "electrical_rough",
+  "cleanup",
+];
+
+const NEW_STRUCTURE_CONVERSION_INCLUDED = [
+  "framing",
+  "exterior_finishes",
+  "insulation",
+  "drywall",
+  "paint",
+  "flooring",
+  "interior_trim",
+  "electrical_rough",
+  "cleanup",
+];
+
+const GARAGE_CONVERSION_DEFAULT_EXCLUDED = new Set([
+  "foundation",
+  "roof_tie_in",
+  "excavation",
+  "sitework",
+  "grading",
+  "utility_trenching",
+  "concrete",
+]);
+
+const EXISTING_SHELL_CONVERSION_OUT_OF_SCOPE_IDS = new Set([
+  "plans_engineering",
+  "permits",
+  "utility_coordination",
+  ...GARAGE_CONVERSION_DEFAULT_EXCLUDED,
+]);
 
 const GARAGE_CONVERSION_NOTES =
   /\b(garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage)\b/i;
@@ -2818,21 +2941,25 @@ const ROOM_ADDITION_EXTRA_DEFAULT_INCLUDED = [
   "final_inspections",
 ];
 
-const GARAGE_CONVERSION_DEFAULT_EXCLUDED = new Set([
-  "foundation",
-  "roof_tie_in",
-  "excavation",
-  "sitework",
-  "grading",
-  "utility_trenching",
-  "concrete",
-]);
-
 const BATHROOM_CONVERSION_INCLUDED = [
   "plumbing_rough",
   "plumbing_trim",
   "tile",
 ];
+
+function isNewStructureAdditionJob(projectType, notes) {
+  const pt = String(projectType || "").toLowerCase();
+  if (pt === "garage_conversion") return false;
+  if (NEW_STRUCTURE_ADDITION_PROJECT_TYPES.has(pt)) return true;
+  const n = String(notes || "");
+  if (EXISTING_SHELL_CONVERSION_NOTES.test(n)) return false;
+  return NEW_STRUCTURE_ADDITION_NOTES.test(n);
+}
+
+function isExistingShellConversionJob(templateKey, projectType, notes) {
+  if (!isAdditionConversionJob(templateKey, projectType, notes)) return false;
+  return !isNewStructureAdditionJob(projectType, notes);
+}
 
 function isAdditionConversionJob(templateKey, projectType, notes) {
   if (String(templateKey || "").toLowerCase() !== "addition") return false;
@@ -2847,6 +2974,24 @@ function isGarageConversionJob(projectType, notes) {
   return GARAGE_CONVERSION_NOTES.test(String(notes || ""));
 }
 
+function hasExplicitNewStructureScopeNote(itemId, notes) {
+  const explicit = {
+    framing:
+      /\b(?:new|add)\b[^.]{0,50}\b(?:framing|shell|structure)\b|\b(?:framing|shell)\s+(?:package|lumber)\b/i,
+    foundation:
+      /\b(?:new|add|pour|replace|install)\b[^.]{0,50}\b(?:foundation|footings?|stem\s+wall)\b|\b(?:foundation|footings?)\s+(?:pour|work|replace)\b/i,
+    concrete:
+      /\b(?:new|pour|add|replace)\b[^.]{0,50}\b(?:concrete|slab\s+pour)\b/i,
+    excavation: /\b(?:excavat(?:e|ion|ing)|dig\s+out)\b/i,
+    sitework: /\b(?:site\s+prep|clearing|demo\s+site)\b/i,
+    grading: /\b(?:grading|regrade|cut\s+fill)\b/i,
+    utility_trenching: /\b(?:utility\s+trench|trench(?:ing)?\s+utilities)\b/i,
+    roof_tie_in:
+      /\b(?:roof\s+tie[\s-]?in|tie[\s-]?in\s+roof|new\s+roof\s+section)\b/i,
+  };
+  return explicit[itemId]?.test(String(notes)) ?? false;
+}
+
 /** Default shell + interior phases for garage conversions and room additions. */
 function applyAdditionConversionScopeDefaults(items, options = {}) {
   const { templateKey, projectType, notes } = options;
@@ -2854,10 +2999,19 @@ function applyAdditionConversionScopeDefaults(items, options = {}) {
 
   const n = String(notes || "");
   const garage = isGarageConversionJob(projectType, notes);
-  const defaultIncluded = new Set([
-    ...CONVERSION_CORE_DEFAULT_INCLUDED,
-    ...(garage ? [] : ROOM_ADDITION_EXTRA_DEFAULT_INCLUDED),
-  ]);
+  const existingShell = isExistingShellConversionJob(
+    templateKey,
+    projectType,
+    notes,
+  );
+  const defaultIncluded = new Set(
+    existingShell
+      ? EXISTING_SHELL_CONVERSION_INCLUDED
+      : [
+          ...NEW_STRUCTURE_CONVERSION_INCLUDED,
+          ...(garage ? [] : ROOM_ADDITION_EXTRA_DEFAULT_INCLUDED),
+        ],
+  );
 
   if (/\b(bath(?:room)?|shower|tub|toilet|vanity|wet\s+bar)\b/i.test(n)) {
     BATHROOM_CONVERSION_INCLUDED.forEach((id) => defaultIncluded.add(id));
@@ -2878,11 +3032,33 @@ function applyAdditionConversionScopeDefaults(items, options = {}) {
   }
 
   return items.map((item) => {
+    if (
+      existingShell &&
+      EXISTING_SHELL_CONVERSION_OUT_OF_SCOPE_IDS.has(item.id) &&
+      !hasExplicitNewStructureScopeNote(item.id, n)
+    ) {
+      return { ...item, state: "excluded" };
+    }
+
+    if (
+      existingShell &&
+      (item.id === "framing" || item.id === "exterior_finishes") &&
+      !hasExplicitNewStructureScopeNote(item.id, n)
+    ) {
+      return { ...item, state: "excluded" };
+    }
+
     if (item.state !== "unsure") return item;
     if (inferItemStateFromNotes(item.id, n) === "excluded") return item;
 
-    if (garage && GARAGE_CONVERSION_DEFAULT_EXCLUDED.has(item.id)) {
-      if (inferItemStateFromNotes(item.id, n) === "included") return item;
+    if (
+      existingShell &&
+      item.id === "windows_doors" &&
+      inferItemStateFromNotes(item.id, n) !== "included" &&
+      !/\b(?:new|add|install|replace)\b[^.]{0,40}\b(?:window|exterior\s+door|sliding\s+door|entry\s+door)\b/i.test(
+        n,
+      )
+    ) {
       return { ...item, state: "excluded" };
     }
 
@@ -2901,6 +3077,8 @@ module.exports = {
   CHECKLIST_TEMPLATES,
   CHECKLIST_LEGEND,
   checklistTemplateKey,
+  notesImplyConcreteFlatwork,
+  detectAdditionConversionIntent,
   inferItemStateFromNotes,
   inferChoiceFromNotes,
   inferChoicesFromNotes,

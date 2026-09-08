@@ -34,6 +34,7 @@ import {
 } from '@/utils/hydratePaintingPlanMeasurements';
 import {
   isCustomScopeChecklistItem,
+  repairMisroutedConversionScopeChecklist,
   stripBathroomFalsePositiveFloorDemoQuantities,
 } from '@/utils/estimateScopeChecklistUi';
 import { syncMeasurementsWithSouthernUtahPlanFacts } from '@/utils/quickMeasurementEstimates';
@@ -77,8 +78,10 @@ import {
   buildStandalonePlumbingChecklistItems,
   finalizeStandalonePlumbingChecklist,
   inferPlumbingRoomContextFromNotes,
+  inferPlumbingWorkflowModeFromNotes,
   parsePlumbingMeasurementsFromNotes,
   parsePlumbingProjectContextFromNotes,
+  restrictPlumbingMeasurementsForServiceMode,
   resolveStandalonePlumbingTemplateKey,
   standalonePlumbingProjectTitle,
   stripNonPlumbingTradeBleedFromMeasurements,
@@ -565,6 +568,14 @@ export type ScopeMeasurements = {
     | 'premium_stamped'
     | null;
   complexFormingLf?: number | null;
+  thickenedEdgeLf?: number | null;
+  thickenedEdgeCy?: number | null;
+  thickenedEdgeWidthInches?: number | null;
+  thickenedEdgeDepthInches?: number | null;
+  gravelBaseCy?: number | null;
+  gravelBaseDepthInches?: number | null;
+  concretePumpReviewNeeded?: boolean | null;
+  concretePumpCount?: number | null;
   additionalHaulOffLoadCount?: number | null;
   concreteCy?: number | null;
   excavationCy?: number | null;
@@ -1450,21 +1461,24 @@ export function repairDraftRatePricingFromNotes(
     });
   }
 
-  return {
-    ...draft,
-    originalNotes: draft.originalNotes || text,
-    scopeMeasurements: mergedScopeMeasurements,
-    scopeChecklist: draft.scopeChecklist
-      ? {
-          ...draft.scopeChecklist,
-          suggestedMeasurements: {
-            ...(draft.scopeChecklist.suggestedMeasurements || {}),
-            ...parsed,
-            itemQuantities: mergedItemQuantities,
-          },
-        }
-      : draft.scopeChecklist,
-  };
+  return repairMisroutedConversionScopeChecklist(
+    {
+      ...draft,
+      originalNotes: draft.originalNotes || text,
+      scopeMeasurements: mergedScopeMeasurements,
+      scopeChecklist: draft.scopeChecklist
+        ? {
+            ...draft.scopeChecklist,
+            suggestedMeasurements: {
+              ...(draft.scopeChecklist.suggestedMeasurements || {}),
+              ...parsed,
+              itemQuantities: mergedItemQuantities,
+            },
+          }
+        : draft.scopeChecklist,
+    },
+    text
+  );
 }
 
 export async function fetchEstimateDraftFromNotes(
@@ -3451,13 +3465,8 @@ export function planImportPayloadFromDraft(
       source === 'detected_from_plan' ||
       source === 'plan_detected' ||
       source === 'plan_verified' ||
-      source === 'ai_verified' ||
-      source === 'contractor_confirmed_from_plan_review' ||
-      source === 'needs_confirmation' ||
       source === 'measured_from_geometry' ||
-      source === 'calculated_from_components' ||
-      source === 'estimated_from_formula' ||
-      source === 'fallback_multiplier'
+      source === 'contractor_confirmed_from_plan_review'
   );
   const hasPlanFacts =
     Boolean(
@@ -3470,8 +3479,10 @@ export function planImportPayloadFromDraft(
         Object.keys(sm.planFacts.buildingAreas).length
     );
   // Notes-derived measurements and parsed rooms are not a plan import. Only
-  // restore the Step 1 plan card when the draft contains takeoff provenance.
-  if (!hasPlanMeasurementSource && !hasPlanFacts) return null;
+  // restore the Step 1 plan card when the draft contains real takeoff provenance.
+  if (!hasPlanMeasurementSource && !hasPlanFacts) {
+    return null;
+  }
   const measurements: Record<string, number | string> = {};
   for (const [key, value] of Object.entries(sm)) {
     if (
@@ -4392,7 +4403,13 @@ export function applyPlanImportToDraft(
     } as ScopeMeasurements;
     const noteText = String(next.originalNotes || '').trim();
     if (noteText) {
-      const parsedNotes = parsePlumbingMeasurementsFromNotes(noteText);
+      const workflowMode =
+        payload.plumbingWorkflowMode ||
+        inferPlumbingWorkflowModeFromNotes(noteText);
+      let parsedNotes = parsePlumbingMeasurementsFromNotes(noteText);
+      if (workflowMode === 'service') {
+        parsedNotes = restrictPlumbingMeasurementsForServiceMode(parsedNotes);
+      }
       const projectContext = parsePlumbingProjectContextFromNotes(noteText);
       scopeMeasurements = stripNonPlumbingTradeBleedFromMeasurements({
         ...scopeMeasurements,
@@ -5071,7 +5088,15 @@ export function applyPlanImportToDraft(
   }
 
   if (standalonePlumbingWorkflow && String(next.originalNotes || '').trim()) {
-    const parsed = parsePlumbingMeasurementsFromNotes(next.originalNotes || '');
+    const noteText = String(next.originalNotes || '').trim();
+    const workflowMode =
+      next.scopeMeasurements?.plumbingWorkflowMode ||
+      payload.plumbingWorkflowMode ||
+      inferPlumbingWorkflowModeFromNotes(noteText);
+    let parsed = parsePlumbingMeasurementsFromNotes(noteText);
+    if (workflowMode === 'service') {
+      parsed = restrictPlumbingMeasurementsForServiceMode(parsed);
+    }
     const projectContext = parsePlumbingProjectContextFromNotes(
       next.originalNotes || ''
     );
