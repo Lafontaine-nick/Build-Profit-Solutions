@@ -10210,12 +10210,6 @@ export function getChecklistItemQuantityRule(
       ? 'shower_bench'
       : itemId === 'exterior_trim'
         ? 'exterior_trim_paint'
-        : itemId === 'shower_floor_demo' &&
-            resolved.unit === 'each'
-          ? 'tub_demo'
-        : itemId === 'shower_floor_demo' &&
-            resolved.unit === 'sqft'
-          ? 'floor_demo'
         : itemId;
   let rule: ScopeItemQuantityRule | undefined;
   if (
@@ -15039,7 +15033,11 @@ export function resolveScopeItemSuggestedPricing(
         ? 'windows_doors'
         : itemId === 'exterior_trim'
           ? 'exterior_trim_paint'
-        : itemId;
+        : itemId === 'shower_floor_demo' && resolved.unit === 'each'
+          ? 'tub_demo'
+          : itemId === 'shower_floor_demo' && resolved.unit === 'sqft'
+            ? 'floor_demo'
+            : itemId;
   if (canonicalPricingId !== itemId) {
     return resolveScopeItemSuggestedPricing(
       canonicalPricingId,
