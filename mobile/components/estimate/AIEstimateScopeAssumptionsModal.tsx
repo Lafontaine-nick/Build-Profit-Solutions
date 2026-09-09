@@ -21074,28 +21074,13 @@ export default function AIEstimateScopeAssumptionsModal({
       exterior_trim_paint: 40,
     };
     const itemOrder = (id: string) => paintingOrder[id] ?? 50;
-    const bathroomPricingCardIds = new Set([
-      'shower_tile',
-      'shower_floor_tile',
-      'shower_pan',
-      'floor_tile',
-      'waterproofing',
-    ]);
     const isBathroomFlow =
       String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
       String(draft?.projectType || '').toLowerCase() === 'bathroom';
-    const keepBathroomPricingCard = (id: string) =>
-      isBathroomFlow &&
-      // Do not let Quick Measurements hide a note-backed bathroom scope row.
-      // The Confirm Scope card is still the place where the contractor can
-      // supply a missing quantity or review its pricing.
-      (bathroomPricingCardIds.has(id) ||
-        displayItems.some(
-          item =>
-            item.id === id &&
-            item.state === 'included' &&
-            item.noteBacked === true
-        ));
+    const keepBathroomPricingCard = (_id: string) =>
+      // Every detected bathroom row must reach renderItem so it can show
+      // pricing or an explicit missing-measurement state.
+      isBathroomFlow;
     const groups = groupedItems
       .map(group => ({
         ...group,
