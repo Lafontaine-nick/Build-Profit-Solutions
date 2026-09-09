@@ -19759,8 +19759,7 @@ export default function AIEstimateScopeAssumptionsModal({
     const bathroomNotesFlow =
       String(checklist.templateKey || '').toLowerCase() === 'bathroom' ||
       String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
-      /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
-      /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes);
+      explicitBathroomRemodelNotes;
     if (bathroomNotesFlow && Array.isArray(checklist.items)) {
       const normalizedIds = new Set(normalized.map(row => row.id));
       const checklistRowsToRestore = checklist.items.filter(
@@ -19858,13 +19857,16 @@ export default function AIEstimateScopeAssumptionsModal({
         hydrateTradeContext.tradeKey
       );
     }
+    const explicitBathroomRemodelNotes =
+      /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
+      /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes);
     if (
       ['plumbing', 'plumbing_service'].includes(
         String(checklist.templateKey || '').toLowerCase()
       ) ||
       hydratedPlanTrade === 'plumbing' ||
       hydrateTradeContext.tradeKey === 'plumbing' ||
-      notesSuggestPlumbingBid(scopeNotes)
+      (notesSuggestPlumbingBid(scopeNotes) && !explicitBathroomRemodelNotes)
     ) {
       normalized = filterChecklistItemsToPlumbingScope(normalized);
       normalized = finalizeStandalonePlumbingChecklist(normalized, {
