@@ -2550,8 +2550,6 @@ const NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES: Record<string, string> = {
   /** AI draft / planning key → checklist id. */
   shower_door: 'glass_door',
   shower_pan: 'tile_shower_pan',
-  /** Shower/pan tear-out uses the existing bathroom floor-demo rate band. */
-  shower_floor_demo: 'floor_demo',
   tub_install: 'tub',
   shower_bench_curb: 'shower_bench',
   /** Catalog-backed painting installation IDs reuse existing opening rates. */
@@ -10212,6 +10210,12 @@ export function getChecklistItemQuantityRule(
       ? 'shower_bench'
       : itemId === 'exterior_trim'
         ? 'exterior_trim_paint'
+        : itemId === 'shower_floor_demo' &&
+            resolved.unit === 'each'
+          ? 'tub_demo'
+        : itemId === 'shower_floor_demo' &&
+            resolved.unit === 'sqft'
+          ? 'floor_demo'
         : itemId;
   let rule: ScopeItemQuantityRule | undefined;
   if (
@@ -21760,6 +21764,22 @@ export function resolveChecklistItemQuantity(
     notes?: string | null;
   } = {}
 ): ResolvedItemQuantity {
+  if (itemId === 'shower_floor_demo') {
+    const existingTilePanCount = Number(
+      String(measurements.existingTilePanCount ?? '').replace(/,/g, '')
+    );
+    if (Number.isFinite(existingTilePanCount) && existingTilePanCount > 0) {
+      return {
+        quantity: existingTilePanCount,
+        unit: 'each',
+        quantitySource: 'user_entered',
+        sourceLabel: 'Quick Measurements · existing tile pan',
+        pricingReady: true,
+        quantityHelper: 'Existing tile shower pan removal count.',
+        showInput: true,
+      };
+    }
+  }
   const bathroomDefaultEachIds = new Set([
     'toilet',
     'sink_faucet',
