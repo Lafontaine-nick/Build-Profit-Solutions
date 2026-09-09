@@ -14604,13 +14604,15 @@ function CollapsibleQuickMeasurements({
           wetAreaStepperMax
         );
         const next = { ...prev, [key]: cleaned };
-        scheduleExistingDemoCommit(
-          next,
-          buildInstallCounts(),
-          keepingExistingWetArea,
-          reuseExistingShowerDoor,
-          gen
-        );
+        InteractionManager.runAfterInteractions(() => {
+          scheduleExistingDemoCommit(
+            next,
+            buildInstallCounts(),
+            keepingExistingWetArea,
+            reuseExistingShowerDoor,
+            gen
+          );
+        });
         return next;
       });
     },
@@ -14635,14 +14637,16 @@ function CollapsibleQuickMeasurements({
         );
         demoOverridesRef.current = { ...demoOverridesRef.current, [key]: true };
         const next = { ...prev, [key]: cleaned };
-        scheduleExistingDemoCommit(
-          existingCounts,
-          buildInstallCounts(),
-          keepingExistingWetArea,
-          reuseExistingShowerDoor,
-          gen,
-          { key, value: cleaned }
-        );
+        InteractionManager.runAfterInteractions(() => {
+          scheduleExistingDemoCommit(
+            existingCounts,
+            buildInstallCounts(),
+            keepingExistingWetArea,
+            reuseExistingShowerDoor,
+            gen,
+            { key, value: cleaned }
+          );
+        });
         return next;
       });
     },
