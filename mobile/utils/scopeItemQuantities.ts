@@ -2556,6 +2556,8 @@ const NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES: Record<string, string> = {
   interior_door_install: 'interior_doors',
   door_casing_install: 'trim_finish',
   door_casing_paint: 'trim',
+  /** Bathroom baseboard installation reuses the established trim LF rate. */
+  baseboard_install: 'trim',
   // Window replacement/install includes the opening trim package.
   window_install: 'windows_doors',
   ...TILE_NATIONAL_AVERAGE_ALIASES,

@@ -21159,6 +21159,7 @@ export default function AIEstimateScopeAssumptionsModal({
         items: group.items.filter(
           item =>
             !(isBathroomFlow && item.id === 'wet_area_install') &&
+            !(isBathroomFlow && item.id === 'fixture_demo') &&
             !hideDeselectedRoofingQmCard(item.id) &&
             !hideDuplicateRoofingBaseCard(item.id) &&
             !(
@@ -23992,6 +23993,9 @@ export default function AIEstimateScopeAssumptionsModal({
       /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
       /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes);
     if (bathroomPricingFlow && item.id === 'wet_area_install') {
+      return null;
+    }
+    if (bathroomPricingFlow && item.id === 'fixture_demo') {
       return null;
     }
     if (
