@@ -19981,6 +19981,33 @@ export default function AIEstimateScopeAssumptionsModal({
         }
       );
     }
+    if (bathroomNotesFlow) {
+      const explicitElectricalWork =
+        /\b(?:electrical|wiring|wire|circuit|new\s+box|power|gfci|switch(?:es)?)\b/i.test(
+          scopeNotes
+        );
+      const explicitRoughIn =
+        /\b(?:rough[\s-]?in|rough\s+plumb(?:ing)?|relocat(?:e|ed|ing)\s+(?:the\s+)?plumb|new\s+(?:water|drain)\s+lines?)\b/i.test(
+          scopeNotes
+        );
+      const explicitCountertopRemoval =
+        /\b(?:remove|demo|demolish|tear\s*out)\b[^.;\n]{0,45}\bcountertops?\b/i.test(
+          scopeNotes
+        );
+      normalized = normalized.filter(item => {
+        if (item.id === 'plumbing_rough' && !explicitRoughIn) return false;
+        if (
+          item.id === 'electrical_bath_exhaust_fan' &&
+          !explicitElectricalWork
+        ) {
+          return false;
+        }
+        if (item.id === 'countertop_demo' && !explicitCountertopRemoval) {
+          return false;
+        }
+        return true;
+      });
+    }
     setItems(normalized);
     setMeasurementsSynced(nextMeasurements);
     if (notesSuggestPlumbingBid(scopeNotes)) {
