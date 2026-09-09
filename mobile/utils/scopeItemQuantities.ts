@@ -2550,6 +2550,8 @@ const NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES: Record<string, string> = {
   /** AI draft / planning key → checklist id. */
   shower_door: 'glass_door',
   shower_pan: 'tile_shower_pan',
+  /** Shower/pan tear-out uses the existing bathroom floor-demo rate band. */
+  shower_floor_demo: 'floor_demo',
   tub_install: 'tub',
   shower_bench_curb: 'shower_bench',
   /** Catalog-backed painting installation IDs reuse existing opening rates. */
