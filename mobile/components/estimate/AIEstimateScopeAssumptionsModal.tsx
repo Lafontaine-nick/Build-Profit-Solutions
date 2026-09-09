@@ -24085,7 +24085,13 @@ export default function AIEstimateScopeAssumptionsModal({
       committedCombinedPaint && item.id === 'interior_paint'
         ? { ...item, label: 'Interior paint — walls & ceilings' }
         : item;
+    const bathroomPricingFlow =
+      String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
+      String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
+      /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
+      /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes);
     const useWetAreaLineCard =
+      !bathroomPricingFlow &&
       item.id !== 'shower_pan' &&
       (item.derivedFrom === 'wet_area_install' ||
         WET_AREA_DERIVED_ITEM_IDS.has(item.id));
