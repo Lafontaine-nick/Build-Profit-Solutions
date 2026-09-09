@@ -21076,7 +21076,9 @@ export default function AIEstimateScopeAssumptionsModal({
     const itemOrder = (id: string) => paintingOrder[id] ?? 50;
     const isBathroomFlow =
       String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
-      String(draft?.projectType || '').toLowerCase() === 'bathroom';
+      String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
+      /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
+      /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes);
     const keepBathroomPricingCard = (_id: string) =>
       // Every detected bathroom row must reach renderItem so it can show
       // pricing or an explicit missing-measurement state.
@@ -23942,7 +23944,9 @@ export default function AIEstimateScopeAssumptionsModal({
     }
     const isBathroomFlow =
       String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
-      String(draft?.projectType || '').toLowerCase() === 'bathroom';
+      String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
+      /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
+      /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes);
     const keepBathroomPricingCard =
       isBathroomFlow &&
       // Every detected bathroom row must remain reviewable in Confirm Scope,
