@@ -23485,7 +23485,12 @@ export default function AIEstimateScopeAssumptionsModal({
       if (
         itemId === 'floor_demo' &&
         isCustomFlooringDemoPriceBlock(block) &&
-        !currentMeasurements.flooringDemoIncludesSubstratePrep
+        !currentMeasurements.flooringDemoIncludesSubstratePrep &&
+        !(
+          String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
+          String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
+          /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes)
+        )
       ) {
         Alert.alert(
           'Does this demolition price include final substrate preparation?',

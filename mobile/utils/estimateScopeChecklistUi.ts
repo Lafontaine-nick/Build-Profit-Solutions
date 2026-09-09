@@ -3859,10 +3859,23 @@ export function syncWetAreaDemoScopeItems(
       }
       return row;
     }
-    if (row.id === 'tub_demo' && stepperCountActive(params.demo.demoTubCount)) {
-      if (row.state !== 'included') {
+    if (row.id === 'tub_demo') {
+      const tubCountWasSet =
+        params.demo.demoTubCount !== undefined &&
+        params.demo.demoTubCount !== null &&
+        params.demo.demoTubCount !== '';
+      if (stepperCountActive(params.demo.demoTubCount)) {
+        if (row.state !== 'included') {
+          changed = true;
+          return { ...row, state: 'included' as const };
+        }
+        return row;
+      }
+      // An explicit zero in Quick Measurements is authoritative. Do not let
+      // note hydration re-add tub demolition after the contractor deselects it.
+      if (tubCountWasSet && row.state !== 'excluded') {
         changed = true;
-        return { ...row, state: 'included' as const };
+        return { ...row, state: 'excluded' as const, noteBacked: false };
       }
       return row;
     }
