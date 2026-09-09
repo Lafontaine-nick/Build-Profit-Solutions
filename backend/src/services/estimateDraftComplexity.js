@@ -864,6 +864,12 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
       plumbingTrim.helperText =
         "Set faucets and finish plumbing connections; the toilet is priced as its own scope item.";
     }
+    const fixtureDemo = items.find((item) => item.id === "fixture_demo");
+    if (toilet && fixtureDemo && fixtureDemo.state === "included") {
+      fixtureDemo.label = "Remove existing plumbing fixtures (excluding toilet)";
+      fixtureDemo.helperText =
+        "Remove the existing plumbing fixtures called out in the notes; toilet removal is priced on the separate toilet card.";
+    }
     const sinkFaucet = items.find(
       (item) => item.id === "sink_faucet" && item.state === "included",
     );

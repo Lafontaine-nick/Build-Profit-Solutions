@@ -320,6 +320,9 @@ describe("estimateDraftComplexity", () => {
       checklist.items.find((item) => item.id === "mirror_accessories")?.label,
     ).toBe("Vanity mirror & bath accessories");
     expect(
+      checklist.items.find((item) => item.id === "fixture_demo")?.label,
+    ).toBe("Remove existing plumbing fixtures (excluding toilet)");
+    expect(
       checklist.items.find((item) => item.id === "vanity")?.label,
     ).toContain("60-inch vanity");
   });
