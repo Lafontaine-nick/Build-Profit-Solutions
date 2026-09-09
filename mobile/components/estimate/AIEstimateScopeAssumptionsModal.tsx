@@ -21081,7 +21081,28 @@ export default function AIEstimateScopeAssumptionsModal({
       // Every detected bathroom row must reach renderItem so it can show
       // pricing or an explicit missing-measurement state.
       isBathroomFlow;
-    const groups = groupedItems
+    const groupedItemIds = new Set(
+      groupedItems.flatMap(group => group.items.map(item => item.id))
+    );
+    const bathroomRemainderItems = isBathroomFlow
+      ? displayItems.filter(
+          item =>
+            !groupedItemIds.has(item.id) &&
+            item.state !== 'excluded' &&
+            item.id !== 'interior_finishes'
+        )
+      : [];
+    const sourceGroups =
+      bathroomRemainderItems.length > 0
+        ? [
+            ...groupedItems,
+            {
+              title: 'Detected bathroom scope',
+              items: bathroomRemainderItems,
+            },
+          ]
+        : groupedItems;
+    const groups = sourceGroups
       .map(group => ({
         ...group,
         items: group.items.filter(
@@ -21153,9 +21174,9 @@ export default function AIEstimateScopeAssumptionsModal({
       .map(entry => entry.group);
   }, [
     groupedItems,
+    displayItems,
     checklist?.templateKey,
     draft?.projectType,
-    displayItems,
     embedQmScopeInQuickMeasurements,
     qmScopeEmbeddedInQuickMeasurements,
     hideIncludedStuccoComponentCards,
