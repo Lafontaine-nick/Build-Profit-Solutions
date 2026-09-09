@@ -317,6 +317,9 @@ describe("estimateDraftComplexity", () => {
       checklist.items.find((item) => item.id === "shower_tile")?.label,
     ).toContain("60-inch shower");
     expect(
+      checklist.items.find((item) => item.id === "mirror_accessories")?.label,
+    ).toBe("Vanity mirror & bath accessories");
+    expect(
       checklist.items.find((item) => item.id === "vanity")?.label,
     ).toContain("60-inch vanity");
   });

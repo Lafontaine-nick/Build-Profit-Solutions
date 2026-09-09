@@ -873,6 +873,18 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
       plumbingTrim.helperText =
         "Finish remaining plumbing connections; the toilet, sink, and faucet are priced as separate scope items.";
     }
+    const mirrorAccessories = items.find(
+      (item) => item.id === "mirror_accessories",
+    );
+    if (
+      mirrorAccessories &&
+      /\bmirror\b/i.test(notes) &&
+      mirrorAccessories.state === "included"
+    ) {
+      mirrorAccessories.label = "Vanity mirror & bath accessories";
+      mirrorAccessories.helperText =
+        "Install the vanity mirror and standard bath accessories called out in the notes.";
+    }
 
     const showerWidth = notes.match(
       /\b(\d+(?:\.\d+)?)\s*(?:-|to)?\s*inch(?:es)?\b[^.;\n]{0,35}\b(?:tile\s+)?shower\b/i,
