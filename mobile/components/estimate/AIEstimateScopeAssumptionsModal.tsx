@@ -722,11 +722,11 @@ function deferConfirmScopeHeavyWork(run: () => void) {
   });
 }
 
-/** Apply pricing synchronously so the card cannot render an older suggestion
- * between the visible price and the accepted price. */
+/** Defer heavy Apply work while pendingAppliedPricingBlock keeps the visible
+ * applied amount stable during the transition. */
 function runConfirmScopeApplyWork(run: () => void) {
   hapticTap();
-  run();
+  deferConfirmScopeHeavyWork(run);
 }
 
 function inputShellStyle(
