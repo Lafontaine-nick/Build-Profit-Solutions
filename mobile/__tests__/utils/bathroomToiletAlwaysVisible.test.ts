@@ -34,6 +34,19 @@ describe('bathroom toilet always visible on Confirm Scope', () => {
     expect(hydrated.some((row) => row.id === 'toilet')).toBe(true);
   });
 
+  test('rehydrates explicit tile and fixture rows from notes', () => {
+    const hydrated = hydrateScopeChecklistFromNotes(
+      [],
+      'bathroom',
+      'Install shower wall tile, shower pan, bathroom floor tile, sink, faucet, and vanity lighting.',
+      { itemQuantities: {} }
+    );
+    for (const id of ['shower_tile', 'shower_pan', 'floor_tile', 'sink_faucet', 'lighting']) {
+      const row = hydrated.find(candidate => candidate.id === id);
+      expect(row).toEqual(expect.objectContaining({ state: 'included', noteBacked: true }));
+    }
+  });
+
   test('collapses quiet secondary groups while keeping review groups expanded', () => {
     const items: ScopeChecklistItem[] = [
       {

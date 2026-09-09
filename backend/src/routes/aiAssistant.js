@@ -16970,9 +16970,58 @@ router.post('/estimate-draft-scope-checklist', async (req, res) => {
       return res.status(400).json({ error: 'Draft is required' });
     }
     const enriched = enrichDraft(draft);
+    const notes = String(enriched.originalNotes || draft.originalNotes || '');
+    const explicitBathroomRemodel =
+      /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(notes) ||
+      /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(notes);
+    const stalePlumbingChecklist =
+      explicitBathroomRemodel &&
+      /^plumbing(?:_service)?$/i.test(
+        String(enriched.scopeChecklist?.templateKey || ''),
+      );
+    const existingBathroomChecklist =
+      explicitBathroomRemodel &&
+      /^bathroom$/i.test(
+        String(enriched.scopeChecklist?.templateKey || ''),
+      )
+        ? enriched.scopeChecklist
+        : null;
+    const refreshedBathroomChecklist = existingBathroomChecklist
+      ? buildScopeChecklist(
+          enriched,
+          enriched.estimateTier || 'room_remodel',
+          enriched.originalNotes,
+        )
+      : null;
+    const existingBathroomItemIds = new Set(
+      Array.isArray(existingBathroomChecklist?.items)
+        ? existingBathroomChecklist.items
+            .filter((item) => item?.state === 'included')
+            .map((item) => String(item.id || ''))
+        : [],
+    );
+    const refreshedBathroomItems = Array.isArray(
+      refreshedBathroomChecklist?.items,
+    )
+      ? refreshedBathroomChecklist.items.filter(
+          (item) => item?.state === 'included',
+        )
+      : [];
+    const staleBathroomChecklist =
+      Boolean(existingBathroomChecklist) &&
+      refreshedBathroomItems.some(
+        (item) => !existingBathroomItemIds.has(String(item.id || '')),
+      );
     const checklist =
-      enriched.scopeChecklist ||
-      buildScopeChecklist(enriched, enriched.estimateTier || 'room_remodel', enriched.originalNotes);
+      (!stalePlumbingChecklist &&
+        !staleBathroomChecklist &&
+        enriched.scopeChecklist) ||
+      refreshedBathroomChecklist ||
+      buildScopeChecklist(
+        enriched,
+        enriched.estimateTier || 'room_remodel',
+        enriched.originalNotes,
+      );
     return res.json({ draft: enriched, checklist });
   } catch (err) {
     console.error('Error in /estimate-draft-scope-checklist:', err);

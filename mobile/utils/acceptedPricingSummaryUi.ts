@@ -531,6 +531,16 @@ export function resolveAcceptedPricingDisplay(params: {
     resolved: params.resolved,
     acceptance: params.acceptance,
   });
+  // A mode toggle can preserve the accepted status while temporarily dropping
+  // the monetary fields. Keep the card visibly priced from the current
+  // suggestion until the user edits or reapplies pricing.
+  const suggestedTotal = Number(params.suggestedBlock?.total);
+  const displayTotal =
+    total > 0
+      ? total
+      : Number.isFinite(suggestedTotal) && suggestedTotal > 0
+        ? suggestedTotal
+        : total;
   const inferredFromSuggestion =
     !params.acceptance &&
     params.suggestedBlock &&
@@ -547,14 +557,14 @@ export function resolveAcceptedPricingDisplay(params: {
   const showConfidenceBadge = shouldShowConfidenceBadge(acceptance);
 
   return {
-    totalLabel: formatPlanningMoney(total),
+    totalLabel: formatPlanningMoney(displayTotal),
     selectionStatusLabel: selectionStatusLabel(acceptance, params.resolved),
     pricingSourceLabel: acceptance.pricingSourceLabel,
     pricingTypeLabel: acceptance.pricingTypeLabel,
     subtitleLine: acceptedPricingSubtitleLine({
       display: {
         pricingModel,
-        totalLabel: formatPlanningMoney(total),
+        totalLabel: formatPlanningMoney(displayTotal),
         acceptance,
       },
       resolved: params.resolved,

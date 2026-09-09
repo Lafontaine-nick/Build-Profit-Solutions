@@ -219,6 +219,36 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealChecklistScopePreview(draft)).toHaveLength(2);
   });
 
+  it('keeps detected bathroom scope visible when pricing packages are partial', () => {
+    const draft = {
+      projectType: 'bathroom',
+      originalNotes: 'Install shower wall tile, lighting, and a new toilet.',
+      scopeChecklist: {
+        templateKey: 'bathroom',
+        items: [
+          { id: 'shower_tile', label: 'Shower wall tile', state: 'included' },
+          { id: 'lighting', label: 'New lighting fixtures & install', state: 'included' },
+          { id: 'toilet', label: 'Toilet', state: 'included' },
+        ],
+      },
+      scopePackages: [
+        {
+          checklistItemId: 'toilet',
+          name: 'Toilet installation',
+          total: 400,
+        },
+      ],
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual(
+      expect.arrayContaining([
+        'Shower wall tile',
+        'New lighting fixtures & install',
+        'Toilet',
+      ]),
+    );
+  });
+
   it('hides excluded plumbing cards and fixture allowance on Scope found', () => {
     const notes =
       'Kitchen plumbing only. Customer supplies fixtures. 3 rough-in points. 4 trim hookups. 25 LF water line. 1 gas appliance hookup.';

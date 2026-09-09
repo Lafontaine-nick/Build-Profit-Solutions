@@ -1754,7 +1754,26 @@ function applyClarifyPatch(draftInput, patch, options = {}) {
       measurementPatchFromPackages.cabinetLf = quantity;
     }
     if (ruleKey === 'interior_paint' && (unit === 'sqft' || unit === 'sf')) {
-      measurementPatchFromPackages.wallPaintSqft = quantity;
+      const existingMeasurements = draft.scopeMeasurements || {};
+      const existingWallPaintSqft = Number(existingMeasurements.wallPaintSqft);
+      const existingCeilingPaintSqft = Number(existingMeasurements.ceilingPaintSqft);
+      const existingCombinedPaintableAreaSqft = Number(
+        existingMeasurements.combinedPaintableAreaSqft
+      );
+      const isStaleCombinedPaintPackage =
+        existingMeasurements.paintPricingMethod === 'separate' &&
+        Number.isFinite(existingWallPaintSqft) &&
+        existingWallPaintSqft > 0 &&
+        Number.isFinite(existingCeilingPaintSqft) &&
+        existingCeilingPaintSqft > 0 &&
+        Number.isFinite(existingCombinedPaintableAreaSqft) &&
+        Math.abs(
+          quantity -
+            (existingWallPaintSqft + existingCeilingPaintSqft)
+        ) < 0.01;
+      if (!isStaleCombinedPaintPackage) {
+        measurementPatchFromPackages.wallPaintSqft = quantity;
+      }
     }
     if (ruleKey === 'ceiling_paint' && (unit === 'sqft' || unit === 'sf')) {
       measurementPatchFromPackages.ceilingPaintSqft = quantity;

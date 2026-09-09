@@ -953,4 +953,33 @@ Include final clean and haul off. Customer supplying vanity and toilet fixtures;
     expect(parsed.ceilingPaintSqft).toBeUndefined();
     expect(parsed.cabinetLf).toBe(4);
   });
+
+  test('separates explicit mixed installation and painting intents', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Interior painting 2,000 sqft. Install new baseboard, prep and paint. Install 5 new doors and casing and prep and paint.',
+      { templateKey: 'painting', projectType: 'painting' }
+    );
+    expect(parsed.baseboardInstallIntent).toBe(true);
+    expect(parsed.interiorDoorInstallIntent).toBe(true);
+    expect(parsed.interiorDoorPaintIntent).toBe(true);
+    expect(parsed.interiorDoorCount).toBe(5);
+    expect(parsed.itemQuantities).toMatchObject({
+      interior_door_install: { quantity: 5, unit: 'each' },
+      door_casing_install: { quantity: 5, unit: 'each' },
+    });
+  });
+
+  test('promotes mixed window installation counts to canonical measurements', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Install 2 windows and trim, prep and paint window trim.',
+      { templateKey: 'painting', projectType: 'painting' },
+    );
+
+    expect(parsed.windowInstallIntent).toBe(true);
+    expect(parsed.windowCount).toBe(2);
+    expect(parsed.itemQuantities.window_install).toMatchObject({
+      quantity: 2,
+      unit: 'each',
+    });
+  });
 });

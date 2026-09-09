@@ -1,19 +1,23 @@
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm.
+
+> build-profit-solutions-backend@1.0.0 start
+> node src/server.js
+
 📦 Loaded 1 users from disk
-📦 Loaded 16 unified leads from persistent storage
-⏭️ Skipping demo leads - 16 leads already loaded from storage
-📦 Loaded 4 project leads from persistent storage
+📦 Loaded 18 unified leads from persistent storage
+⏭️ Skipping demo leads - 18 leads already loaded from storage
+📦 Loaded 3 project leads from persistent storage
+❌ Failed to initialize Twilio client: accountSid must start with AC
 ✅ Database initialization attempted
-🚀 Starting marketplace lead sync service...
-🔄 Syncing marketplace leads...
 
 ============================================================
 🚀 Server running on port 3001
 📊 Health check: http://localhost:3001/health
 🔗 API Base: http://localhost:3001/api
 🌐 Customer website: http://localhost:3001
-📱 LAN access: http://192.168.0.142:3001
-   - Health: http://192.168.0.142:3001/health
-   - API: http://192.168.0.142:3001/api
+📱 LAN access: http://192.168.0.7:3001
+   - Health: http://192.168.0.7:3001/health
+   - API: http://192.168.0.7:3001/api
 🌍 Environment: development
 🔄 Marketplace sync: Running every 5 minutes
 
@@ -27,2340 +31,496 @@
 📊 Health check: http://localhost:3000/health
 🔗 API Base: http://localhost:3000/api
 🌐 Customer website: http://localhost:3000
-📱 LAN access: http://192.168.0.142:3000
-   - Health: http://192.168.0.142:3000/health
-   - API: http://192.168.0.142:3000/api
+📱 LAN access: http://192.168.0.7:3000
+   - Health: http://192.168.0.7:3000/health
+   - API: http://192.168.0.7:3000/api
 ============================================================
 
-❌ Database connection failed: 
-Error code: ECONNREFUSED
-Error details: { code: 'ECONNREFUSED', message: '', hint: undefined }
-💡 PostgreSQL might not be running. Start it with: brew services start postgresql@14 (or your version)
 📄 Loaded 4 invoices from storage
-[0mGET /api/marketplace-leads?since=2026-03-06T05:08:01.880Z [32m200[0m 1.229 ms - 76[0m
-✅ No new marketplace leads to sync
-⏱️ [ai-mmefwwzb-ugvhy] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Mark a payment as collected
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Mark a payment as collected',
-  messageCount: 1,
-  messages: [ 'Mark a payment as collected' ]
-}
-⏱️ [ai-mmefwwzb-ugvhy] router_start { elapsedMs: 19 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Mark a payment as collected',
-  lastUserContent: 'mark a payment as collected',
-  combinedMessage: 'mark a payment as collected mark a payment as collected'
-}
-🛡️ Payment guard: first time - listing pending payments
-⏱️ [ai-mmefwwzb-ugvhy] router_done {
-  elapsedMs: 7608,
-  domain: 'timeline',
-  proposedTool: 'mark_payment_collected'
-}
-🧭 Router: {"domain":"timeline","tool":"mark_payment_collected","missing":["milestoneName"],"confidence":0.95}
-🛑 Router: required fields missing → [ 'milestoneName' ] → asking clarification
-🛑 Router: returning early with question: Which payment should I mark as collected? Pending payments: "Deposit", "Week 1 Payment", "Week 2 Payment", "Week 3 Payment", "Week 4 Payment".
-[0mPOST /api/ai-assistant [32m200[0m 7645.886 ms - 202[0m
-⏱️ [ai-mmefxi0s-a45ga] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-🔍 inferCOFieldsFromUserMessages result: {
-  description: 'Deposit',
-  amount: null,
-  vendor: null,
-  messageCount: 1,
-  messages: [ 'Deposit' ]
-}
-⏱️ [ai-mmefxi0s-a45ga] router_start { elapsedMs: 3 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Deposit',
-  lastUserContent: 'deposit',
-  combinedMessage: 'deposit deposit'
-}
-🛡️ Payment guard: matched payment, asking for confirmation: {
-  input: 'Deposit',
-  matchedTitle: 'Deposit',
-  matchedId: 'weekly-deposit-1772761440248'
-}
-⏱️ [ai-mmefxi0s-a45ga] router_done {
-  elapsedMs: 2129,
-  domain: 'timeline',
-  proposedTool: 'mark_payment_collected'
-}
-🧭 Router: {"domain":"timeline","tool":"mark_payment_collected","missing":[],"confidence":1}
-🔧 Router forcing tool: mark_payment_collected
-⏱️ [ai-mmefxi0s-a45ga] executor_llm_start { elapsedMs: 2129, toolChoice: 'mark_payment_collected' }
-⏱️ [ai-mmefxi0s-a45ga] executor_llm_done { elapsedMs: 3014 }
-✅ Tool calls detected, processing... { count: 1, functions: [ 'mark_payment_collected' ] }
-🔧 AI Assistant: Executing tool call {
-  functionName: 'mark_payment_collected',
-  args: {
-    projectId: '1772761141542',
-    milestoneName: 'Deposit',
-    token: undefined
-  }
-}
-✅ Function succeeded, result: {
-  functionName: 'mark_payment_collected',
-  success: true,
-  message: '✅ Marked "Deposit" as collected ($9,757).',
-  projectId: '1772761141542',
-  hasAction: true
-}
-📊 Function results summary for AI: [
-  {
-    functionName: 'mark_payment_collected',
-    success: true,
-    status: 'success',
-    message: '✅ Marked "Deposit" as collected ($9,757).',
-    error: undefined
-  }
-]
-⏱️ [ai-mmefxi0s-a45ga] final_llm_start { elapsedMs: 3023 }
-⏱️ [ai-mmefxi0s-a45ga] final_llm_done { elapsedMs: 4070 }
-🔍 Health check detection: {
-  currentMsg: 'deposit',
-  lastUserMsg: 'deposit',
-  isHealthCheck: false,
-  hasData: true
-}
-⚠️ No analysis card built: { isHealthCheck: false, hasData: true }
-📤 AI Assistant: Final response data being sent: {
-  hasReply: true,
-  hasProjectUpdate: false,
-  hasActions: true,
-  actionsCount: 1,
-  actions: [
-    {
-      type: 'mark_payment_collected',
-      projectId: '1772761141542',
-      milestoneId: 'weekly-deposit-1772761440248',
-      milestoneName: 'Deposit',
-      amount: 9757,
-      collectedAt: '2026-03-06T05:15:08.228Z'
-    }
-  ],
-  replyMentionsPO: true,
-  replyMentionsRecorded: false
-}
-⏱️ [ai-mmefxi0s-a45ga] request_done {
-  elapsedMs: 4071,
-  hasActions: 1,
-  hasProjectUpdate: false,
-  replyChars: 116
-}
-[0mPOST /api/ai-assistant [32m200[0m 4093.132 ms - 342[0m
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T05:13:01.891Z [32m200[0m 0.569 ms - 76[0m
-✅ No new marketplace leads to sync
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T05:18:01.890Z [32m200[0m 0.627 ms - 76[0m
-✅ No new marketplace leads to sync
-⏱️ [ai-mmegadry-6aknx] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Mark a payment as collected
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Mark a payment as collected',
-  messageCount: 1,
-  messages: [ 'Mark a payment as collected' ]
-}
-⏱️ [ai-mmegadry-6aknx] router_start { elapsedMs: 6 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Mark a payment as collected',
-  lastUserContent: 'mark a payment as collected',
-  combinedMessage: 'mark a payment as collected mark a payment as collected'
-}
-🛡️ Payment guard: first time - listing pending payments
-⏱️ [ai-mmegadry-6aknx] router_done {
-  elapsedMs: 2855,
-  domain: 'timeline',
-  proposedTool: 'mark_payment_collected'
-}
-🧭 Router: {"domain":"timeline","tool":"mark_payment_collected","missing":["milestoneName"],"confidence":0.95}
-🛑 Router: required fields missing → [ 'milestoneName' ] → asking clarification
-🛑 Router: returning early with question: Which payment should I mark as collected? Pending payments: "Deposit", "Week 1 Payment", "Week 2 Payment", "Week 3 Payment", "Week 4 Payment".
-[0mPOST /api/ai-assistant [32m200[0m 2870.266 ms - 202[0m
-⏱️ [ai-mmegakby-sv9k1] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-🔍 inferCOFieldsFromUserMessages result: {
-  description: 'Deposit',
-  amount: null,
-  vendor: null,
-  messageCount: 1,
-  messages: [ 'Deposit' ]
-}
-⏱️ [ai-mmegakby-sv9k1] router_start { elapsedMs: 3 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Deposit',
-  lastUserContent: 'deposit',
-  combinedMessage: 'deposit deposit'
-}
-🛡️ Payment guard: matched payment, asking for confirmation: {
-  input: 'Deposit',
-  matchedTitle: 'Deposit',
-  matchedId: 'weekly-deposit-1772761440248'
-}
-⏱️ [ai-mmegakby-sv9k1] router_done {
-  elapsedMs: 1421,
-  domain: 'timeline',
-  proposedTool: 'mark_payment_collected'
-}
-🧭 Router: {"domain":"timeline","tool":"mark_payment_collected","missing":[],"confidence":1}
-🔧 Router forcing tool: mark_payment_collected
-⏱️ [ai-mmegakby-sv9k1] executor_llm_start { elapsedMs: 1422, toolChoice: 'mark_payment_collected' }
-⏱️ [ai-mmegakby-sv9k1] executor_llm_done { elapsedMs: 2137 }
-✅ Tool calls detected, processing... { count: 1, functions: [ 'mark_payment_collected' ] }
-🔧 AI Assistant: Executing tool call {
-  functionName: 'mark_payment_collected',
-  args: {
-    projectId: '1772761141542',
-    milestoneName: 'Deposit',
-    token: undefined
-  }
-}
-✅ Function succeeded, result: {
-  functionName: 'mark_payment_collected',
-  success: true,
-  message: '✅ Marked "Deposit" as collected ($9,757).',
-  projectId: '1772761141542',
-  hasAction: true
-}
-📊 Function results summary for AI: [
-  {
-    functionName: 'mark_payment_collected',
-    success: true,
-    status: 'success',
-    message: '✅ Marked "Deposit" as collected ($9,757).',
-    error: undefined
-  }
-]
-⏱️ [ai-mmegakby-sv9k1] final_llm_start { elapsedMs: 2144 }
-⏱️ [ai-mmegakby-sv9k1] final_llm_done { elapsedMs: 3021 }
-🔍 Health check detection: {
-  currentMsg: 'deposit',
-  lastUserMsg: 'deposit',
-  isHealthCheck: false,
-  hasData: true
-}
-⚠️ No analysis card built: { isHealthCheck: false, hasData: true }
-📤 AI Assistant: Final response data being sent: {
-  hasReply: true,
-  hasProjectUpdate: false,
-  hasActions: true,
-  actionsCount: 1,
-  actions: [
-    {
-      type: 'mark_payment_collected',
-      projectId: '1772761141542',
-      milestoneId: 'weekly-deposit-1772761440248',
-      milestoneName: 'Deposit',
-      amount: 9757,
-      collectedAt: '2026-03-06T05:25:16.871Z'
-    }
-  ],
-  replyMentionsPO: true,
-  replyMentionsRecorded: false
-}
-⏱️ [ai-mmegakby-sv9k1] request_done {
-  elapsedMs: 3022,
-  hasActions: 1,
-  hasProjectUpdate: false,
-  replyChars: 115
-}
-[0mPOST /api/ai-assistant [32m200[0m 3041.177 ms - 341[0m
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T05:23:01.893Z [32m200[0m 0.523 ms - 76[0m
-✅ No new marketplace leads to sync
-⏱️ [ai-mmegf85k-1rlsy] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Mark a payment as collected
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Mark a payment as collected',
-  messageCount: 1,
-  messages: [ 'Mark a payment as collected' ]
-}
-⏱️ [ai-mmegf85k-1rlsy] router_start { elapsedMs: 4 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Mark a payment as collected',
-  lastUserContent: 'mark a payment as collected',
-  combinedMessage: 'mark a payment as collected mark a payment as collected'
-}
-🛡️ Payment guard: asking user to choose pending milestone { pendingCount: 4, input: 'Mark a payment as collected' }
-⏱️ [ai-mmegf85k-1rlsy] router_done {
-  elapsedMs: 2081,
-  domain: 'timeline',
-  proposedTool: 'mark_payment_collected'
-}
-🧭 Router: {"domain":"timeline","tool":"mark_payment_collected","missing":["milestoneName"],"confidence":0.95}
-🛑 Router: required fields missing → [ 'milestoneName' ] → asking clarification
-🛑 Router: returning early with question: Which payment should I mark as collected? Pending payments: "Week 1 Payment", "Week 2 Payment", "Week 3 Payment", "Week 4 Payment".
-[0mPOST /api/ai-assistant [32m200[0m 2101.318 ms - 189[0m
-⏱️ [ai-mmegfcrv-y8ptq] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: 1,
-  vendor: 'Week 1',
-  messageCount: 1,
-  messages: [ 'Week 1' ]
-}
-⏱️ [ai-mmegfcrv-y8ptq] router_start { elapsedMs: 2 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Week 1',
-  lastUserContent: 'week 1',
-  combinedMessage: 'week 1 week 1'
-}
-🛡️ Payment guard: matched payment, asking for confirmation: {
-  input: 'Week 1',
-  matchedTitle: 'Week 1 Payment',
-  matchedId: 'weekly-1772761440247-0'
-}
-⏱️ [ai-mmegfcrv-y8ptq] router_done {
-  elapsedMs: 1124,
-  domain: 'timeline',
-  proposedTool: 'mark_payment_collected'
-}
-🧭 Router: {"domain":"timeline","tool":"mark_payment_collected","missing":[],"confidence":1}
-🔧 Router forcing tool: mark_payment_collected
-⏱️ [ai-mmegfcrv-y8ptq] executor_llm_start { elapsedMs: 1125, toolChoice: 'mark_payment_collected' }
-⏱️ [ai-mmegfcrv-y8ptq] executor_llm_done { elapsedMs: 1814 }
-✅ Tool calls detected, processing... { count: 1, functions: [ 'mark_payment_collected' ] }
-🔧 AI Assistant: Executing tool call {
-  functionName: 'mark_payment_collected',
-  args: {
-    projectId: '1772761141542',
-    milestoneName: 'Week 1 Payment',
-    token: undefined
-  }
-}
-✅ Function succeeded, result: {
-  functionName: 'mark_payment_collected',
-  success: true,
-  message: '✅ Marked "Week 1 Payment" as collected ($9,757).',
-  projectId: '1772761141542',
-  hasAction: true
-}
-📊 Function results summary for AI: [
-  {
-    functionName: 'mark_payment_collected',
-    success: true,
-    status: 'success',
-    message: '✅ Marked "Week 1 Payment" as collected ($9,757).',
-    error: undefined
-  }
-]
-⏱️ [ai-mmegfcrv-y8ptq] final_llm_start { elapsedMs: 1817 }
-⏱️ [ai-mmegfcrv-y8ptq] final_llm_done { elapsedMs: 2919 }
-🔍 Health check detection: {
-  currentMsg: 'week 1',
-  lastUserMsg: 'week 1',
-  isHealthCheck: false,
-  hasData: true
-}
-⚠️ No analysis card built: { isHealthCheck: false, hasData: true }
-📤 AI Assistant: Final response data being sent: {
-  hasReply: true,
-  hasProjectUpdate: false,
-  hasActions: true,
-  actionsCount: 1,
-  actions: [
-    {
-      type: 'mark_payment_collected',
-      projectId: '1772761141542',
-      milestoneId: 'weekly-1772761440247-0',
-      milestoneName: 'Week 1 Payment',
-      amount: 9757,
-      collectedAt: '2026-03-06T05:29:00.033Z'
-    }
-  ],
-  replyMentionsPO: false,
-  replyMentionsRecorded: false
-}
-⏱️ [ai-mmegfcrv-y8ptq] request_done {
-  elapsedMs: 2919,
-  hasActions: 1,
-  hasProjectUpdate: false,
-  replyChars: 145
-}
-[0mPOST /api/ai-assistant [32m200[0m 2928.422 ms - 372[0m
-⏱️ [ai-mmegja5n-5c6cv] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Can we mark a payment as completed
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Can we mark a payment as completed',
-  messageCount: 1,
-  messages: [ 'Can we mark a payment as completed' ]
-}
-⏱️ [ai-mmegja5n-5c6cv] router_start { elapsedMs: 3 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Can we mark a payment as completed',
-  lastUserContent: 'can we mark a payment as completed',
-  combinedMessage: 'can we mark a payment as completed can we mark a payment as completed'
-}
-🛡️ Payment guard: asking user to choose pending milestone { pendingCount: 3, input: 'Can we mark a payment as completed' }
-⏱️ [ai-mmegja5n-5c6cv] router_done {
-  elapsedMs: 2200,
-  domain: 'timeline',
-  proposedTool: 'mark_payment_collected'
-}
-🧭 Router: {"domain":"timeline","tool":"mark_payment_collected","missing":["milestoneName"],"confidence":0.95}
-🛑 Router: required fields missing → [ 'milestoneName' ] → asking clarification
-🛑 Router: returning early with question: Which payment should I mark as collected? Pending payments: "Week 2 Payment", "Week 3 Payment", "Week 4 Payment".
-[0mPOST /api/ai-assistant [32m200[0m 2308.549 ms - 169[0m
-⏱️ [ai-mmegjho2-o0v0h] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: 2,
-  vendor: 'Week 2',
-  messageCount: 1,
-  messages: [ 'Week 2' ]
-}
-⏱️ [ai-mmegjho2-o0v0h] router_start { elapsedMs: 3 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Week 2',
-  lastUserContent: 'week 2',
-  combinedMessage: 'week 2 week 2'
-}
-🛡️ Payment guard: matched payment, asking for confirmation: {
-  input: 'Week 2 Payment',
-  matchedTitle: 'Week 2 Payment',
-  matchedId: 'weekly-1772761440248-1'
-}
-⏱️ [ai-mmegjho2-o0v0h] router_done {
-  elapsedMs: 1947,
-  domain: 'timeline',
-  proposedTool: 'mark_payment_collected'
-}
-🧭 Router: {"domain":"timeline","tool":"mark_payment_collected","missing":[],"confidence":1}
-🔧 Router forcing tool: mark_payment_collected
-⏱️ [ai-mmegjho2-o0v0h] executor_llm_start { elapsedMs: 1947, toolChoice: 'mark_payment_collected' }
-⏱️ [ai-mmegjho2-o0v0h] executor_llm_done { elapsedMs: 2670 }
-✅ Tool calls detected, processing... { count: 1, functions: [ 'mark_payment_collected' ] }
-🔧 AI Assistant: Executing tool call {
-  functionName: 'mark_payment_collected',
-  args: {
-    projectId: '1772761141542',
-    milestoneName: 'Week 2 Payment',
-    token: undefined
-  }
-}
-✅ Function succeeded, result: {
-  functionName: 'mark_payment_collected',
-  success: true,
-  message: '✅ Marked "Week 2 Payment" as collected ($9,757).',
-  projectId: '1772761141542',
-  hasAction: true
-}
-📊 Function results summary for AI: [
-  {
-    functionName: 'mark_payment_collected',
-    success: true,
-    status: 'success',
-    message: '✅ Marked "Week 2 Payment" as collected ($9,757).',
-    error: undefined
-  }
-]
-⏱️ [ai-mmegjho2-o0v0h] final_llm_start { elapsedMs: 2677 }
-⏱️ [ai-mmegjho2-o0v0h] final_llm_done { elapsedMs: 3884 }
-🔍 Health check detection: {
-  currentMsg: 'week 2',
-  lastUserMsg: 'week 2',
-  isHealthCheck: false,
-  hasData: true
-}
-⚠️ No analysis card built: { isHealthCheck: false, hasData: true }
-📤 AI Assistant: Final response data being sent: {
-  hasReply: true,
-  hasProjectUpdate: false,
-  hasActions: true,
-  actionsCount: 1,
-  actions: [
-    {
-      type: 'mark_payment_collected',
-      projectId: '1772761141542',
-      milestoneId: 'weekly-1772761440248-1',
-      milestoneName: 'Week 2 Payment',
-      amount: 9757,
-      collectedAt: '2026-03-06T05:32:13.856Z'
-    }
-  ],
-  replyMentionsPO: false,
-  replyMentionsRecorded: false
-}
-⏱️ [ai-mmegjho2-o0v0h] request_done {
-  elapsedMs: 3885,
-  hasActions: 1,
-  hasProjectUpdate: false,
-  replyChars: 135
-}
-[0mPOST /api/ai-assistant [32m200[0m 3901.697 ms - 362[0m
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T05:28:01.892Z [32m200[0m 0.339 ms - 76[0m
-✅ No new marketplace leads to sync
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T05:33:01.889Z [32m200[0m 0.509 ms - 76[0m
-✅ No new marketplace leads to sync
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T05:38:01.895Z [32m200[0m 1.078 ms - 76[0m
-✅ No new marketplace leads to sync
-⏱️ [ai-mmeh1dbg-gmaxy] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Mark a payment as collected
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Mark a payment as collected',
-  messageCount: 1,
-  messages: [ 'Mark a payment as collected' ]
-}
-⏱️ [ai-mmeh1dbg-gmaxy] router_start { elapsedMs: 12 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Mark a payment as collected',
-  lastUserContent: 'mark a payment as collected',
-  combinedMessage: 'mark a payment as collected mark a payment as collected'
-}
-🛡️ Payment guard: asking user to choose pending milestone { pendingCount: 2, input: 'Mark a payment as collected' }
-⏱️ [ai-mmeh1dbg-gmaxy] router_done {
-  elapsedMs: 2598,
-  domain: 'timeline',
-  proposedTool: 'mark_payment_collected'
-}
-🧭 Router: {"domain":"timeline","tool":"mark_payment_collected","missing":["milestoneName"],"confidence":0.95}
-🛑 Router: required fields missing → [ 'milestoneName' ] → asking clarification
-🛑 Router: returning early with question: Which payment should I mark as collected? Pending payments: "Week 3 Payment", "Week 4 Payment".
-[0mPOST /api/ai-assistant [32m200[0m 2618.875 ms - 149[0m
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T05:43:01.898Z [32m200[0m 0.589 ms - 76[0m
-✅ No new marketplace leads to sync
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T05:48:01.897Z [32m200[0m 0.771 ms - 76[0m
-✅ No new marketplace leads to sync
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T05:53:01.904Z [32m200[0m 0.740 ms - 76[0m
-✅ No new marketplace leads to sync
-⏱️ [ai-mmehlmys-5v7ni] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Add a daily job log for today
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Add a daily job log for today',
-  messageCount: 1,
-  messages: [ 'Add a daily job log for today' ]
-}
-⏱️ [ai-mmehlmys-5v7ni] router_start { elapsedMs: 3 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: true,
-  hasExpenseKeywordForExpense: false,
-  message: 'Add a daily job log for today',
-  lastUserContent: 'add a daily job log for today',
-  combinedMessage: 'add a daily job log for today add a daily job log for today'
-}
-⏱️ [ai-mmehlmys-5v7ni] router_done { elapsedMs: 1506, domain: 'daily_log', proposedTool: 'add_daily_log' }
-🧭 Router: {"domain":"daily_log","tool":"add_daily_log","missing":["noteText"],"confidence":0.95}
-🛑 Router: required fields missing → [ 'noteText' ] → asking clarification
-🛑 Router: returning early with question: What notes would you like to include in the daily job log for today?
-[0mPOST /api/ai-assistant [32m200[0m 1526.444 ms - 118[0m
-⏱️ [ai-mmehlxxe-ggpfl] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Passes framing inspection
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Passes framing inspection',
-  messageCount: 1,
-  messages: [ 'Passes framing inspection' ]
-}
-⏱️ [ai-mmehlxxe-ggpfl] router_start { elapsedMs: 3 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Passes framing inspection',
-  lastUserContent: 'passes framing inspection',
-  combinedMessage: 'passes framing inspection passes framing inspection'
-}
-⏱️ [ai-mmehlxxe-ggpfl] router_done { elapsedMs: 1536, domain: 'daily_log', proposedTool: 'add_daily_log' }
-🧭 Router: {"domain":"daily_log","tool":"add_daily_log","missing":[],"confidence":0.95}
-⏱️ [ai-mmehlxxe-ggpfl] executor_llm_start { elapsedMs: 1537, toolChoice: 'auto' }
-⏱️ [ai-mmehlxxe-ggpfl] executor_llm_done { elapsedMs: 3075 }
-🔍 Health check detection: {
-  currentMsg: 'passes framing inspection',
-  lastUserMsg: 'passes framing inspection',
-  isHealthCheck: false,
-  hasData: true
-}
-⚠️ No analysis card built: { isHealthCheck: false, hasData: true }
-📤 AI Assistant: Final response data being sent: {
-  hasReply: true,
-  hasProjectUpdate: false,
-  hasActions: false,
-  actionsCount: 0,
-  actions: [],
-  replyMentionsPO: false,
-  replyMentionsRecorded: false
-}
-⏱️ [ai-mmehlxxe-ggpfl] request_done {
-  elapsedMs: 3077,
-  hasActions: 0,
-  hasProjectUpdate: false,
-  replyChars: 159
-}
-[0mPOST /api/ai-assistant [32m200[0m 3095.035 ms - 171[0m
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T05:58:01.902Z [32m200[0m 0.554 ms - 76[0m
-✅ No new marketplace leads to sync
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T06:03:01.901Z [32m200[0m 1.006 ms - 76[0m
-✅ No new marketplace leads to sync
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T06:08:01.903Z [32m200[0m 0.852 ms - 76[0m
-✅ No new marketplace leads to sync
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T06:13:01.904Z [32m200[0m 1.086 ms - 76[0m
-✅ No new marketplace leads to sync
-⏱️ [ai-mmei8t86-15p37] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Add a daily job log for today
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Add a daily job log for today',
-  messageCount: 1,
-  messages: [ 'Add a daily job log for today' ]
-}
-⏱️ [ai-mmei8t86-15p37] router_start { elapsedMs: 6 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: true,
-  hasExpenseKeywordForExpense: false,
-  message: 'Add a daily job log for today',
-  lastUserContent: 'add a daily job log for today',
-  combinedMessage: 'add a daily job log for today add a daily job log for today'
-}
-⏱️ [ai-mmei8t86-15p37] router_done { elapsedMs: 1783, domain: 'daily_log', proposedTool: 'add_daily_log' }
-🧭 Router: {"domain":"daily_log","tool":"add_daily_log","missing":["noteText"],"confidence":0.95}
-🛑 Router: required fields missing → [ 'noteText' ] → asking clarification
-🛑 Router: returning early with question: What notes would you like to include in the daily job log?
-[0mPOST /api/ai-assistant [32m200[0m 1803.200 ms - 108[0m
-⏱️ [ai-mmei964g-h5u2b] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Passed inspection today
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Passed inspection today',
-  messageCount: 1,
-  messages: [ 'Passed inspection today' ]
-}
-⏱️ [ai-mmei964g-h5u2b] router_start { elapsedMs: 4 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Passed inspection today',
-  lastUserContent: 'passed inspection today',
-  combinedMessage: 'passed inspection today passed inspection today'
-}
-⏱️ [ai-mmei964g-h5u2b] router_done { elapsedMs: 1658, domain: 'daily_log', proposedTool: 'add_daily_log' }
-🧭 Router: {"domain":"daily_log","tool":"add_daily_log","missing":[],"confidence":0.95}
-⏱️ [ai-mmei964g-h5u2b] executor_llm_start { elapsedMs: 1659, toolChoice: 'auto' }
-⏱️ [ai-mmei964g-h5u2b] executor_llm_done { elapsedMs: 3194 }
-🔍 Health check detection: {
-  currentMsg: 'passed inspection today',
-  lastUserMsg: 'passed inspection today',
-  isHealthCheck: false,
-  hasData: true
-}
-⚠️ No analysis card built: { isHealthCheck: false, hasData: true }
-📤 AI Assistant: Final response data being sent: {
-  hasReply: true,
-  hasProjectUpdate: false,
-  hasActions: false,
-  actionsCount: 0,
-  actions: [],
-  replyMentionsPO: false,
-  replyMentionsRecorded: false
-}
-⏱️ [ai-mmei964g-h5u2b] request_done {
-  elapsedMs: 3195,
-  hasActions: 0,
-  hasProjectUpdate: false,
-  replyChars: 231
-}
-[0mPOST /api/ai-assistant [32m200[0m 3211.705 ms - 243[0m
-⏱️ [ai-mmeiakom-dtef2] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Add a daily job log for today
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Add a daily job log for today',
-  messageCount: 1,
-  messages: [ 'Add a daily job log for today' ]
-}
-⏱️ [ai-mmeiakom-dtef2] router_start { elapsedMs: 4 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: true,
-  hasExpenseKeywordForExpense: false,
-  message: 'Add a daily job log for today',
-  lastUserContent: 'add a daily job log for today',
-  combinedMessage: 'add a daily job log for today add a daily job log for today'
-}
-⏱️ [ai-mmeiakom-dtef2] router_done { elapsedMs: 2141, domain: 'daily_log', proposedTool: 'add_daily_log' }
-🧭 Router: {"domain":"daily_log","tool":"add_daily_log","missing":["noteText"],"confidence":0.95}
-🛑 Router: required fields missing → [ 'noteText' ] → asking clarification
-🛑 Router: returning early with question: What notes would you like to include in the daily job log?
-[0mPOST /api/ai-assistant [32m200[0m 2158.395 ms - 108[0m
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T06:18:01.906Z [32m200[0m 0.958 ms - 76[0m
-✅ No new marketplace leads to sync
-⏱️ [ai-mmeif3ab-iq6t0] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Add a daily job log for today
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Add a daily job log for today',
-  messageCount: 1,
-  messages: [ 'Add a daily job log for today' ]
-}
-⏱️ [ai-mmeif3ab-iq6t0] router_start { elapsedMs: 5 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: true,
-  hasExpenseKeywordForExpense: false,
-  message: 'Add a daily job log for today',
-  lastUserContent: 'add a daily job log for today',
-  combinedMessage: 'add a daily job log for today add a daily job log for today'
-}
-⏱️ [ai-mmeif3ab-iq6t0] router_done { elapsedMs: 2699, domain: 'daily_log', proposedTool: 'add_daily_log' }
-🧭 Router: {"domain":"daily_log","tool":"add_daily_log","missing":["noteText"],"confidence":0.95}
-🛑 Router: required fields missing → [ 'noteText' ] → asking clarification
-🛑 Router: returning early with question: What notes would you like to include in the daily job log?
-[0mPOST /api/ai-assistant [32m200[0m 2715.697 ms - 108[0m
-⏱️ [ai-mmeif9wt-dmyzd] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Passed inspection
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Passed inspection',
-  messageCount: 1,
-  messages: [ 'Passed inspection' ]
-}
-⏱️ [ai-mmeif9wt-dmyzd] router_start { elapsedMs: 2 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Passed inspection',
-  lastUserContent: 'passed inspection',
-  combinedMessage: 'passed inspection passed inspection'
-}
-⏱️ [ai-mmeif9wt-dmyzd] router_done { elapsedMs: 2034, domain: 'daily_log', proposedTool: 'add_daily_log' }
-🧭 Router: {"domain":"daily_log","tool":"add_daily_log","missing":[],"confidence":0.95}
-⏱️ [ai-mmeif9wt-dmyzd] executor_llm_start { elapsedMs: 2035, toolChoice: 'auto' }
-⏱️ [ai-mmeif9wt-dmyzd] executor_llm_done { elapsedMs: 2996 }
-🔍 Health check detection: {
-  currentMsg: 'passed inspection',
-  lastUserMsg: 'passed inspection',
-  isHealthCheck: false,
-  hasData: true
-}
-⚠️ No analysis card built: { isHealthCheck: false, hasData: true }
-📤 AI Assistant: Final response data being sent: {
-  hasReply: true,
-  hasProjectUpdate: false,
-  hasActions: false,
-  actionsCount: 0,
-  actions: [],
-  replyMentionsPO: false,
-  replyMentionsRecorded: false
-}
-⏱️ [ai-mmeif9wt-dmyzd] request_done {
-  elapsedMs: 2996,
-  hasActions: 0,
-  hasProjectUpdate: false,
-  replyChars: 159
-}
-[0mPOST /api/ai-assistant [32m200[0m 3012.457 ms - 171[0m
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T06:23:01.904Z [32m200[0m 0.642 ms - 76[0m
-✅ No new marketplace leads to sync
-[0mGET /health [32m200[0m 2.814 ms - 100[0m
-⏱️ [ai-mmeipje1-jt615] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Add a daily job log for today
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Add a daily job log for today',
-  messageCount: 1,
-  messages: [ 'Add a daily job log for today' ]
-}
-⏱️ [ai-mmeipje1-jt615] router_start { elapsedMs: 2 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: true,
-  hasExpenseKeywordForExpense: false,
-  message: 'Add a daily job log for today',
-  lastUserContent: 'add a daily job log for today',
-  combinedMessage: 'add a daily job log for today add a daily job log for today'
-}
-⏱️ [ai-mmeipje1-jt615] router_done { elapsedMs: 2504, domain: 'daily_log', proposedTool: 'add_daily_log' }
-🧭 Router: {"domain":"daily_log","tool":"add_daily_log","missing":["noteText"],"confidence":0.95}
-🛑 Router: required fields missing → [ 'noteText' ] → asking clarification
-🛑 Router: returning early with question: What notes would you like to include in the daily job log?
-[0mPOST /api/ai-assistant [32m200[0m 2523.929 ms - 108[0m
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T06:28:01.903Z [32m200[0m 0.593 ms - 76[0m
-✅ No new marketplace leads to sync
-⏱️ [ai-mmeipu44-hamtf] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Passed inspection
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Passed inspection',
-  messageCount: 1,
-  messages: [ 'Passed inspection' ]
-}
-⏱️ [ai-mmeipu44-hamtf] router_start { elapsedMs: 2 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Passed inspection',
-  lastUserContent: 'passed inspection',
-  combinedMessage: 'passed inspection passed inspection'
-}
-⏱️ [ai-mmeipu44-hamtf] router_done { elapsedMs: 3261, domain: 'daily_log', proposedTool: 'add_daily_log' }
-🧭 Router: {"domain":"daily_log","tool":"add_daily_log","missing":[],"confidence":0.95}
-⏱️ [ai-mmeipu44-hamtf] executor_llm_start { elapsedMs: 3261, toolChoice: 'auto' }
-⏱️ [ai-mmeipu44-hamtf] executor_llm_done { elapsedMs: 4579 }
-🔍 Health check detection: {
-  currentMsg: 'passed inspection',
-  lastUserMsg: 'passed inspection',
-  isHealthCheck: false,
-  hasData: true
-}
-⚠️ No analysis card built: { isHealthCheck: false, hasData: true }
-📤 AI Assistant: Final response data being sent: {
-  hasReply: true,
-  hasProjectUpdate: false,
-  hasActions: false,
-  actionsCount: 0,
-  actions: [],
-  replyMentionsPO: false,
-  replyMentionsRecorded: false
-}
-⏱️ [ai-mmeipu44-hamtf] request_done {
-  elapsedMs: 4580,
-  hasActions: 0,
-  hasProjectUpdate: false,
-  replyChars: 159
-}
-[0mPOST /api/ai-assistant [32m200[0m 4610.862 ms - 171[0m
-⏱️ [ai-mmeivopd-fumpm] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Add a daily job log for today
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Add a daily job log for today',
-  messageCount: 1,
-  messages: [ 'Add a daily job log for today' ]
-}
-⏱️ [ai-mmeivopd-fumpm] router_start { elapsedMs: 5 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: true,
-  hasExpenseKeywordForExpense: false,
-  message: 'Add a daily job log for today',
-  lastUserContent: 'add a daily job log for today',
-  combinedMessage: 'add a daily job log for today add a daily job log for today'
-}
-⏱️ [ai-mmeivopd-fumpm] router_done { elapsedMs: 2382, domain: 'daily_log', proposedTool: 'add_daily_log' }
-🧭 Router: {"domain":"daily_log","tool":"add_daily_log","missing":["noteText"],"confidence":0.95}
-🛑 Router: required fields missing → [ 'noteText' ] → asking clarification
-🛑 Router: returning early with question: What notes would you like to include in the daily job log?
-[0mPOST /api/ai-assistant [32m200[0m 2402.900 ms - 108[0m
-⏱️ [ai-mmeivwrg-ks57p] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Passed inspection
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Passed inspection',
-  messageCount: 1,
-  messages: [ 'Passed inspection' ]
-}
-⏱️ [ai-mmeivwrg-ks57p] router_start { elapsedMs: 1 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Passed inspection',
-  lastUserContent: 'passed inspection',
-  combinedMessage: 'passed inspection passed inspection'
-}
-⏱️ [ai-mmeivwrg-ks57p] router_done { elapsedMs: 2119, domain: 'daily_log', proposedTool: 'add_daily_log' }
-🧭 Router: {"domain":"daily_log","tool":"add_daily_log","missing":[],"confidence":0.95}
-⏱️ [ai-mmeivwrg-ks57p] executor_llm_start { elapsedMs: 2120, toolChoice: 'auto' }
-⏱️ [ai-mmeivwrg-ks57p] executor_llm_done { elapsedMs: 4404 }
-🔍 Health check detection: {
-  currentMsg: 'passed inspection',
-  lastUserMsg: 'passed inspection',
-  isHealthCheck: false,
-  hasData: true
-}
-⚠️ No analysis card built: { isHealthCheck: false, hasData: true }
-📤 AI Assistant: Final response data being sent: {
-  hasReply: true,
-  hasProjectUpdate: false,
-  hasActions: false,
-  actionsCount: 0,
-  actions: [],
-  replyMentionsPO: false,
-  replyMentionsRecorded: false
-}
-⏱️ [ai-mmeivwrg-ks57p] request_done {
-  elapsedMs: 4404,
-  hasActions: 0,
-  hasProjectUpdate: false,
-  replyChars: 231
-}
-[0mPOST /api/ai-assistant [32m200[0m 4429.909 ms - 243[0m
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-06T06:33:01.900Z [32m200[0m 0.639 ms - 76[0m
-✅ No new marketplace leads to sync
-⏱️ [ai-mmeiwxzg-ofpec] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Add a daily job log for today
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Add a daily job log for today',
-  messageCount: 1,
-  messages: [ 'Add a daily job log for today' ]
-}
-⏱️ [ai-mmeiwxzg-ofpec] router_start { elapsedMs: 3 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: true,
-  hasExpenseKeywordForExpense: false,
-  message: 'Add a daily job log for today',
-  lastUserContent: 'add a daily job log for today',
-  combinedMessage: 'add a daily job log for today add a daily job log for today'
-}
-⏱️ [ai-mmeiwxzg-ofpec] router_done { elapsedMs: 1986, domain: 'daily_log', proposedTool: 'add_daily_log' }
-🧭 Router: {"domain":"daily_log","tool":"add_daily_log","missing":["noteText"],"confidence":0.95}
-🛑 Router: required fields missing → [ 'noteText' ] → asking clarification
-🛑 Router: returning early with question: What notes would you like to include in the daily job log?
-[0mPOST /api/ai-assistant [32m200[0m 2009.800 ms - 108[0m
-⏱️ [ai-mmeix4zs-bm8zu] request_start { elapsedMs: 0 }
-✅ AI Assistant request has auth token (length: 762 )
-🔍 AI Assistant: Initial project context {
-  projectName: 'Jason',
-  projectId: '1772761141542',
-  allProjectsCount: 32,
-  projectIds: [
-    { id: '1772761141542', title: 'Jason' },
-    { id: '1772697511808', title: 'Bob' },
-    { id: '1770031585180', title: 'Nick' }
-  ],
-  parsedContextKeys: [
-    'screen',              'currentProject',
-    'projectName',         'projectId',
-    'status',              'bidPrice',
-    'estimatedCost',       'actualCost',
-    'totalSpent',          'expenses',
-    'expensesCount',       'bidTitle',
-    'bidTotal',            'total',
-    'location',            'projectType',
-    'margin',              'markup',
-    'overheadPct',         'progress',
-    'estimateData',        'materialTotal',
-    'laborTotal',          'overheadTotal',
-    'profit',              'activeTab',
-    'buckets',             'materialBudgetDirect',
-    'materialSpentDirect', 'milestoneCount',
-    'expenseCount',        'changeOrderCount',
-    'startDate',           'endDate',
-    'milestones',          'estimateLineItems',
-    'allProjects',         'activeProjectId',
-    'lastOpenedProjectId', 'assistantDomain',
-    'resolvedProjectId',   'weeklyPayments',
-    'paymentMilestones'
-  ],
-  parsedContextProjectId: '1772761141542',
-  parsedContextActiveProjectId: '1772761141542',
-  parsedContextResolvedProjectId: '1772761141542',
-  parsedContextCurrentProject: 'Jason',
-  parsedContextProjectName: 'Jason',
-  parsedContextBidTitle: 'Jason'
-}
-✅ AI Assistant: Found currentProjectData from allProjects for projectId: 1772761141542
-✅ AI Assistant: Using pre-computed direct budget values: {
-  materialBudget: 22054,
-  materialSpent: 1000,
-  materialRemaining: 21054
-}
-🔧 Labor data for prompt: {
-  laborBudgetMain: 17500,
-  laborSpentMain: 500,
-  laborRemainingMain: 17000
-}
-✅ Vendor inferred from pattern (looks like vendor name): Passed inspection
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: 'Passed inspection',
-  messageCount: 1,
-  messages: [ 'Passed inspection' ]
-}
-⏱️ [ai-mmeix4zs-bm8zu] router_start { elapsedMs: 2 }
-🔍 inferCOFieldsFromUserMessages result: {
-  description: null,
-  amount: null,
-  vendor: null,
-  messageCount: 0,
-  messages: []
-}
-🔍 CO Flow Context: {"description":null,"amount":null,"vendor":null,"hasDescription":false,"hasAmount":false,"hasVendor":false,"userMessages":[]}
-🔍 Expense logging detection: {
-  isExpenseLoggingRequest: false,
-  hasExpenseType: false,
-  hasLogKeywordForExpense: false,
-  hasExpenseKeywordForExpense: false,
-  message: 'Passed inspection',
-  lastUserContent: 'passed inspection',
-  combinedMessage: 'passed inspection passed inspection'
-}
-⏱️ [ai-mmeix4zs-bm8zu] router_done { elapsedMs: 2809, domain: 'daily_log', proposedTool: 'add_daily_log' }
-🧭 Router: {"domain":"daily_log","tool":"add_daily_log","missing":[],"confidence":0.95}
-⏱️ [ai-mmeix4zs-bm8zu] executor_llm_start { elapsedMs: 2809, toolChoice: 'auto' }
-⏱️ [ai-mmeix4zs-bm8zu] executor_llm_done { elapsedMs: 4382 }
-🔍 Health check detection: {
-  currentMsg: 'passed inspection',
-  lastUserMsg: 'passed inspection',
-  isHealthCheck: false,
-  hasData: true
-}
-⚠️ No analysis card built: { isHealthCheck: false, hasData: true }
-📤 AI Assistant: Final response data being sent: {
-  hasReply: true,
-  hasProjectUpdate: false,
-  hasActions: false,
-  actionsCount: 0,
-  actions: [],
-  replyMentionsPO: false,
-  replyMentionsRecorded: false
-}
-⏱️ [ai-mmeix4zs-bm8zu] request_done {
-  elapsedMs: 4382,
-  hasActions: 0,
-  hasProjectUpdate: false,
-  replyChars: 231
-}
-[0mPOST /api/ai-assistant [32m200[0m 4413.257 ms - 243[0m
+✅ Database connected successfully
+[0mGET /health [32m200[0m 3.852 ms - 100[0m
+Invalid token, using dev user: invalid algorithm
+[0mGET /api/auth/profile [32m200[0m 0.902 ms - 167[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 20.114 ms - 154[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/projects [32m200[0m 41.669 ms - -[0m
+[0mGET /api/walkthrough-state [32m200[0m 29.900 ms - 321[0m
+Clerk token verify error: Unable to find a signing key in JWKS that matches the kid='undefined' of the provided session token. Please make sure that the __session cookie or the HTTP authorization header contain a Clerk-generated session JWT. The following kid is available: ins_35dpIJV94P0JV8QGfnDNjDjTIUg
+[0mPOST /api/workspaces/members/accept-invite [33m403[0m 431.015 ms - 36[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 417.784 ms - 97[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 1.078 ms - 176[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 1.052 ms - 176[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+Clerk token verify error: JWT is expired. Expiry date: Wed, 09 Sep 2026 19:58:33 GMT, Current date: Wed, 09 Sep 2026 20:02:31 GMT.
+Clerk verify unavailable; accepted decoded Clerk JWT for local dev
+[0mGET /api/dashboard [32m200[0m 814.002 ms - 81[0m
+[0mGET /api/projects [32m200[0m 15.116 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 41.312 ms - -[0m
+Invalid token, using dev user: invalid algorithm
+Invalid token, using dev user: invalid algorithm
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 19.955 ms - 154[0m
+[AI Dashboard] Cache miss - calling OpenAI for userId: user_3ESD7GXNND3kTNwQxE6liuSGcQk
+[AI Dashboard] Calling OpenAI with: {
+  projectCount: 0,
+  baseInsightsCount: 0,
+  baseNextStepsCount: 0,
+  totalBid: 0,
+  totalEstimatedCost: 0,
+  totalActualCost: 0,
+  sampleProject: null
+}
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 12.193 ms - 154[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 40.464 ms - -[0m
+[AI Dashboard] AI returned: { insightsCount: 0, nextStepsCount: 0, firstInsight: null }
+[AI Dashboard] Final insights count: {
+  baseInsights: 0,
+  aiInsights: 0,
+  total: 0,
+  projectsCount: 0,
+  totalBid: 0,
+  totalActualCost: 0
+}
+[0mPOST /api/ai/dashboard-insights [32m200[0m 2728.071 ms - 444[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 2.905 ms - 40[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 1.566 ms - 176[0m
+[0mGET /api/walkthrough-state [32m200[0m 136.673 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 206.808 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 183.650 ms - 321[0m
+[0mGET /api/walkthrough-state [32m200[0m 1.325 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 27.440 ms - 321[0m
+[0mPOST /api/ai-assistant/estimate-draft-from-notes [32m200[0m 9255.113 ms - -[0m
+[0mPOST /api/ai-assistant/estimate-draft-clarify [32m200[0m 6477.137 ms - -[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 2.019 ms - 40[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.686 ms - 40[0m
+[0mPOST /api/ai-assistant/estimate-draft-from-notes [32m200[0m 7976.673 ms - -[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.641 ms - 40[0m
+[0mPOST /api/ai-assistant/estimate-draft-clarify [32m200[0m 8490.042 ms - -[0m
+[0mGET /health [32m200[0m 4.609 ms - 100[0m
+Invalid token, using dev user: invalid algorithm
+[0mGET /api/auth/profile [32m200[0m 0.564 ms - 167[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 31.481 ms - 154[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+Clerk token verify error: JWT is expired. Expiry date: Wed, 09 Sep 2026 20:05:03 GMT, Current date: Wed, 09 Sep 2026 20:05:56 GMT.
+Clerk verify unavailable; accepted decoded Clerk JWT for local dev
+[0mGET /api/dashboard [32m200[0m 48.251 ms - 81[0m
+[0mGET /api/projects [32m200[0m 30.968 ms - -[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 0.541 ms - 97[0m
+[0mGET /api/walkthrough-state [32m200[0m 17.457 ms - 321[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.685 ms - 176[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/projects [32m200[0m 18.765 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 34.999 ms - -[0m
+Clerk token verify error: Unable to find a signing key in JWKS that matches the kid='undefined' of the provided session token. Please make sure that the __session cookie or the HTTP authorization header contain a Clerk-generated session JWT. The following kid is available: ins_35dpIJV94P0JV8QGfnDNjDjTIUg
+[0mPOST /api/workspaces/members/accept-invite [33m403[0m 466.829 ms - 36[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.994 ms - 176[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 37.923 ms - -[0m
+Invalid token, using dev user: invalid algorithm
+Invalid token, using dev user: invalid algorithm
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 14.513 ms - 154[0m
+[AI Dashboard] Cache hit for userId: user_3ESD7GXNND3kTNwQxE6liuSGcQk
+[AI Dashboard] Final insights count: {
+  baseInsights: 0,
+  aiInsights: 0,
+  total: 0,
+  projectsCount: 0,
+  totalBid: 0,
+  totalActualCost: 0
+}
+[0mPOST /api/ai/dashboard-insights [32m200[0m 12.905 ms - 444[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 5.220 ms - 154[0m
+[0mGET /health [32m200[0m 0.286 ms - 100[0m
+Invalid token, using dev user: invalid algorithm
+[0mGET /api/auth/profile [32m200[0m 0.610 ms - 167[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [36m304[0m 4.509 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/dashboard [32m200[0m 51.671 ms - 81[0m
+[0mGET /api/projects [32m200[0m 38.819 ms - -[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 1.273 ms - 97[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 0.396 ms - 97[0m
+[0mGET /api/walkthrough-state [32m200[0m 6.156 ms - 321[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.640 ms - 176[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.624 ms - 176[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/projects [32m200[0m 17.517 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 48.228 ms - -[0m
+Invalid token, using dev user: invalid algorithm
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 1.522 ms - 154[0m
+Invalid token, using dev user: invalid algorithm
+[AI Dashboard] Cache hit for userId: user_3ESD7GXNND3kTNwQxE6liuSGcQk
+[AI Dashboard] Final insights count: {
+  baseInsights: 0,
+  aiInsights: 0,
+  total: 0,
+  projectsCount: 0,
+  totalBid: 0,
+  totalActualCost: 0
+}
+[0mPOST /api/ai/dashboard-insights [32m200[0m 11.239 ms - 444[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 6.788 ms - 154[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 1.198 ms - 40[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 9.535 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 2.542 ms - 321[0m
+[0mGET /api/walkthrough-state [32m200[0m 5.468 ms - 321[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 40.362 ms - -[0m
+[0mGET /api/walkthrough-state [32m200[0m 0.933 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 1.559 ms - 321[0m
+[0mGET /api/walkthrough-state [32m200[0m 0.895 ms - 321[0m
+[0mPOST /api/ai-assistant/estimate-draft-from-notes [32m200[0m 8372.812 ms - -[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.657 ms - 40[0m
+[0mPOST /api/ai-assistant/estimate-draft-clarify [32m200[0m 13576.909 ms - -[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.596 ms - 40[0m
+[0mGET /health [32m200[0m 6.469 ms - 100[0m
+Invalid token, using dev user: invalid algorithm
+[0mGET /api/auth/profile [32m200[0m 0.643 ms - 167[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 19.316 ms - 154[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/projects [32m200[0m 38.870 ms - -[0m
+[0mGET /api/walkthrough-state [32m200[0m 73.227 ms - 321[0m
+Clerk token verify error: Unable to find a signing key in JWKS that matches the kid='undefined' of the provided session token. Please make sure that the __session cookie or the HTTP authorization header contain a Clerk-generated session JWT. The following kid is available: ins_35dpIJV94P0JV8QGfnDNjDjTIUg
+[0mPOST /api/workspaces/members/accept-invite [33m403[0m 205.327 ms - 36[0m
+Clerk token verify error: JWT is expired. Expiry date: Wed, 09 Sep 2026 20:07:50 GMT, Current date: Wed, 09 Sep 2026 20:14:16 GMT.
+Clerk verify unavailable; accepted decoded Clerk JWT for local dev
+[0mGET /api/dashboard [32m200[0m 545.000 ms - 81[0m
+[0mGET /api/workspaces/bootstrap [36m304[0m 1.342 ms - -[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 231.437 ms - 97[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.518 ms - 176[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/projects [32m200[0m 15.589 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 35.667 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 41.334 ms - -[0m
+Invalid token, using dev user: invalid algorithm
+Invalid token, using dev user: invalid algorithm
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 18.097 ms - 154[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 1.272 ms - 176[0m
+[AI Dashboard] Cache hit for userId: user_3ESD7GXNND3kTNwQxE6liuSGcQk
+[AI Dashboard] Final insights count: {
+  baseInsights: 0,
+  aiInsights: 0,
+  total: 0,
+  projectsCount: 0,
+  totalBid: 0,
+  totalActualCost: 0
+}
+[0mPOST /api/ai/dashboard-insights [32m200[0m 16.943 ms - 444[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 19.963 ms - 154[0m
+[0mGET /api/workspaces/projects/1788805834505/resources [31m503[0m 2.863 ms - 97[0m
+[0mGET /api/workspaces/projects/1788805834505/resources [31m503[0m 3.248 ms - 97[0m
+[0mGET /api/workspaces/bootstrap [36m304[0m 2.584 ms - -[0m
+[0mGET /health [32m200[0m 0.460 ms - 100[0m
+Invalid token, using dev user: invalid algorithm
+[0mGET /api/auth/profile [32m200[0m 0.452 ms - 167[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [36m304[0m 14.378 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/dashboard [32m200[0m 56.995 ms - 81[0m
+[0mGET /api/projects [32m200[0m 39.996 ms - -[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 0.681 ms - 97[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 0.436 ms - 97[0m
+[0mGET /api/walkthrough-state [32m200[0m 5.595 ms - 321[0m
+[0mGET /api/workspaces/bootstrap [36m304[0m 0.824 ms - -[0m
+[0mGET /api/workspaces/bootstrap [36m304[0m 0.791 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/projects [32m200[0m 16.233 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 49.624 ms - -[0m
+Invalid token, using dev user: invalid algorithm
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 1.102 ms - 154[0m
+Invalid token, using dev user: invalid algorithm
+[AI Dashboard] Cache hit for userId: user_3ESD7GXNND3kTNwQxE6liuSGcQk
+[AI Dashboard] Final insights count: {
+  baseInsights: 0,
+  aiInsights: 0,
+  total: 0,
+  projectsCount: 0,
+  totalBid: 0,
+  totalActualCost: 0
+}
+[0mPOST /api/ai/dashboard-insights [32m200[0m 8.022 ms - 444[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 9.974 ms - 154[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 1.018 ms - 40[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 7.757 ms - 321[0m
+[0mGET /api/walkthrough-state [32m200[0m 1.669 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 5.542 ms - 321[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 37.823 ms - -[0m
+[0mGET /api/walkthrough-state [32m200[0m 1.600 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 1.424 ms - 321[0m
+[0mGET /api/walkthrough-state [32m200[0m 13.005 ms - 321[0m
+[0mPOST /api/ai-assistant/estimate-draft-from-notes [32m200[0m 9619.737 ms - -[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 1.183 ms - 40[0m
+[0mPOST /api/ai-assistant/estimate-draft-clarify [32m200[0m 7545.700 ms - -[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.761 ms - 40[0m
+[0mGET /health [32m200[0m 1.289 ms - 100[0m
+Invalid token, using dev user: invalid algorithm
+[0mGET /api/auth/profile [32m200[0m 0.973 ms - 167[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [36m304[0m 9.920 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+Clerk token verify error: JWT is expired. Expiry date: Wed, 09 Sep 2026 20:15:59 GMT, Current date: Wed, 09 Sep 2026 20:17:12 GMT.
+Clerk verify unavailable; accepted decoded Clerk JWT for local dev
+[0mGET /api/dashboard [32m200[0m 41.855 ms - 81[0m
+[0mGET /api/projects [32m200[0m 32.415 ms - -[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 0.563 ms - 97[0m
+[0mGET /api/walkthrough-state [32m200[0m 8.094 ms - 321[0m
+[0mGET /api/workspaces/bootstrap [36m304[0m 0.484 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/projects [32m200[0m 18.395 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 47.164 ms - -[0m
+Clerk token verify error: Unable to find a signing key in JWKS that matches the kid='undefined' of the provided session token. Please make sure that the __session cookie or the HTTP authorization header contain a Clerk-generated session JWT. The following kid is available: ins_35dpIJV94P0JV8QGfnDNjDjTIUg
+[0mPOST /api/workspaces/members/accept-invite [33m403[0m 498.198 ms - 36[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 1.038 ms - 176[0m
+Invalid token, using dev user: invalid algorithm
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 1.432 ms - 154[0m
+Invalid token, using dev user: invalid algorithm
+[AI Dashboard] Cache hit for userId: user_3ESD7GXNND3kTNwQxE6liuSGcQk
+[AI Dashboard] Final insights count: {
+  baseInsights: 0,
+  aiInsights: 0,
+  total: 0,
+  projectsCount: 0,
+  totalBid: 0,
+  totalActualCost: 0
+}
+[0mPOST /api/ai/dashboard-insights [32m200[0m 5.025 ms - 444[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 3.399 ms - 154[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.803 ms - 40[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 4.565 ms - 321[0m
+[0mGET /api/walkthrough-state [32m200[0m 1.745 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 6.257 ms - 321[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 38.605 ms - -[0m
+[0mGET /api/walkthrough-state [32m200[0m 0.889 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 1.116 ms - 321[0m
+[0mGET /api/walkthrough-state [32m200[0m 0.784 ms - 321[0m
+[0mPOST /api/ai-assistant/estimate-draft-from-notes [32m200[0m 8780.164 ms - -[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.856 ms - 40[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 1.350 ms - 40[0m
+[0mPOST /api/ai-assistant/estimate-draft-clarify [32m200[0m 11585.377 ms - -[0m
+[0mGET /health [32m200[0m 1.052 ms - 100[0m
+Invalid token, using dev user: invalid algorithm
+[0mGET /api/auth/profile [32m200[0m 3.071 ms - 167[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/dashboard [32m200[0m 10.488 ms - 81[0m
+[0mGET /api/projects [32m200[0m 33.747 ms - -[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 276.701 ms - 154[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 0.953 ms - 97[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 1.082 ms - 97[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 1.044 ms - 176[0m
+[0mGET /api/walkthrough-state [32m200[0m 11.080 ms - 321[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 1.148 ms - 176[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/projects [32m200[0m 33.047 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 40.356 ms - -[0m
+Invalid token, using dev user: invalid algorithm
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 2.039 ms - 154[0m
+Invalid token, using dev user: invalid algorithm
+[AI Dashboard] Cache hit for userId: user_3ESD7GXNND3kTNwQxE6liuSGcQk
+[AI Dashboard] Final insights count: {
+  baseInsights: 0,
+  aiInsights: 0,
+  total: 0,
+  projectsCount: 0,
+  totalBid: 0,
+  totalActualCost: 0
+}
+[0mPOST /api/ai/dashboard-insights [32m200[0m 10.301 ms - 444[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [36m304[0m 6.410 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 785,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 37.584 ms - -[0m

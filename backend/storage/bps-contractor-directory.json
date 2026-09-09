@@ -29,16 +29,16 @@
   },
   {
     "id": "user_3ESD7GXNND3kTNwQxE6liuSGcQk",
-    "companyName": "Build Profit Solutions",
-    "contactName": "Nicholas  Lafontaine",
-    "email": "nick94lafontaine@gmail.com",
-    "phone": "7028618618",
+    "companyName": "",
+    "contactName": "",
+    "email": "",
+    "phone": "",
     "website": "",
     "trades": [
       "General Contractor"
     ],
-    "zip": "84790",
-    "listOnFindSubcontractors": true,
-    "updatedAt": "2026-09-07T21:09:30.344Z"
+    "zip": "",
+    "listOnFindSubcontractors": false,
+    "updatedAt": "2026-09-09T17:56:41.773Z"
   }
 ]

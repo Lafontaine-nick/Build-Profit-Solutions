@@ -91,6 +91,20 @@ describe('mergeSuggestedPricingBlocksIntoMeasurements', () => {
     ).toBe(68080);
   });
 
+  it('persists the displayed total instead of a stale stored exact total', () => {
+    const { measurements } = mergeSuggestedPricingBlocksIntoMeasurements(
+      { itemQuantities: {}, pricingAcceptance: {} },
+      [{
+        itemId: 'prep',
+        block: framingBlock({ total: 2277, storedTotalExact: 1900 }),
+      }],
+      'painting'
+    );
+
+    expect(measurements.itemQuantities?.prep__allowance?.quantity).toBe('2277');
+    expect(measurements.pricingAcceptance?.prep?.totalAmount).toBe(2277);
+  });
+
   it('keeps Foundation when Exterior flatwork is applied in the same Use-all batch', () => {
     const { measurements } = mergeSuggestedPricingBlocksIntoMeasurements(
       { itemQuantities: {}, pricingAcceptance: {} },

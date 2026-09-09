@@ -1488,6 +1488,13 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     sourceLabel:
       'Suggested · National Average · interior door slab, edges, and frame paint',
   },
+  door_casing_paint: {
+    unit: 'each',
+    material: 20,
+    labor: 105,
+    sourceLabel:
+      'Suggested · National Average · interior door casing and trim paint',
+  },
   cabinet_paint: {
     unit: 'lf',
     material: 13.333333,
@@ -2545,8 +2552,19 @@ const NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES: Record<string, string> = {
   shower_pan: 'tile_shower_pan',
   tub_install: 'tub',
   shower_bench_curb: 'shower_bench',
+  /** Catalog-backed painting installation IDs reuse existing opening rates. */
+  interior_door_install: 'interior_doors',
+  door_casing_install: 'trim_finish',
+  door_casing_paint: 'trim',
+  // Window replacement/install includes the opening trim package.
+  window_install: 'windows_doors',
   ...TILE_NATIONAL_AVERAGE_ALIASES,
 };
+
+/** Canonical identity used by quantities, pricing, acceptance, and packages. */
+export function canonicalScopePricingId(itemId: string): string {
+  return NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES[itemId] || itemId;
+}
 
 /** Resolve checklist/parser tile ids to the canonical national tile rate key. */
 export function canonicalTileScopeKey(itemId: string): string {
@@ -5273,7 +5291,7 @@ export function getNationalAverageBudgetSplit(
   itemId: string,
   unit?: string | null
 ) {
-  const key = NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES[itemId] || itemId;
+  const key = canonicalScopePricingId(itemId);
   const normalizedUnit = String(unit || '').toLowerCase();
   if (
     normalizedUnit &&
@@ -6853,6 +6871,14 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper: 'Enter the number of interior doors and frames.',
     missingMessage: 'Enter interior door count.',
   },
+  door_casing_paint: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter door casing linear feet. Door count alone does not establish casing footage.',
+    missingMessage: 'Enter door casing LF or pricing.',
+  },
   cabinet_paint: {
     defaultUnit: 'lf',
     allowedUnits: ['lf', 'sqft', 'allowance', 'lump_sum'],
@@ -6960,7 +6986,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Prehung interior door units, jambs, hinges, and standard hardware install. Casing and finish are on the Opening trim & finish add-on.',
+      'Includes prehung interior doors, jambs, casing, hinges, standard hardware, and normal nailing-off/installation. Painting and specialty repairs are separate.',
     missingMessage: 'Enter interior door count or pricing.',
   },
   trim_finish: {
@@ -7286,16 +7312,33 @@ export function normalizeScopeMeasurements(
 }
 
 export function formatUnitLabel(unit: string): string {
-  if (unit === 'sqft') return 'sqft';
-  if (unit === 'lf') return 'LF';
-  if (unit === 'each') return 'each';
-  if (unit === 'allowance') return 'allowance';
-  if (unit === 'lump_sum') return 'lump sum';
-  if (unit === 'hr') return 'hr';
-  if (unit === 'squares') return 'squares';
-  if (unit === 'cy') return 'CY';
-  if (unit === 'ton') return 'tons';
-  return unit;
+  const normalized = String(unit || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  const aliases: Record<string, string> = {
+    sf: 'sqft',
+    square_feet: 'sqft',
+    square_foot: 'sqft',
+    ea: 'each',
+    unit: 'each',
+    linear_feet: 'lf',
+    linear_foot: 'lf',
+    cubic_yards: 'cy',
+    cubic_yard: 'cy',
+    tons: 'ton',
+  };
+  const canonical = aliases[normalized] || normalized;
+  if (canonical === 'sqft') return 'sqft';
+  if (canonical === 'lf') return 'LF';
+  if (canonical === 'each') return 'each';
+  if (canonical === 'allowance') return 'allowance';
+  if (canonical === 'lump_sum') return 'lump sum';
+  if (canonical === 'hr') return 'hr';
+  if (canonical === 'squares') return 'squares';
+  if (canonical === 'cy') return 'CY';
+  if (canonical === 'ton') return 'tons';
+  return canonical;
 }
 
 /** Meaningful count units only — hide generic "each" when the label already says "count". */
@@ -7774,7 +7817,7 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Prehung interior door units, jambs, hinges, and standard hardware install. Casing and finish are on the Opening trim & finish add-on.',
+      'Includes prehung interior doors, jambs, casing, hinges, standard hardware, and normal nailing-off/installation. Painting and specialty repairs are separate.',
     missingMessage: 'Enter interior door count or pricing.',
   },
   trim_finish: {
@@ -8336,7 +8379,7 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Prehung interior door units, jambs, hinges, and standard hardware install. Casing and finish are on the Opening trim & finish add-on.',
+      'Includes prehung interior doors, jambs, casing, hinges, standard hardware, and normal nailing-off/installation. Painting and specialty repairs are separate.',
     missingMessage: 'Enter interior door count or pricing.',
   },
   trim_finish: {
@@ -8450,6 +8493,38 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
       'Paintable wall/ceiling SF is the physical quantity. Local paint budgets are installed lump sums (living SF is only the benchmark denominator).',
     missingMessage:
       'Enter paint surface sqft or apply the local installed paint budget.',
+  },
+  baseboard_install: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKeys: ['baseboardLf'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter baseboard installation LF.',
+    missingMessage: 'Enter baseboard installation LF or pricing.',
+  },
+  interior_door_install: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: ['interiorDoorCount'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter interior door installation count.',
+    missingMessage: 'Enter interior door installation count or pricing.',
+  },
+  door_casing_install: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter casing installation linear feet. Door count alone does not establish casing footage.',
+    missingMessage: 'Enter door casing LF or pricing.',
+  },
+  window_install: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKeys: ['windowCount'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter window installation count.',
+    missingMessage: 'Enter window installation count or pricing.',
   },
   exterior_paint: {
     defaultUnit: 'sqft',
@@ -9603,6 +9678,20 @@ export function resolveSuggestAlignedEditorPricingBasis(
 ): { quantity: number; unit: string } | null {
   const id = String(itemId || '').toLowerCase();
   const tk = String(templateKey || '').toLowerCase();
+  if (tk === 'painting' && measurementsInput.paintPricingMethod !== 'combined') {
+    if (id === 'interior_paint' || id === 'paint') {
+      const walls = parseScopeMeasurementInput(
+        String(measurementsInput.wallPaintSqft ?? '')
+      );
+      if (walls && walls > 0) return { quantity: walls, unit: 'sqft' };
+    }
+    if (id === 'ceiling_paint') {
+      const ceilings = parseScopeMeasurementInput(
+        String(measurementsInput.ceilingPaintSqft ?? '')
+      );
+      if (ceilings && ceilings > 0) return { quantity: ceilings, unit: 'sqft' };
+    }
+  }
   const livingSf = parseScopeMeasurementInput(
     String(measurementsInput.floorAreaSqft ?? '')
   );
@@ -10116,7 +10205,12 @@ export function getChecklistItemQuantityRule(
   itemId: string,
   templateKey?: string | null
 ): ScopeItemQuantityRule | undefined {
-  const resolvedId = itemId === 'shower_bench_curb' ? 'shower_bench' : itemId;
+  const resolvedId =
+    itemId === 'shower_bench_curb'
+      ? 'shower_bench'
+      : itemId === 'exterior_trim'
+        ? 'exterior_trim_paint'
+        : itemId;
   let rule: ScopeItemQuantityRule | undefined;
   if (
     (templateKey === 'ground_up' ||
@@ -10558,6 +10652,21 @@ export function syncItemQuantitiesToMeasurementFields(
     itemQuantities: input?.itemQuantities || {},
   };
   const next = syncDualAllowanceSqftFields(safeInput);
+  // Painting trim cards and the legacy trim card all represent the same
+  // baseboard/casing LF takeoff. Preserve the explicit LF when the quick
+  // measurement field was not persisted separately.
+  if (!Number(next.baseboardLf || 0)) {
+    const trimEntry =
+      next.itemQuantities?.trim_paint ||
+      next.itemQuantities?.baseboard_install ||
+      next.itemQuantities?.trim;
+    const trimQuantity = Number(
+      String(trimEntry?.quantity ?? '').replace(/,/g, '')
+    );
+    if (Number.isFinite(trimQuantity) && trimQuantity > 0) {
+      next.baseboardLf = trimQuantity;
+    }
+  }
   const mappings: Array<[string, QuickMeasurementFieldKey]> = [
     ['drywall', 'drywallSqft'],
     ['hang', 'drywallSqft'],
@@ -14914,6 +15023,29 @@ export function resolveScopeItemSuggestedPricing(
   options?: ScopeItemSuggestedPricingResolveOptions
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
+  // Catalog-generated installation cards reuse the established pricing
+  // definitions. Resolve through those canonical IDs so additive cards get
+  // the same national-average pricing as the existing opening cards.
+  const canonicalPricingId =
+    itemId === 'interior_door_install'
+      ? 'interior_doors'
+      : itemId === 'window_install'
+        ? 'windows_doors'
+        : itemId === 'exterior_trim'
+          ? 'exterior_trim_paint'
+        : itemId;
+  if (canonicalPricingId !== itemId) {
+    return resolveScopeItemSuggestedPricing(
+      canonicalPricingId,
+      measurementsInput,
+      templateKey,
+      resolved,
+      pricingContext,
+      choiceId,
+      originalNotes,
+      options
+    );
+  }
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
   if (
@@ -15711,10 +15843,16 @@ export function resolveScopeItemSuggestedPricing(
     itemId === 'exterior_trim_paint' &&
     String(templateKey || '').toLowerCase() === 'painting'
   ) {
+    const itemQuantities = measurementsInput.itemQuantities || {};
     const windows =
       parseScopeMeasurementInput(
         String(measurementsInput.windowCount ?? '')
-      ) || 0;
+      ) ||
+      parseScopeMeasurementInput(
+        String(itemQuantities.window_install?.quantity ?? '')
+      ) ||
+      parseScopeMeasurementInput(String(itemQuantities.windows?.quantity ?? '')) ||
+      0;
     const exteriorDoors =
       parseScopeMeasurementInput(
         String(measurementsInput.exteriorDoorCount ?? '')
@@ -21620,6 +21758,32 @@ export function resolveChecklistItemQuantity(
     notes?: string | null;
   } = {}
 ): ResolvedItemQuantity {
+  const bathroomDefaultEachIds = new Set([
+    'toilet',
+    'sink_faucet',
+    'lighting',
+    'mirror_accessories',
+    'glass_door',
+    'exhaust_fan',
+  ]);
+  if (
+    String(ctx.templateKey || '').toLowerCase() === 'bathroom' &&
+    bathroomDefaultEachIds.has(itemId) &&
+    !parseStoredItemQuantity(measurements, itemId)
+  ) {
+    return applyPricingReadyFlags(
+      {
+        quantity: 1,
+        unit: 'each',
+        quantitySource: 'default_assumption',
+        sourceLabel: 'Default planning assumption · 1 each',
+        pricingReady: true,
+        showInput: true,
+      },
+      itemId,
+      ctx
+    );
+  }
   const resolved = applyAutoDrywallSurfaceQuantity(
     itemId,
     measurements,
@@ -25154,6 +25318,13 @@ export function initialScopeMeasurementInputExtended(
       ...(parsedFromNotes.itemQuantities || {}),
     },
   };
+  // A combined notes measurement is one total. Older drafts may have
+  // persisted that same total into both surface fields; do not carry that
+  // stale duplication into the Confirm Scope split view.
+  if (parsedFromNotes.paintPricingMethod === 'combined') {
+    delete (parsed as Partial<ScopeMeasurements>).wallPaintSqft;
+    delete (parsed as Partial<ScopeMeasurements>).ceilingPaintSqft;
+  }
 
   const itemQuantities: ScopeMeasurementsInputExtended['itemQuantities'] = {};
   const putItemQuantity = (
@@ -25310,6 +25481,12 @@ export function initialScopeMeasurementInputExtended(
   }
 
   const pick = (key: QuickMeasurementFieldKey) => {
+    if (
+      parsedFromNotes.paintPricingMethod === 'combined' &&
+      (key === 'wallPaintSqft' || key === 'ceilingPaintSqft')
+    ) {
+      return '';
+    }
     const parsedNoteValueRaw =
       parsedFromNotes[key as keyof typeof parsedFromNotes];
     const parsedNoteValue =
@@ -25326,6 +25503,26 @@ export function initialScopeMeasurementInputExtended(
     // When notes omit a field (common for plan takeoff), fall through to saved plan import.
     if (parsedNoteValue != null && Number(parsedNoteValue) > 0) {
       return String(parsedNoteValue);
+    }
+
+    // A whole-home remodel does not imply a bathroom floor takeoff. Do not
+    // resurrect the total flooring area as a bathroom-specific quantity.
+    if (
+      key === 'bathroomFloorSqft' &&
+      String(draft?.scopeChecklist?.templateKey || '').toLowerCase() ===
+        'room_remodel'
+    ) {
+      return '';
+    }
+
+    // LF countertop takeoffs must never inherit a stale sqft field from a
+    // previous plan import or flooring measurement.
+    if (
+      key === 'countertopSqft' &&
+      itemQuantities.countertops?.quantitySource === 'notes' &&
+      itemQuantities.countertops.unit === 'lf'
+    ) {
+      return '';
     }
 
     if (
@@ -26273,6 +26470,22 @@ export function initialScopeMeasurementInputExtended(
       saved?.tradeScopeSelections?.roofing || []
     );
     result = reconcileRoofingQuickMeasurements(result, scopeNotes);
+  }
+
+  if (
+    String(draft?.scopeChecklist?.templateKey || '').toLowerCase() ===
+      'painting' &&
+    Number(result.baseboardLf || 0) > 0 &&
+    Number(result.itemQuantities?.trim_paint?.quantity || 0) <= 0
+  ) {
+    result.itemQuantities = {
+      ...(result.itemQuantities || {}),
+      trim_paint: {
+        quantity: String(result.baseboardLf),
+        unit: 'lf',
+        quantitySource: 'notes',
+      },
+    };
   }
 
   return stripElectricalBleedFromMeasurements(

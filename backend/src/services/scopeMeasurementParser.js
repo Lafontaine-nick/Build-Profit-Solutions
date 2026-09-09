@@ -3,26 +3,40 @@
  * Used to autofill kitchen sqft, landscaping coverage, roof squares, etc.
  */
 
-const { splitNoteClauses } = require('./estimateDraftQuantityPrice');
-const { parseElectricalMeasurementsFromNotes } = require('./electricalCanonicalParser');
-const { parseScopeItemAllowancesFromNotes } = require('./scopeAllowanceParser');
-const { parseScopeItemRatePricingFromNotes } = require('./scopeRatePricingParser');
-const { applyBathroomPlanningMeasurements } = require('./bathroomPlanningMeasurements');
-const { applyConcretePlanningMeasurements } = require('./concretePlanningMeasurements');
+const { splitNoteClauses } = require("./estimateDraftQuantityPrice");
+const {
+  parseElectricalMeasurementsFromNotes,
+} = require("./electricalCanonicalParser");
+const { parseScopeItemAllowancesFromNotes } = require("./scopeAllowanceParser");
+const {
+  parseScopeItemRatePricingFromNotes,
+} = require("./scopeRatePricingParser");
+const {
+  applyBathroomPlanningMeasurements,
+} = require("./bathroomPlanningMeasurements");
+const {
+  applyConcretePlanningMeasurements,
+} = require("./concretePlanningMeasurements");
 
-const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:total\s+)?(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*(?:²|2\b|\?)|square\s+(?:foot|feet))/gi;
-const LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft)/gi;
-const WALL_LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft|feet|foot)\b/gi;
+const SQFT_RE =
+  /(\d[\d,]*(?:\.\d+)?)\s*(?:total\s+)?(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*(?:²|2\b|\?)|square\s+(?:foot|feet))/gi;
+const LF_RE =
+  /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft)/gi;
+const WALL_LF_RE =
+  /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft|feet|foot)\b/gi;
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
 const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)[\s-]*squares?\b/gi;
-const ROOF_PITCH_RE = /\b(\d+)\s*(?::|\/)\s*(\d+)\s*pitch\b|\bpitch\s*(\d+)\s*(?::|\/)\s*(\d+)\b/i;
-const STORY_COUNT_RE = /\b(\d+|one|two|three|four|five)\s*[- ]?stor(?:y|ies)\b/i;
+const ROOF_PITCH_RE =
+  /\b(\d+)\s*(?::|\/)\s*(\d+)\s*pitch\b|\bpitch\s*(\d+)\s*(?::|\/)\s*(\d+)\b/i;
+const STORY_COUNT_RE =
+  /\b(\d+|one|two|three|four|five)\s*[- ]?stor(?:y|ies)\b/i;
 const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:tons?)\b/gi;
 const DEPTH_INCHES_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:inches?|["″])/i;
 
 const EXTERIOR_FLATWORK_RE =
   /\b(?:driveway|walkway|sidewalk|flat[\s-]?work|concrete\s+(?:patio|slab|pad)|patio\s+slab|rv\s+pad)\b/i;
-const DEMO_VERB_RE = /\b(?:demo|demolition|remove|removal|tear[\s-]?out|break\s+up|rip\s+out)\b/i;
+const DEMO_VERB_RE =
+  /\b(?:demo|demolition|remove|removal|tear[\s-]?out|break\s+up|rip\s+out)\b/i;
 
 function isExteriorFlatworkClause(clause) {
   const c = clause.toLowerCase();
@@ -36,19 +50,23 @@ function isDemoClause(clause) {
 
 function isDirtExcavationClause(clause) {
   const c = clause.toLowerCase();
-  return /\b(?:dirt|soil|earth|subgrade)\b/.test(c) &&
-    /\b(?:excavat(?:e|ion)|remove|dig|cut\s*(?:\/|and)?\s*fill|soil\s+movement)\b/.test(c);
+  return (
+    /\b(?:dirt|soil|earth|subgrade)\b/.test(c) &&
+    /\b(?:excavat(?:e|ion)|remove|dig|cut\s*(?:\/|and)?\s*fill|soil\s+movement)\b/.test(
+      c,
+    )
+  );
 }
 
 function parseQty(match) {
-  const n = Number(String(match[1] ?? match[0]).replace(/,/g, ''));
+  const n = Number(String(match[1] ?? match[0]).replace(/,/g, ""));
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function parseStoryCount(text) {
-  const match = String(text || '').match(STORY_COUNT_RE);
+  const match = String(text || "").match(STORY_COUNT_RE);
   if (!match) return null;
-  const raw = String(match[1] || '').toLowerCase();
+  const raw = String(match[1] || "").toLowerCase();
   const words = { one: 1, two: 2, three: 3, four: 4, five: 5 };
   const count = words[raw] || Number(raw);
   return Number.isFinite(count) && count > 0 ? count : null;
@@ -62,16 +80,75 @@ function firstQty(text, re) {
 
 function firstHvacCount(text, pattern) {
   const patternSource = pattern instanceof RegExp ? pattern.source : pattern;
-  const match = String(text || '').match(
+  const match = String(text || "").match(
     new RegExp(
       `(?:^|\\b)(\\d[\\d,]*(?:\\.\\d+)?|one|two|three|four|five)\\s*(?:ea|each|count)?\\s*(?:${patternSource})`,
-      'i',
+      "i",
     ),
   );
   if (!match) return null;
   const words = { one: 1, two: 2, three: 3, four: 4, five: 5 };
-  const count = words[match[1].toLowerCase()] || Number(match[1].replace(/,/g, ''));
+  const count =
+    words[match[1].toLowerCase()] || Number(match[1].replace(/,/g, ""));
   return Number.isFinite(count) && count > 0 ? count : null;
+}
+
+function parseMixedPaintingIntents(text) {
+  const source = String(text || '');
+  const out = {};
+  const has = pattern => pattern.test(source);
+  const doorCount =
+    firstHvacCount(source, /\bdoors?\b/i) ||
+    firstQty(source.match(/\b(\d[\d,]*)\s+(?:new\s+)?doors?\b/i)?.[0] || '', /\d[\d,]*/);
+  const windowCount =
+    firstHvacCount(source, /\bwindows?\b/i) ||
+    firstQty(source.match(/\b(\d[\d,]*)\s+(?:replacement\s+)?windows?\b/i)?.[0] || '', /\d[\d,]*/);
+  const baseboardLf = firstQty(source.match(/\b(\d[\d,]*)\s*(?:lf|linear\s+feet)\b[^.\n]{0,30}\bbaseboards?\b/i)?.[0] || '', LF_RE);
+  const baseboardInstall = has(/\b(?:install|replace|add|new)\b[^.;\n]{0,45}\b(?:baseboards?|trim|molding|moulding)\b/i);
+  const doorInstall = has(/\b(?:install|replace|hang|set)\b[^.;\n]{0,45}\bdoors?\b/i);
+  const windowInstall = has(/\b(?:install|replace|set)\b[^.;\n]{0,45}\bwindows?\b/i);
+  const baseboardPaint =
+    has(/\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\b(?:baseboards?|trim|molding|moulding)\b/i) ||
+    has(/\b(?:baseboards?|trim|molding|moulding)\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/i);
+  const doorPaint =
+    has(/\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\bdoors?\b/i) ||
+    has(/\bdoors?\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/i);
+  const casingPaint =
+    has(/\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\b(?:casing|trim)\b/i) ||
+    has(/\b(?:casing|trim)\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/i);
+  const windowTrimPaint =
+    has(/\b(?:prep|prime|paint|finish)\b[^.;\n]{0,60}\bwindows?\b[^.;\n]{0,30}\b(?:siding\s*[/,&-]?\s*)?trim\b/i) ||
+    has(/\bwindows?\b[^.;\n]{0,30}\b(?:siding\s*[/,&-]?\s*)?trim\b[^.;\n]{0,60}\b(?:prep|prime|paint|finish)\b/i);
+
+  if (baseboardInstall) out.baseboardInstallIntent = true;
+  if (baseboardPaint) out.baseboardPaintIntent = true;
+  if (doorInstall && doorCount) out.interiorDoorInstallIntent = true;
+  if (doorPaint && doorCount) out.interiorDoorPaintIntent = true;
+  if (windowInstall && windowCount) out.windowInstallIntent = true;
+  if ((casingPaint || windowTrimPaint) && (windowCount || doorCount)) {
+    out.casingPaintIntent = true;
+  }
+  if (baseboardLf && baseboardInstall) {
+    out.itemQuantities = {
+      baseboard_install: { quantity: baseboardLf, unit: "lf", quantitySource: "notes" },
+    };
+  }
+  if (doorInstall && doorCount) {
+    out.itemQuantities = {
+      ...(out.itemQuantities || {}),
+      interior_door_install: { quantity: doorCount, unit: "each", quantitySource: "notes" },
+      door_casing_install: { quantity: doorCount, unit: "each", quantitySource: "notes" },
+    };
+  }
+  if (windowInstall && windowCount) {
+    out.itemQuantities = {
+      ...(out.itemQuantities || {}),
+      window_install: { quantity: windowCount, unit: "each", quantitySource: "notes" },
+    };
+  }
+  if (doorCount) out.interiorDoorCount = doorCount;
+  if (windowCount) out.windowCount = windowCount;
+  return out;
 }
 
 function allQty(text, re) {
@@ -86,15 +163,15 @@ function allQty(text, re) {
 }
 
 function pickSqftNearPattern(text, pattern) {
-  const source = String(text || '');
+  const source = String(text || "");
   const lower = source.toLowerCase();
   const patternRe = new RegExp(
     pattern instanceof RegExp ? pattern.source : String(pattern),
     pattern instanceof RegExp
-      ? pattern.flags.includes('g')
+      ? pattern.flags.includes("g")
         ? pattern.flags
         : `${pattern.flags}g`
-      : 'gi'
+      : "gi",
   );
   const patternPositions = [];
   let patternMatch;
@@ -127,12 +204,12 @@ function pickSqftNearPattern(text, pattern) {
 function kitchenFlooringScopeExcluded(text) {
   return (
     /\b(?:customer|owner|homeowner|client)\s+(?:is\s+)?(?:handling|doing|providing|taking\s+care\s+of)\s+(?:the\s+)?floor(?:ing)?\b/i.test(
-      text
+      text,
     ) ||
     /\bfloor(?:ing)?\s+by\s+others\b/i.test(text) ||
     /\bno\s+kitchen\s+floor\b/i.test(text) ||
     /\bkitchen\s+floor\s+(?:by\s+others|excluded|not\s+included|n[\/.]?a)\b/i.test(
-      text
+      text,
     )
   );
 }
@@ -160,15 +237,15 @@ function parseKitchenFloorSqftFromClauses(clauses, text) {
     if (
       /\bkitchen\b/.test(lower) &&
       /\b(?:floor(?:ing)?|tile\s+floor|lvp|laminate|vinyl|carpet)\b/.test(
-        lower
+        lower,
       ) &&
       /\b(?:demo|demolition|remove|removal|tear[\s-]?out|install|installation|replace|new)\b/.test(
-        lower
+        lower,
       )
     ) {
       const near = pickSqftNearPattern(
         clause,
-        /\bkitchen\b.*\b(?:floor(?:ing)?|tile\s+floor|lvp|laminate|vinyl|carpet)\b/
+        /\bkitchen\b.*\b(?:floor(?:ing)?|tile\s+floor|lvp|laminate|vinyl|carpet)\b/,
       );
       if (near) return near;
       const q = firstQty(clause, SQFT_RE);
@@ -199,7 +276,7 @@ function clauseLooksLikeLumpSumAllowance(clause) {
 }
 
 function pickRoofQuantityInClause(text, pattern, quantityRe) {
-  for (const clause of String(text || '').split(/[.;,\n]+/)) {
+  for (const clause of String(text || "").split(/[.;,\n]+/)) {
     if (!pattern.test(clause.toLowerCase())) continue;
     if (clauseLooksLikeLumpSumAllowance(clause)) continue;
     const quantity = firstQty(clause, quantityRe);
@@ -262,7 +339,7 @@ function notesImplyRoofTearOffAndInstall(text) {
 }
 
 function applyRoofingPlanningMeasurements(parsed, notes) {
-  const text = String(notes || '').trim();
+  const text = String(notes || "").trim();
   const squares = Number(parsed.roofSquares);
   if (!text || !(squares > 0)) return parsed;
 
@@ -317,8 +394,8 @@ function parseCountToken(value) {
     nine: 9,
     ten: 10,
   };
-  const normalized = String(value || '').toLowerCase();
-  const count = words[normalized] ?? Number(normalized.replace(/,/g, ''));
+  const normalized = String(value || "").toLowerCase();
+  const count = words[normalized] ?? Number(normalized.replace(/,/g, ""));
   return Number.isFinite(count) && count > 0 && count <= 200
     ? Math.round(count)
     : null;
@@ -326,9 +403,9 @@ function parseCountToken(value) {
 
 function pickOpeningCount(clauses, text, pattern) {
   const countNearestToPattern = (value) => {
-    const patternMatch = pattern.exec(String(value || '').toLowerCase());
+    const patternMatch = pattern.exec(String(value || "").toLowerCase());
     if (!patternMatch || patternMatch.index == null) return null;
-    const countRe = new RegExp(COUNT_TOKEN_RE.source, 'gi');
+    const countRe = new RegExp(COUNT_TOKEN_RE.source, "gi");
     let match;
     let nearest = null;
     while ((match = countRe.exec(value)) !== null) {
@@ -359,66 +436,71 @@ function parseLabeledInteriorFloorAreaTotal(text) {
     /\b(?:main|upper|lower|first|second|third)\s+floor\b[^.;\n]{0,18}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\b/gi;
   let match;
   while ((match = floorAreaRe.exec(text)) !== null) {
-    const value = Number(match[1].replace(/,/g, ''));
+    const value = Number(match[1].replace(/,/g, ""));
     if (Number.isFinite(value) && value > 0) values.push(value);
   }
-  return values.length >= 2 ? values.reduce((sum, value) => sum + value, 0) : null;
+  return values.length >= 2
+    ? values.reduce((sum, value) => sum + value, 0)
+    : null;
 }
 
 function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
-  const text = String(notes || '').trim();
+  const text = String(notes || "").trim();
   if (!text) return {};
 
-  const templateKey = String(ctx.templateKey || '').toLowerCase();
-  const projectType = String(ctx.projectType || '').toLowerCase();
+  const templateKey = String(ctx.templateKey || "").toLowerCase();
+  const projectType = String(ctx.projectType || "").toLowerCase();
   const out = {};
-  if (templateKey === 'painting' || projectType === 'painting') {
+  if (templateKey === "painting" || projectType === "painting") {
     const paintScope = [];
-    if (/\bwalls?\b/i.test(text)) paintScope.push('walls');
-    if (/\bceilings?\b/i.test(text)) paintScope.push('ceilings');
-    if (/\b(?:trim|baseboards?|casing|crown|molding|moulding)\b/i.test(text)) paintScope.push('trim');
-    if (/\b(?:interior\s+)?doors?\b/i.test(text)) paintScope.push('doors');
+    if (/\bwalls?\b/i.test(text)) paintScope.push("walls");
+    if (/\bceilings?\b/i.test(text)) paintScope.push("ceilings");
+    if (/\b(?:trim|baseboards?|casing|crown|molding|moulding)\b/i.test(text))
+      paintScope.push("trim");
+    if (/\b(?:interior\s+)?doors?\b/i.test(text)) paintScope.push("doors");
     const excludesCabinetPaint =
       /\b(?:no|not|without|exclude(?:d)?|excluding)\s+(?:any\s+)?(?:paint(?:ing)?|refinish(?:ing)?)\s+(?:of\s+)?(?:the\s+)?(?:kitchen\s+)?cabinets?\b/i.test(
-        text
+        text,
       ) ||
       /\b(?:kitchen\s+)?cabinets?\b[^.;]{0,100}\b(?:exclude|excluded|not included)\b/i.test(
-        text
+        text,
       );
     if (
       !excludesCabinetPaint &&
       /\bcabinets?\b/i.test(text) &&
       /\b(?:paint|painting|refinish(?:ing)?)\b/i.test(text)
     ) {
-      paintScope.push('cabinets');
+      paintScope.push("cabinets");
     }
     const excludesExteriorPaint =
-      /\b(?:no|not|without|exclude(?:d)?|excluding)\s+(?:any\s+)?(?:exterior|outside)\s+(?:paint|painting)\b/i.test(text);
+      /\b(?:no|not|without|exclude(?:d)?|excluding)\s+(?:any\s+)?(?:exterior|outside)\s+(?:paint|painting)\b/i.test(
+        text,
+      );
     if (
       !excludesExteriorPaint &&
       /\b(?:exterior|outside)\s+(?:paint|painting)\b|\b(?:paint|painting)\s+(?:the\s+)?(?:exterior|outside)\b|\b(?:paint|painting)\s+(?:the\s+)?(?:siding|stucco|soffit|fascia)\b|\b(?:siding|stucco|soffit|fascia)\s+(?:paint|painting)\b/i.test(
-        text
+        text,
       )
     ) {
-      paintScope.push('exterior');
+      paintScope.push("exterior");
     }
     if (paintScope.length) out.paintScope = paintScope;
   }
   if (/\b(?:occupied|owner[- ]occupied|furnished)\b/i.test(text)) {
-    out.paintOccupancy = 'occupied';
+    out.paintOccupancy = "occupied";
     out.paintOccupancyConfirmed = true;
   } else if (/\b(?:new construction|new build)\b/i.test(text)) {
-    out.paintOccupancy = 'new_construction';
+    out.paintOccupancy = "new_construction";
     out.paintOccupancyConfirmed = true;
   } else if (/\b(?:vacant|empty|unoccupied)\b/i.test(text)) {
-    out.paintOccupancy = 'vacant';
+    out.paintOccupancy = "vacant";
     out.paintOccupancyConfirmed = true;
   }
   const hasSpray = /\b(?:spray|airless|sprayer)\b/i.test(text);
   const hasBrushRoll = /\b(?:brush|roll|roller)\b/i.test(text);
-  if (hasSpray && hasBrushRoll) out.paintApplicationMethod = 'mixed';
-  else if (hasSpray) out.paintApplicationMethod = 'spray';
-  else if (hasBrushRoll) out.paintApplicationMethod = 'brush_roll';
+  if (hasSpray && hasBrushRoll) out.paintApplicationMethod = "mixed";
+  else if (hasSpray) out.paintApplicationMethod = "spray";
+  else if (hasBrushRoll) out.paintApplicationMethod = "brush_roll";
   if (hasSpray || hasBrushRoll) out.paintApplicationMethodConfirmed = true;
 
   const clauses = splitMeasurementClauses(text);
@@ -447,12 +529,20 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       const quantityRe = new RegExp(SQFT_RE.source, SQFT_RE.flags);
       let match;
       while ((match = quantityRe.exec(clause)) !== null) {
-        const beforeQuantity = lower.slice(Math.max(0, match.index - 55), match.index);
+        const beforeQuantity = lower.slice(
+          Math.max(0, match.index - 55),
+          match.index,
+        );
         const materialIndexes = patterns
           .map((pattern) => {
             const matches = [
               ...beforeQuantity.matchAll(
-                new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`)
+                new RegExp(
+                  pattern.source,
+                  pattern.flags.includes("g")
+                    ? pattern.flags
+                    : `${pattern.flags}g`,
+                ),
               ),
             ];
             return matches.length ? matches[matches.length - 1].index : -1;
@@ -469,10 +559,12 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   };
 
   const firstGenericBathroomSqft = () => {
-    if (!/\bbath(?:room)?\s+remodel\b/.test(blob) || /\bkitchen\b/.test(blob)) return null;
+    if (!/\bbath(?:room)?\s+remodel\b/.test(blob) || /\bkitchen\b/.test(blob))
+      return null;
     for (const clause of clauses) {
       const c = clause.toLowerCase();
-      if (/\b(shower|wall|ceiling|backsplash|countertop|paint)\b/.test(c)) continue;
+      if (/\b(shower|wall|ceiling|backsplash|countertop|paint)\b/.test(c))
+        continue;
       const q = firstQty(clause, SQFT_RE);
       if (q) return q;
     }
@@ -486,8 +578,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       /\bbath(?:room)?.\b.*\bfloor(?:ing)?.\b/,
       /\bfloor\b.*\bbath(?:room)?.\b/,
       /\b(?:main\s+)(?:bath(?:room|)|bath)\b/,
-    ]) ||
-    firstGenericBathroomSqft();
+    ]) || firstGenericBathroomSqft();
   if (bathFloor) out.bathroomFloorSqft = bathFloor;
 
   // Kitchen floor — only when notes explicitly scope kitchen floor work (not backsplash / exclusions)
@@ -505,13 +596,18 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     for (const clause of clauses) {
       const c = clause.toLowerCase();
       if (/\bback\s*splash|backsplash/.test(c)) continue;
-      if (!/\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b/.test(c)) continue;
-      const near = pickSqftNearPattern(clause, /\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b/);
+      if (!/\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b/.test(c))
+        continue;
+      const near = pickSqftNearPattern(
+        clause,
+        /\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b/,
+      );
       if (near) return near;
-      const q = firstQty(clause, SQFT_RE);
-      if (q) return q;
     }
-    return pickSqftNearPattern(text, /\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b/);
+    return pickSqftNearPattern(
+      text,
+      /\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b/,
+    );
   })();
   if (countertopSqft) out.countertopSqft = countertopSqft;
 
@@ -537,7 +633,11 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   if (showerWall) out.showerWallTileSqft = showerWall;
 
   // Shower floor
-  const showerFloor = pickSqftFromClauses([/\bshower\s+floor\b/, /\bshower\s+pan\b/, /\bshower\s+base\b/]);
+  const showerFloor = pickSqftFromClauses([
+    /\bshower\s+floor\b/,
+    /\bshower\s+pan\b/,
+    /\bshower\s+base\b/,
+  ]);
   if (showerFloor) out.showerFloorTileSqft = showerFloor;
 
   // Interior paint — use sqft near paint keywords (not first sqft in clause; backsplash may precede paint on one line)
@@ -546,7 +646,10 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     /\bwall(?:s)?\s*(?:and\s+(?:the\s+)?|\/|&\s*)ceiling\b/,
     /\binterior\s+paint\b/,
   ];
-  const combinedPaintLanguage = /\bwalls?\s*(?:and|&)\s*ceilings?\b|\bceilings?\s*(?:and|&)\s*walls?\b/i.test(blob);
+  const combinedPaintLanguage =
+    /\bwalls?\s*(?:and|&)\s*(?:the\s+)?ceilings?\b|\bceilings?\s*(?:and|&)\s*(?:the\s+)?walls?\b/i.test(
+      blob,
+    );
   const paintSqft = (() => {
     let largestRelevantPaintSqft = 0;
     for (const clause of clauses) {
@@ -555,31 +658,37 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       if (!PAINT_SQFT_PATTERNS.some((p) => p.test(c))) continue;
       for (const pattern of PAINT_SQFT_PATTERNS) {
         const near = pickSqftNearPattern(clause, pattern);
-        if (near) largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, near);
+        if (near)
+          largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, near);
       }
       const q = firstQty(clause, SQFT_RE);
       if (q) largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, q);
     }
     const labeledFloorAreaTotal = parseLabeledInteriorFloorAreaTotal(
-      clauses.filter((clause) => !/\bexterior\b/i.test(clause)).join(' ')
+      clauses.filter((clause) => !/\bexterior\b/i.test(clause)).join(" "),
     );
     if (labeledFloorAreaTotal != null) {
       largestRelevantPaintSqft = Math.max(
         largestRelevantPaintSqft,
-        labeledFloorAreaTotal
+        labeledFloorAreaTotal,
       );
     }
     const globalPaintAreas =
-      (templateKey === 'painting' ||
-        projectType === 'painting' ||
-        /\binterior\s+repaint\b|\bpaint\s+all\s+(?:interior\s+)?walls?\b/i.test(blob))
+      templateKey === "painting" ||
+      projectType === "painting" ||
+      /\binterior\s+repaint\b|\bpaint\s+all\s+(?:interior\s+)?walls?\b|\b(?:repaint|paint(?:ing)?)\b[^.;]{0,60}\b(?:interior\s+)?walls?\b/i.test(
+        blob,
+      )
         ? clauses
             .filter((clause) => !/\bexterior\b/i.test(clause))
             .flatMap((clause) => allQty(clause, SQFT_RE))
             .filter((q) => q > 0)
         : [];
     if (globalPaintAreas.length) {
-      largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, ...globalPaintAreas);
+      largestRelevantPaintSqft = Math.max(
+        largestRelevantPaintSqft,
+        ...globalPaintAreas,
+      );
     }
     if (largestRelevantPaintSqft > 0) return largestRelevantPaintSqft;
     if (combinedPaintLanguage) return 0;
@@ -587,11 +696,13 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   })();
   if (paintSqft) out.wallPaintSqft = paintSqft;
 
-  const ceilingPaintSqft = combinedPaintLanguage ? null : pickSqftFromClauses([/\bceilings?\b/]);
+  const ceilingPaintSqft = combinedPaintLanguage
+    ? null
+    : pickSqftFromClauses([/\bceilings?\b/]);
   if (ceilingPaintSqft) out.ceilingPaintSqft = ceilingPaintSqft;
 
   const explicitWallPaintSqft = (() => {
-    const source = String(text || '');
+    const source = String(text || "");
     const lower = source.toLowerCase();
     const sqftRe = new RegExp(SQFT_RE.source, SQFT_RE.flags);
     let match;
@@ -599,8 +710,12 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       const qty = parseQty(match);
       if (!qty) continue;
       const before = lower.slice(Math.max(0, match.index - 45), match.index);
-      const after = lower.slice(match.index, match.index + match[0].length + 25);
-      if (/\bshower\s+wall\b|\bshower\s+tile\b|\btile\s+shower\b/.test(before)) continue;
+      const after = lower.slice(
+        match.index,
+        match.index + match[0].length + 25,
+      );
+      if (/\bshower\s+wall\b|\bshower\s+tile\b|\btile\s+shower\b/.test(before))
+        continue;
       if (/\bwalls?\b/.test(before) || /\bwalls?\b/.test(after)) return qty;
     }
     return null;
@@ -608,13 +723,21 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const explicitCeilingPaintSqft = combinedPaintLanguage
     ? null
     : pickSqftNearPattern(text, /\bceilings?\b/);
-  const interiorPaintBlob = clauses.filter((clause) => !/\bexterior\b/i.test(clause)).join(' ');
+  const interiorPaintBlob = clauses
+    .filter((clause) => !/\bexterior\b/i.test(clause))
+    .join(" ");
   const floorAreaPaintLanguage =
-    /\b(?:house|home|floor\s+area|living\s+area)\b[^.;]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(interiorPaintBlob) ||
-    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;]{0,35}\b(?:house|home|floor\s+area|living\s+area)\b/i.test(interiorPaintBlob) ||
-    /\b(?:main|upper|lower|first|second|third)\s+floor\b[^.;\n]{0,18}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\b/i.test(interiorPaintBlob);
+    /\b(?:house|home|floor\s+area|living\s+area)\b[^.;]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
+      interiorPaintBlob,
+    ) ||
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;]{0,35}\b(?:house|home|floor\s+area|living\s+area)\b/i.test(
+      interiorPaintBlob,
+    ) ||
+    /\b(?:main|upper|lower|first|second|third)\s+floor\b[^.;\n]{0,18}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\b/i.test(
+      interiorPaintBlob,
+    );
   const labeledFloorAreaTotal = parseLabeledInteriorFloorAreaTotal(
-    clauses.filter((clause) => !/\bexterior\b/i.test(clause)).join(' ')
+    clauses.filter((clause) => !/\bexterior\b/i.test(clause)).join(" "),
   );
 
   if (
@@ -629,34 +752,39 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     out.paintAreaSqft = labeledFloorAreaTotal;
     out.originalPaintAreaReferenceSqft = labeledFloorAreaTotal;
     out.paintAreaNeedsConfirmation = true;
-    out.paintAreaBasis = 'floor_area';
-    out.paintPricingMethod = 'separate';
+    out.paintAreaBasis = "floor_area";
+    out.paintPricingMethod = "separate";
     out.combinedPaintableAreaSqft = combinedSurface;
     if (wallSurface > 0) out.wallPaintSqft = wallSurface;
     if (ceilingSurface > 0) out.ceilingPaintSqft = ceilingSurface;
-  } else if (explicitWallPaintSqft && explicitCeilingPaintSqft && !combinedPaintLanguage) {
-    out.paintPricingMethod = 'separate';
+  } else if (
+    explicitWallPaintSqft &&
+    explicitCeilingPaintSqft &&
+    !combinedPaintLanguage
+  ) {
+    out.paintPricingMethod = "separate";
     out.wallPaintSqft = explicitWallPaintSqft;
     out.ceilingPaintSqft = explicitCeilingPaintSqft;
   } else if (explicitWallPaintSqft && !combinedPaintLanguage) {
-    out.paintPricingMethod = 'separate';
+    out.paintPricingMethod = "separate";
     out.wallPaintSqft = explicitWallPaintSqft;
     delete out.ceilingPaintSqft;
   } else if (explicitCeilingPaintSqft && !combinedPaintLanguage) {
-    out.paintPricingMethod = 'separate';
+    out.paintPricingMethod = "separate";
     out.ceilingPaintSqft = explicitCeilingPaintSqft;
     delete out.wallPaintSqft;
   } else if (
-    templateKey === 'painting' &&
+    (templateKey === "painting" || templateKey === "room_remodel") &&
     paintSqft &&
-    (combinedPaintLanguage || (!explicitWallPaintSqft && !explicitCeilingPaintSqft))
+    (combinedPaintLanguage ||
+      (!explicitWallPaintSqft && !explicitCeilingPaintSqft))
   ) {
     out.paintAreaSqft = paintSqft;
     out.originalPaintAreaReferenceSqft = paintSqft;
     out.paintAreaNeedsConfirmation = true;
-    out.paintAreaBasis = floorAreaPaintLanguage ? 'floor_area' : 'unknown';
+    out.paintAreaBasis = floorAreaPaintLanguage ? "floor_area" : "unknown";
     if (combinedPaintLanguage) {
-      out.paintPricingMethod = 'combined';
+      out.paintPricingMethod = "combined";
       out.combinedPaintableAreaSqft = floorAreaPaintLanguage
         ? Math.round(
             labeledFloorAreaTotal != null
@@ -665,17 +793,17 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
           )
         : paintSqft;
       out.paintAreaNeedsConfirmation = floorAreaPaintLanguage;
-      out.paintAreaBasis = floorAreaPaintLanguage ? 'floor_area' : 'combined';
+      out.paintAreaBasis = floorAreaPaintLanguage ? "floor_area" : "combined";
     }
     delete out.wallPaintSqft;
     delete out.ceilingPaintSqft;
   }
 
   const interiorDoorCountMatch = blob.match(
-    /(\d[\d,]*)\s+(?:interior\s+)?doors?\b/i
+    /(\d[\d,]*)\s+(?:interior\s+)?doors?\b/i,
   );
   if (interiorDoorCountMatch) {
-    const count = Number(interiorDoorCountMatch[1].replace(/,/g, ''));
+    const count = Number(interiorDoorCountMatch[1].replace(/,/g, ""));
     if (Number.isFinite(count) && count > 0) out.interiorDoorCount = count;
   }
 
@@ -740,44 +868,76 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
 
   const cabinetPaintSqft =
     firstQty(
-      text.match(/\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;]{0,40}\bcabinets?\b/i)?.[0] || '',
-      SQFT_RE
+      text.match(
+        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;]{0,40}\bcabinets?\b/i,
+      )?.[0] || "",
+      SQFT_RE,
     ) ||
     pickSqftNearPattern(
       text,
-      /\b(?:paint(?:ing)?|refinish(?:ing)?)\b[^.;]{0,40}\bcabinets?\b|\bcabinets?\b[^.;]{0,40}\b(?:paint(?:ing)?|refinish(?:ing)?)\b/i
+      /\b(?:paint(?:ing)?|refinish(?:ing)?)\b[^.;]{0,40}\bcabinets?\b|\bcabinets?\b[^.;]{0,40}\b(?:paint(?:ing)?|refinish(?:ing)?)\b/i,
     );
   if (cabinetPaintSqft) out.cabinetPaintSqft = cabinetPaintSqft;
-  const cabinetUpperLf = pickLfNearPatternWithRegex(text, /\b(?:upper|uppers?)\b[^.;]{0,30}\bcabinets?\b/i, LF_RE);
-  const cabinetLowerLf = pickLfNearPatternWithRegex(text, /\b(?:lower|lowers?)\b[^.;]{0,30}\bcabinets?\b/i, LF_RE);
-  const cabinetTallLf = pickLfNearPatternWithRegex(text, /\b(?:tall|pantry)\b[^.;]{0,30}\bcabinets?\b/i, LF_RE);
-  const cabinetRunLf = pickLfNearPatternWithRegex(text, /\b(?:cabinet|cabinetry)\s+(?:run|length)\b/i, LF_RE);
+  const cabinetUpperLf = pickLfNearPatternWithRegex(
+    text,
+    /\b(?:upper|uppers?)\b[^.;]{0,30}\bcabinets?\b/i,
+    LF_RE,
+  );
+  const cabinetLowerLf = pickLfNearPatternWithRegex(
+    text,
+    /\b(?:lower|lowers?)\b[^.;]{0,30}\bcabinets?\b/i,
+    LF_RE,
+  );
+  const cabinetTallLf = pickLfNearPatternWithRegex(
+    text,
+    /\b(?:tall|pantry)\b[^.;]{0,30}\bcabinets?\b/i,
+    LF_RE,
+  );
+  const cabinetRunLf = pickLfNearPatternWithRegex(
+    text,
+    /\b(?:cabinet|cabinetry)\s+(?:run|length)\b/i,
+    LF_RE,
+  );
   if (cabinetUpperLf) out.cabinetUpperLf = cabinetUpperLf;
   if (cabinetLowerLf) out.cabinetLowerLf = cabinetLowerLf;
   if (cabinetTallLf) out.cabinetTallLf = cabinetTallLf;
   if (cabinetRunLf) out.cabinetRunLf = cabinetRunLf;
   if (!cabinetRunLf && (cabinetUpperLf || cabinetLowerLf || cabinetTallLf)) {
-    out.cabinetRunLf = (cabinetUpperLf || 0) + (cabinetLowerLf || 0) + (cabinetTallLf || 0);
+    out.cabinetRunLf =
+      (cabinetUpperLf || 0) + (cabinetLowerLf || 0) + (cabinetTallLf || 0);
   }
 
-  const exteriorPaintSqft = pickSqftFromClauses([
+  const exteriorPaintSqft =
+    firstQty(
+      text.match(
+        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,45}\b(?:siding|exterior\s+walls?|exterior\s+surface)\b/i,
+      )?.[0] || "",
+      SQFT_RE,
+    ) ||
+    pickSqftFromClauses([
     /\bexterior\s+paint\b/,
     /\bpaint\s+exterior\b/,
     /\bpaintable\s+(?:exterior\s+)?wall\s+area\b/,
     /\bexterior\s+(?:wall\s+)?(?:surface|wall)\s+area\b/,
-  ]);
+    ]);
   if (exteriorPaintSqft) out.exteriorPaintSqft = exteriorPaintSqft;
 
   // Drywall
-  const drywallSqft = pickSqftFromClauses([/\bdrywall\b/, /\bsheetrock\b/, /\bhang\s+(?:and\s+)?finish\b/]);
+  const drywallSqft = pickSqftFromClauses([
+    /\bdrywall\b/,
+    /\bsheetrock\b/,
+    /\bhang\s+(?:and\s+)?finish\b/,
+  ]);
   if (drywallSqft) out.drywallSqft = drywallSqft;
 
   const flooringSqft = (() => {
     let max = 0;
     for (const clause of clauses) {
       const c = clause.toLowerCase();
-      if (/\b(demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(c)) continue;
-      if (!/\b(flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b/i.test(c)) continue;
+      if (/\b(demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(c))
+        continue;
+      if (!/\b(flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b/i.test(c))
+        continue;
       const q = firstQty(clause, SQFT_RE);
       if (q && q > max) max = q;
     }
@@ -785,54 +945,85 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   })();
   if (flooringSqft) out.flooringSqft = flooringSqft;
   const flooringProductScope = [];
-  if (/\b(?:lvp|luxury\s+vinyl)\b/i.test(blob)) flooringProductScope.push('lvp');
-  if (/\blaminate\b/i.test(blob)) flooringProductScope.push('laminate');
-  if (/\bengineered\s+hardwood\b/i.test(blob)) flooringProductScope.push('engineered_hardwood');
-  if (/\bsolid\s+hardwood\b/i.test(blob)) flooringProductScope.push('solid_hardwood');
-  if (/\b(?:floor|flooring)\s+tile\b|\btile\s+(?:floor|flooring)\b/i.test(blob) || (templateKey === 'flooring' && /\btile\b/i.test(blob))) {
-    flooringProductScope.push('tile');
+  if (/\b(?:lvp|luxury\s+vinyl)\b/i.test(blob))
+    flooringProductScope.push("lvp");
+  if (/\blaminate\b/i.test(blob)) flooringProductScope.push("laminate");
+  if (/\bengineered\s+hardwood\b/i.test(blob))
+    flooringProductScope.push("engineered_hardwood");
+  if (/\bsolid\s+hardwood\b/i.test(blob))
+    flooringProductScope.push("solid_hardwood");
+  if (
+    /\b(?:floor|flooring)\s+tile\b|\btile\s+(?:floor|flooring)\b/i.test(blob) ||
+    (templateKey === "flooring" && /\btile\b/i.test(blob))
+  ) {
+    flooringProductScope.push("tile");
   }
-  if (/\bcarpet\b/i.test(blob)) flooringProductScope.push('carpet');
-  if (flooringProductScope.length) out.flooringProductScope = flooringProductScope;
-  if (/\b(?:glue[\s-]?down|adhesive[\s-]?backed)\s+(?:vinyl|lvp)\b/i.test(blob)) {
-    out.flooringExistingLvpInstallMethod = 'glue_down';
+  if (/\bcarpet\b/i.test(blob)) flooringProductScope.push("carpet");
+  if (flooringProductScope.length)
+    out.flooringProductScope = flooringProductScope;
+  if (
+    /\b(?:glue[\s-]?down|adhesive[\s-]?backed)\s+(?:vinyl|lvp)\b/i.test(blob)
+  ) {
+    out.flooringExistingLvpInstallMethod = "glue_down";
   } else if (/\bfloating\s+(?:vinyl|lvp)\b/i.test(blob)) {
-    out.flooringExistingLvpInstallMethod = 'floating';
-  } else if (/\blvp\b/i.test(blob) && /\b(?:existing|current|old)\b/i.test(blob)) {
-    out.flooringExistingLvpInstallMethod = 'unknown';
+    out.flooringExistingLvpInstallMethod = "floating";
+  } else if (
+    /\blvp\b/i.test(blob) &&
+    /\b(?:existing|current|old)\b/i.test(blob)
+  ) {
+    out.flooringExistingLvpInstallMethod = "unknown";
   }
   if (/\b(?:vct|vinyl\s+tile)\b/i.test(blob)) {
-    out.flooringExistingSheetVinylType = 'vct';
+    out.flooringExistingSheetVinylType = "vct";
   } else if (/\bsheet\s+vinyl\b/i.test(blob)) {
-    out.flooringExistingSheetVinylType = 'sheet_vinyl';
-  } else if (/\bsheet\s+vinyl|vct|vinyl\s+tile\b/i.test(blob) && /\b(?:existing|current|old)\b/i.test(blob)) {
-    out.flooringExistingSheetVinylType = 'unknown';
+    out.flooringExistingSheetVinylType = "sheet_vinyl";
+  } else if (
+    /\bsheet\s+vinyl|vct|vinyl\s+tile\b/i.test(blob) &&
+    /\b(?:existing|current|old)\b/i.test(blob)
+  ) {
+    out.flooringExistingSheetVinylType = "unknown";
   }
   const roomMeasurements = [];
   const roomPattern =
     /\b(living\s+areas?|living\s+room|great\s+room|kitchens?|dining(?:\s+room)?|hallways?|bedrooms?(?:\s+\d+)?|primary\s+bedroom|bathrooms?(?:\s+\d+)?|offices?|laundry|entries?|foyers?|basements?|mudrooms?)\b/i;
   for (const clause of clauses) {
-    const roomMatches = [...clause.matchAll(new RegExp(roomPattern.source, 'gi'))];
+    const roomMatches = [
+      ...clause.matchAll(new RegExp(roomPattern.source, "gi")),
+    ];
     if (!roomMatches.length) continue;
     const area = firstQty(clause, SQFT_RE);
     for (const roomMatch of roomMatches) {
-      let name = roomMatch[1].replace(/\s+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      let name = roomMatch[1]
+        .replace(/\s+/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
       const trailingRoomNumber = name.match(/\s+(\d+)$/);
-      if (trailingRoomNumber && Number(trailingRoomNumber[1]) > 20) name = name.replace(/\s+\d+$/, '');
+      if (trailingRoomNumber && Number(trailingRoomNumber[1]) > 20)
+        name = name.replace(/\s+\d+$/, "");
       const roomArea = roomMatches.length === 1 ? area : null;
-      if (!roomMeasurements.some((room) => room.name.toLowerCase() === name.toLowerCase())) {
-        roomMeasurements.push({ name, areaSqft: roomArea || null, sourceType: roomArea ? 'user_entered' : 'unknown' });
+      if (
+        !roomMeasurements.some(
+          (room) => room.name.toLowerCase() === name.toLowerCase(),
+        )
+      ) {
+        roomMeasurements.push({
+          name,
+          areaSqft: roomArea || null,
+          sourceType: roomArea ? "user_entered" : "unknown",
+        });
       }
     }
   }
   if (roomMeasurements.length) out.planRooms = roomMeasurements;
   const flooringProductPatterns = [
-    ['flooringLvpSqft', /\b(?:lvp|luxury\s+vinyl)\b/i],
-    ['flooringLaminateSqft', /\blaminate\b/i],
-    ['flooringEngineeredHardwoodSqft', /\bengineered\s+hardwood\b/i],
-    ['flooringSolidHardwoodSqft', /\bsolid\s+hardwood\b/i],
-    ['flooringTileSqft', /\b(?:floor|flooring)\s+tile\b|\btile\s+(?:floor|flooring)\b/i],
-    ['flooringCarpetSqft', /\bcarpet\b/i],
+    ["flooringLvpSqft", /\b(?:lvp|luxury\s+vinyl)\b/i],
+    ["flooringLaminateSqft", /\blaminate\b/i],
+    ["flooringEngineeredHardwoodSqft", /\bengineered\s+hardwood\b/i],
+    ["flooringSolidHardwoodSqft", /\bsolid\s+hardwood\b/i],
+    [
+      "flooringTileSqft",
+      /\b(?:floor|flooring)\s+tile\b|\btile\s+(?:floor|flooring)\b/i,
+    ],
+    ["flooringCarpetSqft", /\bcarpet\b/i],
   ];
   for (const [key, pattern] of flooringProductPatterns) {
     const quantity = pickSqftFromClauses([pattern]);
@@ -851,9 +1042,14 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   if (floorPrepSqft) out.floorPrepSqft = floorPrepSqft;
   const underlaymentSqft = pickSqftFromClauses([/\bunderlayment\b/]);
   if (underlaymentSqft) out.underlaymentSqft = underlaymentSqft;
-  const moistureBarrierSqft = pickSqftFromClauses([/\b(?:moisture|vapor)\s+barrier\b|\bmoisture\s+mitigation\b/]);
+  const moistureBarrierSqft = pickSqftFromClauses([
+    /\b(?:moisture|vapor)\s+barrier\b|\bmoisture\s+mitigation\b/,
+  ]);
   if (moistureBarrierSqft) out.moistureBarrierSqft = moistureBarrierSqft;
-  const transitionLf = pickLfNearPattern(text, /\b(?:transition|reducer|threshold)s?\b/i);
+  const transitionLf = pickLfNearPattern(
+    text,
+    /\b(?:transition|reducer|threshold)s?\b/i,
+  );
   if (transitionLf) out.transitionLf = transitionLf;
   const quarterRoundLf = pickLfNearPattern(text, /\bquarter[\s-]?round\b/i);
   if (quarterRoundLf) out.quarterRoundLf = quarterRoundLf;
@@ -875,7 +1071,11 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const paverSqft = pickSqftFromClauses([/\bpavers?\b/, /\bpatio\b.*\bpaver/]);
   if (paverSqft) out.paverSqft = paverSqft;
 
-  const rockMulchSqft = pickSqftFromClauses([/\brock\b/, /\bmulch\b/, /\bgravel\b/]);
+  const rockMulchSqft = pickSqftFromClauses([
+    /\brock\b/,
+    /\bmulch\b/,
+    /\bgravel\b/,
+  ]);
   if (rockMulchSqft) out.rockMulchSqft = rockMulchSqft;
 
   const landscapeSqft = pickSqftFromClauses([
@@ -898,7 +1098,11 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     for (const clause of clauses) {
       const matchedPattern = patterns.find((p) => p.test(clause.toLowerCase()));
       if (!matchedPattern) continue;
-      const near = pickLfNearPatternWithRegex(clause, matchedPattern, WALL_LF_RE);
+      const near = pickLfNearPatternWithRegex(
+        clause,
+        matchedPattern,
+        WALL_LF_RE,
+      );
       if (near) return near;
     }
     return null;
@@ -911,7 +1115,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       const c = clause.toLowerCase();
       if (
         !/\b(living\s+area|total\s+living|main\s+living|conditioned\s+(?:floor\s+)?area|building\s+areas?|total\s+(?:floor|heated)\s+area|heated\s+area)\b/i.test(
-          c
+          c,
         )
       ) {
         continue;
@@ -929,21 +1133,35 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
 
   // Flooring / floor-area jobs (tile demo, laminate install, etc.)
   const floorAreaSqft = (() => {
-    if (templateKey === 'bathroom' || projectType === 'bathroom') return null;
+    if (templateKey === "bathroom" || projectType === "bathroom") return null;
     if (livingAreaSqft) return livingAreaSqft;
     let max = 0;
     for (const clause of clauses) {
       const c = clause.toLowerCase();
       if (
-        /\bbaseboards?\b|\btrim\b|\bmoulding\b|\bmolding\b|\bcasing\b/i.test(c) &&
-        !/\b(install|installation|lvp|laminate|vinyl|carpet|flooring|tile|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(c)
+        /\bbaseboards?\b|\btrim\b|\bmoulding\b|\bmolding\b|\bcasing\b/i.test(
+          c,
+        ) &&
+        !/\b(install|installation|lvp|laminate|vinyl|carpet|flooring|tile|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+          c,
+        )
       ) {
         continue;
       }
-      if (/\bback\s*splash|backsplash|\bcountertop|\bpaint\b|\bshower\b|\bbath(?:room)?\s+floor\b/i.test(c)) continue;
+      if (
+        /\bback\s*splash|backsplash|\bcountertop|\bpaint\b|\bshower\b|\bbath(?:room)?\s+floor\b/i.test(
+          c,
+        )
+      )
+        continue;
       if (/\bwall\b|\bsoffit\b|\bbulkhead\b/i.test(c)) continue;
       if (isExteriorFlatworkClause(c)) continue;
-      if (!/\b(demo|demolition|remove|removal|tear[\s-]?out|install|installation|laminate|tile|lvp|vinyl|flooring|floor|carpet)\b/i.test(c)) continue;
+      if (
+        !/\b(demo|demolition|remove|removal|tear[\s-]?out|install|installation|laminate|tile|lvp|vinyl|flooring|floor|carpet)\b/i.test(
+          c,
+        )
+      )
+        continue;
       const q = firstQty(clause, SQFT_RE);
       if (q && q > max) max = q;
     }
@@ -951,7 +1169,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   })();
   if (floorAreaSqft) out.floorAreaSqft = floorAreaSqft;
   if (
-    (templateKey === 'painting' || projectType === 'painting') &&
+    (templateKey === "painting" || projectType === "painting") &&
     parseLabeledInteriorFloorAreaTotal(text) != null
   ) {
     out.floorAreaSqft = parseLabeledInteriorFloorAreaTotal(text);
@@ -1065,7 +1283,12 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const concreteDemoSqft = (() => {
     let max = 0;
     for (const clause of clauses) {
-      if (!isDemoClause(clause) || isDirtExcavationClause(clause) || !isExteriorFlatworkClause(clause)) continue;
+      if (
+        !isDemoClause(clause) ||
+        isDirtExcavationClause(clause) ||
+        !isExteriorFlatworkClause(clause)
+      )
+        continue;
       const q = firstQty(clause, SQFT_RE);
       if (q && q > max) max = q;
     }
@@ -1074,34 +1297,74 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   if (concreteDemoSqft) out.concreteDemoSqft = concreteDemoSqft;
 
   for (const clause of clauses) {
-    if (!isDemoClause(clause) || isDirtExcavationClause(clause) || !/\bconcrete\b|\bslab\b|\bpatio\b|\bdriveway\b|\bsidewalk\b|\bwalkway\b/i.test(clause)) continue;
+    if (
+      !isDemoClause(clause) ||
+      isDirtExcavationClause(clause) ||
+      !/\bconcrete\b|\bslab\b|\bpatio\b|\bdriveway\b|\bsidewalk\b|\bwalkway\b/i.test(
+        clause,
+      )
+    )
+      continue;
     const depthMatch = clause.match(DEPTH_INCHES_RE);
     const depth = depthMatch ? Number(depthMatch[1]) : null;
     if (!depth || !Number.isFinite(depth)) continue;
     out.concreteDemoThicknessBand =
-      depth >= 7 ? 'structural_7_plus' : depth >= 5 ? 'heavy_5_6' : depth >= 4 ? 'standard_4' : 'thin_2_3';
-    if (/\b(?:rebar|reinforced|reinforcement|welded\s+wire|wire\s+mesh)\b/i.test(clause)) out.concreteDemoReinforced = true;
-    if (/\b(?:limited|no|without)\s+(?:machine|equipment)\s+access\b|\bhand[\s-]?demo\b|\bnarrow\s+access\b|\bno\s+machine\s+access\b/i.test(clause)) out.concreteDemoLimitedAccess = true;
+      depth >= 7
+        ? "structural_7_plus"
+        : depth >= 5
+          ? "heavy_5_6"
+          : depth >= 4
+            ? "standard_4"
+            : "thin_2_3";
+    if (
+      /\b(?:rebar|reinforced|reinforcement|welded\s+wire|wire\s+mesh)\b/i.test(
+        clause,
+      )
+    )
+      out.concreteDemoReinforced = true;
+    if (
+      /\b(?:limited|no|without)\s+(?:machine|equipment)\s+access\b|\bhand[\s-]?demo\b|\bnarrow\s+access\b|\bno\s+machine\s+access\b/i.test(
+        clause,
+      )
+    )
+      out.concreteDemoLimitedAccess = true;
     break;
   }
-  if (/\b(?:rebar|reinforced|reinforcement|welded\s+wire|wire\s+mesh)\b/i.test(text) && out.concreteDemoSqft) out.concreteDemoReinforced = true;
-  if (/\b(?:limited|no|without)\s+(?:machine|equipment)\s+access\b|\bhand[\s-]?demo\b|\bnarrow\s+access\b|\bno\s+machine\s+access\b/i.test(text) && out.concreteDemoSqft) out.concreteDemoLimitedAccess = true;
+  if (
+    /\b(?:rebar|reinforced|reinforcement|welded\s+wire|wire\s+mesh)\b/i.test(
+      text,
+    ) &&
+    out.concreteDemoSqft
+  )
+    out.concreteDemoReinforced = true;
+  if (
+    /\b(?:limited|no|without)\s+(?:machine|equipment)\s+access\b|\bhand[\s-]?demo\b|\bnarrow\s+access\b|\bno\s+machine\s+access\b/i.test(
+      text,
+    ) &&
+    out.concreteDemoSqft
+  )
+    out.concreteDemoLimitedAccess = true;
 
   // Concrete — do not let a paver/landscape patio sqft fill concrete sqft.
   const concreteSqft = (() => {
     let max = 0;
     for (const clause of clauses) {
       const c = clause.toLowerCase();
-      if (/\bpavers?\b|\bsod\b|\bturf\b|\brock\b|\bmulch\b|\bgravel\b/.test(c)) continue;
+      if (/\bpavers?\b|\bsod\b|\bturf\b|\brock\b|\bmulch\b|\bgravel\b/.test(c))
+        continue;
       if (isDemoClause(clause) && isExteriorFlatworkClause(clause)) continue;
       if (
-        !/\bconcrete\b|\bflat[\s-]?work\b|\bslab\b|\bdriveway\b|\bwalkway\b|\bsidewalk\b/.test(c)
+        !/\bconcrete\b|\bflat[\s-]?work\b|\bslab\b|\bdriveway\b|\bwalkway\b|\bsidewalk\b/.test(
+          c,
+        )
       ) {
         continue;
       }
       const near =
-        pickSqftNearPattern(clause, /\bconcrete\b|\bflat[\s-]?work\b|\bslab\b|\bdriveway\b|\bwalkway\b|\bsidewalk\b/) ||
-        firstQty(clause, SQFT_RE);
+        pickSqftNearPattern(
+          clause,
+          /\bconcrete\b|\bflat[\s-]?work\b|\bslab\b|\bdriveway\b|\bwalkway\b|\bsidewalk\b/,
+        ) || firstQty(clause, SQFT_RE);
       if (near && near > max) max = near;
     }
     return max > 0 ? max : null;
@@ -1110,7 +1373,8 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
 
   let concreteCy = null;
   for (const clause of clauses) {
-    if (!/\bconcrete\b|\bfoundation\b|\bslab\b/.test(clause.toLowerCase())) continue;
+    if (!/\bconcrete\b|\bfoundation\b|\bslab\b/.test(clause.toLowerCase()))
+      continue;
     const cy = firstQty(clause, CY_RE);
     if (cy) {
       concreteCy = cy;
@@ -1122,28 +1386,44 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   // Excavation CY
   let excavationCy = null;
   for (const clause of clauses) {
-    if (!/\bexcavat(?:e|ion)\b|\btrench(?:ing)?\b|\bgrading\b/.test(clause.toLowerCase())) continue;
+    if (
+      !/\bexcavat(?:e|ion)\b|\btrench(?:ing)?\b|\bgrading\b/.test(
+        clause.toLowerCase(),
+      )
+    )
+      continue;
     const cy = firstQty(clause, CY_RE);
     if (cy) {
       excavationCy = cy;
       break;
     }
   }
-  if (!excavationCy && /\bexcavat(?:e|ion)\b|\btrench(?:ing)?\b|\bgrading\b/.test(blob)) {
+  if (
+    !excavationCy &&
+    /\bexcavat(?:e|ion)\b|\btrench(?:ing)?\b|\bgrading\b/.test(blob)
+  ) {
     excavationCy = firstQty(text, CY_RE);
   }
   if (excavationCy) out.excavationCy = excavationCy;
 
   for (const clause of clauses) {
-    if (!isDirtExcavationClause(clause) && !(/\b(?:dirt|soil|earth|subgrade)\b/.test(blob) && /\b(?:excavat(?:e|ion)|remove|dig)\b/.test(blob))) continue;
+    if (
+      !isDirtExcavationClause(clause) &&
+      !(
+        /\b(?:dirt|soil|earth|subgrade)\b/.test(blob) &&
+        /\b(?:excavat(?:e|ion)|remove|dig)\b/.test(blob)
+      )
+    )
+      continue;
     const area = firstQty(clause, SQFT_RE) || firstQty(text, SQFT_RE);
-    const depthMatch = clause.match(DEPTH_INCHES_RE) || text.match(DEPTH_INCHES_RE);
+    const depthMatch =
+      clause.match(DEPTH_INCHES_RE) || text.match(DEPTH_INCHES_RE);
     const depth = depthMatch ? Number(depthMatch[1]) : null;
     if (area && depth && depth > 0) {
       out.excavationAreaSqft = area;
       out.excavationDepthInches = depth;
       if (!out.excavationCy) {
-        out.excavationCy = Math.round((area * (depth / 12) / 27) * 100) / 100;
+        out.excavationCy = Math.round(((area * (depth / 12)) / 27) * 100) / 100;
       }
       break;
     }
@@ -1152,7 +1432,8 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   // Tons (mulch/rock)
   const tons = (() => {
     for (const clause of clauses) {
-      if (!/\bmulch\b|\brock\b|\bgravel\b|\bstone\b/.test(clause.toLowerCase())) continue;
+      if (!/\bmulch\b|\brock\b|\bgravel\b|\bstone\b/.test(clause.toLowerCase()))
+        continue;
       const t = firstQty(clause, TON_RE);
       if (t) return t;
     }
@@ -1168,13 +1449,13 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     /\bhvac\b|\bmechanical\b|\bfurnace\b|\bair\s*(?:handler|condition(?:er|ing))\b|\bheat\s*pump\b|\bmini[\s-]?split\b|\bductwork\b|\bthermostat\b|\bventilation\b/i;
   const hvacText = hvacSignal.test(text)
     ? text
-    : clauses.filter((clause) => hvacSignal.test(clause)).join(' ');
+    : clauses.filter((clause) => hvacSignal.test(clause)).join(" ");
   if (hvacText) {
     const systemCount =
-      firstHvacCount(hvacText, '(?:hvac\\s+)?systems?') ||
+      firstHvacCount(hvacText, "(?:hvac\\s+)?systems?") ||
       firstHvacCount(
         hvacText,
-        '(?:furnaces?|air\\s*handlers?|heat\\s*pumps?|mini[\\s-]?splits?)',
+        "(?:furnaces?|air\\s*handlers?|heat\\s*pumps?|mini[\\s-]?splits?)",
       );
     if (systemCount) out.hvacSystemCount = Math.round(systemCount);
     const tons = firstQty(hvacText, TON_RE);
@@ -1186,28 +1467,29 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     if (ductworkLf) out.hvacDuctworkLf = ductworkLf;
     const supplyRegisterCount = firstHvacCount(
       hvacText,
-      '(?:supply\\s+)?(?:air\\s+)?registers?|(?:supply\\s+)?diffusers?',
+      "(?:supply\\s+)?(?:air\\s+)?registers?|(?:supply\\s+)?diffusers?",
     );
     if (supplyRegisterCount) {
       out.hvacSupplyRegisterCount = Math.round(supplyRegisterCount);
     }
     const returnGrilleCount = firstHvacCount(
       hvacText,
-      'return(?:\\s+air)?\\s+(?:grilles?|registers?)',
+      "return(?:\\s+air)?\\s+(?:grilles?|registers?)",
     );
     if (returnGrilleCount) {
       out.hvacReturnGrilleCount = Math.round(returnGrilleCount);
     }
-    const thermostatCount = firstHvacCount(hvacText, 'thermostats?');
+    const thermostatCount = firstHvacCount(hvacText, "thermostats?");
     if (thermostatCount) out.hvacThermostatCount = Math.round(thermostatCount);
     const serviceCallCount = firstHvacCount(
       hvacText,
-      '(?:hvac\\s+)?(?:service|diagnostic|maintenance)\\s+calls?',
+      "(?:hvac\\s+)?(?:service|diagnostic|maintenance)\\s+calls?",
     );
-    if (serviceCallCount) out.hvacServiceCallCount = Math.round(serviceCallCount);
+    if (serviceCallCount)
+      out.hvacServiceCallCount = Math.round(serviceCallCount);
     const replacementCount = firstHvacCount(
       hvacText,
-      '(?:equipment|furnace|air\\s*handler|condenser|heat\\s*pump)\\s+(?:replacement|replace(?:ment)?)',
+      "(?:equipment|furnace|air\\s*handler|condenser|heat\\s*pump)\\s+(?:replacement|replace(?:ment)?)",
     );
     if (replacementCount) {
       out.hvacEquipmentReplacementCount = Math.round(replacementCount);
@@ -1221,14 +1503,16 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     }
     const refrigerantCount = firstHvacCount(
       hvacText,
-      'refrigerant(?:\\s+(?:service|recharge|recovery))?',
+      "refrigerant(?:\\s+(?:service|recharge|recovery))?",
     );
-    if (refrigerantCount) out.hvacRefrigerantCount = Math.round(refrigerantCount);
+    if (refrigerantCount)
+      out.hvacRefrigerantCount = Math.round(refrigerantCount);
     const ventilationCount = firstHvacCount(
       hvacText,
-      '(?:ERV|HRV|fresh[\\s-]?air\\s+ventilator|energy[\\s-]?recovery\\s+ventilator|heat[\\s-]?recovery\\s+ventilator)',
+      "(?:ERV|HRV|fresh[\\s-]?air\\s+ventilator|energy[\\s-]?recovery\\s+ventilator|heat[\\s-]?recovery\\s+ventilator)",
     );
-    if (ventilationCount) out.hvacVentilationCount = Math.round(ventilationCount);
+    if (ventilationCount)
+      out.hvacVentilationCount = Math.round(ventilationCount);
     if (/\b(?:permit|inspection)\b/i.test(hvacText)) out.hvacPermitCount = 1;
     if (/\b(?:hvac\s+)?(?:cleanup|disposal|haul[\s-]?off)\b/i.test(hvacText)) {
       out.hvacCleanupCount = 1;
@@ -1237,14 +1521,14 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
 
   const planned = applyConcretePlanningMeasurements(out, text);
   for (const key of [
-    'concreteSqft',
-    'concreteAreaByType',
-    'concreteThicknessByType',
-    'concreteDrivewaySqft',
-    'concreteSidewalkSqft',
-    'concretePatioSqft',
-    'concreteWalkwaySqft',
-    'concreteRvPadSqft',
+    "concreteSqft",
+    "concreteAreaByType",
+    "concreteThicknessByType",
+    "concreteDrivewaySqft",
+    "concreteSidewalkSqft",
+    "concretePatioSqft",
+    "concreteWalkwaySqft",
+    "concreteRvPadSqft",
   ]) {
     if (!(key in planned)) delete out[key];
   }
@@ -1270,23 +1554,31 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
 
   Object.assign(
     out,
-    applyBathroomPlanningMeasurements(out, text, { templateKey, projectType })
+    applyBathroomPlanningMeasurements(out, text, { templateKey, projectType }),
   );
 
   const electrical = parseElectricalMeasurementsFromNotes(text);
   const electricalItemQuantities = electrical.itemQuantities || {};
   for (const [key, value] of Object.entries(electrical)) {
-    if (key === 'itemQuantities' || value == null) continue;
+    if (key === "itemQuantities" || value == null) continue;
     out[key] = value;
   }
 
   const itemAllowances = parseScopeItemAllowancesFromNotes(text, ctx);
   const itemRatePricing = parseScopeItemRatePricingFromNotes(text, out, ctx);
-  const itemQuantities = { ...itemAllowances, ...itemRatePricing };
+  const mixedPainting = parseMixedPaintingIntents(text);
+  const itemQuantities = {
+    ...itemAllowances,
+    ...itemRatePricing,
+    ...(mixedPainting.itemQuantities || {}),
+  };
+  for (const [key, value] of Object.entries(mixedPainting)) {
+    if (key !== "itemQuantities") out[key] = value;
+  }
   const openingItemMap = [
-    ['windowCount', 'windows'],
-    ['exteriorDoorCount', 'exterior_doors'],
-    ['slidingDoorCount', 'sliding_doors'],
+    ["windowCount", "windows"],
+    ["exteriorDoorCount", "exterior_doors"],
+    ["slidingDoorCount", "sliding_doors"],
   ];
   for (const [key, itemId] of openingItemMap) {
     const quantity = Number(out[key]);
@@ -1295,8 +1587,8 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     }
     itemQuantities[itemId] = {
       quantity,
-      unit: 'each',
-      quantitySource: 'notes',
+      unit: "each",
+      quantitySource: "notes",
     };
   }
   const garageDoorCount =
@@ -1306,26 +1598,26 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   if (garageDoorCount > 0 && !itemQuantities.garage_doors) {
     itemQuantities.garage_doors = {
       quantity: garageDoorCount,
-      unit: 'each',
-      quantitySource: 'notes',
+      unit: "each",
+      quantitySource: "notes",
     };
   }
   for (const [itemId, quantity] of Object.entries(electricalItemQuantities)) {
     if (!itemQuantities[itemId]) itemQuantities[itemId] = quantity;
   }
   const hvacItemMap = [
-    ['hvacSystemCount', 'hvac', 'each'],
-    ['hvacSystemTons', 'hvac', 'ton'],
-    ['hvacServiceCallCount', 'service_call', 'each'],
-    ['hvacEquipmentReplacementCount', 'equipment_replace', 'each'],
-    ['hvacRefrigerantCount', 'refrigerant', 'each'],
-    ['hvacThermostatCount', 'thermostat', 'each'],
-    ['hvacDuctworkLf', 'ductwork', 'lf'],
-    ['hvacSupplyRegisterCount', 'supply_registers', 'each'],
-    ['hvacReturnGrilleCount', 'return_grilles', 'each'],
-    ['hvacVentilationCount', 'ventilation', 'each'],
-    ['hvacPermitCount', 'permits', 'each'],
-    ['hvacCleanupCount', 'cleanup', 'each'],
+    ["hvacSystemCount", "hvac", "each"],
+    ["hvacSystemTons", "hvac", "ton"],
+    ["hvacServiceCallCount", "service_call", "each"],
+    ["hvacEquipmentReplacementCount", "equipment_replace", "each"],
+    ["hvacRefrigerantCount", "refrigerant", "each"],
+    ["hvacThermostatCount", "thermostat", "each"],
+    ["hvacDuctworkLf", "ductwork", "lf"],
+    ["hvacSupplyRegisterCount", "supply_registers", "each"],
+    ["hvacReturnGrilleCount", "return_grilles", "each"],
+    ["hvacVentilationCount", "ventilation", "each"],
+    ["hvacPermitCount", "permits", "each"],
+    ["hvacCleanupCount", "cleanup", "each"],
   ];
   for (const [key, itemId, unit] of hvacItemMap) {
     const quantity = Number(out[key]);
@@ -1335,24 +1627,24 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     itemQuantities[itemId] = {
       quantity,
       unit,
-      quantitySource: 'notes',
+      quantitySource: "notes",
     };
   }
   if (wallDemoSqft && !itemQuantities.wall_demo) {
     itemQuantities.wall_demo = {
       quantity: wallDemoSqft,
-      unit: 'sqft',
-      quantitySource: 'notes',
+      unit: "sqft",
+      quantitySource: "notes",
     };
   }
-  if (wallDemoLf && !itemQuantities['walls_moving__remove']) {
-    itemQuantities['walls_moving__remove'] = {
+  if (wallDemoLf && !itemQuantities["walls_moving__remove"]) {
+    itemQuantities["walls_moving__remove"] = {
       quantity: wallDemoLf,
-      unit: 'lf',
-      quantitySource: 'notes',
+      unit: "lf",
+      quantitySource: "notes",
     };
   }
-  if (ctx.templateKey === 'flooring' && itemQuantities.floor_demo) {
+  if (ctx.templateKey === "flooring" && itemQuantities.floor_demo) {
     delete itemQuantities.demo;
   }
   if (Object.keys(itemQuantities).length) {

@@ -206,7 +206,9 @@ function buildWhatAiDid(draft, scopePackages, options = {}) {
     ? draft.detectedTrades
     : detectTrades(draft.projectType, scopePackages.map((p) => `${p.name} ${p.scope}`).join(' '));
   const tradeLabel =
-    TRADE_LABELS[draft.projectType] ||
+    draft.scopeChecklist?.templateKey === 'room_remodel'
+      ? 'existing home interior remodel'
+      : TRADE_LABELS[draft.projectType] ||
     (trades[0] ? TRADE_LABELS[trades[0]] || trades[0].replace(/_/g, ' ') : null);
 
   if (hasNoPricing(draft, scopePackages) && profile.primary === 'scope_only') {

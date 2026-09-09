@@ -494,6 +494,24 @@ describe('painting plan convergence', () => {
     expect(backToSeparate.paintAreaBasis).toBeNull();
   });
 
+  it('splits a combined total evenly when no real separate takeoff exists', () => {
+    const separate = applyPaintPricingMethodChoice(
+      {
+        wallPaintSqft: '0',
+        ceilingPaintSqft: '2000',
+        combinedPaintableAreaSqft: '2000',
+        paintPricingMethod: 'combined' as const,
+      },
+      'separate'
+    );
+
+    expect(separate.wallPaintSqft).toBe('1000');
+    expect(separate.ceilingPaintSqft).toBe('1000');
+    expect(Number(separate.wallPaintSqft) + Number(separate.ceilingPaintSqft)).toBe(
+      2000
+    );
+  });
+
   it('restores a stashed wall/ceiling split if combined had already cleared them', () => {
     const restored = applyPaintPricingMethodChoice(
       {

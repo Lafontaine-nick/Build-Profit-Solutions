@@ -25,6 +25,16 @@ const {
   choiceIdsToState,
   applyAdditionConversionScopeDefaults,
 } = require("./scopeChecklistLibrary");
+const {
+  getCatalogMatchesForParsedMeasurements,
+  getCatalogShadowMatches,
+  canonicalScopeId,
+  getCatalogIdentity,
+} = require("./scopeCatalog");
+const {
+  extractScopeFactsFromNotes,
+  resolveScopeFactsToCatalog,
+} = require("./scopeFactExtractor");
 
 const VALID_ESTIMATE_TIERS = new Set([
   "simple_unit",
@@ -325,7 +335,27 @@ const NOTE_BACKED_SCOPE_LABELS = {
   ],
   door_paint: [
     "Interior door update & paint",
-    "Assumes updated interior doors include prep and paint; confirm replacement, trim, and finish details.",
+    "Includes prep and paint for the specified doors, jambs/frames, and associated casing, including normal nail-hole filling and minor caulking.",
+  ],
+  door_casing_paint: [
+    "Door casing / trim painting",
+    "Prep and paint door casing separately from door installation.",
+  ],
+  baseboard_install: [
+    "Baseboard installation",
+    "Install new baseboards; painting is tracked separately when specified.",
+  ],
+  interior_door_install: [
+    "Interior door installation",
+    "Install or replace the interior doors, jambs, casing, hinges, and standard hardware; include normal nailing-off and installation.",
+  ],
+  door_casing_install: [
+    "Door casing installation",
+    "Install or replace casing around the specified interior doors.",
+  ],
+  window_install: [
+    "Window installation",
+    "Install or replace windows; casing painting is tracked separately when specified.",
   ],
 };
 
@@ -343,7 +373,6 @@ function noteBackedChecklistItems(
   const templateIds = new Set(templateItems.map((item) => item.id));
   const added = new Set();
   const out = [];
-
   for (const key of Object.keys(itemQuantities)) {
     const itemId = key.replace(/__(?:material|labor|allowance)$/, "");
     if (!itemId || added.has(itemId) || templateIds.has(itemId)) continue;
@@ -373,49 +402,216 @@ function noteBackedChecklistItems(
     });
   }
 
+  for (const catalogEntry of getCatalogMatchesForParsedMeasurements(
+    parsedMeasurements,
+  )) {
+    const itemId = catalogEntry.scopeId;
+    if (!itemId || templateIds.has(itemId) || added.has(itemId)) continue;
+    const [label, helperText] = NOTE_BACKED_SCOPE_LABELS[itemId] || [
+      catalogEntry.displayName,
+      "Installation work found in notes.",
+    ];
+    added.add(itemId);
+    out.push({
+      id: itemId,
+      inputType: "yes_no",
+      label,
+      helperText,
+      category: "from_notes",
+      state: "included",
+      noteBacked: true,
+    });
+  }
+
   return out;
+}
+
+function catalogAdditiveChecklistItems(
+  templateItems,
+  resolvedScopeFacts,
+  templateKey,
+) {
+  const normalizedTemplateKey = String(templateKey || "").toLowerCase();
+  const catalogEnabled =
+    normalizedTemplateKey === "painting" ||
+    process.env.ENABLE_CATALOG_ADDITIVE_SCOPE_CARDS === "true";
+  if (!catalogEnabled) return [];
+  const existingIds = new Set(templateItems.map((item) => item.id));
+  const existingCanonicalIds = new Set(
+    templateItems.map((item) => canonicalScopeId(item.id)),
+  );
+  const added = new Set();
+  return resolvedScopeFacts
+    .filter(
+      (scopeFact) =>
+        scopeFact.scopeId &&
+        scopeFact.status !== "excluded" &&
+        !existingIds.has(scopeFact.scopeId) &&
+        !existingCanonicalIds.has(canonicalScopeId(scopeFact.scopeId)) &&
+        !added.has(scopeFact.scopeId),
+    )
+    .map((scopeFact) => {
+      added.add(scopeFact.scopeId);
+      const identity = getCatalogIdentity(scopeFact.scopeId);
+      return {
+        id: scopeFact.scopeId,
+        inputType: "yes_no",
+        label:
+          scopeFact.catalogEntry?.displayName ||
+          scopeFact.scopeId.replace(/_/g, " "),
+        helperText:
+          scopeFact.quantity == null
+            ? "Work detected in notes. Measurement is required before pricing."
+            : "Work detected in notes and mapped to the existing pricing catalog.",
+        category: scopeFact.catalogEntry?.category || "from_notes",
+        state: scopeFact.quantity == null ? "unsure" : "included",
+        noteBacked: true,
+        catalogBacked: true,
+        catalogScopeId: identity.canonicalScopeId,
+        quantityRuleKey: identity.quantityRuleKey,
+        pricingRuleKey: identity.pricingRuleKey,
+        catalogOrder: identity.order || 90,
+        confidence: scopeFact.certainty || "explicit",
+        sourceText: scopeFact.sourceText || "",
+      };
+    });
 }
 
 function buildScopeChecklist(draft, estimateTier, originalNotes) {
   if (estimateTier === "simple_unit") return null;
 
-  const templateKey = checklistTemplateKey(draft, estimateTier);
+  const notes = originalNotes || draft.originalNotes || "";
+  let templateKey = checklistTemplateKey(draft, estimateTier);
+  // A concise whole-home repaint note can be classified as a generic
+  // room-remodel/simple painting package before checklist construction. Keep
+  // it on the full Painting checklist whenever the notes identify both
+  // interior/exterior repainting or the core painted surfaces.
+  if (
+    /\b(?:repaint|repaint(?:ing)?|paint(?:ing)?)\b/i.test(notes) &&
+    (/\binterior\b/i.test(notes) || /\bwalls?\b|\bceilings?\b/i.test(notes)) &&
+    (/\bexterior\b|\bsiding\b|\bwindow\s+trim\b/i.test(notes)) &&
+    templateKey !== "painting"
+  ) {
+    templateKey = "painting";
+  }
   const template =
     CHECKLIST_TEMPLATES[templateKey] || CHECKLIST_TEMPLATES.room_remodel;
-  const notes = originalNotes || draft.originalNotes || "";
 
   const parsedMeasurements = parseScopeMeasurementsFromNotes(notes, {
     templateKey,
     projectType: draft.projectType,
   });
+  const scopeFactResult = extractScopeFactsFromNotes(notes, {
+    templateKey,
+    projectType: draft.projectType,
+    parsedMeasurements,
+  });
+  const resolvedScopeFacts = resolveScopeFactsToCatalog(scopeFactResult.facts);
+  if (templateKey === "room_remodel") {
+    const noteQuantities = {
+      ...(parsedMeasurements.itemQuantities || {}),
+    };
+    const addNoteQuantity = (itemId, quantity, unit) => {
+      if (
+        !noteQuantities[itemId] &&
+        Number.isFinite(Number(quantity)) &&
+        Number(quantity) > 0
+      ) {
+        noteQuantities[itemId] = {
+          quantity: Number(quantity),
+          unit,
+          quantitySource: "notes",
+        };
+      }
+    };
+    addNoteQuantity("cabinets", parsedMeasurements.cabinetLf, "lf");
+    const countertopLfMatch = notes.match(
+      /(\d[\d,]*(?:\.\d+)?)\s*(?:linear\s+feet|linear\s+foot|lf)\s+(?:of\s+)?(?:kitchen\s+)?countertops?\b/i,
+    );
+    addNoteQuantity(
+      "countertops",
+      countertopLfMatch ? Number(countertopLfMatch[1].replace(/,/g, "")) : null,
+      "lf",
+    );
+    const vanityMatch = notes.match(
+      /\b(\d[\d,]*|one|two|three|four)\s+(?:bathroom\s+)?vanit(?:y|ies)\b/i,
+    );
+    const vanityCount = vanityMatch
+      ? /^\d/.test(vanityMatch[1])
+        ? Number(vanityMatch[1].replace(/,/g, ""))
+        : { one: 1, two: 2, three: 3, four: 4 }[vanityMatch[1].toLowerCase()]
+      : null;
+    addNoteQuantity("vanity", vanityCount, "each");
+    if (Object.keys(noteQuantities).length) {
+      parsedMeasurements.itemQuantities = noteQuantities;
+    }
+  }
 
   const items = template.items.map((item) => {
     const inputType = item.inputType || "yes_no";
     if (inputType === "multi_choice") {
       const choiceIds = inferChoicesFromNotes(item.id, notes);
+      const state = choiceIdsToState(choiceIds);
       return {
         ...item,
         inputType,
         choiceIds,
         choiceId: choiceIds[0] || null,
-        state: choiceIdsToState(choiceIds),
+        state,
+        noteBacked: state === "included",
       };
     }
     if (inputType === "choice") {
       const choiceId = inferChoiceFromNotes(item.id, notes);
+      const state = choiceToState(choiceId);
       return {
         ...item,
         inputType,
         choiceId: choiceId || null,
-        state: choiceToState(choiceId),
+        state,
+        noteBacked: state === "included",
       };
     }
+    const state = inferItemStateFromNotes(item.id, notes);
     return {
       ...item,
       inputType: "yes_no",
-      state: inferItemStateFromNotes(item.id, notes),
+      state,
+      noteBacked: state === "included",
     };
   });
+
+  for (const catalogEntry of getCatalogMatchesForParsedMeasurements(
+    parsedMeasurements,
+  )) {
+    const existingItem = items.find((item) => item.id === catalogEntry.scopeId);
+    if (existingItem) {
+      existingItem.state = "included";
+      existingItem.noteBacked = true;
+    }
+  }
+  items.push(
+    ...catalogAdditiveChecklistItems(items, resolvedScopeFacts, templateKey),
+  );
+
+  if (
+    templateKey === "room_remodel" &&
+    /\b(?:do\s+not|no|without)\b[^.;]{0,45}\b(?:change|modify|alter)\b[^.;]{0,35}\b(?:building\s+footprint|structural\s+framing|load[-\s]?bearing)\b/i.test(
+      notes,
+    )
+  ) {
+    const framingItem = items.find((item) => item.id === "framing");
+    if (framingItem) framingItem.state = "excluded";
+  }
+  if (
+    templateKey === "room_remodel" &&
+    /\b(?:paint(?:ing)?|repaint)\b[^.;]{0,45}\b(?:interior\s+)?walls?\b|\b(?:paint(?:ing)?|repaint)\b[^.;]{0,45}\bceilings?\b/i.test(
+      notes,
+    )
+  ) {
+    const paintItem = items.find((item) => item.id === "paint");
+    if (paintItem) paintItem.state = "included";
+  }
 
   // Ground-up soft costs are almost always in the bid. Notes often mention "plans"
   // but not "permits", which left permits stuck on Not sure with pricing hidden.
@@ -439,6 +635,9 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
   if (
     templateKey === "room_remodel" &&
     /\b(?:patch(?:ing)?|repair)\b[^.;]{0,30}\bdrywall\b|\bdrywall\b[^.;]{0,30}\b(?:patch(?:ing)?|repair)\b/i.test(
+      notes,
+    ) &&
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;]{0,30}\bdrywall\b|\bdrywall\b[^.;]{0,30}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
       notes,
     )
   ) {
@@ -575,6 +774,124 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     }
   }
 
+  // The template and catalog adapter may both recognize the same work. Keep
+  // one canonical card; walking backward preserves the catalog-enriched card
+  // when both paths produced the same scope.
+  const canonicalItemIndexes = new Map();
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (
+      item.id === "door_casing_install" &&
+      Number(parsedMeasurements.interiorDoorCount || 0) > 0
+    ) {
+      items[i] = null;
+      continue;
+    }
+    const canonicalId = canonicalScopeId(item.id);
+    const previousIndex = canonicalItemIndexes.get(canonicalId);
+    if (previousIndex == null) {
+      canonicalItemIndexes.set(canonicalId, i);
+      continue;
+    }
+    const previous = items[previousIndex];
+    if (previous && previous.id !== canonicalId && item.id === canonicalId) {
+      items[previousIndex] = null;
+      canonicalItemIndexes.set(canonicalId, i);
+    } else {
+      items[i] = null;
+    }
+  }
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i] == null) {
+      items.splice(i, 1);
+    }
+  }
+
+  // Attach the catalog identity to every surviving checklist row. This is
+  // additive metadata: existing IDs, labels, pricing rules, and Apply
+  // behavior remain unchanged, while downstream measurement-card adapters can
+  // reliably use one canonical identity for both priced and unpriced work.
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const identity = getCatalogIdentity(item.id);
+    if (!identity) continue;
+    items[i] = {
+      ...item,
+      catalogScopeId: identity.canonicalScopeId,
+      quantityRuleKey: identity.quantityRuleKey || null,
+      pricingRuleKey: identity.pricingRuleKey || null,
+      catalogConfidence:
+        item.noteBacked || item.state === "included"
+          ? "identified"
+          : "needs_review",
+    };
+  }
+
+  // A plain "exhaust fan" note describes the ventilation scope. Keep the
+  // electrical connection card available when wiring is explicitly called
+  // out, but do not create two cards for the same fan by default.
+  if (
+    templateKey === "bathroom" &&
+    !/\b(?:electrical|wiring|wire|circuit|new\s+box|power)\b/i.test(notes)
+  ) {
+    const electricalFan = items.find(
+      (item) => item.id === "electrical_bath_exhaust_fan",
+    );
+    if (electricalFan && electricalFan.state === "included") {
+      electricalFan.state = "unsure";
+      electricalFan.noteBacked = false;
+      electricalFan.catalogConfidence = "needs_review";
+    }
+  }
+
+  if (templateKey === "bathroom") {
+    const hasBaseboardInstall = items.some(
+      (item) => item.id === "baseboard_install" && item.state === "included",
+    );
+    if (hasBaseboardInstall) {
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (items[i].id === "trim" && items[i].state === "included") {
+          items.splice(i, 1);
+        }
+      }
+    }
+    const toilet = items.find(
+      (item) => item.id === "toilet" && item.state === "included",
+    );
+    const plumbingTrim = items.find((item) => item.id === "plumbing_trim");
+    if (toilet && plumbingTrim && plumbingTrim.state === "included") {
+      plumbingTrim.label = "Plumbing trim / hookups (excluding toilet)";
+      plumbingTrim.helperText =
+        "Set faucets and finish plumbing connections; the toilet is priced as its own scope item.";
+    }
+    const sinkFaucet = items.find(
+      (item) => item.id === "sink_faucet" && item.state === "included",
+    );
+    if (sinkFaucet && plumbingTrim && plumbingTrim.state === "included") {
+      plumbingTrim.label =
+        "Plumbing trim / hookups (excluding toilet, sink & faucet)";
+      plumbingTrim.helperText =
+        "Finish remaining plumbing connections; the toilet, sink, and faucet are priced as separate scope items.";
+    }
+
+    const showerWidth = notes.match(
+      /\b(\d+(?:\.\d+)?)\s*(?:-|to)?\s*inch(?:es)?\b[^.;\n]{0,35}\b(?:tile\s+)?shower\b/i,
+    )?.[1];
+    const vanityWidth = notes.match(
+      /\b(\d+(?:\.\d+)?)\s*(?:-|to)?\s*inch(?:es)?\b[^.;\n]{0,35}\bvanity\b/i,
+    )?.[1];
+    for (const item of items) {
+      if (item.id === "shower_tile" && showerWidth) {
+        item.label = `Shower wall tile installation (${showerWidth}-inch shower)`;
+        item.catalogAttributes = { showerWidthIn: Number(showerWidth) };
+      }
+      if (item.id === "vanity" && vanityWidth) {
+        item.label = `Vanity & countertop (${vanityWidth}-inch vanity)`;
+        item.catalogAttributes = { vanityWidthIn: Number(vanityWidth) };
+      }
+    }
+  }
+
   const inScopeCount = items.filter((i) => i.state === "included").length;
   const unsureCount = items.filter((i) => i.state === "unsure").length;
   const outOfScopeCount = items.filter((i) => i.state === "excluded").length;
@@ -591,6 +908,18 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
         ? parsedMeasurements
         : undefined;
     })(),
+    // Diagnostic-only during rollout. The UI and pricing pipeline continue
+    // using the existing template items until shadow comparisons are vetted.
+    catalogShadowMatches: getCatalogShadowMatches(notes).map((entry) => ({
+      scopeId: entry.scopeId,
+      displayName: entry.displayName,
+      trade: entry.trade,
+      matchedAlias: entry.matchedAlias,
+      pricingStatus: entry.pricingStatus || "existing_pricing_pipeline",
+    })),
+    // Shadow-only structured interpretation. Existing checklist generation
+    // remains authoritative until this output is validated against fixtures.
+    scopeFacts: resolvedScopeFacts,
     options: [
       { id: "scope_only", label: "Build scope only (no pricing yet)" },
       { id: "rough_range", label: "Create rough budget range" },

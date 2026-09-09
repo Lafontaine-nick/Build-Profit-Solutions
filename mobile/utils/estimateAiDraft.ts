@@ -1461,7 +1461,7 @@ export function repairDraftRatePricingFromNotes(
     });
   }
 
-  return repairMisroutedConversionScopeChecklist(
+  const repairedDraft = repairMisroutedConversionScopeChecklist(
     {
       ...draft,
       originalNotes: draft.originalNotes || text,
@@ -1479,6 +1479,24 @@ export function repairDraftRatePricingFromNotes(
     },
     text
   );
+  // A stale server draft can retain a plumbing/kitchen checklist even when
+  // the current notes explicitly describe a bathroom remodel. Force the
+  // checklist to be regenerated from the corrected trade identity.
+  const explicitBathroomRemodel =
+    /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(text) ||
+    /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(text);
+  if (
+    explicitBathroomRemodel &&
+    repairedDraft.scopeChecklist?.templateKey !== 'bathroom'
+  ) {
+    return {
+      ...repairedDraft,
+      projectType: 'bathroom',
+      estimateTier: 'room_remodel',
+      scopeChecklist: undefined,
+    };
+  }
+  return repairedDraft;
 }
 
 export async function fetchEstimateDraftFromNotes(

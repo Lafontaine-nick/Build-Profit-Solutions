@@ -504,6 +504,17 @@ describe('mobile scope measurement parser', () => {
     expect(input.kitchenFloorSqft).toBe('');
   });
 
+  it('does not reuse flooring sqft as countertop sqft when counters are measured in LF', () => {
+    const notes =
+      'Interior remodel. Install 900 sqft of LVP and replace 12 linear feet of kitchen countertops.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'room_remodel',
+      projectType: 'room_remodel',
+    });
+
+    expect(parsed.countertopSqft).toBeUndefined();
+  });
+
   it('does not steal backsplash sqft for kitchen floor when flooring is excluded', () => {
     const notes =
       'Kitchen remodel with 18 LF cabinets, 55 sqft counters, 28 sqft backsplash, flooring by others.';

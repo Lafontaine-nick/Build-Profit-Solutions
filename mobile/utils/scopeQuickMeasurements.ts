@@ -1910,12 +1910,20 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
   ],
   room_remodel: [
     row(
-      F('bathroomFloorSqft', 'Room floor', '150', 'sqft', 'interior', true),
-      F('wallPaintSqft', 'Paint', '320', 'sqft', 'interior')
+      F('floorAreaSqft', 'Living area', '1400', 'sqft', 'structure', true),
+      F('kitchenFloorSqft', 'Total flooring area', '900', 'sqft', 'interior')
     ),
     row(
-      F('drywallSqft', 'Drywall', '200', 'sqft', 'interior'),
-      F('baseboardLf', 'Trim', '48', 'LF', 'interior')
+      F('cabinetLf', 'Cabinets', '42', 'LF', 'interior'),
+      F('countertopSqft', 'Counters', '', 'sqft', 'interior')
+    ),
+    row(
+      F('drywallSqft', 'Drywall repair', '300', 'sqft', 'interior'),
+      F('baseboardLf', 'Baseboard', '180', 'LF', 'interior')
+    ),
+    row(
+      F('wallPaintSqft', 'Interior wall paint', '3080', 'sqft', 'interior'),
+      F('ceilingPaintSqft', 'Interior ceiling paint', '1400', 'sqft', 'interior')
     ),
   ],
   /**
@@ -2279,7 +2287,7 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
       Number.isFinite(garage) &&
       garage > 0);
 
-  if (looksWholeHome && (resolved === 'room_remodel' || !params.templateKey)) {
+  if (looksWholeHome && !params.templateKey) {
     return 'ground_up';
   }
   return resolved;

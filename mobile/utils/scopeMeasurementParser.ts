@@ -796,8 +796,6 @@ export function parseScopeMeasurementsFromNotes(
         /\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b/
       );
       if (near) return near;
-      const q = firstQty(clause, SQFT_RE);
-      if (q) return q;
     }
     return pickSqftNearPattern(
       text,

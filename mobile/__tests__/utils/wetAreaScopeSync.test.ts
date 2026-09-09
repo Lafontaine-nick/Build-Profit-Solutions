@@ -93,6 +93,28 @@ describe('wetAreaScopeSync', () => {
     expect(next.find(r => r.id === 'shower_floor_tile')?.state).toBe('unsure');
   });
 
+  test('preserves note-backed tile scope when measurement is still missing', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'shower_tile',
+        label: 'Shower wall tile',
+        inputType: 'yes_no',
+        state: 'included',
+        noteBacked: true,
+      },
+      {
+        id: 'floor_tile',
+        label: 'Bathroom floor tile',
+        inputType: 'yes_no',
+        state: 'included',
+        noteBacked: true,
+      },
+    ];
+    const next = syncWetAreaTileScopeItems(items, {});
+    expect(next.find(r => r.id === 'shower_tile')?.state).toBe('included');
+    expect(next.find(r => r.id === 'shower_tile')?.noteBacked).toBe(true);
+  });
+
   test('syncWaterproofingFromTileScopeItems includes waterproofing when shower wall tile is Yes', () => {
     const items: ScopeChecklistItem[] = [
       {
@@ -340,7 +362,7 @@ describe('wetAreaScopeSync', () => {
     expect(next.find(r => r.id === 'floor_tile')?.state).toBe('included');
   });
 
-  test('syncBathroomFloorTileScopeItems clears floor_tile Yes when bath floor SF empty', () => {
+  test('syncBathroomFloorTileScopeItems preserves note-backed floor tile when SF is missing', () => {
     const items: ScopeChecklistItem[] = [
       {
         id: 'floor_tile',
@@ -353,7 +375,7 @@ describe('wetAreaScopeSync', () => {
     const next = syncBathroomFloorTileScopeItems(items, {
       bathroomFloorSqft: null,
     });
-    expect(next.find(r => r.id === 'floor_tile')?.state).toBe('unsure');
+    expect(next.find(r => r.id === 'floor_tile')?.state).toBe('included');
   });
 
   test('syncBathroomFloorTileScopeItems keeps floor_tile when stepper on even if SF empty', () => {

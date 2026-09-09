@@ -77,7 +77,7 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).toContain('interiorDoorCount');
   });
 
-  it('upgrades room_remodel to ground_up when plan takeoff looks like a whole home', () => {
+  it('keeps an interior room remodel on the remodel measurement layout', () => {
     expect(
       resolveEffectiveQuickMeasurementTemplateKey({
         templateKey: 'room_remodel',
@@ -85,7 +85,7 @@ describe('scopeQuickMeasurements', () => {
         livingSf: 3098,
         garageSf: 900,
       })
-    ).toBe('ground_up');
+    ).toBe('room_remodel');
     expect(
       resolveEffectiveQuickMeasurementTemplateKey({
         templateKey: 'kitchen',

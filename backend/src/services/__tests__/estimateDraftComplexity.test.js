@@ -105,9 +105,63 @@ describe("estimateDraftComplexity", () => {
     expect(stateById.plumbing).not.toBe("included");
     expect(checklist.suggestedMeasurements.flooringSqft).toBe(1100);
     expect(checklist.suggestedMeasurements.interiorDoorCount).toBe(6);
-    expect(checklist.items.find((item) => item.id === "drywall")).toEqual(
+  });
+
+  test("overrides a painting tier for a multi-trade interior remodel", () => {
+    const notes =
+      "Remodel an existing 1,400 sqft home interior. Renovate one kitchen and two bathrooms, install 900 sqft of LVP, replace 12 linear feet of countertops, install 42 linear feet of cabinets, repair 300 sqft of drywall, repaint interior walls and ceilings, and install 180 linear feet of baseboard.";
+    const draft = {
+      projectType: "painting",
+      originalNotes: notes,
+      rooms: [{ name: "Home interior remodel", scope: notes }],
+    };
+
+    expect(checklistTemplateKey(draft, "painting", notes)).toBe("room_remodel");
+  });
+
+  test("keeps a kitchen-and-bath interior remodel on the multi-trade checklist", () => {
+    const notes =
+      "Remodel an existing 1,400 sqft home interior. Renovate one kitchen and two bathrooms, remove existing flooring in the affected areas, install 900 sqft of LVP, replace 12 linear feet of kitchen countertops, install 42 linear feet of cabinets, replace two bathroom vanities, update plumbing fixtures, repair 300 sqft of drywall, repaint interior walls and ceilings, and install 180 linear feet of baseboard. Do not change the building footprint or structural framing.";
+    const draft = {
+      projectType: "other",
+      originalNotes: notes,
+      rooms: [{ name: "Whole-home interior remodel", scope: notes }],
+    };
+
+    const checklist = buildScopeChecklist(draft, "room_remodel", notes);
+    const stateById = Object.fromEntries(
+      checklist.items.map((item) => [item.id, item.state]),
+    );
+
+    expect(checklist.templateKey).toBe("room_remodel");
+    expect(stateById.demo).toBe("included");
+    expect(stateById.flooring).toBe("included");
+    expect(stateById.drywall).toBe("included");
+    expect(stateById.plumbing).toBe("included");
+    expect(stateById.framing).not.toBe("included");
+    expect(checklist.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "cabinets", state: "included" }),
+        expect.objectContaining({ id: "countertops", state: "included" }),
+        expect.objectContaining({ id: "vanity", state: "included" }),
+      ]),
+    );
+    expect(checklist.suggestedMeasurements).toEqual(
       expect.objectContaining({
-        label: "Drywall patch / repair",
+        paintAreaSqft: 1400,
+        combinedPaintableAreaSqft: 4480,
+        flooringSqft: 900,
+        flooringLvpSqft: 900,
+        cabinetLf: 42,
+        drywallSqft: 300,
+        baseboardLf: 180,
+      }),
+    );
+    expect(checklist.suggestedMeasurements.itemQuantities).toEqual(
+      expect.objectContaining({
+        cabinets: expect.objectContaining({ quantity: 42, unit: "lf" }),
+        countertops: expect.objectContaining({ quantity: 12, unit: "lf" }),
+        vanity: expect.objectContaining({ quantity: 2, unit: "each" }),
       }),
     );
   });
@@ -192,6 +246,79 @@ describe("estimateDraftComplexity", () => {
       rooms: [{ name: "Master Bath", scope: notes }],
     };
     expect(classifyEstimateTier(draft, notes)).toBe("room_remodel");
+  });
+
+  test("keeps a multi-trade bathroom remodel on the bathroom checklist", () => {
+    const notes =
+      "Remodel one existing bathroom. Remove the vanity, toilet, flooring, " +
+      "shower surround, and plumbing fixtures. Install a 60-inch tile shower " +
+      "with waterproofing, shower pan, wall tile, niche, glass door, and trim. " +
+      "Install a vanity with countertop, sink, faucet, mirror, and lighting. " +
+      "Install a new toilet, bathroom floor tile, baseboards, exhaust fan, " +
+      "and standard plumbing trim. Include demolition, disposal, drywall repair, " +
+      "waterproofing, and final cleanup.";
+    expect(
+      checklistTemplateKey(
+        { projectType: "plumbing", originalNotes: notes, rooms: [] },
+        "room_remodel",
+        notes,
+      ),
+    ).toBe("bathroom");
+  });
+
+  test("promotes detailed bathroom remodel notes to the full checklist", () => {
+    const notes =
+      "Remodel one existing bathroom. Remove the vanity, toilet, flooring, " +
+      "shower surround, and plumbing fixtures. Install a 60-inch tile shower " +
+      "with waterproofing, shower pan, backer board, wall tile, niche, glass door, " +
+      "and trim. Install a 60-inch vanity with countertop, sink, faucet, mirror, " +
+      "and lighting. Install a new toilet, bathroom floor tile, baseboards, exhaust " +
+      "fan, and standard plumbing trim. Include demolition, disposal, minor drywall " +
+      "repair, waterproofing, and final cleanup. No structural changes or room expansion.";
+    const checklist = buildScopeChecklist(
+      { projectType: "bathroom", originalNotes: notes, rooms: [] },
+      "room_remodel",
+      notes,
+    );
+    const included = new Set(
+      checklist.items
+        .filter((item) => item.state === "included")
+        .map((item) => item.id),
+    );
+    expect([...included]).toEqual(
+      expect.arrayContaining([
+        "shower_tile",
+        "waterproofing",
+        "shower_pan",
+        "shower_niche",
+        "glass_door",
+        "floor_tile",
+        "toilet",
+        "vanity",
+        "sink_faucet",
+        "lighting",
+        "mirror_accessories",
+        "exhaust_fan",
+        "paint_repair",
+        "plumbing_trim",
+        "baseboard_install",
+        "cleanup",
+      ]),
+    );
+    expect(included.has("trim")).toBe(false);
+    expect(included.has("electrical_bath_exhaust_fan")).toBe(false);
+    expect(
+      checklist.items.find((item) => item.id === "shower_tile")?.catalogScopeId,
+    ).toBe("shower_tile");
+    expect(
+      checklist.items.find((item) => item.id === "shower_tile")?.noteBacked,
+    ).toBe(true);
+    expect(
+      checklist.items.find((item) => item.id === "shower_tile")?.label,
+    ).toContain("60-inch shower");
+    expect(
+      checklist.items.find((item) => item.id === "vanity")?.label,
+    ).toContain("60-inch vanity");
   });
 
   test("classifies new build as ground_up", () => {

@@ -97,7 +97,10 @@ export function mergeSuggestedPricingBlocksIntoMeasurements(
     );
   };
 
-  for (const { itemId, block } of rows) {
+  for (const { itemId, block: sourceBlock } of rows) {
+    // The displayed total is the contract for Apply. Legacy blocks may carry
+    // a cached exact total from an earlier rate calculation.
+    const block = { ...sourceBlock, storedTotalExact: null };
     const appKey = block.benchmarkApplicationKey;
     if (
       measurementSemanticsV1Enabled() &&
@@ -120,8 +123,12 @@ export function mergeSuggestedPricingBlocksIntoMeasurements(
     const basisKey = allowanceSplitSubKey(itemId, 'sqft_basis');
     const materialKey = allowanceSplitSubKey(itemId, 'material');
     const laborKey = allowanceSplitSubKey(itemId, 'labor');
+    // Apply the same total the Confirm Scope card displays. Some pricing
+    // blocks retain a legacy `storedTotalExact` value from an earlier
+    // calculation; using it here makes the card briefly jump to that stale
+    // amount before the accepted pricing re-renders.
     itemQuantities[allowanceKey] = {
-      quantity: String(block.storedTotalExact ?? block.total),
+      quantity: String(block.total),
       unit: 'allowance',
       quantitySource: 'user_entered',
     };

@@ -353,6 +353,25 @@ function insightReferencesRemovedOpenJob(
   return true;
 }
 
+function insightReferencesOrphanedBidAggregate(
+  title: string,
+  extra: string | undefined,
+  openPipelineTitles: string[],
+  knownTitles: string[]
+): boolean {
+  const text = `${title} ${extra || ''}`;
+  // AI sometimes emits aggregate copy such as “Three large Ruth bids”
+  // without a projectId or an “on/for <project>” scope.
+  const match = /\b(?:small|medium|large|multiple|several)\s+([^.!?\n]+?)\s+bids?\b/i.exec(text);
+  if (!match?.[1]) return false;
+  const candidate = match[1].replace(/^(?:new|old|open|active)\s+/i, '').trim();
+  if (candidate.length < 3) return false;
+  return (
+    !aiTextReferencesJobTitle(candidate, openPipelineTitles) &&
+    !aiTextReferencesJobTitle(candidate, knownTitles)
+  );
+}
+
 function isRetrospectiveInsight(insight: AiInsight): boolean {
   return (
     insight.retrospective === true ||
@@ -495,6 +514,16 @@ export function filterAiInsightForPortfolio(
         insight.body,
         ctx.openPipelineTitles,
         ctx.dashboardListedTitles
+      )
+    ) {
+      return false;
+    }
+    if (
+      insightReferencesOrphanedBidAggregate(
+        insight.title,
+        insight.body,
+        ctx.openPipelineTitles,
+        ctx.knownTitles
       )
     ) {
       return false;

@@ -526,15 +526,19 @@ function inferProjectTypeFromNotes(notes, projectType) {
   if (/\b(basement\s+finish(?:ing)?|finished\s+basement|insurance\s+(?:repair|restoration)|restoration|mixed\s+repair)\b/.test(n)) {
     return 'other';
   }
+  // Bathroom remodels commonly mention countertops and cabinets; bathroom
+  // scope must win before the broader kitchen keyword check.
+  if (/\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/.test(n) ||
+      /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/.test(n) ||
+      /\b(?:shower|shower\s+pan|vanity|toilet|bathtub)\b/.test(n)) {
+    return 'bathroom';
+  }
   // Kitchen remodel signals beat floor-tile language ("kitchen floor tile install").
   if (
     /\bkitchen(?:\s+remodel)?\b/.test(n) ||
     /\b(countertops?|backsplash|kitchen\s+cabinets?|cabinet\s+install)\b/.test(n)
   ) {
     return 'kitchen';
-  }
-  if (/\bbath(?:room)?\s+remodel\b|\b(shower(?:\s+pan)?|vanity|toilet|bathtub)\b/.test(n)) {
-    return 'bathroom';
   }
   const floorHeavy =
     /\b(floor\s*job|flooring|laminate\s+flooring|tile\s+demo|lvp|baseboard\s+install)/.test(n) ||

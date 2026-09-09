@@ -434,6 +434,28 @@ export function applyPaintPricingMethodChoice<T extends PaintPricingMethodDraft>
     (positiveNumber(wall) || 0) + (positiveNumber(ceiling) || 0);
   const hasCompleteSplit =
     positiveNumber(wall) != null && positiveNumber(ceiling) != null;
+  const combinedSourceTotal =
+    storedCombined ??
+    positiveNumber(prev.originalPaintAreaReferenceSqft) ??
+    positiveNumber(prev.paintAreaSqft);
+  const hadCombinedMode =
+    prev.paintPricingMethod === 'combined' &&
+    combinedSourceTotal != null &&
+    method === 'separate';
+  const inferredSeparateWall =
+    hadCombinedMode && !hasCompleteSplit
+      ? String(Math.round((combinedSourceTotal / 2) * 100) / 100)
+      : wall;
+  const inferredSeparateCeiling =
+    hadCombinedMode && !hasCompleteSplit
+      ? String(
+          Math.round((combinedSourceTotal - combinedSourceTotal / 2) * 100) /
+            100
+        )
+      : ceiling;
+  const effectiveSplitTotal =
+    (positiveNumber(inferredSeparateWall) || 0) +
+    (positiveNumber(inferredSeparateCeiling) || 0);
   const floorAreaCeilingFallback =
     prev.paintAreaBasis === 'floor_area' &&
     positiveNumber(wall) != null &&
@@ -470,7 +492,7 @@ export function applyPaintPricingMethodChoice<T extends PaintPricingMethodDraft>
     delete nextItemQuantities.interior_paint;
     delete nextItemQuantities.prep;
   }
-  const hasSplit = splitTotal > 0;
+  const hasSplit = effectiveSplitTotal > 0;
   return {
     ...prev,
     paintPricingMethod: method,
@@ -478,8 +500,8 @@ export function applyPaintPricingMethodChoice<T extends PaintPricingMethodDraft>
       method === 'combined'
         ? String(combinedQuantity || prev.paintAreaSqft || '')
         : prev.paintAreaSqft,
-    wallPaintSqft: wall,
-    ceilingPaintSqft: ceiling,
+    wallPaintSqft: inferredSeparateWall,
+    ceilingPaintSqft: inferredSeparateCeiling,
     combinedPaintableAreaSqft:
       method === 'combined' ? combinedQuantity : prev.combinedPaintableAreaSqft,
     originalPaintAreaReferenceSqft: hasSplit

@@ -325,13 +325,43 @@ export function getInitialRevealChecklistScopePreview(
     return !inScopeIds.size || (id && inScopeIds.has(id));
   });
   if (packages.length > 0) {
-    return packages
+    const packageById = new Map(
+      packages.map((pkg) => [
+        String(pkg.checklistItemId || pkg.costCode || '').trim(),
+        pkg,
+      ]),
+    );
+    // The checklist is the canonical interpretation. Packages only decorate
+    // those rows with pricing; they must not decide which scope is visible.
+    const checklistRows = visibleChecklistItems
+      .map((item) => {
+        const id = String(item.id || '').trim();
+        const pkg = packageById.get(id);
+        return {
+          name: String(item.label || id || 'Scope item').trim(),
+          amount:
+            showAmounts && pkg
+              ? scopePackageIndicativePricedAmount(pkg, draft)
+              : 0,
+        };
+      })
+      .filter((row) => row.name);
+    const representedIds = new Set(
+      visibleChecklistItems.map((item) => String(item.id || '').trim()),
+    );
+    const packageOnlyRows = packages
+      .filter(
+        (pkg) =>
+          !representedIds.has(
+            String(pkg.checklistItemId || pkg.costCode || '').trim(),
+          ),
+      )
       .map((pkg) => ({
         name: String(pkg.name || pkg.scope || 'Scope item').trim(),
         amount: showAmounts ? scopePackageIndicativePricedAmount(pkg, draft) : 0,
       }))
-      .filter((row) => row.name)
-      .slice(0, 12);
+      .filter((row) => row.name);
+    return [...checklistRows, ...packageOnlyRows].slice(0, 50);
   }
   if (!visibleChecklistItems.length) return [];
   return visibleChecklistItems.slice(0, 12).map((item) => ({

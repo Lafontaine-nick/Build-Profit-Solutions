@@ -359,10 +359,15 @@ export function hydrateChecklistItemsForScopeReview(
       'ceiling_paint',
       'trim_paint',
       'door_paint',
+      'door_casing_paint',
       'cabinet_paint',
       'exterior_prep',
       'exterior_paint',
       'exterior_trim_paint',
+      'baseboard_install',
+      'interior_door_install',
+      'door_casing_install',
+      'window_install',
       'cleanup',
     ]);
     items = items.filter((item) => paintingItemIds.has(item.id));
@@ -390,10 +395,15 @@ export function hydrateChecklistItemsForScopeReview(
       'ceiling_paint',
       'trim_paint',
       'door_paint',
+      'door_casing_paint',
       'cabinet_paint',
       'exterior_prep',
       'exterior_paint',
       'exterior_trim_paint',
+      'baseboard_install',
+      'interior_door_install',
+      'door_casing_install',
+      'window_install',
       'cleanup',
     ]);
     items = items.filter((item) => paintingItemIds.has(item.id));

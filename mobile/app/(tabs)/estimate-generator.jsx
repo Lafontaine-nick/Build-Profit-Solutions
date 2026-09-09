@@ -5802,7 +5802,12 @@ export default function EstimateGeneratorScreen() {
             effectivePlanImport.buildingAreas)
       );
       const isStandalonePlumbingBid =
-        !hasStructuredPlanTakeoff && notesSuggestPlumbingBid(notes);
+        !hasStructuredPlanTakeoff &&
+        !(
+          /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(notes) ||
+          /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(notes)
+        ) &&
+        notesSuggestPlumbingBid(notes);
       const isSingleTradePlanImport =
         effectivePlanImport?.estimatingMode === 'selected_trade' ||
         isStandalonePlumbingBid;
