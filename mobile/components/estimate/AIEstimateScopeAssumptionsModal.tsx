@@ -19756,6 +19756,22 @@ export default function AIEstimateScopeAssumptionsModal({
       norm,
       draft?.projectType
     );
+    const bathroomNotesFlow =
+      String(checklist.templateKey || '').toLowerCase() === 'bathroom' ||
+      String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
+      /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
+      /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes);
+    if (bathroomNotesFlow && Array.isArray(checklist.items)) {
+      const normalizedIds = new Set(normalized.map(row => row.id));
+      const checklistRowsToRestore = checklist.items.filter(
+        row =>
+          row.state !== 'excluded' &&
+          !normalizedIds.has(row.id)
+      );
+      if (checklistRowsToRestore.length) {
+        normalized = [...normalized, ...checklistRowsToRestore];
+      }
+    }
     normalized = applyKitchenScopeInferences(
       normalized,
       checklist.templateKey,
