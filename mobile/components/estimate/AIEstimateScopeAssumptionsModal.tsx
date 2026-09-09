@@ -22348,41 +22348,43 @@ export default function AIEstimateScopeAssumptionsModal({
       checklist?.templateKey
     );
     if (field === 'allowance' && rule?.dualAllowanceField) {
-      setMeasurementsSynced(prev => ({
-        ...prev,
-        itemQuantities: {
-          ...prev.itemQuantities,
-          [roughAllowanceSubKey(itemId)]: {
-            quantity,
-            unit: unit || 'allowance',
-            quantitySource: source,
+      startTransition(() => {
+        setMeasurementsSynced(prev => ({
+          ...prev,
+          itemQuantities: {
+            ...prev.itemQuantities,
+            [roughAllowanceSubKey(itemId)]: {
+              quantity,
+              unit: unit || 'allowance',
+              quantitySource: source,
+            },
           },
-        },
-        pricingAcceptance:
-          source === 'user_entered'
-            ? markManualPricingAdjustment(
-                prev.pricingAcceptance?.[baseItemId],
-                baseItemId,
-                prev.pricingAcceptance,
-                moneyTotalAfterQuantityEdit(
+          pricingAcceptance:
+            source === 'user_entered'
+              ? markManualPricingAdjustment(
+                  prev.pricingAcceptance?.[baseItemId],
                   baseItemId,
-                  {
-                    ...prev.itemQuantities,
-                    [roughAllowanceSubKey(itemId)]: {
-                      quantity,
-                      unit: unit || 'allowance',
-                      quantitySource: source,
+                  prev.pricingAcceptance,
+                  moneyTotalAfterQuantityEdit(
+                    baseItemId,
+                    {
+                      ...prev.itemQuantities,
+                      [roughAllowanceSubKey(itemId)]: {
+                        quantity,
+                        unit: unit || 'allowance',
+                        quantitySource: source,
+                      },
                     },
-                  },
-                  roughAllowanceSubKey(itemId),
-                  quantity
+                    roughAllowanceSubKey(itemId),
+                    quantity
+                  )
                 )
-              )
-            : prev.pricingAcceptance,
-      }));
+              : prev.pricingAcceptance,
+        }));
+      });
       return;
     }
-    setMeasurementsSynced(prev => {
+    startTransition(() => setMeasurementsSynced(prev => {
       const previousEntry = prev.itemQuantities[itemId];
       const resolvedUnit =
         isWindowsDoorsCountScopeItemId(baseItemId) &&
@@ -22563,7 +22565,7 @@ export default function AIEstimateScopeAssumptionsModal({
       return source === 'calculated_confirmed'
         ? syncItemQuantitiesToMeasurementFields(nextState)
         : nextState;
-    });
+    }));
   };
 
   const handleBatchItemQuantityChange = useCallback(
