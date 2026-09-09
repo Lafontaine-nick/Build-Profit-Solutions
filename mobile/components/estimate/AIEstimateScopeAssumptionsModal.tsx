@@ -21154,6 +21154,7 @@ export default function AIEstimateScopeAssumptionsModal({
         ...group,
         items: group.items.filter(
           item =>
+            !(isBathroomFlow && item.id === 'wet_area_install') &&
             !hideDeselectedRoofingQmCard(item.id) &&
             !hideDuplicateRoofingBaseCard(item.id) &&
             !(
@@ -23981,6 +23982,14 @@ export default function AIEstimateScopeAssumptionsModal({
     item: ScopeChecklistItem,
     options?: { forcePinnedTexture?: boolean }
   ) => {
+    const bathroomPricingFlow =
+      String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
+      String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
+      /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
+      /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes);
+    if (bathroomPricingFlow && item.id === 'wet_area_install') {
+      return null;
+    }
     if (
       item.id === 'texture' &&
       pinnedDrywallFinishItem &&
@@ -24121,11 +24130,6 @@ export default function AIEstimateScopeAssumptionsModal({
       committedCombinedPaint && item.id === 'interior_paint'
         ? { ...item, label: 'Interior paint — walls & ceilings' }
         : item;
-    const bathroomPricingFlow =
-      String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
-      String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
-      /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(scopeNotes) ||
-      /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(scopeNotes);
     const useWetAreaLineCard =
       !bathroomPricingFlow &&
       item.id !== 'shower_pan' &&
