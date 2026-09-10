@@ -8387,6 +8387,9 @@ function YesNoRow({
     storedPlumbingExposed ||
     storedFloorConstruction;
 
+  const simpleBathroomPaintRepair =
+    item.id === 'paint_repair' &&
+    String(templateKey || '').toLowerCase() === 'bathroom';
   const showDrywallPaintOptions =
     item.id === 'paint_repair' &&
     displayedState === 'included' &&
