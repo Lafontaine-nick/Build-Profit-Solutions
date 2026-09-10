@@ -21768,14 +21768,27 @@ export function resolveChecklistItemQuantity(
     const existingTilePanCount = Number(
       String(measurements.existingTilePanCount ?? '').replace(/,/g, '')
     );
-    if (Number.isFinite(existingTilePanCount) && existingTilePanCount > 0) {
+    const demoTilePanCount = Number(
+      String(measurements.demoTilePanCount ?? '').replace(/,/g, '')
+    );
+    const tilePanCount =
+      Number.isFinite(existingTilePanCount) && existingTilePanCount > 0
+        ? existingTilePanCount
+        : Number.isFinite(demoTilePanCount) && demoTilePanCount > 0
+          ? demoTilePanCount
+          : null;
+    if (tilePanCount != null) {
       return {
-        quantity: existingTilePanCount,
+        quantity: tilePanCount,
         unit: 'each',
-        quantitySource: 'user_entered',
-        sourceLabel: 'Quick Measurements · existing tile pan',
+        quantitySource:
+          existingTilePanCount > 0 ? 'user_entered' : 'calculated',
+        sourceLabel:
+          existingTilePanCount > 0
+            ? 'Quick Measurements · existing tile pan'
+            : 'Quick Measurements · tile pan tear-out',
         pricingReady: true,
-        quantityHelper: 'Existing tile shower pan removal count.',
+        quantityHelper: 'Tile shower pan removal count.',
         showInput: true,
       };
     }
