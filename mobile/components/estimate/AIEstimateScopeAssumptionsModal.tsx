@@ -14219,6 +14219,9 @@ function CollapsibleQuickMeasurements({
   >(measurements.demoWetAreaManualOverrides || {});
   const existingDemoGenRef = useRef(0);
   const existingDemoAppliedGenRef = useRef(0);
+  const existingDemoScheduleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
   const latestExistingDemoRef = useRef({
     existing: existingCounts,
     demo: demoCounts,
@@ -14227,6 +14230,14 @@ function CollapsibleQuickMeasurements({
   const stepperGenRef = useRef(0);
   const stepperAppliedGenRef = useRef(0);
   const latestStepperRef = useRef(stepperCounts);
+  useEffect(
+    () => () => {
+      if (existingDemoScheduleTimerRef.current) {
+        clearTimeout(existingDemoScheduleTimerRef.current);
+      }
+    },
+    []
+  );
   useEffect(() => {
     // Skip stale parent catch-up while rapid taps are still committing.
     if (stepperGenRef.current !== stepperAppliedGenRef.current) return;
@@ -14604,7 +14615,10 @@ function CollapsibleQuickMeasurements({
           wetAreaStepperMax
         );
         const next = { ...prev, [key]: cleaned };
-        InteractionManager.runAfterInteractions(() => {
+        if (existingDemoScheduleTimerRef.current) {
+          clearTimeout(existingDemoScheduleTimerRef.current);
+        }
+        existingDemoScheduleTimerRef.current = setTimeout(() => {
           scheduleExistingDemoCommit(
             next,
             buildInstallCounts(),
@@ -14612,7 +14626,7 @@ function CollapsibleQuickMeasurements({
             reuseExistingShowerDoor,
             gen
           );
-        });
+        }, 0);
         return next;
       });
     },
@@ -14637,7 +14651,10 @@ function CollapsibleQuickMeasurements({
         );
         demoOverridesRef.current = { ...demoOverridesRef.current, [key]: true };
         const next = { ...prev, [key]: cleaned };
-        InteractionManager.runAfterInteractions(() => {
+        if (existingDemoScheduleTimerRef.current) {
+          clearTimeout(existingDemoScheduleTimerRef.current);
+        }
+        existingDemoScheduleTimerRef.current = setTimeout(() => {
           scheduleExistingDemoCommit(
             existingCounts,
             buildInstallCounts(),
@@ -14646,7 +14663,7 @@ function CollapsibleQuickMeasurements({
             gen,
             { key, value: cleaned }
           );
-        });
+        }, 0);
         return next;
       });
     },
