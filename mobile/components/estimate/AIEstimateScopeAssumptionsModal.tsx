@@ -17234,7 +17234,14 @@ function CollapsibleQuickMeasurements({
                     );
                   const selected =
                     measurements.paintScope?.includes(surface as never) ||
-                    measuredExterior;
+                    measuredExterior ||
+                    (surface === 'trim' &&
+                      String(templateKey || '').toLowerCase() === 'bathroom' &&
+                      scopeChecklistItems.some(
+                        scopeItem =>
+                          scopeItem.id === 'baseboard_install' &&
+                          scopeItem.state !== 'excluded'
+                      ));
                   return (
                     <TouchableOpacity
                       key={surface}
@@ -17439,7 +17446,7 @@ function CollapsibleQuickMeasurements({
                   scopeChecklistItems.some(
                     scopeItem =>
                       scopeItem.id === 'baseboard_install' &&
-                      scopeItem.state === 'included'
+                      scopeItem.state !== 'excluded'
                   ))
               ) ? (
                 <View style={{ marginTop: 20, gap: 16 }}>
@@ -17448,7 +17455,7 @@ function CollapsibleQuickMeasurements({
                       scopeChecklistItems.some(
                         scopeItem =>
                           scopeItem.id === 'baseboard_install' &&
-                          scopeItem.state === 'included'
+                          scopeItem.state !== 'excluded'
                       ))) 
                     ? renderPaintEmbeddedField('baseboardLf', 2)
                     : null}
