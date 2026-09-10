@@ -7701,6 +7701,14 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   string,
   ScopeItemQuantityRule
 > = {
+  baseboard_install: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'baseboardLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter baseboard installation LF.',
+    missingMessage: 'Enter baseboard installation LF or pricing.',
+  },
   demo: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
