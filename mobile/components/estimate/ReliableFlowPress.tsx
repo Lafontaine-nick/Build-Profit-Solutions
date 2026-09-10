@@ -45,7 +45,8 @@ export default function ReliableFlowPress({
     if (disabled || lockRef.current) return;
     lockRef.current = true;
     if (haptic !== 'none') fireHaptic(haptic);
-    onPressRef.current();
+    // Let the pressed state paint before heavy estimate/pricing callbacks run.
+    requestAnimationFrame(() => onPressRef.current());
     setTimeout(() => {
       lockRef.current = false;
     }, 280);
