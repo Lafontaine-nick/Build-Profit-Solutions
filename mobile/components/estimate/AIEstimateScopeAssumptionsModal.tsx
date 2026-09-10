@@ -6464,9 +6464,11 @@ function QuantitySection({
             placeholder='0'
             embedded
             commitOnBlur
-            onFocus={() => focusQuantityField(itemId, 'count')}
-            onChangeText={text => onItemQuantityChange(itemId, text, 'count')}
-            onBlur={() => blurQuantityField(itemId, 'count')}
+            onFocus={() => focusQuantityField(quantityEntryItemId, 'count')}
+            onChangeText={text =>
+              onItemQuantityChange(quantityEntryItemId, text, 'count')
+            }
+            onBlur={() => blurQuantityField(quantityEntryItemId, 'count')}
             Colors={Colors}
             darkMode={darkMode}
             applying={applying}
@@ -6592,7 +6594,14 @@ function QuantitySection({
 
   const repairSystemCard =
     itemId === 'stucco' && choiceId === 'repair_restucco';
-  const quantityEntryItemId = repairSystemCard ? 'stucco_repairs' : itemId;
+  const simpleBathroomPaintRepair =
+    itemId === 'paint_repair' &&
+    String(templateKey || '').toLowerCase() === 'bathroom';
+  const quantityEntryItemId = simpleBathroomPaintRepair
+    ? 'drywall'
+    : repairSystemCard
+      ? 'stucco_repairs'
+      : itemId;
   const itemInput = measurementsInput.itemQuantities[quantityEntryItemId];
   const materialKey = allowanceSplitSubKey(itemId, 'material');
   const laborKey = allowanceSplitSubKey(itemId, 'labor');
@@ -8378,9 +8387,6 @@ function YesNoRow({
     storedPlumbingExposed ||
     storedFloorConstruction;
 
-  const simpleBathroomPaintRepair =
-    item.id === 'paint_repair' &&
-    String(templateKey || '').toLowerCase() === 'bathroom';
   const showDrywallPaintOptions =
     item.id === 'paint_repair' &&
     displayedState === 'included' &&
@@ -8394,6 +8400,13 @@ function YesNoRow({
   const userPaintRepairSqft = Number(
     String(
       measurementsInput.itemQuantities?.paint_repair?.quantity ?? ''
+    ).replace(/,/g, '')
+  );
+  const userDrywallRepairSqft = Number(
+    String(
+      measurementsInput.itemQuantities?.drywall?.quantity ??
+        measurementsInput.itemQuantities?.patch_repair?.quantity ??
+        ''
     ).replace(/,/g, '')
   );
   const storedPaintEntireRoom =
@@ -8428,8 +8441,12 @@ function YesNoRow({
       : 0;
   const patchRepairSqft =
     (simpleBathroomPaintRepair || resolvedPaintRepairScope === 'affected_area') &&
-    userPaintRepairSqft > 0
-      ? userPaintRepairSqft
+    (simpleBathroomPaintRepair
+      ? userDrywallRepairSqft
+      : userPaintRepairSqft) > 0
+      ? simpleBathroomPaintRepair
+        ? userDrywallRepairSqft
+        : userPaintRepairSqft
       : 0;
   const combinedSummary = showDrywallPaintOptions
     ? buildBathroomDrywallPaintCombinedSummary({
