@@ -3957,7 +3957,7 @@ export const BATHROOM_CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   floor_demo:
     'Remove bathroom floor tile, LVP, or vinyl. Standard demo includes ordinary thinset scrape and haul-off.',
   plumbing_trim:
-    'Trim-out hookups only — lav faucet and shower/tub valve connections. Toilet and vanity installs are separate lines when selected above.',
+    'Remaining plumbing trim-out hookups only — excludes the toilet, vanity sink, and faucet when those are separate lines above.',
   plumbing_rough:
     'Shower and tub rough-in — valve, head supply (in wall), and floor drain. Pick fixture type, same-location vs relocated, whether remodel demolition exposes the plumbing, and floor construction. Toilet rough-in is on Toilet; lav/sink rough-in is on Vanity.',
   drywall:
