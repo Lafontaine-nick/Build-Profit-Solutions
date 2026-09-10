@@ -122,6 +122,18 @@ describe('framing canonical architecture', () => {
     ).toEqual({ wallFramingLf: 24 });
   });
 
+  it('parses room-addition framing takeoffs from natural note language', () => {
+    expect(
+      parseFramingMeasurementsFromNotes(
+        'Frame a new 600 sqft room addition with 8-foot walls. Include exterior wall framing, interior partitions totaling 120 linear feet, roof tie-in framing, headers for 4 windows and 1 exterior door, sheathing, and blocking.'
+      )
+    ).toEqual({
+      framedAreaSqft: 600,
+      wallFramingLf: 120,
+      framingOpeningCount: 5,
+    });
+  });
+
   it('keeps selected-trade Plan Export scoped to framing cards', () => {
     expect(
       Object.keys(

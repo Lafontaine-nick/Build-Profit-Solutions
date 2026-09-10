@@ -3077,7 +3077,12 @@ export function filterRoomRemodelNoteScopeItems(
     if (id === 'plumbing') return has(/\bplumbing|fixture/i);
     if (id === 'drywall') return has(/\bdrywall|sheetrock|patch|repair/i);
     if (id === 'flooring') return has(/\b(?:lvp|flooring|floor\s+install)\b/i);
-    if (id === 'paint')
+    if (
+      id === 'paint' ||
+      id === 'paint_repair' ||
+      id === 'interior_paint' ||
+      id === 'ceiling_paint'
+    )
       return has(/\b(?:paint|painting|repaint).*\b(?:wall|ceiling)s?\b/i);
     if (id === 'baseboard_install')
       return has(/\b(?:install|replace|new)\b[^.;\n]{0,50}\bbaseboards?\b/i);
@@ -3095,7 +3100,7 @@ export function filterRoomRemodelNoteScopeItems(
     if (id === 'cleanup') return has(/\bcleanup|haul[\s-]?off|disposal\b/i);
     return false;
   };
-  return items
+  const filtered = items
     .filter(item => supported(item.id))
     .map(item =>
       (item.id === 'demo' || item.id === 'floor_demo')
@@ -3104,8 +3109,59 @@ export function filterRoomRemodelNoteScopeItems(
             label: 'Existing flooring removal',
             helperText: 'Remove existing flooring in the affected areas.',
           }
+        : item.id === 'paint_repair'
+          ? {
+              ...item,
+              id: 'interior_paint',
+              label: 'Interior paint — walls & ceilings',
+              helperText:
+                'Repaint interior walls and ceilings. Wall and ceiling surface measurements are priced separately.',
+              state: 'included' as const,
+              noteBacked: true,
+            }
+        : item.id === 'vanity' &&
+            has(/\b(?:replace|install)\s+(?:one|two|three|\d+)\s+(?:bathroom\s+)?vanit(?:y|ies)\b/i)
+          ? {
+              ...item,
+              state: 'included' as const,
+              choiceId: 'replacing',
+              noteBacked: true,
+            }
         : item
     );
+  if (
+    has(/\b(?:paint|painting|repaint)\b/i) &&
+    has(/\b(?:wall|ceiling)s?\b/i) &&
+    !filtered.some(item =>
+      ['paint', 'interior_paint', 'ceiling_paint'].includes(item.id)
+    )
+  ) {
+    filtered.push({
+      id: 'interior_paint',
+      inputType: 'yes_no',
+      label: 'Interior paint — walls & ceilings',
+      helperText:
+        'Repaint interior walls and ceilings. Wall and ceiling surface measurements are priced separately.',
+      category: 'Finishes',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  if (
+    has(/\b(?:install|replace|new)\b[^.;\n]{0,50}\bbaseboards?\b/i) &&
+    !filtered.some(item => item.id === 'baseboard_install')
+  ) {
+    filtered.push({
+      id: 'baseboard_install',
+      inputType: 'yes_no',
+      label: 'Baseboard installation',
+      helperText: 'Install the note-specified baseboard LF.',
+      category: 'Finishes',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  return filtered;
 }
 
 /** Package electrical + single paint card — no granular note-backed duplicates. */

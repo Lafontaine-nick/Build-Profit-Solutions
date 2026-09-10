@@ -360,6 +360,12 @@ export function parseFramingMeasurementsFromNotes(
       /(\d+(?:\.\d+)?)\s*(?:lf|linear\s*(?:ft|feet)|ft)\s*(?:of\s*)?(?:stud\s*)?wall\s*fram/i
     ) ??
       count(
+        /(\d+(?:\.\d+)?)\s*(?:lf|linear\s*(?:ft|feet)|ft)\s*(?:of\s*)?(?:interior\s+)?partitions?\b/i
+      ) ??
+      count(
+        /(?:interior\s+)?partitions?\s*(?:total(?:ing)?|of)?\s*(\d+(?:\.\d+)?)\s*(?:lf|linear\s*(?:ft|feet)|ft)\b/i
+      ) ??
+      count(
         /(?:frame|framing)\s*(?:a\s*)?(\d+(?:\.\d+)?)\s*(?:lf|linear\s*(?:ft|feet)|ft)/i
       ) ??
       count(
@@ -381,13 +387,28 @@ export function parseFramingMeasurementsFromNotes(
       /(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:of\s*)?(?:framed|framing)/i
     ) ??
       count(
+        /(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:room\s+)?addition\b/i
+      ) ??
+      count(
         /(?:framed|framing)\s*(?:area|shell)?\s*(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft)/i
       )
   );
+  const openingMatches = Array.from(
+    text.matchAll(
+      /(\d+)\s*(?:(?:exterior|interior|entry|new)\s+)?(?:door|window|opening|header)s?\b/gi
+    )
+  );
+  const openingTotal = openingMatches.reduce(
+    (sum, match) => sum + Number(String(match[1]).replace(/,/g, '')),
+    0
+  );
   assign(
     'framingOpeningCount',
-    count(/(\d+)\s*(?:door|window|opening|header)s?\b/i) ??
-      (/\b(one|1)\s+(?:door|window|opening|header)\b/i.test(text) ? 1 : null)
+    openingTotal > 0
+      ? openingTotal
+      : /\b(one|1)\s+(?:door|window|opening|header)\b/i.test(text)
+        ? 1
+        : null
   );
 
   return out;

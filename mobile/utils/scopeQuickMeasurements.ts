@@ -1361,6 +1361,7 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
   string,
   QuickMeasurementRow[]
 > = {
+  framing: FRAMING_PLAN_QUICK_MEASUREMENT_ROWS,
   plumbing: [
     row(
       F(
@@ -2247,6 +2248,7 @@ export function resolveQuickMeasurementTemplateKey(
   if (tk === 'plumbing_service') return 'plumbing';
   if (tk === 'windows_doors') return 'windows_doors';
   if (tk === 'garage_doors') return 'garage_doors';
+  if (tk === 'room_addition' || tk === 'home_addition') return 'addition';
   // Checklist template wins. projectType must not force flooring fields onto a
   // kitchen/bath remodel just because notes also mention floor tile.
   if (tk && SCOPE_QUICK_MEASUREMENT_ROWS[tk]) return tk;
@@ -2307,6 +2309,13 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
           clause
         )
     );
+  const framingFocusedAddition =
+    ['addition', 'room_addition', 'home_addition'].includes(resolved) &&
+    /\b(?:room\s+)?addition\b/i.test(notes) &&
+    /\b(?:frame|framing|framed|stud\s+walls?|wall\s+framing|interior\s+partitions?)\b/i.test(
+      notes
+    );
+  if (framingFocusedAddition) return 'framing';
   if (resolved === 'room_remodel' && insulationRequested && !drywallWorkRequested) {
     return 'insulation';
   }
@@ -2357,7 +2366,16 @@ export function quickMeasurementRowsForTemplate(
   projectType?: string | null,
   notes?: string | null
 ): QuickMeasurementRow[] {
-  const key = resolveQuickMeasurementTemplateKey(templateKey, projectType);
+  const resolvedKey = resolveQuickMeasurementTemplateKey(templateKey, projectType);
+  const framingNoteText = String(notes || '');
+  const key =
+    resolvedKey === 'addition' &&
+    /\b(?:room\s+)?addition\b/i.test(framingNoteText) &&
+    /\b(?:frame|framing|framed|stud\s+walls?|wall\s+framing|interior\s+partitions?)\b/i.test(
+      framingNoteText
+    )
+      ? 'framing'
+      : resolvedKey;
   if (key === 'windows_doors') {
     return WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS;
   }
@@ -2392,17 +2410,17 @@ export function quickMeasurementRowsForTemplate(
   if (key !== 'room_remodel' || !String(notes || '').trim()) {
     return remodelRows;
   }
-  const noteText = String(notes || '');
-  const hasPaint = /\b(?:paint(?:ing)?|repaint)\b/i.test(noteText);
+  const remodelNoteText = String(notes || '');
+  const hasPaint = /\b(?:paint(?:ing)?|repaint)\b/i.test(remodelNoteText);
   const hasFlooring =
-    !/\bfloor(?:ing)?\s+protection\b/i.test(noteText) &&
+    !/\bfloor(?:ing)?\s+protection\b/i.test(remodelNoteText) &&
     /\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,80}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;\n]{0,80}\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
-      noteText
+      remodelNoteText
     );
   const hasDrywall = /\b(?:drywall|sheetrock|patch(?:ing)?|wall\s+repair)\b/i.test(
-    noteText
+    remodelNoteText
   );
-  const hasBaseboard = /\bbaseboards?\b|\btrim\b/i.test(noteText);
+  const hasBaseboard = /\bbaseboards?\b|\btrim\b/i.test(remodelNoteText);
   const optionalKeys = new Set<QuickMeasurementFieldKey>([
     'floorAreaSqft',
     'flooringSqft',
@@ -2546,6 +2564,20 @@ export function hasQuickMeasurementValue(value: unknown): boolean {
   return Number.isFinite(n) && n > 0;
 }
 
+export function notesRequireInteriorPaintMeasurements(
+  notes?: string | null
+): boolean {
+  const text = String(notes || '');
+  return (
+    /\b(?:paint|painting|repaint)\b[^.;\n]{0,50}\b(?:interior\s+)?(?:wall|ceiling)s?\b/i.test(
+      text
+    ) ||
+    /\b(?:interior\s+)?(?:wall|ceiling)s?\b[^.;\n]{0,50}\b(?:paint|painting|repaint)\b/i.test(
+      text
+    )
+  );
+}
+
 /** Live form value for a quick measurement field (note prefill until the user types). */
 export function resolveQuickMeasurementDisplayValue(
   key: QuickMeasurementFieldKey,
@@ -2637,6 +2669,10 @@ export function quickMeasurementRowsForInput(
       )
         .map(key => QUICK_MEASUREMENT_FIELD_DEFS[key])
         .filter((field): field is QuickMeasurementFieldDef => Boolean(field));
+
+  // Framing has a dedicated takeoff surface. Do not append unrelated
+  // note-backed fields such as roof squares or living area to it.
+  if (resolvedKey === 'framing') return baseRows;
 
   // Keep row order stable while typing — dynamic note-only rows caused TextInput focus to jump.
   if (resolvedKey === 'room_remodel' || resolvedKey === 'kitchen') {

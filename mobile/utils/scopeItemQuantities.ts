@@ -7750,22 +7750,6 @@ const ROOM_REMODEL_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   string,
   ScopeItemQuantityRule
 > = {
-  floor_demo: {
-    defaultUnit: 'sqft',
-    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKey: 'flooringSqft',
-    requiresUserQuantity: true,
-    quantityHelper: 'Enter the affected flooring removal sqft from the notes.',
-    missingMessage: 'Enter affected flooring removal sqft.',
-  },
-  flooring: {
-    defaultUnit: 'sqft',
-    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKey: 'flooringSqft',
-    requiresUserQuantity: true,
-    quantityHelper: 'Enter the LVP installation sqft from the notes.',
-    missingMessage: 'Enter LVP installation sqft.',
-  },
   cabinets: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.cabinets,
     defaultUnit: 'lf',
@@ -23165,7 +23149,11 @@ export function buildNormalizedScopeMeasurementsFromInput(
     notes: options?.notes,
   });
   const noteText = String(options?.notes || '');
-  if (noteText.trim()) {
+  if (
+    noteText.trim() &&
+    (options?.templateKey === 'room_remodel' ||
+      options?.projectType === 'room_remodel')
+  ) {
     const parsedNotes = parseScopeMeasurementsFromNotes(noteText, {
       templateKey: options?.templateKey ?? undefined,
       projectType: options?.projectType ?? undefined,

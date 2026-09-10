@@ -706,6 +706,20 @@ export function buildInsulationAssembliesFromPlanMeasurements(
     });
   }
 
+  const floorSqft = numberFor('floorInsulationSqft');
+  if (floorSqft != null) {
+    rows.push({
+      id: 'insulation-assembly-plan-floor',
+      materialType,
+      rValue: 'R-30',
+      sqft: floorSqft,
+      location: 'floor',
+      source: sourceFor('floorInsulationSqft'),
+      confirmed: confirmedFor('floorInsulationSqft'),
+      battFacing: battFacingFor(materialType),
+    });
+  }
+
   return rows.length ? rows : null;
 }
 

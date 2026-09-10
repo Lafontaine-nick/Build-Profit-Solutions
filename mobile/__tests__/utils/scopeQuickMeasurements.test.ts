@@ -5,6 +5,7 @@ import {
   quickMeasurementRowsForInput,
   quickMeasurementRowsForTemplate,
   quickMeasurementSectionsForRows,
+  notesRequireInteriorPaintMeasurements,
   resolveEffectiveQuickMeasurementTemplateKey,
   resolveQuickMeasurementDisplayValue,
   resolveQuickMeasurementTemplateKey,
@@ -22,6 +23,17 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).not.toContain('bathroomFloorSqft');
     expect(keys).toContain('wallPaintSqft');
     expect(keys).toContain('baseboardLf');
+  });
+
+  it('keeps wall and ceiling paint measurements visible for remodel notes', () => {
+    const notes =
+      'Remodel an existing 1,400 sqft home interior. Repaint interior walls and ceilings, and install 180 linear feet of baseboard.';
+    expect(notesRequireInteriorPaintMeasurements(notes)).toBe(true);
+    const keys = quickMeasurementRowsForTemplate('room_remodel', 'other', notes)
+      .flat()
+      .map(field => field.key);
+    expect(keys).toContain('wallPaintSqft');
+    expect(keys).toContain('ceilingPaintSqft');
   });
 
   it('filters stale room-remodel measurements for kitchen notes', () => {
@@ -129,6 +141,36 @@ describe('scopeQuickMeasurements', () => {
         notes,
       })
     ).toBe('insulation');
+  });
+
+  it('routes framing-focused room-addition notes to framing measurements', () => {
+    const notes =
+      'Frame a new 600 sqft room addition with 8-foot walls. Include exterior wall framing and interior partitions totaling 120 linear feet, roof tie-in framing, headers for 4 windows and 1 exterior door, sheathing, and blocking.';
+    expect(
+      resolveEffectiveQuickMeasurementTemplateKey({
+        templateKey: 'room_addition',
+        projectType: 'room_addition',
+        notes,
+      })
+    ).toBe('framing');
+
+    const keys = quickMeasurementRowsForTemplate(
+      'room_addition',
+      'room_addition',
+      notes
+    )
+      .flat()
+      .map(field => field.key);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'framedAreaSqft',
+        'wallFramingLf',
+        'sheathingSqft',
+        'framingOpeningCount',
+      ])
+    );
+    expect(keys).not.toContain('kitchenFloorSqft');
+    expect(keys).not.toContain('cabinetLf');
   });
 
   it('uses only remodel measurements supported by the notes', () => {

@@ -82,7 +82,8 @@ const HVAC_PACKAGE_COMPONENT_IDS = new Set([
 export function buildConfirmScopeDisplayItems(
   items: ScopeChecklistItem[],
   measurements: Record<string, unknown>,
-  templateKey?: string | null
+  templateKey?: string | null,
+  notes?: string | null
 ): ScopeChecklistItem[] {
   let expanded = dedupeScopeChecklistItems(expandWetAreaDerivedScopeItems(items)).map((row) =>
     row.id === 'exterior' && row.label === 'Exterior finishes'
@@ -141,6 +142,7 @@ export function buildConfirmScopeDisplayItems(
     expanded = ensureGroundUpFlatworkScopeCard(expanded);
     expanded = ensureGroundUpOpeningScopeCards(expanded);
   }
+  expanded = filterRoomRemodelNoteScopeItems(expanded, notes);
   expanded = expandHvacEquipmentScopeDisplayItems(expanded, measurements);
   if (String(templateKey || '').toLowerCase() === 'flooring') {
     const existingTypes = Array.isArray(measurements.flooringExistingTypes)

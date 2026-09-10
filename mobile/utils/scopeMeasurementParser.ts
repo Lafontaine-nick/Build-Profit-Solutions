@@ -357,6 +357,59 @@ function inferHomeFloorAreaSqftFromNotes(text: string): number | null {
   return null;
 }
 
+export type ParsedInsulationAssembly = {
+  location: 'exterior_wall' | 'attic_ceiling' | 'floor';
+  materialType: string;
+  rValue: string;
+  sqft: number;
+};
+
+/** Preserve location-specific insulation assemblies from natural-language notes. */
+export function parseInsulationAssembliesFromNotes(
+  text: string
+): ParsedInsulationAssembly[] {
+  const assemblies: ParsedInsulationAssembly[] = [];
+  const clauses = String(text || '').split(/[.;\n]+/);
+  const quantity = (clause: string) => {
+    const match = clause.match(
+      /([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))/i
+    );
+    return match ? Number(match[1].replace(/,/g, '')) : 0;
+  };
+  const material = (clause: string) => {
+    if (/\bblown[-\s]?in\b/i.test(clause)) return 'Blown-in';
+    if (/\bspray\s+foam\b/i.test(clause)) return 'Spray foam';
+    if (/\brigid\s+foam\b/i.test(clause)) return 'Rigid foam board';
+    if (/\bcellulose\b/i.test(clause)) return 'Cellulose';
+    if (/\bmineral\s+wool\b/i.test(clause)) return 'Mineral wool';
+    if (/\b(?:fiberglass\s+)?batt\b/i.test(clause)) return 'Batt';
+    return 'Batt';
+  };
+  const rValue = (clause: string) =>
+    clause.match(/\bR[-\s]?(\d{2,3})\b/i)?.[0] || '';
+  const add = (
+    location: ParsedInsulationAssembly['location'],
+    pattern: RegExp,
+    clause: string
+  ) => {
+    if (!pattern.test(clause)) return;
+    const sqft = quantity(clause);
+    if (!(sqft > 0)) return;
+    assemblies.push({
+      location,
+      materialType: material(clause),
+      rValue: rValue(clause),
+      sqft,
+    });
+  };
+  for (const clause of clauses) {
+    add('exterior_wall', /\b(?:exterior|outside)\s+walls?\b/i, clause);
+    add('attic_ceiling', /\b(?:attic|ceiling)(?:\s+area)?\b/i, clause);
+    add('floor', /\bfloor(?:\s+area)?\b/i, clause);
+  }
+  return assemblies;
+}
+
 function clauseHomeSqftBeforeGarage(clause: string): number | null {
   const match = clause.match(
     /\b([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft)\b[^.]{0,96}\b(?:home|house)\b[^.]{0,96}\b(?:\d[\s-]?car\s+)?garages?\b/i
@@ -1475,7 +1528,11 @@ export function parseScopeMeasurementsFromNotes(
     const allowsHomeFloorInference =
       templateKey === 'ground_up' ||
       projectType === 'ground_up' ||
-      projectType === 'new_build';
+      projectType === 'new_build' ||
+      templateKey === 'insulation' ||
+      /\b(?:insulat(?:e|ion|ed)|fiberglass\s+batt|blown[-\s]?in)\b/i.test(
+        text
+      );
     if (allowsHomeFloorInference) {
       const homeFloor = inferHomeFloorAreaSqftFromNotes(text);
       if (homeFloor) return homeFloor;
@@ -1688,15 +1745,24 @@ export function parseScopeMeasurementsFromNotes(
         break;
       }
     }
+    const roofTieInOnly =
+      /\broof\s*(?:tie[\s-]?in|framing)\b/i.test(text) &&
+      !/\b(?:roofing|shingles?|roof\s+(?:area|squares?|replacement|installation|decking))\b/i.test(
+        text
+      );
     if (!out.roofAreaSqft) {
-      const sqft = pickSqftNearPattern(text, /\broof|\bshingle/);
+      const sqft = roofTieInOnly
+        ? null
+        : pickSqftNearPattern(text, /\broof|\bshingle/);
       if (sqft) out.roofAreaSqft = sqft;
     }
     if (!out.roofSquares) {
-      const sq = firstQty(text, SQUARES_RE);
+      const sq = roofTieInOnly ? null : firstQty(text, SQUARES_RE);
       if (sq) out.roofSquares = sq;
       else {
-        const sqft = pickSqftNearPattern(text, /\broof|\bshingle/);
+        const sqft = roofTieInOnly
+          ? null
+          : pickSqftNearPattern(text, /\broof|\bshingle/);
         if (sqft) {
           out.roofAreaSqft = sqft;
           out.roofSquares = Math.round((sqft / 100) * 10) / 10;

@@ -1,4 +1,7 @@
-import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
+import {
+  parseInsulationAssembliesFromNotes,
+  parseScopeMeasurementsFromNotes,
+} from '@/utils/scopeMeasurementParser';
 import {
   initialScopeMeasurementInputExtended,
   normalizeScopeMeasurements,
@@ -12,6 +15,39 @@ const SMITH_NOTES =
   'Floor job at Smith residence. Demo existing tile in main bath 850 sqft lump sum $2,550. Demo kitchen vinyl 180 sqft allowance $900. Install LVP in both areas 1030 total sqft not priced yet. Baseboards throughout 220 LF lump sum $1,540. Final clean and haul off $650 lump sum.';
 
 describe('mobile scope measurement parser', () => {
+  it('parses insulation home area and location-specific assemblies', () => {
+    const notes =
+      'Insulate an existing 1,800 sqft two-story home. Install R-21 fiberglass batt insulation in 2,000 sqft of exterior walls, R-38 blown insulation in 1,200 sqft of attic area, and R-30 batt insulation in 900 sqft of floor area. Include air sealing and normal installation. No drywall removal.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'insulation',
+    });
+
+    expect(parsed.floorAreaSqft).toBe(1800);
+    expect(parsed.exteriorWallInsulationSqft).toBe(2000);
+    expect(parsed.atticInsulationSqft).toBe(1200);
+    expect(parsed.floorInsulationSqft).toBe(900);
+    expect(parseInsulationAssembliesFromNotes(notes)).toEqual([
+      {
+        location: 'exterior_wall',
+        materialType: 'Batt',
+        rValue: 'R-21',
+        sqft: 2000,
+      },
+      {
+        location: 'attic_ceiling',
+        materialType: 'Blown-in',
+        rValue: 'R-38',
+        sqft: 1200,
+      },
+      {
+        location: 'floor',
+        materialType: 'Batt',
+        rValue: 'R-30',
+        sqft: 900,
+      },
+    ]);
+  });
+
   it('derives a combined wall-and-ceiling paint surface from house area context', () => {
     const notes =
       'Full interior refresh on a 1,900 sqft house. Paint all walls and ceilings, new LVP throughout main floor about 1,100 sqft.';
@@ -80,6 +116,16 @@ describe('mobile scope measurement parser', () => {
     });
     expect(parsed.roofDeckingReplacementSqft).toBeUndefined();
     expect(parsed.roofSquares).toBe(22);
+  });
+
+  it('does not turn room-addition area into roof squares for a roof tie-in', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Frame a new 600 sqft room addition with 8-foot walls. Include exterior wall framing, roof tie-in framing, and headers for 4 windows and 1 exterior door. The foundation and drywall will be priced separately.',
+      { templateKey: 'addition', projectType: 'room_addition' }
+    );
+
+    expect(parsed.roofSquares).toBeUndefined();
+    expect(parsed.roofAreaSqft).toBeUndefined();
   });
 
   it('parses gutters LF and downspouts EA independently from notes', () => {
