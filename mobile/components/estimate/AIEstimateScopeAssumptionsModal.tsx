@@ -10453,6 +10453,20 @@ function MultiChoiceRow({
           {helper}
         </Text>
       ) : null}
+      {item.id === 'lighting' ? (
+        <Text
+          style={{
+            color: captionColor(darkMode, Colors),
+            fontSize: 10,
+            fontWeight: '800',
+            letterSpacing: 0.5,
+            marginTop: 10,
+            marginBottom: 6,
+          }}
+        >
+          FIXTURE TYPE & INSTALLATION LOCATION
+        </Text>
+      ) : null}
       <View style={styles.choiceWrap}>
         {(item.options || []).map(opt => {
           const active = choiceIds.includes(opt.id);
