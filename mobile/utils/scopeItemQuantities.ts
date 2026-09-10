@@ -21800,6 +21800,25 @@ export function resolveChecklistItemQuantity(
         showInput: true,
       };
     }
+    if (
+      String(ctx.templateKey || '').toLowerCase() === 'bathroom' &&
+      /\b(?:tile\s+shower|shower\s+pan|pan\s+liner|tile\s+pan|mud\s+pan)\b/i.test(
+        String(ctx.notes || '')
+      ) &&
+      !/\b(?:prefab|acrylic|fiberglass)\s+(?:shower\s+)?pan\b/i.test(
+        String(ctx.notes || '')
+      )
+    ) {
+      return {
+        quantity: 1,
+        unit: 'each',
+        quantitySource: 'calculated',
+        sourceLabel: 'Notes · tile shower pan / liner',
+        pricingReady: true,
+        quantityHelper: 'Tile shower pan / liner removal count.',
+        showInput: true,
+      };
+    }
   }
   const bathroomDefaultEachIds = new Set([
     'toilet',
