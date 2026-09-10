@@ -1176,6 +1176,9 @@ export function buildSuggestedPricingCardDisplay(input: {
               glassDoorCtx.doorCount,
               glassDoorCtx.style
             )
+          : itemId === 'mirror_accessories' &&
+              Number(block.basis?.quantity) > 0
+            ? `${Number(block.basis.quantity)} package${Number(block.basis.quantity) === 1 ? '' : 's'} · Planning assumption`
           : isFallbackPricing || lumpSumOnly
             ? null
             : formatQuantityProvenanceLine({
