@@ -7800,7 +7800,7 @@ function YesNoChip({
   return (
     <TouchableOpacity
       activeOpacity={0.88}
-      onPress={onPress}
+      onPressIn={onPress}
       style={[styles.choiceChip, { borderColor, backgroundColor }]}
     >
       <Text
@@ -7854,7 +7854,7 @@ function AssemblyChoiceChip({
   return (
     <TouchableOpacity
       activeOpacity={0.88}
-      onPress={onPress}
+      onPressIn={onPress}
       style={[styles.assemblyChoiceChip, { borderColor, backgroundColor }]}
     >
       <Text
@@ -10500,7 +10500,7 @@ function MultiChoiceRow({
             <TouchableOpacity
               key={opt.id}
               activeOpacity={0.88}
-              onPress={() => {
+              onPressIn={() => {
                 hapticTap();
                 onToggle(opt.id);
               }}
