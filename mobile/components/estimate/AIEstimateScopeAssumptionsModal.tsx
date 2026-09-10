@@ -17572,9 +17572,6 @@ function CollapsibleQuickMeasurements({
             <>
               {showWetAreaFinishSteppers && bathroomPhotoWetArea ? (
                 <>
-                  {showExistingWetAreaPanel
-                    ? renderExistingWetAreaPanel()
-                    : null}
                   {renderWetAreaFinishPanel()}
                   {renderDemoTearOutPanel()}
                 </>
