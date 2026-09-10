@@ -12,12 +12,14 @@ export type QuickMeasurementFieldKey =
   | 'floorAreaSqft'
   | 'backsplashSqft'
   | 'countertopSqft'
+  | 'countertopLf'
   | 'cabinetLf'
   | 'showerWallTileSqft'
   | 'showerFloorTileSqft'
   | 'wallPaintSqft'
   | 'ceilingPaintSqft'
   | 'paintAreaSqft'
+  | 'patchRepairSqft'
   | 'exteriorPaintSqft'
   | 'baseboardLf'
   | 'interiorDoorCount'
@@ -280,6 +282,7 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
   ),
   backsplashSqft: F('backsplashSqft', 'Backsplash', '40', 'sqft', 'interior'),
   countertopSqft: F('countertopSqft', 'Counters', '55', 'sqft', 'interior'),
+  countertopLf: F('countertopLf', 'Countertops', 'Enter', 'LF', 'interior'),
   cabinetLf: F('cabinetLf', 'Cabinets / vanity', '24', 'LF', 'interior'),
   showerWallTileSqft: F(
     'showerWallTileSqft',
@@ -313,6 +316,13 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'paintAreaSqft',
     'Paint area — confirm basis',
     '1500',
+    'sqft',
+    'interior'
+  ),
+  patchRepairSqft: F(
+    'patchRepairSqft',
+    'Drywall patch & texture',
+    'e.g. 25',
     'sqft',
     'interior'
   ),
@@ -1182,10 +1192,12 @@ const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
   'kitchenFloorSqft',
   'backsplashSqft',
   'countertopSqft',
+  'countertopLf',
   'cabinetLf',
   'wallPaintSqft',
   'ceilingPaintSqft',
   'paintAreaSqft',
+  'patchRepairSqft',
   'interiorDoorCount',
   'cabinetPaintSqft',
   'cabinetRunLf',
@@ -1412,7 +1424,11 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
     ),
     row(
       F('showerFloorTileSqft', 'Shower floor', '15', 'sqft', 'interior'),
-      F('wallPaintSqft', 'Paint', '175', 'sqft', 'interior')
+      F('wallPaintSqft', 'Paint', '175', 'sqft', 'interior'),
+      F('patchRepairSqft', 'Drywall patch & texture', 'e.g. 25', 'sqft', 'interior')
+    ),
+    row(
+      F('baseboardLf', 'Baseboard', 'e.g. 200', 'LF', 'interior')
     ),
   ],
   kitchen: [
@@ -1911,11 +1927,11 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
   room_remodel: [
     row(
       F('floorAreaSqft', 'Living area', '1400', 'sqft', 'structure', true),
-      F('kitchenFloorSqft', 'Total flooring area', '900', 'sqft', 'interior')
+      F('flooringSqft', 'Total flooring area', 'Enter', 'sqft', 'interior')
     ),
     row(
       F('cabinetLf', 'Cabinets', '42', 'LF', 'interior'),
-      F('countertopSqft', 'Counters', '', 'sqft', 'interior')
+      F('countertopSqft', 'Counters', 'Enter', 'sqft', 'interior')
     ),
     row(
       F('drywallSqft', 'Drywall repair', '300', 'sqft', 'interior'),
@@ -2269,11 +2285,47 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
   planRoomCount?: number;
   livingSf?: number | null;
   garageSf?: number | null;
+  notes?: string | null;
 }): string {
   const resolved = resolveQuickMeasurementTemplateKey(
     params.templateKey,
     params.projectType
   );
+  const notes = String(params.notes || '');
+  const insulationRequested =
+    /\b(?:insulat(?:e|ion|ed)|R[-\s]?\d{2,3}|fiberglass\s+batt|blown[-\s]?in)\b/i.test(
+      notes
+    );
+  const drywallWorkRequested = notes
+    .split(/[.;\n]/)
+    .some(
+      clause =>
+        /\b(?:drywall|sheetrock)\b[^.;\n]{0,50}\b(?:install|hang|finish|replace|repair|remove|removal|demo|demolition)\b|\b(?:install|hang|finish|replace|remove|removal|demo|demolition|repair)\b[^.;\n]{0,50}\b(?:drywall|sheetrock)\b/i.test(
+          clause
+        ) &&
+        !/\b(?:no|without|exclude|excluding|not)\b[^.;\n]{0,20}\b(?:drywall|sheetrock)\b/i.test(
+          clause
+        )
+    );
+  if (resolved === 'room_remodel' && insulationRequested && !drywallWorkRequested) {
+    return 'insulation';
+  }
+  const isMultiRoomRemodel =
+    /\b(?:kitchen|bathrooms?|baths?)\b/i.test(notes) &&
+    /\b(?:renovat(?:e|ion)|remodel(?:ing)?|existing\s+(?:home|interior))\b/i.test(
+      notes
+    ) &&
+    /\b(?:\d+\s+)?bathrooms?\b|\b(?:one|two|three)\s+bathrooms?\b/i.test(
+      notes
+    );
+  if (
+    isMultiRoomRemodel &&
+    (resolved === 'kitchen' ||
+      resolved === 'bathroom' ||
+      resolved === 'room_remodel')
+  ) {
+    return 'room_remodel';
+  }
   if (resolved === 'ground_up' || resolved === 'addition') return resolved;
 
   const rooms = Number(params.planRoomCount) || 0;
@@ -2323,7 +2375,54 @@ export function quickMeasurementRowsForTemplate(
     projectType,
     notes
   );
-  return filterMixedInteriorRefreshRows(garageFiltered, key, notes);
+  const mixedFiltered = filterMixedInteriorRefreshRows(garageFiltered, key, notes);
+  const remodelRows =
+    key === 'room_remodel' &&
+    /\b(?:\d[\d,]*(?:\.\d+)?)\s*(?:linear\s+feet|linear\s+foot|lf)\s+(?:of\s+)?(?:kitchen\s+)?countertops?\b/i.test(
+      String(notes || '')
+    )
+      ? mixedFiltered.map(row =>
+          row.map(field =>
+            field.key === 'countertopSqft'
+              ? QUICK_MEASUREMENT_FIELD_DEFS.countertopLf!
+              : field
+          )
+        )
+      : mixedFiltered;
+  if (key !== 'room_remodel' || !String(notes || '').trim()) {
+    return remodelRows;
+  }
+  const noteText = String(notes || '');
+  const hasPaint = /\b(?:paint(?:ing)?|repaint)\b/i.test(noteText);
+  const hasFlooring =
+    !/\bfloor(?:ing)?\s+protection\b/i.test(noteText) &&
+    /\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,80}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;\n]{0,80}\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+      noteText
+    );
+  const hasDrywall = /\b(?:drywall|sheetrock|patch(?:ing)?|wall\s+repair)\b/i.test(
+    noteText
+  );
+  const hasBaseboard = /\bbaseboards?\b|\btrim\b/i.test(noteText);
+  const optionalKeys = new Set<QuickMeasurementFieldKey>([
+    'floorAreaSqft',
+    'flooringSqft',
+    'drywallSqft',
+    'baseboardLf',
+    'wallPaintSqft',
+    'ceilingPaintSqft',
+  ]);
+  return remodelRows
+    .map(row =>
+      row.filter(field => {
+        if (!optionalKeys.has(field.key)) return true;
+        if (field.key === 'floorAreaSqft' || field.key === 'flooringSqft')
+          return hasFlooring;
+        if (field.key === 'drywallSqft') return hasDrywall;
+        if (field.key === 'baseboardLf') return hasBaseboard;
+        return hasPaint;
+      })
+    )
+    .filter(row => row.length > 0);
 }
 
 function projectAreaFieldLabel(projectType?: string | null): string | null {
@@ -2458,6 +2557,11 @@ export function resolveQuickMeasurementDisplayValue(
   if (userOverrides[key]) {
     return String(raw ?? '');
   }
+  // Explicit note quantities are authoritative over stale inferred/formula
+  // values that may already be persisted on the draft.
+  if (noteValues[key]) {
+    return noteValues[key];
+  }
   if (raw != null && String(raw).trim() !== '') {
     return String(raw);
   }
@@ -2535,7 +2639,46 @@ export function quickMeasurementRowsForInput(
         .filter((field): field is QuickMeasurementFieldDef => Boolean(field));
 
   // Keep row order stable while typing — dynamic note-only rows caused TextInput focus to jump.
-  if (resolvedKey === 'room_remodel') {
+  if (resolvedKey === 'room_remodel' || resolvedKey === 'kitchen') {
+    const notes = String(options?.scopeNotes || '');
+    const kitchenNotes =
+      /\bkitchen(?:\s+remodel)?\b/i.test(notes) ||
+      /\b(?:countertops?|backsplash|cabinetry|quartz)\b/i.test(notes);
+    if (kitchenNotes) {
+      const optionalKitchenKeys = new Set<QuickMeasurementFieldKey>([
+        'floorAreaSqft',
+        'flooringSqft',
+        'kitchenFloorSqft',
+        'drywallSqft',
+        'baseboardLf',
+        'wallPaintSqft',
+        'ceilingPaintSqft',
+        'paintAreaSqft',
+      ]);
+      const explicitFloorWork =
+        /\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,80}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;]{0,80}\b(?:install|installation|replace|replacement|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+          notes
+        );
+      const explicitDrywall = /\b(?:drywall|sheetrock|gypsum|wall\s+repair|patch(?:ing)?)\b/i.test(notes);
+      const explicitBaseboard = /\b(?:baseboards?|base\s*board)\b/i.test(notes);
+      const explicitPaint = /\b(?:paint(?:ing)?|repaint|primer)\b/i.test(notes);
+      const keepField = (field: QuickMeasurementFieldDef) => {
+        if (!optionalKitchenKeys.has(field.key)) return true;
+        if (
+          field.key === 'floorAreaSqft' ||
+          field.key === 'flooringSqft' ||
+          field.key === 'kitchenFloorSqft'
+        ) {
+          return explicitFloorWork;
+        }
+        if (field.key === 'drywallSqft') return explicitDrywall;
+        if (field.key === 'baseboardLf') return explicitBaseboard;
+        return explicitPaint;
+      };
+      return baseRows
+        .map(row => row.filter(keepField))
+        .filter(row => row.length > 0);
+    }
     return baseRows;
   }
 
@@ -2698,12 +2841,14 @@ export function emptyQuickMeasurementInput(): Record<
     floorAreaSqft: '',
     backsplashSqft: '',
     countertopSqft: '',
+    countertopLf: '',
     cabinetLf: '',
     showerWallTileSqft: '',
     showerFloorTileSqft: '',
     wallPaintSqft: '',
     ceilingPaintSqft: '',
     paintAreaSqft: '',
+    patchRepairSqft: '',
     exteriorPaintSqft: '',
     baseboardLf: '',
     interiorDoorCount: '',

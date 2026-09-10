@@ -134,6 +134,8 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   garage_doors: /\bgarage\s+doors?\b/,
   windows_doors:
     /\b(?:windows?|exterior\s+doors?|entry\s+doors?|sliding\s+doors?|patio\s+doors?|sliders?)\b/,
+  window_install:
+    /\b(?:replace|replacement|install|installation|new)\b[^.;\n]{0,40}\bwindows?\b|\bwindows?\b[^.;\n]{0,40}\b(?:replace|replacement|install|installation)\b/,
   exterior_finishes:
     /\b(exterior\s+finishes|siding|soffit|fascia|exterior\s+trim|sheeting|osb|house\s*wrap|weather\s+barrier|exterior\s+plywood|stucco|eifs)\b/,
   hvac: /\b(hvac|furnace|air\s+condition|heat\s+pump|duct(?:work)?|mini[\s-]?split)\b/,
@@ -203,6 +205,12 @@ export function notesOwnerHandlesScopeCategory(
 }
 
 const CHECKLIST_NO_HINTS: Record<string, RegExp> = {
+  flooring:
+    /\b(?:flooring|floors?|finished\s+floor)\s+(?:protection|protect(?:ion|ed|ing))\b|\bprotect(?:ion|ed|ing)\b[^.]{0,40}\b(?:flooring|floors?|finished\s+floor)\b/,
+  framing:
+    /\b(?:no|without|not)\s+(?:wall\s+removal|structural\s+framing|framing|layout\s+changes?)\b|\b(?:wall\s+removal|structural\s+framing|framing|layout\s+changes?)\s+(?:not\s+included|excluded)\b/,
+  walls_moving:
+    /\b(?:no|without|not)\s+(?:wall\s+removal|structural\s+framing|framing|layout\s+changes?)\b|\b(?:wall\s+removal|structural\s+framing|framing|layout\s+changes?)\s+(?:not\s+included|excluded)\b/,
   appliances: /\b(no\s+appliances|appliances\s+not\s+included|owner\s+appliances)\b/,
   // Already out of the house — removal is not in this bid.
   appliance_removal:

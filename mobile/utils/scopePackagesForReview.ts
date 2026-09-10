@@ -5,8 +5,12 @@ import {
   ensureGroundUpFlatworkScopeCard,
   ensureGroundUpOpeningScopeCards,
   expandWetAreaDerivedScopeItems,
+  dedupeScopeChecklistItems,
   groupScopeChecklistItems,
   normalizeScopeChecklistItems,
+  filterRoomRemodelNoteScopeItems,
+  syncInteriorPaintScopeItems,
+  syncWindowInstallScopeFromNotes,
   WET_AREA_DERIVED_ITEM_IDS,
   type ScopeChecklistGroupingContext,
   type ScopeChecklistItem,
@@ -35,6 +39,10 @@ import {
   resolveEffectiveQuickMeasurementTemplateKey,
 } from '@/utils/scopeQuickMeasurements';
 import { checklistItemInScope, lookupRuleKeyForPackage, ruleKeysToTryForPackage } from '@/utils/scopeItemQuantities';
+import {
+  expandBathroomWetAreaDemoScopeDisplayItems,
+  finalizeWetAreaDemoScopeFromMeasurements,
+} from '@/utils/wetAreaDemoScopeGate';
 import {
   finalizeWetAreaInstallScopeFromMeasurements,
 } from '@/utils/wetAreaInstallScopeGate';
@@ -76,25 +84,58 @@ export function buildConfirmScopeDisplayItems(
   measurements: Record<string, unknown>,
   templateKey?: string | null
 ): ScopeChecklistItem[] {
-  let expanded = expandWetAreaDerivedScopeItems(items).map((row) =>
+  let expanded = dedupeScopeChecklistItems(expandWetAreaDerivedScopeItems(items)).map((row) =>
     row.id === 'exterior' && row.label === 'Exterior finishes'
       ? { ...row, label: 'Exterior Envelope' }
       : row
   );
+  if (
+    templateKey &&
+    String(templateKey).toLowerCase() !== 'painting'
+  ) {
+    expanded = expanded.filter(row => row.id !== 'window_install');
+  }
   if (String(templateKey || '').toLowerCase() === 'bathroom') {
+    expanded = syncInteriorPaintScopeItems(expanded, {
+      wallPaintSqft: measurements.wallPaintSqft as string | number | null,
+      ceilingPaintSqft: measurements.ceilingPaintSqft as string | number | null,
+      paintAreaSqft: measurements.paintAreaSqft as string | number | null,
+      patchRepairSqft: (
+        measurements.itemQuantities as
+          | Record<string, { quantity?: string | number | null }>
+          | undefined
+      )?.patch_repair?.quantity ??
+        (measurements.patchRepairSqft as string | number | null),
+      paintAreaBasis: measurements.paintAreaBasis as
+        | 'walls'
+        | 'ceilings'
+        | 'combined'
+        | 'floor_area'
+        | 'unknown'
+        | null,
+      paintPricingMethod: measurements.paintPricingMethod as
+        | 'combined'
+        | 'separate'
+        | null,
+      combinedPaintableAreaSqft: measurements.combinedPaintableAreaSqft as
+        | string
+        | number
+        | null,
+      paintScope: Array.isArray(measurements.paintScope)
+        ? (measurements.paintScope as Array<
+            'walls' | 'ceilings' | 'trim' | 'doors' | 'cabinets' | 'exterior'
+          >)
+        : null,
+      notes: null,
+    });
     expanded = expandBathroomFixtureScopeDisplayItems(expanded, measurements, templateKey);
-    // One paint/patch card only — drop legacy QM paint IDs from the ready list.
-    if (expanded.some((row) => row.id === 'paint_repair')) {
-      expanded = expanded.filter(
-        (row) =>
-          row.id !== 'interior_paint' &&
-          row.id !== 'paint' &&
-          row.id !== 'paint_trim' &&
-          row.id !== 'prep' &&
-          row.id !== 'drywall' &&
-          row.id !== 'patch_repair'
-      );
-    }
+    expanded = expandBathroomWetAreaDemoScopeDisplayItems(
+      expanded,
+      measurements,
+      templateKey
+    );
+    expanded = finalizeWetAreaInstallScopeFromMeasurements(expanded, measurements);
+    expanded = finalizeWetAreaDemoScopeFromMeasurements(expanded, measurements);
   }
   if (String(templateKey || '').toLowerCase() === 'ground_up') {
     expanded = ensureGroundUpFlatworkScopeCard(expanded);
@@ -116,12 +157,19 @@ export function buildConfirmScopeDisplayItems(
         : row
     );
   }
-  if (!measurementSemanticsV1Enabled() || !benchmarkEngineV1Enabled()) return expanded;
-  if (expanded.some((row) => row.id === 'interior_finishes')) return expanded;
+  if (!measurementSemanticsV1Enabled() || !benchmarkEngineV1Enabled()) {
+    return dedupeScopeChecklistItems(expanded);
+  }
+  if (String(templateKey || '').toLowerCase() === 'room_remodel') {
+    return dedupeScopeChecklistItems(expanded);
+  }
+  if (expanded.some((row) => row.id === 'interior_finishes')) {
+    return dedupeScopeChecklistItems(expanded);
+  }
   const hasFinishChild = expanded.some(
     (row) => INTERIOR_FINISH_CHILD_IDS.has(row.id) && checklistItemInScope(row)
   );
-  if (!hasFinishChild) return expanded;
+  if (!hasFinishChild) return dedupeScopeChecklistItems(expanded);
   const stageCard: ScopeChecklistItem = {
     id: 'interior_finishes',
     label: 'Interior Finishes',
@@ -132,9 +180,13 @@ export function buildConfirmScopeDisplayItems(
   };
   const drywallIdx = expanded.findIndex((row) => row.id === 'drywall');
   if (drywallIdx >= 0) {
-    return [...expanded.slice(0, drywallIdx), stageCard, ...expanded.slice(drywallIdx)];
+    return dedupeScopeChecklistItems([
+      ...expanded.slice(0, drywallIdx),
+      stageCard,
+      ...expanded.slice(drywallIdx),
+    ]);
   }
-  return [...expanded, stageCard];
+  return dedupeScopeChecklistItems([...expanded, stageCard]);
 }
 
 /** Checklist rows for Applied-pricing math after Continue — mirrors Step 2 displayItems. */
@@ -144,7 +196,12 @@ export function confirmScopeDisplayItemsFromDraft(draft: EstimateAiDraft): Scope
     : draft.scopeChecklist?.items;
   if (!base?.length) return [];
   const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
-  return buildConfirmScopeDisplayItems(base, measurements, draft.scopeChecklist?.templateKey);
+  const templateKey = resolveEffectiveQuickMeasurementTemplateKey({
+    templateKey: draft.scopeChecklist?.templateKey,
+    projectType: draft.projectType,
+    notes: draft.originalNotes,
+  });
+  return buildConfirmScopeDisplayItems(base, measurements, templateKey);
 }
 
 /** QM embed context — same template resolution as Confirm Scope Step 2. */
@@ -349,8 +406,12 @@ export function hydrateChecklistItemsForScopeReview(
       : draft.scopeChecklist?.items;
   if (!base?.length) return [];
 
-  const templateKey = draft.scopeChecklist?.templateKey;
-  const notes = draft.originalNotes || draft.scopeNotes || null;
+  const notes = draft.originalNotes || null;
+  const templateKey = resolveEffectiveQuickMeasurementTemplateKey({
+    templateKey: draft.scopeChecklist?.templateKey,
+    projectType: draft.projectType,
+    notes,
+  });
   let items = base.map((item) => ({ ...item }));
   if (String(templateKey || '').toLowerCase() === 'painting') {
     const paintingItemIds = new Set([
@@ -385,6 +446,11 @@ export function hydrateChecklistItemsForScopeReview(
     notes,
     measurements: measurements as NormalizedScopeMeasurements,
   });
+  items = syncWindowInstallScopeFromNotes(items, {
+    notes,
+    windowCount: measurements.windowCount as string | number | null,
+    templateKey,
+  });
   items = expandBathroomFixtureScopeDisplayItems(items, measurements, templateKey);
 
   items = finalizeWetAreaInstallScopeFromMeasurements(items, measurements);
@@ -408,6 +474,7 @@ export function hydrateChecklistItemsForScopeReview(
     ]);
     items = items.filter((item) => paintingItemIds.has(item.id));
   }
+  items = filterRoomRemodelNoteScopeItems(items, notes);
   return items;
 }
 

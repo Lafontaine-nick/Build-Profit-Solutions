@@ -58,4 +58,23 @@ describe('appliance reinstall notes inference', () => {
     const byId = Object.fromEntries(next.map((i) => [i.id, i]));
     expect(byId.appliance_removal.state).toBe('unsure');
   });
+
+  test('named appliance hookup cards replace aggregate reinstall card', () => {
+    const next = applyKitchenScopeInferences(
+      [
+        ...kitchenApplianceItems(),
+        {
+          id: 'electrical_dishwasher_hookup',
+          inputType: 'yes_no',
+          label: 'Dishwasher hookup',
+          state: 'included',
+        },
+      ],
+      'kitchen',
+      { notes: 'Install a dishwasher and reconnect appliances.' }
+    );
+    const byId = Object.fromEntries(next.map((i) => [i.id, i]));
+    expect(byId.appliances.state).toBe('excluded');
+    expect(byId.electrical_dishwasher_hookup.state).toBe('included');
+  });
 });

@@ -27,6 +27,14 @@ describe('scopeItemNoteHints trim inference', () => {
     expect(inferItemStateFromNotes('trim', 'Install baseboards throughout 220 LF.')).toBe('included');
   });
 
+  test('kitchen protection and structural exclusions override stale generic scope', () => {
+    const notes =
+      'Remodel an existing kitchen without changing the footprint. Include flooring protection and cleanup. No wall removal or structural framing.';
+    expect(inferItemStateFromNotes('flooring', notes)).toBe('excluded');
+    expect(inferItemStateFromNotes('framing', notes)).toBe('excluded');
+    expect(inferItemStateFromNotes('walls_moving', notes)).toBe('excluded');
+  });
+
   test('shower floor tile notes do not include floor_tile', () => {
     expect(
       inferItemStateFromNotes(

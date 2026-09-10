@@ -892,6 +892,14 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.framingOpeningCount).toBeUndefined();
   });
 
+  it('does not borrow a nearby shower dimension as a window count', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Install a 60-inch tile shower with waterproofing. Window replacement and install.',
+      { templateKey: 'bathroom', projectType: 'bathroom' }
+    );
+    expect(parsed.windowCount).toBeUndefined();
+  });
+
   it('flags explicit reframing separately from Windows & doors counts', () => {
     const parsed = parseScopeMeasurementsFromNotes(
       'Replace 3 windows and reframe 2 window openings.',

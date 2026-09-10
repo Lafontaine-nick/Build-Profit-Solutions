@@ -31,6 +31,10 @@ export function finalizeWetAreaInstallScopeFromMeasurements(
   items: ScopeChecklistItem[],
   measurements: Record<string, unknown> | null | undefined
 ): ScopeChecklistItem[] {
+  // Preserve legacy / notes-only direct shower_pan rows. There is no QM
+  // wet-area parent in this shape, so the install stepper gate cannot
+  // determine whether the mud-pan line is intentional.
+  if (!items.some(item => item.id === 'wet_area_install')) return items;
   if (wetAreaInstallSteppersActive(measurements)) return items;
   return items
     .filter((i) => !WET_AREA_INSTALL_DERIVED_IDS.has(i.id))

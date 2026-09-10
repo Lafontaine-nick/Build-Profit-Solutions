@@ -18,11 +18,10 @@ export function resolveKitchenCountertopTakeoffSqft(
   measurements: Record<string, unknown>
 ): number {
   const perimeter = parseMeasurementQty(measurements.countertopSqft);
-  const hasIslandInstall =
-    parseMeasurementQty(measurements.kitchenInstallIslandCount) > 0;
-  const island = hasIslandInstall
-    ? parseMeasurementQty(measurements.kitchenIslandCounterSqft)
-    : 0;
+  // Island countertop area is part of the countertop takeoff, not a separate
+  // pricing card. A saved island SF value remains authoritative even if the
+  // island stepper was toggled after the measurement was entered.
+  const island = parseMeasurementQty(measurements.kitchenIslandCounterSqft);
   if (perimeter <= 0 && island <= 0) return 0;
   return Math.round((perimeter + island) * 100) / 100;
 }
@@ -337,6 +336,15 @@ function checklistIncluded(items: ScopeChecklistItem[], id: string): boolean {
   return items.find((r) => r.id === id)?.state === 'included';
 }
 
+function namedKitchenApplianceCount(notes: string): number {
+  const appliances = new Set<string>();
+  if (/\brange\b|\boven\b/.test(notes)) appliances.add('range');
+  if (/\bdishwasher\b/.test(notes)) appliances.add('dishwasher');
+  if (/\brefrigerator\b|\bfridge\b/.test(notes)) appliances.add('refrigerator');
+  if (/\bmicrowave\b/.test(notes)) appliances.add('microwave');
+  return appliances.size;
+}
+
 export function inferKitchenInstallFromIntent(params: {
   notes?: string | null;
   checklistItems?: ScopeChecklistItem[];
@@ -360,11 +368,12 @@ export function inferKitchenInstallFromIntent(params: {
   ) {
     out.kitchenInstallCounterCount = 1;
   }
+  const namedAppliances = namedKitchenApplianceCount(n);
   if (
     checklistIncluded(items, 'appliances') ||
     inferItemStateFromNotes('appliances', n) === 'included'
   ) {
-    out.kitchenInstallApplianceCount = 1;
+    out.kitchenInstallApplianceCount = namedAppliances || null;
   }
   if (
     checklistIncluded(items, 'backsplash') ||
@@ -488,7 +497,10 @@ export function resolveKitchenDemoFromIntent(params: {
       (positiveCount(ex.kitchenExistingApplianceCount) && positiveCount(ins.kitchenInstallApplianceCount))) &&
     positiveCount(ex.kitchenExistingApplianceCount)
   ) {
-    demo.kitchenDemoApplianceCount = 1;
+    demo.kitchenDemoApplianceCount =
+      namedKitchenApplianceCount(n) ||
+      positiveCount(ex.kitchenExistingApplianceCount) ||
+      null;
   }
 
   if (
@@ -745,7 +757,10 @@ export function syncKitchenQmScopeItems(
             parseMeasurementQty(m.cabinetLf) > 0
         );
       case 'island_demo':
-        return syncIncluded(positiveCount(demo.kitchenDemoIslandCount) != null);
+        return syncIncluded(
+          positiveCount(demo.kitchenDemoIslandCount) != null ||
+            positiveCount(m.kitchenDemoIslandCount) != null
+        );
       case 'countertop_demo':
         return syncIncluded(
           positiveCount(demo.kitchenDemoCounterCount) != null ||
@@ -757,7 +772,10 @@ export function syncKitchenQmScopeItems(
             parseMeasurementQty(m.backsplashSqft) > 0
         );
       case 'appliance_removal':
-        return syncIncluded(positiveCount(demo.kitchenDemoApplianceCount) != null);
+        return syncIncluded(
+          positiveCount(demo.kitchenDemoApplianceCount) != null ||
+            positiveCount(m.kitchenDemoApplianceCount) != null
+        );
       case 'floor_demo':
         return syncIncluded(positiveCount(demo.kitchenDemoFloorCount) != null);
       default:

@@ -439,6 +439,14 @@ function parseLabeledInteriorFloorAreaTotal(text) {
     const value = Number(match[1].replace(/,/g, ""));
     if (Number.isFinite(value) && value > 0) values.push(value);
   }
+  const homeInteriorMatch =
+    /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\s+(?:existing\s+)?home\s+interior\b/i.exec(
+      text,
+    );
+  if (homeInteriorMatch) {
+    const value = Number(homeInteriorMatch[1].replace(/,/g, ""));
+    if (Number.isFinite(value) && value > 0) return value;
+  }
   return values.length >= 2
     ? values.reduce((sum, value) => sum + value, 0)
     : null;
@@ -518,6 +526,17 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     for (const pattern of patterns) {
       const near = pickSqftNearPattern(text, pattern);
       if (near) return near;
+    }
+    return null;
+  };
+  const pickInsulationArea = (locationPattern) => {
+    const quantityPattern =
+      /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+feet?)\s+(?:of\s+)?/i;
+    for (const clause of clauses) {
+      const match = clause.match(
+        new RegExp(`${quantityPattern.source}${locationPattern}`, "i"),
+      );
+      if (match) return Number(match[1].replace(/,/g, ""));
     }
     return null;
   };
@@ -610,6 +629,14 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     );
   })();
   if (countertopSqft) out.countertopSqft = countertopSqft;
+  // Linear countertop runs are a valid note-backed basis for remodel pricing.
+  // Keep them separate from countertop surface area so LF is never displayed
+  // or priced as sqft.
+  const countertopLf = pickLfNearPattern(
+    text,
+    /\bcountertops?|\bcounters\b/i,
+  );
+  if (countertopLf) out.countertopLf = countertopLf;
 
   // Cabinet run LF
   const cabinetLf = (() => {
@@ -797,6 +824,25 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     }
     delete out.wallPaintSqft;
     delete out.ceilingPaintSqft;
+  }
+  // A whole-home floor area is not a measured paint surface. For a remodel
+  // note that only says "paint walls and ceilings", leave paint takeoff blank
+  // so Confirm Scope asks for the actual wall/ceiling area instead of showing
+  // an invented 3.2x floor-area calculation.
+  if (
+    templateKey === "room_remodel" &&
+    combinedPaintLanguage &&
+    !explicitWallPaintSqft &&
+    !explicitCeilingPaintSqft
+  ) {
+    delete out.wallPaintSqft;
+    delete out.ceilingPaintSqft;
+    delete out.paintAreaSqft;
+    delete out.originalPaintAreaReferenceSqft;
+    delete out.combinedPaintableAreaSqft;
+    delete out.paintAreaNeedsConfirmation;
+    delete out.paintAreaBasis;
+    delete out.paintPricingMethod;
   }
 
   const interiorDoorCountMatch = blob.match(
@@ -1134,6 +1180,8 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   // Flooring / floor-area jobs (tile demo, laminate install, etc.)
   const floorAreaSqft = (() => {
     if (templateKey === "bathroom" || projectType === "bathroom") return null;
+    const explicitHomeInterior = parseLabeledInteriorFloorAreaTotal(text);
+    if (explicitHomeInterior) return explicitHomeInterior;
     if (livingAreaSqft) return livingAreaSqft;
     let max = 0;
     for (const clause of clauses) {
@@ -1644,6 +1692,22 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       quantitySource: "notes",
     };
   }
+  const insulationWallSqft = pickInsulationArea(
+    "(?:exterior|outside)\\s+walls?",
+  );
+  const insulationAtticSqft = pickInsulationArea(
+    "(?:attic|ceiling)(?:\\s+area)?",
+  );
+  const insulationFloorSqft = pickInsulationArea("floor(?:\\s+area)?");
+  if (insulationWallSqft) out.exteriorWallInsulationSqft = insulationWallSqft;
+  if (insulationAtticSqft) out.atticInsulationSqft = insulationAtticSqft;
+  if (insulationFloorSqft) out.floorInsulationSqft = insulationFloorSqft;
+  const materialMatch = text.match(
+    /\b(fiberglass\s+batt|blown[-\s]?in|spray\s+foam|rigid\s+foam|cellulose|mineral\s+wool|batt)\s+insulation\b/i,
+  );
+  if (materialMatch) out.insulationMaterialType = materialMatch[1];
+  const rValueMatch = text.match(/\bR[-\s]?\d{2,3}\b/i);
+  if (rValueMatch) out.insulationRValue = rValueMatch[0];
   if (ctx.templateKey === "flooring" && itemQuantities.floor_demo) {
     delete itemQuantities.demo;
   }

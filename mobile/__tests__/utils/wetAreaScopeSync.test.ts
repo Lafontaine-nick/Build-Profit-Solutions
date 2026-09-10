@@ -394,6 +394,75 @@ describe('wetAreaScopeSync', () => {
     expect(next.find(r => r.id === 'floor_tile')?.state).toBe('included');
   });
 
+  test('syncWetAreaDemoScopeItems excludes tub_demo when QM override clears tub', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'tub_demo',
+        label: 'Remove tub',
+        inputType: 'yes_no',
+        state: 'included',
+        noteBacked: true,
+      },
+    ];
+    const next = syncWetAreaDemoScopeItems(items, {
+      demo: { demoTubCount: null },
+      demoOverrides: { demoTubCount: true },
+    });
+    expect(next.find(r => r.id === 'tub_demo')?.state).toBe('excluded');
+  });
+
+  test('syncWetAreaDemoScopeItems uses enclosure demo instead of shower pan card', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'shower_floor_demo',
+        label: 'Remove shower floor',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'shower_enclosure_demo',
+        label: 'Remove enclosure',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+    ];
+    const next = syncWetAreaDemoScopeItems(items, {
+      demo: { demoPrefabEnclosureCount: 1 },
+      demoOverrides: { demoPrefabEnclosureCount: true },
+    });
+    expect(next.find(r => r.id === 'shower_floor_demo')?.state).toBe(
+      'excluded'
+    );
+    expect(next.find(r => r.id === 'shower_enclosure_demo')?.state).toBe(
+      'included'
+    );
+  });
+
+  test('syncWetAreaDemoScopeItems includes glass_door_demo from shower door tear-out', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'glass_door_demo',
+        label: 'Remove shower door',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'glass_door',
+        label: 'Shower door install',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+    ];
+    const next = syncWetAreaDemoScopeItems(items, {
+      demo: { demoShowerDoorCount: 1 },
+      demoShowerDoorCount: 1,
+      installShowerDoorCount: null,
+      demoOverrides: { demoShowerDoorCount: true },
+    });
+    expect(next.find(r => r.id === 'glass_door_demo')?.state).toBe('included');
+    expect(next.find(r => r.id === 'glass_door')?.state).toBe('excluded');
+  });
+
   test('syncWetAreaDemoScopeItems clears floor_demo Yes when bath floor demo stepper off', () => {
     const items: ScopeChecklistItem[] = [
       {
@@ -449,6 +518,41 @@ describe('wetAreaScopeSync', () => {
     expect(next.every(row => row.state === 'included')).toBe(true);
   });
 
+  test('opening counts include exterior prep without inferring exterior painting', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'exterior_prep', label: 'Exterior Prep & Masking', inputType: 'yes_no', state: 'unsure' },
+      { id: 'exterior_paint', label: 'Exterior Paint', inputType: 'yes_no', state: 'included' },
+      { id: 'exterior_trim_paint', label: 'Window trim & finish', inputType: 'yes_no', state: 'included' },
+    ];
+
+    const next = syncInteriorPaintScopeItems(items, {
+      windowCount: 8,
+      exteriorDoorCount: 2,
+      notes: 'Replace 8 windows and 2 exterior swing doors.',
+    });
+
+    expect(next.find(row => row.id === 'exterior_prep')?.state).toBe('included');
+    expect(next.find(row => row.id === 'exterior_paint')?.state).toBe('unsure');
+    expect(next.find(row => row.id === 'exterior_trim_paint')?.state).toBe('unsure');
+  });
+
+  test('explicit exterior painting still includes prep and trim finish', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'exterior_prep', label: 'Exterior Prep & Masking', inputType: 'yes_no', state: 'unsure' },
+      { id: 'exterior_paint', label: 'Exterior Paint', inputType: 'yes_no', state: 'unsure' },
+      { id: 'exterior_trim_paint', label: 'Window trim & finish', inputType: 'yes_no', state: 'unsure' },
+    ];
+
+    const next = syncInteriorPaintScopeItems(items, {
+      windowCount: 8,
+      exteriorDoorCount: 2,
+      paintScope: ['exterior'],
+      notes: 'Paint the exterior siding and window trim.',
+    });
+
+    expect(next.every(row => row.state === 'included')).toBe(true);
+  });
+
   test('splits walls and ceilings without retaining a generic paint card', () => {
     const items: ScopeChecklistItem[] = [
       {
@@ -488,7 +592,7 @@ describe('wetAreaScopeSync', () => {
     );
   });
 
-  test('syncInteriorPaintScopeItems targets paint_repair on bathroom checklists', () => {
+  test('syncInteriorPaintScopeItems splits bathroom paint and patch cards', () => {
     const items: ScopeChecklistItem[] = [
       {
         id: 'paint_repair',
@@ -505,10 +609,26 @@ describe('wetAreaScopeSync', () => {
       { id: 'paint', label: 'Paint', inputType: 'yes_no', state: 'included' },
     ];
     const next = syncInteriorPaintScopeItems(items, { wallPaintSqft: '384' });
-    expect(next.find(r => r.id === 'paint_repair')?.state).toBe('included');
-    // QM paint SF must not leave legacy paint IDs selected beside paint_repair.
-    expect(next.find(r => r.id === 'interior_paint')?.state).toBe('excluded');
+    expect(next.find(r => r.id === 'paint_repair')).toBeUndefined();
+    expect(next.find(r => r.id === 'interior_paint')?.state).toBe('included');
+    expect(next.find(r => r.id === 'patch_repair')?.state).toBe('excluded');
     expect(next.find(r => r.id === 'paint')?.state).toBe('excluded');
+  });
+
+  test('shows the patch card only when patch sqft is measured', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'paint_repair',
+        label: 'Paint repair',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+    ];
+    const next = syncInteriorPaintScopeItems(items, {
+      wallPaintSqft: '384',
+      patchRepairSqft: '25',
+    });
+    expect(next.find(r => r.id === 'patch_repair')?.state).toBe('included');
   });
 
   test('finalizeWetAreaInstallScopeFromMeasurements drops install lines when steppers are zero', () => {

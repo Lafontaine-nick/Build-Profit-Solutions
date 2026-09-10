@@ -149,6 +149,15 @@ describe('confirmScopeStep2Pricing tiers', () => {
     );
   });
 
+  it('keeps a mud-pan sqft field on the bathroom install card', () => {
+    expect(
+      step2TierNeedsInlineTakeoffEntry('shower_pan', 'bathroom', {
+        pricingReady: false,
+        unit: 'sqft',
+      })
+    ).toBe(true);
+  });
+
   it('classifies bathroom drywall patch as takeoff_required', () => {
     expect(resolveStep2PricingTier('drywall', 'bathroom').tier).toBe('takeoff_required');
     expect(step2TierExpectsSuggestedFill('drywall', 'bathroom')).toBe(false);
@@ -193,7 +202,7 @@ describe('confirmScopeStep2Pricing tiers', () => {
       resolved: { quantity: 36, unit: 'sqft', quantitySource: 'user_entered' },
       pricingContext: { checklistItems },
     });
-    expect(withQty?.fill?.total).toBe(400);
+    expect(withQty?.fill?.total).toBe(432);
 
     const viaMain = resolveScopeItemSuggestedPricing(
       'drywall',
@@ -202,7 +211,7 @@ describe('confirmScopeStep2Pricing tiers', () => {
       { quantity: 36, unit: 'sqft', quantitySource: 'user_entered' },
       { checklistItems }
     );
-    expect(viaMain.fill?.total).toBe(400);
+    expect(viaMain.fill?.total).toBe(432);
   });
 
   it('routes kitchen drywall patch pricing from localized $400 @ 36 SF reference', () => {
@@ -580,5 +589,30 @@ describe('bathroom shower tile demo suggested pricing', () => {
     });
     expect(suggest?.fill?.total).toBe(872.5);
     expect(suggest?.fill?.basis).toMatchObject({ quantity: 95, unit: 'sqft' });
+  });
+
+  it('prices confirmed shower wall plus floor measurements from their combined basis', () => {
+    const suggest = resolveStep2ComponentSuggestedPricing({
+      itemId: 'demo',
+      templateKey: 'bathroom',
+      measurementsInput: {
+        demoTileWallCount: 1,
+        demoTilePanCount: 1,
+        showerWallTileSqft: '95',
+        showerFloorTileSqft: '15',
+        itemQuantities: {
+          demo__sqft_basis: {
+            quantity: 110,
+            unit: 'sqft',
+            quantitySource: 'user_entered',
+          },
+        },
+      },
+      resolved: { quantity: 110, unit: 'sqft', quantitySource: 'user_entered' },
+      pricingContext: {},
+    });
+
+    expect(suggest?.fill?.total).toBe(605);
+    expect(suggest?.fill?.basis).toMatchObject({ quantity: 110, unit: 'sqft' });
   });
 });

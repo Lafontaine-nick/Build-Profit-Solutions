@@ -69,7 +69,10 @@ import {
   primaryWetAreaInstallChoiceFromSteppers,
   type WetAreaStepperCounts,
 } from '@/utils/planBathRooms';
-import type { WetAreaDemoCounts } from '@/utils/wetAreaExistingDemo';
+import type {
+  WetAreaDemoCounts,
+  WetAreaDemoOverrideKey,
+} from '@/utils/wetAreaExistingDemo';
 import { anyDemoWetAreaActive } from '@/utils/wetAreaExistingDemo';
 import {
   scopeChecklistNoteSummary,
@@ -395,6 +398,39 @@ export function normalizeScopeChecklistItem(
   };
 }
 
+/** Keep Confirm Scope to one card per checklist identity. */
+export function dedupeScopeChecklistItems(
+  items: ScopeChecklistItem[]
+): ScopeChecklistItem[] {
+  const result: ScopeChecklistItem[] = [];
+  const indexById = new Map<string, number>();
+  const stateRank = { excluded: 0, unsure: 1, included: 2 } as const;
+
+  items.forEach(item => {
+    const existingIndex = indexById.get(item.id);
+    if (existingIndex == null) {
+      indexById.set(item.id, result.length);
+      result.push(item);
+      return;
+    }
+
+    const existing = result[existingIndex];
+    const winner =
+      stateRank[item.state] > stateRank[existing.state] ? item : existing;
+    result[existingIndex] = {
+      ...winner,
+      // Preserve useful metadata when duplicate rows came from different
+      // inference paths.
+      helperText: winner.helperText || existing.helperText || item.helperText,
+      noteBacked: Boolean(existing.noteBacked || item.noteBacked),
+      options: winner.options || existing.options || item.options,
+      choiceId: winner.choiceId || existing.choiceId || item.choiceId,
+    };
+  });
+
+  return result;
+}
+
 function choiceIdToState(
   choiceId: string | null | undefined
 ): 'included' | 'excluded' | 'unsure' {
@@ -561,6 +597,22 @@ export function applyKitchenScopeInferences(
   const next = items.map(item => ({ ...item }));
   const removalIdx = next.findIndex(i => i.id === 'appliance_removal');
   const reinstallIdx = next.findIndex(i => i.id === 'appliances');
+  const namedApplianceHookupIncluded = next.some(
+    item =>
+      item.state === 'included' &&
+      /^electrical_(?:range|dishwasher|microwave|refrigerator|oven)_hookup$/.test(
+        String(item.id || '')
+      )
+  );
+  // Named appliance hookup cards own their quantities and pricing. Do not
+  // also show the aggregate reinstall card, which would double count them.
+  if (reinstallIdx >= 0 && namedApplianceHookupIncluded) {
+    next[reinstallIdx] = {
+      ...next[reinstallIdx],
+      state: 'excluded',
+      noteBacked: false,
+    };
+  }
   const notesSayAlreadyRemoved =
     inferItemStateFromNotes('appliance_removal', ctx?.notes) === 'excluded';
   if (
@@ -872,6 +924,71 @@ export function syncAdditionConversionScopeFromMeasurements(
     }
     return item;
   });
+}
+
+/** Promote explicit window replacement/install notes without inventing a count. */
+export function syncWindowInstallScopeFromNotes(
+  items: ScopeChecklistItem[],
+  params: {
+    notes?: string | null;
+    windowCount?: string | number | null;
+    templateKey?: string | null;
+  } = {}
+): ScopeChecklistItem[] {
+  const templateKey = String(params.templateKey || '').toLowerCase();
+  if (templateKey && templateKey !== 'painting') {
+    // Windows/doors and whole-project flows already own this pricing card
+    // through `windows`; window_install is a painting-specific card.
+    return items.filter(item => item.id !== 'window_install');
+  }
+  const notes = String(params.notes || '');
+  const replacementMentioned =
+    /\b(?:replace|replacement|install|installation|new)\b[^.;\n]{0,40}\bwindows?\b|\bwindows?\b[^.;\n]{0,40}\b(?:replace|replacement|install|installation)\b/i.test(
+      notes
+    );
+  if (!replacementMentioned && !positiveMeasurementCount(params.windowCount)) {
+    return items;
+  }
+
+  const windowTrimPaintMentioned =
+    /\b(?:paint|repaint|painting)\b[^.;\n]{0,40}\bwindow(?:s)?\b[^.;\n]{0,20}\btrim\b|\bwindow(?:s)?\b[^.;\n]{0,20}\btrim\b[^.;\n]{0,40}\b(?:paint|repaint|painting)\b/i.test(
+      notes
+    );
+  const normalizedItems =
+    replacementMentioned && !windowTrimPaintMentioned
+      ? items.map(item =>
+          item.id === 'exterior_trim_paint'
+            ? { ...item, state: 'excluded' as const }
+            : item
+        )
+      : items;
+  const existing = normalizedItems.find(item => item.id === 'window_install');
+  if (existing) {
+    return normalizedItems.map(item =>
+      item.id === 'window_install'
+        ? { ...item, state: 'included' as const }
+        : item
+    );
+  }
+
+  const row: ScopeChecklistItem = {
+    id: 'window_install',
+    inputType: 'yes_no',
+    label: 'Window replacement / installation',
+    helperText:
+      'Replace and install windows. Enter the number of window units; size, glass package, and exterior trim may change the final price.',
+    state: 'included',
+    noteBacked: true,
+  };
+  const anchor = normalizedItems.findIndex(
+    item => item.id === 'windows_doors' || item.id === 'exterior_trim_paint'
+  );
+  const insertAt = anchor >= 0 ? anchor + 1 : items.length;
+  return [
+    ...normalizedItems.slice(0, insertAt),
+    row,
+    ...normalizedItems.slice(insertAt),
+  ];
 }
 
 /** Hide excluded cards on existing-shell conversions — finish-out scope only. */
@@ -1442,11 +1559,13 @@ export function applyScopeInferencesFromNotes(
           return item;
         }
         const inferredState = inferItemStateFromNotes(item.id, notes);
+        // Explicit exclusions in notes override a stale included state from
+        // an older generic checklist/draft.
+        if (inferredState === 'excluded' && item.state !== 'excluded') {
+          return { ...item, state: 'excluded' as const, noteBacked: false };
+        }
         if (item.state === 'unsure' && inferredState === 'included') {
           return { ...item, state: 'included' as const, noteBacked: true };
-        }
-        if (item.state === 'unsure' && inferredState === 'excluded') {
-          return { ...item, state: 'excluded' as const };
         }
         return item;
       });
@@ -1621,11 +1740,11 @@ export function normalizeScopeChecklistItems(
   );
   // Do not force soft-cost Yes here — that would overwrite an intentional Not sure
   // on every reopen. Defaults are applied at checklist build / note inference time.
-  return applyKitchenScopeInferences(
+  return dedupeScopeChecklistItems(applyKitchenScopeInferences(
     withDrywallInstall,
     templateKey,
     inferenceCtx
-  );
+  ));
 }
 
 /** Split legacy cabinets_counters and inject takeoff-priced ground-up lines. */
@@ -2939,6 +3058,56 @@ function suppressExistingShellConversionSinglePaintCard(
   return changed ? next : items;
 }
 
+/** Keep a mixed kitchen/bath remodel limited to work explicitly supported by notes. */
+export function filterRoomRemodelNoteScopeItems(
+  items: ScopeChecklistItem[],
+  notes?: string | null
+): ScopeChecklistItem[] {
+  const text = String(notes || '');
+  const has = (pattern: RegExp) => pattern.test(text);
+  const isMixedRemodel =
+    has(/\b(?:kitchen|bathrooms?|baths?)\b/i) &&
+    has(/\b(?:renovat(?:e|ion)|remodel(?:ing)?|existing\s+(?:home|interior))\b/i) &&
+    has(/\b(?:one|two|three|\d+)\s+bathrooms?\b/i);
+  if (!isMixedRemodel) return items;
+  const supported = (id: string): boolean => {
+    if (id === 'demo' || id === 'floor_demo')
+      return has(/\b(?:remove|demo|demolition|tear[\s-]?out)\b/i) &&
+        has(/\bfloor(?:ing)?|lvp|vinyl\b/i);
+    if (id === 'plumbing') return has(/\bplumbing|fixture/i);
+    if (id === 'drywall') return has(/\bdrywall|sheetrock|patch|repair/i);
+    if (id === 'flooring') return has(/\b(?:lvp|flooring|floor\s+install)\b/i);
+    if (id === 'paint')
+      return has(/\b(?:paint|painting|repaint).*\b(?:wall|ceiling)s?\b/i);
+    if (id === 'baseboard_install')
+      return has(/\b(?:install|replace|new)\b[^.;\n]{0,50}\bbaseboards?\b/i);
+    if (id === 'trim_paint')
+      return has(/\bbaseboards?\b[^.;\n]{0,50}\b(?:paint|finish)\b/i);
+    if (id === 'cabinets') return has(/\bcabinets?|cabinetry\b/i);
+    if (id === 'countertops') return has(/\bcountertops?|counters?\b/i);
+    if (id === 'vanity') return has(/\bvanit(?:y|ies)\b/i);
+    if (id === 'framing')
+      return has(/\b(?:structural\s+framing|refram(?:e|ing))\b/i) &&
+        !has(/\b(?:do\s+not|no|without)\b[^.;\n]{0,45}\b(?:change|modify|alter)\b[^.;\n]{0,35}\b(?:building\s+footprint|structural\s+framing)\b/i);
+    if (id === 'electrical') return has(/\belectrical|outlets?|switch(?:es)?|wiring\b/i);
+    if (id === 'hvac') return has(/\bhvac|furnace|heat\s+pump|air\s*condition/i);
+    if (id === 'permits') return has(/\bpermit|inspection/i);
+    if (id === 'cleanup') return has(/\bcleanup|haul[\s-]?off|disposal\b/i);
+    return false;
+  };
+  return items
+    .filter(item => supported(item.id))
+    .map(item =>
+      (item.id === 'demo' || item.id === 'floor_demo')
+        ? {
+            ...item,
+            label: 'Existing flooring removal',
+            helperText: 'Remove existing flooring in the affected areas.',
+          }
+        : item
+    );
+}
+
 /** Package electrical + single paint card — no granular note-backed duplicates. */
 export function applyExistingShellConversionScopeOwnership(
   items: ScopeChecklistItem[],
@@ -3091,6 +3260,51 @@ export function hydrateScopeChecklistFromNotes(
     notes,
     templateKey
   );
+  if (String(templateKey || '').toLowerCase() === 'room_remodel') {
+    const noteText = String(notes || '');
+    const has = (pattern: RegExp) => pattern.test(noteText);
+    const noteDriven = [
+      /\b(?:kitchen|bath(?:room)?s?|lvp|flooring|drywall|baseboards?|painting|repaint)\b/i,
+      /\b(?:renovate|remodel|install|replace|repair|remove)\b/i,
+    ].every(pattern => pattern.test(noteText));
+    if (noteDriven) {
+      const supported = (id: string): boolean => {
+        if (id === 'demo') return has(/\b(?:remove|demo|demolition|tear[\s-]?out)\b/i);
+        if (id === 'plumbing') return has(/\bplumbing|fixture/i);
+        if (id === 'drywall') return has(/\bdrywall|sheetrock|patch|repair/i);
+        if (id === 'flooring')
+          return has(/\b(?:lvp|flooring|floor\s+install|install.*floor)\b/i);
+        if (id === 'paint')
+          return has(/\b(?:paint|painting|repaint).*\b(?:wall|ceiling)s?\b/i);
+        if (id === 'baseboard_install')
+          return has(/\b(?:install|replace|new)\b[^.;\n]{0,50}\bbaseboards?\b/i);
+        if (id === 'trim_paint')
+          return has(/\bbaseboards?\b[^.;\n]{0,50}\b(?:paint|finish)\b/i);
+        if (id === 'cabinets') return has(/\bcabinets?|cabinetry\b/i);
+        if (id === 'countertops') return has(/\bcountertops?|counters?\b/i);
+        if (id === 'vanity') return has(/\bvanit(?:y|ies)\b/i);
+        if (id === 'framing')
+          return has(/\b(?:structural\s+framing|layout\s+changes?|refram(?:e|ing))\b/i) &&
+            !has(/\b(?:do\s+not|no|without)\b[^.;\n]{0,45}\b(?:change|modify|alter)\b[^.;\n]{0,35}\b(?:building\s+footprint|structural\s+framing)\b/i);
+        if (id === 'electrical') return has(/\belectrical|outlets?|switch(?:es)?|wiring\b/i);
+        if (id === 'hvac') return has(/\bhvac|furnace|heat\s+pump|air\s*condition/i);
+        if (id === 'permits') return has(/\bpermit|inspection/i);
+        if (id === 'cleanup') return has(/\bcleanup|haul[\s-]?off|disposal\b/i);
+        return false;
+      };
+      return noteBackedFinal
+        .filter(item => supported(item.id))
+        .map(item =>
+          item.id === 'demo'
+            ? {
+                ...item,
+                label: 'Existing flooring removal',
+                helperText: 'Remove existing flooring in the affected areas.',
+              }
+            : item
+        );
+    }
+  }
   if (String(templateKey || '').toLowerCase() !== 'bathroom') {
     return noteBackedFinal;
   }
@@ -3269,6 +3483,8 @@ export const WET_AREA_DERIVED_ITEM_IDS = new Set([
 export const WET_AREA_DEMO_EMBEDDED_IDS = new Set([
   'tub_demo',
   'shower_floor_demo',
+  'shower_enclosure_demo',
+  'glass_door_demo',
 ]);
 
 /** Inject the matching labor + materials card directly under wet area install. */
@@ -3287,26 +3503,39 @@ export function expandWetAreaDerivedScopeItems(
   const withoutDerived = items.filter(
     i => !WET_AREA_DERIVED_ITEM_IDS.has(i.id)
   );
-  const spec = wet.choiceId ? WET_AREA_INSTALL_DERIVED[wet.choiceId] : null;
-  if (!spec) return withoutDerived;
+  // QM can intentionally select more than one install component (for
+  // example, a mud pan plus a tub). Preserve every active derived row instead
+  // of collapsing the list to the primary wet-area choice.
+  const activeSpecs = Object.values(WET_AREA_INSTALL_DERIVED).filter(spec =>
+    items.some(row => row.id === spec.id && checklistItemInScope(row))
+  );
+  if (!activeSpecs.length) {
+    const primarySpec = wet.choiceId
+      ? WET_AREA_INSTALL_DERIVED[wet.choiceId]
+      : null;
+    if (primarySpec) activeSpecs.push(primarySpec);
+  }
+  if (!activeSpecs.length) return withoutDerived;
 
-  const existingPan = withoutDerived.find(i => i.id === spec.id);
-  const derived: ScopeChecklistItem = {
-    id: spec.id,
-    label: spec.label,
-    helperText: spec.helperText,
-    inputType: 'yes_no',
-    state: existingPan?.state === 'excluded' ? 'excluded' : 'included',
-    category: 'shower',
-    ...(spec.id !== 'shower_pan'
-      ? { derivedFrom: 'wet_area_install' as const }
-      : {}),
-  };
+  const derived = activeSpecs.map(spec => {
+    const existing = items.find(row => row.id === spec.id);
+    return {
+      id: spec.id,
+      label: spec.label,
+      helperText: spec.helperText,
+      inputType: 'yes_no' as const,
+      state: existing?.state === 'excluded' ? 'excluded' : 'included',
+      category: 'shower',
+      ...(spec.id !== 'shower_pan'
+        ? { derivedFrom: 'wet_area_install' as const }
+        : {}),
+    };
+  });
 
   const idx = withoutDerived.findIndex(i => i.id === 'wet_area_install');
   if (idx < 0) return [...withoutDerived, derived];
   const result = [...withoutDerived];
-  result.splice(idx + 1, 0, derived);
+  result.splice(idx + 1, 0, ...derived);
   return result;
 }
 
@@ -3552,6 +3781,7 @@ export function syncInteriorPaintScopeItems(
     wallPaintSqft?: string | number | null;
     ceilingPaintSqft?: string | number | null;
     paintAreaSqft?: string | number | null;
+    patchRepairSqft?: string | number | null;
     paintAreaBasis?:
       'walls' | 'ceilings' | 'combined' | 'floor_area' | 'unknown' | null;
     paintAreaNeedsConfirmation?: boolean | null;
@@ -3576,6 +3806,12 @@ export function syncInteriorPaintScopeItems(
     /\b(?:exterior|outside|siding|exterior\s+walls?|window\s+trim|exterior\s+doors?)\b[^.\n]{0,80}\b(?:paint|repaint|painting|coat|trim|wash|scrap|prime|caulk)/i.test(
       params.notes
     );
+  const notesExplicitlyCallForExteriorPaint = Boolean(
+    params.notes &&
+      /\b(?:exterior|outside|siding|stucco|soffit|fascia|window\s+trim|exterior\s+doors?)\b[^.\n]{0,80}\b(?:paint|repaint|painting|coat)|\b(?:paint|repaint|painting|coat)\b[^.\n]{0,80}\b(?:exterior|outside|siding|stucco|soffit|fascia|window\s+trim|exterior\s+doors?)/i.test(
+        params.notes
+      )
+  );
   const hasExplicitCeilingMeasurement = positiveSqft(params.ceilingPaintSqft);
   const splitPaintPricing =
     params.paintPricingMethod !== 'combined' &&
@@ -3588,7 +3824,11 @@ export function syncInteriorPaintScopeItems(
     if (explicitScope.includes('doors')) measuredScopeIds.add('door_paint');
     if (explicitScope.includes('cabinets'))
       measuredScopeIds.add('cabinet_paint');
-    if (explicitScope.includes('exterior') && exteriorMentionedInNotes) {
+    if (
+      explicitScope.includes('exterior') &&
+      exteriorMentionedInNotes &&
+      notesExplicitlyCallForExteriorPaint
+    ) {
       measuredScopeIds.add('exterior_paint');
       measuredScopeIds.add('exterior_prep');
       if (
@@ -3605,6 +3845,9 @@ export function syncInteriorPaintScopeItems(
     ) {
       measuredScopeIds.add('prep');
     }
+  }
+  if (positiveSqft(params.patchRepairSqft)) {
+    measuredScopeIds.add('patch_repair');
   }
   if (!explicitScope) {
     if (positiveSqft(params.wallPaintSqft)) {
@@ -3638,13 +3881,17 @@ export function syncInteriorPaintScopeItems(
       measuredScopeIds.add('door_paint');
     if (positiveSqft(params.cabinetPaintSqft))
       measuredScopeIds.add('cabinet_paint');
-    if (positiveSqft(params.exteriorPaintSqft)) {
+    if (
+      positiveSqft(params.exteriorPaintSqft) &&
+      notesExplicitlyCallForExteriorPaint
+    ) {
       measuredScopeIds.add('exterior_paint');
       measuredScopeIds.add('exterior_prep');
     }
     if (
-      positiveSqft(params.windowCount) ||
-      positiveSqft(params.exteriorDoorCount)
+      notesExplicitlyCallForExteriorPaint &&
+      (positiveSqft(params.windowCount) ||
+        positiveSqft(params.exteriorDoorCount))
     ) {
       measuredScopeIds.add('exterior_trim_paint');
     }
@@ -3652,25 +3899,37 @@ export function syncInteriorPaintScopeItems(
   // Notes/plan measurements are authoritative even when the AI also returned
   // an incomplete explicit paintScope list. Exterior quantities must bring
   // their prep, application, and opening-trim cards into the bid together.
-  if (exteriorMentionedInNotes && positiveSqft(params.exteriorPaintSqft)) {
+  if (
+    notesExplicitlyCallForExteriorPaint &&
+    positiveSqft(params.exteriorPaintSqft)
+  ) {
     measuredScopeIds.add('exterior_paint');
     measuredScopeIds.add('exterior_prep');
   }
+  const hasExteriorOpeningPaint =
+    positiveSqft(params.windowCount) || positiveSqft(params.exteriorDoorCount);
   if (
-    exteriorMentionedInNotes &&
-    (positiveSqft(params.windowCount) || positiveSqft(params.exteriorDoorCount))
+    notesExplicitlyCallForExteriorPaint &&
+    hasExteriorOpeningPaint
   ) {
     measuredScopeIds.add('exterior_trim_paint');
   }
+  // Window/door replacement needs opening prep and masking, but does not
+  // imply painting the exterior or the window trim.
+  if (hasExteriorOpeningPaint) measuredScopeIds.add('exterior_prep');
   // Notes remain authoritative for interior trim and doors even when an AI
   // returned paintScope only contains walls/ceilings.
   if (positiveSqft(params.baseboardLf)) measuredScopeIds.add('trim_paint');
   if (positiveSqft(params.interiorDoorCount)) measuredScopeIds.add('door_paint');
   if (!measuredScopeIds.size && !explicitScope) return items;
   let workingItems = items;
-  const hasExteriorOpeningPaint =
-    positiveSqft(params.windowCount) || positiveSqft(params.exteriorDoorCount);
-  if (explicitScope?.includes('exterior') || hasExteriorOpeningPaint) {
+  const shouldIncludeExteriorPaint =
+    notesExplicitlyCallForExteriorPaint &&
+    (explicitScope?.includes('exterior') ||
+      positiveSqft(params.exteriorPaintSqft));
+  const shouldIncludeExteriorTrimPaint =
+    shouldIncludeExteriorPaint && hasExteriorOpeningPaint;
+  if (hasExteriorOpeningPaint || shouldIncludeExteriorPaint) {
     const exteriorRows = [
       {
         id: 'exterior_prep',
@@ -3689,17 +3948,19 @@ export function syncInteriorPaintScopeItems(
         helperText:
           'Paintable exterior surface area for siding, stucco, soffits, and fascia. Heavy repairs, access work, and specialty coatings are separate.',
         category: 'paint',
-        state: 'included' as const,
+        state: shouldIncludeExteriorPaint ? ('included' as const) : ('unsure' as const),
         noteBacked: true,
       },
       {
         id: 'exterior_trim_paint',
         inputType: 'yes_no' as const,
-        label: 'Exterior trim, windows & doors',
+        label: 'Window trim & finish',
         helperText:
-          'Paint exterior trim, 12 window trim assemblies, and 2 exterior door surfaces. Masking is included in Exterior Prep & Masking. Window and door replacement or installation are separate.',
+          'Paint and finish window trim/casing. Window replacement and installation are priced separately.',
         category: 'paint',
-        state: 'included' as const,
+        state: shouldIncludeExteriorTrimPaint
+          ? ('included' as const)
+          : ('unsure' as const),
         noteBacked: true,
       },
     ];
@@ -3708,6 +3969,20 @@ export function syncInteriorPaintScopeItems(
     );
     if (missingExteriorRows.length)
       workingItems = [...items, ...missingExteriorRows];
+  }
+  if (hasExteriorOpeningPaint && !shouldIncludeExteriorPaint) {
+    workingItems = workingItems.map(row => {
+      if (
+        (row.id === 'exterior_paint' || row.id === 'exterior_trim_paint') &&
+        row.state === 'included'
+      ) {
+        return { ...row, state: 'unsure' as const, noteBacked: false };
+      }
+      if (row.id === 'exterior_prep') {
+        return { ...row, state: 'included' as const, noteBacked: true };
+      }
+      return row;
+    });
   }
   const bathroomPaintRepair = workingItems.some(
     row => row.id === 'paint_repair'
@@ -3721,20 +3996,80 @@ export function syncInteriorPaintScopeItems(
   if (!bathroomPaintRepair && hasSpecializedInteriorPaint) {
     workingItems = workingItems.filter(row => row.id !== 'paint');
   }
+  if (bathroomPaintRepair) {
+    const paintRepair = workingItems.find(row => row.id === 'paint_repair');
+    const existingInterior = workingItems.find(row => row.id === 'interior_paint');
+    const existingPatch = workingItems.find(row => row.id === 'patch_repair');
+    const splitItems = workingItems.filter(
+      row =>
+        row.id !== 'paint_repair' &&
+        row.id !== 'interior_paint' &&
+        row.id !== 'patch_repair'
+    );
+    const interiorPaint: ScopeChecklistItem = existingInterior || {
+      ...(paintRepair as ScopeChecklistItem),
+      id: 'interior_paint',
+      label: 'Interior painting',
+      helperText:
+        'Paint the measured interior wall/ceiling area. Patch and texture are priced separately.',
+      state: paintRepair?.state === 'excluded' ? 'excluded' : 'included',
+    };
+    const patchRepair: ScopeChecklistItem = {
+      ...(existingPatch || (paintRepair as ScopeChecklistItem)),
+      id: 'patch_repair',
+      label: 'Drywall patch & texture',
+      helperText:
+        'Localized drywall patching, texture matching, spot prime, and repair-area prep. Enter patch/repair sqft separately from Paint sqft.',
+      state: positiveSqft(params.patchRepairSqft)
+        ? 'included'
+        : ('excluded' as const),
+    };
+    const insertAt = Math.max(
+      0,
+      workingItems.findIndex(row => row.id === 'paint_repair')
+    );
+    splitItems.splice(insertAt, 0, interiorPaint, patchRepair);
+    workingItems = splitItems;
+  }
+  if (
+    !bathroomPaintRepair &&
+    hasSpecializedInteriorPaint &&
+    positiveSqft(params.patchRepairSqft) &&
+    !workingItems.some(row => row.id === 'patch_repair')
+  ) {
+    const interiorPaint = workingItems.find(row => row.id === 'interior_paint');
+    if (interiorPaint) {
+      const patchRepair: ScopeChecklistItem = {
+        ...interiorPaint,
+        id: 'patch_repair',
+        label: 'Drywall patch & texture',
+        helperText:
+          'Localized drywall patching, texture matching, spot prime, and repair-area prep. Enter patch/repair sqft separately from Paint sqft.',
+        state: 'included',
+      };
+      const insertAt = workingItems.findIndex(
+        row => row.id === 'interior_paint'
+      );
+      workingItems = [
+        ...workingItems.slice(0, insertAt + 1),
+        patchRepair,
+        ...workingItems.slice(insertAt + 1),
+      ];
+    }
+  }
   // Keep measured trim as its own priced paint scope. Generic trim-finish
   // rows are takeoff prompts and do not reliably carry the paint pricing.
   const targetIds = bathroomPaintRepair
-    ? new Set(['paint_repair'])
+    ? new Set(['interior_paint'])
     : measuredScopeIds;
   const hasConfirmedPaintSurfaceMeasurements =
     positiveSqft(params.wallPaintSqft) ||
     positiveSqft(params.ceilingPaintSqft) ||
     positiveSqft(params.combinedPaintableAreaSqft) ||
     positiveSqft(params.paintAreaSqft);
-  // Bathroom uses one physical paint card. QM paint SF must not also keep legacy
-  // interior_paint/paint/prep selected — that double-counts ready pricing.
+  // Bathroom paint and localized patch/texture are separate physical cards.
   const legacyPaintIds = bathroomPaintRepair
-    ? new Set(['interior_paint', 'paint', 'paint_trim', 'prep'])
+    ? new Set(['paint', 'paint_trim', 'prep'])
     : null;
   let changed = false;
   const next = workingItems.map(row => {
@@ -3815,13 +4150,12 @@ export function syncInteriorPaintScopeItems(
     return row;
   });
   const windowCount = positiveSqft(params.windowCount);
-  const exteriorDoorCount = positiveSqft(params.exteriorDoorCount);
   const finalItems = next.map(row =>
-    row.id === 'exterior_trim_paint' &&
-    (windowCount || exteriorDoorCount)
+    row.id === 'exterior_trim_paint'
       ? {
           ...row,
-          helperText: `Paint ${windowCount || 0} window trim assemblies and ${exteriorDoorCount || 0} exterior doors. Masking is included in Exterior Prep & Masking. Window and door replacement or installation are separate.`,
+          label: 'Window trim & finish',
+          helperText: `Paint and finish trim/casing for ${windowCount || 0} window${windowCount === 1 ? '' : 's'}. Window replacement/install pricing is handled on the Window replacement / installation card.`,
         }
       : row
   );
@@ -3844,15 +4178,33 @@ export function syncWetAreaDemoScopeItems(
   params: {
     demo: WetAreaDemoCounts;
     reuseExistingShowerDoor?: boolean;
+    demoShowerDoorCount?: number | null;
     installShowerDoorCount?: number | null;
+    demoOverrides?: Partial<Record<WetAreaDemoOverrideKey, boolean>> | null;
     showerWallTileSqft?: string | number | null;
     bathroomFloorSqft?: string | number | null;
   }
 ): ScopeChecklistItem[] {
+  const demoShowerDoorCount =
+    params.demoShowerDoorCount ?? params.demo.demoShowerDoorCount;
   const showerFloorDemo =
     stepperCountActive(params.demo.demoTilePanCount) ||
-    stepperCountActive(params.demo.demoPrefabPanCount) ||
-    stepperCountActive(params.demo.demoPrefabEnclosureCount);
+    stepperCountActive(params.demo.demoPrefabPanCount);
+  const enclosureDemo = stepperCountActive(params.demo.demoPrefabEnclosureCount);
+  const prefabFloorDemo = stepperCountActive(params.demo.demoPrefabPanCount);
+  const showerFloorDemoWasSet = [
+    params.demo.demoTilePanCount,
+    params.demo.demoPrefabPanCount,
+  ].some(value => value !== undefined && value !== null && value !== '');
+  const enclosureDemoWasSet =
+    params.demo.demoPrefabEnclosureCount !== undefined &&
+    params.demo.demoPrefabEnclosureCount !== null &&
+    params.demo.demoPrefabEnclosureCount !== '';
+  const genericDemoWasSet = Object.values(params.demo).some(
+    value => value !== undefined && value !== null && value !== ''
+  );
+  const showerDoorDemoWasSet =
+    demoShowerDoorCount !== undefined && demoShowerDoorCount !== null;
   const genericDemo =
     stepperCountActive(params.demo.demoTileWallCount) ||
     positiveSqft(params.showerWallTileSqft) ||
@@ -3879,31 +4231,96 @@ export function syncWetAreaDemoScopeItems(
       return row;
     }
     if (row.id === 'tub_demo') {
-      const tubCountWasSet =
-        params.demo.demoTubCount !== undefined &&
-        params.demo.demoTubCount !== null &&
-        params.demo.demoTubCount !== '';
       if (stepperCountActive(params.demo.demoTubCount)) {
         if (row.state !== 'included') {
           changed = true;
-          return { ...row, state: 'included' as const };
+          return { ...row, state: 'included' as const, noteBacked: false };
         }
         return row;
       }
-      // An explicit zero in Quick Measurements is authoritative. Do not let
-      // note hydration re-add tub demolition after the contractor deselects it.
-      if (tubCountWasSet && row.state !== 'excluded') {
+      if (
+        params.demoOverrides?.demoTubCount ||
+        !row.noteBacked
+      ) {
+        if (row.state === 'excluded') return row;
         changed = true;
         return { ...row, state: 'excluded' as const, noteBacked: false };
       }
       return row;
     }
+    if (row.id === 'shower_enclosure_demo' && enclosureDemo) {
+      if (row.state !== 'included') {
+        changed = true;
+        return { ...row, state: 'included' as const, noteBacked: false };
+      }
+      return row;
+    }
+    if (
+      row.id === 'shower_enclosure_demo' &&
+      (enclosureDemoWasSet || params.demoOverrides?.demoPrefabEnclosureCount) &&
+      row.state !== 'excluded'
+    ) {
+      changed = true;
+      return { ...row, state: 'excluded' as const, noteBacked: false };
+    }
+    if (row.id === 'glass_door_demo' && stepperCountActive(demoShowerDoorCount)) {
+      if (row.state !== 'included') {
+        changed = true;
+        return { ...row, state: 'included' as const, noteBacked: false };
+      }
+      return row;
+    }
+    if (
+      row.id === 'glass_door_demo' &&
+      (showerDoorDemoWasSet || params.demoOverrides?.demoShowerDoorCount) &&
+      !stepperCountActive(demoShowerDoorCount) &&
+      row.state !== 'excluded'
+    ) {
+      changed = true;
+      return { ...row, state: 'excluded' as const, noteBacked: false };
+    }
     if (row.id === 'shower_floor_demo' && showerFloorDemo) {
       if (row.state !== 'included') {
         changed = true;
-        return { ...row, state: 'included' as const };
+        return {
+          ...row,
+          state: 'included' as const,
+          label: prefabFloorDemo
+            ? 'Remove existing prefab shower pan / base'
+            : 'Remove existing tile shower pan / liner',
+          helperText: prefabFloorDemo
+            ? 'Demo and haul off the existing prefab shower pan or base.'
+            : 'Demo existing shower base, tile pan, or shower floor tile.',
+        };
+      }
+      const nextLabel = prefabFloorDemo
+        ? 'Remove existing prefab shower pan / base'
+        : 'Remove existing tile shower pan / liner';
+      const nextHelper = prefabFloorDemo
+        ? 'Demo and haul off the existing prefab shower pan or base.'
+        : 'Demo existing shower base, tile pan, or shower floor tile.';
+      if (row.label !== nextLabel || row.helperText !== nextHelper) {
+        changed = true;
+        return {
+          ...row,
+          label: nextLabel,
+          helperText: nextHelper,
+        };
       }
       return row;
+    }
+    if (
+      row.id === 'shower_floor_demo' &&
+      (showerFloorDemoWasSet ||
+        params.demoOverrides?.demoTilePanCount ||
+        params.demoOverrides?.demoPrefabPanCount ||
+        enclosureDemoWasSet ||
+        params.demoOverrides?.demoPrefabEnclosureCount) &&
+      !showerFloorDemo &&
+      row.state !== 'excluded'
+    ) {
+      changed = true;
+      return { ...row, state: 'excluded' as const, noteBacked: false };
     }
     if (row.id === 'demo' && genericDemo) {
       if (row.state !== 'included') {
@@ -3911,6 +4328,15 @@ export function syncWetAreaDemoScopeItems(
         return { ...row, state: 'included' as const };
       }
       return row;
+    }
+    if (
+      row.id === 'demo' &&
+      genericDemoWasSet &&
+      !genericDemo &&
+      row.state !== 'excluded'
+    ) {
+      changed = true;
+      return { ...row, state: 'excluded' as const, noteBacked: false };
     }
     if (row.id === 'glass_door') {
       if (params.reuseExistingShowerDoor) {
@@ -3926,6 +4352,18 @@ export function syncWetAreaDemoScopeItems(
       ) {
         changed = true;
         return { ...row, state: 'included' as const };
+      }
+      const installDoorCleared =
+        params.installShowerDoorCount === null ||
+        (params.installShowerDoorCount !== undefined &&
+          !stepperCountActive(params.installShowerDoorCount));
+      if (
+        !stepperCountActive(params.installShowerDoorCount) &&
+        (installDoorCleared || params.demoOverrides?.demoShowerDoorCount) &&
+        row.state !== 'excluded'
+      ) {
+        changed = true;
+        return { ...row, state: 'excluded' as const, noteBacked: false };
       }
     }
     return row;
@@ -3965,7 +4403,7 @@ export const BATHROOM_CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   paint_repair:
     'Uses your Paint measurement when available — pick patchwork level, then apply pricing.',
   interior_paint:
-    'Wall and ceiling surface area — not room floor SF. Standalone small scopes use a $350 minimum for mobilization and prep.',
+    'Uses the Paint measurement in sqft. Patch and texture are priced separately.',
   paint:
     'Wall and ceiling surface area — not room floor SF. Standalone small scopes use a $350 minimum for mobilization and prep.',
 };
@@ -3974,7 +4412,7 @@ export const BATHROOM_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
   plumbing_rough: 'Plumbing rough-in (shower / tub)',
   drywall: 'Drywall repair / patching + texture',
   paint_repair: 'Interior painting/patch and repair',
-  interior_paint: 'Interior painting — prep, labor, and paint',
+  interior_paint: 'Interior painting',
   paint: 'Interior painting — prep, labor, and paint',
 };
 
@@ -4111,6 +4549,14 @@ export function checklistDisplayHelper(
   templateKey?: string | null
 ): string | undefined {
   const tk = String(templateKey || '').toLowerCase();
+  if (tk === 'room_remodel') {
+    if (item.id === 'cabinets')
+      return 'Kitchen cabinet installation — use the explicit cabinet LF from the notes.';
+    if (item.id === 'countertops')
+      return 'Kitchen countertop replacement — use the explicit countertop LF from the notes.';
+    if (item.id === 'vanity')
+      return 'Bathroom vanity replacement — quantity comes from the notes.';
+  }
   if (
     tk === 'bathroom' &&
     PLUMBING_ITEM_IDS.includes(item.id) &&
@@ -4168,6 +4614,11 @@ export function checklistDisplayLabel(
   templateKey?: string | null
 ): string {
   const tk = String(templateKey || '').toLowerCase();
+  if (tk === 'room_remodel') {
+    if (item.id === 'cabinets') return 'Kitchen cabinets';
+    if (item.id === 'countertops') return 'Kitchen countertops';
+    if (item.id === 'vanity') return 'Bathroom vanities';
+  }
   if (
     (tk === 'plumbing' || tk === 'plumbing_service') &&
     PLUMBING_PLAN_CHECKLIST_LABEL_OVERRIDES[item.id]
@@ -4299,6 +4750,12 @@ export const EXISTING_SHELL_CONVERSION_SCOPE_GROUPS: ScopeChecklistGroup[] = [
 ];
 
 export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
+  insulation: [
+    {
+      title: 'Insulation',
+      itemIds: ['insulation'],
+    },
+  ],
   bathroom: [
     {
       title: 'Demo',
@@ -4307,6 +4764,8 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
         'floor_demo',
         'tub_demo',
         'shower_floor_demo',
+        'shower_enclosure_demo',
+        'glass_door_demo',
         'vanity_demo',
         'countertop_demo',
       ],
@@ -4532,6 +4991,8 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Scope', itemIds: ['demo', 'cleanup'] },
     { title: 'Trades', itemIds: ['framing', 'plumbing', 'electrical', 'hvac'] },
     { title: 'Finishes', itemIds: ['drywall', 'flooring', 'paint', 'trim'] },
+    { title: 'Cabinets & counters', itemIds: ['cabinets', 'countertops', 'vanity'] },
+    { title: 'Baseboard', itemIds: ['baseboard_install'] },
     { title: 'Closeout', itemIds: ['permits'] },
   ],
   roofing: [

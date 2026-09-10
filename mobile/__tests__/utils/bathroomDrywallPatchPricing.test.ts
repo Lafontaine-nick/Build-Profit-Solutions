@@ -37,18 +37,26 @@ describe('resolveBathroomDrywallPatchSuggestedPricing', () => {
     expect(result).toBeUndefined();
   });
 
-  it('prices user-entered 36 sqft patch at $400 (mat $100 / labor $300)', () => {
+  it('prices user-entered 36 sqft bathroom patch at $432 (about $12/SF)', () => {
     const result = resolveBathroomDrywallPatchSuggestedPricing({
       checklistItems: [item('shower_tile'), item('plumbing_rough'), item('drywall')],
       quantity: 36,
       showerWallTileSqft: 80,
     });
     expect(result?.fill?.basis).toEqual({ quantity: 36, unit: 'sqft' });
-    expect(result?.fill?.total).toBe(400);
-    expect(result?.fill?.material).toBe(100);
-    expect(result?.fill?.labor).toBe(300);
-    expect(result?.fill?.comparisonRange).toEqual({ low: 350, high: 650 });
+    expect(result?.fill?.total).toBe(432);
+    expect(result?.fill?.material).toBe(108);
+    expect(result?.fill?.labor).toBe(324);
+    expect(result?.fill?.comparisonRange).toEqual({ low: 360, high: 540 });
     expect(result?.fill?.helper).toMatch(/texture only/i);
+  });
+
+  it('prices a 50 sqft bathroom patch at about $600', () => {
+    const result = resolveBathroomDrywallPatchSuggestedPricing({
+      checklistItems: [item('patch_repair')],
+      quantity: 50,
+    });
+    expect(result?.fill?.total).toBe(600);
   });
 
   it('uses 24 sqft minimum when shower SF is missing but wet work is in scope', () => {
@@ -120,7 +128,7 @@ describe('resolveBathroomDrywallPatchSuggestedPricing', () => {
       useCombinedAssembly: true,
       paintRepairScope: 'full_room',
     });
-    expect(result?.fill?.total).toBe(400);
+    expect(result?.fill?.total).toBe(432);
     expect(result?.fill?.basis).toEqual({ quantity: 36, unit: 'sqft' });
   });
 });
@@ -314,9 +322,13 @@ describe('drywall/paint overlap helpers', () => {
       drywall,
       paint,
       patchSqft: 36,
+      paintSqft: 125,
     });
     expect(merged.total).toBe(drywall.total + paint.total);
     expect(merged.basis).toEqual({ quantity: 36, unit: 'sqft' });
+    expect(merged.displayQuantityLine).toBe(
+      'Paint 125 sqft + patch/repair 36 sqft · User entered'
+    );
     expect(merged.helper).toMatch(/Apply once to price all lines/i);
   });
 });

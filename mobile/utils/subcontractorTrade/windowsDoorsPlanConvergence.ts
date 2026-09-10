@@ -177,7 +177,9 @@ export function syncWindowsDoorsScopeItems<
   }
   return items.map(item => {
     if (!active.has(item.id)) return item;
-    if (item.state === 'included' || item.state === 'excluded') return item;
+    // A contractor-entered count is stronger evidence than a stale AI
+    // exclusion. Promote the card whenever an explicit measurement exists.
+    if (item.state === 'included') return item;
     return { ...item, state: 'included' };
   });
 }

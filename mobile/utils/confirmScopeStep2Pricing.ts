@@ -16,6 +16,12 @@ import { resolveBathroomPaintRepairSuggestedPricing } from '@/utils/bathroomPain
 import { resolveBathroomPlumbingRoughSuggestedPricing } from '@/utils/bathroomPlumbingRoughPricing';
 import { resolveBathroomPlumbingTrimSuggestedPricing } from '@/utils/bathroomPlumbingTrimPricing';
 import { resolveBathroomWetAreaDemoSuggestedPricing } from '@/utils/bathroomWetAreaDemoPricing';
+import {
+  PREFAB_ENCLOSURE_DEMO_EACH,
+  PREFAB_PAN_DEMO_EACH,
+  SHOWER_DOOR_DEMO_EACH,
+  TUB_DEMO_EACH,
+} from '@/utils/bathroomWetAreaDemoPricing';
 import type {
   ScopeItemSuggestedPricing,
   ScopeMeasurementsInputExtended,
@@ -182,12 +188,12 @@ const BATHROOM_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
   drywall: {
     tier: 'takeoff_required',
     takeoffLabel: 'patch/repair SF',
-    benchmarkUnitHint: '$400 localized patch + texture @ ~36 SF reference',
+    benchmarkUnitHint: '~$12/SF localized patch + texture; primer and paint separate',
   },
   patch_repair: {
     tier: 'takeoff_required',
     takeoffLabel: 'patch/repair SF',
-    benchmarkUnitHint: '$400 localized patch + texture @ ~36 SF reference',
+    benchmarkUnitHint: '~$12/SF localized patch + texture; primer and paint separate',
   },
   paint_repair: {
     tier: 'prompt_first',
@@ -343,11 +349,16 @@ export function step2TierNeedsInlineTakeoffEntry(
     return false;
   }
   if (
-    (itemId === 'shower_pan' || itemId === 'shower_floor_tile') &&
+    itemId === 'shower_floor_tile' &&
     template === 'bathroom'
   ) {
-    // Shower floor SF is entered in Wet area install Quick Measurements.
+    // Shower floor tile SF is entered in Wet area install Quick Measurements.
     return false;
+  }
+  if (itemId === 'shower_pan' && template === 'bathroom') {
+    // A mud-pan install needs its own area basis even when no existing pan
+    // demo was selected. Keep the field on the Confirm Scope card.
+    return true;
   }
   if (resolved?.pricingReady) return false;
   const rule = getChecklistItemQuantityRuleOrDefault(itemId, templateKey);
@@ -443,6 +454,64 @@ export function resolveStep2ComponentSuggestedPricing(
     return { fill: null, comparison: null };
   }
 
+  if (itemId === 'trim_paint' && qty != null && qty > 0) {
+    const material = Math.round(qty * 1.5 * 100) / 100;
+    const labor = Math.round(qty * 4.5 * 100) / 100;
+    return {
+      fill: {
+        material,
+        labor,
+        total: material + labor,
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel:
+          'Suggested budget split · National Average · baseboard prep & paint',
+        helper: `${qty.toLocaleString()} LF baseboard prep and paint × $6.00/LF`,
+        mode: 'suggested_price',
+        basis: { quantity: qty, unit: 'lf' },
+        splitSource: 'source',
+        splitConfidence: 'medium',
+        productionStatus: 'review_required',
+      },
+      comparison: null,
+    };
+  }
+
+  const flatDemoPricing: Record<
+    string,
+    { material: number; labor: number; total: number; label: string }
+  > = {
+    tub_demo: { ...TUB_DEMO_EACH, label: 'existing tub removal' },
+    shower_floor_demo: {
+      ...PREFAB_PAN_DEMO_EACH,
+      label: 'existing prefab shower pan removal',
+    },
+    shower_enclosure_demo: {
+      ...PREFAB_ENCLOSURE_DEMO_EACH,
+      label: 'existing prefab shower enclosure removal',
+    },
+    glass_door_demo: {
+      ...SHOWER_DOOR_DEMO_EACH,
+      label: 'existing shower door removal',
+    },
+  };
+  const flatDemo = flatDemoPricing[itemId];
+  if (flatDemo && qty != null && qty > 0) {
+    return {
+      fill: {
+        ...flatDemo,
+        rateSourceLabel: `Suggested budget split · National Average · ${flatDemo.label}`,
+        helper: `${qty.toLocaleString()} each × $${flatDemo.total.toLocaleString()}`,
+        mode: 'suggested_price',
+        basis: { quantity: qty, unit: 'each' },
+        splitSource: 'source',
+        splitConfidence: 'medium',
+        productionStatus: 'review_required',
+      },
+      comparison: null,
+    };
+  }
+
   const checklistItems = pricingContext?.checklistItems;
 
   if (itemId === 'demo') {
@@ -455,6 +524,8 @@ export function resolveStep2ComponentSuggestedPricing(
     const wetAreaDemo = resolveBathroomWetAreaDemoSuggestedPricing({
       measurementsInput,
       tileSqft,
+      wallTileSqft: Number(measurementsInput.showerWallTileSqft) || undefined,
+      panSqft: Number(measurementsInput.showerFloorTileSqft) || undefined,
       sourceLabel: resolved.sourceLabel,
     });
     if (wetAreaDemo.fill) return wetAreaDemo as ScopeItemSuggestedPricing;

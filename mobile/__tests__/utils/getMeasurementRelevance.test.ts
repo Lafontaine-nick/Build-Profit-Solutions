@@ -42,6 +42,39 @@ describe('getMeasurementRelevance', () => {
     ).toBe(false);
   });
 
+  test('kitchen notes do not request generic whole-home measurements', () => {
+    const notes =
+      'Remodel an existing kitchen without changing the footprint. Install 42 linear feet of new cabinets, 55 sqft of quartz countertops, and 35 sqft of backsplash tile. Include flooring protection, demolition, disposal, and cleanup. No wall removal or structural framing.';
+    for (const measurementKey of [
+      'floorAreaSqft',
+      'flooringSqft',
+      'kitchenFloorSqft',
+      'drywallSqft',
+      'baseboardLf',
+      'wallPaintSqft',
+      'ceilingPaintSqft',
+    ] as const) {
+      expect(
+        getMeasurementRelevance({
+          measurementKey,
+          includedScopeKeys: ['flooring', 'drywall', 'trim', 'paint'],
+          templateKey: 'kitchen',
+          projectType: 'kitchen',
+          notes,
+        }).relevant
+      ).toBe(false);
+    }
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'backsplashSqft',
+        includedScopeKeys: ['backsplash'],
+        templateKey: 'kitchen',
+        projectType: 'kitchen',
+        notes,
+      }).relevant
+    ).toBe(true);
+  });
+
   test('backsplash is relevant for needs confirmation when selected', () => {
     expect(getMeasurementRelevance({ measurementKey: 'backsplashSqft', includedScopeKeys: [] }).relevant).toBe(false);
     expect(

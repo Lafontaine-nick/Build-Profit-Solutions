@@ -408,6 +408,7 @@ export type ScopeMeasurements = {
   quarterRoundLf?: number | null;
   backsplashSqft?: number | null;
   countertopSqft?: number | null;
+  countertopLf?: number | null;
   /** Kitchen QM — island counter area rolled into countertops pricing when island install is on. */
   kitchenIslandCounterSqft?: number | null;
   cabinetLf?: number | null;

@@ -107,6 +107,28 @@ describe("estimateDraftComplexity", () => {
     expect(checklist.suggestedMeasurements.interiorDoorCount).toBe(6);
   });
 
+  test("routes insulation-only notes away from the generic drywall checklist", () => {
+    const notes =
+      "Insulate an existing 1,800 sqft two-story home. Install R-21 fiberglass batt insulation in 2,000 sqft of exterior walls, R-38 blown insulation in 1,200 sqft of attic area, and R-30 batt insulation in 900 sqft of floor area. Include air sealing and normal installation. No drywall removal.";
+    const draft = {
+      projectType: "other",
+      originalNotes: notes,
+      rooms: [{ name: "Existing Home Insulation Upgrade", scope: notes }],
+    };
+
+    const checklist = buildScopeChecklist(draft, "room_remodel", notes);
+    const ids = checklist.items.map((item) => item.id);
+
+    expect(checklist.templateKey).toBe("insulation");
+    expect(ids).toContain("insulation");
+    expect(ids).not.toContain("drywall");
+    expect(checklist.suggestedMeasurements).toMatchObject({
+      exteriorWallInsulationSqft: 2000,
+      atticInsulationSqft: 1200,
+      floorInsulationSqft: 900,
+    });
+  });
+
   test("overrides a painting tier for a multi-trade interior remodel", () => {
     const notes =
       "Remodel an existing 1,400 sqft home interior. Renovate one kitchen and two bathrooms, install 900 sqft of LVP, replace 12 linear feet of countertops, install 42 linear feet of cabinets, repair 300 sqft of drywall, repaint interior walls and ceilings, and install 180 linear feet of baseboard.";
@@ -1086,6 +1108,66 @@ describe("estimateDraftComplexity", () => {
       true,
     );
     expect(next.rooms.every((room) => room.applyEligible === false)).toBe(true);
+  });
+
+  test("home remodel with baseboards does not imply interior doors", () => {
+    const notes =
+      "Remodel an existing 1,400 sqft home interior. Renovate one kitchen and two bathrooms, remove existing flooring in the affected areas, install 900 sqft of LVP, replace 12 linear feet of kitchen countertops, install 42 linear feet of cabinets, replace two bathroom vanities, update plumbing fixtures, repair 300 sqft of drywall, repaint interior walls and ceilings, and install 180 linear feet of baseboard. Do not change the building footprint or structural framing.";
+    const draft = {
+      projectType: "other",
+      originalNotes: notes,
+      rooms: [],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+
+    const checklist = buildScopeChecklist(draft, "room_remodel", notes);
+    const trim = checklist.items.find((item) => item.id === "trim");
+    const baseboard = checklist.items.find(
+      (item) => item.id === "baseboard_install",
+    );
+
+    expect(trim).toBeUndefined();
+    expect(baseboard).toMatchObject({
+      state: "included",
+      label: "Baseboard installation",
+    });
+  });
+
+  test("kitchen notes rebuild as kitchen scope with itemized demo and install", () => {
+    const notes =
+      "We need to build a kitchen remodel bid. Demo existing cabinets. Demo existing countertops. Demo kitchen island. Demo backsplash and reinstall new cabinets, new countertops, new island, new backsplash. Paint kitchen wall. Install new lighting.";
+    const draft = {
+      projectType: "room_remodel",
+      originalNotes: notes,
+      rooms: [],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+
+    const checklist = buildScopeChecklist(draft, "room_remodel", notes);
+    const includedIds = checklist.items
+      .filter((item) => item.state === "included")
+      .map((item) => item.id);
+
+    expect(checklist.templateKey).toBe("kitchen");
+    expect(includedIds).toEqual(
+      expect.arrayContaining([
+        "countertop_demo",
+        "backsplash_demo",
+        "cabinets",
+        "countertops",
+        "island",
+        "backsplash",
+        "lighting",
+        "paint",
+      ]),
+    );
+    expect(includedIds).not.toContain("floor_demo");
   });
 
   test("applyScopeAssumptions keeps ground-up build as phase-based missing-price packages", () => {

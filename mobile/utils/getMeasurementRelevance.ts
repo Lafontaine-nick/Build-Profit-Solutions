@@ -70,6 +70,7 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> = 
   wallPaintSqft: ['paint', 'interior_paint', 'paint_repair', 'paint_trim'],
   ceilingPaintSqft: ['ceiling_paint', 'interior_paint', 'paint'],
   paintAreaSqft: ['paint', 'interior_paint', 'ceiling_paint'],
+  patchRepairSqft: ['patch_repair', 'paint_repair', 'drywall'],
   // Exterior wall faces inform insulation envelope walls (not drywall interior surface).
   exteriorPaintSqft: ['exterior_paint', 'paint_trim', 'stucco', 'exterior', 'insulation'],
   cabinetLf: ['cabinets', 'cabinets_counters'],
@@ -188,6 +189,25 @@ export function getMeasurementRelevance(params: {
 }): MeasurementRelevance {
   const { measurementKey } = params;
   const relatedScopeKeys = RELATED_SCOPE_KEYS[measurementKey] || [];
+  const notesText = String(params.notes || '');
+  const kitchenMeasurementContext =
+    String(params.templateKey || '').toLowerCase() === 'kitchen' ||
+    String(params.projectType || '').toLowerCase() === 'kitchen' ||
+    /\bkitchen(?:\s+remodel)?\b/i.test(notesText);
+  if (
+    kitchenMeasurementContext &&
+    measurementKey === 'floorAreaSqft' &&
+    !/\b(?:living\s+area|total\s+living|conditioned\s+(?:floor\s+)?area|heated\s+area|home\s+interior)\b/i.test(
+      notesText,
+    )
+  ) {
+    return {
+      relevant: false,
+      blockingPrice: false,
+      relatedScopeKeys,
+      reason: 'Living area is not needed unless it is provided for this kitchen bid.',
+    };
+  }
   const wholeHome = isWholeHomeTemplate(params.templateKey);
   const garageConversion = isGarageConversionJob(
     params.projectType,
@@ -256,6 +276,33 @@ export function getMeasurementRelevance(params: {
   }
 
   const includedSet = new Set(params.includedScopeKeys);
+  const explicitWetAreaNotes =
+    /\b(?:bath(?:room)?|shower|tub|wet\s+area|bath\s+floor|shower\s+(?:wall|floor)|tile\s+shower)\b/i.test(
+      notesText,
+    );
+  const explicitWetAreaScope = [
+    'bathroom',
+    'bathroom_floor',
+    'shower_tile',
+    'shower_floor_tile',
+    'tile_shower',
+    'wet_area_install',
+    'shower_pan',
+  ].some((id) => includedSet.has(id));
+  if (
+    (measurementKey === 'bathroomFloorSqft' ||
+      measurementKey === 'showerWallTileSqft' ||
+      measurementKey === 'showerFloorTileSqft') &&
+    !explicitWetAreaNotes &&
+    !explicitWetAreaScope
+  ) {
+    return {
+      relevant: false,
+      blockingPrice: false,
+      relatedScopeKeys,
+      reason: 'Not needed unless bathroom or shower work is included in this bid.',
+    };
+  }
   const floorWorkScope = ['floor_tile', 'floor_demo', 'flooring', 'floor_prep'];
   const floorWorkIncluded = floorWorkScope.some((id) => includedSet.has(id));
 
@@ -339,7 +386,16 @@ export function getMeasurementRelevance(params: {
   // set leaves a stale "Kitchen floor" confirmation row after flooring is
   // deselected from the kitchen install panel.
   if (measurementKey === 'kitchenFloorSqft') {
-    const relevant = floorWorkIncluded;
+    const notesText = String(params.notes || '');
+    const kitchenContext =
+      String(params.templateKey || '').toLowerCase() === 'kitchen' ||
+      String(params.projectType || '').toLowerCase() === 'kitchen' ||
+      /\bkitchen(?:\s+remodel)?\b/i.test(notesText);
+    const explicitFloorWork =
+      /\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,80}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;]{0,80}\b(?:install|installation|replace|replacement|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+        notesText
+      );
+    const relevant = floorWorkIncluded && (!kitchenContext || explicitFloorWork);
     return {
       relevant,
       blockingPrice: relevant,
@@ -349,6 +405,63 @@ export function getMeasurementRelevance(params: {
   }
 
   const tradeOnlyTemplate = String(params.templateKey || '').toLowerCase();
+  const kitchenContext =
+    tradeOnlyTemplate === 'kitchen' ||
+    String(params.projectType || '').toLowerCase() === 'kitchen' ||
+    /\bkitchen(?:\s+remodel)?\b/i.test(notesText);
+  if (
+    kitchenContext &&
+    (measurementKey === 'bathroomFloorSqft' ||
+      measurementKey === 'showerWallTileSqft' ||
+      measurementKey === 'showerFloorTileSqft') &&
+    !explicitWetAreaNotes
+  ) {
+    return {
+      relevant: false,
+      blockingPrice: false,
+      relatedScopeKeys,
+      reason: 'Not needed unless bathroom or shower work is included in the kitchen bid.',
+    };
+  }
+  if (kitchenContext) {
+    const kitchenOptionalMeasurementKeys = new Set<QuickMeasurementFieldKey>([
+      'floorAreaSqft',
+      'flooringSqft',
+      'kitchenFloorSqft',
+      'drywallSqft',
+      'baseboardLf',
+      'wallPaintSqft',
+      'ceilingPaintSqft',
+      'paintAreaSqft',
+    ]);
+    if (kitchenOptionalMeasurementKeys.has(measurementKey)) {
+      const explicitFloorWork =
+        /\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,80}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;]{0,80}\b(?:install|installation|replace|replacement|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+          notesText
+        );
+      const explicitDrywall = /\b(?:drywall|sheetrock|gypsum|wall\s+repair|patch(?:ing)?)\b/i.test(notesText);
+      const explicitBaseboard = /\b(?:baseboards?|base\s*board)\b/i.test(notesText);
+      const explicitPaint = /\b(?:paint(?:ing)?|repaint|primer)\b/i.test(notesText);
+      const relevant =
+        measurementKey === 'floorAreaSqft' ||
+        measurementKey === 'flooringSqft' ||
+        measurementKey === 'kitchenFloorSqft'
+          ? explicitFloorWork
+          : measurementKey === 'drywallSqft'
+            ? explicitDrywall
+            : measurementKey === 'baseboardLf'
+              ? explicitBaseboard
+              : explicitPaint;
+      return {
+        relevant,
+        blockingPrice: relevant,
+        relatedScopeKeys,
+        reason: relevant
+          ? undefined
+          : 'Not needed unless the kitchen notes explicitly include this work.',
+      };
+    }
+  }
   if (
     tradeOnlyTemplate === 'stucco' &&
     STUCCO_CORE_MEASUREMENT_KEYS.has(measurementKey)

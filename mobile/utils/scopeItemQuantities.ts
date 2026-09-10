@@ -618,6 +618,7 @@ export type NormalizedScopeMeasurements = {
   quarterRoundLf: number | null;
   backsplashSqft: number | null;
   countertopSqft: number | null;
+  countertopLf: number | null;
   kitchenIslandCounterSqft: number | null;
   cabinetLf: number | null;
   landscapeSqft: number | null;
@@ -1018,8 +1019,8 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   },
   bath_floor_tile: {
     unit: 'sqft',
-    material: 8,
-    labor: 13,
+    material: 7,
+    labor: 10,
     sourceLabel:
       'Suggested budget split · National Average · bathroom floor tile',
     rateSource: 'bps_national_benchmark',
@@ -1136,6 +1137,22 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     laborBucketLabel: 'Prefab shower pan install labor',
     sourceLabel:
       'Suggested budget split · National Average · prefab shower pan',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'tile',
+    category: 'wet_area',
+    pricingMethod: 'material_labor',
+  },
+  prefab_shower_enclosure: {
+    unit: 'each',
+    material: 1800,
+    labor: 900,
+    materialBucketLabel: 'Prefab shower enclosure / surround materials',
+    laborBucketLabel: 'Prefab shower enclosure install labor',
+    sourceLabel:
+      'Suggested budget split · National Average · prefab shower enclosure',
     rateSource: 'bps_national_benchmark',
     scopeProfileSource: 'bps_standard_assumption',
     productionStatus: 'review_required',
@@ -5633,12 +5650,25 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper: 'Assuming 1 countertop removal. Edit if multiple.',
   },
   shower_floor_demo: {
-    defaultUnit: 'sqft',
-    allowedUnits: ['sqft'],
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'sqft'],
     measurementKey: 'showerFloorTileSqft',
-    requiresUserQuantity: true,
-    quantityHelper: 'Enter tile shower pan / liner removal count or floor tile sqft.',
-    missingMessage: 'Enter shower floor demo sqft.',
+    defaultQuantity: 1,
+    quantityHelper:
+      'Tile shower pan / liner removal is priced per pan; use sqft only for tile-floor tear-out.',
+    missingMessage: 'Enter tile shower pan / liner count or sqft.',
+  },
+  shower_enclosure_demo: {
+    defaultUnit: 'each',
+    allowedUnits: ['each'],
+    defaultQuantity: 1,
+    quantityHelper: 'Assuming 1 prefab shower enclosure removal. Edit if multiple.',
+  },
+  glass_door_demo: {
+    defaultUnit: 'each',
+    allowedUnits: ['each'],
+    defaultQuantity: 1,
+    quantityHelper: 'Assuming 1 shower door removal. Edit if multiple.',
   },
   shower_tile: {
     defaultUnit: 'sqft',
@@ -5693,6 +5723,13 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     allowedUnits: ['each'],
     defaultQuantity: 1,
     quantityHelper: 'Assuming 1 prefab pan install (labor + materials).',
+  },
+  prefab_shower_enclosure: {
+    defaultUnit: 'each',
+    allowedUnits: ['each'],
+    defaultQuantity: 1,
+    quantityHelper:
+      'Assuming 1 prefab shower enclosure install (labor + materials).',
   },
   shower_floor_tile: {
     defaultUnit: 'sqft',
@@ -6842,7 +6879,11 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKey: 'wallPaintSqft',
-    measurementKeys: ['wallPaintSqft', 'combinedPaintableAreaSqft'],
+    measurementKeys: [
+      'wallPaintSqft',
+      'combinedPaintableAreaSqft',
+      'paintAreaSqft',
+    ],
     requiresUserQuantity: true,
     quantityHelper: 'Enter interior paint sqft.',
     missingMessage: 'Enter paint sqft.',
@@ -7094,6 +7135,7 @@ export function normalizeScopeMeasurements(
     quarterRoundLf: num(measurements?.quarterRoundLf),
     backsplashSqft: num(measurements?.backsplashSqft),
     countertopSqft: num(measurements?.countertopSqft),
+    countertopLf: num(measurements?.countertopLf),
     kitchenIslandCounterSqft: num(measurements?.kitchenIslandCounterSqft),
     cabinetLf: num(measurements?.cabinetLf),
     landscapeSqft: num(measurements?.landscapeSqft),
@@ -7446,6 +7488,14 @@ export function notesHaveCombinedCabinetsCounters(
   notes?: string | null
 ): boolean {
   const n = String(notes || '').toLowerCase();
+  const hasSeparateCountertopQuantity =
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|linear\s+feet?|linear\s+ft|lf)\b[^.;\n]{0,35}\b(?:kitchen\s+)?countertops?\b/i.test(
+      n
+    ) ||
+    /\b(?:kitchen\s+)?countertops?\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|linear\s+feet?|linear\s+ft|lf)\b/i.test(
+      n
+    );
+  if (hasSeparateCountertopQuantity) return false;
   return (
     /\b(cabinets?|cabinetry)\b/.test(n) &&
     /\b(counters?|countertops?|quartz|granite)\b/.test(n)
@@ -7696,11 +7746,71 @@ const KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   },
 };
 
+const ROOM_REMODEL_CHECKLIST_ITEM_QUANTITY_RULES: Record<
+  string,
+  ScopeItemQuantityRule
+> = {
+  floor_demo: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter the affected flooring removal sqft from the notes.',
+    missingMessage: 'Enter affected flooring removal sqft.',
+  },
+  flooring: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter the LVP installation sqft from the notes.',
+    missingMessage: 'Enter LVP installation sqft.',
+  },
+  cabinets: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.cabinets,
+    defaultUnit: 'lf',
+    measurementKey: 'cabinetLf',
+    quantityHelper: 'Enter kitchen cabinet installation LF from the notes.',
+    missingMessage: 'Enter cabinet installation LF.',
+  },
+  baseboard_install: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'baseboardLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter baseboard installation LF from the notes.',
+    missingMessage: 'Enter baseboard installation LF.',
+  },
+  countertops: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.countertops,
+    defaultUnit: 'lf',
+    measurementKey: 'countertopLf',
+    quantityHelper: 'Enter countertop linear feet from the notes.',
+    missingMessage: 'Enter countertop LF.',
+  },
+  vanity: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.vanity,
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter bathroom vanity replacement count from the notes.',
+    missingMessage: 'Enter vanity replacement count.',
+  },
+};
+
 /** Bathroom shares checklist ids with kitchen — shower demo vs bath floor demo are separate lines. */
 const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   string,
   ScopeItemQuantityRule
 > = {
+  trim_paint: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'baseboardLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter baseboard prep and paint LF.',
+    missingMessage: 'Enter baseboard LF for prep and paint.',
+  },
   baseboard_install: {
     defaultUnit: 'lf',
     allowedUnits: ['lf', 'allowance', 'lump_sum'],
@@ -9160,7 +9270,10 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
     hang: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
     finish_tape: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
     texture: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
-    patch_repair: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
+    patch_repair: {
+      unit: 'sqft',
+      measurementKeys: ['patchRepairSqft', 'drywallSqft'],
+    },
     paint: {
       unit: 'sqft',
       measurementKeys: ['wallPaintSqft', 'combinedPaintableAreaSqft'],
@@ -10246,6 +10359,11 @@ export function getChecklistItemQuantityRule(
   ) {
     rule = BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
   } else if (
+    templateKey === 'room_remodel' &&
+    ROOM_REMODEL_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId]
+  ) {
+    rule = ROOM_REMODEL_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
+  } else if (
     templateKey === 'flooring' &&
     FLOORING_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId]
   ) {
@@ -10344,7 +10462,10 @@ export function getChecklistItemQuantityRule(
             : itemId === 'paint_trim' ||
                 itemId === 'paint' ||
                 itemId === 'interior_paint'
-              ? 'wallPaintSqft'
+              ? itemId === 'interior_paint' &&
+                  Number(measurements.paintAreaSqft || 0) > 0
+                ? 'paintAreaSqft'
+                : 'wallPaintSqft'
               : itemId === 'excavation'
                 ? 'excavationCy'
                 : itemId === 'foundation'
@@ -15033,11 +15154,35 @@ export function resolveScopeItemSuggestedPricing(
   options?: ScopeItemSuggestedPricingResolveOptions
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
+  const notesText = String(originalNotes || '');
+  const genericTilePanDemo =
+    itemId === 'demo' &&
+    String(templateKey || '').toLowerCase() === 'bathroom' &&
+    Number(measurementsInput.demoTilePanCount || 0) > 0 &&
+    /\b(?:tile\s+shower|shower\s+pan|pan\s+liner|tile\s+pan|mud\s+pan)\b/i.test(
+      notesText
+    );
+  if (genericTilePanDemo) {
+    return resolveScopeItemSuggestedPricing(
+      'tub_demo',
+      measurementsInput,
+      templateKey,
+      { ...resolved, quantity: 1, unit: 'each' },
+      pricingContext,
+      choiceId,
+      originalNotes,
+      options
+    );
+  }
   // Catalog-generated installation cards reuse the established pricing
   // definitions. Resolve through those canonical IDs so additive cards get
   // the same national-average pricing as the existing opening cards.
   const canonicalPricingId =
-    itemId === 'interior_door_install'
+    itemId === 'demo' &&
+    String(templateKey || '').toLowerCase() === 'bathroom' &&
+    resolved.unit === 'sqft'
+      ? 'floor_demo'
+      : itemId === 'interior_door_install'
       ? 'interior_doors'
       : itemId === 'window_install'
         ? 'windows_doors'
@@ -15784,6 +15929,34 @@ export function resolveScopeItemSuggestedPricing(
   }
 
   if (
+    itemId === 'exterior_prep' &&
+    String(templateKey || '').toLowerCase() === 'windows_doors' &&
+    Number(resolved.quantity) > 0
+  ) {
+    const windows = Number(measurementsInput.windowCount) || 0;
+    const exteriorDoors = Number(measurementsInput.exteriorDoorCount) || 0;
+    const material = round2(windows * 20 + exteriorDoors * 35);
+    const labor = round2(windows * 105 + exteriorDoors * 215);
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel:
+          'Suggested · National Average · opening prep and masking',
+        helper: `${windows} windows + ${exteriorDoors} exterior doors`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity: Number(resolved.quantity), unit: 'each' },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: 'bps_national:exterior_prep:openings',
+      },
+      comparison: null,
+    };
+  }
+  if (
     (itemId === 'exterior_prep' || itemId === 'exterior_paint') &&
     String(templateKey || '').toLowerCase() === 'painting' &&
     Number(resolved.quantity) > 0
@@ -15953,11 +16126,12 @@ export function resolveScopeItemSuggestedPricing(
   }
 
   if (itemId === 'countertop_demo') {
+    const kitchenMeasurements = measurementsInput as Record<string, unknown>;
+    const hasIslandCounterTakeoff =
+      Number(String(kitchenMeasurements.kitchenIslandCounterSqft ?? '').replace(/,/g, '')) > 0;
     const measuredSqft =
-      String(templateKey || '').toLowerCase() === 'kitchen'
-        ? resolveKitchenCountertopTakeoffSqft(
-            measurementsInput as Record<string, unknown>
-          )
+      String(templateKey || '').toLowerCase() === 'kitchen' || hasIslandCounterTakeoff
+        ? resolveKitchenCountertopTakeoffSqft(kitchenMeasurements)
         : Number(
             String(measurementsInput.countertopSqft ?? '').replace(/,/g, '')
           );
@@ -16023,11 +16197,52 @@ export function resolveScopeItemSuggestedPricing(
   // card. Do not let a notes-derived or stale per-SF split override 35 + 25
   // installed pricing when the user entered the countertop area.
   if (itemId === 'countertops') {
-    const fromKitchen =
-      String(templateKey || '').toLowerCase() === 'kitchen'
-        ? resolveKitchenCountertopTakeoffSqft(
-            measurementsInput as Record<string, unknown>
+    const parsedCountertopLf =
+      String(templateKey || '').toLowerCase() === 'room_remodel'
+        ? Number(
+            parseScopeMeasurementsFromNotes(notesText, {
+              templateKey: 'room_remodel',
+            }).countertopLf || 0
           )
+        : 0;
+    const countertopLf =
+      String(templateKey || '').toLowerCase() === 'room_remodel'
+        ? Number(
+            String(measurementsInput.countertopLf ?? '').replace(/,/g, '')
+          )
+            || parsedCountertopLf
+            || (resolved.unit === 'lf' ? Number(resolved.quantity) : 0)
+        : 0;
+    if (Number.isFinite(countertopLf) && countertopLf > 0) {
+      const surfaceSqft = round2(countertopLf * (25 / 12));
+      const material = round2(surfaceSqft * 35);
+      const labor = round2(surfaceSqft * 25);
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel:
+            'Suggested budget split · National Average · countertop fabrication and install',
+          helper: `Based on ${countertopLf.toLocaleString()} LF × 25 in standard depth (${surfaceSqft.toLocaleString()} sqft)`,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity: countertopLf, unit: 'lf' },
+          benchmarkAction: 'price_ready',
+          pricingRecordId: 'bps_national:countertops:lf',
+          productionStatus: 'review_required',
+        },
+        comparison: null,
+      };
+    }
+    const countertopMeasurements = measurementsInput as Record<string, unknown>;
+    const hasIslandCounterTakeoff =
+      Number(String(countertopMeasurements.kitchenIslandCounterSqft ?? '').replace(/,/g, '')) > 0;
+    const fromKitchen =
+      String(templateKey || '').toLowerCase() === 'kitchen' || hasIslandCounterTakeoff
+        ? resolveKitchenCountertopTakeoffSqft(countertopMeasurements)
         : 0;
     const count =
       fromKitchen > 0
@@ -20991,6 +21206,26 @@ function resolveChecklistItemQuantityCore(
   } = {}
 ): ResolvedItemQuantity {
   const choiceId = ctx.choiceId ?? null;
+  if (itemId === 'baseboard_install') {
+    const baseboardLf = Number(
+      String(measurements.baseboardLf ?? '').replace(/,/g, '')
+    );
+    if (Number.isFinite(baseboardLf) && baseboardLf > 0) {
+      return applyPricingReadyFlags(
+        {
+          quantity: baseboardLf,
+          unit: 'lf',
+          quantitySource: 'user_entered',
+          sourceLabel: 'Quick Measurements · baseboard',
+          pricingReady: true,
+          quantityHelper: 'Baseboard installation LF.',
+          showInput: true,
+        },
+        itemId,
+        ctx
+      );
+    }
+  }
   const explicitRule = getChecklistItemQuantityRule(itemId, ctx.templateKey);
   if (!explicitRule && String(itemId).startsWith('custom_')) {
     return resolveCustomScopeChecklistItemQuantity(itemId, measurements);
@@ -21598,6 +21833,18 @@ function resolveChecklistItemQuantityCore(
   }
 
   if (isLocalizedRoomRemodelDrywall) {
+    const directRepairSqft = Number(measurements.drywallSqft);
+    if (Number.isFinite(directRepairSqft) && directRepairSqft > 0) {
+      return {
+        quantity: directRepairSqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+        sourceLabel: 'Drywall repair area · from notes',
+        pricingReady: true,
+        quantityHelper: rule.quantityHelper,
+        showInput: true,
+      };
+    }
     // A generic drywallSqft measurement is commonly a whole-house planning
     // fallback. It is not valid for localized patching without an affected
     // repair area in the notes or a manual quantity.
@@ -21611,6 +21858,23 @@ function resolveChecklistItemQuantityCore(
       pricingReady: false,
       quantityHelper: rule.quantityHelper,
       missingMessage: rule.missingMessage,
+      showInput: true,
+    };
+  }
+
+  if (
+    itemId === 'plumbing' &&
+    String(ctx.templateKey || '').toLowerCase() === 'room_remodel'
+  ) {
+    return {
+      quantity: null,
+      unit: rule.defaultUnit,
+      quantitySource: 'missing',
+      sourceLabel: sourceLabel('missing'),
+      pricingReady: false,
+      quantityHelper:
+        'Enter the documented fixture count or use a confirmed plumbing allowance.',
+      missingMessage: 'Enter plumbing fixture quantity or pricing.',
       showInput: true,
     };
   }
@@ -21772,6 +22036,117 @@ export function resolveChecklistItemQuantity(
     notes?: string | null;
   } = {}
 ): ResolvedItemQuantity {
+  if (itemId === 'sink_faucet') {
+    const stored = measurements.itemQuantities?.sink_faucet;
+    const notes = String(ctx.notes || '');
+    const explicitSinkFaucet =
+      /\b(?:new|install|replace|reinstall|update)\b[^.;\n]{0,35}\bsink\b/i.test(
+        notes
+      ) &&
+      /\bfaucet\b/i.test(notes);
+    const storedQuantity =
+      stored?.quantitySource === 'user_entered' ? Number(stored.quantity) : null;
+    const quantity =
+      storedQuantity && storedQuantity > 0
+        ? storedQuantity
+        : explicitSinkFaucet
+          ? 1
+          : null;
+    return {
+      quantity,
+      unit: 'each',
+      quantitySource: quantity
+        ? stored?.quantitySource === 'user_entered'
+          ? 'user_entered'
+          : 'notes'
+        : 'missing',
+      sourceLabel: quantity ? (storedQuantity ? 'User entered' : 'From notes') : null,
+      pricingReady: Boolean(quantity),
+      quantityHelper: 'Enter sink and faucet quantity.',
+      missingMessage: 'Enter sink / faucet count before pricing.',
+      showInput: true,
+    };
+  }
+  if (itemId === 'window_install') {
+    const stored = measurements.itemQuantities?.window_install;
+    const notes = String(ctx.notes || '');
+    const notesHaveWindowCount =
+      /\b(?:\d[\d,]*|one|two|three|four|five|six|seven|eight|nine|ten)\b[^.;\n]{0,20}\bwindows?\b|\bwindows?\b[^.;\n]{0,20}\b(?:\d[\d,]*|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(
+        notes
+      );
+    const notesAreReplacementOnly =
+      /\b(?:replace|replacement|install|installation|new)\b[^.;\n]{0,40}\bwindows?\b|\bwindows?\b[^.;\n]{0,40}\b(?:replace|replacement|install|installation)\b/i.test(
+        notes
+      ) && !notesHaveWindowCount;
+    const storedUserCount =
+      stored?.quantitySource === 'user_entered' ? stored.quantity : null;
+    const windowCount = Number(
+      String(
+        storedUserCount ??
+          (notesAreReplacementOnly ? '' : measurements.windowCount ?? '')
+      ).replace(
+        /,/g,
+        ''
+      )
+    );
+    const hasCount = Number.isFinite(windowCount) && windowCount > 0;
+    return {
+      quantity: hasCount ? windowCount : null,
+      unit: 'each',
+      quantitySource: hasCount
+        ? stored?.quantitySource || 'user_entered'
+        : 'missing',
+      sourceLabel: hasCount ? 'Window quantity' : null,
+      pricingReady: hasCount,
+      quantityHelper: 'Enter the number of window units.',
+      missingMessage: 'Enter window quantity before pricing.',
+      showInput: true,
+    };
+  }
+  if (
+    itemId === 'exterior_prep' &&
+    String(ctx.templateKey || '').toLowerCase() === 'windows_doors'
+  ) {
+    const windowCount = Number(measurements.windowCount) || 0;
+    const exteriorDoorCount = Number(measurements.exteriorDoorCount) || 0;
+    const quantity = windowCount + exteriorDoorCount;
+    if (quantity > 0) {
+      return {
+        quantity,
+        unit: 'each',
+        quantitySource: 'user_entered',
+        sourceLabel: 'From window and exterior door counts',
+        pricingReady: true,
+        quantityHelper:
+          `${windowCount} window openings + ${exteriorDoorCount} exterior doors`,
+        showInput: true,
+      };
+    }
+  }
+  if (itemId === 'paint_repair') {
+    const stored = measurements.itemQuantities?.paint_repair;
+    const notesDescribePatchRepair =
+      /\b(?:patch(?:ing)?|repair(?:s|ed|ing)?|drywall|texture|skim\s*coat)\b/i.test(
+        String(ctx.notes || '')
+      );
+    if (
+      !notesDescribePatchRepair &&
+      (stored?.quantitySource !== 'user_entered' ||
+        Number(stored?.quantity) === Number(measurements.paintAreaSqft))
+    ) {
+      return {
+        quantity: null,
+        unit: 'sqft',
+        quantitySource: 'missing',
+        sourceLabel: null,
+        pricingReady: false,
+        quantityHelper:
+          'Enter localized patch/repair sqft only when repair work is in scope.',
+        missingMessage: 'Enter patch/repair sqft, if applicable.',
+        showInput: true,
+      };
+    }
+  }
   if (itemId === 'shower_floor_demo') {
     const existingTilePanCount = Number(
       String(measurements.existingTilePanCount ?? '').replace(/,/g, '')
@@ -22789,6 +23164,52 @@ export function buildNormalizedScopeMeasurementsFromInput(
     projectType: options?.projectType,
     notes: options?.notes,
   });
+  const noteText = String(options?.notes || '');
+  if (noteText.trim()) {
+    const parsedNotes = parseScopeMeasurementsFromNotes(noteText, {
+      templateKey: options?.templateKey ?? undefined,
+      projectType: options?.projectType ?? undefined,
+    });
+    const noteFields = [
+      'floorAreaSqft',
+      'flooringSqft',
+      'flooringLvpSqft',
+      'countertopLf',
+      'cabinetLf',
+      'drywallSqft',
+      'baseboardLf',
+    ] as const;
+    const overrides = extended.quickMeasurementUserOverrides || {};
+    for (const key of noteFields) {
+      const value = Number(parsedNotes[key]);
+      if (value > 0 && !overrides[key]) {
+        extended = {
+          ...extended,
+          [key]: String(value),
+          quickMeasurementSources: {
+            ...(extended.quickMeasurementSources || {}),
+            [key]: 'notes',
+          },
+        };
+      }
+    }
+    const vanityMatch = noteText.match(
+      /\b(?:replace|install)\s+(one|two|three|\d+)\s+(?:bathroom\s+)?vanit(?:y|ies)\b/i
+    );
+    if (vanityMatch && !extended.itemQuantities?.vanity) {
+      const words: Record<string, number> = { one: 1, two: 2, three: 3 };
+      const quantity = Number(vanityMatch[1]) || words[vanityMatch[1].toLowerCase()];
+      if (quantity > 0) {
+        extended = {
+          ...extended,
+          itemQuantities: {
+            ...extended.itemQuantities,
+            vanity: { quantity, unit: 'each', quantitySource: 'notes' },
+          },
+        };
+      }
+    }
+  }
   extended = syncPlumbingQuantitiesIntoItemQuantities(
     extended,
     options?.templateKey

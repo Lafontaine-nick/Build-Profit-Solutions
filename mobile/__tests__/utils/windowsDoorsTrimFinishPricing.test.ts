@@ -225,4 +225,34 @@ describe('windowsDoorsTrimFinishPricing', () => {
     });
     expect(pricing.fill?.total).toBeGreaterThan(0);
   });
+
+  it('prices exterior opening prep from window and door counts', () => {
+    const measurements = {
+      windowCount: 8,
+      exteriorDoorCount: 2,
+      itemQuantities: {},
+    };
+    const quantity = resolveChecklistItemQuantity(
+      'exterior_prep',
+      measurements,
+      { templateKey: 'windows_doors' }
+    );
+    const pricing = resolveScopeItemSuggestedPricing(
+      'exterior_prep',
+      measurements,
+      'windows_doors',
+      quantity
+    );
+
+    expect(quantity).toMatchObject({
+      quantity: 10,
+      unit: 'each',
+      pricingReady: true,
+    });
+    expect(pricing.fill).toMatchObject({
+      total: 1500,
+      basis: { quantity: 10, unit: 'each' },
+      helper: '8 windows + 2 exterior doors',
+    });
+  });
 });

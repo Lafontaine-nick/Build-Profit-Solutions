@@ -15,6 +15,7 @@ import {
   Keyboard,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -185,7 +186,9 @@ import {
   applyAdditionConversionScopeDefaults,
   filterExistingShellConversionConfirmScopeItems,
   syncAdditionConversionScopeFromMeasurements,
+  syncWindowInstallScopeFromNotes,
   hydrateScopeChecklistFromNotes,
+  filterRoomRemodelNoteScopeItems,
   applyMeasuredStuccoScopeInferences,
   suppressBathroomFalsePositiveFloorDemoScope,
   stripBathroomFalsePositiveFloorDemoQuantities,
@@ -311,6 +314,7 @@ import {
   resolveBathroomGlassDoorStyle,
   type BathroomGlassDoorStyle,
 } from '@/utils/bathroomGlassDoorPricing';
+import { resolveBathroomWetAreaDemoSuggestedPricing } from '@/utils/bathroomWetAreaDemoPricing';
 import {
   KITCHEN_BACKSPLASH_DEMO_DIFFICULTY_OPTIONS,
   resolveKitchenBacksplashDemoDifficulty,
@@ -489,6 +493,7 @@ import {
 } from '@/utils/qmScopePanels';
 import {
   QmBathroomFixturesPanels,
+  type QmBathroomFixturesPanelsHandle,
   QmFlooringScopePanels,
   QmLandscapingScopePanels,
   QmConcreteScopePanels,
@@ -620,7 +625,10 @@ import {
   validatePricingBasis,
   type ScopeMeasurementState,
 } from '@/utils/measurementSemantics';
-import { PLANNING_BID_CONFIDENCE_COPY } from '@/utils/getMeasurementRelevance';
+import {
+  getMeasurementRelevance,
+  PLANNING_BID_CONFIDENCE_COPY,
+} from '@/utils/getMeasurementRelevance';
 import { step2TierNeedsInlineTakeoffEntry } from '@/utils/confirmScopeStep2Pricing';
 import { applyNoteBackedBathroomConfirmScopePricing } from '@/utils/confirmScopeUnpricedPricing';
 import BenchmarkReasonablenessCard from '@/components/estimate/BenchmarkReasonablenessCard';
@@ -722,11 +730,11 @@ function deferConfirmScopeHeavyWork(run: () => void) {
   });
 }
 
-/** Defer heavy Apply work while pendingAppliedPricingBlock keeps the visible
- * applied amount stable during the transition. */
+/** Apply/confirm presses are already scheduled by ReliableFlowPress. Keep the
+ * visible state handoff in the same press cycle instead of queueing a second
+ * RAF + InteractionManager pass, which made taps appear to be ignored. */
 function runConfirmScopeApplyWork(run: () => void) {
-  hapticTap();
-  deferConfirmScopeHeavyWork(run);
+  run();
 }
 
 function inputShellStyle(
@@ -1341,9 +1349,14 @@ function ScopeIntelligenceNotice({
   pricingCardOwnsStatus?: boolean;
 }) {
   const [warningExpanded, setWarningExpanded] = useState(false);
-  const cardDisplay = buildCardIntelligenceDisplay(intelligence, {
+  const cardDisplay = buildCardIntelligenceDisplay(
+    suppressFormulaPlanning
+      ? { ...intelligence, formulaComparison: null }
+      : intelligence,
+    {
     pricingAccepted,
-  });
+    }
+  );
   const formula = intelligence.formula;
   const calculatedActive = calculatedQuantityAlreadyActive(intelligence);
   const applyTarget = formula
@@ -1577,11 +1590,11 @@ function ScopeIntelligenceNotice({
             formula,
             measurements,
           }) ? (
-            <TouchableOpacity
+            <ReliableFlowPress
               activeOpacity={0.85}
               accessibilityRole='button'
               accessibilityLabel={applyTarget.accessibilityLabel}
-              onPressIn={onUseCalculatedQuantity}
+              onPress={onUseCalculatedQuantity}
               style={[
                 styles.formulaActionButton,
                 {
@@ -1607,7 +1620,7 @@ function ScopeIntelligenceNotice({
               >
                 {applyTarget.buttonLabel}
               </Text>
-            </TouchableOpacity>
+            </ReliableFlowPress>
           ) : null}
         </View>
       ) : null}
@@ -4039,20 +4052,18 @@ function CustomScopePricingSection({
       </PricingEditorPanel>
       {parsePricingAmount(materialEditorValue) > 0 &&
       parsePricingAmount(laborEditorValue) > 0 ? (
-        <TouchableOpacity
+        <ReliableFlowPress
           activeOpacity={0.85}
           disabled={applying}
           onPress={() => {
             setPricingEditorOpen(false);
-            setTimeout(() => {
-              Keyboard.dismiss();
-              onSavePricing?.();
-            }, 120);
+            Keyboard.dismiss();
+            onSavePricing?.();
           }}
           style={[styles.savePricingBtn, applying && styles.primaryBtnDisabled]}
         >
           <Text style={styles.savePricingBtnText}>Apply pricing</Text>
-        </TouchableOpacity>
+        </ReliableFlowPress>
       ) : null}
     </View>
   );
@@ -5129,6 +5140,9 @@ function inlineTakeoffQuantityLabel(
   unit?: string | null
 ): string {
   if (String(templateKey || '').toLowerCase() === 'bathroom') {
+    if (itemId === 'window_install' || itemId === 'exterior_trim_paint') {
+      return 'Window quantity';
+    }
     if (
       itemId === 'drywall' ||
       itemId === 'patch_repair' ||
@@ -5419,6 +5433,33 @@ function QuantitySection({
     templateKey,
     notes: originalNotes,
   });
+  // Tile shower pan/liner removal is an each-based card. Keep the pricing
+  // card authoritative even when an older saved measurement still carries
+  // the legacy sqft rule metadata.
+  if (
+    itemId === 'shower_floor_demo' &&
+    resolved.unit === 'each' &&
+    Number(resolved.quantity) > 0
+  ) {
+    resolved = {
+      ...resolved,
+      pricingReady: true,
+      showInput: true,
+      missingMessage: undefined,
+    };
+  }
+  if (
+    itemId === 'demo' &&
+    String(templateKey || '').toLowerCase() === 'bathroom' &&
+    resolved.unit === 'sqft' &&
+    Number(resolved.quantity) > 0
+  ) {
+    resolved = {
+      ...resolved,
+      pricingReady: true,
+      showInput: true,
+    };
+  }
   if (rule?.dualAllowanceField) {
     resolved = overlayDualRatePricingDisplay(
       itemId,
@@ -5458,6 +5499,32 @@ function QuantitySection({
         pricingReady: true,
       };
     }
+  }
+  if (itemId === 'window_install') {
+    resolved = {
+      ...resolved,
+      unit: 'each',
+      showInput: true,
+      pricingReady: Number(resolved.quantity) > 0,
+    };
+  }
+  if (
+    itemId === 'exterior_trim_paint' &&
+    String(templateKey || '').toLowerCase() === 'bathroom'
+  ) {
+    const windowResolved = resolveChecklistItemQuantity(
+      'window_install',
+      norm,
+      { templateKey, notes: originalNotes }
+    );
+    resolved = {
+      ...resolved,
+      quantity: windowResolved.quantity,
+      unit: 'each',
+      quantitySource: windowResolved.quantitySource,
+      showInput: true,
+      pricingReady: Number(windowResolved.quantity) > 0,
+    };
   }
   const hasPrimaryTakeoffForDisplay = hasPrimaryTakeoffFromResolved(resolved);
   const electricalHasAppliedPricing =
@@ -5888,6 +5955,18 @@ function QuantitySection({
         string,
         unknown
       >;
+      const noteBackedFlooring =
+        itemId === 'flooring' &&
+        /\b(?:install|installation|replace|replacement|new)\b[^.;\n]{0,80}\b(?:lvp|flooring|vinyl|laminate)\b/i.test(
+          String(originalNotes || '')
+        ) &&
+        Number(measurementsInput.flooringSqft) > 0;
+      const noteBackedDrywall =
+        itemId === 'drywall' &&
+        /\b(?:patch(?:ing)?|repair)\b[^.;\n]{0,30}\bdrywall\b|\bdrywall\b[^.;\n]{0,30}\b(?:patch(?:ing)?|repair)\b/i.test(
+          String(originalNotes || '')
+        ) &&
+        Number(measurementsInput.drywallSqft) > 0;
       const suppressFormulaPlanning = Boolean(
         intelligence.formula &&
         (shouldSuppressInsulationEnvelopePlanningFormula({
@@ -5896,7 +5975,9 @@ function QuantitySection({
           measurements: scopeMeasurementsRecord,
         }) ||
           (['paint', 'interior_paint'].includes(itemId) &&
-            measurementsInput.paintPricingMethod === 'separate'))
+            measurementsInput.paintPricingMethod === 'separate') ||
+          noteBackedFlooring ||
+          noteBackedDrywall)
       );
       return (
         <View
@@ -6256,7 +6337,29 @@ function QuantitySection({
         suggested: planningSuggested,
         choiceId,
       });
-      const planningFill = formulaPlanning.fill;
+      // Bathroom demo can have a resolved combined wall + floor quantity
+      // before the generic tier reports pricingReady. Keep its amount visible
+      // instead of showing only the quantity and planning-status label.
+      const planningFill =
+        (itemId === 'window_install' ||
+          itemId === 'exterior_trim_paint') &&
+        String(templateKey || '').toLowerCase() === 'bathroom' &&
+        !(Number(resolved.quantity) > 0)
+          ? null
+          : formulaPlanning.fill ||
+            (itemId === 'demo' &&
+            resolved.unit === 'sqft' &&
+            Number(resolved.quantity) > 0
+              ? resolveBathroomWetAreaDemoSuggestedPricing({
+                  measurementsInput,
+                  tileSqft: Number(resolved.quantity),
+                  wallTileSqft:
+                    Number(measurementsInput.showerWallTileSqft) || undefined,
+                  panSqft:
+                    Number(measurementsInput.showerFloorTileSqft) || undefined,
+                  sourceLabel: resolved.sourceLabel,
+                }).fill
+              : null);
       const planningComparison =
         planningFill &&
         (itemId === 'countertops' ||
@@ -6309,7 +6412,10 @@ function QuantitySection({
         const appliedBlock = { ...block, storedTotalExact: null };
         setPendingAppliedPricingBlock(appliedBlock);
         if (onApplySuggestedPricing) {
-          onApplySuggestedPricing(itemId, appliedBlock);
+          hapticTap();
+          InteractionManager.runAfterInteractions(() => {
+            onApplySuggestedPricing(itemId, appliedBlock);
+          });
           return;
         }
         hapticTap();
@@ -6599,6 +6705,9 @@ function QuantitySection({
     String(templateKey || '').toLowerCase() === 'bathroom';
   const quantityEntryItemId = simpleBathroomPaintRepair
     ? 'drywall'
+    : itemId === 'exterior_trim_paint' &&
+        String(templateKey || '').toLowerCase() === 'bathroom'
+      ? 'window_install'
     : repairSystemCard
       ? 'stucco_repairs'
       : itemId;
@@ -6674,6 +6783,35 @@ function QuantitySection({
     choiceId,
     originalNotes
   );
+  const windowTrimQuantity =
+    itemId === 'exterior_trim_paint' &&
+    String(templateKey || '').toLowerCase() === 'bathroom'
+      ? Number(resolved.quantity) || 0
+      : 0;
+  const windowTrimSuggested =
+    windowTrimQuantity > 0
+      ? {
+          fill: {
+            material: windowTrimQuantity * 45,
+            labor: windowTrimQuantity * 135,
+            total: windowTrimQuantity * 180,
+            materialSource: 'national_average' as const,
+            laborSource: 'national_average' as const,
+            rateSourceLabel:
+              'Suggested budget split · National Average · window trim painting and finish',
+            helper:
+              'Paint and finish window trim/casing. Window replacement and installation are priced separately.',
+            mode: 'suggested_price' as const,
+            basis: { quantity: windowTrimQuantity, unit: 'each' },
+            benchmarkAction: 'price_ready' as const,
+            productionStatus: 'review_required' as const,
+          },
+          comparison: null,
+        }
+      : itemId === 'exterior_trim_paint' &&
+          String(templateKey || '').toLowerCase() === 'bathroom'
+        ? { fill: null, comparison: null }
+        : null;
   const assemblyInsulationPricing =
     itemId === 'insulation'
       ? resolveInsulationAssemblyScopeSuggestedPricing(
@@ -6699,7 +6837,34 @@ function QuantitySection({
           pricingContext
         )
       : null;
-  const catalogSuggested = assemblyInsulationPricing
+  const wetAreaDemoFallback =
+    itemId === 'demo' &&
+    resolved.unit === 'sqft' &&
+    Number(resolved.quantity) > 0
+      ? resolveBathroomWetAreaDemoSuggestedPricing({
+          measurementsInput,
+          tileSqft: Number(resolved.quantity),
+          wallTileSqft: Number(measurementsInput.showerWallTileSqft) || undefined,
+          panSqft: Number(measurementsInput.showerFloorTileSqft) || undefined,
+          sourceLabel: resolved.sourceLabel,
+        }).fill
+      : null;
+  const standaloneBathroomPatchFill =
+    itemId === 'patch_repair' &&
+    String(templateKey || '').toLowerCase() === 'bathroom' &&
+    Number(resolved.quantity) > 0
+      ? resolveBathroomDrywallPatchSuggestedPricing({
+          quantity: Number(resolved.quantity),
+          showerWallTileSqft:
+            Number(measurementsInput.showerWallTileSqft) || null,
+          useCombinedAssembly: false,
+        }).fill ?? null
+      : null;
+  const catalogSuggested = windowTrimSuggested
+    ? windowTrimSuggested
+    : standaloneBathroomPatchFill
+    ? { fill: standaloneBathroomPatchFill, comparison: null }
+    : assemblyInsulationPricing
     ? {
         fill: assemblyInsulationPricing,
         comparison:
@@ -6707,7 +6872,14 @@ function QuantitySection({
           insulationLumpBenchmark ??
           initialSuggestedFromCatalog.comparison,
       }
-    : initialSuggestedFromCatalog;
+    : initialSuggestedFromCatalog.fill
+      ? initialSuggestedFromCatalog
+      : wetAreaDemoFallback
+        ? {
+            fill: wetAreaDemoFallback,
+            comparison: initialSuggestedFromCatalog.comparison,
+          }
+        : initialSuggestedFromCatalog;
   const liveMaterial = parsePricingAmount(materialInput?.quantity);
   const liveLabor = parsePricingAmount(laborInput?.quantity);
   const liveManualTotal = (liveMaterial || 0) + (liveLabor || 0);
@@ -6772,6 +6944,21 @@ function QuantitySection({
   });
   suggestedBudgetSplit = formulaSuggested.fill;
   suggestedComparisonSplit = formulaSuggested.comparison;
+  if (
+    (itemId === 'window_install' || itemId === 'exterior_trim_paint') &&
+    String(templateKey || '').toLowerCase() === 'bathroom' &&
+    !(Number(resolved.quantity) > 0)
+  ) {
+    suggestedBudgetSplit = null;
+    suggestedComparisonSplit = null;
+  }
+  if (
+    itemId === 'exterior_trim_paint' &&
+    String(templateKey || '').toLowerCase() === 'bathroom'
+  ) {
+    suggestedBudgetSplit = windowTrimSuggested?.fill ?? null;
+    suggestedComparisonSplit = null;
+  }
   if (assemblyInsulationPricing) {
     suggestedBudgetSplit = assemblyInsulationPricing;
     suggestedComparisonSplit =
@@ -6806,8 +6993,11 @@ function QuantitySection({
   const applySuggestedPricingBlock = (block: SuggestedPricingBlock) => {
     beginSuggestedPricingApply(() => {
       if (onApplySuggestedPricing) {
-        onApplySuggestedPricing(itemId, block);
-        setPricingEditorOpen(false);
+        hapticTap();
+        InteractionManager.runAfterInteractions(() => {
+          onApplySuggestedPricing(itemId, block);
+          setPricingEditorOpen(false);
+        });
         return;
       }
       hapticTap();
@@ -7052,6 +7242,18 @@ function QuantitySection({
             string,
             unknown
           >;
+          const noteBackedFlooring =
+            itemId === 'flooring' &&
+            /\b(?:install|installation|replace|replacement|new)\b[^.;\n]{0,80}\b(?:lvp|flooring|vinyl|laminate)\b/i.test(
+              String(originalNotes || '')
+            ) &&
+            Number(measurementsInput.flooringSqft) > 0;
+          const noteBackedDrywall =
+            itemId === 'drywall' &&
+            /\b(?:patch(?:ing)?|repair)\b[^.;\n]{0,30}\bdrywall\b|\bdrywall\b[^.;\n]{0,30}\b(?:patch(?:ing)?|repair)\b/i.test(
+              String(originalNotes || '')
+            ) &&
+            Number(measurementsInput.drywallSqft) > 0;
           const suppressFormulaPlanning = Boolean(
             intelligence.formula &&
             (shouldSuppressInsulationEnvelopePlanningFormula({
@@ -7060,7 +7262,9 @@ function QuantitySection({
               measurements: scopeMeasurementsRecord,
             }) ||
               (['paint', 'interior_paint'].includes(itemId) &&
-                measurementsInput.paintPricingMethod === 'separate'))
+                measurementsInput.paintPricingMethod === 'separate') ||
+              noteBackedFlooring ||
+              noteBackedDrywall)
           );
           const showInlineSqftTakeoff =
             !hideInlineTakeoff &&
@@ -7088,7 +7292,12 @@ function QuantitySection({
                 resolved.unit || rule.defaultUnit
               )}
               value={
-                itemInput?.quantity ??
+                itemId === 'paint_repair'
+                  ? String(
+                      measurementsInput.itemQuantities?.patch_repair
+                        ?.quantity ?? ''
+                    )
+                  : itemInput?.quantity ??
                 (resolved.quantity != null && resolved.quantity > 0
                   ? String(resolved.quantity)
                   : '')
@@ -7097,7 +7306,7 @@ function QuantitySection({
               onFocus={() => focusQuantityField(itemId, 'count')}
               onCommit={text => {
                 onItemQuantityChange(
-                  itemId,
+                  itemId === 'paint_repair' ? 'patch_repair' : itemId,
                   text,
                   'count',
                   resolved.unit || rule.defaultUnit,
@@ -7110,9 +7319,40 @@ function QuantitySection({
               applying={applying}
             />
           ) : null;
+          const paintMeasurementInput =
+            itemId === 'paint_repair' ? (
+              <InlineTakeoffCountInput
+                label='Paint sqft'
+                value={String(
+                  [
+                    measurementsInput.paintAreaSqft,
+                    measurementsInput.combinedPaintableAreaSqft,
+                    measurementsInput.wallPaintSqft,
+                    measurementsInput.itemQuantities?.interior_paint
+                      ?.quantity,
+                  ].find(value => Number(value || 0) > 0) ?? ''
+                )}
+                unit='sqft'
+                onFocus={() => focusQuantityField('interior_paint', 'count')}
+                onCommit={text =>
+                  onItemQuantityChange(
+                    'interior_paint',
+                    text,
+                    'count',
+                    'sqft',
+                    'user_entered'
+                  )
+                }
+                onBlur={() => blurQuantityField('interior_paint', 'count')}
+                Colors={Colors}
+                darkMode={darkMode}
+                applying={applying}
+              />
+            ) : null;
           if (accepted && acceptedDisplay) {
             return (
               <>
+                {paintMeasurementInput}
                 {inlineSqftTakeoff}
                 <AcceptedPricingSummary
                   display={acceptedDisplay}
@@ -7192,6 +7432,7 @@ function QuantitySection({
           }
           return (
             <>
+              {paintMeasurementInput}
               {showInlineSqftTakeoff ? (
                 inlineSqftTakeoff
               ) : resolved.quantity != null &&
@@ -7447,9 +7688,11 @@ function QuantitySection({
             )}
             value={
               itemInput?.quantity ??
-              (repairSystemCard
-                ? (measurementsInput.stuccoRepairAffectedSqft ?? '')
-                : '')
+              (itemId === 'window_install' || itemId === 'exterior_trim_paint'
+                ? String(resolved.quantity ?? '')
+                : repairSystemCard
+                  ? String(measurementsInput.stuccoRepairAffectedSqft ?? '')
+                  : '')
             }
             unit={resolved.unit || rule.defaultUnit}
             onFocus={() => focusQuantityField(quantityEntryItemId, 'count')}
@@ -7809,7 +8052,7 @@ function YesNoChip({
   return (
     <TouchableOpacity
       activeOpacity={0.88}
-      onPressIn={onPress}
+      onPress={onPress}
       style={[styles.choiceChip, { borderColor, backgroundColor }]}
     >
       <Text
@@ -7863,7 +8106,7 @@ function AssemblyChoiceChip({
   return (
     <TouchableOpacity
       activeOpacity={0.88}
-      onPressIn={onPress}
+      onPress={onPress}
       style={[styles.assemblyChoiceChip, { borderColor, backgroundColor }]}
     >
       <Text
@@ -7880,6 +8123,223 @@ function AssemblyChoiceChip({
     </TouchableOpacity>
   );
 }
+
+const BathroomCountStepper = React.memo(
+  function BathroomCountStepper({
+  label,
+  value,
+  onAdjust,
+  max,
+  disabled = false,
+  diagnosticLocalOnly = false,
+  applying,
+  darkMode,
+  Colors,
+}: {
+  label: string;
+  value: number | null;
+  onAdjust: (delta: number) => void;
+  max: number;
+  disabled?: boolean;
+  diagnosticLocalOnly?: boolean;
+  applying: boolean;
+  darkMode: boolean;
+  Colors: ReturnType<typeof getColors>;
+}) {
+  const [displayValue, setDisplayValue] = useState(
+    diagnosticLocalOnly ? 0 : value
+  );
+  const displayValueRef = useRef<number | null>(value);
+  const onAdjustRef = useRef(onAdjust);
+  onAdjustRef.current = onAdjust;
+  const pendingValueRef = useRef<number | null | undefined>(undefined);
+  const renderCountRef = useRef(0);
+  const pressCountRef = useRef(0);
+  renderCountRef.current += 1;
+  const quantityProfilingEnabled =
+    __DEV__ &&
+    Boolean(
+      (
+        globalThis as typeof globalThis & {
+          __BPS_PROFILE_QUANTITY__?: boolean;
+        }
+      ).__BPS_PROFILE_QUANTITY__
+    );
+  if (quantityProfilingEnabled) {
+    console.debug(
+      `[ConfirmScope] ${label} quantity row render #${renderCountRef.current}`
+    );
+  }
+
+  useEffect(() => {
+    if (diagnosticLocalOnly) return;
+    if (pendingValueRef.current === value) {
+      pendingValueRef.current = undefined;
+    }
+    if (pendingValueRef.current === undefined) {
+      displayValueRef.current = value;
+      setDisplayValue(value);
+    }
+  }, [diagnosticLocalOnly, value]);
+
+  const adjust = useCallback(
+    (delta: number) => {
+      if (diagnosticLocalOnly) {
+        const startedAt = performance.now();
+        setDisplayValue(previous => {
+          const next = Math.max(0, Math.min(max, (previous ?? 0) + delta));
+          displayValueRef.current = next;
+          return next;
+        });
+        if (quantityProfilingEnabled) {
+          console.debug(
+            `[ConfirmScope diagnostic] ${label} local press ${
+              performance.now() - startedAt
+            }ms`
+          );
+        }
+        return;
+      }
+      const current = displayValueRef.current;
+      if (
+        applying ||
+        disabled ||
+        (delta < 0 && !current) ||
+        (delta > 0 && current != null && current >= max)
+      ) {
+        return;
+      }
+      const pressId = ++pressCountRef.current;
+      const next =
+        (current ?? 0) + delta < 1
+          ? null
+          : Math.min(max, (current ?? 0) + delta);
+      displayValueRef.current = next;
+      pendingValueRef.current = next;
+      setDisplayValue(previous => (previous === next ? previous : next));
+      if (quantityProfilingEnabled) {
+        console.time(`confirm-scope quantity press ${pressId}`);
+        onAdjustRef.current(delta);
+        console.timeEnd(`confirm-scope quantity press ${pressId}`);
+      } else {
+        onAdjustRef.current(delta);
+      }
+    },
+    [
+      applying,
+      diagnosticLocalOnly,
+      disabled,
+      label,
+      max,
+      quantityProfilingEnabled,
+    ]
+  );
+
+  const unavailable = applying || disabled;
+  const minusDisabled = unavailable || !displayValue;
+  const plusDisabled =
+    unavailable || (displayValue != null && displayValue >= max);
+
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 8,
+        opacity: disabled ? 0.45 : 1,
+      }}
+    >
+      <Text
+        style={{
+          color: darkMode ? '#F5F7FA' : Colors.text,
+          fontSize: 13,
+          fontWeight: '700',
+          flex: 1,
+          paddingRight: 8,
+        }}
+      >
+        {label}
+      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Pressable
+          onPress={() => adjust(-1)}
+          disabled={minusDisabled}
+          pressRetentionOffset={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          // Keep adjacent stepper rows from sharing a vertical hit target.
+          hitSlop={{ top: 2, bottom: 2, left: 8, right: 8 }}
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: darkMode ? 'rgba(255,255,255,0.16)' : Colors.line,
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: minusDisabled ? 0.4 : 1,
+          }}
+        >
+          <Text
+            style={{
+              color: darkMode ? '#F5F7FA' : Colors.text,
+              fontSize: 18,
+              fontWeight: '700',
+            }}
+          >
+            −
+          </Text>
+        </Pressable>
+        <Text
+          style={{
+            minWidth: 28,
+            textAlign: 'center',
+            color: darkMode ? '#F5F7FA' : Colors.text,
+            fontSize: 16,
+            fontWeight: '800',
+          }}
+        >
+          {displayValue ?? '—'}
+        </Text>
+        <Pressable
+          onPress={() => adjust(1)}
+          disabled={plusDisabled}
+          pressRetentionOffset={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          hitSlop={{ top: 2, bottom: 2, left: 8, right: 8 }}
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: darkMode ? 'rgba(255,255,255,0.16)' : Colors.line,
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: plusDisabled ? 0.4 : 1,
+          }}
+        >
+          <Text
+            style={{
+              color: darkMode ? '#F5F7FA' : Colors.text,
+              fontSize: 18,
+              fontWeight: '700',
+            }}
+          >
+            +
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+  },
+  (previous, next) =>
+    previous.label === next.label &&
+    previous.value === next.value &&
+    previous.max === next.max &&
+    previous.disabled === next.disabled &&
+    previous.diagnosticLocalOnly === next.diagnosticLocalOnly &&
+    previous.applying === next.applying &&
+    previous.darkMode === next.darkMode &&
+    previous.Colors === next.Colors
+);
 
 function WetAreaInstallLineCard({
   item,
@@ -8404,16 +8864,22 @@ function YesNoRow({
   );
   const userPaintRepairSqft = Number(
     String(
-      measurementsInput.itemQuantities?.paint_repair?.quantity ?? ''
-    ).replace(/,/g, '')
-  );
-  const userDrywallRepairSqft = Number(
-    String(
-      measurementsInput.itemQuantities?.drywall?.quantity ??
-        measurementsInput.itemQuantities?.patch_repair?.quantity ??
+      measurementsInput.itemQuantities?.patch_repair?.quantity ??
+        measurementsInput.itemQuantities?.paint_repair?.quantity ??
         ''
     ).replace(/,/g, '')
   );
+  const paintRepairQuantitySource =
+    measurementsInput.itemQuantities?.patch_repair?.quantitySource ??
+    measurementsInput.itemQuantities?.paint_repair?.quantitySource;
+  const notesDescribePatchRepair =
+    /\b(?:patch(?:ing)?|repair(?:s|ed|ing)?|drywall|texture|skim\s*coat)\b/i.test(
+      String(originalNotes || '')
+    );
+  const explicitPaintRepairSqft =
+    paintRepairQuantitySource === 'user_entered' || notesDescribePatchRepair
+      ? userPaintRepairSqft
+      : 0;
   const storedPaintEntireRoom =
     resolvedPaintRepairScope === 'full_room' ||
     resolvePaintRepairEntireRoom({
@@ -8426,7 +8892,8 @@ function YesNoRow({
     bathroomPaintRepairUsesAutoFlow({
       wallPaintSqft: measurementsInput.wallPaintSqft,
       bathroomFloorSqft: measurementsInput.bathroomFloorSqft,
-      enteredTakeoffSqft: userPaintRepairSqft > 0 ? userPaintRepairSqft : null,
+      enteredTakeoffSqft:
+        explicitPaintRepairSqft > 0 ? explicitPaintRepairSqft : null,
       scopeSource: measurementsInput.bathroomPaintRepairScopeSource,
     });
   const storedPaintRepairSeverity =
@@ -8441,17 +8908,17 @@ function YesNoRow({
     combinedEligible &&
     measurementsInput.bathroomDrywallPaintUseCombinedAssembly !== false;
   const entireRoomPaintSqft =
-    resolvedPaintRepairScope === 'full_room' && userPaintRepairSqft > 0
-      ? userPaintRepairSqft
+    resolvedPaintRepairScope === 'full_room' && explicitPaintRepairSqft > 0
+      ? explicitPaintRepairSqft
       : 0;
   const patchRepairSqft =
     (simpleBathroomPaintRepair || resolvedPaintRepairScope === 'affected_area') &&
     (simpleBathroomPaintRepair
-      ? userDrywallRepairSqft
-      : userPaintRepairSqft) > 0
+      ? explicitPaintRepairSqft
+      : explicitPaintRepairSqft) > 0
       ? simpleBathroomPaintRepair
-        ? userDrywallRepairSqft
-        : userPaintRepairSqft
+        ? explicitPaintRepairSqft
+        : explicitPaintRepairSqft
       : 0;
   const combinedSummary = showDrywallPaintOptions
     ? buildBathroomDrywallPaintCombinedSummary({
@@ -8554,10 +9021,16 @@ function YesNoRow({
     if (!isFullRoom && !isAffectedArea) return null;
     if (isAffectedArea && !(patchRepairSqft > 0)) return null;
     if (isFullRoom && !(entireRoomPaintSqft > 0)) return null;
+    const paintSqftForPricing =
+      Number(measurementsInput.paintAreaSqft) ||
+      Number(measurementsInput.wallPaintSqft) ||
+      Number(measurementsInput.itemQuantities?.interior_paint?.quantity) ||
+      null;
     return (
       resolveBathroomPaintRepairSuggestedPricing({
         checklistItems: scopeChecklistItems,
         patchSqft: patchRepairSqft > 0 ? patchRepairSqft : null,
+        paintSqft: paintSqftForPricing,
         showerWallTileSqft:
           Number(measurementsInput.showerWallTileSqft) || null,
         paintRepairScope: storedPaintRepairScope,
@@ -8581,6 +9054,9 @@ function YesNoRow({
     storedPaintEntireRoom,
     measurementsInput.pricingAcceptance?.paint_repair,
     measurementsInput.showerWallTileSqft,
+    measurementsInput.paintAreaSqft,
+    measurementsInput.wallPaintSqft,
+    measurementsInput.itemQuantities?.interior_paint?.quantity,
     measurementsInput.bathroomPaintRepairEntireRoom,
     measurementsInput.bathroomInteriorPaintMobilization,
     measurementsInput.bathroomInteriorPaintSurface,
@@ -8596,12 +9072,20 @@ function YesNoRow({
       drywall: separateDrywallPatchFill,
       paint: separateLinesPaintFill,
       patchSqft: patchRepairSqft > 0 ? patchRepairSqft : entireRoomPaintSqft,
+      paintSqft:
+        Number(measurementsInput.paintAreaSqft) ||
+        Number(measurementsInput.wallPaintSqft) ||
+        Number(measurementsInput.itemQuantities?.interior_paint?.quantity) ||
+        null,
     });
   }, [
     separateDrywallPatchFill,
     separateLinesPaintFill,
     patchRepairSqft,
     entireRoomPaintSqft,
+    measurementsInput.paintAreaSqft,
+    measurementsInput.wallPaintSqft,
+    measurementsInput.itemQuantities?.interior_paint?.quantity,
     resolvedPaintRepairScope,
   ]);
 
@@ -8612,9 +9096,7 @@ function YesNoRow({
   }, [paintRepairScopeApplied]);
 
   const showInteriorPaintScopePrompt =
-    (item.id === 'interior_paint' || item.id === 'paint') &&
-    displayedState === 'included' &&
-    String(templateKey || '').toLowerCase() === 'bathroom';
+    false;
   const interiorPaintScopeApplied = Boolean(
     measurementsInput.pricingAcceptance?.interior_paint ||
     measurementsInput.pricingAcceptance?.paint
@@ -10875,7 +11357,9 @@ function ChoiceRow({
       const nextChoiceId = item.choiceId === choiceId ? null : choiceId;
       optimisticChoiceRef.current = nextChoiceId;
       setOptimisticChoiceId(nextChoiceId);
-      setTimeout(() => onSelectRef.current(choiceId), 0);
+      // Paint the optimistic choice before the parent reconciles the full
+      // scope/pricing tree.
+      requestAnimationFrame(() => onSelectRef.current(choiceId));
     },
     [item.choiceId]
   );
@@ -11354,6 +11838,15 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
     const cleaned = nextValue.replace(/,/g, '');
     if (usesNumericEditDraft) {
       setNumericDraft(cleaned);
+      // Baseboard LF and patch sqft fan out to linked scope quantities.
+      // Commit it during typing so that the linked quantity reconciliation
+      // cannot replace the visible draft before blur.
+      if (
+        field.key === 'baseboardLf' ||
+        field.key === 'patchRepairSqft'
+      ) {
+        onChangeText(cleaned);
+      }
     } else {
       onChangeText(cleaned);
     }
@@ -11393,7 +11886,11 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
     if (compact) return undefined;
     const text = quickMeasurementHelperText(field);
     if (!text) return undefined;
-    if (field.key === 'cabinetLf' || field.key === 'countertopSqft')
+    if (
+      field.key === 'cabinetLf' ||
+      field.key === 'countertopSqft' ||
+      field.key === 'countertopLf'
+    )
       return text;
     if (
       variant === 'calm' &&
@@ -13097,6 +13594,7 @@ function CollapsibleQuickMeasurements({
   electricalQuantityEditingRef,
   electricalAttributesCommitRef,
   onElectricalAttributesPreview,
+  qmFlushRef,
 }: {
   visible: boolean;
   expanded: boolean;
@@ -13193,6 +13691,8 @@ function CollapsibleQuickMeasurements({
       typeof electricalConfirmScopeAttributesFromMeasurements
     >
   ) => void;
+  /** Flush debounced bathroom QM counts before Continue / navigation. */
+  qmFlushRef?: React.MutableRefObject<(() => void) | null>;
 }) {
   const [moreExpanded, setMoreExpanded] = useState(true);
   const [openDetailsKey, setOpenDetailsKey] =
@@ -13218,6 +13718,8 @@ function CollapsibleQuickMeasurements({
       >
     >
   >({});
+  const measurementsRef = useRef(measurements);
+  measurementsRef.current = measurements;
   const wasVisibleRef = useRef(visible);
   useEffect(() => {
     if (!visible && wasVisibleRef.current) {
@@ -13401,10 +13903,12 @@ function CollapsibleQuickMeasurements({
         : 0,
       livingSf: living,
       garageSf: garage,
+      notes,
     });
   }, [
     templateKey,
     projectType,
+    notes,
     measurements.floorAreaSqft,
     measurements.garageSqft,
     measurements.planRooms,
@@ -13501,6 +14005,7 @@ function CollapsibleQuickMeasurements({
     put('storyCount', parsed.storyCount);
     put('backsplashSqft', parsed.backsplashSqft);
     put('countertopSqft', parsed.countertopSqft);
+    put('countertopLf', parsed.countertopLf);
     put('cabinetLf', parsed.cabinetLf);
     put('showerWallTileSqft', parsed.showerWallTileSqft);
     put('showerFloorTileSqft', parsed.showerFloorTileSqft);
@@ -13710,6 +14215,32 @@ function CollapsibleQuickMeasurements({
       }
       return baseRows
         .map(row => row.filter(field => allowed.has(field.key)))
+        .filter(row => row.length > 0);
+    }
+    if (String(effectiveTemplateKey || '').toLowerCase() === 'room_remodel') {
+      return baseRows
+        .map(row =>
+          row.filter(field => {
+            const relevance = getMeasurementRelevance({
+              measurementKey: field.key,
+              includedScopeKeys,
+              templateKey: effectiveTemplateKey,
+              projectType,
+              notes,
+            });
+            // Explicit note measurements remain visible even when the
+            // checklist uses a combined/legacy scope id that the relevance
+            // map cannot resolve (for example cabinets_counters).
+            const noteKeys = noteQuickMeasurements?.keys;
+            const noteHasField =
+              noteKeys instanceof Set
+                ? noteKeys.has(field.key)
+                : Array.isArray(noteKeys)
+                  ? noteKeys.includes(field.key)
+                  : false;
+            return relevance.relevant || noteHasField;
+          })
+        )
         .filter(row => row.length > 0);
     }
     if (
@@ -14019,14 +14550,50 @@ function CollapsibleQuickMeasurements({
         )
       : grouped;
     let positioned = pinned;
+    const stickyMeasurementKeys = new Set<QuickMeasurementFieldKey>([
+      'wallPaintSqft',
+      'paintAreaSqft',
+      'patchRepairSqft',
+      'baseboardLf',
+    ]);
     for (const [key, home] of Object.entries(typedMeasurementHomes)) {
       if (!home) continue;
+      if (stickyMeasurementKeys.has(key as QuickMeasurementFieldKey)) continue;
       positioned = pinQuickMeasurementFieldInGroup(
         positioned,
         key as QuickMeasurementFieldKey,
         home.homeGroup,
         home.homeIndex
       );
+    }
+    // Keep the three linked interior-finish measurements together while their
+    // values are being edited. Their relevance can change on each keystroke,
+    // but the input must not jump between sections or remount.
+    const stickyResults: QuickMeasurementFieldResult[] = [];
+    ([
+      'wallPaintSqft',
+      'paintAreaSqft',
+      'baseboardLf',
+      'patchRepairSqft',
+    ] as QuickMeasurementFieldKey[]).forEach(key => {
+      (Object.keys(positioned) as QuickMeasurementGroupId[]).forEach(
+        groupId => {
+          const index = positioned[groupId].findIndex(
+            result => result.key === key
+          );
+          if (index < 0) return;
+          stickyResults.push(positioned[groupId][index]);
+          positioned[groupId] = positioned[groupId].filter(
+            result => result.key !== key
+          );
+        }
+      );
+    });
+    if (stickyResults.length) {
+      positioned.needsConfirmation = [
+        ...positioned.needsConfirmation,
+        ...stickyResults,
+      ];
     }
     // Photo/notes bathroom jobs use wet-area steppers — shower SF lives in the wet area panel.
     if (!showWetAreaFinishSteppers)
@@ -14257,8 +14824,22 @@ function CollapsibleQuickMeasurements({
   const [demoCounts, setDemoCounts] = useState<WetAreaDemoCounts>(() =>
     readWetAreaDemoCounts(measurements)
   );
+  const existingCountsRef = useRef(existingCounts);
+  existingCountsRef.current = existingCounts;
+  const demoCountsRef = useRef(demoCounts);
+  demoCountsRef.current = demoCounts;
   const [reuseExistingShowerDoor, setReuseExistingShowerDoor] = useState(() =>
     Boolean(measurements.reuseExistingShowerDoor)
+  );
+  const BATHROOM_QM_PARENT_FLUSH_MS = 150;
+  const bathroomParentFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const wetAreaCommitOptionsRef = useRef<{ keepingExisting?: boolean } | undefined>(
+    undefined
+  );
+  const bathroomFixturesQmFlushRef = useRef<QmBathroomFixturesPanelsHandle | null>(
+    null
   );
   const demoOverridesRef = useRef<
     Partial<Record<WetAreaDemoOverrideKey, boolean>>
@@ -14275,11 +14856,20 @@ function CollapsibleQuickMeasurements({
   });
   const stepperGenRef = useRef(0);
   const stepperAppliedGenRef = useRef(0);
+  const stepperScheduleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
   const latestStepperRef = useRef(stepperCounts);
   useEffect(
     () => () => {
       if (existingDemoScheduleTimerRef.current) {
         clearTimeout(existingDemoScheduleTimerRef.current);
+      }
+      if (stepperScheduleTimerRef.current) {
+        clearTimeout(stepperScheduleTimerRef.current);
+      }
+      if (bathroomParentFlushTimerRef.current) {
+        clearTimeout(bathroomParentFlushTimerRef.current);
       }
     },
     []
@@ -14287,7 +14877,9 @@ function CollapsibleQuickMeasurements({
   useEffect(() => {
     // Skip stale parent catch-up while rapid taps are still committing.
     if (stepperGenRef.current !== stepperAppliedGenRef.current) return;
-    setStepperCounts(readStepperCountsFromMeasurements());
+    const next = readStepperCountsFromMeasurements();
+    latestStepperRef.current = next;
+    setStepperCounts(next);
   }, [
     readStepperCountsFromMeasurements,
     measurements.bathCount,
@@ -14326,6 +14918,92 @@ function CollapsibleQuickMeasurements({
     }),
     [stepperCounts]
   );
+
+  const flushBathroomQmToParent = useCallback(() => {
+    if (bathroomParentFlushTimerRef.current) {
+      clearTimeout(bathroomParentFlushTimerRef.current);
+      bathroomParentFlushTimerRef.current = null;
+    }
+    const latest = latestExistingDemoRef.current;
+    const stepper = latestStepperRef.current;
+    const options = wetAreaCommitOptionsRef.current;
+    const wetAreaFinish = resolveEffectiveWetAreaFinish({
+      ...stepper,
+      templateKey: effectiveTemplateKey,
+      wholeHomeLayout,
+    });
+    startTransition(() => {
+      setMeasurements(prev => {
+        const itemQuantities = { ...(prev.itemQuantities || {}) };
+        if (stepper.showerDoorCount != null && stepper.showerDoorCount > 0) {
+          itemQuantities.glass_door = {
+            quantity: String(stepper.showerDoorCount),
+            unit: 'each',
+            quantitySource: 'user_entered',
+          };
+        } else {
+          delete itemQuantities.glass_door;
+        }
+        return {
+          ...prev,
+          ...latest.existing,
+          ...latest.demo,
+          bathCount: stepper.bathCount,
+          tilePanBathCount: stepper.tilePanBathCount,
+          prefabBathCount: stepper.prefabBathCount,
+          prefabEnclosureBathCount: stepper.prefabEnclosureBathCount,
+          tubBathCount: stepper.tubBathCount,
+          bathFloorTileCount: stepper.bathFloorTileCount,
+          showerDoorCount: stepper.showerDoorCount,
+          wetAreaFinish,
+          reuseExistingShowerDoor: latest.reuseExistingShowerDoor,
+          demoWetAreaManualOverrides: demoOverridesRef.current,
+          ...(options?.keepingExisting ? { showerFloorTileSqft: undefined } : {}),
+          itemQuantities,
+        };
+      });
+      stepperAppliedGenRef.current = stepperGenRef.current;
+      existingDemoAppliedGenRef.current = existingDemoGenRef.current;
+      onWetAreaFinishChange?.(wetAreaFinish);
+      onWetAreaSteppersChange?.(stepper, options);
+      onShowerDoorCountChange?.(stepper.showerDoorCount);
+      onWetAreaExistingDemoChange?.({
+        existing: latest.existing,
+        demo: latest.demo,
+        reuseExistingShowerDoor: latest.reuseExistingShowerDoor,
+        demoOverrides: demoOverridesRef.current,
+      });
+    });
+  }, [
+    effectiveTemplateKey,
+    onShowerDoorCountChange,
+    onWetAreaExistingDemoChange,
+    onWetAreaFinishChange,
+    onWetAreaSteppersChange,
+    setMeasurements,
+    wholeHomeLayout,
+  ]);
+
+  const scheduleBathroomParentFlush = useCallback(() => {
+    if (bathroomParentFlushTimerRef.current) {
+      clearTimeout(bathroomParentFlushTimerRef.current);
+    }
+    bathroomParentFlushTimerRef.current = setTimeout(() => {
+      bathroomParentFlushTimerRef.current = null;
+      flushBathroomQmToParent();
+    }, BATHROOM_QM_PARENT_FLUSH_MS);
+  }, [flushBathroomQmToParent]);
+
+  useEffect(() => {
+    if (!qmFlushRef) return;
+    qmFlushRef.current = () => {
+      flushBathroomQmToParent();
+      bathroomFixturesQmFlushRef.current?.flushPending();
+    };
+    return () => {
+      qmFlushRef.current = null;
+    };
+  }, [qmFlushRef, flushBathroomQmToParent]);
 
   const scheduleExistingDemoCommit = useCallback(
     (
@@ -14366,7 +15044,13 @@ function CollapsibleQuickMeasurements({
       if (demoOverride) {
         overrides[demoOverride.key] = true;
       }
-      const stored = readWetAreaDemoCounts(measurements);
+      // Use the optimistic row state as the override source. Reading only
+      // from the parent measurements here replays stale note-inferred counts
+      // and makes a tap on one stepper appear to toggle a sibling row.
+      const stored = {
+        ...readWetAreaDemoCounts(measurements),
+        ...demoCountsRef.current,
+      };
       if (demoOverride) {
         stored[demoOverride.key] = demoOverride.value;
       }
@@ -14385,27 +15069,16 @@ function CollapsibleQuickMeasurements({
         demo: merged,
         reuseExistingShowerDoor: reuse,
       };
-      queueMicrotask(() => {
-        if (gen !== existingDemoGenRef.current) return;
-        const latest = latestExistingDemoRef.current;
-        startTransition(() => {
-          setDemoCounts(latest.demo);
-          setMeasurements(prev => ({
-            ...prev,
-            ...effectiveExisting,
-            ...latest.demo,
-            reuseExistingShowerDoor: latest.reuseExistingShowerDoor,
-            demoWetAreaManualOverrides: overrides,
-          }));
-          existingDemoAppliedGenRef.current = existingDemoGenRef.current;
-          onWetAreaExistingDemoChange?.({
-            existing: latest.existing,
-            demo: latest.demo,
-            reuseExistingShowerDoor: latest.reuseExistingShowerDoor,
-            demoOverrides: overrides,
-          });
-        });
+      demoCountsRef.current = merged;
+      setDemoCounts(merged);
+      if (gen !== existingDemoGenRef.current) return;
+      onWetAreaExistingDemoChange?.({
+        existing: effectiveExisting,
+        demo: merged,
+        reuseExistingShowerDoor: reuse,
+        demoOverrides: overrides,
       });
+      scheduleBathroomParentFlush();
     },
     [
       hasSitePhotos,
@@ -14413,7 +15086,7 @@ function CollapsibleQuickMeasurements({
       measurements,
       notes,
       onWetAreaExistingDemoChange,
-      setMeasurements,
+      scheduleBathroomParentFlush,
     ]
   );
 
@@ -14423,70 +15096,31 @@ function CollapsibleQuickMeasurements({
       gen: number,
       options?: { keepingExisting?: boolean }
     ) => {
+      if (gen !== stepperGenRef.current) return;
       latestStepperRef.current = next;
-      queueMicrotask(() => {
-        if (gen !== stepperGenRef.current) return; // superseded by a newer tap
-        const latest = latestStepperRef.current;
-        const wetAreaFinish = resolveEffectiveWetAreaFinish({
-          ...latest,
-          templateKey: effectiveTemplateKey,
-          wholeHomeLayout,
-        });
-        startTransition(() => {
-          setMeasurements(prev => {
-            const itemQuantities = { ...(prev.itemQuantities || {}) };
-            if (latest.showerDoorCount != null && latest.showerDoorCount > 0) {
-              itemQuantities.glass_door = {
-                quantity: String(latest.showerDoorCount),
-                unit: 'each',
-                quantitySource: 'user_entered',
-              };
-            } else {
-              delete itemQuantities.glass_door;
-            }
-            return {
-              ...prev,
-              bathCount: latest.bathCount,
-              tilePanBathCount: latest.tilePanBathCount,
-              prefabBathCount: latest.prefabBathCount,
-              prefabEnclosureBathCount: latest.prefabEnclosureBathCount,
-              tubBathCount: latest.tubBathCount,
-              bathFloorTileCount: latest.bathFloorTileCount,
-              showerDoorCount: latest.showerDoorCount,
-              wetAreaFinish,
-              ...(options?.keepingExisting
-                ? { showerFloorTileSqft: undefined }
-                : {}),
-              itemQuantities,
-            };
-          });
-          stepperAppliedGenRef.current = stepperGenRef.current;
-          onWetAreaFinishChange?.(wetAreaFinish);
-          onWetAreaSteppersChange?.(latest, options);
-          onShowerDoorCountChange?.(latest.showerDoorCount);
-          if (bathroomPhotoWetArea) {
-            const demoGen = ++existingDemoGenRef.current;
-            scheduleExistingDemoCommit(
-              latestExistingDemoRef.current.existing,
-              latest,
-              options?.keepingExisting ?? keepingExistingWetArea,
-              latestExistingDemoRef.current.reuseExistingShowerDoor,
-              demoGen
-            );
-          }
-        });
-      });
+      wetAreaCommitOptionsRef.current = options;
+      // Update the visible scope cards from the optimistic QM state now.
+      // The parent measurement flush remains debounced below so pricing and
+      // persistence do not block the tap feedback.
+      onWetAreaSteppersChange?.(next, options);
+      if (bathroomPhotoWetArea) {
+        scheduleExistingDemoCommit(
+          latestExistingDemoRef.current.existing,
+          next,
+          options?.keepingExisting ?? keepingExistingWetArea,
+          latestExistingDemoRef.current.reuseExistingShowerDoor,
+          gen
+        );
+        return;
+      }
+      scheduleBathroomParentFlush();
     },
     [
       bathroomPhotoWetArea,
-      effectiveTemplateKey,
       keepingExistingWetArea,
-      onShowerDoorCountChange,
-      onWetAreaFinishChange,
       onWetAreaSteppersChange,
+      scheduleBathroomParentFlush,
       scheduleExistingDemoCommit,
-      setMeasurements,
-      wholeHomeLayout,
     ]
   );
 
@@ -14494,24 +15128,21 @@ function CollapsibleQuickMeasurements({
     (key: keyof WetAreaStepperCounts, delta: number) => {
       const gen = ++stepperGenRef.current;
       setKeepingExistingWetArea(false);
-      setStepperCounts(prev => {
-        const current = prev[key] ?? 0;
-        const cleaned = clampBathCount(
-          current + delta < 1 ? null : current + delta,
-          wetAreaStepperMax
-        );
-        const next = { ...prev, [key]: cleaned };
-        if (bathroomPhotoWetArea) {
-          if (key === 'tilePanBathCount' && cleaned != null && cleaned > 0) {
-            next.prefabBathCount = null;
-          }
-          if (key === 'prefabBathCount' && cleaned != null && cleaned > 0) {
-            next.tilePanBathCount = null;
-          }
-        }
-        scheduleWetAreaCommit(next, gen, { keepingExisting: false });
-        return next;
-      });
+      const current = latestStepperRef.current[key] ?? 0;
+      const cleaned = clampBathCount(
+        current + delta < 1 ? null : current + delta,
+        wetAreaStepperMax
+      );
+      const next = { ...latestStepperRef.current, [key]: cleaned };
+      if (key === 'tilePanBathCount' && cleaned != null && cleaned > 0) {
+        next.prefabBathCount = null;
+      }
+      if (key === 'prefabBathCount' && cleaned != null && cleaned > 0) {
+        next.tilePanBathCount = null;
+      }
+      latestStepperRef.current = next;
+      setStepperCounts(next);
+      scheduleWetAreaCommit(next, gen, { keepingExisting: false });
     },
     [
       clampBathCount,
@@ -14524,17 +15155,16 @@ function CollapsibleQuickMeasurements({
   const adjustTileBathCount = useCallback(
     (delta: number) => {
       const gen = ++stepperGenRef.current;
-      setStepperCounts(prev => {
-        const current = prev.bathCount ?? 0;
-        const cleaned = clampBathCount(
-          current + delta < 1 ? null : current + delta,
-          wetAreaStepperMax
-        );
-        const next = { ...prev, bathCount: cleaned };
-        scheduleWetAreaCommit(next, gen, {
-          keepingExisting: keepingExistingWetArea,
-        });
-        return next;
+      const current = latestStepperRef.current.bathCount ?? 0;
+      const cleaned = clampBathCount(
+        current + delta < 1 ? null : current + delta,
+        wetAreaStepperMax
+      );
+      const next = { ...latestStepperRef.current, bathCount: cleaned };
+      latestStepperRef.current = next;
+      setStepperCounts(next);
+      scheduleWetAreaCommit(next, gen, {
+        keepingExisting: keepingExistingWetArea,
       });
     },
     [
@@ -14654,27 +15284,21 @@ function CollapsibleQuickMeasurements({
   const adjustExistingCount = useCallback(
     (key: keyof WetAreaExistingCounts, delta: number) => {
       const gen = ++existingDemoGenRef.current;
-      setExistingCounts(prev => {
-        const current = prev[key] ?? 0;
-        const cleaned = clampBathCount(
-          current + delta < 1 ? null : current + delta,
-          wetAreaStepperMax
-        );
-        const next = { ...prev, [key]: cleaned };
-        if (existingDemoScheduleTimerRef.current) {
-          clearTimeout(existingDemoScheduleTimerRef.current);
-        }
-        existingDemoScheduleTimerRef.current = setTimeout(() => {
-          scheduleExistingDemoCommit(
-            next,
-            buildInstallCounts(),
-            keepingExistingWetArea,
-            reuseExistingShowerDoor,
-            gen
-          );
-        }, 0);
-        return next;
-      });
+      const current = existingCountsRef.current[key] ?? 0;
+      const cleaned = clampBathCount(
+        current + delta < 1 ? null : current + delta,
+        wetAreaStepperMax
+      );
+      const next = { ...existingCountsRef.current, [key]: cleaned };
+      existingCountsRef.current = next;
+      setExistingCounts(next);
+      scheduleExistingDemoCommit(
+        next,
+        buildInstallCounts(),
+        keepingExistingWetArea,
+        reuseExistingShowerDoor,
+        gen
+      );
     },
     [
       buildInstallCounts,
@@ -14689,34 +15313,39 @@ function CollapsibleQuickMeasurements({
   const adjustDemoCount = useCallback(
     (key: WetAreaDemoOverrideKey, delta: number) => {
       const gen = ++existingDemoGenRef.current;
-      setDemoCounts(prev => {
-        const current = prev[key] ?? 0;
-        const cleaned = clampBathCount(
-          current + delta < 1 ? null : current + delta,
-          wetAreaStepperMax
-        );
-        demoOverridesRef.current = { ...demoOverridesRef.current, [key]: true };
-        const next = { ...prev, [key]: cleaned };
-        if (existingDemoScheduleTimerRef.current) {
-          clearTimeout(existingDemoScheduleTimerRef.current);
-        }
-        existingDemoScheduleTimerRef.current = setTimeout(() => {
-          scheduleExistingDemoCommit(
-            existingCounts,
-            buildInstallCounts(),
-            keepingExistingWetArea,
-            reuseExistingShowerDoor,
-            gen,
-            { key, value: cleaned }
-          );
-        }, 0);
-        return next;
-      });
+      const current = demoCountsRef.current[key] ?? 0;
+      const cleaned = clampBathCount(
+        current + delta < 1 ? null : current + delta,
+        wetAreaStepperMax
+      );
+      // Once a contractor edits one demo row, freeze the other visible demo
+      // rows for this panel too. Re-running note inference must not make a
+      // tub tap appear to toggle the tile-pan row (or any sibling row).
+      const frozenOverrides = Object.keys(demoCountsRef.current).reduce(
+        (next, demoKey) => {
+          next[demoKey as WetAreaDemoOverrideKey] = true;
+          return next;
+        },
+        {
+          ...demoOverridesRef.current,
+        } as Partial<Record<WetAreaDemoOverrideKey, boolean>>
+      );
+      demoOverridesRef.current = frozenOverrides;
+      const next = { ...demoCountsRef.current, [key]: cleaned };
+      demoCountsRef.current = next;
+      setDemoCounts(next);
+      scheduleExistingDemoCommit(
+        existingCountsRef.current,
+        buildInstallCounts(),
+        keepingExistingWetArea,
+        reuseExistingShowerDoor,
+        gen,
+        { key, value: cleaned }
+      );
     },
     [
       buildInstallCounts,
       clampBathCount,
-      existingCounts,
       keepingExistingWetArea,
       reuseExistingShowerDoor,
       scheduleExistingDemoCommit,
@@ -14951,7 +15580,30 @@ function CollapsibleQuickMeasurements({
         const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
         if (field === 'showerWallTileSqft' || field === 'showerFloorTileSqft') {
           delete itemQuantities.demo;
+          delete itemQuantities.demo__material;
+          delete itemQuantities.demo__labor;
+          delete itemQuantities.demo__allowance;
           delete pricingAcceptance.demo;
+          const nextWallSqft =
+            field === 'showerWallTileSqft'
+              ? cleaned
+              : prev.showerWallTileSqft;
+          const nextFloorSqft =
+            field === 'showerFloorTileSqft'
+              ? cleaned
+              : prev.showerFloorTileSqft;
+          const showerDemoSqft =
+            Number(String(nextWallSqft || '').replace(/,/g, '')) +
+            Number(String(nextFloorSqft || '').replace(/,/g, ''));
+          if (showerDemoSqft > 0) {
+            itemQuantities.demo__sqft_basis = {
+              quantity: showerDemoSqft,
+              unit: 'sqft',
+              quantitySource: 'user_entered',
+            };
+          } else {
+            delete itemQuantities.demo__sqft_basis;
+          }
         }
         if (field === 'bathroomFloorSqft') {
           delete itemQuantities.floor_demo;
@@ -15088,95 +15740,17 @@ function CollapsibleQuickMeasurements({
     max = wetAreaStepperMax,
     disabled = false
   ) => (
-    <View
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 8,
-        opacity: disabled ? 0.45 : 1,
-      }}
-    >
-      <Text
-        style={{
-          color: darkMode ? '#F5F7FA' : Colors.text,
-          fontSize: 13,
-          fontWeight: '700',
-          flex: 1,
-          paddingRight: 8,
-        }}
-      >
-        {label}
-      </Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <TouchableOpacity
-          onPressIn={() => onAdjust(-1)}
-          disabled={applying || disabled || !value}
-          activeOpacity={0.6}
-          delayPressIn={0}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 8,
-            borderWidth: 1,
-            borderColor: darkMode ? 'rgba(255,255,255,0.16)' : Colors.line,
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: applying || disabled || !value ? 0.4 : 1,
-          }}
-        >
-          <Text
-            style={{
-              color: darkMode ? '#F5F7FA' : Colors.text,
-              fontSize: 18,
-              fontWeight: '700',
-            }}
-          >
-            −
-          </Text>
-        </TouchableOpacity>
-        <Text
-          style={{
-            minWidth: 28,
-            textAlign: 'center',
-            color: darkMode ? '#F5F7FA' : Colors.text,
-            fontSize: 16,
-            fontWeight: '800',
-          }}
-        >
-          {value ?? '—'}
-        </Text>
-        <TouchableOpacity
-          onPressIn={() => onAdjust(1)}
-          disabled={applying || disabled || (value != null && value >= max)}
-          activeOpacity={0.6}
-          delayPressIn={0}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 8,
-            borderWidth: 1,
-            borderColor: darkMode ? 'rgba(255,255,255,0.16)' : Colors.line,
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity:
-              applying || disabled || (value != null && value >= max) ? 0.4 : 1,
-          }}
-        >
-          <Text
-            style={{
-              color: darkMode ? '#F5F7FA' : Colors.text,
-              fontSize: 18,
-              fontWeight: '700',
-            }}
-          >
-            +
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+    <BathroomCountStepper
+      label={label}
+      value={value}
+      onAdjust={onAdjust}
+      max={max}
+      disabled={disabled}
+      diagnosticLocalOnly={false}
+      applying={applying}
+      darkMode={darkMode}
+      Colors={Colors}
+    />
   );
 
   const renderKeepingExistingWetAreaToggle = () => (
@@ -15473,6 +16047,13 @@ function CollapsibleQuickMeasurements({
               wetAreaStepperMax,
               keepingExistingWetArea
             )}
+            {displayTilePanCount > 0
+              ? renderDemoSqftField(
+                  'Mud pan area',
+                  'Uses the shower floor sqft for the mud-pan build. Edit only if the pan area differs.',
+                  'showerFloorTileSqft'
+                )
+              : null}
             {renderBathCountStepper(
               'Prefab shower pan',
               displayPrefabPanCount,
@@ -15675,6 +16256,7 @@ function CollapsibleQuickMeasurements({
           cabinetLf: { id: 'cabinets', unit: 'lf' },
           flooringSqft: { id: 'flooring', unit: 'sqft' },
           wallPaintSqft: { id: 'paint', unit: 'sqft' },
+          patchRepairSqft: { id: 'patch_repair', unit: 'sqft' },
           exteriorPaintSqft: { id: 'exterior_paint', unit: 'sqft' },
           baseboardLf: { id: 'trim', unit: 'lf' },
           railingLf: { id: 'railing', unit: 'lf' },
@@ -15795,6 +16377,14 @@ function CollapsibleQuickMeasurements({
             0
           );
         const nextMeasurements = { ...prev, [key]: value };
+        // Paint area is the base painting quantity, not localized patch/repair
+        // area. Do not mirror it into the separate paint_repair takeoff row.
+        if (key === 'paintAreaSqft') {
+          const existingPatch = nextItemQuantities.paint_repair;
+          if (existingPatch?.quantitySource !== 'user_entered') {
+            delete nextItemQuantities.paint_repair;
+          }
+        }
         if (key === 'paintAreaSqft' && prev.paintPricingMethod === 'combined') {
           nextMeasurements.combinedPaintableAreaSqft = value;
         }
@@ -15822,7 +16412,7 @@ function CollapsibleQuickMeasurements({
             delete nextItemQuantities.floor_demo;
           }
         }
-        return {
+        const committedMeasurements = {
           ...nextMeasurements,
           itemQuantities: nextItemQuantities,
           plumbingScope: nextPlumbingScope,
@@ -15838,6 +16428,8 @@ function CollapsibleQuickMeasurements({
             [key]: true,
           },
         };
+        measurementsRef.current = committedMeasurements;
+        return committedMeasurements;
       });
     },
     [setMeasurements, templateKey]
@@ -17447,7 +18039,13 @@ function CollapsibleQuickMeasurements({
                     scopeItem =>
                       scopeItem.id === 'baseboard_install' &&
                       scopeItem.state !== 'excluded'
-                  ))
+                  )) ||
+                (surface === 'trim' &&
+                  String(templateKey || '').toLowerCase() === 'bathroom' &&
+                  /\bbaseboards?\b/i.test(notes || ''))
+                ||
+                (surface === 'trim' &&
+                  includedScopeKeys.includes('baseboard_install'))
               ) ? (
                 <View style={{ marginTop: 20, gap: 16 }}>
                   {(measurements.paintScope?.includes('trim') ||
@@ -17456,7 +18054,10 @@ function CollapsibleQuickMeasurements({
                         scopeItem =>
                           scopeItem.id === 'baseboard_install' &&
                           scopeItem.state !== 'excluded'
-                      ))) 
+                      )) ||
+                    (String(templateKey || '').toLowerCase() === 'bathroom' &&
+                      /\bbaseboards?\b/i.test(notes || '')) ||
+                    includedScopeKeys.includes('baseboard_install'))
                     ? renderPaintEmbeddedField('baseboardLf', 2)
                     : null}
                   {measurements.paintScope?.includes('trim') &&
@@ -17645,6 +18246,7 @@ function CollapsibleQuickMeasurements({
 
               {bathroomFixturesQmJob ? (
                 <QmBathroomFixturesPanels
+                  ref={bathroomFixturesQmFlushRef}
                   measurements={measurements}
                   setMeasurements={setMeasurements}
                   notes={notes}
@@ -17668,7 +18270,7 @@ function CollapsibleQuickMeasurements({
                   notes={notes}
                   includedScopeKeys={includedScopeKeys}
                   hasSitePhotos={hasSitePhotos}
-                  showExistingPanel={!hasSitePhotos}
+                  showExistingPanel={false}
                   applying={applying}
                   onKitchenQmChange={onKitchenQmChange}
                   darkMode={darkMode}
@@ -18136,6 +18738,9 @@ export default function AIEstimateScopeAssumptionsModal({
     () => chooseBestScopeNotes(draft, notesFallback),
     [draft, notesFallback]
   );
+  // Backward-compatible alias for quick-measurement helpers that expect the
+  // original note text name.
+  const originalNotes = scopeNotes;
   // Pricing-specific terms such as "mini-split" must come from the raw notes.
   // The best display summary may omit equipment details while retaining area data.
   const pricingNotes = useMemo(
@@ -18192,6 +18797,34 @@ export default function AIEstimateScopeAssumptionsModal({
       ...emptyQuickMeasurementInput(),
       itemQuantities: {},
     });
+  const effectiveTemplateKey = useMemo(
+    () =>
+      resolveEffectiveQuickMeasurementTemplateKey({
+        templateKey: checklist?.templateKey,
+        projectType: draft?.projectType,
+        planRoomCount: Array.isArray(measurements.planRooms)
+          ? measurements.planRooms.length
+          : 0,
+        livingSf:
+          Number(String(measurements.floorAreaSqft || '').replace(/,/g, '')) ||
+          Number(measurements.planFacts?.buildingAreas?.mainFloorLivingSqft) ||
+          null,
+        garageSf:
+          Number(String(measurements.garageSqft || '').replace(/,/g, '')) ||
+          Number(measurements.planFacts?.buildingAreas?.garageSqft) ||
+          null,
+        notes: scopeNotes,
+      }),
+    [
+      checklist?.templateKey,
+      draft?.projectType,
+      measurements.planRooms,
+      measurements.floorAreaSqft,
+      measurements.garageSqft,
+      measurements.planFacts,
+      scopeNotes,
+    ]
+  );
   const [electricalPreviewMeasurements, setElectricalPreviewMeasurements] =
     useState<ScopeMeasurementsInputExtended | null>(null);
   const deferredMeasurements = useDeferredValue(measurements);
@@ -18272,6 +18905,7 @@ export default function AIEstimateScopeAssumptionsModal({
   const pendingCustomItemScrollRef = useRef<string | null>(null);
   const scrollOffsetYRef = useRef(0);
   const quickMeasurementsRef = useRef<View>(null);
+  const bathroomQmFlushRef = useRef<(() => void) | null>(null);
   const pendingQmDoneScrollRef = useRef(false);
   const qmDoneFirstScopeItemIdRef = useRef<string | null>(null);
 
@@ -18504,13 +19138,22 @@ export default function AIEstimateScopeAssumptionsModal({
     const withoutLegacyDoorCasingInstall = expanded.filter(
       item => item.id !== 'door_casing_install'
     );
+    const bathroomTilePanAlreadyInGenericDemo =
+      String(checklist?.templateKey || '').toLowerCase() === 'bathroom' &&
+      Number(measurements.demoTilePanCount || 0) > 0 &&
+      items.some(item => item.id === 'demo' && item.state !== 'excluded');
+    const withoutDuplicateShowerPanDemo = bathroomTilePanAlreadyInGenericDemo
+      ? withoutLegacyDoorCasingInstall.filter(
+          item => item.id !== 'shower_floor_demo'
+        )
+      : withoutLegacyDoorCasingInstall;
     const conversionCtx = {
       templateKey: checklist?.templateKey,
       projectType: draft?.projectType,
       notes: scopeNotes,
     };
     const withConversionFilter = filterExistingShellConversionConfirmScopeItems(
-      withoutLegacyDoorCasingInstall,
+      withoutDuplicateShowerPanDemo,
       conversionCtx
     );
     const paintingOrder: Record<string, number> = {
@@ -18626,6 +19269,7 @@ export default function AIEstimateScopeAssumptionsModal({
     stuccoTradeFlow,
     measurements.flooringExistingTypes,
     measurements.itemQuantities,
+    measurements.demoTilePanCount,
     measurements.tradeScopeSelections,
     measurements.flooringProductScope,
     measurements.flooringLvpSqft,
@@ -19788,7 +20432,7 @@ export default function AIEstimateScopeAssumptionsModal({
     }
     const strippedQuantities = stripBathroomFalsePositiveFloorDemoQuantities(
       nextMeasurements.itemQuantities,
-      checklist.templateKey,
+      effectiveTemplateKey,
       scopeNotes
     );
     if (strippedQuantities !== nextMeasurements.itemQuantities) {
@@ -19801,7 +20445,7 @@ export default function AIEstimateScopeAssumptionsModal({
     }
     if (
       isPhotoNotesScopeJob({
-        templateKey: checklist.templateKey,
+        templateKey: effectiveTemplateKey,
         wholeHomeLayout: false,
       })
     ) {
@@ -19814,7 +20458,7 @@ export default function AIEstimateScopeAssumptionsModal({
       Object.assign(
         nextMeasurements,
         hydrateQmPanelMeasurements({
-          templateKey: checklist.templateKey,
+          templateKey: effectiveTemplateKey,
           wholeHomeLayout: false,
           notes: scopeNotes,
           hasSitePhotos,
@@ -19830,12 +20474,12 @@ export default function AIEstimateScopeAssumptionsModal({
     const norm = buildNormFromInput(
       nextMeasurements,
       scopeNotes,
-      checklist.templateKey,
+      effectiveTemplateKey,
       draft?.projectType
     );
     let normalized = hydrateScopeChecklistFromNotes(
       sourceItems,
-      checklist.templateKey,
+      effectiveTemplateKey,
       scopeNotes,
       norm,
       draft?.projectType
@@ -19857,7 +20501,7 @@ export default function AIEstimateScopeAssumptionsModal({
     }
     normalized = applyKitchenScopeInferences(
       normalized,
-      checklist.templateKey,
+      effectiveTemplateKey,
       {
         notes: scopeNotes,
         measurements: norm,
@@ -19869,8 +20513,13 @@ export default function AIEstimateScopeAssumptionsModal({
     ) {
       normalized = restoreConfirmedChecklistItemStates(normalized, sourceItems);
     }
+    normalized = syncWindowInstallScopeFromNotes(normalized, {
+      notes: scopeNotes,
+      windowCount: nextMeasurements.windowCount,
+      templateKey: effectiveTemplateKey,
+    });
     normalized = applyAdditionConversionScopeDefaults(normalized, {
-      templateKey: checklist.templateKey,
+      templateKey: effectiveTemplateKey,
       projectType: draft?.projectType,
       notes: scopeNotes,
     });
@@ -19878,7 +20527,7 @@ export default function AIEstimateScopeAssumptionsModal({
       normalized,
       nextMeasurements as Record<string, unknown>,
       {
-        templateKey: checklist.templateKey,
+        templateKey: effectiveTemplateKey,
         projectType: draft?.projectType,
         notes: scopeNotes,
       }
@@ -19907,22 +20556,41 @@ export default function AIEstimateScopeAssumptionsModal({
     normalized = applyMeasuredStuccoScopeInferences(normalized, norm);
     normalized = suppressBathroomFalsePositiveFloorDemoScope(
       normalized,
-      checklist.templateKey,
+      effectiveTemplateKey,
       scopeNotes,
       norm
     );
     normalized = syncQmPanelScopeItems(
       normalized,
       {
-        templateKey: singleTradeKey || checklist.templateKey,
+        templateKey: singleTradeKey || effectiveTemplateKey,
         wholeHomeLayout: false,
       },
       nextMeasurements
     );
+    if (
+      String(checklist.templateKey || '').toLowerCase() === 'bathroom' &&
+      normalized.some(item => item.id === 'baseboard_install') &&
+      !normalized.some(item => item.id === 'trim_paint')
+    ) {
+      const baseboardInstall = normalized.find(
+        item => item.id === 'baseboard_install'
+      );
+      normalized.push({
+        id: 'trim_paint',
+        inputType: 'yes_no',
+        label: 'Baseboard prep & paint',
+        helperText:
+          'Prep and paint the baseboards using the same LF takeoff as installation.',
+        category: 'paint',
+        state: baseboardInstall?.state === 'included' ? 'included' : 'unsure',
+        noteBacked: baseboardInstall?.noteBacked,
+      });
+    }
     // QM sync can re-include wet-area demo rows; re-suppress photo false-positive floor demo.
     normalized = suppressBathroomFalsePositiveFloorDemoScope(
       normalized,
-      checklist.templateKey,
+      effectiveTemplateKey,
       scopeNotes,
       {
         ...norm,
@@ -20092,6 +20760,11 @@ export default function AIEstimateScopeAssumptionsModal({
         return true;
       });
     }
+    normalized = filterRoomRemodelNoteScopeItems(
+      normalized,
+      scopeNotes
+    );
+    baseItemsRef.current = normalized;
     setItems(normalized);
     setMeasurementsSynced(nextMeasurements);
     if (notesSuggestPlumbingBid(scopeNotes)) {
@@ -21057,6 +21730,17 @@ export default function AIEstimateScopeAssumptionsModal({
         return false;
       }
       if (!qmEmbeddedScopeIds.has(itemId)) return false;
+      const namedKitchenApplianceHookup =
+        String(checklist?.templateKey || '').toLowerCase() === 'kitchen' &&
+        itemId === 'appliances' &&
+        items.some(
+          item =>
+            item.state === 'included' &&
+            /^electrical_(?:range|dishwasher|microwave|refrigerator|oven)_hookup$/.test(
+              String(item.id || '')
+            )
+        );
+      if (namedKitchenApplianceHookup) return true;
       if (
         shouldHideBathroomFixtureScopeCardInQmEmbed(
           itemId,
@@ -21239,6 +21923,7 @@ export default function AIEstimateScopeAssumptionsModal({
         ...group,
         items: group.items.filter(
           item =>
+            !(isBathroomFlow && item.state === 'excluded') &&
             !(isBathroomFlow && item.id === 'wet_area_install') &&
             !(isBathroomFlow && item.id === 'fixture_demo') &&
             !hideDeselectedRoofingQmCard(item.id) &&
@@ -21665,6 +22350,9 @@ export default function AIEstimateScopeAssumptionsModal({
         wallPaintSqft: measurements.wallPaintSqft,
         ceilingPaintSqft: measurements.ceilingPaintSqft,
         paintAreaSqft: measurements.paintAreaSqft,
+        patchRepairSqft:
+          measurements.itemQuantities?.patch_repair?.quantity ??
+          measurements.patchRepairSqft,
         paintAreaBasis: measurements.paintAreaBasis,
         paintAreaNeedsConfirmation: measurements.paintAreaNeedsConfirmation,
         paintPricingMethod: measurements.paintPricingMethod,
@@ -21683,6 +22371,8 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.wallPaintSqft,
     measurements.ceilingPaintSqft,
     measurements.paintAreaSqft,
+    measurements.itemQuantities?.patch_repair?.quantity,
+    measurements.patchRepairSqft,
     measurements.paintAreaBasis,
     measurements.paintAreaNeedsConfirmation,
     measurements.paintPricingMethod,
@@ -21862,7 +22552,9 @@ export default function AIEstimateScopeAssumptionsModal({
       syncWetAreaDemoScopeItems(prev, {
         demo: readWetAreaDemoCounts(measurements),
         reuseExistingShowerDoor: Boolean(measurements.reuseExistingShowerDoor),
+        demoShowerDoorCount: measurements.demoShowerDoorCount,
         installShowerDoorCount: measurements.showerDoorCount,
+        demoOverrides: measurements.demoWetAreaManualOverrides,
         showerWallTileSqft: measurements.showerWallTileSqft,
         bathroomFloorSqft: measurements.bathroomFloorSqft,
       })
@@ -21877,6 +22569,7 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.demoShowerDoorCount,
     measurements.demoBathFloorTileCount,
     measurements.reuseExistingShowerDoor,
+    measurements.demoWetAreaManualOverrides,
     measurements.showerDoorCount,
     measurements.showerWallTileSqft,
     measurements.bathroomFloorSqft,
@@ -24720,6 +25413,7 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const handleConfirm = () => {
     if (applying || items.length === 0) return;
+    bathroomQmFlushRef.current?.();
 
     // Do not auto-apply remaining suggestions — Applied pricing is what Continue
     // carries to Step 3. Unpriced scopes stay available to price on review.
@@ -25212,7 +25906,21 @@ export default function AIEstimateScopeAssumptionsModal({
               String(checklist?.templateKey || '').toLowerCase() ===
               'electrical'
                 ? setElectricalMeasurementsStaged
-                : setMeasurementsSynced
+                : update => {
+                    // Bathroom steppers are high-frequency UI edits. Do not
+                    // synchronously resync every applied pricing card for
+                    // each tap; Confirm Scope performs the authoritative
+                    // pricing reconciliation after the measurements settle.
+                    if (
+                      String(checklist?.templateKey || '').toLowerCase() ===
+                      'bathroom'
+                    ) {
+                      measurementsSyncOptionsRef.current = {
+                        skipPricingResync: true,
+                      };
+                    }
+                    setMeasurementsSynced(update);
+                  }
             }
             templateKey={checklist?.templateKey}
             projectType={draft?.projectType}
@@ -25223,6 +25931,7 @@ export default function AIEstimateScopeAssumptionsModal({
             electricalQuantityEditingRef={electricalQmQuantityEditingRef}
             electricalAttributesCommitRef={electricalAttributesCommitRef}
             onElectricalAttributesPreview={previewElectricalAttributes}
+            qmFlushRef={bathroomQmFlushRef}
             onWetAreaFinishChange={finish => {
               const choiceId = checklistChoiceFromWetAreaFinish(finish);
               if (!choiceId) return;
@@ -25252,12 +25961,15 @@ export default function AIEstimateScopeAssumptionsModal({
             onWetAreaExistingDemoChange={({
               demo,
               reuseExistingShowerDoor,
+              demoOverrides,
             }) => {
               setItems(prev =>
                 syncWetAreaDemoScopeItems(prev, {
                   demo,
                   reuseExistingShowerDoor,
+                  demoShowerDoorCount: demo.demoShowerDoorCount,
                   installShowerDoorCount: measurements.showerDoorCount,
+                  demoOverrides,
                   showerWallTileSqft: measurements.showerWallTileSqft,
                   bathroomFloorSqft: measurements.bathroomFloorSqft,
                 })

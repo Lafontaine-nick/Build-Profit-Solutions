@@ -114,6 +114,7 @@ export function buildPaintRepairPricingDetails(params: {
 export function resolveBathroomPaintRepairSuggestedPricing(params: {
   checklistItems?: Array<Pick<ScopeChecklistItem, 'id' | 'state' | 'choiceId'>> | null;
   patchSqft?: number | null;
+  paintSqft?: number | null;
   showerWallTileSqft?: number | null;
   paintRepairScope?: string | null;
   paintRepairEntireRoom?: boolean | null;
@@ -175,7 +176,10 @@ export function resolveBathroomPaintRepairSuggestedPricing(params: {
   }
 
   const details = buildPaintRepairPricingDetails({
-    sqft,
+    sqft:
+      params.paintSqft != null && params.paintSqft > 0
+        ? params.paintSqft
+        : sqft,
     scope: 'affected_area',
     severity: params.severity,
   });
@@ -326,6 +330,7 @@ export function buildBathroomSeparateDrywallPaintSuggestedBlock(params: {
   drywall?: NonNullable<ScopeItemSuggestedPricing['fill']> | null;
   paint: NonNullable<ScopeItemSuggestedPricing['fill']>;
   patchSqft: number;
+  paintSqft?: number | null;
 }): NonNullable<ScopeItemSuggestedPricing['fill']> {
   const paint = params.paint;
   const drywall = params.drywall;
@@ -349,6 +354,11 @@ export function buildBathroomSeparateDrywallPaintSuggestedBlock(params: {
   const parts: string[] = [];
   if (drywall) parts.push(`Drywall patch + texture $${drywall.total.toLocaleString()}`);
   parts.push(`Paint $${paint.total.toLocaleString()}`);
+  const paintSqft =
+    params.paintSqft != null && params.paintSqft > 0
+      ? Math.round(params.paintSqft)
+      : null;
+  const patchSqft = Math.round(params.patchSqft);
 
   return {
     material,
@@ -361,6 +371,10 @@ export function buildBathroomSeparateDrywallPaintSuggestedBlock(params: {
       : 'Suggested budget split · Full-room paint (patch included)',
     helper: `${parts.join(' · ')}. Apply once to price all lines.`,
     mode: 'suggested_price',
+    displayQuantityLine:
+      paintSqft != null && paintSqft !== patchSqft
+        ? `Paint ${paintSqft.toLocaleString()} sqft + patch/repair ${patchSqft.toLocaleString()} sqft · User entered`
+        : `${patchSqft.toLocaleString()} sqft · User entered`,
     basis: { quantity: params.patchSqft, unit: 'sqft' },
     comparisonRange: range,
     pricingRecordId: `bps_national:paint_repair:bathroom_separate:${params.patchSqft}sf`,

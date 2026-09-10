@@ -447,8 +447,9 @@ const CHECKLIST_TEMPLATES = {
       {
         id: "cabinets",
         inputType: "yes_no",
-        label: "New cabinet install",
-        helperText: "Cabinet supply and installation.",
+        label: "Stock cabinet supply & installation",
+        helperText:
+          "Entry-level stock cabinet boxes, doors, and standard installation priced by cabinet run LF. Count upper and lower runs consistently. Vanities, countertops, demo, hardware, fillers, finished panels, crown, delivery, RTA assembly, and custom modifications are separate unless selected.",
         category: "cabinets",
       },
       {
@@ -1943,6 +1944,21 @@ const CHECKLIST_TEMPLATES = {
     ],
   },
 
+  insulation: {
+    title: "Existing Home Insulation Upgrade",
+    intro: "Confirm insulation locations, assemblies, and quantities before pricing.",
+    items: [
+      {
+        id: "insulation",
+        inputType: "yes_no",
+        label: "Insulation",
+        helperText:
+          "Exterior wall, attic/ceiling, floor, and air-sealing insulation work. Do not use drywall surface area for insulation quantities.",
+        category: "structure",
+      },
+    ],
+  },
+
   windows_doors: {
     title: "Windows & doors — confirm installation scope",
     intro:
@@ -2519,7 +2535,7 @@ const CHECKLIST_YES_HINTS = {
     /\b(countertops?|counters|quartz|granite|install\s+new\s+countertops?)\b/,
   backsplash: /\b(backsplash)\b/,
   appliances:
-    /\b(appliance\s+reinstall|reinstall(?:ing)?\s+(?:old\s+|existing\s+)?appliances?|appliance\s+install|install\s+appliances?|appliance\s+allowance|hookup\s+appliances?|reconnect\s+appliances?|appliance\s+hookup|appliances?\s+(?:&|and)?\s*hookup)\b/,
+    /\b(appliance\s+reinstall|reinstall(?:ing)?\s+(?:old\s+|existing\s+)?appliances?|appliance\s+install|install\s+appliances?|appliance\s+allowance|hookup\s+appliances?|reconnect\s+appliances?|appliance\s+hookup|appliances?\s+(?:&|and)?\s*hookup)\b|\b(?:new|install(?:ation)?)\b[^.;]{0,140}\b(?:range|dishwasher|refrigerator|microwave|oven)\b/,
   island: /\b(island)\b/,
   paint: /\b(paint(?:ing)?|bathroom\s+paint)\b/,
   paint_repair:
@@ -2653,6 +2669,15 @@ const CHECKLIST_YES_HINTS = {
 };
 
 const CHECKLIST_NO_HINTS = {
+  // Protection keeps the finished floor safe during the remodel; it is not
+  // evidence that new flooring is being installed.
+  flooring:
+    /\b(?:flooring|floors?|finished\s+floor)\s+(?:protection|protect(?:ion|ed|ing))\b|\bprotect(?:ion|ed|ing)\b[^.]{0,40}\b(?:flooring|floors?|finished\s+floor)\b/,
+  // Explicit exclusions must override broad remodel/framing keywords.
+  framing:
+    /\b(?:no|without|not)\s+(?:wall\s+removal|structural\s+framing|framing|layout\s+changes?)\b|\b(?:wall\s+removal|structural\s+framing|framing|layout\s+changes?)\s+(?:not\s+included|excluded)\b/,
+  walls_moving:
+    /\b(?:no|without|not)\s+(?:wall\s+removal|structural\s+framing|framing|layout\s+changes?)\b|\b(?:wall\s+removal|structural\s+framing|framing|layout\s+changes?)\s+(?:not\s+included|excluded)\b/,
   appliances:
     /\b(no\s+appliances|appliances\s+not\s+included|owner\s+appliances)\b/,
   // Already out of the house — removal is not in this bid.
@@ -2755,7 +2780,9 @@ function notesImplyMultiTradeInteriorRemodel(notes) {
   }
   const signals = [
     /\b(?:kitchen|bath(?:room)?s?)\b/i,
-    /\b(?:lvp|laminate|vinyl|carpet|hardwood|flooring)\b/i,
+    // Floor protection is a protection/finish condition, not a flooring
+    // installation or replacement scope signal.
+    /\b(?:install|replace|remove|demo|demolition|tear[\s-]?out)\b[^.;]{0,60}\b(?:lvp|laminate|vinyl|carpet|hardwood|flooring)(?!\s+protection)\b|\b(?:lvp|laminate|vinyl|carpet|hardwood|flooring)(?!\s+protection)\b[^.;]{0,60}\b(?:install|replace|remove|demo|demolition|tear[\s-]?out)\b/i,
     /\b(?:cabinet|countertops?|vanit(?:y|ies)|plumbing\s+fixtures?)\b/i,
     /\bdrywall\b|\bpatch(?:ing)?\b/i,
     /\bpaint(?:ing)?|repaint|walls?\s+and\s+ceilings?\b/i,
@@ -2789,6 +2816,29 @@ function checklistTemplateKey(draft, estimateTier) {
     /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(notes)
   ) {
     return "bathroom";
+  }
+  // An explicitly selected kitchen project should use the kitchen checklist.
+  // Kitchen notes often contain several work types (demo, plumbing,
+  // electrical, appliances), but that does not make them a whole-home remodel.
+  if (projectType === "kitchen") {
+    return "kitchen";
+  }
+  // A whole-home remodel can mention a kitchen as one work area. Route
+  // multi-trade notes to the room-remodel checklist before the dedicated
+  // kitchen shortcut so flooring, drywall, paint, and baseboard scope remain
+  // visible in the review.
+  if (notesImplyMultiTradeInteriorRemodel(notes)) {
+    return "room_remodel";
+  }
+  // Prefer the dedicated kitchen checklist whenever the notes name a kitchen
+  // or its defining components. This must run before the generic
+  // multi-trade interior rule.
+  if (
+    projectType === "kitchen" ||
+    /\bkitchen(?:\s+remodel)?\b/i.test(notes) ||
+    /\b(countertops?|backsplash|kitchen\s+island)\b/i.test(notes)
+  ) {
+    return "kitchen";
   }
   // A multi-trade interior remodel can mention repainting prominently enough
   // that the upstream tier classifier labels it as painting. Let the stronger
@@ -2826,9 +2876,6 @@ function checklistTemplateKey(draft, estimateTier) {
   ) {
     return "bathroom";
   }
-  if (notesImplyMixedInteriorRefresh(notes)) {
-    return "room_remodel";
-  }
   // A dedicated repaint that mentions an existing kitchen surface is still a
   // painting job. Route it to the painting checklist unless the notes describe
   // an actual kitchen remodel/renovation or a new kitchen installation.
@@ -2848,12 +2895,8 @@ function checklistTemplateKey(draft, estimateTier) {
   ) {
     return "painting";
   }
-  if (
-    projectType === "kitchen" ||
-    /\bkitchen(?:\s+remodel)?\b/i.test(notes) ||
-    /\b(countertops?|backsplash|kitchen\s+island)\b/i.test(notes)
-  ) {
-    return "kitchen";
+  if (notesImplyMixedInteriorRefresh(notes)) {
+    return "room_remodel";
   }
   if (
     projectType === "flooring" ||

@@ -1,4 +1,12 @@
-import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  forwardRef,
+  startTransition,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
 import { getColors } from '@/theme/getColors';
@@ -103,6 +111,12 @@ import {
   type BathroomVanityCountertopMaterialType,
 } from '@/utils/bathroomVanityCountertopPricing';
 import { BATHROOM_QM_STEPPER_MAX } from '@/utils/planBathRooms';
+
+const BATHROOM_QM_PARENT_FLUSH_MS = 150;
+
+export type QmBathroomFixturesPanelsHandle = {
+  flushPending: () => void;
+};
 
 type Colors = ReturnType<typeof getColors>;
 
@@ -1173,7 +1187,7 @@ export function QmKitchenScopePanels({
         const current = prev[key] ?? 0;
         const nextInstall = {
           ...prev,
-          [key]: clampQmCount(current + delta < 1 ? null : current + delta),
+          [key]: clampQmCount(current + delta < 1 ? null : current + delta, Infinity),
         };
         installRef.current = nextInstall;
         scheduleKitchenQmCommit(existingRef.current, nextInstall, gen);
@@ -1248,7 +1262,7 @@ export function QmKitchenScopePanels({
       const gen = ++genRef.current;
       setDemo((prev) => {
         const current = prev[key] ?? 0;
-        const cleaned = clampQmCount(current + delta < 1 ? null : current + delta);
+        const cleaned = clampQmCount(current + delta < 1 ? null : current + delta, Infinity);
         const next = { ...prev, [key]: cleaned };
         demoRef.current = next;
         scheduleKitchenQmCommit(
@@ -1276,6 +1290,11 @@ export function QmKitchenScopePanels({
   const kitchenIslandCounterSqftValue = kitchenMeasurementDrafts.kitchenIslandCounterSqft;
   const backsplashSqftValue = kitchenMeasurementDrafts.backsplashSqft;
   const kitchenFloorSqftValue = kitchenMeasurementDrafts.kitchenFloorSqft;
+  const hasExplicitKitchenFloorScope =
+    /\b(?:install|replace|remove|demo|demolition|tear[\s-]?out)\b[^.;]{0,40}\b(?:floor|flooring|lvp|vinyl|laminate|carpet|tile)\b|\b(?:floor|flooring|lvp|vinyl|laminate|carpet|tile)\b[^.;]{0,40}\b(?:install|replace|remove|demo|demolition|tear[\s-]?out)\b/i.test(
+      String(notes || ''),
+    ) &&
+    !/\bfloor(?:ing)?\s+protection\b/i.test(String(notes || ''));
   const showIslandCounterField = (install.kitchenInstallIslandCount ?? 0) > 0;
 
   const handleExistingStepperAdjust = useCallback(
@@ -1345,7 +1364,7 @@ export function QmKitchenScopePanels({
             />
             <QmSqftMeasurementRow
               label="Counters"
-              helperText="Perimeter countertop area — sqft for stone or solid-surface tops."
+              helperText="Perimeter countertop area — island SF is added to this same countertop pricing card."
               value={countertopSqftValue}
               onChangeText={countertopField.onChangeText}
               onBlur={countertopField.onBlur}
@@ -1375,20 +1394,23 @@ export function QmKitchenScopePanels({
               darkMode={darkMode}
               Colors={Colors}
             />
-            <QmSqftMeasurementRow
-              label="Kitchen floor"
-              helperText="Floor finish area — separate from wall layout scope below."
-              value={kitchenFloorSqftValue}
-              onChangeText={kitchenFloorField.onChangeText}
-              onBlur={kitchenFloorField.onBlur}
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-              sectionEnd
-            />
+            {hasExplicitKitchenFloorScope ? (
+              <QmSqftMeasurementRow
+                label="Kitchen floor"
+                helperText="Floor finish area — separate from wall layout scope below."
+                value={kitchenFloorSqftValue}
+                onChangeText={kitchenFloorField.onChangeText}
+                onBlur={kitchenFloorField.onBlur}
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+                sectionEnd
+              />
+            ) : null}
           </View>
         }
         trailingRows={KITCHEN_INSTALL_STEPPER_ROWS}
+        stepperMax={Infinity}
         darkMode={darkMode}
         Colors={Colors}
       />
@@ -1449,20 +1471,23 @@ export function QmKitchenScopePanels({
               darkMode={darkMode}
               Colors={Colors}
             />
-            <QmSqftMeasurementRow
-              label="Floor demo"
-              helperText="Kitchen floor tear-out area."
-              value={kitchenFloorSqftValue}
-              onChangeText={kitchenFloorField.onChangeText}
-              onBlur={kitchenFloorField.onBlur}
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-              sectionEnd
-            />
+            {hasExplicitKitchenFloorScope ? (
+              <QmSqftMeasurementRow
+                label="Floor demo"
+                helperText="Kitchen floor tear-out area."
+                value={kitchenFloorSqftValue}
+                onChangeText={kitchenFloorField.onChangeText}
+                onBlur={kitchenFloorField.onBlur}
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+                sectionEnd
+              />
+            ) : null}
           </View>
         }
         trailingRows={KITCHEN_DEMO_STEPPER_ROWS}
+        stepperMax={Infinity}
       />
     </>
   );
@@ -2492,19 +2517,7 @@ export function QmFlooringScopePanels({
   );
 }
 
-export const QmBathroomFixturesPanels = React.memo(function QmBathroomFixturesPanels({
-  measurements,
-  setMeasurements,
-  notes,
-  includedScopeKeys,
-  hasSitePhotos,
-  showExistingPanel,
-  applying,
-  onBathroomFixturesQmChange,
-  onBathroomCountertopMaterialChange,
-  darkMode,
-  Colors,
-}: {
+type QmBathroomFixturesPanelsProps = {
   measurements: ScopeMeasurementsInputExtended;
   setMeasurements: React.Dispatch<React.SetStateAction<ScopeMeasurementsInputExtended>>;
   notes?: string | null;
@@ -2522,7 +2535,26 @@ export const QmBathroomFixturesPanels = React.memo(function QmBathroomFixturesPa
   ) => void;
   darkMode: boolean;
   Colors: Colors;
-}) {
+};
+
+export const QmBathroomFixturesPanels = React.memo(
+  forwardRef<QmBathroomFixturesPanelsHandle, QmBathroomFixturesPanelsProps>(
+    function QmBathroomFixturesPanels(
+      {
+        measurements,
+        setMeasurements,
+        notes,
+        includedScopeKeys,
+        hasSitePhotos,
+        showExistingPanel,
+        applying,
+        onBathroomFixturesQmChange,
+        onBathroomCountertopMaterialChange,
+        darkMode,
+        Colors,
+      },
+      ref
+    ) {
   const [existing, setExisting] = useState<BathroomExistingFixtureCounts>(() =>
     readBathroomExistingFixtureCounts(measurements)
   );
@@ -2537,6 +2569,20 @@ export const QmBathroomFixturesPanels = React.memo(function QmBathroomFixturesPa
   const demoOverridesRef = useRef<Partial<Record<BathroomFixtureDemoOverrideKey, boolean>>>({});
   const demoRef = useRef(demo);
   demoRef.current = demo;
+  const existingRef = useRef(existing);
+  existingRef.current = existing;
+  const installRef = useRef(install);
+  installRef.current = install;
+  const parentFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingParentPatchRef = useRef<{
+    nextExisting: BathroomExistingFixtureCounts;
+    nextInstall: BathroomInstallFixtureCounts;
+    mergedDemo: BathroomDemoFixtureCounts;
+    gen: number;
+    cabinetLf?: string;
+    countertopSqft?: string;
+    materialType?: BathroomVanityCountertopMaterialType | null;
+  } | null>(null);
   const [selectedCountertopMaterial, setSelectedCountertopMaterial] =
     useState<BathroomVanityCountertopMaterialType | null>(() =>
       normalizeBathroomVanityCountertopMaterialType(measurements.bathroomVanityCountertopMaterialType)
@@ -2613,16 +2659,91 @@ export const QmBathroomFixturesPanels = React.memo(function QmBathroomFixturesPa
     measurements.bathroomVanityCountertopMaterialType,
   ]);
 
-  const commit = useCallback(
+  const flushToParent = useCallback(() => {
+    const pending = pendingParentPatchRef.current;
+    if (!pending || pending.gen !== genRef.current) return;
+    pendingParentPatchRef.current = null;
+    const {
+      nextExisting,
+      nextInstall,
+      mergedDemo,
+      cabinetLf,
+      countertopSqft,
+      materialType,
+    } = pending;
+    startTransition(() => {
+      setMeasurements(prev => ({
+        ...prev,
+        ...nextExisting,
+        ...nextInstall,
+        ...mergedDemo,
+        cabinetLf: cabinetLf ?? prev.cabinetLf,
+        countertopSqft: countertopSqft ?? prev.countertopSqft,
+        bathroomVanityCountertopMaterialType:
+          materialType !== undefined
+            ? materialType
+            : prev.bathroomVanityCountertopMaterialType,
+      }));
+      appliedRef.current = genRef.current;
+      onBathroomFixturesQmChange?.({
+        existing: nextExisting,
+        install: nextInstall,
+        demo: mergedDemo,
+      });
+    });
+  }, [onBathroomFixturesQmChange, setMeasurements]);
+
+  const scheduleParentFlush = useCallback(() => {
+    if (parentFlushTimerRef.current) {
+      clearTimeout(parentFlushTimerRef.current);
+    }
+    parentFlushTimerRef.current = setTimeout(() => {
+      parentFlushTimerRef.current = null;
+      flushToParent();
+    }, BATHROOM_QM_PARENT_FLUSH_MS);
+  }, [flushToParent]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      flushPending: () => {
+        if (parentFlushTimerRef.current) {
+          clearTimeout(parentFlushTimerRef.current);
+          parentFlushTimerRef.current = null;
+        }
+        flushToParent();
+      },
+    }),
+    [flushToParent]
+  );
+
+  useEffect(
+    () => () => {
+      if (parentFlushTimerRef.current) {
+        clearTimeout(parentFlushTimerRef.current);
+      }
+    },
+    []
+  );
+
+  const prepareCommit = useCallback(
     (
       nextExisting: BathroomExistingFixtureCounts,
       nextInstall: BathroomInstallFixtureCounts,
       gen: number,
-      demoOverride?: { key: BathroomFixtureDemoOverrideKey; value: number | null }
+      demoOverride?: { key: BathroomFixtureDemoOverrideKey; value: number | null },
+      patch?: {
+        cabinetLf?: string;
+        countertopSqft?: string;
+        materialType?: BathroomVanityCountertopMaterialType | null;
+      }
     ) => {
       let mergedDemo: BathroomDemoFixtureCounts;
       if (demoOverride) {
-        demoOverridesRef.current = { ...demoOverridesRef.current, [demoOverride.key]: true };
+        demoOverridesRef.current = {
+          ...demoOverridesRef.current,
+          [demoOverride.key]: true,
+        };
         mergedDemo = { ...demoRef.current, [demoOverride.key]: demoOverride.value };
       } else {
         mergedDemo = suggestBathroomFixtureDemoFromExistingInstall({
@@ -2634,115 +2755,103 @@ export const QmBathroomFixturesPanels = React.memo(function QmBathroomFixturesPa
           overrides: demoOverridesRef.current,
         });
       }
-      queueMicrotask(() => {
-        if (gen !== genRef.current) return;
-        startTransition(() => {
-          setDemo(mergedDemo);
-          demoRef.current = mergedDemo;
-          setMeasurements((prev) => ({
-            ...prev,
-            ...nextExisting,
-            ...nextInstall,
-            ...mergedDemo,
-            cabinetLf: prev.cabinetLf,
-            countertopSqft: prev.countertopSqft,
-            bathroomVanityCountertopMaterialType: prev.bathroomVanityCountertopMaterialType,
-          }));
-          appliedRef.current = genRef.current;
-          onBathroomFixturesQmChange?.({
-            existing: nextExisting,
-            install: nextInstall,
-            demo: mergedDemo,
-          });
-        });
-      });
+      demoRef.current = mergedDemo;
+      setDemo(mergedDemo);
+      pendingParentPatchRef.current = {
+        nextExisting,
+        nextInstall,
+        mergedDemo,
+        gen,
+        ...patch,
+      };
+      scheduleParentFlush();
     },
-    [onBathroomFixturesQmChange, setMeasurements]
+    [scheduleParentFlush]
   );
 
   const adjustExisting = useCallback(
     (key: keyof BathroomExistingFixtureCounts, delta: number) => {
       const gen = ++genRef.current;
-      setExisting((prev) => {
-        const current = prev[key] ?? 0;
-        const nextValue = clampQmCount(current + delta < 1 ? null : current + delta, BATHROOM_QM_STEPPER_MAX);
-        const next = {
-          ...prev,
-          [key]: nextValue,
-        };
-        if (key === 'bathroomExistingVanityCount' && nextValue == null) {
-          delete demoOverridesRef.current.bathroomDemoVanityCount;
-        }
-        if (key === 'bathroomExistingCounterCount' && nextValue == null) {
-          delete demoOverridesRef.current.bathroomDemoCounterCount;
-        }
-        commit(next, install, gen);
-        return next;
-      });
+      const current = existingRef.current[key] ?? 0;
+      const nextValue = clampQmCount(
+        current + delta < 1 ? null : current + delta,
+        BATHROOM_QM_STEPPER_MAX
+      );
+      const next = {
+        ...existingRef.current,
+        [key]: nextValue,
+      };
+      if (key === 'bathroomExistingVanityCount' && nextValue == null) {
+        delete demoOverridesRef.current.bathroomDemoVanityCount;
+      }
+      if (key === 'bathroomExistingCounterCount' && nextValue == null) {
+        delete demoOverridesRef.current.bathroomDemoCounterCount;
+      }
+      existingRef.current = next;
+      setExisting(next);
+      prepareCommit(next, installRef.current, gen);
     },
-    [commit, install]
+    [prepareCommit]
   );
 
   const adjustInstall = useCallback(
     (key: keyof BathroomInstallFixtureCounts, delta: number) => {
       const gen = ++genRef.current;
-      setInstall((prev) => {
-        const current = prev[key] ?? 0;
-        const nextValue = clampQmCount(current + delta < 1 ? null : current + delta, BATHROOM_QM_STEPPER_MAX);
-        const nextInstall = {
-          ...prev,
-          [key]: nextValue,
+      const current = installRef.current[key] ?? 0;
+      const nextValue = clampQmCount(
+        current + delta < 1 ? null : current + delta,
+        BATHROOM_QM_STEPPER_MAX
+      );
+      const nextInstall = {
+        ...installRef.current,
+        [key]: nextValue,
+      };
+      let patch: {
+        cabinetLf?: string;
+        countertopSqft?: string;
+        materialType?: BathroomVanityCountertopMaterialType | null;
+      } | undefined;
+      if (key === 'bathroomInstallVanityCount' && nextValue == null) {
+        cabinetLfRef.current = '';
+        setCabinetLfDraft('');
+        patch = { ...(patch || {}), cabinetLf: '' };
+      }
+      if (key === 'bathroomInstallCounterCount' && nextValue == null) {
+        countertopSqftRef.current = '';
+        setCountertopSqftDraft('');
+        materialRef.current = null;
+        materialWritePendingRef.current = false;
+        setSelectedCountertopMaterial(null);
+        patch = {
+          ...(patch || {}),
+          countertopSqft: '',
+          materialType: null,
         };
-        if (key === 'bathroomInstallVanityCount' && nextValue == null) {
-          cabinetLfRef.current = '';
-          setCabinetLfDraft('');
-          queueMicrotask(() => {
-            if (gen !== genRef.current) return;
-            startTransition(() => {
-              setMeasurements((prevMeasurements) => ({
-                ...prevMeasurements,
-                cabinetLf: '',
-              }));
-            });
-          });
-        }
-        if (key === 'bathroomInstallCounterCount' && nextValue == null) {
-          countertopSqftRef.current = '';
-          setCountertopSqftDraft('');
-          materialRef.current = null;
-          materialWritePendingRef.current = false;
-          setSelectedCountertopMaterial(null);
-          queueMicrotask(() => {
-            if (gen !== genRef.current) return;
-            startTransition(() => {
-              setMeasurements((prevMeasurements) => ({
-                ...prevMeasurements,
-                countertopSqft: '',
-                bathroomVanityCountertopMaterialType: null,
-              }));
-            });
-          });
-        }
-        commit(existing, nextInstall, gen);
-        return nextInstall;
-      });
+      }
+      installRef.current = nextInstall;
+      setInstall(nextInstall);
+      prepareCommit(existingRef.current, nextInstall, gen, undefined, patch);
     },
-    [commit, existing, setMeasurements]
+    [prepareCommit]
   );
 
   const adjustDemo = useCallback(
     (key: BathroomFixtureDemoOverrideKey, delta: number) => {
       const gen = ++genRef.current;
-      setDemo((prev) => {
-        const current = prev[key] ?? 0;
-        const cleaned = clampQmCount(current + delta < 1 ? null : current + delta, BATHROOM_QM_STEPPER_MAX);
-        const next = { ...prev, [key]: cleaned };
-        demoRef.current = next;
-        commit(existing, install, gen, { key, value: cleaned });
-        return next;
+      const current = demoRef.current[key] ?? 0;
+      const cleaned = clampQmCount(
+        current + delta < 1 ? null : current + delta,
+        BATHROOM_QM_STEPPER_MAX
+      );
+      const next = { ...demoRef.current, [key]: cleaned };
+      demoRef.current = next;
+      setDemo(next);
+      prepareCommit(existingRef.current, installRef.current, gen, {
+        key,
+        value: cleaned,
       });
     },
-    [commit, existing, install]
+    [prepareCommit]
   );
 
   const existingCaption = showExistingPanel
@@ -3015,7 +3124,8 @@ export const QmBathroomFixturesPanels = React.memo(function QmBathroomFixturesPa
       />
     </>
   );
-});
+  })
+);
 
 const LANDSCAPING_SCOPE_OPTIONS: Array<{ id: string; label: string; measurementKey?: string; unit?: string }> = [
   { id: 'grading', label: 'Grading', measurementKey: 'gradingSqft', unit: 'sqft' },

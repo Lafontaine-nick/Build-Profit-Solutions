@@ -402,6 +402,47 @@ describe('kitchenRemodel QM', () => {
     });
   });
 
+  test('keeps appliance and island quantities above one priceable', () => {
+    const {
+      initialScopeMeasurementInputExtended,
+      resolveChecklistItemQuantity,
+      resolveScopeItemSuggestedPricing,
+    } = require('@/utils/scopeItemQuantities');
+    const input = {
+      ...initialScopeMeasurementInputExtended(),
+      kitchenDemoApplianceCount: 4,
+      kitchenInstallApplianceCount: 4,
+      kitchenDemoIslandCount: 2,
+      kitchenInstallIslandCount: 2,
+      itemQuantities: {},
+    };
+
+    const cases = [
+      ['appliance_removal', 700, 100, 600],
+      ['appliances', 900, 0, 900],
+      ['island_demo', 650, 100, 550],
+      ['island', 1900, 300, 1600],
+    ] as const;
+
+    for (const [id, total, material, labor] of cases) {
+      const resolved = resolveChecklistItemQuantity(id, input, {
+        templateKey: 'kitchen',
+      });
+      const pricing = resolveScopeItemSuggestedPricing(id, input, 'kitchen', resolved);
+      expect(resolved).toMatchObject({
+        quantity: id === 'appliance_removal' || id === 'appliances' ? 4 : 2,
+        unit: 'each',
+        pricingReady: true,
+      });
+      expect(pricing.fill).toMatchObject({
+        total,
+        material,
+        labor,
+        basis: { quantity: resolved.quantity, unit: 'each' },
+      });
+    }
+  });
+
   it('rolls island counter SF into countertops pricing', () => {
     const {
       initialScopeMeasurementInputExtended,

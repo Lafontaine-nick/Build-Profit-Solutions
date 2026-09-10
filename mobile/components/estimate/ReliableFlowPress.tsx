@@ -1,5 +1,5 @@
 import React, { useCallback, useRef } from 'react';
-import { InteractionManager, Platform } from 'react-native';
+import { Platform } from 'react-native';
 import { TouchableOpacity as GestureTouchableOpacity } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 
@@ -45,18 +45,15 @@ export default function ReliableFlowPress({
     if (disabled || lockRef.current) return;
     lockRef.current = true;
     if (haptic !== 'none') fireHaptic(haptic);
-    // Let the pressed state paint before heavy estimate/pricing callbacks run.
-    requestAnimationFrame(() => {
-      InteractionManager.runAfterInteractions(() => onPressRef.current());
-    });
+    onPressRef.current();
     setTimeout(() => {
       lockRef.current = false;
-    }, 280);
+    }, 120);
   }, [disabled, haptic]);
 
   return (
     <GestureTouchableOpacity
-      onPressIn={fire}
+      onPress={fire}
       disabled={disabled}
       activeOpacity={activeOpacity}
       accessibilityRole={accessibilityRole}

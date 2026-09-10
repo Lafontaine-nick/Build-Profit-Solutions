@@ -57,6 +57,53 @@ describe('bathroom shower pan pricing', () => {
     expect(resolved.pricingReady).toBe(false);
   });
 
+  it('prices prefab shower enclosure install per unit without an area takeoff', () => {
+    const resolved = resolveChecklistItemQuantity(
+      'prefab_shower_enclosure',
+      emptyMeasurements,
+      { templateKey: 'bathroom' }
+    );
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'prefab_shower_enclosure',
+      emptyMeasurements,
+      'bathroom',
+      resolved
+    );
+
+    expect(resolved.quantity).toBe(1);
+    expect(resolved.unit).toBe('each');
+    expect(fill?.material).toBe(1800);
+    expect(fill?.labor).toBe(900);
+    expect(fill?.total).toBe(2700);
+  });
+
+  it('prices tub install per unit', () => {
+    const resolved = resolveChecklistItemQuantity('tub_install', emptyMeasurements, {
+      templateKey: 'bathroom',
+    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'tub_install',
+      emptyMeasurements,
+      'bathroom',
+      resolved
+    );
+
+    expect(resolved.quantity).toBe(1);
+    expect(resolved.unit).toBe('each');
+    expect(fill?.total).toBe(2050);
+  });
+
+  it('uses the Paint measurement for the separated interior paint card', () => {
+    const resolved = resolveChecklistItemQuantity(
+      'interior_paint',
+      { itemQuantities: {}, paintAreaSqft: '125' },
+      { templateKey: 'bathroom' }
+    );
+
+    expect(resolved.quantity).toBe(125);
+    expect(resolved.unit).toBe('sqft');
+  });
+
   it('keeps shower bench separate from entry curb pricing', () => {
     const resolved = resolveChecklistItemQuantity('shower_bench', emptyMeasurements, {
       templateKey: 'bathroom',

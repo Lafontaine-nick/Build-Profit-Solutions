@@ -264,10 +264,14 @@ export function resolveQuickMeasurementFields(params: {
     );
     const filled = hasQuickMeasurementValue(displayValue);
     const typed = String(params.measurements[field.key] ?? '').trim() !== '';
-    const fromNotes =
-      !typed && noteKeySet.has(field.key) && Boolean(noteValues[field.key]);
-    const sourceTag = params.sourceMap?.[field.key];
     const isUserOverride = Boolean(params.userOverrides?.[field.key]);
+    const fromNotes =
+      !isUserOverride &&
+      noteKeySet.has(field.key) &&
+      Boolean(noteValues[field.key]) &&
+      String(displayValue ?? '').replace(/,/g, '') ===
+        String(noteValues[field.key] ?? '').replace(/,/g, '');
+    const sourceTag = params.sourceMap?.[field.key];
     const optionalGasLine =
       field.key === 'gasLineLf' &&
       !filled &&

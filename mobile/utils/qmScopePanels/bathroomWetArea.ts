@@ -26,6 +26,8 @@ export const BATHROOM_WET_AREA_EMBEDDED_IDS = new Set([
   'prefab_shower_enclosure',
   'tub_demo',
   'shower_floor_demo',
+  'shower_enclosure_demo',
+  'glass_door_demo',
 ]);
 
 function hydrateBathroom(ctx: QmPanelHydrateContext): Record<string, unknown> {
@@ -135,7 +137,11 @@ function syncBathroom(items: ScopeChecklistItem[], m: Record<string, unknown>): 
   next = syncWetAreaDemoScopeItems(next, {
     demo: readWetAreaDemoCounts(m),
     reuseExistingShowerDoor: Boolean(m.reuseExistingShowerDoor),
+    demoShowerDoorCount: m.demoShowerDoorCount as number | null,
     installShowerDoorCount: m.showerDoorCount as number | null,
+    demoOverrides: m.demoWetAreaManualOverrides as Partial<
+      Record<WetAreaDemoOverrideKey, boolean>
+    >,
     showerWallTileSqft: m.showerWallTileSqft as string | number | null | undefined,
     bathroomFloorSqft: m.bathroomFloorSqft as string | number | null | undefined,
   });

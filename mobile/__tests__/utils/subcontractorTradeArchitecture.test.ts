@@ -1067,6 +1067,15 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     ).toEqual(['windows', 'sliding_doors', 'interior_doors']);
   });
 
+  it('promotes an AI-excluded opening when a contractor enters its count', () => {
+    const items = syncWindowsDoorsScopeItems(
+      [{ id: 'interior_doors', state: 'excluded' }],
+      { interiorDoorCount: 3 }
+    );
+
+    expect(items).toEqual([{ id: 'interior_doors', state: 'included' }]);
+  });
+
   it('keeps garage door helpers for legacy imports and GC scope', () => {
     const filtered = filterPlanMeasurementsForTrade(
       {

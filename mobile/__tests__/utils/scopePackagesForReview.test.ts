@@ -64,6 +64,83 @@ describe('scopePackagesForReview', () => {
     );
   });
 
+  it('deduplicates repeated Confirm Scope checklist rows', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'windows',
+        label: 'Windows',
+        state: 'included',
+        inputType: 'yes_no',
+      },
+      {
+        id: 'windows',
+        label: 'Windows (from notes)',
+        state: 'unsure',
+        inputType: 'yes_no',
+      },
+      {
+        id: 'exterior_doors',
+        label: 'Exterior swing doors',
+        state: 'included',
+        inputType: 'yes_no',
+      },
+    ];
+
+    const rows = buildConfirmScopeDisplayItems(items, {}, 'windows_doors');
+
+    expect(rows.map(row => row.id)).toEqual(['windows', 'exterior_doors']);
+    expect(rows.find(row => row.id === 'windows')?.state).toBe('included');
+  });
+
+  it('removes the painting-only window install card from other Confirm Scope flows', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'windows', label: 'Windows', state: 'included', inputType: 'yes_no' },
+      {
+        id: 'window_install',
+        label: 'Window replacement / installation',
+        state: 'included',
+        inputType: 'yes_no',
+      },
+    ];
+
+    const rows = buildConfirmScopeDisplayItems(items, {}, 'windows_doors');
+
+    expect(rows.map(row => row.id)).toEqual(['windows']);
+  });
+
+  it('keeps multiple wet-area install cards selected in Quick Measurements', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'wet_area_install',
+        label: 'Wet area install',
+        state: 'included',
+        inputType: 'choice',
+        choiceId: 'tile_pan',
+      },
+      {
+        id: 'shower_pan',
+        label: 'Shower mud pan build',
+        state: 'included',
+        inputType: 'yes_no',
+      },
+      {
+        id: 'tub_install',
+        label: 'Tub install',
+        state: 'included',
+        inputType: 'yes_no',
+      },
+    ];
+
+    const ids = buildConfirmScopeDisplayItems(
+      items,
+      { tilePanBathCount: 1, tubBathCount: 1 },
+      'bathroom'
+    ).map(item => item.id);
+    expect(ids).toEqual(
+      expect.arrayContaining(['shower_pan', 'tub_install'])
+    );
+  });
+
   it('orders Step 3 rows top-to-bottom like Step 2 checklist groups', () => {
     const draft = {
       scopeAssumptionsConfirmed: true,

@@ -8,6 +8,24 @@ const { buildScopeChecklist } = require('../estimateDraftComplexity');
 const { resolveQuantityForChecklistItem, normalizeScopeMeasurements } = require('../scopeItemQuantityCatalog');
 
 describe('scopeMeasurementParser', () => {
+  test('understands kitchen remodel boundaries and carries explicit install work', () => {
+    const notes =
+      'Remodel an existing kitchen without changing the footprint. Remove existing cabinets, countertops, backsplash, sink, faucet, and appliances. Install 42 linear feet of new cabinets, 55 sqft of quartz countertops, 35 sqft of backsplash tile, a new sink and faucet, range, dishwasher, refrigerator, microwave, and under-cabinet lighting. Include cabinet installation, countertop installation, backsplash preparation, plumbing reconnection, electrical adjustments for appliances, flooring protection, demolition, disposal, and cleanup. No wall removal or structural framing.';
+
+    expect(checklistTemplateKey({ projectType: 'other', originalNotes: notes }, 'room_remodel')).toBe('kitchen');
+
+    expect(inferItemStateFromNotes('framing', notes)).toBe('excluded');
+    expect(inferItemStateFromNotes('flooring', notes)).toBe('excluded');
+    expect(inferItemStateFromNotes('cabinets', notes)).toBe('included');
+    expect(inferItemStateFromNotes('countertops', notes)).toBe('included');
+    expect(inferItemStateFromNotes('backsplash', notes)).toBe('included');
+    expect(inferItemStateFromNotes('sink_faucet', notes)).toBe('included');
+    expect(inferItemStateFromNotes('appliances', notes)).toBe('included');
+    expect(inferItemStateFromNotes('plumbing', notes)).toBe('included');
+    expect(inferItemStateFromNotes('electrical', notes)).toBe('included');
+    expect(inferItemStateFromNotes('cleanup', notes)).toBe('included');
+  });
+
   test('parses kitchen floor and backsplash from notes', () => {
     const notes = 'Kitchen remodel, 220 sqft kitchen floor, 45 sqft backsplash tile';
     const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'kitchen', projectType: 'kitchen' });
@@ -395,6 +413,35 @@ Demo old cabinets and haul off $850 lump sum`;
     expect(flooringQty).toMatchObject({ quantity: 1030, unit: 'sqft', pricingReady: true });
     expect(trimQty).toMatchObject({ quantity: 1540, unit: 'allowance', pricingReady: true });
     expect(cleanupQty).toMatchObject({ quantity: 650, unit: 'lump_sum', pricingReady: true });
+  });
+
+  test('home remodel notes keep only supported measurements and priced scope items', () => {
+    const notes =
+      'Remodel an existing 1,400 sqft home interior. Renovate one kitchen and two bathrooms, remove existing flooring in the affected areas, install 900 sqft of LVP, replace 12 linear feet of kitchen countertops, install 42 linear feet of cabinets, replace two bathroom vanities, update plumbing fixtures, repair 300 sqft of drywall, repaint interior walls and ceilings, and install 180 linear feet of baseboard. Do not change the building footprint or structural framing.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'room_remodel',
+      projectType: 'room_remodel',
+    });
+    const checklist = buildScopeChecklist({ projectType: 'other' }, 'room_remodel', notes);
+
+    expect(parsed.floorAreaSqft).toBe(1400);
+    expect(parsed.flooringSqft).toBe(900);
+    expect(parsed.countertopLf).toBe(12);
+    expect(parsed.countertopSqft).toBeUndefined();
+    expect(parsed.bathroomFloorSqft).toBeUndefined();
+    expect(parsed.wallPaintSqft).toBeUndefined();
+    expect(parsed.ceilingPaintSqft).toBeUndefined();
+    expect(checklist.items.map((item) => item.id)).toEqual([
+      'demo',
+      'plumbing',
+      'drywall',
+      'flooring',
+      'paint',
+      'baseboard_install',
+      'cabinets',
+      'countertops',
+      'vanity',
+    ]);
   });
 
   test('rate parser does not treat a dollar rate as the item quantity', () => {

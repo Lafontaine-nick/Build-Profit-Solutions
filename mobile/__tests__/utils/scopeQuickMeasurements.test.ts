@@ -24,6 +24,29 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).toContain('baseboardLf');
   });
 
+  it('filters stale room-remodel measurements for kitchen notes', () => {
+    const notes =
+      'Remodel an existing kitchen without changing the footprint. Install 42 linear feet of new cabinets, 55 sqft of quartz countertops, and 35 sqft of backsplash tile. Include flooring protection, demolition, disposal, and cleanup. No wall removal or structural framing.';
+    const keys = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toContain('cabinetLf');
+    expect(keys).toContain('countertopSqft');
+    expect(keys).not.toContain('floorAreaSqft');
+    expect(keys).not.toContain('flooringSqft');
+    expect(keys).not.toContain('drywallSqft');
+    expect(keys).not.toContain('baseboardLf');
+    expect(keys).not.toContain('wallPaintSqft');
+    expect(keys).not.toContain('ceilingPaintSqft');
+  });
+
   it('labels addition floor area as ADU for ADU projects and marks it primary', () => {
     const rows = quickMeasurementRowsForTemplate('addition', 'adu');
     const floorArea = rows.flat().find(field => field.key === 'floorAreaSqft');
@@ -93,6 +116,38 @@ describe('scopeQuickMeasurements', () => {
         livingSf: 180,
       })
     ).toBe('kitchen');
+  });
+
+  it('routes insulation-only notes to the insulation measurement layout', () => {
+    const notes =
+      'Insulate an existing 1,800 sqft two-story home. Install R-21 fiberglass batt insulation in 2,000 sqft of exterior walls, R-38 blown insulation in 1,200 sqft of attic area, and R-30 batt insulation in 900 sqft of floor area. Include air sealing and normal installation. No drywall removal.';
+
+    expect(
+      resolveEffectiveQuickMeasurementTemplateKey({
+        templateKey: 'room_remodel',
+        projectType: 'other',
+        notes,
+      })
+    ).toBe('insulation');
+  });
+
+  it('uses only remodel measurements supported by the notes', () => {
+    const rows = quickMeasurementRowsForTemplate(
+      'room_remodel',
+      'room_remodel',
+      'Remodel an existing 1,400 sqft home interior. Install 900 sqft of LVP, replace 12 linear feet of kitchen countertops, install 42 linear feet of cabinets, repair 300 sqft of drywall, and install 180 linear feet of baseboard.'
+    );
+    const fields = rows.flat();
+    expect(fields.map(field => field.key)).toEqual([
+      'floorAreaSqft',
+      'flooringSqft',
+      'cabinetLf',
+      'countertopLf',
+      'drywallSqft',
+      'baseboardLf',
+    ]);
+    expect(fields.find(field => field.key === 'countertopLf')?.unit).toBe('LF');
+    expect(fields.map(field => field.key)).not.toContain('bathroomFloorSqft');
   });
 
   it('uses living-first ground_up layout for new builds', () => {

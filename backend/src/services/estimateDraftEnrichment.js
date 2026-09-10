@@ -225,8 +225,12 @@ function buildStillNeededReview(draft, scopePackages) {
     if (pkg.status !== 'missing_price' && pkg.status !== 'needs_review') continue;
     const key = String(pkg.name || '').toLowerCase();
     if (/tile|demo/.test(key)) add('Pricing for tile demo');
-    else if (/laminate|flooring|lvp/.test(key) && !/baseboard/.test(key)) {
+    else if (/lvp/.test(key) && !/baseboard/.test(key)) {
+      add('Material/labor pricing for LVP flooring');
+    } else if (/laminate/.test(key) && !/baseboard/.test(key)) {
       add('Material/labor pricing for laminate flooring');
+    } else if (/flooring/.test(key) && !/baseboard/.test(key)) {
+      add('Material/labor pricing for flooring');
     } else if (/baseboard|trim/.test(key)) add('Material/labor pricing for baseboard');
     else add(`Pricing for ${pkg.name}`);
   }

@@ -48,6 +48,14 @@ const DRYWALL_PATCH_BASE = {
   range: { low: 350, high: 650 },
 };
 
+const BATHROOM_DRYWALL_PATCH_BASE = {
+  total: BATHROOM_DRYWALL_PATCH_REF_SQFT * 12,
+  range: {
+    low: BATHROOM_DRYWALL_PATCH_REF_SQFT * 10,
+    high: BATHROOM_DRYWALL_PATCH_REF_SQFT * 15,
+  },
+};
+
 const COMBINED_BASE = {
   total: 700,
   range: { low: 550, high: 900 },
@@ -130,6 +138,7 @@ export function buildDrywallPatchPricingDetails(params: {
   sqft: number;
   combined?: boolean;
   severity?: BathroomPaintRepairSeverity | string | null;
+  bathroomLocalizedPatch?: boolean;
 }) {
   const severityMultiplier =
     params.combined === true
@@ -137,6 +146,9 @@ export function buildDrywallPatchPricingDetails(params: {
           resolveBathroomPaintRepairSeverity(params.severity)
         )
       : 1;
+  const patchBase = params.bathroomLocalizedPatch
+    ? BATHROOM_DRYWALL_PATCH_BASE
+    : DRYWALL_PATCH_BASE;
   const scaledTotal = params.combined
     ? roundInteriorPaintPriceToNearest25(
         resolveBathroomCombinedPatchPaintScaledTotal(
@@ -145,7 +157,7 @@ export function buildDrywallPatchPricingDetails(params: {
         )
       )
     : round2(
-        scaleBathroomRepairAllowance(DRYWALL_PATCH_BASE.total, params.sqft) *
+        scaleBathroomRepairAllowance(patchBase.total, params.sqft) *
           severityMultiplier
       );
   const split = params.combined
@@ -160,8 +172,8 @@ export function buildDrywallPatchPricingDetails(params: {
         high: round2(scaledTotal * (COMBINED_BASE.range.high / COMBINED_BASE.total)),
       }
     : {
-        low: scaleBathroomRepairAllowance(DRYWALL_PATCH_BASE.range.low, params.sqft),
-        high: scaleBathroomRepairAllowance(DRYWALL_PATCH_BASE.range.high, params.sqft),
+        low: scaleBathroomRepairAllowance(patchBase.range.low, params.sqft),
+        high: scaleBathroomRepairAllowance(patchBase.range.high, params.sqft),
       };
 
   return {
@@ -319,9 +331,6 @@ export function resolveBathroomDrywallPatchSuggestedPricing(params: {
   paintRepairScope?: string | null;
   severity?: string | null;
 }): ScopeItemSuggestedPricing | undefined {
-  const items = params.checklistItems;
-  if (!items?.length) return undefined;
-
   const sqft = params.quantity;
   if (sqft == null || !(sqft > 0)) return undefined;
 
@@ -335,6 +344,7 @@ export function resolveBathroomDrywallPatchSuggestedPricing(params: {
     sqft,
     combined,
     severity: combined ? severity : undefined,
+    bathroomLocalizedPatch: true,
   });
 
   if (combined) {

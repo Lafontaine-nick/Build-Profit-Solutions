@@ -1390,6 +1390,7 @@ function normalizeScopeMeasurements(measurements = {}) {
   const excavationCy = parseMeasurementNumber(measurements.excavationCy);
   const landscapeTons = parseMeasurementNumber(measurements.landscapeTons);
   const countertopSqft = parseMeasurementNumber(measurements.countertopSqft);
+  const countertopLf = parseMeasurementNumber(measurements.countertopLf);
   const cabinetLf = parseMeasurementNumber(measurements.cabinetLf);
   const floorAreaSqft = parseMeasurementNumber(measurements.floorAreaSqft);
   const flooringSqft = parseMeasurementNumber(measurements.flooringSqft);
@@ -1424,6 +1425,7 @@ function normalizeScopeMeasurements(measurements = {}) {
     kitchenFloorSqft,
     backsplashSqft,
     countertopSqft,
+    countertopLf,
     cabinetLf,
     floorAreaSqft,
     flooringSqft,
