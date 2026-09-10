@@ -8378,10 +8378,14 @@ function YesNoRow({
     storedPlumbingExposed ||
     storedFloorConstruction;
 
+  const simpleBathroomPaintRepair =
+    item.id === 'paint_repair' &&
+    String(templateKey || '').toLowerCase() === 'bathroom';
   const showDrywallPaintOptions =
     item.id === 'paint_repair' &&
     displayedState === 'included' &&
-    String(templateKey || '').toLowerCase() === 'bathroom';
+    String(templateKey || '').toLowerCase() === 'bathroom' &&
+    !simpleBathroomPaintRepair;
   const storedPaintRepairScope =
     measurementsInput.bathroomPaintRepairScope ?? null;
   const resolvedPaintRepairScope = resolveBathroomPaintRepairScope(
@@ -8415,6 +8419,7 @@ function YesNoRow({
   const combinedEligible =
     resolvedPaintRepairScope === 'affected_area' || !resolvedPaintRepairScope;
   const useCombinedAssembly =
+    !simpleBathroomPaintRepair &&
     combinedEligible &&
     measurementsInput.bathroomDrywallPaintUseCombinedAssembly !== false;
   const entireRoomPaintSqft =
@@ -8422,7 +8427,8 @@ function YesNoRow({
       ? userPaintRepairSqft
       : 0;
   const patchRepairSqft =
-    resolvedPaintRepairScope === 'affected_area' && userPaintRepairSqft > 0
+    (simpleBathroomPaintRepair || resolvedPaintRepairScope === 'affected_area') &&
+    userPaintRepairSqft > 0
       ? userPaintRepairSqft
       : 0;
   const combinedSummary = showDrywallPaintOptions
@@ -8470,6 +8476,7 @@ function YesNoRow({
     });
   const showPaintRepairQuestions =
     showPaintRepairScopePrompt &&
+    !simpleBathroomPaintRepair &&
     showPaintRepairAdvancedQuestions &&
     (!paintRepairScopeApplied || paintRepairPromptExpanded);
   const showPaintRepairSeverityPrompt =
@@ -9327,7 +9334,8 @@ function YesNoRow({
 
       {showPaintRepairScopePrompt &&
       paintRepairAutoFlow &&
-      !showPaintRepairAdvancedQuestions ? (
+      !showPaintRepairAdvancedQuestions &&
+      !simpleBathroomPaintRepair ? (
         <Text
           style={{
             color: captionColor(darkMode, Colors),
