@@ -1581,7 +1581,7 @@ function ScopeIntelligenceNotice({
               activeOpacity={0.85}
               accessibilityRole='button'
               accessibilityLabel={applyTarget.accessibilityLabel}
-              onPress={onUseCalculatedQuantity}
+              onPressIn={onUseCalculatedQuantity}
               style={[
                 styles.formulaActionButton,
                 {
