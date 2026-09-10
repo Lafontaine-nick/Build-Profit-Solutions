@@ -17429,10 +17429,23 @@ function CollapsibleQuickMeasurements({
                   ]
                 >
               ).some(([surface]) =>
-                measurements.paintScope?.includes(surface)
+                measurements.paintScope?.includes(surface) ||
+                (surface === 'trim' &&
+                  String(templateKey || '').toLowerCase() === 'bathroom' &&
+                  scopeChecklistItems.some(
+                    scopeItem =>
+                      scopeItem.id === 'baseboard_install' &&
+                      scopeItem.state === 'included'
+                  ))
               ) ? (
                 <View style={{ marginTop: 20, gap: 16 }}>
-                  {measurements.paintScope?.includes('trim')
+                  {(measurements.paintScope?.includes('trim') ||
+                    (String(templateKey || '').toLowerCase() === 'bathroom' &&
+                      scopeChecklistItems.some(
+                        scopeItem =>
+                          scopeItem.id === 'baseboard_install' &&
+                          scopeItem.state === 'included'
+                      ))) 
                     ? renderPaintEmbeddedField('baseboardLf', 2)
                     : null}
                   {measurements.paintScope?.includes('trim') &&
