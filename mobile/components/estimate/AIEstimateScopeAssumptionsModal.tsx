@@ -21158,7 +21158,8 @@ export default function AIEstimateScopeAssumptionsModal({
       window_install: 30,
       exterior_trim_paint: 40,
     };
-    const itemOrder = (id: string) => paintingOrder[id] ?? 50;
+    const itemOrder = (id: string) =>
+      id === 'cleanup' ? 10000 : (paintingOrder[id] ?? 50);
     const isBathroomFlow =
       String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
       String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
@@ -21258,7 +21259,12 @@ export default function AIEstimateScopeAssumptionsModal({
       }))
       .sort(
         (a, b) =>
-          Number(b.hasPricing) - Number(a.hasPricing) || a.index - b.index
+          Number(
+            a.group.items.some(item => item.id === 'cleanup')
+          ) -
+            Number(b.group.items.some(item => item.id === 'cleanup')) ||
+          Number(b.hasPricing) - Number(a.hasPricing) ||
+          a.index - b.index
       )
       .map(entry => entry.group);
   }, [
