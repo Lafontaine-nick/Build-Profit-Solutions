@@ -2927,7 +2927,7 @@ export function QmBathroomFixturesPanels({
         rowBelowContent={{
           bathroomInstallVanityCount:
             install.bathroomInstallVanityCount != null ? (
-              <View style={{ marginBottom: 8 }}>
+              <View style={{ marginTop: 4, marginBottom: 14 }}>
                 <QmSqftMeasurementRow
                   label="Vanity cabinet LF"
                   helperText="Cabinet run length for this vanity — LF, not fixture count."
@@ -2944,19 +2944,19 @@ export function QmBathroomFixturesPanels({
             ) : null,
           bathroomInstallCounterCount:
             install.bathroomInstallCounterCount != null ? (
-              <View style={{ gap: 12, marginBottom: 8 }}>
+              <View style={{ gap: 16, marginTop: 4, marginBottom: 14 }}>
                 <QmSqftMeasurementRow
                   label="Countertop sqft"
                   helperText="Vanity top or bath counter area — sqft for custom stone; prefab tops can use material only."
                   value={countertopSqftDraft}
-                  placeholder="Enter sqft"
+                  placeholder="Enter area"
                   onChangeText={handleCountertopSqftChange}
                   applying={applying}
                   darkMode={darkMode}
                   Colors={Colors}
                   compact
                 />
-                <View>
+                <View style={{ marginTop: 2 }}>
                   <Text
                     style={{
                       color: vanityInstallStyle.titleColor,
