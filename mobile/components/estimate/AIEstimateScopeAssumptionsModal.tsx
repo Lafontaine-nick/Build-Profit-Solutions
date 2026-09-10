@@ -8390,6 +8390,8 @@ function YesNoRow({
   const simpleBathroomPaintRepair =
     item.id === 'paint_repair' &&
     String(templateKey || '').toLowerCase() === 'bathroom';
+  const hasExplicitPaintMeasurement =
+    Number(String(measurementsInput.paintAreaSqft ?? '').replace(/,/g, '')) > 0;
   const showDrywallPaintOptions =
     item.id === 'paint_repair' &&
     displayedState === 'included' &&
@@ -10184,7 +10186,9 @@ function YesNoRow({
           pricingEditorRequest={pricingEditorRequest}
           onPricingEditorRequestHandled={onPricingEditorRequestHandled}
           suppressSuggestedPricing={
-            paintRepairBundledPricing || suppressSuggestedPricing
+            paintRepairBundledPricing ||
+            suppressSuggestedPricing ||
+            (simpleBathroomPaintRepair && !hasExplicitPaintMeasurement)
           }
           scopeItemLabel={checklistDisplayLabel(item, templateKey)}
           Colors={Colors}
