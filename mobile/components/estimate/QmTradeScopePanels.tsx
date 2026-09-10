@@ -603,7 +603,7 @@ const QmCountStepper = React.memo(function QmCountStepper({
       </Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <TouchableOpacity
-          onPress={() => onAdjustRow(rowKey, -1)}
+          onPressIn={() => onAdjustRow(rowKey, -1)}
           disabled={applying || !value}
           activeOpacity={0.6}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -632,7 +632,7 @@ const QmCountStepper = React.memo(function QmCountStepper({
           {value ?? '—'}
         </Text>
         <TouchableOpacity
-          onPress={() => onAdjustRow(rowKey, 1)}
+          onPressIn={() => onAdjustRow(rowKey, 1)}
           disabled={applying || increaseDisabled || (value != null && value >= max)}
           activeOpacity={0.6}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
