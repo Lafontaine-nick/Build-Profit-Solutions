@@ -15064,7 +15064,7 @@ function CollapsibleQuickMeasurements({
       </Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <TouchableOpacity
-          onPress={() => onAdjust(-1)}
+          onPressIn={() => onAdjust(-1)}
           disabled={applying || disabled || !value}
           activeOpacity={0.6}
           delayPressIn={0}
@@ -15102,7 +15102,7 @@ function CollapsibleQuickMeasurements({
           {value ?? '—'}
         </Text>
         <TouchableOpacity
-          onPress={() => onAdjust(1)}
+          onPressIn={() => onAdjust(1)}
           disabled={applying || disabled || (value != null && value >= max)}
           activeOpacity={0.6}
           delayPressIn={0}
