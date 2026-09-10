@@ -670,6 +670,7 @@ function QmScopePanelSection({
   midContent,
   trailingRows,
   rowBelowContent,
+  marginBottom = 12,
   stepperMax,
   stepperIncreaseDisabled,
 }: {
@@ -688,6 +689,7 @@ function QmScopePanelSection({
   midContent?: React.ReactNode;
   trailingRows?: StepperRow[];
   rowBelowContent?: Partial<Record<string, React.ReactNode>>;
+  marginBottom?: number;
   stepperMax?: number;
   stepperIncreaseDisabled?: Partial<Record<string, boolean>>;
 }) {
@@ -700,7 +702,7 @@ function QmScopePanelSection({
         padding: 14,
         borderColor,
         backgroundColor,
-        marginBottom: 12,
+        marginBottom,
       }}
     >
       <Text style={{ color: titleColor, fontSize: 12, fontWeight: '800', letterSpacing: 0.4, marginBottom: 6 }}>
@@ -2908,6 +2910,7 @@ export function QmBathroomFixturesPanels({
         caption={fixtureCaption}
         rows={BATHROOM_INSTALL_FIXTURE_ROWS}
         trailingRows={visibleBathroomDemoRows}
+        marginBottom={24}
         counts={{ ...install, ...demo } as Record<string, number | null>}
         onAdjust={(key, d) => {
           if (key === 'bathroomInstallVanityCount' || key === 'bathroomInstallCounterCount') {
