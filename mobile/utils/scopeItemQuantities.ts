@@ -5637,7 +5637,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     allowedUnits: ['sqft'],
     measurementKey: 'showerFloorTileSqft',
     requiresUserQuantity: true,
-    quantityHelper: 'Enter shower pan / shower floor demo sqft.',
+    quantityHelper: 'Enter tile shower pan / liner removal count or floor tile sqft.',
     missingMessage: 'Enter shower floor demo sqft.',
   },
   shower_tile: {

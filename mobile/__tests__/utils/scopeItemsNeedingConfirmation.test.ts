@@ -41,7 +41,7 @@ describe('listScopeItemsNeedingConfirmation', () => {
     const items: ScopeChecklistItem[] = [
       {
         id: 'shower_floor_demo',
-        label: 'Remove existing shower pan / shower floor',
+        label: 'Remove existing tile shower pan / liner',
         inputType: 'yes_no',
         state: 'included',
       },

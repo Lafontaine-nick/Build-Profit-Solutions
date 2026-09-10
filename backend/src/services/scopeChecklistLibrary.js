@@ -169,9 +169,9 @@ const CHECKLIST_TEMPLATES = {
       {
         id: "shower_floor_demo",
         inputType: "yes_no",
-        label: "Remove existing shower pan / shower floor",
+        label: "Remove existing tile shower pan / liner",
         helperText:
-          "Demo existing shower base, prefab pan, or shower floor tile.",
+          "Demo and haul off the existing tile shower pan or liner. Shower floor tile is separate.",
         category: "demo",
       },
       {
