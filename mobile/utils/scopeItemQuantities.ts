@@ -1427,12 +1427,12 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   },
   mirror_accessories: {
     unit: 'each',
-    material: 50,
-    labor: 75,
-    materialBucketLabel: 'Accessory materials',
-    laborBucketLabel: 'Install labor',
+    material: 250,
+    labor: 250,
+    materialBucketLabel: 'Mirror and accessory materials',
+    laborBucketLabel: 'Mirror and accessory installation',
     sourceLabel:
-      'Suggested budget split · National Average · bath accessory (each)',
+      'Suggested budget split · National Average · mirror and bath accessories package',
     rateSource: 'bps_national_benchmark',
     scopeProfileSource: 'bps_standard_assumption',
     productionStatus: 'review_required',

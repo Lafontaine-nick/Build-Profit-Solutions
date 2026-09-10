@@ -3086,7 +3086,26 @@ export function hydrateScopeChecklistFromNotes(
     ),
     templateKey
   );
-  return ensureBathroomNoteBackedScopeItems(finalized, notes, templateKey);
+  const noteBackedFinal = ensureBathroomNoteBackedScopeItems(
+    finalized,
+    notes,
+    templateKey
+  );
+  if (String(templateKey || '').toLowerCase() !== 'bathroom') {
+    return noteBackedFinal;
+  }
+  // Bathroom lighting is handled by the dedicated lighting card. Keep the
+  // generic electrical trim card at review-needed unless device work is explicit.
+  const explicitDeviceWork =
+    /\b(?:electrical|outlets?|receptacles?|switch(?:es)?|wall\s+plates?|faceplates?|bulbs?|devices?|gfci)\b/i.test(
+      String(notes || '')
+    );
+  if (explicitDeviceWork) return noteBackedFinal;
+  return noteBackedFinal.map(item =>
+    item.id === 'electrical_trim' && item.state === 'included'
+      ? { ...item, state: 'unsure' as const, noteBacked: false }
+      : item
+  );
 }
 
 /** Strip UI-only derived lines before saving scope back to the draft. */
