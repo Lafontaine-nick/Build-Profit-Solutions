@@ -30,7 +30,7 @@ function showerJobContext(n: string): boolean {
 
 function notesMentionTileShowerWalls(n: string): boolean {
   return (
-    /\b(shower\s+wall\s+tile|shower\s+tile|tile\s+shower\s+walls?|new\s+shower\s+tile)\b/.test(n) ||
+    /\b(shower\s+wall\s+tile|shower\s+tile|tile\s+shower(?:\s+walls?)?|new\s+shower\s+tile)\b/.test(n) ||
     (showerJobContext(n) && /\btile\s+(?:the\s+)?(?:shower\s+)?walls?\b/.test(n))
   );
 }
@@ -65,6 +65,9 @@ function notesMentionTileShowerPan(n: string): boolean {
   return (
     /\b(shower\s+floor\s+tile|tile\s+shower\s+floor|tile\s+shower\s+pan)\b/.test(n) ||
     /\b(tile\s+pan|mud\s+pan|mortar\s+bed|hot\s+mop|custom\s+pan)\b/.test(n) ||
+    (notesMentionTileShowerWalls(n) &&
+      /\b(?:install|new|with|and)\b[^.]{0,45}\bshower\s+pan\b/.test(n) &&
+      !notesMentionPrefabPan(n)) ||
     (showerJobContext(n) && /\btile\s+(?:the\s+)?shower\s+floor\b/.test(n))
   );
 }

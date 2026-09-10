@@ -37,6 +37,15 @@ describe('wetAreaInstallInference', () => {
     ).toBe(1);
   });
 
+  test('tile shower with a generic shower pan selects tile pan', () => {
+    const inferred = inferWetAreaInstallSteppersFromIntent({
+      notes:
+        'Install a 60-inch tile shower with waterproofing, shower pan, backer board, and wall tile.',
+    });
+    expect(inferred.tilePanBathCount).toBe(1);
+    expect(inferred.prefabBathCount).toBeNull();
+  });
+
   test('checklist shower tile + floor tile fills both steppers', () => {
     const inferred = inferWetAreaInstallSteppersFromIntent({
       notes: '',
