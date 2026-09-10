@@ -2492,7 +2492,7 @@ export function QmFlooringScopePanels({
   );
 }
 
-export function QmBathroomFixturesPanels({
+export const QmBathroomFixturesPanels = React.memo(function QmBathroomFixturesPanels({
   measurements,
   setMeasurements,
   notes,
@@ -3015,7 +3015,7 @@ export function QmBathroomFixturesPanels({
       />
     </>
   );
-}
+});
 
 const LANDSCAPING_SCOPE_OPTIONS: Array<{ id: string; label: string; measurementKey?: string; unit?: string }> = [
   { id: 'grading', label: 'Grading', measurementKey: 'gradingSqft', unit: 'sqft' },
