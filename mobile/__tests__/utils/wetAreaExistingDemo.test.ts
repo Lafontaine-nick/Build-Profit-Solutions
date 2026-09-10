@@ -384,6 +384,25 @@ describe('wetAreaExistingDemo', () => {
     expect(demo.demoPrefabPanCount).toBe(1);
   });
 
+  test('maps common bathroom remodel tear-out wording from notes', () => {
+    const demo = resolveDemoWetAreaFromIntent({
+      notes:
+        'Remove the vanity, toilet, flooring, shower surround, and plumbing fixtures. Install a new tile shower and bathroom floor tile.',
+      existing: {},
+      install: {
+        bathCount: null,
+        tilePanBathCount: null,
+        prefabBathCount: null,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        bathFloorTileCount: null,
+        showerDoorCount: null,
+      },
+    });
+    expect(demo.demoTileWallCount).toBe(1);
+    expect(demo.demoBathFloorTileCount).toBe(1);
+  });
+
   test('photo bath_floor_tile feature seeds existing count', () => {
     const next = applyExistingFeaturesToMeasurements({}, [
       { feature: 'bath_floor_tile', confidence: 0.9 },

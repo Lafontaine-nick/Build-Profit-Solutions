@@ -229,7 +229,8 @@ function notesMentionDemoBathFloorTile(n: string): boolean {
     /\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,50}\b(bath(?:room)?\s+floor(?:\s+tile)?|floor\s+tile)\b/.test(
       n
     ) ||
-    /\b(bath(?:room)?\s+floor(?:\s+tile)?|floor\s+tile)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out)\b/.test(n)
+    /\b(bath(?:room)?\s+floor(?:\s+tile)?|floor\s+tile)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out)\b/.test(n) ||
+    /\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,50}\b(?:bath(?:room)?\s+)?flooring\b/.test(n)
   );
 }
 
@@ -366,10 +367,10 @@ function notesMentionDemoTub(n: string): boolean {
 
 function notesMentionDemoTileWalls(n: string): boolean {
   return (
-    /\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,60}\b(tile\s+surround|shower\s+walls?|wall\s+tile)\b/.test(
+    /\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,60}\b(tile\s+surround|shower\s+surround|shower\s+walls?|wall\s+tile)\b/.test(
       n
     ) ||
-    /\b(tile\s+surround|shower\s+walls?)\b[^.]{0,60}\b(remove|demo|demolition|tear[\s-]?out)\b/.test(n)
+    /\b(tile\s+surround|shower\s+surround|shower\s+walls?)\b[^.]{0,60}\b(remove|demo|demolition|tear[\s-]?out)\b/.test(n)
   );
 }
 
