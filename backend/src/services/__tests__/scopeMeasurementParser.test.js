@@ -69,6 +69,21 @@ describe('scopeMeasurementParser', () => {
     expect(parsed.itemQuantities?.demo?.quantity).toBe(850);
   });
 
+  test('separates explicit cabinet hardware allowance from cabinet pricing', () => {
+    const notes =
+      'Kitchen remodel with 38 LF cabinets and cabinet hardware is $300.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+      projectType: 'kitchen',
+    });
+    expect(parsed.itemQuantities?.cabinet_hardware).toEqual({
+      quantity: 300,
+      unit: 'allowance',
+      quantitySource: 'notes',
+    });
+    expect(parsed.itemQuantities?.cabinets?.quantity).not.toBe(300);
+  });
+
   test('Martinez kitchen: prefills lump-sum and allowance pricing from notes', () => {
     const notes = `Kitchen remodel for Martinez - 30339
 Cabinets and counters $28,629 includes labor and materials

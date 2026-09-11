@@ -873,9 +873,29 @@ export function parseScopeMeasurementsFromNotes(
   const kitchenFloor = parseKitchenFloorSqftFromClauses(clauses, text);
   if (kitchenFloor) out.kitchenFloorSqft = kitchenFloor;
 
-  const backsplash =
-    pickSqftNearPattern(text, /\bback\s*splash\b|\bbacksplash\b/) ||
-    pickSqftFromClauses([/\bback\s*splash\b/, /\bbacksplash\b/]);
+  // Backsplash — only accept a quantity explicitly attached to backsplash.
+  // Do not borrow a nearby countertop quantity from a comma-separated list.
+  const backsplash = (() => {
+    for (const clause of clauses) {
+      for (const segment of clause.split(/[,;]\s*/)) {
+        if (!/\bback\s*splash\b|\bbacksplash\b/i.test(segment)) continue;
+        const before = segment.match(
+        /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|square\s+(?:foot|feet))\b[^.;\n]{0,35}\bback\s*splash\b/i
+        );
+        const after = segment.match(
+        /\bback\s*splash\b[^.;\n]{0,35}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|square\s+(?:foot|feet))\b/i
+        );
+        const raw =
+          before && !/\b(?:counter|counters|countertop|quartz|granite)\b/i.test(
+            before[0]
+          )
+            ? before[1]
+            : after?.[1];
+        if (raw) return Number(raw.replace(/,/g, ''));
+      }
+    }
+    return null;
+  })();
   if (backsplash) out.backsplashSqft = backsplash;
 
   const countertopSqft = (() => {
@@ -939,13 +959,19 @@ export function parseScopeMeasurementsFromNotes(
       const c = clause.toLowerCase();
       if (/\bexterior\b/.test(c)) continue;
       if (!PAINT_SQFT_PATTERNS.some(p => p.test(c))) continue;
+      if (
+        /\b(?:flooring|lvp|drywall|countertops?|counters?|backsplash)\b/.test(
+          c
+        ) &&
+        !/\b(?:walls?|ceilings?|paintable|paint\s+area)\b/.test(c)
+      ) {
+        continue;
+      }
       for (const pattern of PAINT_SQFT_PATTERNS) {
         const near = pickSqftNearPattern(clause, pattern);
         if (near)
           largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, near);
       }
-      const q = firstQty(clause, SQFT_RE);
-      if (q) largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, q);
     }
     const labeledFloorAreaTotal = parseLabeledInteriorFloorAreaTotal(
       clauses.filter(clause => !/\bexterior\b/i.test(clause)).join(' ')
@@ -956,25 +982,9 @@ export function parseScopeMeasurementsFromNotes(
         labeledFloorAreaTotal
       );
     }
-    const globalPaintAreas =
-      templateKey === 'painting' ||
-      projectType === 'painting' ||
-      /\binterior\s+repaint\b|\bpaint\s+all\s+(?:interior\s+)?walls?\b/i.test(
-        blob
-      )
-        ? clauses
-            .filter(clause => !/\bexterior\b/i.test(clause))
-            .flatMap(clause => allQty(clause, SQFT_RE))
-            .filter(q => q > 0)
-        : [];
-    if (globalPaintAreas.length)
-      largestRelevantPaintSqft = Math.max(
-        largestRelevantPaintSqft,
-        ...globalPaintAreas
-      );
     if (largestRelevantPaintSqft > 0) return largestRelevantPaintSqft;
     if (combinedPaintLanguage) return 0;
-    return pickSqftFromClauses(PAINT_SQFT_PATTERNS) || 0;
+    return 0;
   })();
   if (paintSqft) out.wallPaintSqft = paintSqft;
 
@@ -1330,12 +1340,26 @@ export function parseScopeMeasurementsFromNotes(
         continue;
       if (!/\b(flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b/i.test(c))
         continue;
-      const q = firstQty(clause, SQFT_RE);
+      const q =
+        pickSqftNearPattern(
+          clause,
+          /\b(?:flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b/i
+        ) || firstQty(clause, SQFT_RE);
       if (q && q > max) max = q;
     }
     return max > 0 ? max : null;
   })();
   if (flooringSqft) out.flooringSqft = flooringSqft;
+  // For kitchen remodel notes, the explicit finished-floor takeoff owns the
+  // kitchen floor field. Prevent an earlier unrelated sqft value (such as
+  // drywall repair) from becoming the kitchen flooring quantity.
+  if (
+    flooringSqft &&
+    /\bkitchen\b/i.test(blob) &&
+    /\blvp\b/i.test(blob)
+  ) {
+    out.kitchenFloorSqft = flooringSqft;
+  }
   const flooringProductScope: NonNullable<
     ParsedScopeMeasurements['flooringProductScope']
   > = [];

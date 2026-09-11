@@ -1445,6 +1445,31 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
       F('wallPaintSqft', 'Paint', '320', 'sqft', 'interior'),
       F('baseboardLf', 'Trim', '48', 'LF', 'interior')
     ),
+    row(
+      F(
+        'exteriorWallInsulationSqft',
+        'Exterior wall insulation',
+        'Enter sqft',
+        'sqft',
+        'structure'
+      ),
+      F(
+        'atticInsulationSqft',
+        'Attic / ceiling insulation',
+        'Enter sqft',
+        'sqft',
+        'structure'
+      )
+    ),
+    row(
+      F(
+        'floorInsulationSqft',
+        'Floor insulation',
+        'Enter sqft',
+        'sqft',
+        'structure'
+      )
+    ),
   ],
   flooring: [
     row(
@@ -2723,6 +2748,9 @@ export function quickMeasurementRowsForInput(
       ]);
       const explicitFloorWork =
         /\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,80}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;]{0,80}\b(?:install|installation|replace|replacement|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+          notes
+        ) ||
+        /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
           notes
         );
       const explicitDrywall = /\b(?:drywall|sheetrock|gypsum|wall\s+repair|patch(?:ing)?)\b/i.test(notes);

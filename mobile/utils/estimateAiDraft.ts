@@ -237,8 +237,12 @@ export type ScopeChecklist = {
     scopeId?: string | null;
     status?: string | null;
     quantity?: number | null;
+    unit?: string | null;
     catalogEntry?: {
       displayName?: string | null;
+      category?: string | null;
+      quantityRuleKey?: string | null;
+      pricingRuleKey?: string | null;
     } | null;
   }>;
   catalogShadowMatches?: Array<{
@@ -1534,12 +1538,22 @@ export function repairDraftRatePricingFromNotes(
         ? repairedDraft.projectTitle
         : 'Kitchen Remodel Estimate',
       estimateTier: 'room_remodel',
-      scopeChecklist: undefined,
+      scopeChecklist: {
+        ...(repairedDraft.scopeChecklist || {}),
+        estimateTier: 'room_remodel',
+        templateKey: 'kitchen',
+        title: 'Kitchen remodel — confirm project scope',
+        intro: 'Confirm what work is in this bid before pricing.',
+        items: repairedDraft.scopeChecklist?.items || [],
+        suggestedMeasurements:
+          repairedDraft.scopeChecklist?.suggestedMeasurements || null,
+        requiresConfirmation: true,
+      },
       scopePackages: [],
       rooms: [],
-      detectedTrades: undefined,
-      whatAiDid: undefined,
-      projectDescription: undefined,
+      detectedTrades: [],
+      whatAiDid: [],
+      projectDescription: '',
     };
   }
   return repairedDraft;

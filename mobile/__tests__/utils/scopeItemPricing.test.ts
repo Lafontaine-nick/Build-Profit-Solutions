@@ -2653,6 +2653,43 @@ describe('resolveTemplateRateForItem', () => {
     expect(fill).toBeNull();
   });
 
+  it('prices an explicit wall-only insulation scope in a cross-trade workflow', () => {
+    const input = inputWith({
+      exteriorWallInsulationSqft: '300',
+      insulationMaterialType: 'Batt',
+      insulationRValue: 'R-21',
+    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'insulation',
+      input,
+      'kitchen',
+      {
+        quantity: 300,
+        unit: 'sqft',
+        quantitySource: 'notes',
+      }
+    );
+    expect(fill?.basis?.quantity).toBe(300);
+    expect(fill?.basis?.unit).toBe('sqft');
+    expect(fill?.total).toBeGreaterThan(0);
+  });
+
+  it('prices note-backed baseboard and trim painting in cross-trade workflows', () => {
+    const input = inputWith({ baseboardLf: '120' });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'trim_paint',
+      input,
+      'kitchen',
+      {
+        quantity: 120,
+        unit: 'lf',
+        quantitySource: 'notes',
+      }
+    );
+    expect(fill?.basis).toEqual({ quantity: 120, unit: 'lf' });
+    expect(fill?.total).toBeGreaterThan(0);
+  });
+
   it('does not price plan assemblies until a calculated ceiling is confirmed', () => {
     const input = inputWith({
       floorAreaSqft: '3660',

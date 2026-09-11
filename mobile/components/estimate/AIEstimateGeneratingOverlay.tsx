@@ -51,7 +51,7 @@ export default function AIEstimateGeneratingOverlay({ visible, phase, steps, onC
     elapsedSec >= 20
       ? 'Still working — large notes or a cold server can take up to a minute.'
       : elapsedSec >= 8
-        ? 'Usually 10–30 seconds for painting notes.'
+        ? 'Usually 10–30 seconds for detailed notes.'
         : null;
 
   return (

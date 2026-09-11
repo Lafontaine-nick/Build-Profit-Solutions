@@ -449,7 +449,7 @@ const CHECKLIST_TEMPLATES = {
         inputType: "yes_no",
         label: "Stock cabinet supply & installation",
         helperText:
-          "Entry-level stock cabinet boxes, doors, and standard installation priced by cabinet run LF. Count upper and lower runs consistently. Vanities, countertops, demo, hardware, fillers, finished panels, crown, delivery, RTA assembly, and custom modifications are separate unless selected.",
+          "Entry-level stock cabinet boxes, doors, basic standard hardware, and installation priced by cabinet run LF. Count upper and lower runs consistently. Vanities, countertops, demo, specialty hardware, fillers, finished panels, crown, delivery, RTA assembly, and custom modifications are separate unless selected.",
         category: "cabinets",
       },
       {

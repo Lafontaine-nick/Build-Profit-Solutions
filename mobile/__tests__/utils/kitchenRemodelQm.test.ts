@@ -21,6 +21,20 @@ describe('kitchenRemodel QM', () => {
     expect(KITCHEN_QM_EMBEDDED_IDS.has('cabinets')).toBe(false);
   });
 
+  it('hides basic cabinet hardware when stock cabinet install is included', () => {
+    const items = [item('cabinets', 'included'), item('cabinet_hardware')];
+    expect(
+      shouldHideKitchenScopeCardInQmEmbed('cabinet_hardware', {}, items)
+    ).toBe(true);
+  });
+
+  it('keeps explicitly selected cabinet hardware visible', () => {
+    const items = [item('cabinets', 'included'), item('cabinet_hardware', 'included')];
+    expect(
+      shouldHideKitchenScopeCardInQmEmbed('cabinet_hardware', {}, items)
+    ).toBe(false);
+  });
+
   it('infers existing cabinets from notes', () => {
     const out = inferExistingKitchenFromNotes('demo existing cabinets and install new quartz counters');
     expect(out.kitchenExistingCabinetCount).toBe(1);

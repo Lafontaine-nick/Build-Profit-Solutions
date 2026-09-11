@@ -504,6 +504,19 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).not.toContain('bathroomFloorSqft');
   });
 
+  it('keeps the kitchen floor field for a quantified cross-trade LVP note', () => {
+    const notes =
+      'Remodel kitchen with 38 LF cabinets, 48 sqft quartz counters, 220 sqft drywall repair, 700 sqft LVP, two new windows, and interior paint.';
+    const rows = quickMeasurementRowsForInput(
+      'kitchen',
+      'kitchen',
+      {},
+      ['kitchenFloorSqft'],
+      { scopeNotes: notes }
+    );
+    expect(rows.flat().map(field => field.key)).toContain('kitchenFloorSqft');
+  });
+
   it('relabels concrete flatwork as exterior-only with a clarifying helper (excludes house/garage slab)', () => {
     const rows = quickMeasurementRowsForTemplate('ground_up', 'new_build');
     const flatwork = rows.flat().find(field => field.key === 'concreteSqft');

@@ -15,6 +15,19 @@ const SMITH_NOTES =
   'Floor job at Smith residence. Demo existing tile in main bath 850 sqft lump sum $2,550. Demo kitchen vinyl 180 sqft allowance $900. Install LVP in both areas 1030 total sqft not priced yet. Baseboards throughout 220 LF lump sum $1,540. Final clean and haul off $650 lump sum.';
 
 describe('mobile scope measurement parser', () => {
+  it('does not borrow flooring sqft for an unmeasured interior paint scope', () => {
+    const notes =
+      'Remodel kitchen with demolition of existing cabinets, counters, backsplash, and flooring; install 38 LF cabinets, 48 sqft quartz counters, new backsplash, cabinet hardware $300, 12 LF plumbing relocation, 8 receptacles, 220 sqft drywall repair, 700 sqft LVP, two new windows, one exterior door, R-21 wall insulation, 120 LF of baseboard installation, and interior paint.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+    });
+
+    expect(parsed.flooringSqft).toBe(700);
+    expect(parsed.paintAreaSqft).toBeUndefined();
+    expect(parsed.wallPaintSqft).toBeUndefined();
+    expect(parsed.ceilingPaintSqft).toBeUndefined();
+  });
+
   it('parses insulation home area and location-specific assemblies', () => {
     const notes =
       'Insulate an existing 1,800 sqft two-story home. Install R-21 fiberglass batt insulation in 2,000 sqft of exterior walls, R-38 blown insulation in 1,200 sqft of attic area, and R-30 batt insulation in 900 sqft of floor area. Include air sealing and normal installation. No drywall removal.';
@@ -694,6 +707,29 @@ describe('mobile scope measurement parser', () => {
       dualLabor: { quantity: 480 },
       dualAllowance: { quantity: 480 },
     });
+  });
+
+  it('uses the explicit LVP takeoff instead of drywall sqft for kitchen flooring', () => {
+    const notes =
+      'Remodel kitchen with demolition of existing cabinets, counters, backsplash, and flooring; install 38 LF cabinets, 48 sqft quartz counters, new backsplash, 12 LF plumbing relocation, 8 receptacles, 220 sqft drywall repair, 700 sqft LVP, two new windows, one exterior door, R-21 wall insulation, and interior paint.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+      projectType: 'kitchen',
+    });
+    expect(parsed.drywallSqft).toBe(220);
+    expect(parsed.flooringSqft).toBe(700);
+    expect(parsed.kitchenFloorSqft).toBe(700);
+  });
+
+  it('does not use flooring or drywall sqft as an interior paint takeoff', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Remodel kitchen with 220 sqft drywall repair, 700 sqft LVP, and interior paint.',
+      { templateKey: 'kitchen', projectType: 'kitchen' }
+    );
+    expect(parsed.drywallSqft).toBe(220);
+    expect(parsed.flooringSqft).toBe(700);
+    expect(parsed.wallPaintSqft).toBeUndefined();
+    expect(parsed.ceilingPaintSqft).toBeUndefined();
   });
 
   it('parses drywall hang and finish rates from the same drywall quantity', () => {

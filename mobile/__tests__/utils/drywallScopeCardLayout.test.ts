@@ -20,6 +20,18 @@ import {
 } from '@/utils/scopeItemQuantities';
 
 describe('drywall scope card layout', () => {
+  it('keeps explicit baseboard installation from duplicating generic trim', () => {
+    const items = normalizeScopeChecklistItems(
+      [
+        { id: 'baseboard_install', label: 'Baseboard installation', state: 'included' },
+        { id: 'trim', label: 'Trim & baseboard', state: 'included' },
+      ] as any,
+      'kitchen'
+    );
+
+    expect(items.map(item => item.id)).toEqual(['baseboard_install']);
+  });
+
   it('uses one complete package card plus standalone finish card for ground_up', () => {
     const items = normalizeScopeChecklistItems(
       [{ id: 'drywall', label: 'Drywall', state: 'included' }] as any,

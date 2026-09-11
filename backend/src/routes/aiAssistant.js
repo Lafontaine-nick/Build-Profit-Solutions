@@ -17038,21 +17038,27 @@ router.post('/estimate-draft-scope-checklist', async (req, res) => {
         enriched.estimateTier || 'room_remodel',
         enriched.originalNotes,
       );
+    const responseDraft =
+      staleKitchenChecklist && refreshedKitchenChecklist
+        ? {
+            ...enriched,
+            projectType: 'kitchen',
+            estimateTier: 'room_remodel',
+            scopePackages: [],
+            rooms: [],
+            detectedTrades: [],
+            whatAiDid: [],
+            projectDescription: '',
+          }
+        : enriched;
     return res.json({
-      draft:
-        staleKitchenChecklist && refreshedKitchenChecklist
-          ? {
-              ...enriched,
-              projectType: 'kitchen',
-              estimateTier: 'room_remodel',
-              scopeChecklist: refreshedKitchenChecklist,
-              scopePackages: [],
-              rooms: [],
-              detectedTrades: undefined,
-              whatAiDid: undefined,
-              projectDescription: undefined,
-            }
-          : enriched,
+      // Keep the draft and the separately returned checklist on the same
+      // canonical note-backed scope. Confirm Scope and Scope Found must not
+      // hydrate from different generations of the checklist.
+      draft: {
+        ...responseDraft,
+        scopeChecklist: checklist,
+      },
       checklist,
     });
   } catch (err) {

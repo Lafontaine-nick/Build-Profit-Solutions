@@ -604,10 +604,29 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const kitchenFloor = parseKitchenFloorSqftFromClauses(clauses, text);
   if (kitchenFloor) out.kitchenFloorSqft = kitchenFloor;
 
-  // Backsplash
-  const backsplash =
-    pickSqftNearPattern(text, /\bback\s*splash\b|\bbacksplash\b/) ||
-    pickSqftFromClauses([/\bback\s*splash\b/, /\bbacksplash\b/]);
+  // Backsplash — only accept a quantity explicitly attached to backsplash.
+  // Do not borrow a nearby countertop quantity from a comma-separated list.
+  const backsplash = (() => {
+    for (const clause of clauses) {
+      for (const segment of clause.split(/[,;]\s*/)) {
+        if (!/\bback\s*splash\b|\bbacksplash\b/i.test(segment)) continue;
+        const before = segment.match(
+        /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|square\s+(?:foot|feet))\b[^.;\n]{0,35}\bback\s*splash\b/i
+        );
+        const after = segment.match(
+        /\bback\s*splash\b[^.;\n]{0,35}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|square\s+(?:foot|feet))\b/i
+        );
+        const raw =
+          before && !/\b(?:counter|counters|countertop|quartz|granite)\b/i.test(
+            before[0]
+          )
+            ? before[1]
+            : after?.[1];
+        if (raw) return Number(raw.replace(/,/g, ''));
+      }
+    }
+    return null;
+  })();
   if (backsplash) out.backsplashSqft = backsplash;
 
   // Countertops (exclude backsplash lines)
@@ -683,13 +702,17 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       const c = clause.toLowerCase();
       if (/\bexterior\b/.test(c)) continue;
       if (!PAINT_SQFT_PATTERNS.some((p) => p.test(c))) continue;
+      if (
+        /\b(?:flooring|lvp|drywall|countertops?|counters?|backsplash)\b/.test(c) &&
+        !/\b(?:walls?|ceilings?|paintable|paint\s+area)\b/.test(c)
+      ) {
+        continue;
+      }
       for (const pattern of PAINT_SQFT_PATTERNS) {
         const near = pickSqftNearPattern(clause, pattern);
         if (near)
           largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, near);
       }
-      const q = firstQty(clause, SQFT_RE);
-      if (q) largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, q);
     }
     const labeledFloorAreaTotal = parseLabeledInteriorFloorAreaTotal(
       clauses.filter((clause) => !/\bexterior\b/i.test(clause)).join(" "),
@@ -700,26 +723,9 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
         labeledFloorAreaTotal,
       );
     }
-    const globalPaintAreas =
-      templateKey === "painting" ||
-      projectType === "painting" ||
-      /\binterior\s+repaint\b|\bpaint\s+all\s+(?:interior\s+)?walls?\b|\b(?:repaint|paint(?:ing)?)\b[^.;]{0,60}\b(?:interior\s+)?walls?\b/i.test(
-        blob,
-      )
-        ? clauses
-            .filter((clause) => !/\bexterior\b/i.test(clause))
-            .flatMap((clause) => allQty(clause, SQFT_RE))
-            .filter((q) => q > 0)
-        : [];
-    if (globalPaintAreas.length) {
-      largestRelevantPaintSqft = Math.max(
-        largestRelevantPaintSqft,
-        ...globalPaintAreas,
-      );
-    }
     if (largestRelevantPaintSqft > 0) return largestRelevantPaintSqft;
     if (combinedPaintLanguage) return 0;
-    return pickSqftFromClauses(PAINT_SQFT_PATTERNS) || 0;
+    return 0;
   })();
   if (paintSqft) out.wallPaintSqft = paintSqft;
 
@@ -984,12 +990,26 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
         continue;
       if (!/\b(flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b/i.test(c))
         continue;
-      const q = firstQty(clause, SQFT_RE);
+      const q =
+        pickSqftNearPattern(
+          clause,
+          /\b(?:flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b/i
+        ) || firstQty(clause, SQFT_RE);
       if (q && q > max) max = q;
     }
     return max > 0 ? max : null;
   })();
   if (flooringSqft) out.flooringSqft = flooringSqft;
+  // In a kitchen remodel, the explicit finished-floor install takeoff owns
+  // the kitchen floor measurement. Do not let the kitchen-floor helper keep
+  // an earlier unrelated sqft value (for example drywall repair area).
+  if (
+    flooringSqft &&
+    /\bkitchen\b/i.test(text) &&
+    /\blvp\b/i.test(text)
+  ) {
+    out.kitchenFloorSqft = flooringSqft;
+  }
   const flooringProductScope = [];
   if (/\b(?:lvp|luxury\s+vinyl)\b/i.test(blob))
     flooringProductScope.push("lvp");

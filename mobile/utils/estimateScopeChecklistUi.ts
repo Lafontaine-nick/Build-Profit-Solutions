@@ -1740,11 +1740,18 @@ export function normalizeScopeChecklistItems(
   );
   // Do not force soft-cost Yes here — that would overwrite an intentional Not sure
   // on every reopen. Defaults are applied at checklist build / note inference time.
-  return dedupeScopeChecklistItems(applyKitchenScopeInferences(
+  const normalized = dedupeScopeChecklistItems(applyKitchenScopeInferences(
     withDrywallInstall,
     templateKey,
     inferenceCtx
   ));
+  // Baseboard installation owns the baseboard LF and pricing. Remove the
+  // generic Trim card when both are present so one note-backed baseboard scope
+  // cannot produce two charges.
+  if (normalized.some(item => item.id === 'baseboard_install')) {
+    return normalized.filter(item => item.id !== 'trim');
+  }
+  return normalized;
 }
 
 /** Split legacy cabinets_counters and inject takeoff-priced ground-up lines. */
@@ -4907,10 +4914,10 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
       title: 'Cabinets & Counters',
       itemIds: [
         'cabinets',
+        'cabinet_hardware',
         'countertops',
         'sink_faucet',
         'garbage_disposal',
-        'cabinet_hardware',
         'island',
       ],
     },

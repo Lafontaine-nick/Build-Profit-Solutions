@@ -513,6 +513,61 @@ describe('estimateInitialRevealUi', () => {
     ]);
   });
 
+  it('filters clarification rows and generic duplicates after checklist hydration', () => {
+    const draft = {
+      projectType: 'kitchen',
+      originalNotes: 'Install 220 sqft drywall repair and R-21 wall insulation.',
+      scopeChecklist: {
+        templateKey: 'kitchen',
+        items: [
+          { id: 'drywall', label: 'Drywall Repair', state: 'included', noteBacked: true },
+          { id: 'insulation', label: 'Insulation', state: 'included', noteBacked: true },
+          { id: 'drywall_detail', label: '220 sqft drywall repair', state: 'included', noteBacked: true },
+          { id: 'insulation_detail', label: 'R-21 wall insulation', state: 'included', noteBacked: true },
+          { id: 'cabinet_questions', label: 'Cabinet style and hardware selections', state: 'unsure' },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual([
+      '220 sqft drywall repair',
+      'R-21 wall insulation',
+    ]);
+  });
+
+  it('expands hydrated kitchen demolition into full demo lines', () => {
+    const draft = {
+      projectType: 'kitchen',
+      projectTitle: 'Kitchen Remodel',
+      originalNotes:
+        'Remodel kitchen with demolition of existing cabinets, counters, backsplash, and flooring.',
+      scopeChecklist: {
+        templateKey: 'kitchen',
+        items: [
+          { id: 'kitchen', label: 'Kitchen', state: 'included', noteBacked: true },
+          {
+            id: 'demo',
+            label: 'Demolition of existing cabinets, countertops, backsplash, flooring',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'window_questions',
+            label: 'Window and exterior door details',
+            state: 'unsure',
+          },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual([
+      'Cabinet demo / removal',
+      'Countertop demo / removal',
+      'Backsplash demo / removal',
+      'Kitchen flooring demo / removal',
+    ]);
+  });
+
   it('filters standalone plumbing pricing noise before Confirm Scope', () => {
     const notes =
       'Kitchen plumbing only. 3 plumbing rough-in points. 4 trim hookups. 25 LF water line. 1 gas appliance hookup.';

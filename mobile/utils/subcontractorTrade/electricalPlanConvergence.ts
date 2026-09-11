@@ -1041,13 +1041,27 @@ export function syncElectricalScopeItems<
     params.projectType,
     params.notes
   );
+  // Cross-trade workflows can reach this synchronizer before the parsed
+  // electrical measurements have been copied onto the draft. Parse the notes
+  // here as a fallback so explicit device counts still materialize their
+  // detailed cards (for example, "8 receptacles" in a kitchen scope).
+  const noteQuantities = params.notes
+    ? parseElectricalMeasurementsFromNotes(params.notes)
+    : {};
+  const quantities = {
+    ...noteQuantities,
+    ...(params.quantities || {}),
+  } as Partial<Record<ElectricalQuantityKey, unknown>> & {
+    electricalIncludeRough?: boolean | null;
+    electricalIncludeTrim?: boolean | null;
+  };
   const included = new Set(params.electricalScope || []);
   const fromQuantity = new Set<string>();
   const clearedQuantity = new Set<string>();
   for (const card of ELECTRICAL_CARDS) {
     if (card.measurementKey === 'serviceAmperage') continue;
     if (packageOnly && card.itemId !== 'electrical_rough') continue;
-    const raw = params.quantities?.[card.measurementKey];
+    const raw = quantities[card.measurementKey];
     if (positiveNumber(raw) != null) {
       included.add(card.itemId);
       fromQuantity.add(card.itemId);
@@ -1060,13 +1074,13 @@ export function syncElectricalScopeItems<
   }
   if (
     params.electricalIncludeRough === true ||
-    params.quantities?.electricalIncludeRough === true
+    quantities.electricalIncludeRough === true
   ) {
     included.add('electrical_rough');
   }
   if (
     params.electricalIncludeTrim === true ||
-    params.quantities?.electricalIncludeTrim === true
+    quantities.electricalIncludeTrim === true
   ) {
     if (!packageOnly) included.add('electrical_trim');
   }

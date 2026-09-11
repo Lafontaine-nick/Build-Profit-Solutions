@@ -15339,23 +15339,45 @@ export function resolveScopeItemSuggestedPricing(
       return empty;
     }
   }
+  const allowExplicitCrossTradeInsulationSurface =
+    String(templateKey || '').toLowerCase() !== 'ground_up';
   const hasConfirmedInsulationBoundary =
     itemId === 'insulation' &&
     (Array.isArray(measurementsInput.insulationAssemblies)
       ? resolvedInsulationAssemblies(measurementsInput).some(row =>
-          ['attic_ceiling', 'roof_deck'].includes(String(row.location || ''))
+          (allowExplicitCrossTradeInsulationSurface ||
+            ['attic_ceiling', 'roof_deck'].includes(
+              String(row.location || '')
+            )) &&
+          ['exterior_wall', 'attic_ceiling', 'roof_deck', 'floor'].includes(
+            String(row.location || '')
+          )
         )
-      : (Number(measurementsInput.atticInsulationSqft) > 0 &&
-          ![
-            'calculated_from_components',
-            'estimated_from_formula',
-            'needs_confirmation',
-          ].includes(
+      : [
+          'exteriorWallInsulationSqft',
+          'atticInsulationSqft',
+          'insulatedRoofDeckSqft',
+          'floorInsulationSqft',
+        ].some(key => {
+          const value = Number(
             String(
-              measurementsInput.quickMeasurementSources?.atticInsulationSqft
-            )
-          )) ||
-        Number(measurementsInput.insulatedRoofDeckSqft) > 0);
+              (measurementsInput as Record<string, unknown>)[key] ?? ''
+            ).replace(/,/g, '')
+          );
+          const source = String(
+            measurementsInput.quickMeasurementSources?.[key] || ''
+          );
+          return (
+            value > 0 &&
+            (allowExplicitCrossTradeInsulationSurface ||
+              ['atticInsulationSqft', 'insulatedRoofDeckSqft'].includes(key)) &&
+            ![
+              'calculated_from_components',
+              'estimated_from_formula',
+              'needs_confirmation',
+            ].includes(source)
+          );
+        }));
   if (
     itemId === 'insulation' &&
     !(
@@ -15781,7 +15803,6 @@ export function resolveScopeItemSuggestedPricing(
 
   if (
     itemId === 'trim_paint' &&
-    String(templateKey || '').toLowerCase() === 'painting' &&
     Number(resolved.quantity) > 0
   ) {
     const quantity = Number(resolved.quantity);
@@ -18038,6 +18059,52 @@ export function resolveScopeItemSuggestedPricing(
     };
   }
 
+  // The stock-cabinet benchmark includes basic standard hardware. When the
+  // notes provide a separate hardware allowance, move that amount out of the
+  // LF cabinet package so it is represented exactly once on cabinet_hardware.
+  if (
+    itemId === 'cabinets' &&
+    preferredUnit === 'lf' &&
+    average?.material != null &&
+    average?.labor != null
+  ) {
+    const noteAllowances = parseScopeItemAllowancesFromNotes(
+      fixtureSupplyNotes,
+      { templateKey: templateKey ?? undefined }
+    );
+    const explicitHardwareTotal = Number(
+      noteAllowances.cabinet_hardware?.quantity ?? 0
+    );
+    const cabinetCount = Number(
+      resolved.dualCount?.quantity ?? resolved.quantity
+    );
+    if (
+      Number.isFinite(explicitHardwareTotal) &&
+      explicitHardwareTotal > 0 &&
+      Number.isFinite(cabinetCount) &&
+      cabinetCount > 0
+    ) {
+      const packageMaterial = cabinetCount * average.material;
+      const packageLabor = cabinetCount * average.labor;
+      const adjustedMaterial = Math.max(
+        0,
+        packageMaterial - explicitHardwareTotal
+      );
+      const remainingHardware = Math.max(
+        0,
+        explicitHardwareTotal - packageMaterial
+      );
+      average = {
+        ...average,
+        material: round2(adjustedMaterial / cabinetCount),
+        labor: round2(
+          Math.max(0, packageLabor - remainingHardware) / cabinetCount
+        ),
+        sourceLabel: `${average.sourceLabel || 'Cabinet rate'} · hardware priced separately from notes`,
+      };
+    }
+  }
+
   if (itemId === 'hvac') {
     const evidenceTier = resolveHvacPricingEvidenceTier(
       measurementsInput as Record<string, unknown>,
@@ -19165,12 +19232,30 @@ export function resolveScopeItemSuggestedPricing(
       sourceLabel: flooringInstallAverage.sourceLabel,
     };
   }
-  const template = resolveTemplateRateForItem(
+  let template = resolveTemplateRateForItem(
     itemId,
     unit,
     pricingContext,
     count
   );
+  // A stale saved cabinet rate can come from an older cabinet-hardware
+  // mapping. Do not let an implausibly low per-LF template rate replace the
+  // current stock-cabinet benchmark (the visible symptom is 38 LF priced at
+  // $450). Keep legitimate saved rates when they are within a reasonable
+  // cabinet-supply/install range.
+  if (
+    itemId === 'cabinets' &&
+    unit === 'lf' &&
+    template &&
+    average?.material != null &&
+    average?.labor != null
+  ) {
+    const savedRate =
+      Number(template.materialRate || 0) + Number(template.laborRate || 0);
+    if (savedRate > 0 && savedRate < 100) {
+      template = null;
+    }
+  }
   const decorativeFinishRates = {
     integral_color: { material: 1.5, labor: 0, label: 'Integral color' },
     exposed_aggregate: { material: 4, labor: 0, label: 'Exposed aggregate' },

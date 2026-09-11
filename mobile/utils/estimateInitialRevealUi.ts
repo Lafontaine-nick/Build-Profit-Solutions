@@ -323,7 +323,7 @@ function getInitialRevealScopeRows(
       .filter(Boolean)
   );
   const hasResolvedFacts = facts.length > 0;
-  const rows =
+  let rows =
     draft.scopeChecklist?.items
       ?.filter((item) => revealChecklistItemVisible(draft, item))
       .filter(
@@ -353,6 +353,117 @@ function getInitialRevealScopeRows(
       ),
     });
     ids.add(id);
+  }
+  const hasDetailedScopeRow = rows.some((row) =>
+    /(?:\b\d[\d,]*(?:\.\d+)?\s*(?:lf|sqft|sf|each)\b|\bR[-\s]?\d{2,3}\b|\btwo\s+new\s+windows?\b|\bone\s+new\s+exterior\s+door\b)/i.test(
+      row.name
+    )
+  );
+  rows = rows.filter((row) => {
+    const name = row.name.trim();
+    const notes = String(draft.originalNotes || '');
+    const explicitWallLayoutWork =
+      /\b(?:remove|removing|demo|demolish|tear[\s-]?out|add|adding|move|moving|relocat(?:e|ed|ing)|reframe|frame|framing)\b[^.;\n]{0,60}\bwalls?\b|\bwalls?\b[^.;\n]{0,60}\b(?:remove|removing|demo|demolish|tear[\s-]?out|add|adding|move|moving|relocat(?:e|ed|ing)|reframe|frame|framing)\b|\bwall\s+layout\s+changes?\b/i.test(
+        notes
+      );
+    // These are default room-remodel checklist rows, not note-backed work.
+    // “R-21 wall insulation” must not promote wall construction/layout work.
+    if (row.id === 'walls_moving' && !explicitWallLayoutWork) {
+      return false;
+    }
+    // The kitchen checklist can contain a generic “Walls” paint row in
+    // addition to the explicit Interior painting row. Keep the priced,
+    // note-backed painting scope and suppress the duplicate label.
+    if (
+      /^walls$/i.test(name) &&
+      rows.some(
+        (candidate) =>
+          candidate.id !== row.id &&
+          /\binterior\s+paint(?:ing)?\b/i.test(candidate.name)
+      )
+    ) {
+      return false;
+    }
+    if (
+      /\b(?:style|manufacturer|finish|hardware|color|edge profile|specification|selection|details|schedule|payment terms|permit|engineering|inspection|labor and material|cost breakdown)\b/i.test(
+        name
+      )
+    ) {
+      return false;
+    }
+    if (
+      /^(?:kitchen|kitchen remodel|plumbing|electrical|drywall and insulation|material\/labor pricing for flooring|windows and exterior door)$/i.test(
+        name
+      )
+    ) {
+      return false;
+    }
+    if (
+      hasDetailedScopeRow &&
+      /^(?:drywall repair|drywall patch \/ repair|insulation)$/i.test(name)
+    ) {
+      return false;
+    }
+    if (
+      /^plumbing fixture and appliance scope$/i.test(name) &&
+      !/\b(?:fixture|faucet|sink|toilet|vanity|appliance|disposal)\b/i.test(
+        String(draft.originalNotes || '')
+      )
+    ) {
+      return false;
+    }
+    return true;
+  });
+  const hydratedKitchenDemoSource = `${String(draft.originalNotes || '')} ${rows
+    .map((row) => row.name)
+    .join(' ')}`;
+  if (
+    kitchenContext &&
+    /\b(?:demo(?:lition)?|remove|removal|tear[\s-]?out)\b/i.test(
+      hydratedKitchenDemoSource
+    )
+  ) {
+    const demoRows = [
+      {
+        pattern: /\b(?:cabinet|cabinets)\b/i,
+        id: 'note:kitchen cabinet demo',
+        name: 'Cabinet demo / removal',
+      },
+      {
+        pattern: /\b(?:counter|counters|countertop|countertops)\b/i,
+        id: 'note:kitchen countertop demo',
+        name: 'Countertop demo / removal',
+      },
+      {
+        pattern: /\bbacksplash\b/i,
+        id: 'note:kitchen backsplash demo',
+        name: 'Backsplash demo / removal',
+      },
+      {
+        pattern: /\b(?:floor|flooring|lvp|vinyl|laminate|carpet)\b/i,
+        id: 'note:kitchen flooring demo',
+        name: 'Kitchen flooring demo / removal',
+      },
+    ];
+    const existingNames = new Set(rows.map((row) => row.name.toLowerCase()));
+    const expandedRows: Array<{ id: string; name: string }> = [];
+    for (const row of rows) {
+      if (
+        /demolition(?: and disposal)? of existing|kitchen demolition/i.test(
+          row.name
+        )
+      ) {
+        for (const demo of demoRows) {
+          if (!demo.pattern.test(hydratedKitchenDemoSource)) continue;
+          if (existingNames.has(demo.name.toLowerCase())) continue;
+          expandedRows.push({ id: demo.id, name: demo.name });
+          existingNames.add(demo.name.toLowerCase());
+        }
+        continue;
+      }
+      expandedRows.push(row);
+    }
+    rows = expandedRows;
   }
   if (!rows.length) {
     const fallbackItems = [
@@ -401,7 +512,7 @@ function getInitialRevealScopeRows(
       if (
         !plain ||
         /^(all|project price|labor vs material|pricing total|customer|project address)\b/i.test(plain) ||
-        /\b(?:style|manufacturer|finish|hardware|color|edge profile|specification|selection|schedule|payment terms|permit requirements|labor and material|cost breakdown)\b/i.test(
+        /\b(?:style|manufacturer|finish|hardware|color|edge profile|specification|selection|details|schedule|payment terms|permit requirements|labor and material|cost breakdown)\b/i.test(
           plain
         ) ||
         (/^plumbing fixture and appliance scope$/i.test(plain) &&

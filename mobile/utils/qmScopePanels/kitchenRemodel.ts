@@ -232,6 +232,7 @@ export const KITCHEN_QM_EMBEDDED_IDS = new Set([
   'flooring',
   'appliances',
   'island',
+  'cabinet_hardware',
 ]);
 
 const EXISTING_KEYS: (keyof KitchenExistingCounts)[] = [
@@ -595,6 +596,17 @@ export function shouldHideKitchenScopeCardInQmEmbed(
   measurements: Record<string, unknown>,
   items?: ScopeChecklistItem[]
 ): boolean {
+  // Basic hardware is included in the stock cabinet supply/install allowance.
+  // Keep the separate card available only for explicitly selected specialty or
+  // upgrade hardware.
+  if (itemId === 'cabinet_hardware') {
+    const cabinetRow = items?.find((r) => r.id === 'cabinets');
+    const hardwareRow = items?.find((r) => r.id === 'cabinet_hardware');
+    return (
+      Boolean(cabinetRow && checklistRowInScope(cabinetRow)) &&
+      !Boolean(hardwareRow && checklistRowInScope(hardwareRow))
+    );
+  }
   if (!KITCHEN_QM_EMBEDDED_IDS.has(itemId)) return false;
   return !kitchenQmScopeCardVisible(itemId, measurements, items);
 }

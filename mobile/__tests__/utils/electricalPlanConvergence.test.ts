@@ -942,6 +942,22 @@ describe('electrical canonical architecture', () => {
     );
   });
 
+  it('materializes receptacles from notes in cross-trade workflows', () => {
+    const selected = syncElectricalScopeItems([], {
+      templateKey: 'kitchen',
+      notes: 'Remodel kitchen and install 8 receptacles.',
+    });
+
+    expect(selected).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'electrical_standard_receptacle',
+          state: 'included',
+        }),
+      ])
+    );
+  });
+
   it('provides pricing for every measurable electrical quantity card', () => {
     for (const card of ELECTRICAL_CARDS) {
       const input = inputWith({

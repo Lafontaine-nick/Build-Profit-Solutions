@@ -79,7 +79,13 @@ const ITEM_ALLOWANCE_MATCHERS = [
     id: 'cabinets',
     match: /\b(cabinets?)\b/i,
     exclude:
-      /\b(cabinets?|cabinetry)\b[^.;]{0,48}\b(demo|demolition|tear[\s-]?out|haul[\s-]?off|remove|removal)\b|\b(demo|demolition|tear[\s-]?out|haul[\s-]?off|remove|removal)\b[^.;]{0,48}\b(cabinets?|cabinetry)\b/i,
+      /\bcabinet\s+hardware\b|\b(cabinets?|cabinetry)\b[^.;]{0,48}\b(demo|demolition|tear[\s-]?out|haul[\s-]?off|remove|removal)\b|\b(demo|demolition|tear[\s-]?out|haul[\s-]?off|remove|removal)\b[^.;]{0,48}\b(cabinets?|cabinetry)\b/i,
+    unit: 'allowance',
+  },
+  {
+    id: 'cabinet_hardware',
+    match:
+      /\bcabinet\s*hardware\b|\bhardware\b[^.;]{0,40}\b(?:pulls?|knobs?)\b|\b(?:pulls?|knobs?)\b[^.;]{0,40}\bhardware\b/i,
     unit: 'allowance',
   },
   {
@@ -338,7 +344,20 @@ function parseScopeItemAllowancesFromNotes(notes, ctx = {}) {
       if (matcher.id === 'demo' && /\b(final\s+clean|cleanup|disposal)\b/i.test(clause)) continue;
       if (!clauseMatchesMatcher(clause, matcher)) continue;
 
-      const amount = pickAmountForMatcher(clause, matcher) ?? pickClauseTotalAmount(clause);
+      const matchedAmount = pickAmountForMatcher(clause, matcher);
+      const hasHardwareSpecificAmount =
+        /\bcabinet\s*hardware\b[^.;\n]{0,40}\$\s*\d|\$\s*\d[^.;\n]{0,40}\bcabinet\s*hardware\b/i.test(
+          clause
+        );
+      // Do not let the cabinet-hardware allowance become the price for every
+      // other scope mentioned in the same sentence.
+      if (
+        hasHardwareSpecificAmount &&
+        matcher.id !== 'cabinet_hardware'
+      ) {
+        continue;
+      }
+      const amount = matchedAmount ?? pickClauseTotalAmount(clause);
       if (!amount) continue;
 
       if (ACCUMULATE_ALLOWANCE_IDS.has(matcher.id) && out[matcher.id]) {

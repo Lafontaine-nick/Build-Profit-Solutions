@@ -38,55 +38,13 @@ npm warn Unknown env config "devdir". This will stop working in the next major v
 
 📄 Loaded 4 invoices from storage
 ✅ Database connected successfully
-[0mGET /health [32m200[0m 1.841 ms - 100[0m
 Invalid token, using dev user: invalid algorithm
-[0mGET /api/auth/profile [32m200[0m 0.575 ms - 167[0m
-🔍 Auth: Attempting Clerk token decode {
-  hasDecoded: true,
-  hasSub: true,
-  tokenLength: 786,
-  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
-}
-✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-Database unavailable, returning default settings: relation "user_settings" does not exist
-[0mGET /api/user-settings [36m304[0m 86.141 ms - -[0m
-[0mGET /api/projects [32m200[0m 25.027 ms - -[0m
-[0mGET /api/dashboard [32m200[0m 136.898 ms - 81[0m
-[0mPOST /api/workspaces/members/accept-invite [31m503[0m 7.246 ms - 97[0m
-[0mPOST /api/workspaces/members/accept-invite [31m503[0m 0.925 ms - 97[0m
-[0mGET /api/walkthrough-state [32m200[0m 13.560 ms - 321[0m
-[0mGET /api/workspaces/bootstrap [36m304[0m 0.853 ms - -[0m
-[0mGET /api/workspaces/bootstrap [36m304[0m 0.661 ms - -[0m
-🔍 Auth: Attempting Clerk token decode {
-  hasDecoded: true,
-  hasSub: true,
-  tokenLength: 786,
-  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
-}
-✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-[0mGET /api/projects [32m200[0m 16.395 ms - -[0m
-🔍 Auth: Attempting Clerk token decode {
-  hasDecoded: true,
-  hasSub: true,
-  tokenLength: 786,
-  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
-}
-✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-[0mPOST /api/projects/sync [32m200[0m 33.041 ms - -[0m
-🔍 Auth: Attempting Clerk token decode {
-  hasDecoded: true,
-  hasSub: true,
-  tokenLength: 786,
-  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
-}
-✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-[0mPOST /api/projects/sync [32m200[0m 54.542 ms - -[0m
 Invalid token, using dev user: invalid algorithm
 Database unavailable, returning default settings: relation "user_settings" does not exist
-[0mGET /api/user-settings [32m200[0m 1.461 ms - 154[0m
-Invalid token, using dev user: invalid algorithm
+[0mGET /api/user-settings [32m200[0m 21.787 ms - 154[0m
 Database unavailable, returning default settings: relation "user_settings" does not exist
-[0mGET /api/user-settings [32m200[0m 11.725 ms - 154[0m
+[0mGET /api/user-settings [32m200[0m 66.011 ms - 154[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 182.685 ms - 176[0m
 [AI Dashboard] Cache miss - calling OpenAI for userId: user_3ESD7GXNND3kTNwQxE6liuSGcQk
 [AI Dashboard] Calling OpenAI with: {
   projectCount: 0,
@@ -97,11 +55,6 @@ Database unavailable, returning default settings: relation "user_settings" does 
   totalActualCost: 0,
   sampleProject: null
 }
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 1.073 ms - 40[0m
-[0mGET /api/workspaces/bootstrap [32m200[0m 0.516 ms - 176[0m
-[0mGET /api/walkthrough-state [36m304[0m 7.920 ms - -[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 4.243 ms - 321[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 5.228 ms - 321[0m
 [AI Dashboard] AI returned: { insightsCount: 0, nextStepsCount: 0, firstInsight: null }
 [AI Dashboard] Final insights count: {
   baseInsights: 0,
@@ -111,15 +64,23 @@ Database unavailable, returning default settings: relation "user_settings" does 
   totalBid: 0,
   totalActualCost: 0
 }
-[0mPOST /api/ai/dashboard-insights [32m200[0m 1994.493 ms - 444[0m
-[0mGET /api/walkthrough-state [32m200[0m 1.557 ms - 321[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 1.311 ms - 321[0m
-[0mPOST /api/ai-assistant/estimate-draft-from-notes [32m200[0m 13319.924 ms - -[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.630 ms - 40[0m
-[0mPOST /api/ai-assistant/estimate-draft-clarify [32m200[0m 10147.207 ms - -[0m
-[0mGET /health [32m200[0m 2.396 ms - 100[0m
+[0mPOST /api/ai/dashboard-insights [32m200[0m 1545.388 ms - 444[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 1.135 ms - 40[0m
+[0mGET /api/walkthrough-state [32m200[0m 4.482 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 5.785 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 7.479 ms - 321[0m
+[0mGET /api/walkthrough-state [32m200[0m 1.545 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 1.574 ms - 321[0m
+[0mGET /api/walkthrough-state [32m200[0m 0.789 ms - 321[0m
+[0mPOST /api/ai-assistant/estimate-draft-from-notes [32m200[0m 13198.465 ms - -[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 1.098 ms - 40[0m
+[0mPOST /api/ai-assistant/estimate-draft-clarify [32m200[0m 10380.648 ms - -[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 2.521 ms - -[0m
+[0mGET /health [32m200[0m 1.968 ms - 100[0m
 Invalid token, using dev user: invalid algorithm
-[0mGET /api/auth/profile [32m200[0m 5.411 ms - 167[0m
+[0mGET /api/auth/profile [32m200[0m 2.512 ms - 167[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 12.151 ms - 154[0m
 🔍 Auth: Attempting Clerk token decode {
   hasDecoded: true,
   hasSub: true,
@@ -127,12 +88,13 @@ Invalid token, using dev user: invalid algorithm
   tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
 }
 ✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-Clerk token verify error: JWT is expired. Expiry date: Fri, 11 Sep 2026 13:14:51 GMT, Current date: Fri, 11 Sep 2026 13:14:56 GMT.
+Clerk token verify error: JWT is expired. Expiry date: Fri, 11 Sep 2026 13:33:19 GMT, Current date: Fri, 11 Sep 2026 13:34:33 GMT.
 Clerk verify unavailable; accepted decoded Clerk JWT for local dev
-[0mGET /api/dashboard [32m200[0m 21.518 ms - 81[0m
-[0mGET /api/projects [32m200[0m 47.519 ms - -[0m
-[0mPOST /api/workspaces/members/accept-invite [31m503[0m 14.223 ms - 97[0m
-[0mGET /api/workspaces/bootstrap [32m200[0m 2.129 ms - 176[0m
+[0mGET /api/dashboard [32m200[0m 54.936 ms - 81[0m
+[0mGET /api/projects [32m200[0m 38.486 ms - -[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 1.002 ms - 97[0m
+[0mGET /api/walkthrough-state [32m200[0m 15.558 ms - 321[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.989 ms - 176[0m
 🔍 Auth: Attempting Clerk token decode {
   hasDecoded: true,
   hasSub: true,
@@ -140,7 +102,7 @@ Clerk verify unavailable; accepted decoded Clerk JWT for local dev
   tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
 }
 ✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-[0mGET /api/projects [32m200[0m 30.604 ms - -[0m
+[0mGET /api/projects [32m200[0m 21.529 ms - -[0m
 🔍 Auth: Attempting Clerk token decode {
   hasDecoded: true,
   hasSub: true,
@@ -148,13 +110,10 @@ Clerk verify unavailable; accepted decoded Clerk JWT for local dev
   tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
 }
 ✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 47.045 ms - -[0m
 Clerk token verify error: Unable to find a signing key in JWKS that matches the kid='undefined' of the provided session token. Please make sure that the __session cookie or the HTTP authorization header contain a Clerk-generated session JWT. The following kid is available: ins_35dpIJV94P0JV8QGfnDNjDjTIUg
-[0mPOST /api/workspaces/members/accept-invite [33m403[0m 408.935 ms - 36[0m
-[0mPOST /api/projects/sync [32m200[0m 84.500 ms - -[0m
-[0mGET /api/workspaces/bootstrap [36m304[0m 1.337 ms - -[0m
-Database unavailable, returning default settings: relation "user_settings" does not exist
-[0mGET /api/user-settings [32m200[0m 1259.182 ms - 154[0m
-[0mGET /api/walkthrough-state [32m200[0m 1046.360 ms - 321[0m
+[0mPOST /api/workspaces/members/accept-invite [33m403[0m 344.679 ms - 36[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.604 ms - 176[0m
 🔍 Auth: Attempting Clerk token decode {
   hasDecoded: true,
   hasSub: true,
@@ -162,12 +121,12 @@ Database unavailable, returning default settings: relation "user_settings" does 
   tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
 }
 ✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-[0mPOST /api/projects/sync [32m200[0m 75.595 ms - -[0m
-[0mGET /health [32m200[0m 1.857 ms - 100[0m
+[0mPOST /api/projects/sync [32m200[0m 38.564 ms - -[0m
+[0mGET /health [32m200[0m 2.161 ms - 100[0m
 Invalid token, using dev user: invalid algorithm
-[0mGET /api/auth/profile [32m200[0m 0.798 ms - 167[0m
+[0mGET /api/auth/profile [32m200[0m 0.918 ms - 167[0m
 Database unavailable, returning default settings: relation "user_settings" does not exist
-[0mGET /api/user-settings [36m304[0m 18.456 ms - -[0m
+[0mGET /api/user-settings [32m200[0m 15.625 ms - 154[0m
 🔍 Auth: Attempting Clerk token decode {
   hasDecoded: true,
   hasSub: true,
@@ -175,13 +134,13 @@ Database unavailable, returning default settings: relation "user_settings" does 
   tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
 }
 ✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-Clerk token verify error: JWT is expired. Expiry date: Fri, 11 Sep 2026 13:15:56 GMT, Current date: Fri, 11 Sep 2026 13:16:10 GMT.
-Clerk verify unavailable; accepted decoded Clerk JWT for local dev
-[0mGET /api/dashboard [32m200[0m 45.641 ms - 81[0m
-[0mGET /api/projects [32m200[0m 31.583 ms - -[0m
-[0mPOST /api/workspaces/members/accept-invite [31m503[0m 1.194 ms - 97[0m
-[0mGET /api/walkthrough-state [32m200[0m 15.779 ms - 321[0m
-[0mGET /api/workspaces/bootstrap [36m304[0m 0.448 ms - -[0m
+[0mGET /api/dashboard [32m200[0m 12.259 ms - 81[0m
+[0mGET /api/projects [32m200[0m 21.468 ms - -[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 1.144 ms - 97[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 0.528 ms - 97[0m
+[0mGET /api/walkthrough-state [32m200[0m 6.731 ms - 321[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 1.009 ms - 176[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.955 ms - 176[0m
 🔍 Auth: Attempting Clerk token decode {
   hasDecoded: true,
   hasSub: true,
@@ -189,9 +148,7 @@ Clerk verify unavailable; accepted decoded Clerk JWT for local dev
   tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
 }
 ✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-[0mGET /api/projects [32m200[0m 17.405 ms - -[0m
-Clerk token verify error: Unable to find a signing key in JWKS that matches the kid='undefined' of the provided session token. Please make sure that the __session cookie or the HTTP authorization header contain a Clerk-generated session JWT. The following kid is available: ins_35dpIJV94P0JV8QGfnDNjDjTIUg
-[0mPOST /api/workspaces/members/accept-invite [33m403[0m 199.142 ms - 36[0m
+[0mGET /api/projects [32m200[0m 16.953 ms - -[0m
 🔍 Auth: Attempting Clerk token decode {
   hasDecoded: true,
   hasSub: true,
@@ -199,11 +156,10 @@ Clerk token verify error: Unable to find a signing key in JWKS that matches the 
   tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
 }
 ✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-[0mGET /api/workspaces/bootstrap [32m200[0m 1.920 ms - 176[0m
-[0mPOST /api/projects/sync [32m200[0m 39.646 ms - -[0m
+[0mPOST /api/projects/sync [32m200[0m 47.176 ms - -[0m
 Invalid token, using dev user: invalid algorithm
 Database unavailable, returning default settings: relation "user_settings" does not exist
-[0mGET /api/user-settings [32m200[0m 1.340 ms - 154[0m
+[0mGET /api/user-settings [32m200[0m 0.944 ms - 154[0m
 Invalid token, using dev user: invalid algorithm
 [AI Dashboard] Cache hit for userId: user_3ESD7GXNND3kTNwQxE6liuSGcQk
 [AI Dashboard] Final insights count: {
@@ -214,16 +170,15 @@ Invalid token, using dev user: invalid algorithm
   totalBid: 0,
   totalActualCost: 0
 }
-[0mPOST /api/ai/dashboard-insights [32m200[0m 10.749 ms - 444[0m
+[0mPOST /api/ai/dashboard-insights [32m200[0m 7.969 ms - 444[0m
 Database unavailable, returning default settings: relation "user_settings" does not exist
-[0mGET /api/user-settings [32m200[0m 4.226 ms - 154[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.920 ms - 40[0m
-[0mGET /api/walkthrough-state [32m200[0m 4.249 ms - 321[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 3.991 ms - 321[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 5.840 ms - 321[0m
-[0mGET /api/walkthrough-state [32m200[0m 1.082 ms - 321[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 1.978 ms - 321[0m
-[0mGET /api/walkthrough-state [32m200[0m 1.020 ms - 321[0m
+[0mGET /api/user-settings [32m200[0m 3.406 ms - 154[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.715 ms - 40[0m
+[0mGET /api/walkthrough-state [32m200[0m 8.250 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 3.887 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 5.765 ms - 321[0m
+[0mGET /api/walkthrough-state [32m200[0m 0.992 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 1.158 ms - 321[0m
 🔍 Auth: Attempting Clerk token decode {
   hasDecoded: true,
   hasSub: true,
@@ -231,50 +186,30 @@ Database unavailable, returning default settings: relation "user_settings" does 
   tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
 }
 ✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-[0mPOST /api/projects/sync [32m200[0m 35.505 ms - -[0m
-[0mPOST /api/ai-assistant/estimate-draft-from-notes [32m200[0m 19882.235 ms - -[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.415 ms - 40[0m
-[0mPOST /api/ai-assistant/estimate-draft-clarify [32m200[0m 11499.531 ms - 989[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 4.919 ms - -[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 2.847 ms - -[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 21.634 ms - 321[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 1.241 ms - -[0m
-[0mGET /api/walkthrough-state [32m200[0m 2.873 ms - 321[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 3.313 ms - 321[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 1.352 ms - 321[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 1.126 ms - -[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 1.248 ms - -[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 3.151 ms - 321[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 5.698 ms - 321[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 5.136 ms - 321[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.663 ms - -[0m
-[0mGET /api/walkthrough-state [32m200[0m 1.968 ms - 321[0m
-[0mGET /api/walkthrough-state [32m200[0m 1.184 ms - 321[0m
-[0mGET /api/walkthrough-state [32m200[0m 0.794 ms - 321[0m
-[0mGET /api/workspaces/bootstrap [32m200[0m 0.821 ms - 176[0m
-🔍 Auth: Attempting Clerk token decode {
-  hasDecoded: true,
-  hasSub: true,
-  tokenLength: 786,
-  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
-}
-✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-[0mPOST /api/projects/sync [32m200[0m 42.501 ms - -[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 3.854 ms - -[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 7.381 ms - -[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 12.995 ms - 321[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 2.567 ms - -[0m
-[0mGET /api/walkthrough-state [32m200[0m 14.889 ms - 321[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 1.904 ms - 321[0m
-[0mGET /api/walkthrough-state [32m200[0m 2.305 ms - 321[0m
-[0mGET /api/walkthrough-state [32m200[0m 1.507 ms - 321[0m
-[0mGET /api/workspaces/bootstrap [32m200[0m 1.565 ms - 176[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 1.516 ms - -[0m
-[0mGET /health [32m200[0m 0.425 ms - 100[0m
+[0mPOST /api/projects/sync [32m200[0m 38.701 ms - -[0m
+[0mPOST /api/ai-assistant/estimate-draft-from-notes [32m200[0m 14212.356 ms - -[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.712 ms - 40[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.695 ms - 40[0m
+[0mPOST /api/ai-assistant/estimate-draft-clarify [32m200[0m 7614.730 ms - -[0m
+[0mGET /health [32m200[0m 1.703 ms - 100[0m
 Invalid token, using dev user: invalid algorithm
-[0mGET /api/auth/profile [32m200[0m 0.464 ms - 167[0m
+[0mGET /api/auth/profile [32m200[0m 0.575 ms - 167[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/dashboard [32m200[0m 7.984 ms - 81[0m
 Database unavailable, returning default settings: relation "user_settings" does not exist
-[0mGET /api/user-settings [36m304[0m 10.164 ms - -[0m
+[0mGET /api/user-settings [32m200[0m 82.936 ms - 154[0m
+[0mGET /api/projects [32m200[0m 25.097 ms - -[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 0.954 ms - 97[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 0.476 ms - 97[0m
+[0mGET /api/walkthrough-state [32m200[0m 5.349 ms - 321[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.709 ms - 176[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.701 ms - 176[0m
 🔍 Auth: Attempting Clerk token decode {
   hasDecoded: true,
   hasSub: true,
@@ -282,16 +217,7 @@ Database unavailable, returning default settings: relation "user_settings" does 
   tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
 }
 ✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-[0mGET /api/projects [32m200[0m 38.748 ms - -[0m
-[0mGET /api/walkthrough-state [32m200[0m 5.608 ms - 321[0m
-Clerk token verify error: JWT is expired. Expiry date: Fri, 11 Sep 2026 13:21:17 GMT, Current date: Fri, 11 Sep 2026 13:21:58 GMT.
-Clerk verify unavailable; accepted decoded Clerk JWT for local dev
-[0mGET /api/dashboard [32m200[0m 485.605 ms - 81[0m
-Clerk token verify error: Unable to find a signing key in JWKS that matches the kid='undefined' of the provided session token. Please make sure that the __session cookie or the HTTP authorization header contain a Clerk-generated session JWT. The following kid is available: ins_35dpIJV94P0JV8QGfnDNjDjTIUg
-[0mPOST /api/workspaces/members/accept-invite [33m403[0m 355.544 ms - 36[0m
-[0mPOST /api/workspaces/members/accept-invite [31m503[0m 353.694 ms - 97[0m
-[0mGET /api/workspaces/bootstrap [32m200[0m 1.172 ms - 176[0m
-[0mGET /api/workspaces/bootstrap [32m200[0m 1.174 ms - 176[0m
+[0mGET /api/projects [32m200[0m 16.169 ms - -[0m
 🔍 Auth: Attempting Clerk token decode {
   hasDecoded: true,
   hasSub: true,
@@ -299,7 +225,7 @@ Clerk token verify error: Unable to find a signing key in JWKS that matches the 
   tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
 }
 ✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-[0mGET /api/projects [32m200[0m 27.158 ms - -[0m
+[0mPOST /api/projects/sync [32m200[0m 33.644 ms - -[0m
 🔍 Auth: Attempting Clerk token decode {
   hasDecoded: true,
   hasSub: true,
@@ -307,10 +233,45 @@ Clerk token verify error: Unable to find a signing key in JWKS that matches the 
   tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
 }
 ✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-[0mPOST /api/projects/sync [32m200[0m 29.863 ms - -[0m
+[0mPOST /api/projects/sync [32m200[0m 29.329 ms - -[0m
+[0mGET /health [32m200[0m 1.907 ms - 100[0m
+Invalid token, using dev user: invalid algorithm
+[0mGET /api/auth/profile [32m200[0m 0.514 ms - 167[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 11.082 ms - 154[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/dashboard [32m200[0m 46.973 ms - 81[0m
+[0mGET /api/projects [32m200[0m 27.411 ms - -[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 1.048 ms - 97[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 0.515 ms - 97[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.524 ms - 176[0m
+[0mGET /api/walkthrough-state [32m200[0m 7.225 ms - 321[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.518 ms - 176[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/projects [32m200[0m 17.026 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 36.962 ms - -[0m
 Invalid token, using dev user: invalid algorithm
 Database unavailable, returning default settings: relation "user_settings" does not exist
-[0mGET /api/user-settings [32m200[0m 1.220 ms - 154[0m
+[0mGET /api/user-settings [32m200[0m 1.066 ms - 154[0m
 Invalid token, using dev user: invalid algorithm
 [AI Dashboard] Cache hit for userId: user_3ESD7GXNND3kTNwQxE6liuSGcQk
 [AI Dashboard] Final insights count: {
@@ -321,15 +282,15 @@ Invalid token, using dev user: invalid algorithm
   totalBid: 0,
   totalActualCost: 0
 }
-[0mPOST /api/ai/dashboard-insights [32m200[0m 9.326 ms - 444[0m
+[0mPOST /api/ai/dashboard-insights [32m200[0m 11.731 ms - 444[0m
 Database unavailable, returning default settings: relation "user_settings" does not exist
-[0mGET /api/user-settings [32m200[0m 4.780 ms - 154[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.844 ms - 40[0m
-[0mGET /api/walkthrough-state [32m200[0m 4.299 ms - 321[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 1.717 ms - 321[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 4.595 ms - 321[0m
-[0mGET /api/walkthrough-state [32m200[0m 0.902 ms - 321[0m
-[0mPATCH /api/walkthrough-state [32m200[0m 1.263 ms - 321[0m
+[0mGET /api/user-settings [32m200[0m 4.173 ms - 154[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 1.124 ms - 40[0m
+[0mGET /api/walkthrough-state [32m200[0m 4.361 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 2.118 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 6.295 ms - 321[0m
+[0mGET /api/walkthrough-state [32m200[0m 0.851 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 1.376 ms - 321[0m
 🔍 Auth: Attempting Clerk token decode {
   hasDecoded: true,
   hasSub: true,
@@ -337,7 +298,189 @@ Database unavailable, returning default settings: relation "user_settings" does 
   tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
 }
 ✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
-[0mPOST /api/projects/sync [32m200[0m 41.084 ms - -[0m
-[0mPOST /api/ai-assistant/estimate-draft-from-notes [32m200[0m 21341.487 ms - -[0m
-[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.427 ms - 40[0m
-[0mPOST /api/ai-assistant/estimate-draft-clarify [32m200[0m 10968.190 ms - -[0m
+[0mPOST /api/projects/sync [32m200[0m 49.378 ms - -[0m
+[0mPOST /api/ai-assistant/estimate-draft-from-notes [32m200[0m 13145.834 ms - -[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.919 ms - 40[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.582 ms - 40[0m
+[0mPOST /api/ai-assistant/estimate-draft-clarify [32m200[0m 8349.480 ms - -[0m
+[0mGET /health [32m200[0m 2.380 ms - 100[0m
+Invalid token, using dev user: invalid algorithm
+[0mGET /api/auth/profile [32m200[0m 0.836 ms - 167[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [36m304[0m 17.593 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/dashboard [32m200[0m 41.976 ms - 81[0m
+[0mGET /api/projects [32m200[0m 31.413 ms - -[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 0.837 ms - 97[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 0.713 ms - 97[0m
+[0mGET /api/walkthrough-state [32m200[0m 6.588 ms - 321[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.886 ms - 176[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.771 ms - 176[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/projects [32m200[0m 16.243 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 41.816 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 50.952 ms - -[0m
+Invalid token, using dev user: invalid algorithm
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 23.339 ms - 154[0m
+Invalid token, using dev user: invalid algorithm
+[AI Dashboard] Cache hit for userId: user_3ESD7GXNND3kTNwQxE6liuSGcQk
+[AI Dashboard] Final insights count: {
+  baseInsights: 0,
+  aiInsights: 0,
+  total: 0,
+  projectsCount: 0,
+  totalBid: 0,
+  totalActualCost: 0
+}
+[0mPOST /api/ai/dashboard-insights [32m200[0m 11.132 ms - 444[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 5.476 ms - 154[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 1.275 ms - 40[0m
+[0mGET /api/workspaces/bootstrap [36m304[0m 1.902 ms - -[0m
+[0mGET /api/walkthrough-state [32m200[0m 13.734 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 2.268 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 5.059 ms - 321[0m
+[0mGET /api/walkthrough-state [32m200[0m 0.994 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 1.084 ms - 321[0m
+[0mPOST /api/ai-assistant/estimate-draft-from-notes [32m200[0m 13738.675 ms - -[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 0.701 ms - 40[0m
+[0mPOST /api/ai-assistant/estimate-draft-clarify [32m200[0m 8476.283 ms - -[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 3.025 ms - 40[0m
+[0mGET /health [32m200[0m 2.566 ms - 100[0m
+Invalid token, using dev user: invalid algorithm
+[0mGET /api/auth/profile [32m200[0m 3.926 ms - 167[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [36m304[0m 990.401 ms - -[0m
+[0mGET /api/projects [32m200[0m 29.390 ms - -[0m
+[0mGET /api/walkthrough-state [32m200[0m 74.408 ms - 321[0m
+[0mGET /api/dashboard [32m200[0m 393.123 ms - 81[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 349.459 ms - 97[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 353.143 ms - 97[0m
+[0mGET /api/workspaces/bootstrap [36m304[0m 1.102 ms - -[0m
+[0mGET /api/workspaces/bootstrap [36m304[0m 1.662 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/projects [32m200[0m 25.292 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 57.740 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 54.591 ms - -[0m
+[0mGET /health [32m200[0m 1.125 ms - 100[0m
+Invalid token, using dev user: invalid algorithm
+[0mGET /api/auth/profile [32m200[0m 1.549 ms - 167[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [32m200[0m 20.541 ms - 154[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+Clerk token verify error: JWT is expired. Expiry date: Fri, 11 Sep 2026 13:40:48 GMT, Current date: Fri, 11 Sep 2026 13:41:38 GMT.
+Clerk verify unavailable; accepted decoded Clerk JWT for local dev
+[0mGET /api/dashboard [32m200[0m 73.070 ms - 81[0m
+[0mGET /api/projects [32m200[0m 51.340 ms - -[0m
+[0mGET /api/walkthrough-state [32m200[0m 13.853 ms - 321[0m
+[0mPOST /api/workspaces/members/accept-invite [31m503[0m 0.646 ms - 97[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 0.708 ms - 176[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mGET /api/projects [32m200[0m 18.409 ms - -[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 36.319 ms - -[0m
+Clerk token verify error: Unable to find a signing key in JWKS that matches the kid='undefined' of the provided session token. Please make sure that the __session cookie or the HTTP authorization header contain a Clerk-generated session JWT. The following kid is available: ins_35dpIJV94P0JV8QGfnDNjDjTIUg
+[0mPOST /api/workspaces/members/accept-invite [33m403[0m 330.478 ms - 36[0m
+[0mGET /api/workspaces/bootstrap [32m200[0m 1.474 ms - 176[0m
+Invalid token, using dev user: invalid algorithm
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [36m304[0m 2.677 ms - -[0m
+Invalid token, using dev user: invalid algorithm
+[AI Dashboard] Cache hit for userId: user_3ESD7GXNND3kTNwQxE6liuSGcQk
+[AI Dashboard] Final insights count: {
+  baseInsights: 0,
+  aiInsights: 0,
+  total: 0,
+  projectsCount: 0,
+  totalBid: 0,
+  totalActualCost: 0
+}
+[0mPOST /api/ai/dashboard-insights [32m200[0m 13.268 ms - 444[0m
+Database unavailable, returning default settings: relation "user_settings" does not exist
+[0mGET /api/user-settings [36m304[0m 17.660 ms - -[0m
+[0mGET /api/contractor-pricing-memory/library [32m200[0m 1.157 ms - 40[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 9.107 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 1.530 ms - 321[0m
+[0mGET /api/walkthrough-state [32m200[0m 5.026 ms - 321[0m
+[0mGET /api/walkthrough-state [32m200[0m 1.329 ms - 321[0m
+[0mPATCH /api/walkthrough-state [32m200[0m 1.676 ms - 321[0m
+🔍 Auth: Attempting Clerk token decode {
+  hasDecoded: true,
+  hasSub: true,
+  tokenLength: 786,
+  tokenPreview: 'eyJhbGciOiJSUzI1NiIs...'
+}
+✅ Auth: Clerk token decoded successfully { userId: 'user_3ESD7GXNND3kTNwQxE6liuSGcQk' }
+[0mPOST /api/projects/sync [32m200[0m 77.231 ms - -[0m
