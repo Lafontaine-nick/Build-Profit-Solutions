@@ -834,7 +834,7 @@ function insulationAssemblyLocationReviewLabel(
       attic_ceiling: 'Attic / ceiling',
       roof_deck: 'Roof deck',
       garage_separation: 'Garage separation',
-      floor: 'Floor',
+      floor: 'Floor insulation',
     }[String(location || '').trim()] || 'Assembly'
   );
 }

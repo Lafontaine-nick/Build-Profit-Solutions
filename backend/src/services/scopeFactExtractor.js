@@ -1,5 +1,9 @@
 const { parseScopeMeasurementsFromNotes } = require("./scopeMeasurementParser");
-const { getScopeCatalogEntry, getCatalogIdentity } = require("./scopeCatalog");
+const {
+  getScopeCatalogEntry,
+  getCatalogIdentity,
+  getCatalogShadowMatches,
+} = require("./scopeCatalog");
 
 function positive(value) {
   const quantity = Number(value);
@@ -50,6 +54,77 @@ function objectForScopeId(scopeId) {
     .replace(/_(?:install|installation|paint|painting|demo|repair|prep)$/, "");
 }
 
+function catalogAliasPattern(alias) {
+  return new RegExp(
+    `(^|[^a-z0-9])${String(alias || "")
+      .trim()
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .replace(/\s+/g, "\\s+")}(?=$|[^a-z0-9])`,
+    "i",
+  );
+}
+
+function catalogMentionIsExplicit(notes, alias, entry) {
+  const aliasMatch = catalogAliasPattern(alias).exec(String(notes || ""));
+  if (!aliasMatch) return false;
+  const start = Math.max(0, aliasMatch.index - 90);
+  const end = Math.min(String(notes || "").length, aliasMatch.index + alias.length + 90);
+  const context = String(notes || "").slice(start, end);
+  if (
+    /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included)\b[^.;\n]{0,60}\b(?:the\s+)?(?:work|scope|item)?\b/i.test(
+      context,
+    )
+  ) {
+    return false;
+  }
+  if (entry.category === "demolition") {
+    return /\b(?:demo(?:lition)?|remove|removal|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b/i.test(
+      context,
+    );
+  }
+  return (
+    /\b(?:install|replace|add|new|relocat(?:e|ion)|reroute|repair|paint|include|perform|insulat(?:e|ion))\b/i.test(
+      context,
+    ) ||
+    (entry.scopeId === "insulation" && /\bR[-\s]?\d{2,3}\b/i.test(context))
+  );
+}
+
+function semanticObjectKey(scopeId) {
+  return String(scopeId || "")
+    .toLowerCase()
+    .replace(/^interior_/, "")
+    .replace(/^exterior_/, "")
+    .replace(/_(?:lvp|vinyl|tile|install|installation|paint|painting)$/, "")
+    .replace(/s$/, "");
+}
+
+function quantityFromCatalogAlias(notes, alias, defaultUnit) {
+  const escapedAlias = String(alias || "")
+    .trim()
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\s+/g, "\\s+");
+  const unitPattern =
+    "(lf|linear\\s+(?:feet|foot)|sq\\.?\\s*ft\\.?|sqft|sf|each|ea)?";
+  const before = String(notes || "").match(
+    new RegExp(
+      `(\\d[\\d,]*(?:\\.\\d+)?)\\s*${unitPattern}\\s+(?:of\\s+)?${escapedAlias}\\b`,
+      "i",
+    ),
+  );
+  if (!before) return null;
+  const rawUnit = String(before[2] || defaultUnit || "each").toLowerCase();
+  const unit = /lf|linear/.test(rawUnit)
+    ? "lf"
+    : /sq|sf/.test(rawUnit)
+      ? "sqft"
+      : "each";
+  return {
+    quantity: positive(before[1].replace(/,/g, "")),
+    unit,
+  };
+}
+
 function noteExplicitlyExcludes(notes, object) {
   const aliases = {
     interior_door: "doors?",
@@ -60,6 +135,9 @@ function noteExplicitlyExcludes(notes, object) {
     plumbing: "plumbing",
     electrical: "electrical|outlets?|switches?",
     drywall: "drywall",
+    countertops: "countertops?|counters?",
+    backsplash: "backsplash",
+    flooring: "floor(?:ing)?|lvp|vinyl|laminate|carpet",
     roofing: "roof(?:ing)?|shingles?",
     concrete: "concrete|flatwork|driveway|patio",
     landscaping: "landscap(?:e|ing)|sod|irrigation|pavers?",
@@ -147,6 +225,111 @@ function extractScopeFactsFromNotes(notes, ctx = {}) {
     );
     facts[facts.length - 1].quantityKey = quantityKey;
   };
+  const addExplicitDemoFact = ({
+    scopeId,
+    object,
+    pattern,
+    unit,
+  }) => {
+    const demoMatch = String(text).match(pattern);
+    if (!demoMatch) return;
+    const quantity = positive(quantities[scopeId]?.quantity);
+    facts.push(
+      fact({
+        action: "remove",
+        object,
+        quantity,
+        unit,
+        certainty:
+          quantity == null
+            ? "explicit_scope_missing_measurement"
+            : "explicit",
+        sourceText: demoMatch[0],
+      }),
+    );
+    facts[facts.length - 1].quantityKey = scopeId;
+  };
+  // Keep component demolition separate. A combined phrase such as
+  // "demolition of existing cabinets, counters, backsplash, and flooring"
+  // represents four independently priceable scope cards, not one generic
+  // kitchen-demolition allowance.
+  addExplicitDemoFact({
+    scopeId: "cabinet_demo",
+    object: "cabinets",
+    unit: "lf",
+    pattern:
+      /\b(?:demo(?:lition)?|remove|removal|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,80}\bcabinets?\b|\bcabinets?\b[^.;\n]{0,80}\b(?:demo(?:lition)?|remove|removal|tear[\s-]?out|rip[\s-]?out)\b/i,
+  });
+  addExplicitDemoFact({
+    scopeId: "countertop_demo",
+    object: "countertops",
+    unit: "sqft",
+    pattern:
+      /\b(?:demo(?:lition)?|remove|removal|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,80}\b(?:countertops?|counters?)\b|\b(?:countertops?|counters?)\b[^.;\n]{0,80}\b(?:demo(?:lition)?|remove|removal|tear[\s-]?out|rip[\s-]?out)\b/i,
+  });
+  addExplicitDemoFact({
+    scopeId: "backsplash_demo",
+    object: "backsplash",
+    unit: "sqft",
+    pattern:
+      /\b(?:demo(?:lition)?|remove|removal|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,80}\bbacksplash\b|\bbacksplash\b[^.;\n]{0,80}\b(?:demo(?:lition)?|remove|removal|tear[\s-]?out|rip[\s-]?out)\b/i,
+  });
+  addExplicitDemoFact({
+    scopeId: "floor_demo",
+    object: "flooring",
+    unit: "sqft",
+    pattern:
+      /\b(?:demo(?:lition)?|remove|removal|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,80}\b(?:floor(?:ing)?|lvp|vinyl|laminate|carpet)\b|\b(?:floor(?:ing)?|lvp|vinyl|laminate|carpet)\b[^.;\n]{0,80}\b(?:demo(?:lition)?|remove|removal|tear[\s-]?out|rip[\s-]?out)\b/i,
+  });
+  const explicitQuantityKeys = new Set(
+    facts.map((entry) => entry.quantityKey).filter(Boolean),
+  );
+  const explicitSemanticActions = new Set(
+    facts.map((entry) => `${semanticObjectKey(entry.quantityKey)}:${entry.action}`),
+  );
+  for (const match of getCatalogShadowMatches(text)) {
+    if (!match.scopeId || explicitQuantityKeys.has(match.scopeId)) continue;
+    if (
+      match.category === "finish" &&
+      !/\b(?:paint|finish|stain|refinish)\b/i.test(match.matchedAlias)
+    ) {
+      continue;
+    }
+    if (match.scopeId === "exterior" && match.matchedAlias === "exterior") {
+      continue;
+    }
+    const semanticAction = `${semanticObjectKey(match.scopeId)}:${match.action}`;
+    if (explicitSemanticActions.has(semanticAction)) continue;
+    if (!catalogMentionIsExplicit(text, match.matchedAlias, match)) continue;
+    const quantityValue =
+      quantities[match.scopeId] || quantities[match.quantityRuleKey] || null;
+    const noteQuantity = quantityFromCatalogAlias(
+      text,
+      match.matchedAlias,
+      match.defaultUnit,
+    );
+    const quantity = positive(quantityValue?.quantity) || noteQuantity?.quantity;
+    facts.push(
+      fact({
+        action: match.action || "scope",
+        object: objectForScopeId(match.scopeId),
+        quantity,
+        unit:
+          quantityValue?.unit ||
+          noteQuantity?.unit ||
+          match.defaultUnit ||
+          null,
+        certainty:
+          quantity == null
+            ? "explicit_scope_missing_measurement"
+            : "explicit",
+        sourceText: sourceClause(text, catalogAliasPattern(match.matchedAlias)),
+      }),
+    );
+    facts[facts.length - 1].quantityKey = match.scopeId;
+    explicitQuantityKeys.add(match.scopeId);
+    explicitSemanticActions.add(semanticAction);
+  }
 
   addIntentFact(
     parsed.baseboardInstallIntent,
@@ -273,7 +456,7 @@ const FACT_TO_SCOPE_ID = {
   "install:window": "window_install",
 };
 
-function resolveScopeFactsToCatalog(facts = []) {
+function resolveScopeFactsToCatalog(facts = [], ctx = {}) {
   return facts.map((scopeFact) => {
     const mappedScopeId = FACT_TO_SCOPE_ID[
       `${scopeFact.action}:${scopeFact.object}`
@@ -283,12 +466,17 @@ function resolveScopeFactsToCatalog(facts = []) {
       : null;
     const scopeId = mappedScopeId || directScopeId;
     const catalogEntry = scopeId ? getScopeCatalogEntry(scopeId) : null;
+    const displayName =
+      catalogEntry?.scopeId === "floor_demo" &&
+      String(ctx.templateKey || "").toLowerCase() === "kitchen"
+        ? "Kitchen flooring demo / removal"
+        : catalogEntry?.displayName;
     return {
       ...scopeFact,
       scopeId: catalogEntry?.scopeId || null,
       catalogEntry: catalogEntry
         ? {
-            displayName: catalogEntry.displayName,
+            displayName,
             category: catalogEntry.category,
             trade: catalogEntry.trade,
             quantityRuleKey: catalogEntry.quantityRuleKey,

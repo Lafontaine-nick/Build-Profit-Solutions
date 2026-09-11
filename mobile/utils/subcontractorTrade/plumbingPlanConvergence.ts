@@ -375,7 +375,10 @@ export function filterChecklistItemsToPlumbingScope<
 >(items: T[]): T[] {
   const allowed = new Set(PLUMBING_ITEM_IDS);
   return items.filter(
-    item => allowed.has(item.id) || String(item.id || '').startsWith('custom_')
+    item =>
+      allowed.has(item.id) ||
+      Boolean((item as T & { noteBacked?: boolean }).noteBacked) ||
+      String(item.id || '').startsWith('custom_')
   );
 }
 

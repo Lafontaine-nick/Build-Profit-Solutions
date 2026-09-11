@@ -213,6 +213,14 @@ export type ScopeChecklistItem = {
   derivedFrom?: string;
   /** Server-added custom row created from a priced/mentioned note outside the selected template. */
   noteBacked?: boolean;
+  /** Catalog identity attached by the backend note-fact resolver. */
+  catalogBacked?: boolean;
+  catalogScopeId?: string | null;
+  quantityRuleKey?: string | null;
+  pricingRuleKey?: string | null;
+  catalogOrder?: number;
+  confidence?: string | null;
+  sourceText?: string | null;
 };
 
 export type ScopeChecklist = {
@@ -225,6 +233,18 @@ export type ScopeChecklist = {
   options?: Array<{ id: string; label: string }>;
   summary?: string;
   requiresConfirmation?: boolean;
+  scopeFacts?: Array<{
+    scopeId?: string | null;
+    status?: string | null;
+    quantity?: number | null;
+    catalogEntry?: {
+      displayName?: string | null;
+    } | null;
+  }>;
+  catalogShadowMatches?: Array<{
+    scopeId?: string | null;
+    displayName?: string | null;
+  }>;
   /** Parsed from job notes — used to prefill quick measurements */
   suggestedMeasurements?: ScopeMeasurements | null;
 };
@@ -545,6 +565,8 @@ export type ScopeMeasurements = {
   insulationMaterialType?: string | null;
   insulationRValue?: string | null;
   garageInsulationIncluded?: string | null;
+  airSealingIncluded?: boolean | null;
+  airSealingSqft?: number | null;
   concreteSqft?: number | null;
   concreteReinforcementSqft?: number | null;
   concreteSealerSqft?: number | null;
@@ -1495,6 +1517,29 @@ export function repairDraftRatePricingFromNotes(
       projectType: 'bathroom',
       estimateTier: 'room_remodel',
       scopeChecklist: undefined,
+    };
+  }
+  const explicitKitchenRemodel =
+    /\b(?:remodel|renovate|renovation)\s+(?:the\s+)?kitchen\b/i.test(text) ||
+    /\bkitchen\s+(?:remodel|renovation)\b/i.test(text);
+  if (
+    explicitKitchenRemodel &&
+    (repairedDraft.scopeChecklist?.templateKey !== 'kitchen' ||
+      repairedDraft.projectType !== 'kitchen')
+  ) {
+    return {
+      ...repairedDraft,
+      projectType: 'kitchen',
+      projectTitle: repairedDraft.projectTitle?.match(/kitchen/i)
+        ? repairedDraft.projectTitle
+        : 'Kitchen Remodel Estimate',
+      estimateTier: 'room_remodel',
+      scopeChecklist: undefined,
+      scopePackages: [],
+      rooms: [],
+      detectedTrades: undefined,
+      whatAiDid: undefined,
+      projectDescription: undefined,
     };
   }
   return repairedDraft;

@@ -140,6 +140,8 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
     /\b(exterior\s+finishes|siding|soffit|fascia|exterior\s+trim|sheeting|osb|house\s*wrap|weather\s+barrier|exterior\s+plywood|stucco|eifs)\b/,
   hvac: /\b(hvac|furnace|air\s+condition|heat\s+pump|duct(?:work)?|mini[\s-]?split)\b/,
   insulation: /\b(insulat(?:e|ion)|batt\s+insulation|spray\s+foam)\b/,
+  air_sealing:
+    /\b(?:air[\s-]?seal(?:ing)?|draft[\s-]?seal(?:ing)?|gap[\s-]?seal(?:ing)?|penetration[\s-]?seal(?:ing)?|gap[\s-]?penetrations?|seal(?:ing)?\s+(?:air\s+)?gaps?|seal(?:ing)?\s+(?:air\s+)?penetrations?)\b/i,
   cabinets_counters:
     /\b(cabinets?|cabinetry|counters?|countertops?|kitchenette|quartz|granite)\b/,
   tile: /\b(tile|shower\s+tile|floor\s+tile|backsplash)\b/,

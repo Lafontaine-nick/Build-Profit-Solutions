@@ -27,6 +27,25 @@ describe('scopeItemNoteHints trim inference', () => {
     expect(inferItemStateFromNotes('trim', 'Install baseboards throughout 220 LF.')).toBe('included');
   });
 
+  test('cross-trade note aliases identify standard air sealing', () => {
+    for (const phrase of [
+      'Include gap sealing.',
+      'Include gap seal around penetrations.',
+      'Include draft seal at accessible openings.',
+      'Include penetration sealing.',
+    ]) {
+      expect(inferItemStateFromNotes('air_sealing', phrase)).toBe('included');
+    }
+  });
+
+  test('scoped insulation exclusions do not remove house insulation', () => {
+    const notes = 'Insulate the house, but no garage insulation.';
+    expect(inferItemStateFromNotes('insulation', notes)).toBe('included');
+    expect(inferItemStateFromNotes('garage_insulation', notes)).not.toBe(
+      'included'
+    );
+  });
+
   test('kitchen protection and structural exclusions override stale generic scope', () => {
     const notes =
       'Remodel an existing kitchen without changing the footprint. Include flooring protection and cleanup. No wall removal or structural framing.';

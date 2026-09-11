@@ -16979,6 +16979,13 @@ router.post('/estimate-draft-scope-checklist', async (req, res) => {
       /^plumbing(?:_service)?$/i.test(
         String(enriched.scopeChecklist?.templateKey || ''),
       );
+    const explicitKitchenRemodel =
+      /\b(?:remodel|renovate|renovation)\s+(?:the\s+)?kitchen\b/i.test(notes) ||
+      /\bkitchen\s+(?:remodel|renovation)\b/i.test(notes);
+    const staleKitchenChecklist =
+      explicitKitchenRemodel &&
+      String(enriched.scopeChecklist?.templateKey || '').toLowerCase() !==
+        'kitchen';
     const existingBathroomChecklist =
       explicitBathroomRemodel &&
       /^bathroom$/i.test(
@@ -16991,6 +16998,13 @@ router.post('/estimate-draft-scope-checklist', async (req, res) => {
           enriched,
           enriched.estimateTier || 'room_remodel',
           enriched.originalNotes,
+        )
+      : null;
+    const refreshedKitchenChecklist = staleKitchenChecklist
+      ? buildScopeChecklist(
+          { ...enriched, projectType: 'kitchen' },
+          'room_remodel',
+          notes,
         )
       : null;
     const existingBathroomItemIds = new Set(
@@ -17014,15 +17028,33 @@ router.post('/estimate-draft-scope-checklist', async (req, res) => {
       );
     const checklist =
       (!stalePlumbingChecklist &&
+        !staleKitchenChecklist &&
         !staleBathroomChecklist &&
         enriched.scopeChecklist) ||
       refreshedBathroomChecklist ||
+      refreshedKitchenChecklist ||
       buildScopeChecklist(
         enriched,
         enriched.estimateTier || 'room_remodel',
         enriched.originalNotes,
       );
-    return res.json({ draft: enriched, checklist });
+    return res.json({
+      draft:
+        staleKitchenChecklist && refreshedKitchenChecklist
+          ? {
+              ...enriched,
+              projectType: 'kitchen',
+              estimateTier: 'room_remodel',
+              scopeChecklist: refreshedKitchenChecklist,
+              scopePackages: [],
+              rooms: [],
+              detectedTrades: undefined,
+              whatAiDid: undefined,
+              projectDescription: undefined,
+            }
+          : enriched,
+      checklist,
+    });
   } catch (err) {
     console.error('Error in /estimate-draft-scope-checklist:', err);
     return res.status(500).json({

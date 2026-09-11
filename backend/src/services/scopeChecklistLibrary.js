@@ -1953,7 +1953,15 @@ const CHECKLIST_TEMPLATES = {
         inputType: "yes_no",
         label: "Insulation",
         helperText:
-          "Exterior wall, attic/ceiling, floor, and air-sealing insulation work. Do not use drywall surface area for insulation quantities.",
+          "Exterior wall, attic/ceiling, and floor insulation work. Air sealing is shown as a separate scope card. Do not use drywall surface area for insulation quantities.",
+        category: "structure",
+      },
+      {
+        id: "air_sealing",
+        inputType: "yes_no",
+        label: "Standard air sealing",
+        helperText:
+          "Basic accessible sealing around top plates, attic penetrations, wiring, plumbing, duct openings, rim areas, and attic access using standard caulk, foam, and blocking. Excludes blower-door testing, duct sealing, removals, remediation, and major encapsulation.",
         category: "structure",
       },
     ],

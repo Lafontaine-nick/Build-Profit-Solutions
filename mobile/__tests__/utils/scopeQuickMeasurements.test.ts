@@ -59,6 +59,21 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).not.toContain('ceilingPaintSqft');
   });
 
+  it('keeps unrelated paint measurements out of insulation quick measurements', () => {
+    const keys = quickMeasurementRowsForInput(
+      'insulation',
+      'insulation',
+      { wallPaintSqft: '2200' },
+      ['wallPaintSqft']
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).not.toContain('wallPaintSqft');
+    expect(keys).not.toContain('ceilingPaintSqft');
+    expect(keys).toContain('exteriorWallInsulationSqft');
+  });
+
   it('labels addition floor area as ADU for ADU projects and marks it primary', () => {
     const rows = quickMeasurementRowsForTemplate('addition', 'adu');
     const floorArea = rows.flat().find(field => field.key === 'floorAreaSqft');

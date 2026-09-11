@@ -1236,6 +1236,29 @@ describe('subcontractor trade architecture (Phase 0)', () => {
     ]);
   });
 
+  it('keeps explicitly note-backed cross-trade cards during selected-trade filtering', () => {
+    const filtered = filterChecklistItemsForTrade(
+      [
+        { id: 'windows', noteBacked: false },
+        { id: 'insulation', noteBacked: true },
+        { id: 'flooring', noteBacked: true },
+        { id: 'cleanup', noteBacked: false },
+      ],
+      'selected_trade',
+      'windows_doors'
+    );
+
+    expect(filtered.map(item => item.id)).toEqual([
+      'windows',
+      'insulation',
+      'flooring',
+      'exterior_doors',
+      'sliding_doors',
+      'interior_doors',
+      'trim_finish',
+    ]);
+  });
+
   it('does not activate framing from Windows & doors quantities', () => {
     const normalized = normalizeTradeMeasurements(
       'windows_doors',

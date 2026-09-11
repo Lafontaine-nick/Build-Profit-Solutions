@@ -2673,6 +2673,36 @@ export function quickMeasurementRowsForInput(
   // Framing has a dedicated takeoff surface. Do not append unrelated
   // note-backed fields such as roof squares or living area to it.
   if (resolvedKey === 'framing') return baseRows;
+  // Insulation has its own dedicated measurement surface. Do not append
+  // stale or unrelated note-backed finish fields such as interior paint,
+  // drywall, or flooring to an insulation scope.
+  if (resolvedKey === 'insulation') {
+    const notes = String(options?.scopeNotes || '');
+    const hasRoofDeckReference =
+      noteKeySet?.has('insulatedRoofDeckSqft') ||
+      /\b(?:insulated|insulation|insulate)\b[^.;\n]{0,45}\b(?:roof\s+deck|roof\s+sheathing)\b|\b(?:roof\s+deck|roof\s+sheathing)\b[^.;\n]{0,45}\b(?:insulated|insulation|insulate)\b/i.test(
+        notes
+      );
+    const hasOpeningDeductionReference =
+      noteKeySet?.has('openingDeductionSqft') ||
+      /\b(?:opening|window|door)\b[^.;\n]{0,45}\b(?:deduction|subtract|deduct)\b|\b(?:deduction|subtract|deduct)\b[^.;\n]{0,45}\b(?:opening|window|door)\b/i.test(
+        notes
+      );
+    const optionalFields = new Set<QuickMeasurementFieldKey>([
+      'insulatedRoofDeckSqft',
+      'openingDeductionSqft',
+    ]);
+    return baseRows
+      .map(row =>
+        row.filter(field => {
+          if (!optionalFields.has(field.key)) return true;
+          return field.key === 'insulatedRoofDeckSqft'
+            ? Boolean(hasRoofDeckReference)
+            : Boolean(hasOpeningDeductionReference);
+        })
+      )
+      .filter(row => row.length > 0);
+  }
 
   // Keep row order stable while typing — dynamic note-only rows caused TextInput focus to jump.
   if (resolvedKey === 'room_remodel' || resolvedKey === 'kitchen') {

@@ -254,6 +254,7 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
     ? items.filter(
         item =>
           allowed.includes(item.id) ||
+          Boolean((item as T & { noteBacked?: boolean }).noteBacked) ||
           String(item.id || '').startsWith('custom_')
       )
     : items;

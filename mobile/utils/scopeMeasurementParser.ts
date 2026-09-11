@@ -12,6 +12,9 @@ import { parseScopeItemRatePricingFromNotes } from '@/utils/scopeRatePricingPars
 import { isGarageConversionJob } from '@/utils/additionConversionPlanning';
 import { parseElectricalMeasurementsFromNotes } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 
+const AIR_SEALING_SYNONYM_RE =
+  /\b(?:air[\s-]?seal(?:ing)?|draft[\s-]?seal(?:ing)?|gap[\s-]?seal(?:ing)?|penetration[\s-]?seal(?:ing)?|gap[\s-]?penetrations?|seal(?:ing)?\s+(?:air\s+)?gaps?|seal(?:ing)?\s+(?:air\s+)?penetrations?)\b/i;
+
 export type ParsedScopeMeasurements = {
   paintScope?: Array<
     'walls' | 'ceilings' | 'trim' | 'doors' | 'cabinets' | 'exterior'
@@ -96,6 +99,8 @@ export type ParsedScopeMeasurements = {
   insulationMaterialType?: string;
   insulationRValue?: string;
   garageInsulationIncluded?: string;
+  airSealingIncluded?: boolean;
+  airSealingSqft?: number;
   landscapeSqft?: number;
   artificialTurfSqft?: number;
   sodSqft?: number;
@@ -362,6 +367,7 @@ export type ParsedInsulationAssembly = {
   materialType: string;
   rValue: string;
   sqft: number;
+  battFacing?: 'faced' | 'unfaced';
 };
 
 /** Preserve location-specific insulation assemblies from natural-language notes. */
@@ -369,7 +375,7 @@ export function parseInsulationAssembliesFromNotes(
   text: string
 ): ParsedInsulationAssembly[] {
   const assemblies: ParsedInsulationAssembly[] = [];
-  const clauses = String(text || '').split(/[.;\n]+/);
+  const clauses = String(text || '').split(/[.;\n]+|,(?!\d)/);
   const quantity = (clause: string) => {
     const match = clause.match(
       /([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))/i
@@ -387,6 +393,17 @@ export function parseInsulationAssembliesFromNotes(
   };
   const rValue = (clause: string) =>
     clause.match(/\bR[-\s]?(\d{2,3})\b/i)?.[0] || '';
+  const battFacing = (clause: string) => {
+    if (/\bunfaced\b/i.test(clause)) return 'unfaced' as const;
+    if (
+      /\bfaced\s+batt\b|\bbatt\s+faced\b|\bkraft[\s-]?faced\b|\bfoil[\s-]?faced\b/i.test(
+        clause
+      )
+    ) {
+      return 'faced' as const;
+    }
+    return undefined;
+  };
   const add = (
     location: ParsedInsulationAssembly['location'],
     pattern: RegExp,
@@ -400,6 +417,9 @@ export function parseInsulationAssembliesFromNotes(
       materialType: material(clause),
       rValue: rValue(clause),
       sqft,
+      ...(battFacing(clause)
+        ? { battFacing: battFacing(clause) }
+        : {}),
     });
   };
   for (const clause of clauses) {
@@ -1270,6 +1290,15 @@ export function parseScopeMeasurementsFromNotes(
   if (insulationRValue) out.insulationRValue = insulationRValue;
   if (garageInsulationIncluded)
     out.garageInsulationIncluded = garageInsulationIncluded;
+  const airSealingMention = text.match(AIR_SEALING_SYNONYM_RE);
+  const airSealingExcluded =
+    new RegExp(
+      `\\b(?:no|without|exclude|excluding)\\b[^.;\\n]{0,30}${AIR_SEALING_SYNONYM_RE.source}`,
+      'i'
+    ).test(text);
+  if (airSealingMention && !airSealingExcluded) {
+    out.airSealingIncluded = true;
+  }
 
   const productIsRemovalOnly = (product: string): boolean => {
     const removal =
@@ -1570,6 +1599,9 @@ export function parseScopeMeasurementsFromNotes(
     return max > 0 ? max : null;
   })();
   if (floorAreaSqft) out.floorAreaSqft = floorAreaSqft;
+  if (out.airSealingIncluded && floorAreaSqft) {
+    out.airSealingSqft = floorAreaSqft;
+  }
   if (
     (templateKey === 'painting' || projectType === 'painting') &&
     parseLabeledInteriorFloorAreaTotal(text) != null

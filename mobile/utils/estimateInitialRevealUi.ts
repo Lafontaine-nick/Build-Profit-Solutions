@@ -294,12 +294,130 @@ function revealChecklistItemVisible(
 }
 
 function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
-  const checklistCount =
-    draft.scopeChecklist?.items?.filter((item) => revealChecklistItemVisible(draft, item))
-      .length || 0;
+  const checklistCount = getInitialRevealScopeRows(draft).length;
   if (checklistCount > 0) return checklistCount;
   const packageCount = getScopePackages(draft).length;
   return packageCount;
+}
+
+function getInitialRevealScopeRows(
+  draft: EstimateAiDraft
+): Array<{ id: string; name: string }> {
+  const kitchenContext = [
+    draft.scopeChecklist?.templateKey,
+    draft.projectType,
+    draft.projectTitle,
+    draft.originalNotes,
+  ]
+    .map((value) => String(value || '').toLowerCase())
+    .some((value) => /\bkitchen\b/.test(value));
+  const displayNameForScopeRow = (id: string, name: string) =>
+    kitchenContext && id === 'floor_demo'
+      ? 'Kitchen flooring demo / removal'
+      : name;
+  const facts = draft.scopeChecklist?.scopeFacts || [];
+  const resolvedFactIds = new Set(
+    facts
+      .filter((fact) => fact.status !== 'excluded')
+      .map((fact) => String(fact.scopeId || '').trim())
+      .filter(Boolean)
+  );
+  const hasResolvedFacts = facts.length > 0;
+  const rows =
+    draft.scopeChecklist?.items
+      ?.filter((item) => revealChecklistItemVisible(draft, item))
+      .filter(
+        (item) =>
+          !hasResolvedFacts ||
+          item.noteBacked === true ||
+          resolvedFactIds.has(String(item.id || '').trim()) ||
+          resolvedFactIds.has(String(item.catalogScopeId || '').trim())
+      )
+      .map((item) => ({
+        id: String(item.id || '').trim(),
+        name: displayNameForScopeRow(
+          String(item.id || '').trim(),
+          String(item.label || item.id || 'Scope item').trim()
+        ),
+      }))
+      .filter((row) => row.id && row.name) || [];
+  const ids = new Set(rows.map((row) => row.id));
+  for (const fact of facts) {
+    const id = String(fact.scopeId || '').trim();
+    if (!id || fact.status === 'excluded' || ids.has(id)) continue;
+    rows.push({
+      id,
+      name: displayNameForScopeRow(
+        id,
+        String(fact.catalogEntry?.displayName || id.replace(/_/g, ' ')).trim()
+      ),
+    });
+    ids.add(id);
+  }
+  if (!rows.length) {
+    const fallbackItems = [
+      ...(draft.stillNeededReview || []),
+      ...(draft.needsReviewItems || []),
+      ...getCompactStillNeeded(draft, 100).items,
+    ];
+    const notes = String(draft.originalNotes || '');
+    const kitchenDemoRows = [
+      {
+        pattern: /\b(?:cabinet|cabinets)\b/i,
+        name: 'Cabinet demo / removal',
+      },
+      {
+        pattern: /\b(?:counter|counters|countertop|countertops)\b/i,
+        name: 'Countertop demo / removal',
+      },
+      {
+        pattern: /\bbacksplash\b/i,
+        name: 'Backsplash demo / removal',
+      },
+      {
+        pattern: /\b(?:floor|flooring|lvp|vinyl|laminate|carpet)\b/i,
+        name: 'Kitchen flooring demo / removal',
+      },
+    ];
+    const fallbackNames = new Set<string>();
+    for (const item of fallbackItems) {
+      const plain = plainLanguageReviewItem(item)
+        .replace(/^price needed for\s+/i, '')
+        .replace(/^pricing for\s+/i, '')
+        .trim();
+      if (
+        /kitchen demolition/i.test(plain) &&
+        /\b(?:demo(?:lition)?|remove|removal|tear[\s-]?out)\b/i.test(notes)
+      ) {
+        for (const demo of kitchenDemoRows) {
+          if (!demo.pattern.test(notes)) continue;
+          const key = demo.name.toLowerCase();
+          if (fallbackNames.has(key)) continue;
+          fallbackNames.add(key);
+          rows.push({ id: `note:${key}`, name: demo.name });
+        }
+        continue;
+      }
+      if (
+        !plain ||
+        /^(all|project price|labor vs material|pricing total|customer|project address)\b/i.test(plain) ||
+        /\b(?:style|manufacturer|finish|hardware|color|edge profile|specification|selection|schedule|payment terms|permit requirements|labor and material|cost breakdown)\b/i.test(
+          plain
+        ) ||
+        (/^plumbing fixture and appliance scope$/i.test(plain) &&
+          !/\b(?:fixture|faucet|sink|toilet|vanity|appliance|disposal)\b/i.test(notes)) ||
+        /^(?:kitchen remodel|plumbing|electrical|drywall and insulation|material\/labor pricing for flooring|windows and exterior door)$/i.test(
+          plain
+        ) ||
+        fallbackNames.has(plain.toLowerCase())
+      ) {
+        continue;
+      }
+      fallbackNames.add(plain.toLowerCase());
+      rows.push({ id: `note:${plain.toLowerCase()}`, name: plain });
+    }
+  }
+  return rows;
 }
 
 /** Checklist rows for Scope found when priced packages are not built yet. */
@@ -307,19 +425,20 @@ export function getInitialRevealChecklistScopePreview(
   draft: EstimateAiDraft
 ): Array<{ name: string; amount: number }> {
   const showAmounts = initialRevealPricingVisible(draft);
+  const scopeRows = getInitialRevealScopeRows(draft);
   const visibleChecklistItems =
     draft.scopeChecklist?.items?.filter((item) =>
       revealChecklistItemVisible(draft, item)
     ) || [];
 
   if (standalonePlumbingRevealDraft(draft) && visibleChecklistItems.length > 0) {
-    return visibleChecklistItems.slice(0, 12).map((item) => ({
-      name: String(item.label || item.id || 'Scope item').trim(),
+    return scopeRows.slice(0, 50).map((row) => ({
+      name: row.name,
       amount: 0,
     }));
   }
 
-  const inScopeIds = new Set(visibleChecklistItems.map((item) => item.id));
+  const inScopeIds = new Set(scopeRows.map((row) => row.id));
   const packages = getScopePackagesForReview(draft).filter((pkg) => {
     const id = String(pkg.checklistItemId || pkg.costCode || '').trim();
     return !inScopeIds.size || (id && inScopeIds.has(id));
@@ -333,12 +452,12 @@ export function getInitialRevealChecklistScopePreview(
     );
     // The checklist is the canonical interpretation. Packages only decorate
     // those rows with pricing; they must not decide which scope is visible.
-    const checklistRows = visibleChecklistItems
-      .map((item) => {
-        const id = String(item.id || '').trim();
+    const checklistRows = scopeRows
+      .map((row) => {
+        const id = row.id;
         const pkg = packageById.get(id);
         return {
-          name: String(item.label || id || 'Scope item').trim(),
+          name: row.name,
           amount:
             showAmounts && pkg
               ? scopePackageIndicativePricedAmount(pkg, draft)
@@ -347,7 +466,7 @@ export function getInitialRevealChecklistScopePreview(
       })
       .filter((row) => row.name);
     const representedIds = new Set(
-      visibleChecklistItems.map((item) => String(item.id || '').trim()),
+      scopeRows.map((row) => row.id),
     );
     const packageOnlyRows = packages
       .filter(
@@ -363,9 +482,9 @@ export function getInitialRevealChecklistScopePreview(
       .filter((row) => row.name);
     return [...checklistRows, ...packageOnlyRows].slice(0, 50);
   }
-  if (!visibleChecklistItems.length) return [];
-  return visibleChecklistItems.slice(0, 12).map((item) => ({
-    name: String(item.label || item.id || 'Scope item').trim(),
+  if (!scopeRows.length) return [];
+  return scopeRows.slice(0, 50).map((row) => ({
+    name: row.name,
     amount: 0,
   }));
 }

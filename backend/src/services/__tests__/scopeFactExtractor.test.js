@@ -85,6 +85,79 @@ describe("scope fact extraction", () => {
     );
   });
 
+  test("splits combined kitchen demolition into separately priced catalog facts", () => {
+    const note =
+      "Remodel kitchen with demolition of existing cabinets, counters, backsplash, and flooring; install new cabinets, quartz counters, backsplash, and LVP.";
+    const { facts } = extractScopeFactsFromNotes(note, {
+      templateKey: "kitchen",
+      projectType: "kitchen",
+    });
+    const resolved = resolveScopeFactsToCatalog(facts);
+
+    expect(resolved.map((entry) => entry.scopeId)).toEqual(
+      expect.arrayContaining([
+        "cabinet_demo",
+        "countertop_demo",
+        "backsplash_demo",
+        "floor_demo",
+      ]),
+    );
+    expect(
+      resolved
+        .filter((entry) => entry.scopeId?.endsWith("_demo"))
+        .every((entry) => entry.status === "needs_measurement"),
+    ).toBe(true);
+  });
+
+  test("uses the kitchen label for shared flooring demo facts", () => {
+    const { facts } = extractScopeFactsFromNotes(
+      "Kitchen remodel. Remove existing flooring and install LVP.",
+      { templateKey: "kitchen", projectType: "kitchen" },
+    );
+    const resolved = resolveScopeFactsToCatalog(facts, {
+      templateKey: "kitchen",
+    });
+
+    expect(
+      resolved.find((entry) => entry.scopeId === "floor_demo")?.catalogEntry
+        ?.displayName,
+    ).toBe("Kitchen flooring demo / removal");
+  });
+
+  test("promotes explicit cross-trade catalog aliases without duplicate variants", () => {
+    const note =
+      "Install 12 LF plumbing relocation, 8 receptacles, R-21 wall insulation, new lights, 48 sqft quartz counters, and backsplash.";
+    const { facts } = extractScopeFactsFromNotes(note, {
+      templateKey: "kitchen",
+      projectType: "kitchen",
+    });
+    const resolved = resolveScopeFactsToCatalog(facts);
+    const ids = resolved.map((entry) => entry.scopeId).filter(Boolean);
+
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        "plumbing",
+        "electrical",
+        "insulation",
+        "lighting",
+        "countertops",
+        "backsplash",
+      ]),
+    );
+    expect(ids).not.toContain("interior_paint");
+    expect(ids).not.toContain("cabinet_paint");
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(
+      resolved.find((entry) => entry.scopeId === "plumbing"),
+    ).toMatchObject({ quantity: 12, unit: "lf", status: "matched" });
+    expect(
+      resolved.find((entry) => entry.scopeId === "electrical"),
+    ).toMatchObject({ quantity: 8, unit: "each", status: "matched" });
+    expect(
+      resolved.find((entry) => entry.scopeId === "countertops"),
+    ).toMatchObject({ quantity: 48, unit: "sqft", status: "matched" });
+  });
+
   test("preserves explicit exclusions as excluded facts", () => {
     const { facts } = extractScopeFactsFromNotes(
       "Paint 5 doors but do not install them. Exclude cabinets.",

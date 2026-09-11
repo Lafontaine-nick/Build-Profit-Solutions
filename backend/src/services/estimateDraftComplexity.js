@@ -429,13 +429,7 @@ function noteBackedChecklistItems(
 function catalogAdditiveChecklistItems(
   templateItems,
   resolvedScopeFacts,
-  templateKey,
 ) {
-  const normalizedTemplateKey = String(templateKey || "").toLowerCase();
-  const catalogEnabled =
-    normalizedTemplateKey === "painting" ||
-    process.env.ENABLE_CATALOG_ADDITIVE_SCOPE_CARDS === "true";
-  if (!catalogEnabled) return [];
   const existingIds = new Set(templateItems.map((item) => item.id));
   const existingCanonicalIds = new Set(
     templateItems.map((item) => canonicalScopeId(item.id)),
@@ -482,6 +476,12 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
 
   const notes = originalNotes || draft.originalNotes || "";
   let templateKey = checklistTemplateKey(draft, estimateTier);
+  const explicitKitchenRemodel =
+    /\b(?:remodel|renovate|renovation)\s+(?:the\s+)?kitchen\b/i.test(notes) ||
+    /\bkitchen\s+(?:remodel|renovation)\b/i.test(notes);
+  if (explicitKitchenRemodel) {
+    templateKey = "kitchen";
+  }
   // Persisted drafts can arrive with a generic room_remodel project type even
   // when the notes are an explicitly kitchen-only renovation. Re-resolve that
   // case here so the kitchen-specific demo/install cards are built.
@@ -524,7 +524,14 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     /\b(?:repaint|repaint(?:ing)?|paint(?:ing)?)\b/i.test(notes) &&
     (/\binterior\b/i.test(notes) || /\bwalls?\b|\bceilings?\b/i.test(notes)) &&
     (/\bexterior\b|\bsiding\b|\bwindow\s+trim\b/i.test(notes)) &&
-    templateKey !== "painting"
+    ![
+      "painting",
+      "kitchen",
+      "bathroom",
+      "room_remodel",
+      "addition",
+      "ground_up",
+    ].includes(templateKey)
   ) {
     templateKey = "painting";
   }
@@ -540,7 +547,9 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     projectType: draft.projectType,
     parsedMeasurements,
   });
-  const resolvedScopeFacts = resolveScopeFactsToCatalog(scopeFactResult.facts);
+  const resolvedScopeFacts = resolveScopeFactsToCatalog(scopeFactResult.facts, {
+    templateKey,
+  });
   if (templateKey === "room_remodel") {
     const noteQuantities = {
       ...(parsedMeasurements.itemQuantities || {}),
@@ -659,7 +668,7 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     }
   }
   items.push(
-    ...catalogAdditiveChecklistItems(items, resolvedScopeFacts, templateKey),
+    ...catalogAdditiveChecklistItems(items, resolvedScopeFacts),
   );
 
   if (

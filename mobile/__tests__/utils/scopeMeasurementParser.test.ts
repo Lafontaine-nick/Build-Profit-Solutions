@@ -48,6 +48,28 @@ describe('mobile scope measurement parser', () => {
     ]);
   });
 
+  it.each([
+    'Include gap sealing for the 1,200 sqft conditioned home.',
+    'Include gap seal and seal penetrations throughout the home.',
+    'Include draft seal around accessible openings.',
+    'Include gap penetration sealing.',
+  ])('maps air-sealing synonym to the standard air-sealing card: %s', (notes) => {
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'insulation',
+    });
+
+    expect(parsed.airSealingIncluded).toBe(true);
+  });
+
+  it('does not infer air sealing from an explicit exclusion', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Insulate a 1,200 sqft home. No gap sealing or penetration sealing.',
+      { templateKey: 'insulation' }
+    );
+
+    expect(parsed.airSealingIncluded).not.toBe(true);
+  });
+
   it('derives a combined wall-and-ceiling paint surface from house area context', () => {
     const notes =
       'Full interior refresh on a 1,900 sqft house. Paint all walls and ceilings, new LVP throughout main floor about 1,100 sqft.';

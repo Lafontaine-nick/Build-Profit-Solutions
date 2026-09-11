@@ -2553,6 +2553,28 @@ const NOTE_BACKED_SCOPE_COPY: Record<
     helperText: 'Wall and ceiling paint area from your notes or measurements.',
     category: 'paint',
   },
+  air_sealing: {
+    label: 'Standard air sealing',
+    helperText:
+      'Basic accessible gap, draft, and penetration sealing using standard caulk, foam, and blocking.',
+    category: 'structure',
+  },
+  window_install: {
+    label: 'Window installation',
+    helperText: 'Window units and installation labor from notes.',
+    category: 'openings',
+  },
+  insulation: {
+    label: 'Insulation',
+    helperText:
+      'Insulation assemblies and installation from notes or measurements.',
+    category: 'structure',
+  },
+  flooring: {
+    label: 'Flooring installation',
+    helperText: 'Flooring material and installation from notes.',
+    category: 'interior',
+  },
 };
 
 function itemIdFromQuantityKey(key: string): string {

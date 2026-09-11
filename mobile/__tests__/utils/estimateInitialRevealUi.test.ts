@@ -406,6 +406,113 @@ describe('estimateInitialRevealUi', () => {
     );
   });
 
+  it('merges explicit catalog note facts into Scope found', () => {
+    const draft = {
+      projectType: 'kitchen',
+      scopeChecklist: {
+        templateKey: 'kitchen',
+        title: 'Kitchen',
+        intro: 'Confirm scope',
+        items: [
+          { id: 'cabinets', label: 'Cabinets', state: 'included', noteBacked: true },
+          { id: 'countertops', label: 'Countertops', state: 'included', noteBacked: true },
+        ],
+        scopeFacts: [
+          {
+            scopeId: 'window_install',
+            status: 'included',
+            catalogEntry: { displayName: 'Window installation' },
+          },
+          {
+            scopeId: 'insulation',
+            status: 'included',
+            catalogEntry: { displayName: 'Insulation' },
+          },
+          {
+            scopeId: 'interior_doors',
+            status: 'excluded',
+            catalogEntry: { displayName: 'Interior doors' },
+          },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual([
+      'Cabinets',
+      'Countertops',
+      'Window installation',
+      'Insulation',
+    ]);
+  });
+
+  it('normalizes a cached kitchen floor demo label', () => {
+    const draft = {
+      projectType: 'room_remodel',
+      projectTitle: 'Kitchen Remodel Estimate',
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        title: 'Kitchen',
+        intro: 'Confirm scope',
+        items: [
+          {
+            id: 'floor_demo',
+            label: 'Bathroom floor demo / removal',
+            state: 'included',
+            noteBacked: true,
+          },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual([
+      { name: 'Kitchen flooring demo / removal', amount: 0 },
+    ]);
+  });
+
+  it('shows note-backed scope while the refreshed checklist is hydrating', () => {
+    const draft = {
+      projectType: 'kitchen',
+      stillNeededReview: [
+        'Pricing for New kitchen cabinets',
+        'Pricing for Quartz countertops',
+        'Pricing for Plumbing relocation',
+        'Pricing for all kitchen scope items',
+        'Cabinet style, manufacturer, finish, and hardware selections',
+        'Kitchen Remodel',
+        'Project schedule',
+      ],
+      scopeChecklist: undefined,
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual([
+      'New kitchen cabinets',
+      'Quartz countertops',
+      'Plumbing relocation',
+    ]);
+  });
+
+  it('splits kitchen demolition and removes unrelated plumbing fixture scope', () => {
+    const draft = {
+      projectType: 'kitchen',
+      originalNotes:
+        'Remodel kitchen with demolition of existing cabinets, counters, backsplash, and flooring; install plumbing relocation.',
+      stillNeededReview: [
+        'Kitchen demolition',
+        'Plumbing fixture and appliance scope',
+        'Cabinets',
+      ],
+      scopeChecklist: undefined,
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual([
+      'Cabinet demo / removal',
+      'Countertop demo / removal',
+      'Backsplash demo / removal',
+      'Kitchen flooring demo / removal',
+      'Cabinets',
+    ]);
+  });
+
   it('filters standalone plumbing pricing noise before Confirm Scope', () => {
     const notes =
       'Kitchen plumbing only. 3 plumbing rough-in points. 4 trim hookups. 25 LF water line. 1 gas appliance hookup.';

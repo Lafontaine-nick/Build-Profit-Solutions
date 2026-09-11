@@ -157,7 +157,29 @@ const ALL_QUANTITY_RULES = {
 };
 
 const SCOPE_ALIAS_OVERRIDES = {
+  cabinets: ["cabinets", "cabinetry", "new cabinets", "install cabinets"],
   countertops: ["countertops", "quartz counters", "granite counters", "countertop"],
+  backsplash: ["backsplash", "new backsplash", "install backsplash"],
+  plumbing: [
+    "plumbing relocation",
+    "relocate plumbing",
+    "plumbing reroute",
+    "reroute plumbing",
+  ],
+  electrical: [
+    "receptacles",
+    "electrical receptacles",
+    "outlets",
+    "electrical outlets",
+  ],
+  lighting: [
+    "lighting",
+    "light fixtures",
+    "lighting fixtures",
+    "new lights",
+    "install lights",
+  ],
+  insulation: ["insulation", "insulate", "wall insulation", "attic insulation"],
   pour_flatwork: [
     "concrete driveway",
     "concrete walkway",

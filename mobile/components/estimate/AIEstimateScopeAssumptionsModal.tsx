@@ -1876,7 +1876,16 @@ function InsulationAssemblyPricingBreakdown({
           {rows.map(row => (
             <View
               key={`${row.sqft}-${row.description}-${row.rate}`}
-              style={{ gap: 2 }}
+              style={{
+                gap: 2,
+                padding: 10,
+                borderRadius: 9,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: darkMode
+                  ? 'rgba(148,163,184,0.18)'
+                  : Colors.line,
+                backgroundColor: darkMode ? '#3f3f46' : Colors.surface2,
+              }}
             >
               <View
                 style={{
@@ -2264,8 +2273,7 @@ function SuggestedBudgetSplitRows({
         </View>
       ) : null}
 
-      {showDetailedPricingDetails &&
-      isInsulationAssemblyCard &&
+      {isInsulationAssemblyCard &&
       insulationAssemblyRows.length ? (
         <InsulationAssemblyPricingBreakdown
           rows={insulationAssemblyRows}
@@ -11679,7 +11687,7 @@ const INSULATION_LOCATION_OPTIONS = [
   { key: 'attic_ceiling', label: 'Attic / ceiling' },
   { key: 'roof_deck', label: 'Roof deck' },
   { key: 'garage_separation', label: 'Garage separation' },
-  { key: 'floor', label: 'Floor' },
+  { key: 'floor', label: 'Floor insulation' },
 ] as const;
 
 type InsulationAssemblyLocation =
@@ -12263,14 +12271,89 @@ function buildInsulationAssemblyRows(
   const parsedNoteAssemblies = parseInsulationAssembliesFromNotes(
     String(notes || '')
   );
-  if (parsedNoteAssemblies.length) {
+  const numberFor = (key: string) => {
+    const value = Number(String(measurements[key] ?? '').replace(/,/g, ''));
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  };
+  const wallSqft = numberFor('exteriorWallInsulationSqft');
+  const atticSqft = numberFor('atticInsulationSqft');
+  const floorSqft = numberFor('floorInsulationSqft');
+  const parsedByLocation = new Map(
+    parsedNoteAssemblies.map(assembly => [assembly.location, assembly])
+  );
+  const hasValidParsedAssemblies =
+    parsedNoteAssemblies.length === 3 &&
+    parsedByLocation.get('exterior_wall')?.sqft === wallSqft &&
+    Boolean(
+      parsedByLocation.get('exterior_wall')?.materialType &&
+        parsedByLocation.get('exterior_wall')?.rValue
+    ) &&
+    parsedByLocation.get('attic_ceiling')?.sqft === atticSqft &&
+    Boolean(
+      parsedByLocation.get('attic_ceiling')?.materialType &&
+        parsedByLocation.get('attic_ceiling')?.rValue
+    ) &&
+    parsedByLocation.get('floor')?.sqft === floorSqft &&
+    Boolean(
+      parsedByLocation.get('floor')?.materialType &&
+        parsedByLocation.get('floor')?.rValue
+    );
+  if (hasValidParsedAssemblies) {
     return parsedNoteAssemblies.map((assembly, index) => ({
       id: `insulation-assembly-notes-${assembly.location}-${index}`,
       ...assembly,
       source: 'parsed_from_notes',
       confirmed: true,
-      battFacing: assembly.materialType === 'Batt' ? 'not_sure' : null,
+      battFacing:
+        assembly.materialType === 'Batt'
+          ? assembly.battFacing || 'not_sure'
+          : null,
     }));
+  }
+  const isLegacyUniformBattSeed =
+    storedAssemblies.length === 3 &&
+    wallSqft > 0 &&
+    atticSqft > 0 &&
+    floorSqft > 0 &&
+    storedAssemblies.every(
+      row =>
+        insulationMaterialTypeKey(row.materialType) === 'batt' &&
+        row.rValue.trim().toLowerCase() === 'r-21' &&
+        Number(String(row.sqft ?? '').replace(/,/g, '')) === wallSqft
+    );
+  if (isLegacyUniformBattSeed) {
+    return [
+      {
+        id: 'insulation-assembly-migrated-wall',
+        materialType: 'Batt',
+        rValue: 'R-21',
+        sqft: wallSqft,
+        location: 'exterior_wall',
+        source: 'parsed_from_notes',
+        confirmed: true,
+        battFacing: 'not_sure',
+      },
+      {
+        id: 'insulation-assembly-migrated-attic',
+        materialType: 'Blown-in',
+        rValue: 'R-39',
+        sqft: atticSqft,
+        location: 'attic_ceiling',
+        source: 'parsed_from_notes',
+        confirmed: true,
+        battFacing: null,
+      },
+      {
+        id: 'insulation-assembly-migrated-floor',
+        materialType: 'Batt',
+        rValue: 'R-30',
+        sqft: floorSqft,
+        location: 'floor',
+        source: 'parsed_from_notes',
+        confirmed: true,
+        battFacing: 'not_sure',
+      },
+    ];
   }
   const parseSqft = (value: unknown) => {
     const sqft = Number(String(value ?? '').replace(/,/g, ''));
@@ -12428,12 +12511,17 @@ function InsulationAssemblyCard({
   const [rows, setRows] = useState<InsulationAssembly[]>(() =>
     buildInsulationAssemblyRows(measurements, notes)
   );
+  const skipAssemblySyncRef = useRef(false);
   const measurementsRef = useRef(measurements);
   measurementsRef.current = measurements;
   useEffect(() => {
     setCollapsedTypes(new Set());
   }, [planMeasurementSyncKey]);
   useEffect(() => {
+    if (skipAssemblySyncRef.current) {
+      skipAssemblySyncRef.current = false;
+      return;
+    }
     const currentMeasurements = measurementsRef.current;
     const fromParent = buildInsulationAssemblyRows(currentMeasurements, notes);
     const hasParsedNoteAssemblies =
@@ -12462,6 +12550,7 @@ function InsulationAssemblyCard({
   ).trim();
   const legacyRValue = String(measurements.insulationRValue || '').trim();
   const updateRows = (next: InsulationAssembly[]) => {
+    skipAssemblySyncRef.current = true;
     setRows(next);
     const normalized = next.filter(
       row => row.materialType.trim() && row.rValue.trim()
@@ -12582,17 +12671,10 @@ function InsulationAssemblyCard({
   const toggleType = (materialType: string) => {
     const key = insulationMaterialTypeKey(materialType);
     const matching = rowsForInsulationMaterialType(rows, materialType);
-    if (matching.length && !isTypeCollapsed(materialType)) {
-      if (
-        expandedAssemblyId &&
-        matching.some(row => row.id === expandedAssemblyId)
-      ) {
-        setExpandedAssemblyId(null);
-      }
-      setCollapsedTypes(prev => new Set(prev).add(key));
-      return;
-    }
-    if (matching.length && isTypeCollapsed(materialType)) {
+    const hasCompleteMatchingRow = matching.some(
+      row => row.materialType.trim() && row.rValue.trim() && Number(row.sqft) > 0
+    );
+    if (matching.length && hasCompleteMatchingRow) {
       setCollapsedTypes(prev => {
         const next = new Set(prev);
         next.delete(key);
@@ -12606,6 +12688,40 @@ function InsulationAssemblyCard({
       next.delete(key);
       return next;
     });
+    if (insulationMaterialTypeKey(materialType) === 'blown-in') {
+      const atticRow =
+        rows.find(
+          row =>
+            row.location === 'attic_ceiling' &&
+            insulationMaterialTypeKey(row.materialType) !== 'blown-in'
+        ) || rows.find(row => row.location === 'attic_ceiling');
+      if (atticRow) {
+        const atticSqft = Number(
+          String(measurements.atticInsulationSqft ?? '').replace(/,/g, '')
+        );
+        const next = rows
+          .filter(row => !matching.some(match => match.id === row.id) || row.id === atticRow.id)
+          .map(row =>
+            row.id === atticRow.id
+              ? {
+                  ...row,
+                  materialType,
+                  rValue: 'R-38',
+                  sqft:
+                    Number.isFinite(atticSqft) && atticSqft > 0
+                      ? atticSqft
+                      : row.sqft,
+                  source: 'contractor_entered' as const,
+                  confirmed: true,
+                  battFacing: null,
+                }
+              : row
+          );
+        setExpandedAssemblyId(atticRow.id);
+        updateRows(next);
+        return;
+      }
+    }
     const id = `insulation-assembly-${Date.now()}`;
     setExpandedAssemblyId(id);
     updateRows([
@@ -12940,7 +13056,7 @@ function InsulationAssemblyCard({
               color: captionColor(darkMode, Colors),
               fontSize: 10,
               fontWeight: '600',
-              marginTop: 2,
+              marginTop: 6,
             }}
           >
             {assemblySummaryParts.join(' · ')}
@@ -13550,6 +13666,15 @@ function InsulationAssemblyCard({
                 + Add {materialType} assembly
               </Text>
             </TouchableOpacity>
+            <View
+              style={{
+                height: StyleSheet.hairlineWidth,
+                marginTop: 12,
+                backgroundColor: darkMode
+                  ? 'rgba(148,163,184,0.2)'
+                  : Colors.line,
+              }}
+            />
           </View>
         );
       })}
@@ -14127,17 +14252,62 @@ function CollapsibleQuickMeasurements({
       }
     );
     if (String(effectiveTemplateKey || '').toLowerCase() === 'insulation') {
-      const hiddenInsulationFields = new Set<QuickMeasurementFieldKey>([
-        'insulationMaterialType',
-        'insulationRValue',
-        'garageInsulationIncluded',
+      const insulationFields = new Set<QuickMeasurementFieldKey>([
+        'floorAreaSqft',
+        'exteriorWallInsulationSqft',
+        'atticInsulationSqft',
+        'floorInsulationSqft',
+        'insulatedRoofDeckSqft',
+        'openingDeductionSqft',
         'garageSeparationInsulationSqft',
         'insulatedGarageWallSqft',
         'insulatedGarageCeilingSqft',
       ]);
+      const hiddenInsulationFields = new Set<QuickMeasurementFieldKey>([
+        'insulationMaterialType',
+        'insulationRValue',
+        'garageInsulationIncluded',
+      ]);
+      const noteText = String(notes || '');
+      const noteHasField = (key: QuickMeasurementFieldKey) =>
+        noteQuickMeasurements.keys instanceof Set
+          ? noteQuickMeasurements.keys.has(key)
+          : Array.isArray(noteQuickMeasurements.keys)
+            ? noteQuickMeasurements.keys.includes(key)
+            : false;
+      const hasRoofDeckReference =
+        noteHasField('insulatedRoofDeckSqft') ||
+        /\b(?:insulated|insulation|insulate)\b[^.;\n]{0,45}\b(?:roof\s+deck|roof\s+sheathing)\b|\b(?:roof\s+deck|roof\s+sheathing)\b[^.;\n]{0,45}\b(?:insulated|insulation|insulate)\b/i.test(
+          noteText
+        );
+      const hasOpeningDeductionReference =
+        noteHasField('openingDeductionSqft') ||
+        /\b(?:opening|window|door)\b[^.;\n]{0,45}\b(?:deduction|subtract|deduct)\b|\b(?:deduction|subtract|deduct)\b[^.;\n]{0,45}\b(?:opening|window|door)\b/i.test(
+          noteText
+        );
       return baseRows
         .map(row =>
-          row.filter(field => !hiddenInsulationFields.has(field.key))
+          row.filter(field => {
+            if (
+              hiddenInsulationFields.has(field.key) ||
+              !insulationFields.has(field.key)
+            ) {
+              return false;
+            }
+            if (
+              field.key === 'insulatedRoofDeckSqft' &&
+              !hasRoofDeckReference
+            ) {
+              return false;
+            }
+            if (
+              field.key === 'openingDeductionSqft' &&
+              !hasOpeningDeductionReference
+            ) {
+              return false;
+            }
+            return true;
+          })
         )
         .filter(row => row.length > 0);
     }
@@ -19271,6 +19441,7 @@ export default function AIEstimateScopeAssumptionsModal({
         withConversionFilter.filter(
           item =>
             (plumbingItemIds.has(item.id) ||
+              item.noteBacked ||
               isCustomScopeChecklistItem(item)) &&
             item.state !== 'excluded'
         )
@@ -19278,7 +19449,7 @@ export default function AIEstimateScopeAssumptionsModal({
     }
     if (stuccoTradeFlow) {
       const customOnly = withConversionFilter.filter(
-        isCustomScopeChecklistItem
+        item => isCustomScopeChecklistItem(item) || item.noteBacked
       );
       return withDrywallLayout([
         ...buildStuccoTradeChecklistItems(withConversionFilter),
@@ -20201,17 +20372,38 @@ export default function AIEstimateScopeAssumptionsModal({
       const existingInsulation = sourceItems.find(
         item => item.id === 'insulation'
       );
+      const parsedInsulationNotes = parseScopeMeasurementsFromNotes(
+        measurementNotes,
+        {
+          templateKey: 'insulation',
+          projectType: draft?.projectType ?? undefined,
+        }
+      );
       sourceItems = [
         existingInsulation ?? {
           id: 'insulation',
           inputType: 'yes_no',
           label: 'Insulation',
           helperText:
-            'Exterior wall, attic/ceiling, floor, and air-sealing insulation work. Do not use drywall surface area for insulation quantities.',
+            'Exterior wall, attic/ceiling, and floor insulation work. Air sealing is shown as a separate scope card. Do not use drywall surface area for insulation quantities.',
           category: 'structure',
           state: 'included',
           noteBacked: true,
         },
+        ...(parsedInsulationNotes.airSealingIncluded
+          ? [
+              {
+                id: 'air_sealing',
+                inputType: 'yes_no' as const,
+                label: 'Standard air sealing',
+                helperText:
+                  'Basic accessible gap, draft, and penetration sealing using standard caulk, foam, and blocking.',
+                category: 'structure',
+                state: 'included' as const,
+                noteBacked: true,
+              },
+            ]
+          : []),
       ];
     }
     if (!sourceItems.length) return;
@@ -20231,6 +20423,23 @@ export default function AIEstimateScopeAssumptionsModal({
       draft?.scopeMeasurements,
       scopeNotes
     );
+    const parsedNoteMeasurements = parseScopeMeasurementsFromNotes(
+      measurementNotes,
+      {
+        templateKey: effectiveTemplateKey,
+        projectType: draft?.projectType ?? undefined,
+      }
+    );
+    if (parsedNoteMeasurements.airSealingIncluded) {
+      nextMeasurements = {
+        ...nextMeasurements,
+        airSealingIncluded: true,
+        airSealingSqft:
+          parsedNoteMeasurements.airSealingSqft ||
+          parsedNoteMeasurements.floorAreaSqft ||
+          nextMeasurements.floorAreaSqft,
+      };
+    }
     // The plan review modal can be applied before the draft persistence
     // round-trip completes. Preserve its selected-trade measurements during
     // Confirm Scope hydration so readable plan values are not lost.
@@ -20358,9 +20567,9 @@ export default function AIEstimateScopeAssumptionsModal({
       }
     }
     if (effectiveTemplateKey === 'insulation' && !singleTradePlanImport) {
-      const parsedAssemblies = [measurementNotes, scopeNotes]
-        .map(text => parseInsulationAssembliesFromNotes(text))
-        .sort((left, right) => right.length - left.length)[0] || [];
+      const parsedAssemblies = parseInsulationAssembliesFromNotes(
+        insulationAssemblyNotes
+      );
       if (parsedAssemblies.length) {
         nextMeasurements.insulationAssemblies = parsedAssemblies.map(
           (assembly, index) => ({
@@ -20369,7 +20578,9 @@ export default function AIEstimateScopeAssumptionsModal({
             source: 'parsed_from_notes',
             confirmed: true,
             battFacing:
-              assembly.materialType === 'Batt' ? 'not_sure' : null,
+              assembly.materialType === 'Batt'
+                ? assembly.battFacing || 'not_sure'
+                : null,
           })
         );
       }
@@ -25568,6 +25779,7 @@ export default function AIEstimateScopeAssumptionsModal({
             ? baseItems.filter(
                 item =>
                   plumbingItemIds.has(item.id) ||
+                  item.noteBacked ||
                   isCustomScopeChecklistItem(item)
               )
             : baseItems;
@@ -26244,11 +26456,7 @@ export default function AIEstimateScopeAssumptionsModal({
           ) ? (
             <InsulationAssemblyCard
               measurements={measurements as Record<string, unknown>}
-              notes={
-                draft?.originalNotes ||
-                notesFallback ||
-                insulationAssemblyNotes
-              }
+              notes={insulationAssemblyNotes}
               templateKey={insulationTemplateKey}
               onChange={(key, value) =>
                 setMeasurementsSynced(prev => ({ ...prev, [key]: value }))

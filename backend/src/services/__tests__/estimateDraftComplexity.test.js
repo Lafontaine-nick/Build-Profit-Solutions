@@ -129,6 +129,53 @@ describe("estimateDraftComplexity", () => {
     });
   });
 
+  test("adds catalog-backed cross-trade cards to a bathroom workflow", () => {
+    const notes =
+      "Bathroom remodel. Install a new shower and replace three windows.";
+    const draft = {
+      projectType: "bathroom",
+      originalNotes: notes,
+      rooms: [{ name: "Bathroom remodel", scope: notes }],
+    };
+
+    const checklist = buildScopeChecklist(draft, "room_remodel", notes);
+    const ids = checklist.items.map((item) => item.id);
+
+    expect(ids).toContain("window_install");
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(
+      checklist.items.find((item) => item.id === "window_install"),
+    ).toEqual(
+      expect.objectContaining({
+        noteBacked: true,
+        catalogScopeId: "window_install",
+        pricingRuleKey: "window_install",
+      }),
+    );
+  });
+
+  test("keeps a missing-quantity catalog card visible for confirmation", () => {
+    const notes = "Install new baseboards.";
+    const draft = {
+      projectType: "painting",
+      originalNotes: notes,
+      rooms: [{ name: "Mixed scope", scope: notes }],
+    };
+
+    const checklist = buildScopeChecklist(draft, "painting", notes);
+    const baseboards = checklist.items.find(
+      (item) => item.id === "baseboard_install",
+    );
+
+    expect(baseboards).toEqual(
+      expect.objectContaining({
+        noteBacked: true,
+        catalogBacked: true,
+        state: "unsure",
+      }),
+    );
+  });
+
   test("overrides a painting tier for a multi-trade interior remodel", () => {
     const notes =
       "Remodel an existing 1,400 sqft home interior. Renovate one kitchen and two bathrooms, install 900 sqft of LVP, replace 12 linear feet of countertops, install 42 linear feet of cabinets, repair 300 sqft of drywall, repaint interior walls and ceilings, and install 180 linear feet of baseboard.";

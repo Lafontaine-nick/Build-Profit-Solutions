@@ -7,6 +7,7 @@
     "start:lan": "EXPO_NO_DOCTOR=1 bash -c 'source scripts/lan-packager-host-env.sh && npx expo start --lan'",
     "start:go": "EXPO_NO_DOCTOR=1 npx expo start --tunnel --clear --go",
     "start:sim": "EXPO_NO_DOCTOR=1 npx expo start --localhost --clear --ios",
+    "start:sim:reliable": "./start-ios-simulator-reliable.sh",
     "start:offline": "EXPO_NO_DOCTOR=1 npx expo start --offline --clear",
     "start:dev": "EXPO_NO_DOCTOR=1 npx expo start --dev-client",
     "start:dev:lan": "EXPO_NO_DOCTOR=1 bash -c 'source scripts/lan-packager-host-env.sh && npx expo start --dev-client --lan'",

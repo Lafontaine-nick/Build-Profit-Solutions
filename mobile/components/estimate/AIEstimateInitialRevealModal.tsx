@@ -21,8 +21,6 @@ import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { formatPlanningMoney } from '@/utils/estimateAiDraft';
-import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
-import { scopePackageIndicativePricedAmount } from '@/utils/estimateDraftReviewUi';
 import {
   countInitialRevealAttentionItems,
   draftNeedsScopeConfirmation,
@@ -187,17 +185,7 @@ function AIEstimateInitialRevealModal({
         : getInitialRevealPlanningDisclaimer(totals, attentionCount),
       suppressRevealPricing,
       defaultScopeExpanded: shouldDefaultExpandInitialRevealScope(totals.scopeItemCount),
-      scopePreview: (() => {
-        const fromPackages = getScopePackagesForReview(draft).map((pkg) => {
-          const name = String(pkg.name || pkg.scope || 'Scope item').trim();
-          const amount = pricingVisible
-            ? scopePackageIndicativePricedAmount(pkg, draft)
-            : 0;
-          return { name, amount };
-        });
-        if (fromPackages.length > 0) return fromPackages;
-        return getInitialRevealChecklistScopePreview(draft);
-      })(),
+      scopePreview: getInitialRevealChecklistScopePreview(draft),
     };
   }, [draft, markupPct]);
 

@@ -8190,6 +8190,15 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<
       'Use net walls plus a confirmed attic/ceiling or insulated roof-deck SF. Do not invent missing surfaces from living area.',
     missingMessage: 'Needs whole-house insulation surface takeoff',
   },
+  air_sealing: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['airSealingSqft', 'floorAreaSqft'],
+    measurementKey: 'airSealingSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Uses conditioned living area for the standard air-sealing allowance.',
+    missingMessage: 'Needs conditioned living area for air sealing.',
+  },
   drywall: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.drywall,
     measurementKey: 'drywallSqft',
@@ -14667,7 +14676,7 @@ function insulationAssemblyLocationLabel(location: string | null): string {
       attic_ceiling: 'attic / ceiling',
       roof_deck: 'roof deck',
       garage_separation: 'garage separation',
-      floor: 'floor',
+      floor: 'floor insulation',
     }[location || ''] || 'whole-house'
   );
 }
@@ -15039,6 +15048,16 @@ export function resolveInsulationAssemblyScopeSuggestedPricing(
     sqft += pricing.sqft;
     details.push(pricing.detail);
   }
+  if (measurementsInput.airSealingIncluded && livingSf > 0) {
+    const airSealingMaterial = round2(livingSf * 0.15);
+    const airSealingLabor = round2(livingSf * 0.35);
+    material += airSealingMaterial;
+    labor += airSealingLabor;
+    total += airSealingMaterial + airSealingLabor;
+    details.push(
+      `${Math.round(livingSf).toLocaleString()} SF Standard air sealing @ $0.50/SF`
+    );
+  }
 
   const assemblyCount = pricingMap.size;
   const codeWarnings = insulationAssemblyCodeWarnings(
@@ -15188,6 +15207,40 @@ export function resolveScopeItemSuggestedPricing(
       originalNotes,
       options
     );
+  }
+  if (itemId === 'air_sealing') {
+    const explicitQuantity = Number(measurementsInput.airSealingSqft);
+    const quantity =
+      Number.isFinite(explicitQuantity) && explicitQuantity > 0
+        ? explicitQuantity
+        : Number(resolved.quantity) || 0;
+    if (!(quantity > 0) || resolved.unit !== 'sqft') {
+      return empty;
+    }
+    const material = Math.round(quantity * 0.15 * 100) / 100;
+    const labor = Math.round(quantity * 0.35 * 100) / 100;
+    return {
+      fill: {
+        material,
+        labor,
+        total: material + labor,
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: 'National planning allowance',
+        helper:
+          'Basic accessible air sealing around top plates, attic penetrations, wiring, plumbing, duct openings, rim areas, and attic access. Excludes testing, duct sealing, removals, remediation, and major encapsulation.',
+        mode: 'suggested_price',
+        splitSource: 'estimated',
+        splitConfidence: 'low',
+        basis: { quantity, unit: 'sqft' },
+        displayUnitRateLabel: '$0.50/sqft',
+        benchmarkAction: 'price_ready',
+        productionStatus: 'planning',
+        benchmarkLevel: 'component',
+        benchmarkScopeKey: 'air_sealing',
+      },
+      comparison: null,
+    };
   }
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
@@ -22020,6 +22073,27 @@ export function resolveChecklistItemQuantity(
     notes?: string | null;
   } = {}
 ): ResolvedItemQuantity {
+  if (itemId === 'air_sealing') {
+    const explicit = Number(measurements.airSealingSqft);
+    const livingArea = Number(measurements.floorAreaSqft);
+    const quantity =
+      Number.isFinite(explicit) && explicit > 0
+        ? explicit
+        : Number.isFinite(livingArea) && livingArea > 0
+          ? livingArea
+          : null;
+    return {
+      quantity,
+      unit: 'sqft',
+      quantitySource: quantity ? 'inferred' : 'missing',
+      sourceLabel: quantity ? 'Conditioned living area' : null,
+      pricingReady: Boolean(quantity),
+      quantityHelper:
+        'Uses conditioned living area for the standard air-sealing allowance.',
+      missingMessage: 'Needs conditioned living area for air sealing.',
+      showInput: true,
+    };
+  }
   if (itemId === 'sink_faucet') {
     const stored = measurements.itemQuantities?.sink_faucet;
     const notes = String(ctx.notes || '');

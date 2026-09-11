@@ -560,6 +560,15 @@ const SCOPE_UNIT_REGISTRY: Record<string, ScopeRegistryEntry> = {
       requiredMeasurementTypes: ['envelope_area'],
     }
   ),
+  air_sealing: ENTRY(
+    'insulation',
+    ['sqft'],
+    ['conditioned_floor_area'],
+    ['building_floor_area'],
+    {
+      alternateUnits: ['allowance', 'lump_sum'],
+    }
+  ),
   drywall: ENTRY('drywall', ['sqft'], ['wall_surface_area', 'ceiling_surface_area'], AREA_TO_SURFACE_DERIVED, {
     alternateUnits: ['allowance', 'lump_sum'],
     requiredMeasurementTypes: ['wall_surface_area'],
