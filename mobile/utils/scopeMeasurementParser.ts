@@ -1463,10 +1463,23 @@ export function parseScopeMeasurementsFromNotes(
                 : 'carpet';
     if (quantity && !productIsRemovalOnly(product)) out[key] = quantity;
   }
-  const floorDemoSqft = pickSqftFromClauses([
-    /\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b[^.;]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/,
-    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,60}\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b/,
-  ]);
+  // Only assign a demo quantity when the sqft is actually near the
+  // floor-removal language. Falling back to the first sqft in the clause can
+  // steal a later paint, drywall, or install quantity from the same note.
+  const floorDemoSqft = (() => {
+    const patterns = [
+      /\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b[^.;]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/,
+      /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,60}\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b/,
+    ];
+    for (const clause of clauses) {
+      for (const pattern of patterns) {
+        if (!pattern.test(clause.toLowerCase())) continue;
+        const near = pickSqftNearPattern(clause, pattern);
+        if (near) return near;
+      }
+    }
+    return null;
+  })();
   if (floorDemoSqft) out.floorDemoSqft = floorDemoSqft;
   const floorPrepSqft = pickSqftFromClauses([
     /\b(?:floor|subfloor)\s+prep\b/,

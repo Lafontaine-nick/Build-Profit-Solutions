@@ -385,6 +385,7 @@ import {
 import {
   collectRoofingInferenceNotes,
   inferRoofingTradeScopeSelectionsFromNotes,
+  inferItemStateFromNotes,
 } from '@/utils/scopeItemNoteHints';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import {
@@ -3459,10 +3460,17 @@ function chooseBestScopeNotes(
   draft: EstimateAiDraft | null,
   notesFallback?: string | null
 ): string {
+  // The user's submitted notes are the source of truth for explicit
+  // measurements. AI-generated summaries can omit or misattach quantities
+  // (for example, assigning flooring sqft to paint), so never prefer a
+  // generated summary over the original note text.
+  const originalUserNotes =
+    String(notesFallback || '').trim() ||
+    String(draft?.originalNotes || '').trim();
+  if (originalUserNotes) return originalUserNotes;
+
   const candidates = [
-    String(notesFallback || '').trim(),
     resolveDraftScopeNotes(draft),
-    String(draft?.originalNotes || '').trim(),
     String(draft?.projectDescription || '').trim(),
     String(draft?.contractScope || '').trim(),
     String(draft?.scopeChecklist?.intro || '').trim(),
@@ -14141,6 +14149,13 @@ function CollapsibleQuickMeasurements({
     put('showerWallTileSqft', parsed.showerWallTileSqft);
     put('showerFloorTileSqft', parsed.showerFloorTileSqft);
     put('wallPaintSqft', parsed.wallPaintSqft);
+    // Kitchen/remodel cards use the single "Paint" field backed by
+    // wallPaintSqft, while the notes parser stores an unqualified paint area
+    // as paintAreaSqft. Treat that explicit note quantity as the same
+    // note-backed field so Confirm Scope does not show a derived estimate.
+    if (parsed.wallPaintSqft == null) {
+      put('wallPaintSqft', parsed.paintAreaSqft);
+    }
     put('ceilingPaintSqft', parsed.ceilingPaintSqft);
     put('paintAreaSqft', parsed.paintAreaSqft);
     put('exteriorPaintSqft', parsed.exteriorPaintSqft);
@@ -19448,12 +19463,79 @@ export default function AIEstimateScopeAssumptionsModal({
       /\bstucco\b|exterior\s+finish/i.test(scopeNotes));
 
   const displayItems = useMemo(() => {
-    const expanded = buildConfirmScopeDisplayItems(
+    let expanded = buildConfirmScopeDisplayItems(
       items,
       measurements as Record<string, unknown>,
       checklist?.templateKey,
       scopeNotes
     );
+    // The rendered list is the final authority for Step 2. If an older saved
+    // checklist omitted a note-backed cross-trade row, restore it here rather
+    // than relying on a prior persistence/hydration pass.
+    const currentUserNote =
+      String(notesFallback || '').trim() ||
+      String(draft?.originalNotes || '').trim() ||
+      scopeNotes;
+    const noteMeasurementCards = [
+      {
+        id: 'windows',
+        label: 'Windows',
+        helperText: 'Window count from notes; enter the number of units.',
+        category: 'openings',
+        factIds: ['windows', 'window_install', 'windows_doors'],
+      },
+      {
+        id: 'exterior_doors',
+        label: 'Exterior doors',
+        helperText: 'Exterior door count from notes; enter the number of units.',
+        category: 'openings',
+        factIds: ['exterior_doors', 'door_install', 'exterior_door_install'],
+      },
+      {
+        id: 'insulation',
+        label: 'Insulation',
+        helperText: 'Insulation surface area from notes; enter the missing sqft.',
+        category: 'structure',
+        factIds: ['insulation', 'wall_insulation', 'exterior_wall_insulation'],
+      },
+    ] as const;
+    for (const card of noteMeasurementCards) {
+      const hasCatalogFact = (checklist?.scopeFacts || []).some(
+        fact =>
+          card.factIds.includes(String(fact.scopeId || '')) &&
+          fact.status !== 'excluded'
+      );
+      const noteMentionsCard =
+        hasCatalogFact ||
+        inferItemStateFromNotes(card.id, currentUserNote) === 'included' ||
+        (card.id === 'windows' && /\bwindows?\b/i.test(currentUserNote)) ||
+        (card.id === 'exterior_doors' &&
+          /\b(?:exterior|entry)\s+doors?\b/i.test(currentUserNote)) ||
+        (card.id === 'insulation' &&
+          /\binsulat(?:e|ion|ed)\b/i.test(currentUserNote));
+      if (!noteMentionsCard) continue;
+      const existing = expanded.some(item => item.id === card.id);
+      if (existing) {
+        expanded = expanded.map(item =>
+          item.id === card.id
+            ? { ...item, state: 'included' as const, noteBacked: true }
+            : item
+        );
+      } else {
+        expanded = [
+          ...expanded,
+          {
+            id: card.id,
+            inputType: 'yes_no',
+            label: card.label,
+            helperText: card.helperText,
+            category: card.category,
+            state: 'included',
+            noteBacked: true,
+          },
+        ];
+      }
+    }
     // Door casing is included in the consolidated interior-door installation
     // card; never render the legacy duplicate card.
     const withoutLegacyDoorCasingInstall = expanded.filter(
@@ -20525,17 +20607,17 @@ export default function AIEstimateScopeAssumptionsModal({
       draft && scopeNotes.trim()
         ? repairDraftRatePricingFromNotes(draft, scopeNotes)
         : draft;
-    let nextMeasurements = mergeConfirmScopeSavedMeasurements(
-      prepareScopeMeasurementsInputForUi(
+    let nextMeasurements = prepareScopeMeasurementsInputForUi(
+      mergeConfirmScopeSavedMeasurements(
         initialScopeMeasurementInputExtended(draftForScope, measurementNotes),
-        {
-          notes: measurementNotes,
-          templateKey: checklist.templateKey,
-          projectType: draftForScope?.projectType ?? draft?.projectType,
-        }
+        draft?.scopeMeasurements,
+        scopeNotes
       ),
-      draft?.scopeMeasurements,
-      scopeNotes
+      {
+        notes: measurementNotes,
+        templateKey: checklist.templateKey,
+        projectType: draftForScope?.projectType ?? draft?.projectType,
+      }
     );
     const parsedNoteMeasurements = parseScopeMeasurementsFromNotes(
       measurementNotes,
@@ -21014,7 +21096,11 @@ export default function AIEstimateScopeAssumptionsModal({
       sourceItems.length &&
       (draft?.confirmedAssumptions?.length || draft?.scopeAssumptionsConfirmed)
     ) {
-      normalized = restoreConfirmedChecklistItemStates(normalized, sourceItems);
+      normalized = restoreConfirmedChecklistItemStates(
+        normalized,
+        sourceItems,
+        scopeNotes
+      );
     }
     normalized = syncWindowInstallScopeFromNotes(normalized, {
       notes: scopeNotes,
@@ -21337,6 +21423,52 @@ export default function AIEstimateScopeAssumptionsModal({
         state: 'included',
         noteBacked: true,
       });
+    }
+    // Final cross-trade guard: a previously saved kitchen checklist can omit
+    // or exclude these cards even after note hydration. Explicit current notes
+    // must always restore the catalog card so its blank takeoff is editable.
+    const crossTradeMeasurementCards = [
+      {
+        id: 'windows',
+        label: 'Windows',
+        helperText: 'Window count from notes; enter the number of units.',
+        category: 'openings',
+      },
+      {
+        id: 'exterior_doors',
+        label: 'Exterior doors',
+        helperText: 'Exterior door count from notes; enter the number of units.',
+        category: 'openings',
+      },
+      {
+        id: 'insulation',
+        label: 'Insulation',
+        helperText: 'Insulation surface area from notes; enter the missing sqft.',
+        category: 'structure',
+      },
+    ] as const;
+    for (const card of crossTradeMeasurementCards) {
+      if (inferItemStateFromNotes(card.id, scopeNotes) !== 'included') {
+        continue;
+      }
+      const existing = normalized.find(item => item.id === card.id);
+      if (existing) {
+        normalized = normalized.map(item =>
+          item.id === card.id
+            ? { ...item, state: 'included' as const, noteBacked: true }
+            : item
+        );
+      } else {
+        normalized.push({
+          id: card.id,
+          inputType: 'yes_no',
+          label: card.label,
+          helperText: card.helperText,
+          category: card.category,
+          state: 'included',
+          noteBacked: true,
+        });
+      }
     }
     baseItemsRef.current = normalized;
     setItems(normalized);
@@ -25382,6 +25514,11 @@ export default function AIEstimateScopeAssumptionsModal({
     ) {
       ids.add('lighting');
     }
+    // Plumbing connections has several mutually exclusive button choices;
+    // keep the long option list compact until the user opens it.
+    if (displayItems.some(row => row.id === 'plumbing')) {
+      ids.add('plumbing');
+    }
     return ids;
   }, [displayItems]);
 
@@ -25565,6 +25702,8 @@ export default function AIEstimateScopeAssumptionsModal({
           }
           activeOpacity={0.8}
           style={{
+            alignSelf: 'stretch',
+            marginHorizontal: -10,
             marginBottom: 12,
             paddingHorizontal: 16,
             paddingVertical: 14,
@@ -26361,6 +26500,13 @@ export default function AIEstimateScopeAssumptionsModal({
       scopeGroupOrderRef.current.set(groupKey, index);
     }
   });
+  const collapsedTradeItemsAtBottom = scopeGroupsToRender.flatMap(group =>
+    group.items.filter(
+      item =>
+        autoCollapsedScopeItemIds.has(item.id) &&
+        !expandedCollapsedScopeItemIds.has(item.id)
+    )
+  );
   const electricalPreviewPricingCount = electricalPreviewScopeGroups.reduce(
     (total, group) => total + group.items.length,
     0
@@ -26886,31 +27032,36 @@ export default function AIEstimateScopeAssumptionsModal({
           {!isElectricalConfirmScope ||
           electricalScopeRowsMounted ||
           (quickMeasurementsOpen && electricalPreviewScopeGroups.length > 0)
-            ? scopeGroupsToRender.map(group => (
-                <ScopeGroupSection
-                  key={group.title || 'all'}
-                  title={group.title}
-                  items={group.items}
-                  collapsed={Boolean(collapsedGroups[group.title])}
-                  onToggle={() => {
-                    const isCollapsed = Boolean(collapsedGroups[group.title]);
-                    if (isCollapsed) {
-                      flushStagedElectricalMeasurements();
-                    }
-                    setCollapsedGroups(prev => ({
-                      ...prev,
-                      [group.title]: !isCollapsed,
-                    }));
-                  }}
-                  renderItem={renderItem}
-                  noteSummary={scopeChecklistNoteSummary(
-                    group.items,
-                    visualCtx
-                  )}
-                  Colors={Colors}
-                  darkMode={darkMode}
-                />
-              ))
+            ? scopeGroupsToRender.map(group => {
+                const regularItems = group.items.filter(
+                  item => !collapsedTradeItemsAtBottom.includes(item)
+                );
+                return (
+                  <ScopeGroupSection
+                    key={group.title || 'all'}
+                    title={group.title}
+                    items={regularItems}
+                    collapsed={Boolean(collapsedGroups[group.title])}
+                    onToggle={() => {
+                      const isCollapsed = Boolean(collapsedGroups[group.title]);
+                      if (isCollapsed) {
+                        flushStagedElectricalMeasurements();
+                      }
+                      setCollapsedGroups(prev => ({
+                        ...prev,
+                        [group.title]: !isCollapsed,
+                      }));
+                    }}
+                    renderItem={renderItem}
+                    noteSummary={scopeChecklistNoteSummary(
+                      group.items,
+                      visualCtx
+                    )}
+                    Colors={Colors}
+                    darkMode={darkMode}
+                  />
+                );
+              })
             : null}
 
           <View ref={customScopeSectionRef} collapsable={false}>
@@ -26963,6 +27114,22 @@ export default function AIEstimateScopeAssumptionsModal({
               />
             ) : null}
           </View>
+
+          {!isElectricalConfirmScope ||
+          electricalScopeRowsMounted ||
+          (quickMeasurementsOpen && electricalPreviewScopeGroups.length > 0)
+            ? collapsedTradeItemsAtBottom.length > 0
+              ? (
+                  <View style={styles.groupSection}>
+                    {collapsedTradeItemsAtBottom.map(item => (
+                      <React.Fragment key={`collapsed-bottom-${item.id}`}>
+                        {renderItem(item)}
+                      </React.Fragment>
+                    ))}
+                  </View>
+                )
+              : null
+            : null}
 
           {step2AppliedEstimateTotal > 0 ? (
             <BenchmarkReasonablenessCard

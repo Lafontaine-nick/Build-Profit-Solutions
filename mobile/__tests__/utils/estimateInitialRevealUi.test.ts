@@ -445,6 +445,25 @@ describe('estimateInitialRevealUi', () => {
     ]);
   });
 
+  it('shows an unquantified exterior door from brief cross-trade notes', () => {
+    const draft = {
+      projectType: 'kitchen',
+      originalNotes:
+        'Update the kitchen with cabinet, counter, backsplash, and flooring demolition; new cabinets, counters, backsplash, flooring, drywall, plumbing, electrical, windows, insulation, an exterior door, and paint.',
+      scopeChecklist: {
+        templateKey: 'kitchen',
+        items: [
+          { id: 'window_install', label: 'Window & trim installation', state: 'included' },
+          { id: 'interior_paint', label: 'Interior painting', state: 'included' },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toContain('Exterior doors');
+  });
+
   it('normalizes a cached kitchen floor demo label', () => {
     const draft = {
       projectType: 'room_remodel',

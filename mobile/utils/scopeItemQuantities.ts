@@ -880,6 +880,20 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     sourceLabel:
       'Suggested budget split · National Average · baseboard install, prep & paint',
   },
+  baseboard_install: {
+    unit: 'lf',
+    material: 2,
+    labor: 6.5,
+    sourceLabel:
+      'Suggested budget split · National Average · baseboard installation',
+  },
+  exterior_trim_paint: {
+    unit: 'each',
+    material: 45,
+    labor: 135,
+    sourceLabel:
+      'Suggested budget split · National Average · window trim painting and finish',
+  },
   flooring: {
     unit: 'sqft',
     material: 4,
@@ -2573,8 +2587,6 @@ const NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES: Record<string, string> = {
   interior_door_install: 'interior_doors',
   door_casing_install: 'trim_finish',
   door_casing_paint: 'trim',
-  /** Bathroom baseboard installation reuses the established trim LF rate. */
-  baseboard_install: 'trim',
   // Window replacement/install includes the opening trim package.
   window_install: 'windows_doors',
   ...TILE_NATIONAL_AVERAGE_ALIASES,
@@ -5859,6 +5871,22 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper: 'Enter patch/repair sqft or lump sum.',
     missingMessage: 'Enter drywall repair sqft.',
   },
+  insulation: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: [
+      'exteriorWallGrossSqft',
+      'exteriorWallInsulationSqft',
+      'openingDeductionSqft',
+      'atticInsulationSqft',
+      'insulatedRoofDeckSqft',
+      'floorInsulationSqft',
+    ],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Use the identified insulation surface area; do not infer missing areas from living space.',
+    missingMessage: 'Enter insulation surface sqft.',
+  },
   paint: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
@@ -5876,6 +5904,14 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     quantityHelper: 'Linear feet around bathroom perimeter.',
     missingMessage: 'Enter baseboard LF.',
+  },
+  baseboard_install: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'baseboardLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter baseboard installation LF.',
+    missingMessage: 'Enter baseboard installation LF or pricing.',
   },
   trim_paint: {
     defaultUnit: 'lf',
@@ -10455,8 +10491,7 @@ export function getChecklistItemQuantityRule(
             : itemId === 'paint_trim' ||
                 itemId === 'paint' ||
                 itemId === 'interior_paint'
-              ? itemId === 'interior_paint' &&
-                  Number(measurements.paintAreaSqft || 0) > 0
+              ? itemId === 'paint'
                 ? 'paintAreaSqft'
                 : 'wallPaintSqft'
               : itemId === 'excavation'
@@ -15389,6 +15424,41 @@ export function resolveScopeItemSuggestedPricing(
     )
   ) {
     return empty;
+  }
+  // Cross-trade remodels may have one explicit wall/ceiling insulation
+  // quantity without a complete assembly schedule. Keep that quantity
+  // priceable with the catalog's basic national material/labor split.
+  if (
+    itemId === 'insulation' &&
+    resolved.unit === 'sqft' &&
+    Number(resolved.quantity) > 0 &&
+    !(
+      Array.isArray(measurementsInput.insulationAssemblies) &&
+      measurementsInput.insulationAssemblies.length > 0
+    )
+  ) {
+    const quantity = Number(resolved.quantity);
+    const material = round2(quantity * 1.25);
+    const labor = round2(quantity * 1.75);
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel:
+          'Suggested budget split · National Average · insulation',
+        helper: `${quantity.toLocaleString()} sqft · basic insulation material and installation`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'sqft' },
+        benchmarkAction: 'price_ready',
+        productionStatus: 'planning',
+        benchmarkScopeKey: 'insulation',
+      },
+      comparison: null,
+    };
   }
   if (
     String(templateKey || '').toLowerCase() === 'framing' &&
@@ -25574,6 +25644,61 @@ export function prepareScopeMeasurementsInputForUi(
     ...payload,
     itemQuantities,
   };
+  // Explicit paint quantities from the current notes must win over stale
+  // inferred values persisted on the draft (for example flooring sqft copied
+  // into the paint field during an earlier hydration pass).
+  const paintMeasurementKeys = [
+    'wallPaintSqft',
+    'ceilingPaintSqft',
+    'paintAreaSqft',
+    'combinedPaintableAreaSqft',
+    'originalPaintAreaReferenceSqft',
+  ] as const;
+  const parsedPaintKeys = paintMeasurementKeys.filter(key => {
+    const value = (parsed as Record<string, unknown>)[key];
+    const quantity = Number(String(value ?? '').replace(/,/g, ''));
+    return Number.isFinite(quantity) && quantity > 0;
+  });
+  if (parsedPaintKeys.length) {
+    const userLockedPaintKeys = new Set(
+      paintMeasurementKeys.filter(
+        key =>
+          payload.quickMeasurementUserOverrides?.[key] === true ||
+          payload.quickMeasurementSources?.[key] === 'user_entered'
+      )
+    );
+    for (const key of paintMeasurementKeys) {
+      if (userLockedPaintKeys.has(key)) continue;
+      const parsedValue = (parsed as Record<string, unknown>)[key];
+      (mergedFields as Record<string, unknown>)[key] =
+        parsedValue == null ? '' : parsedValue;
+    }
+    const parsedPaintQuantity = ['wallPaintSqft', 'paintAreaSqft', 'combinedPaintableAreaSqft']
+      .map(key => Number((parsed as Record<string, unknown>)[key]))
+      .find(value => Number.isFinite(value) && value > 0);
+    if (parsedPaintQuantity) {
+      const quantities = {
+        ...((mergedFields as ScopeMeasurements).itemQuantities || {}),
+      };
+      for (const id of ['paint', 'interior_paint', 'paint_trim']) {
+        const existing = quantities[id];
+        if (
+          existing?.quantitySource === 'manual_override' ||
+          payload.quickMeasurementUserOverrides?.wallPaintSqft === true ||
+          payload.quickMeasurementSources?.wallPaintSqft === 'user_entered'
+        ) {
+          continue;
+        }
+        quantities[id] = {
+          ...(existing || {}),
+          quantity: parsedPaintQuantity,
+          unit: 'sqft',
+          quantitySource: 'notes',
+        };
+      }
+      (mergedFields as ScopeMeasurements).itemQuantities = quantities;
+    }
+  }
   for (const [key, value] of Object.entries(payload)) {
     if (
       key === 'itemQuantities' ||
@@ -25583,6 +25708,17 @@ export function prepareScopeMeasurementsInputForUi(
       continue;
     const n = Number(value);
     if (Number.isFinite(n) && n > 0) {
+      if (
+        paintMeasurementKeys.includes(
+          key as (typeof paintMeasurementKeys)[number]
+        ) &&
+        !(
+          payload.quickMeasurementUserOverrides?.[key] === true ||
+          payload.quickMeasurementSources?.[key] === 'user_entered'
+        )
+      ) {
+        continue;
+      }
       (mergedFields as Record<string, unknown>)[key] = n;
     }
   }

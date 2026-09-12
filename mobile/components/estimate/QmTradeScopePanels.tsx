@@ -1291,8 +1291,13 @@ export function QmKitchenScopePanels({
   const backsplashSqftValue = kitchenMeasurementDrafts.backsplashSqft;
   const kitchenFloorSqftValue = kitchenMeasurementDrafts.kitchenFloorSqft;
   const hasExplicitKitchenFloorScope =
-    /\b(?:install|replace|remove|demo|demolition|tear[\s-]?out)\b[^.;]{0,40}\b(?:floor|flooring|lvp|vinyl|laminate|carpet|tile)\b|\b(?:floor|flooring|lvp|vinyl|laminate|carpet|tile)\b[^.;]{0,40}\b(?:install|replace|remove|demo|demolition|tear[\s-]?out)\b/i.test(
-      String(notes || ''),
+    (
+      /\b(?:install|replace|remove|demo|demolition|tear[\s-]?out)\b[^.;]{0,40}\b(?:floor|flooring|lvp|vinyl|laminate|carpet|tile)\b|\b(?:floor|flooring|lvp|vinyl|laminate|carpet|tile)\b[^.;]{0,40}\b(?:install|replace|remove|demo|demolition|tear[\s-]?out)\b/i.test(
+        String(notes || ''),
+      ) ||
+      /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:floor|flooring|lvp|vinyl|laminate|carpet|tile)\b|\b(?:floor|flooring|lvp|vinyl|laminate|carpet|tile)\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
+        String(notes || ''),
+      )
     ) &&
     !/\bfloor(?:ing)?\s+protection\b/i.test(String(notes || ''));
   const showIslandCounterField = (install.kitchenInstallIslandCount ?? 0) > 0;

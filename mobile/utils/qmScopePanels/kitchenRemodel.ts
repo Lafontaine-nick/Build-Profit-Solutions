@@ -536,58 +536,66 @@ export function kitchenQmScopeCardVisible(
 
   const install = resolveKitchenInstallScopeCounts(measurements);
   const demo = readKitchenDemoCounts(measurements);
+  const row = items?.find((r) => r.id === itemId);
+  const rowInScope = Boolean(row && checklistRowInScope(row));
 
   switch (itemId) {
     case 'countertops':
       return (
         parseMeasurementQty(measurements.countertopSqft) > 0 ||
-        positiveCount(install.kitchenInstallCounterCount) != null
+        positiveCount(install.kitchenInstallCounterCount) != null ||
+        rowInScope
       );
     case 'backsplash':
       return (
         parseMeasurementQty(measurements.backsplashSqft) > 0 ||
-        positiveCount(install.kitchenInstallBacksplashCount) != null
+        positiveCount(install.kitchenInstallBacksplashCount) != null ||
+        rowInScope
       );
     case 'flooring':
       return (
         parseMeasurementQty(measurements.kitchenFloorSqft) > 0 ||
-        positiveCount(install.kitchenInstallFlooringCount) != null
+        positiveCount(install.kitchenInstallFlooringCount) != null ||
+        rowInScope
       );
     case 'appliances':
-      return positiveCount(install.kitchenInstallApplianceCount) != null;
+      return positiveCount(install.kitchenInstallApplianceCount) != null || rowInScope;
     case 'island':
-      return positiveCount(install.kitchenInstallIslandCount) != null;
+      return positiveCount(install.kitchenInstallIslandCount) != null || rowInScope;
     case 'cabinet_demo':
       return (
         positiveCount(demo.kitchenDemoCabinetCount) != null ||
-        parseMeasurementQty(measurements.cabinetLf) > 0
+        parseMeasurementQty(measurements.cabinetLf) > 0 ||
+        rowInScope
       );
     case 'island_demo':
-      return positiveCount(demo.kitchenDemoIslandCount) != null;
+      return positiveCount(demo.kitchenDemoIslandCount) != null || rowInScope;
     case 'countertop_demo':
       return (
         positiveCount(demo.kitchenDemoCounterCount) != null ||
-        parseMeasurementQty(measurements.countertopSqft) > 0
+        parseMeasurementQty(measurements.countertopSqft) > 0 ||
+        rowInScope
       );
     case 'floor_demo':
       return (
         positiveCount(demo.kitchenDemoFloorCount) != null ||
         (parseMeasurementQty(measurements.kitchenFloorSqft) > 0 &&
-          positiveCount(readKitchenExistingCounts(measurements).kitchenExistingFloorCount) != null)
+          positiveCount(readKitchenExistingCounts(measurements).kitchenExistingFloorCount) != null) ||
+        rowInScope
       );
     case 'backsplash_demo':
       return (
         positiveCount(demo.kitchenDemoBacksplashCount) != null ||
-        parseMeasurementQty(measurements.backsplashSqft) > 0
+        parseMeasurementQty(measurements.backsplashSqft) > 0 ||
+        rowInScope
       );
     case 'appliance_removal':
-      return positiveCount(demo.kitchenDemoApplianceCount) != null;
+      return positiveCount(demo.kitchenDemoApplianceCount) != null || rowInScope;
     default:
       break;
   }
 
-  const row = items?.find((r) => r.id === itemId);
-  return Boolean(row && checklistRowInScope(row));
+  return rowInScope;
 }
 
 /** Hide from the scope list only while QM embed is active and the line is not in scope yet. */
@@ -742,9 +750,11 @@ export function syncKitchenQmScopeItems(
         return { ...row, state: 'included' as const };
       }
       // The QM stepper is the source of truth for embedded kitchen scopes.
-      // Remove a previously synced scope when its stepper is turned off;
-      // otherwise its measurement fields remain relevant after deselection.
+      // Remove a previously synced scope when its stepper is turned off, but
+      // preserve an explicit note-backed row so brief notes can still collect
+      // its missing measurement on the scope card.
       if (!cond && row.state === 'included') {
+        if (row.noteBacked) return row;
         changed = true;
         return { ...row, state: 'excluded' as const };
       }

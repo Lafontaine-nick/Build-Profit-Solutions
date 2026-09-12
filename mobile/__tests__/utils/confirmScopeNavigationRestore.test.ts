@@ -45,6 +45,32 @@ describe('Confirm Scope navigation restore', () => {
     expect(restored[1].state).toBe('excluded');
   });
 
+  it('lets explicit current notes restore a previously excluded cross-trade card', () => {
+    const restored = restoreConfirmedChecklistItemStates(
+      [
+        {
+          id: 'windows',
+          label: 'Windows',
+          inputType: 'yes_no',
+          state: 'excluded',
+        },
+      ],
+      [
+        {
+          id: 'windows',
+          label: 'Windows',
+          inputType: 'yes_no',
+          state: 'excluded',
+        },
+      ],
+      'Update the kitchen with new windows, insulation, and an exterior door.'
+    );
+    expect(restored[0]).toMatchObject({
+      state: 'included',
+      noteBacked: true,
+    });
+  });
+
   it('sumAppliedScopePricingFromDraft uses saved Confirm Scope measurements after Step 3 back', () => {
     const draft = {
       scopeAssumptionsConfirmed: true,

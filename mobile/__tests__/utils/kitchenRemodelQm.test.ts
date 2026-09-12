@@ -215,6 +215,16 @@ describe('kitchenRemodel QM', () => {
     expect(next.find((r) => r.id === 'backsplash_demo')?.state).toBe('included');
   });
 
+  it('preserves note-backed kitchen cards when no QM stepper quantity exists', () => {
+    const items = [
+      { ...item('flooring', 'included'), noteBacked: true },
+      { ...item('floor_demo', 'included'), noteBacked: true },
+    ];
+    const next = syncKitchenQmScopeItems(items, {});
+    expect(next.find((r) => r.id === 'flooring')?.state).toBe('included');
+    expect(next.find((r) => r.id === 'floor_demo')?.state).toBe('included');
+  });
+
   it('suggests island demo when island install is in scope', () => {
     const demo = suggestKitchenDemoFromExistingInstall({
       existing: {
@@ -252,6 +262,17 @@ describe('kitchenRemodel QM', () => {
     expect(shouldHideKitchenScopeCardInQmEmbed('cabinet_demo', measurements)).toBe(true);
     expect(shouldHideKitchenScopeCardInQmEmbed('backsplash', measurements)).toBe(true);
     expect(KITCHEN_QM_EMBEDDED_IDS.has('cabinets')).toBe(false);
+  });
+
+  it('keeps note-backed install and demo cards visible without quantities', () => {
+    const items = [
+      item('flooring', 'included'),
+      item('floor_demo', 'included'),
+    ];
+    expect(kitchenQmScopeCardVisible('flooring', {}, items)).toBe(true);
+    expect(kitchenQmScopeCardVisible('floor_demo', {}, items)).toBe(true);
+    expect(shouldHideKitchenScopeCardInQmEmbed('flooring', {}, items)).toBe(false);
+    expect(shouldHideKitchenScopeCardInQmEmbed('floor_demo', {}, items)).toBe(false);
   });
 
   it('migrates legacy combined kitchen demo into separate cards', () => {

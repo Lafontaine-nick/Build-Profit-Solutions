@@ -2571,6 +2571,11 @@ const NOTE_BACKED_SCOPE_COPY: Record<
     helperText: 'Window units and installation labor from notes.',
     category: 'openings',
   },
+  exterior_doors: {
+    label: 'Exterior doors',
+    helperText: 'Exterior door units and installation labor from notes.',
+    category: 'openings',
+  },
   insulation: {
     label: 'Insulation',
     helperText:
@@ -2587,6 +2592,20 @@ const NOTE_BACKED_SCOPE_COPY: Record<
 function itemIdFromQuantityKey(key: string): string {
   return key.replace(/__(?:material|labor|allowance)$/, '');
 }
+
+// Brief notes can identify supported work without providing a quantity. Keep
+// those catalog rows visible so Confirm Scope can collect the missing takeoff
+// instead of dropping the work before the measurement card is rendered.
+const NOTE_BACKED_SCOPE_IDS_WITHOUT_QUANTITY = [
+  'flooring',
+  'floor_demo',
+  'windows',
+  'exterior_doors',
+  'insulation',
+  'drywall',
+  'plumbing',
+  'electrical',
+] as const;
 
 function injectNoteBackedPricedItems(
   items: ScopeChecklistItem[],
@@ -2663,6 +2682,51 @@ function injectNoteBackedPricedItems(
       noteBacked: true,
     });
     addedIds.add(itemId);
+  }
+
+  for (const itemId of NOTE_BACKED_SCOPE_IDS_WITHOUT_QUANTITY) {
+    if (existingIds.has(itemId) || addedIds.has(itemId)) continue;
+    const identified =
+      inferItemStateFromNotes(itemId, notes) === 'included' ||
+      (itemId === 'flooring' &&
+        inferItemStateFromNotes('tile_flooring', notes) === 'included');
+    if (!identified || !getChecklistItemQuantityRule(itemId)) continue;
+
+    const copy = NOTE_BACKED_SCOPE_COPY[itemId] || {
+      label: itemId.replace(/_/g, ' ').replace(/\b\w/g, m => m.toUpperCase()),
+      helperText: 'Scope item found in notes; enter the missing measurement.',
+      category: 'from_notes',
+    };
+    additions.push({
+      id: itemId,
+      inputType: 'yes_no',
+      label: copy.label,
+      helperText: copy.helperText,
+      category: copy.category || 'from_notes',
+      state: 'included',
+      noteBacked: true,
+    });
+    addedIds.add(itemId);
+  }
+
+  // Cross-trade notes can identify an opening without a count. Materialize
+  // the catalog card anyway so the contractor can confirm the quantity.
+  if (
+    !existingIds.has('exterior_doors') &&
+    !addedIds.has('exterior_doors') &&
+    inferItemStateFromNotes('exterior_doors', notes) === 'included' &&
+    getChecklistItemQuantityRule('exterior_doors')
+  ) {
+    const copy = NOTE_BACKED_SCOPE_COPY.exterior_doors;
+    additions.push({
+      id: 'exterior_doors',
+      inputType: 'yes_no',
+      label: copy.label,
+      helperText: copy.helperText,
+      category: copy.category || 'from_notes',
+      state: 'included',
+      noteBacked: true,
+    });
   }
 
   return additions.length ? [...items, ...additions] : items;
@@ -3465,13 +3529,21 @@ export function scopeChecklistItemsForEditing(
 /** Keep Yes/No/choice states from confirmed scope when re-hydrating from notes. */
 export function restoreConfirmedChecklistItemStates(
   hydrated: ScopeChecklistItem[],
-  confirmed: ScopeChecklistItem[]
+  confirmed: ScopeChecklistItem[],
+  notes?: string | null
 ): ScopeChecklistItem[] {
   if (!confirmed.length) return hydrated;
   const byId = new Map(confirmed.map(item => [item.id, item]));
   return hydrated.map(item => {
     const saved = byId.get(item.id);
     if (!saved) return item;
+    if (inferItemStateFromNotes(item.id, notes) === 'included') {
+      return {
+        ...item,
+        state: 'included',
+        noteBacked: true,
+      };
+    }
     return {
       ...item,
       state: saved.state,

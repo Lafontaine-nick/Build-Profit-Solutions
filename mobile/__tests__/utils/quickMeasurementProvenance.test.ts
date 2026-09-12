@@ -105,6 +105,34 @@ describe('resolveQuickMeasurementFields', () => {
     expect(byKey.wallPaintSqft.state).toBe('confirmed');
   });
 
+  test('kitchen paint stays manual when notes have no paint area', () => {
+    const rows = quickMeasurementRowsForInput(
+      'kitchen',
+      'kitchen',
+      emptyQuickMeasurementInput(),
+      ['paint']
+    );
+    const measurements = {
+      ...emptyQuickMeasurementInput(),
+      drywallSqft: '220',
+      kitchenFloorSqft: '700',
+      flooringSqft: '700',
+    };
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements,
+      noteValues: {},
+      noteBackedKeys: [],
+      includedScopeKeys: ['paint'],
+      templateKey: 'kitchen',
+      notes:
+        'Remodel kitchen with 220 sqft drywall repair, 700 sqft LVP, and interior paint.',
+    });
+    const byKey = Object.fromEntries(results.map(r => [r.key, r]));
+    expect(byKey.wallPaintSqft.estimate).toBeNull();
+    expect(byKey.wallPaintSqft.state).toBe('needs_confirmation');
+  });
+
   test('ground_up keeps the full Quick measurements list visible even with sparse included scopes', () => {
     const rows = groundUpRows();
     const measurements = {

@@ -105,6 +105,28 @@ describe('confirmScopeStep2Pricing tiers', () => {
       })
     ).toBe(true);
     expect(
+      step2TierNeedsInlineTakeoffEntry('exterior_doors', 'kitchen', {
+        pricingReady: true,
+        unit: 'each',
+      })
+    ).toBe(true);
+    expect(
+      step2TierNeedsInlineTakeoffEntry('flooring', 'kitchen', {
+        pricingReady: true,
+        unit: 'sqft',
+        quantity: 700,
+        quantitySource: 'inferred',
+      })
+    ).toBe(true);
+    expect(
+      step2TierNeedsInlineTakeoffEntry('flooring', 'kitchen', {
+        pricingReady: true,
+        unit: 'sqft',
+        quantity: 700,
+        quantitySource: 'notes',
+      })
+    ).toBe(false);
+    expect(
       step2TierNeedsInlineTakeoffEntry('landscaping', 'ground_up', {
         pricingReady: false,
         unit: 'sqft',

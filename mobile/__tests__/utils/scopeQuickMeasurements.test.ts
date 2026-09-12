@@ -508,8 +508,8 @@ describe('scopeQuickMeasurements', () => {
     const notes =
       'Remodel kitchen with 38 LF cabinets, 48 sqft quartz counters, 220 sqft drywall repair, 700 sqft LVP, two new windows, and interior paint.';
     const rows = quickMeasurementRowsForInput(
-      'kitchen',
-      'kitchen',
+      'room_remodel',
+      'other',
       {},
       ['kitchenFloorSqft'],
       { scopeNotes: notes }

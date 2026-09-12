@@ -332,7 +332,12 @@ export function step2TierExpectsSuggestedFill(
 export function step2TierNeedsInlineTakeoffEntry(
   itemId: string,
   templateKey?: string | null,
-  resolved?: { pricingReady?: boolean; unit?: string | null } | null,
+  resolved?: {
+    pricingReady?: boolean;
+    unit?: string | null;
+    quantity?: number | null;
+    quantitySource?: string | null;
+  } | null,
   pricingApplied?: boolean
 ): boolean {
   const template = String(templateKey || '').toLowerCase();
@@ -360,13 +365,53 @@ export function step2TierNeedsInlineTakeoffEntry(
     // demo was selected. Keep the field on the Confirm Scope card.
     return true;
   }
-  if (resolved?.pricingReady) return false;
   const rule = getChecklistItemQuantityRuleOrDefault(itemId, templateKey);
-  // Flat allowance scopes (permits, plans, etc.) price via Suggest + Edit — not an on-card qty box.
+  const inlineUnit = String(
+    resolved?.unit || rule.defaultUnit || ''
+  ).toLowerCase();
+  // Flat allowance scopes use Suggest + Edit rather than an inline physical
+  // measurement field.
   if (rule.lumpSumOnly) return false;
-  const inlineUnit = String(resolved?.unit || rule.defaultUnit || '').toLowerCase();
-  // Installed packages priced as allowances (landscaping, fixture packages, etc.) — same as permits/plans.
   if (inlineUnit === 'allowance' || inlineUnit === 'lump_sum') return false;
+  const hasPhysicalMeasurementKey = Boolean(
+    rule.measurementKey ||
+      (Array.isArray(rule.measurementKeys) && rule.measurementKeys.length)
+  );
+  // A planning price does not replace the contractor's measurement line.
+  // Keep the input visible whenever this catalog item has a physical basis
+  // and that basis is still missing.
+  if (
+    hasPhysicalMeasurementKey &&
+    !(Number(resolved?.quantity) > 0) &&
+    !resolved?.pricingReady &&
+    !pricingApplied
+  ) {
+    return true;
+  }
+  // These cards can have a planning/default basis while still requiring the
+  // contractor to confirm the actual physical quantity.
+  const physicalMeasurementCardIds = [
+    'flooring',
+    'tile_flooring',
+    'paint',
+    'interior_paint',
+    'windows',
+    'exterior_doors',
+    'insulation',
+  ];
+  const hasExplicitQuantity =
+    Number(resolved?.quantity) > 0 &&
+    ['notes', 'user_entered', 'manual_override', 'calculated_confirmed'].includes(
+      String(resolved?.quantitySource || '')
+    );
+  if (
+    physicalMeasurementCardIds.includes(itemId) &&
+    !hasExplicitQuantity &&
+    !pricingApplied
+  ) {
+    return true;
+  }
+  if (resolved?.pricingReady) return false;
   const config = resolveStep2PricingTier(itemId, templateKey).tier;
   if (config === 'takeoff_required') return true;
   return false;

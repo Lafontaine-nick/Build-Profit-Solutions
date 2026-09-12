@@ -5,6 +5,7 @@ import {
 import {
   initialScopeMeasurementInputExtended,
   normalizeScopeMeasurements,
+  prepareScopeMeasurementsInputForUi,
   resolveChecklistItemQuantity,
   resolveSuggestedBudgetSplitDisplay,
   scopeMeasurementsPayloadForPersist,
@@ -26,6 +27,52 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.paintAreaSqft).toBeUndefined();
     expect(parsed.wallPaintSqft).toBeUndefined();
     expect(parsed.ceilingPaintSqft).toBeUndefined();
+  });
+
+  it('does not borrow paint sqft for unquantified flooring demolition', () => {
+    const notes =
+      'Remodel kitchen with demolition of existing cabinets, counters, backsplash, and flooring; install 700 sqft LVP and interior paint 500 sqft.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+    });
+
+    expect(parsed.flooringSqft).toBe(700);
+    expect(parsed.floorDemoSqft).toBeUndefined();
+    expect(parsed.paintAreaSqft ?? parsed.wallPaintSqft).toBe(500);
+  });
+
+  it('keeps explicit paint sqft separate from stale flooring sqft during hydration', () => {
+    const notes =
+      'Remodel kitchen with demolition of existing cabinets, counters, backsplash, and flooring; install 38 LF cabinets, 48 sqft quartz counters, new backsplash, cabinet hardware $300, 12 LF plumbing relocation, 8 receptacles, 220 sqft drywall repair, 700 sqft LVP, two new windows, one exterior door, R-21 wall insulation, 120 LF of baseboard installation, and interior paint 500 sqft.';
+    const prepared = prepareScopeMeasurementsInputForUi(
+      {
+        ...initialScopeMeasurementInputExtended(
+          { scopeChecklist: { templateKey: 'kitchen' } },
+          notes
+        ),
+        // Simulate the stale value that was being restored from the draft.
+        paintAreaSqft: '700',
+        flooringSqft: '700',
+        itemQuantities: {
+          paint: { quantity: 700, unit: 'sqft', quantitySource: 'user_entered' },
+        },
+      },
+      { notes, templateKey: 'kitchen' }
+    );
+
+    expect(Number(prepared.flooringSqft)).toBe(700);
+    expect(Number(prepared.paintAreaSqft)).toBe(500);
+    expect(Number(prepared.paintAreaSqft)).not.toBe(
+      Number(prepared.flooringSqft)
+    );
+    const paint = resolveChecklistItemQuantity(
+      'paint',
+      normalizeScopeMeasurements(prepared),
+      { templateKey: 'kitchen', notes }
+    );
+    expect(paint.quantity).toBe(500);
+    expect(paint.quantity).not.toBe(700);
+    expect(prepared.itemQuantities?.paint?.quantity).toBe(500);
   });
 
   it('parses insulation home area and location-specific assemblies', () => {

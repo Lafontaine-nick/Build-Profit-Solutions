@@ -38,6 +38,7 @@ import {
 } from '@/utils/estimateDraftReviewUi';
 import {
   collectRoofingInferenceNotes,
+  inferItemStateFromNotes,
   parseRoofingDeckingAllowanceFromNotes,
 } from '@/utils/scopeItemNoteHints';
 import { initialScopeMeasurementInputExtended, checklistItemInScope } from '@/utils/scopeItemQuantities';
@@ -353,6 +354,14 @@ function getInitialRevealScopeRows(
       ),
     });
     ids.add(id);
+  }
+  if (
+    !ids.has('exterior_doors') &&
+    inferItemStateFromNotes('exterior_doors', draft.originalNotes) ===
+      'included'
+  ) {
+    rows.push({ id: 'exterior_doors', name: 'Exterior doors' });
+    ids.add('exterior_doors');
   }
   const hasDetailedScopeRow = rows.some((row) =>
     /(?:\b\d[\d,]*(?:\.\d+)?\s*(?:lf|sqft|sf|each)\b|\bR[-\s]?\d{2,3}\b|\btwo\s+new\s+windows?\b|\bone\s+new\s+exterior\s+door\b)/i.test(

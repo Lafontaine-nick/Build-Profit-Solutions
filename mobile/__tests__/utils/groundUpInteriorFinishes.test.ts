@@ -31,6 +31,37 @@ function inputWith(overrides: Partial<ScopeMeasurementsInputExtended>): ScopeMea
 describe('ground-up interior finish trades', () => {
   const originalSemantics = process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1;
 
+  it('materializes an unquantified exterior door from brief cross-trade notes', () => {
+    const notes =
+      'Update the kitchen with cabinet, counter, backsplash, and flooring demolition; new cabinets, counters, backsplash, flooring, drywall, plumbing, electrical, windows, insulation, an exterior door, and paint.';
+    const hydrated = hydrateScopeChecklistFromNotes(
+      [],
+      'kitchen',
+      notes,
+      { itemQuantities: {} } as any,
+      'kitchen'
+    );
+
+    expect(hydrated.find(item => item.id === 'exterior_doors')).toMatchObject({
+      state: 'included',
+      noteBacked: true,
+    });
+    for (const id of [
+      'flooring',
+      'floor_demo',
+      'windows',
+      'insulation',
+      'drywall',
+      'plumbing',
+      'electrical',
+    ]) {
+      expect(hydrated.find(item => item.id === id)).toMatchObject({
+        state: 'included',
+        noteBacked: true,
+      });
+    }
+  });
+
   beforeEach(() => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
   });

@@ -306,8 +306,26 @@ export function resolveQuickMeasurementFields(params: {
       }),
     });
 
+    const isPaintAreaField =
+      field.key === 'wallPaintSqft' ||
+      field.key === 'ceilingPaintSqft' ||
+      field.key === 'paintAreaSqft';
+    const hasNoteBackedPaintArea = [
+      'wallPaintSqft',
+      'ceilingPaintSqft',
+      'paintAreaSqft',
+    ].some(key => {
+      const typedKey = key as QuickMeasurementFieldKey;
+      return noteKeySet.has(typedKey) && Boolean(noteValues[typedKey]);
+    });
+    // Paint must not borrow a planning surface formula from drywall,
+    // flooring, living area, or plan geometry when the job notes only say
+    // "paint." A paint suggestion is useful here only when the note parser
+    // supplied an actual paint-area quantity.
     const estimate =
-      !filled && relevance.relevant
+      !filled &&
+      relevance.relevant &&
+      (!isPaintAreaField || hasNoteBackedPaintArea)
         ? getQuickMeasurementEstimate(
             field.key,
             params.measurements,

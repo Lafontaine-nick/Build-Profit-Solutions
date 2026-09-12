@@ -39,6 +39,65 @@ function inputWith(
 
 // National-average flooring rate: material $4/sqft, labor $5/sqft.
 describe('resolveScopeItemSuggestedPricing', () => {
+  it('prices window trim finish and baseboard installation with their card IDs', () => {
+    const input = inputWith({
+      windowCount: '2',
+      baseboardLf: '120',
+    });
+
+    const windowTrim = resolveScopeItemSuggestedPricing(
+      'exterior_trim_paint',
+      input,
+      'kitchen',
+      { quantity: 2, unit: 'each', quantitySource: 'user_entered' }
+    );
+    expect(windowTrim.fill).toMatchObject({
+      material: 90,
+      labor: 270,
+      total: 360,
+    });
+
+    const baseboard = resolveScopeItemSuggestedPricing(
+      'baseboard_install',
+      input,
+      'kitchen',
+      { quantity: 120, unit: 'lf', quantitySource: 'user_entered' }
+    );
+    expect(baseboard.fill).toMatchObject({
+      material: 240,
+      labor: 780,
+      total: 1020,
+    });
+
+    const insulation = resolveScopeItemSuggestedPricing(
+      'insulation',
+      inputWith({
+        exteriorWallInsulationSqft: '2000',
+        insulationMaterialType: 'Batt',
+        insulationRValue: 'R-21',
+      }),
+      'kitchen',
+      { quantity: 2000, unit: 'sqft', quantitySource: 'user_entered' }
+    );
+    expect(insulation.fill).toMatchObject({
+      material: 2500,
+      labor: 3500,
+      total: 6000,
+    });
+
+    const exteriorPrep = resolveScopeItemSuggestedPricing(
+      'exterior_prep',
+      inputWith({ exteriorPaintSqft: '1000' }),
+      'kitchen',
+      { quantity: 1000, unit: 'sqft', quantitySource: 'user_entered' }
+    );
+    expect(exteriorPrep.fill).toMatchObject({
+      material: 150,
+      labor: 650,
+      total: 800,
+    });
+  });
+
   it('uses the approved Roofing architectural-shingle baseline and layered tear-off rates', () => {
     const input = inputWith({ roofSquares: '30' });
     const base = resolveScopeItemSuggestedPricing(

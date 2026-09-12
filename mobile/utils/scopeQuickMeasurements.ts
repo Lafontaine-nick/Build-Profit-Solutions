@@ -2769,9 +2769,26 @@ export function quickMeasurementRowsForInput(
         if (field.key === 'baseboardLf') return explicitBaseboard;
         return explicitPaint;
       };
-      return baseRows
+      const filteredRows = baseRows
         .map(row => row.filter(keepField))
         .filter(row => row.length > 0);
+      const hasKitchenFloorField = filteredRows.some(row =>
+        row.some(field => field.key === 'kitchenFloorSqft')
+      );
+      if (
+        explicitFloorWork &&
+        !hasKitchenFloorField &&
+        QUICK_MEASUREMENT_FIELD_DEFS.kitchenFloorSqft
+      ) {
+        return filteredRows.map(row =>
+          row.map(field =>
+            field.key === 'flooringSqft'
+              ? QUICK_MEASUREMENT_FIELD_DEFS.kitchenFloorSqft
+              : field
+          )
+        );
+      }
+      return filteredRows;
     }
     return baseRows;
   }
