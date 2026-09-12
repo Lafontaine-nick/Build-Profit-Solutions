@@ -25656,6 +25656,15 @@ export function prepareScopeMeasurementsInputForUi(
     ...payload,
     itemQuantities,
   };
+  const showerFloorFromNotes = Number(
+    String(parsed.showerFloorTileSqft ?? '').replace(/,/g, '')
+  );
+  const clearStaleShowerFloor =
+    String(options?.templateKey || '').toLowerCase() === 'bathroom' &&
+    !(showerFloorFromNotes > 0);
+  if (clearStaleShowerFloor) {
+    mergedFields.showerFloorTileSqft = '';
+  }
   // Explicit paint quantities from the current notes must win over stale
   // inferred values persisted on the draft (for example flooring sqft copied
   // into the paint field during an earlier hydration pass).
@@ -25720,6 +25729,9 @@ export function prepareScopeMeasurementsInputForUi(
       continue;
     const n = Number(value);
     if (Number.isFinite(n) && n > 0) {
+      if (clearStaleShowerFloor && key === 'showerFloorTileSqft') {
+        continue;
+      }
       if (
         paintMeasurementKeys.includes(
           key as (typeof paintMeasurementKeys)[number]
@@ -26281,6 +26293,20 @@ export function initialScopeMeasurementInputExtended(
     // When notes omit a field (common for plan takeoff), fall through to saved plan import.
     if (parsedNoteValue != null && Number(parsedNoteValue) > 0) {
       return String(parsedNoteValue);
+    }
+
+    // A generic bathroom floor-tile measurement belongs to the bath floor.
+    // Clear any stale shower-floor value unless the notes explicitly attach
+    // a sqft quantity to the shower floor or pan.
+    if (
+      key === 'showerFloorTileSqft' &&
+      String(draft?.scopeChecklist?.templateKey || '').toLowerCase() ===
+        'bathroom' &&
+      !/(?:\b(?:shower\s+floor|shower\s+pan)\b[^.;\n]{0,35}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:shower\s+floor|shower\s+pan)\b)/i.test(
+        scopeNotes
+      )
+    ) {
+      return '';
     }
 
     // A whole-home remodel does not imply a bathroom floor takeoff. Do not

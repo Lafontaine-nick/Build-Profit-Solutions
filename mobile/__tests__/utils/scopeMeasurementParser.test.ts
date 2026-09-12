@@ -26,6 +26,21 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.bathroomFloorSqft).toBe(85);
     expect(parsed.showerFloorTileSqft).toBeUndefined();
     expect(parsed.exteriorWallInsulationSqft).toBeUndefined();
+
+    const prepared = prepareScopeMeasurementsInputForUi(
+      {
+        ...initialScopeMeasurementInputExtended(
+          { scopeChecklist: { templateKey: 'bathroom' } },
+          notes
+        ),
+        showerFloorTileSqft: '85',
+        quickMeasurementSources: {
+          showerFloorTileSqft: 'notes',
+        },
+      },
+      { notes, templateKey: 'bathroom' }
+    );
+    expect(prepared.showerFloorTileSqft).toBe('');
   });
 
   it('does not borrow flooring sqft for an unmeasured interior paint scope', () => {
