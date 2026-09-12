@@ -1423,6 +1423,19 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
       )
     ),
     row(F('baseboardLf', 'Baseboard', 'e.g. 200', 'LF', 'interior')),
+    row(
+      F('windowCount', 'Windows', 'Enter count', 'each', 'exterior'),
+      F('exteriorDoorCount', 'Exterior doors', 'Enter count', 'each', 'exterior')
+    ),
+    row(
+      F(
+        'exteriorWallInsulationSqft',
+        'Insulation',
+        'Enter sqft',
+        'sqft',
+        'structure'
+      )
+    ),
   ],
   kitchen: [
     row(
