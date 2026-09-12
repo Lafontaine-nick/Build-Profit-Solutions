@@ -2844,34 +2844,16 @@ export function quickMeasurementRowsForInput(
       }
       return filteredRows;
     }
-    const noteBackedCrossTradeFields = (field: QuickMeasurementFieldDef) => {
-      if (field.key === 'windowCount') {
-        return /\bwindows?\b/i.test(framingNoteText);
-      }
-      if (field.key === 'exteriorDoorCount') {
-        return /\b(?:exterior|outside)\s+doors?\b|\bdoors?\b[^.;\n]{0,35}\bexterior\b/i.test(
-          framingNoteText
-        );
-      }
-      return true;
-    };
-    const filteredCrossTradeRows = baseRows
-      .map(row => row.filter(noteBackedCrossTradeFields))
-      .filter(row => row.length > 0);
-    const filteredCrossTradeExtras = extraFields.filter(
-      noteBackedCrossTradeFields
-    );
-    if (!filteredCrossTradeExtras.length) return filteredCrossTradeRows;
-    return [...filteredCrossTradeRows, ...chunkRows(filteredCrossTradeExtras)];
   }
 
   const noteBackedCrossTradeFields = (field: QuickMeasurementFieldDef) => {
+    const noteText = String(options?.scopeNotes || '');
     if (field.key === 'windowCount') {
-      return /\bwindows?\b/i.test(framingNoteText);
+      return /\bwindows?\b/i.test(noteText);
     }
     if (field.key === 'exteriorDoorCount') {
       return /\b(?:exterior|outside)\s+doors?\b|\bdoors?\b[^.;\n]{0,35}\bexterior\b/i.test(
-        framingNoteText
+        noteText
       );
     }
     return true;
