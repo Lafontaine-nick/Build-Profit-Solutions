@@ -1305,13 +1305,7 @@ export const HVAC_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
       undefined,
       'Count documented return air grilles.'
     ),
-    F(
-      'hvacThermostatCount',
-      'Thermostats',
-      'e.g. 1',
-      'each',
-      'interior'
-    )
+    F('hvacThermostatCount', 'Thermostats', 'e.g. 1', 'each', 'interior')
   ),
   row(
     F(
@@ -1330,13 +1324,7 @@ export const HVAC_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
     )
   ),
   row(
-    F(
-      'hvacServiceCallCount',
-      'HVAC service calls',
-      'e.g. 1',
-      'each',
-      'other'
-    ),
+    F('hvacServiceCallCount', 'HVAC service calls', 'e.g. 1', 'each', 'other'),
     F(
       'hvacRefrigerantCount',
       'Refrigerant service',
@@ -1426,11 +1414,15 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
     row(
       F('showerFloorTileSqft', 'Shower floor', '15', 'sqft', 'interior'),
       F('wallPaintSqft', 'Paint', '175', 'sqft', 'interior'),
-      F('patchRepairSqft', 'Drywall patch & texture', 'e.g. 25', 'sqft', 'interior')
+      F(
+        'patchRepairSqft',
+        'Drywall patch & texture',
+        'e.g. 25',
+        'sqft',
+        'interior'
+      )
     ),
-    row(
-      F('baseboardLf', 'Baseboard', 'e.g. 200', 'LF', 'interior')
-    ),
+    row(F('baseboardLf', 'Baseboard', 'e.g. 200', 'LF', 'interior')),
   ],
   kitchen: [
     row(
@@ -1443,7 +1435,8 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
     ),
     row(
       F('wallPaintSqft', 'Paint', '320', 'sqft', 'interior'),
-      F('baseboardLf', 'Trim', '48', 'LF', 'interior')
+      F('baseboardLf', 'Trim', '48', 'LF', 'interior'),
+      F('drywallSqft', 'Drywall repair', 'Enter sqft', 'sqft', 'interior')
     ),
     row(
       F(
@@ -1452,32 +1445,10 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
         'Enter sqft',
         'sqft',
         'structure'
-      ),
-      F(
-        'atticInsulationSqft',
-        'Attic / ceiling insulation',
-        'Enter sqft',
-        'sqft',
-        'structure'
       )
     ),
     row(
-      F(
-        'floorInsulationSqft',
-        'Floor insulation',
-        'Enter sqft',
-        'sqft',
-        'structure'
-      )
-    ),
-    row(
-      F(
-        'windowCount',
-        'Windows',
-        'Enter count',
-        'each',
-        'exterior'
-      ),
+      F('windowCount', 'Windows', 'Enter count', 'each', 'exterior'),
       F(
         'exteriorDoorCount',
         'Exterior doors',
@@ -1981,7 +1952,13 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
     ),
     row(
       F('wallPaintSqft', 'Interior wall paint', '3080', 'sqft', 'interior'),
-      F('ceilingPaintSqft', 'Interior ceiling paint', '1400', 'sqft', 'interior')
+      F(
+        'ceilingPaintSqft',
+        'Interior ceiling paint',
+        '1400',
+        'sqft',
+        'interior'
+      )
     ),
   ],
   /**
@@ -2136,48 +2113,49 @@ export const PLUMBING_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
 ];
 
 /** Plan Export Windows & doors rows for a focused opening takeoff. */
-export const WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
-  row(
-    F(
-      'windowCount',
-      'Windows',
-      'e.g. 12',
-      'each',
-      'exterior',
-      true,
-      'Count window units from the window schedule or readable exterior elevations.'
+export const WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] =
+  [
+    row(
+      F(
+        'windowCount',
+        'Windows',
+        'e.g. 12',
+        'each',
+        'exterior',
+        true,
+        'Count window units from the window schedule or readable exterior elevations.'
+      ),
+      F(
+        'exteriorDoorCount',
+        'Exterior swing doors',
+        'e.g. 3',
+        'each',
+        'exterior',
+        undefined,
+        'Count hinged/French exterior openings as units, not leaves. Exclude explicit sliders and garage doors.'
+      )
     ),
-    F(
-      'exteriorDoorCount',
-      'Exterior swing doors',
-      'e.g. 3',
-      'each',
-      'exterior',
-      undefined,
-      'Count hinged/French exterior openings as units, not leaves. Exclude explicit sliders and garage doors.'
-    )
-  ),
-  row(
-    F(
-      'slidingDoorCount',
-      'Sliding / patio doors',
-      'e.g. 2',
-      'each',
-      'exterior',
-      undefined,
-      'Count only explicit sliding, multi-slide, or bypass units — not hinged French/patio doors.'
+    row(
+      F(
+        'slidingDoorCount',
+        'Sliding / patio doors',
+        'e.g. 2',
+        'each',
+        'exterior',
+        undefined,
+        'Count only explicit sliding, multi-slide, or bypass units — not hinged French/patio doors.'
+      ),
+      F(
+        'interiorDoorCount',
+        'Interior doors',
+        'e.g. 12',
+        'each',
+        'interior',
+        undefined,
+        'Count interior openings (including closets). Confirm if there is no door schedule.'
+      )
     ),
-    F(
-      'interiorDoorCount',
-      'Interior doors',
-      'e.g. 12',
-      'each',
-      'interior',
-      undefined,
-      'Count interior openings (including closets). Confirm if there is no door schedule.'
-    )
-  ),
-];
+  ];
 
 export const GARAGE_DOORS_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
   row(
@@ -2223,20 +2201,21 @@ export const GARAGE_DOORS_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
 ];
 
 /** Notes/manual Windows & doors rows add reframing only when explicitly requested. */
-export const WINDOWS_DOORS_NOTES_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
-  ...WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS,
-  row(
-    F(
-      'framingOpeningCount',
-      'Structural reframing / new openings',
-      'e.g. 1',
-      'each',
-      'structure',
-      undefined,
-      'Use only for an explicitly new, resized, enlarged, or reframed opening. Replacement-only work stays blank.'
-    )
-  ),
-];
+export const WINDOWS_DOORS_NOTES_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] =
+  [
+    ...WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS,
+    row(
+      F(
+        'framingOpeningCount',
+        'Structural reframing / new openings',
+        'e.g. 1',
+        'each',
+        'structure',
+        undefined,
+        'Use only for an explicitly new, resized, enlarged, or reframed opening. Replacement-only work stays blank.'
+      )
+    ),
+  ];
 
 /** Notes/manual Plumbing rows may include explicit service operations. */
 export const PLUMBING_NOTES_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
@@ -2357,7 +2336,11 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
       notes
     );
   if (framingFocusedAddition) return 'framing';
-  if (resolved === 'room_remodel' && insulationRequested && !drywallWorkRequested) {
+  if (
+    resolved === 'room_remodel' &&
+    insulationRequested &&
+    !drywallWorkRequested
+  ) {
     return 'insulation';
   }
   const isMultiRoomRemodel =
@@ -2365,9 +2348,7 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
     /\b(?:renovat(?:e|ion)|remodel(?:ing)?|existing\s+(?:home|interior))\b/i.test(
       notes
     ) &&
-    /\b(?:\d+\s+)?bathrooms?\b|\b(?:one|two|three)\s+bathrooms?\b/i.test(
-      notes
-    );
+    /\b(?:\d+\s+)?bathrooms?\b|\b(?:one|two|three)\s+bathrooms?\b/i.test(notes);
   if (
     isMultiRoomRemodel &&
     (resolved === 'kitchen' ||
@@ -2407,7 +2388,10 @@ export function quickMeasurementRowsForTemplate(
   projectType?: string | null,
   notes?: string | null
 ): QuickMeasurementRow[] {
-  const resolvedKey = resolveQuickMeasurementTemplateKey(templateKey, projectType);
+  const resolvedKey = resolveQuickMeasurementTemplateKey(
+    templateKey,
+    projectType
+  );
   const framingNoteText = String(notes || '');
   const key =
     resolvedKey === 'addition' &&
@@ -2434,7 +2418,11 @@ export function quickMeasurementRowsForTemplate(
     projectType,
     notes
   );
-  const mixedFiltered = filterMixedInteriorRefreshRows(garageFiltered, key, notes);
+  const mixedFiltered = filterMixedInteriorRefreshRows(
+    garageFiltered,
+    key,
+    notes
+  );
   const remodelRows =
     key === 'room_remodel' &&
     /\b(?:\d[\d,]*(?:\.\d+)?)\s*(?:linear\s+feet|linear\s+foot|lf)\s+(?:of\s+)?(?:kitchen\s+)?countertops?\b/i.test(
@@ -2458,9 +2446,10 @@ export function quickMeasurementRowsForTemplate(
     /\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,80}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;\n]{0,80}\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
       remodelNoteText
     );
-  const hasDrywall = /\b(?:drywall|sheetrock|patch(?:ing)?|wall\s+repair)\b/i.test(
-    remodelNoteText
-  );
+  const hasDrywall =
+    /\b(?:drywall|sheetrock|patch(?:ing)?|wall\s+repair)\b/i.test(
+      remodelNoteText
+    );
   const hasBaseboard = /\bbaseboards?\b|\btrim\b/i.test(remodelNoteText);
   const optionalKeys = new Set<QuickMeasurementFieldKey>([
     'floorAreaSqft',
@@ -2530,20 +2519,21 @@ function applyProjectSpecificQuickMeasurementLabels(
   );
 }
 
-const GARAGE_CONVERSION_HIDDEN_MEASUREMENT_KEYS = new Set<QuickMeasurementFieldKey>([
-  'garageSqft',
-  'excavationCy',
-  'concreteCy',
-  'concreteSqft',
-  'roofSquares',
-  'deckSqft',
-  'bathroomFloorSqft',
-  'showerWallTileSqft',
-  'showerFloorTileSqft',
-  'kitchenFloorSqft',
-  'cabinetLf',
-  'countertopSqft',
-]);
+const GARAGE_CONVERSION_HIDDEN_MEASUREMENT_KEYS =
+  new Set<QuickMeasurementFieldKey>([
+    'garageSqft',
+    'excavationCy',
+    'concreteCy',
+    'concreteSqft',
+    'roofSquares',
+    'deckSqft',
+    'bathroomFloorSqft',
+    'showerWallTileSqft',
+    'showerFloorTileSqft',
+    'kitchenFloorSqft',
+    'cabinetLf',
+    'countertopSqft',
+  ]);
 
 function garageConversionOpeningMeasurementRows(
   rows: QuickMeasurementRow[]
@@ -2561,7 +2551,11 @@ function filterGarageConversionQuickMeasurementRows(
 ): QuickMeasurementRow[] {
   if (!isGarageConversionJob(projectType, notes)) return rows;
   const filtered = rows
-    .map(row => row.filter(field => !GARAGE_CONVERSION_HIDDEN_MEASUREMENT_KEYS.has(field.key)))
+    .map(row =>
+      row.filter(
+        field => !GARAGE_CONVERSION_HIDDEN_MEASUREMENT_KEYS.has(field.key)
+      )
+    )
     .filter(row => row.length > 0);
   return [...filtered, ...garageConversionOpeningMeasurementRows(filtered)];
 }
@@ -2676,13 +2670,12 @@ export function quickMeasurementRowsForInput(
     ['plumbing', 'plumbing_service'].includes(
       String(templateKey || '').toLowerCase()
     );
-  const baseRows =
-    options?.windowsDoorsNotesFlow
-      ? WINDOWS_DOORS_NOTES_QUICK_MEASUREMENT_ROWS
-      : options?.windowsDoorsPlanImport
-        ? WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS
-        : options?.garageDoorsPlanImport
-          ? GARAGE_DOORS_PLAN_QUICK_MEASUREMENT_ROWS
+  const baseRows = options?.windowsDoorsNotesFlow
+    ? WINDOWS_DOORS_NOTES_QUICK_MEASUREMENT_ROWS
+    : options?.windowsDoorsPlanImport
+      ? WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS
+      : options?.garageDoorsPlanImport
+        ? GARAGE_DOORS_PLAN_QUICK_MEASUREMENT_ROWS
         : options?.plumbingPlanImport && plumbingTemplate
           ? PLUMBING_PLAN_QUICK_MEASUREMENT_ROWS
           : options?.plumbingNotesFlow && plumbingTemplate
@@ -2769,7 +2762,10 @@ export function quickMeasurementRowsForInput(
         /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
           notes
         );
-      const explicitDrywall = /\b(?:drywall|sheetrock|gypsum|wall\s+repair|patch(?:ing)?)\b/i.test(notes);
+      const explicitDrywall =
+        /\b(?:drywall|sheetrock|gypsum|wall\s+repair|patch(?:ing)?)\b/i.test(
+          notes
+        );
       const explicitBaseboard = /\b(?:baseboards?|base\s*board)\b/i.test(notes);
       const explicitPaint = /\b(?:paint(?:ing)?|repaint|primer)\b/i.test(notes);
       const keepField = (field: QuickMeasurementFieldDef) => {
@@ -2868,8 +2864,13 @@ export function countFilledQuickMeasurements(
       field.key,
       measurements,
       noteValues,
-      (measurements as { quickMeasurementUserOverrides?: Partial<Record<QuickMeasurementFieldKey, boolean>> })
-        .quickMeasurementUserOverrides
+      (
+        measurements as {
+          quickMeasurementUserOverrides?: Partial<
+            Record<QuickMeasurementFieldKey, boolean>
+          >;
+        }
+      ).quickMeasurementUserOverrides
     );
     if (hasQuickMeasurementValue(value)) filled += 1;
   }

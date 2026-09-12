@@ -2,8 +2,16 @@ import { getMeasurementRelevance } from '@/utils/getMeasurementRelevance';
 
 describe('getMeasurementRelevance', () => {
   test('core structural measurements are always relevant, regardless of included scopes', () => {
-    for (const key of ['floorAreaSqft', 'garageSqft', 'deckSqft', 'flooringSqft']) {
-      const result = getMeasurementRelevance({ measurementKey: key, includedScopeKeys: [] });
+    for (const key of [
+      'floorAreaSqft',
+      'garageSqft',
+      'deckSqft',
+      'flooringSqft',
+    ]) {
+      const result = getMeasurementRelevance({
+        measurementKey: key,
+        includedScopeKeys: [],
+      });
       expect(result.relevant).toBe(true);
     }
   });
@@ -26,7 +34,12 @@ describe('getMeasurementRelevance', () => {
   });
 
   test('kitchen floor hides when kitchen flooring work is deselected', () => {
-    expect(getMeasurementRelevance({ measurementKey: 'kitchenFloorSqft', includedScopeKeys: [] }).relevant).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'kitchenFloorSqft',
+        includedScopeKeys: [],
+      }).relevant
+    ).toBe(false);
     expect(
       getMeasurementRelevance({
         measurementKey: 'kitchenFloorSqft',
@@ -76,7 +89,12 @@ describe('getMeasurementRelevance', () => {
   });
 
   test('backsplash is relevant for needs confirmation when selected', () => {
-    expect(getMeasurementRelevance({ measurementKey: 'backsplashSqft', includedScopeKeys: [] }).relevant).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'backsplashSqft',
+        includedScopeKeys: [],
+      }).relevant
+    ).toBe(false);
     expect(
       getMeasurementRelevance({
         measurementKey: 'backsplashSqft',
@@ -85,9 +103,31 @@ describe('getMeasurementRelevance', () => {
     ).toBe(true);
   });
 
+  test('kitchen cross-trade notes expose drywall and wall insulation measurements', () => {
+    const notes =
+      'Update the kitchen with drywall, insulation, windows, an exterior door, and paint.';
+    for (const measurementKey of [
+      'drywallSqft',
+      'exteriorWallInsulationSqft',
+    ] as const) {
+      expect(
+        getMeasurementRelevance({
+          measurementKey,
+          includedScopeKeys: [],
+          templateKey: 'kitchen',
+          projectType: 'kitchen',
+          notes,
+        }).relevant
+      ).toBe(true);
+    }
+  });
+
   test('bath floor is scope-gated — not always relevant', () => {
     expect(
-      getMeasurementRelevance({ measurementKey: 'bathroomFloorSqft', includedScopeKeys: [] }).relevant
+      getMeasurementRelevance({
+        measurementKey: 'bathroomFloorSqft',
+        includedScopeKeys: [],
+      }).relevant
     ).toBe(false);
     expect(
       getMeasurementRelevance({
@@ -106,7 +146,10 @@ describe('getMeasurementRelevance', () => {
   });
 
   test('shower measurements are only relevant when shower/waterproofing scope is included', () => {
-    const excluded = getMeasurementRelevance({ measurementKey: 'showerWallTileSqft', includedScopeKeys: ['drywall'] });
+    const excluded = getMeasurementRelevance({
+      measurementKey: 'showerWallTileSqft',
+      includedScopeKeys: ['drywall'],
+    });
     expect(excluded.relevant).toBe(false);
 
     const included = getMeasurementRelevance({
@@ -118,43 +161,89 @@ describe('getMeasurementRelevance', () => {
   });
 
   test('cabinets are only relevant when cabinets scope is included', () => {
-    expect(getMeasurementRelevance({ measurementKey: 'cabinetLf', includedScopeKeys: [] }).relevant).toBe(false);
     expect(
-      getMeasurementRelevance({ measurementKey: 'cabinetLf', includedScopeKeys: ['cabinets'] }).relevant
+      getMeasurementRelevance({
+        measurementKey: 'cabinetLf',
+        includedScopeKeys: [],
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'cabinetLf',
+        includedScopeKeys: ['cabinets'],
+      }).relevant
     ).toBe(true);
   });
 
   test('countertops are only relevant when countertops or combined cabinets_counters scope is included', () => {
-    expect(getMeasurementRelevance({ measurementKey: 'countertopSqft', includedScopeKeys: [] }).relevant).toBe(false);
     expect(
-      getMeasurementRelevance({ measurementKey: 'countertopSqft', includedScopeKeys: ['countertops'] }).relevant
+      getMeasurementRelevance({
+        measurementKey: 'countertopSqft',
+        includedScopeKeys: [],
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'countertopSqft',
+        includedScopeKeys: ['countertops'],
+      }).relevant
     ).toBe(true);
   });
 
   test('exterior paint is only relevant when exterior_paint scope is included', () => {
-    expect(getMeasurementRelevance({ measurementKey: 'exteriorPaintSqft', includedScopeKeys: ['paint'] }).relevant).toBe(
-      false
-    );
     expect(
-      getMeasurementRelevance({ measurementKey: 'exteriorPaintSqft', includedScopeKeys: ['exterior_paint'] }).relevant
+      getMeasurementRelevance({
+        measurementKey: 'exteriorPaintSqft',
+        includedScopeKeys: ['paint'],
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'exteriorPaintSqft',
+        includedScopeKeys: ['exterior_paint'],
+      }).relevant
     ).toBe(true);
   });
 
   test('roof squares are only relevant when a roofing scope is included', () => {
-    expect(getMeasurementRelevance({ measurementKey: 'roofSquares', includedScopeKeys: [] }).relevant).toBe(false);
     expect(
-      getMeasurementRelevance({ measurementKey: 'roofSquares', includedScopeKeys: ['shingles_roofing'] }).relevant
+      getMeasurementRelevance({
+        measurementKey: 'roofSquares',
+        includedScopeKeys: [],
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'roofSquares',
+        includedScopeKeys: ['shingles_roofing'],
+      }).relevant
     ).toBe(true);
   });
 
   test('foundation and excavation are only relevant when those scopes are included', () => {
-    expect(getMeasurementRelevance({ measurementKey: 'concreteCy', includedScopeKeys: [] }).relevant).toBe(false);
-    expect(getMeasurementRelevance({ measurementKey: 'excavationCy', includedScopeKeys: [] }).relevant).toBe(false);
     expect(
-      getMeasurementRelevance({ measurementKey: 'concreteCy', includedScopeKeys: ['foundation'] }).relevant
+      getMeasurementRelevance({
+        measurementKey: 'concreteCy',
+        includedScopeKeys: [],
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'excavationCy',
+        includedScopeKeys: [],
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'concreteCy',
+        includedScopeKeys: ['foundation'],
+      }).relevant
     ).toBe(true);
     expect(
-      getMeasurementRelevance({ measurementKey: 'excavationCy', includedScopeKeys: ['excavation'] }).relevant
+      getMeasurementRelevance({
+        measurementKey: 'excavationCy',
+        includedScopeKeys: ['excavation'],
+      }).relevant
     ).toBe(true);
   });
 
@@ -168,7 +257,10 @@ describe('getMeasurementRelevance', () => {
   });
 
   test('reason explains why an irrelevant measurement is hidden', () => {
-    const result = getMeasurementRelevance({ measurementKey: 'cabinetLf', includedScopeKeys: [] });
+    const result = getMeasurementRelevance({
+      measurementKey: 'cabinetLf',
+      includedScopeKeys: [],
+    });
     expect(result.reason).toMatch(/cabinets/i);
   });
 
@@ -227,10 +319,18 @@ describe('getMeasurementRelevance', () => {
   });
 
   test('baseboard LF is only relevant when trim/baseboard scope is included', () => {
-    expect(getMeasurementRelevance({ measurementKey: 'baseboardLf', includedScopeKeys: ['plumbing_trim'] }).relevant).toBe(
-      false
-    );
-    expect(getMeasurementRelevance({ measurementKey: 'baseboardLf', includedScopeKeys: ['trim'] }).relevant).toBe(true);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'baseboardLf',
+        includedScopeKeys: ['plumbing_trim'],
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'baseboardLf',
+        includedScopeKeys: ['trim'],
+      }).relevant
+    ).toBe(true);
   });
 
   test('plumbing quick measurements gate on included scope cards', () => {
