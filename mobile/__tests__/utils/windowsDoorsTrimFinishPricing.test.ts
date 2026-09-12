@@ -255,4 +255,24 @@ describe('windowsDoorsTrimFinishPricing', () => {
       helper: '8 windows + 2 exterior doors',
     });
   });
+
+  it('prices opening prep for cross-trade scopes such as kitchen', () => {
+    const measurements = {
+      windowCount: 2,
+      exteriorDoorCount: 2,
+      itemQuantities: {},
+    };
+    const pricing = resolveScopeItemSuggestedPricing(
+      'exterior_prep',
+      measurements,
+      'kitchen',
+      { quantity: 0, unit: 'sqft', quantitySource: 'missing' }
+    );
+
+    expect(pricing.fill).toMatchObject({
+      total: 750,
+      basis: { quantity: 4, unit: 'each' },
+      helper: '2 windows + 2 exterior doors',
+    });
+  });
 });

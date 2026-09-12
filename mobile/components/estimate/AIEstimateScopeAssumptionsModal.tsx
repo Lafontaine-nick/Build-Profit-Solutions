@@ -14476,7 +14476,7 @@ function CollapsibleQuickMeasurements({
                   : false;
             const insulationLocationPattern =
               field.key === 'exteriorWallInsulationSqft'
-                ? /\b(?:exterior|outside)\s+walls?\b|\bwall\s+insulation\b/i
+                ? /\b(?:exterior|outside)\s+walls?\b|\bwall\s+insulation\b|\binsulation\b/i
                 : field.key === 'atticInsulationSqft'
                   ? /\b(?:attic|ceiling)\s+(?:area\s+)?insulation\b|\binsulation\b[^.;\n]{0,35}\b(?:attic|ceiling)\b/i
                   : field.key === 'floorInsulationSqft'
@@ -14520,7 +14520,7 @@ function CollapsibleQuickMeasurements({
       const noteText = String(notes || '');
       const insulationFieldIsIdentified = (key: QuickMeasurementFieldKey) => {
         if (key === 'exteriorWallInsulationSqft') {
-          return /\b(?:exterior|outside)\s+walls?\b|\bwall\s+insulation\b/i.test(
+          return /\b(?:exterior|outside)\s+walls?\b|\bwall\s+insulation\b|\binsulation\b/i.test(
             noteText
           );
         }

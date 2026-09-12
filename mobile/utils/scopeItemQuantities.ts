@@ -16058,11 +16058,23 @@ export function resolveScopeItemSuggestedPricing(
 
   if (
     itemId === 'exterior_prep' &&
-    String(templateKey || '').toLowerCase() === 'windows_doors' &&
-    Number(resolved.quantity) > 0
+    Number(measurementsInput.exteriorPaintSqft || 0) <= 0
   ) {
-    const windows = Number(measurementsInput.windowCount) || 0;
-    const exteriorDoors = Number(measurementsInput.exteriorDoorCount) || 0;
+    const itemQuantities = measurementsInput.itemQuantities || {};
+    const windows =
+      parseScopeMeasurementInput(
+        String(measurementsInput.windowCount ?? '')
+      ) ||
+      parseScopeMeasurementInput(
+        String(itemQuantities.window_install?.quantity ?? '')
+      ) ||
+      parseScopeMeasurementInput(String(itemQuantities.windows?.quantity ?? '')) ||
+      0;
+    const exteriorDoors =
+      parseScopeMeasurementInput(
+        String(measurementsInput.exteriorDoorCount ?? '')
+      ) || 0;
+    if (windows + exteriorDoors <= 0) return empty;
     const material = round2(windows * 20 + exteriorDoors * 35);
     const labor = round2(windows * 105 + exteriorDoors * 215);
     return {
@@ -16077,7 +16089,7 @@ export function resolveScopeItemSuggestedPricing(
         helper: `${windows} windows + ${exteriorDoors} exterior doors`,
         mode: 'suggested_price',
         lumpSumOnly: false,
-        basis: { quantity: Number(resolved.quantity), unit: 'each' },
+        basis: { quantity: windows + exteriorDoors, unit: 'each' },
         benchmarkAction: 'price_ready',
         pricingRecordId: 'bps_national:exterior_prep:openings',
       },
