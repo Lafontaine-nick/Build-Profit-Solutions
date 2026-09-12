@@ -1135,11 +1135,11 @@ export function parseScopeMeasurementsFromNotes(
   }
 
   const interiorDoorCountMatch = blob.match(
-    /(\d[\d,]*)\s+(?:interior\s+)?doors?\b/i
+    /(\d[\d,]*|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:interior\s+)?doors?\b/i
   );
   if (interiorDoorCountMatch) {
-    const count = Number(interiorDoorCountMatch[1].replace(/,/g, ''));
-    if (Number.isFinite(count) && count > 0) out.interiorDoorCount = count;
+    const count = parseCountToken(interiorDoorCountMatch[1]);
+    if (count != null && count > 0) out.interiorDoorCount = count;
   }
 
   // Windows & doors notes use explicit counts only. Generic "doors" is not

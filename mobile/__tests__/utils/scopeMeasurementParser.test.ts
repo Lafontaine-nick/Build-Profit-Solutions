@@ -28,6 +28,7 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.exteriorWallInsulationSqft).toBeUndefined();
     expect(parsed.patchRepairSqft).toBe(120);
     expect(parsed.drywallSqft).toBeUndefined();
+    expect(parsed.interiorDoorCount).toBe(2);
 
     const prepared = prepareScopeMeasurementsInputForUi(
       {
