@@ -2909,6 +2909,13 @@ function ensureBathroomNoteBackedScopeItems(
     pattern: RegExp;
   }> = [
     {
+      id: 'vanity_demo',
+      label: 'Remove vanity',
+      helperText: 'Demo and haul off the existing vanity cabinet.',
+      pattern:
+        /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,50}\bvanity\b|\bvanity\b[^.;\n]{0,50}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/,
+    },
+    {
       id: 'shower_tile',
       label: 'Shower wall tile installation',
       helperText: 'New shower wall tile area — enter sqft for pricing.',
@@ -3457,14 +3464,46 @@ export function hydrateScopeChecklistFromNotes(
   if (String(templateKey || '').toLowerCase() !== 'bathroom') {
     return noteBackedFinal;
   }
+  const hasSpecificFloorTile = noteBackedFinal.some(
+    item => item.id === 'floor_tile'
+  );
+  const hasSpecificShowerTile = noteBackedFinal.some(
+    item =>
+      item.id === 'shower_tile' ||
+      item.id === 'shower_floor_tile' ||
+      item.id === 'shower_pan'
+  );
+  const hasPaintRepair = noteBackedFinal.some(
+    item => item.id === 'paint_repair'
+  );
+  const bathroomDisplayItems = noteBackedFinal.filter(item => {
+    const label = String(item.label || '').toLowerCase();
+    if (
+      item.id === 'flooring' ||
+      item.id === 'kitchen_flooring' ||
+      label.includes('kitchen flooring')
+    ) {
+      return false;
+    }
+    if (
+      (item.id === 'tile' || item.id === 'tile_flooring') &&
+      (hasSpecificFloorTile || hasSpecificShowerTile)
+    ) {
+      return false;
+    }
+    if (hasPaintRepair && (item.id === 'paint' || item.id === 'interior_paint')) {
+      return false;
+    }
+    return true;
+  });
   // Bathroom lighting is handled by the dedicated lighting card. Keep the
   // generic electrical trim card at review-needed unless device work is explicit.
   const explicitDeviceWork =
     /\b(?:electrical|outlets?|receptacles?|switch(?:es)?|wall\s+plates?|faceplates?|bulbs?|devices?|gfci)\b/i.test(
       String(notes || '')
     );
-  if (explicitDeviceWork) return noteBackedFinal;
-  return noteBackedFinal.map(item =>
+  if (explicitDeviceWork) return bathroomDisplayItems;
+  return bathroomDisplayItems.map(item =>
     item.id === 'electrical_trim' && item.state === 'included'
       ? { ...item, state: 'unsure' as const, noteBacked: false }
       : item
