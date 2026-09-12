@@ -8528,6 +8528,7 @@ function WetAreaInstallLineCard({
         originalNotes={originalNotes}
         hideInlineTakeoff={
           item.id === 'insulation' ||
+          item.id === 'exterior_prep' ||
           isWholeHomeQuickMeasurementTemplate(templateKey) ||
           ([
             'flooring',
