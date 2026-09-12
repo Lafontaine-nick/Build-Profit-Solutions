@@ -2927,7 +2927,7 @@ function ensureBathroomNoteBackedScopeItems(
       label: 'Drywall demo / removal',
       helperText: 'Remove existing drywall in the affected bathroom areas.',
       pattern:
-        /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,50}\bdrywall\b|\bdrywall\b[^.;\n]{0,50}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/,
+        /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,180}\bdrywall\b|\bdrywall\b[^.;\n]{0,180}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/,
     },
     {
       id: 'shower_tile',

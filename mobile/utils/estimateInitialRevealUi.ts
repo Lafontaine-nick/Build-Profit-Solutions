@@ -464,7 +464,7 @@ function getInitialRevealScopeRows(
       },
       {
         pattern:
-          /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,50}\bdrywall\b|\bdrywall\b[^.;\n]{0,50}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/i,
+          /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,180}\bdrywall\b|\bdrywall\b[^.;\n]{0,180}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/i,
         id: 'note:bathroom drywall demo',
         name: 'Drywall demo / removal',
       },
