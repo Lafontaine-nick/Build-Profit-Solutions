@@ -1470,6 +1470,22 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
         'structure'
       )
     ),
+    row(
+      F(
+        'windowCount',
+        'Windows',
+        'Enter count',
+        'each',
+        'exterior'
+      ),
+      F(
+        'exteriorDoorCount',
+        'Exterior doors',
+        'Enter count',
+        'each',
+        'exterior'
+      )
+    ),
   ],
   flooring: [
     row(
