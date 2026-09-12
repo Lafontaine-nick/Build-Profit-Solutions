@@ -256,21 +256,79 @@ export function resolveQuickMeasurementFields(params: {
     if (seen.has(field.key)) continue;
     seen.add(field.key);
 
-    const displayValue = resolveQuickMeasurementDisplayValue(
-      field.key,
-      params.measurements,
-      noteValues,
-      params.userOverrides
-    );
+    const isPaintAreaField =
+      field.key === 'wallPaintSqft' ||
+      field.key === 'ceilingPaintSqft' ||
+      field.key === 'paintAreaSqft';
+    const hasNoteBackedPaintArea = [
+      'wallPaintSqft',
+      'ceilingPaintSqft',
+      'paintAreaSqft',
+    ].some(key => {
+      const typedKey = key as QuickMeasurementFieldKey;
+      return noteKeySet.has(typedKey) && Boolean(noteValues[typedKey]);
+    });
+    const displayValue =
+      isPaintAreaField &&
+      !hasNoteBackedPaintArea &&
+      !params.userOverrides?.[field.key]
+        ? ''
+        : resolveQuickMeasurementDisplayValue(
+            field.key,
+            params.measurements,
+            noteValues,
+            params.userOverrides
+          );
     const filled = hasQuickMeasurementValue(displayValue);
     const typed = String(params.measurements[field.key] ?? '').trim() !== '';
     const isUserOverride = Boolean(params.userOverrides?.[field.key]);
+    const noteText = String(params.notes || '');
+    const explicitlyMeasuredByNotes =
+      (field.key === 'baseboardLf' &&
+        /\b\d[\d,]*(?:\.\d+)?\s*(?:lf|linear\s+(?:foot|feet))\b[^.;\n]{0,25}\b(?:baseboards?|trim)\b/i.test(
+          noteText
+        )) ||
+      (field.key === 'patchRepairSqft' &&
+        (/\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,25}\bdrywall\s+repair\b/i.test(
+          noteText
+        ) ||
+          /\bdrywall\s+repair\b[^.;\n]{0,25}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
+            noteText
+          )));
     const fromNotes =
-      !isUserOverride &&
-      noteKeySet.has(field.key) &&
+      (noteKeySet.has(field.key) || explicitlyMeasuredByNotes) &&
       Boolean(noteValues[field.key]) &&
       String(displayValue ?? '').replace(/,/g, '') ===
         String(noteValues[field.key] ?? '').replace(/,/g, '');
+    const noteBackedPhysicalMeasurement =
+      ['baseboardLf', 'patchRepairSqft'].includes(field.key) &&
+      noteKeySet.has(field.key) &&
+      Boolean(noteValues[field.key]) &&
+      filled &&
+      !isUserOverride;
+    const confirmedFromMatchingNoteValue =
+      noteKeySet.has(field.key) &&
+      Boolean(noteValues[field.key]) &&
+      filled &&
+      String(displayValue ?? '').replace(/,/g, '') ===
+        String(noteValues[field.key] ?? '').replace(/,/g, '') &&
+      !isUserOverride;
+    const explicitlyMeasuredPhysicalNote =
+      (field.key === 'baseboardLf' &&
+        /\b\d[\d,]*(?:\.\d+)?\s*(?:lf|linear\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:baseboards?|trim)\b/i.test(
+          noteText
+        )) ||
+      (field.key === 'patchRepairSqft' &&
+        /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:drywall\s+)?(?:repair|patch|texture)\b|\b(?:drywall\s+)?(?:repair|patch|texture)\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
+          noteText
+        ));
+    const confirmedFromExplicitNote =
+      (explicitlyMeasuredByNotes ||
+        noteBackedPhysicalMeasurement ||
+        explicitlyMeasuredPhysicalNote ||
+        confirmedFromMatchingNoteValue) &&
+      filled &&
+      !isUserOverride;
     const sourceTag = params.sourceMap?.[field.key];
     const optionalGasLine =
       field.key === 'gasLineLf' &&
@@ -306,18 +364,6 @@ export function resolveQuickMeasurementFields(params: {
       }),
     });
 
-    const isPaintAreaField =
-      field.key === 'wallPaintSqft' ||
-      field.key === 'ceilingPaintSqft' ||
-      field.key === 'paintAreaSqft';
-    const hasNoteBackedPaintArea = [
-      'wallPaintSqft',
-      'ceilingPaintSqft',
-      'paintAreaSqft',
-    ].some(key => {
-      const typedKey = key as QuickMeasurementFieldKey;
-      return noteKeySet.has(typedKey) && Boolean(noteValues[typedKey]);
-    });
     // Paint must not borrow a planning surface formula from drywall,
     // flooring, living area, or plan geometry when the job notes only say
     // "paint." A paint suggestion is useful here only when the note parser
@@ -340,7 +386,7 @@ export function resolveQuickMeasurementFields(params: {
 
     const state = resolveFieldState({
       filled,
-      fromNotes,
+      fromNotes: fromNotes || confirmedFromExplicitNote,
       sourceTag: isUserOverride ? 'user_confirmed_suggestion' : sourceTag,
       relevant: optionalGasLine ? false : relevance.relevant,
       hasEstimate: Boolean(estimate),
@@ -354,12 +400,13 @@ export function resolveQuickMeasurementFields(params: {
         field.key,
         params.tradeScopeSelections
       );
-    const resolvedState =
-      roofingTemplate &&
-      state === 'needs_confirmation' &&
-      filled &&
-      (sourceTag === 'estimated_from_formula' || fromNotes) &&
-      roofingScopeIncluded
+    const resolvedState = confirmedFromExplicitNote
+      ? ('confirmed' as const)
+      : roofingTemplate &&
+          state === 'needs_confirmation' &&
+          filled &&
+          (sourceTag === 'estimated_from_formula' || fromNotes) &&
+          roofingScopeIncluded
         ? ('confirmed' as const)
         : state;
 
@@ -369,7 +416,7 @@ export function resolveQuickMeasurementFields(params: {
       showConfirmedBadge:
         filled && !fromNotes && sourceTag === 'user_confirmed_suggestion',
       filled,
-      fromNotes,
+      fromNotes: fromNotes || confirmedFromExplicitNote,
       relevant: optionalGasLine ? false : relevance.relevant,
       blockingPrice: optionalGasLine
         ? false

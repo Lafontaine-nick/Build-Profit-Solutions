@@ -992,10 +992,29 @@ export function parseScopeMeasurementsFromNotes(
       ) {
         continue;
       }
-      for (const pattern of PAINT_SQFT_PATTERNS) {
-        const near = pickSqftNearPattern(clause, pattern);
-        if (near)
-          largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, near);
+      for (const segment of clause.split(/[,;]\s*/)) {
+        const directPaintMatch =
+          segment.match(
+            /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^0-9]{0,35}(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|square\s+(?:foot|feet))\b/i
+          ) ||
+          segment.match(
+            /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|square\s+(?:foot|feet))\b[^0-9]{0,35}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i
+          );
+        if (!directPaintMatch) continue;
+        if (
+          /\b(?:drywall|insulation|flooring|lvp|countertops?|counters?|backsplash|trim)\b/i.test(
+            directPaintMatch[0]
+          )
+        ) {
+          continue;
+        }
+        const directQuantity = Number(directPaintMatch[1].replace(/,/g, ''));
+        if (Number.isFinite(directQuantity)) {
+          largestRelevantPaintSqft = Math.max(
+            largestRelevantPaintSqft,
+            directQuantity
+          );
+        }
       }
     }
     const labeledFloorAreaTotal = parseLabeledInteriorFloorAreaTotal(
@@ -1036,7 +1055,10 @@ export function parseScopeMeasurementsFromNotes(
       ) {
         continue;
       }
-      if (/\bwalls?\b/.test(before) || /\bwalls?\b/.test(after)) {
+      if (
+        (/\bwalls?\b/.test(before) || /\bwalls?\b/.test(after)) &&
+        !(paintSqft && qty !== paintSqft)
+      ) {
         return qty;
       }
     }
@@ -1135,7 +1157,7 @@ export function parseScopeMeasurementsFromNotes(
   }
 
   const interiorDoorCountMatch = blob.match(
-    /(\d[\d,]*|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:interior\s+)?doors?\b/i
+    /(\d[\d,]*|one|two|three|four|five|six|seven|eight|nine|ten)\s+interior\s+doors?\b/i
   );
   if (interiorDoorCountMatch) {
     const count = parseCountToken(interiorDoorCountMatch[1]);

@@ -665,7 +665,17 @@ function ScopeDraftSplitPricingEditor({
     entryMode === 'takeoff' && effectiveBasisQty > 0 && !basisFocused
       ? { quantity: effectiveBasisQty, unit: basisUnit }
       : null;
-  const showTakeoffBasis = entryMode === 'takeoff';
+  const normalizedPackageName = String(packageName)
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  const hidePhysicalTakeoffBasis =
+    normalizedPackageName.includes('door') ||
+    normalizedPackageName.includes('insulation') ||
+    normalizedPackageName === 'interior_trim' ||
+    normalizedPackageName === 'shower_pan';
+  const showTakeoffBasis =
+    entryMode === 'takeoff' &&
+    !hidePhysicalTakeoffBasis;
   const sharedMatLabRateMode = Boolean(editorBasis?.quantity && editorBasis.quantity > 0);
   const basisFieldLabel = basisUnit === 'sqft' ? 'Area (sqft)' : `Quantity (${basisUnitLabel})`;
 

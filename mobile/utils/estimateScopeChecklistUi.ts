@@ -2576,6 +2576,12 @@ const NOTE_BACKED_SCOPE_COPY: Record<
     helperText: 'Exterior door units and installation labor from notes.',
     category: 'openings',
   },
+  doors: {
+    label: 'Doors',
+    helperText:
+      'Door work found in notes; specify whether the doors are interior or exterior and enter the count.',
+    category: 'openings',
+  },
   insulation: {
     label: 'Insulation',
     helperText:
@@ -2720,6 +2726,30 @@ function injectNoteBackedPricedItems(
     const copy = NOTE_BACKED_SCOPE_COPY.exterior_doors;
     additions.push({
       id: 'exterior_doors',
+      inputType: 'yes_no',
+      label: copy.label,
+      helperText: copy.helperText,
+      category: copy.category || 'from_notes',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+
+  // Do not guess interior vs. exterior when notes only say "doors". Keep a
+  // generic, blank-quantity row for manual classification and count entry.
+  const hasTypedDoorMention = /\b(?:interior|exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(
+    String(notes || '')
+  );
+  if (
+    !existingIds.has('doors') &&
+    !addedIds.has('doors') &&
+    !hasTypedDoorMention &&
+    /\bdoors?\b/i.test(String(notes || '')) &&
+    getChecklistItemQuantityRule('doors')
+  ) {
+    const copy = NOTE_BACKED_SCOPE_COPY.doors;
+    additions.push({
+      id: 'doors',
       inputType: 'yes_no',
       label: copy.label,
       helperText: copy.helperText,
@@ -2964,6 +2994,12 @@ function ensureBathroomNoteBackedScopeItems(
       label: 'New lighting fixtures & install',
       helperText: 'Vanity / bathroom lighting fixture installation.',
       pattern: /\b(?:vanity\s+)?lighting\b|\blight\s+fixtures?\b/,
+    },
+    {
+      id: 'interior_door_install',
+      label: 'Interior door installation',
+      helperText: 'Install the note-specified interior doors and standard hardware.',
+      pattern: /\binterior\s+doors?\b/,
     },
   ];
   const existing = new Set(items.map(item => item.id));

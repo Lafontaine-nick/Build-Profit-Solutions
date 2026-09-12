@@ -51,6 +51,17 @@ describe('mobile scope measurement parser', () => {
     expect(prepared.interiorDoorCount).toBe('2');
   });
 
+  it('keeps generic door notes unclassified and without a measurement', () => {
+    const notes = 'Update the home with new doors, flooring, drywall, and paint.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'bathroom',
+    });
+
+    expect(parsed.interiorDoorCount).toBeUndefined();
+    expect(parsed.exteriorDoorCount).toBeUndefined();
+    expect(parsed.itemQuantities?.doors).toBeUndefined();
+  });
+
   it('does not borrow flooring sqft for an unmeasured interior paint scope', () => {
     const notes =
       'Remodel kitchen with demolition of existing cabinets, counters, backsplash, and flooring; install 38 LF cabinets, 48 sqft quartz counters, new backsplash, cabinet hardware $300, 12 LF plumbing relocation, 8 receptacles, 220 sqft drywall repair, 700 sqft LVP, two new windows, one exterior door, R-21 wall insulation, 120 LF of baseboard installation, and interior paint.';
@@ -74,6 +85,18 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.flooringSqft).toBe(700);
     expect(parsed.floorDemoSqft).toBeUndefined();
     expect(parsed.paintAreaSqft ?? parsed.wallPaintSqft).toBe(500);
+  });
+
+  it('uses explicit paint sqft instead of nearby insulation sqft', () => {
+    const notes =
+      'Remodel bathroom with demolition of the existing shower, vanity, toilet, flooring, and drywall; install shower tile, shower pan, vanity, toilet, exhaust fan, 85 sqft floor tile, 65 LF trim, two interior doors, 2 exterior doors, 2 windows, 120 sqft drywall repair, 120 sqft of R-21 exterior wall insulation, and paint 300 sqft.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'bathroom',
+    });
+
+    expect(parsed.wallPaintSqft ?? parsed.paintAreaSqft).toBe(300);
+    expect(parsed.patchRepairSqft).toBe(120);
+    expect(parsed.exteriorWallInsulationSqft).toBe(120);
   });
 
   it('keeps explicit paint sqft separate from stale flooring sqft during hydration', () => {

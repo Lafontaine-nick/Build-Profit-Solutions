@@ -47,6 +47,41 @@ describe('bathroom toilet always visible on Confirm Scope', () => {
     }
   });
 
+  test('keeps all note-backed opening trades, including interior doors', () => {
+    const notes =
+      'Remodel bathroom with demolition of the existing shower, vanity, toilet, flooring, and drywall; install shower tile, shower pan, vanity, toilet, exhaust fan, 85 sqft floor tile, 65 LF trim, two interior doors, 2 exterior doors, 2 windows, 120 sqft drywall repair, R-21 exterior wall insulation, and paint.';
+    const hydrated = hydrateScopeChecklistFromNotes(
+      [],
+      'bathroom',
+      notes,
+      { itemQuantities: {}, interiorDoorCount: 2, exteriorDoorCount: 2, windowCount: 2 } as any
+    );
+
+    for (const id of ['interior_door_install', 'exterior_doors', 'windows']) {
+      expect(hydrated.find(row => row.id === id)).toEqual(
+        expect.objectContaining({ state: 'included', noteBacked: true })
+      );
+    }
+  });
+
+  test('uses a generic blank Doors row when notes do not classify the doors', () => {
+    const hydrated = hydrateScopeChecklistFromNotes(
+      [],
+      'bathroom',
+      'Update the bathroom with new doors, flooring, drywall, and paint.',
+      { itemQuantities: {} }
+    );
+    expect(hydrated.find(row => row.id === 'doors')).toEqual(
+      expect.objectContaining({
+        label: 'Doors',
+        state: 'included',
+        noteBacked: true,
+      })
+    );
+    expect(hydrated.find(row => row.id === 'interior_door_install')).toBeUndefined();
+    expect(hydrated.find(row => row.id === 'exterior_doors')).toBeUndefined();
+  });
+
   test('collapses quiet secondary groups while keeping review groups expanded', () => {
     const items: ScopeChecklistItem[] = [
       {

@@ -2456,6 +2456,22 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
         'Suggested budget split · National Average · interior prehung door (builder grade)',
     },
   },
+  interior_trim: {
+    each: {
+      unit: 'each',
+      material: 50,
+      labor: 200,
+      sourceLabel:
+        'Suggested budget split · National Average · interior door casing/trim installation, prep & paint',
+    },
+    lf: {
+      unit: 'lf',
+      material: 2.75,
+      labor: 5.75,
+      sourceLabel:
+        'Suggested budget split · National Average · interior trim installation, prep & paint',
+    },
+  },
   trim_finish: {
     lf: {
       unit: 'lf',
@@ -5876,9 +5892,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKeys: [
-      'exteriorWallGrossSqft',
       'exteriorWallInsulationSqft',
-      'openingDeductionSqft',
       'atticInsulationSqft',
       'insulatedRoofDeckSqft',
       'floorInsulationSqft',
@@ -8219,9 +8233,10 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKeys: [
-      'exteriorWallGrossSqft',
       'exteriorWallInsulationSqft',
-      'openingDeductionSqft',
+      'atticInsulationSqft',
+      'insulatedRoofDeckSqft',
+      'floorInsulationSqft',
     ],
     requiresUserQuantity: true,
     quantityHelper:
@@ -8567,9 +8582,10 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKeys: [
-      'exteriorWallGrossSqft',
       'exteriorWallInsulationSqft',
-      'openingDeductionSqft',
+      'atticInsulationSqft',
+      'insulatedRoofDeckSqft',
+      'floorInsulationSqft',
     ],
     requiresUserQuantity: true,
     quantityHelper:
@@ -9075,6 +9091,17 @@ function resolveSuggestedPricingPhysicalCount(
   unit: string,
   itemQuantities?: Record<string, ScopeItemQuantityLike>
 ): number | null {
+  // A note-backed physical quantity is authoritative. Do not let a stale
+  // pricing-basis entry (for example, a prior envelope estimate) override it.
+  if (
+    itemId === 'insulation' &&
+    unit === 'sqft' &&
+    resolved.quantitySource === 'notes' &&
+    resolved.quantity != null &&
+    resolved.quantity > 0
+  ) {
+    return resolved.quantity;
+  }
   if (itemQuantities && unit === 'sqft') {
     const storedBasis = readStoredSqftPricingBasis(itemQuantities, itemId);
     if (storedBasis != null) {
@@ -9551,7 +9578,6 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<
       measurementKeys: [
         'exteriorWallInsulationSqft',
         'atticInsulationSqft',
-        'exteriorWallGrossSqft',
       ],
       sumMeasurementKeys: true,
     },
@@ -11642,7 +11668,12 @@ export function resolveDualRatePricingDisplayFromNotes(
       if (sqft) break;
     }
   }
-  sqft = sqft ?? sqftFromItemQuantities(measurementsInput, itemId) ?? null;
+  // Insulation itemQuantities can contain a stale envelope/planning sqft
+  // value. Its note-backed surface fields are authoritative; never fall back
+  // to the persisted pricing entry for this scope.
+  if (!sqft && itemId !== 'insulation') {
+    sqft = sqftFromItemQuantities(measurementsInput, itemId) ?? null;
+  }
   if (!sqft) return null;
 
   const syncedInput: ScopeMeasurementsInputExtended = {
@@ -22350,6 +22381,80 @@ export function resolveChecklistItemQuantity(
       };
     }
   }
+  if (itemId === 'insulation') {
+    const noteInsulationSqft = [
+      measurements.exteriorWallInsulationSqft,
+      measurements.atticInsulationSqft,
+      measurements.floorInsulationSqft,
+      measurements.insulatedRoofDeckSqft,
+    ].reduce((total, value) => {
+      const quantity = Number(String(value ?? '').replace(/,/g, ''));
+      return total + (Number.isFinite(quantity) && quantity > 0 ? quantity : 0);
+    }, 0);
+    if (noteInsulationSqft > 0) {
+      return {
+        quantity: noteInsulationSqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper: 'Uses the identified insulation surface area.',
+        missingMessage: 'Enter insulation surface sqft.',
+        showInput: true,
+      };
+    }
+  }
+  if (itemId === 'patch_repair') {
+    const notePatchRepairSqft = Number(
+      String(measurements.patchRepairSqft ?? '').replace(/,/g, '')
+    );
+    if (Number.isFinite(notePatchRepairSqft) && notePatchRepairSqft > 0) {
+      return {
+        quantity: notePatchRepairSqft,
+        unit: 'sqft',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper: 'Uses the drywall repair area identified in the notes.',
+        missingMessage: 'Enter patch/repair sqft.',
+        showInput: true,
+      };
+    }
+  }
+  if (itemId === 'interior_trim') {
+    const manualTrimLf = Number(
+      String(
+        measurements.trimFinishLf ?? measurements.baseboardLf ?? ''
+      ).replace(/,/g, '')
+    );
+    if (Number.isFinite(manualTrimLf) && manualTrimLf > 0) {
+      return {
+        quantity: manualTrimLf,
+        unit: 'lf',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper: 'Uses the note-specified trim linear footage.',
+        missingMessage: 'Enter trim linear feet.',
+        showInput: true,
+      };
+    }
+    const interiorDoorCount = Number(
+      String(measurements.interiorDoorCount ?? '').replace(/,/g, '')
+    );
+    if (Number.isFinite(interiorDoorCount) && interiorDoorCount > 0) {
+      return {
+        quantity: interiorDoorCount,
+        unit: 'each',
+        quantitySource: 'notes',
+        sourceLabel: 'From notes',
+        pricingReady: true,
+        quantityHelper: 'Uses the note-specified interior door count.',
+        missingMessage: 'Enter interior door count.',
+        showInput: true,
+      };
+    }
+  }
   if (itemId === 'paint_repair') {
     const stored = measurements.itemQuantities?.paint_repair;
     const notesDescribePatchRepair =
@@ -25745,6 +25850,39 @@ export function prepareScopeMeasurementsInputForUi(
       }
       (mergedFields as ScopeMeasurements).itemQuantities = quantities;
     }
+  } else if (
+    /\b(?:paint(?:ing)?|repaint(?:ing)?|interior\s+paint)\b/i.test(notes)
+  ) {
+    // Paint is mentioned without a paintable-area quantity. Clear stale
+    // values copied from drywall, insulation, flooring, or an older draft.
+    // Preserve only an explicitly user-entered paint measurement.
+    const userLockedPaintKeys = new Set(
+      paintMeasurementKeys.filter(
+        key =>
+          payload.quickMeasurementUserOverrides?.[key] === true ||
+          payload.quickMeasurementSources?.[key] === 'user_entered'
+      )
+    );
+    for (const key of paintMeasurementKeys) {
+      if (!userLockedPaintKeys.has(key)) {
+        (mergedFields as Record<string, unknown>)[key] = '';
+      }
+    }
+    const quantities = {
+      ...((mergedFields as ScopeMeasurements).itemQuantities || {}),
+    };
+    for (const id of ['paint', 'interior_paint', 'paint_trim']) {
+      const existing = quantities[id];
+      if (
+        existing &&
+        existing.quantitySource !== 'manual_override' &&
+        !payload.quickMeasurementUserOverrides?.wallPaintSqft &&
+        payload.quickMeasurementSources?.wallPaintSqft !== 'user_entered'
+      ) {
+        delete quantities[id];
+      }
+    }
+    (mergedFields as ScopeMeasurements).itemQuantities = quantities;
   }
   for (const [key, value] of Object.entries(payload)) {
     if (
@@ -25855,6 +25993,42 @@ export function prepareScopeMeasurementsInputForUi(
     String(options?.templateKey || '').toLowerCase() === 'roofing'
       ? reconcileRoofingQuickMeasurements(withSouthernUtah, notes)
       : withSouthernUtah;
+
+  // Final guard after all reparse/sync passes: only a quantity directly tied
+  // to paint wording is valid as a paint takeoff. This prevents later
+  // hydration stages from restoring drywall/insulation sqft into Paint.
+  const hasDirectPaintSqft =
+    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^0-9]{0,35}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|\bsf\b|square\s+(?:foot|feet))\b/i.test(
+      notes
+    ) ||
+    /\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|\bsf\b|square\s+(?:foot|feet))\b[^0-9]{0,35}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+      notes
+    );
+  if (
+    /\b(?:paint(?:ing)?|repaint(?:ing)?|interior\s+paint)\b/i.test(notes) &&
+    !hasDirectPaintSqft
+  ) {
+    for (const key of paintMeasurementKeys) {
+      (roofingReconciled as Record<string, unknown>)[key] = '';
+    }
+    const clearedOverrides = {
+      ...(roofingReconciled.quickMeasurementUserOverrides || {}),
+    };
+    const clearedSources = {
+      ...(roofingReconciled.quickMeasurementSources || {}),
+    };
+    for (const key of paintMeasurementKeys) {
+      delete clearedOverrides[key];
+      delete clearedSources[key];
+    }
+    roofingReconciled.quickMeasurementUserOverrides = clearedOverrides;
+    roofingReconciled.quickMeasurementSources = clearedSources;
+    const quantities = { ...(roofingReconciled.itemQuantities || {}) };
+    for (const id of ['paint', 'interior_paint', 'paint_trim']) {
+      delete quantities[id];
+    }
+    roofingReconciled.itemQuantities = quantities;
+  }
 
   const seeded = seedAdditionConversionPhysicalMeasurements(roofingReconciled, {
     templateKey: options?.templateKey,

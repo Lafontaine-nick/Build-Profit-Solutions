@@ -2470,9 +2470,7 @@ export function quickMeasurementRowsForTemplate(
       return /\bwindows?\b/i.test(framingNoteText);
     }
     if (field.key === 'exteriorDoorCount') {
-      return /\b(?:exterior|outside)\s+doors?\b|\bdoors?\b[^.;\n]{0,35}\bexterior\b/i.test(
-        framingNoteText
-      );
+      return /\b(?:exterior|outside)\s+doors?\b/i.test(framingNoteText);
     }
     return true;
   };
@@ -2852,9 +2850,7 @@ export function quickMeasurementRowsForInput(
       return /\bwindows?\b/i.test(noteText);
     }
     if (field.key === 'exteriorDoorCount') {
-      return /\b(?:exterior|outside)\s+doors?\b|\bdoors?\b[^.;\n]{0,35}\bexterior\b/i.test(
-        noteText
-      );
+      return /\b(?:exterior|outside)\s+doors?\b/i.test(noteText);
     }
     return true;
   };
