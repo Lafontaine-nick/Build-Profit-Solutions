@@ -173,6 +173,31 @@ describe('scopeQuickMeasurements', () => {
     );
   });
 
+  it('shows only note-backed window and exterior-door measurements', () => {
+    const bathroomNotes =
+      'Remodel bathroom with two interior doors, insulation, and paint.';
+    const bathroomKeys = quickMeasurementRowsForTemplate(
+      'bathroom',
+      'bathroom',
+      bathroomNotes
+    )
+      .flat()
+      .map(field => field.key);
+    expect(bathroomKeys).not.toContain('windowCount');
+    expect(bathroomKeys).not.toContain('exteriorDoorCount');
+
+    const crossTradeKeys = quickMeasurementRowsForTemplate(
+      'bathroom',
+      'bathroom',
+      'Remodel bathroom and replace 2 windows and 1 exterior door.'
+    )
+      .flat()
+      .map(field => field.key);
+    expect(crossTradeKeys).toEqual(
+      expect.arrayContaining(['windowCount', 'exteriorDoorCount'])
+    );
+  });
+
   it('routes insulation-only notes to the insulation measurement layout', () => {
     const notes =
       'Insulate an existing 1,800 sqft two-story home. Install R-21 fiberglass batt insulation in 2,000 sqft of exterior walls, R-38 blown insulation in 1,200 sqft of attic area, and R-30 batt insulation in 900 sqft of floor area. Include air sealing and normal installation. No drywall removal.';

@@ -2465,8 +2465,21 @@ export function quickMeasurementRowsForTemplate(
           )
         )
       : mixedFiltered;
+  const noteBackedCrossTradeFields = (field: QuickMeasurementFieldDef) => {
+    if (field.key === 'windowCount') {
+      return /\bwindows?\b/i.test(framingNoteText);
+    }
+    if (field.key === 'exteriorDoorCount') {
+      return /\b(?:exterior|outside)\s+doors?\b|\bdoors?\b[^.;\n]{0,35}\bexterior\b/i.test(
+        framingNoteText
+      );
+    }
+    return true;
+  };
   if (key !== 'room_remodel' || !String(notes || '').trim()) {
-    return remodelRows;
+    return remodelRows
+      .map(row => row.filter(noteBackedCrossTradeFields))
+      .filter(row => row.length > 0);
   }
   const remodelNoteText = String(notes || '');
   const hasPaint = /\b(?:paint(?:ing)?|repaint)\b/i.test(remodelNoteText);
@@ -2831,12 +2844,44 @@ export function quickMeasurementRowsForInput(
       }
       return filteredRows;
     }
-    return baseRows;
+    const noteBackedCrossTradeFields = (field: QuickMeasurementFieldDef) => {
+      if (field.key === 'windowCount') {
+        return /\bwindows?\b/i.test(framingNoteText);
+      }
+      if (field.key === 'exteriorDoorCount') {
+        return /\b(?:exterior|outside)\s+doors?\b|\bdoors?\b[^.;\n]{0,35}\bexterior\b/i.test(
+          framingNoteText
+        );
+      }
+      return true;
+    };
+    const filteredCrossTradeRows = baseRows
+      .map(row => row.filter(noteBackedCrossTradeFields))
+      .filter(row => row.length > 0);
+    const filteredCrossTradeExtras = extraFields.filter(
+      noteBackedCrossTradeFields
+    );
+    if (!filteredCrossTradeExtras.length) return filteredCrossTradeRows;
+    return [...filteredCrossTradeRows, ...chunkRows(filteredCrossTradeExtras)];
   }
 
-  if (!extraFields.length) return baseRows;
-
-  return [...baseRows, ...chunkRows(extraFields)];
+  const noteBackedCrossTradeFields = (field: QuickMeasurementFieldDef) => {
+    if (field.key === 'windowCount') {
+      return /\bwindows?\b/i.test(framingNoteText);
+    }
+    if (field.key === 'exteriorDoorCount') {
+      return /\b(?:exterior|outside)\s+doors?\b|\bdoors?\b[^.;\n]{0,35}\bexterior\b/i.test(
+        framingNoteText
+      );
+    }
+    return true;
+  };
+  const filteredRows = baseRows
+    .map(row => row.filter(noteBackedCrossTradeFields))
+    .filter(row => row.length > 0);
+  const filteredExtras = extraFields.filter(noteBackedCrossTradeFields);
+  if (!filteredExtras.length) return filteredRows;
+  return [...filteredRows, ...chunkRows(filteredExtras)];
 }
 
 /** Group flat rows into Site / Structure / Interior sections; primary fields lead. */
