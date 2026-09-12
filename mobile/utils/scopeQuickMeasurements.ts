@@ -2343,12 +2343,14 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
   ) {
     return 'insulation';
   }
+  const hasKitchenScope = /\bkitchen\b/i.test(notes);
+  const hasBathroomScope = /\bbathroom\b|\bbathrooms\b|\bbaths?\b/i.test(
+    notes
+  );
+  const hasMultipleBathrooms =
+    /\b(?:\d+|one|two|three|four|five|multiple)\s+bathrooms?\b/i.test(notes);
   const isMultiRoomRemodel =
-    /\b(?:kitchen|bathrooms?|baths?)\b/i.test(notes) &&
-    /\b(?:renovat(?:e|ion)|remodel(?:ing)?|existing\s+(?:home|interior))\b/i.test(
-      notes
-    ) &&
-    /\b(?:\d+\s+)?bathrooms?\b|\b(?:one|two|three)\s+bathrooms?\b/i.test(notes);
+    (hasKitchenScope && hasBathroomScope) || hasMultipleBathrooms;
   if (
     isMultiRoomRemodel &&
     (resolved === 'kitchen' ||

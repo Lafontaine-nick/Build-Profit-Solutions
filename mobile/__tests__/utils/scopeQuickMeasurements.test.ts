@@ -145,6 +145,17 @@ describe('scopeQuickMeasurements', () => {
     ).toBe('kitchen');
   });
 
+  it('keeps a standalone bathroom remodel on the bathroom measurement layout', () => {
+    expect(
+      resolveEffectiveQuickMeasurementTemplateKey({
+        templateKey: 'bathroom',
+        projectType: 'bathroom',
+        notes:
+          'Remodel bathroom with shower tile, shower pan, vanity, toilet, drywall, insulation, and paint.',
+      })
+    ).toBe('bathroom');
+  });
+
   it('routes insulation-only notes to the insulation measurement layout', () => {
     const notes =
       'Insulate an existing 1,800 sqft two-story home. Install R-21 fiberglass batt insulation in 2,000 sqft of exterior walls, R-38 blown insulation in 1,200 sqft of attic area, and R-30 batt insulation in 900 sqft of floor area. Include air sealing and normal installation. No drywall removal.';
