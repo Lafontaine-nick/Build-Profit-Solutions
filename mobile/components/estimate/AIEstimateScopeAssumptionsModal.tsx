@@ -14518,6 +14518,10 @@ function CollapsibleQuickMeasurements({
       includedScopeKeys.includes('insulation')
     ) {
       const noteText = String(notes || '');
+      const hasSpecificInsulationLocation =
+        /\b(?:exterior|outside)\s+walls?\b|\bwall\s+insulation\b|\b(?:attic|ceiling)\s+(?:area\s+)?insulation\b|\binsulation\b[^.;\n]{0,35}\b(?:attic|ceiling)\b|\bfloor\s+insulation\b|\binsulation\b[^.;\n]{0,35}\bfloor\b/i.test(
+          noteText
+        );
       const insulationFieldIsIdentified = (key: QuickMeasurementFieldKey) => {
         if (key === 'exteriorWallInsulationSqft') {
           return /\b(?:exterior|outside)\s+walls?\b|\bwall\s+insulation\b|\binsulation\b/i.test(
@@ -14538,7 +14542,14 @@ function CollapsibleQuickMeasurements({
       };
       return baseRows
         .map(row =>
-          row.filter(field => insulationFieldIsIdentified(field.key))
+          row
+            .filter(field => insulationFieldIsIdentified(field.key))
+            .map(field =>
+              field.key === 'exteriorWallInsulationSqft' &&
+              !hasSpecificInsulationLocation
+                ? { ...field, label: 'Insulation' }
+                : field
+            )
         )
         .filter(row => row.length > 0);
     }
