@@ -25682,6 +25682,15 @@ export function prepareScopeMeasurementsInputForUi(
     mergedFields.patchRepairSqft = String(patchRepairFromNotes);
     mergedFields.drywallSqft = '';
   }
+  const interiorDoorCountFromNotes = Number(
+    String((parsed as Record<string, unknown>).interiorDoorCount ?? '').replace(
+      /,/g,
+      ''
+    )
+  );
+  if (interiorDoorCountFromNotes > 0) {
+    mergedFields.interiorDoorCount = String(interiorDoorCountFromNotes);
+  }
   // Explicit paint quantities from the current notes must win over stale
   // inferred values persisted on the draft (for example flooring sqft copied
   // into the paint field during an earlier hydration pass).

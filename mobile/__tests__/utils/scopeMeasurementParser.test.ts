@@ -48,6 +48,7 @@ describe('mobile scope measurement parser', () => {
     expect(prepared.showerFloorTileSqft).toBe('');
     expect(prepared.patchRepairSqft).toBe('120');
     expect(prepared.drywallSqft).toBe('');
+    expect(prepared.interiorDoorCount).toBe('2');
   });
 
   it('does not borrow flooring sqft for an unmeasured interior paint scope', () => {
