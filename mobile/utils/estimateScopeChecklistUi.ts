@@ -2916,6 +2916,20 @@ function ensureBathroomNoteBackedScopeItems(
         /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,50}\bvanity\b|\bvanity\b[^.;\n]{0,50}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/,
     },
     {
+      id: 'toilet_demo',
+      label: 'Remove toilet',
+      helperText: 'Disconnect, remove, and haul off the existing toilet.',
+      pattern:
+        /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,50}\btoilet\b|\btoilet\b[^.;\n]{0,50}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/,
+    },
+    {
+      id: 'drywall_demo',
+      label: 'Drywall demo / removal',
+      helperText: 'Remove existing drywall in the affected bathroom areas.',
+      pattern:
+        /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,50}\bdrywall\b|\bdrywall\b[^.;\n]{0,50}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/,
+    },
+    {
       id: 'shower_tile',
       label: 'Shower wall tile installation',
       helperText: 'New shower wall tile area — enter sqft for pricing.',

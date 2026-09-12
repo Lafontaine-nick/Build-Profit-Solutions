@@ -449,6 +449,34 @@ function getInitialRevealScopeRows(
       seenNames.add(key);
       return true;
     });
+    const bathroomDemoRows = [
+      {
+        pattern:
+          /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,50}\bvanity\b|\bvanity\b[^.;\n]{0,50}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/i,
+        id: 'note:bathroom vanity demo',
+        name: 'Vanity demo / removal',
+      },
+      {
+        pattern:
+          /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,50}\btoilet\b|\btoilet\b[^.;\n]{0,50}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/i,
+        id: 'note:bathroom toilet demo',
+        name: 'Toilet demo / removal',
+      },
+      {
+        pattern:
+          /\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,50}\bdrywall\b|\bdrywall\b[^.;\n]{0,50}\b(?:remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/i,
+        id: 'note:bathroom drywall demo',
+        name: 'Drywall demo / removal',
+      },
+    ];
+    const noteText = String(draft.originalNotes || '');
+    const existingNames = new Set(rows.map(row => row.name.toLowerCase()));
+    for (const demo of bathroomDemoRows) {
+      if (demo.pattern.test(noteText) && !existingNames.has(demo.name.toLowerCase())) {
+        rows.push(demo);
+        existingNames.add(demo.name.toLowerCase());
+      }
+    }
   }
   const hydratedKitchenDemoSource = `${String(draft.originalNotes || '')} ${rows
     .map((row) => row.name)
