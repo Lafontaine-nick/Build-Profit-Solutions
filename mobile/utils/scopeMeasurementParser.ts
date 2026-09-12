@@ -861,13 +861,26 @@ export function parseScopeMeasurementsFromNotes(
     return null;
   };
 
+  const explicitBathFloorTile = (() => {
+    for (const clause of clauses) {
+      if (/\bshower\s+floor\s+tile\b|\btile\s+shower\s+floor\b/i.test(clause)) {
+        continue;
+      }
+      const near = pickSqftNearPattern(
+        clause,
+        /\b(?:floor|flooring)\s+tile\b|\btile\s+(?:floor|flooring)\b/i
+      );
+      if (near) return near;
+    }
+    return null;
+  })();
   const bathFloor =
     pickSqftFromClauses([
       /\bbath(?:room)?\s+floor\b/,
       /\bbath(?:room)?\b.*\bfloor(?:ing)?\b/,
       /\bfloor\b.*\bbath(?:room)?\b/,
       /\bmain\s+bath(?:room)?\b/,
-    ]) || firstGenericBathroomSqft();
+    ]) || explicitBathFloorTile || firstGenericBathroomSqft();
   if (bathFloor) out.bathroomFloorSqft = bathFloor;
 
   const kitchenFloor = parseKitchenFloorSqftFromClauses(clauses, text);
@@ -937,10 +950,21 @@ export function parseScopeMeasurementsFromNotes(
   ]);
   if (showerWall) out.showerWallTileSqft = showerWall;
 
-  const showerFloor = pickSqftFromClauses([
-    /\bshower\s+floor\b/,
-    /\bshower\s+pan\b/,
-  ]);
+  // Do not fall back to the first sqft in a shared bathroom clause. Notes
+  // often mention "shower pan" before a later, unrelated bath-floor takeoff.
+  // Only populate this field when the sqft is actually adjacent to the
+  // explicit shower-floor/pan wording.
+  const showerFloor = (() => {
+    const patterns = [/\bshower\s+floor\b/, /\bshower\s+pan\b/];
+    for (const clause of clauses) {
+      for (const pattern of patterns) {
+        if (!pattern.test(clause.toLowerCase())) continue;
+        const near = pickSqftNearPattern(clause, pattern);
+        if (near) return near;
+      }
+    }
+    return null;
+  })();
   if (showerFloor) out.showerFloorTileSqft = showerFloor;
 
   // Use sqft near paint keywords — not first sqft in clause (backsplash may precede paint on one line)

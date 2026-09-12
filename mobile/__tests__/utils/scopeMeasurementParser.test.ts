@@ -16,6 +16,17 @@ const SMITH_NOTES =
   'Floor job at Smith residence. Demo existing tile in main bath 850 sqft lump sum $2,550. Demo kitchen vinyl 180 sqft allowance $900. Install LVP in both areas 1030 total sqft not priced yet. Baseboards throughout 220 LF lump sum $1,540. Final clean and haul off $650 lump sum.';
 
 describe('mobile scope measurement parser', () => {
+  it('keeps generic bathroom floor tile sqft out of shower-floor measurements', () => {
+    const notes =
+      'Remodel bathroom with demolition of the existing shower, vanity, toilet, flooring, and drywall; install shower tile, shower pan, vanity, toilet, exhaust fan, 85 sqft floor tile, 65 LF trim, two interior doors, 120 sqft drywall repair, R-21 exterior wall insulation, and paint.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'bathroom',
+    });
+
+    expect(parsed.bathroomFloorSqft).toBe(85);
+    expect(parsed.showerFloorTileSqft).toBeUndefined();
+  });
+
   it('does not borrow flooring sqft for an unmeasured interior paint scope', () => {
     const notes =
       'Remodel kitchen with demolition of existing cabinets, counters, backsplash, and flooring; install 38 LF cabinets, 48 sqft quartz counters, new backsplash, cabinet hardware $300, 12 LF plumbing relocation, 8 receptacles, 220 sqft drywall repair, 700 sqft LVP, two new windows, one exterior door, R-21 wall insulation, 120 LF of baseboard installation, and interior paint.';
