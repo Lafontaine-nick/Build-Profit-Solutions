@@ -88,6 +88,7 @@ export type ParsedScopeMeasurements = {
   cabinetTallLf?: number;
   cabinetRunLf?: number;
   drywallSqft?: number;
+  patchRepairSqft?: number;
   exteriorWallInsulationSqft?: number;
   atticInsulationSqft?: number;
   insulatedRoofDeckSqft?: number;
@@ -1253,9 +1254,20 @@ export function parseScopeMeasurementsFromNotes(
   ]);
   if (exteriorPaintSqft) out.exteriorPaintSqft = exteriorPaintSqft;
 
+  const patchRepairSqft = pickSqftFromClauses([
+    /\bdrywall\s+repair\b/,
+    /\b(?:patch|patching|patches)\b/,
+  ]);
+  if (patchRepairSqft) out.patchRepairSqft = patchRepairSqft;
+
   if (!isGarageConversionJob(projectType, text)) {
     const drywallSqft = pickSqftFromClauses([/\bdrywall\b/, /\bsheetrock\b/]);
-    if (drywallSqft) out.drywallSqft = drywallSqft;
+    if (
+      drywallSqft &&
+      !(String(templateKey || '').toLowerCase() === 'bathroom' && patchRepairSqft)
+    ) {
+      out.drywallSqft = drywallSqft;
+    }
   }
 
   const insulationSqft = (patterns: RegExp[]) => {

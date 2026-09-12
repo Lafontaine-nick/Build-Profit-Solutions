@@ -26,6 +26,8 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.bathroomFloorSqft).toBe(85);
     expect(parsed.showerFloorTileSqft).toBeUndefined();
     expect(parsed.exteriorWallInsulationSqft).toBeUndefined();
+    expect(parsed.patchRepairSqft).toBe(120);
+    expect(parsed.drywallSqft).toBeUndefined();
 
     const prepared = prepareScopeMeasurementsInputForUi(
       {
@@ -34,13 +36,17 @@ describe('mobile scope measurement parser', () => {
           notes
         ),
         showerFloorTileSqft: '85',
+        drywallSqft: '120',
         quickMeasurementSources: {
           showerFloorTileSqft: 'notes',
+          drywallSqft: 'notes',
         },
       },
       { notes, templateKey: 'bathroom' }
     );
     expect(prepared.showerFloorTileSqft).toBe('');
+    expect(prepared.patchRepairSqft).toBe('120');
+    expect(prepared.drywallSqft).toBe('');
   });
 
   it('does not borrow flooring sqft for an unmeasured interior paint scope', () => {

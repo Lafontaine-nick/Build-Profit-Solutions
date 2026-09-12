@@ -659,6 +659,7 @@ export type NormalizedScopeMeasurements = {
   roofGutterLf: number | null;
   roofDownspoutCount: number | null;
   drywallSqft: number | null;
+  patchRepairSqft: number | null;
   drywallWallSqft: number | null;
   drywallCeilingSqft: number | null;
   drywallOpeningDeductionSqft: number | null;
@@ -7212,6 +7213,7 @@ export function normalizeScopeMeasurements(
     roofGutterLf: num(measurements?.roofGutterLf),
     roofDownspoutCount: num(measurements?.roofDownspoutCount),
     drywallSqft: num(measurements?.drywallSqft),
+    patchRepairSqft: num(measurements?.patchRepairSqft),
     drywallWallSqft: num(measurements?.drywallWallSqft),
     drywallCeilingSqft: num(measurements?.drywallCeilingSqft),
     drywallOpeningDeductionSqft: num(measurements?.drywallOpeningDeductionSqft),
@@ -24174,6 +24176,7 @@ export function scopeMeasurementsToPayload(
       sanitized.roofDownspoutCount
     ),
     drywallSqft: parseScopeMeasurementInput(sanitized.drywallSqft),
+    patchRepairSqft: parseScopeMeasurementInput(sanitized.patchRepairSqft),
     concreteSqft: parseScopeMeasurementInput(sanitized.concreteSqft),
     concreteReinforcementSqft: parseScopeMeasurementInput(
       sanitized.concreteReinforcementSqft
@@ -24915,6 +24918,7 @@ export function scopeMeasurementsInputFromPayload(
         copyDrywallQuantityFields(payload as Record<string, unknown>)
       ).map(([key, value]) => [key, value != null ? String(value) : ''])
     ),
+    patchRepairSqft: measurementFieldString(payload.patchRepairSqft),
     ...Object.fromEntries(
       Object.entries(
         copyHvacQuantityFields(payload as Record<string, unknown>)
@@ -25665,6 +25669,19 @@ export function prepareScopeMeasurementsInputForUi(
   if (clearStaleShowerFloor) {
     mergedFields.showerFloorTileSqft = '';
   }
+  const patchRepairFromNotes = Number(
+    String((parsed as Record<string, unknown>).patchRepairSqft ?? '').replace(
+      /,/g,
+      ''
+    )
+  );
+  const clearStaleBathroomDrywall =
+    String(options?.templateKey || '').toLowerCase() === 'bathroom' &&
+    patchRepairFromNotes > 0;
+  if (clearStaleBathroomDrywall) {
+    mergedFields.patchRepairSqft = String(patchRepairFromNotes);
+    mergedFields.drywallSqft = '';
+  }
   // Explicit paint quantities from the current notes must win over stale
   // inferred values persisted on the draft (for example flooring sqft copied
   // into the paint field during an earlier hydration pass).
@@ -25730,6 +25747,9 @@ export function prepareScopeMeasurementsInputForUi(
     const n = Number(value);
     if (Number.isFinite(n) && n > 0) {
       if (clearStaleShowerFloor && key === 'showerFloorTileSqft') {
+        continue;
+      }
+      if (clearStaleBathroomDrywall && key === 'drywallSqft') {
         continue;
       }
       if (
@@ -26551,6 +26571,7 @@ export function initialScopeMeasurementInputExtended(
     roofPitch: pickString('roofPitch'),
     storyCount: pick('storyCount'),
     drywallSqft: pick('drywallSqft'),
+    patchRepairSqft: pick('patchRepairSqft'),
     drywallWallSqft: pick('drywallWallSqft'),
     drywallCeilingSqft: pick('drywallCeilingSqft'),
     drywallOpeningDeductionSqft: pick('drywallOpeningDeductionSqft'),
