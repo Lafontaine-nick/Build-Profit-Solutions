@@ -2428,8 +2428,22 @@ export function quickMeasurementRowsForTemplate(
     key,
     projectType
   );
+  const trimMeasurementLabel = /\bbaseboards?\b|\bbase\s*board\b/i.test(
+    framingNoteText
+  )
+    ? 'Baseboard'
+    : /\bcasing\b/i.test(framingNoteText)
+      ? 'Casing'
+      : 'Trim';
+  const contextLabeled = labeled.map(row =>
+    row.map(field =>
+      field.key === 'baseboardLf'
+        ? { ...field, label: trimMeasurementLabel }
+        : field
+    )
+  );
   const garageFiltered = filterGarageConversionQuickMeasurementRows(
-    labeled,
+    contextLabeled,
     projectType,
     notes
   );

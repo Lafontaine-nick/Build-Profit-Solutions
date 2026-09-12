@@ -367,6 +367,26 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).not.toContain('baseboardLf');
   });
 
+  it('labels generic LF trim as Trim and explicit baseboard as Baseboard', () => {
+    const trimField = quickMeasurementRowsForTemplate(
+      'bathroom',
+      'bathroom',
+      'Remodel bathroom with 65 LF trim.'
+    )
+      .flat()
+      .find(field => field.key === 'baseboardLf');
+    const baseboardField = quickMeasurementRowsForTemplate(
+      'bathroom',
+      'bathroom',
+      'Install 65 LF baseboard.'
+    )
+      .flat()
+      .find(field => field.key === 'baseboardLf');
+
+    expect(trimField?.label).toBe('Trim');
+    expect(baseboardField?.label).toBe('Baseboard');
+  });
+
   it('exposes plumbing quick measurements for plumbing and plumbing_service templates', () => {
     expect(
       resolveQuickMeasurementTemplateKey('plumbing_service', 'plumbing')
