@@ -138,7 +138,7 @@ function AIEstimateInitialRevealModal({
   const { height: windowHeight } = useWindowDimensions();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [detailsExpanded, setDetailsExpanded] = useState(true);
   const [confirmListExpanded, setConfirmListExpanded] = useState(false);
   const scopeDefaultAppliedRef = useRef(false);
 
@@ -210,7 +210,7 @@ function AIEstimateInitialRevealModal({
     if (visible) {
       setConfirmListExpanded(false);
       scopeDefaultAppliedRef.current = false;
-      setDetailsExpanded(false);
+      setDetailsExpanded(true);
     }
   }, [visible]);
 

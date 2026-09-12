@@ -423,6 +423,33 @@ function getInitialRevealScopeRows(
     }
     return true;
   });
+  const bathroomContext = [
+    draft.scopeChecklist?.templateKey,
+    draft.projectType,
+    draft.projectTitle,
+    draft.originalNotes,
+  ]
+    .map((value) => String(value || '').toLowerCase())
+    .some((value) => /\bbathroom\b|\bbathrooms\b|\bbaths?\b/.test(value));
+  if (bathroomContext) {
+    const hasSpecificTile = rows.some((row) =>
+      /shower|bathroom floor tile/i.test(row.name)
+    );
+    const hasPaintRepair = rows.some((row) =>
+      /painting\/patch|paint repair/i.test(row.name)
+    );
+    const seenNames = new Set<string>();
+    rows = rows.filter((row) => {
+      const name = row.name.trim();
+      if (/^kitchen flooring install$/i.test(name)) return false;
+      if (hasSpecificTile && /^tile$/i.test(name)) return false;
+      if (hasPaintRepair && /^interior painting$/i.test(name)) return false;
+      const key = name.toLowerCase();
+      if (seenNames.has(key)) return false;
+      seenNames.add(key);
+      return true;
+    });
+  }
   const hydratedKitchenDemoSource = `${String(draft.originalNotes || '')} ${rows
     .map((row) => row.name)
     .join(' ')}`;
