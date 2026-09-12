@@ -25,6 +25,7 @@ describe('mobile scope measurement parser', () => {
 
     expect(parsed.bathroomFloorSqft).toBe(85);
     expect(parsed.showerFloorTileSqft).toBeUndefined();
+    expect(parsed.exteriorWallInsulationSqft).toBeUndefined();
   });
 
   it('does not borrow flooring sqft for an unmeasured interior paint scope', () => {

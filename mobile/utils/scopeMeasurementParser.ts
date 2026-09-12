@@ -1258,7 +1258,19 @@ export function parseScopeMeasurementsFromNotes(
     if (drywallSqft) out.drywallSqft = drywallSqft;
   }
 
-  const insulationSqft = (patterns: RegExp[]) => pickSqftFromClauses(patterns);
+  const insulationSqft = (patterns: RegExp[]) => {
+    // An R-value identifies the insulation assembly, not its area. Only
+    // accept sqft that is actually adjacent to the insulation wording so a
+    // nearby drywall/floor quantity cannot be copied into this field.
+    for (const clause of clauses) {
+      for (const pattern of patterns) {
+        if (!pattern.test(clause.toLowerCase())) continue;
+        const near = pickSqftNearPattern(clause, pattern);
+        if (near) return near;
+      }
+    }
+    return null;
+  };
   const exteriorWallInsulationSqft =
     pickInsulationArea('(?:exterior|outside)\\s+walls?') ||
     insulationSqft([
