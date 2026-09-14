@@ -33,6 +33,29 @@ describe('getMeasurementRelevance', () => {
     ).toBe(false);
   });
 
+  test('wall demolition is relevant when unquantified demolition is stated', () => {
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'wallDemoSqft',
+        includedScopeKeys: [],
+        templateKey: 'room_remodel',
+        notes: 'Demolish existing nonstructural walls, then frame the new walls.',
+      }).relevant
+    ).toBe(true);
+  });
+
+  test('flooring removal is relevant when removal is stated in flooring notes', () => {
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'floorDemoSqft',
+        includedScopeKeys: [],
+        templateKey: 'flooring',
+        notes:
+          'Remove and dispose of 1,200 sqft existing flooring, then install LVP.',
+      }).relevant
+    ).toBe(true);
+  });
+
   test('kitchen floor hides when kitchen flooring work is deselected', () => {
     expect(
       getMeasurementRelevance({

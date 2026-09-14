@@ -8,7 +8,10 @@ import {
   notesImplyStructuralFoundation,
 } from '@/utils/foundationPlanningMeasurements';
 import { inferItemStateFromNotes } from '@/utils/scopeItemNoteHints';
-import type { QmPanelDefinition, QmPanelHydrateContext } from '@/utils/qmScopePanels/types';
+import type {
+  QmPanelDefinition,
+  QmPanelHydrateContext,
+} from '@/utils/qmScopePanels/types';
 
 /** Checklist lines synced from the concrete QM panel. */
 export const CONCRETE_QM_SYNC_SCOPE_IDS = new Set([
@@ -24,20 +27,29 @@ export const CONCRETE_QM_SYNC_SCOPE_IDS = new Set([
   'decorative_finish',
   'additional_haul_off',
   'concrete_pumping',
+  'retaining_wall',
+  'pavers',
+  'landscaping',
+  'exterior_doors',
+  'siding_repairs',
+  'exterior_trim_paint',
 ]);
-const CONCRETE_QM_LEGACY_BASE_IDS = new Set(['forms', 'finish_seal', 'cleanup', 'finish_options']);
+const CONCRETE_QM_LEGACY_BASE_IDS = new Set([
+  'forms',
+  'finish_seal',
+  'cleanup',
+  'finish_options',
+]);
 
 /** Empty — concrete scope cards render in Confirm Scope (same as landscaping). */
 export const CONCRETE_QM_EMBEDDED_IDS = new Set<string>();
 
-export const CONCRETE_CONFIRM_SCOPE_LINE_CARD_IDS = new Set([...CONCRETE_QM_SYNC_SCOPE_IDS]);
+export const CONCRETE_CONFIRM_SCOPE_LINE_CARD_IDS = new Set([
+  ...CONCRETE_QM_SYNC_SCOPE_IDS,
+]);
 
 export type ConcreteFlatworkOptionId =
-  | 'driveways'
-  | 'sidewalks'
-  | 'patios'
-  | 'rv_pads'
-  | 'walkways';
+  'driveways' | 'sidewalks' | 'patios' | 'rv_pads' | 'walkways';
 
 export const CONCRETE_FLATWORK_OPTION_IDS = new Set<ConcreteFlatworkOptionId>([
   'driveways',
@@ -64,29 +76,51 @@ function positiveNumber(value: unknown): number | null {
 }
 
 function isIncluded(items: ScopeChecklistItem[], id: string): boolean {
-  return items.some((item) => item.id === id && item.state === 'included');
+  return items.some(item => item.id === id && item.state === 'included');
 }
 
 function inferredScope(notes: string, items: ScopeChecklistItem[]): string[] {
   const fromMeasurements = inferConcreteScopeIds(notes, {});
   const ids = new Set(fromMeasurements);
-  const add = (id: string, pattern: RegExp, options: { allowNoteInference?: boolean } = {}) => {
-    const existing = items.find((item) => item.id === id);
-    const keepManualSelection = existing?.state === 'included' && existing.noteBacked !== true;
-    const noteState = options.allowNoteInference === false ? null : inferItemStateFromNotes(id, notes);
-    if (keepManualSelection || noteState === 'included' || pattern.test(notes)) {
+  const add = (
+    id: string,
+    pattern: RegExp,
+    options: { allowNoteInference?: boolean } = {}
+  ) => {
+    const existing = items.find(item => item.id === id);
+    const keepManualSelection =
+      existing?.state === 'included' && existing.noteBacked !== true;
+    const noteState =
+      options.allowNoteInference === false
+        ? null
+        : inferItemStateFromNotes(id, notes);
+    if (
+      keepManualSelection ||
+      noteState === 'included' ||
+      pattern.test(notes)
+    ) {
       ids.add(id);
     }
   };
-  add('demo_removal', /\b(?:demo|demolition|remove|tear[\s-]?out|break(?:ing)?\s+out)\b[^.;]{0,40}\b(?:concrete|slab|sidewalk|driveway|patio)\b|\b(?:concrete|slab|sidewalk|driveway|patio)\b[^.;]{0,40}\b(?:demo|demolition|remove|tear[\s-]?out)\b/);
-  if (/\b(?:dirt|soil|earth)\b[^.;]{0,50}\b(?:remove|excavat|dig|cut\s*(?:\/|and)?\s*fill)\b|\b(?:remove|excavat|dig|cut\s*(?:\/|and)?\s*fill)\b[^.;]{0,50}\b(?:dirt|soil|earth)\b/.test(notes)) {
+  add(
+    'demo_removal',
+    /\b(?:demo|demolition|remove|tear[\s-]?out|break(?:ing)?\s+out)\b[^.;]{0,40}\b(?:concrete|slab|sidewalk|driveway|patio)\b|\b(?:concrete|slab|sidewalk|driveway|patio)\b[^.;]{0,40}\b(?:demo|demolition|remove|tear[\s-]?out)\b/
+  );
+  if (
+    /\b(?:dirt|soil|earth)\b[^.;]{0,50}\b(?:remove|excavat|dig|cut\s*(?:\/|and)?\s*fill)\b|\b(?:remove|excavat|dig|cut\s*(?:\/|and)?\s*fill)\b[^.;]{0,50}\b(?:dirt|soil|earth)\b/.test(
+      notes
+    )
+  ) {
     ids.delete('demo_removal');
   }
   add(
     'site_prep',
     /\b(?:site\s+prep|subgrade|gravel\s+base|base\s+gravel|compaction|grade\s+prep)\b/
   );
-  add('gravel_base', /\b(?:gravel\s+base|base\s+gravel|crushed\s+(?:rock|stone)\s+base|aggregate\s+base)\b/);
+  add(
+    'gravel_base',
+    /\b(?:gravel\s+base|base\s+gravel|crushed\s+(?:rock|stone)\s+base|aggregate\s+base)\b/
+  );
   add(
     'excavation',
     /\b(?:excavat(?:e|ion)|dig(?:ging)?|dig\s+out|cut\s*(?:\/|and)?\s*fill|soil\s+movement)\b/
@@ -98,14 +132,37 @@ function inferredScope(notes: string, items: ScopeChecklistItem[]): string[] {
     /\b(?:forms?|formwork|thickened\s+edge|edge\s+thickening|curb\s+form)\b/
   );
   add('concrete_sealer', /\b(?:concrete\s+)?sealer\b/);
-  add('decorative_finish', /\b(?:stamped|colored|exposed\s+aggregate|decorative|specialty)\s+concrete\b/);
-  add('additional_haul_off', /\b(?:extra|additional|excess)\b[^.;]{0,30}\b(?:haul[\s-]?off|disposal|debris)\b/);
+  add(
+    'decorative_finish',
+    /\b(?:stamped|colored|exposed\s+aggregate|decorative|specialty)\s+concrete\b/
+  );
+  add(
+    'additional_haul_off',
+    /\b(?:extra|additional|excess)\b[^.;]{0,30}\b(?:haul[\s-]?off|disposal|debris)\b/
+  );
   add(
     'concrete_pumping',
     /\b(?:pump\s+truck|concrete\s+pump|pump(?:ing)?\s+(?:truck|if\s+needed|may\s+be|might\s+be|required))\b|\bmight\s+need\s+(?:a\s+)?pump\b/
   );
+  add('retaining_wall', /\bretaining\s+walls?\b/);
+  add('pavers', /\bpavers?\b/);
+  add('landscaping', /\blandscap(?:e|ing)\b/);
+  add(
+    'exterior_doors',
+    /\b(?:two|2|\d+)\s+exterior\s+doors?\b|\bexterior\s+doors?\b/
+  );
+  add(
+    'siding_repairs',
+    /\bsiding\b[^.;\n]{0,35}\b(?:repair|repairs|replace|replacement|patch)\b|\b(?:repair|repairs|replace|replacement|patch)\b[^.;\n]{0,35}\bsiding\b/
+  );
+  add(
+    'exterior_trim_paint',
+    /\b(?:exterior|outside)\s+trim\b[^.;\n]{0,35}\b(?:paint|painting|finish)\b|\b(?:paint|painting|finish)\b[^.;\n]{0,35}\b(?:exterior|outside)\s+trim\b/
+  );
   if (
-    /\b(?:concrete\s+patio|slab|flatwork|sidewalk|driveway|walkway|rv\s+pad)\b/.test(notes) ||
+    /\b(?:concrete\s+patio|slab|flatwork|sidewalk|driveway|walkway|rv\s+pad)\b/.test(
+      notes
+    ) ||
     isIncluded(items, 'pour_flatwork')
   ) {
     ids.add('pour_flatwork');
@@ -124,7 +181,12 @@ export function readConcreteScope(m: Record<string, unknown>): string[] {
 
 function readLegacyConcreteScope(m: Record<string, unknown>): string[] {
   const selections = m.tradeScopeSelections;
-  if (!selections || typeof selections !== 'object' || Array.isArray(selections)) return [];
+  if (
+    !selections ||
+    typeof selections !== 'object' ||
+    Array.isArray(selections)
+  )
+    return [];
   const concrete = (selections as Record<string, unknown>).concrete;
   return Array.isArray(concrete) ? concrete.map(String) : [];
 }
@@ -135,7 +197,7 @@ function scopeSelectionActivatesItem(itemId: string, scope: string[]): boolean {
   if (canonical.has(itemId)) return true;
   switch (itemId) {
     case 'pour_flatwork':
-      return [...CONCRETE_FLATWORK_OPTION_IDS].some((id) => selected.has(id));
+      return [...CONCRETE_FLATWORK_OPTION_IDS].some(id => selected.has(id));
     case 'pour_foundation':
       return selected.has('footings') || selected.has('pour_foundation');
     case 'site_prep':
@@ -169,7 +231,10 @@ export function isConcreteQmScopeItemActive(
   const legacyScope = readLegacyConcreteScope(measurements);
   const scope = readConcreteScope(measurements);
   const effectiveScope = scope.length ? scope : legacyScope;
-  if ((Array.isArray(rawScope) && rawScope.length > 0) || legacyScope.length > 0) {
+  if (
+    (Array.isArray(rawScope) && rawScope.length > 0) ||
+    legacyScope.length > 0
+  ) {
     return scopeSelectionActivatesItem(itemId, effectiveScope);
   }
   switch (itemId) {
@@ -188,10 +253,14 @@ export function isConcreteQmScopeItemActive(
       return positiveNumber(measurements.concreteSqft) != null;
     case 'pour_flatwork':
       return (
-        [...CONCRETE_FLATWORK_OPTION_IDS].some((id) =>
-          positiveNumber(
-            (measurements.concreteAreaByType as Record<string, unknown> | undefined)?.[id]
-          ) != null
+        [...CONCRETE_FLATWORK_OPTION_IDS].some(
+          id =>
+            positiveNumber(
+              (
+                measurements.concreteAreaByType as
+                  Record<string, unknown> | undefined
+              )?.[id]
+            ) != null
         ) || positiveNumber(measurements.concreteSqft) != null
       );
     case 'complex_forming':
@@ -205,6 +274,12 @@ export function isConcreteQmScopeItemActive(
       );
     case 'pour_foundation':
       return positiveNumber(measurements.concreteCy) != null;
+    case 'retaining_wall':
+      return positiveNumber(measurements.retainingWallLf) != null;
+    case 'landscaping':
+      return positiveNumber(measurements.landscapeSqft) != null;
+    case 'siding_repairs':
+      return positiveNumber(measurements.sidingRepairSqft) != null;
     default:
       return false;
   }
@@ -222,7 +297,9 @@ export function shouldUseConcreteConfirmScopeLineCard(
   );
 }
 
-export function isConcreteConfirmScopePricingCard(itemId: string | null | undefined): boolean {
+export function isConcreteConfirmScopePricingCard(
+  itemId: string | null | undefined
+): boolean {
   return CONCRETE_CONFIRM_SCOPE_LINE_CARD_IDS.has(String(itemId || ''));
 }
 
@@ -239,6 +316,12 @@ const CONCRETE_SCOPE_ITEM_LABELS: Record<string, string> = {
   decorative_finish: 'Decorative finish',
   additional_haul_off: 'Additional haul-off / disposal',
   concrete_pumping: 'Concrete pump truck',
+  retaining_wall: 'Retaining wall',
+  pavers: 'Pavers',
+  landscaping: 'Landscaping',
+  exterior_doors: 'Exterior door installation',
+  siding_repairs: 'Siding repairs',
+  exterior_trim_paint: 'Exterior trim paint',
 };
 
 export function syncConcreteQmScopeItems(
@@ -251,8 +334,12 @@ export function syncConcreteQmScopeItems(
   }
 
   let changed = false;
-  const next = items.map((item) => {
-    if (CONCRETE_QM_LEGACY_BASE_IDS.has(item.id) && item.state === 'included' && item.noteBacked === true) {
+  const next = items.map(item => {
+    if (
+      CONCRETE_QM_LEGACY_BASE_IDS.has(item.id) &&
+      item.state === 'included' &&
+      item.noteBacked === true
+    ) {
       changed = true;
       return { ...item, state: 'excluded' as const, noteBacked: false };
     }
@@ -270,7 +357,8 @@ export function syncConcreteQmScopeItems(
   });
 
   for (const itemId of CONCRETE_QM_SYNC_SCOPE_IDS) {
-    if (!included.has(itemId) || next.some((item) => item.id === itemId)) continue;
+    if (!included.has(itemId) || next.some(item => item.id === itemId))
+      continue;
     next.push({
       id: itemId,
       label: CONCRETE_SCOPE_ITEM_LABELS[itemId] || itemId.replace(/_/g, ' '),
@@ -302,9 +390,15 @@ function hydrateConcrete(ctx: QmPanelHydrateContext): Record<string, unknown> {
     ['gravelBaseCy', 'gravelBaseCy'],
     ['concreteStructuralGravelBaseCy', 'concreteStructuralGravelBaseCy'],
     ['concreteFlatworkGravelBaseCy', 'concreteFlatworkGravelBaseCy'],
-    ['concreteStructuralSubgradePrepSqft', 'concreteStructuralSubgradePrepSqft'],
+    [
+      'concreteStructuralSubgradePrepSqft',
+      'concreteStructuralSubgradePrepSqft',
+    ],
     ['concreteFlatworkSubgradePrepSqft', 'concreteFlatworkSubgradePrepSqft'],
-    ['concreteStructuralReinforcementSqft', 'concreteStructuralReinforcementSqft'],
+    [
+      'concreteStructuralReinforcementSqft',
+      'concreteStructuralReinforcementSqft',
+    ],
     ['concreteFlatworkReinforcementSqft', 'concreteFlatworkReinforcementSqft'],
     ['gravelBaseDepthInches', 'gravelBaseDepthInches'],
     ['concretePumpCount', 'concretePumpCount'],
@@ -314,7 +408,10 @@ function hydrateConcrete(ctx: QmPanelHydrateContext): Record<string, unknown> {
   ];
   for (const [plannedKey, targetKey] of planningScalars) {
     const plannedValue = positiveNumber(planned[plannedKey]);
-    if (plannedValue == null || positiveNumber(mergedMeasurements[targetKey]) != null) {
+    if (
+      plannedValue == null ||
+      positiveNumber(mergedMeasurements[targetKey]) != null
+    ) {
       continue;
     }
     mergedMeasurements[targetKey] = measurementFieldString(plannedValue);
@@ -327,12 +424,22 @@ function hydrateConcrete(ctx: QmPanelHydrateContext): Record<string, unknown> {
   }
   const inferred = inferredScope(notes, ctx.checklistItems);
   const fromMeasurements = inferConcreteScopeIds(notes, mergedMeasurements);
-  const mergedScope = saved.length
-    ? saved
-    : legacy.length
-      ? legacy
-      : [...new Set([...inferred, ...fromMeasurements])];
-  const hasExcavationQuantity = positiveNumber(mergedMeasurements.excavationCy) != null;
+  const persistedScope = saved.length ? saved : legacy;
+  const checklistSelectedScope = ctx.checklistItems
+    .filter(
+      item =>
+        item.state === 'included' && CONCRETE_QM_SYNC_SCOPE_IDS.has(item.id)
+    )
+    .map(item => item.id);
+  const mergedScope = [
+    ...new Set([
+      ...persistedScope,
+      ...checklistSelectedScope,
+      ...(persistedScope.length ? [] : [...inferred, ...fromMeasurements]),
+    ]),
+  ];
+  const hasExcavationQuantity =
+    positiveNumber(mergedMeasurements.excavationCy) != null;
   const hasSitePrepQuantity =
     positiveNumber(mergedMeasurements.concreteSubgradePrepSqft) != null;
   const notesImplySitePrep =
@@ -340,18 +447,30 @@ function hydrateConcrete(ctx: QmPanelHydrateContext): Record<string, unknown> {
       notes
     );
   const manuallyIncludedSitePrep = ctx.checklistItems.some(
-    (item) => item.id === 'site_prep' && item.state === 'included' && item.noteBacked !== true
+    item =>
+      item.id === 'site_prep' &&
+      item.state === 'included' &&
+      item.noteBacked !== true
   );
-  const legacyIncludedByBaseFlatwork = new Set(['forms', 'finish_seal', 'cleanup', 'finish_options']);
-  const withoutLegacyBaseItems = mergedScope.filter((id) => !legacyIncludedByBaseFlatwork.has(id));
+  const legacyIncludedByBaseFlatwork = new Set([
+    'forms',
+    'finish_seal',
+    'cleanup',
+    'finish_options',
+  ]);
+  const withoutLegacyBaseItems = mergedScope.filter(
+    id => !legacyIncludedByBaseFlatwork.has(id)
+  );
   const cleanedScope =
     hasExcavationQuantity ||
     manuallyIncludedSitePrep ||
     hasSitePrepQuantity ||
     notesImplySitePrep
       ? withoutLegacyBaseItems
-      : withoutLegacyBaseItems.filter((id) => concreteScopeCanonicalId(id) !== 'site_prep');
-  const selectedFlatworkIds = cleanedScope.filter((id) =>
+      : withoutLegacyBaseItems.filter(
+          id => concreteScopeCanonicalId(id) !== 'site_prep'
+        );
+  const selectedFlatworkIds = cleanedScope.filter(id =>
     CONCRETE_FLATWORK_OPTION_IDS.has(id as ConcreteFlatworkOptionId)
   );
   const hasAreaBreakdown =
@@ -359,13 +478,23 @@ function hydrateConcrete(ctx: QmPanelHydrateContext): Record<string, unknown> {
     Object.keys(mergedMeasurements.concreteAreaByType).length > 0;
   const areaByType = hasAreaBreakdown
     ? { ...(mergedMeasurements.concreteAreaByType as Record<string, unknown>) }
-    : selectedFlatworkIds.length === 1 && positiveNumber(mergedMeasurements.concreteSqft)
-      ? { [selectedFlatworkIds[0]]: positiveNumber(mergedMeasurements.concreteSqft) }
+    : selectedFlatworkIds.length === 1 &&
+        positiveNumber(mergedMeasurements.concreteSqft)
+      ? {
+          [selectedFlatworkIds[0]]: positiveNumber(
+            mergedMeasurements.concreteSqft
+          ),
+        }
       : null;
   const thicknessByType =
     mergedMeasurements.concreteThicknessByType &&
     Object.keys(mergedMeasurements.concreteThicknessByType).length > 0
-      ? { ...(mergedMeasurements.concreteThicknessByType as Record<string, unknown>) }
+      ? {
+          ...(mergedMeasurements.concreteThicknessByType as Record<
+            string,
+            unknown
+          >),
+        }
       : selectedFlatworkIds.length === 1 &&
           positiveNumber(mergedMeasurements.concreteThicknessInches)
         ? {
@@ -419,7 +548,8 @@ export const CONCRETE_SCOPE_OPTIONS = [
     label: 'Demo / removal',
     measurementKey: 'concreteDemoSqft' as const,
     unit: 'sqft',
-    helperText: 'Existing concrete removal area. Select thickness before pricing; normal haul-off/disposal is included.',
+    helperText:
+      'Existing concrete removal area. Select thickness before pricing; normal haul-off/disposal is included.',
   },
   {
     id: 'site_prep',
@@ -442,21 +572,24 @@ export const CONCRETE_SCOPE_OPTIONS = [
     label: 'Excavation / soil movement',
     measurementKey: 'excavationCy' as const,
     unit: 'CY',
-    helperText: 'Separate excavation, cut/fill, or soil movement. Pricing includes labor and equipment. Export, haul-off, dump fees, and imported fill are separate.',
+    helperText:
+      'Separate excavation, cut/fill, or soil movement. Pricing includes labor and equipment. Export, haul-off, dump fees, and imported fill are separate.',
   },
   {
     id: 'reinforcement',
     label: 'Rebar / mesh',
     measurementKey: 'concreteReinforcementSqft' as const,
     unit: 'sqft',
-    helperText: 'Optional reinforcement area. Defaults to the combined flatwork area when left blank.',
+    helperText:
+      'Planning default: when the notes mention rebar or mesh without a coverage area, this starts at the combined flatwork area. Confirm the actual reinforcement coverage.',
   },
   {
     id: 'pour_foundation',
     label: 'Footing / foundation concrete pour',
     measurementKey: 'concreteCy' as const,
     unit: 'CY',
-    helperText: 'Concrete material and placement only at $350/CY. Excavation, forms, reinforcement, waterproofing, and structural accessories are separate.',
+    helperText:
+      'Concrete material and placement only at $350/CY. Excavation, forms, reinforcement, waterproofing, and structural accessories are separate.',
   },
   {
     id: 'complex_forming',
@@ -471,12 +604,14 @@ export const CONCRETE_SCOPE_OPTIONS = [
     label: 'Concrete sealer',
     measurementKey: 'concreteSealerSqft' as const,
     unit: 'sqft',
-    helperText: 'Optional upgrade at +$1.50/sqft. Planning split: $0.60 material + $0.90 labor.',
+    helperText:
+      'Optional upgrade at +$1.50/sqft. Planning split: $0.60 material + $0.90 labor.',
   },
   {
     id: 'decorative_finish',
     label: 'Decorative finish',
-    helperText: 'Optional add-on to standard flatwork. Select the finish type below.',
+    helperText:
+      'Optional add-on to standard flatwork. Select the finish type below.',
   },
   {
     id: 'additional_haul_off',
@@ -493,13 +628,37 @@ export const CONCRETE_SCOPE_OPTIONS = [
     helperText:
       'Optional pump-truck allowance when access may require pumping. Confirm on site before sending.',
   },
+  {
+    id: 'retaining_wall',
+    label: 'Retaining wall',
+    measurementKey: 'retainingWallLf' as const,
+    unit: 'LF',
+    helperText:
+      'Enter retaining-wall length. Confirm height, drainage, footing, and engineering separately.',
+  },
+  {
+    id: 'landscaping',
+    label: 'Landscaping',
+    measurementKey: 'landscapeSqft' as const,
+    unit: 'sqft',
+    helperText:
+      'Enter the landscaping area identified in the notes or confirmed in the field.',
+  },
+  {
+    id: 'siding_repairs',
+    label: 'Siding repairs',
+    measurementKey: 'sidingRepairSqft' as const,
+    unit: 'sqft',
+    helperText:
+      'Enter the affected siding repair area; do not use the patio or paver area.',
+  },
 ] as const;
 
 export const concreteQmPanel: QmPanelDefinition = {
   id: 'concrete_remodel',
   templateKeys: ['concrete'],
   embeddedScopeItemIds: [...CONCRETE_QM_EMBEDDED_IDS],
-  isActive: (ctx) => String(ctx.templateKey || '').toLowerCase() === 'concrete',
+  isActive: ctx => String(ctx.templateKey || '').toLowerCase() === 'concrete',
   hydrateMeasurements: hydrateConcrete,
   syncScopeItems: syncConcreteQmScopeItems,
 };

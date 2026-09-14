@@ -6,6 +6,7 @@ import {
   reconcileScopePackagesForReview,
   hydrateChecklistItemsForScopeReview,
   confirmScopeReviewRowsFromDraft,
+  isScopeCardHiddenInQmEmbed,
 } from '@/utils/scopePackagesForReview';
 import { SCOPE_CHECKLIST_GROUPS } from '@/utils/estimateScopeChecklistUi';
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
@@ -69,6 +70,135 @@ describe('scopePackagesForReview', () => {
     expect(rows.find(row => row.id === 'flooring')?.label).toBe(
       'Flooring installation'
     );
+  });
+
+  it('labels legacy interior paint as ceiling painting for ceiling-only notes', () => {
+    const rows = buildConfirmScopeDisplayItems(
+      [
+        {
+          id: 'interior_paint',
+          label: 'Interior paint',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+      ],
+      {},
+      'room_remodel',
+      'Repair drywall and paint ceilings.'
+    );
+
+    expect(rows.find(row => row.id === 'interior_paint')?.label).toBe(
+      'Ceiling painting'
+    );
+  });
+
+  it('restores note-backed framing cards in a mixed remodel', () => {
+    const notes =
+      'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.';
+
+    const rows = buildConfirmScopeDisplayItems([], {}, 'room_remodel', notes);
+
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'demo', label: 'Wall demolition / removal' }),
+        expect.objectContaining({ id: 'framing', label: 'Wall framing' }),
+        expect.objectContaining({ id: 'shear_sheathing', label: 'Structural sheathing' }),
+        expect.objectContaining({ id: 'openings', label: 'Door / window openings' }),
+        expect.objectContaining({ id: 'paint', label: 'Interior paint' }),
+      ])
+    );
+  });
+
+  it('canonicalizes flooring removal to a priced floor demo card', () => {
+    const notes =
+      'Remove and dispose of 1,200 sqft existing flooring, then install LVP with underlayment, transitions, 120 LF baseboard, two interior doors, 150 sqft drywall repair, four windows, R-21 wall insulation, and interior paint.';
+    const rows = buildConfirmScopeDisplayItems(
+      [
+        {
+          id: 'demo',
+          label: 'Existing flooring removal',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+      ],
+      { floorDemoSqft: '1200' },
+      'room_remodel',
+      notes
+    );
+
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'floor_demo',
+          label: 'Flooring removal / demolition',
+          helperText: 'Remove and dispose of the existing flooring in the measured area.',
+        }),
+      ])
+    );
+    expect(rows.filter(row => row.id === 'demo')).toHaveLength(0);
+  });
+
+  it('describes the measured flooring removal area on the flooring card', () => {
+    const rows = buildConfirmScopeDisplayItems(
+      [],
+      { floorDemoSqft: '1200' },
+      'flooring',
+      'Remove and dispose of 1,200 sqft existing flooring, then install LVP.'
+    );
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'floor_demo',
+          label: 'Flooring removal / demolition',
+          helperText:
+            'Remove and dispose of 1,200 sqft of existing flooring before installation.',
+        }),
+      ])
+    );
+  });
+
+  it('keeps window prep but removes unsupported exterior trim paint', () => {
+    const notes =
+      'Remove and dispose of 1,200 sqft existing flooring, then install LVP, four windows, and interior paint.';
+    const rows = buildConfirmScopeDisplayItems(
+      [
+        {
+          id: 'exterior_prep',
+          label: 'Exterior Prep & Masking',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+        {
+          id: 'exterior_trim_paint',
+          label: 'Exterior trim paint',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+      ],
+      {},
+      'room_remodel',
+      notes
+    );
+
+    expect(rows.some(row => row.id === 'exterior_prep')).toBe(true);
+    expect(rows.some(row => row.id === 'exterior_trim_paint')).toBe(false);
+  });
+
+  it('keeps exterior trim paint separate from generic interior paint', () => {
+    const notes =
+      'Demolish and remove the existing patio, then excavate and pour a 750 sqft patio with gravel base, rebar, thickened edge, retaining wall, 400 sqft pavers, landscaping, two exterior doors, siding repairs, and exterior trim paint.';
+
+    const rows = buildConfirmScopeDisplayItems([], {}, 'concrete', notes);
+
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'exterior_trim_paint',
+          label: 'Exterior trim paint',
+        }),
+      ])
+    );
+    expect(rows.some(row => row.id === 'paint')).toBe(false);
   });
 
   it('flattenChecklistDisplayOrder matches bathroom Demo before Wet area finish', () => {
@@ -689,6 +819,20 @@ describe('scopePackagesForReview', () => {
       step3Rows.map((row) => row.id)
     );
     expect(step3Rows.map((row) => row.id)).not.toContain('shingles_roofing');
+  });
+
+  it('hides the duplicate legacy roofing replacement card in Step 2 QM flow', () => {
+    const ctx = { templateKey: 'roofing', wholeHomeLayout: false };
+    const measurements = { tradeScopeSelections: { roofing: ['tear_off'] } };
+    const displayItems = [
+      { id: 'roofing', label: 'Roofing replacement', state: 'included', inputType: 'yes_no' },
+      { id: 'roofing_system', label: 'Roofing system', state: 'included', inputType: 'choice' },
+      { id: 'tear_off', label: 'Existing roof / tear-off', state: 'included', inputType: 'yes_no' },
+    ] as ScopeChecklistItem[];
+
+    expect(isScopeCardHiddenInQmEmbed('roofing', displayItems, measurements, ctx)).toBe(true);
+    expect(isScopeCardHiddenInQmEmbed('roofing_system', displayItems, measurements, ctx)).toBe(true);
+    expect(isScopeCardHiddenInQmEmbed('tear_off', displayItems, measurements, ctx)).toBe(false);
   });
 
   it('hides shingles_roofing on Step 3 when roofing_system choice owns install pricing', () => {

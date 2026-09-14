@@ -55,6 +55,22 @@ describe('resolveScopeItemSuggestedPricing', () => {
     });
   });
 
+  it('uses the conservative retaining-wall planning rate', () => {
+    const pricing = resolveScopeItemSuggestedPricing(
+      'retaining_wall',
+      inputWith({ retainingWallLf: '50' }),
+      'concrete',
+      { quantity: 50, unit: 'lf', quantitySource: 'user_entered' }
+    );
+
+    expect(pricing.fill).toMatchObject({
+      material: 5000,
+      labor: 5000,
+      total: 10000,
+      basis: { quantity: 50, unit: 'lf' },
+    });
+  });
+
   it('prices note-backed interior door trim by each', () => {
     const pricing = resolveScopeItemSuggestedPricing(
       'interior_trim',
@@ -68,6 +84,24 @@ describe('resolveScopeItemSuggestedPricing', () => {
       labor: 400,
       total: 500,
       basis: { quantity: 2, unit: 'each' },
+    });
+  });
+
+  it('uses interior door count instead of baseboard LF for interior door trim', () => {
+    const input = inputWith({
+      baseboardLf: '120',
+      interiorDoorCount: '2',
+    });
+    const resolved = resolveChecklistItemQuantity(
+      'interior_trim',
+      buildNormalizedScopeMeasurementsFromInput(input),
+      { templateKey: 'room_remodel' }
+    );
+
+    expect(resolved).toMatchObject({
+      quantity: 2,
+      unit: 'each',
+      pricingReady: true,
     });
   });
 
@@ -226,10 +260,14 @@ describe('resolveScopeItemSuggestedPricing', () => {
         },
       ],
     };
-    const resolved = resolveChecklistItemQuantity('roofing_system', measurements, {
-      templateKey: 'roofing',
-      choiceId: 'architectural_shingles',
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'roofing_system',
+      measurements,
+      {
+        templateKey: 'roofing',
+        choiceId: 'architectural_shingles',
+      }
+    );
     const suggested = resolveScopeItemSuggestedPricing(
       'roofing_system',
       input,
@@ -267,10 +305,14 @@ describe('resolveScopeItemSuggestedPricing', () => {
         },
       ],
     };
-    const resolved = resolveChecklistItemQuantity('roofing_system', measurements, {
-      templateKey: 'roofing',
-      choiceId: 'architectural_shingles',
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'roofing_system',
+      measurements,
+      {
+        templateKey: 'roofing',
+        choiceId: 'architectural_shingles',
+      }
+    );
     const hidden = resolveScopeItemSuggestedPricing(
       'roofing_system',
       input,
@@ -306,14 +348,16 @@ describe('resolveScopeItemSuggestedPricing', () => {
 
     for (const [choiceId, total] of rates) {
       const pricingContext: ScopePricingContext = {
-        checklistItems: [
-          { id: 'roofing_system', state: 'included', choiceId },
-        ],
+        checklistItems: [{ id: 'roofing_system', state: 'included', choiceId }],
       };
-      const resolved = resolveChecklistItemQuantity('roofing_system', measurements, {
-        templateKey: 'roofing',
-        choiceId,
-      });
+      const resolved = resolveChecklistItemQuantity(
+        'roofing_system',
+        measurements,
+        {
+          templateKey: 'roofing',
+          choiceId,
+        }
+      );
       const suggested = resolveScopeItemSuggestedPricing(
         'roofing_system',
         input,
@@ -330,10 +374,14 @@ describe('resolveScopeItemSuggestedPricing', () => {
   it('treats roofing_system roofSquares as an approved squares basis', () => {
     const input = inputWith({ roofSquares: '30' });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('roofing_system', measurements, {
-      templateKey: 'roofing',
-      choiceId: 'three_tab_shingles',
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'roofing_system',
+      measurements,
+      {
+        templateKey: 'roofing',
+        choiceId: 'three_tab_shingles',
+      }
+    );
 
     expect(resolved).toMatchObject({
       quantity: 30,
@@ -342,7 +390,10 @@ describe('resolveScopeItemSuggestedPricing', () => {
       pricingReady: true,
     });
 
-    const rule = getChecklistItemQuantityRuleOrDefault('roofing_system', 'roofing');
+    const rule = getChecklistItemQuantityRuleOrDefault(
+      'roofing_system',
+      'roofing'
+    );
     expect(rule.allowedUnits).toEqual(
       expect.arrayContaining(['squares', 'sqft', 'lump_sum', 'allowance'])
     );
@@ -422,8 +473,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
       helper: '$250 minimum applied',
     });
     expect(dripEdge?.costBuckets?.map(bucket => bucket.rate)).toEqual([
-      1.5,
-      2.5,
+      1.5, 2.5,
     ]);
 
     expect(price('ridge_cap', 50, 'lf')?.total).toBe(350);
@@ -435,7 +485,9 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(price('chimney_flashing', 3, 'each')?.total).toBe(1950);
     expect(price('skylight_flashing', 3, 'each')?.total).toBe(1500);
     expect(price('roof_repairs', 50, 'sqft', 'light_repair')?.total).toBe(400);
-    expect(price('roof_repairs', 50, 'sqft', 'moderate_repair')?.total).toBe(600);
+    expect(price('roof_repairs', 50, 'sqft', 'moderate_repair')?.total).toBe(
+      600
+    );
 
     expect(price('gutters', 150, 'lf')).toMatchObject({
       total: 1500,
@@ -455,7 +507,9 @@ describe('resolveScopeItemSuggestedPricing', () => {
       total: 250,
       helper: '$250 minimum applied',
     });
-    expect(price('roof_repairs', 50, 'sqft', 'full_depth_repair')?.total).toBe(900);
+    expect(price('roof_repairs', 50, 'sqft', 'full_depth_repair')?.total).toBe(
+      900
+    );
   });
 
   it('prices Roofing underlayment from roofAreaSqft, not flooring underlaymentSqft', () => {
@@ -465,9 +519,13 @@ describe('resolveScopeItemSuggestedPricing', () => {
       tradeScopeSelections: { roofing: ['underlayment'] },
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('underlayment', measurements, {
-      templateKey: 'roofing',
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'underlayment',
+      measurements,
+      {
+        templateKey: 'roofing',
+      }
+    );
     const suggested = resolveScopeItemSuggestedPricing(
       'underlayment',
       input,
@@ -495,9 +553,13 @@ describe('resolveScopeItemSuggestedPricing', () => {
       tradeScopeSelections: { roofing: ['ice_water_shield'] },
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('ice_water_shield', measurements, {
-      templateKey: 'roofing',
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'ice_water_shield',
+      measurements,
+      {
+        templateKey: 'roofing',
+      }
+    );
     const suggested = resolveScopeItemSuggestedPricing(
       'ice_water_shield',
       input,
@@ -887,6 +949,29 @@ describe('resolveScopeItemSuggestedPricing', () => {
       labor: 2295,
       total: 2550,
       materialSource: 'national_average',
+    });
+  });
+
+  it('prices note-backed flooring removal in a mixed room remodel', () => {
+    const input = inputWith({ floorDemoSqft: '1200' });
+    const resolved = resolveChecklistItemQuantity('floor_demo', input, {
+      templateKey: 'room_remodel',
+    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_demo',
+      input,
+      'room_remodel',
+      resolved
+    );
+
+    expect(resolved).toMatchObject({
+      quantity: 1200,
+      unit: 'sqft',
+      pricingReady: true,
+    });
+    expect(fill).toMatchObject({
+      total: 6600,
+      basis: { quantity: 1200, unit: 'sqft' },
     });
   });
 
@@ -2602,13 +2687,19 @@ describe('resolveScopeItemSuggestedPricing', () => {
 describe('templateRateSourceLabel', () => {
   it('labels pricing library, bid, and saved template origins distinctly', () => {
     expect(
-      templateRateSourceLabel({ origin: 'pricing_library', source: 'Pricing library' })
+      templateRateSourceLabel({
+        origin: 'pricing_library',
+        source: 'Pricing library',
+      })
     ).toBe('Saved pricing');
-    expect(templateRateSourceLabel({ origin: 'bid', source: 'Kitchen repaint' })).toBe(
-      'From this bid'
-    );
     expect(
-      templateRateSourceLabel({ origin: 'saved_template', source: 'Painting job' })
+      templateRateSourceLabel({ origin: 'bid', source: 'Kitchen repaint' })
+    ).toBe('From this bid');
+    expect(
+      templateRateSourceLabel({
+        origin: 'saved_template',
+        source: 'Painting job',
+      })
     ).toBe('From saved template · Painting job');
   });
 });
@@ -2926,7 +3017,16 @@ describe('resolveTemplateRateForItem', () => {
       'Cellulose',
       'Mineral wool',
     ];
-    const rValues = ['R-13', 'R-15', 'R-19', 'R-21', 'R-30', 'R-38', 'R-49', 'R-60'];
+    const rValues = [
+      'R-13',
+      'R-15',
+      'R-19',
+      'R-21',
+      'R-30',
+      'R-38',
+      'R-49',
+      'R-60',
+    ];
     const resolved = {
       quantity: 3516,
       unit: 'sqft' as const,
@@ -2947,7 +3047,9 @@ describe('resolveTemplateRateForItem', () => {
         resolved
       );
       expect(fill?.total).toBeGreaterThan(0);
-      expect(fill?.rateSourceLabel).toMatch(new RegExp(insulationMaterialType, 'i'));
+      expect(fill?.rateSourceLabel).toMatch(
+        new RegExp(insulationMaterialType, 'i')
+      );
     }
 
     for (const insulationRValue of rValues) {
@@ -3005,6 +3107,25 @@ describe('resolveTemplateRateForItem', () => {
     expect(fill?.pricingDetail).toMatch(/1,500 SF Spray foam R-30 roof deck/);
     expect(fill?.rateSourceLabel).toMatch(/Batt · R-13 \+ Spray foam · R-30/i);
     expect(fill?.total).toBeGreaterThan(0);
+  });
+
+  it('prices a generic insulation assembly when R-value, location, and area are set', () => {
+    const pricing = resolveInsulationAssemblyRowPricingMap([
+      {
+        id: 'generic-wall',
+        materialType: '',
+        rValue: 'R-21',
+        sqft: 500,
+        location: 'exterior_wall',
+        confirmed: true,
+      },
+    ]);
+
+    expect(pricing.get('generic-wall')).toMatchObject({ sqft: 500 });
+    expect(pricing.get('generic-wall')?.total).toBeGreaterThan(0);
+    expect(pricing.get('generic-wall')?.detail).toMatch(
+      /500 SF Insulation R-21/i
+    );
   });
 
   it('applies a flat faced batt material premium without changing labor', () => {
@@ -3959,7 +4080,11 @@ describe('custom scope item pricing units', () => {
       'custom_1',
       {
         itemQuantities: {
-          custom_1: { quantity: 12, unit: 'cy', quantitySource: 'user_entered' },
+          custom_1: {
+            quantity: 12,
+            unit: 'cy',
+            quantitySource: 'user_entered',
+          },
           custom_1__material: { quantity: 2400, unit: 'allowance' },
           custom_1__labor: { quantity: 1800, unit: 'allowance' },
         },
@@ -3978,7 +4103,11 @@ describe('custom scope item pricing units', () => {
       'custom_2',
       {
         itemQuantities: {
-          custom_2: { quantity: '', unit: 'sqft', quantitySource: 'user_entered' },
+          custom_2: {
+            quantity: '',
+            unit: 'sqft',
+            quantitySource: 'user_entered',
+          },
           custom_2__material: { quantity: 400, unit: 'allowance' },
           custom_2__labor: { quantity: 600, unit: 'allowance' },
         },
@@ -3994,7 +4123,11 @@ describe('custom scope item pricing units', () => {
       'custom_3',
       {
         itemQuantities: {
-          custom_3: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+          custom_3: {
+            quantity: 1000,
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
         },
       } as any,
       { templateKey: 'landscaping' }
@@ -4012,9 +4145,7 @@ describe('custom scope item pricing units', () => {
         custom_4: { selectionStatus: 'accepted', totalAmount: 500 },
       })
     ).toBe(true);
-    expect(
-      isCustomScopePricingApplied('custom_4', undefined)
-    ).toBe(false);
+    expect(isCustomScopePricingApplied('custom_4', undefined)).toBe(false);
     expect(isCustomScopePricingApplied('windows', {})).toBe(false);
   });
 
@@ -4036,7 +4167,11 @@ describe('custom scope item pricing units', () => {
       'custom_5',
       {
         itemQuantities: {
-          custom_5: { quantity: 1000, unit: 'sqft', quantitySource: 'user_entered' },
+          custom_5: {
+            quantity: 1000,
+            unit: 'sqft',
+            quantitySource: 'user_entered',
+          },
           custom_5__material: { quantity: 5, unit: 'allowance' },
           custom_5__labor: { quantity: 7, unit: 'allowance' },
         },

@@ -45,6 +45,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
       "showerWallTileSqft",
       "showerFloorTileSqft",
     ],
+    measurementKeys: ["wallDemoSqft"],
     canUseRoomSqft: true,
     requiresUserQuantity: false,
     pricingMethod: "unit_rate",
@@ -583,6 +584,34 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     pricingMethod: "unit_rate",
     quantityHelper: "Enter paver sqft.",
     missingMessage: "Enter paver sqft.",
+  },
+  landscaping: {
+    defaultUnit: "sqft",
+    allowedUnits: ["sqft", "allowance", "lump_sum"],
+    measurementKey: "landscapeSqft",
+    requiresUserQuantity: true,
+    pricingMethod: "unit_rate",
+    quantityHelper: "Enter landscaping area sqft.",
+    missingMessage: "Enter landscaping area sqft.",
+  },
+  siding_repairs: {
+    defaultUnit: "sqft",
+    allowedUnits: ["sqft", "allowance", "lump_sum"],
+    measurementKey: "sidingRepairSqft",
+    requiresUserQuantity: true,
+    pricingMethod: "unit_rate",
+    quantityHelper: "Enter siding repair area sqft.",
+    missingMessage: "Enter siding repair area sqft.",
+  },
+  retaining_wall: {
+    defaultUnit: "lf",
+    allowedUnits: ["lf", "allowance", "lump_sum"],
+    measurementKey: "retainingWallLf",
+    requiresUserQuantity: true,
+    pricingMethod: "unit_rate",
+    quantityHelper:
+      "Enter retaining-wall LF; confirm height, drainage, footing, and engineering separately.",
+    missingMessage: "Enter retaining-wall length LF.",
   },
   rock: {
     defaultUnit: "sqft",
@@ -1149,8 +1178,7 @@ const PACKAGE_NAME_TO_RULE_KEY = [
     key: "island",
   },
   {
-    test:
-      /\b(?:demo|remove|tear[\s-]?out)\b[^.]{0,40}\b(?:island\s+(?:cabinet|base)|island)\b|\b(?:island\s+(?:cabinet|base)|island)\b[^.]{0,40}\b(?:demo|remove|tear[\s-]?out)\b/i,
+    test: /\b(?:demo|remove|tear[\s-]?out)\b[^.]{0,40}\b(?:island\s+(?:cabinet|base)|island)\b|\b(?:island\s+(?:cabinet|base)|island)\b[^.]{0,40}\b(?:demo|remove|tear[\s-]?out)\b/i,
     key: "island_demo",
   },
   {
@@ -1302,7 +1330,10 @@ const PACKAGE_NAME_TO_RULE_KEY = [
   { test: /^walls?$/i, key: "interior_paint" },
   { test: /^ceilings?$/i, key: "ceiling_paint" },
   { test: /^prep\s*(?:&|and)\s*masking$/i, key: "prep" },
-  { test: /^exterior\s+prep(?:\s*(?:&|and)\s*masking)?$/i, key: "exterior_prep" },
+  {
+    test: /^exterior\s+prep(?:\s*(?:&|and)\s*masking)?$/i,
+    key: "exterior_prep",
+  },
   { test: /^trim$/i, key: "trim_paint" },
   {
     test: /\bbaseboards?\b[^.]{0,40}\btrim\b|\btrim\b[^.]{0,40}\b(?:molding|baseboard)\b|\bpainted?\s+trim\b/i,
@@ -1383,8 +1414,13 @@ function normalizeScopeMeasurements(measurements = {}) {
   );
   const backsplashSqft = parseMeasurementNumber(measurements.backsplashSqft);
   const landscapeSqft = parseMeasurementNumber(measurements.landscapeSqft);
+  const sidingRepairSqft = parseMeasurementNumber(
+    measurements.sidingRepairSqft,
+  );
+  const retainingWallLf = parseMeasurementNumber(measurements.retainingWallLf);
   const roofSquares = parseMeasurementNumber(measurements.roofSquares);
   const drywallSqft = parseMeasurementNumber(measurements.drywallSqft);
+  const wallDemoSqft = parseMeasurementNumber(measurements.wallDemoSqft);
   const concreteSqft = parseMeasurementNumber(measurements.concreteSqft);
   const concreteCy = parseMeasurementNumber(measurements.concreteCy);
   const excavationCy = parseMeasurementNumber(measurements.excavationCy);
@@ -1430,11 +1466,14 @@ function normalizeScopeMeasurements(measurements = {}) {
     floorAreaSqft,
     flooringSqft,
     landscapeSqft,
+    sidingRepairSqft,
+    retainingWallLf,
     sodSqft,
     paverSqft,
     rockMulchSqft,
     roofSquares,
     drywallSqft,
+    wallDemoSqft,
     concreteSqft,
     concreteCy,
     excavationCy,
@@ -2184,6 +2223,8 @@ function measurementsForRatePricing(measurements) {
     drywallSqft: measurements.drywallSqft,
     exteriorPaintSqft: measurements.exteriorPaintSqft,
     landscapeSqft: measurements.landscapeSqft,
+    sidingRepairSqft: measurements.sidingRepairSqft,
+    retainingWallLf: measurements.retainingWallLf,
     sodSqft: measurements.sodSqft,
     paverSqft: measurements.paverSqft,
     rockMulchSqft: measurements.rockMulchSqft,
@@ -2506,6 +2547,19 @@ function resolveQuantityForChecklistItem(itemId, ctx = {}) {
   const choiceId = ctx.choiceId || null;
   const templateKey = ctx.templateKey || null;
   let rule = getRuleForChecklistItem(itemId, templateKey);
+  const drywallDemoScope =
+    itemId === "demo" &&
+    String(templateKey || "").toLowerCase() === "room_remodel" &&
+    /\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b|\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b/i.test(
+      String(ctx.notes || ""),
+    );
+  if (drywallDemoScope) {
+    rule = {
+      ...rule,
+      quantityHelper: "Enter damaged drywall demolition/removal area in sqft.",
+      missingMessage: "Enter damaged drywall demolition area sqft.",
+    };
+  }
   if (
     rule?.choiceIds?.length &&
     choiceId &&

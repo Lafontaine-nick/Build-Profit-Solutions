@@ -130,6 +130,181 @@ export function buildConfirmScopeDisplayItems(
     }
     return row;
   });
+  const noteBackedStructuralCards: Array<ScopeChecklistItem> = [];
+  const noteMentionsWallDemolition =
+    /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;,\n]{0,70}\b(?:nonstructural\s+)?walls?\b|\b(?:nonstructural\s+)?walls?\b[^.;,\n]{0,70}\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b/i.test(
+      noteText
+    );
+  const noteMentionsWallFraming =
+    /\b(?:frame|framing|framed)\b[^.;\n]{0,70}\bwalls?\b|\bwalls?\b[^.;\n]{0,70}\b(?:frame|framing|framed)\b/i.test(
+      noteText
+    );
+  const noteMentionsSheathing =
+    /\b(?:structural\s+)?sheathing\b/i.test(noteText);
+  const noteMentionsOpenings =
+    /\b(?:\w+\s+)?(?:door|window)\s+openings?\b|\bheaders?\b/i.test(
+      noteText
+    );
+  const noteMentionsExteriorTrimPaint =
+    /\b(?:exterior|outside)\s+trim\b[^.;\n]{0,35}\b(?:paint|painting|finish)\b|\b(?:paint|painting|finish)\b[^.;\n]{0,35}\b(?:exterior|outside)\s+trim\b/i.test(
+      noteText
+    );
+  const noteMentionsGenericPaint =
+    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(noteText) &&
+    !noteMentionsExteriorTrimPaint;
+  if (noteMentionsWallDemolition) {
+    noteBackedStructuralCards.push({
+      id: 'demo',
+      inputType: 'yes_no',
+      label: 'Wall demolition / removal',
+      helperText:
+        'Demolish and remove the existing walls identified in the job notes.',
+      category: 'structure',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  if (noteMentionsWallFraming) {
+    noteBackedStructuralCards.push({
+      id: 'framing',
+      inputType: 'yes_no',
+      label: 'Wall framing',
+      helperText:
+        'Frame the walls identified in the job notes; confirm the framing area or pricing.',
+      category: 'structure',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  if (noteMentionsSheathing) {
+    noteBackedStructuralCards.push({
+      id: 'shear_sheathing',
+      inputType: 'yes_no',
+      label: 'Structural sheathing',
+      helperText:
+        'Install the structural wall sheathing identified in the job notes.',
+      category: 'structure',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  if (noteMentionsOpenings) {
+    noteBackedStructuralCards.push({
+      id: 'openings',
+      inputType: 'yes_no',
+      label: 'Door / window openings',
+      helperText:
+        'Frame the rough openings identified in the job notes; confirm the opening count.',
+      category: 'structure',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  if (
+    noteMentionsGenericPaint &&
+    !expanded.some(item =>
+      ['paint', 'interior_paint', 'paint_repair', 'ceiling_paint'].includes(
+        item.id
+      )
+    )
+  ) {
+    noteBackedStructuralCards.push({
+      id: 'paint',
+      inputType: 'yes_no',
+      label: 'Interior paint',
+      helperText:
+        'Paint work is mentioned in the notes; confirm the wall/ceiling paint area.',
+      category: 'finishes',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+  if (noteMentionsExteriorTrimPaint) {
+    const exteriorTrimCard: ScopeChecklistItem = {
+      id: 'exterior_trim_paint',
+      inputType: 'yes_no',
+      label: 'Exterior trim paint',
+      helperText:
+        'Prep and paint the explicitly identified exterior trim. Surface area is separate from siding repairs.',
+      category: 'finishes',
+      state: 'included',
+      noteBacked: true,
+    };
+    const exteriorTrimIndex = expanded.findIndex(
+      item => item.id === 'exterior_trim_paint'
+    );
+    if (exteriorTrimIndex >= 0) {
+      expanded[exteriorTrimIndex] = {
+        ...expanded[exteriorTrimIndex],
+        ...exteriorTrimCard,
+      };
+    } else {
+      expanded.push(exteriorTrimCard);
+    }
+  }
+  if (noteBackedStructuralCards.length) {
+    for (const card of noteBackedStructuralCards) {
+      const existingIndex = expanded.findIndex(item => item.id === card.id);
+      if (existingIndex >= 0) {
+        expanded[existingIndex] = {
+          ...expanded[existingIndex],
+          ...card,
+        };
+      } else {
+        expanded.push(card);
+      }
+    }
+  }
+  if (
+    ['flooring', 'room_remodel'].includes(
+      String(templateKey || '').toLowerCase()
+    ) &&
+    !noteMentionsExteriorTrimPaint
+  ) {
+    // Window replacement justifies exterior prep/masking; it does not imply
+    // painting the exterior trim around those openings.
+    expanded = expanded.filter(row => row.id !== 'exterior_trim_paint');
+  }
+  const noteMentionsFlooringRemoval =
+    /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.;\n]{0,60}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(
+      noteText
+    );
+  const noteMentionsDrywallDemolition =
+    /\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b|\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b/i.test(
+      noteText
+    );
+  if (
+    noteMentionsFlooringRemoval &&
+    !noteMentionsWallDemolition &&
+    !noteMentionsDrywallDemolition
+  ) {
+    const hasFloorDemo = expanded.some(row => row.id === 'floor_demo');
+    expanded = expanded
+      .filter(row => !(hasFloorDemo && row.id === 'demo'))
+      .map(row =>
+        row.id === 'demo' || row.id === 'floor_demo'
+          ? {
+              ...row,
+              id: 'floor_demo',
+              label: 'Flooring removal / demolition',
+              helperText:
+                'Remove and dispose of the existing flooring in the measured area.',
+            }
+          : row
+      );
+    if (!expanded.some(row => row.id === 'floor_demo')) {
+      expanded.push({
+        id: 'floor_demo',
+        inputType: 'yes_no',
+        label: 'Flooring removal / demolition',
+        helperText:
+          'Remove and dispose of the existing flooring in the measured area.',
+        category: 'demolition',
+        state: 'included',
+        noteBacked: true,
+      });
+    }
+  }
   if (
     templateKey &&
     String(templateKey).toLowerCase() !== 'painting'
@@ -183,6 +358,20 @@ export function buildConfirmScopeDisplayItems(
     expanded = ensureGroundUpOpeningScopeCards(expanded);
   }
   expanded = filterRoomRemodelNoteScopeItems(expanded, notes);
+  const ceilingOnlyPaintNote =
+    /\b(?:paint|painting|repaint)\b[^.;,\n]{0,45}\bceilings?\b|\bceilings?\b[^.;,\n]{0,45}\b(?:paint|painting|repaint)\b/i.test(
+      noteText
+    ) &&
+    !/\b(?:paint|painting|repaint)\b[^.;,\n]{0,45}\bwalls?\b|\bwalls?\b[^.;,\n]{0,45}\b(?:paint|painting|repaint)\b/i.test(
+      noteText
+    );
+  if (ceilingOnlyPaintNote) {
+    expanded = expanded.map(row =>
+      ['paint', 'interior_paint', 'ceiling_paint'].includes(row.id)
+        ? { ...row, label: 'Ceiling painting' }
+        : row
+    );
+  }
   expanded = expandHvacEquipmentScopeDisplayItems(expanded, measurements);
   if (String(templateKey || '').toLowerCase() === 'flooring') {
     const existingTypes = Array.isArray(measurements.flooringExistingTypes)
@@ -190,12 +379,23 @@ export function buildConfirmScopeDisplayItems(
           .filter((type): type is string => typeof type === 'string' && type !== 'unknown')
           .map((type) => type.replace(/_/g, ' '))
       : [];
+    const floorDemoSqft = Number(
+      String(measurements.floorDemoSqft ?? '').replace(/,/g, '')
+    );
+    const measuredAreaDescription =
+      Number.isFinite(floorDemoSqft) && floorDemoSqft > 0
+        ? `Remove and dispose of ${floorDemoSqft.toLocaleString()} sqft of existing flooring before installation.`
+        : 'Remove and dispose of the existing flooring before installation.';
     const existingDescription = existingTypes.length
-      ? `Remove existing ${existingTypes.join(', ')} flooring before installing the selected new flooring.`
-      : 'Remove existing flooring before installing the selected new flooring.';
+      ? `Remove and dispose of the existing ${existingTypes.join(', ')} flooring before installing the selected new flooring.`
+      : measuredAreaDescription;
     expanded = expanded.map((row) =>
       row.id === 'floor_demo'
-        ? { ...row, label: 'Demo Existing Flooring', helperText: existingDescription }
+        ? {
+            ...row,
+            label: 'Flooring removal / demolition',
+            helperText: existingDescription,
+          }
         : row
     );
   }
@@ -243,7 +443,12 @@ export function confirmScopeDisplayItemsFromDraft(draft: EstimateAiDraft): Scope
     projectType: draft.projectType,
     notes: draft.originalNotes,
   });
-  return buildConfirmScopeDisplayItems(base, measurements, templateKey);
+  return buildConfirmScopeDisplayItems(
+    base,
+    measurements,
+    templateKey,
+    draft.originalNotes
+  );
 }
 
 /** QM embed context — same template resolution as Confirm Scope Step 2. */
@@ -287,6 +492,20 @@ export function isScopeCardHiddenInQmEmbed(
   qmCtx: QmPhotoNotesContext
 ): boolean {
   if (!isPhotoNotesScopeJob(qmCtx)) return false;
+  // The roofing quick-measurement panel owns install/tear-off selection and
+  // quantities. Do not also render the legacy zero-area Roofing replacement
+  // card beside it.
+  if (
+    String(qmCtx.templateKey || '').toLowerCase() === 'roofing' &&
+    (itemId === 'roofing' || itemId === 'roofing_system')
+  ) {
+    return true;
+  }
+  // Roofing QM owns selection and takeoff, but the selected components still
+  // have independent pricing cards (tear-off, decking, drainage, etc.).
+  if (String(qmCtx.templateKey || '').toLowerCase() === 'roofing') {
+    return false;
+  }
   const qmEmbeddedScopeIds = getQmEmbeddedScopeIds(qmCtx);
   if (!qmEmbeddedScopeIds.has(itemId)) return false;
   if (shouldHideBathroomFixtureScopeCardInQmEmbed(itemId, measurements, displayItems)) return true;
@@ -664,7 +883,8 @@ export function withReconciledScopePackages(
     ? buildConfirmScopeDisplayItems(
         confirmedItemsOverride,
         measurements,
-        draft.scopeChecklist?.templateKey
+        draft.scopeChecklist?.templateKey,
+        draft.originalNotes
       )
     : confirmScopeDisplayItemsFromDraft(draft);
   if (!checklistItems.length) return draft;

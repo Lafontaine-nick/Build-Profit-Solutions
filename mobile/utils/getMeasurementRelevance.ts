@@ -91,6 +91,7 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> =
     // Exterior wall faces inform insulation envelope walls (not drywall interior surface).
     exteriorPaintSqft: [
       'exterior_paint',
+      'exterior_trim_paint',
       'paint_trim',
       'stucco',
       'exterior',
@@ -153,6 +154,8 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> =
     treeCount: ['trees', 'landscaping'],
     boulderCount: ['landscape_boulders', 'landscaping'],
     landscapeSqft: ['landscaping'],
+    sidingRepairSqft: ['siding_repairs'],
+    retainingWallLf: ['retaining_wall'],
     stuccoGrossWallSqft: ['stucco'],
     stuccoWindowDoorOpeningSqft: ['stucco'],
     stuccoGarageOpeningSqft: ['stucco'],
@@ -164,10 +167,12 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> =
     stuccoControlJointLf: ['stucco_accessories'],
     stuccoStories: ['stucco_access'],
     stuccoWallHeightFt: ['stucco_access'],
+    wallDemoSqft: ['demo', 'wall_demo'],
     framedAreaSqft: ['framing'],
     wallFramingLf: ['wall_framing'],
     sheathingSqft: ['shear_sheathing'],
     framingOpeningCount: ['openings'],
+    floorDemoSqft: ['floor_demo', 'demo', 'flooring'],
     concreteReinforcementSqft: ['reinforcement'],
     concreteSubgradePrepSqft: ['site_prep'],
     gravelBaseCy: ['gravel_base'],
@@ -204,6 +209,7 @@ const STUCCO_CORE_MEASUREMENT_KEYS = new Set<QuickMeasurementFieldKey>([
 
 const FRAMING_CORE_MEASUREMENT_KEYS = new Set<QuickMeasurementFieldKey>([
   'framedAreaSqft',
+  'wallDemoSqft',
   'sheathingSqft',
   'floorAreaSqft',
   'garageSqft',
@@ -330,15 +336,26 @@ export function getMeasurementRelevance(params: {
   }
 
   const includedSet = new Set(params.includedScopeKeys);
-  const explicitDrywallNotes =
-    /\b(?:drywall|sheetrock|gypsum)\b/i.test(notesText);
+  const explicitDrywallNotes = /\b(?:drywall|sheetrock|gypsum)\b/i.test(
+    notesText
+  );
   const explicitDrywallPatchNotes =
     /\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,35}\b(?:patch|repair|texture|skim\s*coat)\b|\b(?:patch|repair|texture|skim\s*coat)\b[^.;\n]{0,35}\b(?:drywall|sheetrock|gypsum)\b/i.test(
       notesText
     );
+  const explicitWallDemolitionNotes =
+    /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;\n]{0,70}\b(?:nonstructural\s+)?walls?\b|\b(?:nonstructural\s+)?walls?\b[^.;\n]{0,70}\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b/i.test(
+      notesText
+    );
+  const explicitFlooringRemovalNotes =
+    /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.;\n]{0,60}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(
+      notesText
+    );
   if (
     (measurementKey === 'drywallSqft' && explicitDrywallNotes) ||
-    (measurementKey === 'patchRepairSqft' && explicitDrywallPatchNotes)
+    (measurementKey === 'patchRepairSqft' && explicitDrywallPatchNotes) ||
+    (measurementKey === 'wallDemoSqft' && explicitWallDemolitionNotes) ||
+    (measurementKey === 'floorDemoSqft' && explicitFlooringRemovalNotes)
   ) {
     return {
       relevant: true,
@@ -448,7 +465,7 @@ export function getMeasurementRelevance(params: {
     if (measurementKey === 'exteriorPaintSqft') {
       const notesText = String(params.notes || '');
       const exteriorFinishInNotes =
-        /\bexterior\s+paint\b|\bpaint\s+exterior\b|\bstucco\b|\bsiding\b|\bexterior\s+finish/i.test(
+        /\bexterior\s+paint\b|\bpaint\s+exterior\b|\b(?:exterior|outside)\s+trim\s+paint\b|\bstucco\b|\bsiding\b|\bexterior\s+finish/i.test(
           notesText
         );
       if (!exteriorFinishInNotes) {

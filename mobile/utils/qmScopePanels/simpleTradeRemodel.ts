@@ -384,9 +384,10 @@ export function finalizeRoofingScopeSelections(
     inferredFromNotes.length > 0
       ? inferredFromNotes
       : inferRoofingTradeScopeSelectionsFromNotes(ctx.notes);
+  const roofingInstallMentioned = fromNotes.includes('shingles');
   const fromMeasurements = inferRoofingScopeSelectionsFromMeasurements(
     ctx.measurements
-  );
+  ).filter(id => id !== 'shingles' || roofingInstallMentioned);
   if (!saved.length) {
     return filterRoofingScopeSelectionsForTearOffInstall(
       mergeRoofingScopeSelectionIds(
@@ -482,6 +483,15 @@ export const SIMPLE_TRADE_SPECS: Record<SimpleTradeScopeKey, TradeSpec> = {
 function positiveMeasurement(value: unknown): number | null {
   const number = Number(String(value ?? '').replace(/,/g, '').trim());
   return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+/** Flag a likely gutter-LF value entered as a downspout count. */
+export function roofingDownspoutQuantityWarning(
+  measurements: Record<string, unknown>
+): string | null {
+  const count = positiveMeasurement(measurements.roofDownspoutCount);
+  if (count == null || count <= 20) return null;
+  return `${count.toLocaleString()} downspouts is unusually high. Verify this is the number of drops, not the gutter LF.`;
 }
 
 /** A mini-split is a specific equipment package, not a generic HVAC system. */

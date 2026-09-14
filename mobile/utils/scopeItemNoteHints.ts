@@ -238,11 +238,11 @@ export function floorDemoNotesHint(n: string): boolean {
   const verbs = '(?:demo|demolition|remove|removal|tear[\\s-]?out)';
   const floorish = '(?:floor(?:ing)?|lvp|vinyl|laminate|carpet|kitchen\\s+floor|floor\\s+tile|tile\\s+floor)';
   if (
-    new RegExp(`\\b${verbs}\\b[^.]{0,80}\\b${floorish}\\b|\\b${floorish}\\b[^.]{0,80}\\b${verbs}\\b`).test(n)
+    new RegExp(`\\b${verbs}\\b[^.;,\\n]{0,30}\\b${floorish}\\b|\\b${floorish}\\b[^.;,\\n]{0,30}\\b${verbs}\\b`).test(n)
   ) {
     return true;
   }
-  const bareTileDemo = new RegExp(`\\b${verbs}\\b[^.]{0,60}\\btile\\b|\\btile\\b[^.]{0,60}\\b${verbs}\\b`);
+  const bareTileDemo = new RegExp(`\\b${verbs}\\b[^.;,\\n]{0,30}\\btile\\b|\\btile\\b[^.;,\\n]{0,30}\\b${verbs}\\b`);
   return bareTileDemo.test(n) && !/\b(shower|tub|bathtub|wet\s+area)\b/.test(n);
 }
 
@@ -557,6 +557,8 @@ export function inferRoofingTradeScopeSelectionsFromNotes(
   if (/\b(ridge\s+vent)\b/.test(n)) ids.add('ridge_vent');
   if (/\b(drip\s+edge)\b/.test(n)) ids.add('drip_edge');
   if (/\b(pipe\s+boots?)\b/.test(n)) ids.add('pipe_boots');
+  if (/\bgutters?\b/.test(n)) ids.add('gutters');
+  if (/\bdownspouts?\b/.test(n)) ids.add('downspouts');
   if (/\b(cleanup|disposal|dumpster|haul[\s-]?off)\b/.test(n)) ids.add('cleanup');
   if (
     /\bdeck(?:ing)?\b/i.test(n) &&

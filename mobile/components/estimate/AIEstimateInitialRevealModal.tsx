@@ -451,7 +451,9 @@ function AIEstimateInitialRevealModal({
                     ]}
                   >
                     <View style={styles.blockTitleRow}>
-                      <Text style={[styles.blockTitle, { color: Colors.text }]}>Needs your attention</Text>
+                      <Text style={[styles.blockTitle, { color: Colors.text }]}>
+                        {viewModel.needsScopeConfirmation ? 'Pricing needed' : 'Needs your attention'}
+                      </Text>
                       {viewModel.attentionCount > 0 ? (
                         <View style={[styles.countPill, { backgroundColor: 'rgba(251, 191, 36, 0.14)' }]}>
                           <Text style={styles.countPillText}>{viewModel.attentionCount}</Text>
@@ -516,11 +518,14 @@ function AIEstimateInitialRevealModal({
                       />
                     </ReliablePress>
                     {detailsExpanded
-                      ? viewModel.scopePreview.map(({ name, amount }) => (
-                          <View key={name} style={styles.scopeRow}>
-                            <Text style={[styles.scopeName, { color: Colors.text }]} numberOfLines={1}>
-                              {name}
-                            </Text>
+                      ? viewModel.scopePreview.map(({ name, amount, quantity }) => (
+                        <View key={name} style={styles.scopeRow}>
+                            <View style={styles.scopeNameWrap}>
+                              <Text style={[styles.scopeName, { color: Colors.text }]} numberOfLines={1}>
+                                {name}
+                                {quantity ? ` · ${quantity}` : ''}
+                              </Text>
+                            </View>
                             {!viewModel.suppressRevealPricing ? (
                               <View style={styles.scopeAmountWrap}>
                                 {amount <= 0 ? (
@@ -801,6 +806,10 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     fontWeight: '600',
+  },
+  scopeNameWrap: {
+    flex: 1,
+    minWidth: 0,
   },
   scopeAmountWrap: {
     flexDirection: 'row',

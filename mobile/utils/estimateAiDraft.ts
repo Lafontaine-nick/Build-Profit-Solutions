@@ -176,15 +176,10 @@ export type EstimateRoughEstimateRange = {
 };
 
 export type EstimateBuilderMode =
-  | 'organize_only'
-  | 'organize_calculate'
-  | 'suggest_breakdown';
+  'organize_only' | 'organize_calculate' | 'suggest_breakdown';
 
 export type EstimateTier =
-  | 'simple_unit'
-  | 'room_remodel'
-  | 'addition'
-  | 'ground_up';
+  'simple_unit' | 'room_remodel' | 'addition' | 'ground_up';
 
 export type ScopeAssumptionState = 'included' | 'excluded' | 'unsure';
 
@@ -275,8 +270,7 @@ export type ScopeItemQuantity = {
    * Legacy records without this field continue to load unchanged.
    */
   measurementState?:
-    | import('@/utils/measurementSemantics').ScopeMeasurementState
-    | null;
+    import('@/utils/measurementSemantics').ScopeMeasurementState | null;
 };
 
 /** Persisted accepted-pricing metadata for Confirm Scope cards. */
@@ -334,11 +328,9 @@ export type ScopeMeasurements = {
   stuccoWallHeightFt?: number | null;
   /** Plan-import routing/provenance; does not imply detailed trade quantities. */
   planImportMode?:
-    | import('@/utils/planImportTradeConfig').PlanEstimatingMode
-    | null;
+    import('@/utils/planImportTradeConfig').PlanEstimatingMode | null;
   planImportTradeKey?:
-    | import('@/utils/planImportTradeConfig').PlanTradeKey
-    | null;
+    import('@/utils/planImportTradeConfig').PlanTradeKey | null;
   /** Stable client fingerprint for recognizing a repeat import of the same plan. */
   planImportFingerprint?: string | null;
   planImportProvenance?: PlanImportPayload['tradeProvenance'];
@@ -347,12 +339,7 @@ export type ScopeMeasurements = {
     'walls' | 'ceilings' | 'trim' | 'doors' | 'cabinets' | 'exterior'
   > | null;
   paintAreaBasis?:
-    | 'walls'
-    | 'ceilings'
-    | 'combined'
-    | 'floor_area'
-    | 'unknown'
-    | null;
+    'walls' | 'ceilings' | 'combined' | 'floor_area' | 'unknown' | null;
   paintAreaNeedsConfirmation?: boolean | null;
   paintAreaSqft?: number | null;
   paintPricingMethod?: 'combined' | 'separate' | null;
@@ -362,11 +349,7 @@ export type ScopeMeasurements = {
   paintOccupancyConfirmed?: boolean | null;
   paintApplicationMethodConfirmed?: boolean | null;
   cabinetMeasurementMethod?:
-    | 'linear_feet'
-    | 'doors_drawers'
-    | 'lump_sum'
-    | 'surface_area'
-    | null;
+    'linear_feet' | 'doors_drawers' | 'lump_sum' | 'surface_area' | null;
   cabinetUpperLf?: number | null;
   cabinetLowerLf?: number | null;
   cabinetTallLf?: number | null;
@@ -398,10 +381,7 @@ export type ScopeMeasurements = {
   floorDemoSqft?: number | null;
   floorPrepSqft?: number | null;
   flooringExistingLvpInstallMethod?:
-    | 'floating'
-    | 'glue_down'
-    | 'unknown'
-    | null;
+    'floating' | 'glue_down' | 'unknown' | null;
   flooringExistingSheetVinylType?: 'sheet_vinyl' | 'vct' | 'unknown' | null;
   flooringNewLvpInstallMethod?: 'floating' | 'glue_down' | 'unknown' | null;
   flooringNewSheetVinylType?: 'sheet_vinyl' | 'vct' | 'unknown' | null;
@@ -460,6 +440,10 @@ export type ScopeMeasurements = {
   cabinetPaintSqft?: number | null;
   railingLf?: number | null;
   landscapeSqft?: number | null;
+  /** Manual area for note-identified siding repair work. */
+  sidingRepairSqft?: number | null;
+  /** Manual length for note-identified retaining-wall work. */
+  retainingWallLf?: number | null;
   artificialTurfSqft?: number | null;
   demoClearingSqft?: number | null;
   gradingSqft?: number | null;
@@ -485,11 +469,7 @@ export type ScopeMeasurements = {
   concreteScope?: string[] | null;
   concreteDemoSqft?: number | null;
   concreteDemoThicknessBand?:
-    | 'thin_2_3'
-    | 'standard_4'
-    | 'heavy_5_6'
-    | 'structural_7_plus'
-    | null;
+    'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
   concreteDemoThicknessBands?: Array<
     'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus'
   > | null;
@@ -655,9 +635,7 @@ export type ScopeMeasurements = {
   bathroomToiletRelocateFloorType?: string | null;
   /** Whether toilet relocate floor type was user-selected or AI-inferred. */
   bathroomToiletRelocateFloorTypeSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   /** Bathroom shower/tub rough-in — wall & floor access for valve, head, and drain lines. */
   bathroomShowerRoughAccessType?: string | null;
   /** Whether shower rough-in access was user-selected or AI-inferred. */
@@ -672,10 +650,7 @@ export type ScopeMeasurements = {
   /** Remodel demolition exposes plumbing vs separate access required. */
   bathroomShowerRoughPlumbingExposed?: string | null;
   bathroomShowerRoughPlumbingExposedSource?:
-    | 'user_selected'
-    | 'demo_detected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'demo_detected' | 'ai_inferred' | null;
   /** @deprecated Migrated to bathroomShowerRoughPlumbingExposed. */
   bathroomShowerRoughWallAccess?: string | null;
   /** @deprecated Migrated to bathroomShowerRoughPlumbingExposedSource. */
@@ -683,15 +658,11 @@ export type ScopeMeasurements = {
   /** Wood-framed floor vs concrete slab. */
   bathroomShowerRoughFloorConstruction?: string | null;
   bathroomShowerRoughFloorConstructionSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   /** Same-location slab — is cutting or below-slab drain work required? */
   bathroomShowerRoughSlabWorkRequired?: string | null;
   bathroomShowerRoughSlabWorkRequiredSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   /** Localized prime/paint scope after bath drywall repair. */
   bathroomPaintRepairScope?: string | null;
   bathroomPaintRepairScopeSource?: 'user_selected' | 'ai_inferred' | null;
@@ -701,24 +672,18 @@ export type ScopeMeasurements = {
   /** Wall/ceiling paintable SF for entire-room add-on on paint_repair. */
   bathroomPaintRepairEntireRoomSqft?: string | number | null;
   bathroomPaintRepairEntireRoomSqftSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   /** One-line combined drywall + texture + prime + paint assembly. */
   bathroomDrywallPaintUseCombinedAssembly?: boolean | null;
   bathroomDrywallPaintUseCombinedAssemblySource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   /** Patchwork intensity for combined affected-area paint/repair. */
   bathroomPaintRepairSeverity?: string | null;
   bathroomPaintRepairSeveritySource?: 'user_selected' | 'ai_inferred' | null;
   /** Interior paint mobilization — bundled vs standalone minimum. */
   bathroomInteriorPaintMobilization?: string | null;
   bathroomInteriorPaintMobilizationSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintSurface?: string | null;
   bathroomInteriorPaintSurfaceSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintCondition?: string | null;
@@ -728,7 +693,8 @@ export type ScopeMeasurements = {
   bathroomGlassDoorStyleSource?: 'user_selected' | 'ai_inferred' | null;
   /** Kitchen backsplash demo difficulty tier — light / moderate / extensive. */
   kitchenBacksplashDemoDifficulty?: string | null;
-  kitchenBacksplashDemoDifficultySource?: 'user_selected' | 'ai_inferred' | null;
+  kitchenBacksplashDemoDifficultySource?:
+    'user_selected' | 'ai_inferred' | null;
   /** Demo tear-out selections derived from existing + install (QM). */
   demoTubCount?: number | null;
   demoTileWallCount?: number | null;
@@ -817,8 +783,7 @@ export type ScopeMeasurements = {
   } | null;
   /** Declared vs detected living/garage reconciliation (measurement-semantics). */
   areaReconciliation?:
-    | import('@/utils/measurementSemantics').AreaReconciliation
-    | null;
+    import('@/utils/measurementSemantics').AreaReconciliation | null;
   /**
    * Per-Quick-Measurement-field provenance: which fields were populated
    * directly from plan takeoff vs accepted from a planning estimate.
@@ -1227,11 +1192,12 @@ export type RefineDraftResult = {
 export function isMarkupOnlyRefineResult(
   result: Pick<RefineDraftResult, 'markupPct' | 'appliedSummary' | 'warnings'>
 ): boolean {
-  if (result.markupPct == null || !Number.isFinite(Number(result.markupPct))) return false;
+  if (result.markupPct == null || !Number.isFinite(Number(result.markupPct)))
+    return false;
   if (result.warnings?.length) return false;
   const summary = result.appliedSummary || [];
   if (!summary.length) return false;
-  return summary.every((line) => /^Markup set to/i.test(String(line).trim()));
+  return summary.every(line => /^Markup set to/i.test(String(line).trim()));
 }
 
 const PROJECT_CATEGORY_SLUGS: Record<string, string> = {
@@ -1443,11 +1409,9 @@ export function repairDraftRatePricingFromNotes(
   if (
     draft.scopeChecklist?.templateKey === 'windows_doors' ||
     draft.projectType === 'windows_doors' ||
-    [
-      'windowCount',
-      'exteriorDoorCount',
-      'slidingDoorCount',
-    ].some(key => Number(parsed[key as keyof typeof parsed]) > 0)
+    ['windowCount', 'exteriorDoorCount', 'slidingDoorCount'].some(
+      key => Number(parsed[key as keyof typeof parsed]) > 0
+    )
   ) {
     const normalizedWindowsDoors = normalizeTradeMeasurements(
       'windows_doors',
@@ -1930,8 +1894,7 @@ export type PlanToMeasurementsResult = {
   scope: PlanScopeResult | null;
   /** Declared vs detected living/garage reconciliation (measurement-semantics). */
   areaReconciliation?:
-    | import('@/utils/measurementSemantics').AreaReconciliation
-    | null;
+    import('@/utils/measurementSemantics').AreaReconciliation | null;
   estimatingMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode;
   selectedTrade?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
   tradeProvenance?: PlanImportPayload['tradeProvenance'];
@@ -1947,8 +1910,7 @@ export async function fetchPlanToMeasurements(params: {
   includeScope?: boolean;
   estimatingMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode;
   selectedTradeKey?:
-    | import('@/utils/planImportTradeConfig').PlanTradeKey
-    | null;
+    import('@/utils/planImportTradeConfig').PlanTradeKey | null;
 }): Promise<PlanToMeasurementsResult> {
   const takeoffRequest = resolvePaintingPlanTakeoffApiSelection({
     estimatingMode: params.estimatingMode,
@@ -2253,8 +2215,7 @@ export type PlanImportPayload = {
   /** Read-only plan takeoff summary text (kept separate from editable Job notes). */
   notesBlock?: string | null;
   areaReconciliation?:
-    | import('@/utils/measurementSemantics').AreaReconciliation
-    | null;
+    import('@/utils/measurementSemantics').AreaReconciliation | null;
   buildingAreas?: PlanBuildingAreas;
   planFacts?: PlanFacts;
   fieldConfidence?: Record<string, number>;
@@ -2315,9 +2276,7 @@ function applyPlumbingEquipmentHydrationToMeasurements(
     target as Record<string, number | string>,
     payload.fixtureInventory ??
       (target.plumbingFixtureInventory as
-        | Record<string, number>
-        | null
-        | undefined),
+        Record<string, number> | null | undefined),
     {
       waterHeaterDetail:
         payload.waterHeaterDetail ?? target.plumbingWaterHeaterDetail ?? null,
@@ -2381,9 +2340,7 @@ function rebuildFramingStructuredScopeFromMeasurements(
   if (structured.itemQuantities) {
     target.itemQuantities = {
       ...((target.itemQuantities as
-        | Record<string, unknown>
-        | null
-        | undefined) || {}),
+        Record<string, unknown> | null | undefined) || {}),
       ...structured.itemQuantities,
     };
     updated = true;
@@ -2412,9 +2369,7 @@ function rebuildPlumbingStructuredScopeFromMeasurements(
   if (structured.itemQuantities) {
     target.itemQuantities = {
       ...((target.itemQuantities as
-        | Record<string, unknown>
-        | null
-        | undefined) || {}),
+        Record<string, unknown> | null | undefined) || {}),
       ...structured.itemQuantities,
     };
     updated = true;
@@ -2477,9 +2432,7 @@ function stripStalePlumbingInventoryDerivedFields(
     { ...(payload.measurements || {}) } as Record<string, number | string>,
     payload.fixtureInventory ??
       (target.plumbingFixtureInventory as
-        | Record<string, number>
-        | null
-        | undefined),
+        Record<string, number> | null | undefined),
     {
       waterHeaterDetail:
         payload.waterHeaterDetail ??
@@ -2498,9 +2451,7 @@ function stripStalePlumbingInventoryDerivedFields(
   let updated = false;
   const itemQuantities = {
     ...((target.itemQuantities as
-      | Record<string, { quantity?: unknown }>
-      | null
-      | undefined) || {}),
+      Record<string, { quantity?: unknown }> | null | undefined) || {}),
   };
   for (const key of PLUMBING_INVENTORY_DERIVED_KEYS) {
     if (
@@ -2519,9 +2470,7 @@ function stripStalePlumbingInventoryDerivedFields(
   if (updated) target.itemQuantities = itemQuantities;
   const pricingAcceptance = {
     ...((target.pricingAcceptance as
-      | Record<string, unknown>
-      | null
-      | undefined) || {}),
+      Record<string, unknown> | null | undefined) || {}),
   };
   let pricingChanged = false;
   for (const itemId of PLUMBING_INVENTORY_DERIVED_ITEM_IDS) {
@@ -2552,11 +2501,11 @@ function stripStalePlumbingInventoryDerivedFields(
       const card = PLUMBING_CARDS.find(entry => entry.itemId === id);
       return Boolean(
         card &&
-          plumbingDerivedQuantityStillSupported(
-            card.measurementKey,
-            target,
-            hydratedFromIncoming
-          )
+        plumbingDerivedQuantityStillSupported(
+          card.measurementKey,
+          target,
+          hydratedFromIncoming
+        )
       );
     });
     if (nextScope.length !== target.plumbingScope.length) {
@@ -2567,9 +2516,7 @@ function stripStalePlumbingInventoryDerivedFields(
   const fixtureInventory =
     payload.fixtureInventory ??
     (target.plumbingFixtureInventory as
-      | Record<string, number>
-      | null
-      | undefined);
+      Record<string, number> | null | undefined);
   if (
     !fixtureInventory ||
     !Object.values(fixtureInventory).some(value => Number(value) > 0)
@@ -3275,7 +3222,9 @@ export function seedPlanFloorAreaItemQuantities(
         primaryQuantity = Number(scopeMeasurements.cabinetLf);
         primaryUnit = 'lf';
       } else if (id === 'countertops') {
-        const templateKey = String(draft.scopeChecklist?.templateKey || '').toLowerCase();
+        const templateKey = String(
+          draft.scopeChecklist?.templateKey || ''
+        ).toLowerCase();
         const combined =
           templateKey === 'kitchen'
             ? resolveKitchenCountertopTakeoffSqft(
@@ -3395,7 +3344,9 @@ export function seedPlanFloorAreaItemQuantities(
       qty = Number(scopeMeasurements.cabinetLf);
       unit = 'lf';
     } else if (id === 'countertops') {
-      const templateKey = String(draft.scopeChecklist?.templateKey || '').toLowerCase();
+      const templateKey = String(
+        draft.scopeChecklist?.templateKey || ''
+      ).toLowerCase();
       const combined =
         templateKey === 'kitchen'
           ? resolveKitchenCountertopTakeoffSqft(
@@ -3563,12 +3514,12 @@ export function planImportPayloadFromDraft(
   const hasPlanFacts =
     Boolean(
       sm.planFacts?.fieldEvidence &&
-        Object.keys(sm.planFacts.fieldEvidence).length
+      Object.keys(sm.planFacts.fieldEvidence).length
     ) ||
     Boolean(sm.planFacts?.geometry && sm.planFacts.geometry.length) ||
     Boolean(
       sm.planFacts?.buildingAreas &&
-        Object.keys(sm.planFacts.buildingAreas).length
+      Object.keys(sm.planFacts.buildingAreas).length
     );
   // Notes-derived measurements and parsed rooms are not a plan import. Only
   // restore the Step 1 plan card when the draft contains real takeoff provenance.
@@ -4202,9 +4153,18 @@ function standaloneDrywallChecklistItems(): ScopeChecklistItem[] {
       options: [
         { id: 'orange_peel', label: 'Orange peel — base' },
         { id: 'knockdown', label: 'Knockdown — +10% finishing labor' },
-        { id: 'skip_trowel', label: 'Skip trowel / hand texture — +23% finishing labor' },
-        { id: 'smooth_level_4', label: 'Smooth — Level 4 — +17% finishing labor' },
-        { id: 'smooth_level_5', label: 'Smooth — Level 5 — +52% finishing labor' },
+        {
+          id: 'skip_trowel',
+          label: 'Skip trowel / hand texture — +23% finishing labor',
+        },
+        {
+          id: 'smooth_level_4',
+          label: 'Smooth — Level 4 — +17% finishing labor',
+        },
+        {
+          id: 'smooth_level_5',
+          label: 'Smooth — Level 5 — +52% finishing labor',
+        },
         {
           id: 'custom_specialty',
           label: 'Custom / specialty — review required',
@@ -4255,10 +4215,12 @@ export function createStandalonePlumbingDraft(
   const templateKey = resolveStandalonePlumbingTemplateKey(mode);
   const trimmedNotes = String(notes || '').trim();
   const roomContext =
-    payload.plumbingRoomContext ?? inferPlumbingRoomContextFromNotes(trimmedNotes);
+    payload.plumbingRoomContext ??
+    inferPlumbingRoomContextFromNotes(trimmedNotes);
   const noteBullets = summarizePlumbingNoteBullets(trimmedNotes, 6);
   const baseDraft = {
-    projectType: templateKey === 'plumbing_service' ? 'plumbing_service' : 'plumbing',
+    projectType:
+      templateKey === 'plumbing_service' ? 'plumbing_service' : 'plumbing',
     estimateTier: 'trade_scope',
     projectTitle: standalonePlumbingProjectTitle(trimmedNotes, roomContext),
     originalNotes: trimmedNotes,
@@ -4341,12 +4303,12 @@ export function applyPlanImportToDraft(
           ? new Set(WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS)
           : planImportTradeKey === 'garage_doors'
             ? new Set(GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS)
-          : planImportTradeKey === 'hvac'
-            ? new Set(HVAC_PLAN_REVIEW_MEASUREMENT_KEYS)
-        : new Set([
-            ...ELECTRICAL_CARDS.map(card => card.measurementKey),
-            'serviceAmperage',
-          ]);
+            : planImportTradeKey === 'hvac'
+              ? new Set(HVAC_PLAN_REVIEW_MEASUREMENT_KEYS)
+              : new Set([
+                  ...ELECTRICAL_CARDS.map(card => card.measurementKey),
+                  'serviceAmperage',
+                ]);
     for (const key of repeatKeys) {
       const incoming = rawMeasurements[key];
       const previous = previousMeasurements[key];
@@ -4386,9 +4348,7 @@ export function applyPlanImportToDraft(
               (payload.measurements || {}) as Record<string, number | string>,
               payload.fixtureInventory ??
                 (draft.scopeMeasurements?.plumbingFixtureInventory as
-                  | Record<string, number>
-                  | null
-                  | undefined),
+                  Record<string, number> | null | undefined),
               {
                 waterHeaterDetail:
                   payload.waterHeaterDetail ??
@@ -4618,11 +4578,11 @@ export function applyPlanImportToDraft(
         ? standaloneInsulationChecklistItems()
         : planImportTradeKey === 'drywall'
           ? standaloneDrywallChecklistItems()
-        : planImportTradeKey === 'hvac'
-          ? standaloneHvacChecklistItems()
-          : planImportTradeKey === 'stucco'
-            ? buildStuccoTradeChecklistItems(tradeChecklistItems)
-            : tradeChecklistItems;
+          : planImportTradeKey === 'hvac'
+            ? standaloneHvacChecklistItems()
+            : planImportTradeKey === 'stucco'
+              ? buildStuccoTradeChecklistItems(tradeChecklistItems)
+              : tradeChecklistItems;
   if (applyAsSelectedTrade && planImportTradeKey) {
     next = {
       ...next,
@@ -4644,20 +4604,20 @@ export function applyPlanImportToDraft(
                       ? 'insulation'
                       : planImportTradeKey === 'drywall'
                         ? 'drywall'
-                      : planImportTradeKey === 'hvac'
-                        ? 'hvac'
-                        : planImportTradeKey === 'windows_doors'
-                          ? 'windows_doors'
-                        : planImportTradeKey === 'garage_doors'
-                          ? 'garage_doors'
-                        : planImportTradeKey === 'plumbing'
-                          ? resolveStandalonePlumbingTemplateKey(
-                              payload.plumbingWorkflowMode
-                            )
-                          : planImportTradeKey === 'electrical'
-                            ? 'electrical'
-                            : next.scopeChecklist?.templateKey ||
-                              'plumbing_service',
+                        : planImportTradeKey === 'hvac'
+                          ? 'hvac'
+                          : planImportTradeKey === 'windows_doors'
+                            ? 'windows_doors'
+                            : planImportTradeKey === 'garage_doors'
+                              ? 'garage_doors'
+                              : planImportTradeKey === 'plumbing'
+                                ? resolveStandalonePlumbingTemplateKey(
+                                    payload.plumbingWorkflowMode
+                                  )
+                                : planImportTradeKey === 'electrical'
+                                  ? 'electrical'
+                                  : next.scopeChecklist?.templateKey ||
+                                    'plumbing_service',
         title:
           planImportTradeKey === 'stucco'
             ? 'Stucco / exterior finish — confirm trade scope'
@@ -4675,14 +4635,14 @@ export function applyPlanImportToDraft(
                         ? 'Drywall — confirm project scope'
                         : planImportTradeKey === 'hvac'
                           ? 'HVAC — confirm project scope'
-                        : planImportTradeKey === 'windows_doors'
-                          ? 'Windows & doors — confirm installation scope'
-                        : planImportTradeKey === 'garage_doors'
-                          ? 'Garage doors — confirm installation scope'
-                        : planImportTradeKey === 'plumbing'
-                          ? 'Plumbing — confirm project scope'
-                          : next.scopeChecklist?.title ||
-                            'Plumbing — confirm project scope',
+                          : planImportTradeKey === 'windows_doors'
+                            ? 'Windows & doors — confirm installation scope'
+                            : planImportTradeKey === 'garage_doors'
+                              ? 'Garage doors — confirm installation scope'
+                              : planImportTradeKey === 'plumbing'
+                                ? 'Plumbing — confirm project scope'
+                                : next.scopeChecklist?.title ||
+                                  'Plumbing — confirm project scope',
         intro:
           planImportTradeKey === 'stucco'
             ? 'Confirm the stucco system, quantities, accessories, and access included in this bid.'
@@ -4698,18 +4658,18 @@ export function applyPlanImportToDraft(
                       ? 'Confirm insulation scope and thermal-envelope quantities before pricing.'
                       : planImportTradeKey === 'drywall'
                         ? 'Confirm wall and ceiling drywall surface, finish level, add-ons, and cleanup before pricing.'
-                      : planImportTradeKey === 'hvac'
-                        ? 'Confirm HVAC systems, capacity, distribution, add-ons, and cleanup before pricing.'
-                        : planImportTradeKey === 'windows_doors'
-                          ? 'Confirm windows, exterior swing/French openings, explicit sliding units, and interior doors before pricing. Garage doors are a separate trade.'
-                        : planImportTradeKey === 'garage_doors'
-                          ? 'Confirm garage door type counts and openers before pricing.'
-                        : planImportTradeKey === 'plumbing'
-                          ? standalonePlumbingWorkflow
-                            ? 'Confirm the Plumbing-only scope before pricing.'
-                            : 'Confirm Plumbing scope before pricing.'
-                          : next.scopeChecklist?.intro ||
-                            'Confirm Plumbing scope before pricing.',
+                        : planImportTradeKey === 'hvac'
+                          ? 'Confirm HVAC systems, capacity, distribution, add-ons, and cleanup before pricing.'
+                          : planImportTradeKey === 'windows_doors'
+                            ? 'Confirm windows, exterior swing/French openings, explicit sliding units, and interior doors before pricing. Garage doors are a separate trade.'
+                            : planImportTradeKey === 'garage_doors'
+                              ? 'Confirm garage door type counts and openers before pricing.'
+                              : planImportTradeKey === 'plumbing'
+                                ? standalonePlumbingWorkflow
+                                  ? 'Confirm the Plumbing-only scope before pricing.'
+                                  : 'Confirm Plumbing scope before pricing.'
+                                : next.scopeChecklist?.intro ||
+                                  'Confirm Plumbing scope before pricing.',
       },
     };
   }
@@ -5071,8 +5031,7 @@ export function applyPlanImportToDraft(
       scopeMeasurements as Record<string, unknown>,
       {
         rooms: scopeMeasurements.planRooms || rooms,
-        openingSchedules:
-          scopeMeasurements.planFacts?.openingSchedules ?? null,
+        openingSchedules: scopeMeasurements.planFacts?.openingSchedules ?? null,
       }
     );
     for (const key of GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS) {
@@ -5609,9 +5568,13 @@ function physicalScopeQuantityFromRoom(
   draft: EstimateAiDraft,
   packageName: string
 ): { quantity: number; unit: string } | null {
-  const roomQty = (draft.rooms || []).find((room) => room.name === packageName)
+  const roomQty = (draft.rooms || []).find(room => room.name === packageName)
     ?.scopeQuantities?.[0];
-  if (roomQty?.quantity == null || !(Number(roomQty.quantity) > 0) || !roomQty.unit) {
+  if (
+    roomQty?.quantity == null ||
+    !(Number(roomQty.quantity) > 0) ||
+    !roomQty.unit
+  ) {
     return null;
   }
   const unit = String(roomQty.unit).toLowerCase();

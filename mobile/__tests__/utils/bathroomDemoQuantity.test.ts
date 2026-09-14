@@ -48,6 +48,24 @@ describe('bathroom demo quantity split', () => {
     expect(resolved?.sourceLabel).toBe('Floor + shower walls + shower floor');
   });
 
+  test('room remodel demo uses the drywall demolition area', () => {
+    const resolved = resolveChecklistItemQuantity(
+      'demo',
+      normalizeScopeMeasurements({ wallDemoSqft: '150' }),
+      {
+        templateKey: 'room_remodel',
+        notes: 'Remove 150 sqft of damaged drywall.',
+      }
+    );
+
+    expect(resolved).toMatchObject({
+      quantity: 150,
+      unit: 'sqft',
+      pricingReady: true,
+    });
+    expect(resolved?.quantityHelper).toMatch(/drywall demolition/i);
+  });
+
   test('floor_demo suggested pricing uses bath floor sqft at national demo rates', () => {
     const input = {
       ...emptyQuickMeasurementInput(),

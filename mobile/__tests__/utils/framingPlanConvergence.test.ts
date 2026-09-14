@@ -122,6 +122,64 @@ describe('framing canonical architecture', () => {
     ).toEqual({ wallFramingLf: 24 });
   });
 
+  it('parses mixed remodel framing area and opening counts', () => {
+    expect(
+      parseFramingMeasurementsFromNotes(
+        'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.'
+      )
+    ).toEqual({
+      framedAreaSqft: 1600,
+      framingOpeningCount: 2,
+    });
+  });
+
+  it('prices mixed-remodel framing from the explicit framed area', () => {
+    const measurements = buildNormalizedScopeMeasurementsFromInput({
+      framedAreaSqft: '1600',
+      sheathingSqft: '200',
+      quickMeasurementSources: {
+        framedAreaSqft: 'user_entered',
+        sheathingSqft: 'user_entered',
+      },
+      quickMeasurementUserOverrides: {
+        framedAreaSqft: true,
+        sheathingSqft: true,
+      },
+    });
+    expect(measurements.framedAreaSqft).toBe(1600);
+    expect(measurements.sheathingSqft).toBe(200);
+    expect(
+      getChecklistItemQuantityRule('framing', 'room_remodel')?.measurementKeys
+    ).toContain('framedAreaSqft');
+    expect(
+      getChecklistItemQuantityRule('shear_sheathing', 'room_remodel')
+        ?.measurementKeys
+    ).toContain('sheathingSqft');
+
+    expect(
+      resolveChecklistItemQuantity('framing', measurements, {
+        templateKey: 'room_remodel',
+      })
+    ).toMatchObject({
+      quantity: 1600,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+      sourceLabel: 'User entered',
+      pricingReady: true,
+    });
+    expect(
+      resolveChecklistItemQuantity('shear_sheathing', measurements, {
+        templateKey: 'room_remodel',
+      })
+    ).toMatchObject({
+      quantity: 200,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+      sourceLabel: 'User entered',
+      pricingReady: true,
+    });
+  });
+
   it('parses room-addition framing takeoffs from natural note language', () => {
     expect(
       parseFramingMeasurementsFromNotes(

@@ -170,6 +170,17 @@ function inferConcreteScopeIds(notes, measurements = {}) {
   }
 
   if (
+    /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;\n]{0,40}\b(?:concrete|slab|sidewalk|driveway|patio)\b/.test(
+      blob,
+    ) ||
+    /\b(?:concrete|slab|sidewalk|driveway|patio)\b[^.;\n]{0,40}\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b/.test(
+      blob,
+    )
+  ) {
+    ids.add("demo_removal");
+  }
+
+  if (
     /\b(?:excavat(?:e|ion)|dig(?:ging)?|dig\s+out|trench(?:ing)?)\b/.test(blob) ||
     positiveNumber(measurements.excavationCy)
   ) {
@@ -214,6 +225,25 @@ function inferConcreteScopeIds(notes, measurements = {}) {
     positiveNumber(measurements.concretePumpCount)
   ) {
     ids.add("concrete_pumping");
+  }
+
+  if (/\bretaining\s+walls?\b/.test(blob)) ids.add("retaining_wall");
+  if (/\bpavers?\b/.test(blob)) ids.add("pavers");
+  if (/\blandscap(?:e|ing)\b/.test(blob)) ids.add("landscaping");
+  if (/\bexterior\s+doors?\b/.test(blob)) ids.add("exterior_doors");
+  if (
+    /\bsiding\b[^.;\n]{0,35}\b(?:repair|repairs|replace|replacement|patch)\b|\b(?:repair|repairs|replace|replacement|patch)\b[^.;\n]{0,35}\bsiding\b/.test(
+      blob,
+    )
+  ) {
+    ids.add("siding_repairs");
+  }
+  if (
+    /\b(?:exterior|outside)\s+trim\b[^.;\n]{0,35}\b(?:paint|painting|finish)\b|\b(?:paint|painting|finish)\b[^.;\n]{0,35}\b(?:exterior|outside)\s+trim\b/.test(
+      blob,
+    )
+  ) {
+    ids.add("exterior_trim_paint");
   }
 
   if (structuralOnly || positiveNumber(measurements.concreteCy)) {

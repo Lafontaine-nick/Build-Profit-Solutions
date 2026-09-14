@@ -16,6 +16,7 @@ export type QuickMeasurementFieldKey =
   | 'cabinetLf'
   | 'showerWallTileSqft'
   | 'showerFloorTileSqft'
+  | 'wallDemoSqft'
   | 'wallPaintSqft'
   | 'ceilingPaintSqft'
   | 'paintAreaSqft'
@@ -37,6 +38,8 @@ export type QuickMeasurementFieldKey =
   | 'cabinetRunLf'
   | 'railingLf'
   | 'landscapeSqft'
+  | 'sidingRepairSqft'
+  | 'retainingWallLf'
   | 'artificialTurfSqft'
   | 'demoClearingSqft'
   | 'gradingSqft'
@@ -187,11 +190,7 @@ export type QuickMeasurementFieldKey =
   | 'framingCleanupCount';
 
 export type QuickMeasurementGroupId =
-  | 'site'
-  | 'structure'
-  | 'interior'
-  | 'exterior'
-  | 'other';
+  'site' | 'structure' | 'interior' | 'exterior' | 'other';
 
 export type QuickMeasurementFieldDef = {
   key: QuickMeasurementFieldKey;
@@ -304,6 +303,15 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     '320',
     'sqft',
     'interior'
+  ),
+  wallDemoSqft: F(
+    'wallDemoSqft',
+    'Wall demolition area',
+    'Enter',
+    'sqft',
+    'structure',
+    undefined,
+    'Area of existing walls explicitly identified for demolition.'
   ),
   ceilingPaintSqft: F(
     'ceilingPaintSqft',
@@ -433,6 +441,24 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
   ),
   railingLf: F('railingLf', 'Railing', '48', 'LF', 'exterior'),
   landscapeSqft: F('landscapeSqft', 'Coverage', '1200', 'sqft', 'site'),
+  sidingRepairSqft: F(
+    'sidingRepairSqft',
+    'Siding repair area',
+    'Enter',
+    'sqft',
+    'exterior',
+    undefined,
+    'Enter the affected siding repair area; do not use the patio or paver area.'
+  ),
+  retainingWallLf: F(
+    'retainingWallLf',
+    'Retaining wall length',
+    'Enter',
+    'LF',
+    'site',
+    undefined,
+    'Enter the retaining-wall length. Confirm wall height, drainage, footing, and engineering separately.'
+  ),
   artificialTurfSqft: F(
     'artificialTurfSqft',
     'Artificial turf',
@@ -1182,6 +1208,7 @@ const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
   'deckSqft',
   'garageSqft',
   'roofSquares',
+  'roofDeckingReplacementSqft',
   'concreteSqft',
   'concreteCy',
   'excavationCy',
@@ -1194,6 +1221,7 @@ const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
   'countertopSqft',
   'countertopLf',
   'cabinetLf',
+  'wallDemoSqft',
   'wallPaintSqft',
   'ceilingPaintSqft',
   'paintAreaSqft',
@@ -1206,6 +1234,12 @@ const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
   'flooringSqft',
   'baseboardLf',
   'landscapeSqft',
+  'sidingRepairSqft',
+  'retainingWallLf',
+  'framedAreaSqft',
+  'wallFramingLf',
+  'sheathingSqft',
+  'framingOpeningCount',
 ];
 
 /** Plan Export Framing rows for ground-up/addition takeoffs. */
@@ -1425,7 +1459,13 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
     row(F('baseboardLf', 'Baseboard', 'e.g. 200', 'LF', 'interior')),
     row(
       F('windowCount', 'Windows', 'Enter count', 'each', 'exterior'),
-      F('exteriorDoorCount', 'Exterior doors', 'Enter count', 'each', 'exterior')
+      F(
+        'exteriorDoorCount',
+        'Exterior doors',
+        'Enter count',
+        'each',
+        'exterior'
+      )
     ),
     row(
       F(
@@ -2349,6 +2389,21 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
       notes
     );
   if (framingFocusedAddition) return 'framing';
+  const structuralMixedScope =
+    /\b(?:frame|framing|framed|headers?|blocking|structural\s+sheathing|sheathing)\b/i.test(
+      notes
+    ) &&
+    /\b(?:drywall|sheetrock|flooring|lvp|paint(?:ing)?|insulation|windows?|doors?)\b/i.test(
+      notes
+    );
+  if (
+    structuralMixedScope &&
+    ['windows_doors', 'painting', 'drywall', 'flooring', 'insulation'].includes(
+      resolved
+    )
+  ) {
+    return 'room_remodel';
+  }
   if (
     resolved === 'room_remodel' &&
     insulationRequested &&
@@ -2357,9 +2412,7 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
     return 'insulation';
   }
   const hasKitchenScope = /\bkitchen\b/i.test(notes);
-  const hasBathroomScope = /\bbathroom\b|\bbathrooms\b|\bbaths?\b/i.test(
-    notes
-  );
+  const hasBathroomScope = /\bbathroom\b|\bbathrooms\b|\bbaths?\b/i.test(notes);
   const hasMultipleBathrooms =
     /\b(?:\d+|one|two|three|four|five|multiple)\s+bathrooms?\b/i.test(notes);
   const isMultiRoomRemodel =
@@ -2452,19 +2505,24 @@ export function quickMeasurementRowsForTemplate(
     key,
     notes
   );
+  const framingRows =
+    key === 'framing' &&
+    !mixedFiltered.some(row => row.some(field => field.key === 'wallDemoSqft'))
+      ? [...mixedFiltered, [QUICK_MEASUREMENT_FIELD_DEFS.wallDemoSqft]]
+      : mixedFiltered;
   const remodelRows =
     key === 'room_remodel' &&
     /\b(?:\d[\d,]*(?:\.\d+)?)\s*(?:linear\s+feet|linear\s+foot|lf)\s+(?:of\s+)?(?:kitchen\s+)?countertops?\b/i.test(
       String(notes || '')
     )
-      ? mixedFiltered.map(row =>
+      ? framingRows.map(row =>
           row.map(field =>
             field.key === 'countertopSqft'
               ? QUICK_MEASUREMENT_FIELD_DEFS.countertopLf!
               : field
           )
         )
-      : mixedFiltered;
+      : framingRows;
   const noteBackedCrossTradeFields = (field: QuickMeasurementFieldDef) => {
     if (field.key === 'windowCount') {
       return /\bwindows?\b/i.test(framingNoteText);
@@ -2480,17 +2538,23 @@ export function quickMeasurementRowsForTemplate(
       .filter(row => row.length > 0);
   }
   const remodelNoteText = String(notes || '');
-  const hasPaint = /\b(?:paint(?:ing)?|repaint)\b/i.test(remodelNoteText);
+  const hasPaint = notesRequireInteriorPaintMeasurements(remodelNoteText);
   const hasFlooring =
     !/\bfloor(?:ing)?\s+protection\b/i.test(remodelNoteText) &&
-    /\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,80}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;\n]{0,80}\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+    (/\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,80}\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b|\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b[^.;\n]{0,80}\b(?:install|installation|replace|replacement|new|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
       remodelNoteText
-    );
+    ) ||
+      /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
+        remodelNoteText
+      ));
   const hasDrywall =
     /\b(?:drywall|sheetrock|patch(?:ing)?|wall\s+repair)\b/i.test(
       remodelNoteText
     );
-  const hasBaseboard = /\bbaseboards?\b|\btrim\b/i.test(remodelNoteText);
+  const hasBaseboard =
+    /\bbaseboards?\b|\bbase\s*board\b|\b(?:interior|inside)\s+trim\b/i.test(
+      remodelNoteText
+    );
   const optionalKeys = new Set<QuickMeasurementFieldKey>([
     'floorAreaSqft',
     'flooringSqft',
@@ -2641,8 +2705,7 @@ function filterMixedInteriorRefreshRows(
           field.key !== 'bathroomFloorSqft' &&
           (field.key !== 'floorAreaSqft' ||
             !isMixedInteriorRefreshNotes(notes)) &&
-          (field.key !== 'paintAreaSqft' ||
-            !isCombinedInteriorPaintNote(notes))
+          (field.key !== 'paintAreaSqft' || !isCombinedInteriorPaintNote(notes))
       )
     )
     .filter(row => row.length > 0);
@@ -2667,7 +2730,7 @@ export function notesRequireInteriorPaintMeasurements(
     ) ||
     /\b(?:interior\s+)?(?:wall|ceiling)s?\b[^.;\n]{0,50}\b(?:paint|painting|repaint)\b/i.test(
       text
-    )
+    );
   if (explicitSurfacePaint) return true;
   // A generic interior "paint" instruction still needs a paint-area
   // confirmation field. Do not create a wall-paint field for cabinet, trim,
@@ -2721,6 +2784,19 @@ function applyDrywallNoteSemantics(
     /\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,35}\b(?:patch|repair|texture|skim\s*coat)\b|\b(?:patch|repair|texture|skim\s*coat)\b[^.;\n]{0,35}\b(?:drywall|sheetrock|gypsum)\b/i.test(
       text
     );
+  const hasTextureWork = /\b(?:texture|skim\s*coat)\b/i.test(text);
+  const hasDrywallRepair =
+    /\b(?:repair|repaired|patch(?:ing)?)\b[^.;\n]{0,35}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,35}\b(?:repair|repaired|patch(?:ing)?)\b/i.test(
+      text
+    );
+  const hasDrywallDemo =
+    /\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b|\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b/i.test(
+      text
+    );
+  const hasDrywallInstall =
+    /\b(?:hang|install|installation)\b[^.;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,60}\b(?:hang|install|installation)\b/i.test(
+      text
+    );
   return rows
     .map(row =>
       row
@@ -2731,13 +2807,28 @@ function applyDrywallNoteSemantics(
           if (field.key === 'drywallSqft') {
             return {
               ...field,
-              label: hasPatch ? 'Drywall patch & texture' : 'Drywall',
+              label: hasPatch
+                ? hasDrywallRepair && !hasTextureWork
+                  ? 'Drywall repair area'
+                  : 'Drywall patch & texture'
+                : hasDrywallInstall
+                  ? 'Drywall install'
+                  : 'Drywall',
+            };
+          }
+          if (field.key === 'wallDemoSqft' && hasDrywallDemo) {
+            return {
+              ...field,
+              label: 'Drywall demolition area',
+              helperText:
+                'Square feet of damaged drywall explicitly identified for demolition or removal.',
             };
           }
           return field;
         })
-        .filter((field, index, fields) =>
-          fields.findIndex(candidate => candidate.key === field.key) === index
+        .filter(
+          (field, index, fields) =>
+            fields.findIndex(candidate => candidate.key === field.key) === index
         )
     )
     .filter(row => row.length > 0);
@@ -2799,18 +2890,17 @@ export function quickMeasurementRowsForInput(
       ));
   if (
     hasInteriorDoorScope &&
-    !baseRows.some(row =>
-      row.some(field => field.key === 'interiorDoorCount')
-    )
+    !baseRows.some(row => row.some(field => field.key === 'interiorDoorCount'))
   ) {
-    baseRows = [
-      ...baseRows,
-      [QUICK_MEASUREMENT_FIELD_DEFS.interiorDoorCount],
-    ];
+    baseRows = [...baseRows, [QUICK_MEASUREMENT_FIELD_DEFS.interiorDoorCount]];
   }
   const noteBackedFieldsToAppend: QuickMeasurementFieldDef[] = [];
+  const exteriorTrimPaintMentioned =
+    /\b(?:exterior|outside)\s+trim\b[^.;\n]{0,35}\b(?:paint|painting|finish)\b|\b(?:paint|painting|finish)\b[^.;\n]{0,35}\b(?:exterior|outside)\s+trim\b/i.test(
+      scopeNotes
+    );
   const paintMentionedWithoutMeasuredArea =
-    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(scopeNotes) &&
+    notesRequireInteriorPaintMeasurements(scopeNotes) &&
     !/\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.,;\n]{0,40}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b[^.,;\n]{0,40}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
       scopeNotes
     );
@@ -2822,12 +2912,97 @@ export function quickMeasurementRowsForInput(
   ) {
     noteBackedFieldsToAppend.push(QUICK_MEASUREMENT_FIELD_DEFS.wallPaintSqft);
   }
+  const flooringRemovalMentioned =
+    (resolvedKey === 'room_remodel' || resolvedKey === 'flooring') &&
+    /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.;\n]{0,60}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i.test(
+      scopeNotes
+    );
+  if (
+    flooringRemovalMentioned &&
+    !baseRows.some(row => row.some(field => field.key === 'floorDemoSqft')) &&
+    QUICK_MEASUREMENT_FIELD_DEFS.floorDemoSqft
+  ) {
+    noteBackedFieldsToAppend.push({
+      ...QUICK_MEASUREMENT_FIELD_DEFS.floorDemoSqft,
+      label: 'Flooring removal',
+      helperText:
+        'Square feet of existing flooring explicitly identified for removal.',
+    });
+  }
   if (
     /\bwindows?\b/i.test(scopeNotes) &&
     !baseRows.some(row => row.some(field => field.key === 'windowCount')) &&
     QUICK_MEASUREMENT_FIELD_DEFS.windowCount
   ) {
     noteBackedFieldsToAppend.push(QUICK_MEASUREMENT_FIELD_DEFS.windowCount);
+  }
+  const roofDeckingRepairMentioned =
+    /\b(?:roof|roofing|shingles?)\b/i.test(scopeNotes) &&
+    /\b(?:repair|replace|sheath|sheathing)\b[^.;,\n]{0,45}\bdeck(?:ing)?\b|\bdeck(?:ing)?\b[^.;,\n]{0,45}\b(?:repair|replace|sheath|sheathing)\b/i.test(
+      scopeNotes
+    );
+  if (
+    roofDeckingRepairMentioned &&
+    !baseRows.some(row =>
+      row.some(field => field.key === 'roofDeckingReplacementSqft')
+    ) &&
+    QUICK_MEASUREMENT_FIELD_DEFS.roofDeckingReplacementSqft
+  ) {
+    noteBackedFieldsToAppend.push({
+      ...QUICK_MEASUREMENT_FIELD_DEFS.roofDeckingReplacementSqft,
+      label: 'Roof decking repair',
+      helperText:
+        'Square feet of roof decking identified for repair or replacement.',
+    });
+  }
+  if (
+    /\b(?:exterior|outside)\s+doors?\b/i.test(scopeNotes) &&
+    !baseRows.some(row =>
+      row.some(field => field.key === 'exteriorDoorCount')
+    ) &&
+    QUICK_MEASUREMENT_FIELD_DEFS.exteriorDoorCount
+  ) {
+    noteBackedFieldsToAppend.push(
+      QUICK_MEASUREMENT_FIELD_DEFS.exteriorDoorCount
+    );
+  }
+  const mixedExteriorCompanionMeasurements =
+    resolvedKey === 'concrete' &&
+    /\b(?:retaining\s+walls?|landscap(?:e|ing)|siding\s+(?:repairs?|replacement)|repair(?:s|ing)?\s+siding)\b/i.test(
+      scopeNotes
+    );
+  if (mixedExteriorCompanionMeasurements) {
+    if (
+      /\blandscap(?:e|ing)\b/i.test(scopeNotes) &&
+      QUICK_MEASUREMENT_FIELD_DEFS.landscapeSqft &&
+      !baseRows.some(row => row.some(field => field.key === 'landscapeSqft'))
+    ) {
+      noteBackedFieldsToAppend.push({
+        ...QUICK_MEASUREMENT_FIELD_DEFS.landscapeSqft,
+        label: 'Landscaping area',
+        placeholder: 'Enter',
+        helperText:
+          'Enter the landscaping area; the notes identify landscaping but do not specify its measurement.',
+      });
+    }
+    if (
+      /\b(?:siding\s+(?:repairs?|replacement)|repair(?:s|ing)?\s+siding)\b/i.test(
+        scopeNotes
+      ) &&
+      QUICK_MEASUREMENT_FIELD_DEFS.sidingRepairSqft
+    ) {
+      noteBackedFieldsToAppend.push(
+        QUICK_MEASUREMENT_FIELD_DEFS.sidingRepairSqft
+      );
+    }
+    if (
+      /\bretaining\s+walls?\b/i.test(scopeNotes) &&
+      QUICK_MEASUREMENT_FIELD_DEFS.retainingWallLf
+    ) {
+      noteBackedFieldsToAppend.push(
+        QUICK_MEASUREMENT_FIELD_DEFS.retainingWallLf
+      );
+    }
   }
   const atticInsulationMentioned =
     /\b(?:attic|roof\s+space|ceiling)\s+insulation\b|\bR[-\s]?\d{2,3}\b[^.;\n]{0,25}\battic\b/i.test(
@@ -2846,12 +3021,81 @@ export function quickMeasurementRowsForInput(
   }
   if (
     /\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i.test(scopeNotes) &&
-    !baseRows.some(row => row.some(field => field.key === 'insulationRValue')) &&
+    !baseRows.some(row =>
+      row.some(field => field.key === 'insulationRValue')
+    ) &&
     QUICK_MEASUREMENT_FIELD_DEFS.insulationRValue
   ) {
     noteBackedFieldsToAppend.push(
       QUICK_MEASUREMENT_FIELD_DEFS.insulationRValue
     );
+  }
+  if (
+    resolvedKey === 'room_remodel' ||
+    resolvedKey === 'painting' ||
+    resolvedKey === 'framing'
+  ) {
+    const structuralFramingMention =
+      /\b(?:frame|framing|framed)\b[^.;\n]{0,45}\bwalls?\b|\bwalls?\b[^.;\n]{0,45}\b(?:frame|framing|framed)\b/i.test(
+        scopeNotes
+      );
+    const sheathingMention = /\b(?:structural\s+)?sheathing\b/i.test(
+      scopeNotes
+    );
+    const openingMention =
+      /\b(?:\w+\s+)?(?:door|window)\s+openings?\b|\b(?:rough\s+)?openings?\b|\bheaders?\b/i.test(
+        scopeNotes
+      );
+    const wallDemoMention =
+      /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;\n]{0,55}\b(?:walls?|drywall|sheetrock|gypsum)\b|\b(?:walls?|drywall|sheetrock|gypsum)\b[^.;\n]{0,55}\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b/i.test(
+        scopeNotes
+      );
+    if (
+      (wallDemoMention || resolvedKey === 'framing') &&
+      !baseRows.some(row => row.some(field => field.key === 'wallDemoSqft'))
+    ) {
+      const drywallDemoMention =
+        /\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b|\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b/i.test(
+          scopeNotes
+        );
+      noteBackedFieldsToAppend.push(
+        drywallDemoMention
+          ? {
+              ...QUICK_MEASUREMENT_FIELD_DEFS.wallDemoSqft,
+              label: 'Drywall demolition area',
+              helperText:
+                'Square feet of damaged drywall explicitly identified for demolition or removal.',
+            }
+          : QUICK_MEASUREMENT_FIELD_DEFS.wallDemoSqft
+      );
+    }
+    if (
+      structuralFramingMention &&
+      !baseRows.some(row => row.some(field => field.key === 'framedAreaSqft'))
+    ) {
+      noteBackedFieldsToAppend.push({
+        ...QUICK_MEASUREMENT_FIELD_DEFS.framedAreaSqft,
+        label: 'Wall framing area',
+        helperText:
+          'Square feet of walls explicitly identified for framing in the notes.',
+      });
+    }
+    if (
+      sheathingMention &&
+      !baseRows.some(row => row.some(field => field.key === 'sheathingSqft'))
+    ) {
+      noteBackedFieldsToAppend.push(QUICK_MEASUREMENT_FIELD_DEFS.sheathingSqft);
+    }
+    if (
+      openingMention &&
+      !baseRows.some(row =>
+        row.some(field => field.key === 'framingOpeningCount')
+      )
+    ) {
+      noteBackedFieldsToAppend.push(
+        QUICK_MEASUREMENT_FIELD_DEFS.framingOpeningCount
+      );
+    }
   }
   if (noteBackedFieldsToAppend.length) {
     baseRows = [...baseRows, ...chunkRows(noteBackedFieldsToAppend)];
@@ -2864,8 +3108,7 @@ export function quickMeasurementRowsForInput(
     noteKeySet?.has('drywallSqft') &&
     noteKeySet.has('patchRepairSqft') &&
     hasQuickMeasurementValue(measurements.drywallSqft) &&
-    Number(measurements.drywallSqft) ===
-      Number(measurements.patchRepairSqft);
+    Number(measurements.drywallSqft) === Number(measurements.patchRepairSqft);
   const extraFields = plumbingRowsAreExplicit
     ? []
     : NOTE_BACKED_QUICK_FIELD_ORDER.filter(
@@ -2873,6 +3116,7 @@ export function quickMeasurementRowsForInput(
           !baseKeys.has(key) &&
           (!noteKeySet || noteKeySet.has(key)) &&
           hasQuickMeasurementValue(measurements[key]) &&
+          !(key === 'deckSqft' && resolvedKey === 'concrete') &&
           !(
             key === 'paintAreaSqft' &&
             resolvedKey === 'room_remodel' &&
@@ -2983,13 +3227,42 @@ export function quickMeasurementRowsForInput(
     }
   }
 
+  if (
+    resolvedKey === 'concrete' &&
+    exteriorTrimPaintMentioned &&
+    QUICK_MEASUREMENT_FIELD_DEFS.exteriorPaintSqft &&
+    !baseRows.some(row => row.some(field => field.key === 'exteriorPaintSqft'))
+  ) {
+    baseRows = [
+      ...baseRows,
+      [
+        {
+          ...QUICK_MEASUREMENT_FIELD_DEFS.exteriorPaintSqft,
+          label: 'Exterior trim paint',
+          helperText:
+            'Enter the exterior trim paint area; the notes identify the work but do not specify its measurement.',
+          placeholder: 'Enter',
+        },
+      ],
+    ];
+  }
+
   const noteBackedCrossTradeFields = (field: QuickMeasurementFieldDef) => {
     const noteText = String(options?.scopeNotes || '');
+    const roofDeckingRepairMentioned =
+      /\b(?:roof|roofing|shingles?)\b/i.test(noteText) &&
+      /\b(?:repair|replace|sheath|sheathing)\b[^.;,\n]{0,45}\bdeck(?:ing)?\b|\bdeck(?:ing)?\b[^.;,\n]{0,45}\b(?:repair|replace|sheath|sheathing)\b/i.test(
+        noteText
+      );
     if (field.key === 'windowCount') {
       return /\bwindows?\b/i.test(noteText);
     }
     if (field.key === 'exteriorDoorCount') {
       return /\b(?:exterior|outside)\s+doors?\b/i.test(noteText);
+    }
+    if (field.key === 'deckSqft') return !roofDeckingRepairMentioned;
+    if (field.key === 'roofDeckingReplacementSqft') {
+      return roofDeckingRepairMentioned;
     }
     return true;
   };
@@ -2999,9 +3272,23 @@ export function quickMeasurementRowsForInput(
   const filteredExtras = extraFields.filter(noteBackedCrossTradeFields);
   const paintMentionedWithoutSurface =
     /\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(scopeNotes) &&
-    !/\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.,;\n]{0,50}\b(?:walls?|ceilings?)\b|\b(?:walls?|ceilings?)\b[^.,;\n]{0,50}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+    !/\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,20}\b(?:walls?|ceilings?)\b|\b(?:walls?|ceilings?)\b[^.;\n]{0,20}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
       scopeNotes
     );
+  const paintWallsMentioned =
+    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,20}\bwalls?\b|\bwalls?\b[^.;\n]{0,20}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+      scopeNotes
+    );
+  const paintCeilingsMentioned =
+    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,20}\bceilings?\b|\bceilings?\b[^.;\n]{0,20}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+      scopeNotes
+    );
+  const separatePaintSurfaceAreas =
+    /\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b[^.;\n]{0,25}\bwalls?\b[^.;\n]{0,25}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b[^.;\n]{0,25}\bceilings?\b|\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b[^.;\n]{0,25}\bceilings?\b[^.;\n]{0,25}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b[^.;\n]{0,25}\bwalls?\b|\bwalls?\b[^.;\n]{0,25}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b[^.;\n]{0,25}\bceilings?\b[^.;\n]{0,25}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b|\bceilings?\b[^.;\n]{0,25}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b[^.;\n]{0,25}\bwalls?\b[^.;\n]{0,25}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b/i.test(
+      scopeNotes
+    );
+  const combinedWallsAndCeilingsPaint =
+    paintWallsMentioned && paintCeilingsMentioned && !separatePaintSurfaceAreas;
   const normalizeGenericPaintRows = (rows: QuickMeasurementRow[]) =>
     rows
       .map(row =>
@@ -3009,21 +3296,68 @@ export function quickMeasurementRowsForInput(
           .filter(
             field =>
               !(
-                paintMentionedWithoutSurface &&
+                paintMentionedWithoutSurface && field.key === 'ceilingPaintSqft'
+              ) &&
+              !(
+                paintWallsMentioned &&
+                !paintCeilingsMentioned &&
                 field.key === 'ceilingPaintSqft'
+              ) &&
+              !(
+                paintCeilingsMentioned &&
+                !paintWallsMentioned &&
+                field.key === 'wallPaintSqft'
+              ) &&
+              !(
+                combinedWallsAndCeilingsPaint &&
+                field.key === 'ceilingPaintSqft'
+              ) &&
+              !(
+                combinedWallsAndCeilingsPaint &&
+                field.key === 'paintAreaSqft' &&
+                rows.some(candidateRow =>
+                  candidateRow.some(
+                    candidate => candidate.key === 'wallPaintSqft'
+                  )
+                )
               )
           )
           .map(field =>
-            paintMentionedWithoutSurface && field.key === 'wallPaintSqft'
-              ? { ...field, label: 'Paint' }
-              : field
+            field.key === 'wallPaintSqft'
+              ? {
+                  ...field,
+                  label: combinedWallsAndCeilingsPaint
+                    ? 'Walls & ceilings paint'
+                    : paintWallsMentioned
+                      ? 'Walls paint'
+                      : paintMentionedWithoutSurface
+                        ? 'Paint'
+                        : field.label,
+                }
+              : field.key === 'ceilingPaintSqft' && paintCeilingsMentioned
+                ? { ...field, label: 'Ceilings paint' }
+                : field
           )
       )
       .filter(row => row.length > 0);
-  const normalizedRows = normalizeGenericPaintRows(filteredRows);
+  const roofReplacementMentioned =
+    /\b(?:replace|replacement|install|new|re[\s-]?roof|reroof)\b[^.;,\n]{0,60}\b(?:roof|roofing|shingles?)\b|\b(?:roof|roofing|shingles?)\b[^.;,\n]{0,60}\b(?:replace|replacement|install|new|re[\s-]?roof|reroof)\b/i.test(
+      scopeNotes
+    );
+  const applyContextLabels = (row: QuickMeasurementRow) =>
+    row.map(field =>
+      field.key === 'roofSquares' && roofReplacementMentioned
+        ? { ...field, label: 'Roofing replacement' }
+        : field.key === 'roofDeckingReplacementSqft' &&
+            roofDeckingRepairMentioned
+          ? { ...field, label: 'Roof decking repair' }
+          : field
+    );
+  const normalizedRows =
+    normalizeGenericPaintRows(filteredRows).map(applyContextLabels);
   if (!filteredExtras.length) return normalizedRows;
   return [...normalizedRows, ...chunkRows(filteredExtras)].map(row =>
-    normalizeGenericPaintRows([row])[0] || row
+    applyContextLabels(normalizeGenericPaintRows([row])[0] || row)
   );
 }
 
@@ -3142,7 +3476,7 @@ export function quickMeasurementPlaceholder(
   ) {
     return 'Enter';
   }
-  if (field.key === 'flooringSqft') return 'Not measured';
+  if (field.key === 'flooringSqft') return 'Enter';
   return 'Enter';
 }
 
@@ -3150,7 +3484,10 @@ export function quickMeasurementDisplayLabel(
   field: QuickMeasurementFieldDef
 ): string {
   if (!measurementSemanticsV1Enabled()) return field.label;
-  if (field.key === 'flooringSqft') return 'Total Flooring Area';
+  if (field.key === 'flooringSqft' && field.label !== 'Flooring installation') {
+    return 'Total Flooring Area';
+  }
+  if (field.key === 'windowCount') return 'Window install';
   if (field.key === 'floorAreaSqft' && field.label === 'Floor area')
     return 'Living area';
   return field.label;
@@ -3190,6 +3527,7 @@ export function emptyQuickMeasurementInput(): Record<
     cabinetLf: '',
     showerWallTileSqft: '',
     showerFloorTileSqft: '',
+    wallDemoSqft: '',
     wallPaintSqft: '',
     ceilingPaintSqft: '',
     paintAreaSqft: '',
@@ -3204,6 +3542,8 @@ export function emptyQuickMeasurementInput(): Record<
     cabinetRunLf: '',
     railingLf: '',
     landscapeSqft: '',
+    sidingRepairSqft: '',
+    retainingWallLf: '',
     artificialTurfSqft: '',
     demoClearingSqft: '',
     gradingSqft: '',

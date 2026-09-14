@@ -200,6 +200,53 @@ export function formatScopeQuantity(
   draft?: EstimateAiDraft | null
 ): string | null {
   const q = pkg.scopeQuantities?.[0];
+  if (!q && draft) {
+    const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+    const itemQuantities =
+      measurements.itemQuantities &&
+      typeof measurements.itemQuantities === 'object' &&
+      !Array.isArray(measurements.itemQuantities)
+        ? (measurements.itemQuantities as Record<string, { quantity?: unknown }>)
+        : {};
+    const ruleKey =
+      pkg.checklistItemId ||
+      pkg.costCode ||
+      lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
+      '';
+    const measurementByRule: Record<string, { value?: unknown; unit: string }> = {
+      roofing: { value: measurements.roofSquares, unit: 'squares' },
+      shingles_roofing: { value: measurements.roofSquares, unit: 'squares' },
+      tear_off: { value: measurements.roofSquares, unit: 'squares' },
+      decking_repair: { value: measurements.roofDeckingReplacementSqft, unit: 'sqft' },
+      window_install: { value: measurements.windowCount, unit: 'each' },
+      windows: { value: measurements.windowCount, unit: 'each' },
+      windows_doors: { value: measurements.windowCount, unit: 'each' },
+      window_replacement: { value: measurements.windowCount, unit: 'each' },
+      window_installation: { value: measurements.windowCount, unit: 'each' },
+      drywall: { value: measurements.drywallSqft, unit: 'sqft' },
+      patch_repair: { value: measurements.drywallSqft, unit: 'sqft' },
+      ceiling_paint: { value: measurements.ceilingPaintSqft, unit: 'sqft' },
+      gutters: { value: measurements.roofGutterLf, unit: 'lf' },
+      downspouts: { value: measurements.roofDownspoutCount, unit: 'each' },
+      insulation: {
+        value: measurements.atticInsulationSqft,
+        unit: 'sqft',
+      },
+    };
+    const resolved = measurementByRule[ruleKey];
+    const itemQuantity =
+      itemQuantities[ruleKey]?.quantity ??
+      (['windows', 'windows_doors', 'window_replacement', 'window_installation'].includes(ruleKey)
+        ? itemQuantities.window_install?.quantity
+        : undefined);
+    const value = Number(String(resolved?.value ?? itemQuantity ?? '').replace(/,/g, ''));
+    if (resolved && Number.isFinite(value) && value > 0) {
+      return `${value.toLocaleString()} ${formatDisplayUnit(resolved.unit)}`;
+    }
+    if (ruleKey === 'insulation' && measurements.insulationRValue) {
+      return String(measurements.insulationRValue);
+    }
+  }
   if (!q) return null;
   // Trade dollar lumps are not soft-cost allowances — show "lump sum" on Step 3.
   const unit =
@@ -461,6 +508,13 @@ export function getCompactStillNeeded(draft: EstimateAiDraft, max = 5): { items:
     if (/partial pricing for/i.test(s)) continue;
     if (/:\s*partial pricing/i.test(s)) continue;
     add(s);
+  }
+  if (!merged.length && !scopeConfirmed) {
+    for (const pkg of getScopePackagesForReview(draft)) {
+      if (!scopePackageNeedsManualPrice(pkg, draft)) continue;
+      const name = String(pkg.name || pkg.scope || 'Scope item').trim();
+      add(`Pricing for ${name}`);
+    }
   }
   const grouped = groupGenericMissingScopeItems(normalizeStillNeededItems(draft, merged));
   return { items: grouped.slice(0, max), overflow: Math.max(0, grouped.length - max) };

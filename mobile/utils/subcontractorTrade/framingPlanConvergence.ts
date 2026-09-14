@@ -353,6 +353,25 @@ export function parseFramingMeasurementsFromNotes(
     const n = Number(String(match[1]).replace(/,/g, ''));
     return Number.isFinite(n) && n > 0 ? n : null;
   };
+  const countToken = (value: string): number | null => {
+    const normalized = String(value).toLowerCase();
+    const wordCounts: Record<string, number> = {
+      one: 1,
+      two: 2,
+      three: 3,
+      four: 4,
+      five: 5,
+      six: 6,
+      seven: 7,
+      eight: 8,
+      nine: 9,
+      ten: 10,
+    };
+    const numeric = Number(normalized.replace(/,/g, ''));
+    return Number.isFinite(numeric) && numeric > 0
+      ? numeric
+      : wordCounts[normalized] ?? null;
+  };
 
   assign(
     'wallFramingLf',
@@ -384,8 +403,11 @@ export function parseFramingMeasurementsFromNotes(
   assign(
     'framedAreaSqft',
     count(
-      /(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:of\s*)?(?:framed|framing)/i
+      /(?:frame|framing|framed)\b[^.;\n]{0,24}?(\d[\d,]*(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:of\s+)?walls?\b/i
     ) ??
+      count(
+        /(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:of\s*)?(?:framed|framing)/i
+      ) ??
       count(
         /(\d+(?:\.\d+)?)\s*(?:sf|sq\s*ft|square\s*feet)\s*(?:room\s+)?addition\b/i
       ) ??
@@ -395,11 +417,13 @@ export function parseFramingMeasurementsFromNotes(
   );
   const openingMatches = Array.from(
     text.matchAll(
-      /(\d+)\s*(?:(?:exterior|interior|entry|new)\s+)?(?:door|window|opening|header)s?\b/gi
+      /(one|two|three|four|five|six|seven|eight|nine|ten|\d[\d,]*)\s*(?:(?:exterior|interior|entry|new)\s+)?(?:door|window)\s+openings?\b|(?:rough\s+)?openings?\s*(?:for\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|\d[\d,]*)\b|(one|two|three|four|five|six|seven|eight|nine|ten|\d[\d,]*)\s+headers?\b|headers?\s+(?:for\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|\d[\d,]*)\s+(?:door|window)s?\b/gi
     )
   );
   const openingTotal = openingMatches.reduce(
-    (sum, match) => sum + Number(String(match[1]).replace(/,/g, '')),
+    (sum, match) =>
+      sum +
+      (countToken(match[1] || match[2] || match[3] || match[4] || '') || 0),
     0
   );
   assign(

@@ -287,8 +287,20 @@ function extractScopeFactsFromNotes(notes, ctx = {}) {
   const explicitSemanticActions = new Set(
     facts.map((entry) => `${semanticObjectKey(entry.quantityKey)}:${entry.action}`),
   );
+  const exteriorTrimPaintOnly =
+    /\b(?:exterior|outside)\s+trim\b[^.;\n]{0,35}\b(?:paint|painting|finish)\b|\b(?:paint|painting|finish)\b[^.;\n]{0,35}\b(?:exterior|outside)\s+trim\b/i.test(
+      text,
+    );
   for (const match of getCatalogShadowMatches(text)) {
     if (!match.scopeId || explicitQuantityKeys.has(match.scopeId)) continue;
+    if (
+      exteriorTrimPaintOnly &&
+      ["paint", "trim", "trim_paint", "baseboard_install"].includes(
+        match.scopeId,
+      )
+    ) {
+      continue;
+    }
     if (
       match.category === "finish" &&
       !/\b(?:paint|finish|stain|refinish)\b/i.test(match.matchedAlias)
@@ -329,6 +341,55 @@ function extractScopeFactsFromNotes(notes, ctx = {}) {
     facts[facts.length - 1].quantityKey = match.scopeId;
     explicitQuantityKeys.add(match.scopeId);
     explicitSemanticActions.add(semanticAction);
+  }
+
+  // "Decking" is ambiguous across trades. When the note also describes roof
+  // work and calls for decking repair/replacement, keep it on the roofing
+  // repair card instead of creating a new-deck installation card.
+  const roofDeckingRepairNote =
+    /\b(?:roof|roofing|shingles?)\b/i.test(text) &&
+    (/\b(?:repair|replace|sheath|sheathing)\b[^.;,\n]{0,35}\bdeck(?:ing)?\b/i.test(
+      text,
+    ) ||
+      /\bdeck(?:ing)?\b[^.;,\n]{0,35}\b(?:repair|replace|sheath|sheathing)\b/i.test(
+        text,
+      ));
+  if (roofDeckingRepairNote) {
+    for (const scopeFact of facts) {
+      if (
+        scopeFact.object !== "decking" &&
+        scopeFact.quantityKey !== "decking"
+      ) {
+        continue;
+      }
+      scopeFact.action = "repair";
+      scopeFact.object = "decking";
+      scopeFact.quantityKey = "decking_repair";
+      scopeFact.quantity =
+        positive(scopeFact.quantity) ||
+        positive(parsed.roofDeckingReplacementSqft);
+      scopeFact.unit = "sqft";
+      scopeFact.certainty =
+        scopeFact.quantity == null
+          ? "explicit_scope_missing_measurement"
+          : "explicit";
+    }
+  }
+
+  // Roofing install and tear-off share the same roof-square takeoff. Preserve
+  // the canonical squares unit instead of treating "28 roofing squares" as
+  // a generic sqft quantity.
+  for (const scopeFact of facts) {
+    if (
+      ["tear_off", "roofing", "shingles_roofing"].includes(
+        scopeFact.quantityKey,
+      ) &&
+      positive(parsed.roofSquares)
+    ) {
+      scopeFact.quantity = positive(parsed.roofSquares);
+      scopeFact.unit = "squares";
+      scopeFact.certainty = "explicit";
+    }
   }
 
   addIntentFact(

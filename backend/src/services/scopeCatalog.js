@@ -59,6 +59,13 @@ const SCOPE_CATALOG = [
     aliases: ["install window", "replace window", "new window"],
   },
   {
+    scopeId: "siding_repairs",
+    displayName: "Siding repairs",
+    trade: "siding",
+    category: "repair",
+    aliases: ["repair siding", "siding repair", "siding repairs", "replace siding"],
+  },
+  {
     scopeId: "door_paint",
     displayName: "Interior door painting",
     trade: "painting",

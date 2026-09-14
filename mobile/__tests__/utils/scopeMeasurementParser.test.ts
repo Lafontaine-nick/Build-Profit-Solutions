@@ -26,6 +26,7 @@ describe('mobile scope measurement parser', () => {
 
     expect(parsed.paintScope).toEqual(['walls', 'ceilings']);
     expect(parsed.paintAreaSqft).toBe(2000);
+    expect(parsed.paintAreaNeedsConfirmation).toBe(false);
     expect(parsed.drywallSqft).toBe(300);
     expect(parsed.flooringSqft).toBe(900);
     expect(parsed.floorAreaSqft).toBeUndefined();
@@ -231,6 +232,18 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.paintAreaSqft).toBeUndefined();
     expect(parsed.wallPaintSqft).toBeUndefined();
     expect(parsed.ceilingPaintSqft).toBeUndefined();
+  });
+
+  it('does not borrow drywall sqft for unquantified flooring in framing notes', () => {
+    const notes =
+      'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'room_remodel',
+      projectType: 'other',
+    });
+
+    expect(parsed.drywallSqft).toBe(1600);
+    expect(parsed.flooringSqft).toBeUndefined();
   });
 
   it('does not borrow paint sqft for unquantified flooring demolition', () => {
@@ -466,6 +479,20 @@ describe('mobile scope measurement parser', () => {
     });
     expect(parsed.roofDeckingReplacementSqft).toBeUndefined();
     expect(parsed.roofSquares).toBe(22);
+  });
+
+  it('keeps cross-trade roof quantities from leaking into deck or roof area fields', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Tear off and remove the existing roof, then replace 28 roofing squares, repair 180 sqft decking, install gutters and downspouts, replace four windows, repair siding, install R-38 attic insulation, repair drywall, and paint ceilings.',
+      { templateKey: 'room_remodel', projectType: 'other' }
+    );
+
+    expect(parsed.roofSquares).toBe(28);
+    expect(parsed.roofAreaSqft).toBeUndefined();
+    expect(parsed.deckSqft).toBeUndefined();
+    expect(parsed.roofDeckingReplacementSqft).toBe(180);
+    expect(parsed.windowCount).toBe(4);
+    expect(parsed.insulationRValue).toBe('R-38');
   });
 
   it('does not turn room-addition area into roof squares for a roof tie-in', () => {
@@ -1177,6 +1204,21 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.concreteSqft).toBe(100);
   });
 
+  it('does not borrow patio or paver areas for exterior paint or landscape coverage', () => {
+    const notes =
+      'Demolish and remove the existing patio, then excavate and pour a 750 sqft patio with gravel base, rebar, thickened edge, retaining wall, 400 sqft pavers, landscaping, two exterior doors, siding repairs, and exterior trim paint.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'concrete',
+      projectType: 'other',
+    });
+
+    expect(parsed.concreteSqft).toBe(750);
+    expect(parsed.paverSqft).toBe(400);
+    expect(parsed.exteriorPaintSqft).toBeUndefined();
+    expect(parsed.landscapeSqft).toBeUndefined();
+    expect(parsed.rockMulchSqft).toBeUndefined();
+  });
+
   it('parses combined interior paint notes into one area, not walls', () => {
     const notes =
       'Interior repaint about 1,500 sqft walls and ceilings two coats. 200 LF baseboards/trim, 6 interior doors, and 200 sqft kitchen cabinets. No exterior.';
@@ -1218,6 +1260,21 @@ describe('mobile scope measurement parser', () => {
     expect(String(input.wallPaintSqft || '')).toBe('');
     expect(String(input.ceilingPaintSqft || '')).toBe('');
     expect(Number(input.cabinetPaintSqft)).toBe(200);
+  });
+
+  it('hydrates explicit combined paint area into the room remodel paint field', () => {
+    const notes =
+      'Paint 2,000 sqft walls and ceilings with prep, demolition and removal of damaged drywall, six interior doors, 180 LF baseboard, 300 sqft drywall repair, 900 sqft flooring, three replacement windows, and 1200 sqft of R-30 attic insulation.';
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'painting',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'room_remodel' },
+    });
+
+    expect(input.paintPricingMethod).toBe('combined');
+    expect(String(input.wallPaintSqft)).toBe('2000');
+    expect(String(input.ceilingPaintSqft || '')).toBe('');
+    expect(Number(input.paintAreaSqft)).toBe(2000);
   });
 
   it('sums labeled multi-floor areas and honors excluded cabinet paint', () => {

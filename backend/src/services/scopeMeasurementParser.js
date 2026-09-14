@@ -25,7 +25,8 @@ const LF_RE =
 const WALL_LF_RE =
   /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft|feet|foot)\b/gi;
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
-const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)[\s-]*squares?\b/gi;
+const SQUARES_RE =
+  /(\d[\d,]*(?:\.\d+)?)[\s-]*(?:roofing\s+)?squares?\b/gi;
 const ROOF_PITCH_RE =
   /\b(\d+)\s*(?::|\/)\s*(\d+)\s*pitch\b|\bpitch\s*(\d+)\s*(?::|\/)\s*(\d+)\b/i;
 const STORY_COUNT_RE =
@@ -118,9 +119,13 @@ function parseMixedPaintingIntents(text) {
   const baseboardInstall = has(/\b(?:install|replace|add|new)\b[^.;\n]{0,45}\b(?:baseboards?|trim|molding|moulding)\b/i);
   const doorInstall = has(/\b(?:install|replace|hang|set)\b[^.;\n]{0,45}\bdoors?\b/i);
   const windowInstall = has(/\b(?:install|replace|set)\b[^.;\n]{0,45}\bwindows?\b/i);
+  const exteriorTrimPaint = has(
+    /\b(?:exterior|outside)\s+trim\b[^.;\n]{0,35}\b(?:paint|painting|finish)\b|\b(?:paint|painting|finish)\b[^.;\n]{0,35}\b(?:exterior|outside)\s+trim\b/i
+  );
   const baseboardPaint =
-    has(/\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\b(?:baseboards?|trim|molding|moulding)\b/i) ||
-    has(/\b(?:baseboards?|trim|molding|moulding)\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/i);
+    !exteriorTrimPaint &&
+    (has(/\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\b(?:baseboards?|trim|molding|moulding)\b/i) ||
+      has(/\b(?:baseboards?|trim|molding|moulding)\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/i));
   const doorPaint =
     has(/\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\bdoors?\b/i) ||
     has(/\bdoors?\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/i);
@@ -891,7 +896,8 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     templateKey === "room_remodel" &&
     combinedPaintLanguage &&
     !explicitWallPaintSqft &&
-    !explicitCeilingPaintSqft
+    !explicitCeilingPaintSqft &&
+    out.paintAreaNeedsConfirmation !== false
   ) {
     delete out.wallPaintSqft;
     delete out.ceilingPaintSqft;
@@ -1014,16 +1020,16 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const exteriorPaintSqft =
     firstQty(
       text.match(
-        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,45}\b(?:siding|exterior\s+walls?|exterior\s+surface)\b/i,
+        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;,\n]{0,25}\b(?:siding|exterior\s+walls?|exterior\s+surface)\b/i,
       )?.[0] || "",
       SQFT_RE,
     ) ||
-    pickSqftFromClauses([
-    /\bexterior\s+paint\b/,
-    /\bpaint\s+exterior\b/,
-    /\bpaintable\s+(?:exterior\s+)?wall\s+area\b/,
-    /\bexterior\s+(?:wall\s+)?(?:surface|wall)\s+area\b/,
-    ]);
+    firstQty(
+      text.match(
+        /\b(?:exterior\s+paint|paint\s+exterior|paintable\s+(?:exterior\s+)?wall\s+area|exterior\s+(?:wall\s+)?(?:surface|wall)\s+area)\b[^.;,\n]{0,25}(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i,
+      )?.[0] || "",
+      SQFT_RE,
+    );
   if (exteriorPaintSqft) out.exteriorPaintSqft = exteriorPaintSqft;
 
   // Drywall: keep the quantity in the same clause as drywall so a nearby
@@ -1053,11 +1059,23 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
         continue;
       if (!/\b(flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b/i.test(c))
         continue;
+      const flooringPattern =
+        /\b(?:flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b/i;
+      const dedicatedFlooringTemplate =
+        templateKey === "flooring" || projectType === "flooring";
+      // Do not assign a quantity when the nearby sqft belongs to another
+      // scope owner, such as "1,600 sqft drywall, flooring".
+      if (
+        !dedicatedFlooringTemplate &&
+        /\b(?:drywall|sheetrock|gypsum|framing|insulation|paint|walls?)\b[^.;,\n]{0,45}\b(?:flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b|\b(?:flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b[^.;,\n]{0,45}\b(?:drywall|sheetrock|gypsum|framing|insulation|paint|walls?)\b/i.test(
+          c
+        )
+      ) {
+        continue;
+      }
       const q =
-        pickSqftNearPattern(
-          clause,
-          /\b(?:flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b/i
-        ) || firstQty(clause, SQFT_RE);
+        pickSqftNearPattern(clause, flooringPattern) ||
+        (dedicatedFlooringTemplate ? firstQty(clause, SQFT_RE) : null);
       if (q && q > max) max = q;
     }
     return max > 0 ? max : null;
@@ -1159,8 +1177,8 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     if (quantity) out[key] = quantity;
   }
   const floorDemoSqft = pickSqftFromClauses([
-    /\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b[^.;]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/,
-    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,60}\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b/,
+    /\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/,
+    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b/,
   ]);
   if (floorDemoSqft) out.floorDemoSqft = floorDemoSqft;
   const floorPrepSqft = pickSqftFromClauses([
@@ -1202,13 +1220,12 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const rockMulchSqft = pickSqftFromClauses([
     /\brock\b/,
     /\bmulch\b/,
-    /\bgravel\b/,
+    /\b(?:landscape\s+)?gravel\b(?!\s+base)/,
   ]);
   if (rockMulchSqft) out.rockMulchSqft = rockMulchSqft;
 
   const landscapeSqft = pickSqftFromClauses([
     /\b(?:back|front|side)?\s*yard\b/,
-    /\blandscap(?:e|ing)\b/,
     /\blawn\b/,
   ]);
   if (landscapeSqft) out.landscapeSqft = landscapeSqft;
@@ -1217,17 +1234,32 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   // drywall removal language. A broad document fallback can otherwise borrow
   // the paint area from "2,000 sqft walls ... demolition ... drywall".
   const wallDemoSqft = (() => {
+    const quantity =
+      String.raw`(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))`;
+    const surface = String.raw`(?:walls?|soffit|bulkhead|drywall|sheetrock|gypsum)`;
+    const demoVerb = String.raw`(?:demo|demolition|demolish|remove|removal|tear[\s-]?out)`;
     const patterns = [
-      /\b(?:wall|soffit|bulkhead)s?\b[^.;]{0,80}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/,
-      /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,80}\b(?:wall|soffit|bulkhead)s?\b/,
-      /\b(?:drywall|sheetrock|gypsum)\b[^.;]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/,
-      /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,60}\b(?:drywall|sheetrock|gypsum)\b/,
+      new RegExp(
+        String.raw`\b${demoVerb}\b[^.;,\n]{0,30}?${quantity}\b[^.;,\n]{0,20}\b(?:of\s+)?${surface}\b`,
+        "i",
+      ),
+      new RegExp(
+        String.raw`${quantity}\b[^.;,\n]{0,20}\b(?:of\s+)?${surface}\b[^.;,\n]{0,30}?\b${demoVerb}\b`,
+        "i",
+      ),
+      new RegExp(
+        String.raw`\b${demoVerb}\b[^.;,\n]{0,45}\b${surface}\b[^.;,\n]{0,15}${quantity}\b`,
+        "i",
+      ),
     ];
     for (const clause of clauses) {
-      const matchedPattern = patterns.find((p) => p.test(clause.toLowerCase()));
-      if (!matchedPattern) continue;
-      const near = pickSqftNearPattern(clause, matchedPattern);
-      if (near) return near;
+      for (const pattern of patterns) {
+        const match = clause.match(pattern);
+        const parsed = match?.[1]
+          ? Number(match[1].replace(/,/g, ""))
+          : null;
+        if (parsed && Number.isFinite(parsed) && parsed > 0) return parsed;
+      }
     }
     return null;
   })();
@@ -1336,8 +1368,16 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     out.floorAreaSqft = parseLabeledInteriorFloorAreaTotal(text);
   }
 
+  const roofDeckingRepairNote =
+    /\b(?:roof|roofing|shingles?)\b/i.test(blob) &&
+    (/\b(?:repair|replace|sheath|sheathing)\b[^.;,\n]{0,35}\bdeck(?:ing)?\b/i.test(
+      text,
+    ) ||
+      /\bdeck(?:ing)?\b[^.;,\n]{0,35}\b(?:repair|replace|sheath|sheathing)\b/i.test(
+        text,
+      ));
   const deckSqft = pickSqftFromClauses([/\bdeck(?:ing)?\b/]);
-  if (deckSqft) out.deckSqft = deckSqft;
+  if (deckSqft && !roofDeckingRepairNote) out.deckSqft = deckSqft;
 
   const railingLf = (() => {
     for (const clause of clauses) {
@@ -1393,7 +1433,12 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       const sq = firstQty(text, SQUARES_RE);
       if (sq) out.roofSquares = sq;
       else {
-        const sqft = pickSqftNearPattern(text, /\broof|\bshingle/);
+        // Only use an area from the same roof/shingle clause. A nearby
+        // "180 sqft decking" repair must not become 1.8 roofing squares.
+        const roofClause = String(text)
+          .split(/[.;,\n]+/)
+          .find((clause) => /\broof|\bshingle/i.test(clause));
+        const sqft = roofClause ? firstQty(roofClause, SQFT_RE) : null;
         if (sqft) {
           out.roofAreaSqft = sqft;
           out.roofSquares = Math.round((sqft / 100) * 10) / 10;
@@ -1808,10 +1853,16 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   }
   const insulationWallSqft =
     pickInsulationArea("(?:exterior|outside)\\s+walls?") ||
-    pickSqftNearPattern(
-      text,
-      /\binsulation\b[^.;]{0,35}\bwalls?\b|\bwalls?\s+insulation\b/i,
-    );
+    (() => {
+      const pattern =
+        /\binsulation\b[^.;]{0,35}\bwalls?\b|\bwalls?\s+insulation\b/i;
+      for (const clause of clauses) {
+        if (!pattern.test(clause)) continue;
+        const near = pickSqftNearPattern(clause, pattern);
+        if (near) return near;
+      }
+      return null;
+    })();
   const insulationAtticSqft = pickInsulationArea(
     "(?:attic|ceiling)(?:\\s+area)?",
   );

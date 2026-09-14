@@ -103,6 +103,8 @@ export type ParsedScopeMeasurements = {
   airSealingIncluded?: boolean;
   airSealingSqft?: number;
   landscapeSqft?: number;
+  sidingRepairSqft?: number;
+  retainingWallLf?: number;
   artificialTurfSqft?: number;
   sodSqft?: number;
   paverSqft?: number;
@@ -169,7 +171,7 @@ const LF_RE =
 const WALL_LF_RE =
   /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft|feet|foot)\b/gi;
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
-const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)[\s-]*squares?\b/gi;
+const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)[\s-]*(?:roofing\s+)?squares?\b/gi;
 const ROOF_PITCH_RE =
   /\b(\d+)\s*(?::|\/)\s*(\d+)\s*pitch\b|\bpitch\s*(\d+)\s*(?::|\/)\s*(\d+)\b/i;
 const STORY_COUNT_RE =
@@ -364,7 +366,7 @@ function inferHomeFloorAreaSqftFromNotes(text: string): number | null {
 }
 
 export type ParsedInsulationAssembly = {
-  location: 'exterior_wall' | 'attic_ceiling' | 'floor';
+  location: 'exterior_wall' | 'attic_ceiling' | 'floor' | null;
   materialType: string;
   rValue: string;
   sqft: number;
@@ -390,6 +392,10 @@ export function parseInsulationAssembliesFromNotes(
   text: string
 ): ParsedInsulationAssembly[] {
   const assemblies: ParsedInsulationAssembly[] = [];
+  const hasStructuralContext =
+    /\b(?:frame|framing|framed|headers?|blocking|structural\s+sheathing|sheathing)\b/i.test(
+      String(text || '')
+    );
   const clauses = String(text || '').split(/[.;\n]+|,(?!\d)/);
   const quantity = (clause: string) => {
     const match = clause.match(
@@ -443,10 +449,7 @@ export function parseInsulationAssembliesFromNotes(
         text
       );
     const parsedRValue = rValue(clause);
-    if (
-      !(sqft > 0) &&
-      !(parsedRValue && hasInsulationInstallIntent)
-    ) {
+    if (!(sqft > 0) && !(parsedRValue && hasInsulationInstallIntent)) {
       return;
     }
     assemblies.push({
@@ -454,19 +457,27 @@ export function parseInsulationAssembliesFromNotes(
       materialType: material(clause),
       rValue: parsedRValue,
       sqft,
-      ...(battFacing(clause)
-        ? { battFacing: battFacing(clause) }
-        : {}),
+      ...(battFacing(clause) ? { battFacing: battFacing(clause) } : {}),
     });
   };
   for (const clause of clauses) {
-    add(
-      'exterior_wall',
-      /\b(?:(?:exterior|outside)\s+)?walls?\b/i,
-      clause
-    );
+    const assemblyCountBeforeClause = assemblies.length;
+    add('exterior_wall', /\b(?:(?:exterior|outside)\s+)?walls?\b/i, clause);
     add('attic_ceiling', /\b(?:attic|ceiling)(?:\s+area)?\b/i, clause);
     add('floor', /\bfloor(?:\s+area)?\b/i, clause);
+    if (
+      hasStructuralContext &&
+      assemblies.length === assemblyCountBeforeClause &&
+      /\bR[-\s]?\d{2,3}\b[^.;,\n]{0,24}\binsulat(?:e|ion|ed)\b/i.test(clause)
+    ) {
+      assemblies.push({
+        location: null,
+        materialType: material(clause),
+        rValue: rValue(clause),
+        sqft: quantity(clause),
+        ...(battFacing(clause) ? { battFacing: battFacing(clause) } : {}),
+      });
+    }
   }
   return assemblies;
 }
@@ -749,7 +760,7 @@ function parseLabeledInteriorFloorAreaTotal(text: string): number | null {
   }
   const homeInteriorMatch =
     /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\s+(?:existing\s+)?home\s+interior\b/i.exec(
-      text,
+      text
     );
   if (homeInteriorMatch) {
     const value = Number(homeInteriorMatch[1].replace(/,/g, ''));
@@ -949,7 +960,9 @@ export function parseScopeMeasurementsFromNotes(
       /\bbath(?:room)?\b.*\bfloor(?:ing)?\b/,
       /\bfloor\b.*\bbath(?:room)?\b/,
       /\bmain\s+bath(?:room)?\b/,
-    ]) || explicitBathFloorTile || firstGenericBathroomSqft();
+    ]) ||
+    explicitBathFloorTile ||
+    firstGenericBathroomSqft();
   if (bathFloor) out.bathroomFloorSqft = bathFloor;
 
   const kitchenFloor = parseKitchenFloorSqftFromClauses(clauses, text);
@@ -962,15 +975,14 @@ export function parseScopeMeasurementsFromNotes(
       for (const segment of clause.split(/[,;]\s*/)) {
         if (!/\bback\s*splash\b|\bbacksplash\b/i.test(segment)) continue;
         const before = segment.match(
-        /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|square\s+(?:foot|feet))\b[^.;\n]{0,35}\bback\s*splash\b/i
+          /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|square\s+(?:foot|feet))\b[^.;\n]{0,35}\bback\s*splash\b/i
         );
         const after = segment.match(
-        /\bback\s*splash\b[^.;\n]{0,35}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|square\s+(?:foot|feet))\b/i
+          /\bback\s*splash\b[^.;\n]{0,35}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|square\s+(?:foot|feet))\b/i
         );
         const raw =
-          before && !/\b(?:counter|counters|countertop|quartz|granite)\b/i.test(
-            before[0]
-          )
+          before &&
+          !/\b(?:counter|counters|countertop|quartz|granite)\b/i.test(before[0])
             ? before[1]
             : after?.[1];
         if (raw) return Number(raw.replace(/,/g, ''));
@@ -998,10 +1010,7 @@ export function parseScopeMeasurementsFromNotes(
     );
   })();
   if (countertopSqft) out.countertopSqft = countertopSqft;
-  const countertopLf = pickLfNearPattern(
-    text,
-    /\bcountertops?|\bcounters\b/i
-  );
+  const countertopLf = pickLfNearPattern(text, /\bcountertops?|\bcounters\b/i);
   if (countertopLf) out.countertopLf = countertopLf;
 
   const cabinetLf = (() => {
@@ -1224,7 +1233,8 @@ export function parseScopeMeasurementsFromNotes(
     templateKey === 'room_remodel' &&
     combinedPaintLanguage &&
     !explicitWallPaintSqft &&
-    !explicitCeilingPaintSqft
+    !explicitCeilingPaintSqft &&
+    out.paintAreaNeedsConfirmation !== false
   ) {
     delete out.wallPaintSqft;
     delete out.ceilingPaintSqft;
@@ -1348,12 +1358,19 @@ export function parseScopeMeasurementsFromNotes(
       (cabinetUpperLf || 0) + (cabinetLowerLf || 0) + (cabinetTallLf || 0);
   }
 
-  const exteriorPaintSqft = pickSqftFromClauses([
-    /\bexterior\s+paint\b/,
-    /\bpaint\s+exterior\b/,
-    /\bpaintable\s+(?:exterior\s+)?wall\s+area\b/,
-    /\bexterior\s+(?:wall\s+)?(?:surface|wall)\s+area\b/,
-  ]);
+  const exteriorPaintSqft =
+    firstQty(
+      text.match(
+        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;,\n]{0,25}\b(?:siding|exterior\s+walls?|exterior\s+surface)\b/i
+      )?.[0] || '',
+      SQFT_RE
+    ) ||
+    firstQty(
+      text.match(
+        /\b(?:exterior\s+paint|paint\s+exterior|paintable\s+(?:exterior\s+)?wall\s+area|exterior\s+(?:wall\s+)?(?:surface|wall)\s+area)\b[^.;,\n]{0,25}(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i
+      )?.[0] || '',
+      SQFT_RE
+    );
   if (exteriorPaintSqft) out.exteriorPaintSqft = exteriorPaintSqft;
 
   const patchRepairSqft = pickSqftFromClauses([
@@ -1380,7 +1397,10 @@ export function parseScopeMeasurementsFromNotes(
     })();
     if (
       drywallSqft &&
-      !(String(templateKey || '').toLowerCase() === 'bathroom' && patchRepairSqft)
+      !(
+        String(templateKey || '').toLowerCase() === 'bathroom' &&
+        patchRepairSqft
+      )
     ) {
       out.drywallSqft = drywallSqft;
     }
@@ -1454,9 +1474,7 @@ export function parseScopeMeasurementsFromNotes(
   const insulationMaterialType = text.match(
     /\b(?:insulation|insulate|insulated)\b[^.;\n]{0,60}\b(batt|blown[-\s]?in|spray\s+foam|rigid\s+foam|cellulose|fiberglass|mineral\s+wool)\b/i
   )?.[1];
-  const insulationRValue = text.match(
-    /\bR[-\s]?(\d{2,3})\b/i
-  )?.[0];
+  const insulationRValue = text.match(/\bR[-\s]?(\d{2,3})\b/i)?.[0];
   const garageInsulationIncluded =
     /\bgarage\b[^.;\n]{0,50}\b(insulat(?:e|ed|ion)|separation)\b/i.test(text)
       ? 'yes'
@@ -1467,11 +1485,10 @@ export function parseScopeMeasurementsFromNotes(
   if (garageInsulationIncluded)
     out.garageInsulationIncluded = garageInsulationIncluded;
   const airSealingMention = text.match(AIR_SEALING_SYNONYM_RE);
-  const airSealingExcluded =
-    new RegExp(
-      `\\b(?:no|without|exclude|excluding)\\b[^.;\\n]{0,30}${AIR_SEALING_SYNONYM_RE.source}`,
-      'i'
-    ).test(text);
+  const airSealingExcluded = new RegExp(
+    `\\b(?:no|without|exclude|excluding)\\b[^.;\\n]{0,30}${AIR_SEALING_SYNONYM_RE.source}`,
+    'i'
+  ).test(text);
   if (airSealingMention && !airSealingExcluded) {
     out.airSealingIncluded = true;
   }
@@ -1506,11 +1523,23 @@ export function parseScopeMeasurementsFromNotes(
         continue;
       if (!/\b(flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b/i.test(c))
         continue;
+      const flooringPattern =
+        /\b(?:flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b/i;
+      const dedicatedFlooringTemplate =
+        templateKey === 'flooring' || projectType === 'flooring';
+      // Do not assign a quantity when the nearby sqft belongs to another
+      // scope owner, such as "1,600 sqft drywall, flooring".
+      if (
+        !dedicatedFlooringTemplate &&
+        /\b(?:drywall|sheetrock|gypsum|framing|insulation|paint|walls?)\b[^.;,\n]{0,45}\b(?:flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b|\b(?:flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b[^.;,\n]{0,45}\b(?:drywall|sheetrock|gypsum|framing|insulation|paint|walls?)\b/i.test(
+          c
+        )
+      ) {
+        continue;
+      }
       const q =
-        pickSqftNearPattern(
-          clause,
-          /\b(?:flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b/i
-        ) || firstQty(clause, SQFT_RE);
+        pickSqftNearPattern(clause, flooringPattern) ||
+        (dedicatedFlooringTemplate ? firstQty(clause, SQFT_RE) : null);
       if (q && q > max) max = q;
     }
     return max > 0 ? max : null;
@@ -1519,11 +1548,7 @@ export function parseScopeMeasurementsFromNotes(
   // For kitchen remodel notes, the explicit finished-floor takeoff owns the
   // kitchen floor field. Prevent an earlier unrelated sqft value (such as
   // drywall repair) from becoming the kitchen flooring quantity.
-  if (
-    flooringSqft &&
-    /\bkitchen\b/i.test(blob) &&
-    /\blvp\b/i.test(blob)
-  ) {
+  if (flooringSqft && /\bkitchen\b/i.test(blob) && /\blvp\b/i.test(blob)) {
     out.kitchenFloorSqft = flooringSqft;
   }
   const flooringProductScope: NonNullable<
@@ -1634,8 +1659,8 @@ export function parseScopeMeasurementsFromNotes(
   // steal a later paint, drywall, or install quantity from the same note.
   const floorDemoSqft = (() => {
     const patterns = [
-      /\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b[^.;]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/,
-      /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,60}\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b/,
+      /\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/,
+      /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b/,
     ];
     for (const clause of clauses) {
       for (const pattern of patterns) {
@@ -1686,13 +1711,12 @@ export function parseScopeMeasurementsFromNotes(
   const rockMulchSqft = pickSqftFromClauses([
     /\brock\b/,
     /\bmulch\b/,
-    /\bgravel\b/,
+    /\b(?:landscape\s+)?gravel\b(?!\s+base)/,
   ]);
   if (rockMulchSqft) out.rockMulchSqft = rockMulchSqft;
 
   const landscapeSqft = pickSqftFromClauses([
     /\b(?:back|front|side)?\s*yard\b/,
-    /\blandscap(?:e|ing)\b/,
     /\blawn\b/,
   ]);
   if (landscapeSqft) out.landscapeSqft = landscapeSqft;
@@ -1701,17 +1725,29 @@ export function parseScopeMeasurementsFromNotes(
   // drywall removal language. A broad document fallback can otherwise borrow
   // the paint area from "2,000 sqft walls ... demolition ... drywall".
   const wallDemoSqft = (() => {
+    const quantity = String.raw`(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))`;
+    const surface = String.raw`(?:walls?|soffit|bulkhead|drywall|sheetrock|gypsum)`;
+    const demoVerb = String.raw`(?:demo|demolition|demolish|remove|removal|tear[\s-]?out)`;
     const patterns = [
-      /\b(?:wall|soffit|bulkhead)s?\b[^.;]{0,80}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/,
-      /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,80}\b(?:wall|soffit|bulkhead)s?\b/,
-      /\b(?:drywall|sheetrock|gypsum)\b[^.;]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/,
-      /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,60}\b(?:drywall|sheetrock|gypsum)\b/,
+      new RegExp(
+        String.raw`\b${demoVerb}\b[^.;,\n]{0,30}?${quantity}\b[^.;,\n]{0,20}\b(?:of\s+)?${surface}\b`,
+        'i'
+      ),
+      new RegExp(
+        String.raw`${quantity}\b[^.;,\n]{0,20}\b(?:of\s+)?${surface}\b[^.;,\n]{0,30}?\b${demoVerb}\b`,
+        'i'
+      ),
+      new RegExp(
+        String.raw`\b${demoVerb}\b[^.;,\n]{0,45}\b${surface}\b[^.;,\n]{0,15}${quantity}\b`,
+        'i'
+      ),
     ];
     for (const clause of clauses) {
-      const matchedPattern = patterns.find(p => p.test(clause.toLowerCase()));
-      if (!matchedPattern) continue;
-      const near = pickSqftNearPattern(clause, matchedPattern);
-      if (near) return near;
+      for (const pattern of patterns) {
+        const match = clause.match(pattern);
+        const parsed = match?.[1] ? Number(match[1].replace(/,/g, '')) : null;
+        if (parsed && Number.isFinite(parsed) && parsed > 0) return parsed;
+      }
     }
     return null;
   })();
@@ -1788,9 +1824,7 @@ export function parseScopeMeasurementsFromNotes(
       projectType === 'ground_up' ||
       projectType === 'new_build' ||
       templateKey === 'insulation' ||
-      /\b(?:insulat(?:e|ion|ed)|fiberglass\s+batt|blown[-\s]?in)\b/i.test(
-        text
-      );
+      /\b(?:insulat(?:e|ion|ed)|fiberglass\s+batt|blown[-\s]?in)\b/i.test(text);
     if (allowsHomeFloorInference) {
       const homeFloor = inferHomeFloorAreaSqftFromNotes(text);
       if (homeFloor) return homeFloor;
@@ -1857,6 +1891,14 @@ export function parseScopeMeasurementsFromNotes(
     }
   }
 
+  const roofDeckingRepairNote =
+    /\b(?:roof|roofing|shingles?)\b/i.test(blob) &&
+    (/\b(?:repair|replace|sheath|sheathing)\b[^.;,\n]{0,35}\bdeck(?:ing)?\b/i.test(
+      text
+    ) ||
+      /\bdeck(?:ing)?\b[^.;,\n]{0,35}\b(?:repair|replace|sheath|sheathing)\b/i.test(
+        text
+      ));
   const deckSqft = (() => {
     // Prefer outdoor deck/patio language; never steal "concrete patio" flatwork SF.
     for (const clause of clauses) {
@@ -1891,7 +1933,7 @@ export function parseScopeMeasurementsFromNotes(
       null
     );
   })();
-  if (deckSqft) out.deckSqft = deckSqft;
+  if (deckSqft && !roofDeckingRepairNote) out.deckSqft = deckSqft;
 
   const garageSqft = (() => {
     if (
@@ -2018,18 +2060,22 @@ export function parseScopeMeasurementsFromNotes(
         text
       );
     if (!out.roofAreaSqft) {
-      const sqft = roofTieInOnly
-        ? null
-        : pickSqftNearPattern(text, /\broof|\bshingle/);
+      const roofClause = String(text)
+        .split(/[.;,\n]+/)
+        .find(clause => /\broof|\bshingle/i.test(clause));
+      const sqft =
+        roofTieInOnly || !roofClause ? null : firstQty(roofClause, SQFT_RE);
       if (sqft) out.roofAreaSqft = sqft;
     }
     if (!out.roofSquares) {
       const sq = roofTieInOnly ? null : firstQty(text, SQUARES_RE);
       if (sq) out.roofSquares = sq;
       else {
-        const sqft = roofTieInOnly
-          ? null
-          : pickSqftNearPattern(text, /\broof|\bshingle/);
+        const roofClause = String(text)
+          .split(/[.;,\n]+/)
+          .find(clause => /\broof|\bshingle/i.test(clause));
+        const sqft =
+          roofTieInOnly || !roofClause ? null : firstQty(roofClause, SQFT_RE);
         if (sqft) {
           out.roofAreaSqft = sqft;
           out.roofSquares = Math.round((sqft / 100) * 10) / 10;

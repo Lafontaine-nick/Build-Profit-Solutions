@@ -27,6 +27,7 @@ import {
   SIMPLE_TRADE_SPECS,
   hvacScopePanelMeasurementRows,
   hvacScopePanelMeasurementValue,
+  roofingDownspoutQuantityWarning,
   roofingOptionsForIds,
   simpleTradePanelFor,
 } from '@/utils/qmScopePanels/simpleTradeRemodel';
@@ -200,6 +201,18 @@ describe('simple trade QM panels', () => {
     });
   });
 
+  it('flags an unusually high downspout count for review', () => {
+    expect(
+      roofingDownspoutQuantityWarning({
+        roofGutterLf: '200',
+        roofDownspoutCount: '200',
+      })
+    ).toContain('200 downspouts is unusually high');
+    expect(
+      roofingDownspoutQuantityWarning({ roofDownspoutCount: '6' })
+    ).toBeNull();
+  });
+
   it('maps HVAC scope chips to canonical measurement keys', () => {
     expect(SIMPLE_TRADE_SPECS.hvac.options).toEqual(
       expect.arrayContaining([
@@ -295,6 +308,38 @@ describe('simple trade QM panels', () => {
         'ridge_vent',
         'drip_edge',
       ])
+    );
+  });
+
+  it('does not infer shingles from tear-off-only roof squares', () => {
+    const panel = simpleTradePanelFor('roofing');
+    const hydrated = panel.hydrateMeasurements({
+      templateKey: 'roofing',
+      wholeHomeLayout: false,
+      notes: 'Tear off and remove the existing roof, then repair the decking.',
+      hasSitePhotos: false,
+      measurements: { roofSquares: '28' },
+      checklistItems: [],
+    });
+
+    expect(hydrated.tradeScopeSelections?.roofing).toContain('tear_off');
+    expect(hydrated.tradeScopeSelections?.roofing).not.toContain('shingles');
+  });
+
+  it('preselects drainage options from cross-trade roofing notes', () => {
+    const panel = simpleTradePanelFor('roofing');
+    const hydrated = panel.hydrateMeasurements({
+      templateKey: 'roofing',
+      wholeHomeLayout: false,
+      notes:
+        'Tear off and remove the existing roof, then replace 28 roofing squares, repair 180 sqft decking, install gutters and downspouts, replace four windows, repair siding, install R-38 attic insulation, repair drywall, and paint ceilings.',
+      hasSitePhotos: false,
+      measurements: { roofSquares: 28, roofDeckingReplacementSqft: 180 },
+      checklistItems: [],
+    });
+
+    expect(hydrated.tradeScopeSelections?.roofing).toEqual(
+      expect.arrayContaining(['tear_off', 'decking_repair', 'gutters', 'downspouts'])
     );
   });
 

@@ -757,7 +757,9 @@ export function syncInsulationAssembliesWithPlanMeasurements(
 }
 
 export function isCompleteInsulationAssembly(row: InsulationAssembly): boolean {
-  return Boolean(row.materialType.trim() && row.rValue.trim());
+  // Material type is optional for generic note-backed assemblies such as
+  // "R-21 wall insulation"; the selected R-value identifies the assembly.
+  return Boolean(row.rValue.trim());
 }
 
 function insulationAssemblySqft(row: InsulationAssembly): number {

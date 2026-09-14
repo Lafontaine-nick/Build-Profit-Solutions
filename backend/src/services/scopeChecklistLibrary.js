@@ -1340,6 +1340,51 @@ const CHECKLIST_TEMPLATES = {
         label: "Concrete pump truck",
         category: "pour",
       },
+      {
+        id: "retaining_wall",
+        inputType: "yes_no",
+        label: "Retaining wall",
+        helperText:
+          "Retaining wall construction, including the wall system and normal preparation. Confirm height, length, drainage, and engineering separately.",
+        category: "sitework",
+      },
+      {
+        id: "pavers",
+        inputType: "yes_no",
+        label: "Pavers",
+        helperText: "Paver installation area and base preparation.",
+        category: "hardscape",
+      },
+      {
+        id: "landscaping",
+        inputType: "yes_no",
+        label: "Landscaping",
+        helperText: "Landscape work explicitly identified in the notes.",
+        category: "sitework",
+      },
+      {
+        id: "exterior_doors",
+        inputType: "yes_no",
+        label: "Exterior door installation",
+        helperText: "Install the note-specified exterior swing doors.",
+        category: "exterior",
+      },
+      {
+        id: "siding_repairs",
+        inputType: "yes_no",
+        label: "Siding repairs",
+        helperText:
+          "Repair the note-specified siding areas. Confirm affected surface area and material.",
+        category: "exterior",
+      },
+      {
+        id: "exterior_trim_paint",
+        inputType: "yes_no",
+        label: "Exterior trim paint",
+        helperText:
+          "Prep and paint the explicitly identified exterior trim. Surface area is separate from siding repairs.",
+        category: "finish",
+      },
     ],
   },
 
@@ -2498,6 +2543,8 @@ const CHECKLIST_TEMPLATES = {
 /** Note patterns → default Yes for checklist item ids. */
 const CHECKLIST_YES_HINTS = {
   demo: /\b(demo|demolition|demolish|tear\s*out|gut|remove)\b/,
+  demo_removal:
+    /\b(?:demo(?:lition)?|demolish|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:patio|concrete|flatwork|slab)\b|\b(?:patio|concrete|flatwork|slab)\b[^.;\n]{0,60}\b(?:demo(?:lition)?|demolish|remove|removal|tear[\s-]?out)\b/,
   appliance_removal:
     /\b(remove|disconnect|pull|haul).*\b(appliance|ridge|dishwasher|range|refrigerator|oven|microwave|hood)\b|\b(appliance|ridge|dishwasher|range|refrigerator)\b.*\b(remove|disconnect|pull|haul)\b/,
   flooring:
@@ -2650,6 +2697,8 @@ const CHECKLIST_YES_HINTS = {
   sod_turf: /\b(sod|natural\s+grass)\b/,
   artificial_turf: /\b(turf|artificial\s+grass|synthetic\s+grass)\b/,
   pavers: /\b(paver|pavers)\b/,
+  retaining_wall: /\bretaining\s+walls?\b/,
+  siding_repairs: /\bsiding\b[^.;\n]{0,35}\b(?:repair|repairs|replace|replacement|patch)\b|\b(?:repair|repairs|replace|replacement|patch)\b[^.;\n]{0,35}\bsiding\b/,
   rock: /\b(rock|gravel)\b/,
   mulch: /\bmulch\b/,
   plants: /\b(plants?|shrubs?|planting)\b/,
@@ -2671,6 +2720,8 @@ const CHECKLIST_YES_HINTS = {
   finish_tape: /\b(tape|mud|finish\s+drywall)\b/,
   interior_paint: /\b(interior\s+paint|paint\s+(?:walls|interior))\b/,
   exterior_paint: /\b(exterior\s+paint|paint\s+exterior)\b/,
+  exterior_trim_paint:
+    /\b(?:exterior|outside)\s+trim\b[^.;\n]{0,35}\b(?:paint|painting|finish)\b|\b(?:paint|painting|finish)\b[^.;\n]{0,35}\b(?:exterior|outside)\s+trim\b/,
   permits:
     /\b(include\s+permits?|permits?\s+included|pull\s+permits?|contractor\s+pulls?\s+permits?|permits?\s+in\s+(?:the\s+)?(?:bid|price|scope)|permit\s+fees?\s+included)\b/,
   cleanup: /\b(cleanup|disposal|dumpster|debris|final\s+clean)\b/,
@@ -2734,6 +2785,21 @@ function notesImplyConcreteFlatwork(notes) {
     return true;
   }
   return false;
+}
+
+function notesImplyMixedExteriorHardscape(notes) {
+  const n = String(notes || "");
+  if (!n.trim()) return false;
+  const hasHardscape =
+    notesImplyConcreteFlatwork(n) ||
+    /\b(?:patio|pavers?|retaining\s+walls?|excavat(?:e|ion)|gravel\s+base)\b/i.test(
+      n,
+    );
+  const hasExteriorCompanion =
+    /\b(?:landscap(?:e|ing)|pavers?|retaining\s+walls?|exterior\s+doors?|siding|exterior\s+trim)\b/i.test(
+      n,
+    );
+  return hasHardscape && hasExteriorCompanion;
 }
 
 function detectAdditionConversionIntent(projectType, notes) {
@@ -2836,6 +2902,12 @@ function checklistTemplateKey(draft, estimateTier) {
     );
   if (dedicatedPaintingIntent && explicitRepaintWithoutConstruction) {
     return "painting";
+  }
+  // A patio/concrete job with exterior companion work is not a painting job.
+  // Route it through the concrete checklist so pour, excavation, base,
+  // reinforcement, and exterior add-on scopes remain visible.
+  if (notesImplyMixedExteriorHardscape(notes)) {
+    return "concrete";
   }
   if (mixedStructuralScope) {
     return "room_remodel";
@@ -3029,13 +3101,13 @@ function floorDemoNotesHint(n) {
     "(?:floor(?:ing)?|lvp|vinyl|laminate|carpet|kitchen\\s+floor|floor\\s+tile|tile\\s+floor)";
   if (
     new RegExp(
-      `\\b${verbs}\\b[^.]{0,80}\\b${floorish}\\b|\\b${floorish}\\b[^.]{0,80}\\b${verbs}\\b`,
+      `\\b${verbs}\\b[^.;,\\n]{0,30}\\b${floorish}\\b|\\b${floorish}\\b[^.;,\\n]{0,30}\\b${verbs}\\b`,
     ).test(n)
   ) {
     return true;
   }
   const bareTileDemo = new RegExp(
-    `\\b${verbs}\\b[^.]{0,60}\\btile\\b|\\btile\\b[^.]{0,60}\\b${verbs}\\b`,
+    `\\b${verbs}\\b[^.;,\\n]{0,30}\\btile\\b|\\btile\\b[^.;,\\n]{0,30}\\b${verbs}\\b`,
   );
   return bareTileDemo.test(n) && !/\b(shower|tub|bathtub|wet\s+area)\b/.test(n);
 }
@@ -3586,6 +3658,7 @@ module.exports = {
   checklistTemplateKey,
   notesImplyMixedInteriorRefresh,
   notesImplyConcreteFlatwork,
+  notesImplyMixedExteriorHardscape,
   detectAdditionConversionIntent,
   inferItemStateFromNotes,
   inferChoiceFromNotes,

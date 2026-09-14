@@ -66,6 +66,76 @@ describe("estimateDraftComplexity", () => {
     );
   });
 
+  test("routes mixed patio work through exterior concrete scope cards", () => {
+    const notes =
+      "Demolish and remove the existing patio, then excavate and pour a 750 sqft patio with gravel base, rebar, thickened edge, retaining wall, 400 sqft pavers, landscaping, two exterior doors, siding repairs, and exterior trim paint.";
+    const draft = {
+      projectType: "painting",
+      originalNotes: notes,
+      rooms: [{ name: "Mixed exterior work", scope: notes }],
+    };
+
+    const checklist = buildScopeChecklist(draft, "room_remodel", notes);
+    const included = new Map(
+      checklist.items
+        .filter(item => item.state === "included")
+        .map(item => [item.id, item.label]),
+    );
+
+    expect(classifyEstimateTier(draft, notes)).toBe("room_remodel");
+    expect(checklist.templateKey).toBe("concrete");
+    expect([...included.keys()]).toEqual(
+      expect.arrayContaining([
+        "demo_removal",
+        "excavation",
+        "gravel_base",
+        "reinforcement",
+        "complex_forming",
+        "pour_flatwork",
+        "retaining_wall",
+        "pavers",
+        "landscaping",
+        "exterior_doors",
+        "siding_repairs",
+        "exterior_trim_paint",
+      ]),
+    );
+    expect(included.get("pour_flatwork")).toBe("Concrete patio installation");
+    expect(included.get("siding_repairs")).toBe("Siding repairs");
+    expect(included.get("exterior_trim_paint")).toBe("Exterior trim paint");
+    expect(included.has("paint")).toBe(false);
+    expect(included.has("trim")).toBe(false);
+  });
+
+  test("keeps cross-trade roof repairs distinct from wall demolition and deck install", () => {
+    const notes =
+      "Tear off and remove the existing roof, then replace 28 roofing squares, repair 180 sqft decking, install gutters and downspouts, replace four windows, repair siding, install R-38 attic insulation, repair drywall, and paint ceilings.";
+    const checklist = buildScopeChecklist(
+      { projectType: "other", originalNotes: notes, rooms: [], scopeMode: "mixed" },
+      "room_remodel",
+      notes,
+    );
+
+    expect(checklist.items.map((item) => item.label)).toEqual([
+      "Drywall patch / repair",
+      "Ceiling painting",
+      "Attic insulation",
+      "Siding repairs",
+      "Existing roof / tear-off",
+      "Gutters",
+      "Downspouts",
+      "Roof decking repair",
+      "Window replacement",
+      "Roofing replacement",
+    ]);
+    expect(checklist.items.map((item) => item.label)).not.toContain(
+      "Nonstructural wall demolition",
+    );
+    expect(checklist.items.map((item) => item.label)).not.toContain(
+      "Decking / surface install",
+    );
+  });
+
   test("routes multi-floor painting through Confirm Scope cards", () => {
     const notes =
       "Interior repaint — occupied 2-story home. Main floor: 1,400 sqft. Upper floor: 1,000 sqft. Paint walls and ceilings throughout both floors. Repaint 14 interior doors and all baseboards.";

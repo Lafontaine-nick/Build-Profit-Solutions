@@ -158,6 +158,51 @@ describe("scope fact extraction", () => {
     ).toMatchObject({ quantity: 48, unit: "sqft", status: "matched" });
   });
 
+  test("keeps roof decking repair and siding repair separate from install scope", () => {
+    const note =
+      "Tear off and remove the existing roof, then replace 28 roofing squares, repair 180 sqft decking, install gutters and downspouts, replace four windows, repair siding, install R-38 attic insulation, repair drywall, and paint ceilings.";
+    const parsed = parseScopeMeasurementsFromNotes(note, {
+      templateKey: "room_remodel",
+      projectType: "other",
+    });
+    const resolved = resolveScopeFactsToCatalog(
+      extractScopeFactsFromNotes(note, {
+        templateKey: "room_remodel",
+        projectType: "other",
+        parsedMeasurements: parsed,
+      }).facts,
+    );
+
+    expect(resolved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scopeId: "decking_repair",
+          action: "repair",
+          quantity: 180,
+          unit: "sqft",
+          status: "matched",
+        }),
+        expect.objectContaining({
+          scopeId: "tear_off",
+          quantity: 28,
+          unit: "squares",
+          status: "matched",
+        }),
+        expect.objectContaining({
+          scopeId: "roofing",
+          quantity: 28,
+          unit: "squares",
+          status: "matched",
+        }),
+        expect.objectContaining({
+          scopeId: "siding_repairs",
+          status: "needs_measurement",
+        }),
+      ]),
+    );
+    expect(resolved.map((entry) => entry.scopeId)).not.toContain("decking");
+  });
+
   test("preserves explicit exclusions as excluded facts", () => {
     const { facts } = extractScopeFactsFromNotes(
       "Paint 5 doors but do not install them. Exclude cabinets.",
@@ -206,6 +251,30 @@ describe("scope fact extraction", () => {
           scopeId: "exterior_trim_paint",
           quantity: 2,
           status: "matched",
+        }),
+      ]),
+    );
+  });
+
+  test("does not turn exterior trim paint into interior baseboard paint", () => {
+    const note =
+      "Demolish and remove the existing patio, then excavate and pour a 750 sqft patio with gravel base, rebar, thickened edge, retaining wall, 400 sqft pavers, landscaping, two exterior doors, siding repairs, and exterior trim paint.";
+    const parsed = parseScopeMeasurementsFromNotes(note, {
+      templateKey: "concrete",
+      projectType: "other",
+    });
+    const { facts } = extractScopeFactsFromNotes(note, {
+      templateKey: "concrete",
+      projectType: "other",
+      parsedMeasurements: parsed,
+    });
+
+    expect(parsed.baseboardPaintIntent).toBeUndefined();
+    expect(facts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "paint",
+          object: "baseboard",
         }),
       ]),
     );

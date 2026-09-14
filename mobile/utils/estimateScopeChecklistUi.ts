@@ -3245,6 +3245,32 @@ export function filterRoomRemodelNoteScopeItems(
     has(/\b(?:kitchen|bathrooms?|baths?)\b/i) &&
     has(/\b(?:renovat(?:e|ion)|remodel(?:ing)?|existing\s+(?:home|interior))\b/i) &&
     has(/\b(?:one|two|three|\d+)\s+bathrooms?\b/i);
+  const hasExplicitFlooringDemo =
+    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;,\n]{0,30}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|floor\s+tile|tile\s+floor)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|floor\s+tile|tile\s+floor)\b[^.;,\n]{0,30}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+      text
+    );
+  const hasDrywallDemo =
+    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;,\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.;,\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+      text
+    );
+  if (hasDrywallDemo && !hasExplicitFlooringDemo) {
+    return items
+      .filter(
+        item =>
+          !['floor_demo', 'existing_floor_removal'].includes(item.id) ||
+          hasExplicitFlooringDemo
+      )
+      .map(item =>
+        (item.id === 'demo' || item.id === 'existing_floor_removal') &&
+        !hasExplicitFlooringDemo
+          ? {
+              ...item,
+              label: 'Drywall demo / removal',
+              helperText: 'Remove damaged drywall in the affected areas.',
+            }
+          : item
+      );
+  }
   if (!isMixedRemodel) return items;
   const supported = (id: string): boolean => {
     if (id === 'demo' || id === 'floor_demo')
@@ -3495,13 +3521,40 @@ export function hydrateScopeChecklistFromNotes(
   if (String(templateKey || '').toLowerCase() === 'room_remodel') {
     const noteText = String(notes || '');
     const has = (pattern: RegExp) => pattern.test(noteText);
+    const hasWallDemolition =
+      /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;,\n]{0,70}\b(?:nonstructural\s+)?walls?\b|\b(?:nonstructural\s+)?walls?\b[^.;,\n]{0,70}\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b/i.test(
+        noteText
+      );
+    const hasRoofTearOff =
+      /\b(?:tear[\s-]?off|remove|removal|strip)\b[^.;,\n]{0,60}\b(?:existing\s+)?(?:roof|shingles?)\b|\b(?:existing\s+)?(?:roof|shingles?)\b[^.;,\n]{0,60}\b(?:tear[\s-]?off|remove|removal|strip)\b/i.test(
+        noteText
+      );
+    const hasRoofReplacement =
+      /\b(?:replace|replacement|install|new|re[\s-]?roof|reroof)\b[^.;,\n]{0,60}\b(?:roof|roofing|shingles?)\b|\b(?:roof|roofing|shingles?)\b[^.;,\n]{0,60}\b(?:replace|replacement|install|new|re[\s-]?roof|reroof)\b/i.test(
+        noteText
+      );
+    const hasCeilingPaint = has(
+      /\b(?:paint|painting|repaint)\b[^.;,\n]{0,45}\bceilings?\b|\bceilings?\b[^.;,\n]{0,45}\b(?:paint|painting|repaint)\b/i
+    );
+    const hasWallPaint = has(
+      /\b(?:paint|painting|repaint)\b[^.;,\n]{0,45}\bwalls?\b|\bwalls?\b[^.;,\n]{0,45}\b(?:paint|painting|repaint)\b/i
+    );
+    const hasDrywallRepair = has(
+      /\b(?:repair|patch(?:ing)?)\b[^.;,\n]{0,35}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.;,\n]{0,35}\b(?:repair|patch(?:ing)?)\b/i
+    );
+    const hasAtticInsulation = has(
+      /\battic\b[^.;,\n]{0,35}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;,\n]{0,35}\battic\b/i
+    );
+    const hasWindowReplacement = has(
+      /\b(?:replace|replacement|install|new)\b[^.;,\n]{0,45}\bwindows?\b|\bwindows?\b[^.;,\n]{0,45}\b(?:replace|replacement|install|new)\b/i
+    );
     const noteDriven = [
       /\b(?:kitchen|bath(?:room)?s?|lvp|flooring|drywall|baseboards?|painting|repaint)\b/i,
       /\b(?:renovate|remodel|install|replace|repair|remove)\b/i,
     ].every(pattern => pattern.test(noteText));
     if (noteDriven) {
       const hasFlooringDemo =
-        /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.,;\n]{0,60}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.,;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+        /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;,\n]{0,30}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.;,\n]{0,30}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
           noteText
         );
       const hasDrywallDemo =
@@ -3518,14 +3571,31 @@ export function hydrateScopeChecklistFromNotes(
             hasFlooringDemo ||
             hasDrywallDemo ||
             (has(/\b(?:remove|demo|demolition|tear[\s-]?out)\b/i) &&
-              !hasInsulationRemoval)
+              !hasInsulationRemoval &&
+              !(hasRoofTearOff && !hasWallDemolition))
           );
         }
+        if (id === 'tear_off') return hasRoofTearOff;
+        if (id === 'roofing' || id === 'shingles_roofing')
+          return hasRoofReplacement;
+        if (id === 'decking_repair')
+          return has(
+            /\b(?:repair|replace|sheath|sheathing)\b[^.;,\n]{0,35}\bdeck(?:ing)?\b|\bdeck(?:ing)?\b[^.;,\n]{0,35}\b(?:repair|replace|sheath|sheathing)\b/i
+          );
+        if (id === 'gutters') return has(/\bgutters?\b/i);
+        if (id === 'downspouts') return has(/\bdownspouts?\b/i);
+        if (id === 'siding_repairs')
+          return has(
+            /\bsiding\b[^.;,\n]{0,35}\b(?:repair|repairs|replace|replacement|patch)\b|\b(?:repair|repairs|replace|replacement|patch)\b[^.;,\n]{0,35}\bsiding\b/i
+          );
+        if (id === 'insulation') return has(/\binsulat|R[-\s]?\d{2,3}\b/i);
+        if (id === 'window_install' || id === 'windows')
+          return has(/\bwindows?\b/i);
         if (id === 'plumbing') return has(/\bplumbing|fixture/i);
         if (id === 'drywall') return has(/\bdrywall|sheetrock|patch|repair/i);
         if (id === 'flooring')
           return has(/\b(?:lvp|flooring|floor\s+install|install.*floor)\b/i);
-        if (id === 'paint')
+        if (['paint', 'interior_paint', 'ceiling_paint'].includes(id))
           return has(/\b(?:paint|painting|repaint).*\b(?:wall|ceiling)s?\b/i);
         if (id === 'baseboard_install')
           return has(/\b(?:install|replace|new)\b[^.;\n]{0,50}\bbaseboards?\b/i);
@@ -3545,20 +3615,48 @@ export function hydrateScopeChecklistFromNotes(
       };
       return noteBackedFinal
         .filter(item => supported(item.id))
-        .map(item =>
-          item.id === 'demo'
-            ? {
-                ...item,
-                label: hasDrywallDemo && !hasFlooringDemo
-                  ? 'Drywall demo / removal'
-                  : 'Existing flooring removal',
-                helperText:
-                  hasDrywallDemo && !hasFlooringDemo
-                    ? 'Remove damaged drywall in the affected areas.'
-                    : 'Remove existing flooring in the affected areas.',
-              }
-            : item
-        );
+        .map(item => {
+          if (item.id === 'demo') {
+            return {
+              ...item,
+              label: hasDrywallDemo && !hasFlooringDemo
+                ? 'Drywall demo / removal'
+                : 'Existing flooring removal',
+              helperText:
+                hasDrywallDemo && !hasFlooringDemo
+                  ? 'Remove damaged drywall in the affected areas.'
+                  : 'Remove existing flooring in the affected areas.',
+            };
+          }
+          if (item.id === 'drywall' && hasDrywallRepair) {
+            return {
+              ...item,
+              label: 'Drywall patch / repair',
+              helperText:
+                'Localized drywall patching and repair. Confirm the affected area before pricing.',
+            };
+          }
+          if (
+            ['paint', 'interior_paint', 'ceiling_paint'].includes(item.id) &&
+            hasCeilingPaint &&
+            !hasWallPaint
+          ) {
+            return { ...item, label: 'Ceiling painting' };
+          }
+          if (item.id === 'insulation' && hasAtticInsulation) {
+            return { ...item, label: 'Attic insulation' };
+          }
+          if (item.id === 'window_install' && hasWindowReplacement) {
+            return { ...item, label: 'Window replacement' };
+          }
+          if (item.id === 'roofing' || item.id === 'shingles_roofing') {
+            return { ...item, label: 'Roofing replacement' };
+          }
+          if (item.id === 'decking_repair') {
+            return { ...item, label: 'Roof decking repair' };
+          }
+          return item;
+        });
     }
   }
   if (String(templateKey || '').toLowerCase() !== 'bathroom') {
@@ -4250,9 +4348,9 @@ export function syncInteriorPaintScopeItems(
       {
         id: 'exterior_trim_paint',
         inputType: 'yes_no' as const,
-        label: 'Window trim & finish',
+        label: 'Exterior trim paint',
         helperText:
-          'Paint and finish window trim/casing. Window replacement and installation are priced separately.',
+          'Prep and paint the explicitly identified exterior trim. Surface area is separate from siding repairs.',
         category: 'paint',
         state: shouldIncludeExteriorTrimPaint
           ? ('included' as const)

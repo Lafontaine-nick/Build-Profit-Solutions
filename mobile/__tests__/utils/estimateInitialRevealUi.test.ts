@@ -289,10 +289,10 @@ describe('estimateInitialRevealUi', () => {
       'Wall framing, headers & blocking',
       'Drywall hang / finish',
       'Flooring installation',
-      'Interior wall and ceiling painting',
+      'Interior paint',
       'Insulation',
       'Door / window openings',
-      'Window installation',
+      'Window install',
       'Exterior swing doors',
       'Structural sheathing',
     ]);
@@ -402,6 +402,54 @@ describe('estimateInitialRevealUi', () => {
     expect(names).not.toContain('Existing flooring removal');
   });
 
+  it('normalizes mixed flooring scope rows from explicit flooring notes', () => {
+    const notes =
+      'Remove and dispose of 1,200 sqft existing flooring, then install LVP with underlayment, transitions, 120 LF baseboard, two interior doors, 150 sqft drywall repair, four windows, R-21 wall insulation, and interior paint.';
+    const draft = {
+      projectType: 'flooring',
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'demo', label: 'Nonstructural wall demolition', state: 'included' },
+          { id: 'drywall', label: 'Drywall patch / repair', state: 'included' },
+          { id: 'flooring', label: 'LVP flooring install', state: 'included' },
+          { id: 'paint', label: 'Interior wall and ceiling painting', state: 'included' },
+          { id: 'trim', label: 'Baseboard installation', state: 'included' },
+          { id: 'baseboard_install', label: 'Baseboard installation', state: 'included' },
+          { id: 'interior_door_install', label: 'Interior door installation', state: 'included' },
+          { id: 'insulation', label: 'Insulation', state: 'included' },
+          { id: 'window_install', label: 'Window installation', state: 'included' },
+          { id: 'underlayment', label: 'Underlayment', state: 'included' },
+          { id: 'transitions', label: 'Transitions & reducers', state: 'included' },
+        ],
+      },
+      scopePackages: [],
+      stillNeededReview: ['Pricing for Nonstructural wall demolition'],
+    } as EstimateAiDraft;
+
+    const names = getInitialRevealChecklistScopePreview(draft).map(
+      row => row.name
+    );
+    expect(names).toHaveLength(10);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'Flooring demo / removal',
+        'LVP flooring install',
+        'Interior paint',
+        'Baseboard installation',
+        'Underlayment',
+        'Transitions & reducers',
+      ])
+    );
+    expect(names).not.toContain('Nonstructural wall demolition');
+    expect(names.filter(name => name === 'Baseboard installation')).toHaveLength(1);
+    expect(names).not.toContain('Interior wall and ceiling painting');
+    expect(getInitialRevealConfirmItems(draft).pricingScope).not.toContain(
+      'Price needed for Nonstructural wall demolition'
+    );
+  });
+
   it('keeps mixed painting Scope found rows specific to the notes', () => {
     const notes =
       'Paint 2,000 sqft walls and ceilings with prep, demolition and removal of damaged drywall, six interior doors, 180 LF baseboard, 300 sqft drywall repair, 900 sqft flooring, three replacement windows, and R-30 attic insulation.';
@@ -448,7 +496,7 @@ describe('estimateInitialRevealUi', () => {
         'Interior wall and ceiling painting',
         'Baseboard installation',
         'Interior door installation',
-        'Window & trim installation',
+        'Window install',
         'Insulation',
       ])
     );
@@ -464,6 +512,92 @@ describe('estimateInitialRevealUi', () => {
     expect(attention).toEqual([
       'Price needed for Interior wall and ceiling painting',
       'Price needed for Interior door installation',
+    ]);
+  });
+
+  it('derives Scope found attention items from unpriced checklist cards', () => {
+    const draft = {
+      projectType: 'painting',
+      originalNotes:
+        'Paint walls and ceilings, install six interior doors, and install flooring.',
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'paint', label: 'Interior wall and ceiling painting', state: 'included' },
+          { id: 'interior_door_install', label: 'Interior door installation', state: 'included' },
+          { id: 'flooring', label: 'Flooring installation', state: 'included' },
+        ],
+      },
+      stillNeededReview: [],
+      needsReviewItems: [],
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual(
+      expect.arrayContaining([
+        'Price needed for Interior door installation',
+        'Price needed for Flooring installation',
+      ])
+    );
+  });
+
+  it('shows parsed cross-trade quantities and keeps pre-confirm attention scoped', () => {
+    const draft = {
+      estimateTier: 'room_remodel',
+      projectType: 'other',
+      requiresScopeConfirmation: true,
+      originalNotes:
+        'Tear off and remove the existing roof, then replace 28 roofing squares, repair 180 sqft decking, install gutters and downspouts, replace four windows, repair siding, install R-38 attic insulation, repair drywall, and paint ceilings.',
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'decking_repair', label: 'Roof decking repair', state: 'included' },
+          { id: 'roofing', label: 'Roofing replacement', state: 'included' },
+          { id: 'window_install', label: 'Window replacement', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        roofSquares: 28,
+        roofDeckingReplacementSqft: 180,
+        windowCount: 4,
+      },
+      scopePackages: [
+        {
+          name: 'Roof decking repair',
+          scope: 'Roof decking repair',
+          checklistItemId: 'decking_repair',
+          status: 'missing_price',
+        },
+        {
+          name: 'Roofing replacement',
+          scope: 'Roofing replacement',
+          checklistItemId: 'roofing',
+          status: 'missing_price',
+        },
+        {
+          name: 'Window replacement',
+          scope: 'Window replacement',
+          checklistItemId: 'window_install',
+          status: 'missing_price',
+        },
+      ],
+      stillNeededReview: [
+        'Pricing for Roof decking repair',
+        'Pricing for Roofing replacement',
+        'Pricing for Materials / supplies',
+        'Pricing for Install labor',
+      ],
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Roof decking repair', quantity: '180 sqft' }),
+        expect.objectContaining({ name: 'Roofing replacement', quantity: '28 squares' }),
+        expect.objectContaining({ name: 'Window replacement', quantity: '4 each' }),
+      ])
+    );
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
+      'Price needed for Roof decking repair',
+      'Price needed for Roofing replacement',
     ]);
   });
 
@@ -624,6 +758,36 @@ describe('estimateInitialRevealUi', () => {
     );
   });
 
+  it('shows actionable mixed-scope pricing gaps before scope is confirmed', () => {
+    const draft = {
+      projectType: 'other',
+      scopeMode: 'mixed',
+      estimateTier: 'room_remodel',
+      requiresScopeConfirmation: true,
+      originalNotes:
+        'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.',
+      stillNeededReview: [
+        'Pricing for Insulation',
+        'Pricing for Nonstructural wall demolition',
+        'Material/labor pricing for flooring',
+      ],
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'demo', label: 'Nonstructural wall demolition', state: 'included' },
+          { id: 'framing', label: 'Wall framing, headers & blocking', state: 'included' },
+          { id: 'drywall', label: 'Drywall hang / finish', state: 'included' },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealConfirmItems(draft)).toEqual({
+      pricingScope: ['Material/labor pricing for flooring'],
+      bidDetails: [],
+    });
+    expect(getInitialRevealPrimaryCtaLabel(0, true)).toBe('Confirm scope');
+  });
+
   it('merges explicit catalog note facts into Scope found', () => {
     const draft = {
       projectType: 'kitchen',
@@ -658,7 +822,7 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual([
       'Cabinets',
       'Countertops',
-      'Window installation',
+      'Window install',
       'Insulation',
     ]);
   });

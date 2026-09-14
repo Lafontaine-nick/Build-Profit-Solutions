@@ -18,6 +18,7 @@ describe('scopeMeasurementParser', () => {
 
     expect(parsed.paintScope).toEqual(['walls', 'ceilings']);
     expect(parsed.paintAreaSqft).toBe(2000);
+    expect(parsed.paintAreaNeedsConfirmation).toBe(false);
     expect(parsed.drywallSqft).toBe(300);
     expect(parsed.flooringSqft).toBe(900);
     expect(parsed.floorAreaSqft).toBeUndefined();
@@ -42,8 +43,8 @@ describe('scopeMeasurementParser', () => {
         'Interior wall and ceiling painting',
         'Baseboard installation',
         'Interior door installation',
-        'Insulation',
-        'Window & trim installation',
+        'Attic insulation',
+        'Window install',
       ]),
     );
     expect(checklist.items.map(item => item.label)).not.toContain(
@@ -52,6 +53,20 @@ describe('scopeMeasurementParser', () => {
     expect(checklist.items.map(item => item.label)).not.toContain(
       'LVP flooring install',
     );
+  });
+
+  test('does not borrow drywall area for unspecified wall insulation', () => {
+    const notes =
+      'Remove and dispose of 1,200 sqft existing flooring, then install LVP with underlayment, transitions, 120 LF baseboard, two interior doors, 150 sqft drywall repair, four windows, R-21 wall insulation, and interior paint.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'room_remodel',
+      projectType: 'flooring',
+    });
+
+    expect(parsed.drywallSqft).toBe(150);
+    expect(parsed.floorDemoSqft).toBe(1200);
+    expect(parsed.exteriorWallInsulationSqft).toBeUndefined();
+    expect(parsed.insulationRValue).toBe('R-21');
   });
 
   test('understands kitchen remodel boundaries and carries explicit install work', () => {
@@ -696,6 +711,22 @@ Demo old cabinets and haul off $850 lump sum`;
     expect(parsed.roofSquares).toBe(28);
   });
 
+  test('keeps cross-trade roof scope quantities on their owning work items', () => {
+    const notes =
+      'Tear off and remove the existing roof, then replace 28 roofing squares, repair 180 sqft decking, install gutters and downspouts, replace four windows, repair siding, install R-38 attic insulation, repair drywall, and paint ceilings.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'room_remodel',
+      projectType: 'other',
+    });
+
+    expect(parsed.roofSquares).toBe(28);
+    expect(parsed.roofAreaSqft).toBeUndefined();
+    expect(parsed.deckSqft).toBeUndefined();
+    expect(parsed.roofDeckingReplacementSqft).toBe(180);
+    expect(parsed.windowCount).toBe(4);
+    expect(parsed.insulationRValue).toBe('R-38');
+  });
+
   test('converts roof sqft to squares', () => {
     const notes = 'Roofing job 2800 sqft roof area';
     const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'roofing' });
@@ -709,6 +740,32 @@ Demo old cabinets and haul off $850 lump sum`;
     expect(parsed.floorAreaSqft).toBeUndefined();
     expect(parsed.concreteDemoSqft).toBe(100);
     expect(parsed.concreteSqft).toBe(100);
+  });
+
+  test('does not borrow patio or paver areas for exterior paint or landscape coverage', () => {
+    const notes =
+      'Demolish and remove the existing patio, then excavate and pour a 750 sqft patio with gravel base, rebar, thickened edge, retaining wall, 400 sqft pavers, landscaping, two exterior doors, siding repairs, and exterior trim paint.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'concrete',
+      projectType: 'other',
+    });
+
+    expect(parsed.concreteSqft).toBe(750);
+    expect(parsed.paverSqft).toBe(400);
+    expect(parsed.concreteScope).toEqual(
+      expect.arrayContaining([
+        'demo_removal',
+        'retaining_wall',
+        'pavers',
+        'landscaping',
+        'exterior_doors',
+        'siding_repairs',
+        'exterior_trim_paint',
+      ])
+    );
+    expect(parsed.exteriorPaintSqft).toBeUndefined();
+    expect(parsed.landscapeSqft).toBeUndefined();
+    expect(parsed.rockMulchSqft).toBeUndefined();
   });
 });
 

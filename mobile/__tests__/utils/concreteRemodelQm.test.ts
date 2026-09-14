@@ -1,4 +1,5 @@
 import {
+  CONCRETE_SCOPE_OPTIONS,
   CONCRETE_QM_EMBEDDED_IDS,
   CONCRETE_QM_SYNC_SCOPE_IDS,
   concreteQmPanel,
@@ -27,6 +28,28 @@ describe('concrete QM remodel', () => {
     expect(CONCRETE_QM_SYNC_SCOPE_IDS.has('complex_forming')).toBe(true);
   });
 
+  it('provides confirmation measurements for mixed exterior additions', () => {
+    expect(CONCRETE_SCOPE_OPTIONS).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'landscaping',
+          measurementKey: 'landscapeSqft',
+          unit: 'sqft',
+        }),
+        expect.objectContaining({
+          id: 'siding_repairs',
+          measurementKey: 'sidingRepairSqft',
+          unit: 'sqft',
+        }),
+        expect.objectContaining({
+          id: 'retaining_wall',
+          measurementKey: 'retainingWallLf',
+          unit: 'LF',
+        }),
+      ])
+    );
+  });
+
   it('syncs flatwork and foundation selections into included checklist items', () => {
     const next = syncConcreteQmScopeItems(
       [item('pour_flatwork'), item('pour_foundation'), item('reinforcement')],
@@ -36,15 +59,15 @@ describe('concrete QM remodel', () => {
         concreteCy: '8',
       }
     );
-    expect(next.find((row) => row.id === 'pour_flatwork')).toMatchObject({
+    expect(next.find(row => row.id === 'pour_flatwork')).toMatchObject({
       state: 'included',
       noteBacked: true,
     });
-    expect(next.find((row) => row.id === 'reinforcement')).toMatchObject({
+    expect(next.find(row => row.id === 'reinforcement')).toMatchObject({
       state: 'included',
       noteBacked: true,
     });
-    expect(next.find((row) => row.id === 'pour_foundation')).toMatchObject({
+    expect(next.find(row => row.id === 'pour_foundation')).toMatchObject({
       state: 'included',
       noteBacked: true,
     });
@@ -52,10 +75,15 @@ describe('concrete QM remodel', () => {
 
   it('activates scope cards from QM selection or measurements', () => {
     expect(
-      isConcreteQmScopeItemActive('pour_flatwork', { concreteScope: ['driveways'] })
+      isConcreteQmScopeItemActive('pour_flatwork', {
+        concreteScope: ['driveways'],
+      })
     ).toBe(true);
     expect(
-      isConcreteQmScopeItemActive('demo_removal', { concreteScope: ['demo_removal'], concreteDemoSqft: '120' })
+      isConcreteQmScopeItemActive('demo_removal', {
+        concreteScope: ['demo_removal'],
+        concreteDemoSqft: '120',
+      })
     ).toBe(true);
     expect(
       isConcreteQmScopeItemActive('pour_flatwork', {
@@ -64,10 +92,16 @@ describe('concrete QM remodel', () => {
       })
     ).toBe(true);
     expect(
-      isConcreteQmScopeItemActive('pour_flatwork', { concreteScope: [], concreteSqft: '250' })
+      isConcreteQmScopeItemActive('pour_flatwork', {
+        concreteScope: [],
+        concreteSqft: '250',
+      })
     ).toBe(true);
     expect(
-      isConcreteQmScopeItemActive('demo_removal', { concreteScope: [], concreteDemoSqft: '120' })
+      isConcreteQmScopeItemActive('demo_removal', {
+        concreteScope: [],
+        concreteDemoSqft: '120',
+      })
     ).toBe(true);
   });
 
@@ -81,7 +115,14 @@ describe('concrete QM remodel', () => {
         item('complex_forming'),
       ],
       {
-        concreteScope: ['driveways', 'pour_flatwork', 'site_prep', 'excavation', 'reinforcement', 'complex_forming'],
+        concreteScope: [
+          'driveways',
+          'pour_flatwork',
+          'site_prep',
+          'excavation',
+          'reinforcement',
+          'complex_forming',
+        ],
         concreteSqft: '900',
         concreteAreaByType: { driveways: 900 },
         concreteSubgradePrepSqft: '900',
@@ -90,8 +131,14 @@ describe('concrete QM remodel', () => {
         complexFormingLf: '80',
       }
     );
-    for (const id of ['pour_flatwork', 'site_prep', 'excavation', 'reinforcement', 'complex_forming']) {
-      expect(next.find((row) => row.id === id)).toMatchObject({
+    for (const id of [
+      'pour_flatwork',
+      'site_prep',
+      'excavation',
+      'reinforcement',
+      'complex_forming',
+    ]) {
+      expect(next.find(row => row.id === id)).toMatchObject({
         state: 'included',
         noteBacked: true,
       });
@@ -105,7 +152,10 @@ describe('concrete QM remodel', () => {
         concreteSqft: '250',
       })
     ).toBe(true);
-    expect(readConcreteScope({ concreteScope: ['patios', 'forms'] })).toEqual(['patios', 'forms']);
+    expect(readConcreteScope({ concreteScope: ['patios', 'forms'] })).toEqual([
+      'patios',
+      'forms',
+    ]);
   });
 
   it('hydrates gravel and pump quantities from driveway notes into QM measurements', () => {
@@ -124,5 +174,44 @@ describe('concrete QM remodel', () => {
     expect(Number(hydrated.gravelBaseCy)).toBeCloseTo(11.11, 1);
     expect(hydrated.concretePumpCount).toBe('1');
     expect(hydrated.concretePumpReviewNeeded).toBe(true);
+  });
+
+  it('hydrates a note-backed patio demo into a persisted concrete scope', () => {
+    const notes =
+      'Demolish and remove the existing patio, then excavate and pour a 750 sqft patio with gravel base, rebar, thickened edge, retaining wall, 400 sqft pavers, landscaping, two exterior doors, siding repairs, and exterior trim paint.';
+    const hydrated = concreteQmPanel.hydrateMeasurements({
+      templateKey: 'concrete',
+      wholeHomeLayout: false,
+      notes,
+      hasSitePhotos: false,
+      measurements: {
+        concreteScope: [
+          'patios',
+          'pour_flatwork',
+          'site_prep',
+          'gravel_base',
+          'excavation',
+          'reinforcement',
+          'complex_forming',
+        ],
+        concreteSqft: '750',
+      },
+      checklistItems: [
+        {
+          ...item('demo_removal'),
+          state: 'included',
+          noteBacked: true,
+        },
+        {
+          ...item('exterior_trim_paint'),
+          state: 'included',
+          noteBacked: true,
+        },
+      ],
+    });
+
+    expect(hydrated.concreteScope).toEqual(
+      expect.arrayContaining(['demo_removal', 'exterior_trim_paint'])
+    );
   });
 });

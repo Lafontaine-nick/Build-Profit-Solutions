@@ -13,6 +13,45 @@ import {
 import { tradeQuickMeasurementFieldKeys } from '@/utils/planImportTradeConfig';
 
 describe('scopeQuickMeasurements', () => {
+  it('keeps roof decking out of generic deck and wall-paint cards', () => {
+    const notes =
+      'Tear off and remove the existing roof, then replace 28 roofing squares, repair 180 sqft decking, install gutters and downspouts, replace four windows, repair siding, install R-38 attic insulation, repair drywall, and paint ceilings.';
+    const fields = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {
+        roofSquares: '28',
+        roofDeckingReplacementSqft: '180',
+        deckSqft: '180',
+        windowCount: '4',
+        insulationRValue: 'R-38',
+      },
+      ['roofSquares', 'roofDeckingReplacementSqft', 'deckSqft', 'windowCount'],
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field);
+
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'drywallSqft',
+          label: 'Drywall repair area',
+        }),
+        expect.objectContaining({
+          key: 'roofSquares',
+          label: 'Roofing replacement',
+        }),
+        expect.objectContaining({
+          key: 'roofDeckingReplacementSqft',
+          label: 'Roof decking repair',
+        }),
+      ])
+    );
+    expect(fields.some(field => field.key === 'deckSqft')).toBe(false);
+    expect(fields.some(field => field.key === 'wallPaintSqft')).toBe(false);
+  });
+
   it('hides the generic room-floor field for mixed interior refreshes', () => {
     const notes =
       'Full interior refresh on a 1,900 sqft house. Paint all walls and ceilings, new LVP throughout main floor about 1,100 sqft, update 6 interior doors and trim, patch drywall where needed. No exterior work on this one.';
@@ -54,44 +93,160 @@ describe('scopeQuickMeasurements', () => {
         'insulationRValue',
       ],
       { scopeNotes: notes }
-    ).flat().map(field => field.key);
+    )
+      .flat()
+      .map(field => field.key);
 
     expect(keys).not.toContain('floorAreaSqft');
     expect(keys).not.toContain('paintAreaSqft');
     expect(keys).not.toContain('patchRepairSqft');
-    expect(keys).toEqual(expect.arrayContaining([
-      'flooringSqft',
-      'drywallSqft',
-      'baseboardLf',
-      'wallPaintSqft',
-      'interiorDoorCount',
-      'windowCount',
-      'atticInsulationSqft',
-      'insulationRValue',
-    ]));
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'flooringSqft',
+        'drywallSqft',
+        'baseboardLf',
+        'wallPaintSqft',
+        'interiorDoorCount',
+        'windowCount',
+        'atticInsulationSqft',
+        'insulationRValue',
+      ])
+    );
   });
 
-  it('keeps wall and ceiling paint measurements visible for remodel notes', () => {
+  it('labels a shared walls and ceilings paint scope as one field', () => {
     const notes =
       'Remodel an existing 1,400 sqft home interior. Repaint interior walls and ceilings, and install 180 linear feet of baseboard.';
     expect(notesRequireInteriorPaintMeasurements(notes)).toBe(true);
-    const keys = quickMeasurementRowsForTemplate('room_remodel', 'other', notes)
-      .flat()
-      .map(field => field.key);
-    expect(keys).toContain('wallPaintSqft');
-    expect(keys).toContain('ceilingPaintSqft');
-  });
-
-  it('keeps paint visible for confirmation when notes provide no paint area', () => {
-    const notes =
-      'Remove existing insulation where necessary, then install R-21 batt insulation in 2,000 sqft walls, R-38 blown insulation in 1,200 sqft attic, R-30 floor insulation in 900 sqft, include gap sealing, repair drywall, install flooring, replace four windows, and paint.';
-    const rows = quickMeasurementRowsForInput(
+    const fields = quickMeasurementRowsForInput(
       'room_remodel',
       'other',
       {},
       [],
       { scopeNotes: notes }
+    ).flat();
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'wallPaintSqft',
+          label: 'Walls & ceilings paint',
+        }),
+      ])
     );
+    expect(fields.some(field => field.key === 'ceilingPaintSqft')).toBe(false);
+  });
+
+  it('does not require an interior paint area for exterior trim paint', () => {
+    const notes =
+      'Demolish and remove the existing patio, then excavate and pour a 750 sqft patio with gravel base, rebar, thickened edge, retaining wall, 400 sqft pavers, landscaping, two exterior doors, siding repairs, and exterior trim paint.';
+    expect(notesRequireInteriorPaintMeasurements(notes)).toBe(false);
+    expect(
+      quickMeasurementRowsForInput('room_remodel', 'other', {}, [], {
+        scopeNotes: notes,
+      })
+        .flat()
+        .some(field => field.key === 'wallPaintSqft')
+    ).toBe(false);
+    expect(
+      quickMeasurementRowsForInput('room_remodel', 'other', {}, [], {
+        scopeNotes: notes,
+      })
+        .flat()
+        .some(field => field.key === 'baseboardLf')
+    ).toBe(false);
+  });
+
+  it('restores one labeled walls and ceilings paint field for a shared noted area', () => {
+    const notes =
+      'Paint 2,000 sqft walls and ceilings with prep, demolition and removal of damaged drywall.';
+    const fields = quickMeasurementRowsForInput(
+      'room_remodel',
+      'painting',
+      { wallPaintSqft: '2000', ceilingPaintSqft: '2000' },
+      ['wallPaintSqft', 'ceilingPaintSqft'],
+      { scopeNotes: notes }
+    ).flat();
+
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'wallPaintSqft',
+          label: 'Walls & ceilings paint',
+        }),
+      ])
+    );
+    expect(fields.some(field => field.key === 'ceilingPaintSqft')).toBe(false);
+  });
+
+  it('labels drywall removal separately and keeps the explicit combined paint area', () => {
+    const notes =
+      'Paint 2,000 sqft walls and ceilings with prep, demolition and removal of damaged drywall, six interior doors, 180 LF baseboard, 300 sqft drywall repair, 900 sqft flooring, three replacement windows, and R-30 attic insulation.';
+    const fields = quickMeasurementRowsForInput(
+      'room_remodel',
+      'painting',
+      {},
+      [],
+      { scopeNotes: notes }
+    ).flat();
+
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'wallPaintSqft',
+          label: 'Walls & ceilings paint',
+        }),
+        expect.objectContaining({
+          key: 'wallDemoSqft',
+          label: 'Drywall demolition area',
+        }),
+      ])
+    );
+    expect(fields.some(field => field.key === 'ceilingPaintSqft')).toBe(false);
+  });
+
+  it('labels wall-only and ceiling-only paint scopes from the notes', () => {
+    const wallFields = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: 'Paint 1,000 sqft walls.' }
+    ).flat();
+    const ceilingFields = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: 'Paint 900 sqft ceilings.' }
+    ).flat();
+
+    expect(wallFields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'wallPaintSqft', label: 'Walls paint' }),
+      ])
+    );
+    expect(wallFields.some(field => field.key === 'ceilingPaintSqft')).toBe(
+      false
+    );
+    expect(ceilingFields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'ceilingPaintSqft',
+          label: 'Ceilings paint',
+        }),
+      ])
+    );
+    expect(ceilingFields.some(field => field.key === 'wallPaintSqft')).toBe(
+      false
+    );
+  });
+
+  it('keeps paint visible for confirmation when notes provide no paint area', () => {
+    const notes =
+      'Remove existing insulation where necessary, then install R-21 batt insulation in 2,000 sqft walls, R-38 blown insulation in 1,200 sqft attic, R-30 floor insulation in 900 sqft, include gap sealing, repair drywall, install flooring, replace four windows, and paint.';
+    const rows = quickMeasurementRowsForInput('room_remodel', 'other', {}, [], {
+      scopeNotes: notes,
+    });
     const fields = rows.flat();
 
     expect(fields.map(field => field.key)).toContain('wallPaintSqft');
@@ -101,16 +256,38 @@ describe('scopeQuickMeasurements', () => {
     );
   });
 
-  it('filters stale room-remodel measurements for kitchen notes', () => {
+  it('uses flooring removal instead of wall demolition for flooring notes', () => {
     const notes =
-      'Remodel an existing kitchen without changing the footprint. Install 42 linear feet of new cabinets, 55 sqft of quartz countertops, and 35 sqft of backsplash tile. Include flooring protection, demolition, disposal, and cleanup. No wall removal or structural framing.';
-    const keys = quickMeasurementRowsForInput(
+      'Remove and dispose of 1,200 sqft existing flooring, then install LVP with underlayment, transitions, 120 LF baseboard, two interior doors, 150 sqft drywall repair, four windows, R-21 wall insulation, and interior paint.';
+    const fields = quickMeasurementRowsForInput(
       'room_remodel',
-      'other',
+      'flooring',
       {},
       [],
       { scopeNotes: notes }
-    )
+    ).flat();
+
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'floorDemoSqft',
+          label: 'Flooring removal',
+        }),
+        expect.objectContaining({
+          key: 'wallPaintSqft',
+          label: 'Paint',
+        }),
+      ])
+    );
+    expect(fields.some(field => field.key === 'wallDemoSqft')).toBe(false);
+  });
+
+  it('filters stale room-remodel measurements for kitchen notes', () => {
+    const notes =
+      'Remodel an existing kitchen without changing the footprint. Install 42 linear feet of new cabinets, 55 sqft of quartz countertops, and 35 sqft of backsplash tile. Include flooring protection, demolition, disposal, and cleanup. No wall removal or structural framing.';
+    const keys = quickMeasurementRowsForInput('room_remodel', 'other', {}, [], {
+      scopeNotes: notes,
+    })
       .flat()
       .map(field => field.key);
 
@@ -125,30 +302,22 @@ describe('scopeQuickMeasurements', () => {
   });
 
   it('uses a base drywall measurement for bare drywall notes', () => {
-    const rows = quickMeasurementRowsForInput(
-      'bathroom',
-      'bathroom',
-      {},
-      [],
-      { scopeNotes: 'Remodel the bathroom and install drywall.' }
-    );
+    const rows = quickMeasurementRowsForInput('bathroom', 'bathroom', {}, [], {
+      scopeNotes: 'Remodel the bathroom and install drywall.',
+    });
     const fields = rows.flat();
 
     expect(fields.map(field => field.key)).toContain('drywallSqft');
     expect(fields.map(field => field.key)).not.toContain('patchRepairSqft');
     expect(fields.find(field => field.key === 'drywallSqft')?.label).toBe(
-      'Drywall'
+      'Drywall install'
     );
   });
 
   it('uses the patch and texture measurement for drywall patch notes', () => {
-    const rows = quickMeasurementRowsForInput(
-      'bathroom',
-      'bathroom',
-      {},
-      [],
-      { scopeNotes: 'Patch drywall and match the existing texture.' }
-    );
+    const rows = quickMeasurementRowsForInput('bathroom', 'bathroom', {}, [], {
+      scopeNotes: 'Patch drywall and match the existing texture.',
+    });
     const fields = rows.flat();
 
     expect(fields.map(field => field.key)).toContain('patchRepairSqft');
@@ -158,13 +327,9 @@ describe('scopeQuickMeasurements', () => {
   });
 
   it('adds an interior door count for bare door notes', () => {
-    const rows = quickMeasurementRowsForInput(
-      'bathroom',
-      'bathroom',
-      {},
-      [],
-      { scopeNotes: 'Remodel the bathroom with drywall, doors, and paint.' }
-    );
+    const rows = quickMeasurementRowsForInput('bathroom', 'bathroom', {}, [], {
+      scopeNotes: 'Remodel the bathroom with drywall, doors, and paint.',
+    });
 
     expect(rows.flat().map(field => field.key)).toContain('interiorDoorCount');
   });
@@ -311,13 +476,9 @@ describe('scopeQuickMeasurements', () => {
   it('does not mistake exterior wall insulation for exterior doors', () => {
     const notes =
       'Remodel bathroom with two interior doors, 120 sqft drywall repair, R-21 exterior wall insulation, and paint.';
-    const rows = quickMeasurementRowsForInput(
-      'bathroom',
-      'bathroom',
-      {},
-      [],
-      { scopeNotes: notes }
-    );
+    const rows = quickMeasurementRowsForInput('bathroom', 'bathroom', {}, [], {
+      scopeNotes: notes,
+    });
     const keys = rows.flat().map(field => field.key);
 
     expect(keys).not.toContain('windowCount');
@@ -357,6 +518,7 @@ describe('scopeQuickMeasurements', () => {
       .map(field => field.key);
     expect(keys).toEqual(
       expect.arrayContaining([
+        'wallDemoSqft',
         'framedAreaSqft',
         'wallFramingLf',
         'sheathingSqft',
@@ -365,6 +527,18 @@ describe('scopeQuickMeasurements', () => {
     );
     expect(keys).not.toContain('kitchenFloorSqft');
     expect(keys).not.toContain('cabinetLf');
+  });
+
+  it('promotes structural mixed notes out of a windows-and-doors layout', () => {
+    const notes =
+      'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.';
+    expect(
+      resolveEffectiveQuickMeasurementTemplateKey({
+        templateKey: 'windows_doors',
+        projectType: 'windows_doors',
+        notes,
+      })
+    ).toBe('room_remodel');
   });
 
   it('uses only remodel measurements supported by the notes', () => {
@@ -384,6 +558,30 @@ describe('scopeQuickMeasurements', () => {
     ]);
     expect(fields.find(field => field.key === 'countertopLf')?.unit).toBe('LF');
     expect(fields.map(field => field.key)).not.toContain('bathroomFloorSqft');
+  });
+
+  it('exposes note-backed framing measurements inside a mixed remodel', () => {
+    const notes =
+      'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.';
+    const keys = quickMeasurementRowsForInput('room_remodel', 'other', {}, [], {
+      scopeNotes: notes,
+    })
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'framedAreaSqft',
+        'framingOpeningCount',
+        'sheathingSqft',
+        'drywallSqft',
+        'flooringSqft',
+        'wallPaintSqft',
+        'windowCount',
+        'exteriorDoorCount',
+        'insulationRValue',
+      ])
+    );
   });
 
   it('uses living-first ground_up layout for new builds', () => {
@@ -714,6 +912,60 @@ describe('scopeQuickMeasurements', () => {
       { scopeNotes: notes }
     );
     expect(rows.flat().map(field => field.key)).toContain('kitchenFloorSqft');
+  });
+
+  it('shows a blank exterior trim paint field and hides duplicate patio area', () => {
+    const notes =
+      'Demolish and remove the existing patio, then excavate and pour a 750 sqft patio with gravel base, rebar, thickened edge, retaining wall, 400 sqft pavers, landscaping, two exterior doors, siding repairs, and exterior trim paint.';
+    const fields = quickMeasurementRowsForInput('concrete', 'other', {}, [], {
+      scopeNotes: notes,
+    })
+      .flat()
+      .map(field => field);
+
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'exteriorPaintSqft',
+          label: 'Exterior trim paint',
+          placeholder: 'Enter',
+        }),
+      ])
+    );
+    expect(fields.some(field => field.key === 'deckSqft')).toBe(false);
+  });
+
+  it('shows blank confirmation fields for note-identified mixed exterior scopes', () => {
+    const notes =
+      'Demolish and remove the existing patio, then excavate and pour a 750 sqft patio with gravel base, rebar, thickened edge, retaining wall, 400 sqft pavers, landscaping, two exterior doors, siding repairs, and exterior trim paint.';
+    const fields = quickMeasurementRowsForInput('concrete', 'other', {}, [], {
+      scopeNotes: notes,
+    })
+      .flat()
+      .map(field => field);
+
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'landscapeSqft',
+          label: 'Landscaping area',
+          placeholder: 'Enter',
+          unit: 'sqft',
+        }),
+        expect.objectContaining({
+          key: 'sidingRepairSqft',
+          label: 'Siding repair area',
+          placeholder: 'Enter',
+          unit: 'sqft',
+        }),
+        expect.objectContaining({
+          key: 'retainingWallLf',
+          label: 'Retaining wall length',
+          placeholder: 'Enter',
+          unit: 'LF',
+        }),
+      ])
+    );
   });
 
   it('relabels concrete flatwork as exterior-only with a clarifying helper (excludes house/garage slab)', () => {
