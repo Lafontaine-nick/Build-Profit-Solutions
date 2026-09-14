@@ -3500,8 +3500,27 @@ export function hydrateScopeChecklistFromNotes(
       /\b(?:renovate|remodel|install|replace|repair|remove)\b/i,
     ].every(pattern => pattern.test(noteText));
     if (noteDriven) {
+      const hasFlooringDemo =
+        /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.,;\n]{0,60}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.,;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+          noteText
+        );
+      const hasDrywallDemo =
+        /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.,;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.,;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+          noteText
+        );
+      const hasInsulationRemoval =
+        /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.,;\n]{0,60}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.,;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+          noteText
+        );
       const supported = (id: string): boolean => {
-        if (id === 'demo') return has(/\b(?:remove|demo|demolition|tear[\s-]?out)\b/i);
+        if (id === 'demo') {
+          return (
+            hasFlooringDemo ||
+            hasDrywallDemo ||
+            (has(/\b(?:remove|demo|demolition|tear[\s-]?out)\b/i) &&
+              !hasInsulationRemoval)
+          );
+        }
         if (id === 'plumbing') return has(/\bplumbing|fixture/i);
         if (id === 'drywall') return has(/\bdrywall|sheetrock|patch|repair/i);
         if (id === 'flooring')
@@ -3530,8 +3549,13 @@ export function hydrateScopeChecklistFromNotes(
           item.id === 'demo'
             ? {
                 ...item,
-                label: 'Existing flooring removal',
-                helperText: 'Remove existing flooring in the affected areas.',
+                label: hasDrywallDemo && !hasFlooringDemo
+                  ? 'Drywall demo / removal'
+                  : 'Existing flooring removal',
+                helperText:
+                  hasDrywallDemo && !hasFlooringDemo
+                    ? 'Remove damaged drywall in the affected areas.'
+                    : 'Remove existing flooring in the affected areas.',
               }
             : item
         );

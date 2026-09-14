@@ -55,6 +55,42 @@ describe('resolveScopeItemSuggestedPricing', () => {
     });
   });
 
+  it('prices note-backed interior door trim by each', () => {
+    const pricing = resolveScopeItemSuggestedPricing(
+      'interior_trim',
+      inputWith({ interiorDoorCount: '2' }),
+      'bathroom',
+      { quantity: 2, unit: 'each', quantitySource: 'notes' }
+    );
+
+    expect(pricing.fill).toMatchObject({
+      material: 100,
+      labor: 400,
+      total: 500,
+      basis: { quantity: 2, unit: 'each' },
+    });
+  });
+
+  it('uses the total of note-backed insulation assemblies for the insulation card', () => {
+    const notes =
+      'Remove existing insulation where necessary, then install R-21 batt insulation in 2,000 sqft walls, R-38 blown insulation in 1,200 sqft attic, R-30 floor insulation in 900 sqft, include gap sealing, repair drywall, install flooring, replace four windows, and paint.';
+    const pricing = resolveScopeItemSuggestedPricing(
+      'insulation',
+      inputWith({ floorAreaSqft: '1800' }),
+      'room_remodel',
+      { quantity: 4100, unit: 'sqft', quantitySource: 'notes' },
+      { state: 'UT' },
+      undefined,
+      notes
+    );
+
+    expect(pricing.fill?.basis).toEqual({ quantity: 4100, unit: 'sqft' });
+    expect(pricing.fill?.pricingDetail).toMatch(/2,000 SF Batt/i);
+    expect(pricing.fill?.pricingDetail).toMatch(/1,200 SF Blown-in/i);
+    expect(pricing.fill?.pricingDetail).toMatch(/900 SF Batt/i);
+    expect(pricing.fill?.total).toBeGreaterThan(3600);
+  });
+
   it('prices window trim finish and baseboard installation with their card IDs', () => {
     const input = inputWith({
       windowCount: '2',

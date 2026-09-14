@@ -125,11 +125,33 @@ function hasMultipleFlooringScopeParts(draft, notes) {
   return parts.size > 1;
 }
 
+function notesImplyStructuralMixedScope(notes) {
+  const n = String(notes || "");
+  const hasStructural =
+    /\b(?:framing|wall\s+framing|frame\s+(?:out|up|in)|structural\s+(?:framing|work)|sheathing|trusses?|lumber\s+package)\b/i.test(
+      n,
+    ) &&
+    !/\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b[^.;,\n]{0,45}\b(?:framing|frame|sheathing|trusses?|lumber)\b/i.test(
+      n,
+    );
+  const hasCompanionTrade =
+    /\b(?:flooring|lvp|laminate|vinyl|carpet|hardwood|drywall|sheetrock|paint(?:ing)?|electrical|plumbing|hvac|roof(?:ing)?|windows?|doors?|insulation|trim|baseboards?)\b/i.test(
+      n,
+    );
+  return hasStructural && hasCompanionTrade;
+}
+
 function isSimpleUnitBid(draft, originalNotes) {
   const notes = notesText(draft, originalNotes);
   const projectType = String(draft.projectType || "other").toLowerCase();
 
-  if (notesImplyMixedInteriorRefresh(notes)) return false;
+  if (
+    draft.scopeMode === "mixed" ||
+    notesImplyStructuralMixedScope(notes) ||
+    notesImplyMixedInteriorRefresh(notes)
+  ) {
+    return false;
+  }
   if (REMODEL_KEYWORDS_RE.test(notes)) return false;
   if (
     [
@@ -506,9 +528,9 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     .split(/[.;\n]/)
     .some(
       clause =>
-        /\b(?:drywall|sheetrock)\b[^.;\n]{0,50}\b(?:install|hang|finish|replace|repair|remove|removal|demo|demolition)\b|\b(?:install|hang|finish|replace|repair|remove|removal|demo|demolition)\b[^.;\n]{0,50}\b(?:drywall|sheetrock)\b/i.test(
+        (/\b(?:drywall|sheetrock)\b[^.;\n]{0,50}\b(?:install|hang|finish|replace|repair|remove|removal|demo|demolition)\b|\b(?:install|hang|finish|replace|repair|remove|removal|demo|demolition)\b[^.;\n]{0,50}\b(?:drywall|sheetrock)\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,30}\b(?:drywall|sheetrock)\b/i.test(
           clause,
-        ) &&
+        )) &&
         !/\b(?:no|without|exclude|excluding|not)\b[^.;\n]{0,20}\b(?:drywall|sheetrock)\b/i.test(
           clause,
         ),
@@ -659,6 +681,26 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
       helperText:
         "Bare door notes are treated as interior doors for planning. Confirm the door count before pricing.",
       category: "openings",
+      state: "included",
+      noteBacked: true,
+    });
+  }
+  const insulationExcluded =
+    /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included)\b[^.;\n]{0,40}\binsulat/i.test(
+      notes,
+    );
+  if (
+    insulationRequested &&
+    !insulationExcluded &&
+    !items.some((item) => item.id === "insulation")
+  ) {
+    items.push({
+      id: "insulation",
+      inputType: "yes_no",
+      label: "Insulation",
+      helperText:
+        "Insulation work was identified in the notes. Confirm the location and area before pricing.",
+      category: "structure",
       state: "included",
       noteBacked: true,
     });
@@ -843,6 +885,78 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     ...noteBackedChecklistItems(items, parsedMeasurements, templateKey),
   );
 
+  const structuralMixedNotes =
+    templateKey === "room_remodel" &&
+    draft.scopeMode === "mixed" &&
+    /\b(?:framing|frame|headers?|blocking|structural\s+sheathing|sheathing)\b/i.test(
+      notes,
+    );
+  if (structuralMixedNotes) {
+    const explicitFlooringDemo =
+      /\b(?:demo|demolition|demolish|remove|removal|tear[\s-]?out)\b[^.;\n]{0,55}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|floor\s+tile|tile\s+floor)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|floor\s+tile|tile\s+floor)\b[^.;\n]{0,55}\b(?:demo|demolition|demolish|remove|removal|tear[\s-]?out)\b/i.test(
+        notes,
+      );
+    if (!explicitFlooringDemo) {
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (items[i].id === "floor_demo") items.splice(i, 1);
+      }
+    }
+    const framingItem = items.find((item) => item.id === "framing");
+    if (framingItem) {
+      framingItem.label = "Wall framing, headers & blocking";
+      framingItem.helperText =
+        "Frame the note-specified wall area, including headers and blocking. Structural sheathing and openings are shown separately.";
+      framingItem.state = "included";
+      framingItem.noteBacked = true;
+    }
+    const addStructuralItem = (id, label, helperText) => {
+      const existing = items.find((item) => item.id === id);
+      if (existing) {
+        existing.label = label;
+        existing.helperText = helperText;
+        existing.state = "included";
+        existing.noteBacked = true;
+        return;
+      }
+      items.push({
+        id,
+        inputType: "yes_no",
+        label,
+        helperText,
+        category: "structural",
+        state: "included",
+        noteBacked: true,
+      });
+    };
+    if (/\b(?:structural\s+sheathing|sheathing)\b/i.test(notes)) {
+      addStructuralItem(
+        "shear_sheathing",
+        "Structural sheathing",
+        "Install the structural sheathing identified in the framing notes.",
+      );
+    }
+    if (/\b(?:\w+\s+)?(?:door|window)\s+openings?\b/i.test(notes)) {
+      addStructuralItem(
+        "openings",
+        "Door / window openings",
+        "Frame the note-specified door and window openings.",
+      );
+    }
+  }
+
+  if (
+    templateKey === "room_remodel" &&
+    /\bwindows?\b/i.test(notes) &&
+    !/\b(?:window\s+)?(?:trim|casing|molding|moulding)\b/i.test(notes)
+  ) {
+    const windowItem = items.find((item) => item.id === "window_install");
+    if (windowItem) {
+      windowItem.label = "Window installation";
+      windowItem.helperText =
+        "Install the note-specified windows. Interior casing and exterior trim are separate only when explicitly included.";
+    }
+  }
+
   // Baseboard-only notes should produce one visible trim scope row. The
   // generic room-remodel "Trim & doors" row otherwise overlaps the
   // note-backed Baseboard installation row.
@@ -949,25 +1063,87 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
   // projection, not a generic questionnaire. Keep only work explicitly found
   // in the notes so unrelated electrical/HVAC/permit/cleanup rows do not
   // become false "needs attention" items.
+  const hasMultipleMeasuredScopeParts = [
+    parsedMeasurements.drywallSqft,
+    parsedMeasurements.flooringSqft,
+    parsedMeasurements.baseboardLf,
+    parsedMeasurements.windowCount,
+    parsedMeasurements.interiorDoorCount,
+    parsedMeasurements.paintAreaSqft,
+  ].filter(value => Number(value) > 0).length >= 2;
   if (
     templateKey === "room_remodel" &&
-    Object.keys(parsedMeasurements.itemQuantities || {}).length >= 2 &&
+    (Object.keys(parsedMeasurements.itemQuantities || {}).length >= 2 ||
+      hasMultipleMeasuredScopeParts) &&
     /\b(?:kitchen|bath(?:room)?s?|flooring|drywall|baseboards?|painting)\b/i.test(
       notes,
     )
   ) {
+    const hasFlooringDemoNotes =
+      /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.,;\n]{0,60}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.,;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+        notes,
+      );
+    const hasDrywallDemoNotes =
+      /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.,;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.,;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+        notes,
+      );
+    const hasInsulationRemovalNotes =
+      /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.,;\n]{0,60}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.,;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+        notes,
+      );
+    if (
+      hasInsulationRemovalNotes &&
+      !hasFlooringDemoNotes &&
+      !hasDrywallDemoNotes
+    ) {
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (items[i].id === "demo" || items[i].id === "floor_demo") {
+          items.splice(i, 1);
+        }
+      }
+    }
+    const flooringProduct = parsedMeasurements.flooringProductScope?.[0];
+    const flooringLabel = {
+      lvp: "LVP flooring install",
+      laminate: "Laminate flooring install",
+      engineered_hardwood: "Engineered hardwood install",
+      solid_hardwood: "Solid hardwood install",
+      tile: "Tile flooring install",
+      carpet: "Carpet flooring install",
+    }[flooringProduct] || "Flooring installation";
     const relabels = {
-      demo: ["Existing flooring removal", "Remove existing flooring in the affected areas."],
+      demo: hasDrywallDemoNotes && !hasFlooringDemoNotes
+        ? ["Drywall demo / removal", "Remove damaged drywall in the affected areas."]
+        : hasFlooringDemoNotes
+          ? ["Existing flooring removal", "Remove existing flooring in the affected areas."]
+          : ["Nonstructural wall demolition", "Demolish the existing nonstructural walls identified in the notes."],
       plumbing: ["Plumbing fixture updates", "Update existing bathroom plumbing fixtures."],
-      flooring: ["LVP flooring install", "Install the note-specified LVP flooring area."],
+      flooring: [flooringLabel, "Install the note-specified flooring area; confirm the product if not specified."],
       paint: ["Interior wall and ceiling painting", "Repaint interior walls and ceilings."],
       vanity: ["Bathroom vanity replacement", "Replace the note-specified bathroom vanities."],
     };
     for (const item of items) {
       const replacement = relabels[item.id];
-      if (!replacement) continue;
-      item.label = replacement[0];
-      item.helperText = replacement[1];
+      if (replacement) {
+        item.label = replacement[0];
+        item.helperText = replacement[1];
+      }
+      if (
+        item.id === "trim" &&
+        Number(parsedMeasurements.baseboardLf) > 0 &&
+        !parsedMeasurements.paintScope?.includes("trim")
+      ) {
+        item.label = "Baseboard installation";
+        item.helperText =
+          "Install the specified baseboard LF. Interior doors and door trim are separate scope items.";
+      }
+    }
+    if (items.some(item => item.id === "paint" && item.state === "included")) {
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (items[i].id === "interior_paint" || items[i].id === "ceiling_paint") {
+          items.splice(i, 1);
+        }
+      }
     }
     for (let i = items.length - 1; i >= 0; i--) {
       if (items[i].state !== "included") items.splice(i, 1);

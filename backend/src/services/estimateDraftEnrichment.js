@@ -14,6 +14,7 @@ const {
   allowanceMatchesRoom,
   extractRoomQuantities,
 } = require('./estimateDraftFromNotes');
+const { classifyScopeFromNotes } = require('./estimateDraftQuantityPrice');
 const {
   buildScopePackage,
   computeBidCompleteness,
@@ -274,10 +275,14 @@ function enrichDraft(draftInput, options = {}) {
   const scopePackages = (draft.rooms || []).map((room) =>
     buildScopePackage(room, draft, originalNotes)
   );
-  const detectedTrades = detectTrades(
+  const noteClassification = classifyScopeFromNotes(originalNotes, draft.projectType);
+  const packageTrades = detectTrades(
     draft.projectType,
     scopePackages.map((p) => `${p.name} ${p.scope}`).join(' ')
   );
+  const detectedTrades = [
+    ...new Set([...(noteClassification.detectedTrades || []), ...packageTrades]),
+  ];
   const allowances = enrichAllowances(draft, builderMode);
   const suggestedSplits = buildSuggestedSplits(draft);
   const rooms = syncRoomsFromScopePackages(draft, scopePackages);
@@ -368,6 +373,22 @@ function enrichDraft(draftInput, options = {}) {
     builderMode,
     detectedProjectType: draft.projectType || null,
     detectedTrades,
+    scopeMode: noteClassification.scopeMode || draft.scopeMode || 'unknown',
+    scopeSummary: noteClassification.scopeSummary || draft.scopeSummary || null,
+    scopeTradeLabels:
+      noteClassification.scopeTradeLabels || draft.scopeTradeLabels || [],
+    classification: {
+      scopeMode: noteClassification.scopeMode || draft.scopeMode || 'unknown',
+      primaryTrade:
+        noteClassification.primaryTrade || draft.classification?.primaryTrade || null,
+      detectedTrades,
+      scopeSummary: noteClassification.scopeSummary || draft.scopeSummary || null,
+      evidence: noteClassification.evidence || draft.classification?.evidence || [],
+      exclusions:
+        noteClassification.exclusions || draft.classification?.exclusions || [],
+      confidence:
+        noteClassification.confidence || draft.classification?.confidence || 'low',
+    },
     scopePackages,
     allowances,
     suggestedSplits,

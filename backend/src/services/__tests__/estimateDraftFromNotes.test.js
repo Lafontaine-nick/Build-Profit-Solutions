@@ -8,6 +8,71 @@ const {
 const { inferBuilderMode } = require('../estimateDraftEnrichment');
 
 describe('estimateDraftFromNotes sqft × allowance pricing', () => {
+  test('carries mixed classification through checklist and enrichment', () => {
+    const draft = normalizeDraft(
+      {
+        projectType: 'flooring',
+        projectTitle: 'Flooring',
+        rooms: [
+          { name: 'Framing and Exterior Enclosure', scope: 'Frame interior walls' },
+          { name: 'LVP Flooring', scope: 'Install 1200 sqft LVP flooring' },
+        ],
+      },
+      {
+        originalNotes:
+          'Frame interior walls and install 1200 sqft LVP flooring.',
+      }
+    );
+
+    expect(draft.projectType).toBe('other');
+    expect(draft.scopeMode).toBe('mixed');
+    expect(draft.classification).toMatchObject({
+      scopeMode: 'mixed',
+      primaryTrade: null,
+      detectedTrades: ['framing', 'flooring'],
+      scopeSummary: 'Mixed-scope construction',
+    });
+    expect(draft.scopeChecklist.templateKey).toBe('room_remodel');
+    expect(draft.whatAiDid[0]).toContain('Mixed-scope construction');
+  });
+
+  test('builds framing notes into only the note-supported mixed scope cards', () => {
+    const notes =
+      'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.';
+    const draft = normalizeDraft(
+      {
+        projectType: 'flooring',
+        projectTitle: 'Interior Wall Framing and Finish Build-Out',
+        rooms: [],
+      },
+      { originalNotes: notes }
+    );
+    const labels = draft.scopeChecklist.items
+      .filter(item => item.state === 'included')
+      .map(item => item.label);
+
+    expect(draft.scopeChecklist.templateKey).toBe('room_remodel');
+    expect(labels).toEqual([
+      'Nonstructural wall demolition',
+      'Wall framing, headers & blocking',
+      'Drywall hang / finish',
+      'Flooring installation',
+      'Interior wall and ceiling painting',
+      'Insulation',
+      'Door / window openings',
+      'Window installation',
+      'Exterior swing doors',
+      'Structural sheathing',
+    ]);
+    expect(labels).not.toEqual(
+      expect.arrayContaining([
+        'Baseboards, trim & molding',
+        'Interior door & frame painting',
+        'Window & trim installation',
+      ])
+    );
+  });
+
   test('routes dedicated interior/exterior painting notes to painting', () => {
     expect(
       inferProjectTypeFromNotes(

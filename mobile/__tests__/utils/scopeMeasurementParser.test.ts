@@ -16,6 +16,94 @@ const SMITH_NOTES =
   'Floor job at Smith residence. Demo existing tile in main bath 850 sqft lump sum $2,550. Demo kitchen vinyl 180 sqft allowance $900. Install LVP in both areas 1030 total sqft not priced yet. Baseboards throughout 220 LF lump sum $1,540. Final clean and haul off $650 lump sum.';
 
 describe('mobile scope measurement parser', () => {
+  it('keeps mixed painting notes in the correct scope and measurement owners', () => {
+    const notes =
+      'Paint 2,000 sqft walls and ceilings with prep, demolition and removal of damaged drywall, six interior doors, 180 LF baseboard, 300 sqft drywall repair, 900 sqft flooring, three replacement windows, and R-30 attic insulation.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'room_remodel',
+      projectType: 'painting',
+    });
+
+    expect(parsed.paintScope).toEqual(['walls', 'ceilings']);
+    expect(parsed.paintAreaSqft).toBe(2000);
+    expect(parsed.drywallSqft).toBe(300);
+    expect(parsed.flooringSqft).toBe(900);
+    expect(parsed.floorAreaSqft).toBeUndefined();
+    expect(parsed.floorInsulationSqft).toBeUndefined();
+    expect(parsed.floorPrepSqft).toBeUndefined();
+    expect(parsed.wallDemoSqft).toBeUndefined();
+    expect(parsed.baseboardLf).toBe(180);
+    expect(parsed.interiorDoorCount).toBe(6);
+    expect(parsed.windowCount).toBe(3);
+    expect(parsed.insulationRValue).toBe('R-30');
+  });
+
+  it('clears stale living-area and demo quantities from mixed painting notes', () => {
+    const notes =
+      'Paint 2,000 sqft walls and ceilings with prep, demolition and removal of damaged drywall, six interior doors, 180 LF baseboard, 300 sqft drywall repair, 900 sqft flooring, three replacement windows, and R-30 attic insulation.';
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'painting',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'room_remodel' },
+      scopeMeasurements: {
+        floorAreaSqft: '900',
+        itemQuantities: {
+          demo: { quantity: '900', unit: 'sqft', quantitySource: 'notes' },
+        },
+      },
+    });
+
+    expect(input.floorAreaSqft).toBe('');
+    expect(input.flooringSqft).toBe('900');
+    expect(input.itemQuantities.demo).toBeUndefined();
+  });
+
+  it('does not reuse insulation wall area as a paint measurement', () => {
+    const notes =
+      'Remove existing insulation where necessary, then install R-21 batt insulation in 2,000 sqft walls, R-38 blown insulation in 1,200 sqft attic, R-30 floor insulation in 900 sqft, include gap sealing, repair drywall, install flooring, replace four windows, and paint.';
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'other',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'room_remodel' },
+      scopeMeasurements: {
+        wallPaintSqft: '2000',
+        paintAreaSqft: '2000',
+        quickMeasurementSources: {
+          wallPaintSqft: 'notes',
+          paintAreaSqft: 'notes',
+        },
+      },
+    });
+
+    expect(input.wallPaintSqft).toBe('');
+    expect(input.paintAreaSqft).toBe('');
+  });
+
+  it('clears stale mixed-remodel quantities omitted from bathroom notes', () => {
+    const notes =
+      'Remodel the bathroom with demolition, fixtures, tile, flooring, drywall, doors, 2 windows, insulation, 80 sqft of trim, electrical, and paint.';
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'bathroom',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'bathroom' },
+      scopeMeasurements: {
+        flooringSqft: '500',
+        drywallSqft: '120',
+        wallPaintSqft: '200',
+        atticInsulationSqft: '1200',
+        interiorDoorCount: '2',
+        flooringProductScope: ['lvp'],
+      },
+    });
+
+    expect(input.flooringSqft).toBe('');
+    expect(input.flooringProductScope).toBeNull();
+    expect(input.drywallSqft).toBe('');
+    expect(input.wallPaintSqft).toBe('');
+    expect(input.atticInsulationSqft).toBe('');
+    expect(input.interiorDoorCount).toBe('');
+  });
+
   it('keeps generic bathroom floor tile sqft out of shower-floor measurements', () => {
     const notes =
       'Remodel bathroom with demolition of the existing shower, vanity, toilet, flooring, and drywall; install shower tile, shower pan, vanity, toilet, exhaust fan, 85 sqft floor tile, 65 LF trim, two interior doors, 120 sqft drywall repair, R-21 exterior wall insulation, and paint.';
@@ -232,6 +320,58 @@ describe('mobile scope measurement parser', () => {
         materialType: 'Batt',
         rValue: 'R-30',
         sqft: 900,
+      },
+    ]);
+  });
+
+  it('preserves separate R-values when wall location is stated without exterior', () => {
+    const notes =
+      'Remove existing insulation where necessary, then install R-21 batt insulation in 2,000 sqft walls, R-38 blown insulation in 1,200 sqft attic, R-30 floor insulation in 900 sqft, include gap sealing, repair drywall, install flooring, replace four windows, and paint.';
+
+    expect(parseInsulationAssembliesFromNotes(notes)).toEqual([
+      {
+        location: 'exterior_wall',
+        materialType: 'Batt',
+        rValue: 'R-21',
+        sqft: 2000,
+      },
+      {
+        location: 'attic_ceiling',
+        materialType: 'Blown-in',
+        rValue: 'R-38',
+        sqft: 1200,
+      },
+      {
+        location: 'floor',
+        materialType: 'Batt',
+        rValue: 'R-30',
+        sqft: 900,
+      },
+    ]);
+  });
+
+  it('keeps an R-value assembly selected when its sqft is missing', () => {
+    const notes =
+      'Remove existing insulation where necessary, then install R-21 batt insulation in 2,000 sqft walls, R-38 blown insulation in 1,200 sqft attic, R-13 wall insulation, include gap sealing, repair drywall, install flooring, replace four windows, install 2 doors, and paint.';
+
+    expect(parseInsulationAssembliesFromNotes(notes)).toEqual([
+      {
+        location: 'exterior_wall',
+        materialType: 'Batt',
+        rValue: 'R-21',
+        sqft: 2000,
+      },
+      {
+        location: 'attic_ceiling',
+        materialType: 'Blown-in',
+        rValue: 'R-38',
+        sqft: 1200,
+      },
+      {
+        location: 'exterior_wall',
+        materialType: 'Batt',
+        rValue: 'R-13',
+        sqft: 0,
       },
     ]);
   });

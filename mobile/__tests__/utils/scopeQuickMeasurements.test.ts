@@ -25,6 +25,52 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).toContain('baseboardLf');
   });
 
+  it('keeps mixed-note measurements owned by their explicit scopes', () => {
+    const notes =
+      'Paint 2,000 sqft walls and ceilings with prep, demolition and removal of damaged drywall, six interior doors, 180 LF baseboard, 300 sqft drywall repair, 900 sqft flooring, three replacement windows, and R-30 attic insulation.';
+    const keys = quickMeasurementRowsForInput(
+      'room_remodel',
+      'painting',
+      {
+        drywallSqft: '300',
+        patchRepairSqft: '300',
+        flooringSqft: '900',
+        baseboardLf: '180',
+        wallPaintSqft: '2000',
+        paintAreaSqft: '2000',
+        interiorDoorCount: '6',
+        windowCount: '3',
+        insulationRValue: 'R-30',
+      },
+      [
+        'drywallSqft',
+        'patchRepairSqft',
+        'flooringSqft',
+        'baseboardLf',
+        'wallPaintSqft',
+        'paintAreaSqft',
+        'interiorDoorCount',
+        'windowCount',
+        'insulationRValue',
+      ],
+      { scopeNotes: notes }
+    ).flat().map(field => field.key);
+
+    expect(keys).not.toContain('floorAreaSqft');
+    expect(keys).not.toContain('paintAreaSqft');
+    expect(keys).not.toContain('patchRepairSqft');
+    expect(keys).toEqual(expect.arrayContaining([
+      'flooringSqft',
+      'drywallSqft',
+      'baseboardLf',
+      'wallPaintSqft',
+      'interiorDoorCount',
+      'windowCount',
+      'atticInsulationSqft',
+      'insulationRValue',
+    ]));
+  });
+
   it('keeps wall and ceiling paint measurements visible for remodel notes', () => {
     const notes =
       'Remodel an existing 1,400 sqft home interior. Repaint interior walls and ceilings, and install 180 linear feet of baseboard.';
@@ -34,6 +80,25 @@ describe('scopeQuickMeasurements', () => {
       .map(field => field.key);
     expect(keys).toContain('wallPaintSqft');
     expect(keys).toContain('ceilingPaintSqft');
+  });
+
+  it('keeps paint visible for confirmation when notes provide no paint area', () => {
+    const notes =
+      'Remove existing insulation where necessary, then install R-21 batt insulation in 2,000 sqft walls, R-38 blown insulation in 1,200 sqft attic, R-30 floor insulation in 900 sqft, include gap sealing, repair drywall, install flooring, replace four windows, and paint.';
+    const rows = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: notes }
+    );
+    const fields = rows.flat();
+
+    expect(fields.map(field => field.key)).toContain('wallPaintSqft');
+    expect(fields.map(field => field.key)).not.toContain('ceilingPaintSqft');
+    expect(fields.find(field => field.key === 'wallPaintSqft')?.label).toBe(
+      'Paint'
+    );
   });
 
   it('filters stale room-remodel measurements for kitchen notes', () => {

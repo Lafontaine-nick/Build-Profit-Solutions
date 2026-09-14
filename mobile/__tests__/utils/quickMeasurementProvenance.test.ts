@@ -22,6 +22,24 @@ function groundUpRows() {
 }
 
 describe('resolveQuickMeasurementFields', () => {
+  test('moves a typed value to Confirmed even when an old conflict remains', () => {
+    const results = resolveQuickMeasurementFields({
+      rows: groundUpRows(),
+      measurements: {
+        ...emptyQuickMeasurementInput(),
+        floorAreaSqft: '500',
+      },
+      userOverrides: { floorAreaSqft: true },
+      measurementConflicts: [{ field: 'floorAreaSqft' }],
+      includedScopeKeys: ['flooring'],
+      templateKey: 'ground_up',
+    });
+
+    expect(results.find(result => result.key === 'floorAreaSqft')?.state).toBe(
+      'confirmed'
+    );
+  });
+
   test('a value written directly from plan takeoff shows as Detected from plan', () => {
     const rows = groundUpRows();
     const measurements = {

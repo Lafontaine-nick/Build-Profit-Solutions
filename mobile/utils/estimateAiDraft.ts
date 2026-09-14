@@ -1023,6 +1023,16 @@ export type EstimateDraftPayment = {
   dueTiming: string;
 };
 
+export type EstimateScopeClassification = {
+  scopeMode: 'dedicated' | 'mixed' | 'unknown' | string;
+  primaryTrade: string | null;
+  detectedTrades: string[];
+  scopeSummary: string | null;
+  evidence: string[];
+  exclusions: string[];
+  confidence: 'high' | 'medium' | 'low' | string;
+};
+
 export type EstimateAiDraft = {
   originalNotes?: string | null;
   builderMode?: EstimateBuilderMode;
@@ -1051,6 +1061,10 @@ export type EstimateAiDraft = {
   contractScope: string | null;
   suggestedPaymentSchedule: EstimateDraftPayment[] | null;
   applySuggestedSplits?: boolean;
+  classification?: EstimateScopeClassification | null;
+  scopeMode?: 'dedicated' | 'mixed' | 'unknown' | string;
+  scopeSummary?: string | null;
+  scopeTradeLabels?: string[];
   detectedTrades?: string[];
   knownSubtotal?: number | null;
   partialPricingCount?: number;

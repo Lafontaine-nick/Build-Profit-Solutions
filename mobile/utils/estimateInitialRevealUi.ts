@@ -127,17 +127,20 @@ export function getInitialRevealConfirmItems(
   draft: EstimateAiDraft
 ): InitialRevealConfirmBuckets {
   const { items } = getCompactStillNeeded(draft, 50);
-  const prioritized = filterBathroomRevealAttentionItems(
+  const prioritized = filterMixedScopeAttentionItems(
     draft,
-    filterConcreteRevealAttentionItems(
+    filterBathroomRevealAttentionItems(
       draft,
-      filterPlumbingRevealAttentionItems(
+      filterConcreteRevealAttentionItems(
         draft,
-        filterRoofingRevealAttentionItems(
+        filterPlumbingRevealAttentionItems(
           draft,
-          [...items]
-            .filter((item) => !isInitialRevealBidDetailItem(item))
-            .sort((a, b) => revealItemPriority(a) - revealItemPriority(b))
+          filterRoofingRevealAttentionItems(
+            draft,
+            [...items]
+              .filter((item) => !isInitialRevealBidDetailItem(item))
+              .sort((a, b) => revealItemPriority(a) - revealItemPriority(b))
+          )
         )
       )
     )
@@ -259,6 +262,71 @@ export function filterPlumbingRevealAttentionItems(
   });
 }
 
+function mixedInteriorScopeNotes(draft: EstimateAiDraft): boolean {
+  const notes = String(draft.originalNotes || '');
+  const signals = [
+    /\b(?:paint(?:ing)?|repaint)\b[^.;\n]{0,80}\b(?:walls?|ceilings?)\b/i,
+    /\b(?:drywall|sheetrock)\b/i,
+    /\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet)\b/i,
+    /\b(?:doors?|baseboards?|windows?|insulat(?:e|ion))\b/i,
+  ];
+  return signals.filter(pattern => pattern.test(notes)).length >= 3;
+}
+
+function filterMixedScopeAttentionItems(
+  draft: EstimateAiDraft,
+  items: string[]
+): string[] {
+  if (!mixedInteriorScopeNotes(draft)) return items;
+
+  const notes = String(draft.originalNotes || '');
+  const hasFlooringDemo =
+    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.,;\n]{0,60}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.,;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+      notes
+    );
+  const scopeRows = getInitialRevealScopeRows(draft);
+  const rowForAttentionItem = (item: string) => {
+    const match = item.match(/^(?:pricing for|price needed for)\s+(.+?)(?:\s*\(|$)/i);
+    if (!match) return item;
+    const requested = match[1].trim();
+    if (
+      !hasFlooringDemo &&
+      /\b(?:tile|floor(?:ing)?|lvp|laminate|vinyl|carpet)\s+demo\b|\bexisting\s+floor(?:ing)?\s+removal\b/i.test(
+        requested
+      )
+    ) {
+      return null;
+    }
+
+    const requestedLower = requested.toLowerCase();
+    const preferredIds =
+      /\binterior\s+paint(?:ing)?\b/.test(requestedLower)
+        ? ['paint', 'interior_paint']
+        : /\binterior\s+doors?\b|\bdoor\s+install/.test(requestedLower)
+          ? ['interior_door_install', 'doors']
+          : /\bdrywall\b/.test(requestedLower)
+            ? ['drywall', 'demo']
+            : /\binsulat/.test(requestedLower)
+              ? ['insulation']
+              : /\bwindows?\b/.test(requestedLower)
+                ? ['window_install', 'windows']
+                : /\bbaseboards?\b|\btrim\b/.test(requestedLower)
+                  ? ['trim', 'baseboard_install']
+                  : /\bfloor(?:ing)?\b|\blvp\b|\blaminate\b|\bvinyl\b|\bcarpet\b/.test(
+                        requestedLower
+                      )
+                    ? ['flooring']
+                    : [];
+    const row = scopeRows.find(candidate => preferredIds.includes(candidate.id));
+    if (!row) return null;
+    return `Pricing for ${row.name}`;
+  };
+
+  return items
+    .map(rowForAttentionItem)
+    .filter((item): item is string => Boolean(item));
+}
+
 function revealChecklistItemVisible(
   draft: EstimateAiDraft,
   item: { id: string; state?: string; inputType?: string; choiceId?: string | null; choiceIds?: string[] }
@@ -312,10 +380,34 @@ function getInitialRevealScopeRows(
   ]
     .map((value) => String(value || '').toLowerCase())
     .some((value) => /\bkitchen\b/.test(value));
+  const notes = String(draft.originalNotes || '');
+  const explicitFlooringDemo =
+    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.,;\n]{0,60}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.,;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+      notes
+    );
+  const explicitDrywallDemo =
+    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.,;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.,;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+      notes
+    );
+  const explicitInsulationRemoval =
+    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.,;\n]{0,60}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.,;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+      notes
+    );
+  const specifiedFlooringProduct =
+    /\b(?:lvp|luxury\s+vinyl|laminate|engineered\s+hardwood|solid\s+hardwood|carpet|floor\s+tile|tile\s+floor)\b/i.test(
+      notes
+    );
+  const hasBaseboardScope = /\bbaseboards?\b/i.test(notes);
   const displayNameForScopeRow = (id: string, name: string) =>
     kitchenContext && id === 'floor_demo'
       ? 'Kitchen flooring demo / removal'
-      : name;
+      : id === 'demo' && explicitDrywallDemo && !explicitFlooringDemo
+        ? 'Drywall demo / removal'
+        : id === 'flooring' && !specifiedFlooringProduct
+          ? 'Flooring installation'
+          : id === 'trim' && hasBaseboardScope
+            ? 'Baseboard installation'
+        : name;
   const facts = draft.scopeChecklist?.scopeFacts || [];
   const resolvedFactIds = new Set(
     facts
@@ -342,7 +434,6 @@ function getInitialRevealScopeRows(
         ),
       }))
       .filter((row) => row.id && row.name) || [];
-  const notes = String(draft.originalNotes || '');
   const hasGenericDoorMention =
     /\bdoors?\b/i.test(notes) &&
     !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(notes);
@@ -393,6 +484,20 @@ function getInitialRevealScopeRows(
     if (row.id === 'walls_moving' && !explicitWallLayoutWork) {
       return false;
     }
+    if (notes && row.id === 'floor_demo' && !explicitFlooringDemo) {
+      return false;
+    }
+    if (
+      row.id === 'demo' &&
+      explicitInsulationRemoval &&
+      !explicitFlooringDemo &&
+      !explicitDrywallDemo
+    ) {
+      return false;
+    }
+    if (row.id === 'wall_demo' && explicitDrywallDemo) {
+      return false;
+    }
     // The kitchen checklist can contain a generic “Walls” paint row in
     // addition to the explicit Interior painting row. Keep the priced,
     // note-backed painting scope and suppress the duplicate label.
@@ -407,7 +512,7 @@ function getInitialRevealScopeRows(
       return false;
     }
     if (
-      /\b(?:style|manufacturer|finish|hardware|color|edge profile|specification|selection|details|schedule|payment terms|permit|engineering|inspection|labor and material|cost breakdown)\b/i.test(
+      /\b(?:style|manufacturer|hardware|color|edge profile|specification|selection|details|schedule|payment terms|permit|engineering|inspection|labor and material|cost breakdown)\b/i.test(
         name
       )
     ) {
@@ -436,6 +541,14 @@ function getInitialRevealScopeRows(
     }
     return true;
   });
+  const hasAggregateInteriorPainting = rows.some(
+    row => row.id === 'paint'
+  );
+  if (hasAggregateInteriorPainting) {
+    rows = rows.filter(
+      row => row.id !== 'interior_paint' && row.id !== 'ceiling_paint'
+    );
+  }
   const bathroomContext = [
     draft.scopeChecklist?.templateKey,
     draft.projectType,
@@ -767,12 +880,16 @@ export function getInitialRevealStatusLabel(
 }
 
 export function getInitialRevealDisplayTitle(draft: EstimateAiDraft): string {
+  const classification = getRevealClassification(draft);
   if (isPlumbingRevealDraft(draft) && standalonePlumbingRevealDraft(draft)) {
     const roomTitle = standalonePlumbingProjectTitle(
       draft.originalNotes || '',
       draft.scopeMeasurements?.plumbingRoomContext ?? null
     );
     if (roomTitle !== 'Plumbing bid') return roomTitle;
+  }
+  if (classification.scopeMode === 'mixed') {
+    return classification.scopeSummary?.trim() || 'Mixed-scope remodel';
   }
   if (draft.projectTitle?.trim()) {
     return draft.projectTitle.trim();
@@ -793,23 +910,73 @@ function revealItemPriority(text: string): number {
   return 1;
 }
 
+function getRevealClassification(draft: EstimateAiDraft) {
+  const classification = draft.classification;
+  const tradeLabels: Record<string, string> = {
+    framing: 'Framing',
+    flooring: 'Flooring',
+    drywall: 'Drywall',
+    painting: 'Painting',
+    electrical: 'Electrical',
+    plumbing: 'Plumbing',
+    hvac: 'HVAC',
+    roofing: 'Roofing',
+    windows_doors: 'Windows & doors',
+    insulation: 'Insulation',
+    trim: 'Trim',
+  };
+  const notes = String(draft.originalNotes || '');
+  const mixedNoteSignals = [
+    /\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet)\b/i,
+    /\b(?:drywall|sheetrock|gypsum|patch|repair)\b/i,
+    /\b(?:paint(?:ing)?|repaint)\b/i,
+    /\b(?:insulat(?:e|ion|ed)|R[-\s]?\d{2,3})\b/i,
+    /\bwindows?\b|\b(?:interior\s+)?doors?\b/i,
+  ].filter(pattern => pattern.test(notes)).length;
+  const notesImplyMixedScope =
+    mixedNoteSignals >= 3 &&
+    !/\b(?:new\s+build|ground[-\s]?up|addition|adu|garage\s+conversion)\b/i.test(
+      notes
+    );
+  const resolvedScopeMode =
+    classification?.scopeMode ||
+    draft.scopeMode ||
+    (notesImplyMixedScope ? 'mixed' : 'unknown');
+  return {
+    scopeMode:
+      notesImplyMixedScope && resolvedScopeMode !== 'mixed'
+        ? 'mixed'
+        : resolvedScopeMode,
+    scopeSummary: classification?.scopeSummary || draft.scopeSummary || null,
+    scopeTradeLabels:
+      classification?.detectedTrades?.length
+        ? classification.detectedTrades.map(
+            trade => tradeLabels[trade] || trade.replace(/_/g, ' ')
+          )
+        : draft.scopeTradeLabels || draft.detectedTrades || [],
+  };
+}
+
 /** Top items for the reveal screen — scope/pricing first, admin details later. */
 export function getInitialRevealPriorityItems(
   draft: EstimateAiDraft,
   max = 3
 ): { items: string[]; overflow: number } {
   const { items, overflow } = getCompactStillNeeded(draft, 50);
-  const prioritized = filterBathroomRevealAttentionItems(
+  const prioritized = filterMixedScopeAttentionItems(
     draft,
-    filterConcreteRevealAttentionItems(
+    filterBathroomRevealAttentionItems(
       draft,
-      filterPlumbingRevealAttentionItems(
+      filterConcreteRevealAttentionItems(
         draft,
-        filterRoofingRevealAttentionItems(
+        filterPlumbingRevealAttentionItems(
           draft,
-          [...items]
-            .filter((item) => !isInitialRevealBidDetailItem(item))
-            .sort((a, b) => revealItemPriority(a) - revealItemPriority(b))
+          filterRoofingRevealAttentionItems(
+            draft,
+            [...items]
+              .filter((item) => !isInitialRevealBidDetailItem(item))
+              .sort((a, b) => revealItemPriority(a) - revealItemPriority(b))
+          )
         )
       )
     )
@@ -821,6 +988,14 @@ export function getInitialRevealPriorityItems(
 
 /** One-line positive summary for the hero area. */
 export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
+  const classification = getRevealClassification(draft);
+  if (classification.scopeMode === 'mixed') {
+    const summary = classification.scopeSummary?.trim() || 'Mixed-scope remodel';
+    const trades = classification.scopeTradeLabels
+      .map((label) => String(label).trim())
+      .filter(Boolean);
+    return trades.length > 0 ? `${summary} · ${trades.join(' · ')}` : summary;
+  }
   const bullets = summarizeWhatAiDidForDisplay(draft.whatAiDid || [], 6);
   const titleNorm = getInitialRevealDisplayTitle(draft).toLowerCase();
   const positive = bullets.find((line) => {
@@ -907,6 +1082,13 @@ export function getInitialRevealHeroDisplay(
 }
 
 export function getInitialRevealUnderstoodBullets(draft: EstimateAiDraft, max = 3): string[] {
+  const classification = getRevealClassification(draft);
+  if (classification.scopeMode === 'mixed' && classification.scopeTradeLabels.length) {
+    return classification.scopeTradeLabels
+      .map((label) => String(label).trim())
+      .filter(Boolean)
+      .slice(0, max);
+  }
   const plumbingMax = isPlumbingRevealDraft(draft)
     ? Math.max(
         max,
@@ -930,9 +1112,8 @@ export function getInitialRevealUnderstoodBullets(draft: EstimateAiDraft, max = 
   }
 
   if (!initialRevealPricingVisible(draft)) {
-    const fromChecklist = (draft.scopeChecklist?.items || [])
-      .filter((item) => revealChecklistItemVisible(draft, item))
-      .map((item) => String(item.label || item.id || '').trim())
+    const fromChecklist = getInitialRevealScopeRows(draft)
+      .map(row => row.name)
       .filter(Boolean);
     if (fromChecklist.length > 0) return fromChecklist.slice(0, max);
   }

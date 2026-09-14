@@ -2614,6 +2614,15 @@ function isMixedInteriorRefreshNotes(notes?: string | null): boolean {
   return signals.filter(pattern => pattern.test(text)).length >= 2;
 }
 
+function isCombinedInteriorPaintNote(notes?: string | null): boolean {
+  const text = String(notes || '');
+  return (
+    /\b(?:paint(?:ing)?|repaint)\b/i.test(text) &&
+    /\bwalls?\b/i.test(text) &&
+    /\bceilings?\b/i.test(text)
+  );
+}
+
 function filterMixedInteriorRefreshRows(
   rows: QuickMeasurementRow[],
   templateKey?: string | null,
@@ -2626,7 +2635,16 @@ function filterMixedInteriorRefreshRows(
     return rows;
   }
   return rows
-    .map(row => row.filter(field => field.key !== 'bathroomFloorSqft'))
+    .map(row =>
+      row.filter(
+        field =>
+          field.key !== 'bathroomFloorSqft' &&
+          (field.key !== 'floorAreaSqft' ||
+            !isMixedInteriorRefreshNotes(notes)) &&
+          (field.key !== 'paintAreaSqft' ||
+            !isCombinedInteriorPaintNote(notes))
+      )
+    )
     .filter(row => row.length > 0);
 }
 
@@ -2643,11 +2661,20 @@ export function notesRequireInteriorPaintMeasurements(
   notes?: string | null
 ): boolean {
   const text = String(notes || '');
-  return (
+  const explicitSurfacePaint =
     /\b(?:paint|painting|repaint)\b[^.;\n]{0,50}\b(?:interior\s+)?(?:wall|ceiling)s?\b/i.test(
       text
     ) ||
     /\b(?:interior\s+)?(?:wall|ceiling)s?\b[^.;\n]{0,50}\b(?:paint|painting|repaint)\b/i.test(
+      text
+    )
+  if (explicitSurfacePaint) return true;
+  // A generic interior "paint" instruction still needs a paint-area
+  // confirmation field. Do not create a wall-paint field for cabinet, trim,
+  // or exterior-only paint notes.
+  return (
+    /\b(?:paint|painting|repaint)\b/i.test(text) &&
+    !/\b(?:cabinet|baseboard|trim|molding|moulding|exterior|outside|siding|stucco|soffit|fascia)\b/i.test(
       text
     )
   );
@@ -2781,17 +2808,77 @@ export function quickMeasurementRowsForInput(
       [QUICK_MEASUREMENT_FIELD_DEFS.interiorDoorCount],
     ];
   }
+  const noteBackedFieldsToAppend: QuickMeasurementFieldDef[] = [];
+  const paintMentionedWithoutMeasuredArea =
+    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(scopeNotes) &&
+    !/\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.,;\n]{0,40}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b[^.,;\n]{0,40}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+      scopeNotes
+    );
+  if (
+    resolvedKey === 'room_remodel' &&
+    paintMentionedWithoutMeasuredArea &&
+    !baseRows.some(row => row.some(field => field.key === 'wallPaintSqft')) &&
+    QUICK_MEASUREMENT_FIELD_DEFS.wallPaintSqft
+  ) {
+    noteBackedFieldsToAppend.push(QUICK_MEASUREMENT_FIELD_DEFS.wallPaintSqft);
+  }
+  if (
+    /\bwindows?\b/i.test(scopeNotes) &&
+    !baseRows.some(row => row.some(field => field.key === 'windowCount')) &&
+    QUICK_MEASUREMENT_FIELD_DEFS.windowCount
+  ) {
+    noteBackedFieldsToAppend.push(QUICK_MEASUREMENT_FIELD_DEFS.windowCount);
+  }
+  const atticInsulationMentioned =
+    /\b(?:attic|roof\s+space|ceiling)\s+insulation\b|\bR[-\s]?\d{2,3}\b[^.;\n]{0,25}\battic\b/i.test(
+      scopeNotes
+    );
+  if (
+    atticInsulationMentioned &&
+    !baseRows.some(row =>
+      row.some(field => field.key === 'atticInsulationSqft')
+    ) &&
+    QUICK_MEASUREMENT_FIELD_DEFS.atticInsulationSqft
+  ) {
+    noteBackedFieldsToAppend.push(
+      QUICK_MEASUREMENT_FIELD_DEFS.atticInsulationSqft
+    );
+  }
+  if (
+    /\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i.test(scopeNotes) &&
+    !baseRows.some(row => row.some(field => field.key === 'insulationRValue')) &&
+    QUICK_MEASUREMENT_FIELD_DEFS.insulationRValue
+  ) {
+    noteBackedFieldsToAppend.push(
+      QUICK_MEASUREMENT_FIELD_DEFS.insulationRValue
+    );
+  }
+  if (noteBackedFieldsToAppend.length) {
+    baseRows = [...baseRows, ...chunkRows(noteBackedFieldsToAppend)];
+  }
   const baseKeys = new Set(baseRows.flatMap(r => r.map(f => f.key)));
   const plumbingRowsAreExplicit =
     plumbingTemplate &&
     (options?.plumbingPlanImport || options?.plumbingNotesFlow);
+  const duplicateDrywallRepairQuantity =
+    noteKeySet?.has('drywallSqft') &&
+    noteKeySet.has('patchRepairSqft') &&
+    hasQuickMeasurementValue(measurements.drywallSqft) &&
+    Number(measurements.drywallSqft) ===
+      Number(measurements.patchRepairSqft);
   const extraFields = plumbingRowsAreExplicit
     ? []
     : NOTE_BACKED_QUICK_FIELD_ORDER.filter(
         key =>
           !baseKeys.has(key) &&
           (!noteKeySet || noteKeySet.has(key)) &&
-          hasQuickMeasurementValue(measurements[key])
+          hasQuickMeasurementValue(measurements[key]) &&
+          !(
+            key === 'paintAreaSqft' &&
+            resolvedKey === 'room_remodel' &&
+            isCombinedInteriorPaintNote(scopeNotes)
+          ) &&
+          !(key === 'patchRepairSqft' && duplicateDrywallRepairQuantity)
       )
         .map(key => QUICK_MEASUREMENT_FIELD_DEFS[key])
         .filter((field): field is QuickMeasurementFieldDef => Boolean(field));
@@ -2910,8 +2997,34 @@ export function quickMeasurementRowsForInput(
     .map(row => row.filter(noteBackedCrossTradeFields))
     .filter(row => row.length > 0);
   const filteredExtras = extraFields.filter(noteBackedCrossTradeFields);
-  if (!filteredExtras.length) return filteredRows;
-  return [...filteredRows, ...chunkRows(filteredExtras)];
+  const paintMentionedWithoutSurface =
+    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(scopeNotes) &&
+    !/\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.,;\n]{0,50}\b(?:walls?|ceilings?)\b|\b(?:walls?|ceilings?)\b[^.,;\n]{0,50}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+      scopeNotes
+    );
+  const normalizeGenericPaintRows = (rows: QuickMeasurementRow[]) =>
+    rows
+      .map(row =>
+        row
+          .filter(
+            field =>
+              !(
+                paintMentionedWithoutSurface &&
+                field.key === 'ceilingPaintSqft'
+              )
+          )
+          .map(field =>
+            paintMentionedWithoutSurface && field.key === 'wallPaintSqft'
+              ? { ...field, label: 'Paint' }
+              : field
+          )
+      )
+      .filter(row => row.length > 0);
+  const normalizedRows = normalizeGenericPaintRows(filteredRows);
+  if (!filteredExtras.length) return normalizedRows;
+  return [...normalizedRows, ...chunkRows(filteredExtras)].map(row =>
+    normalizeGenericPaintRows([row])[0] || row
+  );
 }
 
 /** Group flat rows into Site / Structure / Interior sections; primary fields lead. */

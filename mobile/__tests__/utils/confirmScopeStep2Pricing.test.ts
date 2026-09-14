@@ -48,6 +48,17 @@ describe('confirmScopeStep2Pricing tiers', () => {
     ).toBe(false);
   });
 
+  it('does not show a sqft box for opening-only exterior prep', () => {
+    expect(
+      step2TierNeedsInlineTakeoffEntry('exterior_prep', 'bathroom', {
+        pricingReady: false,
+        unit: 'sqft',
+        quantity: 0,
+        dualCount: { quantity: 4, unit: 'each' },
+      })
+    ).toBe(false);
+  });
+
   it('classifies ground-up framing as auto_planning without on-card SF box', () => {
     expect(resolveStep2PricingTier('framing', 'ground_up').tier).toBe('auto_planning');
     expect(

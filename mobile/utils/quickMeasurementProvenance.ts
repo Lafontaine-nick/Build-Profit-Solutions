@@ -34,6 +34,8 @@ export type QuickMeasurementSourceTag =
   | 'plan_detected'
   | 'plan_verified'
   | 'contractor_confirmed_from_plan_review'
+  | 'user_entered'
+  | 'manual_override'
   | 'user_confirmed_suggestion'
   | 'calculated_from_deductions'
   | 'calculated_confirmed';
@@ -176,6 +178,15 @@ function resolveFieldState(params: {
 }): QuickMeasurementFieldState {
   if (!params.relevant) return 'not_relevant';
   if (params.filled) {
+    // A value entered directly by the contractor resolves the field even if
+    // an older plan conflict is still present in the draft.
+    if (
+      params.sourceTag === 'user_entered' ||
+      params.sourceTag === 'manual_override' ||
+      params.sourceTag === 'user_confirmed_suggestion'
+    ) {
+      return 'confirmed';
+    }
     if (params.hasConflict) return 'needs_confirmation';
     if (params.fromNotes) return 'confirmed';
     if (
@@ -299,6 +310,11 @@ export function resolveQuickMeasurementFields(params: {
     const filled = hasQuickMeasurementValue(displayValue);
     const typed = String(params.measurements[field.key] ?? '').trim() !== '';
     const isUserOverride = Boolean(params.userOverrides?.[field.key]);
+    const manuallyEntered =
+      isUserOverride ||
+      sourceTag === 'user_entered' ||
+      sourceTag === 'manual_override' ||
+      sourceTag === 'user_confirmed_suggestion';
     const noteText = String(params.notes || '');
     const explicitlyMeasuredByNotes =
       (field.key === 'baseboardLf' &&
@@ -404,7 +420,12 @@ export function resolveQuickMeasurementFields(params: {
       filled,
       fromNotes: fromNotes || confirmedFromExplicitNote,
       sourceTag: isUserOverride ? 'user_confirmed_suggestion' : sourceTag,
-      relevant: optionalGasLine ? false : relevance.relevant,
+      relevant:
+        optionalGasLine
+          ? false
+          : manuallyEntered && filled
+            ? true
+            : relevance.relevant,
       hasEstimate: Boolean(estimate),
       hasConflict: conflictFields.has(field.key) && !isUserOverride,
     });

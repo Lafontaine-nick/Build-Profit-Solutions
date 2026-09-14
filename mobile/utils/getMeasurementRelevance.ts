@@ -347,6 +347,26 @@ export function getMeasurementRelevance(params: {
       reason: undefined,
     };
   }
+  const explicitInteriorPaintNotes =
+    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(notesText) &&
+    !/\b(?:exterior|outside|siding|stucco|soffit|fascia)\s+(?:paint|painting)\b|\b(?:paint|painting)\b[^.;\n]{0,35}\b(?:exterior|outside|siding|stucco|soffit|fascia)\b/i.test(
+      notesText
+    ) &&
+    !/\b(?:cabinet|baseboard|trim|molding|moulding)\b[^.;\n]{0,35}\b(?:paint|painting|repaint)\b|\b(?:paint|painting|repaint)\b[^.;\n]{0,35}\b(?:cabinet|baseboard|trim|molding|moulding)\b/i.test(
+      notesText
+    );
+  if (
+    explicitInteriorPaintNotes &&
+    (measurementKey === 'wallPaintSqft' ||
+      measurementKey === 'ceilingPaintSqft')
+  ) {
+    return {
+      relevant: true,
+      blockingPrice: true,
+      relatedScopeKeys,
+      reason: undefined,
+    };
+  }
   const explicitWetAreaNotes =
     /\b(?:bath(?:room)?|shower|tub|wet\s+area|bath\s+floor|shower\s+(?:wall|floor)|tile\s+shower)\b/i.test(
       notesText

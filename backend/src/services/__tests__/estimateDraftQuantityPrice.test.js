@@ -7,14 +7,45 @@ const {
   amountAppearsAsQuantityInText,
   labeledPriceMatchIsValid,
   extractScopeQuantitiesForPackage,
+  classifyScopeFromNotes,
   inferProjectTypeFromNotes,
 } = require('../estimateDraftQuantityPrice');
-const { expandJobScopeRooms, detectScopeTasksFromNotes } = require('../estimateDraftScopeSplit');
+const {
+  expandJobScopeRooms,
+  detectScopeTasksFromNotes,
+} = require('../estimateDraftScopeSplit');
+const { resolvePackageTrade } = require('../estimateDraftPartialPricing');
+const classificationFixtures = require('../../../../test-fixtures/scopeClassificationFixtures.json');
 
 const FLOOR_NOTES =
   "OK, let's create a bid. I have a floor job. I have 1200 ft.² of tile demo. I have 1200 ft.² of laminate flooring installation and 500 linear feet of baseboard installation, caulk and paint";
 
 describe('quantity vs price parsing', () => {
+  test.each(classificationFixtures)(
+    'classifies shared fixture $id without conflating project type and trades',
+    (fixture) => {
+      const result = classifyScopeFromNotes(
+        fixture.notes,
+        fixture.hintProjectType
+      );
+      expect(result.scopeMode).toBe(fixture.expected.scopeMode);
+      expect(result.projectType).toBe(fixture.expected.projectType);
+      expect(result.detectedTrades).toEqual(fixture.expected.detectedTrades);
+    }
+  );
+
+  test('resolves package trade from package text instead of project type', () => {
+    expect(resolvePackageTrade('flooring', 'Framing and Exterior Enclosure')).toBe(
+      'framing'
+    );
+    expect(resolvePackageTrade('flooring', 'Install 1200 sqft LVP flooring')).toBe(
+      'flooring'
+    );
+    expect(resolvePackageTrade('flooring', 'Hang and finish drywall')).toBe(
+      'drywall'
+    );
+  });
+
   test('classifies dedicated interior repaint notes as painting despite excluded kitchen cabinets', () => {
     const projectType = inferProjectTypeFromNotes(
       'Interior repaint throughout a 2-story home. Kitchen cabinets, closets, and exterior surfaces are excluded.'

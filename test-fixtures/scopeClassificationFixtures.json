@@ -1,0 +1,52 @@
+[
+  {
+    "id": "framing_plus_flooring",
+    "notes": "Frame interior walls and install 1200 sqft LVP flooring.",
+    "hintProjectType": "flooring",
+    "expected": {
+      "scopeMode": "mixed",
+      "projectType": "other",
+      "detectedTrades": ["framing", "flooring"]
+    }
+  },
+  {
+    "id": "framing_drywall_paint_flooring",
+    "notes": "Explicit framing package, drywall, paint, and 1200 sqft flooring install.",
+    "hintProjectType": "flooring",
+    "expected": {
+      "scopeMode": "mixed",
+      "projectType": "other",
+      "detectedTrades": ["framing", "flooring", "drywall", "painting"]
+    }
+  },
+  {
+    "id": "explicit_no_framing",
+    "notes": "No structural framing. Install 600 sqft LVP flooring.",
+    "hintProjectType": "flooring",
+    "expected": {
+      "scopeMode": "dedicated",
+      "projectType": "flooring",
+      "detectedTrades": ["flooring"]
+    }
+  },
+  {
+    "id": "floor_protection",
+    "notes": "Floor protection while painting the room.",
+    "hintProjectType": "flooring",
+    "expected": {
+      "scopeMode": "dedicated",
+      "projectType": "painting",
+      "detectedTrades": ["painting"]
+    }
+  },
+  {
+    "id": "new_addition_framing",
+    "notes": "Frame a new addition with sheathing and roof tie-in.",
+    "hintProjectType": "flooring",
+    "expected": {
+      "scopeMode": "dedicated",
+      "projectType": "home_addition",
+      "detectedTrades": ["framing", "roofing"]
+    }
+  }
+]

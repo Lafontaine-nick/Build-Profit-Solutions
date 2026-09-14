@@ -14,6 +14,7 @@ const VALID_PROJECT_TYPES = new Set([
   'new_build',
   'roofing',
   'flooring',
+  'framing',
   'deck_patio',
   'plumbing',
   'plumbing_service',
@@ -578,7 +579,7 @@ function normalizeDraft(raw, options = {}) {
   const {
     sanitizePricingItemsList,
     sanitizeRoomPrice,
-    inferProjectTypeFromNotes,
+    classifyScopeFromNotes,
   } = require('./estimateDraftQuantityPrice');
   const { extractRoomNotesText } = require('./estimateDraftRoomNotes');
   const { expandJobScopeRooms } = require('./estimateDraftScopeSplit');
@@ -593,8 +594,21 @@ function normalizeDraft(raw, options = {}) {
   if (!VALID_PROJECT_TYPES.has(projectType)) {
     projectType = 'other';
   }
+  const scopeClassification = originalNotes
+    ? classifyScopeFromNotes(originalNotes, projectType)
+    : {
+        projectType,
+        scopeMode: projectType === 'other' ? 'unknown' : 'dedicated',
+        primaryTrade: projectType === 'other' ? null : projectType,
+        scopeSummary: null,
+        detectedTrades: projectType === 'other' ? [] : [projectType],
+        evidence: [],
+        exclusions: [],
+        confidence: projectType === 'other' ? 'low' : 'medium',
+        scopeTradeLabels: projectType === 'other' ? [] : [projectType.replace(/_/g, ' ')],
+      };
   if (originalNotes) {
-    projectType = inferProjectTypeFromNotes(originalNotes, projectType);
+    projectType = scopeClassification.projectType;
     if (projectType === 'electrical_service') projectType = 'electrical';
     if (!VALID_PROJECT_TYPES.has(projectType)) projectType = 'other';
   }
@@ -741,6 +755,19 @@ function normalizeDraft(raw, options = {}) {
     customerName: draft.customerName ? String(draft.customerName).trim() : null,
     projectTitle: draft.projectTitle ? String(draft.projectTitle).trim() : null,
     projectType,
+    scopeMode: scopeClassification.scopeMode,
+    classification: {
+      scopeMode: scopeClassification.scopeMode,
+      primaryTrade: scopeClassification.primaryTrade,
+      detectedTrades: scopeClassification.detectedTrades,
+      scopeSummary: scopeClassification.scopeSummary,
+      evidence: scopeClassification.evidence,
+      exclusions: scopeClassification.exclusions,
+      confidence: scopeClassification.confidence,
+    },
+    scopeSummary: scopeClassification.scopeSummary,
+    scopeTradeLabels: scopeClassification.scopeTradeLabels,
+    detectedTrades: scopeClassification.detectedTrades,
     projectDescription: draft.projectDescription ? String(draft.projectDescription).trim() : null,
     rooms: normalizedRooms,
     allowances,
@@ -786,7 +813,7 @@ CRITICAL RULES:
 7. LUMP SUM RULE (critical): When the user gives one price per room/area and does NOT state separate labor and material amounts, set price to that exact total, laborPrice null, materialPrice null, priceIncludesLaborAndMaterials true. Do NOT guess or estimate how much is labor vs materials.
 8. Only set laborPrice and materialPrice when the notes explicitly state those amounts (e.g. "$8k labor, $11k materials" or "materials $3,200 / labor $2,100"). They must sum to price when both are present. Set priceIncludesLaborAndMaterials false.
 9. Extract statedTotal only if the user gives an overall bid total.
-10. projectType must be one of: kitchen, bathroom, painting, flooring, room_addition, home_addition, adu, garage_conversion, new_build, roofing, deck_patio, concrete, plumbing_service, landscaping, other. Use concrete for driveway, sidewalk, patio slab, and flatwork pours (not interior room remodel). Use painting for a dedicated interior or exterior painting job, even when the notes mention painting existing kitchen cabinets. Use flooring for floor/tile demo/laminate/baseboard jobs without bath remodel scope.
+  10. projectType must be one of: kitchen, bathroom, painting, flooring, framing, room_addition, home_addition, adu, garage_conversion, new_build, roofing, deck_patio, concrete, plumbing_service, landscaping, other. Use framing for a dedicated framing/shell package. Use other for mixed-scope jobs and preserve every active trade in the room scopes. Use concrete for driveway, sidewalk, patio slab, and flatwork pours (not interior room remodel). Use painting for a dedicated interior or exterior painting job, even when the notes mention painting existing kitchen cabinets. Use flooring for floor/tile demo/laminate/baseboard jobs without bath remodel scope.
 10a. Equipment intent: "mini-split" or "mini split HVAC" means a mini-split equipment package, not a generic whole-house HVAC system. If the notes say convert an existing garage/room/basement/attic/office/studio, classify it as an existing-shell conversion workflow (garage_conversion for garages; room_addition for other existing rooms), not new construction.
 11. contractScope: write professional contract-ready scope language summarizing all rooms.
 12. projectDescription: concise summary of the overall project.

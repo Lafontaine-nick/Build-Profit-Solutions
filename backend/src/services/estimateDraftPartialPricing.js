@@ -274,6 +274,41 @@ function detectTrades(projectType, scopeBlob) {
   return [...trades];
 }
 
+const PACKAGE_TRADE_PRIORITY = [
+  'framing',
+  'drywall',
+  'roofing',
+  'electrical',
+  'plumbing_service',
+  'plumbing',
+  'hvac',
+  'windows_doors',
+  'insulation',
+  'flooring',
+  'painting',
+  'concrete',
+  'landscaping',
+  'deck_patio',
+  'kitchen',
+  'bathroom',
+];
+
+function resolvePackageTrade(projectType, scopeBlob) {
+  const text = String(scopeBlob || '').toLowerCase();
+  const candidates = Object.entries(TRADE_KEYWORDS)
+    .map(([trade, keywords]) => ({
+      trade,
+      score: keywords.reduce(
+        (total, keyword) => total + (text.includes(keyword) ? 1 : 0),
+        0
+      ),
+      priority: PACKAGE_TRADE_PRIORITY.indexOf(trade),
+    }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => b.score - a.score || a.priority - b.priority);
+  return candidates[0]?.trade || projectType || 'other';
+}
+
 function inferPackageCategory(room, projectType) {
   const text = `${room?.name || ''} ${room?.scope || ''}`.toLowerCase();
   if (/\b(service call|troubleshoot|repair visit|hourly)\b/.test(text)) return 'service';
@@ -506,7 +541,10 @@ function buildScopePackage(room, draft, originalNotes) {
   return {
     name: sanitizedRoom.name,
     category: sanitizedRoom.category || inferPackageCategory(sanitizedRoom, projectType),
-    trade: detectTrades(projectType, `${sanitizedRoom.name} ${sanitizedRoom.scope}`)[0] || projectType,
+    trade: resolvePackageTrade(
+      projectType,
+      `${sanitizedRoom.name} ${sanitizedRoom.scope}`
+    ),
     scope: sanitizedRoom.scope || '',
     scopeQuantities,
     price: hasRoomTotal ? roundMoney(sanitizedRoom.price) : null,
@@ -704,6 +742,7 @@ module.exports = {
   buildScopePackage,
   computeBidCompleteness,
   detectTrades,
+  resolvePackageTrade,
   extractPricingItemsFromText,
   syncRoomsFromScopePackages,
   recomputeDraftTotals,

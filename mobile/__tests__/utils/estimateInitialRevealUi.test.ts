@@ -21,6 +21,16 @@ import {
 } from '@/utils/estimateInitialRevealUi';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 
+const classificationFixtures = require('../../../test-fixtures/scopeClassificationFixtures.json') as {
+  id: string;
+  notes: string;
+  expected: {
+    scopeMode: string;
+    projectType: string;
+    detectedTrades: string[];
+  };
+}[];
+
 describe('estimateInitialRevealUi', () => {
   it('maps technical review copy to plain language', () => {
     expect(plainLanguageReviewItem('Low-confidence quantity for wall tile')).toContain(
@@ -197,6 +207,97 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealDisplayTitle(draft)).toBe('Master bath remodel');
   });
 
+  it('uses the canonical mixed classification for the Scope found hero', () => {
+    const fixture = classificationFixtures.find(
+      item => item.id === 'framing_plus_flooring'
+    )!;
+    const draft = {
+      projectTitle: 'Flooring',
+      projectType: fixture.expected.projectType,
+      classification: {
+        scopeMode: fixture.expected.scopeMode,
+        primaryTrade: null,
+        detectedTrades: fixture.expected.detectedTrades,
+        scopeSummary: 'Mixed-scope construction',
+        evidence: [],
+        exclusions: [],
+        confidence: 'high',
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealDisplayTitle(draft)).toBe('Mixed-scope construction');
+    expect(getInitialRevealTagline(draft)).toBe(
+      'Mixed-scope construction · Framing · Flooring'
+    );
+    expect(getInitialRevealUnderstoodBullets(draft, 3)).toEqual([
+      'Framing',
+      'Flooring',
+    ]);
+  });
+
+  it('does not let a flooring project title hide mixed insulation work', () => {
+    const notes =
+      'Remove existing insulation where necessary, then install R-21 batt insulation in 2,000 sqft walls, R-38 blown insulation in 1,200 sqft attic, R-30 floor insulation in 900 sqft, include gap sealing, repair drywall, install flooring, replace four windows, and paint.';
+    const draft = {
+      projectTitle: 'Flooring',
+      projectType: 'flooring',
+      originalNotes: notes,
+      scopeMode: 'dedicated',
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealDisplayTitle(draft)).toBe('Mixed-scope remodel');
+  });
+
+  it('keeps mixed framing scope rows specific to the notes', () => {
+    const notes =
+      'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.';
+    const draft = {
+      projectType: 'other',
+      scopeMode: 'mixed',
+      originalNotes: notes,
+      requiresScopeConfirmation: true,
+      classification: {
+        scopeMode: 'mixed',
+        primaryTrade: null,
+        detectedTrades: ['framing', 'flooring', 'drywall', 'painting', 'windows_doors', 'insulation'],
+        scopeSummary: 'Mixed-scope construction',
+        evidence: [],
+        exclusions: [],
+        confidence: 'high',
+      },
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'demo', label: 'Nonstructural wall demolition', state: 'included', noteBacked: true },
+          { id: 'framing', label: 'Wall framing, headers & blocking', state: 'included', noteBacked: true },
+          { id: 'drywall', label: 'Drywall hang / finish', state: 'included', noteBacked: true },
+          { id: 'flooring', label: 'Flooring installation', state: 'included', noteBacked: true },
+          { id: 'paint', label: 'Interior wall and ceiling painting', state: 'included', noteBacked: true },
+          { id: 'insulation', label: 'Insulation', state: 'included', noteBacked: true },
+          { id: 'openings', label: 'Door / window openings', state: 'included', noteBacked: true },
+          { id: 'window_install', label: 'Window installation', state: 'included', noteBacked: true },
+          { id: 'exterior_doors', label: 'Exterior swing doors', state: 'included', noteBacked: true },
+          { id: 'shear_sheathing', label: 'Structural sheathing', state: 'included', noteBacked: true },
+          { id: 'trim', label: 'Baseboards, trim & molding', state: 'unsure', noteBacked: false },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    const labels = getInitialRevealChecklistScopePreview(draft).map(row => row.name);
+    expect(labels).toEqual([
+      'Nonstructural wall demolition',
+      'Wall framing, headers & blocking',
+      'Drywall hang / finish',
+      'Flooring installation',
+      'Interior wall and ceiling painting',
+      'Insulation',
+      'Door / window openings',
+      'Window installation',
+      'Exterior swing doors',
+      'Structural sheathing',
+    ]);
+  });
+
   it('fills Scope found with plumbing note bullets and checklist preview', () => {
     const draft = {
       projectTitle: 'Plumbing bid',
@@ -267,6 +368,103 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealChecklistScopePreview(draft).map(row => row.name)).toEqual(
       expect.arrayContaining(['Interior door installation'])
     );
+  });
+
+  it('does not turn insulation removal into flooring demo scope', () => {
+    const notes =
+      'Remove existing insulation where necessary, then install R-21 batt insulation in 2,000 sqft walls, R-38 blown insulation in 1,200 sqft attic, R-30 floor insulation in 900 sqft, include gap sealing, repair drywall, install flooring, replace four windows, and paint.';
+    const draft = {
+      projectType: 'other',
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'demo', label: 'Existing flooring removal', state: 'included' },
+          { id: 'drywall', label: 'Drywall patch / repair', state: 'included' },
+          { id: 'flooring', label: 'Flooring installation', state: 'included' },
+          { id: 'paint', label: 'Interior wall and ceiling painting', state: 'included' },
+          { id: 'window_install', label: 'Window installation', state: 'included' },
+          { id: 'insulation', label: 'Insulation', state: 'included' },
+        ],
+      },
+      scopePackages: [],
+    } as EstimateAiDraft;
+
+    const names = getInitialRevealChecklistScopePreview(draft).map(
+      row => row.name
+    );
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'Flooring installation',
+        'Insulation',
+      ])
+    );
+    expect(names).not.toContain('Existing flooring removal');
+  });
+
+  it('keeps mixed painting Scope found rows specific to the notes', () => {
+    const notes =
+      'Paint 2,000 sqft walls and ceilings with prep, demolition and removal of damaged drywall, six interior doors, 180 LF baseboard, 300 sqft drywall repair, 900 sqft flooring, three replacement windows, and R-30 attic insulation.';
+    const draft = {
+      projectType: 'painting',
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'demo', label: 'Existing flooring removal', state: 'included' },
+          { id: 'drywall', label: 'Drywall patch / repair', state: 'included' },
+          { id: 'flooring', label: 'LVP flooring install', state: 'included' },
+          { id: 'paint', label: 'Interior wall and ceiling painting', state: 'included' },
+          { id: 'trim', label: 'Trim & doors', state: 'included' },
+          { id: 'prep', label: 'Prep & Masking', state: 'included' },
+          { id: 'interior_paint', label: 'Walls', state: 'included' },
+          { id: 'ceiling_paint', label: 'Ceilings', state: 'included' },
+          { id: 'wall_demo', label: 'Wall Demo', state: 'included' },
+          { id: 'interior_door_install', label: 'Interior door installation', state: 'included' },
+          { id: 'window_install', label: 'Window & trim installation', state: 'included' },
+          { id: 'insulation', label: 'Insulation', state: 'included' },
+        ],
+      },
+      scopePackages: [],
+      stillNeededReview: [
+        'Pricing for Interior Painting',
+        'Pricing for tile demo',
+        'Pricing for Interior Doors',
+        'Pricing for HVAC',
+      ],
+    } as EstimateAiDraft;
+
+    const names = getInitialRevealChecklistScopePreview(draft).map(row => row.name);
+    expect(names).toHaveLength(9);
+    expect(getInitialRevealUnderstoodBullets(draft, 2)).toEqual([
+      'Drywall demo / removal',
+      'Drywall patch / repair',
+    ]);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'Drywall demo / removal',
+        'Drywall patch / repair',
+        'Flooring installation',
+        'Interior wall and ceiling painting',
+        'Baseboard installation',
+        'Interior door installation',
+        'Window & trim installation',
+        'Insulation',
+      ])
+    );
+    expect(names).not.toEqual(expect.arrayContaining([
+      'Existing flooring removal',
+      'LVP flooring install',
+      'Trim & doors',
+      'Walls',
+      'Ceilings',
+      'Wall Demo',
+    ]));
+    const attention = getInitialRevealConfirmItems(draft).pricingScope;
+    expect(attention).toEqual([
+      'Price needed for Interior wall and ceiling painting',
+      'Price needed for Interior door installation',
+    ]);
   });
 
   it('hides excluded plumbing cards and fixture allowance on Scope found', () => {

@@ -90,6 +90,46 @@ export function buildConfirmScopeDisplayItems(
       ? { ...row, label: 'Exterior Envelope' }
       : row
   );
+  const noteText = String(notes || '');
+  const explicitFlooringProduct =
+    /\b(?:lvp|luxury\s+vinyl|laminate|engineered\s+hardwood|solid\s+hardwood|carpet|floor\s+tile|tile\s+floor|vinyl\s+plank)\b/i.test(
+      noteText
+    );
+  const explicitDrywallRepair =
+    /\b(?:patch(?:ing)?|repair(?:ed)?)\b[^.;,\n]{0,45}\bdrywall\b|\bdrywall\b[^.;,\n]{0,45}\b(?:patch(?:ing)?|repair(?:ed)?)\b/i.test(
+      noteText
+    );
+  const explicitDrywallArea =
+    /\b(?:drywall|sheetrock|gypsum)\b[^.,;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.,;\n]{0,35}\b(?:drywall|sheetrock|gypsum)\b/i.test(
+      noteText
+    );
+  const genericExistingDrywall =
+    /\bdrywall\b/i.test(noteText) &&
+    (explicitDrywallRepair ||
+      (/\b(?:demolition|demo|existing|removal|remove)\b/i.test(noteText) &&
+        !explicitDrywallArea)) &&
+    !/\b(?:hang|install|replace|finish)\b[^.;,\n]{0,45}\bdrywall\b|\bdrywall\b[^.;,\n]{0,45}\b(?:hang|install|replace|finish)\b/i.test(
+      noteText
+    );
+  expanded = expanded.map(row => {
+    if (row.id === 'flooring' && !explicitFlooringProduct) {
+      return {
+        ...row,
+        label: 'Flooring installation',
+        helperText:
+          'Install the note-specified flooring area; confirm the flooring product.',
+      };
+    }
+    if (row.id === 'drywall' && genericExistingDrywall) {
+      return {
+        ...row,
+        label: 'Drywall patch / repair',
+        helperText:
+          'Localized drywall patching, texture match, and spot repair only. Confirm the affected repair area.',
+      };
+    }
+    return row;
+  });
   if (
     templateKey &&
     String(templateKey).toLowerCase() !== 'painting'

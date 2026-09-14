@@ -2497,7 +2497,7 @@ const CHECKLIST_TEMPLATES = {
 
 /** Note patterns → default Yes for checklist item ids. */
 const CHECKLIST_YES_HINTS = {
-  demo: /\b(demo|demolition|tear\s*out|gut|remove)\b/,
+  demo: /\b(demo|demolition|demolish|tear\s*out|gut|remove)\b/,
   appliance_removal:
     /\b(remove|disconnect|pull|haul).*\b(appliance|ridge|dishwasher|range|refrigerator|oven|microwave|hood)\b|\b(appliance|ridge|dishwasher|range|refrigerator)\b.*\b(remove|disconnect|pull|haul)\b/,
   flooring:
@@ -2593,7 +2593,7 @@ const CHECKLIST_YES_HINTS = {
   concrete: /\b(concrete|slab|footings?|foundation\s+pour)\b/,
   framing: /\b(fram(?:e|ing)|wall\s+framing|roof\s+framing|shell)\b/,
   openings:
-    /\b(?:re[-\s]?frame|new\s+(?:window|door)?\s*opening|resize(?:d|ing)?\s+(?:the\s+)?(?:window|door)?\s*opening|enlarge(?:d|ing)?\s+(?:the\s+)?(?:window|door)?\s*opening)\b/,
+    /\b(?:\w+\s+)?(?:door|window)\s+openings?\b|\b(?:re[-\s]?frame|new\s+(?:window|door)?\s*opening|resize(?:d|ing)?\s+(?:the\s+)?(?:window|door)?\s*opening|enlarge(?:d|ing)?\s+(?:the\s+)?(?:window|door)?\s*opening)\b/,
   roof_tie_in:
     /\b(roof\s+tie[\s-]?in|tie\s+into\s+(?:the\s+)?roof|roofing\s+tie[\s-]?in|roofing)\b/,
   windows: /\bwindows?\b/,
@@ -2799,9 +2799,31 @@ function notesImplyMultiTradeInteriorRemodel(notes) {
   return signals.filter((pattern) => pattern.test(n)).length >= 3;
 }
 
+function notesImplyStructuralMixedScope(notes) {
+  const n = String(notes || "");
+  const hasStructural =
+    /\b(?:framing|wall\s+framing|frame\s+(?:out|up|in)|structural\s+(?:framing|work)|sheathing|trusses?|lumber\s+package)\b/i.test(
+      n,
+    ) &&
+    !/\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b[^.;,\n]{0,45}\b(?:framing|frame|sheathing|trusses?|lumber)\b/i.test(
+      n,
+    );
+  const hasCompanionTrade =
+    /\b(?:flooring|lvp|laminate|vinyl|carpet|hardwood|drywall|sheetrock|paint(?:ing)?|electrical|plumbing|hvac|roof(?:ing)?|windows?|doors?|insulation|trim|baseboards?)\b/i.test(
+      n,
+    );
+  return hasStructural && hasCompanionTrade;
+}
+
 function checklistTemplateKey(draft, estimateTier) {
   const projectType = String(draft.projectType || "other").toLowerCase();
   const notes = notesText(draft, null);
+  const mixedStructuralScope =
+    !["ground_up", "addition"].includes(String(estimateTier || "").toLowerCase()) &&
+    !["new_build", "home_addition", "room_addition", "adu", "garage_conversion"].includes(
+      projectType
+    ) &&
+    (draft.scopeMode === "mixed" || notesImplyStructuralMixedScope(notes));
 
   const dedicatedPaintingIntent =
     /\b(?:paint(?:ing)?|repaint|primer|painted)\b/i.test(notes);
@@ -2814,6 +2836,9 @@ function checklistTemplateKey(draft, estimateTier) {
     );
   if (dedicatedPaintingIntent && explicitRepaintWithoutConstruction) {
     return "painting";
+  }
+  if (mixedStructuralScope) {
+    return "room_remodel";
   }
   // An explicitly named bathroom remodel is a dedicated multi-trade
   // bathroom workflow, even when the note contains enough plumbing, tile,

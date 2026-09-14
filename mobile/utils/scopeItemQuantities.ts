@@ -286,6 +286,7 @@ import {
   clearStalePricingWhenNotesUnpriced,
   inferGarageConversionFloorSqftFromNotes,
   inferGarageSqftFromCarCount,
+  parseInsulationAssembliesFromNotes,
   parseScopeMeasurementsFromNotes,
 } from '@/utils/scopeMeasurementParser';
 import {
@@ -8715,7 +8716,7 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<
   interior_trim: {
     // Finish-carpentry barometer returns material + labor — keep as a trade split, not a soft-cost lump.
     defaultUnit: 'allowance',
-    allowedUnits: ['allowance', 'lump_sum'],
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
     lumpSumOnly: false,
     requiresUserQuantity: false,
     quantityHelper:
@@ -15286,6 +15287,53 @@ export function resolveScopeItemSuggestedPricing(
       options
     );
   }
+  if (itemId === 'insulation') {
+    const parsedAssemblyRows =
+      notesText
+        ? parseInsulationAssembliesFromNotes(notesText)
+        : null;
+    const hasTrustedMeasurementAssemblies =
+      Array.isArray(measurementsInput.insulationAssemblies) &&
+      measurementsInput.insulationAssemblies.some(row =>
+        ['contractor_entered', 'parsed_from_notes'].includes(
+          String(row.source || '')
+        )
+      );
+    const useAssemblyPricing =
+      parsedAssemblyRows?.length || hasTrustedMeasurementAssemblies;
+    const assemblyInput =
+      hasTrustedMeasurementAssemblies
+        ? measurementsInput
+        : parsedAssemblyRows?.length
+          ? {
+              ...measurementsInput,
+              insulationAssemblies: parsedAssemblyRows,
+            }
+          : measurementsInput;
+    if (useAssemblyPricing) {
+      const assemblyPricingInput = {
+        ...assemblyInput,
+        airSealingIncluded: false,
+      };
+      const assemblyFill = resolveInsulationAssemblyScopeSuggestedPricing(
+        assemblyPricingInput,
+        pricingContext,
+        'insulation'
+      );
+      if (assemblyFill) {
+        const assemblyComparison =
+          resolveInsulationAssemblyNationalRateCardComparison(
+            assemblyPricingInput,
+            pricingContext,
+            'insulation'
+          );
+        return {
+          fill: assemblyFill,
+          comparison: assemblyComparison,
+        };
+      }
+    }
+  }
   if (itemId === 'air_sealing') {
     const explicitQuantity = Number(measurementsInput.airSealingSqft);
     const quantity =
@@ -15346,6 +15394,37 @@ export function resolveScopeItemSuggestedPricing(
           benchmarkLevel: 'component',
           benchmarkScopeKey: 'interior_trim',
           pricingRecordId: 'bps_national:interior_trim:lf',
+        },
+        comparison: null,
+      };
+    }
+  }
+  if (
+    itemId === 'interior_trim' &&
+    String(resolved.unit || '').toLowerCase() === 'each' &&
+    Number(resolved.quantity) > 0
+  ) {
+    const quantity = Number(resolved.quantity);
+    const rates = getNationalAverageBudgetSplit('interior_trim', 'each');
+    if (rates?.material != null && rates?.labor != null) {
+      const material = round2(quantity * rates.material);
+      const labor = round2(quantity * rates.labor);
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: rates.sourceLabel,
+          helper: `${quantity.toLocaleString()} each · interior door trim, finish & normal prep`,
+          mode: 'suggested_price',
+          basis: { quantity, unit: 'each' },
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: 'interior_trim',
+          pricingRecordId: 'bps_national:interior_trim:each',
         },
         comparison: null,
       };
@@ -26589,6 +26668,32 @@ export function initialScopeMeasurementInputExtended(
     scopeNotes,
     parsedFromNotes.itemQuantities
   );
+  const explicitFlooringDemo =
+    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+      scopeNotes
+    );
+  const explicitDrywallDemo =
+    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
+      scopeNotes
+    );
+  if (
+    explicitDrywallDemo &&
+    !explicitFlooringDemo &&
+    !parsedFromNotes.itemQuantities?.demo
+  ) {
+    const demoEntry = itemQuantities.demo;
+    if (
+      demoEntry &&
+      demoEntry.quantitySource !== 'user_entered' &&
+      demoEntry.quantitySource !== 'manual_override' &&
+      demoEntry.quantitySource !== 'calculated_confirmed'
+    ) {
+      delete itemQuantities.demo;
+      delete itemQuantities.demo__material;
+      delete itemQuantities.demo__labor;
+      delete itemQuantities.demo__allowance;
+    }
+  }
 
   // A total yard measurement must not resurrect an old notes-derived
   // material quantity after the notes are edited. Keep an explicitly
@@ -26641,6 +26746,45 @@ export function initialScopeMeasurementInputExtended(
     }
   }
 
+  const paintAreaExplicitlyMeasuredInNotes =
+    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.,;\n]{0,40}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:foot|feet))\b[^.,;\n]{0,40}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+      scopeNotes
+    );
+  const measurementHasProtectedSource = (key: QuickMeasurementFieldKey): boolean => {
+    const source = String(
+      saved?.quickMeasurementSources?.[key] ||
+        suggested?.quickMeasurementSources?.[key] ||
+        ''
+    );
+    return Boolean(saved?.quickMeasurementUserOverrides?.[key]) ||
+      ['user_entered', 'manual_override', 'user_confirmed_suggestion', 'plan', 'plan_detected', 'measured_from_geometry', 'contractor_confirmed_from_plan_review'].includes(
+        source
+      );
+  };
+  const paintMeasurementUserOverride = (
+    key: QuickMeasurementFieldKey
+  ): boolean => measurementHasProtectedSource(key);
+  const notesHaveExplicitDrywallArea =
+    /\b(?:drywall|sheetrock|gypsum)\b[^.,;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.,;\n]{0,35}\b(?:drywall|sheetrock|gypsum)\b/i.test(
+      scopeNotes
+    );
+  const notesHaveExplicitFlooringArea =
+    /\b(?:flooring|lvp|laminate|vinyl|carpet)\b[^.,;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.,;\n]{0,35}\b(?:flooring|lvp|laminate|vinyl|carpet)\b/i.test(
+      scopeNotes
+    );
+  const notesHaveExplicitInsulationArea =
+    /\b(?:insulat(?:e|ion|ed)|R[-\s]?\d{2,3})\b[^.,;\n]{0,50}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.,;\n]{0,50}\b(?:insulat(?:e|ion|ed)|R[-\s]?\d{2,3})\b/i.test(
+      scopeNotes
+    );
+  const notesHaveExplicitDoorCount =
+    /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:interior\s+)?doors?\b/i.test(
+      scopeNotes
+    );
+  const notesHaveExplicitFlooringProduct =
+    /\b(?:lvp|luxury\s+vinyl|laminate|engineered\s+hardwood|solid\s+hardwood|carpet|floor\s+tile|tile\s+floor|vinyl\s+plank)\b/i.test(
+      scopeNotes
+    );
+
   const cabinetsEntry = itemQuantities.cabinets;
   if (cabinetsEntry) {
     const combinedFlag =
@@ -26677,6 +26821,62 @@ export function initialScopeMeasurementInputExtended(
       return String(parsedNoteValue);
     }
 
+    if (
+      (key === 'drywallSqft' || key === 'patchRepairSqft') &&
+      /\b(?:drywall|sheetrock|gypsum|patch|repair)\b/i.test(scopeNotes) &&
+      !notesHaveExplicitDrywallArea &&
+      !measurementHasProtectedSource(key)
+    ) {
+      return '';
+    }
+    if (
+      (key === 'flooringSqft' ||
+        key === 'flooringLvpSqft' ||
+        key === 'flooringLaminateSqft' ||
+        key === 'flooringEngineeredHardwoodSqft' ||
+        key === 'flooringSolidHardwoodSqft' ||
+        key === 'flooringTileSqft' ||
+        key === 'flooringCarpetSqft') &&
+      /\b(?:flooring|lvp|laminate|vinyl|carpet)\b/i.test(scopeNotes) &&
+      !notesHaveExplicitFlooringArea &&
+      !measurementHasProtectedSource(key)
+    ) {
+      return '';
+    }
+    if (
+      [
+        'exteriorWallInsulationSqft',
+        'atticInsulationSqft',
+        'floorInsulationSqft',
+        'insulatedRoofDeckSqft',
+        'garageSeparationInsulationSqft',
+        'insulatedGarageWallSqft',
+        'insulatedGarageCeilingSqft',
+      ].includes(key) &&
+      /\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i.test(scopeNotes) &&
+      !notesHaveExplicitInsulationArea &&
+      !measurementHasProtectedSource(key)
+    ) {
+      return '';
+    }
+    if (
+      key === 'interiorDoorCount' &&
+      /\bdoors?\b/i.test(scopeNotes) &&
+      !notesHaveExplicitDoorCount &&
+      !measurementHasProtectedSource(key)
+    ) {
+      return '';
+    }
+
+    if (
+      ['wallPaintSqft', 'ceilingPaintSqft', 'paintAreaSqft'].includes(key) &&
+      /\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(scopeNotes) &&
+      !paintAreaExplicitlyMeasuredInNotes &&
+      !paintMeasurementUserOverride(key)
+    ) {
+      return '';
+    }
+
     // Floor-tile / flooring sqft is not floor insulation. Clear a stale
     // insulation area unless the notes attach a quantity to floor insulation.
     if (key === 'floorInsulationSqft' && parsedNoteValue == null) {
@@ -26685,6 +26885,42 @@ export function initialScopeMeasurementInputExtended(
           scopeNotes
         );
       if (!notesHaveFloorInsulationQty) return '';
+    }
+    if (
+      key === 'floorAreaSqft' &&
+      parsedNoteValue == null &&
+      (String(draft?.scopeChecklist?.templateKey || '').toLowerCase() ===
+        'room_remodel' ||
+        String(draft?.projectType || '').toLowerCase() === 'painting') &&
+      !/\b(?:living\s+area|total\s+living|conditioned\s+(?:floor\s+)?area|building\s+areas?|heated\s+area)\b/i.test(
+        scopeNotes
+      ) &&
+      /\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet)\b/i.test(scopeNotes) &&
+      [
+        /\b(?:paint(?:ing)?|repaint)\b/i,
+        /\b(?:drywall|sheetrock|patch|repair)\b/i,
+        /\b(?:interior\s+)?doors?\b/i,
+        /\b(?:baseboards?|trim)\b/i,
+        /\bwindows?\b/i,
+        /\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i,
+      ].filter(pattern => pattern.test(scopeNotes)).length >= 2 &&
+      !saved?.quickMeasurementUserOverrides?.floorAreaSqft &&
+      ![
+        'user_entered',
+        'user_confirmed_suggestion',
+        'plan',
+        'plan_detected',
+        'measured_from_geometry',
+        'contractor_confirmed_from_plan_review',
+      ].includes(
+        String(
+          saved?.quickMeasurementSources?.floorAreaSqft ||
+            suggested?.quickMeasurementSources?.floorAreaSqft ||
+            ''
+        )
+      )
+    ) {
+      return '';
     }
 
     // A generic bathroom floor-tile measurement belongs to the bath floor.
@@ -26860,8 +27096,9 @@ export function initialScopeMeasurementInputExtended(
     flooringSqft: pick('flooringSqft'),
     flooringProductScope:
       parsedFromNotes.flooringProductScope ??
-      suggested?.flooringProductScope ??
-      saved?.flooringProductScope ??
+      (notesHaveExplicitFlooringProduct
+        ? suggested?.flooringProductScope ?? saved?.flooringProductScope
+        : null) ??
       null,
     flooringExistingLvpInstallMethod:
       parsedFromNotes.flooringExistingLvpInstallMethod ??
@@ -27452,7 +27689,11 @@ export function initialScopeMeasurementInputExtended(
     flooringExistingTypes:
       saved?.flooringExistingTypes ?? suggested?.flooringExistingTypes ?? null,
     flooringProductScope:
-      saved?.flooringProductScope ?? suggested?.flooringProductScope ?? null,
+      parsedFromNotes.flooringProductScope ??
+      (notesHaveExplicitFlooringProduct
+        ? saved?.flooringProductScope ?? suggested?.flooringProductScope
+        : null) ??
+      null,
     flooringInstallScopeCount:
       saved?.flooringInstallScopeCount ??
       suggested?.flooringInstallScopeCount ??

@@ -206,14 +206,27 @@ function buildWhatAiDid(draft, scopePackages, options = {}) {
     ? draft.detectedTrades
     : detectTrades(draft.projectType, scopePackages.map((p) => `${p.name} ${p.scope}`).join(' '));
   const tradeLabel =
-    draft.scopeChecklist?.templateKey === 'room_remodel'
+    draft.scopeMode === 'mixed'
+      ? draft.scopeSummary || 'mixed-scope construction'
+      : draft.scopeChecklist?.templateKey === 'room_remodel'
       ? 'existing home interior remodel'
       : TRADE_LABELS[draft.projectType] ||
     (trades[0] ? TRADE_LABELS[trades[0]] || trades[0].replace(/_/g, ' ') : null);
 
   if (hasNoPricing(draft, scopePackages) && profile.primary === 'scope_only') {
     if (tradeLabel) {
-      lines.push(`Detected ${tradeLabel.replace(/\s+job\s+job$/i, ' job')}.`);
+      if (draft.scopeMode === 'mixed') {
+        const labels = (draft.scopeTradeLabels || [])
+          .map((label) => String(label).trim())
+          .filter(Boolean);
+        lines.push(
+          labels.length
+            ? `${tradeLabel}: ${labels.join(', ')}.`
+            : `${tradeLabel}.`
+        );
+      } else {
+        lines.push(`Detected ${tradeLabel.replace(/\s+job\s+job$/i, ' job')}.`);
+      }
     }
     for (const pkg of scopePackages || []) {
       const q = (pkg.scopeQuantities || [])[0];
@@ -226,7 +239,18 @@ function buildWhatAiDid(draft, scopePackages, options = {}) {
   }
 
   if (tradeLabel) {
-    lines.push(`Detected ${tradeLabel} job.`);
+    if (draft.scopeMode === 'mixed') {
+      const labels = (draft.scopeTradeLabels || [])
+        .map((label) => String(label).trim())
+        .filter(Boolean);
+      lines.push(
+        labels.length
+          ? `${tradeLabel}: ${labels.join(', ')}.`
+          : `${tradeLabel}.`
+      );
+    } else {
+      lines.push(`Detected ${tradeLabel} job.`);
+    }
   } else if (draft.projectType && draft.projectType !== 'other') {
     lines.push(`Detected ${draft.projectType.replace(/_/g, ' ')} project.`);
   }

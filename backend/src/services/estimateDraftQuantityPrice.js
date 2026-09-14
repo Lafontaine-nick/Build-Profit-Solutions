@@ -485,6 +485,154 @@ function scopeOnlyMissingHints(packageName) {
   return ['Material and labor pricing'];
 }
 
+const NOTE_TRADE_LABELS = {
+  framing: 'Framing',
+  flooring: 'Flooring',
+  drywall: 'Drywall',
+  painting: 'Painting',
+  electrical: 'Electrical',
+  plumbing: 'Plumbing',
+  hvac: 'HVAC',
+  roofing: 'Roofing',
+  windows_doors: 'Windows & doors',
+  insulation: 'Insulation',
+  trim: 'Trim',
+};
+
+const NOTE_TRADE_PROJECT_TYPES = {
+  framing: 'framing',
+  flooring: 'flooring',
+  drywall: 'drywall',
+  painting: 'painting',
+  electrical: 'electrical',
+  plumbing: 'plumbing',
+  hvac: 'hvac',
+  roofing: 'roofing',
+  windows_doors: 'windows_doors',
+  insulation: 'insulation',
+};
+
+const NOTE_TRADE_PATTERNS = {
+  framing:
+    /\b(?:framing|wall\s+framing|frame\s+(?:out|up|in|interior\s+walls?)|frame\s+(?:the\s+)?(?:walls?|house|addition)|structural\s+(?:framing|work)|sheathing|trusses?|lumber\s+package)\b/i,
+  flooring:
+    /\b(?:flooring|floor\s+(?:install|installation|replacement|demo|removal)|lvp|laminate|vinyl flooring|carpet|hardwood|floor\s+tile|tile\s+floor)\b/i,
+  drywall: /\b(?:drywall|sheetrock|gypsum|hang\s+and\s+finish|patch(?:ing)?\s+and\s+texture)\b/i,
+  painting: /\b(?:paint(?:ing)?|repaint|primer|masking)\b/i,
+  electrical: /\b(?:electrical|wiring|outlets?|receptacles?|panel|circuits?)\b/i,
+  plumbing: /\b(?:plumbing|plumb|water\s+lines?|drain(?:age)?|sewer|fixture\s+rough)\b/i,
+  hvac: /\b(?:hvac|furnace|air\s*condition(?:ing)?|heat\s+pump|ductwork|mini[\s-]?split)\b/i,
+  roofing: /\b(?:roof(?:ing)?|shingles?|underlayment|roof\s+tie[\s-]?in)\b/i,
+  windows_doors:
+    /\b(?:windows?|fenestration|exterior\s+doors?|sliding\s+doors?|patio\s+doors?|garage\s+doors?)\b/i,
+  insulation: /\b(?:insulation|insulate|batts?|blown[\s-]?in)\b/i,
+  trim: /\b(?:baseboards?|trim|molding|moulding|casing|quarter[\s-]?round)\b/i,
+};
+
+function noteSignalIsActive(text, pattern) {
+  const source = String(text || '');
+  const flags = `${pattern.flags.replace('g', '')}g`;
+  const matcher = new RegExp(pattern.source, flags);
+  let match;
+  while ((match = matcher.exec(source)) !== null) {
+    const before = source.slice(Math.max(0, match.index - 70), match.index);
+    if (
+      !/\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;,\n]{0,45}$/i.test(
+        before
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function noteSignalIsExcluded(text, pattern) {
+  const source = String(text || '');
+  const matcher = new RegExp(`${pattern.source}`, `${pattern.flags.replace('g', '')}g`);
+  const matches = [...source.matchAll(matcher)];
+  return (
+    matches.length > 0 &&
+    matches.every((match) => {
+      const before = source.slice(Math.max(0, match.index - 70), match.index);
+      return /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;,\n]{0,45}$/i.test(
+        before
+      );
+    })
+  );
+}
+
+function detectNoteTrades(notes) {
+  const text = String(notes || '');
+  return Object.keys(NOTE_TRADE_PATTERNS).filter((trade) => {
+    if (!noteSignalIsActive(text, NOTE_TRADE_PATTERNS[trade])) return false;
+    if (trade !== 'painting') return true;
+    const hasPaintSurfaceIntent =
+      /\b(?:walls?|ceilings?|siding|interior|exterior|whole[-\s]?house|paint(?:ing)?\s+(?:job|scope|prep|masking)|repaint|painting)\b/i.test(
+        text
+      );
+    const trimOnlyPaint =
+      /\b(?:baseboards?|trim|molding|moulding|casing|caulk)\b[^.;\n]{0,45}\bpaint(?:ing)?\b|\bpaint(?:ing)?\b[^.;\n]{0,45}\b(?:baseboards?|trim|molding|moulding|casing|caulk)\b/i.test(
+        text
+      );
+    return hasPaintSurfaceIntent || !trimOnlyPaint;
+  });
+}
+
+function classifyScopeFromNotes(notes, projectType) {
+  const text = String(notes || '').trim();
+  const detectedTrades = detectNoteTrades(text);
+  const nonTrimTrades = detectedTrades.filter((trade) => trade !== 'trim');
+  const hasFraming = detectedTrades.includes('framing');
+  const hasMixedTradeIntent =
+    nonTrimTrades.length >= 2 &&
+    (!/\b(?:bath(?:room)?|shower|tub|vanity|toilet)\b/i.test(text) ||
+      hasFraming);
+  const inferredProjectType = inferProjectTypeFromNotes(text, projectType);
+  const notePrimaryProjectType =
+    detectedTrades.length === 1
+      ? NOTE_TRADE_PROJECT_TYPES[detectedTrades[0]] || null
+      : null;
+  const resolvedProjectType =
+    notePrimaryProjectType &&
+    inferredProjectType === projectType &&
+    projectType !== notePrimaryProjectType
+      ? notePrimaryProjectType
+      : inferredProjectType;
+  const isDedicatedStructure =
+    ['new_build', 'home_addition', 'room_addition', 'adu', 'garage_conversion'].includes(
+      resolvedProjectType
+    );
+  const isMixed = hasMixedTradeIntent && !isDedicatedStructure;
+  const normalizedTrades = detectedTrades.length
+    ? detectedTrades
+    : resolvedProjectType && resolvedProjectType !== 'other'
+      ? [resolvedProjectType]
+      : [];
+
+  return {
+    projectType: isMixed ? 'other' : resolvedProjectType,
+    scopeMode: isMixed ? 'mixed' : normalizedTrades.length > 0 ? 'dedicated' : 'unknown',
+    primaryTrade: isMixed ? null : resolvedProjectType !== 'other' ? resolvedProjectType : null,
+    scopeSummary: isMixed
+      ? hasFraming
+        ? 'Mixed-scope construction'
+        : 'Mixed-scope remodel'
+      : null,
+    detectedTrades: normalizedTrades,
+    evidence: normalizedTrades.map(
+      (trade) => `${NOTE_TRADE_LABELS[trade] || trade.replace(/_/g, ' ')} mentioned in notes`
+    ),
+    exclusions: Object.keys(NOTE_TRADE_PATTERNS)
+      .filter((trade) => noteSignalIsExcluded(text, NOTE_TRADE_PATTERNS[trade]))
+      .map((trade) => NOTE_TRADE_LABELS[trade] || trade.replace(/_/g, ' ')),
+    confidence: normalizedTrades.length > 0 ? 'high' : 'low',
+    scopeTradeLabels: normalizedTrades
+      .map((trade) => NOTE_TRADE_LABELS[trade] || trade.replace(/_/g, ' '))
+      .filter(Boolean),
+  };
+}
+
 function inferProjectTypeFromNotes(notes, projectType) {
   const n = String(notes || '').toLowerCase();
   if (/\b(new\s+home|custom\s+home|spec\s+home|ground\s*up|ground-up|new\s+build)\b/.test(n)) {
@@ -510,9 +658,26 @@ function inferProjectTypeFromNotes(notes, projectType) {
     return 'room_addition';
   }
   if (/\broom\s+addition\b/.test(n)) return 'room_addition';
-  if (/\bhome\s+addition\b|\baddition\b.*\b(?:foundation|framing|roof|hvac|drywall)\b/.test(n)) {
+  if (
+    /\bhome\s+addition\b|\b(?:new|build|frame)\b[^.;\n]{0,45}\baddition\b|\baddition\b.*\b(?:foundation|framing|roof|hvac|drywall)\b/.test(
+      n
+    )
+  ) {
     return 'home_addition';
   }
+  const noteTrades = detectNoteTrades(n);
+  const nonTrimTrades = noteTrades.filter((trade) => trade !== 'trim');
+  const hasFraming = noteTrades.includes('framing');
+  if (
+    hasFraming &&
+    (nonTrimTrades.length >= 2 ||
+      /\b(?:new|add|replace|remodel|renovat(?:e|ion))\b[^.;\n]{0,60}\b(?:framing|frame|sheathing|trusses?)\b/.test(
+        n
+      ))
+  ) {
+    return 'other';
+  }
+  if (hasFraming) return 'framing';
   // A dedicated painting job wins over incidental exclusions such as
   // "kitchen cabinets are excluded"; those words do not make this a kitchen
   // remodel.
@@ -559,6 +724,15 @@ function inferProjectTypeFromNotes(notes, projectType) {
   ) {
     return 'electrical';
   }
+  if (n.trim() && projectType && projectType !== 'other') {
+    const activeTrades = detectNoteTrades(n);
+    if (!activeTrades.includes(projectType)) {
+      if (activeTrades.length === 1) {
+        return NOTE_TRADE_PROJECT_TYPES[activeTrades[0]] || 'other';
+      }
+      if (projectType === 'flooring' || projectType === 'framing') return 'other';
+    }
+  }
   return projectType;
 }
 
@@ -567,6 +741,8 @@ module.exports = {
   PRICE_INDICATOR_BEFORE_RE,
   isQuantityNotPriceContext,
   labeledPriceMatchIsValid,
+  classifyScopeFromNotes,
+  detectNoteTrades,
   amountAppearsAsQuantityInText,
   notesContainExplicitPrice,
   sanitizePricingItem,

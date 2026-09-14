@@ -337,10 +337,21 @@ export function step2TierNeedsInlineTakeoffEntry(
     unit?: string | null;
     quantity?: number | null;
     quantitySource?: string | null;
+    dualCount?: { quantity: number; unit: string } | null;
   } | null,
   pricingApplied?: boolean
 ): boolean {
   const template = String(templateKey || '').toLowerCase();
+  if (
+    itemId === 'exterior_prep' &&
+    String(resolved?.unit || '').toLowerCase() === 'sqft' &&
+    resolved?.dualCount?.unit === 'each' &&
+    Number(resolved.dualCount.quantity) > 0
+  ) {
+    // Opening prep is priced per window/door when no exterior surface takeoff
+    // exists; do not also ask for a meaningless 0 sqft area.
+    return false;
+  }
   if (itemId === 'interior_door_install') {
     // Door installation is priced per door. The confirmed door count is
     // already shown on the card; never add a duplicate sqft takeoff field.

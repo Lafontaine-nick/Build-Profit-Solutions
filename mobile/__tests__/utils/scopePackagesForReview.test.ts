@@ -40,6 +40,37 @@ function packageRuleKey(
 }
 
 describe('scopePackagesForReview', () => {
+  it('uses repair drywall and generic flooring when the note omits a product', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'drywall',
+        label: 'Drywall hang / finish',
+        state: 'included',
+        inputType: 'yes_no',
+      },
+      {
+        id: 'flooring',
+        label: 'LVP flooring install',
+        state: 'included',
+        inputType: 'yes_no',
+      },
+    ];
+
+    const rows = buildConfirmScopeDisplayItems(
+      items,
+      {},
+      'bathroom',
+      'Remodel the bathroom with demolition, flooring, drywall, and paint.'
+    );
+
+    expect(rows.find(row => row.id === 'drywall')?.label).toBe(
+      'Drywall patch / repair'
+    );
+    expect(rows.find(row => row.id === 'flooring')?.label).toBe(
+      'Flooring installation'
+    );
+  });
+
   it('flattenChecklistDisplayOrder matches bathroom Demo before Wet area finish', () => {
     const items = bathroomChecklistFromGroups();
     const flat = flattenChecklistDisplayOrder(items, 'bathroom');

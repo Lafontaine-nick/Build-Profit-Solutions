@@ -347,6 +347,18 @@ describe('getMeasurementRelevance', () => {
     expect(cabinets.relevant).toBe(true);
   });
 
+  test('generic interior paint notes keep a blank paint measurement relevant', () => {
+    const result = getMeasurementRelevance({
+      measurementKey: 'wallPaintSqft',
+      includedScopeKeys: ['insulation', 'drywall', 'flooring'],
+      notes:
+        'Install R-21 insulation in 2,000 sqft walls, repair drywall, install flooring, and paint.',
+    });
+
+    expect(result.relevant).toBe(true);
+    expect(result.blockingPrice).toBe(true);
+  });
+
   test('baseboard LF is only relevant when trim/baseboard scope is included', () => {
     expect(
       getMeasurementRelevance({

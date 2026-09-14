@@ -47,6 +47,25 @@ describe("estimateDraftComplexity", () => {
     ).toBe("flooring");
   });
 
+  test("keeps active drywall and flooring as mixed scope", () => {
+    const notes =
+      "Install 600 sqft flooring and hang and finish drywall in the affected rooms.";
+    const draft = {
+      projectType: "flooring",
+      scopeMode: "mixed",
+      rooms: [
+        { name: "Flooring", scope: "600 sqft flooring install" },
+        { name: "Drywall", scope: "Hang and finish drywall" },
+      ],
+    };
+
+    expect(isSimpleUnitBid(draft, notes)).toBe(false);
+    expect(classifyEstimateTier(draft, notes)).toBe("room_remodel");
+    expect(buildScopeChecklist(draft, "room_remodel", notes).templateKey).toBe(
+      "room_remodel"
+    );
+  });
+
   test("routes multi-floor painting through Confirm Scope cards", () => {
     const notes =
       "Interior repaint — occupied 2-story home. Main floor: 1,400 sqft. Upper floor: 1,000 sqft. Paint walls and ceilings throughout both floors. Repaint 14 interior doors and all baseboards.";

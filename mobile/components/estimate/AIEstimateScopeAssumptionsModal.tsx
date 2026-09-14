@@ -5509,6 +5509,12 @@ function QuantitySection({
     templateKey,
     notes: originalNotes,
   });
+  const openingOnlyExteriorPrep =
+    itemId === 'exterior_prep' &&
+    Number(measurementsInput.exteriorPaintSqft) <= 0 &&
+    Number(measurementsInput.windowCount || 0) +
+      Number(measurementsInput.exteriorDoorCount || 0) >
+      0;
   if (itemId === 'insulation') {
     const parsedInsulationNotes = parseScopeMeasurementsFromNotes(
       originalNotes || '',
@@ -6995,6 +7001,10 @@ function QuantitySection({
           templateKey: templateKey ?? undefined,
         })
       : null;
+  const parsedInsulationAssemblyRows =
+    itemId === 'insulation'
+      ? parseInsulationAssembliesFromNotes(originalNotes || '')
+      : [];
   const sumInsulationSqft = (
     values: Array<number | string | null | undefined>
   ): number =>
@@ -7034,21 +7044,39 @@ function QuantitySection({
     (Number.isFinite(storedInsulationSqft) && storedInsulationSqft > 0
       ? storedInsulationSqft
       : parsedNoteInsulationSqft);
+  const hasInsulationAssemblyRows =
+    Array.isArray(measurementsInput.insulationAssemblies) &&
+    measurementsInput.insulationAssemblies.length > 0;
+  const assemblyMeasurementsInput =
+    hasInsulationAssemblyRows || !parsedInsulationAssemblyRows.length
+      ? measurementsInput
+      : {
+          ...measurementsInput,
+          insulationAssemblies: parsedInsulationAssemblyRows,
+        };
+  // The aggregate Insulation scope card must match the visible assembly-card
+  // total. Air sealing is its own scope component and is not part of that
+  // assembly-card sum.
+  const assemblyPricingInput = {
+    ...assemblyMeasurementsInput,
+    airSealingIncluded: false,
+  };
   const assemblyInsulationPricing =
     itemId === 'insulation' &&
-    explicitInsulationNoteSqft > 0
+    (hasInsulationAssemblyRows ||
+      parsedInsulationAssemblyRows.length > 0)
       ? resolveInsulationAssemblyScopeSuggestedPricing(
-          measurementsInput,
+          assemblyPricingInput,
           pricingContext,
-          templateKey
+          'insulation'
         )
       : null;
   const insulationNationalComparison =
     itemId === 'insulation' && assemblyInsulationPricing
       ? resolveInsulationAssemblyNationalRateCardComparison(
-          measurementsInput,
+          assemblyPricingInput,
           pricingContext,
-          templateKey
+          'insulation'
         )
       : null;
   const insulationLumpBenchmark =
@@ -7189,14 +7217,19 @@ function QuantitySection({
       insulationLumpBenchmark ??
       suggestedComparisonSplit;
   }
-  if (itemId === 'insulation' && explicitInsulationNoteSqft <= 0) {
+  if (
+    itemId === 'insulation' &&
+    explicitInsulationNoteSqft <= 0 &&
+    !assemblyInsulationPricing
+  ) {
     suggestedBudgetSplit = null;
     suggestedComparisonSplit = null;
   }
   if (
     itemId === 'insulation' &&
     explicitInsulationNoteSqft > 0 &&
-    suggestedBudgetSplit
+    suggestedBudgetSplit &&
+    !assemblyInsulationPricing
   ) {
     const staleBasis = Number(suggestedBudgetSplit.basis?.quantity);
     const scale =
@@ -7522,6 +7555,7 @@ function QuantitySection({
             ) &&
             String(resolved.unit || rule.defaultUnit).toLowerCase() ===
               'sqft' &&
+            !openingOnlyExteriorPrep &&
             !String(itemId).toLowerCase().includes('door') &&
             !['interior_trim', 'shower_pan', 'insulation'].includes(
               String(itemId).toLowerCase()
@@ -7932,12 +7966,13 @@ function QuantitySection({
         ) : null}
         {!hideInlineTakeoff &&
         (repairSystemCard ||
-          step2TierNeedsInlineTakeoffEntry(
+          (!openingOnlyExteriorPrep &&
+            step2TierNeedsInlineTakeoffEntry(
             itemId,
             templateKey,
             resolved,
             Boolean(measurementsInput.pricingAcceptance?.[itemId])
-          )) &&
+            ))) &&
         !(
           itemId === 'paint_repair' &&
           String(templateKey || '').toLowerCase() === 'bathroom' &&
@@ -12070,6 +12105,14 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   /** Labor-only project complexity multiplier for MEP plan hints. */
   laborComplexityMultiplier?: number;
 }) {
+  const insulationOptions =
+    field.key === 'insulationMaterialType'
+      ? INSULATION_TYPE_OPTIONS
+      : field.key === 'insulationRValue'
+        ? INSULATION_R_VALUE_OPTIONS
+        : field.key === 'garageInsulationIncluded'
+          ? GARAGE_INSULATION_OPTIONS
+          : null;
   const isInsulationPresetField = Boolean(insulationOptions);
   const usesNumericEditDraft = !isInsulationPresetField;
   const [numericDraft, setNumericDraft] = useState('');
@@ -12175,14 +12218,6 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   const measurementInputShell = showYellowBorder
     ? inputShellStyle(Colors, darkMode, { highlighted: true })
     : inputShell;
-  const insulationOptions =
-    field.key === 'insulationMaterialType'
-      ? INSULATION_TYPE_OPTIONS
-      : field.key === 'insulationRValue'
-        ? INSULATION_R_VALUE_OPTIONS
-        : field.key === 'garageInsulationIncluded'
-          ? GARAGE_INSULATION_OPTIONS
-          : null;
   const insulationPresetSelected = Boolean(
     insulationOptions?.some(
       option => option.toLowerCase() === String(inputValue).trim().toLowerCase()
@@ -12485,7 +12520,7 @@ function insulationAssemblyRowTitle(
 ): string {
   const facing = insulationBattFacingLabel(row.battFacing);
   return [
-    materialType,
+    materialType || 'Insulation',
     facing,
     insulationLocationLabel(row.location),
     row.rValue.trim() || 'R-value not specified',
@@ -12506,7 +12541,9 @@ function buildInsulationAssemblyRows(
   measurements: Record<string, unknown>,
   notes?: string | null
 ): InsulationAssembly[] {
-  const hasStoredAssemblies = Array.isArray(measurements.insulationAssemblies);
+  const hasStoredAssemblies =
+    Array.isArray(measurements.insulationAssemblies) &&
+    measurements.insulationAssemblies.length > 0;
   const storedAssemblies = hasStoredAssemblies
     ? (measurements.insulationAssemblies as InsulationAssembly[])
     : [];
@@ -12523,6 +12560,38 @@ function buildInsulationAssemblyRows(
   const parsedByLocation = new Map(
     parsedNoteAssemblies.map(assembly => [assembly.location, assembly])
   );
+  const storedHasContractorEdits = storedAssemblies.some(
+    row => row?.source === 'contractor_entered'
+  );
+  const storedMatchesParsedAssemblies =
+    parsedNoteAssemblies.length > 0 &&
+    parsedNoteAssemblies.every(parsed =>
+      storedAssemblies.some(
+        stored =>
+          stored.location === parsed.location &&
+          Number(String(stored.sqft ?? '').replace(/,/g, '')) ===
+            parsed.sqft &&
+          String(stored.rValue || '').trim().toLowerCase() ===
+            parsed.rValue.trim().toLowerCase()
+      )
+    );
+  if (
+    parsedNoteAssemblies.length > 0 &&
+    (!storedMatchesParsedAssemblies ||
+      parsedNoteAssemblies.length > storedAssemblies.length) &&
+    !storedHasContractorEdits
+  ) {
+    return parsedNoteAssemblies.map((assembly, index) => ({
+      id: `insulation-assembly-notes-${assembly.location}-${index}`,
+      ...assembly,
+      source: 'parsed_from_notes',
+      confirmed: true,
+      battFacing:
+        assembly.materialType === 'Batt'
+          ? assembly.battFacing || 'not_sure'
+          : null,
+    }));
+  }
   const hasValidParsedAssemblies =
     parsedNoteAssemblies.length === 3 &&
     parsedByLocation.get('exterior_wall')?.sqft === wallSqft &&
@@ -12679,7 +12748,7 @@ function buildInsulationAssemblyRows(
         ? defaultInsulationRValue(legacyMaterial, legacyLocation, legacyRValue)
         : '',
       sqft: '',
-      location: legacyLocation,
+      location: legacyMaterial || legacyRValue ? legacyLocation : null,
       battFacing: battFacingForNewRow(legacyMaterial),
     },
   ];
@@ -12908,7 +12977,7 @@ function InsulationAssemblyCard({
       : null,
   ].filter(Boolean);
   const selectedTypes = Array.from(
-    new Set(visibleRows.map(row => row.materialType.trim()).filter(Boolean))
+    new Set(visibleRows.map(row => row.materialType.trim()))
   );
   const toggleType = (materialType: string) => {
     const key = insulationMaterialTypeKey(materialType);
@@ -13940,6 +14009,7 @@ function CollapsibleQuickMeasurements({
   projectType,
   notes,
   includedScopeKeys,
+  insulationAssemblyCardActive = false,
   onSummaryChange,
   onWetAreaFinishChange,
   onWetAreaSteppersChange,
@@ -13988,6 +14058,8 @@ function CollapsibleQuickMeasurements({
   projectType?: string | null;
   notes?: string | null;
   includedScopeKeys: string[];
+  /** The parent is rendering the assembly card, so legacy R-value fields are redundant. */
+  insulationAssemblyCardActive?: boolean;
   onSummaryChange?: (summary: QuickMeasurementSummary) => void;
   /** Keep checklist wet_area_install in sync when the QM finish chip changes. */
   onWetAreaFinishChange?: (finish: WetAreaFinishChoice | null) => void;
@@ -14366,6 +14438,17 @@ function CollapsibleQuickMeasurements({
     const out: Partial<Record<QuickMeasurementFieldKey, string>> = {};
     const noteKeys: QuickMeasurementFieldKey[] = [];
     const put = (key: QuickMeasurementFieldKey, value: unknown) => {
+      if (
+        ['insulationRValue', 'insulationMaterialType', 'garageInsulationIncluded'].includes(
+          key
+        )
+      ) {
+        const textValue = String(value ?? '').trim();
+        if (!textValue) return;
+        out[key] = textValue;
+        noteKeys.push(key);
+        return;
+      }
       const n = Number(value);
       if (!Number.isFinite(n) || n <= 0) return;
       out[key] = String(n);
@@ -14413,11 +14496,20 @@ function CollapsibleQuickMeasurements({
     put('rockMulchSqft', parsed.rockMulchSqft);
     put('landscapeTons', parsed.landscapeTons);
     put('roofSquares', parsed.roofSquares);
-    put('drywallSqft', parsed.drywallSqft);
+    const patchRepairMatchesDrywall =
+      parsed.patchRepairSqft != null &&
+      parsed.drywallSqft != null &&
+      Number(parsed.patchRepairSqft) === Number(parsed.drywallSqft);
+    put(
+      'drywallSqft',
+      patchRepairMatchesDrywall ? parsed.patchRepairSqft : parsed.drywallSqft
+    );
     // Bathroom drywall repair uses the dedicated patch/texture measurement.
     // Keep it note-backed so an explicit repair sqft is Confirmed rather than
     // being treated as a manual quantity.
-    put('patchRepairSqft', parsed.patchRepairSqft);
+    if (!patchRepairMatchesDrywall) {
+      put('patchRepairSqft', parsed.patchRepairSqft);
+    }
     put('exteriorWallInsulationSqft', parsed.exteriorWallInsulationSqft);
     put('atticInsulationSqft', parsed.atticInsulationSqft);
     put('insulatedRoofDeckSqft', parsed.insulatedRoofDeckSqft);
@@ -14480,7 +14572,7 @@ function CollapsibleQuickMeasurements({
       /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,30}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
         notes || ''
       ) ||
-      /\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^0-9.;\n]{0,35}\b(?:paint(?:ing)?|repaint(?:ing)?|walls?|ceilings?)\b/i.test(
+      /\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^0-9.,;\n]{0,35}\b(?:paint(?:ing)?|repaint(?:ing)?|walls?|ceilings?)\b/i.test(
         notes || ''
       );
     if (!explicitPaintAreaInNotes) {
@@ -14510,7 +14602,7 @@ function CollapsibleQuickMeasurements({
     stuccoTradeFlow,
   ]);
   const rows = useMemo(() => {
-    const baseRows = quickMeasurementRowsForInput(
+    let baseRows = quickMeasurementRowsForInput(
       quickMeasurementTemplateKey,
       projectType,
       measurements,
@@ -14532,6 +14624,59 @@ function CollapsibleQuickMeasurements({
         scopeNotes: notes,
       }
     );
+    // R-value is edited on Insulation assemblies now. Keep the legacy
+    // standalone field out of every Quick Measurements layout.
+    baseRows = baseRows
+      .map(row => row.filter(field => field.key !== 'insulationRValue'))
+      .filter(row => row.length > 0);
+    const genericPaintNeedsConfirmation =
+      notesRequireInteriorPaintMeasurements(notes) &&
+      String(effectiveTemplateKey || '').toLowerCase() !== 'insulation' &&
+      !baseRows.some(row =>
+        row.some(
+          field =>
+            field.key === 'wallPaintSqft' ||
+            field.key === 'paintAreaSqft'
+        )
+      );
+    const blankPaintField = quickMeasurementRowsForTemplate('room_remodel')
+      .flat()
+      .find(field => field.key === 'wallPaintSqft');
+    if (genericPaintNeedsConfirmation && blankPaintField) {
+      baseRows = [
+        ...baseRows,
+        [blankPaintField],
+      ];
+    }
+    const assemblyCardOwnsInsulation =
+      insulationAssemblyCardActive ||
+      (String(effectiveTemplateKey || '').toLowerCase() !== 'insulation' &&
+        includedScopeKeys.includes('insulation'));
+    if (assemblyCardOwnsInsulation) {
+      const insulationAssemblyMeasurementKeys =
+        new Set<QuickMeasurementFieldKey>([
+          'exteriorWallInsulationSqft',
+          'atticInsulationSqft',
+          'floorInsulationSqft',
+          'insulatedRoofDeckSqft',
+          'openingDeductionSqft',
+          'garageSeparationInsulationSqft',
+          'insulatedGarageWallSqft',
+          'insulatedGarageCeilingSqft',
+          'insulationMaterialType',
+          'insulationRValue',
+          'garageInsulationIncluded',
+        ]);
+      // The assembly card owns insulation location, area, material, and
+      // R-value when insulation is an embedded scope. Keep those fields out
+      // of the generic Quick Measurements card so the old format remains the
+      // single editable source.
+      return baseRows
+        .map(row =>
+          row.filter(field => !insulationAssemblyMeasurementKeys.has(field.key))
+        )
+        .filter(row => row.length > 0);
+    }
     if (String(effectiveTemplateKey || '').toLowerCase() === 'insulation') {
       const insulationFields = new Set<QuickMeasurementFieldKey>([
         'floorAreaSqft',
@@ -14727,7 +14872,7 @@ function CollapsibleQuickMeasurements({
               if (
                 insulationLocationPattern &&
                 includedScopeKeys.includes('insulation') &&
-                !noteHasField(field.key) &&
+                !noteHasField &&
                 !insulationLocationPattern.test(noteText)
               ) {
                 return false;
@@ -14891,11 +15036,22 @@ function CollapsibleQuickMeasurements({
       wetAreaInstallChoiceId,
       tradeScopeSelections: measurements.tradeScopeSelections,
     });
-    return resolved.map(result =>
-      result.key === 'floorPrepSqft' && editingFieldKey === 'floorPrepSqft'
+    return resolved.map(result => {
+      const manuallyEntered =
+        Boolean(measurements.quickMeasurementUserOverrides?.[result.key]) ||
+        ['user_entered', 'manual_override', 'user_confirmed_suggestion'].includes(
+          String(measurements.quickMeasurementSources?.[result.key] || '')
+        );
+      if (
+        result.filled &&
+        manuallyEntered
+      ) {
+        return { ...result, state: 'confirmed' as const };
+      }
+      return result.key === 'floorPrepSqft' && editingFieldKey === 'floorPrepSqft'
         ? { ...result, state: 'needs_confirmation' as const }
-        : result
-    );
+        : result;
+    });
   }, [
     rows,
     measurements,
@@ -15078,10 +15234,9 @@ function CollapsibleQuickMeasurements({
       });
       grouped = next;
     }
-    // Pin only after typing has moved a field out of its home section. Applying pin on
-    // focus alone reorders Needs confirmation (pre-split indexes ≠ post-split indexes)
-    // and makes the yellow inputs jump / remount when tapped. Keep the recorded home
-    // position after blur too, so a user-edited field does not fall into Confirmed.
+    // Keep the active field in its original section while it receives keystrokes.
+    // Its provenance can move it to Confirmed after editing ends, but the input
+    // must not jump or remount while the user is typing.
     const editingGroup =
       editingHomeGroup && Array.isArray(grouped[editingHomeGroup])
         ? grouped[editingHomeGroup]
@@ -15107,6 +15262,12 @@ function CollapsibleQuickMeasurements({
     for (const [key, home] of Object.entries(typedMeasurementHomes)) {
       if (!home) continue;
       if (stickyMeasurementKeys.has(key as QuickMeasurementFieldKey)) continue;
+      const manuallyEntered =
+        Boolean(measurements.quickMeasurementUserOverrides?.[key]) ||
+        ['user_entered', 'manual_override', 'user_confirmed_suggestion'].includes(
+          String(measurements.quickMeasurementSources?.[key] || '')
+        );
+      if (manuallyEntered) continue;
       positioned = pinQuickMeasurementFieldInGroup(
         positioned,
         key as QuickMeasurementFieldKey,
@@ -15146,6 +15307,27 @@ function CollapsibleQuickMeasurements({
         ...stickyResults,
       ];
     }
+    // Opening counts belong together on the Confirm Scope card. A filled
+    // door count can be classified as optional by the generic relevance map
+    // even when Windows is confirmed, which creates a misleading split.
+    const openingMeasurementKeys = new Set<QuickMeasurementFieldKey>([
+      'windowCount',
+      'interiorDoorCount',
+      'exteriorDoorCount',
+      'slidingDoorCount',
+    ]);
+    const openingResultsFromMore = positioned.more.filter(
+      result => openingMeasurementKeys.has(result.key) && result.filled
+    );
+    if (openingResultsFromMore.length) {
+      positioned.more = positioned.more.filter(
+        result => !openingMeasurementKeys.has(result.key) || !result.filled
+      );
+      positioned.confirmed = [
+        ...positioned.confirmed,
+        ...openingResultsFromMore,
+      ];
+    }
     // Photo/notes bathroom jobs use wet-area steppers — shower SF lives in the wet area panel.
     if (!showWetAreaFinishSteppers)
       return { groups: positioned, wetArea: [] as typeof positioned.more };
@@ -15159,6 +15341,8 @@ function CollapsibleQuickMeasurements({
     typedMoreMeasurementKeys,
     typedMoreMeasurementPositions,
     typedMeasurementHomes,
+    measurements.quickMeasurementSources,
+    measurements.quickMeasurementUserOverrides,
   ]);
   const displayGroups = groups.groups;
   const wetAreaFields = groups.wetArea;
@@ -15305,9 +15489,7 @@ function CollapsibleQuickMeasurements({
   const handleQuantityEditBlur = useCallback(() => {
     setQmInputFocused(false);
   }, []);
-  const headerSummary = qmInputFocused
-    ? frozenHeaderSummaryRef.current
-    : summary;
+  const headerSummary = summary;
   useEffect(() => {
     if (qmInputFocused) return;
     const prev = summarySentRef.current;
@@ -19072,7 +19254,7 @@ function CollapsibleQuickMeasurements({
                         { color: captionColor(darkMode, Colors) },
                       ]}
                     >
-                      Confirmed
+                      More measurements
                     </Text>
                     <Ionicons
                       name={moreExpanded ? 'chevron-up' : 'chevron-down'}
@@ -19656,12 +19838,19 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const singleTradePlanImport = planImportContext.isSingleTrade;
   const singleTradeKey = planImportContext.tradeKey;
+  const insulationScopeIncluded = items.some(
+    item =>
+      item.id === 'insulation' &&
+      ['included', 'yes'].includes(String(item.state || '').toLowerCase())
+  );
   const insulationTemplateKey =
     singleTradePlanImport && singleTradeKey === 'insulation'
       ? singleTradeKey
       : effectiveTemplateKey === 'insulation'
         ? 'insulation'
-        : null;
+        : insulationScopeIncluded
+          ? 'insulation'
+          : null;
   const pendingPlanConfirmationAllowedFields = useMemo(() => {
     const tradeKeyForPending =
       (measurements.planImportTradeKey as PlanTradeKey | null | undefined) ||
@@ -19757,10 +19946,18 @@ export default function AIEstimateScopeAssumptionsModal({
     const noteMeasurementCards = [
       {
         id: 'windows',
-        label: 'Windows',
+        label: 'Window install',
         helperText: 'Window count from notes; enter the number of units.',
         category: 'openings',
         factIds: ['windows', 'window_install', 'windows_doors'],
+      },
+      {
+        id: 'interior_door_install',
+        label: 'Interior door installation',
+        helperText:
+          'Install the note-specified interior doors and standard hardware.',
+        category: 'openings',
+        factIds: ['interior_doors', 'interior_door_install', 'doors'],
       },
       {
         id: 'exterior_trim_paint',
@@ -19811,6 +20008,11 @@ export default function AIEstimateScopeAssumptionsModal({
         hasCatalogFact ||
         inferItemStateFromNotes(card.id, currentUserNote) === 'included' ||
         (card.id === 'windows' && /\bwindows?\b/i.test(currentUserNote)) ||
+        (card.id === 'interior_door_install' &&
+          /\b(?:interior\s+)?doors?\b/i.test(currentUserNote) &&
+          !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(
+            currentUserNote
+          )) ||
         (card.id === 'exterior_trim_paint' &&
           Number(
             String(measurements.windowCount ?? '').replace(/,/g, '')
@@ -27169,6 +27371,7 @@ export default function AIEstimateScopeAssumptionsModal({
             projectType={draft?.projectType}
             notes={scopeNotes}
             includedScopeKeys={scopeAssemblyContext.activeScopeKeys}
+            insulationAssemblyCardActive={insulationTemplateKey === 'insulation'}
             onSummaryChange={setQuickMeasurementSummary}
             onHvacScopeSelectionChange={syncHvacQmScopeItems}
             electricalQuantityEditingRef={electricalQmQuantityEditingRef}

@@ -8,6 +8,52 @@ const { buildScopeChecklist } = require('../estimateDraftComplexity');
 const { resolveQuantityForChecklistItem, normalizeScopeMeasurements } = require('../scopeItemQuantityCatalog');
 
 describe('scopeMeasurementParser', () => {
+  test('keeps mixed painting notes in the correct scope and measurement owners', () => {
+    const notes =
+      'Paint 2,000 sqft walls and ceilings with prep, demolition and removal of damaged drywall, six interior doors, 180 LF baseboard, 300 sqft drywall repair, 900 sqft flooring, three replacement windows, and R-30 attic insulation.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'room_remodel',
+      projectType: 'painting',
+    });
+
+    expect(parsed.paintScope).toEqual(['walls', 'ceilings']);
+    expect(parsed.paintAreaSqft).toBe(2000);
+    expect(parsed.drywallSqft).toBe(300);
+    expect(parsed.flooringSqft).toBe(900);
+    expect(parsed.floorAreaSqft).toBeUndefined();
+    expect(parsed.floorInsulationSqft).toBeUndefined();
+    expect(parsed.floorPrepSqft).toBeUndefined();
+    expect(parsed.wallDemoSqft).toBeUndefined();
+    expect(parsed.baseboardLf).toBe(180);
+    expect(parsed.interiorDoorCount).toBe(6);
+    expect(parsed.windowCount).toBe(3);
+    expect(parsed.insulationRValue).toBe('R-30');
+
+    const checklist = buildScopeChecklist(
+      { projectType: 'painting', originalNotes: notes, rooms: [] },
+      'room_remodel',
+      notes,
+    );
+    expect(checklist.items.map(item => item.label)).toEqual(
+      expect.arrayContaining([
+        'Drywall demo / removal',
+        'Drywall patch / repair',
+        'Flooring installation',
+        'Interior wall and ceiling painting',
+        'Baseboard installation',
+        'Interior door installation',
+        'Insulation',
+        'Window & trim installation',
+      ]),
+    );
+    expect(checklist.items.map(item => item.label)).not.toContain(
+      'Existing flooring removal',
+    );
+    expect(checklist.items.map(item => item.label)).not.toContain(
+      'LVP flooring install',
+    );
+  });
+
   test('understands kitchen remodel boundaries and carries explicit install work', () => {
     const notes =
       'Remodel an existing kitchen without changing the footprint. Remove existing cabinets, countertops, backsplash, sink, faucet, and appliances. Install 42 linear feet of new cabinets, 55 sqft of quartz countertops, 35 sqft of backsplash tile, a new sink and faucet, range, dishwasher, refrigerator, microwave, and under-cabinet lighting. Include cabinet installation, countertop installation, backsplash preparation, plumbing reconnection, electrical adjustments for appliances, flooring protection, demolition, disposal, and cleanup. No wall removal or structural framing.';
