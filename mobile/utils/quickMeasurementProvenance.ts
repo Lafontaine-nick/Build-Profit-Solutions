@@ -35,7 +35,8 @@ export type QuickMeasurementSourceTag =
   | 'plan_verified'
   | 'contractor_confirmed_from_plan_review'
   | 'user_confirmed_suggestion'
-  | 'calculated_from_deductions';
+  | 'calculated_from_deductions'
+  | 'calculated_confirmed';
 
 export type QuickMeasurementSourceMap = Partial<
   Record<string, QuickMeasurementSourceTag>
@@ -268,17 +269,33 @@ export function resolveQuickMeasurementFields(params: {
       const typedKey = key as QuickMeasurementFieldKey;
       return noteKeySet.has(typedKey) && Boolean(noteValues[typedKey]);
     });
+    const sourceTag = params.sourceMap?.[field.key];
+    const drywallHasCurrentNoteArea =
+      field.key === 'drywallSqft' && Boolean(noteValues.drywallSqft);
+    const drywallIsProtectedSource =
+      sourceTag === 'user_entered' ||
+      sourceTag === 'user_confirmed_suggestion' ||
+      sourceTag === 'plan' ||
+      sourceTag === 'plan_detected' ||
+      sourceTag === 'measured_from_geometry' ||
+      Boolean(params.userOverrides?.[field.key]);
+    const clearStaleDrywallValue =
+      field.key === 'drywallSqft' &&
+      !drywallHasCurrentNoteArea &&
+      !drywallIsProtectedSource;
     const displayValue =
       isPaintAreaField &&
       !hasNoteBackedPaintArea &&
       !params.userOverrides?.[field.key]
         ? ''
-        : resolveQuickMeasurementDisplayValue(
-            field.key,
-            params.measurements,
-            noteValues,
-            params.userOverrides
-          );
+        : clearStaleDrywallValue
+          ? ''
+          : resolveQuickMeasurementDisplayValue(
+              field.key,
+              params.measurements,
+              noteValues,
+              params.userOverrides
+            );
     const filled = hasQuickMeasurementValue(displayValue);
     const typed = String(params.measurements[field.key] ?? '').trim() !== '';
     const isUserOverride = Boolean(params.userOverrides?.[field.key]);
@@ -329,7 +346,6 @@ export function resolveQuickMeasurementFields(params: {
         confirmedFromMatchingNoteValue) &&
       filled &&
       !isUserOverride;
-    const sourceTag = params.sourceMap?.[field.key];
     const optionalGasLine =
       field.key === 'gasLineLf' &&
       !filled &&

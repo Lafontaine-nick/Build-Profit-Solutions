@@ -249,6 +249,26 @@ describe('estimateInitialRevealUi', () => {
     );
   });
 
+  it('surfaces bare doors as interior door installation on Scope found', () => {
+    const draft = {
+      projectType: 'bathroom',
+      originalNotes:
+        'Remodel the bathroom with drywall, doors, insulation, trim, electrical, and paint.',
+      scopeChecklist: {
+        templateKey: 'bathroom',
+        items: [
+          { id: 'drywall', label: 'Drywall', state: 'included' },
+          { id: 'insulation', label: 'Insulation', state: 'included' },
+        ],
+      },
+      scopePackages: [],
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft).map(row => row.name)).toEqual(
+      expect.arrayContaining(['Interior door installation'])
+    );
+  });
+
   it('hides excluded plumbing cards and fixture allowance on Scope found', () => {
     const notes =
       'Kitchen plumbing only. Customer supplies fixtures. 3 rough-in points. 4 trim hookups. 25 LF water line. 1 gas appliance hookup.';

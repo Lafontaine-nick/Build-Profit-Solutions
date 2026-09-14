@@ -3001,6 +3001,12 @@ function ensureBathroomNoteBackedScopeItems(
       helperText: 'Install the note-specified interior doors and standard hardware.',
       pattern: /\binterior\s+doors?\b/,
     },
+    {
+      id: 'doors',
+      label: 'Doors',
+      helperText: 'Door installation mentioned in notes; confirm interior or exterior type and quantity.',
+      pattern: /\bdoors?\b/,
+    },
   ];
   const existing = new Set(items.map(item => item.id));
   const matchedIds = new Set(
@@ -3008,8 +3014,24 @@ function ensureBathroomNoteBackedScopeItems(
       .filter(entry => entry.pattern.test(text))
       .map(entry => entry.id)
   );
+  const hasGenericDoorMention =
+    /\bdoors?\b/i.test(text) &&
+    !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(text);
+  if (hasGenericDoorMention) {
+    matchedIds.add('interior_door_install');
+  }
+  const hasSpecificDoorType =
+    matchedIds.has('interior_door_install') ||
+    matchedIds.has('exterior_doors') ||
+    matchedIds.has('windows') ||
+    matchedIds.has('sliding_doors');
   const additions = patterns
-    .filter(entry => matchedIds.has(entry.id) && !existing.has(entry.id))
+    .filter(
+      entry =>
+        matchedIds.has(entry.id) &&
+        !existing.has(entry.id) &&
+        !(entry.id === 'doors' && hasSpecificDoorType)
+    )
     .map(entry => ({
       id: entry.id,
       inputType: 'yes_no' as const,
@@ -3035,7 +3057,11 @@ function ensureBathroomNoteBackedScopeItems(
         }
       : item
   );
-  return additions.length ? [...promoted, ...additions] : promoted;
+  const withoutLegacyGenericDoors = promoted.filter(item => item.id !== 'doors');
+  const filteredAdditions = additions.filter(item => item.id !== 'doors');
+  return filteredAdditions.length
+    ? [...withoutLegacyGenericDoors, ...filteredAdditions]
+    : withoutLegacyGenericDoors;
 }
 
 /** Inject localized paint-repair row for bathroom remodels (single card for patch + paint). */
@@ -4805,11 +4831,10 @@ export function checklistDisplayHelper(
   }
   if (
     tk === 'bathroom' &&
-    PLUMBING_ITEM_IDS.includes(item.id) &&
-    CHECKLIST_HELPER_OVERRIDES.plumbing_rough &&
-    item.id === 'plumbing_rough'
+    item.id === 'plumbing_rough' &&
+    BATHROOM_CHECKLIST_HELPER_OVERRIDES.plumbing_rough
   ) {
-    return CHECKLIST_HELPER_OVERRIDES.plumbing_rough;
+    return BATHROOM_CHECKLIST_HELPER_OVERRIDES.plumbing_rough;
   }
   if (
     tk === 'bathroom' &&
@@ -4873,17 +4898,16 @@ export function checklistDisplayLabel(
   }
   if (
     tk === 'bathroom' &&
+    BATHROOM_CHECKLIST_LABEL_OVERRIDES[item.id]
+  ) {
+    return BATHROOM_CHECKLIST_LABEL_OVERRIDES[item.id];
+  }
+  if (
+    templateKey === 'bathroom' &&
     PLUMBING_ITEM_IDS.includes(item.id) &&
     PLUMBING_PLAN_CHECKLIST_LABEL_OVERRIDES[item.id]
   ) {
     return PLUMBING_PLAN_CHECKLIST_LABEL_OVERRIDES[item.id];
-  }
-  if (
-    templateKey === 'bathroom' &&
-    BATHROOM_CHECKLIST_LABEL_OVERRIDES[item.id] &&
-    !PLUMBING_ITEM_IDS.includes(item.id)
-  ) {
-    return BATHROOM_CHECKLIST_LABEL_OVERRIDES[item.id];
   }
   if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_LABEL_OVERRIDES[item.id]) {
     return KITCHEN_CHECKLIST_LABEL_OVERRIDES[item.id];
@@ -5042,6 +5066,21 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
         'lighting',
         'exhaust_fan',
         'mirror_accessories',
+      ],
+    },
+    {
+      title: 'Openings & trim',
+      itemIds: [
+        'windows',
+        'window_install',
+        'exterior_trim_paint',
+        'exterior_doors',
+        'exterior_door_install',
+        'sliding_doors',
+        'interior_doors',
+        'interior_door_install',
+        'doors',
+        'interior_trim',
       ],
     },
     {
@@ -5420,6 +5459,27 @@ export function resolveScopeChecklistGroups(
 /** @deprecated use SCOPE_CHECKLIST_GROUPS.bathroom */
 export const BATHROOM_SCOPE_GROUPS = SCOPE_CHECKLIST_GROUPS.bathroom;
 
+const OPENING_SCOPE_ITEM_ORDER = [
+  'interior_doors',
+  'interior_door_install',
+  'doors',
+  'interior_trim',
+  'door_paint',
+  'door_casing_install',
+  'door_casing_paint',
+  'windows_doors',
+  'windows',
+  'window_install',
+  'exterior_trim_paint',
+  'exterior_doors',
+  'exterior_door_install',
+  'sliding_doors',
+  'garage_doors',
+  'garage_door_openers',
+  'trim_finish',
+  'openings',
+] as const;
+
 export function groupScopeChecklistItems(
   items: ScopeChecklistItem[],
   templateKey?: string,
@@ -5433,17 +5493,49 @@ export function groupScopeChecklistItems(
   const byId = new Map(items.map(i => [i.id, i]));
   const used = new Set<string>();
   const result: Array<{ title: string; items: ScopeChecklistItem[] }> = [];
+  const openingIds = new Set<string>(OPENING_SCOPE_ITEM_ORDER);
+  const hasDedicatedInteriorDoorInstall = byId.has('interior_door_install');
+  const openingItems = OPENING_SCOPE_ITEM_ORDER.flatMap(id => {
+    if (id === 'interior_doors' && hasDedicatedInteriorDoorInstall) {
+      return [];
+    }
+    const item = byId.get(id);
+    return item ? [item] : [];
+  });
+  const firstOpeningGroupIndex = groups.findIndex(group =>
+    group.itemIds.some(id => openingIds.has(id) && byId.has(id))
+  );
+  let openingGroupInserted = false;
 
-  for (const group of groups) {
+  for (const [groupIndex, group] of groups.entries()) {
+    if (
+      !openingGroupInserted &&
+      openingItems.length &&
+      groupIndex === firstOpeningGroupIndex
+    ) {
+      result.push({ title: 'Openings & trim', items: openingItems });
+      openingItems.forEach(item => used.add(item.id));
+      openingGroupInserted = true;
+    }
     const groupItems = group.itemIds
       .map(id => byId.get(id))
-      .filter((i): i is ScopeChecklistItem => Boolean(i));
+      .filter(
+        (i): i is ScopeChecklistItem =>
+          Boolean(i) && !openingIds.has(i.id)
+      );
     groupItems.forEach(i => used.add(i.id));
     if (groupItems.length)
       result.push({ title: group.title, items: groupItems });
   }
 
-  const remainder = items.filter(i => !used.has(i.id));
+  if (!openingGroupInserted && openingItems.length) {
+    result.push({ title: 'Openings & trim', items: openingItems });
+    openingItems.forEach(item => used.add(item.id));
+  }
+
+  const remainder = items.filter(
+    i => !used.has(i.id) && !openingIds.has(i.id)
+  );
   if (remainder.length) result.push({ title: 'Other', items: remainder });
 
   return result;

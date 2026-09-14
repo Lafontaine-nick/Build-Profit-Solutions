@@ -9,6 +9,31 @@ import {
 import { scopeItemVisualTier } from '@/utils/scopeItemVisualTier';
 
 describe('bathroom toilet always visible on Confirm Scope', () => {
+  test('keeps opening units next to their trim and finish add-ons', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'interior_trim', label: 'Interior trim', inputType: 'yes_no', state: 'included' },
+      { id: 'windows', label: 'Windows', inputType: 'yes_no', state: 'included' },
+      { id: 'interior_doors', label: 'Interior doors', inputType: 'yes_no', state: 'included' },
+      { id: 'exterior_trim_paint', label: 'Window trim', inputType: 'yes_no', state: 'included' },
+      {
+        id: 'interior_door_install',
+        label: 'Interior door installation',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+    ];
+
+    const openingGroup = groupScopeChecklistItems(items, 'bathroom').find(
+      group => group.title === 'Openings & trim'
+    );
+    expect(openingGroup?.items.map(item => item.id)).toEqual([
+      'interior_door_install',
+      'interior_trim',
+      'windows',
+      'exterior_trim_paint',
+    ]);
+  });
+
   test('ensureBathroomChecklistItems injects toilet when missing from AI checklist', () => {
     const items: ScopeChecklistItem[] = [
       { id: 'demo', label: 'Demo', inputType: 'yes_no', state: 'included' },

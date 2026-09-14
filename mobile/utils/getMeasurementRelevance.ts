@@ -117,7 +117,12 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> =
       'paint_trim',
       'trim_paint',
     ],
-    interiorDoorCount: ['interior_doors', 'door_paint', 'trim_paint'],
+    interiorDoorCount: [
+      'interior_doors',
+      'interior_door_install',
+      'door_paint',
+      'trim_paint',
+    ],
     windowCount: ['windows'],
     exteriorDoorCount: ['exterior_doors'],
     slidingDoorCount: ['sliding_doors'],
@@ -325,6 +330,23 @@ export function getMeasurementRelevance(params: {
   }
 
   const includedSet = new Set(params.includedScopeKeys);
+  const explicitDrywallNotes =
+    /\b(?:drywall|sheetrock|gypsum)\b/i.test(notesText);
+  const explicitDrywallPatchNotes =
+    /\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,35}\b(?:patch|repair|texture|skim\s*coat)\b|\b(?:patch|repair|texture|skim\s*coat)\b[^.;\n]{0,35}\b(?:drywall|sheetrock|gypsum)\b/i.test(
+      notesText
+    );
+  if (
+    (measurementKey === 'drywallSqft' && explicitDrywallNotes) ||
+    (measurementKey === 'patchRepairSqft' && explicitDrywallPatchNotes)
+  ) {
+    return {
+      relevant: true,
+      blockingPrice: true,
+      relatedScopeKeys,
+      reason: undefined,
+    };
+  }
   const explicitWetAreaNotes =
     /\b(?:bath(?:room)?|shower|tub|wet\s+area|bath\s+floor|shower\s+(?:wall|floor)|tile\s+shower)\b/i.test(
       notesText

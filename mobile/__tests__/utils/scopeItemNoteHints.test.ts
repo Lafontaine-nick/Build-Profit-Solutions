@@ -12,6 +12,7 @@ import {
 import {
   applyGroundUpShellScopeDefaults,
   applyScopeInferencesFromNotes,
+  hydrateScopeChecklistFromNotes,
 } from '@/utils/estimateScopeChecklistUi';
 
 describe('scopeItemNoteHints trim inference', () => {
@@ -25,6 +26,25 @@ describe('scopeItemNoteHints trim inference', () => {
 
   test('baseboard install still includes trim scope', () => {
     expect(inferItemStateFromNotes('trim', 'Install baseboards throughout 220 LF.')).toBe('included');
+  });
+
+  test('surfaces generic door notes as interior door installation', () => {
+    const next = hydrateScopeChecklistFromNotes(
+      [],
+      'bathroom',
+      'Remodel the bathroom with doors, drywall, and paint.'
+    );
+
+    expect(next).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'interior_door_install',
+          state: 'included',
+          noteBacked: true,
+        }),
+      ])
+    );
+    expect(next.some(item => item.id === 'doors')).toBe(false);
   });
 
   test('cross-trade note aliases identify standard air sealing', () => {

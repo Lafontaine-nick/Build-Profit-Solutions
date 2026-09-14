@@ -645,6 +645,24 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
       noteBacked: state === "included",
     };
   });
+  const hasGenericDoorMention =
+    /\bdoors?\b/i.test(notes) &&
+    !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(notes);
+  if (
+    hasGenericDoorMention &&
+    !items.some((item) => item.id === "interior_door_install")
+  ) {
+    items.push({
+      id: "interior_door_install",
+      inputType: "yes_no",
+      label: "Interior door installation",
+      helperText:
+        "Bare door notes are treated as interior doors for planning. Confirm the door count before pricing.",
+      category: "openings",
+      state: "included",
+      noteBacked: true,
+    });
+  }
   if (templateKey === "room_remodel" && insulationRequested && !drywallWorkRequested) {
     const insulationItem = items.find(item => item.id === "insulation");
     const drywallItem = items.find(item => item.id === "drywall");

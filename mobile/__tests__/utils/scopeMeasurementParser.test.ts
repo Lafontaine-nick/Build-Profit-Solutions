@@ -26,9 +26,11 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.bathroomFloorSqft).toBe(85);
     expect(parsed.showerFloorTileSqft).toBeUndefined();
     expect(parsed.exteriorWallInsulationSqft).toBeUndefined();
+    expect(parsed.floorInsulationSqft).toBeUndefined();
     expect(parsed.patchRepairSqft).toBe(120);
     expect(parsed.drywallSqft).toBeUndefined();
     expect(parsed.interiorDoorCount).toBe(2);
+    expect(parseInsulationAssembliesFromNotes(notes)).toEqual([]);
 
     const prepared = prepareScopeMeasurementsInputForUi(
       {
@@ -38,9 +40,18 @@ describe('mobile scope measurement parser', () => {
         ),
         showerFloorTileSqft: '85',
         drywallSqft: '120',
+        floorInsulationSqft: '85',
+        itemQuantities: {
+          insulation: {
+            quantity: 85,
+            unit: 'sqft',
+            quantitySource: 'notes',
+          },
+        },
         quickMeasurementSources: {
           showerFloorTileSqft: 'notes',
           drywallSqft: 'notes',
+          floorInsulationSqft: 'notes',
         },
       },
       { notes, templateKey: 'bathroom' }
@@ -49,6 +60,30 @@ describe('mobile scope measurement parser', () => {
     expect(prepared.patchRepairSqft).toBe('120');
     expect(prepared.drywallSqft).toBe('');
     expect(prepared.interiorDoorCount).toBe('2');
+    expect(prepared.floorInsulationSqft).toBe('');
+    expect(prepared.itemQuantities?.insulation).toBeUndefined();
+    const insulation = resolveChecklistItemQuantity(
+      'insulation',
+      normalizeScopeMeasurements(prepared),
+      { templateKey: 'bathroom', notes }
+    );
+    expect(insulation.quantity).toBeNull();
+    expect(insulation.pricingReady).toBe(false);
+  });
+
+  it('does not treat bathroom floor-tile sqft as insulation area', () => {
+    const notes =
+      'Remodel bathroom with demolition of the existing shower, vanity, toilet, flooring, and drywall; install shower tile, shower pan, vanity, toilet, exhaust fan, 85 sqft floor tile, 65 LF trim, two interior doors, 2 exterior doors, 2 windows, 120 sqft drywall repair, R-21 exterior wall insulation, and paint .';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'bathroom',
+    });
+
+    expect(parsed.bathroomFloorSqft).toBe(85);
+    expect(parsed.floorInsulationSqft).toBeUndefined();
+    expect(parsed.exteriorWallInsulationSqft).toBeUndefined();
+    expect(parsed.atticInsulationSqft).toBeUndefined();
+    expect(parsed.patchRepairSqft).toBe(120);
+    expect(parseInsulationAssembliesFromNotes(notes)).toEqual([]);
   });
 
   it('keeps generic door notes unclassified and without a measurement', () => {
@@ -60,6 +95,41 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.interiorDoorCount).toBeUndefined();
     expect(parsed.exteriorDoorCount).toBeUndefined();
     expect(parsed.itemQuantities?.doors).toBeUndefined();
+  });
+
+  it('does not reuse stale drywall sqft for a note-backed trim LF measurement', () => {
+    const notes =
+      'Remodel the bathroom with drywall, 80 LF trim, and 2 windows.';
+    const prepared = prepareScopeMeasurementsInputForUi(
+      {
+        ...initialScopeMeasurementInputExtended(
+          { scopeChecklist: { templateKey: 'bathroom' } },
+          notes
+        ),
+        drywallSqft: '80',
+        baseboardLf: '',
+        windowCount: '',
+        quickMeasurementSources: {
+          drywallSqft: 'calculated_confirmed',
+        },
+      },
+      { notes, templateKey: 'bathroom' }
+    );
+
+    expect(prepared.drywallSqft).toBe('');
+    expect(prepared.baseboardLf).toBe('80');
+    expect(prepared.windowCount).toBe('2');
+  });
+
+  it('assigns sqft-labelled trim to trim instead of drywall', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Remodel the bathroom with demolition, fixtures, tile, flooring, drywall, doors, 2 windows, insulation, 80 sqft of trim, electrical, and paint.',
+      { templateKey: 'bathroom' }
+    );
+
+    expect(parsed.drywallSqft).toBeUndefined();
+    expect(parsed.baseboardLf).toBe(80);
+    expect(parsed.windowCount).toBe(2);
   });
 
   it('does not borrow flooring sqft for an unmeasured interior paint scope', () => {

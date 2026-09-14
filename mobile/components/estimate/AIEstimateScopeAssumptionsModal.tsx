@@ -3933,7 +3933,7 @@ function CustomScopePricingSection({
       measurementsInput.atticInsulationSqft,
       measurementsInput.floorInsulationSqft,
       measurementsInput.insulatedRoofDeckSqft,
-    ].reduce((total, value) => {
+    ].reduce<number>((total, value) => {
       const quantity = Number(String(value ?? '').replace(/,/g, ''));
       return total + (Number.isFinite(quantity) && quantity > 0 ? quantity : 0);
     }, 0);
@@ -5514,23 +5514,64 @@ function QuantitySection({
       originalNotes || '',
       { templateKey: templateKey ?? undefined }
     );
+    const confirmedInsulationSqft = [
+      measurementsInput.exteriorWallInsulationSqft,
+      measurementsInput.atticInsulationSqft,
+      measurementsInput.floorInsulationSqft,
+      measurementsInput.insulatedRoofDeckSqft,
+    ].reduce<number>((total, value) => {
+      const quantity = Number(String(value ?? '').replace(/,/g, ''));
+      return total + (Number.isFinite(quantity) && quantity > 0 ? quantity : 0);
+    }, 0);
+    const storedInsulationEntry = measurementsInput.itemQuantities?.insulation;
+    const storedInsulationSource = String(
+      storedInsulationEntry?.quantitySource || ''
+    );
+    const storedInsulationSqft =
+      confirmedInsulationSqft <= 0 &&
+      ['user_entered', 'calculated_confirmed', 'manual_override'].includes(
+        storedInsulationSource
+      )
+        ? Number(
+            String(storedInsulationEntry?.quantity ?? '').replace(/,/g, '')
+          )
+        : 0;
     const noteInsulationSqft = [
       parsedInsulationNotes.exteriorWallInsulationSqft,
       parsedInsulationNotes.atticInsulationSqft,
       parsedInsulationNotes.floorInsulationSqft,
       parsedInsulationNotes.insulatedRoofDeckSqft,
-    ].reduce((total, value) => {
+    ].reduce<number>((total, value) => {
       const quantity = Number(value);
       return total + (Number.isFinite(quantity) && quantity > 0 ? quantity : 0);
     }, 0);
-    if (noteInsulationSqft > 0) {
+    const authoritativeInsulationSqft =
+      confirmedInsulationSqft > 0
+        ? confirmedInsulationSqft
+        : Number.isFinite(storedInsulationSqft) && storedInsulationSqft > 0
+          ? storedInsulationSqft
+          : noteInsulationSqft;
+    if (authoritativeInsulationSqft > 0) {
       resolved = {
         ...resolved,
-        quantity: noteInsulationSqft,
+        quantity: authoritativeInsulationSqft,
         unit: 'sqft',
         quantitySource: 'notes',
-        dualCount: { quantity: noteInsulationSqft, unit: 'sqft' },
+        dualCount: { quantity: authoritativeInsulationSqft, unit: 'sqft' },
         pricingReady: true,
+        showInput: true,
+      };
+    } else {
+      // Do not let a stale/inferred insulation quantity (often copied from
+      // bathroom floor SF) survive when neither Quick Measurements nor the
+      // notes contain an insulation area.
+      resolved = {
+        ...resolved,
+        quantity: null,
+        dualCount: undefined,
+        quantitySource: 'missing',
+        sourceLabel: null,
+        pricingReady: false,
         showInput: true,
       };
     }
@@ -6956,8 +6997,8 @@ function QuantitySection({
       : null;
   const sumInsulationSqft = (
     values: Array<number | string | null | undefined>
-  ) =>
-    values.reduce((total, value) => {
+  ): number =>
+    values.reduce<number>((total, value) => {
       const quantity = Number(value);
       return total + (Number.isFinite(quantity) && quantity > 0 ? quantity : 0);
     }, 0);
@@ -6967,6 +7008,19 @@ function QuantitySection({
     measurementsInput.floorInsulationSqft,
     measurementsInput.insulatedRoofDeckSqft,
   ]);
+  const storedInsulationEntry = measurementsInput.itemQuantities?.insulation;
+  const storedInsulationSource = String(
+    storedInsulationEntry?.quantitySource || ''
+  );
+  const storedInsulationSqft =
+    confirmedInsulationSqft <= 0 &&
+    ['user_entered', 'calculated_confirmed', 'manual_override'].includes(
+      storedInsulationSource
+    )
+      ? Number(
+          String(storedInsulationEntry?.quantity ?? '').replace(/,/g, '')
+        )
+      : 0;
   const parsedNoteInsulationSqft = parsedInsulationPricingNotes
     ? sumInsulationSqft([
         parsedInsulationPricingNotes.exteriorWallInsulationSqft,
@@ -6975,13 +7029,14 @@ function QuantitySection({
         parsedInsulationPricingNotes.insulatedRoofDeckSqft,
       ])
     : 0;
-  const explicitInsulationNoteSqft =
-    confirmedInsulationSqft || parsedNoteInsulationSqft;
-  const hasNoteBackedInsulationQuantity =
-    itemId === 'insulation' && explicitInsulationNoteSqft > 0;
+  const explicitInsulationNoteSqft: number =
+    confirmedInsulationSqft ||
+    (Number.isFinite(storedInsulationSqft) && storedInsulationSqft > 0
+      ? storedInsulationSqft
+      : parsedNoteInsulationSqft);
   const assemblyInsulationPricing =
     itemId === 'insulation' &&
-    !hasNoteBackedInsulationQuantity
+    explicitInsulationNoteSqft > 0
       ? resolveInsulationAssemblyScopeSuggestedPricing(
           measurementsInput,
           pricingContext,
@@ -7133,6 +7188,10 @@ function QuantitySection({
       insulationNationalComparison ??
       insulationLumpBenchmark ??
       suggestedComparisonSplit;
+  }
+  if (itemId === 'insulation' && explicitInsulationNoteSqft <= 0) {
+    suggestedBudgetSplit = null;
+    suggestedComparisonSplit = null;
   }
   if (
     itemId === 'insulation' &&
@@ -15103,6 +15162,7 @@ function CollapsibleQuickMeasurements({
   ]);
   const displayGroups = groups.groups;
   const wetAreaFields = groups.wetArea;
+  const visibleMoreResults = displayGroups.more.filter(result => result.filled);
   const summary = useMemo(
     () => summarizeQuickMeasurementFieldStates(fieldResultsForSummary),
     [fieldResultsForSummary]
@@ -17128,7 +17188,21 @@ function CollapsibleQuickMeasurements({
       ) &&
       !explicitPaintAreaInNotes &&
       !measurements.quickMeasurementUserOverrides?.[field.key];
-    const displayValue = isUnquantifiedPaintField
+    const clearStaleDrywallDisplay =
+      field.key === 'drywallSqft' &&
+      !result.filled &&
+      !noteQuickMeasurements.values.drywallSqft &&
+      !measurements.quickMeasurementUserOverrides?.[field.key] &&
+      ![
+        'user_entered',
+        'user_confirmed_suggestion',
+        'plan',
+        'plan_detected',
+        'measured_from_geometry',
+      ].includes(
+        String(measurements.quickMeasurementSources?.[field.key] || '')
+      );
+    const displayValue = isUnquantifiedPaintField || clearStaleDrywallDisplay
       ? ''
       : field.key === 'floorPrepSqft'
         ? String(measurements[field.key] ?? '')
@@ -17148,6 +17222,7 @@ function CollapsibleQuickMeasurements({
             );
     const typed =
       !isUnquantifiedPaintField &&
+      !clearStaleDrywallDisplay &&
       String(measurements[field.key] ?? '').trim() !== '';
     const fromNotes =
       field.key !== 'floorPrepSqft' &&
@@ -18970,7 +19045,7 @@ function CollapsibleQuickMeasurements({
                 </View>
               ) : null}
 
-              {displayGroups.more.some(shouldRenderGeneralResult) ? (
+              {visibleMoreResults.some(shouldRenderGeneralResult) ? (
                 <View
                   style={[
                     styles.quickMeasurementSection,
@@ -18997,7 +19072,7 @@ function CollapsibleQuickMeasurements({
                         { color: captionColor(darkMode, Colors) },
                       ]}
                     >
-                      More measurements · {displayGroups.more.length}
+                      Confirmed
                     </Text>
                     <Ionicons
                       name={moreExpanded ? 'chevron-up' : 'chevron-down'}
@@ -19006,7 +19081,7 @@ function CollapsibleQuickMeasurements({
                     />
                   </TouchableOpacity>
                   {moreExpanded
-                    ? displayGroups.more.map((result, index) =>
+                    ? visibleMoreResults.map((result, index) =>
                         renderDisplayedResultField(
                           result,
                           'more',
@@ -19688,6 +19763,14 @@ export default function AIEstimateScopeAssumptionsModal({
         factIds: ['windows', 'window_install', 'windows_doors'],
       },
       {
+        id: 'exterior_trim_paint',
+        label: 'Window trim & finish',
+        helperText:
+          'Window casing, trim, finish, and normal prep priced separately from the window units.',
+        category: 'finishes',
+        factIds: ['window_trim', 'exterior_trim_paint', 'trim_finish'],
+      },
+      {
         id: 'exterior_doors',
         label: 'Exterior doors',
         helperText: 'Exterior door count from notes; enter the number of units.',
@@ -19728,6 +19811,10 @@ export default function AIEstimateScopeAssumptionsModal({
         hasCatalogFact ||
         inferItemStateFromNotes(card.id, currentUserNote) === 'included' ||
         (card.id === 'windows' && /\bwindows?\b/i.test(currentUserNote)) ||
+        (card.id === 'exterior_trim_paint' &&
+          Number(
+            String(measurements.windowCount ?? '').replace(/,/g, '')
+          ) > 0) ||
         (card.id === 'exterior_doors' &&
           /\b(?:exterior|entry)\s+doors?\b/i.test(currentUserNote)) ||
         (card.id === 'insulation' &&
@@ -19741,7 +19828,13 @@ export default function AIEstimateScopeAssumptionsModal({
       if (existing) {
         expanded = expanded.map(item =>
           item.id === card.id
-            ? { ...item, state: 'included' as const, noteBacked: true }
+            ? {
+                ...item,
+                label: card.label,
+                helperText: card.helperText,
+                state: 'included' as const,
+                noteBacked: true,
+              }
             : item
         );
       } else {
@@ -22851,14 +22944,26 @@ export default function AIEstimateScopeAssumptionsModal({
     [checklist?.templateKey, displayItems]
   );
   const scopeGroupedItems = useMemo(() => {
-    const paintingOrder: Record<string, number> = {
+    const openingOrder: Record<string, number> = {
       interior_door_install: 10,
-      door_paint: 20,
-      window_install: 30,
+      interior_trim: 20,
+      door_paint: 25,
+      door_casing_install: 26,
+      door_casing_paint: 27,
+      windows_doors: 30,
+      windows: 31,
+      window_install: 32,
       exterior_trim_paint: 40,
+      exterior_doors: 50,
+      exterior_door_install: 51,
+      sliding_doors: 60,
+      garage_doors: 70,
+      garage_door_openers: 71,
+      trim_finish: 80,
+      openings: 90,
     };
     const itemOrder = (id: string) =>
-      id === 'cleanup' ? 10000 : (paintingOrder[id] ?? 50);
+      id === 'cleanup' ? 10000 : (openingOrder[id] ?? 50);
     const isBathroomFlow =
       String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
       String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
@@ -22871,12 +22976,19 @@ export default function AIEstimateScopeAssumptionsModal({
     const groupedItemIds = new Set(
       groupedItems.flatMap(group => group.items.map(item => item.id))
     );
+    const hasDedicatedInteriorDoorInstall = displayItems.some(
+      item => item.id === 'interior_door_install' && item.state !== 'excluded'
+    );
     const bathroomRemainderItems = isBathroomFlow
       ? displayItems.filter(
           item =>
             !groupedItemIds.has(item.id) &&
             item.state !== 'excluded' &&
-            item.id !== 'interior_finishes'
+            item.id !== 'interior_finishes' &&
+            !(
+              hasDedicatedInteriorDoorInstall &&
+              item.id === 'interior_doors'
+            )
         )
       : [];
     const sourceGroups =
@@ -22927,8 +23039,8 @@ export default function AIEstimateScopeAssumptionsModal({
           .map((item, index) => ({ item, index }))
           .sort(
             (a, b) =>
-              (paintingOrder[a.item.id] ?? 50) -
-                (paintingOrder[b.item.id] ?? 50) ||
+              (openingOrder[a.item.id] ?? 50) -
+                (openingOrder[b.item.id] ?? 50) ||
               a.index - b.index
           )
           .map(entry => entry.item);

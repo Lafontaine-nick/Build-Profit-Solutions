@@ -3045,6 +3045,15 @@ function inferItemStateFromNotes(itemId, notes) {
   if (itemId === "floor_demo")
     return floorDemoNotesHint(n) ? "included" : "unsure";
   if (itemId === "trim") return inferTrimStateFromNotes(n);
+  if (itemId === "interior_door_install") {
+    const hasInteriorDoorMention = /\binterior\s+doors?\b/.test(n);
+    const hasGenericDoorMention =
+      /\bdoors?\b/.test(n) &&
+      !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/.test(n);
+    return hasInteriorDoorMention || hasGenericDoorMention
+      ? "included"
+      : "unsure";
+  }
   if (CHECKLIST_YES_HINTS[itemId]?.test(n)) return "included";
   return "unsure";
 }

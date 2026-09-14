@@ -37,6 +37,17 @@ describe('confirmScopeStep2Pricing tiers', () => {
     ).toBe(false);
   });
 
+  it('does not show a duplicate sqft takeoff for interior door installation', () => {
+    expect(
+      step2TierNeedsInlineTakeoffEntry('interior_door_install', 'bathroom', {
+        pricingReady: false,
+        unit: 'each',
+        quantity: 2,
+        quantitySource: 'default_assumption',
+      })
+    ).toBe(false);
+  });
+
   it('classifies ground-up framing as auto_planning without on-card SF box', () => {
     expect(resolveStep2PricingTier('framing', 'ground_up').tier).toBe('auto_planning');
     expect(
@@ -450,7 +461,9 @@ describe('confirmScopeStep2Pricing tiers', () => {
       resolved: { quantity: 100, unit: 'sqft', quantitySource: 'inferred' },
       pricingContext: { checklistItems },
     });
-    expect(combined?.fill?.total).toBe(Math.round((700 * 100) / 36));
+    // Large inferred paint areas use the same blended localized/full-room curve
+    // as the direct bathroom patch resolver.
+    expect(combined?.fill?.total).toBe(1675);
     expect(combined?.fill?.pricingRecordId).toBe(
       'bps_national:drywall_paint:bathroom_combined:moderate:100sf'
     );

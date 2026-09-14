@@ -532,11 +532,29 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const pickInsulationArea = (locationPattern) => {
     const quantityPattern =
       /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+feet?)\s+(?:of\s+)?/i;
+    const matcher = new RegExp(
+      `${quantityPattern.source}(${locationPattern})`,
+      "i",
+    );
     for (const clause of clauses) {
-      const match = clause.match(
-        new RegExp(`${quantityPattern.source}${locationPattern}`, "i"),
-      );
-      if (match) return Number(match[1].replace(/,/g, ""));
+      const match = clause.match(matcher);
+      if (!match || match.index == null) continue;
+      if (/floor/.test(locationPattern)) {
+        const afterLocation = clause.slice(match.index + match[0].length);
+        if (
+          /^(?:ing\b|\s*(?:tile|lvp|vinyl|laminate|hardwood|carpet|plank|flooring)\b)/i.test(
+            afterLocation,
+          )
+        ) {
+          continue;
+        }
+        const explicitFloorInsulation =
+          /\binsulat/i.test(clause) ||
+          /\bfloor\s+area\b/i.test(match[0]) ||
+          /\bfloor\s+insulation\b/i.test(clause);
+        if (!explicitFloorInsulation) continue;
+      }
+      return Number(match[1].replace(/,/g, ""));
     }
     return null;
   };
@@ -974,12 +992,23 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     ]);
   if (exteriorPaintSqft) out.exteriorPaintSqft = exteriorPaintSqft;
 
-  // Drywall
-  const drywallSqft = pickSqftFromClauses([
-    /\bdrywall\b/,
-    /\bsheetrock\b/,
-    /\bhang\s+(?:and\s+)?finish\b/,
-  ]);
+  // Drywall: keep the quantity in the same clause as drywall so a nearby
+  // trim/floor sqft value cannot be borrowed by the document-wide fallback.
+  const drywallSqft = (() => {
+    for (const clause of clauses) {
+      const pattern = [
+        /\bdrywall\b/,
+        /\bsheetrock\b/,
+        /\bhang\s+(?:and\s+)?finish\b/,
+      ].find((p) => p.test(clause.toLowerCase()));
+      if (!pattern) continue;
+      const near = pickSqftNearPattern(clause, pattern);
+      if (near) return near;
+      const q = firstQty(clause, SQFT_RE);
+      if (q) return q;
+    }
+    return null;
+  })();
   if (drywallSqft) out.drywallSqft = drywallSqft;
 
   const flooringSqft = (() => {
@@ -1261,7 +1290,8 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     (() => {
       for (const clause of clauses) {
         if (!/\bbaseboards?\b|\btrim\b/.test(clause.toLowerCase())) continue;
-        const q = firstQty(clause, LF_RE);
+        // Keep sqft-labelled trim owned by trim; the UI prices this field as LF.
+        const q = firstQty(clause, LF_RE) || firstQty(clause, SQFT_RE);
         if (q) return q;
       }
       return null;

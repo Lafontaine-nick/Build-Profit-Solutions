@@ -342,6 +342,19 @@ function getInitialRevealScopeRows(
         ),
       }))
       .filter((row) => row.id && row.name) || [];
+  const notes = String(draft.originalNotes || '');
+  const hasGenericDoorMention =
+    /\bdoors?\b/i.test(notes) &&
+    !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(notes);
+  if (hasGenericDoorMention) {
+    rows = rows.filter((row) => row.id !== 'doors');
+    if (!rows.some((row) => row.id === 'interior_door_install')) {
+      rows.push({
+        id: 'interior_door_install',
+        name: 'Interior door installation',
+      });
+    }
+  }
   const ids = new Set(rows.map((row) => row.id));
   for (const fact of facts) {
     const id = String(fact.scopeId || '').trim();

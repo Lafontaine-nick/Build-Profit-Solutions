@@ -23,4 +23,23 @@ describe("catalog-driven Confirm Scope pilot", () => {
     expect(checklist.suggestedMeasurements.interiorDoorCount).toBe(5);
     expect(checklist.suggestedMeasurements.windowCount).toBe(2);
   });
+
+  test("treats generic door notes as interior door installation", () => {
+    const notes =
+      "Remodel the bathroom with demolition, fixtures, tile, flooring, drywall, doors, insulation, trim, electrical, and paint.";
+    const checklist = buildScopeChecklist(
+      { projectType: "bathroom", originalNotes: notes, rooms: [] },
+      "room_remodel",
+      notes,
+    );
+    const doors = checklist.items.find(
+      (item) => item.id === "interior_door_install",
+    );
+
+    expect(doors).toMatchObject({
+      label: "Interior door installation",
+      state: "included",
+      noteBacked: true,
+    });
+  });
 });

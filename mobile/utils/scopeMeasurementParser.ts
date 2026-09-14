@@ -371,6 +371,20 @@ export type ParsedInsulationAssembly = {
   battFacing?: 'faced' | 'unfaced';
 };
 
+function clauseMentionsInsulation(clause: string): boolean {
+  return /\binsulat/i.test(clause);
+}
+
+/** "85 sqft floor tile" is a floor covering, not floor insulation. */
+function isFloorCoveringAfterInsulationLocationMatch(
+  clause: string,
+  matchEndIndex: number
+): boolean {
+  return /^(?:ing\b|\s*(?:tile|lvp|vinyl|laminate|hardwood|carpet|plank|flooring)\b)/i.test(
+    clause.slice(matchEndIndex)
+  );
+}
+
 /** Preserve location-specific insulation assemblies from natural-language notes. */
 export function parseInsulationAssembliesFromNotes(
   text: string
@@ -384,7 +398,7 @@ export function parseInsulationAssembliesFromNotes(
     return match ? Number(match[1].replace(/,/g, '')) : 0;
   };
   const material = (clause: string) => {
-    if (/\bblown[-\s]?in\b/i.test(clause)) return 'Blown-in';
+    if (/\bblown(?:[-\s]?in)?\b/i.test(clause)) return 'Blown-in';
     if (/\bspray\s+foam\b/i.test(clause)) return 'Spray foam';
     if (/\brigid\s+foam\b/i.test(clause)) return 'Rigid foam board';
     if (/\bcellulose\b/i.test(clause)) return 'Cellulose';
@@ -410,7 +424,19 @@ export function parseInsulationAssembliesFromNotes(
     pattern: RegExp,
     clause: string
   ) => {
+    if (!clauseMentionsInsulation(clause)) return;
     if (!pattern.test(clause)) return;
+    if (
+      location === 'floor' &&
+      /\bfloor(?:ing)?\s+(?:tile|lvp|vinyl|laminate|hardwood|carpet|plank)\b/i.test(
+        clause
+      ) &&
+      !/\bfloor(?:\s+area)?\s+insulation\b|\binsulation\b[^.;]{0,40}\bfloor\b/i.test(
+        clause
+      )
+    ) {
+      return;
+    }
     const sqft = quantity(clause);
     if (!(sqft > 0)) return;
     assemblies.push({
@@ -802,11 +828,29 @@ export function parseScopeMeasurementsFromNotes(
   const pickInsulationArea = (locationPattern: string) => {
     const quantityPattern =
       /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+feet?)\s+(?:of\s+)?/i;
+    const matcher = new RegExp(
+      `${quantityPattern.source}(${locationPattern})`,
+      'i'
+    );
     for (const clause of clauses) {
-      const match = clause.match(
-        new RegExp(`${quantityPattern.source}${locationPattern}`, 'i')
-      );
-      if (match) return Number(match[1].replace(/,/g, ''));
+      const match = clause.match(matcher);
+      if (!match || match.index == null) continue;
+      if (/floor/.test(locationPattern)) {
+        if (
+          isFloorCoveringAfterInsulationLocationMatch(
+            clause,
+            match.index + match[0].length
+          )
+        ) {
+          continue;
+        }
+        const explicitFloorInsulation =
+          clauseMentionsInsulation(clause) ||
+          /\bfloor\s+area\b/i.test(match[0]) ||
+          /\bfloor\s+insulation\b/i.test(clause);
+        if (!explicitFloorInsulation) continue;
+      }
+      return Number(match[1].replace(/,/g, ''));
     }
     return null;
   };
@@ -1283,7 +1327,21 @@ export function parseScopeMeasurementsFromNotes(
   if (patchRepairSqft) out.patchRepairSqft = patchRepairSqft;
 
   if (!isGarageConversionJob(projectType, text)) {
-    const drywallSqft = pickSqftFromClauses([/\bdrywall\b/, /\bsheetrock\b/]);
+    // Only use a sqft value from the same clause as drywall. The document-wide
+    // nearest-quantity fallback can otherwise steal a nearby trim/floor value.
+    const drywallSqft = (() => {
+      for (const clause of clauses) {
+        const pattern = [/\bdrywall\b/, /\bsheetrock\b/].find(p =>
+          p.test(clause.toLowerCase())
+        );
+        if (!pattern) continue;
+        const near = pickSqftNearPattern(clause, pattern);
+        if (near) return near;
+        const q = firstQty(clause, SQFT_RE);
+        if (q) return q;
+      }
+      return null;
+    })();
     if (
       drywallSqft &&
       !(String(templateKey || '').toLowerCase() === 'bathroom' && patchRepairSqft)
@@ -1851,7 +1909,9 @@ export function parseScopeMeasurementsFromNotes(
 
   for (const clause of clauses) {
     if (!/\bbaseboards?\b|\btrim\b/.test(clause.toLowerCase())) continue;
-    const q = firstQty(clause, LF_RE);
+    // Contractors sometimes write trim in sqft even though the UI prices it
+    // as LF. Keep the numeric ownership with trim instead of drywall.
+    const q = firstQty(clause, LF_RE) || firstQty(clause, SQFT_RE);
     if (q) {
       out.baseboardLf = q;
       break;

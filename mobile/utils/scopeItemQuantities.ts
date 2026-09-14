@@ -5813,8 +5813,9 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Rough-in points = supply/drain relocations. Fixture hookup is on Toilet, Vanity, or Plumbing trim.',
-    missingMessage: 'Enter rough-in points and/or a dollar allowance.',
+      'Pick fixture type, same-location vs relocated, whether remodel demolition exposes the plumbing, and floor construction. Valve, head, and drain rough-in only — toilet and lav are on Toilet and Vanity.',
+    missingMessage:
+      'Select work type and plumbing exposure, or enter shower/tub rough-in pricing.',
   },
   plumbing: {
     defaultUnit: 'each',
@@ -7082,6 +7083,15 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper:
       'Includes prehung interior doors, jambs, casing, hinges, standard hardware, and normal nailing-off/installation. Painting and specialty repairs are separate.',
     missingMessage: 'Enter interior door count or pricing.',
+  },
+  doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Door work was mentioned, but the notes do not identify the door type. Select interior or exterior and enter the door count.',
+    missingMessage: 'Select the door type and enter the door count or pricing.',
   },
   trim_finish: {
     defaultUnit: 'lf',
@@ -15309,6 +15319,37 @@ export function resolveScopeItemSuggestedPricing(
       },
       comparison: null,
     };
+  }
+  if (
+    itemId === 'interior_trim' &&
+    String(resolved.unit || '').toLowerCase() === 'lf' &&
+    Number(resolved.quantity) > 0
+  ) {
+    const quantity = Number(resolved.quantity);
+    const rates = getNationalAverageBudgetSplit('interior_trim', 'lf');
+    if (rates?.material != null && rates?.labor != null) {
+      const material = round2(quantity * rates.material);
+      const labor = round2(quantity * rates.labor);
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: rates.sourceLabel,
+          helper: `${quantity.toLocaleString()} LF · interior door trim, finish & normal prep`,
+          mode: 'suggested_price',
+          basis: { quantity, unit: 'lf' },
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: 'interior_trim',
+          pricingRecordId: 'bps_national:interior_trim:lf',
+        },
+        comparison: null,
+      };
+    }
   }
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
@@ -25787,6 +25828,65 @@ export function prepareScopeMeasurementsInputForUi(
     mergedFields.patchRepairSqft = String(patchRepairFromNotes);
     mergedFields.drywallSqft = '';
   }
+  const drywallFromNotes = Number(
+    String((parsed as Record<string, unknown>).drywallSqft ?? '').replace(
+      /,/g,
+      ''
+    )
+  );
+  const drywallUserLocked =
+    payload.quickMeasurementUserOverrides?.drywallSqft === true ||
+    payload.quickMeasurementSources?.drywallSqft === 'user_entered';
+  const drywallPlanBacked =
+    payload.quickMeasurementSources?.drywallSqft === 'measured_from_geometry' ||
+    payload.quickMeasurementSources?.drywallSqft === 'plan';
+  const clearStaleDrywall =
+    !(drywallFromNotes > 0) &&
+    !drywallUserLocked &&
+    !drywallPlanBacked &&
+    !clearStaleBathroomDrywall;
+  if (clearStaleDrywall) {
+    mergedFields.drywallSqft = '';
+    const quantities = {
+      ...((mergedFields as ScopeMeasurements).itemQuantities || {}),
+    };
+    const existingDrywall = quantities.drywall;
+    if (
+      existingDrywall &&
+      existingDrywall.quantitySource !== 'user_entered' &&
+      existingDrywall.quantitySource !== 'manual_override'
+    ) {
+      delete quantities.drywall;
+      delete quantities.drywall__material;
+      delete quantities.drywall__labor;
+      delete quantities.drywall__allowance;
+      (mergedFields as ScopeMeasurements).itemQuantities = quantities;
+    }
+  }
+  const baseboardLfFromNotes = Number(
+    String((parsed as Record<string, unknown>).baseboardLf ?? '').replace(
+      /,/g,
+      ''
+    )
+  );
+  const baseboardLfUserLocked =
+    payload.quickMeasurementUserOverrides?.baseboardLf === true ||
+    payload.quickMeasurementSources?.baseboardLf === 'user_entered';
+  if (baseboardLfFromNotes > 0 && !baseboardLfUserLocked) {
+    mergedFields.baseboardLf = String(baseboardLfFromNotes);
+  }
+  const windowCountFromNotes = Number(
+    String((parsed as Record<string, unknown>).windowCount ?? '').replace(
+      /,/g,
+      ''
+    )
+  );
+  if (
+    windowCountFromNotes > 0 &&
+    payload.quickMeasurementUserOverrides?.windowCount !== true
+  ) {
+    mergedFields.windowCount = String(windowCountFromNotes);
+  }
   const interiorDoorCountFromNotes = Number(
     String((parsed as Record<string, unknown>).interiorDoorCount ?? '').replace(
       /,/g,
@@ -25795,6 +25895,51 @@ export function prepareScopeMeasurementsInputForUi(
   );
   if (interiorDoorCountFromNotes > 0) {
     mergedFields.interiorDoorCount = String(interiorDoorCountFromNotes);
+  }
+  const insulationAreaKeys = [
+    'exteriorWallInsulationSqft',
+    'atticInsulationSqft',
+    'floorInsulationSqft',
+    'insulatedRoofDeckSqft',
+  ] as const;
+  const parsedInsulationArea = insulationAreaKeys.reduce((total, key) => {
+    const quantity = Number(
+      String((parsed as Record<string, unknown>)[key] ?? '').replace(/,/g, '')
+    );
+    return total + (Number.isFinite(quantity) && quantity > 0 ? quantity : 0);
+  }, 0);
+  const floorInsulationLocked =
+    payload.quickMeasurementUserOverrides?.floorInsulationSqft === true ||
+    payload.quickMeasurementSources?.floorInsulationSqft === 'user_entered' ||
+    payload.quickMeasurementSources?.floorInsulationSqft ===
+      'calculated_confirmed';
+  if (
+    !(
+      Number(
+        String(parsed.floorInsulationSqft ?? '').replace(/,/g, '')
+      ) > 0
+    ) &&
+    !floorInsulationLocked
+  ) {
+    mergedFields.floorInsulationSqft = '';
+  }
+  if (!(parsedInsulationArea > 0)) {
+    const quantities = {
+      ...((mergedFields as ScopeMeasurements).itemQuantities || {}),
+    };
+    const existingInsulation = quantities.insulation;
+    if (
+      existingInsulation &&
+      existingInsulation.quantitySource !== 'user_entered' &&
+      existingInsulation.quantitySource !== 'manual_override' &&
+      existingInsulation.quantitySource !== 'calculated_confirmed'
+    ) {
+      delete quantities.insulation;
+      delete quantities.insulation__material;
+      delete quantities.insulation__labor;
+      delete quantities.insulation__allowance;
+      (mergedFields as ScopeMeasurements).itemQuantities = quantities;
+    }
   }
   // Explicit paint quantities from the current notes must win over stale
   // inferred values persisted on the draft (for example flooring sqft copied
@@ -25896,7 +26041,21 @@ export function prepareScopeMeasurementsInputForUi(
       if (clearStaleShowerFloor && key === 'showerFloorTileSqft') {
         continue;
       }
-      if (clearStaleBathroomDrywall && key === 'drywallSqft') {
+      if (
+        (clearStaleBathroomDrywall || clearStaleDrywall) &&
+        key === 'drywallSqft'
+      ) {
+        continue;
+      }
+      if (
+        key === 'floorInsulationSqft' &&
+        !(
+          Number(
+            String(parsed.floorInsulationSqft ?? '').replace(/,/g, '')
+          ) > 0
+        ) &&
+        !floorInsulationLocked
+      ) {
         continue;
       }
       if (
@@ -26462,6 +26621,26 @@ export function initialScopeMeasurementInputExtended(
     }
   }
 
+  const parsedInsulationArea =
+    Number(parsedFromNotes.exteriorWallInsulationSqft) ||
+    Number(parsedFromNotes.atticInsulationSqft) ||
+    Number(parsedFromNotes.floorInsulationSqft) ||
+    Number(parsedFromNotes.insulatedRoofDeckSqft);
+  if (!(parsedInsulationArea > 0)) {
+    const insulationEntry = itemQuantities.insulation;
+    if (
+      insulationEntry &&
+      insulationEntry.quantitySource !== 'user_entered' &&
+      insulationEntry.quantitySource !== 'manual_override' &&
+      insulationEntry.quantitySource !== 'calculated_confirmed'
+    ) {
+      delete itemQuantities.insulation;
+      delete itemQuantities.insulation__material;
+      delete itemQuantities.insulation__labor;
+      delete itemQuantities.insulation__allowance;
+    }
+  }
+
   const cabinetsEntry = itemQuantities.cabinets;
   if (cabinetsEntry) {
     const combinedFlag =
@@ -26496,6 +26675,16 @@ export function initialScopeMeasurementInputExtended(
     // When notes omit a field (common for plan takeoff), fall through to saved plan import.
     if (parsedNoteValue != null && Number(parsedNoteValue) > 0) {
       return String(parsedNoteValue);
+    }
+
+    // Floor-tile / flooring sqft is not floor insulation. Clear a stale
+    // insulation area unless the notes attach a quantity to floor insulation.
+    if (key === 'floorInsulationSqft' && parsedNoteValue == null) {
+      const notesHaveFloorInsulationQty =
+        /(?:\bfloor(?:\s+area)?\s+insulation\b|\binsulat(?:e|ed|ion)[^.;\n]{0,48}\bfloor(?:\s+area)?\b|\bfloor(?:\s+area)?[^.;\n]{0,48}\binsulat)[^.;\n]{0,48}\d|\d[^.;\n]{0,48}(?:\bfloor(?:\s+area)?\s+insulation\b|\bfloor(?:\s+area)?[^.;\n]{0,24}\binsulat)/i.test(
+          scopeNotes
+        );
+      if (!notesHaveFloorInsulationQty) return '';
     }
 
     // A generic bathroom floor-tile measurement belongs to the bath floor.

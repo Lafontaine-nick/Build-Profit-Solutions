@@ -300,7 +300,7 @@ describe('drywall/paint overlap helpers', () => {
       paintRepairScope: 'affected_area',
       enteredPatchSqft: 36,
     });
-    expect(summary?.combinedTotal).toBe(900);
+    expect(summary?.combinedTotal).toBe(932);
   });
 
   it('merges separate patch and paint into one suggested block', () => {

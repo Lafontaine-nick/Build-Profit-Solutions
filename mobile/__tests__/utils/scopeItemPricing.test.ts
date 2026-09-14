@@ -39,6 +39,22 @@ function inputWith(
 
 // National-average flooring rate: material $4/sqft, labor $5/sqft.
 describe('resolveScopeItemSuggestedPricing', () => {
+  it('prices note-backed interior trim LF with the national LF rate', () => {
+    const pricing = resolveScopeItemSuggestedPricing(
+      'interior_trim',
+      inputWith({ trimFinishLf: '65' }),
+      'bathroom',
+      { quantity: 65, unit: 'lf', quantitySource: 'notes' }
+    );
+
+    expect(pricing.fill).toMatchObject({
+      material: 178.75,
+      labor: 373.75,
+      total: 552.5,
+      basis: { quantity: 65, unit: 'lf' },
+    });
+  });
+
   it('prices window trim finish and baseboard installation with their card IDs', () => {
     const input = inputWith({
       windowCount: '2',

@@ -133,6 +133,36 @@ describe('resolveQuickMeasurementFields', () => {
     expect(byKey.wallPaintSqft.state).toBe('needs_confirmation');
   });
 
+  test('clears stale drywall sqft when current notes only quantify trim', () => {
+    const notes = 'Bathroom remodel with drywall, 80 LF trim, and 2 windows.';
+    const rows = quickMeasurementRowsForInput(
+      'bathroom',
+      'bathroom',
+      emptyQuickMeasurementInput(),
+      [],
+      { scopeNotes: notes }
+    );
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements: {
+        ...emptyQuickMeasurementInput(),
+        drywallSqft: '80',
+      },
+      noteValues: { baseboardLf: '80', windowCount: '2' },
+      noteBackedKeys: ['baseboardLf', 'windowCount'],
+      sourceMap: { drywallSqft: 'calculated_confirmed' },
+      includedScopeKeys: ['drywall'],
+      templateKey: 'bathroom',
+      notes,
+    });
+    const byKey = Object.fromEntries(results.map(result => [result.key, result]));
+
+    expect(byKey.drywallSqft.filled).toBe(false);
+    expect(byKey.drywallSqft.state).toBe('needs_confirmation');
+    expect(byKey.baseboardLf.filled).toBe(true);
+    expect(byKey.windowCount.filled).toBe(true);
+  });
+
   test('ground_up keeps the full Quick measurements list visible even with sparse included scopes', () => {
     const rows = groundUpRows();
     const measurements = {

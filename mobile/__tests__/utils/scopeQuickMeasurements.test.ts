@@ -59,6 +59,51 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).not.toContain('ceilingPaintSqft');
   });
 
+  it('uses a base drywall measurement for bare drywall notes', () => {
+    const rows = quickMeasurementRowsForInput(
+      'bathroom',
+      'bathroom',
+      {},
+      [],
+      { scopeNotes: 'Remodel the bathroom and install drywall.' }
+    );
+    const fields = rows.flat();
+
+    expect(fields.map(field => field.key)).toContain('drywallSqft');
+    expect(fields.map(field => field.key)).not.toContain('patchRepairSqft');
+    expect(fields.find(field => field.key === 'drywallSqft')?.label).toBe(
+      'Drywall'
+    );
+  });
+
+  it('uses the patch and texture measurement for drywall patch notes', () => {
+    const rows = quickMeasurementRowsForInput(
+      'bathroom',
+      'bathroom',
+      {},
+      [],
+      { scopeNotes: 'Patch drywall and match the existing texture.' }
+    );
+    const fields = rows.flat();
+
+    expect(fields.map(field => field.key)).toContain('patchRepairSqft');
+    expect(fields.find(field => field.key === 'patchRepairSqft')?.label).toBe(
+      'Drywall patch & texture'
+    );
+  });
+
+  it('adds an interior door count for bare door notes', () => {
+    const rows = quickMeasurementRowsForInput(
+      'bathroom',
+      'bathroom',
+      {},
+      [],
+      { scopeNotes: 'Remodel the bathroom with drywall, doors, and paint.' }
+    );
+
+    expect(rows.flat().map(field => field.key)).toContain('interiorDoorCount');
+  });
+
   it('keeps unrelated paint measurements out of insulation quick measurements', () => {
     const keys = quickMeasurementRowsForInput(
       'insulation',

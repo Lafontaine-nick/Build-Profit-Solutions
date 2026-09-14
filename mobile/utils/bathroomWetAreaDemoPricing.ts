@@ -8,7 +8,7 @@ export const BATHROOM_WET_AREA_DEMO_HELPER =
 /** Tile tear-out national average — priced by job SF. */
 export const TILE_DEMO_MATERIAL_RATE = 0.5;
 export const TILE_DEMO_LABOR_RATE = 5;
-export const TILE_DEMO_INSTALLED_RATE = 5.25;
+export const TILE_DEMO_INSTALLED_RATE = 5.5;
 export const TILE_PAN_DEMO_INSTALLED_RATE = 9;
 
 /** Flat allowances — unit tear-out, not SF. */
@@ -234,15 +234,25 @@ export function resolveBathroomWetAreaDemoSuggestedPricing(params: {
   const tileSqft = Math.max(0, Number(params.tileSqft) || 0);
   const wallTileSqft = Math.max(0, Number(params.wallTileSqft) || 0);
   const panSqft = Math.max(0, Number(params.panSqft) || 0);
+  const storedCombinedBasis =
+    params.measurementsInput.itemQuantities?.demo__sqft_basis?.unit ===
+      'sqft' &&
+    Number(params.measurementsInput.itemQuantities.demo__sqft_basis.quantity) > 0;
   const splitTilePricing = wallTileSqft > 0 || panSqft > 0;
-  const wallArea = splitTilePricing ? wallTileSqft : tileSqft;
+  const effectivePanSqft = storedCombinedBasis ? 0 : panSqft;
+  const wallArea = storedCombinedBasis
+    ? tileSqft
+    : splitTilePricing
+      ? wallTileSqft
+      : tileSqft;
   let material = round2(
     wallArea * TILE_DEMO_MATERIAL_RATE +
-      panSqft * (TILE_PAN_DEMO_INSTALLED_RATE - TILE_DEMO_LABOR_RATE)
+      effectivePanSqft *
+        (TILE_PAN_DEMO_INSTALLED_RATE - TILE_DEMO_LABOR_RATE)
   );
   let labor = round2(
     wallArea * (TILE_DEMO_INSTALLED_RATE - TILE_DEMO_MATERIAL_RATE) +
-      panSqft * TILE_DEMO_LABOR_RATE
+      effectivePanSqft * TILE_DEMO_LABOR_RATE
   );
 
   if (includesTub) {
@@ -297,12 +307,13 @@ export function resolveBathroomWetAreaDemoSuggestedPricing(params: {
       source: 'national_average',
     });
   }
-  if (panSqft > 0) {
+  if (effectivePanSqft > 0) {
     costBuckets.push({
       key: 'material',
       label: 'Tile / mud shower pan demo · material',
       amount: round2(
-        panSqft * (TILE_PAN_DEMO_INSTALLED_RATE - TILE_DEMO_LABOR_RATE)
+        effectivePanSqft *
+          (TILE_PAN_DEMO_INSTALLED_RATE - TILE_DEMO_LABOR_RATE)
       ),
       rate: TILE_PAN_DEMO_INSTALLED_RATE - TILE_DEMO_LABOR_RATE,
       source: 'national_average',
@@ -310,7 +321,7 @@ export function resolveBathroomWetAreaDemoSuggestedPricing(params: {
     costBuckets.push({
       key: 'labor',
       label: 'Tile / mud shower pan demo',
-      amount: round2(panSqft * TILE_DEMO_LABOR_RATE),
+      amount: round2(effectivePanSqft * TILE_DEMO_LABOR_RATE),
       rate: TILE_DEMO_LABOR_RATE,
       source: 'national_average',
     });
@@ -350,8 +361,16 @@ export function resolveBathroomWetAreaDemoSuggestedPricing(params: {
 
   const helper = buildBathroomWetAreaDemoHelper({
     tileSqft,
-    wallTileSqft: splitTilePricing ? wallArea : undefined,
-    panSqft: splitTilePricing ? panSqft : undefined,
+    wallTileSqft: storedCombinedBasis
+      ? undefined
+      : splitTilePricing
+        ? wallArea
+        : undefined,
+    panSqft: storedCombinedBasis
+      ? undefined
+      : splitTilePricing
+        ? panSqft
+        : undefined,
     includesTub,
     includesPrefabPan,
     includesPrefabEnclosure,

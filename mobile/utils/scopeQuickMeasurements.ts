@@ -2683,6 +2683,39 @@ function chunkRows(fields: QuickMeasurementFieldDef[]): QuickMeasurementRow[] {
   return rows;
 }
 
+function applyDrywallNoteSemantics(
+  rows: QuickMeasurementRow[],
+  notes?: string | null
+): QuickMeasurementRow[] {
+  const text = String(notes || '');
+  const hasDrywall = /\b(?:drywall|sheetrock|gypsum)\b/i.test(text);
+  if (!hasDrywall) return rows;
+  const hasPatch =
+    /\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,35}\b(?:patch|repair|texture|skim\s*coat)\b|\b(?:patch|repair|texture|skim\s*coat)\b[^.;\n]{0,35}\b(?:drywall|sheetrock|gypsum)\b/i.test(
+      text
+    );
+  return rows
+    .map(row =>
+      row
+        .map(field => {
+          if (field.key === 'patchRepairSqft' && !hasPatch) {
+            return QUICK_MEASUREMENT_FIELD_DEFS.drywallSqft;
+          }
+          if (field.key === 'drywallSqft') {
+            return {
+              ...field,
+              label: hasPatch ? 'Drywall patch & texture' : 'Drywall',
+            };
+          }
+          return field;
+        })
+        .filter((field, index, fields) =>
+          fields.findIndex(candidate => candidate.key === field.key) === index
+        )
+    )
+    .filter(row => row.length > 0);
+}
+
 export function quickMeasurementRowsForInput(
   templateKey: string | null | undefined,
   projectType: string | null | undefined,
@@ -2710,7 +2743,7 @@ export function quickMeasurementRowsForInput(
     ['plumbing', 'plumbing_service'].includes(
       String(templateKey || '').toLowerCase()
     );
-  const baseRows = options?.windowsDoorsNotesFlow
+  let baseRows = options?.windowsDoorsNotesFlow
     ? WINDOWS_DOORS_NOTES_QUICK_MEASUREMENT_ROWS
     : options?.windowsDoorsPlanImport
       ? WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS
@@ -2729,6 +2762,25 @@ export function quickMeasurementRowsForInput(
                 projectType,
                 options?.scopeNotes
               );
+  baseRows = applyDrywallNoteSemantics(baseRows, options?.scopeNotes);
+  const scopeNotes = String(options?.scopeNotes || '');
+  const hasInteriorDoorScope =
+    /\binterior\s+doors?\b/i.test(scopeNotes) ||
+    (/\bdoors?\b/i.test(scopeNotes) &&
+      !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(
+        scopeNotes
+      ));
+  if (
+    hasInteriorDoorScope &&
+    !baseRows.some(row =>
+      row.some(field => field.key === 'interiorDoorCount')
+    )
+  ) {
+    baseRows = [
+      ...baseRows,
+      [QUICK_MEASUREMENT_FIELD_DEFS.interiorDoorCount],
+    ];
+  }
   const baseKeys = new Set(baseRows.flatMap(r => r.map(f => f.key)));
   const plumbingRowsAreExplicit =
     plumbingTemplate &&

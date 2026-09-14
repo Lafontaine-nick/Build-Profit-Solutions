@@ -341,6 +341,11 @@ export function step2TierNeedsInlineTakeoffEntry(
   pricingApplied?: boolean
 ): boolean {
   const template = String(templateKey || '').toLowerCase();
+  if (itemId === 'interior_door_install') {
+    // Door installation is priced per door. The confirmed door count is
+    // already shown on the card; never add a duplicate sqft takeoff field.
+    return false;
+  }
   if (itemId === 'paint_repair' && template === 'bathroom') {
     if (pricingApplied) return false;
     return true;

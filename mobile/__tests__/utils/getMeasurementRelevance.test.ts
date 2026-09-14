@@ -122,6 +122,35 @@ describe('getMeasurementRelevance', () => {
     }
   });
 
+  test('bathroom drywall notes make the correct takeoff need confirmation', () => {
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'drywallSqft',
+        includedScopeKeys: [],
+        templateKey: 'bathroom',
+        notes: 'Remodel the bathroom with drywall, doors, and paint.',
+      }).relevant
+    ).toBe(true);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'patchRepairSqft',
+        includedScopeKeys: [],
+        templateKey: 'bathroom',
+        notes: 'Patch drywall and match the existing texture.',
+      }).relevant
+    ).toBe(true);
+  });
+
+  test('interior door count follows the dedicated installation scope key', () => {
+    const result = getMeasurementRelevance({
+      measurementKey: 'interiorDoorCount',
+      includedScopeKeys: ['interior_door_install'],
+      templateKey: 'bathroom',
+    });
+
+    expect(result.relevant).toBe(true);
+  });
+
   test('bath floor is scope-gated — not always relevant', () => {
     expect(
       getMeasurementRelevance({
