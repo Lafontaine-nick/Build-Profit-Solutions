@@ -232,7 +232,7 @@ describe('scopeQuickMeasurements', () => {
       expect.arrayContaining([
         expect.objectContaining({
           key: 'ceilingPaintSqft',
-          label: 'Ceilings paint',
+          label: 'Ceiling paint',
         }),
       ])
     );
@@ -560,6 +560,44 @@ describe('scopeQuickMeasurements', () => {
     expect(fields.map(field => field.key)).not.toContain('bathroomFloorSqft');
   });
 
+  it('keeps bathroom measurements note-driven when no wet-area rebuild is mentioned', () => {
+    const notes =
+      'Remove existing bathroom fixtures, then reroute 25 LF bathroom plumbing and install a toilet, vanity, faucet, shower valve, 90 sqft flooring, 120 sqft drywall repair, 40 LF cabinets, two windows, insulation, and paint.';
+    const fields = quickMeasurementRowsForInput(
+      'bathroom',
+      'bathroom',
+      {},
+      [],
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field);
+    const keys = fields.map(field => field.key);
+
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'plumbingRerouteLf',
+        'bathroomFloorSqft',
+        'patchRepairSqft',
+        'windowCount',
+        'exteriorWallInsulationSqft',
+      ])
+    );
+    expect(fields.find(field => field.key === 'plumbingRerouteLf')?.label).toBe(
+      'Plumbing reroute'
+    );
+    expect(fields.find(field => field.key === 'bathroomFloorSqft')?.label).toBe(
+      'Flooring installation'
+    );
+    expect(keys).not.toContain('showerWallTileSqft');
+    expect(keys).not.toContain('showerFloorTileSqft');
+    expect(keys).not.toContain('exteriorDoorCount');
+    expect(keys).not.toContain('baseboardLf');
+    expect(keys).not.toContain('flooringSqft');
+    expect(keys).not.toContain('drywallSqft');
+    expect(keys).not.toContain('cabinetLf');
+  });
+
   it('exposes note-backed framing measurements inside a mixed remodel', () => {
     const notes =
       'Demolish existing nonstructural walls, then frame 1,600 sqft of walls with headers, blocking, two door openings, structural sheathing, six windows, two exterior doors, R-21 insulation, 1,600 sqft drywall, flooring, and paint.';
@@ -780,6 +818,54 @@ describe('scopeQuickMeasurements', () => {
     expect(fields.find(field => field.key === 'waterLineLf')?.unit).toBe('LF');
   });
 
+  it('restores the full physical plumbing card for ground-up Notes/Voice flow', () => {
+    const rows = quickMeasurementRowsForInput(
+      'plumbing',
+      'plumbing',
+      {},
+      [],
+      {
+        plumbingNotesFlow: true,
+        plumbingWorkflowMode: 'new_construction',
+        scopeNotes:
+          'Plumbing rough-in for ground-up construction: Install underground and above-slab DWV piping, domestic hot and cold water lines, vent piping, hose-bib lines, and connections for all fixtures shown on plans. Set fixture stub-outs at kitchen, bathrooms, laundry, and utility areas. Pressure-test water lines and inspect/test drain and vent systems before concealment. Excludes fixtures, trim, excavation beyond plumbing trenches, utility tap fees, and final connections.',
+      }
+    );
+
+    expect(rows.flat().map(field => field.key)).toEqual([
+      'plumbingRoughPointCount',
+      'plumbingTrimHookupCount',
+      'waterLineLf',
+      'sewerLineLf',
+      'plumbingFixturesHardwareCount',
+      'waterHeaterCount',
+      'gasLineLf',
+      'gasApplianceConnectionCount',
+    ]);
+  });
+
+  it('shows note-backed service plumbing measurements for component replacements and disposal', () => {
+    const rows = quickMeasurementRowsForInput(
+      'plumbing_service',
+      'plumbing',
+      {},
+      [],
+      {
+        plumbingNotesFlow: true,
+        plumbingWorkflowMode: 'service',
+        scopeNotes:
+          'Replace kitchen faucet, two angle stops, braided supply lines, and 1-1/2-inch P-trap. Replace hall bathroom toilet fill valve, flapper, and supply line. Dispose of replaced plumbing parts.',
+      }
+    );
+    expect(rows.flat().map(field => field.key)).toEqual(
+      expect.arrayContaining([
+        'fixtureReplacementCount',
+        'partsMaterialsCount',
+        'plumbingCleanupCount',
+      ])
+    );
+  });
+
   it('keeps Plumbing fields visible in selected-trade Quick Measurements', () => {
     const allowed = new Set(tradeQuickMeasurementFieldKeys('plumbing'));
     const fields = quickMeasurementRowsForTemplate(
@@ -881,6 +967,8 @@ describe('scopeQuickMeasurements', () => {
       'fixtureRepairCount',
       'fixtureReplacementCount',
       'drainCleaningCount',
+      'partsMaterialsCount',
+      'plumbingCleanupCount',
     ]);
   });
 

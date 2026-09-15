@@ -106,6 +106,44 @@ function classifyTradeForPricing(name, scope = '', notes = '', projectType = '')
   if (/electric/.test(n)) return 'electrical';
   if (/roof/.test(n)) return 'roofing';
   if (/paint/.test(n)) return 'painting';
+  const itemText = `${n} ${s}`;
+  if (/\b(?:landscape|path|outdoor)\s+lighting\b|\blandscape\s+lights?\b/.test(itemText)) {
+    return 'landscape_lighting';
+  }
+  if (/\birrigat|\bsprinkler\s+system|\bdrip\s+system/.test(itemText)) {
+    return 'landscape_irrigation';
+  }
+  if (/\b(?:artificial|synthetic)\s+(?:turf|grass)\b|\bartificial\s+turf\b/.test(itemText)) {
+    return 'landscape_artificial_turf';
+  }
+  if (/\bsod\b|\bnatural\s+grass\b/.test(itemText)) return 'landscape_sod';
+  if (/\bpavers?\b/.test(itemText)) return 'landscape_pavers';
+  if (/\bmulch\b/.test(itemText)) return 'landscape_mulch';
+  if (/\b(?:decorative\s+)?rock\b|\bgravel\b/.test(itemText)) return 'landscape_rock';
+  if (/\b(?:landscape\s+)?boulders?\b/.test(itemText)) return 'landscape_boulders';
+  if (/\b(?:plants?|shrubs?|planting|specimen)\b/.test(itemText)) {
+    return /\btrees?\b/.test(itemText) ? 'landscape_trees' : 'landscape_plants';
+  }
+  if (/\b(?:concrete\s+)?edging\b/.test(itemText)) return 'landscape_edging';
+  if (/\bretaining\s+walls?\b/.test(itemText)) return 'landscape_retaining_wall';
+  if (/\b(?:landscape\s+)?drainage\b|\bfrench\s+drains?\b|\bdrain\s+tile\b/.test(itemText)) {
+    return 'landscape_drainage';
+  }
+  if (/\bsoil\s+(?:prep|preparation|amendment)\b|\btopsoil\b/.test(itemText)) {
+    return 'landscape_soil_prep';
+  }
+  if (
+    /\b(?:landscap(?:e|ing)|lawn|vegetation|brush)\b/.test(itemText) &&
+    /\b(?:demo|demolition|remove|removal|clear(?:ing)?|tear[\s-]?out)\b/.test(itemText)
+  ) {
+    return 'landscape_clearing';
+  }
+  if (
+    /\b(?:landscap(?:e|ing)|lawn|yard|site)\b/.test(itemText) &&
+    /\b(?:grading|regrade|grade)\b/.test(itemText)
+  ) {
+    return 'landscape_grading';
+  }
   if (/concrete|slab|deck|patio/.test(n)) return 'concrete';
 
   if (/\b(demo|demolition|removal|haul|tear[\s-]?out|rip[\s-]?out)\b/.test(`${n} ${s}`)) {

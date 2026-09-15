@@ -1289,7 +1289,7 @@ const APPLIANCE_RULES: ParseRule[] = [
   {
     key: 'hvacHookupCount',
     pattern: new RegExp(
-      String.raw`${COUNT_TOKEN}?\s*(?:hvac|air[\s-]?handler|condenser)(?:\s+circuit|\s+hookup|\s+disconnect)?s?\b|\b(?:hvac|air[\s-]?handler|condenser)(?:\s+circuit|\s+hookup|\s+disconnect)s?\b`,
+      String.raw`${COUNT_TOKEN}?\s*(?:hvac|air[\s-]?handler|condenser)\s+(?:circuit|hookup|disconnect)s?\b|\b(?:hvac|air[\s-]?handler|condenser)\s+(?:circuit|hookup|disconnect)s?\b`,
       'i'
     ),
   },

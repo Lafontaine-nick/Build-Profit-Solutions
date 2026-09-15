@@ -17,6 +17,8 @@ export const LANDSCAPING_QM_SYNC_SCOPE_IDS = new Set([
   'trees',
   'landscape_boulders',
   'pavers',
+  'concrete_edging',
+  'retaining_wall',
   'concrete',
   'landscape_lighting',
   'mobilization',
@@ -36,7 +38,8 @@ export const LANDSCAPING_CONFIRM_SCOPE_LINE_CARD_IDS = new Set([
 const SCOPE_ID_ALIASES: Record<string, string> = {
   sod: 'sod_turf',
   decorative_boulders: 'landscape_boulders',
-  concrete_edging: 'concrete',
+  concrete_edging: 'concrete_edging',
+  retaining_wall: 'retaining_wall',
   irrigation: 'irrigation',
   pavers: 'pavers',
   demo_clearing: 'demo_clearing',
@@ -88,7 +91,12 @@ function inferredScope(notes: string, items: ScopeChecklistItem[]): string[] {
   add('trees', /\btrees?\b/);
   add('landscape_boulders', /\b(?:landscape\s+)?boulders?\b/);
   add('pavers', /\bpavers?\b/);
-  add('concrete', /\bconcrete\s+(?:edging|flatwork|curb)|\bedging\b/);
+  add(
+    'concrete',
+    /\bconcrete\s+(?:flatwork|patio|walk(?:way)?|driveway|curb)\b/
+  );
+  add('concrete_edging', /\bedging\b/);
+  add('retaining_wall', /\bretaining\s+walls?\b/);
   add('landscape_lighting', /\blandscape\s+lighting\b/);
   add(
     'mobilization',
@@ -125,7 +133,11 @@ function scopeSelectionActivatesItem(itemId: string, scope: string[]): boolean {
     case 'landscape_boulders':
       return selected.has('decorative_boulders') || selected.has('landscape_boulders');
     case 'concrete':
+      return selected.has('concrete');
+    case 'concrete_edging':
       return selected.has('concrete_edging');
+    case 'retaining_wall':
+      return selected.has('retaining_wall');
     // Legacy combined cards.
     case 'rock_mulch':
       return (
@@ -186,7 +198,11 @@ export function isLandscapingQmScopeItemActive(
     case 'irrigation':
       return positiveNumber(measurements.irrigationZoneCount) != null;
     case 'concrete':
+      return positiveNumber(measurements.concreteSqft) != null;
+    case 'concrete_edging':
       return positiveNumber(measurements.concreteEdgingLf) != null;
+    case 'retaining_wall':
+      return positiveNumber(measurements.retainingWallLf) != null;
     case 'landscape_lighting':
       return positiveNumber(measurements.landscapeLightCount) != null;
     default:
@@ -218,6 +234,8 @@ const LANDSCAPING_SCOPE_ITEM_LABELS: Record<string, string> = {
   plants: 'Plants / shrubs',
   trees: 'Trees',
   landscape_boulders: 'Decorative boulders',
+  concrete_edging: 'Edging',
+  retaining_wall: 'Retaining wall',
 };
 
 const LANDSCAPE_CLEARING_CHOICE_IDS = new Set([

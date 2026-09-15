@@ -16,6 +16,15 @@ const SMITH_NOTES =
   'Floor job at Smith residence. Demo existing tile in main bath 850 sqft lump sum $2,550. Demo kitchen vinyl 180 sqft allowance $900. Install LVP in both areas 1030 total sqft not priced yet. Baseboards throughout 220 LF lump sum $1,540. Final clean and haul off $650 lump sum.';
 
 describe('mobile scope measurement parser', () => {
+  it('parses a bathroom plumbing reroute separately from water-service piping', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Remove existing bathroom fixtures, then reroute 25 LF bathroom plumbing and install a toilet, vanity, faucet, shower valve.'
+    );
+
+    expect(parsed.plumbingRerouteLf).toBe(25);
+    expect(parsed.waterLineLf).toBeUndefined();
+  });
+
   it('keeps mixed painting notes in the correct scope and measurement owners', () => {
     const notes =
       'Paint 2,000 sqft walls and ceilings with prep, demolition and removal of damaged drywall, six interior doors, 180 LF baseboard, 300 sqft drywall repair, 900 sqft flooring, three replacement windows, and R-30 attic insulation.';
@@ -37,6 +46,28 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.interiorDoorCount).toBe(6);
     expect(parsed.windowCount).toBe(3);
     expect(parsed.insulationRValue).toBe('R-30');
+  });
+
+  it('keeps addition opening counts, floor area, air sealing, and R-values note-local', () => {
+    const notes =
+      'Clear and demolish the existing area as needed, then build a 700 sqft addition with foundation, framing, roofing, six windows, exterior doors, R-21 wall insulation, R-38 attic insulation, air sealing, drywall, flooring, cabinets, plumbing, electrical, trim, and paint.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'addition',
+      projectType: 'other',
+    });
+    const assemblies = parseInsulationAssembliesFromNotes(notes);
+
+    expect(parsed.floorAreaSqft).toBe(700);
+    expect(parsed.airSealingIncluded).toBe(true);
+    expect(parsed.airSealingSqft).toBe(700);
+    expect(parsed.windowCount).toBe(6);
+    expect(parsed.exteriorDoorCount).toBeUndefined();
+    expect(assemblies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ location: 'exterior_wall', rValue: 'R-21' }),
+        expect.objectContaining({ location: 'attic_ceiling', rValue: 'R-38' }),
+      ])
+    );
   });
 
   it('clears stale living-area and demo quantities from mixed painting notes', () => {
@@ -176,7 +207,8 @@ describe('mobile scope measurement parser', () => {
   });
 
   it('keeps generic door notes unclassified and without a measurement', () => {
-    const notes = 'Update the home with new doors, flooring, drywall, and paint.';
+    const notes =
+      'Update the home with new doors, flooring, drywall, and paint.';
     const parsed = parseScopeMeasurementsFromNotes(notes, {
       templateKey: 'bathroom',
     });
@@ -283,7 +315,11 @@ describe('mobile scope measurement parser', () => {
         paintAreaSqft: '700',
         flooringSqft: '700',
         itemQuantities: {
-          paint: { quantity: 700, unit: 'sqft', quantitySource: 'user_entered' },
+          paint: {
+            quantity: 700,
+            unit: 'sqft',
+            quantitySource: 'user_entered',
+          },
         },
       },
       { notes, templateKey: 'kitchen' }
@@ -394,7 +430,7 @@ describe('mobile scope measurement parser', () => {
     'Include gap seal and seal penetrations throughout the home.',
     'Include draft seal around accessible openings.',
     'Include gap penetration sealing.',
-  ])('maps air-sealing synonym to the standard air-sealing card: %s', (notes) => {
+  ])('maps air-sealing synonym to the standard air-sealing card: %s', notes => {
     const parsed = parseScopeMeasurementsFromNotes(notes, {
       templateKey: 'insulation',
     });
@@ -1219,6 +1255,40 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.rockMulchSqft).toBeUndefined();
   });
 
+  it('keeps mixed landscape material quantities attached to their materials', () => {
+    const notes =
+      'Remove existing landscaping, pavers, and concrete as needed, then install 1,000 sqft sod, 400 sqft pavers, 12 shrubs, 30 tons decorative rock, irrigation adjustments, edging, a retaining wall, a 500 sqft concrete patio, and two exterior doors.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'concrete',
+      projectType: 'other',
+    });
+
+    expect(parsed.sodSqft).toBe(1000);
+    expect(parsed.paverSqft).toBe(400);
+    expect(parsed.rockMulchSqft).toBeUndefined();
+    expect(parsed.floorAreaSqft).toBeUndefined();
+    expect(parsed.landscapeTons).toBe(30);
+    expect(parsed.plantCount).toBe(12);
+    expect(parsed.exteriorDoorCount).toBe(2);
+  });
+
+  it('parses quantities for additional landscaping work items', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Clear 1,200 sqft of brush, grade 1,500 sqft, soil prep 900 sqft, install 180 LF drainage, 6 irrigation zones, and 8 landscape lights.',
+      {
+        templateKey: 'landscaping',
+        projectType: 'landscaping',
+      }
+    );
+
+    expect(parsed.demoClearingSqft).toBe(1200);
+    expect(parsed.gradingSqft).toBe(1500);
+    expect(parsed.soilPrepSqft).toBe(900);
+    expect(parsed.drainageLf).toBe(180);
+    expect(parsed.irrigationZoneCount).toBe(6);
+    expect(parsed.landscapeLightCount).toBe(8);
+  });
+
   it('parses combined interior paint notes into one area, not walls', () => {
     const notes =
       'Interior repaint about 1,500 sqft walls and ceilings two coats. 200 LF baseboards/trim, 6 interior doors, and 200 sqft kitchen cabinets. No exterior.';
@@ -1385,6 +1455,18 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.reframingRequested).toBe(true);
     expect(parsed.framingOpeningCount).toBe(2);
     expect(parsed.itemQuantities).not.toHaveProperty('openings');
+  });
+
+  it('parses explicit mixed HVAC component quantities', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Remove the existing HVAC system and ductwork, then replace one heat-pump system, install 120 LF ductwork, one thermostat, four registers.',
+      { templateKey: 'room_remodel', projectType: 'room_remodel' }
+    );
+    expect(parsed.hvacSystemCount).toBe(1);
+    expect(parsed.hvacEquipmentReplacementCount).toBe(1);
+    expect(parsed.hvacDuctworkLf).toBe(120);
+    expect(parsed.hvacThermostatCount).toBe(1);
+    expect(parsed.hvacSupplyRegisterCount).toBe(4);
   });
 
   const GARAGE_CONVERSION_NOTES =

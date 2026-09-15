@@ -67,6 +67,14 @@ function catalogAliasPattern(alias) {
 function catalogMentionIsExplicit(notes, alias, entry) {
   const aliasMatch = catalogAliasPattern(alias).exec(String(notes || ""));
   if (!aliasMatch) return false;
+  if (entry.scopeId === "concrete_edging") {
+    return (
+      /\bedging\b/i.test(String(notes || "")) &&
+      !/\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,40}\bedging\b/i.test(
+        String(notes || ""),
+      )
+    );
+  }
   const start = Math.max(0, aliasMatch.index - 90);
   const end = Math.min(String(notes || "").length, aliasMatch.index + alias.length + 90);
   const context = String(notes || "").slice(start, end);
@@ -79,6 +87,29 @@ function catalogMentionIsExplicit(notes, alias, entry) {
   }
   if (entry.category === "demolition") {
     return /\b(?:demo(?:lition)?|remove|removal|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b/i.test(
+      context,
+    );
+  }
+  if (entry.scopeId === "demo_clearing") {
+    return /\b(?:clear(?:ing)?|brush|vegetation|demo(?:lition)?|remove|removal|tear[\s-]?out)\b/i.test(
+      context,
+    );
+  }
+  if (entry.scopeId === "grading") {
+    return /\b(?:grading|regrade|grade)\b/i.test(context);
+  }
+  if (entry.scopeId === "soil_prep") {
+    return /\b(?:soil\s+prep(?:aration)?|topsoil|soil\s+amendment)\b/i.test(
+      context,
+    );
+  }
+  if (entry.scopeId === "drainage") {
+    return /\b(?:drainage|drain(?:ing)?|french\s+drains?|drain\s+tile)\b/i.test(
+      context,
+    );
+  }
+  if (entry.scopeId === "landscape_lighting") {
+    return /\b(?:landscape|path|outdoor)\s+lights?\b|\blandscape\s+lighting\b/i.test(
       context,
     );
   }
@@ -105,22 +136,31 @@ function quantityFromCatalogAlias(notes, alias, defaultUnit) {
     .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     .replace(/\s+/g, "\\s+");
   const unitPattern =
-    "(lf|linear\\s+(?:feet|foot)|sq\\.?\\s*ft\\.?|sqft|sf|each|ea)?";
+    "(lf|linear\\s+(?:feet|foot)|sq\\.?\\s*ft\\.?|sqft|sf|tons?|each|ea)?";
   const before = String(notes || "").match(
     new RegExp(
       `(\\d[\\d,]*(?:\\.\\d+)?)\\s*${unitPattern}\\s+(?:of\\s+)?${escapedAlias}\\b`,
       "i",
     ),
   );
-  if (!before) return null;
-  const rawUnit = String(before[2] || defaultUnit || "each").toLowerCase();
+  const after = String(notes || "").match(
+    new RegExp(
+      `${escapedAlias}\\s+(?:of\\s+)?(\\d[\\d,]*(?:\\.\\d+)?)\\s*${unitPattern}\\b`,
+      "i",
+    ),
+  );
+  const match = before || after;
+  if (!match) return null;
+  const rawUnit = String(match[2] || defaultUnit || "each").toLowerCase();
   const unit = /lf|linear/.test(rawUnit)
     ? "lf"
     : /sq|sf/.test(rawUnit)
       ? "sqft"
+      : /ton/.test(rawUnit)
+        ? "ton"
       : "each";
   return {
-    quantity: positive(before[1].replace(/,/g, "")),
+    quantity: positive(match[1].replace(/,/g, "")),
     unit,
   };
 }
@@ -494,6 +534,38 @@ function extractScopeFactsFromNotes(notes, ctx = {}) {
     facts[facts.length - 1].catalogScopeId = identity.canonicalScopeId;
     facts[facts.length - 1].pricingRuleKey = identity.pricingRuleKey;
     facts[facts.length - 1].quantityRuleKey = identity.quantityRuleKey;
+  }
+
+  // A specific landscape takeoff supersedes the broad "landscaping" bucket.
+  // Keeping both creates a duplicate allowance beside sod, rock, shrubs, etc.
+  const specificLandscapeKeys = new Set([
+    "sod_turf",
+    "artificial_turf",
+    "rock",
+    "mulch",
+    "plants",
+    "trees",
+    "landscape_boulders",
+    "pavers",
+    "irrigation",
+    "concrete_edging",
+    "demo_clearing",
+    "grading",
+    "soil_prep",
+    "drainage",
+    "landscape_lighting",
+    "retaining_wall",
+  ]);
+  if (facts.some(scopeFact => specificLandscapeKeys.has(scopeFact.quantityKey))) {
+    for (let index = facts.length - 1; index >= 0; index -= 1) {
+      if (
+        facts[index].quantityKey === "landscaping" ||
+        (facts[index].quantityKey === "prep" &&
+          facts.some(scopeFact => scopeFact.quantityKey === "soil_prep"))
+      ) {
+        facts.splice(index, 1);
+      }
+    }
   }
 
   for (const scopeFact of facts) {

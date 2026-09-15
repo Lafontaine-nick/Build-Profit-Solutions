@@ -262,7 +262,10 @@ const SCOPE_ITEM_RULES = [
   },
   {
     itemType: 'lighting_fixture',
-    test: (b) => /\blighting|\blight\s+fixture|\bfixture\s+install/.test(b) && !/\brough/.test(b),
+    test: (b) =>
+      /\blighting|\blight\s+fixture|\bfixture\s+install/.test(b) &&
+      !/\brough/.test(b) &&
+      !/\blandscape\s+lights?\b|\blandscape\s+lighting\b/.test(b),
     tradeCategory: 'electrical',
     scopeCategory: 'lighting_fixture',
     allowedUnits: ['each', 'lump_sum'],
@@ -362,7 +365,8 @@ const SCOPE_ITEM_RULES = [
     test: (b) =>
       /\b(outlet|switch|receptacle|fan|light|fixture|device)\b/.test(b) &&
       /\binstall|\breplac|\badd/.test(b) &&
-      !/\btrim|\brough|\bpanel/.test(b),
+      !/\btrim|\brough|\bpanel/.test(b) &&
+      !/\blandscape\s+lights?\b|\blandscape\s+lighting\b/.test(b),
     tradeCategory: 'electrical',
     scopeCategory: 'electrical_fixture',
     allowedUnits: ['each', 'lump_sum'],
@@ -374,7 +378,6 @@ const SCOPE_ITEM_RULES = [
   {
     itemType: 'landscape_plants',
     test: (b) => /\bplant|\btree|\bshrub|\bspecimen/.test(b),
-    tradeCategory: 'landscaping',
     scopeCategory: 'landscape_plants',
     allowedUnits: ['each', 'lump_sum'],
     pricingMethod: 'each',
@@ -480,10 +483,9 @@ const SCOPE_ITEM_RULES = [
   {
     itemType: 'landscape_sqft',
     test: (b) => /\b(sod|turf|mulch|rock|gravel|paver|irrigation\s+bed)\b/.test(b),
-    tradeCategory: 'landscaping',
     scopeCategory: 'landscaping',
-    allowedUnits: ['sqft', 'lump_sum'],
-    pricingMethod: 'sqft',
+    allowedUnits: ['sqft', 'cy', 'ton', 'allowance', 'lump_sum'],
+    pricingMethod: 'unit_rate',
     validSourceTypes: VALID_SOURCE_TYPES.all,
     autoSelectAllowed: true,
   },
@@ -517,6 +519,22 @@ const TRADE_FALLBACK_RULES = {
   framing: { pricingMethod: 'sqft', allowedUnits: ['sqft', 'lf', 'lump_sum'], autoSelectAllowed: false },
   hvac: { pricingMethod: 'each', allowedUnits: ['each', 'lump_sum', 'hour'], autoSelectAllowed: false },
   landscaping: { pricingMethod: 'sqft', allowedUnits: ['sqft', 'each', 'lump_sum'], autoSelectAllowed: false },
+  landscape_clearing: { pricingMethod: 'sqft', allowedUnits: ['sqft', 'allowance', 'lump_sum'], autoSelectAllowed: false },
+  landscape_grading: { pricingMethod: 'sqft', allowedUnits: ['sqft', 'cy', 'allowance', 'lump_sum'], autoSelectAllowed: false },
+  landscape_soil_prep: { pricingMethod: 'sqft', allowedUnits: ['sqft', 'allowance', 'lump_sum'], autoSelectAllowed: false },
+  landscape_sod: { pricingMethod: 'sqft', allowedUnits: ['sqft', 'allowance', 'lump_sum'], autoSelectAllowed: true },
+  landscape_artificial_turf: { pricingMethod: 'sqft', allowedUnits: ['sqft', 'allowance', 'lump_sum'], autoSelectAllowed: true },
+  landscape_pavers: { pricingMethod: 'sqft', allowedUnits: ['sqft', 'allowance', 'lump_sum'], autoSelectAllowed: true },
+  landscape_rock: { pricingMethod: 'unit_rate', allowedUnits: ['sqft', 'cy', 'ton', 'allowance', 'lump_sum'], autoSelectAllowed: true },
+  landscape_mulch: { pricingMethod: 'unit_rate', allowedUnits: ['sqft', 'cy', 'ton', 'allowance', 'lump_sum'], autoSelectAllowed: true },
+  landscape_plants: { pricingMethod: 'each', allowedUnits: ['each', 'allowance', 'lump_sum'], autoSelectAllowed: false },
+  landscape_trees: { pricingMethod: 'each', allowedUnits: ['each', 'allowance', 'lump_sum'], autoSelectAllowed: false },
+  landscape_boulders: { pricingMethod: 'each', allowedUnits: ['each', 'allowance', 'lump_sum'], autoSelectAllowed: false },
+  landscape_edging: { pricingMethod: 'lf', allowedUnits: ['lf', 'allowance', 'lump_sum'], autoSelectAllowed: false },
+  landscape_retaining_wall: { pricingMethod: 'lf', allowedUnits: ['lf', 'allowance', 'lump_sum'], autoSelectAllowed: false },
+  landscape_drainage: { pricingMethod: 'lf', allowedUnits: ['lf', 'allowance', 'lump_sum'], autoSelectAllowed: false },
+  landscape_irrigation: { pricingMethod: 'each', allowedUnits: ['each', 'allowance', 'lump_sum'], autoSelectAllowed: false },
+  landscape_lighting: { pricingMethod: 'each', allowedUnits: ['each', 'allowance', 'lump_sum'], autoSelectAllowed: false },
   excavation: { pricingMethod: 'lump_sum', allowedUnits: ['lump_sum', 'hour', 'sqft', 'lf'], autoSelectAllowed: false },
   kitchen: { pricingMethod: 'sqft', allowedUnits: ['sqft', 'lf', 'lump_sum'], autoSelectAllowed: false },
   bathroom: { pricingMethod: 'sqft', allowedUnits: ['sqft', 'lump_sum'], autoSelectAllowed: false },

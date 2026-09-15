@@ -143,6 +143,53 @@ describe('addition / conversion scope defaults', () => {
     );
   });
 
+  it('keeps a built addition note on canonical phases without inferred aliases', () => {
+    const notes =
+      'Clear and demolish the existing area as needed, then build a 700 sqft addition with foundation, framing, roofing, six windows, exterior doors, R-21 wall insulation, R-38 attic insulation, air sealing, drywall, flooring, cabinets, plumbing, electrical, trim, and paint.';
+    const items = hydrateScopeChecklistFromNotes(
+      additionChecklistItems(),
+      'addition',
+      notes,
+      undefined,
+      'other'
+    );
+    const included = items
+      .filter(item => item.state === 'included')
+      .map(item => item.id);
+
+    expect(included).toEqual(
+      expect.arrayContaining([
+        'sitework',
+        'foundation',
+        'framing',
+        'roof_tie_in',
+        'windows_doors',
+        'insulation',
+        'air_sealing',
+        'drywall',
+        'flooring',
+        'cabinets_counters',
+        'plumbing_rough',
+        'electrical_rough',
+        'interior_trim',
+        'paint',
+      ])
+    );
+    expect(included).not.toEqual(
+      expect.arrayContaining([
+        'concrete',
+        'trim',
+        'cabinets',
+        'plumbing',
+        'electrical',
+        'exterior_doors',
+        'roofing',
+        'trim_paint',
+        'exterior_trim_paint',
+      ])
+    );
+  });
+
   it('syncs windows_doors and interior_trim when opening counts are entered', () => {
     const items = applyScopeInferencesFromNotes(
       additionChecklistItems(),

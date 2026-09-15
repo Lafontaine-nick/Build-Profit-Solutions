@@ -57,13 +57,51 @@ function inferTradeCategory(scopeItem, draft = {}) {
       draft.originalNotes,
       draft.projectType
     );
+  const text = blob(scopeItem);
   if (isCleanupScope(scopeItem)) return 'cleanup';
   if (isPermitsScope(scopeItem)) return 'permits';
   if (/\bdrywall\b/.test(blob(scopeItem))) return 'drywall';
   if (/\b(fram(e|ing)|stud)\b/.test(blob(scopeItem))) return 'framing';
   if (/\bhvac\b|\bfurnace\b|\bac\s+unit\b|\bair\s+condition/.test(blob(scopeItem))) return 'hvac';
-  if (/\bexcavat|\bgrading\b|\bsite\s+work/.test(blob(scopeItem))) return 'excavation';
-  if (/\blandscap|\bsod\b|\birrigat/.test(blob(scopeItem))) return 'landscaping';
+  if (/\b(?:landscape|path|outdoor)\s+lighting\b|\blandscape\s+lights?\b/.test(text)) {
+    return 'landscape_lighting';
+  }
+  if (/\birrigat|\bsprinkler\s+system|\bdrip\s+system/.test(text)) {
+    return 'landscape_irrigation';
+  }
+  if (/\b(?:artificial|synthetic)\s+(?:turf|grass)\b|\bartificial\s+turf\b/.test(text)) {
+    return 'landscape_artificial_turf';
+  }
+  if (/\bsod\b|\bnatural\s+grass\b/.test(text)) return 'landscape_sod';
+  if (/\bpavers?\b/.test(text)) return 'landscape_pavers';
+  if (/\bmulch\b/.test(text)) return 'landscape_mulch';
+  if (/\b(?:decorative\s+)?rock\b|\bgravel\b/.test(text)) return 'landscape_rock';
+  if (/\b(?:landscape\s+)?boulders?\b/.test(text)) return 'landscape_boulders';
+  if (/\b(?:plants?|shrubs?|planting|specimen)\b/.test(text)) {
+    return /\btrees?\b/.test(text) ? 'landscape_trees' : 'landscape_plants';
+  }
+  if (/\b(?:concrete\s+)?edging\b/.test(text)) return 'landscape_edging';
+  if (/\bretaining\s+walls?\b/.test(text)) return 'landscape_retaining_wall';
+  if (/\b(?:landscape\s+)?drainage\b|\bfrench\s+drains?\b|\bdrain\s+tile\b/.test(text)) {
+    return 'landscape_drainage';
+  }
+  if (/\bsoil\s+(?:prep|preparation|amendment)\b|\btopsoil\b/.test(text)) {
+    return 'landscape_soil_prep';
+  }
+  if (
+    /\b(?:landscap(?:e|ing)|lawn|vegetation|brush)\b/.test(text) &&
+    /\b(?:demo|demolition|remove|removal|clear(?:ing)?|tear[\s-]?out)\b/.test(text)
+  ) {
+    return 'landscape_clearing';
+  }
+  if (
+    /\b(?:landscap(?:e|ing)|lawn|yard|site)\b/.test(text) &&
+    /\b(?:grading|regrade|grade)\b/.test(text)
+  ) {
+    return 'landscape_grading';
+  }
+  if (/\bexcavat|\bgrading\b|\bsite\s+work/.test(text)) return 'excavation';
+  if (/\blandscap|\bsod\b|\birrigat/.test(text)) return 'landscaping';
   if (/\bgeneral\s+labor|\blabor\s+only|\bhelper\b/.test(blob(scopeItem))) return 'general_labor';
   if (/\btile\b/.test(blob(scopeItem)) && trade === 'flooring') return 'tile';
   return TRADE_TO_CATEGORY[trade] || trade || 'other';

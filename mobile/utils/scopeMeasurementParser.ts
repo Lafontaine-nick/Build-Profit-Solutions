@@ -103,13 +103,22 @@ export type ParsedScopeMeasurements = {
   airSealingIncluded?: boolean;
   airSealingSqft?: number;
   landscapeSqft?: number;
+  demoClearingSqft?: number;
+  gradingSqft?: number;
+  soilPrepSqft?: number;
+  drainageLf?: number;
+  irrigationZoneCount?: number;
+  landscapeLightCount?: number;
   sidingRepairSqft?: number;
   retainingWallLf?: number;
+  plumbingRerouteLf?: number;
   artificialTurfSqft?: number;
   sodSqft?: number;
   paverSqft?: number;
   rockMulchSqft?: number;
   landscapeTons?: number;
+  plantCount?: number;
+  concreteEdgingLf?: number;
   roofAreaSqft?: number;
   roofIceWaterShieldSqft?: number;
   roofDeckingReplacementSqft?: number;
@@ -445,9 +454,14 @@ export function parseInsulationAssembliesFromNotes(
     }
     const sqft = quantity(clause);
     const hasInsulationInstallIntent =
-      /\b(?:install|replace|add|upgrade)\b[^.;,\n]{0,60}\b(?:insulat(?:e|ion|ed)|batt|blown(?:[-\s]?in)?|R[-\s]?\d{2,3})\b/i.test(
+      /\b(?:install|replace|add|upgrade|build|construct|include|with)\b[^.;,\n]{0,60}\b(?:insulat(?:e|ion|ed)|batt|blown(?:[-\s]?in)?|R[-\s]?\d{2,3})\b/i.test(
         text
-      );
+      ) ||
+      /\b(?:insulat(?:e|ion|ed)|batt|blown(?:[-\s]?in)?|R[-\s]?\d{2,3})\b[^.;,\n]{0,60}\b(?:include|with|build|construct)\b/i.test(
+        text
+      ) ||
+      (hasStructuralContext &&
+        /\b(?:insulat(?:e|ion|ed)|R[-\s]?\d{2,3})\b/i.test(clause));
     const parsedRValue = rValue(clause);
     if (!(sqft > 0) && !(parsedRValue && hasInsulationInstallIntent)) {
       return;
@@ -671,20 +685,39 @@ function pickOpeningCount(
   pattern: RegExp
 ): number | null {
   const countNearestToPattern = (value: string): number | null => {
-    const patternMatch = pattern.exec(value.toLowerCase());
+    const source = String(value || '');
+    const patternMatch = pattern.exec(source.toLowerCase());
     if (!patternMatch || patternMatch.index == null) return null;
+    const openingNounRe = /\b(?:windows?|doors?|fenestration|openings?)\b/gi;
+    const openingNouns = [...patternMatch[0].matchAll(openingNounRe)];
+    const targetIndex =
+      patternMatch.index + (openingNouns.at(-1)?.index ?? 0);
     const countRe = new RegExp(COUNT_TOKEN_RE.source, 'gi');
     let match: RegExpExecArray | null;
     let nearest: { distance: number; count: number } | null = null;
-    while ((match = countRe.exec(value)) !== null) {
+    while ((match = countRe.exec(source)) !== null) {
       const count = parseCountToken(match[1]);
       if (count == null) continue;
-      const distance = Math.abs(match.index - patternMatch.index);
+      // Do not carry a count across another opening noun. For example,
+      // "six windows, exterior doors" has no exterior-door count.
+      const between = source.slice(
+        match.index + match[0].length,
+        targetIndex
+      );
+      if (
+        match.index >= targetIndex ||
+        (!/openings\?/i.test(pattern.source) &&
+          /\b(?:windows?|doors?|fenestration|openings?)\b/i.test(between))
+      ) {
+        continue;
+      }
+      const distance = targetIndex - (match.index + match[0].length);
+      if (distance > 40) continue;
       if (!nearest || distance < nearest.distance) {
         nearest = { distance, count };
       }
     }
-    return nearest && nearest.distance <= 40 ? nearest.count : null;
+    return nearest?.count ?? null;
   };
 
   for (const clause of clauses) {
@@ -903,6 +936,12 @@ export function parseScopeMeasurementsFromNotes(
           Math.max(0, match.index - 55),
           match.index
         );
+        const afterQuantity = lower
+          .slice(
+            match.index + match[0].length,
+            match.index + match[0].length + 55
+          )
+          .split(/[.;,\n]/, 1)[0];
         const materialMatches = patterns
           .map(pattern => {
             const materialMatch = [
@@ -915,12 +954,21 @@ export function parseScopeMeasurementsFromNotes(
                 )
               ),
             ].pop();
-            return materialMatch?.index ?? -1;
+            if (materialMatch) return materialMatch.index;
+            const afterMatch = afterQuantity.match(pattern);
+            return afterMatch
+              ? match.index + match[0].length + afterMatch.index
+              : -1;
           })
           .filter(index => index >= 0);
         const materialIndex = Math.max(...materialMatches);
         if (materialIndex < 0) continue;
-        const between = beforeQuantity.slice(materialIndex);
+        const between =
+          materialIndex < match.index
+            ? beforeQuantity.slice(materialIndex)
+            : afterQuantity.slice(
+                materialIndex - match.index - match[0].length
+              );
         if (/\b(?:back|front|side)?\s*yard\b/.test(between)) continue;
         return parseQty(match);
       }
@@ -1020,6 +1068,12 @@ export function parseScopeMeasurementsFromNotes(
     return pickLfNearPattern(text, /\bcabinet/);
   })();
   if (cabinetLf) out.cabinetLf = cabinetLf;
+
+  const plumbingRerouteLf = pickLfNearPattern(
+    text,
+    /\b(?:reroute|re-route|relocat(?:e|ed|ing|ion))\b[^.;\n]{0,45}\bplumb(?:ing)?\b|\bplumb(?:ing)?\b[^.;\n]{0,45}\b(?:reroute|re-route|relocat(?:e|ed|ing|ion))\b/i
+  );
+  if (plumbingRerouteLf) out.plumbingRerouteLf = plumbingRerouteLf;
 
   const showerWall = pickSqftFromClauses([
     /\bshower\s+wall\b/,
@@ -1705,15 +1759,69 @@ export function parseScopeMeasurementsFromNotes(
   ]);
   if (artificialTurfSqft) out.artificialTurfSqft = artificialTurfSqft;
 
-  const paverSqft = pickSqftFromClauses([/\bpavers?\b/, /\bpatio\b.*\bpaver/]);
+  const paverSqft = pickExplicitLandscapeMaterialSqft([
+    /\bpavers?\b/,
+    /\bpatio\b.*\bpaver/,
+  ]);
   if (paverSqft) out.paverSqft = paverSqft;
 
-  const rockMulchSqft = pickSqftFromClauses([
+  const rockMulchSqft = pickExplicitLandscapeMaterialSqft([
     /\brock\b/,
     /\bmulch\b/,
     /\b(?:landscape\s+)?gravel\b(?!\s+base)/,
   ]);
   if (rockMulchSqft) out.rockMulchSqft = rockMulchSqft;
+
+  const plantCount = pickOpeningCount(
+    clauses,
+    text,
+    /\b(?:plants?|shrubs?)\b/i
+  );
+  if (plantCount) out.plantCount = plantCount;
+
+  const concreteEdgingLf = pickLfNearPattern(
+    text,
+    /\b(?:concrete\s+)?edging\b/i
+  );
+  if (concreteEdgingLf) out.concreteEdgingLf = concreteEdgingLf;
+
+  const demoClearingSqft = pickSqftFromClauses([
+    /\b(?:landscap(?:e|ing)|lawn|vegetation|brush)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|clear(?:ing)?|tear[\s-]?out)\b/,
+    /\b(?:demo|demolition|remove|removal|clear(?:ing)?|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:landscap(?:e|ing)|lawn|vegetation|brush)\b/,
+  ]);
+  if (demoClearingSqft) out.demoClearingSqft = demoClearingSqft;
+
+  const gradingSqft = pickSqftFromClauses([
+    /\b(?:rough\s+|finish\s+|final\s+)?(?:grading|grade)\b/,
+    /\bgrade\s+(?:the\s+)?(?:yard|site|lot)\b/,
+  ]);
+  if (gradingSqft) out.gradingSqft = gradingSqft;
+
+  const soilPrepSqft = pickSqftFromClauses([
+    /\bsoil\s+(?:prep|preparation|amendment)\b/,
+    /\btopsoil\b/,
+  ]);
+  if (soilPrepSqft) out.soilPrepSqft = soilPrepSqft;
+
+  const drainageLf = pickLfNearPattern(
+    text,
+    /\b(?:landscape\s+)?drainage\b|\bfrench\s+drains?\b|\bdrain\s+tile\b/i
+  );
+  if (drainageLf) out.drainageLf = drainageLf;
+
+  const irrigationZoneCount = pickOpeningCount(
+    clauses,
+    text,
+    /\b(?:irrigation|sprinkler)\s+zones?\b/i
+  );
+  if (irrigationZoneCount) out.irrigationZoneCount = irrigationZoneCount;
+
+  const landscapeLightCount = pickOpeningCount(
+    clauses,
+    text,
+    /\b(?:landscape|path|outdoor)\s+lights?\b/i
+  );
+  if (landscapeLightCount) out.landscapeLightCount = landscapeLightCount;
 
   const landscapeSqft = pickSqftFromClauses([
     /\b(?:back|front|side)?\s*yard\b/,
@@ -1795,7 +1903,28 @@ export function parseScopeMeasurementsFromNotes(
 
   const floorAreaSqft = (() => {
     if (templateKey === 'bathroom' || projectType === 'bathroom') return null;
+    if (
+      /\b(?:sod|turf|pavers?|rock|mulch|shrubs?|landscap(?:e|ing))\b/i.test(
+        text
+      ) &&
+      !/\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b/i.test(text)
+    ) {
+      return null;
+    }
     const explicitHomeInterior = parseLabeledInteriorFloorAreaTotal(text);
+    const additionFloorArea = (() => {
+      const direct =
+        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\s+(?:room|home)?\s*addition\b/i.exec(
+          text
+        );
+      const reversed =
+        /\baddition\b[^.;\n]{0,30}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\b/i.exec(
+          text
+        );
+      const raw = direct?.[1] || reversed?.[1];
+      const value = raw ? Number(raw.replace(/,/g, '')) : null;
+      return Number.isFinite(value) && value > 0 ? value : null;
+    })();
     const mixedInteriorFlooringNote =
       (templateKey === 'room_remodel' || projectType === 'painting') &&
       !explicitHomeInterior &&
@@ -1809,6 +1938,7 @@ export function parseScopeMeasurementsFromNotes(
         /\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i,
       ].filter(pattern => pattern.test(text)).length >= 2;
     if (mixedInteriorFlooringNote) return null;
+    if (additionFloorArea) return additionFloorArea;
     if (explicitHomeInterior) return explicitHomeInterior;
     if (
       isGarageConversionJob(projectType, text) ||
@@ -2312,7 +2442,7 @@ export function parseScopeMeasurementsFromNotes(
   if (out.baseboardLf) out.lf = out.baseboardLf;
 
   const hvacSignal =
-    /\bhvac\b|\bmechanical\b|\bfurnace\b|\bair\s*(?:handler|condition(?:er|ing))\b|\bheat\s*pump\b|\bmini[\s-]?split\b|\bductwork\b|\bthermostat\b|\bventilation\b/i;
+    /\bhvac\b|\bmechanical\b|\bfurnace\b|\bair\s*(?:handler|condition(?:er|ing))\b|\bheat[\s-]*pump\b|\bmini[\s-]?split\b|\bductwork\b|\bthermostat\b|\bventilation\b/i;
   const hvacText = hvacSignal.test(text)
     ? text
     : clauses.filter(clause => hvacSignal.test(clause)).join(' ');
@@ -2321,7 +2451,7 @@ export function parseScopeMeasurementsFromNotes(
       firstHvacCount(hvacText, '(?:hvac\\s+)?systems?') ||
       firstHvacCount(
         hvacText,
-        '(?:furnaces?|air\\s*handlers?|heat\\s*pumps?|mini[\\s-]?splits?)'
+        '(?:furnaces?|air\\s*handlers?|heat[\\s-]*pumps?|mini[\\s-]?splits?)'
       );
     if (systemCount) out.hvacSystemCount = Math.round(systemCount);
     const tons = firstQty(hvacText, TON_RE);
@@ -2355,13 +2485,13 @@ export function parseScopeMeasurementsFromNotes(
       out.hvacServiceCallCount = Math.round(serviceCallCount);
     const replacementCount = firstHvacCount(
       hvacText,
-      '(?:equipment|furnace|air\\s*handler|condenser|heat\\s*pump)\\s+(?:replacement|replace(?:ment)?)'
+      '(?:equipment|furnace|air\\s*handler|condenser|heat[\\s-]*pump)\\s+(?:replacement|replace(?:ment)?)'
     );
     if (replacementCount) {
       out.hvacEquipmentReplacementCount = Math.round(replacementCount);
     } else if (
       /\b(?:replace|replacement)\b/i.test(hvacText) &&
-      /\b(?:equipment|furnace|air\s*handler|condenser|heat\s*pump)\b/i.test(
+      /\b(?:equipment|furnace|air\s*handler|condenser|heat[\s-]*pump)\b/i.test(
         hvacText
       )
     ) {

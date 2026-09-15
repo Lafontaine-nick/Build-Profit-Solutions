@@ -2352,6 +2352,15 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
         'Suggested budget split · National Average · legacy HVAC sqft',
     },
   },
+  hvac_demo: {
+    each: {
+      unit: 'each',
+      material: 250,
+      labor: 750,
+      sourceLabel:
+        'Suggested budget split · National Average · HVAC system removal before ductwork scaling',
+    },
+  },
   ductwork: {
     lf: {
       unit: 'lf',
@@ -6336,6 +6345,14 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     pricingBasisMeasurementKey: 'floorAreaSqft',
     quantityHelper: 'Price HVAC startup by floor sqft with material and labor.',
     missingMessage: 'Enter HVAC startup pricing.',
+  },
+  hvac_demo: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    defaultQuantity: 1,
+    quantityHelper:
+      'Remove and dispose of the existing HVAC system and ductwork.',
+    missingMessage: 'Enter HVAC demo/removal pricing.',
   },
   refrigerant: {
     defaultUnit: 'lb',
@@ -10484,12 +10501,12 @@ export function getChecklistItemQuantityRule(
   itemId: string,
   templateKey?: string | null
 ): ScopeItemQuantityRule | undefined {
-  const resolvedId =
-    itemId === 'shower_bench_curb'
-      ? 'shower_bench'
-      : itemId === 'exterior_trim'
-        ? 'exterior_trim_paint'
-        : itemId;
+  let resolvedId = itemId;
+  if (itemId === 'hvac_systems') resolvedId = 'hvac';
+  else if (itemId === 'registers') resolvedId = 'supply_registers';
+  else if (itemId === 'returns') resolvedId = 'return_grilles';
+  else if (itemId === 'shower_bench_curb') resolvedId = 'shower_bench';
+  else if (itemId === 'exterior_trim') resolvedId = 'exterior_trim_paint';
   let rule: ScopeItemQuantityRule | undefined;
   if (
     (templateKey === 'ground_up' ||
@@ -10533,7 +10550,10 @@ export function getChecklistItemQuantityRule(
     rule = CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
   }
   const hvacCard = hvacCardForItemId(resolvedId);
-  if (hvacCard && String(templateKey || '').toLowerCase() === 'hvac') {
+  // HVAC cards also appear inside mixed-scope remodels. Their units and
+  // measurement keys must use the HVAC rules even when the parent template is
+  // room_remodel, flooring, or another mixed-scope template.
+  if (hvacCard) {
     rule = {
       ...(rule || {}),
       defaultUnit: hvacCard.unit,
@@ -11443,11 +11463,20 @@ export function readStoredSqftPricingBasis(
  */
 export function shouldSuppressSuggestedPricingAfterApply(
   itemId: string,
-  _itemQuantities: Record<string, ScopeItemQuantityLike>,
+  itemQuantities: Record<string, ScopeItemQuantityLike>,
   pricingAcceptance?: Record<string, { selectionStatus?: string }>
 ): boolean {
-  void _itemQuantities;
-  return pricingAcceptance?.[itemId]?.selectionStatus === 'accepted';
+  if (pricingAcceptance?.[itemId]?.selectionStatus !== 'accepted') {
+    return false;
+  }
+  // An acceptance marker without persisted material/labor or allowance money
+  // is stale metadata, not an applied price. Keep the Suggest card visible so
+  // mixed-scope HVAC rows cannot appear priced-less while their quantity is
+  // still only sourced from notes.
+  return (
+    hasUserEnteredFlatAllowancePricing(itemQuantities, itemId) ||
+    hasUserEnteredMaterialLaborSplit(itemQuantities, itemId)
+  );
 }
 
 /** True when Edit only seeded Suggest values (user has not committed a price). */
@@ -15370,8 +15399,17 @@ export function resolveScopeItemSuggestedPricing(
   // Catalog-generated installation cards reuse the established pricing
   // definitions. Resolve through those canonical IDs so additive cards get
   // the same national-average pricing as the existing opening cards.
+  const hvacCanonicalPricingId =
+    itemId === 'hvac_systems'
+      ? 'hvac'
+      : itemId === 'registers'
+        ? 'supply_registers'
+        : itemId === 'returns'
+          ? 'return_grilles'
+          : null;
   const canonicalPricingId =
-    itemId === 'demo' &&
+    hvacCanonicalPricingId ||
+    (itemId === 'demo' &&
     String(templateKey || '').toLowerCase() === 'bathroom' &&
     resolved.unit === 'sqft'
       ? 'floor_demo'
@@ -15385,7 +15423,7 @@ export function resolveScopeItemSuggestedPricing(
               ? 'tub_demo'
               : itemId === 'shower_floor_demo' && resolved.unit === 'sqft'
                 ? 'floor_demo'
-                : itemId;
+                : itemId);
   if (canonicalPricingId !== itemId) {
     return resolveScopeItemSuggestedPricing(
       canonicalPricingId,
@@ -15397,6 +15435,49 @@ export function resolveScopeItemSuggestedPricing(
       originalNotes,
       options
     );
+  }
+  if (itemId === 'hvac_demo') {
+    const systemCount =
+      parseScopeMeasurementInput(
+        String(measurementsInput.hvacSystemCount ?? '')
+      ) ||
+      parseScopeMeasurementInput(
+        String(measurementsInput.itemQuantities?.hvac?.quantity ?? '')
+      ) ||
+      (Number(resolved.quantity) > 0 ? Number(resolved.quantity) : 1);
+    const ductworkLf =
+      parseScopeMeasurementInput(
+        String(measurementsInput.hvacDuctworkLf ?? '')
+      ) ||
+      parseScopeMeasurementInput(
+        String(measurementsInput.itemQuantities?.ductwork?.quantity ?? '')
+      ) ||
+      0;
+    const material = round2(systemCount * 250 + ductworkLf * 1.25);
+    const labor = round2(systemCount * 750 + ductworkLf * 8.75);
+    const ductBasis = ductworkLf > 0 ? ` + ${ductworkLf.toLocaleString()} LF ductwork removal` : '';
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel:
+          'Suggested budget split · National Average · HVAC system + ductwork removal',
+        helper: `${systemCount.toLocaleString()} existing HVAC system${systemCount === 1 ? '' : 's'}${ductBasis}`,
+        mode: 'suggested_price',
+        basis: { quantity: systemCount, unit: 'each' },
+        pricingDetail:
+          `System removal: $${round2(systemCount * 1000).toLocaleString()} · Ductwork removal: $${round2(ductworkLf * 10).toLocaleString()}`,
+        pricingRecordId: 'bps_national:hvac_demo:system_and_ductwork',
+        benchmarkLevel: 'component',
+        benchmarkScopeKey: 'hvac_demo',
+        benchmarkAction: 'price_ready',
+        productionStatus: 'review_required',
+      },
+      comparison: null,
+    };
   }
   if (itemId === 'insulation') {
     const parsedAssemblyRows = notesText
@@ -26696,10 +26777,20 @@ export function initialScopeMeasurementInputExtended(
         projectType: draft?.projectType ?? undefined,
       })
     : {};
+  const parsedInsulationAssemblies = scopeNotes
+    ? parseInsulationAssembliesFromNotes(scopeNotes).map((row, index) => ({
+        ...row,
+        id: `notes_insulation_${index + 1}`,
+        source: 'parsed_from_notes' as const,
+      }))
+    : [];
   // Fresh notes parse wins over stale suggestedMeasurements persisted on older drafts
   const parsed = {
     ...suggested,
     ...parsedFromNotes,
+    ...(parsedInsulationAssemblies.length
+      ? { insulationAssemblies: parsedInsulationAssemblies }
+      : {}),
     itemQuantities: {
       ...(suggested?.itemQuantities || {}),
       ...(parsedFromNotes.itemQuantities || {}),

@@ -94,17 +94,48 @@ describe("estimateDraftComplexity", () => {
         "pour_flatwork",
         "retaining_wall",
         "pavers",
-        "landscaping",
         "exterior_doors",
         "siding_repairs",
         "exterior_trim_paint",
       ]),
     );
+    expect(included.has("landscaping")).toBe(false);
     expect(included.get("pour_flatwork")).toBe("Concrete patio installation");
     expect(included.get("siding_repairs")).toBe("Siding repairs");
     expect(included.get("exterior_trim_paint")).toBe("Exterior trim paint");
     expect(included.has("paint")).toBe(false);
     expect(included.has("trim")).toBe(false);
+  });
+
+  test("keeps every explicit mixed landscape scope row, including unmeasured work", () => {
+    const notes =
+      "Remove existing landscaping, pavers, and concrete as needed, then install 1,000 sqft sod, 400 sqft pavers, 12 shrubs, 30 tons decorative rock, irrigation adjustments, edging, a retaining wall, a 500 sqft concrete patio, and two exterior doors.";
+    const checklist = buildScopeChecklist(
+      { projectType: "other", originalNotes: notes, rooms: [] },
+      "room_remodel",
+      notes,
+    );
+    const byId = new Map(checklist.items.map(item => [item.id, item]));
+
+    expect(checklist.templateKey).toBe("concrete");
+    expect([...byId.keys()]).toEqual(
+      expect.arrayContaining([
+        "pour_flatwork",
+        "sod_turf",
+        "pavers",
+        "plants",
+        "rock",
+        "irrigation",
+        "concrete_edging",
+        "retaining_wall",
+        "exterior_doors",
+      ]),
+    );
+    expect(byId.get("plants")?.state).toBe("included");
+    expect(byId.get("irrigation")?.state).toBe("included");
+    expect(byId.get("concrete_edging")?.state).toBe("included");
+    expect(byId.has("landscaping")).toBe(false);
+    expect(byId.has("concrete")).toBe(false);
   });
 
   test("keeps cross-trade roof repairs distinct from wall demolition and deck install", () => {
@@ -536,6 +567,51 @@ describe("estimateDraftComplexity", () => {
     expect(checklist.templateKey).toBe("addition");
     expect(checklist.title.toLowerCase()).toContain("addition");
     expect(checklist.items.some((i) => i.id === "roof_tie_in")).toBe(true);
+  });
+
+  test("keeps a built addition note on canonical phases without alias duplicates", () => {
+    const notes =
+      "Clear and demolish the existing area as needed, then build a 700 sqft addition with foundation, framing, roofing, six windows, exterior doors, R-21 wall insulation, R-38 attic insulation, air sealing, drywall, flooring, cabinets, plumbing, electrical, trim, and paint.";
+    const draft = { projectType: "other", rooms: [] };
+
+    expect(classifyEstimateTier(draft, notes)).toBe("addition");
+    const checklist = buildScopeChecklist(draft, "addition", notes);
+    const ids = checklist.items.map((item) => item.id);
+    const included = new Set(
+      checklist.items
+        .filter((item) => item.state === "included")
+        .map((item) => item.id),
+    );
+
+    expect(ids).toEqual(expect.arrayContaining([
+      "sitework",
+      "foundation",
+      "framing",
+      "roof_tie_in",
+      "windows_doors",
+      "insulation",
+      "air_sealing",
+      "drywall",
+      "flooring",
+      "cabinets_counters",
+      "plumbing_rough",
+      "electrical_rough",
+      "interior_trim",
+      "paint",
+    ]));
+    expect(included).not.toEqual(expect.arrayContaining(["concrete", "demo_clearing"]));
+    expect(ids).not.toEqual(
+      expect.arrayContaining([
+        "trim",
+        "cabinets",
+        "plumbing",
+        "electrical",
+        "exterior_doors",
+        "roofing",
+        "trim_paint",
+        "exterior_trim_paint",
+      ]),
+    );
   });
 
   test("classifies notes-only ground-up language as ground_up tier", () => {

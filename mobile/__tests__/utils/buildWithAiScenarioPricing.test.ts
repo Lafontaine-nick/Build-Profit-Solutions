@@ -170,6 +170,63 @@ describe('Build with AI scenario pricing', () => {
     });
   });
 
+  it('prices HVAC component cards inside a mixed remodel', () => {
+    const input = inputWith({
+      hvacDuctworkLf: '120',
+      hvacSupplyRegisterCount: '4',
+      hvacThermostatCount: '1',
+      itemQuantities: {
+        ductwork: { quantity: 120, unit: 'lf', quantitySource: 'notes' },
+        supply_registers: { quantity: 4, unit: 'each', quantitySource: 'notes' },
+        thermostat: { quantity: 1, unit: 'each', quantitySource: 'notes' },
+      },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input, {
+      templateKey: 'room_remodel',
+    });
+
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'ductwork',
+        measurements,
+        'room_remodel',
+        resolveChecklistItemQuantity('ductwork', measurements, {
+          templateKey: 'room_remodel',
+        })
+      ).fill
+    ).toMatchObject({ total: 1560, basis: { quantity: 120, unit: 'lf' } });
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'supply_registers',
+        measurements,
+        'room_remodel',
+        resolveChecklistItemQuantity('supply_registers', measurements, {
+          templateKey: 'room_remodel',
+        })
+      ).fill
+    ).toMatchObject({ total: 600, basis: { quantity: 4, unit: 'each' } });
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'thermostat',
+        measurements,
+        'room_remodel',
+        resolveChecklistItemQuantity('thermostat', measurements, {
+          templateKey: 'room_remodel',
+        })
+      ).fill
+    ).toMatchObject({ total: 400, basis: { quantity: 1, unit: 'each' } });
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'hvac_demo',
+        measurements,
+        'room_remodel',
+        resolveChecklistItemQuantity('hvac_demo', measurements, {
+          templateKey: 'room_remodel',
+        })
+      ).fill
+    ).toMatchObject({ total: 2200, basis: { quantity: 1, unit: 'each' } });
+  });
+
   describe('notes-priced lump sums', () => {
     it('splits a $5,000 flooring note total using national material/labor ratio', () => {
       const input = inputWith({ floorAreaSqft: '1000' });

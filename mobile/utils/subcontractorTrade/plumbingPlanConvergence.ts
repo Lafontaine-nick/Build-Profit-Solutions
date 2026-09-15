@@ -27,14 +27,10 @@ export type PlumbingQuantityKey =
   | 'plumbingCleanupCount';
 
 export type PlumbingWorkflowMode =
-  | 'bathroom_remodel'
-  | 'new_construction'
-  | 'service';
+  'bathroom_remodel' | 'new_construction' | 'service';
 
 export type PlumbingPerformerMode =
-  | 'self_performed'
-  | 'subcontracted'
-  | 'existing_quote';
+  'self_performed' | 'subcontracted' | 'existing_quote';
 
 export type PlumbingRoomContext = 'bathroom' | 'kitchen' | 'whole_house' | null;
 
@@ -48,12 +44,7 @@ export type NotesScopeMode =
   | 'plumbing_kitchen';
 
 export type PlumbingCardGroupId =
-  | 'service'
-  | 'fixtures'
-  | 'equipment'
-  | 'lines'
-  | 'rough_trim'
-  | 'closeout';
+  'service' | 'fixtures' | 'equipment' | 'lines' | 'rough_trim' | 'closeout';
 
 export type PlumbingCardDefinition = {
   itemId: string;
@@ -363,16 +354,18 @@ export function stripNonPlumbingTradeBleedFromMeasurements<
     next.tradeScopeSelections &&
     typeof next.tradeScopeSelections === 'object'
   ) {
-    const { roofing: _roofing, ...rest } =
-      next.tradeScopeSelections as Record<string, unknown>;
+    const { roofing: _roofing, ...rest } = next.tradeScopeSelections as Record<
+      string,
+      unknown
+    >;
     next.tradeScopeSelections = rest;
   }
   return next as T;
 }
 
-export function filterChecklistItemsToPlumbingScope<
-  T extends { id: string },
->(items: T[]): T[] {
+export function filterChecklistItemsToPlumbingScope<T extends { id: string }>(
+  items: T[]
+): T[] {
   const allowed = new Set(PLUMBING_ITEM_IDS);
   return items.filter(
     item =>
@@ -620,7 +613,9 @@ function parseSqftFromNotes(text: string): number | null {
 
 function parseStoryCountFromNotes(text: string): number | null {
   const matches = [
-    ...text.matchAll(/\b(\d+|one|two|three|four|five)\s*[- ]?stor(?:y|ies)\b/gi),
+    ...text.matchAll(
+      /\b(\d+|one|two|three|four|five)\s*[- ]?stor(?:y|ies)\b/gi
+    ),
   ];
   if (!matches.length) return null;
   const words: Record<string, number> = {
@@ -671,6 +666,8 @@ const PLUMBING_NOTE_MEASUREMENT_KEYS: PlumbingQuantityKey[] = [
   'fixtureRepairCount',
   'fixtureReplacementCount',
   'drainCleaningCount',
+  'partsMaterialsCount',
+  'plumbingCleanupCount',
 ];
 
 /** Service/repair notes — only these quantities may promote scope cards. */
@@ -702,7 +699,7 @@ export function tagPlumbingNotesMeasurementSources(
 }
 
 const PLUMBING_NOTE_EXCLUSION_CLAUSE =
-  /\b(?:not\s+included|excluded|(?:no|without)\s+(?:[\w-]+\s+){0,5}(?:scope|work|bid|rough(?:-in| in)?|repipe|trim|hookups?|water\s+heaters?))\b/i;
+  /\b(?:not\s+included|exclude(?:d|s)?|(?:no|without)\s+(?:[\w-]+\s+){0,5}(?:scope|work|bid|rough(?:-in| in)?|repipe|trim|hookups?|water\s+heaters?))\b/i;
 
 /** True when notes explicitly exclude a scope phrase on the same line or nearby. */
 export function notesExcludePlumbingScopePhrase(
@@ -752,8 +749,12 @@ export function standalonePlumbingProjectTitle(
   roomContext?: PlumbingRoomContext | null
 ): string {
   const text = String(notes || '').trim();
-  if (inferPlumbingWorkflowModeFromNotes(text) === 'service') {
+  const workflowMode = inferPlumbingWorkflowModeFromNotes(text);
+  if (workflowMode === 'service') {
     return 'Plumbing service call';
+  }
+  if (workflowMode === 'new_construction') {
+    return 'Whole-house plumbing';
   }
   const room = roomContext ?? inferPlumbingRoomContextFromNotes(text);
   if (/\bmaster\s+bath\b/i.test(text)) return 'Master bath plumbing';
@@ -804,6 +805,7 @@ export function parsePlumbingMeasurementsFromNotes(
         'i'
       )
     ) ??
+      countDirectFixtureReplacementOperations(text) ??
       (/\b(?:plumbing\s+)?fixture (?:replacement|install(?:ation)?)\b/i.test(
         text
       )
@@ -821,22 +823,18 @@ export function parsePlumbingMeasurementsFromNotes(
     parseLength(text, '(?:sewer|drain|waste)\\s+lines?') ??
       parseLength(text, 'drain\\s+line')
   );
-  assign(
-    'gasLineLf',
-    parseLength(text, 'gas\\s+(?:line|piping|pipes?)')
-  );
+  assign('gasLineLf', parseLength(text, 'gas\\s+(?:line|piping|pipes?)'));
   const roughInPhrase = /\brough(?:-in| in)\b/i;
   assign(
     'plumbingRoughPointCount',
     notesExcludePlumbingScopePhrase(text, roughInPhrase)
       ? null
-      : count(
+      : (count(
           new RegExp(
             `${COUNT_TOKEN}\\s+(?:plumbing\\s+)?rough(?:-in| in)\\s+points?`,
             'i'
           )
-        ) ??
-          (/\b(?:plumbing\s+)?rough(?:-in| in)\b/i.test(text) ? 1 : null)
+        ) ?? (/\b(?:plumbing\s+)?rough(?:-in| in)\b/i.test(text) ? 1 : null))
   );
   assign(
     'plumbingTrimHookupCount',
@@ -846,7 +844,9 @@ export function parsePlumbingMeasurementsFromNotes(
         'i'
       )
     ) ??
-      (/\b(?:plumbing\s+trim|trim\s+hookups?|fixture\s+hookups?|plumbing\s+connections?)\b/i.test(text)
+      (/\b(?:plumbing\s+trim|trim\s+hookups?|fixture\s+hookups?|plumbing\s+connections?)\b/i.test(
+        text
+      )
         ? 1
         : null)
   );
@@ -865,14 +865,19 @@ export function parsePlumbingMeasurementsFromNotes(
   );
   assign(
     'plumbingCleanupCount',
-    /\bplumbing\s+cleanup\b/i.test(text) ? 1 : null
+    /\bplumbing\s+cleanup\b|\b(?:dispose|disposed|disposal)\b[^.;\n]{0,60}\b(?:plumbing\s+)?parts?\b/i.test(
+      text
+    )
+      ? 1
+      : null
   );
   const waterHeaterPhrase = /\b(?:water\s+)?heater(?:\s+tie[\s-]?in)?\b/i;
-  const gasAppliancePhrase = /\bgas\s+appliance(?:\s+(?:hookups?|connections?))?\b/i;
+  const gasAppliancePhrase =
+    /\bgas\s+appliance(?:\s+(?:hookups?|connections?))?\b/i;
   assign(
     'plumbingFixturesHardwareCount',
     notesExplicitPlumbingFixtureAllowance(text)
-      ? count(
+      ? (count(
           new RegExp(
             `${COUNT_TOKEN}\\s+(?:plumbing\\s+)?fixtures?(?:\\s*&\\s*hardware)?`,
             'i'
@@ -880,27 +885,26 @@ export function parsePlumbingMeasurementsFromNotes(
         ) ??
           (/\b(?:plumbing\s+)?fixtures?\s*(?:&|and)\s*hardware\b/i.test(text)
             ? 1
-            : null)
+            : null))
       : null
   );
   assign(
     'waterHeaterCount',
     notesExcludePlumbingScopePhrase(text, waterHeaterPhrase)
       ? null
-      : count(new RegExp(`${COUNT_TOKEN}\\s+(?:water\\s+)?heaters?`, 'i')) ??
-          (waterHeaterPhrase.test(text) ? 1 : null)
+      : (count(new RegExp(`${COUNT_TOKEN}\\s+(?:water\\s+)?heaters?`, 'i')) ??
+          (waterHeaterPhrase.test(text) ? 1 : null))
   );
   assign(
     'gasApplianceConnectionCount',
     notesExcludePlumbingScopePhrase(text, gasAppliancePhrase)
       ? null
-      : count(
+      : (count(
           new RegExp(
             `${COUNT_TOKEN}\\s+(?:gas\\s+)?appliance\\s+(?:hookups?|connections?)`,
             'i'
           )
-        ) ??
-          (gasAppliancePhrase.test(text) ? 1 : null)
+        ) ?? (gasAppliancePhrase.test(text) ? 1 : null))
   );
   return out;
 }
@@ -920,13 +924,14 @@ export function restrictPlumbingMeasurementsForServiceMode(
 }
 
 /** Short reveal bullets from explicit plumbing note quantities. */
-export function summarizePlumbingNoteBullets(
-  notes: string,
-  max = 4
-): string[] {
+export function summarizePlumbingNoteBullets(notes: string, max = 4): string[] {
   const parsed = parsePlumbingMeasurementsFromNotes(notes);
   const bullets: string[] = [];
-  const pushCount = (value: number | undefined, singular: string, plural?: string) => {
+  const pushCount = (
+    value: number | undefined,
+    singular: string,
+    plural?: string
+  ) => {
     if (!value || value <= 0) return;
     const label = value === 1 ? singular : plural || `${singular}s`;
     bullets.push(`${value} ${label}`);
@@ -939,7 +944,11 @@ export function summarizePlumbingNoteBullets(
   pushCount(parsed.serviceCallCount, 'service call', 'service calls');
   pushCount(parsed.fixtureRepairCount, 'fixture repair', 'fixture repairs');
   pushCount(parsed.drainCleaningCount, 'drain cleaning', 'drain cleanings');
-  pushCount(parsed.plumbingRoughPointCount, 'rough-in point', 'rough-in points');
+  pushCount(
+    parsed.plumbingRoughPointCount,
+    'rough-in point',
+    'rough-in points'
+  );
   pushCount(parsed.plumbingTrimHookupCount, 'trim hookup', 'trim hookups');
   pushLf(parsed.waterLineLf, 'water line');
   pushLf(parsed.sewerLineLf, 'sewer line');
@@ -984,10 +993,18 @@ export function notesDescribeGeneralContractorProject(notes: string): boolean {
       text
     );
 
-  if (/\b(?:bath(?:room)?|kitchen|home|house|whole[\s-]?(?:house|home)|gut)\s+remodel\b/.test(text)) {
+  if (
+    /\b(?:bath(?:room)?|kitchen|home|house|whole[\s-]?(?:house|home)|gut)\s+remodel\b/.test(
+      text
+    )
+  ) {
     return true;
   }
-  if (/\bremodel(?:ing)?\s+(?:the\s+)?(?:bath(?:room)?|kitchen|home|house)\b/.test(text)) {
+  if (
+    /\bremodel(?:ing)?\s+(?:the\s+)?(?:bath(?:room)?|kitchen|home|house)\b/.test(
+      text
+    )
+  ) {
     return true;
   }
   if (additionContext) return true;
@@ -1017,16 +1034,61 @@ const STRONG_PLUMBING_PARSE_KEYS = new Set<PlumbingQuantityKey>([
   'plumbingFixturesHardwareCount',
 ]);
 
+const DIRECT_FIXTURE_REPLACEMENT_TARGET =
+  /\b(?:faucets?|angle\s+stops?|braided\s+supply\s+lines?|supply\s+lines?|p[\s-]?traps?|toilet(?:\s+fill)?\s+valves?|flappers?|plumbing\s+fixtures?)\b/i;
+
+function countDirectFixtureReplacementOperations(text: string): number | null {
+  const operations = text.match(
+    /\b(?:replace|replaced|replacement)\b[^.;\n]*/gi
+  );
+  const count =
+    operations?.filter(operation =>
+      DIRECT_FIXTURE_REPLACEMENT_TARGET.test(operation)
+    ).length || 0;
+  return count > 0 ? count : null;
+}
+
 /** Strong whole-house / trade-plumbing signals that should not be treated as a room remodel. */
 export function notesSuggestStandalonePlumbingTrade(notes: string): boolean {
   const text = String(notes || '').trim();
   if (!text) return false;
+  const directFixtureServiceWork =
+    /\b(?:replace|replaced|repair|repairing|service|test|tested|dispose|disposed)\b[^.;\n]{0,70}\b(?:faucets?|angle\s+stops?|braided\s+supply\s+lines?|supply\s+lines?|p[\s-]?traps?|toilet\s+(?:fill\s+)?valves?|flappers?|drain(?:age)?|fixtures?)\b/i.test(
+      text
+    ) ||
+    /\b(?:faucets?|angle\s+stops?|braided\s+supply\s+lines?|supply\s+lines?|p[\s-]?traps?|toilet\s+(?:fill\s+)?valves?|flappers?)\b[^.;\n]{0,70}\b(?:replace|replaced|repair|repairing|service|test|tested|dispose|disposed)\b/i.test(
+      text
+    );
+  const explicitGeneralProjectContext =
+    /\b(?:remodel(?:ing)?|renovat(?:e|ed|ion)|addition|new\s+(?:build|construction)|gut|whole[\s-]?(?:house|home))\b/i.test(
+      text
+    );
+  if (directFixtureServiceWork && !explicitGeneralProjectContext) return true;
   const parsed = parsePlumbingMeasurementsFromNotes(text);
   if (
-    Object.keys(parsed).some((key) =>
+    Object.keys(parsed).some(key =>
       STRONG_PLUMBING_PARSE_KEYS.has(key as PlumbingQuantityKey)
     )
   ) {
+    const hasPhysicalPlumbingScope = Object.keys(parsed).some(key =>
+      [
+        'plumbingRoughPointCount',
+        'plumbingTrimHookupCount',
+        'waterLineLf',
+        'sewerLineLf',
+        'gasLineLf',
+        'waterHeaterCount',
+        'gasApplianceConnectionCount',
+        'plumbingFixturesHardwareCount',
+      ].includes(key)
+    );
+    if (
+      explicitGeneralProjectContext &&
+      !hasPhysicalPlumbingScope &&
+      !/\bwhole[\s-]?house\s+plumbing\b/i.test(text)
+    ) {
+      return false;
+    }
     return true;
   }
   return /\b(?:whole[\s-]?house|house)\s+plumbing\b|\bplumbing\s+(?:rough|trim|bid|scope)\b|\b(?:water|sewer|gas)\s+(?:line|piping|pipe)\b|\brough[\s-]?in\s+points?\b|\btrim\s+hookups?\b/i.test(
@@ -1048,15 +1110,15 @@ export function inferPlumbingWorkflowModeFromNotes(
   notes: string
 ): PlumbingWorkflowMode {
   const text = String(notes || '').toLowerCase();
+  if (/\bnew\s+(?:build|construction|home)\b|\bground[\s-]?up\b/.test(text)) {
+    return 'new_construction';
+  }
   if (
     /\b(?:service\s+call|drain\s+clean|fixture\s+repair|clog|leak\s+repair)\b/.test(
       text
     )
   ) {
     return 'service';
-  }
-  if (/\bnew\s+(?:build|construction|home)\b|\bground[\s-]?up\b/.test(text)) {
-    return 'new_construction';
   }
   return 'bathroom_remodel';
 }
@@ -1065,7 +1127,10 @@ export function inferPlumbingRoomContextFromNotes(
   notes: string
 ): PlumbingRoomContext {
   const text = String(notes || '').toLowerCase();
-  if (/\b(?:whole[\s-]?house|house)\s+plumbing\b/.test(text)) {
+  if (
+    inferPlumbingWorkflowModeFromNotes(text) === 'new_construction' ||
+    /\b(?:whole[\s-]?house|house)\s+plumbing\b/.test(text)
+  ) {
     return 'whole_house';
   }
   if (/\bkitchen\b/.test(text)) return 'kitchen';
@@ -1099,10 +1164,10 @@ export function resolveNotesScopeModeFromPlumbingState(params: {
     return 'whole_project';
   }
   if (params.notes) {
-    const room = inferPlumbingRoomContextFromNotes(params.notes);
     const wf = inferPlumbingWorkflowModeFromNotes(params.notes);
-    if (wf === 'service') return 'plumbing_service';
     if (wf === 'new_construction') return 'plumbing_new_construction';
+    if (wf === 'service') return 'plumbing_service';
+    const room = inferPlumbingRoomContextFromNotes(params.notes);
     if (room === 'bathroom') return 'plumbing_bathroom';
     if (room === 'kitchen') return 'plumbing_kitchen';
   }
@@ -1186,6 +1251,69 @@ export function plumbingQuickMeasurementKeysForIncludedScope(
     if (key) keys.add(key);
   }
   return keys;
+}
+
+/**
+ * Resolve explicitly mentioned plumbing work even when the notes omit a
+ * numeric takeoff. These cards remain included so Scope found can flag the
+ * missing quantity instead of silently dropping the work.
+ */
+export function plumbingNoteScopeItemIds(notes: string): Set<string> {
+  const text = String(notes || '').trim();
+  const ids = new Set<string>();
+  if (!text) return ids;
+  const addUnlessExcluded = (id: string, phrase: RegExp) => {
+    if (!notesExcludePlumbingScopePhrase(text, phrase)) ids.add(id);
+  };
+
+  if (/\brough(?:-in| in)\b/i.test(text)) {
+    addUnlessExcluded('plumbing_rough', /\brough(?:-in| in)\b/i);
+  }
+  if (/\btrim\b|\bfixture\s+hookups?\b|\bplumbing\s+connections?\b/i.test(text)) {
+    addUnlessExcluded(
+      'plumbing_trim',
+      /\btrim\b|\bfixture\s+hookups?\b|\bplumbing\s+connections?\b/i
+    );
+  }
+  if (
+    /\b(?:water|domestic\s+(?:hot\s+and\s+cold|hot|cold)|supply|hose[\s-]?bib)\s+(?:service|supply\s+)?lines?\b|\bunder[\s-]?slab\s+water\b/i.test(
+      text
+    )
+  ) {
+    addUnlessExcluded(
+      'water_line',
+      /\b(?:water|domestic\s+(?:hot\s+and\s+cold|hot|cold)|supply|hose[\s-]?bib)\s+(?:service|supply\s+)?lines?\b|\bunder[\s-]?slab\s+water\b/i
+    );
+  }
+  if (
+    /\b(?:DWV|sewer|drain|waste|building[-\s]?drain)\s+(?:piping|lines?|system)\b|\b(?:underground|under[\s-]?slab)\s+DWV\b/i.test(
+      text
+    )
+  ) {
+    addUnlessExcluded(
+      'sewer_line',
+      /\b(?:DWV|sewer|drain|waste|building[-\s]?drain)\s+(?:piping|lines?|system)\b|\b(?:underground|under[\s-]?slab)\s+DWV\b/i
+    );
+  }
+  if (/\bgas\s+(?:line|piping|stub|stubs?)\b/i.test(text)) {
+    addUnlessExcluded('gas_line', /\bgas\s+(?:line|piping|stub|stubs?)\b/i);
+  }
+  if (/\b(?:water\s+)?heater(?:\s+tie[\s-]?in)?\b/i.test(text)) {
+    addUnlessExcluded(
+      'water_heater',
+      /\b(?:water\s+)?heater(?:\s+tie[\s-]?in)?\b/i
+    );
+  }
+  if (/\bgas\s+appliance(?:\s+(?:hookups?|connections?))?\b/i.test(text)) {
+    addUnlessExcluded(
+      'gas_appliance_connections',
+      /\bgas\s+appliance(?:\s+(?:hookups?|connections?))?\b/i
+    );
+  }
+  if (notesExplicitPlumbingFixtureAllowance(text)) {
+    ids.add('plumbing_fixtures_hardware');
+  }
+  return ids;
 }
 
 /** Map Scope found "Pricing for …" copy back to a plumbing checklist item id. */
@@ -1283,14 +1411,13 @@ export function hasDetailedPlumbingRoughQuantities(
 ): boolean {
   return Boolean(
     input &&
-      (positiveNumber(input.plumbingRoughPointCount) != null ||
-        positiveNumber(
-          (
-            input.itemQuantities as
-              | Record<string, { quantity?: unknown }>
-              | undefined
-          )?.plumbing_rough?.quantity
-        ) != null)
+    (positiveNumber(input.plumbingRoughPointCount) != null ||
+      positiveNumber(
+        (
+          input.itemQuantities as
+            Record<string, { quantity?: unknown }> | undefined
+        )?.plumbing_rough?.quantity
+      ) != null)
   );
 }
 
@@ -1299,14 +1426,13 @@ export function hasDetailedPlumbingTrimQuantities(
 ): boolean {
   return Boolean(
     input &&
-      (positiveNumber(input.plumbingTrimHookupCount) != null ||
-        positiveNumber(
-          (
-            input.itemQuantities as
-              | Record<string, { quantity?: unknown }>
-              | undefined
-          )?.plumbing_trim?.quantity
-        ) != null)
+    (positiveNumber(input.plumbingTrimHookupCount) != null ||
+      positiveNumber(
+        (
+          input.itemQuantities as
+            Record<string, { quantity?: unknown }> | undefined
+        )?.plumbing_trim?.quantity
+      ) != null)
   );
 }
 
@@ -1401,6 +1527,8 @@ export function applyStandalonePlumbingChecklistDefaults<
   const notes = String(params.notes || '').trim();
   const mode = params.mode ?? 'bathroom_remodel';
   const parsed = notes ? parsePlumbingMeasurementsFromNotes(notes) : {};
+  const noteScope =
+    mode === 'service' ? new Set<string>() : plumbingNoteScopeItemIds(notes);
   const customerSuppliesFixtures =
     notes.length > 0 && notesCustomerSuppliesPlumbingFixtures(notes);
 
@@ -1437,6 +1565,7 @@ export function applyStandalonePlumbingChecklistDefaults<
 
     const qty = quantityFor(item.id);
     if (qty != null && qty > 0) return withState(item, 'included', true);
+    if (noteScope.has(item.id)) return withState(item, 'included', true);
 
     if (item.id === 'plumbing_fixtures_hardware') {
       if (customerSuppliesFixtures) return withState(item, 'excluded');
@@ -1457,7 +1586,9 @@ export function applyStandalonePlumbingChecklistDefaults<
       return withState(item, 'excluded');
     }
 
-    if (['lines', 'equipment', 'rough_trim', 'fixtures'].includes(card.groupId)) {
+    if (
+      ['lines', 'equipment', 'rough_trim', 'fixtures'].includes(card.groupId)
+    ) {
       return withState(item, 'excluded');
     }
 
@@ -1571,15 +1702,16 @@ export function plumbingScopeSyncSignature(
 ): string {
   const itemQuantities =
     (measurements.itemQuantities as
-      | Record<string, { quantity?: unknown }>
-      | undefined) || {};
+      Record<string, { quantity?: unknown }> | undefined) || {};
   return [
     ...PLUMBING_CARDS.map(card => {
-      const qm = String(measurements[card.measurementKey] ?? '').replace(/,/g, '');
-      const takeoff = String(itemQuantities[card.itemId]?.quantity ?? '').replace(
+      const qm = String(measurements[card.measurementKey] ?? '').replace(
         /,/g,
         ''
       );
+      const takeoff = String(
+        itemQuantities[card.itemId]?.quantity ?? ''
+      ).replace(/,/g, '');
       return `${card.measurementKey}:${qm}:${takeoff}`;
     }),
     `floorAreaSqft:${String(measurements.floorAreaSqft ?? '').replace(/,/g, '')}`,

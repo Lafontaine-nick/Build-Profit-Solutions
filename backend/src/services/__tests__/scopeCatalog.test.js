@@ -9,6 +9,11 @@ const {
 const {
   getRuleForChecklistItem,
 } = require("../scopeItemQuantityCatalog");
+const { getPricingRange } = require("../pricingEngine/pricingRangeCatalog");
+const { classifyTradeForPricing } = require("../pricingEngine/tradeClassifier");
+const {
+  resolveScopePricingRule,
+} = require("../pricingEngine/scopePricingMatrix");
 
 describe("scope catalog adapter", () => {
   test("uses stable scope IDs and existing quantity rules", () => {
@@ -99,5 +104,79 @@ describe("scope catalog adapter", () => {
     expect(matches.map(entry => entry.scopeId)).toEqual(
       expect.arrayContaining(["shingles_roofing", "pour_flatwork"]),
     );
+  });
+
+  test("has quantity and planning-price coverage for landscaping checklist items", () => {
+    const landscapeRules = {
+      demo_clearing: "sqft",
+      grading: "sqft",
+      soil_prep: "sqft",
+      irrigation: "each",
+      sod_turf: "sqft",
+      artificial_turf: "sqft",
+      rock: "sqft",
+      mulch: "sqft",
+      plants: "each",
+      trees: "each",
+      landscape_boulders: "each",
+      pavers: "sqft",
+      concrete_edging: "lf",
+      retaining_wall: "lf",
+      drainage: "lf",
+      landscape_lighting: "each",
+    };
+
+    for (const [scopeId, unit] of Object.entries(landscapeRules)) {
+      expect(getRuleForChecklistItem(scopeId)).toMatchObject({
+        defaultUnit: unit,
+        pricingMethod: expect.any(String),
+      });
+    }
+
+    const pricingCategories = [
+      "landscape_clearing",
+      "landscape_grading",
+      "landscape_soil_prep",
+      "landscape_irrigation",
+      "landscape_sod",
+      "landscape_artificial_turf",
+      "landscape_rock",
+      "landscape_mulch",
+      "landscape_plants",
+      "landscape_trees",
+      "landscape_boulders",
+      "landscape_pavers",
+      "landscape_edging",
+      "landscape_retaining_wall",
+      "landscape_drainage",
+      "landscape_lighting",
+    ];
+    for (const category of pricingCategories) {
+      expect(getPricingRange(category)).toMatchObject({
+        pricingCategory: category,
+        material: expect.any(Object),
+        labor: expect.any(Object),
+      });
+    }
+
+    expect(classifyTradeForPricing("Sod", "Install 1,000 sqft")).toBe(
+      "landscape_sod",
+    );
+    expect(classifyTradeForPricing("Irrigation", "4 zones")).toBe(
+      "landscape_irrigation",
+    );
+    expect(classifyTradeForPricing("Landscape lighting", "6 lights")).toBe(
+      "landscape_lighting",
+    );
+    expect(
+      resolveScopePricingRule({
+        scopeName: "Landscape lighting",
+        scope: "6 lights",
+        unit: "each",
+      }),
+    ).toMatchObject({
+      tradeCategory: "landscape_lighting",
+      pricingMethod: "each",
+    });
   });
 });

@@ -10,6 +10,102 @@ describe("scope fact extraction", () => {
     "prep and paint everything. Replace 2 windows and paint the new trim. " +
     "Patch drywall around them.";
 
+  test("splits mixed landscaping into specific priced cards", () => {
+    const mixedNotes =
+      "Remove existing landscaping, pavers, and concrete as needed, then install 1,000 sqft sod, 400 sqft pavers, 12 shrubs, 30 tons decorative rock, irrigation adjustments, edging, a retaining wall, a 500 sqft concrete patio, and two exterior doors.";
+    const parsed = parseScopeMeasurementsFromNotes(mixedNotes, {
+      templateKey: "concrete",
+      projectType: "other",
+    });
+    const { facts } = extractScopeFactsFromNotes(mixedNotes, {
+      templateKey: "concrete",
+      projectType: "other",
+      parsedMeasurements: parsed,
+    });
+    const resolved = resolveScopeFactsToCatalog(facts, {
+      templateKey: "concrete",
+    });
+
+    expect(resolved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scopeId: "sod_turf",
+          quantity: 1000,
+          unit: "sqft",
+        }),
+        expect.objectContaining({
+          scopeId: "pavers",
+          quantity: 400,
+          unit: "sqft",
+        }),
+        expect.objectContaining({
+          scopeId: "plants",
+          quantity: 12,
+          unit: "each",
+        }),
+        expect.objectContaining({
+          scopeId: "rock",
+          quantity: 30,
+          unit: "ton",
+        }),
+        expect.objectContaining({ scopeId: "concrete_edging" }),
+        expect.objectContaining({
+          scopeId: "exterior_doors",
+          quantity: 2,
+          unit: "each",
+        }),
+      ]),
+    );
+    expect(resolved.map(fact => fact.scopeId)).not.toContain("landscaping");
+  });
+
+  test("maps additional landscaping work to quantity-backed pricing cards", () => {
+    const notes =
+      "Clear 1,200 sqft of brush, grade 1,500 sqft, soil prep 900 sqft, install 180 LF drainage, 6 irrigation zones, and 8 landscape lights.";
+    const { facts } = extractScopeFactsFromNotes(notes, {
+      templateKey: "landscaping",
+      projectType: "landscaping",
+    });
+    const resolved = resolveScopeFactsToCatalog(facts, {
+      templateKey: "landscaping",
+    });
+
+    expect(resolved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scopeId: "demo_clearing",
+          quantity: 1200,
+          unit: "sqft",
+        }),
+        expect.objectContaining({
+          scopeId: "grading",
+          quantity: 1500,
+          unit: "sqft",
+        }),
+        expect.objectContaining({
+          scopeId: "soil_prep",
+          quantity: 900,
+          unit: "sqft",
+        }),
+        expect.objectContaining({
+          scopeId: "drainage",
+          quantity: 180,
+          unit: "lf",
+        }),
+        expect.objectContaining({
+          scopeId: "irrigation",
+          quantity: 6,
+          unit: "each",
+        }),
+        expect.objectContaining({
+          scopeId: "landscape_lighting",
+          quantity: 8,
+          unit: "each",
+        }),
+      ]),
+    );
+  });
+
   test("extracts independent action/object facts and quantities", () => {
     const { facts } = extractScopeFactsFromNotes(notes, {
       templateKey: "painting",

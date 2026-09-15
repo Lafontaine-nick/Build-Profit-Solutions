@@ -685,7 +685,36 @@ export function inferHvacScopeSelectionsFromMeasurements(
 export function inferHvacScopeSelectionsFromNotes(
   notes: string | null | undefined
 ): string[] {
-  return notesImplyMiniSplitHvac(notes) ? ['mini_split'] : [];
+  const text = String(notes || '');
+  const inferred: string[] = [];
+  const miniSplitMentioned = /\bmini[\s-]?split\b/i.test(text);
+  if (miniSplitMentioned) inferred.push('mini_split');
+  if (
+    !miniSplitMentioned &&
+    /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?)\b/i.test(
+      text
+    )
+  ) {
+    inferred.push(HVAC_SYSTEMS_OPTION_ID);
+  }
+  if (/\bheat[\s-]*pump\b/i.test(text)) inferred.push('heat_pump');
+  if (/\bfurnace\b/i.test(text)) inferred.push('furnace');
+  if (/\bcondenser\b|\bair\s*condition(?:er|ing)\b/i.test(text)) {
+    inferred.push('condenser');
+  }
+  if (/\bair\s+handler\b/i.test(text)) inferred.push('air_handler');
+  if (/\bductwork\b/i.test(text)) inferred.push('ductwork');
+  if (/\b(?:supply\s+)?registers?\b|\bdiffusers?\b/i.test(text)) {
+    inferred.push('registers');
+  }
+  if (/\breturn\s+grilles?\b|\breturns?\b/i.test(text)) {
+    inferred.push('returns');
+  }
+  if (/\bthermostats?\b/i.test(text)) inferred.push('thermostat');
+  if (/\bwhole[-\s]?house\s+ventilation\b/i.test(text)) {
+    inferred.push('ventilation');
+  }
+  return inferred;
 }
 
 function hvacOptionIsPendingTakeoffRead(
@@ -702,12 +731,14 @@ function hvacOptionIsPendingTakeoffRead(
 
 function pruneLegacyBulkEquipmentSelections(
   measurements: Record<string, unknown>,
-  selections: string[]
+  selections: string[],
+  preserveEquipmentSelections: string[] = []
 ): string[] {
   return selections.filter(id => {
     const isEquipment = (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(
       id
     );
+    if (isEquipment && preserveEquipmentSelections.includes(id)) return true;
     // Typed chip quantities are contractor intent. Do not drop them because the
     // shared replacement count looks like an unconfirmed plan read.
     if (isEquipment && hasManualHvacEquipmentIntent(measurements)) {
@@ -746,10 +777,25 @@ export function resolveHvacTradeScopeSelections(
 ): string[] {
   const saved = selectedScope(measurements, 'hvac');
   const inferred = inferHvacScopeSelectionsFromMeasurements(measurements);
-  return mergeHvacScopeSelections(
+  const resolved = mergeHvacScopeSelections(
     pruneLegacyBulkEquipmentSelections(measurements, saved),
     inferred
   );
+  const hasEquipmentSelection = resolved.some(id =>
+    (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
+  );
+  if (hasEquipmentSelection && !resolved.includes(HVAC_SYSTEMS_OPTION_ID)) {
+    resolved.push(HVAC_SYSTEMS_OPTION_ID);
+  }
+  if (
+    hasEquipmentSelection &&
+    resolved.includes(HVAC_SYSTEMS_OPTION_ID) &&
+    !resolved.includes(HVAC_CAPACITY_OPTION_ID) &&
+    !measurements.quickMeasurementUserOverrides?.hvacSystemTons
+  ) {
+    resolved.push(HVAC_CAPACITY_OPTION_ID);
+  }
+  return resolved;
 }
 
 export const HVAC_SCOPE_EQUIPMENT_EXPAND_HIGHLIGHT = '__equipment_expand__' as const;
@@ -804,10 +850,13 @@ export function summarizeHvacScopePanel(measurements: Record<string, unknown>): 
   for (const id of selections) {
     const option = spec.options.find(candidate => candidate.id === id);
     if (!option) continue;
-    if (
+    const needsReview =
       hvacScopeChipReviewState(measurements, option, selections) ===
-      'needs_confirmation'
-    ) {
+      'needs_confirmation';
+    const needsQuantity =
+      Boolean(option.measurementKey) &&
+      formatHvacScopeChipQuantity(measurements, option, selections) == null;
+    if (needsReview || needsQuantity) {
       needsConfirmationCount += 1;
     }
   }
@@ -817,9 +866,28 @@ export function summarizeHvacScopePanel(measurements: Record<string, unknown>): 
 function finalizeHvacScopeSelections(
   measurements: Record<string, unknown>,
   selections: string[],
-  _spec: TradeSpec
+  _spec: TradeSpec,
+  noteSelections: string[] = []
 ): string[] {
-  return resolveHvacTradeScopeSelections(measurements);
+  const inferred = inferHvacScopeSelectionsFromMeasurements(measurements);
+  const resolved = mergeHvacScopeSelections(
+    pruneLegacyBulkEquipmentSelections(
+      measurements,
+      selections,
+      noteSelections
+    ),
+    inferred
+  );
+  const capacityWasNotDocumented =
+    !hvacFieldHasTakeoffEvidence(measurements, 'hvacSystemTons');
+  if (
+    resolved.includes(HVAC_SYSTEMS_OPTION_ID) &&
+    !resolved.includes(HVAC_CAPACITY_OPTION_ID) &&
+    capacityWasNotDocumented
+  ) {
+    return [...resolved, HVAC_CAPACITY_OPTION_ID];
+  }
+  return resolved;
 }
 
 export function formatHvacScopeChipQuantity(
@@ -1015,6 +1083,16 @@ export function applyHvacScopeMeasurements(
   const equipmentIds = selections.filter(id =>
     (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
   );
+  if (
+    equipmentIds.length &&
+    positiveMeasurement(next.hvacSystemCount) == null
+  ) {
+    const equipmentCount = equipmentIds.reduce(
+      (total, id) => total + (readHvacEquipmentTypeCount(next, id) || 0),
+      0
+    );
+    next.hvacSystemCount = equipmentCount || equipmentIds.length;
+  }
 
   if (
     selections.includes('thermostat') &&
@@ -1080,20 +1158,19 @@ function hydrateSimpleTrade(ctx: QmPanelHydrateContext, spec: TradeSpec): Record
       : spec.scopeKey === 'hvac'
         ? inferHvacScopeSelectionsFromNotes(ctx.notes)
         : [];
-  const miniSplitFromNotes =
-    spec.scopeKey === 'hvac' && notesImplyMiniSplitHvac(ctx.notes);
   const current =
     spec.scopeKey === 'hvac'
       ? finalizeHvacScopeSelections(
           ctx.measurements,
-          miniSplitFromNotes
+          inferredFromNotes.length
             ? mergeHvacScopeSelections(saved, inferredFromNotes)
             : saved.length
-            ? saved
-            : inferredFromMeasurements.length
-              ? inferredFromMeasurements
-              : inferredFromChecklist,
-          spec
+              ? saved
+              : inferredFromMeasurements.length
+                ? inferredFromMeasurements
+                : inferredFromChecklist,
+          spec,
+          inferredFromNotes
         )
       : spec.scopeKey === 'roofing'
         ? finalizeRoofingScopeSelections(

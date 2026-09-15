@@ -21,28 +21,33 @@ import {
 } from '@/utils/estimateInitialRevealUi';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 
-const classificationFixtures = require('../../../test-fixtures/scopeClassificationFixtures.json') as {
-  id: string;
-  notes: string;
-  expected: {
-    scopeMode: string;
-    projectType: string;
-    detectedTrades: string[];
-  };
-}[];
+const classificationFixtures =
+  require('../../../test-fixtures/scopeClassificationFixtures.json') as {
+    id: string;
+    notes: string;
+    expected: {
+      scopeMode: string;
+      projectType: string;
+      detectedTrades: string[];
+    };
+  }[];
 
 describe('estimateInitialRevealUi', () => {
   it('maps technical review copy to plain language', () => {
-    expect(plainLanguageReviewItem('Low-confidence quantity for wall tile')).toContain(
-      'Please check quantity'
+    expect(
+      plainLanguageReviewItem('Low-confidence quantity for wall tile')
+    ).toContain('Please check quantity');
+    expect(plainLanguageReviewItem('Pricing gap on plumbing')).toBe(
+      'Price needed on plumbing'
     );
-    expect(plainLanguageReviewItem('Pricing gap on plumbing')).toBe('Price needed on plumbing');
     expect(
       plainLanguageReviewItem(
         'Overall bid total or room lump sums (e.g. bathroom $8,500), or $/sqft rates with square footage'
       )
     ).toBe('Pricing total not found in notes');
-    expect(plainLanguageReviewItem('Pricing for tile demo')).toBe('Price needed for tile demo');
+    expect(plainLanguageReviewItem('Pricing for tile demo')).toBe(
+      'Price needed for tile demo'
+    );
   });
 
   it('labels status from attention count and confidence', () => {
@@ -50,18 +55,26 @@ describe('estimateInitialRevealUi', () => {
       estimateConfidence: { level: 'high' },
     } as EstimateAiDraft;
     expect(getInitialRevealStatusLabel(draft, 0).label).toBe('Ready to send');
-    expect(getInitialRevealStatusLabel(draft, 2).label).toBe('Mostly ready · 2 to check');
+    expect(getInitialRevealStatusLabel(draft, 2).label).toBe(
+      'Mostly ready · 2 to check'
+    );
   });
 
   it('builds primary CTA from attention count', () => {
     expect(getInitialRevealPrimaryCtaLabel(0)).toBe('Review & apply estimate');
-    expect(getInitialRevealPrimaryCtaLabel(3)).toBe('Continue to review · 3 to check');
+    expect(getInitialRevealPrimaryCtaLabel(3)).toBe(
+      'Continue to review · 3 to check'
+    );
     expect(getInitialRevealPrimaryCtaLabel(0, true)).toBe('Confirm scope');
   });
 
   it('prefers scope items over admin fields on reveal', () => {
     const draft = {
-      stillNeededReview: ['Customer name', 'Pricing for tile demo', 'Project address'],
+      stillNeededReview: [
+        'Customer name',
+        'Pricing for tile demo',
+        'Project address',
+      ],
       needsReviewItems: [],
       scopePackages: [{ name: 'Tile demo', status: 'missing_price' }],
     } as EstimateAiDraft;
@@ -81,12 +94,18 @@ describe('estimateInitialRevealUi', () => {
 
   it('builds confirm buckets from draft — scope/pricing only', () => {
     const draft = {
-      stillNeededReview: ['Customer name', 'Pricing for tile demo', 'Project address'],
+      stillNeededReview: [
+        'Customer name',
+        'Pricing for tile demo',
+        'Project address',
+      ],
       needsReviewItems: [],
       scopePackages: [{ name: 'Tile demo', status: 'missing_price' }],
     } as EstimateAiDraft;
     const buckets = getInitialRevealConfirmItems(draft);
-    expect(buckets.pricingScope.some((item) => /tile demo/i.test(item))).toBe(true);
+    expect(buckets.pricingScope.some(item => /tile demo/i.test(item))).toBe(
+      true
+    );
     expect(buckets.bidDetails).toEqual([]);
   });
 
@@ -151,9 +170,21 @@ describe('estimateInitialRevealUi', () => {
       ],
       scopeMeasurements: {
         itemQuantities: {
-          trim_paint: { quantity: '200', unit: 'lf', quantitySource: 'user_entered' },
-          trim_paint__material: { quantity: '400', unit: 'allowance', quantitySource: 'user_entered' },
-          trim_paint__labor: { quantity: '1100', unit: 'allowance', quantitySource: 'user_entered' },
+          trim_paint: {
+            quantity: '200',
+            unit: 'lf',
+            quantitySource: 'user_entered',
+          },
+          trim_paint__material: {
+            quantity: '400',
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+          trim_paint__labor: {
+            quantity: '1100',
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
         },
         pricingAcceptance: {
           trim_paint: { selectionStatus: 'accepted', totalAmount: 1500 },
@@ -164,7 +195,9 @@ describe('estimateInitialRevealUi', () => {
     expect(buckets.pricingScope).not.toContain('Material rate per LF');
     expect(buckets.pricingScope).not.toContain('Labor install rate per LF');
     expect(buckets.pricingScope).not.toContain('Caulk & paint');
-    expect(buckets.pricingScope).not.toContain('Pricing total not found in notes');
+    expect(buckets.pricingScope).not.toContain(
+      'Pricing total not found in notes'
+    );
   });
 
   it('shows placeholder hero when no total yet', () => {
@@ -225,7 +258,9 @@ describe('estimateInitialRevealUi', () => {
       },
     } as EstimateAiDraft;
 
-    expect(getInitialRevealDisplayTitle(draft)).toBe('Mixed-scope construction');
+    expect(getInitialRevealDisplayTitle(draft)).toBe(
+      'Mixed-scope construction'
+    );
     expect(getInitialRevealTagline(draft)).toBe(
       'Mixed-scope construction · Framing · Flooring'
     );
@@ -233,6 +268,33 @@ describe('estimateInitialRevealUi', () => {
       'Framing',
       'Flooring',
     ]);
+  });
+
+  it('labels mixed exterior hardscape instead of the concrete trade title', () => {
+    const notes =
+      'Remove existing landscaping, pavers, and concrete as needed, then install 1,000 sqft sod, 400 sqft pavers, 12 shrubs, 30 tons decorative rock, irrigation adjustments, edging, a retaining wall, a 500 sqft concrete patio, and two exterior doors.';
+    const draft = {
+      projectTitle: 'Concrete',
+      projectType: 'concrete',
+      originalNotes: notes,
+      classification: {
+        scopeMode: 'dedicated',
+        detectedTrades: [
+          'windows_doors',
+          'concrete',
+          'landscaping',
+          'deck_patio',
+        ],
+        scopeSummary: null,
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealDisplayTitle(draft)).toBe(
+      'Mixed exterior hardscape'
+    );
+    expect(getInitialRevealTagline(draft)).toContain(
+      'Mixed exterior hardscape · Concrete · Landscaping · Exterior doors'
+    );
   });
 
   it('does not let a flooring project title hide mixed insulation work', () => {
@@ -259,7 +321,14 @@ describe('estimateInitialRevealUi', () => {
       classification: {
         scopeMode: 'mixed',
         primaryTrade: null,
-        detectedTrades: ['framing', 'flooring', 'drywall', 'painting', 'windows_doors', 'insulation'],
+        detectedTrades: [
+          'framing',
+          'flooring',
+          'drywall',
+          'painting',
+          'windows_doors',
+          'insulation',
+        ],
         scopeSummary: 'Mixed-scope construction',
         evidence: [],
         exclusions: [],
@@ -268,22 +337,79 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'room_remodel',
         items: [
-          { id: 'demo', label: 'Nonstructural wall demolition', state: 'included', noteBacked: true },
-          { id: 'framing', label: 'Wall framing, headers & blocking', state: 'included', noteBacked: true },
-          { id: 'drywall', label: 'Drywall hang / finish', state: 'included', noteBacked: true },
-          { id: 'flooring', label: 'Flooring installation', state: 'included', noteBacked: true },
-          { id: 'paint', label: 'Interior wall and ceiling painting', state: 'included', noteBacked: true },
-          { id: 'insulation', label: 'Insulation', state: 'included', noteBacked: true },
-          { id: 'openings', label: 'Door / window openings', state: 'included', noteBacked: true },
-          { id: 'window_install', label: 'Window installation', state: 'included', noteBacked: true },
-          { id: 'exterior_doors', label: 'Exterior swing doors', state: 'included', noteBacked: true },
-          { id: 'shear_sheathing', label: 'Structural sheathing', state: 'included', noteBacked: true },
-          { id: 'trim', label: 'Baseboards, trim & molding', state: 'unsure', noteBacked: false },
+          {
+            id: 'demo',
+            label: 'Nonstructural wall demolition',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'framing',
+            label: 'Wall framing, headers & blocking',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'drywall',
+            label: 'Drywall hang / finish',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'flooring',
+            label: 'Flooring installation',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'paint',
+            label: 'Interior wall and ceiling painting',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'insulation',
+            label: 'Insulation',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'openings',
+            label: 'Door / window openings',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'window_install',
+            label: 'Window installation',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'exterior_doors',
+            label: 'Exterior swing doors',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'shear_sheathing',
+            label: 'Structural sheathing',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'trim',
+            label: 'Baseboards, trim & molding',
+            state: 'unsure',
+            noteBacked: false,
+          },
         ],
       },
     } as EstimateAiDraft;
 
-    const labels = getInitialRevealChecklistScopePreview(draft).map(row => row.name);
+    const labels = getInitialRevealChecklistScopePreview(draft).map(
+      row => row.name
+    );
     expect(labels).toEqual([
       'Nonstructural wall demolition',
       'Wall framing, headers & blocking',
@@ -307,7 +433,11 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'plumbing',
         items: [
-          { id: 'plumbing_rough', label: 'Plumbing rough-in', state: 'included' },
+          {
+            id: 'plumbing_rough',
+            label: 'Plumbing rough-in',
+            state: 'included',
+          },
           { id: 'water_line', label: 'Water line', state: 'included' },
         ],
       },
@@ -320,6 +450,128 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealChecklistScopePreview(draft)).toHaveLength(2);
   });
 
+  it('shows ground-up plumbing scope and missing line quantities as attention', () => {
+    const draft = {
+      projectType: 'plumbing',
+      projectTitle: 'Kitchen plumbing',
+      originalNotes:
+        'Plumbing rough-in for ground-up construction: Install underground and above-slab DWV piping, domestic hot and cold water lines, vent piping, hose-bib lines, and connections for all fixtures shown on plans. Set fixture stub-outs at kitchen, bathrooms, laundry, and utility areas. Pressure-test water lines and inspect/test drain and vent systems before concealment. Excludes fixtures, trim, excavation beyond plumbing trenches, utility tap fees, and final connections.',
+      scopeChecklist: {
+        templateKey: 'plumbing',
+        items: [
+          {
+            id: 'plumbing_rough',
+            label: 'Plumbing rough-in',
+            state: 'included',
+          },
+        ],
+      },
+      scopeMeasurements: {
+        tradeWorkflowSource: 'standalone_trade',
+        plumbingWorkflowMode: 'new_construction',
+        plumbingRoomContext: 'whole_house',
+      },
+      scopePackages: [],
+      stillNeededReview: [],
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealDisplayTitle(draft)).toBe('Whole-house plumbing');
+    expect(getInitialRevealTagline(draft)).toBe(
+      'Whole-house plumbing · 3 scope lines'
+    );
+    expect(getInitialRevealUnderstoodBullets(draft, 3)).toEqual([
+      '1 rough-in point',
+      'Water line piping',
+      'Sewer / DWV piping',
+    ]);
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual(
+      expect.arrayContaining([
+        'Plumbing rough-in',
+        'Water line piping',
+        'Sewer / DWV piping',
+      ])
+    );
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual(
+      expect.arrayContaining([
+        'Measurement needed for Water line piping',
+        'Measurement needed for Sewer / DWV piping',
+      ])
+    );
+  });
+
+  it('keeps mixed bathroom scope rows aligned with explicit note language', () => {
+    const draft = {
+      projectType: 'bathroom',
+      originalNotes:
+        'Remove existing bathroom fixtures, then reroute 25 LF bathroom plumbing and install a toilet, vanity, faucet, shower valve, 90 sqft flooring, 120 sqft drywall repair, 40 LF cabinets, two windows, insulation, and paint.',
+      scopeChecklist: {
+        templateKey: 'bathroom',
+        items: [
+          {
+            id: 'demo',
+            label: 'Shower tile demo / tear-out',
+            state: 'included',
+          },
+          {
+            id: 'fixture_demo',
+            label: 'Remove existing toilet & plumbing fixtures',
+            state: 'included',
+          },
+          {
+            id: 'vanity',
+            label: 'Vanity & countertop',
+            state: 'included',
+          },
+          {
+            id: 'cabinets',
+            label: 'Stock cabinet supply & installation',
+            state: 'included',
+          },
+          {
+            id: 'plumbing',
+            label: 'Plumbing connections',
+            state: 'included',
+          },
+          {
+            id: 'paint_repair',
+            label: 'Interior painting/patch and repair',
+            state: 'included',
+          },
+          { id: 'interior_paint', label: 'Interior paint', state: 'included' },
+        ],
+      },
+      scopePackages: [],
+    } as EstimateAiDraft;
+
+    const names = getInitialRevealChecklistScopePreview(draft).map(
+      row => row.name
+    );
+    expect(names).not.toContain('Shower tile demo / tear-out');
+    expect(names).toContain('Remove existing toilet & plumbing fixtures');
+    expect(names).toContain('Vanity installation');
+    expect(names).toContain('40 LF cabinets');
+    expect(names).toContain('Plumbing reroute · 25 LF');
+    expect(names).toContain('Interior painting/patch and repair');
+    expect(names).toContain('Drywall repair · 120 sqft');
+    expect(names).toContain('Insulation');
+    expect(names).toContain('Faucet & shower valve');
+    expect(names).not.toContain('Interior paint');
+
+    const attention = getInitialRevealConfirmItems({
+      ...draft,
+      stillNeededReview: [
+        'Pricing for Shower tile demo / tear-out',
+        'Pricing for Interior paint',
+      ],
+    }).pricingScope;
+    expect(attention).not.toContain(
+      'Price needed for Shower tile demo / tear-out'
+    );
+    expect(attention).not.toContain('Price needed for Interior paint');
+  });
+
   it('keeps detected bathroom scope visible when pricing packages are partial', () => {
     const draft = {
       projectType: 'bathroom',
@@ -328,7 +580,11 @@ describe('estimateInitialRevealUi', () => {
         templateKey: 'bathroom',
         items: [
           { id: 'shower_tile', label: 'Shower wall tile', state: 'included' },
-          { id: 'lighting', label: 'New lighting fixtures & install', state: 'included' },
+          {
+            id: 'lighting',
+            label: 'New lighting fixtures & install',
+            state: 'included',
+          },
           { id: 'toilet', label: 'Toilet', state: 'included' },
         ],
       },
@@ -341,12 +597,14 @@ describe('estimateInitialRevealUi', () => {
       ],
     } as EstimateAiDraft;
 
-    expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual(
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual(
       expect.arrayContaining([
         'Shower wall tile',
         'New lighting fixtures & install',
         'Toilet',
-      ]),
+      ])
     );
   });
 
@@ -365,9 +623,9 @@ describe('estimateInitialRevealUi', () => {
       scopePackages: [],
     } as EstimateAiDraft;
 
-    expect(getInitialRevealChecklistScopePreview(draft).map(row => row.name)).toEqual(
-      expect.arrayContaining(['Interior door installation'])
-    );
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual(expect.arrayContaining(['Interior door installation']));
   });
 
   it('does not turn insulation removal into flooring demo scope', () => {
@@ -382,8 +640,16 @@ describe('estimateInitialRevealUi', () => {
           { id: 'demo', label: 'Existing flooring removal', state: 'included' },
           { id: 'drywall', label: 'Drywall patch / repair', state: 'included' },
           { id: 'flooring', label: 'Flooring installation', state: 'included' },
-          { id: 'paint', label: 'Interior wall and ceiling painting', state: 'included' },
-          { id: 'window_install', label: 'Window installation', state: 'included' },
+          {
+            id: 'paint',
+            label: 'Interior wall and ceiling painting',
+            state: 'included',
+          },
+          {
+            id: 'window_install',
+            label: 'Window installation',
+            state: 'included',
+          },
           { id: 'insulation', label: 'Insulation', state: 'included' },
         ],
       },
@@ -394,10 +660,7 @@ describe('estimateInitialRevealUi', () => {
       row => row.name
     );
     expect(names).toEqual(
-      expect.arrayContaining([
-        'Flooring installation',
-        'Insulation',
-      ])
+      expect.arrayContaining(['Flooring installation', 'Insulation'])
     );
     expect(names).not.toContain('Existing flooring removal');
   });
@@ -411,17 +674,41 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'room_remodel',
         items: [
-          { id: 'demo', label: 'Nonstructural wall demolition', state: 'included' },
+          {
+            id: 'demo',
+            label: 'Nonstructural wall demolition',
+            state: 'included',
+          },
           { id: 'drywall', label: 'Drywall patch / repair', state: 'included' },
           { id: 'flooring', label: 'LVP flooring install', state: 'included' },
-          { id: 'paint', label: 'Interior wall and ceiling painting', state: 'included' },
+          {
+            id: 'paint',
+            label: 'Interior wall and ceiling painting',
+            state: 'included',
+          },
           { id: 'trim', label: 'Baseboard installation', state: 'included' },
-          { id: 'baseboard_install', label: 'Baseboard installation', state: 'included' },
-          { id: 'interior_door_install', label: 'Interior door installation', state: 'included' },
+          {
+            id: 'baseboard_install',
+            label: 'Baseboard installation',
+            state: 'included',
+          },
+          {
+            id: 'interior_door_install',
+            label: 'Interior door installation',
+            state: 'included',
+          },
           { id: 'insulation', label: 'Insulation', state: 'included' },
-          { id: 'window_install', label: 'Window installation', state: 'included' },
+          {
+            id: 'window_install',
+            label: 'Window installation',
+            state: 'included',
+          },
           { id: 'underlayment', label: 'Underlayment', state: 'included' },
-          { id: 'transitions', label: 'Transitions & reducers', state: 'included' },
+          {
+            id: 'transitions',
+            label: 'Transitions & reducers',
+            state: 'included',
+          },
         ],
       },
       scopePackages: [],
@@ -443,7 +730,9 @@ describe('estimateInitialRevealUi', () => {
       ])
     );
     expect(names).not.toContain('Nonstructural wall demolition');
-    expect(names.filter(name => name === 'Baseboard installation')).toHaveLength(1);
+    expect(
+      names.filter(name => name === 'Baseboard installation')
+    ).toHaveLength(1);
     expect(names).not.toContain('Interior wall and ceiling painting');
     expect(getInitialRevealConfirmItems(draft).pricingScope).not.toContain(
       'Price needed for Nonstructural wall demolition'
@@ -462,14 +751,26 @@ describe('estimateInitialRevealUi', () => {
           { id: 'demo', label: 'Existing flooring removal', state: 'included' },
           { id: 'drywall', label: 'Drywall patch / repair', state: 'included' },
           { id: 'flooring', label: 'LVP flooring install', state: 'included' },
-          { id: 'paint', label: 'Interior wall and ceiling painting', state: 'included' },
+          {
+            id: 'paint',
+            label: 'Interior wall and ceiling painting',
+            state: 'included',
+          },
           { id: 'trim', label: 'Trim & doors', state: 'included' },
           { id: 'prep', label: 'Prep & Masking', state: 'included' },
           { id: 'interior_paint', label: 'Walls', state: 'included' },
           { id: 'ceiling_paint', label: 'Ceilings', state: 'included' },
           { id: 'wall_demo', label: 'Wall Demo', state: 'included' },
-          { id: 'interior_door_install', label: 'Interior door installation', state: 'included' },
-          { id: 'window_install', label: 'Window & trim installation', state: 'included' },
+          {
+            id: 'interior_door_install',
+            label: 'Interior door installation',
+            state: 'included',
+          },
+          {
+            id: 'window_install',
+            label: 'Window & trim installation',
+            state: 'included',
+          },
           { id: 'insulation', label: 'Insulation', state: 'included' },
         ],
       },
@@ -482,7 +783,9 @@ describe('estimateInitialRevealUi', () => {
       ],
     } as EstimateAiDraft;
 
-    const names = getInitialRevealChecklistScopePreview(draft).map(row => row.name);
+    const names = getInitialRevealChecklistScopePreview(draft).map(
+      row => row.name
+    );
     expect(names).toHaveLength(9);
     expect(getInitialRevealUnderstoodBullets(draft, 2)).toEqual([
       'Drywall demo / removal',
@@ -500,14 +803,16 @@ describe('estimateInitialRevealUi', () => {
         'Insulation',
       ])
     );
-    expect(names).not.toEqual(expect.arrayContaining([
-      'Existing flooring removal',
-      'LVP flooring install',
-      'Trim & doors',
-      'Walls',
-      'Ceilings',
-      'Wall Demo',
-    ]));
+    expect(names).not.toEqual(
+      expect.arrayContaining([
+        'Existing flooring removal',
+        'LVP flooring install',
+        'Trim & doors',
+        'Walls',
+        'Ceilings',
+        'Wall Demo',
+      ])
+    );
     const attention = getInitialRevealConfirmItems(draft).pricingScope;
     expect(attention).toEqual([
       'Price needed for Interior wall and ceiling painting',
@@ -523,8 +828,16 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'room_remodel',
         items: [
-          { id: 'paint', label: 'Interior wall and ceiling painting', state: 'included' },
-          { id: 'interior_door_install', label: 'Interior door installation', state: 'included' },
+          {
+            id: 'paint',
+            label: 'Interior wall and ceiling painting',
+            state: 'included',
+          },
+          {
+            id: 'interior_door_install',
+            label: 'Interior door installation',
+            state: 'included',
+          },
           { id: 'flooring', label: 'Flooring installation', state: 'included' },
         ],
       },
@@ -550,9 +863,17 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'room_remodel',
         items: [
-          { id: 'decking_repair', label: 'Roof decking repair', state: 'included' },
+          {
+            id: 'decking_repair',
+            label: 'Roof decking repair',
+            state: 'included',
+          },
           { id: 'roofing', label: 'Roofing replacement', state: 'included' },
-          { id: 'window_install', label: 'Window replacement', state: 'included' },
+          {
+            id: 'window_install',
+            label: 'Window replacement',
+            state: 'included',
+          },
         ],
       },
       scopeMeasurements: {
@@ -590,15 +911,124 @@ describe('estimateInitialRevealUi', () => {
 
     expect(getInitialRevealChecklistScopePreview(draft)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: 'Roof decking repair', quantity: '180 sqft' }),
-        expect.objectContaining({ name: 'Roofing replacement', quantity: '28 squares' }),
-        expect.objectContaining({ name: 'Window replacement', quantity: '4 each' }),
+        expect.objectContaining({
+          name: 'Roof decking repair',
+          quantity: '180 sqft',
+        }),
+        expect.objectContaining({
+          name: 'Roofing replacement',
+          quantity: '28 squares',
+        }),
+        expect.objectContaining({
+          name: 'Window replacement',
+          quantity: '4 each',
+        }),
       ])
     );
     expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
       'Price needed for Roof decking repair',
       'Price needed for Roofing replacement',
     ]);
+  });
+
+  it('shows specific mixed-landscape quantities without duplicate buckets', () => {
+    const draft = {
+      projectType: 'other',
+      originalNotes:
+        'Install 1,000 sqft sod, 400 sqft pavers, 12 shrubs, 30 tons decorative rock, irrigation adjustments, edging, and a 500 sqft concrete patio with two exterior doors.',
+      scopeChecklist: {
+        templateKey: 'concrete',
+        items: [
+          { id: 'pour_flatwork', label: 'Concrete patio installation', state: 'included' },
+          { id: 'concrete', label: 'Concrete flatwork', state: 'included' },
+          { id: 'landscaping', label: 'Landscaping', state: 'included' },
+          { id: 'sod_turf', label: 'Sod', state: 'included' },
+          { id: 'pavers', label: 'Pavers', state: 'included' },
+          { id: 'plants', label: 'Plants / shrubs', state: 'included' },
+          { id: 'rock', label: 'Decorative rock', state: 'included' },
+          { id: 'irrigation', label: 'Irrigation', state: 'included' },
+          { id: 'concrete_edging', label: 'Edging', state: 'included' },
+          { id: 'exterior_doors', label: 'Exterior door installation', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        concreteSqft: 500,
+        sodSqft: 1000,
+        paverSqft: 400,
+        plantCount: 12,
+        landscapeTons: 30,
+        exteriorDoorCount: 2,
+      },
+      scopePackages: [
+        { checklistItemId: 'pour_flatwork', name: 'Concrete patio installation' },
+        { checklistItemId: 'concrete', name: 'Concrete flatwork' },
+        { checklistItemId: 'landscaping', name: 'Landscaping' },
+        { checklistItemId: 'sod_turf', name: 'Sod' },
+        { checklistItemId: 'pavers', name: 'Pavers' },
+        { checklistItemId: 'plants', name: 'Plants / shrubs' },
+        { checklistItemId: 'rock', name: 'Decorative rock' },
+        { checklistItemId: 'irrigation', name: 'Irrigation' },
+        { checklistItemId: 'concrete_edging', name: 'Edging' },
+        { checklistItemId: 'exterior_doors', name: 'Exterior door installation' },
+      ],
+    } as EstimateAiDraft;
+
+    const preview = getInitialRevealChecklistScopePreview(draft);
+    expect(preview).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Sod', quantity: '1,000 sqft' }),
+        expect.objectContaining({ name: 'Pavers', quantity: '400 sqft' }),
+        expect.objectContaining({ name: 'Shrubs', quantity: '12 each' }),
+        expect.objectContaining({ name: 'Decorative rock', quantity: '30 ton' }),
+        expect.objectContaining({ name: 'Irrigation' }),
+        expect.objectContaining({ name: 'Edging' }),
+        expect.objectContaining({
+          name: 'Exterior door installation',
+          quantity: '2 each',
+        }),
+      ])
+    );
+    expect(preview.some(row => row.name === 'Landscaping')).toBe(false);
+    expect(preview.filter(row => row.name === 'Concrete flatwork')).toHaveLength(0);
+  });
+
+  it('recovers missing shrubs and edging from notes on a stale checklist', () => {
+    const notes =
+      'Remove existing landscaping, pavers, and concrete as needed, then install 1,000 sqft sod, 400 sqft pavers, 12 shrubs, 30 tons decorative rock, irrigation adjustments, edging, a retaining wall, a 500 sqft concrete patio, and two exterior doors.';
+    const draft = {
+      projectType: 'concrete',
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'concrete',
+        items: [
+          { id: 'pour_flatwork', label: 'Concrete patio installation', state: 'included' },
+          { id: 'landscaping', label: 'Landscaping', state: 'included' },
+          { id: 'sod_turf', label: 'Sod', state: 'included' },
+          { id: 'pavers', label: 'Pavers', state: 'included' },
+          { id: 'rock', label: 'Decorative rock', state: 'included' },
+          { id: 'exterior_doors', label: 'Exterior door installation', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        concreteSqft: 500,
+        sodSqft: 1000,
+        paverSqft: 400,
+        plantCount: 12,
+        landscapeTons: 30,
+        exteriorDoorCount: 2,
+      },
+      scopePackages: [],
+    } as EstimateAiDraft;
+
+    const preview = getInitialRevealChecklistScopePreview(draft);
+
+    expect(preview).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Shrubs', quantity: '12 each' }),
+        expect.objectContaining({ name: 'Edging' }),
+      ])
+    );
+    expect(preview.some(row => row.name === 'Landscaping')).toBe(false);
   });
 
   it('hides excluded plumbing cards and fixture allowance on Scope found', () => {
@@ -610,8 +1040,16 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'plumbing',
         items: [
-          { id: 'plumbing_rough', label: 'Plumbing rough-in', state: 'included' },
-          { id: 'plumbing_trim', label: 'Plumbing trim / hookups', state: 'included' },
+          {
+            id: 'plumbing_rough',
+            label: 'Plumbing rough-in',
+            state: 'included',
+          },
+          {
+            id: 'plumbing_trim',
+            label: 'Plumbing trim / hookups',
+            state: 'included',
+          },
           { id: 'water_line', label: 'Water line piping', state: 'included' },
           {
             id: 'gas_appliance_connections',
@@ -623,20 +1061,28 @@ describe('estimateInitialRevealUi', () => {
             label: 'Plumbing fixture allowance',
             state: 'excluded',
           },
-          { id: 'sewer_line', label: 'Sewer / drain piping', state: 'excluded' },
+          {
+            id: 'sewer_line',
+            label: 'Sewer / drain piping',
+            state: 'excluded',
+          },
         ],
       },
       scopePackages: [],
       scopeMeasurements: { tradeWorkflowSource: 'standalone_trade' },
     } as EstimateAiDraft;
-    expect(getInitialRevealTagline(draft)).toContain('Kitchen plumbing · 4 scope lines');
+    expect(getInitialRevealTagline(draft)).toContain(
+      'Kitchen plumbing · 4 scope lines'
+    );
     expect(getInitialRevealUnderstoodBullets(draft, 4)).toEqual([
       '3 rough-in points',
       '4 trim hookups',
       '25 LF water line',
       '1 gas appliance hookup',
     ]);
-    expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual([
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual([
       'Plumbing rough-in',
       'Plumbing trim / hookups',
       'Water line piping',
@@ -659,9 +1105,21 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'plumbing',
         items: [
-          { id: 'plumbing_rough', label: 'Plumbing rough-in', state: 'included' },
-          { id: 'plumbing_trim', label: 'Plumbing trim / hookups', state: 'included' },
-          { id: 'sewer_line', label: 'Sewer / drain piping', state: 'included' },
+          {
+            id: 'plumbing_rough',
+            label: 'Plumbing rough-in',
+            state: 'included',
+          },
+          {
+            id: 'plumbing_trim',
+            label: 'Plumbing trim / hookups',
+            state: 'included',
+          },
+          {
+            id: 'sewer_line',
+            label: 'Sewer / drain piping',
+            state: 'included',
+          },
           { id: 'water_heater', label: 'Water heater', state: 'excluded' },
           {
             id: 'plumbing_fixtures_hardware',
@@ -673,7 +1131,9 @@ describe('estimateInitialRevealUi', () => {
       scopePackages: [],
     } as EstimateAiDraft;
     expect(getInitialRevealDisplayTitle(draft)).toBe('Master bath plumbing');
-    expect(getInitialRevealTagline(draft)).toContain('Bathroom plumbing · 3 scope lines');
+    expect(getInitialRevealTagline(draft)).toContain(
+      'Bathroom plumbing · 3 scope lines'
+    );
     expect(getInitialRevealUnderstoodBullets(draft, 4)).toEqual([
       '4 rough-in points',
       '4 trim hookups',
@@ -694,7 +1154,12 @@ describe('estimateInitialRevealUi', () => {
             state: 'included',
             choiceId: 'architectural_shingles',
           },
-          { id: 'tear_off', label: 'Tear-off', state: 'included', choiceId: 'one_layer' },
+          {
+            id: 'tear_off',
+            label: 'Tear-off',
+            state: 'included',
+            choiceId: 'one_layer',
+          },
         ],
       },
       originalNotes:
@@ -717,8 +1182,12 @@ describe('estimateInitialRevealUi', () => {
     ).toEqual(['Customer name']);
 
     const buckets = getInitialRevealConfirmItems(draft);
-    expect(buckets.pricingScope.some((item) => /roofing/i.test(item))).toBe(false);
-    expect(buckets.pricingScope.some((item) => /shingle color/i.test(item))).toBe(false);
+    expect(buckets.pricingScope.some(item => /roofing/i.test(item))).toBe(
+      false
+    );
+    expect(buckets.pricingScope.some(item => /shingle color/i.test(item))).toBe(
+      false
+    );
     expect(buckets.pricingScope).toHaveLength(0);
   });
 
@@ -735,7 +1204,12 @@ describe('estimateInitialRevealUi', () => {
             state: 'included',
             choiceId: 'architectural_shingles',
           },
-          { id: 'tear_off', label: 'Tear-off', state: 'included', choiceId: 'one_layer' },
+          {
+            id: 'tear_off',
+            label: 'Tear-off',
+            state: 'included',
+            choiceId: 'one_layer',
+          },
           { id: 'drip_edge', label: 'Drip edge', state: 'included' },
         ],
       },
@@ -752,10 +1226,14 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealUnderstoodBullets(draft, 3)).toEqual(
       expect.arrayContaining(['Roofing system', 'Tear-off'])
     );
-    expect(getInitialRevealUnderstoodBullets(draft, 3).join(' ')).not.toMatch(/\$/);
-    expect(getInitialRevealChecklistScopePreview(draft).every((row) => row.amount === 0)).toBe(
-      true
+    expect(getInitialRevealUnderstoodBullets(draft, 3).join(' ')).not.toMatch(
+      /\$/
     );
+    expect(
+      getInitialRevealChecklistScopePreview(draft).every(
+        row => row.amount === 0
+      )
+    ).toBe(true);
   });
 
   it('shows actionable mixed-scope pricing gaps before scope is confirmed', () => {
@@ -774,8 +1252,16 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'room_remodel',
         items: [
-          { id: 'demo', label: 'Nonstructural wall demolition', state: 'included' },
-          { id: 'framing', label: 'Wall framing, headers & blocking', state: 'included' },
+          {
+            id: 'demo',
+            label: 'Nonstructural wall demolition',
+            state: 'included',
+          },
+          {
+            id: 'framing',
+            label: 'Wall framing, headers & blocking',
+            state: 'included',
+          },
           { id: 'drywall', label: 'Drywall hang / finish', state: 'included' },
         ],
       },
@@ -796,8 +1282,18 @@ describe('estimateInitialRevealUi', () => {
         title: 'Kitchen',
         intro: 'Confirm scope',
         items: [
-          { id: 'cabinets', label: 'Cabinets', state: 'included', noteBacked: true },
-          { id: 'countertops', label: 'Countertops', state: 'included', noteBacked: true },
+          {
+            id: 'cabinets',
+            label: 'Cabinets',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'countertops',
+            label: 'Countertops',
+            state: 'included',
+            noteBacked: true,
+          },
         ],
         scopeFacts: [
           {
@@ -819,12 +1315,9 @@ describe('estimateInitialRevealUi', () => {
       },
     } as EstimateAiDraft;
 
-    expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual([
-      'Cabinets',
-      'Countertops',
-      'Window install',
-      'Insulation',
-    ]);
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual(['Cabinets', 'Countertops', 'Window install', 'Insulation']);
   });
 
   it('shows an unquantified exterior door from brief cross-trade notes', () => {
@@ -835,8 +1328,16 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'kitchen',
         items: [
-          { id: 'window_install', label: 'Window & trim installation', state: 'included' },
-          { id: 'interior_paint', label: 'Interior painting', state: 'included' },
+          {
+            id: 'window_install',
+            label: 'Window & trim installation',
+            state: 'included',
+          },
+          {
+            id: 'interior_paint',
+            label: 'Interior painting',
+            state: 'included',
+          },
         ],
       },
     } as EstimateAiDraft;
@@ -885,7 +1386,9 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: undefined,
     } as EstimateAiDraft;
 
-    expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual([
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual([
       'New kitchen cabinets',
       'Quartz countertops',
       'Plumbing relocation',
@@ -905,7 +1408,9 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: undefined,
     } as EstimateAiDraft;
 
-    expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual([
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual([
       'Cabinet demo / removal',
       'Countertop demo / removal',
       'Backsplash demo / removal',
@@ -917,23 +1422,47 @@ describe('estimateInitialRevealUi', () => {
   it('filters clarification rows and generic duplicates after checklist hydration', () => {
     const draft = {
       projectType: 'kitchen',
-      originalNotes: 'Install 220 sqft drywall repair and R-21 wall insulation.',
+      originalNotes:
+        'Install 220 sqft drywall repair and R-21 wall insulation.',
       scopeChecklist: {
         templateKey: 'kitchen',
         items: [
-          { id: 'drywall', label: 'Drywall Repair', state: 'included', noteBacked: true },
-          { id: 'insulation', label: 'Insulation', state: 'included', noteBacked: true },
-          { id: 'drywall_detail', label: '220 sqft drywall repair', state: 'included', noteBacked: true },
-          { id: 'insulation_detail', label: 'R-21 wall insulation', state: 'included', noteBacked: true },
-          { id: 'cabinet_questions', label: 'Cabinet style and hardware selections', state: 'unsure' },
+          {
+            id: 'drywall',
+            label: 'Drywall Repair',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'insulation',
+            label: 'Insulation',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'drywall_detail',
+            label: '220 sqft drywall repair',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'insulation_detail',
+            label: 'R-21 wall insulation',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'cabinet_questions',
+            label: 'Cabinet style and hardware selections',
+            state: 'unsure',
+          },
         ],
       },
     } as EstimateAiDraft;
 
-    expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual([
-      '220 sqft drywall repair',
-      'R-21 wall insulation',
-    ]);
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual(['220 sqft drywall repair', 'R-21 wall insulation']);
   });
 
   it('expands hydrated kitchen demolition into full demo lines', () => {
@@ -945,10 +1474,16 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'kitchen',
         items: [
-          { id: 'kitchen', label: 'Kitchen', state: 'included', noteBacked: true },
+          {
+            id: 'kitchen',
+            label: 'Kitchen',
+            state: 'included',
+            noteBacked: true,
+          },
           {
             id: 'demo',
-            label: 'Demolition of existing cabinets, countertops, backsplash, flooring',
+            label:
+              'Demolition of existing cabinets, countertops, backsplash, flooring',
             state: 'included',
             noteBacked: true,
           },
@@ -961,7 +1496,9 @@ describe('estimateInitialRevealUi', () => {
       },
     } as EstimateAiDraft;
 
-    expect(getInitialRevealChecklistScopePreview(draft).map((row) => row.name)).toEqual([
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual([
       'Cabinet demo / removal',
       'Countertop demo / removal',
       'Backsplash demo / removal',
@@ -979,9 +1516,24 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'plumbing',
         items: [
-          { id: 'plumbing_rough', label: 'Plumbing rough-in', state: 'included', noteBacked: true },
-          { id: 'plumbing_trim', label: 'Plumbing trim / hookups', state: 'included', noteBacked: true },
-          { id: 'water_line', label: 'Water line piping', state: 'included', noteBacked: true },
+          {
+            id: 'plumbing_rough',
+            label: 'Plumbing rough-in',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'plumbing_trim',
+            label: 'Plumbing trim / hookups',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'water_line',
+            label: 'Water line piping',
+            state: 'included',
+            noteBacked: true,
+          },
           {
             id: 'gas_appliance_connections',
             label: 'Gas appliance connections',
@@ -1011,9 +1563,9 @@ describe('estimateInitialRevealUi', () => {
 
     const buckets = getInitialRevealConfirmItems(draft);
     expect(buckets.pricingScope).toHaveLength(0);
-    expect(getInitialRevealStatusLabel(draft, buckets.pricingScope.length).label).toBe(
-      'Ready to send'
-    );
+    expect(
+      getInitialRevealStatusLabel(draft, buckets.pricingScope.length).label
+    ).toBe('Ready to send');
   });
 
   it('filters concrete pricing noise and shows note bullets before Confirm Scope', () => {
@@ -1026,7 +1578,12 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'concrete',
         items: [
-          { id: 'pour_flatwork', label: 'Pour flatwork', state: 'included', noteBacked: true },
+          {
+            id: 'pour_flatwork',
+            label: 'Pour flatwork',
+            state: 'included',
+            noteBacked: true,
+          },
           {
             id: 'excavation',
             label: 'Excavation / soil movement',
@@ -1039,8 +1596,18 @@ describe('estimateInitialRevealUi', () => {
             state: 'included',
             noteBacked: true,
           },
-          { id: 'reinforcement', label: 'Rebar / mesh', state: 'included', noteBacked: true },
-          { id: 'complex_forming', label: 'Complex forming', state: 'included', noteBacked: true },
+          {
+            id: 'reinforcement',
+            label: 'Rebar / mesh',
+            state: 'included',
+            noteBacked: true,
+          },
+          {
+            id: 'complex_forming',
+            label: 'Complex forming',
+            state: 'included',
+            noteBacked: true,
+          },
         ],
       },
       scopeMeasurements: { concreteSqft: 900, excavationCy: 22.22 },
@@ -1054,7 +1621,9 @@ describe('estimateInitialRevealUi', () => {
 
     expect(getInitialRevealConfirmItems(draft).pricingScope).toHaveLength(0);
     expect(
-      getInitialRevealUnderstoodBullets(draft, 6).some((line) => /900 sqft flatwork/i.test(line))
+      getInitialRevealUnderstoodBullets(draft, 6).some(line =>
+        /900 sqft flatwork/i.test(line)
+      )
     ).toBe(true);
   });
 
@@ -1074,7 +1643,12 @@ describe('estimateInitialRevealUi', () => {
             state: 'included',
             choiceId: 'architectural_shingles',
           },
-          { id: 'tear_off', label: 'Tear-off', state: 'included', choiceId: 'one_layer' },
+          {
+            id: 'tear_off',
+            label: 'Tear-off',
+            state: 'included',
+            choiceId: 'one_layer',
+          },
         ],
       },
       stillNeededReview: [

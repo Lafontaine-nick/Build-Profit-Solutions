@@ -69,6 +69,28 @@ describe('scopeMeasurementParser', () => {
     expect(parsed.insulationRValue).toBe('R-21');
   });
 
+  test('keeps an addition note local and preserves opening and insulation details', () => {
+    const notes =
+      'Clear and demolish the existing area as needed, then build a 700 sqft addition with foundation, framing, roofing, six windows, exterior doors, R-21 wall insulation, R-38 attic insulation, air sealing, drywall, flooring, cabinets, plumbing, electrical, trim, and paint.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'addition',
+      projectType: 'other',
+    });
+
+    expect(parsed.floorAreaSqft).toBe(700);
+    expect(parsed.airSealingIncluded).toBe(true);
+    expect(parsed.airSealingSqft).toBe(700);
+    expect(parsed.windowCount).toBe(6);
+    expect(parsed.exteriorDoorCount).toBeUndefined();
+    expect(parsed.insulationRValue).toBe('R-21');
+    expect(parsed.insulationAssemblies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ location: 'exterior_wall', rValue: 'R-21' }),
+        expect.objectContaining({ location: 'attic_ceiling', rValue: 'R-38' }),
+      ]),
+    );
+  });
+
   test('understands kitchen remodel boundaries and carries explicit install work', () => {
     const notes =
       'Remodel an existing kitchen without changing the footprint. Remove existing cabinets, countertops, backsplash, sink, faucet, and appliances. Install 42 linear feet of new cabinets, 55 sqft of quartz countertops, 35 sqft of backsplash tile, a new sink and faucet, range, dishwasher, refrigerator, microwave, and under-cabinet lighting. Include cabinet installation, countertop installation, backsplash preparation, plumbing reconnection, electrical adjustments for appliances, flooring protection, demolition, disposal, and cleanup. No wall removal or structural framing.';
@@ -611,6 +633,41 @@ Demo old cabinets and haul off $850 lump sum`;
     expect(parsed.itemQuantities?.sod_turf).toMatchObject({ quantity: 2025, unit: 'allowance' });
     expect(parsed.itemQuantities?.pavers).toMatchObject({ quantity: 3240, unit: 'allowance' });
     expect(parsed.itemQuantities?.rock_mulch).toMatchObject({ quantity: 1140, unit: 'allowance' });
+  });
+
+  test('keeps mixed landscape material quantities attached to their materials', () => {
+    const notes =
+      'Remove existing landscaping, pavers, and concrete as needed, then install 1,000 sqft sod, 400 sqft pavers, 12 shrubs, 30 tons decorative rock, irrigation adjustments, edging, a retaining wall, a 500 sqft concrete patio, and two exterior doors.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'concrete',
+      projectType: 'other',
+    });
+
+    expect(parsed.sodSqft).toBe(1000);
+    expect(parsed.paverSqft).toBe(400);
+    expect(parsed.rockMulchSqft).toBeUndefined();
+    expect(parsed.floorAreaSqft).toBeUndefined();
+    expect(parsed.landscapeTons).toBe(30);
+    expect(parsed.plantCount).toBe(12);
+    expect(parsed.exteriorDoorCount).toBe(2);
+    expect(parsed.itemQuantities?.exterior_doors).toMatchObject({
+      quantity: 2,
+      unit: 'each',
+    });
+  });
+
+  test('parses quantities for additional landscaping work items', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Clear 1,200 sqft of brush, grade 1,500 sqft, soil prep 900 sqft, install 180 LF drainage, 6 irrigation zones, and 8 landscape lights.',
+      { templateKey: 'landscaping', projectType: 'landscaping' },
+    );
+
+    expect(parsed.demoClearingSqft).toBe(1200);
+    expect(parsed.gradingSqft).toBe(1500);
+    expect(parsed.soilPrepSqft).toBe(900);
+    expect(parsed.drainageLf).toBe(180);
+    expect(parsed.irrigationZoneCount).toBe(6);
+    expect(parsed.landscapeLightCount).toBe(8);
   });
 
   test('golden excavation and drywall/painting scenarios calculate trade rates', () => {

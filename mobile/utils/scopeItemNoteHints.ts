@@ -113,7 +113,8 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
     /\b(plans?|drawings?|engineering|architect(?:ural)?|design\s+docs?)\b/,
   utility_coordination:
     /\b(utility\s+coordination|utility\s+coord|coordinate\s+utilities|utility\s+company)\b/,
-  sitework: /\b(site\s*work|site\s+prep|lot\s+prep|clearing|grubbing)\b/,
+  sitework:
+    /\b(site\s*work|site\s+prep|lot\s+prep|clearing|clear(?:ing)?\s+(?:and\s+)?(?:demolish|remove)|grubbing|demolish(?:ed|ing)?\s+the\s+existing\s+area)\b/,
   landscaping:
     /\b(landscap(?:e|ing)|sod|irrigation|site\s+walls?|fence(?:s|ing)?|gates?)\b/,
   excavation:

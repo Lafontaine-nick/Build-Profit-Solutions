@@ -88,6 +88,9 @@ import {
   inferPlumbingRoomContextFromNotes,
   filterChecklistItemsToPlumbingScope,
   plumbingQuickMeasurementKeysForIncludedScope,
+  parsePlumbingProjectContextFromNotes,
+  parsePlumbingMeasurementsFromNotes,
+  type PlumbingQuantityKey,
   type NotesScopeMode,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import {
@@ -496,6 +499,8 @@ import {
   expandBathroomFixtureScopeDisplayItems,
   HVAC_EMBEDDED_QUICK_MEASUREMENT_KEYS,
   ROOFING_EMBEDDED_QUICK_MEASUREMENT_KEYS,
+  hvacFieldHasTakeoffEvidence,
+  inferHvacScopeSelectionsFromNotes,
   simpleTradePanelFor,
 } from '@/utils/qmScopePanels';
 import {
@@ -5298,6 +5303,107 @@ function InlineTakeoffCountInput({
   );
 }
 
+const HVAC_PRICING_CARD_ALIASES: Record<string, string> = {
+  hvac_systems: 'hvac',
+  registers: 'supply_registers',
+  returns: 'return_grilles',
+};
+
+const HVAC_PRICING_CARD_UNITS: Record<string, string> = {
+  hvac: 'each',
+  hvac_demo: 'each',
+  ductwork: 'lf',
+  supply_registers: 'each',
+  return_grilles: 'each',
+  thermostat: 'each',
+  ventilation: 'each',
+  equipment_replace: 'each',
+  furnace: 'each',
+  condenser: 'each',
+  heat_pump: 'each',
+  mini_split: 'each',
+  air_handler: 'each',
+};
+
+function resolveHvacLibrarySuggestedPricing(
+  itemId: string,
+  resolved: Pick<
+    ReturnType<typeof resolveChecklistItemQuantity>,
+    'quantity' | 'unit' | 'dualCount'
+  >
+): ReturnType<typeof resolveScopeItemSuggestedPricing> {
+  const canonicalId = HVAC_PRICING_CARD_ALIASES[itemId] || itemId;
+  const unit = HVAC_PRICING_CARD_UNITS[canonicalId];
+  if (!unit) return { fill: null, comparison: null };
+  const quantity = Number(resolved.dualCount?.quantity ?? resolved.quantity);
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return { fill: null, comparison: null };
+  }
+  const rate = getNationalAverageBudgetSplit(canonicalId, unit);
+  if (!rate || !(rate.material + rate.labor > 0)) {
+    return { fill: null, comparison: null };
+  }
+  const material = Math.round(quantity * rate.material * 100) / 100;
+  const labor = Math.round(quantity * rate.labor * 100) / 100;
+  return {
+    fill: {
+      material,
+      labor,
+      total: material + labor,
+      materialSource: 'national_average',
+      laborSource: 'national_average',
+      rateSourceLabel: rate.sourceLabel,
+      helper: `Based on ${quantity.toLocaleString()} ${unit}`,
+      mode: 'suggested_price',
+      basis: { quantity, unit },
+      pricingRecordId: `bps_national:${canonicalId}:${unit}`,
+      benchmarkLevel: 'component',
+      benchmarkScopeKey: canonicalId,
+      benchmarkAction: 'price_ready',
+    },
+    comparison: null,
+  };
+}
+
+function resolveAirSealingLibrarySuggestedPricing(
+  measurementsInput: ScopeMeasurementsInputExtended,
+  resolved: Pick<
+    ReturnType<typeof resolveChecklistItemQuantity>,
+    'quantity' | 'unit'
+  >
+): ReturnType<typeof resolveScopeItemSuggestedPricing> {
+  const quantity =
+    Number(measurementsInput.airSealingSqft) > 0
+      ? Number(measurementsInput.airSealingSqft)
+      : Number(resolved.quantity);
+  if (!Number.isFinite(quantity) || quantity <= 0 || resolved.unit !== 'sqft') {
+    return { fill: null, comparison: null };
+  }
+  const material = roundMoney2(quantity * 0.15);
+  const labor = roundMoney2(quantity * 0.35);
+  return {
+    fill: {
+      material,
+      labor,
+      total: roundMoney2(material + labor),
+      materialSource: 'national_average',
+      laborSource: 'national_average',
+      rateSourceLabel: 'National planning allowance · standard air sealing',
+      helper: `Based on ${quantity.toLocaleString()} sqft`,
+      mode: 'suggested_price',
+      splitSource: 'estimated',
+      splitConfidence: 'low',
+      basis: { quantity, unit: 'sqft' },
+      displayUnitRateLabel: '$0.50/sqft',
+      benchmarkAction: 'price_ready',
+      productionStatus: 'planning',
+      benchmarkLevel: 'component',
+      benchmarkScopeKey: 'air_sealing',
+    },
+    comparison: null,
+  };
+}
+
 function QuantitySection({
   itemId,
   choiceId,
@@ -5876,7 +5982,7 @@ function QuantitySection({
 
     if (resolved.pricingReady && !showEditor) {
       let displayResolved = mergeNotesSplitForDisplay();
-      const rawSuggested = resolveScopeItemSuggestedPricing(
+      const calculatedSuggested = resolveScopeItemSuggestedPricing(
         itemId,
         measurementsInput,
         templateKey,
@@ -5885,6 +5991,15 @@ function QuantitySection({
         choiceId,
         originalNotes
       );
+      const hvacLibrarySuggested = resolveHvacLibrarySuggestedPricing(
+        itemId,
+        displayResolved
+      );
+      const rawSuggested = calculatedSuggested.fill
+        ? calculatedSuggested
+        : hvacLibrarySuggested.fill
+          ? { fill: hvacLibrarySuggested.fill, comparison: calculatedSuggested.comparison }
+          : calculatedSuggested;
       const initialSuggested = hasUserSelectedPricing
         ? { fill: null, comparison: rawSuggested.comparison }
         : rawSuggested;
@@ -6473,7 +6588,7 @@ function QuantitySection({
     }
 
     if (!showEditor) {
-      const rawPlanningSuggested = resolveScopeItemSuggestedPricing(
+      const calculatedPlanningSuggested = resolveScopeItemSuggestedPricing(
         itemId,
         measurementsInput,
         templateKey,
@@ -6482,6 +6597,18 @@ function QuantitySection({
         choiceId,
         originalNotes
       );
+      const hvacLibraryPlanningSuggested = resolveHvacLibrarySuggestedPricing(
+        itemId,
+        resolved
+      );
+      const rawPlanningSuggested = calculatedPlanningSuggested.fill
+        ? calculatedPlanningSuggested
+        : hvacLibraryPlanningSuggested.fill
+          ? {
+              fill: hvacLibraryPlanningSuggested.fill,
+              comparison: calculatedPlanningSuggested.comparison,
+            }
+          : calculatedPlanningSuggested;
       const suppressFill = shouldSuppressSuggestedPricingAfterApply(
         itemId,
         measurementsInput.itemQuantities || {},
@@ -6960,7 +7087,7 @@ function QuantitySection({
       ? missingStatusDisplayLabel(itemId, templateKey)
       : `Needs ${neededLabel}`);
 
-  const initialSuggestedFromCatalog = resolveScopeItemSuggestedPricing(
+  const calculatedCatalogSuggested = resolveScopeItemSuggestedPricing(
     itemId,
     measurementsInput,
     templateKey,
@@ -6969,6 +7096,27 @@ function QuantitySection({
     choiceId,
     originalNotes
   );
+  const hvacLibraryCatalogSuggested = resolveHvacLibrarySuggestedPricing(
+    itemId,
+    resolved
+  );
+  const airSealingLibrarySuggested =
+    itemId === 'air_sealing'
+      ? resolveAirSealingLibrarySuggestedPricing(measurementsInput, resolved)
+      : { fill: null, comparison: null };
+  const initialSuggestedFromCatalog = calculatedCatalogSuggested.fill
+    ? calculatedCatalogSuggested
+    : hvacLibraryCatalogSuggested.fill
+      ? {
+          fill: hvacLibraryCatalogSuggested.fill,
+          comparison: calculatedCatalogSuggested.comparison,
+        }
+      : airSealingLibrarySuggested.fill
+        ? {
+            fill: airSealingLibrarySuggested.fill,
+            comparison: calculatedCatalogSuggested.comparison,
+          }
+      : calculatedCatalogSuggested;
   const windowTrimQuantity =
     itemId === 'exterior_trim_paint' &&
     String(templateKey || '').toLowerCase() === 'bathroom'
@@ -13994,6 +14142,7 @@ function CollapsibleQuickMeasurements({
   templateKey,
   projectType,
   notes,
+  hvacNotes,
   includedScopeKeys,
   insulationAssemblyCardActive = false,
   onSummaryChange,
@@ -14043,6 +14192,7 @@ function CollapsibleQuickMeasurements({
   templateKey?: string;
   projectType?: string | null;
   notes?: string | null;
+  hvacNotes?: string | null;
   includedScopeKeys: string[];
   /** The parent is rendering the assembly card, so legacy R-value fields are redundant. */
   insulationAssemblyCardActive?: boolean;
@@ -14352,9 +14502,14 @@ function CollapsibleQuickMeasurements({
     !singleTradeImport &&
     !stuccoTradeFlow &&
     isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey);
+  const compactBathroomPlumbingFlow =
+    String(effectiveTemplateKey || '').toLowerCase() === 'bathroom' &&
+    /\b(?:reroute|re-route|relocat(?:e|ed|ing|ion))\b[^.;\n]{0,45}\bplumb(?:ing)?\b|\bplumb(?:ing)?\b[^.;\n]{0,45}\b(?:reroute|re-route|relocat(?:e|d|ing|ion))\b/i.test(
+      String(notes || '')
+    );
   const quickMeasurementTemplateKey = stuccoTradeFlow
     ? 'stucco'
-    : notesTradeFlow && tradeKey === 'plumbing'
+    : notesTradeFlow && tradeKey === 'plumbing' && !compactBathroomPlumbingFlow
       ? notesTradeMode === 'plumbing_service'
         ? 'plumbing_service'
         : 'plumbing'
@@ -14416,13 +14571,17 @@ function CollapsibleQuickMeasurements({
   ]);
 
   const noteQuickMeasurements = useMemo(() => {
-    if (singleTradeImport || stuccoTradeFlow) {
+    if (
+      (singleTradeImport && !compactBathroomPlumbingFlow) ||
+      stuccoTradeFlow
+    ) {
       return { values: {}, keys: [] as QuickMeasurementFieldKey[] };
     }
     const parsed = parseScopeMeasurementsFromNotes(notes || '', {
       templateKey: quickMeasurementTemplateKey,
       projectType: projectType ?? undefined,
     });
+    const parsedPlumbing = parsePlumbingMeasurementsFromNotes(notes || '');
     const out: Partial<Record<QuickMeasurementFieldKey, string>> = {};
     const noteKeys: QuickMeasurementFieldKey[] = [];
     const put = (key: QuickMeasurementFieldKey, value: unknown) => {
@@ -14453,6 +14612,14 @@ function CollapsibleQuickMeasurements({
     put('countertopSqft', parsed.countertopSqft);
     put('countertopLf', parsed.countertopLf);
     put('cabinetLf', parsed.cabinetLf);
+    put('plumbingRerouteLf', parsed.plumbingRerouteLf);
+    put('serviceCallCount', parsedPlumbing.serviceCallCount);
+    put('fixtureRepairCount', parsedPlumbing.fixtureRepairCount);
+    put('fixtureReplacementCount', parsedPlumbing.fixtureReplacementCount);
+    put('drainCleaningCount', parsedPlumbing.drainCleaningCount);
+    put('partsMaterialsCount', parsedPlumbing.partsMaterialsCount);
+    put('emergencyFeeCount', parsedPlumbing.emergencyFeeCount);
+    put('plumbingCleanupCount', parsedPlumbing.plumbingCleanupCount);
     put('wallDemoSqft', parsed.wallDemoSqft);
     put('showerWallTileSqft', parsed.showerWallTileSqft);
     put('showerFloorTileSqft', parsed.showerFloorTileSqft);
@@ -14526,7 +14693,7 @@ function CollapsibleQuickMeasurements({
     // Bathroom drywall repair uses the dedicated patch/texture measurement.
     // Keep it note-backed so an explicit repair sqft is Confirmed rather than
     // being treated as a manual quantity.
-    if (!patchRepairMatchesDrywall) {
+    if (compactBathroomPlumbingFlow || !patchRepairMatchesDrywall) {
       put('patchRepairSqft', parsed.patchRepairSqft);
     }
     put('exteriorWallInsulationSqft', parsed.exteriorWallInsulationSqft);
@@ -14628,6 +14795,59 @@ function CollapsibleQuickMeasurements({
     quickMeasurementTemplateKey,
     projectType,
     stuccoTradeFlow,
+    compactBathroomPlumbingFlow,
+  ]);
+  useEffect(() => {
+    if (!notesTradeFlow) return;
+    const plumbingNoteKeys = [
+      'serviceCallCount',
+      'fixtureRepairCount',
+      'fixtureReplacementCount',
+      'drainCleaningCount',
+      'partsMaterialsCount',
+      'emergencyFeeCount',
+      'plumbingCleanupCount',
+    ] as const;
+    const noteValues = noteQuickMeasurements.values;
+    const updates = plumbingNoteKeys.reduce(
+      (next, key) => {
+        const value = noteValues[key];
+        const current = measurementsRef.current[key];
+        if (
+          value &&
+          (current == null ||
+            String(current).trim() === '' ||
+            Number(current) <= 0)
+        ) {
+          next[key] = value;
+        }
+        return next;
+      },
+      {} as Partial<ScopeMeasurementsInputExtended>
+    );
+    if (!Object.keys(updates).length) return;
+    const nextMeasurements = {
+      ...measurementsRef.current,
+      ...updates,
+      quickMeasurementSources: {
+        ...(measurementsRef.current.quickMeasurementSources || {}),
+        ...Object.fromEntries(
+          Object.keys(updates).map(key => [key, 'notes'])
+        ),
+      },
+    };
+    measurementsRef.current = nextMeasurements;
+    setMeasurements(nextMeasurements);
+    setItems(previous =>
+      syncPlumbingScopeItems(previous, {
+        plumbingScope: nextMeasurements.plumbingScope,
+        quantities: nextMeasurements,
+      })
+    );
+  }, [
+    notesTradeFlow,
+    noteQuickMeasurements.values,
+    setMeasurements,
   ]);
   const rows = useMemo(() => {
     let baseRows = quickMeasurementRowsForInput(
@@ -14732,10 +14952,14 @@ function CollapsibleQuickMeasurements({
     ) {
       ensureScopeField('wallDemoSqft');
     }
-    if (hasScopeOrNote(['drywall'], /\b(?:drywall|sheetrock|gypsum)\b/i)) {
+    if (
+      !compactBathroomPlumbingFlow &&
+      hasScopeOrNote(['drywall'], /\b(?:drywall|sheetrock|gypsum)\b/i)
+    ) {
       ensureScopeField('drywallSqft');
     }
     if (
+      !compactBathroomPlumbingFlow &&
       hasScopeOrNote(
         ['flooring', 'floor_demo', 'floor_prep'],
         /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i
@@ -14940,8 +15164,16 @@ function CollapsibleQuickMeasurements({
       return filteredRows;
     }
     if (notesTradeFlow) {
+      // Ground-up Notes/Voice plumbing needs the complete standalone
+      // measurement card. Plan Export keeps its narrower, plan-evidence rows.
+      if (measurements.plumbingWorkflowMode === 'new_construction') {
+        return baseRows;
+      }
       const allowed =
         plumbingQuickMeasurementKeysForIncludedScope(includedScopeKeys);
+      for (const key of noteQuickMeasurements.keys) {
+        allowed.add(key as PlumbingQuantityKey);
+      }
       return baseRows
         .map(row => row.filter(field => allowed.has(field.key)))
         .filter(row => row.length > 0);
@@ -15203,6 +15435,7 @@ function CollapsibleQuickMeasurements({
     singleTradeImport,
     tradeKey,
     notesTradeFlow,
+    noteQuickMeasurements.keys,
     quickMeasurementTemplateKey,
     measurements.plumbingWorkflowMode,
   ]);
@@ -15283,9 +15516,120 @@ function CollapsibleQuickMeasurements({
   const deckQmJob =
     !wholeHomeLayout &&
     String(effectiveTemplateKey || '').toLowerCase() === 'deck_patio';
+  const mixedHvacScope =
+    includedScopeKeys.some(key =>
+      [
+        'hvac',
+        'ductwork',
+        'supply_registers',
+        'return_grilles',
+        'thermostat',
+        'equipment_replace',
+        'ventilation',
+      ].includes(String(key).toLowerCase())
+    ) ||
+    /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
+      String(notes || '')
+    );
   const hvacQmJob =
     !wholeHomeLayout &&
-    String(effectiveTemplateKey || '').toLowerCase() === 'hvac';
+    (String(effectiveTemplateKey || '').toLowerCase() === 'hvac' ||
+      mixedHvacScope);
+  const hvacPanelMeasurements = useMemo(() => {
+    const dedicatedHvac =
+      String(effectiveTemplateKey || '').toLowerCase() === 'hvac';
+    if (!mixedHvacScope && !dedicatedHvac) return measurements;
+    const selected = new Set(measurements.tradeScopeSelections?.hvac || []);
+    const addForScopeKey: Record<string, string> = {
+      hvac: 'hvac_systems',
+      hvac_systems: 'hvac_systems',
+      hvac_capacity: 'hvac_capacity',
+      ductwork: 'ductwork',
+      supply_registers: 'registers',
+      return_grilles: 'returns',
+      thermostat: 'thermostat',
+      ventilation: 'ventilation',
+    };
+    for (const key of includedScopeKeys) {
+      const optionId = addForScopeKey[String(key).toLowerCase()];
+      if (optionId) selected.add(optionId);
+    }
+    const capacityManuallyRemoved = Boolean(
+      measurements.quickMeasurementUserOverrides?.hvacSystemTons
+    );
+    if (
+      selected.has('hvac_systems') &&
+      !selected.has('hvac_capacity') &&
+      !capacityManuallyRemoved
+    ) {
+      selected.add('hvac_capacity');
+    }
+    const noteText = [notes, hvacNotes]
+      .map(value => String(value || '').trim())
+      .filter(Boolean)
+      .join('\n');
+    if (
+      /\b(?:hvac|heating|cooling|furnace|air\s*condition(?:er|ing)?|heat[\s-]*pump)\b/i.test(
+        noteText
+      )
+    ) {
+      selected.add('hvac_systems');
+    }
+    if (/\bductwork\b/i.test(noteText)) selected.add('ductwork');
+    if (/\b(?:supply\s+)?registers?\b|\bdiffusers?\b/i.test(noteText)) {
+      selected.add('registers');
+    }
+    if (/\breturn\s+grilles?\b|\breturns?\b/i.test(noteText)) {
+      selected.add('returns');
+    }
+    if (/\bthermostats?\b/i.test(noteText)) selected.add('thermostat');
+    if (/\bwhole[-\s]?house\s+ventilation\b/i.test(noteText)) {
+      selected.add('ventilation');
+    }
+    const populatedSelections = [
+      hvacFieldHasTakeoffEvidence(
+        measurements as Record<string, unknown>,
+        'hvacDuctworkLf'
+      )
+        ? 'ductwork'
+        : null,
+      hvacFieldHasTakeoffEvidence(
+        measurements as Record<string, unknown>,
+        'hvacThermostatCount'
+      )
+        ? 'thermostat'
+        : null,
+      hvacFieldHasTakeoffEvidence(
+        measurements as Record<string, unknown>,
+        'hvacSupplyRegisterCount'
+      )
+        ? 'registers'
+        : null,
+      hvacFieldHasTakeoffEvidence(
+        measurements as Record<string, unknown>,
+        'hvacReturnGrilleCount'
+      )
+        ? 'returns'
+        : null,
+    ].filter((id): id is string => Boolean(id));
+    populatedSelections.forEach(id => selected.add(id));
+    if (!selected.size) return measurements;
+    return {
+      ...measurements,
+      tradeScopeSelections: {
+        ...(measurements.tradeScopeSelections || {}),
+        hvac: Array.from(selected),
+      },
+    };
+  }, [
+    mixedHvacScope,
+    measurements,
+    measurements.tradeScopeSelections?.hvac,
+    includedScopeKeys,
+    notes,
+    hvacNotes,
+    effectiveTemplateKey,
+  ]);
   const roofingNotesFlow =
     /\b(?:roof(?:ing)?|shingles?|tear[\s-]?off|gutters?|downspouts?)\b/i.test(
       String(notes || '')
@@ -15387,6 +15731,12 @@ function CollapsibleQuickMeasurements({
   const showWetAreaFinishSteppers = useMemo(() => {
     if (notesTradeFlow) return false;
     if (singleTradeImport) return false;
+    const noteText = String(notes || '');
+    const notesExplicitWetAreaWork =
+      /\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|walls?|floor\s+tile)|tub|bathtub|wet\s+area)\b/i.test(
+        noteText
+      );
+    if (!notesExplicitWetAreaWork) return false;
     if (
       shouldShowPlanWetAreaFinishSteppers({
         templateKey: effectiveTemplateKey,
@@ -15413,6 +15763,7 @@ function CollapsibleQuickMeasurements({
     return false;
   }, [
     notesTradeFlow,
+    notes,
     effectiveTemplateKey,
     bathCountFromPlan,
     wholeHomeLayout,
@@ -17888,6 +18239,10 @@ function CollapsibleQuickMeasurements({
     ['plumbing', 'plumbing_service'].includes(
       String(quickMeasurementTemplateKey || '').toLowerCase()
     );
+  const standaloneNewConstructionPlumbingNotesFlow =
+    notesTradeFlow &&
+    !singleTradeImport &&
+    measurements.plumbingWorkflowMode === 'new_construction';
   const electricalMeasurementFlow =
     (singleTradeImport && tradeKey === 'electrical') ||
     String(quickMeasurementTemplateKey || '').toLowerCase() === 'electrical';
@@ -17901,7 +18256,9 @@ function CollapsibleQuickMeasurements({
     .filter((result): result is QuickMeasurementFieldResult =>
       Boolean(
         result &&
-        (result.relevant || result.key === 'gasLineLf') &&
+        (result.relevant ||
+          result.key === 'gasLineLf' ||
+          standaloneNewConstructionPlumbingNotesFlow) &&
         shouldRenderGeneralResult(result)
       )
     );
@@ -19390,8 +19747,9 @@ function CollapsibleQuickMeasurements({
               {hvacQmJob ? (
                 <QmSimpleTradeScopePanels
                   scopeKey='hvac'
-                  measurements={measurements}
+                  measurements={hvacPanelMeasurements}
                   setMeasurements={setMeasurements}
+                  notes={hvacNotes}
                   onScopeSelectionChange={onHvacScopeSelectionChange}
                   applying={applying}
                   darkMode={darkMode}
@@ -19901,6 +20259,7 @@ export default function AIEstimateScopeAssumptionsModal({
   ]);
   const [items, setItems] = useState<ScopeChecklistItem[]>([]);
   const baseItemsRef = useRef<ScopeChecklistItem[]>([]);
+  const wholeProjectItemsRef = useRef<ScopeChecklistItem[]>([]);
   const [notesTradeMode, setNotesTradeMode] =
     useState<NotesScopeMode>('whole_project');
   useEffect(() => {
@@ -20194,6 +20553,21 @@ export default function AIEstimateScopeAssumptionsModal({
   const activeScopeKeysForMeasurementRouting = items
     .filter(checklistItemInScope)
     .map(item => item.id);
+  const mixedHvacScope =
+    activeScopeKeysForMeasurementRouting.some(key =>
+      [
+        'hvac',
+        'ductwork',
+        'supply_registers',
+        'return_grilles',
+        'thermostat',
+        'equipment_replace',
+        'ventilation',
+      ].includes(String(key).toLowerCase())
+    ) ||
+    /\b(?:hvac|heating|cooling|furnace|heat\s+pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
+      String(scopeNotes || '')
+    );
   const activeStructuralMixedScope =
     activeScopeKeysForMeasurementRouting.some(key =>
       ['framing', 'shear_sheathing', 'openings'].includes(key)
@@ -20249,9 +20623,7 @@ export default function AIEstimateScopeAssumptionsModal({
       ));
   const notesPlumbingFlow =
     notesScopeSelectorVisible &&
-    (notesTradeMode !== 'whole_project' ||
-      measurements.tradeWorkflowSource === 'standalone_trade' ||
-      notesSuggestPlumbingBid(scopeNotes));
+    notesTradeMode !== 'whole_project';
   const effectiveNotesTradeMode =
     notesTradeMode !== 'whole_project'
       ? notesTradeMode
@@ -21483,7 +21855,12 @@ export default function AIEstimateScopeAssumptionsModal({
             : 'Work detected in notes and mapped to the existing pricing catalog.',
         category: fact.catalogEntry?.category || 'from_notes',
         state:
-          fact.quantity == null ? ('unsure' as const) : ('included' as const),
+          fact.quantity == null &&
+          !['landscape', 'hardscape'].includes(
+            String(fact.catalogEntry?.category || '').toLowerCase()
+          )
+            ? ('unsure' as const)
+            : ('included' as const),
         noteBacked: true,
         catalogBacked: true,
         catalogScopeId: String(fact.scopeId),
@@ -21492,6 +21869,30 @@ export default function AIEstimateScopeAssumptionsModal({
         sourceText: '',
       }));
     if (catalogFactItems.length) {
+      const catalogFactsById = new Map(
+        catalogFactItems.map(item => [item.id, item])
+      );
+      sourceItems = sourceItems.map(item => {
+        const factItem = catalogFactsById.get(item.id);
+        if (
+          !factItem ||
+          item.state === 'excluded' ||
+          factItem.state !== 'included' ||
+          item.state !== 'unsure' ||
+          item.noteBacked !== true
+        ) {
+          return item;
+        }
+        return {
+          ...item,
+          state: 'included' as const,
+          noteBacked: true,
+          catalogBacked: true,
+          catalogScopeId: factItem.catalogScopeId,
+          quantityRuleKey: factItem.quantityRuleKey,
+          pricingRuleKey: factItem.pricingRuleKey,
+        };
+      });
       const existingIds = new Set(sourceItems.map(item => item.id));
       sourceItems = [
         ...sourceItems,
@@ -21954,7 +22355,8 @@ export default function AIEstimateScopeAssumptionsModal({
     if (
       hydratedPlanTrade === 'hvac' ||
       hydrateTradeContext.tradeKey === 'hvac' ||
-      String(checklist.templateKey || '').toLowerCase() === 'hvac'
+      String(checklist.templateKey || '').toLowerCase() === 'hvac' ||
+      mixedHvacScope
     ) {
       nextMeasurements = applyHvacProvenanceGuardToScopeMeasurements(
         nextMeasurements as Record<string, unknown>
@@ -21991,6 +22393,67 @@ export default function AIEstimateScopeAssumptionsModal({
         measurements: nextMeasurements as Record<string, unknown>,
         checklistItems: sourceItems,
       }) as typeof nextMeasurements;
+      const noteHvacSelections = inferHvacScopeSelectionsFromNotes(scopeNotes);
+      const populatedHvacSelections = [
+        hvacFieldHasTakeoffEvidence(
+          nextMeasurements as Record<string, unknown>,
+          'hvacSystemCount'
+        )
+          ? 'hvac_systems'
+          : null,
+        hvacFieldHasTakeoffEvidence(
+          nextMeasurements as Record<string, unknown>,
+          'hvacSystemTons'
+        )
+          ? 'hvac_capacity'
+          : null,
+        hvacFieldHasTakeoffEvidence(
+          nextMeasurements as Record<string, unknown>,
+          'hvacDuctworkLf'
+        )
+          ? 'ductwork'
+          : null,
+        hvacFieldHasTakeoffEvidence(
+          nextMeasurements as Record<string, unknown>,
+          'hvacThermostatCount'
+        )
+          ? 'thermostat'
+          : null,
+        hvacFieldHasTakeoffEvidence(
+          nextMeasurements as Record<string, unknown>,
+          'hvacSupplyRegisterCount'
+        )
+          ? 'registers'
+          : null,
+        hvacFieldHasTakeoffEvidence(
+          nextMeasurements as Record<string, unknown>,
+          'hvacReturnGrilleCount'
+        )
+          ? 'returns'
+          : null,
+        hvacFieldHasTakeoffEvidence(
+          nextMeasurements as Record<string, unknown>,
+          'hvacVentilationCount'
+        )
+          ? 'ventilation'
+          : null,
+      ].filter((id): id is string => Boolean(id));
+      const inferredHvacSelections = Array.from(
+        new Set([...noteHvacSelections, ...populatedHvacSelections])
+      );
+      if (inferredHvacSelections.length) {
+        const existingHvacSelections =
+          nextMeasurements.tradeScopeSelections?.hvac || [];
+        nextMeasurements = {
+          ...nextMeasurements,
+          tradeScopeSelections: {
+            ...(nextMeasurements.tradeScopeSelections || {}),
+            hvac: Array.from(
+              new Set([...existingHvacSelections, ...inferredHvacSelections])
+            ),
+          },
+        };
+      }
     }
     if (
       String(checklist.templateKey || '').toLowerCase() === 'roofing' ||
@@ -22154,6 +22617,15 @@ export default function AIEstimateScopeAssumptionsModal({
       nextMeasurements
     );
     if (
+      mixedHvacScope ||
+      String(checklist.templateKey || '').toLowerCase() === 'hvac'
+    ) {
+      normalized = simpleTradePanelFor('hvac').syncScopeItems(
+        normalized,
+        nextMeasurements as Record<string, unknown>
+      );
+    }
+    if (
       String(checklist.templateKey || '').toLowerCase() === 'bathroom' &&
       normalized.some(item => item.id === 'baseboard_install') &&
       !normalized.some(item => item.id === 'trim_paint')
@@ -22187,6 +22659,7 @@ export default function AIEstimateScopeAssumptionsModal({
       planImport?.scopeDetections
     ).items;
     baseItemsRef.current = normalized;
+    wholeProjectItemsRef.current = normalized;
     if (hydrateTradeContext.isSingleTrade && hydrateTradeContext.tradeKey) {
       normalized = filterChecklistItemsForTrade(
         normalized,
@@ -22527,6 +23000,7 @@ export default function AIEstimateScopeAssumptionsModal({
     checklist?.templateKey,
     singleTradeKey,
     roofingNotesFlow,
+    mixedHvacScope,
   ]);
 
   useEffect(() => {
@@ -23492,14 +23966,19 @@ export default function AIEstimateScopeAssumptionsModal({
   const syncHvacQmScopeItems = useCallback(
     (nextMeasurements: Record<string, unknown>) => {
       setItems(prev => {
-        const next = syncQmPanelScopeItems(
-          prev,
-          {
-            templateKey: singleTradeKey || checklist?.templateKey,
-            wholeHomeLayout: false,
-          },
-          nextMeasurements
-        );
+        const next = nextMeasurements.tradeScopeSelections?.hvac
+          ? simpleTradePanelFor('hvac').syncScopeItems(
+              prev,
+              nextMeasurements
+            )
+          : syncQmPanelScopeItems(
+              prev,
+              {
+                templateKey: singleTradeKey || checklist?.templateKey,
+                wholeHomeLayout: false,
+              },
+              nextMeasurements
+            );
         const unchanged =
           next.length === prev.length &&
           next.every((item, index) => item === prev[index]);
@@ -27829,7 +28308,10 @@ export default function AIEstimateScopeAssumptionsModal({
                 : checklist?.templateKey
             }
             projectType={draft?.projectType}
-            notes={quickMeasurementNotes}
+            notes={[quickMeasurementNotes, scopeNotes]
+              .filter(Boolean)
+              .join('\n')}
+            hvacNotes={scopeNotes}
             includedScopeKeys={scopeAssemblyContext.activeScopeKeys}
             insulationAssemblyCardActive={
               insulationTemplateKey === 'insulation'
@@ -27993,6 +28475,98 @@ export default function AIEstimateScopeAssumptionsModal({
               startTransition(() => {
                 setNotesTradeMode(mode);
                 const plumbingState = plumbingStateFromNotesScopeMode(mode);
+                const plumbingItemIdSet = new Set(
+                  PLUMBING_CARDS.map(card => card.itemId)
+                );
+                const plumbingMeasurementKeySet = new Set(
+                  PLUMBING_CARDS.map(card => card.measurementKey)
+                );
+                const resetPlumbingState = (
+                  previous: ScopeMeasurementsInputExtended,
+                  allowedItems: ScopeChecklistItem[] = []
+                ): ScopeMeasurementsInputExtended => {
+                  const next = {
+                    ...previous,
+                    itemQuantities: { ...(previous.itemQuantities || {}) },
+                    quickMeasurementSources: {
+                      ...(previous.quickMeasurementSources || {}),
+                    },
+                    quickMeasurementUserOverrides: {
+                      ...(previous.quickMeasurementUserOverrides || {}),
+                    },
+                    pricingAcceptance: {
+                      ...(previous.pricingAcceptance || {}),
+                    },
+                    scopeGapResolutions: {
+                      ...(previous.scopeGapResolutions || {}),
+                    },
+                    measurementProvenance: {
+                      ...(previous.measurementProvenance || {}),
+                    },
+                  } as ScopeMeasurementsInputExtended;
+                  const mutable = next as Record<string, unknown>;
+                  for (const key of plumbingMeasurementKeySet) {
+                    delete mutable[key];
+                    delete next.quickMeasurementSources?.[key];
+                    delete next.quickMeasurementUserOverrides?.[key];
+                    delete next.measurementProvenance?.[key];
+                  }
+                  for (const itemId of plumbingItemIdSet) {
+                    delete next.itemQuantities?.[itemId];
+                    delete next.pricingAcceptance?.[itemId];
+                    delete next.scopeGapResolutions?.[itemId];
+                  }
+                  delete mutable.plumbingScope;
+                  delete mutable.plumbingComplexityFactors;
+                  delete mutable.projectComplexity;
+                  delete mutable.floorAreaSqft;
+                  delete mutable.storyCount;
+
+                  if (mode === 'whole_project') {
+                    return {
+                      ...next,
+                      tradeWorkflowSource: null,
+                      plumbingWorkflowMode: null,
+                      plumbingPerformerMode: null,
+                      plumbingRoomContext: null,
+                      plumbingScope: null,
+                    };
+                  }
+
+                  const parsed = parsePlumbingMeasurementsFromNotes(scopeNotes);
+                  const allowedKeys = new Set(
+                    allowedItems
+                      .filter(item => item.state !== 'excluded')
+                      .map(item => plumbingCardForItemId(item.id)?.measurementKey)
+                      .filter((key): key is PlumbingQuantityKey => Boolean(key))
+                  );
+                  for (const [key, value] of Object.entries(parsed)) {
+                    if (!allowedKeys.has(key as PlumbingQuantityKey)) continue;
+                    mutable[key] = String(value);
+                    next.quickMeasurementSources = {
+                      ...(next.quickMeasurementSources || {}),
+                      [key]: 'notes',
+                    };
+                  }
+                  if (plumbingState.plumbingWorkflowMode === 'new_construction') {
+                    const context =
+                      parsePlumbingProjectContextFromNotes(scopeNotes);
+                    if (context.floorAreaSqft) {
+                      mutable.floorAreaSqft = String(context.floorAreaSqft);
+                    }
+                    if (context.storyCount) {
+                      mutable.storyCount = String(context.storyCount);
+                    }
+                  }
+                  return {
+                    ...next,
+                    tradeWorkflowSource: plumbingState.tradeWorkflowSource,
+                    plumbingWorkflowMode: plumbingState.plumbingWorkflowMode,
+                    plumbingPerformerMode: null,
+                    plumbingRoomContext: plumbingState.plumbingRoomContext,
+                    plumbingScope: null,
+                  };
+                };
                 if (mode !== 'whole_project') {
                   const plumbingItems = buildStandalonePlumbingChecklistItems(
                     plumbingState.checklistMode,
@@ -28006,23 +28580,26 @@ export default function AIEstimateScopeAssumptionsModal({
                     noteBacked: card.noteBacked,
                   }));
                   setItems(plumbingItems);
-                  setMeasurementsSynced(prev => ({
-                    ...prev,
-                    tradeWorkflowSource: plumbingState.tradeWorkflowSource,
-                    plumbingWorkflowMode: plumbingState.plumbingWorkflowMode,
-                    plumbingRoomContext: plumbingState.plumbingRoomContext,
-                    plumbingScope: plumbingItems.map(item => item.id),
-                  }));
+                  setMeasurementsSynced(prev => {
+                    const next = resetPlumbingState(prev, plumbingItems);
+                    next.plumbingScope = plumbingItems
+                      .filter(item => item.state !== 'excluded')
+                      .map(item => item.id);
+                    return next;
+                  });
+                  const selected = { ...selectedPricingRef.current };
+                  for (const itemId of plumbingItemIdSet) delete selected[itemId];
+                  selectedPricingRef.current = selected;
                 } else {
-                  setItems(baseItemsRef.current);
-                  setMeasurementsSynced(prev => ({
-                    ...prev,
-                    tradeWorkflowSource: null,
-                    plumbingWorkflowMode: null,
-                    plumbingPerformerMode: null,
-                    plumbingRoomContext: null,
-                    plumbingScope: null,
-                  }));
+                  setItems(
+                    wholeProjectItemsRef.current.length
+                      ? wholeProjectItemsRef.current
+                      : baseItemsRef.current
+                  );
+                  setMeasurementsSynced(resetPlumbingState);
+                  const selected = { ...selectedPricingRef.current };
+                  for (const itemId of plumbingItemIdSet) delete selected[itemId];
+                  selectedPricingRef.current = selected;
                 }
               });
             }}

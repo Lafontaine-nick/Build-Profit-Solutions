@@ -134,4 +134,22 @@ describe('landscaping QM', () => {
     );
     expect(next[0].state).toBe('excluded');
   });
+
+  it('keeps edging and retaining walls on their own priced cards', () => {
+    const next = syncLandscapingQmScopeItems(
+      [item('concrete_edging'), item('retaining_wall'), item('concrete')],
+      {
+        landscapeScope: ['concrete_edging', 'retaining_wall', 'concrete'],
+        concreteEdgingLf: '180',
+        retainingWallLf: '60',
+        concreteSqft: '500',
+      }
+    );
+
+    expect(next.filter(row => row.state === 'included').map(row => row.id)).toEqual([
+      'concrete_edging',
+      'retaining_wall',
+      'concrete',
+    ]);
+  });
 });

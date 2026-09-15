@@ -10,18 +10,18 @@ export const ADDITION_CONVERSION_PROJECT_TYPES = new Set([
 ]);
 
 export const ADDITION_CONVERSION_NOTES =
-  /\b(garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage|(?:convert(?:ing)?|conversion\s+of)\s+(?:an?\s+)?(?:existing\s+)?(?:room|bedroom|basement|attic|bonus\s+room|office|studio|shop|storage)|room\s+conversion|basement\s+conversion|attic\s+conversion|room\s+addition|home\s+addition|bedroom\s+addition|casita|\badu\b|accessory\s+dwelling|in[\s-]?law\s+suite|add(?:ition)?\s+(?:a\s+)?(?:new\s+)?(?:room|bedroom|bathroom|suite)|(?:new|add)\s+\d[\d,]*\s*sq\.?\s*ft\s+(?:room|addition|bedroom))\b/i;
+  /\b(garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage|(?:convert(?:ing)?|conversion\s+of)\s+(?:an?\s+)?(?:existing\s+)?(?:room|bedroom|basement|attic|bonus\s+room|office|studio|shop|storage)|room\s+conversion|basement\s+conversion|attic\s+conversion|room\s+addition|home\s+addition|bedroom\s+addition|casita|\badu\b|accessory\s+dwelling|in[\s-]?law\s+suite|add(?:ition)?\s+(?:a\s+)?(?:new\s+)?(?:room|bedroom|bathroom|suite)|(?:build|building|construct|constructing)\s+(?:a\s+)?\d[\d,]*\s*sq\.?\s*ft\s+addition|(?:new|add)\s+\d[\d,]*\s*sq\.?\s*ft\s+(?:room|addition|bedroom))\b/i;
 
 const GARAGE_CONVERSION_NOTES =
   /\b(garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage)\b/i;
 
 /** Room/garage/basement conversions that reuse an existing shell — not new construction. */
 const EXISTING_SHELL_CONVERSION_NOTES =
-  /\b(?:garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?garage|(?:convert(?:ing)?|conversion\s+of)\s+(?:an?\s+)?(?:existing\s+)?(?:room|bedroom|basement|attic|bonus\s+room|office|studio|shop|storage|garage)|room\s+conversion|basement\s+conversion|attic\s+conversion)\b/i;
+    /\b(?:garage\s+conversion|convert(?:ing)?\s+(?:\d[\d,]*\s*[-\s]?car\s*)?(?:existing\s+)?(?:detached\s+)?garage|(?:convert(?:ing)?|conversion\s+of)\s+(?:an?\s+)?(?:existing\s+)?(?:room|bedroom|basement|attic|bonus\s+room|office|studio|shop|storage|garage)|room\s+conversion|basement\s+conversion|attic\s+conversion)\b/i;
 
 /** Physical new structure — room/home addition, detached ADU/casita, etc. */
 const NEW_STRUCTURE_ADDITION_NOTES =
-  /\b(?:room\s+addition|home\s+addition|bedroom\s+addition|(?:add|adding)\s+(?:a\s+)?(?:new\s+)?(?:room|bedroom|bathroom|suite|wing)|(?:new|add)\s+\d[\d,]*\s*sq\.?\s*ft\s+(?:room|addition|bedroom)|detached\s+(?:adu|casita|guest\s+house)|accessory\s+dwelling\s+unit)\b/i;
+  /\b(?:room\s+addition|home\s+addition|bedroom\s+addition|(?:add|adding)\s+(?:a\s+)?(?:new\s+)?(?:room|bedroom|bathroom|suite|wing)|(?:build|building|construct|constructing)\s+(?:a\s+)?\d[\d,]*\s*sq\.?\s*ft\s+addition|(?:new|add)\s+\d[\d,]*\s*sq\.?\s*ft\s+(?:room|addition|bedroom)|detached\s+(?:adu|casita|guest\s+house)|accessory\s+dwelling\s+unit)\b/i;
 
 const NEW_STRUCTURE_ADDITION_PROJECT_TYPES = new Set([
   'room_addition',

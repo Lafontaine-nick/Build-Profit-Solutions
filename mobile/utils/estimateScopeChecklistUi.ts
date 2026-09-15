@@ -824,8 +824,39 @@ export function applyAdditionConversionScopeDefaults(
       defaultIncluded.add('electrical_trim');
     }
   }
+  if (
+    /\bplumbing\b/i.test(n) &&
+    !/\bplumbing\s+(?:fixtures?|trim(?:[\s-]?out)?|final)\b/i.test(n) &&
+    !/\bfinal\s+plumbing\b/i.test(n)
+  ) {
+    defaultIncluded.add('plumbing_rough');
+  }
+  if (/\b(?:air\s*sealing|air\s*seal(?:ing)?|gap\s+sealing)\b/i.test(n)) {
+    defaultIncluded.add('air_sealing');
+  }
+  const foundationOnlyNote =
+    !garage &&
+    /\bfoundation\b/i.test(n) &&
+    !/\b(?:concrete|slab|footings?|stem\s+wall|pour)\b/i.test(n);
+  const existingAreaClearingNote =
+    /\b(?:clear(?:ing)?\s+(?:and\s+)?(?:demolish|remove)|demolish(?:ed|ing)?\s+the\s+existing\s+area)\b/i.test(
+      n
+    );
 
   return items.map(item => {
+    if (item.id === 'sitework' && existingAreaClearingNote) {
+      return {
+        ...item,
+        label: 'Site clearing / existing-area demolition',
+        helperText:
+          'Clear and remove the existing area identified in the notes. Confirm the affected area and disposal requirements before pricing.',
+        state: 'included' as const,
+        noteBacked: true,
+      };
+    }
+    if (foundationOnlyNote && item.id === 'concrete') {
+      return { ...item, state: 'excluded' as const };
+    }
     if (
       existingShell &&
       EXISTING_SHELL_CONVERSION_OUT_OF_SCOPE_IDS.has(item.id) &&
@@ -1011,7 +1042,24 @@ export function filterExistingShellConversionConfirmScopeItems(
   ) {
     return items;
   }
-  return items.filter(item => item.state !== 'excluded');
+  const notes = String(options.notes || '');
+  const explicitlyAddsOpenings = notesExplicitlyAddOpenings(notes);
+  const existingShellOutOfScope = EXISTING_SHELL_CONVERSION_OUT_OF_SCOPE_IDS;
+  const granularOpeningIds = new Set([
+    'windows',
+    'window_install',
+    'exterior_doors',
+    'exterior_door_install',
+    'sliding_doors',
+    'patio_doors',
+    'garage_doors',
+  ]);
+  return items.filter(item => {
+    if (item.state === 'excluded') return false;
+    if (existingShellOutOfScope.has(item.id)) return false;
+    if (!explicitlyAddsOpenings && granularOpeningIds.has(item.id)) return false;
+    return true;
+  });
 }
 
 /** @deprecated use filterExistingShellConversionConfirmScopeItems */
@@ -2608,10 +2656,27 @@ const NOTE_BACKED_SCOPE_IDS_WITHOUT_QUANTITY = [
   'windows',
   'exterior_doors',
   'insulation',
+  'air_sealing',
   'drywall',
   'plumbing',
   'electrical',
 ] as const;
+
+const ADDITION_SCOPE_OWNERS: Record<string, string> = {
+  demo_clearing: 'sitework',
+  trim: 'interior_trim',
+  trim_paint: 'interior_trim',
+  door_casing_paint: 'interior_trim',
+  exterior_trim_paint: 'interior_trim',
+  cabinets: 'cabinets_counters',
+  cabinet_install: 'cabinets_counters',
+  plumbing: 'plumbing_rough',
+  electrical: 'electrical_rough',
+  exterior_doors: 'windows_doors',
+  windows: 'windows_doors',
+  window_install: 'windows_doors',
+  roofing: 'roof_tie_in',
+};
 
 function injectNoteBackedPricedItems(
   items: ScopeChecklistItem[],
@@ -2624,10 +2689,15 @@ function injectNoteBackedPricedItems(
   const existingIds = new Set(items.map(item => item.id));
   const addedIds = new Set<string>();
   const additions: ScopeChecklistItem[] = [];
+  const isOwnedByAdditionPhase = (itemId: string): boolean =>
+    String(templateKey || '').toLowerCase() === 'addition' &&
+    Boolean(ADDITION_SCOPE_OWNERS[itemId]) &&
+    existingIds.has(ADDITION_SCOPE_OWNERS[itemId]);
 
   for (const key of Object.keys(itemQuantities)) {
     const itemId = itemIdFromQuantityKey(key);
     if (!itemId || existingIds.has(itemId) || addedIds.has(itemId)) continue;
+    if (isOwnedByAdditionPhase(itemId)) continue;
     if (
       ELECTRICAL_ITEM_IDS.includes(itemId) &&
       (!shouldMaterializeElectricalScopeItems(templateKey, notes) ||
@@ -2665,7 +2735,7 @@ function injectNoteBackedPricedItems(
     ) {
       continue;
     }
-    if (!getChecklistItemQuantityRule(itemId)) continue;
+    if (!getChecklistItemQuantityRule(itemId, templateKey)) continue;
     if (
       itemId === 'adhesive_mastic_removal' &&
       String(templateKey || '').toLowerCase() === 'bathroom'
@@ -2692,11 +2762,12 @@ function injectNoteBackedPricedItems(
 
   for (const itemId of NOTE_BACKED_SCOPE_IDS_WITHOUT_QUANTITY) {
     if (existingIds.has(itemId) || addedIds.has(itemId)) continue;
+    if (isOwnedByAdditionPhase(itemId)) continue;
     const identified =
       inferItemStateFromNotes(itemId, notes) === 'included' ||
       (itemId === 'flooring' &&
         inferItemStateFromNotes('tile_flooring', notes) === 'included');
-    if (!identified || !getChecklistItemQuantityRule(itemId)) continue;
+    if (!identified || !getChecklistItemQuantityRule(itemId, templateKey)) continue;
 
     const copy = NOTE_BACKED_SCOPE_COPY[itemId] || {
       label: itemId.replace(/_/g, ' ').replace(/\b\w/g, m => m.toUpperCase()),
@@ -2720,8 +2791,9 @@ function injectNoteBackedPricedItems(
   if (
     !existingIds.has('exterior_doors') &&
     !addedIds.has('exterior_doors') &&
+    !isOwnedByAdditionPhase('exterior_doors') &&
     inferItemStateFromNotes('exterior_doors', notes) === 'included' &&
-    getChecklistItemQuantityRule('exterior_doors')
+    getChecklistItemQuantityRule('exterior_doors', templateKey)
   ) {
     const copy = NOTE_BACKED_SCOPE_COPY.exterior_doors;
     additions.push({
@@ -5279,7 +5351,10 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
         'landscape_boulders',
       ],
     },
-    { title: 'Hardscape', itemIds: ['pavers', 'concrete'] },
+    {
+      title: 'Hardscape',
+      itemIds: ['pavers', 'concrete_edging', 'retaining_wall', 'concrete'],
+    },
     { title: 'Electrical', itemIds: ['landscape_lighting'] },
     { title: 'Closeout', itemIds: ['mobilization', 'cleanup'] },
   ],
@@ -5318,6 +5393,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
       title: 'Interior',
       itemIds: [
         'insulation',
+        'air_sealing',
         'drywall',
         'paint',
         'flooring',
@@ -5396,7 +5472,10 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   ],
   room_remodel: [
     { title: 'Scope', itemIds: ['demo', 'cleanup'] },
-    { title: 'Trades', itemIds: ['framing', 'plumbing', 'electrical', 'hvac'] },
+    {
+      title: 'Trades',
+      itemIds: ['framing', 'plumbing', 'electrical', 'hvac_demo', 'hvac'],
+    },
     { title: 'Finishes', itemIds: ['drywall', 'flooring', 'paint', 'trim'] },
     { title: 'Cabinets & counters', itemIds: ['cabinets', 'countertops', 'vanity'] },
     { title: 'Baseboard', itemIds: ['baseboard_install'] },
@@ -5467,6 +5546,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     {
       title: 'System & Equipment',
       itemIds: [
+        'hvac_demo',
         'hvac',
         'furnace',
         'condenser',
@@ -5616,8 +5696,23 @@ export function groupScopeChecklistItems(
   const used = new Set<string>();
   const result: Array<{ title: string; items: ScopeChecklistItem[] }> = [];
   const openingIds = new Set<string>(OPENING_SCOPE_ITEM_ORDER);
+  const existingShellConversion =
+    String(templateKey || '').toLowerCase() === 'addition' &&
+    isExistingShellConversionJob(
+      templateKey,
+      context.projectType,
+      context.notes
+    );
+  if (existingShellConversion) {
+    // Existing-shell conversions keep interior trim in the finish-out
+    // workflow. Only actual opening work belongs in the Openings group.
+    openingIds.delete('interior_trim');
+  }
   const hasDedicatedInteriorDoorInstall = byId.has('interior_door_install');
   const openingItems = OPENING_SCOPE_ITEM_ORDER.flatMap(id => {
+    if (existingShellConversion && id === 'interior_trim') {
+      return [];
+    }
     if (id === 'interior_doors' && hasDedicatedInteriorDoorInstall) {
       return [];
     }

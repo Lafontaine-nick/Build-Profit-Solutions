@@ -312,7 +312,10 @@ function formatAssumptionLine(item) {
 }
 
 const NOTE_BACKED_SCOPE_LABELS = {
-  tear_off: ["Existing roof / tear-off", "Remove the existing roof before replacement."],
+  tear_off: [
+    "Existing roof / tear-off",
+    "Remove the existing roof before replacement.",
+  ],
   shingles_roofing: [
     "Roofing replacement",
     "Install the replacement roofing system identified in the notes.",
@@ -467,14 +470,33 @@ function noteBackedChecklistItems(
   return out;
 }
 
+const ADDITION_SCOPE_OWNERS = Object.freeze({
+  demo_clearing: "sitework",
+  trim: "interior_trim",
+  trim_paint: "interior_trim",
+  door_casing_paint: "interior_trim",
+  exterior_trim_paint: "interior_trim",
+  cabinets: "cabinets_counters",
+  cabinet_install: "cabinets_counters",
+  plumbing: "plumbing_rough",
+  electrical: "electrical_rough",
+  exterior_doors: "windows_doors",
+  windows: "windows_doors",
+  window_install: "windows_doors",
+  roofing: "roof_tie_in",
+});
+
 function catalogAdditiveChecklistItems(
   templateItems,
   resolvedScopeFacts,
+  templateKey,
 ) {
   const existingIds = new Set(templateItems.map((item) => item.id));
   const existingCanonicalIds = new Set(
     templateItems.map((item) => canonicalScopeId(item.id)),
   );
+  const additionTemplate =
+    String(templateKey || "").toLowerCase() === "addition";
   const added = new Set();
   return resolvedScopeFacts
     .filter(
@@ -483,11 +505,21 @@ function catalogAdditiveChecklistItems(
         scopeFact.status !== "excluded" &&
         !existingIds.has(scopeFact.scopeId) &&
         !existingCanonicalIds.has(canonicalScopeId(scopeFact.scopeId)) &&
+        !(
+          additionTemplate &&
+          ADDITION_SCOPE_OWNERS[scopeFact.scopeId] &&
+          existingIds.has(ADDITION_SCOPE_OWNERS[scopeFact.scopeId])
+        ) &&
         !added.has(scopeFact.scopeId),
     )
     .map((scopeFact) => {
       added.add(scopeFact.scopeId);
       const identity = getCatalogIdentity(scopeFact.scopeId);
+      const explicitlyIdentifiedLandscapeScope =
+        ['landscape', 'hardscape'].includes(
+          String(scopeFact.catalogEntry?.category || '').toLowerCase(),
+        ) &&
+        scopeFact.certainty === 'explicit_scope_missing_measurement';
       return {
         id: scopeFact.scopeId,
         inputType: "yes_no",
@@ -499,7 +531,10 @@ function catalogAdditiveChecklistItems(
             ? "Work detected in notes. Measurement is required before pricing."
             : "Work detected in notes and mapped to the existing pricing catalog.",
         category: scopeFact.catalogEntry?.category || "from_notes",
-        state: scopeFact.quantity == null ? "unsure" : "included",
+        state:
+          scopeFact.quantity == null && !explicitlyIdentifiedLandscapeScope
+            ? "unsure"
+            : "included",
         noteBacked: true,
         catalogBacked: true,
         catalogScopeId: identity.canonicalScopeId,
@@ -546,15 +581,19 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
   const drywallWorkRequested = notes
     .split(/[.;\n]/)
     .some(
-      clause =>
-        (/\b(?:drywall|sheetrock)\b[^.;\n]{0,50}\b(?:install|hang|finish|replace|repair|remove|removal|demo|demolition)\b|\b(?:install|hang|finish|replace|repair|remove|removal|demo|demolition)\b[^.;\n]{0,50}\b(?:drywall|sheetrock)\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,30}\b(?:drywall|sheetrock)\b/i.test(
+      (clause) =>
+        /\b(?:drywall|sheetrock)\b[^.;\n]{0,50}\b(?:install|hang|finish|replace|repair|remove|removal|demo|demolition)\b|\b(?:install|hang|finish|replace|repair|remove|removal|demo|demolition)\b[^.;\n]{0,50}\b(?:drywall|sheetrock)\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,30}\b(?:drywall|sheetrock)\b/i.test(
           clause,
-        )) &&
+        ) &&
         !/\b(?:no|without|exclude|excluding|not)\b[^.;\n]{0,20}\b(?:drywall|sheetrock)\b/i.test(
           clause,
         ),
     );
-  if (templateKey === "room_remodel" && insulationRequested && !drywallWorkRequested) {
+  if (
+    templateKey === "room_remodel" &&
+    insulationRequested &&
+    !drywallWorkRequested
+  ) {
     templateKey = "insulation";
   }
   // A concise whole-home repaint note can be classified as a generic
@@ -564,7 +603,7 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
   if (
     /\b(?:repaint|repaint(?:ing)?|paint(?:ing)?)\b/i.test(notes) &&
     (/\binterior\b/i.test(notes) || /\bwalls?\b|\bceilings?\b/i.test(notes)) &&
-    (/\bexterior\b|\bsiding\b|\bwindow\s+trim\b/i.test(notes)) &&
+    /\bexterior\b|\bsiding\b|\bwindow\s+trim\b/i.test(notes) &&
     !notesImplyMixedExteriorHardscape(notes) &&
     ![
       "painting",
@@ -654,7 +693,7 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     }
   }
 
-  const items = template.items.map((item) => {
+  let items = template.items.map((item) => {
     const inputType = item.inputType || "yes_no";
     if (inputType === "multi_choice") {
       const choiceIds = inferChoicesFromNotes(item.id, notes);
@@ -687,10 +726,7 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
       noteBacked: state === "included",
     };
   });
-  if (
-    templateKey === "concrete" &&
-    notesImplyMixedExteriorHardscape(notes)
-  ) {
+  if (templateKey === "concrete" && notesImplyMixedExteriorHardscape(notes)) {
     const exteriorLabels = {
       demo_removal: "Patio demolition / removal",
       site_prep: "Patio base preparation",
@@ -748,9 +784,13 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
       noteBacked: true,
     });
   }
-  if (templateKey === "room_remodel" && insulationRequested && !drywallWorkRequested) {
-    const insulationItem = items.find(item => item.id === "insulation");
-    const drywallItem = items.find(item => item.id === "drywall");
+  if (
+    templateKey === "room_remodel" &&
+    insulationRequested &&
+    !drywallWorkRequested
+  ) {
+    const insulationItem = items.find((item) => item.id === "insulation");
+    const drywallItem = items.find((item) => item.id === "drywall");
     if (insulationItem) {
       insulationItem.state = "included";
       insulationItem.noteBacked = true;
@@ -771,8 +811,43 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     }
   }
   items.push(
-    ...catalogAdditiveChecklistItems(items, resolvedScopeFacts),
+    ...catalogAdditiveChecklistItems(items, resolvedScopeFacts, templateKey),
   );
+
+  const specificLandscapeIds = new Set([
+    "sod_turf",
+    "artificial_turf",
+    "rock",
+    "mulch",
+    "plants",
+    "trees",
+    "landscape_boulders",
+    "pavers",
+    "irrigation",
+    "concrete_edging",
+  ]);
+  if (
+    templateKey === "concrete" &&
+    items.some(
+      item =>
+        specificLandscapeIds.has(item.id) &&
+        item.state === "included",
+    )
+  ) {
+    items = items.filter(item => item.id !== "landscaping");
+  }
+  if (
+    templateKey === "concrete" &&
+    items.some(
+      item =>
+        item.id === "pour_flatwork" &&
+        item.state === "included",
+    )
+  ) {
+    // The concrete template's patio/flatwork row owns this same 500 sqft
+    // pour. Do not emit a second generic Concrete flatwork pricing card.
+    items = items.filter(item => item.id !== "concrete");
+  }
 
   if (
     templateKey === "room_remodel" &&
@@ -999,7 +1074,10 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     if (item.id === "decking_repair") {
       item.label = "Roof decking repair";
     }
-    if (item.id === "ceiling_paint" && items.some((row) => row.id === "paint")) {
+    if (
+      item.id === "ceiling_paint" &&
+      items.some((row) => row.id === "paint")
+    ) {
       // The generic paint row owns this scope in room_remodel; avoid showing
       // a second ceiling-only card from the catalog shadow match.
       item.state = "excluded";
@@ -1185,14 +1263,15 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
   // projection, not a generic questionnaire. Keep only work explicitly found
   // in the notes so unrelated electrical/HVAC/permit/cleanup rows do not
   // become false "needs attention" items.
-  const hasMultipleMeasuredScopeParts = [
-    parsedMeasurements.drywallSqft,
-    parsedMeasurements.flooringSqft,
-    parsedMeasurements.baseboardLf,
-    parsedMeasurements.windowCount,
-    parsedMeasurements.interiorDoorCount,
-    parsedMeasurements.paintAreaSqft,
-  ].filter(value => Number(value) > 0).length >= 2;
+  const hasMultipleMeasuredScopeParts =
+    [
+      parsedMeasurements.drywallSqft,
+      parsedMeasurements.flooringSqft,
+      parsedMeasurements.baseboardLf,
+      parsedMeasurements.windowCount,
+      parsedMeasurements.interiorDoorCount,
+      parsedMeasurements.paintAreaSqft,
+    ].filter((value) => Number(value) > 0).length >= 2;
   if (
     templateKey === "room_remodel" &&
     (Object.keys(parsedMeasurements.itemQuantities || {}).length >= 2 ||
@@ -1230,33 +1309,59 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
       }
     }
     const flooringProduct = parsedMeasurements.flooringProductScope?.[0];
-    const flooringLabel = {
-      lvp: "LVP flooring install",
-      laminate: "Laminate flooring install",
-      engineered_hardwood: "Engineered hardwood install",
-      solid_hardwood: "Solid hardwood install",
-      tile: "Tile flooring install",
-      carpet: "Carpet flooring install",
-    }[flooringProduct] || "Flooring installation";
+    const flooringLabel =
+      {
+        lvp: "LVP flooring install",
+        laminate: "Laminate flooring install",
+        engineered_hardwood: "Engineered hardwood install",
+        solid_hardwood: "Solid hardwood install",
+        tile: "Tile flooring install",
+        carpet: "Carpet flooring install",
+      }[flooringProduct] || "Flooring installation";
     const relabels = {
-      demo: hasDrywallDemoNotes && !hasFlooringDemoNotes
-        ? ["Drywall demo / removal", "Remove damaged drywall in the affected areas."]
-        : hasFlooringDemoNotes
-          ? ["Flooring demo / removal", "Remove existing flooring in the affected areas."]
-          : ["Nonstructural wall demolition", "Demolish the existing nonstructural walls identified in the notes."],
-      floor_demo: ["Flooring demo / removal", "Remove existing flooring in the affected areas."],
-      plumbing: ["Plumbing fixture updates", "Update existing bathroom plumbing fixtures."],
-      flooring: [flooringLabel, "Install the note-specified flooring area; confirm the product if not specified."],
+      demo:
+        hasDrywallDemoNotes && !hasFlooringDemoNotes
+          ? [
+              "Drywall demo / removal",
+              "Remove damaged drywall in the affected areas.",
+            ]
+          : hasFlooringDemoNotes
+            ? [
+                "Flooring demo / removal",
+                "Remove existing flooring in the affected areas.",
+              ]
+            : [
+                "Nonstructural wall demolition",
+                "Demolish the existing nonstructural walls identified in the notes.",
+              ],
+      floor_demo: [
+        "Flooring demo / removal",
+        "Remove existing flooring in the affected areas.",
+      ],
+      plumbing: [
+        "Plumbing fixture updates",
+        "Update existing bathroom plumbing fixtures.",
+      ],
+      flooring: [
+        flooringLabel,
+        "Install the note-specified flooring area; confirm the product if not specified.",
+      ],
       paint:
         hasCeilingPaint && !hasWallPaint
           ? ["Ceiling painting", "Paint the note-specified ceilings."]
           : !hasWallPaint && !hasCeilingPaint
             ? ["Interior paint", "Paint the note-specified interior surfaces."]
-            : ["Interior wall and ceiling painting", "Repaint interior walls and ceilings."],
+            : [
+                "Interior wall and ceiling painting",
+                "Repaint interior walls and ceilings.",
+              ],
       window_install: hasWindowReplacement
         ? ["Window install", "Replace the note-specified windows."]
         : ["Window install", "Install or replace the note-specified windows."],
-      vanity: ["Bathroom vanity replacement", "Replace the note-specified bathroom vanities."],
+      vanity: [
+        "Bathroom vanity replacement",
+        "Replace the note-specified bathroom vanities.",
+      ],
     };
     for (const item of items) {
       const replacement = relabels[item.id];
@@ -1274,11 +1379,27 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
           "Install the specified baseboard LF. Interior doors and door trim are separate scope items.";
       }
     }
-    if (items.some(item => item.id === "paint" && item.state === "included")) {
+    if (
+      items.some((item) => item.id === "paint" && item.state === "included")
+    ) {
       for (let i = items.length - 1; i >= 0; i--) {
-        if (items[i].id === "interior_paint" || items[i].id === "ceiling_paint") {
+        if (
+          items[i].id === "interior_paint" ||
+          items[i].id === "ceiling_paint"
+        ) {
           items.splice(i, 1);
         }
+      }
+    }
+    if (
+      items.some(
+        (item) => item.id === "paint_repair" && item.state === "included",
+      ) &&
+      /\bdrywall\s+(?:patch|repair)\b/i.test(notes) &&
+      /\bpaint(?:ing)?\b/i.test(notes)
+    ) {
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (items[i].id === "interior_paint") items.splice(i, 1);
       }
     }
     for (let i = items.length - 1; i >= 0; i--) {
@@ -1286,12 +1407,33 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
       // needs confirmation; dropping them hides real cross-trade scope.
       const keepUnpricedCrossTradeFinding =
         items[i].catalogBacked &&
-        ["siding_repairs", "tear_off", "gutters", "downspouts", "decking_repair"].includes(
-          items[i].id,
-        );
+        [
+          "siding_repairs",
+          "tear_off",
+          "gutters",
+          "downspouts",
+          "decking_repair",
+        ].includes(items[i].id);
       if (items[i].state !== "included" && !keepUnpricedCrossTradeFinding) {
         items.splice(i, 1);
       }
+    }
+  }
+
+  const cabinetLfMatch = notes.match(
+    /\b(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:feet|foot))\b[^.;\n]{0,25}\bcabinets?\b/i,
+  );
+  for (const item of items) {
+    if (
+      item.id === "cabinets" &&
+      cabinetLfMatch &&
+      !/\bstock\s+cabinets?\b/i.test(notes)
+    ) {
+      item.label = cabinetLfMatch
+        ? `${cabinetLfMatch[1]} LF cabinets`
+        : "Cabinet installation";
+      item.helperText =
+        "Cabinet scope identified in the notes; confirm cabinet type, layout, hardware, fillers, and countertop separately.";
     }
   }
 
@@ -1346,6 +1488,17 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     const toilet = items.find(
       (item) => item.id === "toilet" && item.state === "included",
     );
+    const vanity = items.find(
+      (item) => item.id === "vanity" && item.state === "included",
+    );
+    if (
+      vanity &&
+      !/\b(?:countertops?|counters?|quartz|granite)\b/i.test(notes)
+    ) {
+      vanity.label = "Vanity installation";
+      vanity.helperText =
+        "Supply and install the vanity; countertop material and installation are separate unless called out in the notes.";
+    }
     const plumbingTrim = items.find((item) => item.id === "plumbing_trim");
     if (toilet && plumbingTrim && plumbingTrim.state === "included") {
       plumbingTrim.label = "Plumbing trim / hookups (excluding toilet)";
@@ -1354,7 +1507,8 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     }
     const fixtureDemo = items.find((item) => item.id === "fixture_demo");
     if (toilet && fixtureDemo && fixtureDemo.state === "included") {
-      fixtureDemo.label = "Remove existing plumbing fixtures (excluding toilet)";
+      fixtureDemo.label =
+        "Remove existing plumbing fixtures (excluding toilet)";
       fixtureDemo.helperText =
         "Remove the existing plumbing fixtures called out in the notes; toilet removal is priced on the separate toilet card.";
     }

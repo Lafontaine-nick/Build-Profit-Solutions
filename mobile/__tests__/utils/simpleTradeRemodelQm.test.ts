@@ -55,6 +55,39 @@ describe('simple trade QM panels', () => {
     ).toBe(1);
   });
 
+  it('routes heat-pump notes to heat-pump equipment pricing', () => {
+    expect(
+      inferHvacScopeSelectionsFromNotes(
+        'Remove the existing HVAC system and ductwork, then replace one heat-pump system, install one thermostat and four registers.'
+      )
+    ).toEqual(
+      expect.arrayContaining([
+        'hvac_systems',
+        'heat_pump',
+        'ductwork',
+        'thermostat',
+        'registers',
+      ])
+    );
+  });
+
+  it('opens the HVAC system package when equipment is selected', () => {
+    const measurements = applyHvacScopeMeasurements({
+      tradeScopeSelections: { hvac: ['heat_pump'] },
+      itemQuantities: {
+        equipment_replace__heat_pump: { quantity: 1 },
+      },
+    });
+    expect(measurements.hvacSystemCount).toBe(1);
+    expect(resolveHvacTradeScopeSelections(measurements)).toEqual(
+      expect.arrayContaining([
+        HVAC_SYSTEMS_OPTION_ID,
+        HVAC_CAPACITY_OPTION_ID,
+        'heat_pump',
+      ])
+    );
+  });
+
   it('defines the three remaining simple-trade templates', () => {
     expect(Object.keys(SIMPLE_TRADE_SPECS)).toEqual(
       expect.arrayContaining(['deck_patio', 'hvac', 'roofing'])
@@ -799,6 +832,14 @@ describe('simple trade QM panels', () => {
         },
       })
     ).toEqual({ inBidCount: 2, needsConfirmationCount: 0 });
+  });
+
+  it('flags a selected HVAC system when its quantity is blank', () => {
+    expect(
+      summarizeHvacScopePanel({
+        tradeScopeSelections: { hvac: [HVAC_SYSTEMS_OPTION_ID] },
+      })
+    ).toEqual({ inBidCount: 1, needsConfirmationCount: 1 });
   });
 
   it('keeps cleared HVAC panel qty editable instead of reverting to plan provenance', () => {

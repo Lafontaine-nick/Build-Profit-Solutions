@@ -653,6 +653,22 @@ describe('acceptedPricingSummaryUi', () => {
     ).toBe(true);
   });
 
+  it('does not hide pricing when acceptance metadata has no applied money', () => {
+    expect(
+      shouldSuppressSuggestedPricingAfterApply(
+        'thermostat',
+        {
+          thermostat: {
+            quantity: '1',
+            unit: 'each',
+            quantitySource: 'notes',
+          },
+        },
+        { thermostat: { selectionStatus: 'accepted' } }
+      )
+    ).toBe(false);
+  });
+
   it('keeps benchmark row visible for user-entered pricing even when totals match', () => {
     const itemQuantities = {
       waterproofing__allowance: {

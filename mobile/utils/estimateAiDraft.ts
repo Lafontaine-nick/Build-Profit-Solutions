@@ -827,6 +827,7 @@ export type ScopeMeasurements = {
   fixtureReplacementCount?: number | null;
   drainCleaningCount?: number | null;
   waterLineLf?: number | null;
+  plumbingRerouteLf?: number | null;
   sewerLineLf?: number | null;
   gasLineLf?: number | null;
   plumbingRoughPointCount?: number | null;
@@ -4439,14 +4440,59 @@ export function applyPlanImportToDraft(
     canonicalPlanMeasurements as Record<string, number>
   );
   if (standalonePlumbingWorkflow) {
+    const workflowMode =
+      payload.plumbingWorkflowMode ||
+      inferPlumbingWorkflowModeFromNotes(String(next.originalNotes || ''));
+    const serviceItemIds = new Set([
+      'service_call',
+      'fixture_repair',
+      'fixture_replace',
+      'drain_cleaning',
+    ]);
+    const allowedCards = PLUMBING_CARDS.filter(
+      card =>
+        workflowMode === 'service'
+          ? serviceItemIds.has(card.itemId)
+          : !serviceItemIds.has(card.itemId)
+    );
+    const allowedMeasurementKeys = new Set(
+      allowedCards.map(card => card.measurementKey)
+    );
+    const staleSafe = stripScopeInputForSingleTrade(
+      (next.scopeMeasurements || {}) as Record<string, unknown>,
+      'plumbing'
+    ) as Record<string, unknown>;
+    for (const card of PLUMBING_CARDS) {
+      if (allowedMeasurementKeys.has(card.measurementKey)) continue;
+      delete staleSafe[card.measurementKey];
+      delete (staleSafe.itemQuantities as Record<string, unknown> | undefined)?.[
+        card.itemId
+      ];
+      delete (
+        staleSafe.pricingAcceptance as Record<string, unknown> | undefined
+      )?.[card.itemId];
+      delete (
+        staleSafe.scopeGapResolutions as Record<string, unknown> | undefined
+      )?.[card.itemId];
+    }
+    delete staleSafe.plumbingScope;
+    delete staleSafe.plumbingComplexityFactors;
+    delete staleSafe.projectComplexity;
+    if (workflowMode === 'service') {
+      delete staleSafe.floorAreaSqft;
+      delete staleSafe.storyCount;
+    }
     scopeMeasurements = {
-      ...stripScopeInputForSingleTrade(
-        (next.scopeMeasurements || {}) as Record<string, unknown>,
-        'plumbing'
+      ...staleSafe,
+      ...Object.fromEntries(
+        Object.entries(scopeMeasurements).filter(
+          ([key]) =>
+            !PLUMBING_CARDS.some(card => card.measurementKey === key) ||
+            allowedMeasurementKeys.has(key)
+        )
       ),
-      ...scopeMeasurements,
       tradeWorkflowSource: 'standalone_trade',
-      plumbingWorkflowMode: payload.plumbingWorkflowMode || 'bathroom_remodel',
+      plumbingWorkflowMode: workflowMode,
       plumbingPerformerMode: payload.plumbingPerformerMode || null,
       plumbingRoomContext: payload.plumbingRoomContext ?? null,
       planImportMode: null,
@@ -4455,9 +4501,6 @@ export function applyPlanImportToDraft(
     } as ScopeMeasurements;
     const noteText = String(next.originalNotes || '').trim();
     if (noteText) {
-      const workflowMode =
-        payload.plumbingWorkflowMode ||
-        inferPlumbingWorkflowModeFromNotes(noteText);
       let parsedNotes = parsePlumbingMeasurementsFromNotes(noteText);
       if (workflowMode === 'service') {
         parsedNotes = restrictPlumbingMeasurementsForServiceMode(parsedNotes);

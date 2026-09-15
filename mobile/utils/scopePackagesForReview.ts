@@ -85,12 +85,49 @@ export function buildConfirmScopeDisplayItems(
   templateKey?: string | null,
   notes?: string | null
 ): ScopeChecklistItem[] {
-  let expanded = dedupeScopeChecklistItems(expandWetAreaDerivedScopeItems(items)).map((row) =>
-    row.id === 'exterior' && row.label === 'Exterior finishes'
-      ? { ...row, label: 'Exterior Envelope' }
-      : row
-  );
+  let expanded = dedupeScopeChecklistItems(expandWetAreaDerivedScopeItems(items)).map((row) => {
+    if (row.id === 'exterior' && row.label === 'Exterior finishes') {
+      return { ...row, label: 'Exterior Envelope' };
+    }
+    if (row.id === 'hvac') {
+      return { ...row, label: 'HVAC install' };
+    }
+    return row;
+  });
   const noteText = String(notes || '');
+  if (/\bshrubs?\b/i.test(noteText) && !/\bplants?\b/i.test(noteText)) {
+    expanded = expanded.map(row =>
+      row.id === 'plants' ? { ...row, label: 'Shrubs' } : row
+    );
+  }
+  if (String(templateKey || '').toLowerCase() === 'concrete') {
+    const hasSpecificLandscape = expanded.some(
+      row =>
+        [
+          'sod_turf',
+          'artificial_turf',
+          'rock',
+          'mulch',
+          'plants',
+          'trees',
+          'landscape_boulders',
+          'pavers',
+          'irrigation',
+          'concrete_edging',
+        ].includes(row.id) &&
+        checklistItemInScope(row)
+    );
+    if (hasSpecificLandscape) {
+      expanded = expanded.filter(row => row.id !== 'landscaping');
+    }
+    if (
+      expanded.some(
+        row => row.id === 'pour_flatwork' && checklistItemInScope(row)
+      )
+    ) {
+      expanded = expanded.filter(row => row.id !== 'concrete');
+    }
+  }
   const explicitFlooringProduct =
     /\b(?:lvp|luxury\s+vinyl|laminate|engineered\s+hardwood|solid\s+hardwood|carpet|floor\s+tile|tile\s+floor|vinyl\s+plank)\b/i.test(
       noteText
@@ -358,6 +395,25 @@ export function buildConfirmScopeDisplayItems(
     expanded = ensureGroundUpOpeningScopeCards(expanded);
   }
   expanded = filterRoomRemodelNoteScopeItems(expanded, notes);
+  const noteMentionsHvacRemoval =
+    /\b(?:remove|removing|removal|demo|demolish|tear[\s-]?out|replace|replacing)\b[^.;\n]{0,80}\b(?:existing\s+)?(?:hvac(?:\s+system)?|ductwork)\b/i.test(
+      noteText
+    );
+  if (
+    noteMentionsHvacRemoval &&
+    !expanded.some(item => item.id === 'hvac_demo')
+  ) {
+    expanded.push({
+      id: 'hvac_demo',
+      inputType: 'yes_no',
+      label: 'HVAC demo / removal',
+      helperText:
+        'Remove and dispose of the existing HVAC system and ductwork identified in the job notes.',
+      category: 'demolition',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
   const ceilingOnlyPaintNote =
     /\b(?:paint|painting|repaint)\b[^.;,\n]{0,45}\bceilings?\b|\bceilings?\b[^.;,\n]{0,45}\b(?:paint|painting|repaint)\b/i.test(
       noteText
@@ -736,6 +792,11 @@ export function hydrateChecklistItemsForScopeReview(
     items = items.filter((item) => paintingItemIds.has(item.id));
   }
   items = filterRoomRemodelNoteScopeItems(items, notes);
+  items = ensureNoteBackedExteriorScopeRows(items, notes);
+  // Keep Step 3 / initial reveal packages aligned with the Confirm Scope list.
+  // This also removes generic landscaping/concrete buckets when their
+  // note-backed material or flatwork rows are present.
+  items = buildConfirmScopeDisplayItems(items, measurements, templateKey, notes);
   return items;
 }
 
@@ -809,6 +870,47 @@ function packageFromChecklistItem(
 
 function stubPackageFromChecklistItem(item: ScopeChecklistItem): EstimateDraftScopePackage {
   return packageFromChecklistItem(item);
+}
+
+function ensureNoteBackedExteriorScopeRows(
+  items: ScopeChecklistItem[],
+  notes: string | null
+): ScopeChecklistItem[] {
+  const noteText = String(notes || '');
+  const additions: ScopeChecklistItem[] = [
+    {
+      id: 'plants',
+      inputType: 'yes_no',
+      label: 'Shrubs',
+      state: 'included',
+      noteBacked: true,
+    },
+    {
+      id: 'concrete_edging',
+      inputType: 'yes_no',
+      label: 'Edging',
+      state: 'included',
+      noteBacked: true,
+    },
+    {
+      id: 'irrigation',
+      inputType: 'yes_no',
+      label: 'Irrigation',
+      state: 'included',
+      noteBacked: true,
+    },
+  ];
+  const present = new Set(items.map(item => item.id));
+  return [
+    ...items,
+    ...additions.filter(
+      item =>
+        !present.has(item.id) &&
+        ((item.id === 'plants' && /\b(?:plants?|shrubs?)\b/i.test(noteText)) ||
+          (item.id === 'concrete_edging' && /\bedging\b/i.test(noteText)) ||
+          (item.id === 'irrigation' && /\birrigation\b/i.test(noteText)))
+    ),
+  ];
 }
 
 /** Closeout cleanup is always the last Confirm Scope card — keep Step 3 aligned. */

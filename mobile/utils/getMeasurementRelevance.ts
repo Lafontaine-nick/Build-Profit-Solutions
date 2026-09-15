@@ -131,6 +131,12 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> =
     cabinetRunLf: ['cabinet_paint'],
     railingLf: ['railing', 'fencing'],
     plumbingRoughPointCount: ['plumbing_rough'],
+    plumbingRerouteLf: [
+      'plumbing',
+      'plumbing_rough',
+      'plumbing_reroute',
+      'note:plumbing_reroute',
+    ],
     plumbingTrimHookupCount: ['plumbing_trim'],
     fixtureReplacementCount: ['fixture_replace'],
     fixtureRepairCount: ['fixture_repair'],

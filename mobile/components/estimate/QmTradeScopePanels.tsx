@@ -83,6 +83,7 @@ import {
   HVAC_SYSTEMS_OPTION_ID,
   HVAC_CAPACITY_OPTION_ID,
   HVAC_VENTILATION_QUANTITY_HELPER,
+  hvacFieldHasTakeoffEvidence,
   hvacScopeChipActive,
   hvacScopeChipReviewState,
   resolveHvacTradeScopeSelections,
@@ -157,22 +158,22 @@ const styles = StyleSheet.create({
   hvacScopeSelectedCard: {
     width: '100%',
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 14,
+    padding: 14,
   },
   hvacScopeSelectedList: {
     gap: 6,
   },
   hvacScopeCardHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
+    gap: 12,
   },
   hvacScopeStatusPill: {
     borderRadius: 999,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     flexShrink: 0,
   },
   hvacScopeStatusPillText: {
@@ -181,16 +182,16 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   hvacScopeSelectedTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
-    lineHeight: 21,
+    lineHeight: 22,
     flex: 1,
   },
   hvacScopeSelectedSubtext: {
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 12,
+    lineHeight: 16,
     marginTop: 4,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   hvacScopeSelectedStatus: {
     fontSize: 12,
@@ -392,6 +393,7 @@ function QmScopeChoiceChip({
   reviewState = 'idle',
   compact = false,
   stacked = false,
+  labelFontSize,
 }: {
   label: string;
   active: boolean;
@@ -404,6 +406,7 @@ function QmScopeChoiceChip({
   reviewState?: 'confirmed' | 'needs_confirmation' | 'idle';
   compact?: boolean;
   stacked?: boolean;
+  labelFontSize?: number;
 }) {
   const inactiveStyle = inactiveScopeChoiceChipStyle(darkMode, Colors);
   let borderColor = inactiveStyle.borderColor;
@@ -437,7 +440,7 @@ function QmScopeChoiceChip({
       <Text
         style={{
           color: textColor,
-          fontSize: compact ? 11 : stacked ? 13 : 12,
+          fontSize: labelFontSize ?? (compact ? 11 : stacked ? 13 : 12),
           fontWeight: active ? '800' : '600',
           textAlign: 'center',
           width: stacked ? '100%' : undefined,
@@ -855,6 +858,7 @@ export function QmSqftMeasurementRow({
   compact = false,
   sectionLead = false,
   sectionEnd = false,
+  reserveHelperSpace = false,
 }: {
   label: string;
   helperText?: string;
@@ -872,6 +876,7 @@ export function QmSqftMeasurementRow({
   compact?: boolean;
   sectionLead?: boolean;
   sectionEnd?: boolean;
+  reserveHelperSpace?: boolean;
 }) {
   const defaultPlaceholder =
     unitLabel.toLowerCase() === 'lf' ? 'Enter LF' : 'Enter sqft';
@@ -899,7 +904,12 @@ export function QmSqftMeasurementRow({
 
   if (compact) {
     return (
-      <View style={{ marginTop: 8 }}>
+      <View
+        style={{
+          marginTop: 8,
+          minHeight: reserveHelperSpace ? 68 : undefined,
+        }}
+      >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <Text
             style={[labelStyle, { flex: 1, lineHeight: 18 }]}
@@ -3713,15 +3723,42 @@ export const QmBathroomFixturesPanels = React.memo(
         }
         return true;
       });
+      const noteText = String(notes || '');
+      const notesMentionVanity = /\bvanit(?:y|ies)\b/i.test(noteText);
+      const notesMentionCountertop =
+        /\b(?:countertops?|counters?|quartz|granite|vanity\s+top)\b/i.test(
+          noteText
+        );
+      const hasExistingVanityOrCounter =
+        /\b(?:existing|remove|removal|demo|replace|replacement)\b[^.;\n]{0,50}\b(?:vanit(?:y|ies)|countertops?|counters?)\b|\b(?:vanit(?:y|ies)|countertops?|counters?)\b[^.;\n]{0,50}\b(?:existing|remove|removal|demo|replace|replacement)\b/i.test(
+          noteText
+        );
+      const visibleBathroomInstallRows = BATHROOM_INSTALL_FIXTURE_ROWS.filter(
+        row =>
+          row.key === 'bathroomInstallVanityCount'
+            ? notesMentionVanity || install.bathroomInstallVanityCount != null
+            : notesMentionCountertop ||
+              install.bathroomInstallCounterCount != null
+      );
+      const visibleBathroomExistingRows = BATHROOM_EXISTING_FIXTURE_ROWS.filter(
+        row =>
+          row.key === 'bathroomExistingVanityCount'
+            ? hasExistingVanityOrCounter &&
+              (notesMentionVanity ||
+                existing.bathroomExistingVanityCount != null)
+            : hasExistingVanityOrCounter &&
+              (notesMentionCountertop ||
+                existing.bathroomExistingCounterCount != null)
+      );
 
       return (
         <>
-          {showExistingPanel ? (
+          {showExistingPanel && visibleBathroomExistingRows.length > 0 ? (
             <QmScopePanelSection
               title='Existing fixtures'
               {...existingFixtureStyle}
               caption={existingCaption}
-              rows={BATHROOM_EXISTING_FIXTURE_ROWS}
+              rows={visibleBathroomExistingRows}
               counts={existing as Record<string, number | null>}
               onAdjust={(key, d) =>
                 adjustExisting(key as keyof BathroomExistingFixtureCounts, d)
@@ -3733,10 +3770,10 @@ export const QmBathroomFixturesPanels = React.memo(
             />
           ) : null}
           <QmScopePanelSection
-            title='Vanity & countertop'
+            title={notesMentionCountertop ? 'Vanity & countertop' : 'Vanity'}
             {...vanityInstallStyle}
             caption={fixtureCaption}
-            rows={BATHROOM_INSTALL_FIXTURE_ROWS}
+            rows={visibleBathroomInstallRows}
             trailingRows={visibleBathroomDemoRows}
             marginBottom={24}
             counts={{ ...install, ...demo } as Record<string, number | null>}
@@ -6547,6 +6584,7 @@ export function QmSimpleTradeScopePanels({
   scopeKey,
   measurements,
   setMeasurements,
+  notes,
   onScopeSelectionChange,
   applying,
   darkMode,
@@ -6557,6 +6595,7 @@ export function QmSimpleTradeScopePanels({
   setMeasurements: React.Dispatch<
     React.SetStateAction<ScopeMeasurementsInputExtended>
   >;
+  notes?: string | null;
   onScopeSelectionChange?: (measurements: Record<string, unknown>) => void;
   applying: boolean;
   darkMode: boolean;
@@ -6564,9 +6603,62 @@ export function QmSimpleTradeScopePanels({
 }) {
   const spec = simpleTradeSpec(scopeKey);
   const [equipmentExpanded, setEquipmentExpanded] = useState(false);
+  const hvacNotes = String(notes || '');
+  const existingHvacRemovalMentioned =
+    /\b(?:remove|removing|removal|demo|demolish|replace|replacing)\b[^.;\n]{0,80}\b(?:existing\s+)?hvac\b/i.test(
+      hvacNotes
+    );
+  const existingDuctworkRemovalMentioned =
+    /\b(?:remove|removing|removal|demo|demolish|replace|replacing)\b[^.;\n]{0,80}\b(?:existing\s+)?ductwork\b/i.test(
+      hvacNotes
+    );
+  const resolvedHvacSelections =
+    scopeKey === 'hvac'
+      ? (() => {
+          const measurementBackedSelections = [
+            ['ductwork', 'hvacDuctworkLf'],
+            ['thermostat', 'hvacThermostatCount'],
+            ['registers', 'hvacSupplyRegisterCount'],
+            ['returns', 'hvacReturnGrilleCount'],
+            ['ventilation', 'hvacVentilationCount'],
+          ]
+            .filter(([, field]) =>
+              hvacFieldHasTakeoffEvidence(
+                measurements as Record<string, unknown>,
+                field
+              )
+            )
+            .map(([optionId]) => optionId);
+          return Array.from(
+            new Set([
+              ...resolveHvacTradeScopeSelections(
+                measurements as Record<string, unknown>
+              ),
+              ...measurementBackedSelections,
+            ])
+          );
+        })()
+      : [];
+  const [localHvacSelections, setLocalHvacSelections] = useState<
+    string[] | null
+  >(null);
+  useEffect(() => {
+    if (scopeKey !== 'hvac' || !localHvacSelections) return;
+    const parentSelections = resolveHvacTradeScopeSelections(
+      measurements as Record<string, unknown>
+    );
+    if (
+      parentSelections.length === localHvacSelections.length &&
+      parentSelections.every(selection =>
+        localHvacSelections.includes(selection)
+      )
+    ) {
+      setLocalHvacSelections(null);
+    }
+  }, [scopeKey, measurements, localHvacSelections]);
   const selections =
     scopeKey === 'hvac'
-      ? resolveHvacTradeScopeSelections(measurements as Record<string, unknown>)
+      ? localHvacSelections || resolvedHvacSelections
       : measurements.tradeScopeSelections?.[scopeKey] || [];
   const toggle = (id: string, _canonicalId: string) => {
     // Selections are option IDs, not canonical checklist IDs. Multiple
@@ -6576,12 +6668,26 @@ export function QmSimpleTradeScopePanels({
     const next = selected
       ? selections.filter(value => value !== id)
       : [...selections, id];
+    if (scopeKey === 'hvac') {
+      setLocalHvacSelections(next);
+    }
+    const quickMeasurementUserOverrides = {
+      ...(measurements.quickMeasurementUserOverrides || {}),
+    };
+    if (scopeKey === 'hvac' && id === HVAC_CAPACITY_OPTION_ID) {
+      if (selected) {
+        quickMeasurementUserOverrides.hvacSystemTons = true;
+      } else {
+        delete quickMeasurementUserOverrides.hvacSystemTons;
+      }
+    }
     const withSelections = {
       ...measurements,
       tradeScopeSelections: {
         ...(measurements.tradeScopeSelections || {}),
         [scopeKey]: next.length ? next : null,
       },
+      quickMeasurementUserOverrides,
     };
     const updated =
       scopeKey === 'hvac'
@@ -6639,33 +6745,55 @@ export function QmSimpleTradeScopePanels({
       measurements,
       option
     );
-    return { active, reviewState, quantityCaption, measurementHelper };
+    const removalHelper =
+      option.id === HVAC_SYSTEMS_OPTION_ID && existingHvacRemovalMentioned
+        ? 'Existing HVAC system removal is included in this scope.'
+        : option.id === 'ductwork' && existingDuctworkRemovalMentioned
+          ? 'Existing ductwork removal is included in this scope.'
+          : null;
+    return {
+      active,
+      reviewState,
+      quantityCaption,
+      measurementHelper: [measurementHelper, removalHelper]
+        .filter(Boolean)
+        .join(' '),
+    };
   };
 
   const renderHvacSelectedCard = (option: (typeof spec.options)[number]) => {
     const { active, reviewState, quantityCaption, measurementHelper } =
       getHvacOptionState(option);
     const needsReview = reviewState === 'needs_confirmation';
-    const cardBorder = needsReview
-      ? 'rgba(251, 191, 36, 0.35)'
-      : hvacPanelColors.borderColor;
-    const cardBackground = darkMode ? '#252527' : '#f1f5f9';
+    const needsQuantity =
+      Boolean(option.measurementKey) && quantityCaption == null;
+    const needsCapacityQuantity =
+      option.id === HVAC_CAPACITY_OPTION_ID && needsQuantity;
+    const cardBorder = hvacPanelColors.borderColor;
+    const cardBackground = hvacPanelColors.backgroundColor;
     const statusPillLabel = needsReview
       ? 'Needs review'
-      : quantityCaption
-        ? 'In bid'
-        : 'Add qty';
-    const statusPillColors = needsReview
+      : needsQuantity
+        ? 'Needs quantity'
+        : quantityCaption
+          ? 'In bid'
+          : 'In bid';
+    const statusPillColors = needsReview || needsCapacityQuantity
       ? {
           backgroundColor: 'rgba(251, 191, 36, 0.12)',
           color: '#fbbf24',
         }
-      : {
-          backgroundColor: darkMode
-            ? 'rgba(52, 211, 153, 0.12)'
-            : 'rgba(52, 211, 153, 0.14)',
-          color: '#34d399',
-        };
+      : needsQuantity
+        ? {
+            backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : '#e2e8f0',
+            color: darkMode ? '#cbd5e1' : '#475569',
+          }
+        : {
+            backgroundColor: darkMode
+              ? 'rgba(52, 211, 153, 0.12)'
+              : 'rgba(52, 211, 153, 0.14)',
+            color: '#34d399',
+          };
     return (
       <View
         key={option.id}
@@ -6714,13 +6842,21 @@ export function QmSimpleTradeScopePanels({
         ) : null}
         {active && option.measurementKey ? (
           <QmSqftMeasurementRow
-            label={`${option.label} quantity`}
+            label={
+              option.id === HVAC_SYSTEMS_OPTION_ID
+                ? 'System count'
+                : option.id === HVAC_CAPACITY_OPTION_ID
+                  ? 'System capacity'
+                  : `${option.label} quantity`
+            }
             helperText={
               needsReview
                 ? 'Low-confidence plan read — confirm before pricing.'
-                : option.id === 'ventilation'
-                  ? HVAC_VENTILATION_QUANTITY_HELPER
-                  : undefined
+                : needsQuantity
+                  ? 'Enter a quantity to include this in pricing.'
+                  : option.id === 'ventilation'
+                    ? HVAC_VENTILATION_QUANTITY_HELPER
+                    : undefined
             }
             value={hvacScopePanelMeasurementValue(option, measurements)}
             placeholder='Enter'
@@ -6738,8 +6874,9 @@ export function QmSimpleTradeScopePanels({
             applying={applying}
             darkMode={darkMode}
             Colors={Colors}
-            highlighted={needsReview}
+            highlighted={needsReview || needsCapacityQuantity}
             compact
+            reserveHelperSpace
           />
         ) : quantityCaption ? (
           <View
@@ -6778,18 +6915,31 @@ export function QmSimpleTradeScopePanels({
 
   const renderHvacStackedChip = (option: (typeof spec.options)[number]) => {
     const { active, reviewState, quantityCaption } = getHvacOptionState(option);
+    const optionalAddOn = isOptionalAddOn(option.id);
     return (
       <View key={option.id} style={styles.hvacScopeEquipmentCell}>
         <QmScopeChoiceChip
           label={option.label}
           active={active}
-          reviewState={reviewState}
-          quantityCaption={quantityCaption}
+          reviewState={active ? 'confirmed' : reviewState}
+          quantityCaption={active ? null : quantityCaption}
           onPress={() => toggle(option.id, option.canonicalId)}
           disabled={applying}
           darkMode={darkMode}
           Colors={Colors}
-          style={styles.choiceChipStackedHvac}
+          style={[
+            styles.choiceChipStackedHvac,
+            optionalAddOn
+              ? {
+                  backgroundColor: darkMode
+                    ? 'rgba(255, 255, 255, 0.14)'
+                    : '#e2e8f0',
+                  borderColor: darkMode
+                    ? 'rgba(255, 255, 255, 0.2)'
+                    : '#cbd5e1',
+                }
+              : null,
+          ]}
           stacked
         />
       </View>
@@ -6803,14 +6953,15 @@ export function QmSimpleTradeScopePanels({
         <QmScopeChoiceChip
           label={option.label}
           active={active}
-          reviewState={reviewState}
-          quantityCaption={quantityCaption}
+          reviewState={active ? 'confirmed' : reviewState}
+          quantityCaption={active ? null : quantityCaption}
           onPress={() => toggle(option.id, option.canonicalId)}
           disabled={applying}
           darkMode={darkMode}
           Colors={Colors}
           style={styles.choiceChipCompact}
           compact
+          labelFontSize={13}
         />
       </View>
     );
@@ -6857,11 +7008,21 @@ export function QmSimpleTradeScopePanels({
     {
       equipmentCollapse = false,
       optionalCaption = false,
-    }: { equipmentCollapse?: boolean; optionalCaption?: boolean } = {}
+      selectedOptions = [],
+      showSelectedButtons = false,
+    }: {
+      equipmentCollapse?: boolean;
+      optionalCaption?: boolean;
+      selectedOptions?: (typeof spec.options)[number][];
+      showSelectedButtons?: boolean;
+    } = {}
   ) => {
+    const buttonOptions = showSelectedButtons
+      ? [...selectedOptions, ...idleOptions]
+      : idleOptions;
     const showEquipmentToggle =
       equipmentCollapse && equipmentChipOptions.length > 0;
-    const showGenericIdle = !equipmentCollapse && idleOptions.length > 0;
+    const showGenericIdle = !equipmentCollapse && buttonOptions.length > 0;
     if (!showEquipmentToggle && !showGenericIdle && !optionalCaption)
       return null;
 
@@ -6884,10 +7045,10 @@ export function QmSimpleTradeScopePanels({
                 { color: hvacPanelColors.sectionLabelColor },
               ]}
             >
-              Add to bid
+              {showSelectedButtons ? 'HVAC options' : 'Add to bid'}
             </Text>
             <View style={styles.hvacScopeIdleWrap}>
-              {idleOptions.map(renderHvacIdleChip)}
+              {buttonOptions.map(renderHvacIdleChip)}
             </View>
           </>
         ) : null}
@@ -7086,6 +7247,8 @@ export function QmSimpleTradeScopePanels({
         {renderHvacAddToBidSection(idleOptions, {
           equipmentCollapse,
           optionalCaption: includeOptionalAddOns,
+          selectedOptions: equipmentCollapse ? [] : selectedOptions,
+          showSelectedButtons: !equipmentCollapse,
         })}
       </View>
     );

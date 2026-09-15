@@ -38,6 +38,8 @@ const EXTERIOR_FLATWORK_RE =
   /\b(?:driveway|walkway|sidewalk|flat[\s-]?work|concrete\s+(?:patio|slab|pad)|patio\s+slab|rv\s+pad)\b/i;
 const DEMO_VERB_RE =
   /\b(?:demo|demolition|remove|removal|tear[\s-]?out|break\s+up|rip\s+out)\b/i;
+const AIR_SEALING_RE =
+  /\b(?:air\s*sealing|air\s*seal(?:ing)?|gap\s+sealing|draft\s+sealing|penetration\s+sealing)\b/i;
 
 function isExteriorFlatworkClause(clause) {
   const c = clause.toLowerCase();
@@ -124,14 +126,16 @@ function parseMixedPaintingIntents(text) {
   );
   const baseboardPaint =
     !exteriorTrimPaint &&
+    !/\b(?:baseboards?|trim|molding|moulding)\b\s*,?\s*and\s+paint\b/i.test(source) &&
     (has(/\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\b(?:baseboards?|trim|molding|moulding)\b/i) ||
       has(/\b(?:baseboards?|trim|molding|moulding)\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/i));
   const doorPaint =
     has(/\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\bdoors?\b/i) ||
     has(/\bdoors?\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/i);
   const casingPaint =
-    has(/\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\b(?:casing|trim)\b/i) ||
-    has(/\b(?:casing|trim)\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/i);
+    !/\b(?:casing|trim)\b\s*,?\s*and\s+paint\b/i.test(source) &&
+    (has(/\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\b(?:casing|trim)\b/i) ||
+      has(/\b(?:casing|trim)\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/i));
   const windowTrimPaint =
     has(/\b(?:prep|prime|paint|finish)\b[^.;\n]{0,60}\bwindows?\b[^.;\n]{0,30}\b(?:siding\s*[/,&-]?\s*)?trim\b/i) ||
     has(/\bwindows?\b[^.;\n]{0,30}\b(?:siding\s*[/,&-]?\s*)?trim\b[^.;\n]{0,60}\b(?:prep|prime|paint|finish)\b/i);
@@ -419,15 +423,33 @@ function parseCountToken(value) {
 
 function pickOpeningCount(clauses, text, pattern) {
   const countNearestToPattern = (value) => {
-    const patternMatch = pattern.exec(String(value || "").toLowerCase());
+    const source = String(value || "");
+    const patternMatch = pattern.exec(source.toLowerCase());
     if (!patternMatch || patternMatch.index == null) return null;
+    const openingNounRe = /\b(?:windows?|doors?|fenestration|openings?)\b/gi;
+    const openingNouns = [...patternMatch[0].matchAll(openingNounRe)];
+    const targetIndex =
+      patternMatch.index +
+      (openingNouns.at(-1)?.index ?? 0);
     const countRe = new RegExp(COUNT_TOKEN_RE.source, "gi");
     let match;
     let nearest = null;
-    while ((match = countRe.exec(value)) !== null) {
+    while ((match = countRe.exec(source)) !== null) {
       const count = parseCountToken(match[1]);
       if (count == null) continue;
-      const distance = Math.abs(match.index - patternMatch.index);
+      // A count belongs to an opening only when no other opening noun occurs
+      // between the count and that opening. This prevents "six windows,
+      // exterior doors" from assigning six to both types.
+      const between = source.slice(match.index + match[0].length, targetIndex);
+      if (
+        match.index >= targetIndex ||
+        (!/openings\?/i.test(pattern.source) &&
+          /\b(?:windows?|doors?|fenestration|openings?)\b/i.test(between))
+      ) {
+        continue;
+      }
+      const distance = targetIndex - (match.index + match[0].length);
+      if (distance > 40) continue;
       if (!nearest || distance < nearest.distance) {
         nearest = { distance, count };
       }
@@ -596,6 +618,12 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
           Math.max(0, match.index - 55),
           match.index,
         );
+        const afterQuantity = lower
+          .slice(
+            match.index + match[0].length,
+            match.index + match[0].length + 55,
+          )
+          .split(/[.;,\n]/, 1)[0];
         const materialIndexes = patterns
           .map((pattern) => {
             const matches = [
@@ -608,12 +636,17 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
                 ),
               ),
             ];
-            return matches.length ? matches[matches.length - 1].index : -1;
+            if (matches.length) return matches[matches.length - 1].index;
+            const afterMatch = afterQuantity.match(pattern);
+            return afterMatch ? match.index + match[0].length + afterMatch.index : -1;
           })
           .filter((index) => index >= 0);
         const materialIndex = Math.max(...materialIndexes);
         if (materialIndex < 0) continue;
-        const between = beforeQuantity.slice(materialIndex);
+        const between =
+          materialIndex < match.index
+            ? beforeQuantity.slice(materialIndex)
+            : afterQuantity.slice(materialIndex - match.index - match[0].length);
         if (/(?:back|front|side)?\s*yard\b/.test(between)) continue;
         return parseQty(match);
       }
@@ -1214,15 +1247,69 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   ]);
   if (artificialTurfSqft) out.artificialTurfSqft = artificialTurfSqft;
 
-  const paverSqft = pickSqftFromClauses([/\bpavers?\b/, /\bpatio\b.*\bpaver/]);
+  const paverSqft = pickExplicitLandscapeMaterialSqft([
+    /\bpavers?\b/,
+    /\bpatio\b.*\bpaver/,
+  ]);
   if (paverSqft) out.paverSqft = paverSqft;
 
-  const rockMulchSqft = pickSqftFromClauses([
+  const rockMulchSqft = pickExplicitLandscapeMaterialSqft([
     /\brock\b/,
     /\bmulch\b/,
     /\b(?:landscape\s+)?gravel\b(?!\s+base)/,
   ]);
   if (rockMulchSqft) out.rockMulchSqft = rockMulchSqft;
+
+  const plantCount = pickOpeningCount(
+    clauses,
+    text,
+    /\b(?:plants?|shrubs?)\b/i,
+  );
+  if (plantCount) out.plantCount = plantCount;
+
+  const concreteEdgingLf = pickLfNearPattern(
+    text,
+    /\b(?:concrete\s+)?edging\b/i,
+  );
+  if (concreteEdgingLf) out.concreteEdgingLf = concreteEdgingLf;
+
+  const demoClearingSqft = pickSqftFromClauses([
+    /\b(?:landscap(?:e|ing)|lawn|vegetation|brush)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|clear(?:ing)?|tear[\s-]?out)\b/,
+    /\b(?:demo|demolition|remove|removal|clear(?:ing)?|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:landscap(?:e|ing)|lawn|vegetation|brush)\b/,
+  ]);
+  if (demoClearingSqft) out.demoClearingSqft = demoClearingSqft;
+
+  const gradingSqft = pickSqftFromClauses([
+    /\b(?:rough\s+|finish\s+|final\s+)?(?:grading|grade)\b/,
+    /\bgrade\s+(?:the\s+)?(?:yard|site|lot)\b/,
+  ]);
+  if (gradingSqft) out.gradingSqft = gradingSqft;
+
+  const soilPrepSqft = pickSqftFromClauses([
+    /\bsoil\s+(?:prep|preparation|amendment)\b/,
+    /\btopsoil\b/,
+  ]);
+  if (soilPrepSqft) out.soilPrepSqft = soilPrepSqft;
+
+  const drainageLf = pickLfNearPattern(
+    text,
+    /\b(?:landscape\s+)?drainage\b|\bfrench\s+drains?\b|\bdrain\s+tile\b/i,
+  );
+  if (drainageLf) out.drainageLf = drainageLf;
+
+  const irrigationZoneCount = pickOpeningCount(
+    clauses,
+    text,
+    /\b(?:irrigation|sprinkler)\s+zones?\b/i,
+  );
+  if (irrigationZoneCount) out.irrigationZoneCount = irrigationZoneCount;
+
+  const landscapeLightCount = pickOpeningCount(
+    clauses,
+    text,
+    /\b(?:landscape|path|outdoor)\s+lights?\b/i,
+  );
+  if (landscapeLightCount) out.landscapeLightCount = landscapeLightCount;
 
   const landscapeSqft = pickSqftFromClauses([
     /\b(?:back|front|side)?\s*yard\b/,
@@ -1308,7 +1395,28 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   // Flooring / floor-area jobs (tile demo, laminate install, etc.)
   const floorAreaSqft = (() => {
     if (templateKey === "bathroom" || projectType === "bathroom") return null;
+    if (
+      /\b(?:sod|turf|pavers?|rock|mulch|shrubs?|landscap(?:e|ing))\b/i.test(
+        text,
+      ) &&
+      !/\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b/i.test(text)
+    ) {
+      return null;
+    }
     const explicitHomeInterior = parseLabeledInteriorFloorAreaTotal(text);
+    const additionFloorArea = (() => {
+      const direct =
+        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\s+(?:room|home)?\s*addition\b/i.exec(
+          text,
+        );
+      const reversed =
+        /\baddition\b[^.;\n]{0,30}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\b/i.exec(
+          text,
+        );
+      const raw = direct?.[1] || reversed?.[1];
+      const value = raw ? Number(raw.replace(/,/g, "")) : null;
+      return Number.isFinite(value) && value > 0 ? value : null;
+    })();
     const mixedInteriorFlooringNote =
       (templateKey === "room_remodel" || projectType === "painting") &&
       !explicitHomeInterior &&
@@ -1322,6 +1430,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
         /\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i,
       ].filter(pattern => pattern.test(text)).length >= 2;
     if (mixedInteriorFlooringNote) return null;
+    if (additionFloorArea) return additionFloorArea;
     if (explicitHomeInterior) return explicitHomeInterior;
     if (livingAreaSqft) return livingAreaSqft;
     let max = 0;
@@ -1361,6 +1470,10 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     return max > 0 ? max : null;
   })();
   if (floorAreaSqft) out.floorAreaSqft = floorAreaSqft;
+  if (AIR_SEALING_RE.test(text)) {
+    out.airSealingIncluded = true;
+    if (floorAreaSqft) out.airSealingSqft = floorAreaSqft;
+  }
   if (
     (templateKey === "painting" || projectType === "painting") &&
     parseLabeledInteriorFloorAreaTotal(text) != null
@@ -1874,6 +1987,27 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     /\b(fiberglass\s+batt|blown[-\s]?in|spray\s+foam|rigid\s+foam|cellulose|mineral\s+wool|batt)\s+insulation\b/i,
   );
   if (materialMatch) out.insulationMaterialType = materialMatch[1];
+  const insulationAssemblies = [];
+  for (const clause of clauses) {
+    const rValue = clause.match(/\bR[-\s]?\d{2,3}\b/i)?.[0];
+    if (!rValue || !/\binsulat(?:e|ion|ed)\b/i.test(clause)) continue;
+    const location = /\b(?:exterior|outside)\s+walls?\b|\bwalls?\s+insulation\b/i.test(
+      clause,
+    )
+      ? "exterior_wall"
+      : /\b(?:attic|ceiling)\b/i.test(clause)
+        ? "attic_ceiling"
+        : /\bfloor\b/i.test(clause)
+          ? "floor"
+          : null;
+    if (!location) continue;
+    insulationAssemblies.push({
+      location,
+      rValue,
+      sqft: firstQty(clause, SQFT_RE),
+    });
+  }
+  if (insulationAssemblies.length) out.insulationAssemblies = insulationAssemblies;
   const rValueMatch = text.match(/\bR[-\s]?\d{2,3}\b/i);
   if (rValueMatch) out.insulationRValue = rValueMatch[0];
   if (ctx.templateKey === "flooring" && itemQuantities.floor_demo) {

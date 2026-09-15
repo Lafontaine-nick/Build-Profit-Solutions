@@ -41,6 +41,29 @@ function packageRuleKey(
 }
 
 describe('scopePackagesForReview', () => {
+  it('adds an HVAC demo card when existing HVAC and ductwork removal is noted', () => {
+    const display = buildConfirmScopeDisplayItems(
+      [{ id: 'hvac', label: 'HVAC', state: 'included', inputType: 'yes_no' }],
+      {},
+      'room_remodel',
+      'Remove the existing HVAC system and ductwork, then replace one heat-pump system.'
+    );
+
+    expect(display).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'hvac_demo',
+          label: 'HVAC demo / removal',
+          state: 'included',
+        }),
+      ])
+    );
+    const ordered = flattenChecklistDisplayOrder(display, 'room_remodel');
+    expect(ordered.findIndex(item => item.id === 'hvac_demo')).toBeLessThan(
+      ordered.findIndex(item => item.id === 'hvac')
+    );
+  });
+
   it('uses repair drywall and generic flooring when the note omits a product', () => {
     const items: ScopeChecklistItem[] = [
       {
@@ -199,6 +222,29 @@ describe('scopePackagesForReview', () => {
       ])
     );
     expect(rows.some(row => row.id === 'paint')).toBe(false);
+  });
+
+  it('removes duplicate concrete and generic landscaping cards from mixed hardscape scope', () => {
+    const rows = buildConfirmScopeDisplayItems(
+      [
+        { id: 'pour_flatwork', label: 'Concrete patio installation', state: 'included', inputType: 'yes_no' },
+        { id: 'concrete', label: 'Concrete flatwork', state: 'included', inputType: 'yes_no' },
+        { id: 'landscaping', label: 'Landscaping', state: 'included', inputType: 'yes_no' },
+        { id: 'sod_turf', label: 'Sod', state: 'included', inputType: 'yes_no' },
+        { id: 'plants', label: 'Plants / shrubs', state: 'included', inputType: 'yes_no' },
+        { id: 'pavers', label: 'Pavers', state: 'included', inputType: 'yes_no' },
+      ],
+      {},
+      'concrete',
+      'Install 1,000 sqft sod, 400 sqft pavers, and 12 shrubs with a 500 sqft concrete patio.'
+    );
+
+    expect(rows.map(row => row.id)).toEqual(
+      expect.arrayContaining(['pour_flatwork', 'sod_turf', 'plants', 'pavers'])
+    );
+    expect(rows.find(row => row.id === 'plants')?.label).toBe('Shrubs');
+    expect(rows.some(row => row.id === 'concrete')).toBe(false);
+    expect(rows.some(row => row.id === 'landscaping')).toBe(false);
   });
 
   it('flattenChecklistDisplayOrder matches bathroom Demo before Wet area finish', () => {

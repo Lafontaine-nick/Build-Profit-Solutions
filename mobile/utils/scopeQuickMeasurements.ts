@@ -124,6 +124,7 @@ export type QuickMeasurementFieldKey =
   | 'sewerLineLf'
   | 'gasLineLf'
   | 'plumbingRoughPointCount'
+  | 'plumbingRerouteLf'
   | 'plumbingTrimHookupCount'
   | 'plumbingFixturesHardwareCount'
   | 'waterHeaterCount'
@@ -711,6 +712,15 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     undefined,
     'Use documented water-supply line length only.'
   ),
+  plumbingRerouteLf: F(
+    'plumbingRerouteLf',
+    'Plumbing reroute',
+    'e.g. 25',
+    'LF',
+    'structure',
+    undefined,
+    'Documented bathroom plumbing reroute length only.'
+  ),
   sewerLineLf: F(
     'sewerLineLf',
     'Sewer / drain piping',
@@ -1221,6 +1231,7 @@ const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
   'countertopSqft',
   'countertopLf',
   'cabinetLf',
+  'plumbingRerouteLf',
   'wallDemoSqft',
   'wallPaintSqft',
   'ceilingPaintSqft',
@@ -1441,6 +1452,9 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
   framing: FRAMING_PLAN_QUICK_MEASUREMENT_ROWS,
   hvac: HVAC_PLAN_QUICK_MEASUREMENT_ROWS,
   bathroom: [
+    row(
+      F('plumbingRerouteLf', 'Plumbing reroute', 'e.g. 25', 'LF', 'structure')
+    ),
     row(
       F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior'),
       F('showerWallTileSqft', 'Shower walls', '90', 'sqft', 'interior')
@@ -2310,6 +2324,16 @@ export const PLUMBING_SERVICE_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] = [
     ),
     F('drainCleaningCount', 'Drain cleanings', 'e.g. 1', 'each', 'other')
   ),
+  row(
+    F(
+      'partsMaterialsCount',
+      'Parts / materials allowances',
+      'e.g. 1',
+      'allowance',
+      'other'
+    ),
+    F('plumbingCleanupCount', 'Cleanup / disposal', 'e.g. 1', 'each', 'other')
+  ),
 ];
 
 export function resolveQuickMeasurementTemplateKey(
@@ -2495,8 +2519,71 @@ export function quickMeasurementRowsForTemplate(
         : field
     )
   );
+  const bathroomNoteText = String(notes || '');
+  const bathroomHasNotes = Boolean(bathroomNoteText.trim());
+  const bathroomWetAreaWork =
+    /\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|walls?|floor\s+tile)|tub|bathtub|wet\s+area)\b/i.test(
+      bathroomNoteText
+    );
+  const bathroomFloorWork =
+    /\b(?:bath(?:room)?\s+floor(?:ing)?|floor\s+tile|tile\s+floor|flooring)\b/i.test(
+      bathroomNoteText
+    );
+  const bathroomFiltered = contextLabeled
+    .map(row =>
+      row
+        .filter(field => {
+          if (key !== 'bathroom') return true;
+          if (field.key === 'plumbingRerouteLf') {
+            return /\b(?:reroute|re-route|relocat(?:e|ed|ing|ion))\b[^.;\n]{0,45}\bplumb(?:ing)?\b|\bplumb(?:ing)?\b[^.;\n]{0,45}\b(?:reroute|re-route|relocat(?:e|ed|ing|ion))\b/i.test(
+              bathroomNoteText
+            );
+          }
+          if (field.key === 'baseboardLf') {
+            return (
+              bathroomHasNotes &&
+              /\bbaseboards?\b|\bbase\s*board\b|\b(?:interior|inside)\s+trim\b|\btrim\b/i.test(
+                bathroomNoteText
+              )
+            );
+          }
+          if (!bathroomHasNotes) return field.key !== 'baseboardLf';
+          if (
+            field.key === 'showerWallTileSqft' ||
+            field.key === 'showerFloorTileSqft'
+          ) {
+            return bathroomWetAreaWork;
+          }
+          if (field.key === 'bathroomFloorSqft') return bathroomFloorWork;
+          if (
+            field.key === 'wallPaintSqft' ||
+            field.key === 'ceilingPaintSqft'
+          ) {
+            return notesRequireInteriorPaintMeasurements(bathroomNoteText);
+          }
+          if (field.key === 'patchRepairSqft' || field.key === 'drywallSqft') {
+            return /\b(?:drywall|sheetrock|gypsum|patch(?:ing)?|wall\s+repair)\b/i.test(
+              bathroomNoteText
+            );
+          }
+          if (field.key === 'exteriorWallInsulationSqft') {
+            return /\binsulat(?:e|ion|ed)\b/i.test(bathroomNoteText);
+          }
+          return true;
+        })
+        .map(field =>
+          field.key === 'bathroomFloorSqft' &&
+          bathroomFloorWork &&
+          !/\bbath(?:room)?\s+floor(?:ing)?\b|\bfloor\s+tile\b|\btile\s+floor\b/i.test(
+            bathroomNoteText
+          )
+            ? { ...field, label: 'Flooring installation' }
+            : field
+        )
+    )
+    .filter(row => row.length > 0);
   const garageFiltered = filterGarageConversionQuickMeasurementRows(
-    contextLabeled,
+    bathroomFiltered,
     projectType,
     notes
   );
@@ -2873,7 +2960,19 @@ export function quickMeasurementRowsForInput(
             ? options.plumbingWorkflowMode === 'service'
               ? PLUMBING_SERVICE_QUICK_MEASUREMENT_ROWS
               : options.plumbingWorkflowMode === 'new_construction'
-                ? PLUMBING_PLAN_QUICK_MEASUREMENT_ROWS
+                ? SCOPE_QUICK_MEASUREMENT_ROWS.plumbing
+                    .map(row =>
+                      row.filter(
+                        field =>
+                          ![
+                            'serviceCallCount',
+                            'fixtureRepairCount',
+                            'fixtureReplacementCount',
+                            'drainCleaningCount',
+                          ].includes(field.key)
+                      )
+                    )
+                    .filter(row => row.length > 0)
                 : PLUMBING_NOTES_QUICK_MEASUREMENT_ROWS
             : quickMeasurementRowsForTemplate(
                 templateKey,
@@ -2882,6 +2981,13 @@ export function quickMeasurementRowsForInput(
               );
   baseRows = applyDrywallNoteSemantics(baseRows, options?.scopeNotes);
   const scopeNotes = String(options?.scopeNotes || '');
+  const mixedBathroomNoteFlow =
+    resolvedKey === 'bathroom' &&
+    /\b(?:reroute|re-route|relocat(?:e|ed|ing|ion))\b[^.;\n]{0,45}\bplumb(?:ing)?\b/i.test(
+      scopeNotes
+    ) &&
+    /\b(?:drywall|sheetrock)\b/i.test(scopeNotes) &&
+    /\b(?:flooring|lvp|laminate|vinyl|carpet)\b/i.test(scopeNotes);
   const hasInteriorDoorScope =
     /\binterior\s+doors?\b/i.test(scopeNotes) ||
     (/\bdoors?\b/i.test(scopeNotes) &&
@@ -3161,6 +3267,91 @@ export function quickMeasurementRowsForInput(
       .filter(row => row.length > 0);
   }
 
+  if (mixedBathroomNoteFlow) {
+    const bathroomNotes = String(options?.scopeNotes || '');
+    const wetAreaWork =
+      /\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|walls?|floor\s+tile)|tub|bathtub|wet\s+area)\b/i.test(
+        bathroomNotes
+      );
+    const bathroomFloorWork =
+      /\b(?:bath(?:room)?\s+floor(?:ing)?|floor\s+tile|tile\s+floor|flooring)\b/i.test(
+        bathroomNotes
+      );
+    const bathroomPaintWork =
+      notesRequireInteriorPaintMeasurements(bathroomNotes);
+    const bathroomDrywallWork =
+      /\b(?:drywall|sheetrock|gypsum|patch(?:ing)?|wall\s+repair)\b/i.test(
+        bathroomNotes
+      );
+    const bathroomBaseboardWork =
+      /\bbaseboards?\b|\bbase\s*board\b|\b(?:interior|inside)\s+trim\b/i.test(
+        bathroomNotes
+      );
+    const bathroomWindowWork = /\bwindows?\b/i.test(bathroomNotes);
+    const bathroomExteriorDoorWork = /\b(?:exterior|outside)\s+doors?\b/i.test(
+      bathroomNotes
+    );
+    const keepBathroomField = (field: QuickMeasurementFieldDef) => {
+      switch (field.key) {
+        case 'bathroomFloorSqft':
+          return bathroomFloorWork;
+        case 'showerWallTileSqft':
+        case 'showerFloorTileSqft':
+          return wetAreaWork;
+        case 'wallPaintSqft':
+        case 'ceilingPaintSqft':
+          return bathroomPaintWork;
+        case 'patchRepairSqft':
+        case 'drywallSqft':
+          return bathroomDrywallWork;
+        case 'baseboardLf':
+          return bathroomBaseboardWork;
+        case 'windowCount':
+          return bathroomWindowWork;
+        case 'exteriorDoorCount':
+          return bathroomExteriorDoorWork;
+        case 'plumbingRerouteLf':
+          return /\b(?:reroute|re-route|relocat(?:e|ed|ing|ion))\b[^.;\n]{0,45}\bplumb(?:ing)?\b|\bplumb(?:ing)?\b[^.;\n]{0,45}\b(?:reroute|re-route|relocat(?:e|ed|ing|ion))\b/i.test(
+            bathroomNotes
+          );
+        case 'exteriorWallInsulationSqft':
+          return /\binsulat(?:e|ion|ed)\b/i.test(bathroomNotes);
+        default:
+          return true;
+      }
+    };
+    const filteredBathroomRows = baseRows
+      .map(row =>
+        row
+          .filter(keepBathroomField)
+          .map(field =>
+            field.key === 'bathroomFloorSqft' &&
+            bathroomFloorWork &&
+            !/\bbath(?:room)?\s+floor(?:ing)?\b|\bfloor\s+tile\b|\btile\s+floor\b/i.test(
+              bathroomNotes
+            )
+              ? { ...field, label: 'Flooring installation' }
+              : field
+          )
+      )
+      .filter(row => row.length > 0);
+    const embeddedBathroomMeasurementKeys = new Set<QuickMeasurementFieldKey>([
+      'flooringSqft',
+      'drywallSqft',
+      'cabinetLf',
+    ]);
+    return [
+      ...filteredBathroomRows,
+      ...chunkRows(
+        extraFields.filter(
+          field =>
+            !embeddedBathroomMeasurementKeys.has(field.key) &&
+            keepBathroomField(field)
+        )
+      ),
+    ];
+  }
+
   // Keep row order stable while typing — dynamic note-only rows caused TextInput focus to jump.
   if (resolvedKey === 'room_remodel' || resolvedKey === 'kitchen') {
     const notes = String(options?.scopeNotes || '');
@@ -3335,7 +3526,7 @@ export function quickMeasurementRowsForInput(
                         : field.label,
                 }
               : field.key === 'ceilingPaintSqft' && paintCeilingsMentioned
-                ? { ...field, label: 'Ceilings paint' }
+                ? { ...field, label: 'Ceiling paint' }
                 : field
           )
       )
@@ -3601,6 +3792,7 @@ export function emptyQuickMeasurementInput(): Record<
     fixtureReplacementCount: '',
     drainCleaningCount: '',
     waterLineLf: '',
+    plumbingRerouteLf: '',
     sewerLineLf: '',
     gasLineLf: '',
     plumbingRoughPointCount: '',
