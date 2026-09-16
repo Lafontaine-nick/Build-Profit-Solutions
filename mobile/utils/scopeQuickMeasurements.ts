@@ -26,6 +26,7 @@ export type QuickMeasurementFieldKey =
   | 'interiorDoorCount'
   | 'windowCount'
   | 'exteriorDoorCount'
+  | 'standardReceptacleCount'
   | 'slidingDoorCount'
   | 'garageDoorSingleCount'
   | 'garageDoorDoubleCount'
@@ -367,6 +368,13 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     'exterior',
     undefined,
     'Count hinged/French exterior openings as units, not leaves. Exclude explicit sliders and garage doors.'
+  ),
+  standardReceptacleCount: F(
+    'standardReceptacleCount',
+    'Receptacles',
+    'Enter',
+    'each',
+    'interior'
   ),
   slidingDoorCount: F(
     'slidingDoorCount',
@@ -2820,13 +2828,16 @@ export function notesRequireInteriorPaintMeasurements(
     );
   if (explicitSurfacePaint) return true;
   // A generic interior "paint" instruction still needs a paint-area
-  // confirmation field. Do not create a wall-paint field for cabinet, trim,
-  // or exterior-only paint notes.
+  // confirmation field. Do not create a wall-paint field for explicitly
+  // cabinet- or exterior-only paint notes; nearby trim/baseboard work does
+  // not make a generic interior paint instruction irrelevant.
+  const explicitlyNonInteriorPaint =
+    /\b(?:cabinet|exterior|outside|siding|stucco|soffit|fascia)\b[^.;\n]{0,35}\bpaint(?:ing)?\b|\bpaint(?:ing)?\b[^.;\n]{0,35}\b(?:cabinet|exterior|outside|siding|stucco|soffit|fascia)\b/i.test(
+      text
+    );
   return (
     /\b(?:paint|painting|repaint)\b/i.test(text) &&
-    !/\b(?:cabinet|baseboard|trim|molding|moulding|exterior|outside|siding|stucco|soffit|fascia)\b/i.test(
-      text
-    )
+    !explicitlyNonInteriorPaint
   );
 }
 
@@ -2868,7 +2879,7 @@ function applyDrywallNoteSemantics(
   const hasDrywall = /\b(?:drywall|sheetrock|gypsum)\b/i.test(text);
   if (!hasDrywall) return rows;
   const hasPatch =
-    /\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,35}\b(?:patch|repair|texture|skim\s*coat)\b|\b(?:patch|repair|texture|skim\s*coat)\b[^.;\n]{0,35}\b(?:drywall|sheetrock|gypsum)\b/i.test(
+    /\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,35}\b(?:patch|repair)\b|\b(?:patch|repair)\b[^.;\n]{0,35}\b(?:drywall|sheetrock|gypsum)\b/i.test(
       text
     );
   const hasTextureWork = /\b(?:texture|skim\s*coat)\b/i.test(text);
@@ -2880,6 +2891,8 @@ function applyDrywallNoteSemantics(
     /\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b|\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b/i.test(
       text
     );
+  const shouldTreatAsDrywallInstall =
+    hasDrywallInstall || (!hasDrywallRepair && !hasDrywallDemo);
   const hasDrywallInstall =
     /\b(?:hang|install|installation)\b[^.;\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,60}\b(?:hang|install|installation)\b/i.test(
       text
@@ -2898,7 +2911,7 @@ function applyDrywallNoteSemantics(
                 ? hasDrywallRepair && !hasTextureWork
                   ? 'Drywall repair area'
                   : 'Drywall patch & texture'
-                : hasDrywallInstall
+                : shouldTreatAsDrywallInstall
                   ? 'Drywall install'
                   : 'Drywall',
             };
@@ -3056,6 +3069,35 @@ export function quickMeasurementRowsForInput(
     QUICK_MEASUREMENT_FIELD_DEFS.windowCount
   ) {
     noteBackedFieldsToAppend.push(QUICK_MEASUREMENT_FIELD_DEFS.windowCount);
+  }
+  if (
+    resolvedKey === 'room_remodel' &&
+    /\b(?:\d[\d,]*(?:\.\d+)?)\s+(?:standard\s+)?receptacles?\b/i.test(
+      scopeNotes
+    ) &&
+    !baseRows.some(row =>
+      row.some(field => field.key === 'standardReceptacleCount')
+    ) &&
+    QUICK_MEASUREMENT_FIELD_DEFS.standardReceptacleCount
+  ) {
+    noteBackedFieldsToAppend.push(
+      QUICK_MEASUREMENT_FIELD_DEFS.standardReceptacleCount
+    );
+  }
+  if (
+    /\bsiding\s+(?:repair|repairs|replacement|replace)\b|\b(?:repair|repairs|replacement|replace)\b[^.;\n]{0,35}\bsiding\b/i.test(
+      scopeNotes
+    ) &&
+    !baseRows.some(row => row.some(field => field.key === 'sidingRepairSqft')) &&
+    QUICK_MEASUREMENT_FIELD_DEFS.sidingRepairSqft
+  ) {
+    noteBackedFieldsToAppend.push({
+      ...QUICK_MEASUREMENT_FIELD_DEFS.sidingRepairSqft,
+      label: 'Siding repair',
+      placeholder: 'Enter',
+      helperText:
+        'Enter the exterior siding area explicitly identified for repair or replacement.',
+    });
   }
   const roofDeckingRepairMentioned =
     /\b(?:roof|roofing|shingles?)\b/i.test(scopeNotes) &&
@@ -3221,6 +3263,9 @@ export function quickMeasurementRowsForInput(
   if (noteBackedFieldsToAppend.length) {
     baseRows = [...baseRows, ...chunkRows(noteBackedFieldsToAppend)];
   }
+  // Note-backed companion rows can add drywall after the initial template
+  // pass; apply the same install/repair semantics to those rows as well.
+  baseRows = applyDrywallNoteSemantics(baseRows, scopeNotes);
   const baseKeys = new Set(baseRows.flatMap(r => r.map(f => f.key)));
   const plumbingRowsAreExplicit =
     plumbingTemplate &&
@@ -3416,20 +3461,33 @@ export function quickMeasurementRowsForInput(
       const hasKitchenFloorField = filteredRows.some(row =>
         row.some(field => field.key === 'kitchenFloorSqft')
       );
-      if (
+      const kitchenRows =
         explicitFloorWork &&
         !hasKitchenFloorField &&
         QUICK_MEASUREMENT_FIELD_DEFS.kitchenFloorSqft
+          ? filteredRows.map(row =>
+              row.map(field =>
+                field.key === 'flooringSqft'
+                  ? QUICK_MEASUREMENT_FIELD_DEFS.kitchenFloorSqft
+                  : field
+              )
+            )
+          : filteredRows;
+      const backsplashMentioned = /\bbacksplash\b/i.test(notes);
+      if (
+        resolvedKey === 'room_remodel' &&
+        backsplashMentioned &&
+        QUICK_MEASUREMENT_FIELD_DEFS.backsplashSqft &&
+        !kitchenRows.some(row =>
+          row.some(field => field.key === 'backsplashSqft')
+        )
       ) {
-        return filteredRows.map(row =>
-          row.map(field =>
-            field.key === 'flooringSqft'
-              ? QUICK_MEASUREMENT_FIELD_DEFS.kitchenFloorSqft
-              : field
-          )
-        );
+        return [
+          ...kitchenRows,
+          [QUICK_MEASUREMENT_FIELD_DEFS.backsplashSqft],
+        ];
       }
-      return filteredRows;
+      return kitchenRows;
     }
   }
 

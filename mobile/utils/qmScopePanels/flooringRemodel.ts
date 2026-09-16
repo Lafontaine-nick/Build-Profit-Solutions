@@ -506,6 +506,9 @@ export function syncFlooringQmScopeItems(
   const hasExistingFlooring =
     positiveCount(existing.flooringExistingCount) ||
     (existing.flooringExistingTypes?.length ?? 0) > 0;
+  const notesMentionUnderlayment =
+    m.flooringUnderlaymentMentioned === true;
+  const notesMentionTransitions = m.flooringTransitionsMentioned === true;
   const explicitProductSelection = Array.isArray(m.flooringProductScope);
   const selectedProducts = new Set(readFlooringProductScope(m));
   const hasSpecificProduct = selectedProducts.size > 0;
@@ -585,6 +588,26 @@ export function syncFlooringQmScopeItems(
         return row;
       }
       if (row.state !== 'included') {
+        changed = true;
+        return { ...row, state: 'included' as const, noteBacked: true };
+      }
+    }
+    if (
+      row.id === 'underlayment' &&
+      notesMentionUnderlayment &&
+      row.state !== 'excluded'
+    ) {
+      if (row.state !== 'included' || row.noteBacked !== true) {
+        changed = true;
+        return { ...row, state: 'included' as const, noteBacked: true };
+      }
+    }
+    if (
+      row.id === 'transitions' &&
+      notesMentionTransitions &&
+      row.state !== 'excluded'
+    ) {
+      if (row.state !== 'included' || row.noteBacked !== true) {
         changed = true;
         return { ...row, state: 'included' as const, noteBacked: true };
       }
@@ -685,12 +708,61 @@ export function syncFlooringQmScopeItems(
       next = [...next, ...missingProductCards];
     }
   }
+  const missingAccessoryCards = [
+    notesMentionUnderlayment && !next.some(row => row.id === 'underlayment')
+      ? {
+          id: 'underlayment',
+          label: 'Underlayment',
+          helperText:
+            'Underlayment material and installation. Enter the affected flooring area before pricing.',
+        }
+      : null,
+    notesMentionTransitions && !next.some(row => row.id === 'transitions')
+      ? {
+          id: 'transitions',
+          label: 'Transitions & reducers',
+          helperText:
+            'Transition strips, reducers, thresholds, end caps, and related installation. Enter the piece count before pricing.',
+        }
+      : null,
+  ].filter(
+    (
+      definition
+    ): definition is {
+      id: string;
+      label: string;
+      helperText: string;
+    } => Boolean(definition)
+  );
+  if (missingAccessoryCards.length > 0) {
+    changed = true;
+    const accessoryRows = missingAccessoryCards.map(definition => ({
+      ...definition,
+      inputType: 'yes_no' as const,
+      state: 'included' as const,
+      category: 'flooring',
+      noteBacked: true,
+    }));
+    const insertAt = next.findIndex(row => row.id === 'floor_demo');
+    if (insertAt >= 0) {
+      next = [
+        ...next.slice(0, insertAt),
+        ...accessoryRows,
+        ...next.slice(insertAt),
+      ];
+    } else {
+      next = [...next, ...accessoryRows];
+    }
+  }
   return changed ? next : items;
 }
 
 function hydrateFlooring(ctx: QmPanelHydrateContext): Record<string, unknown> {
   const saved = ctx.measurements;
   const notes = String(ctx.notes || '').toLowerCase();
+  const notesMentionUnderlayment = /\bunderlayment\b/.test(notes);
+  const notesMentionTransitions =
+    /\b(?:transitions?|reducers?|thresholds?|end\s*caps?)\b/.test(notes);
   const inferredProductScope = [
     /\b(?:lvp|luxury\s+vinyl)\b/.test(notes) ? 'lvp' : null,
     /\blaminate\b/.test(notes) ? 'laminate' : null,
@@ -756,6 +828,14 @@ function hydrateFlooring(ctx: QmPanelHydrateContext): Record<string, unknown> {
       });
       return merged.length ? merged : null;
     })(),
+    // Keep explicit unquantified flooring accessories visible as
+    // "Needs measurement" pricing cards without inventing quantities.
+    flooringUnderlaymentMentioned:
+      saved.flooringUnderlaymentMentioned === true ||
+      notesMentionUnderlayment,
+    flooringTransitionsMentioned:
+      saved.flooringTransitionsMentioned === true ||
+      notesMentionTransitions,
   };
 }
 

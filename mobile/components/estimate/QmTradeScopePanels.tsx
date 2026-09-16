@@ -1069,6 +1069,7 @@ export function QmKitchenScopePanels({
   measurements,
   setMeasurements,
   notes,
+  condensed = false,
   includedScopeKeys,
   hasSitePhotos,
   showExistingPanel,
@@ -1082,6 +1083,7 @@ export function QmKitchenScopePanels({
     React.SetStateAction<ScopeMeasurementsInputExtended>
   >;
   notes?: string | null;
+  condensed?: boolean;
   includedScopeKeys: string[];
   hasSitePhotos: boolean;
   showExistingPanel: boolean;
@@ -1438,6 +1440,45 @@ export function QmKitchenScopePanels({
       )) &&
     !/\bfloor(?:ing)?\s+protection\b/i.test(String(notes || ''));
   const showIslandCounterField = (install.kitchenInstallIslandCount ?? 0) > 0;
+  const kitchenNoteText = String(notes || '');
+  const condensedKitchenScope = {
+    cabinets: /\bcabinet(?:s|ry)?\b/i.test(kitchenNoteText),
+    counters: /\b(?:countertops?|counters?|quartz|granite)\b/i.test(
+      kitchenNoteText
+    ),
+    backsplash: /\bbacksplash\b/i.test(kitchenNoteText),
+    flooring: /\b(?:flooring|lvp|vinyl|laminate|tile)\b/i.test(
+      kitchenNoteText
+    ),
+    island: /\bisland\b/i.test(kitchenNoteText),
+    appliances: /\b(?:appliances?|dishwasher|refrigerator|range|oven|hood|microwave)\b/i.test(
+      kitchenNoteText
+    ),
+  };
+  const showKitchenIslandCounterField =
+    (showIslandCounterField || condensedKitchenScope.island) &&
+    (!condensed || condensedKitchenScope.island);
+  const condensedKitchenInstallRows = condensed
+    ? KITCHEN_INSTALL_STEPPER_ROWS.filter(row =>
+        row.key === 'kitchenInstallIslandCount'
+          ? condensedKitchenScope.island
+          : condensedKitchenScope.appliances
+      )
+    : KITCHEN_INSTALL_STEPPER_ROWS;
+  const condensedKitchenDemoRows = condensed
+    ? KITCHEN_DEMO_STEPPER_ROWS.filter(row =>
+        row.key === 'kitchenDemoIslandCount'
+          ? condensedKitchenScope.island
+          : condensedKitchenScope.appliances &&
+            /\b(?:demo|demolition|remove|removal|existing)\b/i.test(
+              kitchenNoteText
+            )
+      )
+    : KITCHEN_DEMO_STEPPER_ROWS;
+  const hasCondensedKitchenDemo =
+    /\b(?:demolition|demo|remove|removal|tear[\s-]?out|existing)\b/i.test(
+      kitchenNoteText
+    );
 
   const handleExistingStepperAdjust = useCallback(
     (key: string, delta: number) =>
@@ -1476,7 +1517,7 @@ export function QmKitchenScopePanels({
 
   return (
     <>
-      {showExistingPanel ? (
+      {!condensed && showExistingPanel ? (
         <QmScopePanelSection
           title='Existing kitchen'
           {...qmExistingScopePanelStyle(darkMode)}
@@ -1504,29 +1545,33 @@ export function QmKitchenScopePanels({
               darkMode={darkMode}
               Colors={Colors}
             />
-            <QmSqftMeasurementRow
-              label='Cabinets'
-              helperText='Cabinet run length for this kitchen — LF, not a fixture count.'
-              value={cabinetLfValue}
-              unitLabel='LF'
-              onChangeText={cabinetLfField.onChangeText}
-              onBlur={cabinetLfField.onBlur}
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-              sectionLead
-            />
-            <QmSqftMeasurementRow
-              label='Counters'
-              helperText='Perimeter countertop area — island SF is added to this same countertop pricing card.'
-              value={countertopSqftValue}
-              onChangeText={countertopField.onChangeText}
-              onBlur={countertopField.onBlur}
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-            />
-            {showIslandCounterField ? (
+            {condensedKitchenScope.cabinets ? (
+              <QmSqftMeasurementRow
+                label='Cabinets'
+                helperText='Cabinet run length for this kitchen — LF, not a fixture count.'
+                value={cabinetLfValue}
+                unitLabel='LF'
+                onChangeText={cabinetLfField.onChangeText}
+                onBlur={cabinetLfField.onBlur}
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+                sectionLead
+              />
+            ) : null}
+            {condensedKitchenScope.counters ? (
+              <QmSqftMeasurementRow
+                label='Counters'
+                helperText='Perimeter countertop area — island SF is added to this same countertop pricing card.'
+                value={countertopSqftValue}
+                onChangeText={countertopField.onChangeText}
+                onBlur={countertopField.onBlur}
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+              />
+            ) : null}
+            {showKitchenIslandCounterField ? (
               <QmSqftMeasurementRow
                 label='Island counter'
                 helperText='Island top area only — rolls into Countertops pricing with perimeter SF.'
@@ -1538,17 +1583,20 @@ export function QmKitchenScopePanels({
                 Colors={Colors}
               />
             ) : null}
-            <QmSqftMeasurementRow
-              label='Backsplash'
-              helperText='Backsplash tile area — same takeoff feeds install and demo.'
-              value={backsplashSqftValue}
-              onChangeText={backsplashField.onChangeText}
-              onBlur={backsplashField.onBlur}
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-            />
-            {hasExplicitKitchenFloorScope ? (
+            {condensedKitchenScope.backsplash ? (
+              <QmSqftMeasurementRow
+                label='Backsplash'
+                helperText='Backsplash tile area — same takeoff feeds install and demo.'
+                value={backsplashSqftValue}
+                onChangeText={backsplashField.onChangeText}
+                onBlur={backsplashField.onBlur}
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+              />
+            ) : null}
+            {hasExplicitKitchenFloorScope &&
+            (!condensed || condensedKitchenScope.flooring) ? (
               <QmSqftMeasurementRow
                 label='Kitchen floor'
                 helperText='Floor finish area — separate from wall layout scope below.'
@@ -1563,11 +1611,12 @@ export function QmKitchenScopePanels({
             ) : null}
           </View>
         }
-        trailingRows={KITCHEN_INSTALL_STEPPER_ROWS}
+        trailingRows={condensedKitchenInstallRows}
         stepperMax={Infinity}
         darkMode={darkMode}
         Colors={Colors}
       />
+      {condensed && !hasCondensedKitchenDemo ? null : (
       <QmScopePanelSection
         title='Demo / tear-out'
         {...qmDemoScopePanelStyle(darkMode)}
@@ -1585,29 +1634,33 @@ export function QmKitchenScopePanels({
               darkMode={darkMode}
               Colors={Colors}
             />
-            <QmSqftMeasurementRow
-              label='Cabinet demo'
-              helperText='Cabinet run length to remove — LF, not a fixture count. Same takeoff as install cabinets.'
-              value={cabinetLfValue}
-              unitLabel='LF'
-              onChangeText={cabinetLfField.onChangeText}
-              onBlur={cabinetLfField.onBlur}
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-              sectionLead
-            />
-            <QmSqftMeasurementRow
-              label='Countertop demo'
-              helperText='Perimeter + island counter SF to remove — same takeoff as countertop install.'
-              value={countertopSqftValue}
-              onChangeText={countertopField.onChangeText}
-              onBlur={countertopField.onBlur}
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-            />
-            {showIslandCounterField ? (
+            {condensedKitchenScope.cabinets ? (
+              <QmSqftMeasurementRow
+                label='Cabinet demo'
+                helperText='Cabinet run length to remove — LF, not a fixture count. Same takeoff as install cabinets.'
+                value={cabinetLfValue}
+                unitLabel='LF'
+                onChangeText={cabinetLfField.onChangeText}
+                onBlur={cabinetLfField.onBlur}
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+                sectionLead
+              />
+            ) : null}
+            {condensedKitchenScope.counters ? (
+              <QmSqftMeasurementRow
+                label='Countertop demo'
+                helperText='Perimeter + island counter SF to remove — same takeoff as countertop install.'
+                value={countertopSqftValue}
+                onChangeText={countertopField.onChangeText}
+                onBlur={countertopField.onBlur}
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+              />
+            ) : null}
+            {showKitchenIslandCounterField ? (
               <QmSqftMeasurementRow
                 label='Island counter demo'
                 helperText='Island top tear-out area — combined with perimeter on Countertop demo.'
@@ -1619,17 +1672,20 @@ export function QmKitchenScopePanels({
                 Colors={Colors}
               />
             ) : null}
-            <QmSqftMeasurementRow
-              label='Backsplash demo'
-              helperText='Tear-out area — same takeoff as install backsplash when both are in scope.'
-              value={backsplashSqftValue}
-              onChangeText={backsplashField.onChangeText}
-              onBlur={backsplashField.onBlur}
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-            />
-            {hasExplicitKitchenFloorScope ? (
+            {condensedKitchenScope.backsplash ? (
+              <QmSqftMeasurementRow
+                label='Backsplash demo'
+                helperText='Tear-out area — same takeoff as install backsplash when both are in scope.'
+                value={backsplashSqftValue}
+                onChangeText={backsplashField.onChangeText}
+                onBlur={backsplashField.onBlur}
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+              />
+            ) : null}
+            {hasExplicitKitchenFloorScope &&
+            (!condensed || condensedKitchenScope.flooring) ? (
               <QmSqftMeasurementRow
                 label='Floor demo'
                 helperText='Kitchen floor tear-out area.'
@@ -1644,9 +1700,10 @@ export function QmKitchenScopePanels({
             ) : null}
           </View>
         }
-        trailingRows={KITCHEN_DEMO_STEPPER_ROWS}
+        trailingRows={condensedKitchenDemoRows}
         stepperMax={Infinity}
       />
+      )}
     </>
   );
 }
@@ -3262,6 +3319,7 @@ export const QmBathroomFixturesPanels = React.memo(
       );
       const genRef = useRef(0);
       const appliedRef = useRef(0);
+      const fixtureInstallNotesSeededRef = useRef(false);
       const demoOverridesRef = useRef<
         Partial<Record<BathroomFixtureDemoOverrideKey, boolean>>
       >({});
@@ -3343,14 +3401,46 @@ export const QmBathroomFixturesPanels = React.memo(
         if (genRef.current !== appliedRef.current) return;
         setExisting(readBathroomExistingFixtureCounts(measurements));
         const savedInstall = readBathroomInstallFixtureCounts(measurements);
+        const inferredInstall = inferBathroomFixtureInstallFromIntent({
+          notes,
+          checklistItems: [],
+        });
+        const shouldSeedFromNotes =
+          !fixtureInstallNotesSeededRef.current &&
+          savedInstall.bathroomInstallVanityCount == null &&
+          savedInstall.bathroomInstallCounterCount == null;
+        const resolvedInstall = shouldSeedFromNotes
+          ? {
+              bathroomInstallVanityCount:
+                inferredInstall.bathroomInstallVanityCount ??
+                savedInstall.bathroomInstallVanityCount,
+              bathroomInstallCounterCount:
+                inferredInstall.bathroomInstallCounterCount ??
+                savedInstall.bathroomInstallCounterCount,
+            }
+          : savedInstall;
+        if (shouldSeedFromNotes) {
+          fixtureInstallNotesSeededRef.current = true;
+          if (
+            resolvedInstall.bathroomInstallVanityCount != null ||
+            resolvedInstall.bathroomInstallCounterCount != null
+          ) {
+            setMeasurements(prev => ({ ...prev, ...resolvedInstall }));
+            onBathroomFixturesQmChange?.({
+              existing: readBathroomExistingFixtureCounts(measurements),
+              install: resolvedInstall,
+              demo: readBathroomDemoFixtureCounts(measurements),
+            });
+          }
+        }
         const resolvedCounter = resolveBathroomInstallCounterCount({
           countertopSqft: measurements.countertopSqft,
           materialType: measurements.bathroomVanityCountertopMaterialType,
         });
         setInstall(
           resolvedCounter != null
-            ? { ...savedInstall, bathroomInstallCounterCount: resolvedCounter }
-            : savedInstall
+            ? { ...resolvedInstall, bathroomInstallCounterCount: resolvedCounter }
+            : resolvedInstall
         );
         const nextDemo = readBathroomDemoFixtureCounts(measurements);
         setDemo(nextDemo);
@@ -3364,6 +3454,9 @@ export const QmBathroomFixturesPanels = React.memo(
         measurements.bathroomDemoCounterCount,
         measurements.countertopSqft,
         measurements.bathroomVanityCountertopMaterialType,
+        notes,
+        onBathroomFixturesQmChange,
+        setMeasurements,
       ]);
 
       const flushToParent = useCallback(() => {
@@ -3714,15 +3807,6 @@ export const QmBathroomFixturesPanels = React.memo(
         ]
       );
 
-      const visibleBathroomDemoRows = BATHROOM_DEMO_FIXTURE_ROWS.filter(row => {
-        if (row.key === 'bathroomDemoVanityCount') {
-          return existing.bathroomExistingVanityCount != null;
-        }
-        if (row.key === 'bathroomDemoCounterCount') {
-          return existing.bathroomExistingCounterCount != null;
-        }
-        return true;
-      });
       const noteText = String(notes || '');
       const notesMentionVanity = /\bvanit(?:y|ies)\b/i.test(noteText);
       const notesMentionCountertop =
@@ -3750,6 +3834,21 @@ export const QmBathroomFixturesPanels = React.memo(
               (notesMentionCountertop ||
                 existing.bathroomExistingCounterCount != null)
       );
+      const visibleBathroomDemoRows = BATHROOM_DEMO_FIXTURE_ROWS.filter(row => {
+        if (row.key === 'bathroomDemoVanityCount') {
+          return (
+            existing.bathroomExistingVanityCount != null ||
+            (hasExistingVanityOrCounter && notesMentionVanity)
+          );
+        }
+        if (row.key === 'bathroomDemoCounterCount') {
+          return (
+            existing.bathroomExistingCounterCount != null ||
+            (hasExistingVanityOrCounter && notesMentionCountertop)
+          );
+        }
+        return true;
+      });
 
       return (
         <>
@@ -4014,11 +4113,16 @@ export function QmLandscapingScopePanels({
   const selected = readLandscapingScope(
     measurements as Record<string, unknown>
   );
-  const demoActive = selected.includes('demo_clearing');
+  const noteText = String(notes || '');
+  const demoActive =
+    selected.includes('demo_clearing') &&
+    (!condensed ||
+      /\b(?:landscap(?:e|ing)|vegetation|brush|debris|yard|lot|site)\b[^.;\n]{0,45}\b(?:demo|demolish|remove|removal|clear|clearing|cleanup|haul|dispose)|\b(?:demo|demolish|remove|removal|clear|clearing|cleanup|haul|dispose)\b[^.;\n]{0,45}\b(?:landscap(?:e|ing)|vegetation|brush|debris|yard|lot|site)\b/i.test(
+        noteText
+      ));
   const shrubsOnly =
     /\bshrubs?\b/i.test(String(notes || '')) &&
     !/\bplants?\b|\bplanting\b|\btrees?\b/i.test(String(notes || ''));
-  const noteText = String(notes || '');
   const noteBackedOption = (id: string): boolean => {
     const patterns: Record<string, RegExp> = {
       grading: /\bgrading?\b|\bgrade\s+(?:the\s+)?(?:yard|site|lot)\b/i,
@@ -4026,7 +4130,7 @@ export function QmLandscapingScopePanels({
       drainage: /\b(?:landscape\s+)?drainage\b|\bfrench\s+drains?\b/i,
       artificial_turf: /\b(?:artificial|synthetic)\s+(?:turf|grass)\b/i,
       sod: /\b(?:sod|natural\s+grass)\b/i,
-      rock: /\b(?:decorative\s+)?rock\b|\bgravel\b/i,
+      rock: /\b(?:decorative\s+)?rock\b|\b(?:rock|mulch)\s+area\b/i,
       mulch: /\bmulch\b/i,
       plants: /\b(?:plants?|shrubs?|planting)\b/i,
       trees: /\btrees?\b/i,
@@ -4041,9 +4145,7 @@ export function QmLandscapingScopePanels({
     return Boolean(patterns[id]?.test(noteText));
   };
   const visibleOptions = condensed
-    ? LANDSCAPING_SCOPE_OPTIONS.filter(
-        option => selected.includes(option.id) || noteBackedOption(option.id)
-      )
+    ? LANDSCAPING_SCOPE_OPTIONS.filter(option => noteBackedOption(option.id))
     : LANDSCAPING_SCOPE_OPTIONS;
   const [demoExpanded, setDemoExpanded] = useState(true);
   const [expanded, setExpanded] = useState(true);
@@ -5905,6 +6007,8 @@ export function QmRoofingScopePanels({
   measurements,
   setMeasurements,
   onScopeSelectionChange,
+  notes,
+  condensed = false,
   applying,
   darkMode,
   Colors,
@@ -5914,6 +6018,8 @@ export function QmRoofingScopePanels({
     React.SetStateAction<ScopeMeasurementsInputExtended>
   >;
   onScopeSelectionChange?: (measurements: Record<string, unknown>) => void;
+  notes?: string | null;
+  condensed?: boolean;
   applying: boolean;
   darkMode: boolean;
   Colors: Colors;
@@ -5950,6 +6056,34 @@ export function QmRoofingScopePanels({
   const demoOptions = roofingOptionsForIds(ROOFING_DEMO_OPTION_IDS);
   const accessoryOptions = roofingOptionsForIds(ROOFING_ACCESSORY_OPTION_IDS);
   const drainageOptions = roofingOptionsForIds(ROOFING_DRAINAGE_OPTION_IDS);
+  const roofingNoteText = String(notes || '');
+  const noteBackedRoofingOption = (id: string): boolean => {
+    const patterns: Record<string, RegExp> = {
+      tear_off: /\b(?:tear[\s-]?off|remove|removal|existing)\b[^.;\n]{0,45}\broof/i,
+      shingles:
+        /\b(?:replace|replacement|install|reroof|re[\s-]?roof)\b[^.;\n]{0,45}\b(?:roof(?:ing)?|shingles?|squares?)\b|\b\d[\d,]*(?:\.\d+)?\s+roofing\s+squares?\b/i,
+      decking_repair:
+        /\b(?:deck(?:ing)?|roof\s+deck)\b[^.;\n]{0,35}\b(?:repair|replace|replacement)\b|\b(?:repair|replace|replacement)\b[^.;\n]{0,35}\b(?:deck(?:ing)?|roof\s+deck)\b/i,
+      gutters: /\bgutters?\b/i,
+      downspouts: /\bdownspouts?\b/i,
+      underlayment: /\bunderlayment\b/i,
+      ice_water_shield: /\bice[\s-]?water\s+shield\b/i,
+      drip_edge: /\bdrip\s+edge\b/i,
+      ridge_cap: /\bridge\s+cap\b/i,
+      valley_flashing: /\bvalley\s+flashing\b/i,
+      step_flashing: /\bstep\s+flashing\b/i,
+      wall_flashing: /\bwall\s+flashing\b/i,
+    };
+    return Boolean(patterns[id]?.test(roofingNoteText));
+  };
+  const visibleRoofingOptions = (options: typeof installOptions) =>
+    condensed
+      ? options.filter(option => noteBackedRoofingOption(option.id))
+      : options;
+  const visibleInstallOptions = visibleRoofingOptions(installOptions);
+  const visibleDemoOptions = visibleRoofingOptions(demoOptions);
+  const visibleAccessoryOptions = visibleRoofingOptions(accessoryOptions);
+  const visibleDrainageOptions = visibleRoofingOptions(drainageOptions);
   const installSelected = installOptions.some(
     option =>
       selections.includes(option.id) || selections.includes(option.canonicalId)
@@ -6044,7 +6178,7 @@ export function QmRoofingScopePanels({
               Install components
             </Text>
             <QmTradeScopeOptionList
-              options={installOptions}
+              options={visibleInstallOptions}
               selections={selections}
               scopeKey={scopeKey}
               onToggle={toggle}
@@ -6087,7 +6221,7 @@ export function QmRoofingScopePanels({
             </TouchableOpacity>
             {demoExpanded ? (
               <QmTradeScopeOptionList
-                options={demoOptions}
+                options={visibleDemoOptions}
                 selections={selections}
                 scopeKey={scopeKey}
                 onToggle={toggle}
@@ -6100,6 +6234,7 @@ export function QmRoofingScopePanels({
             ) : null}
           </View>
 
+          {visibleAccessoryOptions.length > 0 ? (
           <View style={[styles.qmPanel, panelStyle]}>
             <TouchableOpacity
               onPress={() => setAccessoryExpanded(value => !value)}
@@ -6127,7 +6262,7 @@ export function QmRoofingScopePanels({
             </TouchableOpacity>
             {accessoryExpanded ? (
               <QmTradeScopeOptionList
-                options={accessoryOptions}
+                options={visibleAccessoryOptions}
                 selections={selections}
                 scopeKey={scopeKey}
                 onToggle={toggle}
@@ -6139,6 +6274,7 @@ export function QmRoofingScopePanels({
               />
             ) : null}
           </View>
+          ) : null}
 
           <View style={[styles.qmPanel, panelStyle]}>
             <Text
@@ -6161,7 +6297,7 @@ export function QmRoofingScopePanels({
               Gutters and downspouts priced independently by LF and each.
             </Text>
             <QmTradeScopeOptionList
-              options={drainageOptions}
+              options={visibleDrainageOptions}
               selections={selections}
               scopeKey={scopeKey}
               onToggle={toggle}

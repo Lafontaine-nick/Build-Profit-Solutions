@@ -1723,6 +1723,15 @@ export function parseScopeMeasurementsFromNotes(
         if (near) return near;
       }
     }
+    // Comma-formatted quantities such as "1,200 sqft existing flooring"
+    // are split by the clause tokenizer. Retry against the full note so the
+    // quantity remains associated with the removal language.
+    const removalBeforeQuantity = text.match(
+      /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,100}?(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i
+    );
+    if (removalBeforeQuantity?.[1]) {
+      return Number(removalBeforeQuantity[1].replace(/,/g, ''));
+    }
     return null;
   })();
   if (floorDemoSqft) out.floorDemoSqft = floorDemoSqft;

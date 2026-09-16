@@ -501,7 +501,21 @@ export function confirmScopeDisplayItemsFromDraft(draft: EstimateAiDraft): Scope
     ? draft.confirmedAssumptions
     : draft.scopeChecklist?.items;
   if (!base?.length) return [];
-  const measurements = (draft.scopeMeasurements || {}) as Record<string, unknown>;
+  const measurements = {
+    ...((draft.scopeMeasurements || {}) as Record<string, unknown>),
+    // Preserve explicit flooring accessories in mixed-scope pricing even when
+    // the notes do not provide a quantity yet.
+    flooringUnderlaymentMentioned:
+      ((draft.scopeMeasurements || {}) as Record<string, unknown>)
+        .flooringUnderlaymentMentioned === true ||
+      /\bunderlayment\b/i.test(String(draft.originalNotes || '')),
+    flooringTransitionsMentioned:
+      ((draft.scopeMeasurements || {}) as Record<string, unknown>)
+        .flooringTransitionsMentioned === true ||
+      /\b(?:transitions?|reducers?|thresholds?|end\s*caps?)\b/i.test(
+        String(draft.originalNotes || '')
+      ),
+  } as Record<string, unknown>;
   const templateKey = resolveEffectiveQuickMeasurementTemplateKey({
     templateKey: draft.scopeChecklist?.templateKey,
     projectType: draft.projectType,

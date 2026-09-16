@@ -107,6 +107,33 @@ describe('flooringRemodel QM', () => {
     expect(next.find(r => r.id === 'flooring')?.state).toBe('excluded');
   });
 
+  it('keeps explicitly noted accessories visible without inventing quantities', () => {
+    const next = syncFlooringQmScopeItems(
+      [item('flooring'), item('floor_demo')],
+      {
+        flooringProductScope: ['lvp'],
+        flooringInstallScopeCount: 1,
+        flooringUnderlaymentMentioned: true,
+        flooringTransitionsMentioned: true,
+      }
+    );
+
+    expect(next).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'underlayment',
+          state: 'included',
+          noteBacked: true,
+        }),
+        expect.objectContaining({
+          id: 'transitions',
+          state: 'included',
+          noteBacked: true,
+        }),
+      ])
+    );
+  });
+
   it('infers product scope from per-product install SF fields', () => {
     const items = [
       item('flooring'),

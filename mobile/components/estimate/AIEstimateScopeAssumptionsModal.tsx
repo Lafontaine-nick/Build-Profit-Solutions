@@ -14647,6 +14647,13 @@ function CollapsibleQuickMeasurements({
     put('countertopLf', parsed.countertopLf);
     put('cabinetLf', parsed.cabinetLf);
     put('plumbingRerouteLf', parsed.plumbingRerouteLf);
+    const standardReceptacleMatch = String(notes || '').match(
+      /\b(\d[\d,]*(?:\.\d+)?)\s+(?:standard\s+)?receptacles?\b/i
+    );
+    put(
+      'standardReceptacleCount',
+      standardReceptacleMatch?.[1]?.replace(/,/g, '')
+    );
     put('serviceCallCount', parsedPlumbing.serviceCallCount);
     put('fixtureRepairCount', parsedPlumbing.fixtureRepairCount);
     put('fixtureReplacementCount', parsedPlumbing.fixtureReplacementCount);
@@ -15745,10 +15752,32 @@ function CollapsibleQuickMeasurements({
     wholeHomeLayout,
     planBathRoomCount: bathCountFromPlan,
   });
+  const explicitBathroomScopeInNotes =
+    /\b(?:bathroom|bathrooms|bath|shower|tub|bathtub|vanity|toilet|soap\s+niche|bath\s+accessories|exhaust\s+fan)\b/i.test(
+      String(notes || '')
+    );
+  const kitchenSpecificScopeInNotes =
+    /\b(?:kitchen|backsplash|island|appliances?)\b/i.test(
+      String(notes || '')
+    ) ||
+    (/\b(?:quartz|countertops?)\b/i.test(String(notes || '')) &&
+      !explicitBathroomScopeInNotes);
+  const explicitKitchenScopeInNotes =
+    kitchenSpecificScopeInNotes;
+  const explicitLandscapingScopeInNotes =
+    /\b(?:landscap(?:e|ing)|sod|turf|rock|mulch|shrubs?|plants?|irrigation|edging|pavers?|drainage|landscape\s+lighting)\b/i.test(
+      String(notes || '')
+    );
+  const explicitConcreteScopeInNotes =
+    /\b(?:concrete|flatwork|patio|slab|footings?|foundation|retaining\s+walls?)\b/i.test(
+      String(notes || '')
+    );
   const kitchenQmJob =
     !wholeHomeLayout &&
-    (String(effectiveTemplateKey || '').toLowerCase() === 'kitchen' ||
-      mixedTradeSet.has('kitchen'));
+    (compactMixedScope
+      ? explicitKitchenScopeInNotes
+      : String(effectiveTemplateKey || '').toLowerCase() === 'kitchen' ||
+        mixedTradeSet.has('kitchen'));
   const flooringQmJob =
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'flooring' ||
@@ -15760,12 +15789,14 @@ function CollapsibleQuickMeasurements({
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'landscaping' ||
       mixedExteriorQmJob ||
-      mixedTradeSet.has('landscaping'));
+      (mixedTradeSet.has('landscaping') &&
+        (!compactMixedScope || explicitLandscapingScopeInNotes)));
   const concreteQmJob =
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'concrete' ||
       mixedExteriorQmJob ||
-      mixedTradeSet.has('concrete'));
+      (mixedTradeSet.has('concrete') &&
+        (!compactMixedScope || explicitConcreteScopeInNotes)));
   const windowsDoorsPlanImport =
     (singleTradeImport && tradeKey === 'windows_doors') ||
     String(effectiveTemplateKey || '').toLowerCase() === 'windows_doors';
@@ -15781,7 +15812,8 @@ function CollapsibleQuickMeasurements({
     !notesTradeFlow &&
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'bathroom' ||
-      mixedTradeSet.has('bathroom'));
+      mixedTradeSet.has('bathroom')) &&
+    (!compactMixedScope || explicitBathroomScopeInNotes);
   const showWetAreaFinishSteppers = useMemo(() => {
     if (notesTradeFlow) return false;
     if (singleTradeImport) return false;
@@ -15790,6 +15822,13 @@ function CollapsibleQuickMeasurements({
       /\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|walls?|floor\s+tile)|tub|bathtub|wet\s+area)\b/i.test(
         noteText
       );
+    if (
+      (String(effectiveTemplateKey || '').toLowerCase() === 'bathroom' ||
+        mixedTradeSet.has('bathroom')) &&
+      notesExplicitWetAreaWork
+    ) {
+      return true;
+    }
     if (!notesExplicitWetAreaWork) return false;
     if (
       shouldShowPlanWetAreaFinishSteppers({
@@ -15824,7 +15863,25 @@ function CollapsibleQuickMeasurements({
     bathroomPhotoWetArea,
     fieldResults,
     includedScopeKeys,
+    mixedTradeSet,
   ]);
+  const explicitWetAreaDemoInNotes =
+    /\b(?:demolish(?:ed|ing)?|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,70}\b(?:existing\s+)?(?:shower|tub|bath(?:room)?|pan|floor(?:ing)?|tile)\b/i.test(
+      String(notes || '')
+    );
+  const compactBathroomScope =
+    compactMixedScope &&
+    mixedTradeSet.has('bathroom') &&
+    explicitBathroomScopeInNotes;
+  const bathroomNoteText = String(notes || '');
+  const hasBathroomMeasurement = (
+    key: keyof ScopeMeasurementsInputExtended
+  ) => String(measurements[key] ?? '').trim().length > 0;
+  const showBathroomOption = (
+    pattern: RegExp,
+    hasUserValue = false
+  ): boolean =>
+    !compactBathroomScope || pattern.test(bathroomNoteText) || hasUserValue;
   const groups = useMemo(() => {
     let grouped = groupQuickMeasurementFields(fieldResults);
     // Keep optional fields in their More measurements home after typing.
@@ -17306,7 +17363,7 @@ function CollapsibleQuickMeasurements({
   };
 
   const renderDemoTearOutPanel = () => {
-    if (keepingExistingWetArea) return null;
+    if (keepingExistingWetArea && !explicitWetAreaDemoInNotes) return null;
     return (
       <View
         style={[
@@ -17340,46 +17397,86 @@ function CollapsibleQuickMeasurements({
           — adjust if needed. Wall & floor tile by sqft (~$5.50/SF) · tub/prefab
           pan $350 · enclosure $600 · door $125.
         </Text>
-        {renderDemoSqftField(
-          'Demo shower wall tile',
-          'Tear-out wall area for this job (also used for new shower wall tile takeoff).',
-          'showerWallTileSqft'
-        )}
-        {renderBathCountStepper('Remove tub', demoCounts.demoTubCount, d =>
-          adjustDemoCount('demoTubCount', d)
-        )}
-        {renderBathCountStepper(
-          'Remove tile shower pan',
-          demoCounts.demoTilePanCount,
-          d => adjustDemoCount('demoTilePanCount', d)
-        )}
-        {demoCounts.demoTilePanCount != null && demoCounts.demoTilePanCount > 0
+        {showBathroomOption(
+          /\b(?:shower|tile)\b/i,
+          hasBathroomMeasurement('showerWallTileSqft')
+        )
+          ? renderDemoSqftField(
+              'Demo shower wall tile',
+              'Tear-out wall area for this job (also used for new shower wall tile takeoff).',
+              'showerWallTileSqft'
+            )
+          : null}
+        {showBathroomOption(
+          /\btub\b/i,
+          demoCounts.demoTubCount != null
+        )
+          ? renderBathCountStepper('Remove tub', demoCounts.demoTubCount, d =>
+              adjustDemoCount('demoTubCount', d)
+            )
+          : null}
+        {showBathroomOption(
+          /\b(?:shower\s+pan|tile\s+shower|pan)\b/i,
+          demoCounts.demoTilePanCount != null
+        )
+          ? renderBathCountStepper(
+              'Remove tile shower pan',
+              demoCounts.demoTilePanCount,
+              d => adjustDemoCount('demoTilePanCount', d)
+            )
+          : null}
+        {showBathroomOption(
+          /\b(?:shower\s+pan|tile\s+shower|pan)\b/i,
+          hasBathroomMeasurement('showerFloorTileSqft')
+        ) &&
+        demoCounts.demoTilePanCount != null &&
+        demoCounts.demoTilePanCount > 0
           ? renderDemoSqftField(
               'Demo pan / shower floor sqft',
               'Tear-out pan area for this job (also used for new shower floor tile takeoff).',
               'showerFloorTileSqft'
             )
           : null}
-        {renderBathCountStepper(
-          'Remove prefab pan',
-          demoCounts.demoPrefabPanCount,
-          d => adjustDemoCount('demoPrefabPanCount', d)
-        )}
-        {renderBathCountStepper(
-          'Remove prefab enclosure',
-          demoCounts.demoPrefabEnclosureCount,
-          d => adjustDemoCount('demoPrefabEnclosureCount', d)
-        )}
-        {renderBathCountStepper(
-          'Remove shower door',
-          demoCounts.demoShowerDoorCount,
-          d => adjustDemoCount('demoShowerDoorCount', d)
-        )}
-        {renderDemoSqftField(
-          'Demo bath floor tile',
-          'Floor tear-out area — priced on Bathroom floor demo (separate from shower).',
-          'bathroomFloorSqft'
-        )}
+        {showBathroomOption(
+          /\bprefab\b/i,
+          demoCounts.demoPrefabPanCount != null
+        )
+          ? renderBathCountStepper(
+              'Remove prefab pan',
+              demoCounts.demoPrefabPanCount,
+              d => adjustDemoCount('demoPrefabPanCount', d)
+            )
+          : null}
+        {showBathroomOption(
+          /\bprefab\b/i,
+          demoCounts.demoPrefabEnclosureCount != null
+        )
+          ? renderBathCountStepper(
+              'Remove prefab enclosure',
+              demoCounts.demoPrefabEnclosureCount,
+              d => adjustDemoCount('demoPrefabEnclosureCount', d)
+            )
+          : null}
+        {showBathroomOption(
+          /\bshower\s+doors?\b/i,
+          demoCounts.demoShowerDoorCount != null
+        )
+          ? renderBathCountStepper(
+              'Remove shower door',
+              demoCounts.demoShowerDoorCount,
+              d => adjustDemoCount('demoShowerDoorCount', d)
+            )
+          : null}
+        {showBathroomOption(
+          /\b(?:floor(?:ing)?|floor\s+tile)\b/i,
+          hasBathroomMeasurement('bathroomFloorSqft')
+        )
+          ? renderDemoSqftField(
+              'Demo bath floor tile',
+              'Floor tear-out area — priced on Bathroom floor demo (separate from shower).',
+              'bathroomFloorSqft'
+            )
+          : null}
       </View>
     );
   };
@@ -17425,54 +17522,88 @@ function CollapsibleQuickMeasurements({
           <>
             {renderKeepingExistingWetAreaToggle()}
             {renderWetAreaInstallSubheading('NEW PAN / TUB / ENCLOSURE')}
-            {renderBathCountStepper(
-              'Mud pan (tile shower)',
-              displayTilePanCount,
-              adjustTilePanCount,
-              wetAreaStepperMax,
-              keepingExistingWetArea
-            )}
-            {displayTilePanCount > 0
+            {showBathroomOption(
+              /\b(?:shower\s+pan|tile\s+shower|pan)\b/i,
+              displayTilePanCount > 0
+            )
+              ? renderBathCountStepper(
+                  'Mud pan (tile shower)',
+                  displayTilePanCount,
+                  adjustTilePanCount,
+                  wetAreaStepperMax,
+                  keepingExistingWetArea
+                )
+              : null}
+            {showBathroomOption(
+              /\b(?:shower\s+pan|tile\s+shower|pan)\b/i,
+              hasBathroomMeasurement('showerFloorTileSqft')
+            ) && displayTilePanCount > 0
               ? renderDemoSqftField(
                   'Mud pan area',
                   'Uses the shower floor sqft for the mud-pan build. Edit only if the pan area differs.',
                   'showerFloorTileSqft'
                 )
               : null}
-            {renderBathCountStepper(
-              'Prefab shower pan',
-              displayPrefabPanCount,
-              adjustPrefabBathCount,
-              wetAreaStepperMax,
-              keepingExistingWetArea
-            )}
-            {renderBathCountStepper(
-              'Prefab shower enclosure',
-              displayPrefabEnclosureCount,
-              adjustPrefabEnclosureCount,
-              wetAreaStepperMax,
-              keepingExistingWetArea
-            )}
-            {renderBathCountStepper(
-              'Tub install',
-              displayTubBathCount,
-              adjustTubBathCount,
-              wetAreaStepperMax,
-              keepingExistingWetArea
-            )}
+            {showBathroomOption(
+              /\bprefab\b/i,
+              displayPrefabPanCount > 0
+            )
+              ? renderBathCountStepper(
+                  'Prefab shower pan',
+                  displayPrefabPanCount,
+                  adjustPrefabBathCount,
+                  wetAreaStepperMax,
+                  keepingExistingWetArea
+                )
+              : null}
+            {showBathroomOption(
+              /\bprefab\b/i,
+              displayPrefabEnclosureCount > 0
+            )
+              ? renderBathCountStepper(
+                  'Prefab shower enclosure',
+                  displayPrefabEnclosureCount,
+                  adjustPrefabEnclosureCount,
+                  wetAreaStepperMax,
+                  keepingExistingWetArea
+                )
+              : null}
+            {showBathroomOption(/\btub\b/i, displayTubBathCount > 0)
+              ? renderBathCountStepper(
+                  'Tub install',
+                  displayTubBathCount,
+                  adjustTubBathCount,
+                  wetAreaStepperMax,
+                  keepingExistingWetArea
+                )
+              : null}
             {renderWetAreaInstallSubheading('SHOWER WALL TILE')}
-            {renderDemoSqftField(
-              'Shower wall tile',
-              'New wall tile area — priced per sqft.',
-              'showerWallTileSqft'
-            )}
+            {showBathroomOption(
+              /\b(?:shower|tile)\b/i,
+              hasBathroomMeasurement('showerWallTileSqft')
+            )
+              ? renderDemoSqftField(
+                  'Shower wall tile',
+                  'New wall tile area — priced per sqft.',
+                  'showerWallTileSqft'
+                )
+              : null}
             {renderWetAreaInstallSubheading('BATH FLOOR & DOORS')}
-            {renderDemoSqftField(
-              'Bath floor tile',
-              'Bathroom floor tile area — separate from shower pan.',
-              'bathroomFloorSqft'
-            )}
-            {(existingCounts.existingShowerDoorCount ?? 0) > 0 ? (
+            {showBathroomOption(
+              /\b(?:floor(?:ing)?|floor\s+tile)\b/i,
+              hasBathroomMeasurement('bathroomFloorSqft')
+            )
+              ? renderDemoSqftField(
+                  'Bath floor tile',
+                  'Bathroom floor tile area — separate from shower pan.',
+                  'bathroomFloorSqft'
+                )
+              : null}
+            {showBathroomOption(
+              /\bshower\s+doors?\b/i,
+              (existingCounts.existingShowerDoorCount ?? 0) > 0
+            ) &&
+            (existingCounts.existingShowerDoorCount ?? 0) > 0 ? (
               <TouchableOpacity
                 onPress={toggleReuseExistingShowerDoor}
                 disabled={applying}
@@ -17511,7 +17642,11 @@ function CollapsibleQuickMeasurements({
                 </Text>
               </TouchableOpacity>
             ) : null}
-            {!reuseExistingShowerDoor
+            {!reuseExistingShowerDoor &&
+            showBathroomOption(
+              /\bshower\s+doors?\b/i,
+              displayShowerDoorCount > 0
+            )
               ? renderBathCountStepper(
                   'Shower doors',
                   displayShowerDoorCount,
@@ -17521,26 +17656,43 @@ function CollapsibleQuickMeasurements({
           </>
         ) : (
           <>
-            {renderBathCountStepper(
-              'Tile showers',
-              displayTileWallCount,
-              adjustTileBathCount
-            )}
-            {renderBathCountStepper(
-              'Prefab',
-              displayPrefabPanCount,
-              adjustPrefabBathCount
-            )}
-            {renderBathCountStepper(
-              'Tub',
-              displayTubBathCount,
-              adjustTubBathCount
-            )}
-            {renderBathCountStepper(
-              'Shower doors',
-              displayShowerDoorCount,
-              adjustShowerDoorCount
-            )}
+            {showBathroomOption(
+              /\b(?:shower|tile)\b/i,
+              displayTileWallCount > 0
+            )
+              ? renderBathCountStepper(
+                  'Tile showers',
+                  displayTileWallCount,
+                  adjustTileBathCount
+                )
+              : null}
+            {showBathroomOption(
+              /\bprefab\b/i,
+              displayPrefabPanCount > 0
+            )
+              ? renderBathCountStepper(
+                  'Prefab',
+                  displayPrefabPanCount,
+                  adjustPrefabBathCount
+                )
+              : null}
+            {showBathroomOption(/\btub\b/i, displayTubBathCount > 0)
+              ? renderBathCountStepper(
+                  'Tub',
+                  displayTubBathCount,
+                  adjustTubBathCount
+                )
+              : null}
+            {showBathroomOption(
+              /\bshower\s+doors?\b/i,
+              displayShowerDoorCount > 0
+            )
+              ? renderBathCountStepper(
+                  'Shower doors',
+                  displayShowerDoorCount,
+                  adjustShowerDoorCount
+                )
+              : null}
           </>
         )}
         {wetAreaSuggestions.length > 1 ? (
@@ -18008,9 +18160,41 @@ function CollapsibleQuickMeasurements({
     inWetAreaPanel = false,
     relaxedSpacing = false
   ) => {
-    const field =
+    const resolvedField =
       fieldByKey.get(result.key) || quickMeasurementFieldDef(result.key);
-    if (!field) return null;
+    if (!resolvedField) return null;
+    const explicitExteriorPaintInNotes =
+      /\b(?:exterior|outside)\s+(?:wall\s+)?paint(?:ing)?\b|\bpaint(?:ing)?\s+(?:the\s+)?(?:exterior|outside)\b/i.test(
+        String(notes || '')
+      );
+    const field =
+      resolvedField.key === 'baseboardLf' &&
+      compactMixedScope &&
+      !/\bbaseboards?\b|\bbase\s*board\b/i.test(String(notes || ''))
+        ? { ...resolvedField, label: 'Trim' }
+        : resolvedField.key === 'exteriorPaintSqft' &&
+            compactMixedScope &&
+            !explicitExteriorPaintInNotes
+          ? { ...resolvedField, label: 'Paint' }
+          : resolvedField.key === 'wallPaintSqft' &&
+              compactMixedScope &&
+              /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,20}\bwalls?\b/i.test(
+                String(notes || '')
+              ) &&
+              /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,20}\bceilings?\b/i.test(
+                String(notes || '')
+              )
+            ? { ...resolvedField, label: 'Walls & ceilings paint' }
+          : resolvedField.key === 'wallPaintSqft' &&
+              compactMixedScope &&
+              !/\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,20}\bwalls?\b|\bwalls?\b[^.;\n]{0,20}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+                String(notes || '')
+              ) &&
+              !/\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,20}\bceilings?\b|\bceilings?\b[^.;\n]{0,20}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+                String(notes || '')
+              )
+            ? { ...resolvedField, label: 'Paint' }
+        : resolvedField;
     const explicitPaintAreaInNotes =
       /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,30}\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
         String(notes || '')
@@ -18019,7 +18203,12 @@ function CollapsibleQuickMeasurements({
         String(notes || '')
       );
     const isUnquantifiedPaintField =
-      ['paintAreaSqft', 'wallPaintSqft', 'ceilingPaintSqft'].includes(
+      [
+        'paintAreaSqft',
+        'wallPaintSqft',
+        'ceilingPaintSqft',
+        'exteriorPaintSqft',
+      ].includes(
         field.key
       ) &&
       !explicitPaintAreaInNotes &&
@@ -18062,6 +18251,10 @@ function CollapsibleQuickMeasurements({
                   noteQuickMeasurements.values.paintAreaSqft ||
                   ''
               )
+            : field.key === 'framingOpeningCount' &&
+                explicitFramingOpeningCount &&
+                !preserveFramingOpeningOverride
+              ? String(explicitFramingOpeningCount)
             : resolveQuickMeasurementDisplayValue(
                 field.key,
                 measurements,
@@ -18095,6 +18288,27 @@ function CollapsibleQuickMeasurements({
       /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,20}\bceilings?\b|\bceilings?\b[^.;\n]{0,20}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
         String(notes || '')
       );
+    const notesSpecifyDrywallInstall =
+      /\b(?:install|installed|installing|hang|hung|hanging|new)\b[^.;\n]{0,35}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.;\n]{0,35}\b(?:install|installed|installing|hang|hung|hanging)\b/i.test(
+        String(notes || '')
+      ) ||
+      /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,20}\b(?:drywall|sheetrock|gypsum)\b/i.test(
+        String(notes || '')
+      ) ||
+      (compactMixedScope &&
+        /\b(?:addition|add[-\s]?on|new\s+construction|ground[-\s]?up|build(?:ing)?)\b/i.test(
+          String(notes || '')
+        ) &&
+        /\b(?:drywall|sheetrock|gypsum)\b/i.test(String(notes || '')));
+    const notesSpecifyDrywallRepair =
+      /\b(?:drywall|sheetrock|gypsum)\s+(?:repair|repairs|repairing|patch|patching)\b|\b(?:repair|repairs|repairing|patch|patching)\b[^.;\n]{0,35}\b(?:drywall|sheetrock|gypsum)\b/i.test(
+        String(notes || '')
+      );
+    const explicitFramingOpeningCount =
+      parseFramingMeasurementsFromNotes(String(notes || ''))
+        .framingOpeningCount;
+    const preserveFramingOpeningOverride =
+      Boolean(measurements.quickMeasurementUserOverrides?.framingOpeningCount);
     const displayField = {
       ...field,
       ...(field.key === 'paintAreaSqft'
@@ -18117,6 +18331,17 @@ function CollapsibleQuickMeasurements({
                   : 'Informational source quantity from job notes. Not priced when walls and ceilings are entered separately.',
           }
         : {}),
+      ...(field.key === 'wallPaintSqft' && notesSpecifyWallsAndCeilingsPaint
+        ? { label: 'Walls & ceilings paint' }
+        : {}),
+      ...(field.key === 'drywallSqft'
+        ? {
+            label:
+              notesSpecifyDrywallInstall && !notesSpecifyDrywallRepair
+                ? 'Drywall install'
+                : 'Drywall repair area',
+          }
+        : {}),
       ...(floorPrepExceedsTotal
         ? {
             helperText: `${field.helperText || 'Enter only the area requiring floor prep.'} Warning: this exceeds Total Flooring Area; verify the measurement.`,
@@ -18125,7 +18350,12 @@ function CollapsibleQuickMeasurements({
       ...(field.key === 'windowCount'
         ? { label: 'Window replacement' }
         : field.key === 'drywallSqft'
-          ? { label: 'Drywall repair area' }
+          ? {
+              label:
+                notesSpecifyDrywallInstall && !notesSpecifyDrywallRepair
+                  ? 'Drywall install'
+                  : 'Drywall repair area',
+            }
           : field.key === 'paintAreaSqft' &&
               notesSpecifyPaintCeilings &&
               !notesSpecifyPaintWalls
@@ -18263,11 +18493,25 @@ function CollapsibleQuickMeasurements({
     flooringQmJob &&
     Number(measurements.flooringSqft || 0) > 0 &&
     flooringInstallSqft > Number(measurements.flooringSqft || 0);
+  const mixedScopeLivingAreaMentioned =
+    /\b(?:living|conditioned|building)\s+(?:area|space|sf|sqft|square\s+(?:feet|foot))\b/i.test(
+      String(notes || '')
+    );
+  const notesSpecifyWallFraming =
+    /\b(?:frame|framing|framed)\b[^.;\n]{0,45}\bwalls?\b|\bwalls?\b[^.;\n]{0,45}\b(?:frame|framing|framed)\b/i.test(
+      String(notes || '')
+    );
   const shouldRenderGeneralResult = (result: QuickMeasurementFieldResult) =>
     !(
       (windowsDoorsPlanImport &&
         windowsDoorsSuppressedQuickMeasurementFields.has(result.key)) ||
       (kitchenQmJob && kitchenEmbeddedMeasurementKeys.has(result.key)) ||
+      (compactMixedScope &&
+        kitchenQmJob &&
+        ['flooringSqft', 'floorDemoSqft'].includes(result.key)) ||
+      (compactMixedScope &&
+        result.key === 'framingOpeningCount' &&
+        /\b(?:windows?|exterior\s+doors?|doors?)\b/i.test(String(notes || ''))) ||
       (flooringQmJob &&
         flooringEmbeddedMeasurementKeys.has(result.key) &&
         !(result.key === 'floorDemoSqft' && !flooringHasExistingType)) ||
@@ -18277,7 +18521,24 @@ function CollapsibleQuickMeasurements({
       (stuccoQmJob && stuccoEmbeddedMeasurementKeys.has(result.key)) ||
       (paintingQmJob && paintingEmbeddedMeasurementKeys.has(result.key)) ||
       ((deckQmJob || hvacQmJob || roofingQmJob) &&
-        simpleTradeEmbeddedMeasurementKeys.has(result.key))
+        simpleTradeEmbeddedMeasurementKeys.has(result.key)) ||
+      (compactMixedScope &&
+        result.key === 'floorAreaSqft' &&
+        !mixedScopeLivingAreaMentioned) ||
+      (compactMixedScope &&
+        result.key === 'framedAreaSqft' &&
+        !notesSpecifyWallFraming &&
+        !measurements.quickMeasurementUserOverrides?.framedAreaSqft) ||
+      (compactMixedScope &&
+        result.key === 'ceilingPaintSqft' &&
+        !/\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,20}\bceilings?\b|\bceilings?\b[^.;\n]{0,20}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+          String(notes || '')
+        )) ||
+      (compactMixedScope &&
+        result.key === 'exteriorPaintSqft' &&
+        !/\b(?:exterior|outside)\s+(?:wall\s+)?paint(?:ing)?\b|\bpaint(?:ing)?\s+(?:the\s+)?(?:exterior|outside)\b/i.test(
+          String(notes || '')
+        ))
     );
   const renderDisplayedResultField = (
     result: QuickMeasurementFieldResult,
@@ -19708,16 +19969,31 @@ function CollapsibleQuickMeasurements({
             </>
           ) : (
             <>
-              {!compactMixedScope &&
-              showWetAreaFinishSteppers &&
-              bathroomPhotoWetArea ? (
+              {compactMixedScope && bathroomFixturesQmJob ? (
+                <Text
+                  style={{
+                    color: darkMode ? '#cbd5e1' : Colors.text,
+                    fontSize: 13,
+                    fontWeight: '800',
+                    marginTop: 4,
+                  }}
+                >
+                  Bathroom remodel measurements
+                </Text>
+              ) : null}
+              {showWetAreaFinishSteppers && bathroomPhotoWetArea ? (
                 <>
                   {renderDemoTearOutPanel()}
                   {renderWetAreaFinishPanel()}
                 </>
               ) : null}
+              {showWetAreaFinishSteppers &&
+              !bathroomPhotoWetArea &&
+              compactMixedScope ? (
+                renderDemoTearOutPanel()
+              ) : null}
 
-              {!compactMixedScope && bathroomFixturesQmJob ? (
+              {bathroomFixturesQmJob ? (
                 <QmBathroomFixturesPanels
                   ref={bathroomFixturesQmFlushRef}
                   measurements={measurements}
@@ -19736,11 +20012,24 @@ function CollapsibleQuickMeasurements({
                 />
               ) : null}
 
-              {!compactMixedScope && kitchenQmJob ? (
+              {compactMixedScope && kitchenQmJob ? (
+                <Text
+                  style={{
+                    color: darkMode ? '#cbd5e1' : Colors.text,
+                    fontSize: 13,
+                    fontWeight: '800',
+                    marginTop: 4,
+                  }}
+                >
+                  Kitchen remodel measurements
+                </Text>
+              ) : null}
+              {kitchenQmJob ? (
                 <QmKitchenScopePanels
                   measurements={measurements}
                   setMeasurements={setMeasurements}
                   notes={notes}
+                  condensed={compactMixedScope}
                   includedScopeKeys={includedScopeKeys}
                   hasSitePhotos={hasSitePhotos}
                   showExistingPanel={false}
@@ -19771,7 +20060,7 @@ function CollapsibleQuickMeasurements({
                 />
               ) : null}
 
-              {!compactMixedScope && mixedExteriorQmJob ? (
+              {mixedExteriorQmJob ? (
                 <Text
                   style={{
                     color: darkMode ? '#cbd5e1' : Colors.text,
@@ -19783,24 +20072,24 @@ function CollapsibleQuickMeasurements({
                   Mixed exterior scope
                 </Text>
               ) : null}
-              {!compactMixedScope && landscapingQmJob ? (
+              {landscapingQmJob ? (
                 <QmLandscapingScopePanels
                   measurements={measurements}
                   setMeasurements={setMeasurements}
                   applying={applying}
                   notes={notes}
-                  condensed={mixedExteriorQmJob}
+                  condensed={compactMixedScope || mixedExteriorQmJob}
                   darkMode={darkMode}
                   Colors={Colors}
                 />
               ) : null}
 
-              {!compactMixedScope && concreteQmJob ? (
+              {concreteQmJob ? (
                 <QmConcreteScopePanels
                   measurements={measurements}
                   setMeasurements={setMeasurements}
                   applying={applying}
-                  mixedExteriorScope={mixedExteriorQmJob}
+                  mixedExteriorScope={mixedExteriorQmJob || compactMixedScope}
                   darkMode={darkMode}
                   Colors={Colors}
                 />
@@ -19827,11 +20116,25 @@ function CollapsibleQuickMeasurements({
                   Colors={Colors}
                 />
               ) : null}
-              {!compactMixedScope && roofingQmJob ? (
+              {compactMixedScope && roofingQmJob ? (
+                <Text
+                  style={{
+                    color: darkMode ? '#cbd5e1' : Colors.text,
+                    fontSize: 13,
+                    fontWeight: '800',
+                    marginTop: 4,
+                  }}
+                >
+                  Roofing measurements
+                </Text>
+              ) : null}
+              {roofingQmJob ? (
                 <QmRoofingScopePanels
                   measurements={measurements}
                   setMeasurements={setMeasurements}
                   onScopeSelectionChange={onHvacScopeSelectionChange}
+                  notes={notes}
+                  condensed={compactMixedScope}
                   applying={applying}
                   darkMode={darkMode}
                   Colors={Colors}
