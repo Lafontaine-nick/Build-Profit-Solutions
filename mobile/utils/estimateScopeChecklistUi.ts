@@ -2643,6 +2643,267 @@ const NOTE_BACKED_SCOPE_COPY: Record<
   },
 };
 
+const MIXED_EXTERIOR_SCOPE_ROWS: {
+  id: string;
+  label: string;
+  helperText: string;
+  category: string;
+  pattern: RegExp;
+}[] = [
+  {
+    id: 'demo_clearing',
+    label: 'Landscape clearing',
+    helperText: 'Landscape vegetation removal and clearing.',
+    category: 'sitework',
+    pattern:
+      /\b(?:clear(?:ing)?|brush|vegetation|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:landscap(?:e|ing)|lawn|yard)\b|\b(?:landscap(?:e|ing)|lawn|yard)\b[^.;\n]{0,60}\b(?:clear(?:ing)?|brush|vegetation|tear[\s-]?out)\b/i,
+  },
+  {
+    id: 'grading',
+    label: 'Landscape grading',
+    helperText: 'Rough, finish, or final grading for the landscape area.',
+    category: 'sitework',
+    pattern: /\b(?:rough|finish|final\s+)?grading\b|\bgrade\s+(?:the\s+)?(?:yard|site|lot)\b/i,
+  },
+  {
+    id: 'soil_prep',
+    label: 'Soil preparation',
+    helperText: 'Soil preparation, amendment, or topsoil.',
+    category: 'sitework',
+    pattern: /\bsoil\s+(?:prep|preparation|amendment)\b|\btopsoil\b/i,
+  },
+  {
+    id: 'drainage',
+    label: 'Landscape drainage',
+    helperText: 'Landscape drainage, French drain, or drain tile work.',
+    category: 'sitework',
+    pattern: /\b(?:landscape\s+)?drainage\b|\bfrench\s+drains?\b|\bdrain\s+tile\b/i,
+  },
+  {
+    id: 'landscape_lighting',
+    label: 'Landscape lighting',
+    helperText: 'Landscape, path, or outdoor lighting installation.',
+    category: 'landscape',
+    pattern: /\b(?:landscape|path|outdoor)\s+lights?\b|\blandscape\s+lighting\b/i,
+  },
+  {
+    id: 'demo_removal',
+    label: 'Demo / removal',
+    helperText:
+      'Remove the existing landscape, paver, concrete, or patio work identified in the notes.',
+    category: 'demo',
+    pattern:
+      /\b(?:remove|removal|demo(?:lish|lition)?|tear[\s-]?out)\b[^.;\n]{0,80}\b(?:landscap(?:e|ing)|pavers?|concrete|patio)\b|\b(?:landscap(?:e|ing)|pavers?|concrete|patio)\b[^.;\n]{0,80}\b(?:remove|removal|demo(?:lish|lition)?|tear[\s-]?out)\b/i,
+  },
+  {
+    id: 'paver_demo',
+    label: 'Paver demolition / removal',
+    helperText:
+      'Remove and dispose of existing pavers before the new paver installation.',
+    category: 'demo',
+    pattern:
+      /\b(?:remove|removal|demo(?:lish|lition)?|tear[\s-]?out)\b[^.;\n]{0,80}\bpavers?\b|\bpavers?\b[^.;\n]{0,80}\b(?:remove|removal|demo(?:lish|lition)?|tear[\s-]?out)\b/i,
+  },
+  {
+    id: 'sod_turf',
+    label: 'Sod',
+    helperText: 'Natural sod installation.',
+    category: 'landscape',
+    pattern: /\b(?:sod|natural\s+grass)\b/i,
+  },
+  {
+    id: 'artificial_turf',
+    label: 'Artificial turf',
+    helperText: 'Artificial turf installation.',
+    category: 'landscape',
+    pattern: /\b(?:artificial|synthetic)\s+(?:turf|grass)\b/i,
+  },
+  {
+    id: 'rock',
+    label: 'Decorative rock',
+    helperText: 'Decorative rock supply and placement.',
+    category: 'landscape',
+    pattern: /\b(?:decorative\s+)?rock\b(?!\s+base)|\bgravel\b(?!\s+base)/i,
+  },
+  {
+    id: 'mulch',
+    label: 'Mulch',
+    helperText: 'Mulch supply and installation.',
+    category: 'landscape',
+    pattern: /\bmulch\b/i,
+  },
+  {
+    id: 'plants',
+    label: 'Plants / shrubs',
+    helperText: 'Plant and shrub installation.',
+    category: 'landscape',
+    pattern: /\b(?:plants?|shrubs?|planting)\b/i,
+  },
+  {
+    id: 'trees',
+    label: 'Trees',
+    helperText: 'Tree supply and planting.',
+    category: 'landscape',
+    pattern: /\btrees?\b/i,
+  },
+  {
+    id: 'landscape_boulders',
+    label: 'Decorative boulders',
+    helperText: 'Decorative boulder supply and placement.',
+    category: 'landscape',
+    pattern: /\b(?:landscape\s+)?boulders?\b/i,
+  },
+  {
+    id: 'irrigation',
+    label: 'Irrigation',
+    helperText: 'Irrigation adjustments or installation.',
+    category: 'landscape',
+    pattern: /\birrigation|sprinkler|drip\s+system/i,
+  },
+  {
+    id: 'concrete_edging',
+    label: 'Edging',
+    helperText: 'Landscape edging installation.',
+    category: 'hardscape',
+    pattern: /\bedging\b/i,
+  },
+  {
+    id: 'retaining_wall',
+    label: 'Retaining wall',
+    helperText:
+      'Retaining wall construction; confirm height, drainage, footing, and engineering separately.',
+    category: 'hardscape',
+    pattern: /\bretaining\s+walls?\b/i,
+  },
+  {
+    id: 'pavers',
+    label: 'Pavers',
+    helperText: 'Paver installation area and base preparation.',
+    category: 'hardscape',
+    pattern: /\bpavers?\b/i,
+  },
+  {
+    id: 'pour_flatwork',
+    label: 'Concrete patio / flatwork',
+    helperText: 'Concrete patio or exterior flatwork installation.',
+    category: 'hardscape',
+    pattern:
+      /\b(?:concrete\s+)?(?:patio|flatwork|walkway|sidewalk|driveway)\b|\bconcrete\b[^.;\n]{0,45}\b(?:patio|flatwork|walkway|sidewalk|driveway)\b/i,
+  },
+  {
+    id: 'pour_foundation',
+    label: 'Footing / foundation concrete pour',
+    helperText: 'Structural concrete only when explicitly identified in the notes.',
+    category: 'pour',
+    pattern: /\b(?:footings?|foundation|structural\s+concrete|house\s+slab)\b/i,
+  },
+  {
+    id: 'exterior_doors',
+    label: 'Exterior door installation',
+    helperText: 'Install the note-specified exterior doors.',
+    category: 'openings',
+    pattern: /\b(?:exterior|entry)\s+doors?\b/i,
+  },
+];
+
+const MIXED_EXTERIOR_CONCRETE_OPTION_PATTERNS: Record<string, RegExp> = {
+  site_prep: /\b(?:site\s+prep|subgrade|compaction|grade\s+prep)\b/i,
+  gravel_base: /\b(?:gravel|aggregate|rock)\s+base\b/i,
+  excavation: /\b(?:excavat(?:e|ion)|soil\s+movement|dig\s+out)\b/i,
+  reinforcement: /\b(?:rebar|re[\s-]?bar|wire\s+mesh|reinforc(?:ed|ement))\b/i,
+  complex_forming: /\b(?:complex|curved|radius|custom)\s+form(?:ing)?\b/i,
+  concrete_sealer: /\bconcrete\s+sealer?\b|\bseal(?:er|ing)\s+concrete\b/i,
+  decorative_finish:
+    /\b(?:stamped|exposed\s+aggregate|decorative|stain(?:ed)?|broom)\s+finish\b/i,
+  additional_haul_off:
+    /\b(?:additional|extra|multiple|large)\b[^.;\n]{0,35}\b(?:haul[\s-]?off|disposal|dumpster)\b/i,
+  concrete_pumping: /\bconcrete\s+pump(?:\s+truck)?\b|\bpump\s+truck\b/i,
+};
+
+export function isMixedExteriorScopeNotes(notes?: string | null): boolean {
+  const text = String(notes || '');
+  return (
+    /\b(?:concrete|flatwork|patio|pavers?|retaining\s+walls?)\b/i.test(text) &&
+    /\b(?:landscap(?:e|ing)|sod|turf|rock|mulch|shrubs?|plants?|irrigation|edging|grading|soil\s+prep|drainage|landscape\s+lighting|exterior\s+doors?)\b/i.test(
+      text
+    )
+  );
+}
+
+export function ensureMixedExteriorScopeItems(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null,
+  notes?: string | null
+): ScopeChecklistItem[] {
+  if (!isMixedExteriorScopeNotes(notes)) return items;
+  const text = String(notes || '');
+  const identifiedRows = new Map(
+    MIXED_EXTERIOR_SCOPE_ROWS.filter(
+      row =>
+        row.pattern.test(text) &&
+        getChecklistItemQuantityRule(row.id, templateKey)
+    ).map(row => [row.id, row])
+  );
+  const promoted = items.map(item => {
+    const row = identifiedRows.get(item.id);
+    if (!row || item.state === 'excluded') return item;
+    return {
+      ...item,
+      label:
+        item.id === 'plants' &&
+        /\bshrubs?\b/i.test(text) &&
+        !/\bplants?\b/i.test(text)
+          ? 'Shrubs'
+          : item.label || row.label,
+      state: 'included' as const,
+      noteBacked: true,
+    };
+  });
+  const present = new Set(promoted.map(item => item.id));
+  const additions = MIXED_EXTERIOR_SCOPE_ROWS.filter(
+    row =>
+      !present.has(row.id) &&
+      row.pattern.test(text) &&
+      getChecklistItemQuantityRule(row.id, templateKey)
+  ).map(row => ({
+    id: row.id,
+    inputType: 'yes_no' as const,
+    label:
+      row.id === 'plants' &&
+      /\bshrubs?\b/i.test(text) &&
+      !/\bplants?\b/i.test(text)
+        ? 'Shrubs'
+        : row.label,
+    helperText: row.helperText,
+    category: row.category,
+    state: 'included' as const,
+    noteBacked: true,
+  }));
+  return additions.length ? [...promoted, ...additions] : promoted;
+}
+
+export function filterUnmentionedMixedExteriorConcreteItems(
+  items: ScopeChecklistItem[],
+  notes?: string | null
+): ScopeChecklistItem[] {
+  if (!isMixedExteriorScopeNotes(notes)) return items;
+  const text = String(notes || '');
+  const concreteOnlyIds = new Set([
+    ...Object.keys(MIXED_EXTERIOR_CONCRETE_OPTION_PATTERNS),
+    'pour_foundation',
+  ]);
+  return items.filter(item => {
+    if (!concreteOnlyIds.has(item.id)) return true;
+    if (item.id === 'pour_foundation') {
+      return /\b(?:footings?|foundation|structural\s+concrete|house\s+slab)\b/i.test(
+        text
+      );
+    }
+    if (item.state === 'included' && item.noteBacked !== true) return true;
+    return MIXED_EXTERIOR_CONCRETE_OPTION_PATTERNS[item.id].test(text);
+  });
+}
+
 function itemIdFromQuantityKey(key: string): string {
   return key.replace(/__(?:material|labor|allowance)$/, '');
 }
@@ -3011,6 +3272,20 @@ function ensureBathroomNoteBackedScopeItems(
     pattern: RegExp;
   }> = [
     {
+      id: 'plumbing_rough',
+      label: BATHROOM_CHECKLIST_LABEL_OVERRIDES.plumbing_rough,
+      helperText: BATHROOM_CHECKLIST_HELPER_OVERRIDES.plumbing_rough,
+      pattern:
+        /\b(?:reroute|re-route|relocat(?:e|ed|ing|ion)|rough[\s-]?in)\b[^.;\n]{0,70}\bplumb(?:ing)?\b|\bplumb(?:ing)?\b[^.;\n]{0,70}\b(?:reroute|re-route|relocat(?:e|d|ing|ion)|rough[\s-]?in)\b/,
+    },
+    {
+      id: 'plumbing_trim',
+      label: 'Plumbing fixtures & trim',
+      helperText:
+        'Plumbing fixture connections and trim-out for the note-specified faucet and shower valve work.',
+      pattern: /\b(?:faucet|shower\s+valve|plumbing\s+trim|trim[\s-]?out)\b/,
+    },
+    {
       id: 'vanity_demo',
       label: 'Remove vanity',
       helperText: 'Demo and haul off the existing vanity cabinet.',
@@ -3109,9 +3384,12 @@ function ensureBathroomNoteBackedScopeItems(
       inputType: 'yes_no' as const,
       label: entry.label,
       helperText: entry.helperText,
-      category: entry.id.includes('tile') || entry.id === 'shower_pan'
-        ? 'shower'
-        : 'fixtures',
+      category:
+        entry.id === 'plumbing_rough' || entry.id === 'plumbing_trim'
+          ? 'plumbing'
+          : entry.id.includes('tile') || entry.id === 'shower_pan'
+            ? 'shower'
+            : 'fixtures',
       state: 'included' as const,
       noteBacked: true,
     }));
@@ -3586,7 +3864,12 @@ export function hydrateScopeChecklistFromNotes(
     templateKey
   );
   const noteBackedFinal = ensureBathroomNoteBackedScopeItems(
-    finalized,
+    isMixedExteriorScopeNotes(notes)
+      ? filterUnmentionedMixedExteriorConcreteItems(
+          ensureMixedExteriorScopeItems(finalized, templateKey, notes),
+          notes
+        )
+      : finalized,
     notes,
     templateKey
   );
@@ -5644,6 +5927,42 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   electrical: electricalChecklistGroups(),
 };
 
+export const MIXED_EXTERIOR_SCOPE_GROUPS: ScopeChecklistGroup[] = [
+  {
+    title: 'Mixed exterior scope',
+    itemIds: [
+      'demo_removal',
+      'demo_clearing',
+      'grading',
+      'soil_prep',
+      'drainage',
+      'site_prep',
+      'gravel_base',
+      'excavation',
+      'sod_turf',
+      'artificial_turf',
+      'rock',
+      'mulch',
+      'plants',
+      'trees',
+      'landscape_boulders',
+      'irrigation',
+      'concrete_edging',
+      'pavers',
+      'retaining_wall',
+      'pour_flatwork',
+      'pour_foundation',
+      'reinforcement',
+      'complex_forming',
+      'concrete_sealer',
+      'decorative_finish',
+      'additional_haul_off',
+      'concrete_pumping',
+      'landscape_lighting',
+    ],
+  },
+];
+
 export function resolveScopeChecklistGroups(
   templateKey?: string | null,
   context: ScopeChecklistGroupingContext = {}
@@ -5654,6 +5973,9 @@ export function resolveScopeChecklistGroups(
     isExistingShellConversionJob(key, context.projectType, context.notes)
   ) {
     return EXISTING_SHELL_CONVERSION_SCOPE_GROUPS;
+  }
+  if (isMixedExteriorScopeNotes(context.notes)) {
+    return MIXED_EXTERIOR_SCOPE_GROUPS;
   }
   return SCOPE_CHECKLIST_GROUPS[key] ?? null;
 }

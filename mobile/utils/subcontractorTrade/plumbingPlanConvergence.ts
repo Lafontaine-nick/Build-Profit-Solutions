@@ -1096,9 +1096,39 @@ export function notesSuggestStandalonePlumbingTrade(notes: string): boolean {
   );
 }
 
+/** Notes with plumbing plus multiple finish-trade scopes belong to the host
+ * remodel flow, even when a fixture phrase makes them look service-like. */
+export function notesDescribeMixedCrossTradeScope(notes: string): boolean {
+  const text = String(notes || '').trim();
+  if (
+    !text ||
+    /\b(?:ground[\s-]?up|new\s+(?:build|construction)|whole[\s-]?house\s+plumbing)\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  const hasPlumbing =
+    /\b(?:plumbing|plumber|water\s+line|sewer|dwv|drain|fixture|faucet|toilet|vanity|shower\s+valve)\b/i.test(
+      text
+    );
+  if (!hasPlumbing) return false;
+  const crossTradeSignals = [
+    /\bfloor(?:ing)?\b/i,
+    /\bdrywall|sheetrock|gypsum\b/i,
+    /\bcabinet|counter(?:top)?|backsplash\b/i,
+    /\bwindows?\b|\bdoors?\b/i,
+    /\binsulat(?:e|ion|ed)\b/i,
+    /\bpaint(?:ing)?|repaint\b/i,
+    /\b(?:electrical|framing|hvac|roof|siding)\b/i,
+  ].filter(pattern => pattern.test(text)).length;
+  return crossTradeSignals >= 2;
+}
+
 export function notesSuggestPlumbingBid(notes: string): boolean {
   const text = String(notes || '').trim();
   if (!text) return false;
+  if (notesDescribeMixedCrossTradeScope(text)) return false;
   const standalone = notesSuggestStandalonePlumbingTrade(text);
   if (notesDescribeGeneralContractorProject(text) && !standalone) {
     return false;
@@ -1368,7 +1398,14 @@ export function standalonePlumbingRevealDraft(draft: {
   projectType?: string | null;
   scopeChecklist?: { templateKey?: string | null } | null;
   scopeMeasurements?: { tradeWorkflowSource?: string | null } | null;
+  scopeMode?: string | null;
+  classification?: { scopeMode?: string | null } | null;
 }): boolean {
+  const classificationMode =
+    draft.classification?.scopeMode || draft.scopeMode;
+  if (String(classificationMode || '').toLowerCase() === 'mixed') {
+    return false;
+  }
   const templateKey = String(
     draft.scopeChecklist?.templateKey || draft.projectType || ''
   ).toLowerCase();

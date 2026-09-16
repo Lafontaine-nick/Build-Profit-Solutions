@@ -8,7 +8,10 @@ import {
   confirmScopeReviewRowsFromDraft,
   isScopeCardHiddenInQmEmbed,
 } from '@/utils/scopePackagesForReview';
-import { SCOPE_CHECKLIST_GROUPS } from '@/utils/estimateScopeChecklistUi';
+import {
+  SCOPE_CHECKLIST_GROUPS,
+  groupScopeChecklistItems,
+} from '@/utils/estimateScopeChecklistUi';
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
 import { checklistItemInScope } from '@/utils/scopeItemQuantities';
 import {
@@ -245,6 +248,41 @@ describe('scopePackagesForReview', () => {
     expect(rows.find(row => row.id === 'plants')?.label).toBe('Shrubs');
     expect(rows.some(row => row.id === 'concrete')).toBe(false);
     expect(rows.some(row => row.id === 'landscaping')).toBe(false);
+  });
+
+  it('keeps every explicit mixed-exterior trade in the main scope', () => {
+    const notes =
+      'Remove existing landscaping, pavers, and concrete as needed, then install 1,000 sqft sod, 400 sqft pavers, 12 shrubs, 30 tons decorative rock, irrigation adjustments, edging, a retaining wall, a 500 sqft concrete patio, and two exterior doors.';
+    const rows = buildConfirmScopeDisplayItems([], {}, 'concrete', notes);
+    const rowIds = new Set(rows.map(row => row.id));
+
+    expect([
+      'sod_turf',
+      'rock',
+      'plants',
+      'irrigation',
+      'concrete_edging',
+      'retaining_wall',
+      'pavers',
+      'pour_flatwork',
+      'exterior_doors',
+    ].every(id => rowIds.has(id))).toBe(true);
+    expect(rows.filter(row => row.state === 'included')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'irrigation' }),
+        expect.objectContaining({ id: 'concrete_edging' }),
+        expect.objectContaining({ id: 'retaining_wall' }),
+      ])
+    );
+    expect(rows.find(row => row.id === 'plants')?.label).toBe('Shrubs');
+    expect(rows.some(row => row.id === 'concrete')).toBe(false);
+    expect(rows.some(row => row.id === 'landscaping')).toBe(false);
+    expect(rows.some(row => row.id === 'pour_foundation')).toBe(false);
+    expect(rows.some(row => row.id === 'reinforcement')).toBe(false);
+    expect(rows.some(row => row.id === 'concrete_pumping')).toBe(false);
+    const groups = groupScopeChecklistItems(rows, 'concrete', { notes });
+    expect(groups[0]?.title).toBe('Mixed exterior scope');
+    expect(groups.some(group => group.title === 'Additional work')).toBe(false);
   });
 
   it('flattenChecklistDisplayOrder matches bathroom Demo before Wet area finish', () => {

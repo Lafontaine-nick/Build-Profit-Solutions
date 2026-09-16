@@ -6636,6 +6636,14 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper: 'Enter paver sqft.',
     missingMessage: 'Enter paver sqft.',
   },
+  paver_demo: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['paverSqft'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter existing paver removal sqft.',
+    missingMessage: 'Enter paver removal sqft.',
+  },
   rock: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'cy', 'ton', 'allowance', 'lump_sum'],
@@ -15377,6 +15385,48 @@ export function resolveScopeItemSuggestedPricing(
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const notesText = String(originalNotes || '');
+  if (itemId === 'paver_demo') {
+    const storedQuantity = Number(
+      measurementsInput.itemQuantities?.paver_demo?.quantity
+    );
+    const quantity =
+      Number.isFinite(storedQuantity) && storedQuantity > 0
+        ? storedQuantity
+        : Number(resolved.quantity) > 0
+          ? Number(resolved.quantity)
+          : Number(measurementsInput.paverSqft);
+    const storedUnit = String(
+      measurementsInput.itemQuantities?.paver_demo?.unit || ''
+    ).toLowerCase();
+    const effectiveUnit = storedUnit || String(resolved.unit || '').toLowerCase();
+    if (
+      !(quantity > 0) ||
+      (effectiveUnit && effectiveUnit !== 'sqft')
+    ) {
+      return empty;
+    }
+    const material = Math.round(quantity * 0.5 * 100) / 100;
+    const labor = Math.round(quantity * 5 * 100) / 100;
+    return {
+      fill: {
+        material,
+        labor,
+        total: Math.round((material + labor) * 100) / 100,
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel:
+          'Suggested budget split · National Average planning estimate · paver removal',
+        helper: `Based on ${quantity.toLocaleString()} sqft of existing pavers`,
+        mode: 'suggested_price',
+        basis: { quantity, unit: 'sqft' },
+        benchmarkAction: 'price_ready',
+        productionStatus: 'review_required',
+        benchmarkLevel: 'component',
+        benchmarkScopeKey: 'paver_demo',
+      },
+      comparison: null,
+    };
+  }
   const genericTilePanDemo =
     itemId === 'demo' &&
     String(templateKey || '').toLowerCase() === 'bathroom' &&
@@ -15526,11 +15576,22 @@ export function resolveScopeItemSuggestedPricing(
   }
   if (itemId === 'air_sealing') {
     const explicitQuantity = Number(measurementsInput.airSealingSqft);
+    const storedQuantity = Number(
+      measurementsInput.itemQuantities?.air_sealing?.quantity
+    );
     const quantity =
       Number.isFinite(explicitQuantity) && explicitQuantity > 0
         ? explicitQuantity
+        : Number.isFinite(storedQuantity) && storedQuantity > 0
+          ? storedQuantity
         : Number(resolved.quantity) || 0;
-    if (!(quantity > 0) || resolved.unit !== 'sqft') {
+    const storedUnit = String(
+      measurementsInput.itemQuantities?.air_sealing?.unit || ''
+    ).toLowerCase();
+    if (
+      !(quantity > 0) ||
+      (resolved.unit !== 'sqft' && storedUnit !== 'sqft')
+    ) {
       return empty;
     }
     const material = Math.round(quantity * 0.15 * 100) / 100;

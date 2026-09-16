@@ -30,6 +30,7 @@ export const LANDSCAPING_QM_EMBEDDED_IDS = new Set<string>();
 
 export const LANDSCAPING_CONFIRM_SCOPE_LINE_CARD_IDS = new Set([
   ...LANDSCAPING_QM_SYNC_SCOPE_IDS,
+  'paver_demo',
   // Legacy combined cards from older drafts.
   'rock_mulch',
   'plants_trees',

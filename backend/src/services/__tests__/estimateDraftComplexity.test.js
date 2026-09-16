@@ -2,6 +2,7 @@ const {
   classifyEstimateTier,
   isSimpleUnitBid,
   buildScopeChecklist,
+  buildCanonicalMixedScopeResult,
   applyScopeAssumptions,
   applyScopeMeasurements,
   enrichDraftComplexity,
@@ -15,6 +16,59 @@ const {
 describe("estimateDraftComplexity", () => {
   const flooringNotes =
     "1200 sqft tile demo, 1200 sqft tile installation, 1200 LF baseboard install";
+
+  test("exposes a checklist-authoritative canonical mixed-scope contract", () => {
+    const draft = {
+      projectType: "room_remodel",
+      scopeMode: "mixed",
+      classification: {
+        scopeMode: "mixed",
+        detectedTrades: ["flooring", "painting"],
+      },
+    };
+    const result = buildCanonicalMixedScopeResult({
+      draft,
+      templateKey: "room_remodel",
+      items: [
+        { id: "flooring", state: "included" },
+        { id: "interior_paint", state: "unsure" },
+      ],
+      resolvedScopeFacts: [
+        {
+          scopeId: "flooring",
+          action: "install",
+          object: "flooring",
+          quantity: 500,
+          unit: "sqft",
+          status: "matched",
+          certainty: "explicit",
+          sourceText: "500 sqft flooring",
+          catalogEntry: {
+            displayName: "Flooring installation",
+            category: "flooring",
+            trade: "flooring",
+            quantityRuleKey: "flooring",
+            pricingRuleKey: "flooring",
+          },
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      schemaVersion: 1,
+      authority: "checklist",
+      mode: "mixed",
+      templateKey: "room_remodel",
+      detectedTrades: ["flooring", "painting"],
+    });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      scopeId: "flooring",
+      checklistState: "included",
+      quantity: 500,
+      unit: "sqft",
+    });
+  });
 
   test("classifies single clear unit flooring job as simple_unit", () => {
     const draft = {

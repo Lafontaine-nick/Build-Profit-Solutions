@@ -38,7 +38,16 @@ const QM_PANELS: QmPanelDefinition[] = [
 
 export function getActiveQmPanels(ctx: QmPhotoNotesContext): QmPanelDefinition[] {
   if (!isPhotoNotesScopeJob(ctx)) return [];
-  return QM_PANELS.filter((p) => p.isActive(ctx));
+  const mixedTrades = new Set(
+    (ctx.mixedScopeTrades || []).map((trade) =>
+      String(trade || '').toLowerCase()
+    )
+  );
+  return QM_PANELS.filter(
+    (p) =>
+      p.isActive(ctx) ||
+      p.templateKeys.some(key => mixedTrades.has(String(key).toLowerCase()))
+  );
 }
 
 export function getQmEmbeddedScopeIds(ctx: QmPhotoNotesContext): Set<string> {

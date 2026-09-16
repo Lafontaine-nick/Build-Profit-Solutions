@@ -2981,6 +2981,21 @@ export function quickMeasurementRowsForInput(
               );
   baseRows = applyDrywallNoteSemantics(baseRows, options?.scopeNotes);
   const scopeNotes = String(options?.scopeNotes || '');
+  const explicitBathroomPlumbingReroute =
+    /\b(?:reroute|re-route|relocat(?:e|d|ing|ion))\b[^.;\n]{0,45}\bplumb(?:ing)?\b|\bplumb(?:ing)?\b[^.;\n]{0,45}\b(?:reroute|re-route|relocat(?:e|d|ing|ion))\b/i.test(
+      scopeNotes
+    );
+  if (
+    explicitBathroomPlumbingReroute &&
+    !baseRows.some(row =>
+      row.some(field => field.key === 'plumbingRerouteLf')
+    )
+  ) {
+    baseRows = [
+      [QUICK_MEASUREMENT_FIELD_DEFS.plumbingRerouteLf],
+      ...baseRows,
+    ];
+  }
   const mixedBathroomNoteFlow =
     resolvedKey === 'bathroom' &&
     /\b(?:reroute|re-route|relocat(?:e|ed|ing|ion))\b[^.;\n]{0,45}\bplumb(?:ing)?\b/i.test(

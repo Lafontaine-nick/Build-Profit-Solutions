@@ -79,6 +79,7 @@ import {
   finalizeStandalonePlumbingChecklist,
   inferPlumbingRoomContextFromNotes,
   inferPlumbingWorkflowModeFromNotes,
+  notesDescribeMixedCrossTradeScope,
   parsePlumbingMeasurementsFromNotes,
   parsePlumbingProjectContextFromNotes,
   restrictPlumbingMeasurementsForServiceMode,
@@ -240,12 +241,52 @@ export type ScopeChecklist = {
       pricingRuleKey?: string | null;
     } | null;
   }>;
+  canonicalMixedScope?: CanonicalMixedScope | null;
   catalogShadowMatches?: Array<{
     scopeId?: string | null;
     displayName?: string | null;
   }>;
   /** Parsed from job notes — used to prefill quick measurements */
   suggestedMeasurements?: ScopeMeasurements | null;
+};
+
+export type CanonicalMixedScopeItem = {
+  scopeId: string;
+  action?: string | null;
+  object?: string | null;
+  trade?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+  resolutionStatus?: string | null;
+  checklistState?: ScopeAssumptionState | string | null;
+  certainty?: string | null;
+  excluded?: boolean;
+  sourceText?: string | null;
+  catalog?: {
+    displayName?: string | null;
+    category?: string | null;
+    trade?: string | null;
+    quantityRuleKey?: string | null;
+    pricingRuleKey?: string | null;
+  } | null;
+};
+
+export type CanonicalMixedScope = {
+  schemaVersion: 1;
+  authority: 'checklist';
+  mode: 'mixed';
+  templateKey: string;
+  detectedTrades: string[];
+  items: CanonicalMixedScopeItem[];
+  unresolved: Array<{
+    action?: string | null;
+    object?: string | null;
+    quantity?: number | null;
+    unit?: string | null;
+    resolutionStatus?: string | null;
+    certainty?: string | null;
+    sourceText?: string | null;
+  }>;
 };
 
 /** Area (tile, paint, concrete, framing) and length (baseboard, trim) for scope pricing. */
@@ -1491,15 +1532,31 @@ export function repairDraftRatePricingFromNotes(
   const explicitBathroomRemodel =
     /\b(?:bathroom|bath)\s+(?:remodel|renovation)\b/i.test(text) ||
     /\bremodel(?:\s+\w+){0,4}\s+bathroom\b/i.test(text);
+  const mixedBathroomRemodel =
+    /\b(?:bathroom|bath)\b/i.test(text) &&
+    (String(
+      repairedDraft.classification?.scopeMode || repairedDraft.scopeMode || ''
+    ).toLowerCase() === 'mixed' ||
+      notesDescribeMixedCrossTradeScope(text));
   if (
-    explicitBathroomRemodel &&
+    (explicitBathroomRemodel || mixedBathroomRemodel) &&
     repairedDraft.scopeChecklist?.templateKey !== 'bathroom'
   ) {
     return {
       ...repairedDraft,
       projectType: 'bathroom',
       estimateTier: 'room_remodel',
-      scopeChecklist: undefined,
+      scopeChecklist: {
+        ...(repairedDraft.scopeChecklist || {}),
+        estimateTier: 'room_remodel',
+        templateKey: 'bathroom',
+        title: 'Bathroom remodel — confirm project scope',
+        intro: 'Confirm what work is in this bid before pricing.',
+        items: repairedDraft.scopeChecklist?.items || [],
+        suggestedMeasurements:
+          repairedDraft.scopeChecklist?.suggestedMeasurements || null,
+        requiresConfirmation: true,
+      },
     };
   }
   const explicitKitchenRemodel =

@@ -572,6 +572,63 @@ describe('estimateInitialRevealUi', () => {
     expect(attention).not.toContain('Price needed for Interior paint');
   });
 
+  it('does not let a stale standalone plumbing template hide mixed bathroom scope', () => {
+    const notes =
+      'Remove existing bathroom fixtures, then reroute 25 LF bathroom plumbing and install a toilet, vanity, faucet, shower valve, 90 sqft flooring, 120 sqft drywall repair, 40 LF cabinets, two windows, insulation, and paint.';
+    const draft = {
+      projectType: 'plumbing',
+      projectTitle: 'Bathroom plumbing',
+      originalNotes: notes,
+      classification: {
+        scopeMode: 'mixed',
+        primaryTrade: 'bathroom',
+        detectedTrades: ['plumbing', 'drywall', 'flooring', 'painting'],
+        scopeSummary: 'Mixed-scope remodel',
+        evidence: [],
+        exclusions: [],
+        confidence: 'high',
+      },
+      scopeChecklist: {
+        templateKey: 'plumbing',
+        items: [
+          { id: 'drywall', label: 'Drywall', state: 'included' },
+          { id: 'insulation', label: 'Insulation', state: 'included' },
+          {
+            id: 'plumbing',
+            label: 'Faucet & shower valve',
+            state: 'included',
+          },
+          {
+            id: 'plumbing_rough',
+            label: 'Plumbing reroute',
+            state: 'included',
+          },
+        ],
+      },
+      scopeMeasurements: { tradeWorkflowSource: 'standalone_trade' },
+      scopePackages: [],
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealDisplayTitle(draft)).toBe('Mixed-scope remodel');
+    expect(
+      getInitialRevealChecklistScopePreview(draft).map(row => row.name)
+    ).toEqual(
+      expect.arrayContaining([
+        'Drywall',
+        'Insulation',
+        'Faucet & shower valve',
+        'Plumbing reroute · 25 LF',
+        'Remove existing toilet & plumbing fixtures',
+        'Vanity installation',
+        'Toilet installation',
+        'Flooring installation',
+        '40 LF cabinets',
+        'Window install',
+        'Interior painting/patch and repair',
+      ])
+    );
+  });
+
   it('keeps detected bathroom scope visible when pricing packages are partial', () => {
     const draft = {
       projectType: 'bathroom',
@@ -974,6 +1031,16 @@ describe('estimateInitialRevealUi', () => {
     } as EstimateAiDraft;
 
     const preview = getInitialRevealChecklistScopePreview(draft);
+    expect(
+      getInitialRevealChecklistScopePreview({
+        ...draft,
+        scopePackages: [],
+      }).find(row => /insulation/i.test(row.name))
+    ).toEqual(
+      expect.objectContaining({
+        name: 'Wall insulation · R-21 · Attic insulation · R-38',
+      })
+    );
     expect(preview).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: 'Sod', quantity: '1,000 sqft' }),
@@ -990,6 +1057,126 @@ describe('estimateInitialRevealUi', () => {
     );
     expect(preview.some(row => row.name === 'Landscaping')).toBe(false);
     expect(preview.filter(row => row.name === 'Concrete flatwork')).toHaveLength(0);
+  });
+
+  it('keeps built addition reveal scope canonical and note-local', () => {
+    const notes =
+      'Clear and demolish the existing area as needed, then build a 700 sqft addition with foundation, framing, roofing, six windows, exterior doors, R-21 wall insulation, R-38 attic insulation, air sealing, drywall, flooring, cabinets, plumbing, electrical, trim, and paint.';
+    const ids = [
+      'sitework',
+      'foundation',
+      'framing',
+      'roof_tie_in',
+      'windows_doors',
+      'insulation',
+      'drywall',
+      'paint',
+      'flooring',
+      'cabinets_counters',
+      'cabinets',
+      'plumbing_rough',
+      'electrical_rough',
+      'exterior_door_install',
+      'air_sealing',
+      'roofing',
+      'trim_paint',
+      'exterior_finishes',
+      'interior_trim',
+      'window_install',
+      'door_casing_paint',
+    ];
+    const draft = {
+      projectType: 'other',
+      originalNotes: notes,
+      requiresScopeConfirmation: true,
+      scopeChecklist: {
+        templateKey: 'addition',
+        items: ids.map(id => ({
+          id,
+          label:
+            id === 'insulation'
+              ? 'Attic insulation'
+              : id === 'exterior_door_install'
+                ? 'Exterior door installation'
+                : id === 'window_install'
+                  ? 'Window install'
+                  : id,
+          state: 'included' as const,
+        })),
+      },
+      scopePackages: [
+        {
+          name: 'Windows & exterior doors',
+          scope: 'Windows & exterior doors',
+          checklistItemId: 'windows_doors',
+          status: 'missing_price',
+        },
+        {
+          name: 'Window install',
+          scope: 'Window install',
+          checklistItemId: 'window_install',
+          status: 'missing_price',
+        },
+        {
+          name: 'Exterior door installation',
+          scope: 'Exterior door installation',
+          checklistItemId: 'exterior_door_install',
+          status: 'missing_price',
+        },
+        {
+          name: 'Roofing / tie-in',
+          scope: 'Roofing / tie-in',
+          checklistItemId: 'roof_tie_in',
+          status: 'missing_price',
+        },
+        {
+          name: 'Roofing',
+          scope: 'Roofing',
+          checklistItemId: 'roofing',
+          status: 'missing_price',
+        },
+      ],
+    } as EstimateAiDraft;
+
+    const noPackagePreview = getInitialRevealChecklistScopePreview({
+      ...draft,
+      scopePackages: [],
+    });
+    expect(noPackagePreview.find(row => /insulation/i.test(row.name))?.name).toBe(
+      'Wall insulation · R-21 · Attic insulation · R-38'
+    );
+    const preview = getInitialRevealChecklistScopePreview(draft);
+    const names = preview.map(row => row.name);
+
+    expect(preview).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Windows',
+          quantity: '6 each',
+        }),
+        expect.objectContaining({
+          name: 'Wall insulation · R-21 · Attic insulation · R-38',
+        }),
+      ])
+    );
+    expect(names).not.toEqual(
+      expect.arrayContaining([
+        'Window install',
+        'Exterior door installation',
+        'Roofing',
+        'Stock cabinet supply & installation',
+        'exterior_finishes',
+        'trim_paint',
+        'door_casing_paint',
+      ])
+    );
+    expect(getInitialRevealConfirmItems(draft).pricingScope).not.toEqual(
+      expect.arrayContaining([
+        'Price needed for Window install',
+        'Price needed for Exterior door installation',
+        'Price needed for Roofing',
+      ])
+    );
   });
 
   it('recovers missing shrubs and edging from notes on a stale checklist', () => {

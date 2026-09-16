@@ -5,6 +5,7 @@ import type { WetAreaStepperCounts } from '@/utils/planBathRooms';
 export type QmPhotoNotesContext = {
   templateKey?: string | null;
   wholeHomeLayout?: boolean;
+  mixedScopeTrades?: string[];
 };
 
 export type QmPanelHydrateContext = {

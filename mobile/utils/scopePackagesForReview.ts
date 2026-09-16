@@ -9,6 +9,8 @@ import {
   groupScopeChecklistItems,
   normalizeScopeChecklistItems,
   filterRoomRemodelNoteScopeItems,
+  ensureMixedExteriorScopeItems,
+  filterUnmentionedMixedExteriorConcreteItems,
   syncInteriorPaintScopeItems,
   syncWindowInstallScopeFromNotes,
   WET_AREA_DERIVED_ITEM_IDS,
@@ -25,6 +27,10 @@ import {
   bathroomFixtureScopeCardVisible,
   BATHROOM_FIXTURES_QM_EMBEDDED_IDS,
 } from '@/utils/qmScopePanels/bathroomFixtures';
+import {
+  mixedScopeQmTradesFromDraft,
+  mixedScopeTradesFromDraft,
+} from '@/utils/mixedScopeOrchestrator';
 import {
   expandHvacEquipmentScopeDisplayItems,
   getQmEmbeddedScopeIds,
@@ -95,6 +101,8 @@ export function buildConfirmScopeDisplayItems(
     return row;
   });
   const noteText = String(notes || '');
+  expanded = ensureMixedExteriorScopeItems(expanded, templateKey, noteText);
+  expanded = filterUnmentionedMixedExteriorConcreteItems(expanded, noteText);
   if (/\bshrubs?\b/i.test(noteText) && !/\bplants?\b/i.test(noteText)) {
     expanded = expanded.map(row =>
       row.id === 'plants' ? { ...row, label: 'Shrubs' } : row
@@ -756,7 +764,15 @@ export function hydrateChecklistItemsForScopeReview(
   items = syncBathroomFixtureQmScopeItems(items, measurements);
   items = syncQmPanelScopeItems(
     items,
-    { templateKey, wholeHomeLayout: false },
+    {
+      templateKey,
+      wholeHomeLayout: isWholeHomeQuickMeasurementTemplate(templateKey),
+      mixedScopeTrades: mixedScopeQmTradesFromDraft(
+        draft,
+        templateKey,
+        mixedScopeTradesFromDraft(draft)
+      ),
+    },
     measurements
   );
   items = normalizeScopeChecklistItems(items, templateKey, {

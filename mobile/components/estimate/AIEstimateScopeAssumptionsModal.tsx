@@ -182,6 +182,7 @@ import {
   createCustomScopeItem,
   resolveCustomScopeItemPlaceholder,
   groupScopeChecklistItems,
+  isMixedExteriorScopeNotes,
   initialScopeGroupCollapse,
   isCustomScopeChecklistItem,
   mergeScopeProgressIntoDraft,
@@ -660,6 +661,12 @@ import {
   insulationEnvelopeInputsFromPlanFacts,
   resolveInsulationEnvelopePlanningQuantity,
 } from '@/utils/insulationEnvelopeQuantity';
+import {
+  mixedScopeTradesFromDraft,
+  mixedScopeQmTradesFromDraft,
+  orchestrateMixedScopeItems,
+  isCanonicalMixedScope,
+} from '@/utils/mixedScopeOrchestrator';
 
 type Props = {
   visible: boolean;
@@ -4502,7 +4509,15 @@ function MaterialLaborSplitEditor({
         material: materialRate,
         labor: laborRate,
       };
-      const updates = [
+      const pricingSource = userEditedRatesRef.current
+        ? ('user_entered' as const)
+        : ('suggested_prefill' as const);
+      const updates: Array<{
+        itemId: string;
+        quantity: string;
+        unit?: string;
+        quantitySource?: 'user_entered' | 'suggested_prefill';
+      }> = [
         {
           itemId: sqftBasisKey,
           quantity: basisDraft || String(nextQty),
@@ -4522,19 +4537,19 @@ function MaterialLaborSplitEditor({
             itemId: materialKey,
             quantity: '',
             unit: 'allowance',
-            quantitySource: 'user_entered' as const,
+            quantitySource: pricingSource,
           },
           {
             itemId: laborKey,
             quantity: '',
             unit: 'allowance',
-            quantitySource: 'user_entered' as const,
+            quantitySource: pricingSource,
           },
           {
             itemId: materialKey.replace(/__material$/, '__allowance'),
             quantity: '',
             unit: 'allowance',
-            quantitySource: 'user_entered' as const,
+            quantitySource: pricingSource,
           }
         );
         lastBasisQtyRef.current = null;
@@ -4545,7 +4560,7 @@ function MaterialLaborSplitEditor({
           itemId: materialKey,
           quantity: String(roundMoney2(materialRate * nextQty)),
           unit: 'allowance',
-          quantitySource: 'user_entered' as const,
+          quantitySource: pricingSource,
         });
       }
       if (nextQty > 0 && laborRate != null && laborRate > 0) {
@@ -4553,7 +4568,7 @@ function MaterialLaborSplitEditor({
           itemId: laborKey,
           quantity: String(roundMoney2(laborRate * nextQty)),
           unit: 'allowance',
-          quantitySource: 'user_entered' as const,
+          quantitySource: pricingSource,
         });
       }
       if (nextQty > 0 && materialRate != null && laborRate != null) {
@@ -4561,7 +4576,7 @@ function MaterialLaborSplitEditor({
           itemId: materialKey.replace(/__material$/, '__allowance'),
           quantity: String(roundMoney2((materialRate + laborRate) * nextQty)),
           unit: 'allowance',
-          quantitySource: 'user_entered' as const,
+          quantitySource: pricingSource,
         });
       }
       lastBasisQtyRef.current = nextQty > 0 ? nextQty : null;
@@ -5372,11 +5387,23 @@ function resolveAirSealingLibrarySuggestedPricing(
     'quantity' | 'unit'
   >
 ): ReturnType<typeof resolveScopeItemSuggestedPricing> {
+  const storedQuantity = Number(
+    measurementsInput.itemQuantities?.air_sealing?.quantity
+  );
   const quantity =
     Number(measurementsInput.airSealingSqft) > 0
       ? Number(measurementsInput.airSealingSqft)
+      : Number.isFinite(storedQuantity) && storedQuantity > 0
+        ? storedQuantity
       : Number(resolved.quantity);
-  if (!Number.isFinite(quantity) || quantity <= 0 || resolved.unit !== 'sqft') {
+  const storedUnit = String(
+    measurementsInput.itemQuantities?.air_sealing?.unit || ''
+  ).toLowerCase();
+  if (
+    !Number.isFinite(quantity) ||
+    quantity <= 0 ||
+    (resolved.unit !== 'sqft' && storedUnit !== 'sqft')
+  ) {
     return { fill: null, comparison: null };
   }
   const material = roundMoney2(quantity * 0.15);
@@ -11102,6 +11129,7 @@ function YesNoRow({
           originalNotes={originalNotes}
           hideInlineTakeoff={
             Boolean(plumbingCardForItemId(item.id)) ||
+            item.id === 'air_sealing' ||
             (item.id === 'demo' &&
               String(templateKey || '').toLowerCase() === 'room_remodel') ||
             (item.id === 'insulation' &&
@@ -14144,6 +14172,8 @@ function CollapsibleQuickMeasurements({
   notes,
   hvacNotes,
   includedScopeKeys,
+  qmScopeTrades = [],
+  mixedScopeMode = false,
   insulationAssemblyCardActive = false,
   onSummaryChange,
   onWetAreaFinishChange,
@@ -14194,6 +14224,8 @@ function CollapsibleQuickMeasurements({
   notes?: string | null;
   hvacNotes?: string | null;
   includedScopeKeys: string[];
+  qmScopeTrades?: string[];
+  mixedScopeMode?: boolean;
   /** The parent is rendering the assembly card, so legacy R-value fields are redundant. */
   insulationAssemblyCardActive?: boolean;
   onSummaryChange?: (summary: QuickMeasurementSummary) => void;
@@ -14502,6 +14534,8 @@ function CollapsibleQuickMeasurements({
     !singleTradeImport &&
     !stuccoTradeFlow &&
     isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey);
+  const compactMixedScope =
+    mixedScopeMode && !singleTradeImport && !wholeHomeLayout;
   const compactBathroomPlumbingFlow =
     String(effectiveTemplateKey || '').toLowerCase() === 'bathroom' &&
     /\b(?:reroute|re-route|relocat(?:e|ed|ing|ion))\b[^.;\n]{0,45}\bplumb(?:ing)?\b|\bplumb(?:ing)?\b[^.;\n]{0,45}\b(?:reroute|re-route|relocat(?:e|d|ing|ion))\b/i.test(
@@ -15513,9 +15547,19 @@ function CollapsibleQuickMeasurements({
     measurements.tradeScopeSelections,
     editingFieldKey,
   ]);
+  const mixedTradeSet = new Set(
+    qmScopeTrades.map(trade => String(trade || '').toLowerCase())
+  );
+  const mixedExteriorQmJob = isMixedExteriorScopeNotes(notes);
+  const explicitDeckScopeMentioned =
+    /\b(?:deck(?:ing)?|fenc(?:e|ing)|railing|gates?|stairs?)\b/i.test(
+      String(notes || '')
+    );
   const deckQmJob =
     !wholeHomeLayout &&
-    String(effectiveTemplateKey || '').toLowerCase() === 'deck_patio';
+    ((String(effectiveTemplateKey || '').toLowerCase() === 'deck_patio' &&
+      (!mixedExteriorQmJob || explicitDeckScopeMentioned)) ||
+      (mixedTradeSet.has('deck_patio') && explicitDeckScopeMentioned));
   const mixedHvacScope =
     includedScopeKeys.some(key =>
       [
@@ -15534,7 +15578,8 @@ function CollapsibleQuickMeasurements({
   const hvacQmJob =
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'hvac' ||
-      mixedHvacScope);
+      mixedHvacScope ||
+      mixedTradeSet.has('hvac'));
   const hvacPanelMeasurements = useMemo(() => {
     const dedicatedHvac =
       String(effectiveTemplateKey || '').toLowerCase() === 'hvac';
@@ -15640,7 +15685,8 @@ function CollapsibleQuickMeasurements({
   const roofingQmJob =
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'roofing' ||
-      roofingNotesFlow);
+      roofingNotesFlow ||
+      mixedTradeSet.has('roofing'));
   const roofingEmbeddedMeasurementKeys = useMemo(
     () => new Set(ROOFING_EMBEDDED_QUICK_MEASUREMENT_KEYS),
     []
@@ -15701,33 +15747,41 @@ function CollapsibleQuickMeasurements({
   });
   const kitchenQmJob =
     !wholeHomeLayout &&
-    String(effectiveTemplateKey || '').toLowerCase() === 'kitchen';
+    (String(effectiveTemplateKey || '').toLowerCase() === 'kitchen' ||
+      mixedTradeSet.has('kitchen'));
   const flooringQmJob =
     !wholeHomeLayout &&
-    String(effectiveTemplateKey || '').toLowerCase() === 'flooring';
+    (String(effectiveTemplateKey || '').toLowerCase() === 'flooring' ||
+      mixedTradeSet.has('flooring'));
   const flooringHasExistingType =
     Array.isArray(measurements.flooringExistingTypes) &&
     measurements.flooringExistingTypes.length > 0;
   const landscapingQmJob =
     !wholeHomeLayout &&
-    String(effectiveTemplateKey || '').toLowerCase() === 'landscaping';
+    (String(effectiveTemplateKey || '').toLowerCase() === 'landscaping' ||
+      mixedExteriorQmJob ||
+      mixedTradeSet.has('landscaping'));
   const concreteQmJob =
     !wholeHomeLayout &&
-    String(effectiveTemplateKey || '').toLowerCase() === 'concrete';
+    (String(effectiveTemplateKey || '').toLowerCase() === 'concrete' ||
+      mixedExteriorQmJob ||
+      mixedTradeSet.has('concrete'));
   const windowsDoorsPlanImport =
     (singleTradeImport && tradeKey === 'windows_doors') ||
     String(effectiveTemplateKey || '').toLowerCase() === 'windows_doors';
   const stuccoQmJob =
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'stucco' ||
-      stuccoTradeFlow);
+      stuccoTradeFlow ||
+      mixedTradeSet.has('stucco'));
   const paintingQmJob =
     !wholeHomeLayout &&
     String(effectiveTemplateKey || '').toLowerCase() === 'painting';
   const bathroomFixturesQmJob =
     !notesTradeFlow &&
     !wholeHomeLayout &&
-    String(effectiveTemplateKey || '').toLowerCase() === 'bathroom';
+    (String(effectiveTemplateKey || '').toLowerCase() === 'bathroom' ||
+      mixedTradeSet.has('bathroom'));
   const showWetAreaFinishSteppers = useMemo(() => {
     if (notesTradeFlow) return false;
     if (singleTradeImport) return false;
@@ -19654,14 +19708,16 @@ function CollapsibleQuickMeasurements({
             </>
           ) : (
             <>
-              {showWetAreaFinishSteppers && bathroomPhotoWetArea ? (
+              {!compactMixedScope &&
+              showWetAreaFinishSteppers &&
+              bathroomPhotoWetArea ? (
                 <>
                   {renderDemoTearOutPanel()}
                   {renderWetAreaFinishPanel()}
                 </>
               ) : null}
 
-              {bathroomFixturesQmJob ? (
+              {!compactMixedScope && bathroomFixturesQmJob ? (
                 <QmBathroomFixturesPanels
                   ref={bathroomFixturesQmFlushRef}
                   measurements={measurements}
@@ -19680,7 +19736,7 @@ function CollapsibleQuickMeasurements({
                 />
               ) : null}
 
-              {kitchenQmJob ? (
+              {!compactMixedScope && kitchenQmJob ? (
                 <QmKitchenScopePanels
                   measurements={measurements}
                   setMeasurements={setMeasurements}
@@ -19695,7 +19751,7 @@ function CollapsibleQuickMeasurements({
                 />
               ) : null}
 
-              {flooringQmJob ? (
+              {!compactMixedScope && flooringQmJob ? (
                 <QmFlooringScopePanels
                   measurements={measurements}
                   setMeasurements={setMeasurements}
@@ -19715,26 +19771,41 @@ function CollapsibleQuickMeasurements({
                 />
               ) : null}
 
-              {landscapingQmJob ? (
+              {!compactMixedScope && mixedExteriorQmJob ? (
+                <Text
+                  style={{
+                    color: darkMode ? '#cbd5e1' : Colors.text,
+                    fontSize: 13,
+                    fontWeight: '800',
+                    marginTop: 4,
+                  }}
+                >
+                  Mixed exterior scope
+                </Text>
+              ) : null}
+              {!compactMixedScope && landscapingQmJob ? (
                 <QmLandscapingScopePanels
                   measurements={measurements}
                   setMeasurements={setMeasurements}
                   applying={applying}
+                  notes={notes}
+                  condensed={mixedExteriorQmJob}
                   darkMode={darkMode}
                   Colors={Colors}
                 />
               ) : null}
 
-              {concreteQmJob ? (
+              {!compactMixedScope && concreteQmJob ? (
                 <QmConcreteScopePanels
                   measurements={measurements}
                   setMeasurements={setMeasurements}
                   applying={applying}
+                  mixedExteriorScope={mixedExteriorQmJob}
                   darkMode={darkMode}
                   Colors={Colors}
                 />
               ) : null}
-              {deckQmJob ? (
+              {!compactMixedScope && deckQmJob ? (
                 <QmSimpleTradeScopePanels
                   scopeKey='deck_patio'
                   measurements={measurements}
@@ -19744,7 +19815,7 @@ function CollapsibleQuickMeasurements({
                   Colors={Colors}
                 />
               ) : null}
-              {hvacQmJob ? (
+              {!compactMixedScope && hvacQmJob ? (
                 <QmSimpleTradeScopePanels
                   scopeKey='hvac'
                   measurements={hvacPanelMeasurements}
@@ -19756,7 +19827,7 @@ function CollapsibleQuickMeasurements({
                   Colors={Colors}
                 />
               ) : null}
-              {roofingQmJob ? (
+              {!compactMixedScope && roofingQmJob ? (
                 <QmRoofingScopePanels
                   measurements={measurements}
                   setMeasurements={setMeasurements}
@@ -19766,7 +19837,7 @@ function CollapsibleQuickMeasurements({
                   Colors={Colors}
                 />
               ) : null}
-              {stuccoQmJob ? (
+              {!compactMixedScope && stuccoQmJob ? (
                 <QmStuccoScopePanels
                   measurements={measurements}
                   setMeasurements={setMeasurements}
@@ -19774,6 +19845,19 @@ function CollapsibleQuickMeasurements({
                   darkMode={darkMode}
                   Colors={Colors}
                 />
+              ) : null}
+
+              {compactMixedScope ? (
+                <Text
+                  style={{
+                    color: darkMode ? '#cbd5e1' : Colors.text,
+                    fontSize: 13,
+                    fontWeight: '800',
+                    marginTop: 4,
+                  }}
+                >
+                  Mixed-scope measurements
+                </Text>
               ) : null}
 
               {displayGroups.fromPlan.some(shouldRenderGeneralResult) ? (
@@ -20183,6 +20267,12 @@ export default function AIEstimateScopeAssumptionsModal({
   // Backward-compatible alias for quick-measurement helpers that expect the
   // original note text name.
   const originalNotes = scopeNotes;
+  const mixedScopeReviewMode = useMemo(() => {
+    const scopeMode = String(
+      draft?.scopeMode || draft?.classification?.scopeMode || ''
+    ).toLowerCase();
+    return scopeMode === 'mixed' || mixedScopeTradesFromDraft(draft).length > 1;
+  }, [draft]);
   const roofingNotesFlow =
     /\b(?:roof(?:ing)?|shingles?|tear[\s-]?off|gutters?|downspouts?)\b/i.test(
       scopeNotes
@@ -21561,6 +21651,20 @@ export default function AIEstimateScopeAssumptionsModal({
       const currentTemplate = String(
         checklist?.templateKey || ''
       ).toLowerCase();
+      const mixedScopeInput = {
+        draft,
+        templateKey: currentTemplate,
+        projectType: draft?.projectType,
+        notes: scopeNotes,
+        measurements: currentMeasurements as Record<string, unknown>,
+        mixedScopeTrades: mixedScopeTradesFromDraft(draft),
+        wholeHomeLayout: isWholeHomeQuickMeasurementTemplate(currentTemplate),
+        singleTradeImport: singleTradePlanImport,
+        selectedTrade: singleTradeKey,
+      };
+      if (isCanonicalMixedScope(mixedScopeInput)) {
+        return orchestrateMixedScopeItems(currentItems, mixedScopeInput);
+      }
       if (
         currentTemplate === 'plumbing' ||
         currentTemplate === 'plumbing_service' ||
@@ -21598,7 +21702,15 @@ export default function AIEstimateScopeAssumptionsModal({
         quantities: currentMeasurements as Partial<Record<string, unknown>>,
       });
     },
-    [checklist?.templateKey, draft?.projectType, notesPlumbingFlow, scopeNotes]
+    [
+      checklist?.templateKey,
+      draft,
+      draft?.projectType,
+      notesPlumbingFlow,
+      scopeNotes,
+      singleTradeKey,
+      singleTradePlanImport,
+    ]
   );
 
   useEffect(() => {
@@ -22510,6 +22622,11 @@ export default function AIEstimateScopeAssumptionsModal({
         hydrateQmPanelMeasurements({
           templateKey: effectiveTemplateKey,
           wholeHomeLayout: false,
+          mixedScopeTrades: mixedScopeQmTradesFromDraft(
+            draft,
+            effectiveTemplateKey,
+            mixedScopeTradesFromDraft(draft)
+          ),
           notes: scopeNotes,
           hasSitePhotos,
           measurements: nextMeasurements,
@@ -22613,6 +22730,11 @@ export default function AIEstimateScopeAssumptionsModal({
       {
         templateKey: singleTradeKey || effectiveTemplateKey,
         wholeHomeLayout: false,
+        mixedScopeTrades: mixedScopeQmTradesFromDraft(
+          draft,
+          singleTradeKey || effectiveTemplateKey,
+          mixedScopeTradesFromDraft(draft)
+        ),
       },
       nextMeasurements
     );
@@ -22727,6 +22849,22 @@ export default function AIEstimateScopeAssumptionsModal({
       electricalScope: nextMeasurements.electricalScope,
       quantities: nextMeasurements as Partial<Record<string, unknown>>,
     });
+    const mixedScopeInput = {
+      draft,
+      templateKey: checklist.templateKey,
+      projectType: draft?.projectType,
+      notes: scopeNotes,
+      measurements: nextMeasurements as Record<string, unknown>,
+      mixedScopeTrades: mixedScopeTradesFromDraft(draft),
+      wholeHomeLayout: isWholeHomeQuickMeasurementTemplate(
+        checklist.templateKey
+      ),
+      singleTradeImport: singleTradePlanImport,
+      selectedTrade: singleTradeKey,
+    };
+    if (isCanonicalMixedScope(mixedScopeInput)) {
+      normalized = orchestrateMixedScopeItems(normalized, mixedScopeInput);
+    }
     const textureMigration = stripStandaloneDrywallTextureItem(normalized);
     normalized = finalizeDrywallScopeChecklistLayout(
       isDrywallCompletePackageScope({
@@ -23976,6 +24114,11 @@ export default function AIEstimateScopeAssumptionsModal({
               {
                 templateKey: singleTradeKey || checklist?.templateKey,
                 wholeHomeLayout: false,
+                mixedScopeTrades: mixedScopeQmTradesFromDraft(
+                  draft,
+                  singleTradeKey || checklist?.templateKey,
+                  mixedScopeTradesFromDraft(draft)
+                ),
               },
               nextMeasurements
             );
@@ -23985,7 +24128,7 @@ export default function AIEstimateScopeAssumptionsModal({
         return unchanged ? prev : next;
       });
     },
-    [checklist?.templateKey, singleTradeKey]
+    [checklist?.templateKey, draft, singleTradeKey]
   );
   const hideIncludedStuccoComponentCards = useMemo(() => {
     if (
@@ -28303,7 +28446,10 @@ export default function AIEstimateScopeAssumptionsModal({
                   }
             }
             templateKey={
-              notesContainStructuralMixedScope
+              mixedScopeReviewMode &&
+              !isWholeHomeQuickMeasurementTemplate(checklist?.templateKey)
+                ? 'room_remodel'
+                : notesContainStructuralMixedScope
                 ? 'room_remodel'
                 : checklist?.templateKey
             }
@@ -28313,6 +28459,12 @@ export default function AIEstimateScopeAssumptionsModal({
               .join('\n')}
             hvacNotes={scopeNotes}
             includedScopeKeys={scopeAssemblyContext.activeScopeKeys}
+            qmScopeTrades={mixedScopeQmTradesFromDraft(
+              draft,
+              checklist?.templateKey,
+              mixedScopeTradesFromDraft(draft)
+            )}
+            mixedScopeMode={mixedScopeReviewMode}
             insulationAssemblyCardActive={
               insulationTemplateKey === 'insulation'
             }

@@ -1555,6 +1555,12 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
   const inScopeCount = items.filter((i) => i.state === "included").length;
   const unsureCount = items.filter((i) => i.state === "unsure").length;
   const outOfScopeCount = items.filter((i) => i.state === "excluded").length;
+  const canonicalMixedScope = buildCanonicalMixedScopeResult({
+    draft,
+    templateKey,
+    items,
+    resolvedScopeFacts,
+  });
 
   return {
     estimateTier,
@@ -1580,6 +1586,7 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     // Shadow-only structured interpretation. Existing checklist generation
     // remains authoritative until this output is validated against fixtures.
     scopeFacts: resolvedScopeFacts,
+    canonicalMixedScope,
     options: [
       { id: "scope_only", label: "Build scope only (no pricing yet)" },
       { id: "rough_range", label: "Create rough budget range" },
@@ -1591,6 +1598,108 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     ],
     summary: `${inScopeCount} in scope · ${unsureCount} not sure · ${outOfScopeCount} out of scope`,
     requiresConfirmation: true,
+  };
+}
+
+function buildCanonicalMixedScopeResult({
+  draft,
+  templateKey,
+  items,
+  resolvedScopeFacts,
+}) {
+  const classification = draft?.classification || {};
+  const detectedTrades = Array.from(
+    new Set(
+      [
+        ...(Array.isArray(draft?.detectedTrades) ? draft.detectedTrades : []),
+        ...(Array.isArray(classification.detectedTrades)
+          ? classification.detectedTrades
+          : []),
+        ...resolvedScopeFacts.map((fact) => fact.catalogEntry?.trade),
+      ]
+        .map((trade) => String(trade || "").trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+  const scopeMode = String(
+    draft?.scopeMode || classification.scopeMode || "",
+  ).toLowerCase();
+  const isMixed =
+    scopeMode === "mixed" ||
+    detectedTrades.length > 1 ||
+    new Set(
+      resolvedScopeFacts
+        .map((fact) => fact.catalogEntry?.trade)
+        .filter(Boolean),
+    ).size > 1;
+  if (!isMixed) return null;
+
+  const checklistById = new Map(items.map((item) => [item.id, item]));
+  const canonicalItems = new Map();
+  const unresolved = [];
+  for (const fact of resolvedScopeFacts) {
+    const scopeId = fact.scopeId
+      ? canonicalScopeId(fact.scopeId)
+      : null;
+    if (!scopeId) {
+      unresolved.push({
+        action: fact.action || null,
+        object: fact.object || null,
+        quantity: fact.quantity ?? null,
+        unit: fact.unit || null,
+        resolutionStatus: fact.status || "needs_clarification",
+        certainty: fact.certainty || "unknown",
+        sourceText: fact.sourceText || "",
+      });
+      continue;
+    }
+    const checklistItem = checklistById.get(scopeId);
+    const existing = canonicalItems.get(scopeId);
+    const checklistState =
+      checklistItem?.state ||
+      (fact.status === "excluded"
+        ? "excluded"
+        : fact.status === "needs_measurement"
+          ? "unsure"
+          : "included");
+    const next = {
+      scopeId,
+      action: fact.action || null,
+      object: fact.object || null,
+      trade: fact.catalogEntry?.trade || null,
+      quantity: fact.quantity ?? null,
+      unit: fact.unit || null,
+      resolutionStatus: fact.status || "needs_clarification",
+      checklistState,
+      certainty: fact.certainty || "unknown",
+      excluded: Boolean(fact.excluded || checklistState === "excluded"),
+      sourceText: fact.sourceText || "",
+      catalog: fact.catalogEntry
+        ? {
+            displayName: fact.catalogEntry.displayName || null,
+            category: fact.catalogEntry.category || null,
+            trade: fact.catalogEntry.trade || null,
+            quantityRuleKey: fact.catalogEntry.quantityRuleKey || null,
+            pricingRuleKey: fact.catalogEntry.pricingRuleKey || null,
+          }
+        : null,
+    };
+    if (
+      !existing ||
+      (existing.quantity == null && next.quantity != null)
+    ) {
+      canonicalItems.set(scopeId, next);
+    }
+  }
+
+  return {
+    schemaVersion: 1,
+    authority: "checklist",
+    mode: "mixed",
+    templateKey,
+    detectedTrades,
+    items: Array.from(canonicalItems.values()),
+    unresolved,
   };
 }
 
@@ -2494,6 +2603,7 @@ module.exports = {
   VALID_ESTIMATE_TIERS,
   classifyEstimateTier,
   buildScopeChecklist,
+  buildCanonicalMixedScopeResult,
   applyScopeAssumptions,
   applyScopeMeasurements,
   addScopePackagesFromConfirmedChecklist,

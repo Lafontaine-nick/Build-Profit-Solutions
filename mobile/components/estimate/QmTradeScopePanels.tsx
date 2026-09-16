@@ -3995,6 +3995,8 @@ export function QmLandscapingScopePanels({
   setMeasurements,
   applying,
   measurementFooter,
+  notes,
+  condensed = false,
   darkMode,
   Colors,
 }: {
@@ -4004,6 +4006,8 @@ export function QmLandscapingScopePanels({
   >;
   applying: boolean;
   measurementFooter?: React.ReactNode;
+  notes?: string | null;
+  condensed?: boolean;
   darkMode: boolean;
   Colors: Colors;
 }) {
@@ -4011,6 +4015,36 @@ export function QmLandscapingScopePanels({
     measurements as Record<string, unknown>
   );
   const demoActive = selected.includes('demo_clearing');
+  const shrubsOnly =
+    /\bshrubs?\b/i.test(String(notes || '')) &&
+    !/\bplants?\b|\bplanting\b|\btrees?\b/i.test(String(notes || ''));
+  const noteText = String(notes || '');
+  const noteBackedOption = (id: string): boolean => {
+    const patterns: Record<string, RegExp> = {
+      grading: /\bgrading?\b|\bgrade\s+(?:the\s+)?(?:yard|site|lot)\b/i,
+      soil_prep: /\bsoil\s+(?:prep|preparation|amendment)\b|\btopsoil\b/i,
+      drainage: /\b(?:landscape\s+)?drainage\b|\bfrench\s+drains?\b/i,
+      artificial_turf: /\b(?:artificial|synthetic)\s+(?:turf|grass)\b/i,
+      sod: /\b(?:sod|natural\s+grass)\b/i,
+      rock: /\b(?:decorative\s+)?rock\b|\bgravel\b/i,
+      mulch: /\bmulch\b/i,
+      plants: /\b(?:plants?|shrubs?|planting)\b/i,
+      trees: /\btrees?\b/i,
+      irrigation: /\birrigation|sprinkler|drip\s+system/i,
+      concrete_edging: /\bedging\b/i,
+      pavers: /\bpavers?\b/i,
+      decorative_boulders: /\b(?:landscape\s+)?boulders?\b/i,
+      landscape_lighting: /\b(?:landscape|path|outdoor)\s+lights?\b/i,
+      mobilization: /\bmobilization|skid[\s-]?steer|excavator|compactor/i,
+      cleanup: /\bcleanup|haul[\s-]?off|disposal|dumpster\b/i,
+    };
+    return Boolean(patterns[id]?.test(noteText));
+  };
+  const visibleOptions = condensed
+    ? LANDSCAPING_SCOPE_OPTIONS.filter(
+        option => selected.includes(option.id) || noteBackedOption(option.id)
+      )
+    : LANDSCAPING_SCOPE_OPTIONS;
   const [demoExpanded, setDemoExpanded] = useState(true);
   const [expanded, setExpanded] = useState(true);
   const toggle = (id: string) => {
@@ -4282,7 +4316,7 @@ export function QmLandscapingScopePanels({
               zones as shown for each component.
             </Text>
             <View style={styles.qmOptionWrap}>
-              {LANDSCAPING_SCOPE_OPTIONS.map(option => {
+              {visibleOptions.map(option => {
                 const canonical = landscapingScopeCanonicalId(option.id);
                 const preferredAliasByCanonical: Record<string, string> = {
                   sod_turf: 'sod',
@@ -4334,7 +4368,9 @@ export function QmLandscapingScopePanels({
                         ]}
                       >
                         {active ? '✓ ' : ''}
-                        {option.label}
+                        {option.id === 'plants' && shrubsOnly
+                          ? 'Shrubs'
+                          : option.label}
                       </Text>
                     </TouchableOpacity>
                     {active && option.measurementKey ? (
@@ -4538,6 +4574,7 @@ export function QmConcreteScopePanels({
   setMeasurements,
   applying,
   measurementFooter,
+  mixedExteriorScope = false,
   darkMode,
   Colors,
 }: {
@@ -4547,6 +4584,7 @@ export function QmConcreteScopePanels({
   >;
   applying: boolean;
   measurementFooter?: React.ReactNode;
+  mixedExteriorScope?: boolean;
   darkMode: boolean;
   Colors: Colors;
 }) {
@@ -4745,6 +4783,19 @@ export function QmConcreteScopePanels({
     'additional_haul_off',
     'retaining_wall',
   ]);
+  const visibleSitePrepOptionIds = mixedExteriorScope
+    ? new Set(
+        Array.from(sitePrepOptionIds).filter(id => selected.includes(id))
+      )
+    : sitePrepOptionIds;
+  const visibleOptionalOptionIds = mixedExteriorScope
+    ? new Set(
+        Array.from(optionalOptionIds).filter(id => selected.includes(id))
+      )
+    : optionalOptionIds;
+  const visibleFlatworkOptions = mixedExteriorScope
+    ? selectedFlatworkOptions
+    : CONCRETE_FLATWORK_OPTIONS;
   const panelStyle = qmPanelShellStyle(darkMode);
 
   return (
@@ -4776,7 +4827,7 @@ export function QmConcreteScopePanels({
             </TouchableOpacity>
             {sitePrepExpanded
               ? CONCRETE_SCOPE_OPTIONS.filter(option =>
-                  sitePrepOptionIds.has(option.id)
+                  visibleSitePrepOptionIds.has(option.id)
                 ).map(option => {
                   const active =
                     selected.includes(option.id) ||
@@ -5221,7 +5272,7 @@ export function QmConcreteScopePanels({
               Flatwork type
             </Text>
             <View style={styles.qmOptionWrap}>
-              {CONCRETE_FLATWORK_OPTIONS.map(option => {
+              {visibleFlatworkOptions.map(option => {
                 const active = selected.includes(option.id);
                 return (
                   <QmConcreteScopeChoiceChip
@@ -5502,7 +5553,7 @@ export function QmConcreteScopePanels({
             </TouchableOpacity>
             {optionalExpanded
               ? CONCRETE_SCOPE_OPTIONS.filter(option =>
-                  optionalOptionIds.has(option.id)
+                  visibleOptionalOptionIds.has(option.id)
                 ).map(option => {
                   const active = selected.includes(option.id);
                   return (

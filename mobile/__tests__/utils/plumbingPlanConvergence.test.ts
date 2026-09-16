@@ -12,6 +12,7 @@ import {
   inferPlumbingRoomContextFromNotes,
   inferPlumbingWorkflowModeFromNotes,
   notesSuggestPlumbingBid,
+  notesDescribeMixedCrossTradeScope,
   notesDescribeGeneralContractorProject,
   notesDescribeRoomRemodel,
   plumbingStateFromNotesScopeMode,
@@ -30,7 +31,11 @@ import {
   restrictPlumbingMeasurementsForServiceMode,
   summarizePlumbingNoteBullets,
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
-import { groupScopeChecklistItems } from '@/utils/estimateScopeChecklistUi';
+import {
+  groupScopeChecklistItems,
+  hydrateScopeChecklistFromNotes,
+} from '@/utils/estimateScopeChecklistUi';
+import { quickMeasurementRowsForInput } from '@/utils/scopeQuickMeasurements';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
 import { getSubcontractorTradeDefinition } from '@/utils/subcontractorTrade/tradeDefinitions';
 import {
@@ -44,6 +49,7 @@ import {
   applyPlanImportToDraft,
   createStandalonePlumbingDraft,
   planImportPayloadFromDraft,
+  repairDraftRatePricingFromNotes,
 } from '@/utils/estimateAiDraft';
 import {
   filterChecklistItemsForTrade,
@@ -992,6 +998,10 @@ describe('plumbing notes routing', () => {
         'Hall bath remodel with tile, vanity, and toilet. Replace the faucet.'
       )
     ).toBe(false);
+    const mixedBathroomNotes =
+      'Remove existing bathroom fixtures, then reroute 25 LF bathroom plumbing and install a toilet, vanity, faucet, shower valve, 90 sqft flooring, 120 sqft drywall repair, 40 LF cabinets, two windows, insulation, and paint.';
+    expect(notesDescribeMixedCrossTradeScope(mixedBathroomNotes)).toBe(true);
+    expect(notesSuggestPlumbingBid(mixedBathroomNotes)).toBe(false);
   });
 
   it('infers workflow and room context from notes', () => {
@@ -1093,6 +1103,57 @@ describe('plumbing notes routing', () => {
     expect(draft.scopeMeasurements?.serviceCallCount).toBeFalsy();
     expect(draft.scopeMeasurements?.fixtureRepairCount).toBeFalsy();
     expect(draft.scopeMeasurements?.plumbingRoughPointCount).toBe('6');
+  });
+
+  it('normalizes mixed bathroom notes away from a stale plumbing checklist', () => {
+    const notes =
+      'Remove existing bathroom fixtures, then reroute 25 LF bathroom plumbing and install a toilet, vanity, faucet, shower valve, 90 sqft flooring, 120 sqft drywall repair, 40 LF cabinets, two windows, insulation, and paint.';
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        projectType: 'plumbing',
+        originalNotes: notes,
+        classification: {
+          scopeMode: 'mixed',
+          primaryTrade: 'bathroom',
+          detectedTrades: ['plumbing', 'drywall', 'flooring', 'painting'],
+          scopeSummary: 'Mixed-scope remodel',
+          evidence: [],
+          exclusions: [],
+          confidence: 'high',
+        },
+        scopeChecklist: {
+          templateKey: 'plumbing',
+          items: [],
+        },
+      } as never,
+      notes
+    );
+    expect(repaired.projectType).toBe('bathroom');
+    expect(repaired.scopeChecklist?.templateKey).toBe('bathroom');
+  });
+
+  it('keeps mixed bathroom plumbing visible in Confirm Scope', () => {
+    const notes =
+      'Remove existing bathroom fixtures, then reroute 25 LF bathroom plumbing and install a toilet, vanity, faucet, shower valve, 90 sqft flooring, 120 sqft drywall repair, 40 LF cabinets, two windows, insulation, and paint.';
+    const hydrated = hydrateScopeChecklistFromNotes(
+      [{ id: 'toilet', label: 'Toilet', state: 'included' }],
+      'bathroom',
+      notes
+    );
+    const hydratedIds = new Set(hydrated.map(item => item.id));
+    expect(hydratedIds.has('plumbing_rough')).toBe(true);
+    expect(hydratedIds.has('plumbing_trim')).toBe(true);
+
+    const quickKeys = quickMeasurementRowsForInput(
+      'room_remodel',
+      'bathroom',
+      {},
+      ['plumbingRerouteLf'],
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field.key);
+    expect(quickKeys).toContain('plumbingRerouteLf');
   });
 
   it('strips roofing bleed such as drip edge from plumbing measurements', () => {
