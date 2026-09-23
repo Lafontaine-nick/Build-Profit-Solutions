@@ -33,6 +33,90 @@ const classificationFixtures =
   }[];
 
 describe('estimateInitialRevealUi', () => {
+  it('keeps measured stucco notes on a dedicated reveal instead of mixed remodel', () => {
+    const draft = {
+      projectType: 'stucco',
+      scopeMode: 'mixed',
+      originalNotes:
+        'Repair and install stucco. Gross exterior wall area is 2,400 sqft. Deduct 320 sqft for window and door openings, 0 sqft for garage door openings, and 180 sqft for other finish deductions. Include 60 LF of foam trim. Excludes structural framing, extensive sheathing, and painting beyond the stucco finish.',
+      classification: {
+        scopeMode: 'mixed',
+        primaryTrade: 'stucco',
+        detectedTrades: ['stucco', 'painting', 'trim'],
+        scopeSummary: 'Mixed-scope remodel',
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealDisplayTitle(draft)).toBe('Stucco');
+    expect(getInitialRevealTagline(draft)).not.toContain('Mixed-scope remodel');
+  });
+
+  it('does not preview duplicate electrical packages or excluded light fixtures', () => {
+    const notes =
+      'Electrical rough-in for a 2,400 sqft new construction home: install 18 recessed lights, 12 standard receptacles, 4 GFCI receptacles, 10 switches, two dedicated 20A circuits, one 200A main panel, and 150 LF conduit. Excludes light fixtures, fans, low-voltage, EV charging, utility work, and final trim.';
+    const draft = {
+      projectType: 'new_build',
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'electrical',
+        items: [
+          { id: 'electrical_main_panel', label: 'Main panel', state: 'included' },
+          { id: 'electrical_rough', label: 'Electrical rough-in', state: 'included' },
+          { id: 'electrical', label: 'Electrical outlets, GFCI & circuits', state: 'included' },
+          { id: 'electrical_standard_receptacle', label: 'Standard receptacles', state: 'included' },
+          { id: 'electrical_gfci_receptacle', label: 'GFCI receptacles', state: 'included' },
+          { id: 'electrical_single_pole_switch', label: 'Single-pole switch', state: 'included' },
+          { id: 'electrical_conduit', label: 'Conduit / raceway only', state: 'included' },
+          { id: 'electrical_recessed_light', label: 'Recessed / canless / wafer light', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        floorAreaSqft: 2400,
+        mainPanelCount: 1,
+        recessedLightCount: 18,
+        standardReceptacleCount: 12,
+        gfciReceptacleCount: 4,
+        singlePoleSwitchCount: 10,
+        dedicated20aCircuitCount: 2,
+        conduitLf: 150,
+      },
+      scopePackages: [
+        {
+          name: 'Electrical work (new circuits / boxes)',
+          scope: 'Electrical rough-in',
+          scopeQuantities: [{ quantity: 2400, unit: 'sqft' }],
+        },
+        {
+          name: 'Electrical outlets, GFCI & circuits',
+          scope: 'Electrical device package',
+        },
+        {
+          name: 'Recessed / canless / wafer light',
+          scope: 'Light fixture install',
+        },
+      ],
+    } as EstimateAiDraft;
+
+    const names = getInitialRevealChecklistScopePreview(draft).map(row => row.name);
+
+    expect(names).not.toEqual(
+      expect.arrayContaining([
+        'Electrical rough-in',
+        'Electrical outlets, GFCI & circuits',
+        'Recessed / canless / wafer light',
+      ])
+    );
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'Main panel',
+        'Standard receptacles',
+        'GFCI receptacles',
+        'Single-pole switch',
+        'Conduit / raceway only',
+      ])
+    );
+  });
+
   it('maps technical review copy to plain language', () => {
     expect(
       plainLanguageReviewItem('Low-confidence quantity for wall tile')
@@ -107,6 +191,21 @@ describe('estimateInitialRevealUi', () => {
       true
     );
     expect(buckets.bidDetails).toEqual([]);
+  });
+
+  it('does not show explicitly excluded electrical service pricing', () => {
+    const draft = {
+      originalNotes:
+        'Replace the existing HVAC system and ductwork, then install a new HVAC system with thermostat, supply registers, return grilles, startup, and testing. Excludes plumbing, electrical service upgrades, and building repairs.',
+      stillNeededReview: ['Pricing for Service upgrade'],
+      needsReviewItems: [],
+      scopePackages: [],
+      scopeMeasurements: {},
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealConfirmItems(draft).pricingScope).not.toContain(
+      'Price needed for Service upgrade'
+    );
   });
 
   it('labels scope meta separately from checklist gaps', () => {

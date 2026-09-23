@@ -824,6 +824,16 @@ describe('electrical canonical architecture', () => {
     expect(parsed.electricalScope).toEqual(['electrical_service_upgrade']);
   });
 
+  it('does not create a service-upgrade quantity from an explicit exclusion', () => {
+    const parsed = parseElectricalMeasurementsFromNotes(
+      'Replace 1 existing HVAC system and install 1 new 3-ton heat-pump system. Excludes plumbing, electrical service upgrades, and building repairs.'
+    );
+    expect(parsed.serviceUpgradeCount).toBeUndefined();
+    expect(parsed.electricalScope || []).not.toContain(
+      'electrical_service_upgrade'
+    );
+  });
+
   it('keeps a subpanel independent of a service upgrade', () => {
     const parsed = parseElectricalMeasurementsFromNotes(
       'Upgrade existing 100A service to 200A and add a subpanel'
@@ -852,6 +862,37 @@ describe('electrical canonical architecture', () => {
       'electrical_rough'
     );
     expect(lookupRuleKeyForPackage('Electrical')).not.toBe('electrical_rough');
+  });
+
+  it('removes duplicate rough and generic Electrical rows when detailed notes exist', () => {
+    const next = syncElectricalScopeItems(
+      [
+        { id: 'electrical_rough', state: 'included' },
+        { id: 'electrical', state: 'included' },
+        { id: 'electrical_recessed_light', state: 'included' },
+      ],
+      {
+        templateKey: 'electrical',
+        notes:
+          'Electrical rough-in: install 18 recessed lights, 12 standard receptacles, 4 GFCI receptacles, 10 switches, two dedicated 20A circuits, one 200A main panel, and 150 LF conduit. Excludes light fixtures and final trim.',
+        quantities: {
+          recessedLightCount: 18,
+          standardReceptacleCount: 12,
+          gfciReceptacleCount: 4,
+          singlePoleSwitchCount: 10,
+          dedicated20aCircuitCount: 2,
+          mainPanelCount: 1,
+          conduitLf: 150,
+        },
+      }
+    );
+
+    expect(next.map(item => item.id)).not.toEqual(
+      expect.arrayContaining(['electrical_rough', 'electrical'])
+    );
+    expect(
+      next.find(item => item.id === 'electrical_recessed_light')?.state
+    ).toBe('excluded');
   });
 
   it('drops a Confirm Scope card when its Quick Measurement quantity is cleared', () => {

@@ -1515,14 +1515,16 @@ describe('mobile scope measurement parser', () => {
 
   it('parses explicit mixed HVAC component quantities', () => {
     const parsed = parseScopeMeasurementsFromNotes(
-      'Remove the existing HVAC system and ductwork, then replace one heat-pump system, install 120 LF ductwork, one thermostat, four registers.',
+      'Replace and dispose of 1 existing HVAC system and 180 LF of existing ductwork. Install 1 new 3-ton heat-pump system, 1 thermostat, 8 supply registers, and 2 return grilles, including startup and testing.',
       { templateKey: 'room_remodel', projectType: 'room_remodel' }
     );
     expect(parsed.hvacSystemCount).toBe(1);
+    expect(parsed.hvacSystemTons).toBe(3);
     expect(parsed.hvacEquipmentReplacementCount).toBe(1);
-    expect(parsed.hvacDuctworkLf).toBe(120);
+    expect(parsed.hvacDuctworkLf).toBe(180);
     expect(parsed.hvacThermostatCount).toBe(1);
-    expect(parsed.hvacSupplyRegisterCount).toBe(4);
+    expect(parsed.hvacSupplyRegisterCount).toBe(8);
+    expect(parsed.hvacReturnGrilleCount).toBe(2);
   });
 
   it('does not invent an HVAC replacement count when replacement work is unquantified', () => {

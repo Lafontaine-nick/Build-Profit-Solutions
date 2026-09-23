@@ -188,7 +188,7 @@ const ROOF_PITCH_RE =
   /\b(\d+)\s*(?::|\/)\s*(\d+)\s*pitch\b|\bpitch\s*(\d+)\s*(?::|\/)\s*(\d+)\b/i;
 const STORY_COUNT_RE =
   /\b(\d+|one|two|three|four|five)\s*[- ]?stor(?:y|ies)\b/i;
-const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:tons?)\b/gi;
+const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:-\s*)?tons?\b/gi;
 const DEPTH_INCHES_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:inches?|["″])/i;
 
 const EXTERIOR_FLATWORK_RE =
@@ -2520,6 +2520,10 @@ export function parseScopeMeasurementsFromNotes(
     : clauses.filter(clause => hvacSignal.test(clause)).join(' ');
   if (hvacText) {
     const systemCount =
+      firstHvacCount(
+        hvacText,
+        '(?:(?:existing|new|replacement|current|old)\\s+)?(?:(?:\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:-\\s*)?tons?\\s+)?(?:heat[\\s-]?pumps?\\s+)?(?:hvac\\s+)?systems?',
+      ) ||
       firstHvacCount(hvacText, '(?:hvac\\s+)?systems?') ||
       firstHvacCount(
         hvacText,

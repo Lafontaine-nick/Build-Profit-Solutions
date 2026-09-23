@@ -375,4 +375,34 @@ describe("scope fact extraction", () => {
       ]),
     );
   });
+
+  test("marks an excluded electrical service upgrade as excluded", () => {
+    const note =
+      "Replace 1 existing HVAC system and install 1 new 3-ton heat-pump system. Excludes plumbing, electrical service upgrades, and building repairs.";
+    const parsed = parseScopeMeasurementsFromNotes(note, {
+      templateKey: "hvac",
+      projectType: "hvac",
+    });
+    const { facts } = extractScopeFactsFromNotes(note, {
+      templateKey: "hvac",
+      projectType: "hvac",
+      parsedMeasurements: parsed,
+    });
+
+    expect(facts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          object: "electrical_service_upgrade",
+          excluded: false,
+        }),
+      ]),
+    );
+    expect(
+      resolveScopeFactsToCatalog(facts, { templateKey: "hvac" }),
+    ).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scopeId: "electrical_service_upgrade" }),
+      ]),
+    );
+  });
 });

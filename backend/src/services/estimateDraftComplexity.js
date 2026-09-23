@@ -57,6 +57,7 @@ const MULTI_TRADE_PROJECT_TYPES = new Set([
   "hvac",
   "deck_patio",
   "roofing",
+  "stucco",
   "painting",
   "drywall",
   "room_addition",
@@ -551,7 +552,7 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
   if (estimateTier === "simple_unit") return null;
 
   const notes = originalNotes || draft.originalNotes || "";
-  let templateKey = checklistTemplateKey(draft, estimateTier);
+  let templateKey = checklistTemplateKey(draft, estimateTier, notes);
   const explicitKitchenRemodel =
     /\b(?:remodel|renovate|renovation)\s+(?:the\s+)?kitchen\b/i.test(notes) ||
     /\bkitchen\s+(?:remodel|renovation)\b/i.test(notes);
@@ -607,6 +608,7 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     !notesImplyMixedExteriorHardscape(notes) &&
     ![
       "painting",
+      "stucco",
       "kitchen",
       "bathroom",
       "room_remodel",
@@ -726,6 +728,29 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
       noteBacked: state === "included",
     };
   });
+  if (templateKey === "stucco") {
+    const stuccoNoteBackedStates = {
+      stucco_surface_prep:
+        /\b(?:remove\s+(?:loose|damaged)|prepare\s+the\s+substrate|repair\s+minor\s+cracks?)\b/i.test(
+          notes,
+        ),
+      stucco_coats:
+        /\b(?:scratch\s+and\s+brown\s+coats?|brown\s+coat|scratch\s+coat)\b/i.test(
+          notes,
+        ),
+      texture:
+        /\b(?:finish\s+texture|matching\s+(?:finish\s+)?texture|finish\s+texture\s+and\s+color)\b/i.test(
+          notes,
+        ),
+      stucco_sealing:
+        /\bseal\s+(?:applicable\s+)?(?:joints?|penetrations?)\b/i.test(notes),
+    };
+    items = items.map((item) =>
+      stuccoNoteBackedStates[item.id]
+        ? { ...item, state: "included", noteBacked: true }
+        : item,
+    );
+  }
   if (templateKey === "concrete" && notesImplyMixedExteriorHardscape(notes)) {
     const exteriorLabels = {
       demo_removal: "Patio demolition / removal",
@@ -805,7 +830,7 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     parsedMeasurements,
   )) {
     const existingItem = items.find((item) => item.id === catalogEntry.scopeId);
-    if (existingItem) {
+    if (existingItem && existingItem.state !== "excluded") {
       existingItem.state = "included";
       existingItem.noteBacked = true;
     }

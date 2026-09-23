@@ -22,6 +22,7 @@ const VALID_PROJECT_TYPES = new Set([
   'electrical_service',
   'landscaping',
   'concrete',
+  'stucco',
   'other',
 ]);
 function inferProjectTypeFromNotes(...args) {
@@ -813,7 +814,7 @@ CRITICAL RULES:
 7. LUMP SUM RULE (critical): When the user gives one price per room/area and does NOT state separate labor and material amounts, set price to that exact total, laborPrice null, materialPrice null, priceIncludesLaborAndMaterials true. Do NOT guess or estimate how much is labor vs materials.
 8. Only set laborPrice and materialPrice when the notes explicitly state those amounts (e.g. "$8k labor, $11k materials" or "materials $3,200 / labor $2,100"). They must sum to price when both are present. Set priceIncludesLaborAndMaterials false.
 9. Extract statedTotal only if the user gives an overall bid total.
-  10. projectType must be one of: kitchen, bathroom, painting, flooring, framing, room_addition, home_addition, adu, garage_conversion, new_build, roofing, deck_patio, concrete, plumbing_service, landscaping, other. Use framing for a dedicated framing/shell package. Use other for mixed-scope jobs and preserve every active trade in the room scopes. Use concrete for driveway, sidewalk, patio slab, and flatwork pours (not interior room remodel). Use painting for a dedicated interior or exterior painting job, even when the notes mention painting existing kitchen cabinets. Use flooring for floor/tile demo/laminate/baseboard jobs without bath remodel scope.
+  10. projectType must be one of: kitchen, bathroom, painting, flooring, framing, room_addition, home_addition, adu, garage_conversion, new_build, roofing, deck_patio, concrete, stucco, plumbing_service, landscaping, other. Use framing for a dedicated framing/shell package. Use stucco for a dedicated stucco or exterior-plaster repair/installation package; do not infer framing, structural sheathing, or interior painting from excluded work. Use other for mixed-scope jobs and preserve every active trade in the room scopes. Use concrete for driveway, sidewalk, patio slab, and flatwork pours (not interior room remodel). Use painting for a dedicated interior or exterior painting job, even when the notes mention painting existing kitchen cabinets. Use flooring for floor/tile demo/laminate/baseboard jobs without bath remodel scope.
 10a. Equipment intent: "mini-split" or "mini split HVAC" means a mini-split equipment package, not a generic whole-house HVAC system. If the notes say convert an existing garage/room/basement/attic/office/studio, classify it as an existing-shell conversion workflow (garage_conversion for garages; room_addition for other existing rooms), not new construction.
 11. contractScope: write professional contract-ready scope language summarizing all rooms.
 12. projectDescription: concise summary of the overall project.

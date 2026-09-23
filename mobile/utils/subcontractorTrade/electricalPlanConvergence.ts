@@ -6,7 +6,10 @@
  * and estimatePlanToMeasurements.js — still no Plan Export rates.
  */
 
-import { applyElectricalServicePanelOwnership } from './electricalServicePanelPricing';
+import {
+  applyElectricalServicePanelOwnership,
+  serviceUpgradeExplicitlyExcluded,
+} from './electricalServicePanelPricing';
 import {
   isAdditionConversionJob,
   isNewStructureAdditionJob,
@@ -21,6 +24,61 @@ function existingShellConversionUsesPackageElectrical(
     isAdditionConversionJob(templateKey, projectType, notes) &&
     !isNewStructureAdditionJob(projectType, notes)
   );
+}
+
+const ELECTRICAL_LIGHT_ITEM_IDS = new Set([
+  'electrical_standard_fixture',
+  'electrical_recessed_light',
+  'electrical_pendant_light',
+  'electrical_decorative_light',
+  'electrical_exterior_light',
+  'electrical_undercabinet_light',
+]);
+
+function noteExcludesElectricalItem(itemId: string, notes?: string | null): boolean {
+  const text = String(notes || '');
+  if (!text) return false;
+  const exclusion =
+    /\b(?:excludes?|excluded|not\s+included|not\s+to\s+include)\b/i;
+  if (ELECTRICAL_LIGHT_ITEM_IDS.has(itemId)) {
+    return (
+      exclusion.test(text) &&
+      /\b(?:light|lighting)\s+fixtures?\b/i.test(text) &&
+      (/\b(?:light|lighting)\s+fixtures?\b[^.;\n]{0,120}\b(?:excludes?|excluded|not\s+included|not\s+to\s+include)\b/i.test(
+        text
+      ) ||
+        /\b(?:excludes?|excluded|not\s+included|not\s+to\s+include)\b[^.;\n]{0,120}\b(?:light|lighting)\s+fixtures?\b/i.test(
+          text
+        ))
+    );
+  }
+  if (itemId === 'electrical_trim') {
+    return (
+      exclusion.test(text) &&
+      /\b(?:final\s+)?(?:electrical\s+)?trim(?:[\s-]?out)?\b/i.test(text) &&
+      /\b(?:excludes?|excluded|not\s+included|not\s+to\s+include)\b[^.;\n]{0,120}\b(?:final\s+)?(?:electrical\s+)?trim(?:[\s-]?out)?\b/i.test(
+        text
+      )
+    );
+  }
+  return false;
+}
+
+function isDedicatedElectricalScope(
+  templateKey?: string | null,
+  notes?: string | null
+): boolean {
+  if (String(templateKey || '').toLowerCase() === 'electrical') return true;
+  const text = String(notes || '');
+  const hasElectricalSignal =
+    /\b(?:electrical|wiring|outlets?|receptacles?|panel|circuits?|switch(?:es)?|gfci|recessed\s+(?:lights?|cans?)|conduit)\b/i.test(
+      text
+    );
+  const hasCompanionTrade =
+    /\b(?:plumbing|hvac|framing|roof(?:ing)?|drywall|flooring|lvp|tile|cabinets?|concrete|foundation|insulat(?:e|ion|ed)|windows?|doors?|paint(?:ing)?|landscap(?:e|ing)|sod|pavers?)\b/i.test(
+      text
+    );
+  return hasElectricalSignal && !hasCompanionTrade;
 }
 
 export type ElectricalProjectCondition =
@@ -1055,6 +1113,31 @@ export function syncElectricalScopeItems<
     electricalIncludeRough?: boolean | null;
     electricalIncludeTrim?: boolean | null;
   };
+  const detailedTakeoff = hasDetailedElectricalQuantities(quantities);
+  const dedicatedElectricalScope = isDedicatedElectricalScope(
+    params.templateKey,
+    params.notes
+  );
+  const userEnteredItemQuantities = new Set(
+    Object.entries(
+      ((quantities as { itemQuantities?: Record<string, { quantitySource?: string }> })
+        .itemQuantities || {})
+    )
+      .filter(([, entry]) => entry?.quantitySource === 'user_entered')
+      .map(([itemId]) => itemId)
+  );
+  const noteExcludedIds = new Set(
+    ELECTRICAL_CARDS.filter(card =>
+      !userEnteredItemQuantities.has(card.itemId) &&
+      noteExcludesElectricalItem(card.itemId, params.notes)
+    ).map(card => card.itemId)
+  );
+  if (
+    !userEnteredItemQuantities.has('electrical_trim') &&
+    noteExcludesElectricalItem('electrical_trim', params.notes)
+  ) {
+    noteExcludedIds.add('electrical_trim');
+  }
   const included = new Set(params.electricalScope || []);
   const fromQuantity = new Set<string>();
   const clearedQuantity = new Set<string>();
@@ -1062,7 +1145,7 @@ export function syncElectricalScopeItems<
     if (card.measurementKey === 'serviceAmperage') continue;
     if (packageOnly && card.itemId !== 'electrical_rough') continue;
     const raw = quantities[card.measurementKey];
-    if (positiveNumber(raw) != null) {
+    if (positiveNumber(raw) != null && !noteExcludedIds.has(card.itemId)) {
       included.add(card.itemId);
       fromQuantity.add(card.itemId);
     } else if (
@@ -1082,9 +1165,28 @@ export function syncElectricalScopeItems<
     params.electricalIncludeTrim === true ||
     quantities.electricalIncludeTrim === true
   ) {
-    if (!packageOnly) included.add('electrical_trim');
+    if (!packageOnly && !noteExcludedIds.has('electrical_trim')) {
+      included.add('electrical_trim');
+    }
   }
-  const materializedItems = [...items];
+  const materializedItems = items.filter(item => {
+    // Detailed device/circuit counts own the rough-in work. Do not leave the
+    // whole-project package in Confirm Scope as a duplicate, especially when
+    // an older draft carried living-area pricing on that package.
+    if (
+      detailedTakeoff &&
+      item.id === 'electrical_rough' &&
+      !noteExcludedIds.has(item.id)
+    ) {
+      return false;
+    }
+    // The generic Electrical card is a cross-trade fallback, not a second
+    // card on the dedicated Electrical checklist.
+    if (dedicatedElectricalScope && item.id === 'electrical') {
+      return false;
+    }
+    return true;
+  });
   const existingIds = new Set(materializedItems.map(item => item.id));
   for (const card of ELECTRICAL_CARDS) {
     if (packageOnly && card.itemId !== 'electrical_rough') continue;
@@ -1109,6 +1211,11 @@ export function syncElectricalScopeItems<
           ? item
           : { ...item, state: 'excluded' as const };
       }
+    }
+    if (noteExcludedIds.has(item.id)) {
+      return item.state === 'excluded'
+        ? item
+        : { ...item, state: 'excluded' as const };
     }
     if (fromQuantity.has(item.id)) {
       return item.state === 'included' ? item : { ...item, state: 'included' };
@@ -1859,7 +1966,8 @@ export function parseElectricalMeasurementsFromNotes(
       }) || 1
     );
   } else if (
-    /\bservice\s+upgrade|\bupgrade\s+(?:the\s+)?service\b/i.test(text)
+    /\bservice\s+upgrade|\bupgrade\s+(?:the\s+)?service\b/i.test(text) &&
+    !serviceUpgradeExplicitlyExcluded(text)
   ) {
     assign(
       'serviceUpgradeCount',

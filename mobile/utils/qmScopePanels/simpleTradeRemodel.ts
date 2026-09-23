@@ -939,7 +939,7 @@ export function hvacScopeOptionHasExplicitQuantityInNotes(
   const quantity = String.raw`(?:\d[\d,]*(?:\.\d+)?|one|two|three|four|five)`;
   const quantityBefore = (target: string) =>
     new RegExp(
-      `\\b${quantity}\\s+(?:(?:ea|each|lf|linear\\s+feet|sq\\.?\\s*ft|sqft)\\s+)?${target}\\b`,
+      `\\b${quantity}\\s+(?:(?:ea|each|lf|linear\\s+feet|sq\\.?\\s*ft|sqft)\\s+)?(?:(?:of|existing|new|replacement|current|old)\\s+)*(?:(?:\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:-\\s*)?tons?\\s+)?${target}\\b`,
       'i'
     ).test(text);
   const quantityAfter = (target: string) =>

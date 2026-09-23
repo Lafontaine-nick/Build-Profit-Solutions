@@ -17,6 +17,30 @@ describe("estimateDraftComplexity", () => {
   const flooringNotes =
     "1200 sqft tile demo, 1200 sqft tile installation, 1200 LF baseboard install";
 
+  test("builds a dedicated stucco checklist without excluded framing or painting cards", () => {
+    const notes =
+      "Repair and install stucco on designated exterior wall areas. Protect adjacent surfaces, remove loose or damaged stucco, prepare the substrate, repair minor cracks, apply scratch and brown coats, and install a matching finish texture and color. Seal applicable joints and penetrations, remove debris, and leave the work area clean. Assumes accessible, serviceable substrate; excludes structural framing, extensive sheathing or moisture damage, major waterproofing, painting beyond the stucco finish, and hazardous-material remediation.";
+    const checklist = buildScopeChecklist(
+      {
+        projectType: "stucco",
+        scopeMode: "dedicated",
+      },
+      "room_remodel",
+      notes
+    );
+
+    expect(checklist.templateKey).toBe("stucco");
+    expect(checklist.items.map((item) => item.id)).toEqual([
+      "stucco",
+      "stucco_surface_prep",
+      "stucco_coats",
+      "texture",
+      "stucco_sealing",
+      "cleanup",
+    ]);
+    expect(checklist.items.every((item) => item.state === "included")).toBe(true);
+  });
+
   test("exposes a checklist-authoritative canonical mixed-scope contract", () => {
     const draft = {
       projectType: "room_remodel",
@@ -679,6 +703,60 @@ describe("estimateDraftComplexity", () => {
     expect(checklist.items.some((i) => i.id === "foundation")).toBe(true);
     expect(checklist.items.some((i) => i.id === "overhead_profit")).toBe(false);
     expect(checklist.items.some((i) => i.id === "contingency")).toBe(true);
+  });
+
+  test("routes an electrical-only new-build note to electrical scope", () => {
+    const notes =
+      "Electrical rough-in for a 2,400 sqft new construction home: install 18 recessed lights, 12 standard receptacles, 4 GFCI receptacles, 10 switches, two dedicated 20A circuits, one 200A main panel, and 150 LF conduit. Excludes light fixtures, fans, low-voltage, EV charging, utility work, and final trim.";
+    const draft = { projectType: "new_build", rooms: [] };
+    const checklist = buildScopeChecklist(draft, "ground_up", notes);
+    const includedIds = new Set(
+      checklist.items
+        .filter((item) => item.state === "included")
+        .map((item) => item.id),
+    );
+
+    expect(checklist.templateKey).toBe("electrical");
+    expect([...includedIds]).toEqual(
+      expect.arrayContaining([
+        "electrical_main_panel",
+        "electrical_dedicated_20a",
+        "electrical_standard_receptacle",
+        "electrical_gfci_receptacle",
+        "electrical_single_pole_switch",
+        "electrical_conduit",
+        "electrical_rough",
+      ]),
+    );
+    expect([...includedIds]).not.toEqual(
+      expect.arrayContaining([
+        "mep_rough",
+        "plumbing_rough",
+        "plans_engineering",
+        "permits",
+      ]),
+    );
+    expect(
+      checklist.items.find((item) => item.id === "electrical_trim")?.state,
+    ).toBe("excluded");
+    expect(
+      checklist.items.find((item) => item.id === "electrical_recessed_light")
+        ?.state,
+    ).toBe("excluded");
+
+    const measurements = checklist.suggestedMeasurements;
+    expect(measurements).toMatchObject({
+      serviceAmperage: 200,
+      mainPanelCount: 1,
+      recessedLightCount: 18,
+      standardReceptacleCount: 12,
+      gfciReceptacleCount: 4,
+      singlePoleSwitchCount: 10,
+      dedicated20aCircuitCount: 2,
+      conduitLf: 150,
+    });
+    expect(measurements.electricalIncludeTrim).toBeUndefined();
+    expect(measurements.standardFixtureCount).toBeUndefined();
   });
 
   test("classifies Step 1 plan-import handoff notes as ground_up (not room_remodel)", () => {

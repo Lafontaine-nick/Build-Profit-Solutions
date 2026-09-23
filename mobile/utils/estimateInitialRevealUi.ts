@@ -27,6 +27,7 @@ import {
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { sumStep3ReviewBudgetTotals } from '@/utils/benchmarkReasonablenessContext';
 import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
+import { notesRequireInteriorPaintMeasurements } from '@/utils/scopeQuickMeasurements';
 import {
   getCompactProjectSummary,
   getCompactStillNeeded,
@@ -43,6 +44,7 @@ import {
 import {
   collectRoofingInferenceNotes,
   inferItemStateFromNotes,
+  notesExcludeElectricalServiceUpgrade,
   parseRoofingDeckingAllowanceFromNotes,
 } from '@/utils/scopeItemNoteHints';
 import { filterRoomRemodelNoteScopeItems } from '@/utils/estimateScopeChecklistUi';
@@ -50,6 +52,7 @@ import {
   initialScopeMeasurementInputExtended,
   checklistItemInScope,
 } from '@/utils/scopeItemQuantities';
+import { hasDetailedElectricalQuantities } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { parseInsulationAssembliesFromNotes } from '@/utils/scopeMeasurementParser';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 
@@ -475,9 +478,17 @@ function filterMixedScopeAttentionItems(
   draft: EstimateAiDraft,
   items: string[]
 ): string[] {
-  if (!mixedInteriorScopeNotes(draft)) return items;
-
   const notes = String(draft.originalNotes || '');
+  const serviceUpgradeUserSelected =
+    Number(draft.scopeMeasurements?.serviceUpgradeCount || 0) > 0;
+  const withoutExcludedElectricalService = (rows: string[]) =>
+    notesExcludeElectricalServiceUpgrade(notes) && !serviceUpgradeUserSelected
+      ? rows.filter(row => !/\bservice\s+upgrade\b/i.test(String(row || '')))
+      : rows;
+  if (!mixedInteriorScopeNotes(draft)) {
+    return withoutExcludedElectricalService(items);
+  }
+
   const hasFlooringDemo =
     /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.;\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
       notes
@@ -566,7 +577,7 @@ function filterMixedScopeAttentionItems(
     return `Pricing for ${row.name}`;
   };
 
-  return items
+  return withoutExcludedElectricalService(items)
     .map(rowForAttentionItem)
     .filter((item): item is string => Boolean(item));
 }
@@ -582,6 +593,13 @@ function revealChecklistItemVisible(
   }
 ): boolean {
   if (!checklistItemInScope(item)) return false;
+  if (
+    item.id === 'electrical_service_upgrade' &&
+    notesExcludeElectricalServiceUpgrade(draft.originalNotes) &&
+    Number(draft.scopeMeasurements?.serviceUpgradeCount || 0) <= 0
+  ) {
+    return false;
+  }
   if (!isPlumbingRevealDraft(draft)) return true;
   const notes = String(draft.originalNotes || '').trim();
   if (
@@ -677,6 +695,58 @@ function plumbingMissingQuantityAttentionItems(
       id =>
         `Measurement needed for ${PLUMBING_NOTE_SCOPE_LABELS[id] || id.replace(/_/g, ' ')}`
     );
+}
+
+function isDedicatedElectricalRevealDraft(draft: EstimateAiDraft): boolean {
+  const templateKey = String(draft.scopeChecklist?.templateKey || '').toLowerCase();
+  if (templateKey === 'electrical') return true;
+  if (String(draft.projectType || '').toLowerCase() === 'electrical') return true;
+
+  const notes = String(draft.originalNotes || '');
+  const hasElectricalSignal =
+    /\b(?:electrical|wiring|outlets?|receptacles?|panel|circuits?|switch(?:es)?|gfci|recessed\s+(?:lights?|cans?)|conduit)\b/i.test(
+      notes
+    );
+  const hasCompanionTrade =
+    /\b(?:plumbing|hvac|framing|roof(?:ing)?|drywall|flooring|lvp|tile|cabinets?|concrete|foundation|insulat(?:e|ion|ed)|windows?|doors?|paint(?:ing)?|landscap(?:e|ing)|sod|pavers?)\b/i.test(
+      notes
+    );
+  return hasElectricalSignal && !hasCompanionTrade;
+}
+
+function shouldHideDuplicateElectricalPreviewPackage(
+  draft: EstimateAiDraft,
+  pkg: EstimateDraftScopePackage
+): boolean {
+  if (!isDedicatedElectricalRevealDraft(draft)) return false;
+
+  const notes = String(draft.originalNotes || '');
+  const measurements = initialScopeMeasurementInputExtended(draft, notes);
+  if (
+    !hasDetailedElectricalQuantities(
+      measurements as Record<string, unknown> | null
+    )
+  ) {
+    return false;
+  }
+
+  const id = String(pkg.checklistItemId || pkg.costCode || '').trim().toLowerCase();
+  const text = `${pkg.name || ''} ${pkg.scope || ''}`.toLowerCase();
+  if (
+    id === 'electrical_rough' ||
+    id === 'electrical' ||
+    /electrical\s+(?:rough|work)\b/.test(text) ||
+    /electrical\s+outlets?,\s*gfci\s*&?\s*circuits?/.test(text)
+  ) {
+    return true;
+  }
+  if (
+    id === 'electrical_recessed_light' ||
+    /recessed\s*\/\s*canless\s*\/\s*wafer\s+light/.test(text)
+  ) {
+    return inferItemStateFromNotes('electrical_recessed_light', notes) === 'excluded';
+  }
+  return false;
 }
 
 function getInitialRevealScopeRows(
@@ -922,9 +992,42 @@ function getInitialRevealScopeRows(
     roomRemodelReveal && draft.scopeChecklist?.items
       ? filterRoomRemodelNoteScopeItems(draft.scopeChecklist.items, notes)
       : draft.scopeChecklist?.items;
+  const dedicatedElectricalReveal = isDedicatedElectricalRevealDraft(draft);
+  const electricalMeasurements = dedicatedElectricalReveal
+    ? initialScopeMeasurementInputExtended(draft, notes)
+    : null;
+  const hideElectricalRoughPackage =
+    dedicatedElectricalReveal &&
+    hasDetailedElectricalQuantities(
+      electricalMeasurements as Record<string, unknown> | null
+    );
+  const electricalFixtureIds = new Set([
+    'electrical_standard_fixture',
+    'electrical_recessed_light',
+    'electrical_pendant_light',
+    'electrical_decorative_light',
+    'electrical_exterior_light',
+    'electrical_undercabinet_light',
+  ]);
   let rows =
     checklistItems
       ?.filter(item => revealChecklistItemVisible(draft, item))
+      .filter(item => {
+        if (!dedicatedElectricalReveal) return true;
+        if (
+          (hideElectricalRoughPackage && item.id === 'electrical_rough') ||
+          item.id === 'electrical'
+        ) {
+          return false;
+        }
+        if (
+          electricalFixtureIds.has(item.id) &&
+          inferItemStateFromNotes(item.id, notes) === 'excluded'
+        ) {
+          return false;
+        }
+        return true;
+      })
       .filter(
         item =>
           !hasResolvedFacts ||
@@ -1317,6 +1420,13 @@ function getInitialRevealScopeRows(
     if (row.id === 'wall_demo' && explicitDrywallDemo) {
       return false;
     }
+    if (
+      row.id === 'electrical_service_upgrade' &&
+      notesExcludeElectricalServiceUpgrade(notes) &&
+      Number(draft.scopeMeasurements?.serviceUpgradeCount || 0) <= 0
+    ) {
+      return false;
+    }
     // The kitchen checklist can contain a generic “Walls” paint row in
     // addition to the explicit Interior painting row. Keep the priced,
     // note-backed painting scope and suppress the duplicate label.
@@ -1660,6 +1770,9 @@ export function getInitialRevealChecklistScopePreview(
     draft,
     getScopePackagesForReview(draft)
   ).filter(pkg => {
+    if (shouldHideDuplicateElectricalPreviewPackage(draft, pkg)) {
+      return false;
+    }
     const id = String(pkg.checklistItemId || pkg.costCode || '').trim();
     return !inScopeIds.size || (id && inScopeIds.has(id));
   });
@@ -1906,6 +2019,15 @@ function getRevealClassification(draft: EstimateAiDraft) {
       const value = String(label || '').trim();
       const normalized = value.toLowerCase();
       if (
+        normalized === 'electrical' &&
+        notesExcludeElectricalServiceUpgrade(notes) &&
+        !/\b(?:electrical|wiring|outlets?|receptacles?|circuits?|panel)\b/i.test(
+          notes.replace(/\belectrical\s+service\s+upgrades?\b/gi, '')
+        )
+      ) {
+        return null;
+      }
+      if (
         /deck\s*\/?\s*patio|deck_patio/.test(normalized) &&
         !/\bdeck(?:ing)?\b|\brailing\b/i.test(notes)
       ) {
@@ -1936,6 +2058,34 @@ function getRevealClassification(draft: EstimateAiDraft) {
   const combinedTradeLabels = Array.from(
     new Set([...normalizedExistingTradeLabels, ...inferredExteriorTradeLabels])
   );
+  const activeStuccoNotes = notes.replace(
+    /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;\n]*(?:[.;\n]|$)/gi,
+    ' '
+  );
+  const hasDedicatedStuccoIntent =
+    (draft.projectType === 'stucco' ||
+      classification?.primaryTrade === 'stucco' ||
+      classification?.detectedTrades?.includes('stucco')) &&
+    /\b(?:stucco|exterior\s+wall\s+finish|exterior\s+plaster|synthetic\s+stucco|eifs?)\b/i.test(
+      notes
+    ) &&
+    !/\b(?:frame|framing|framed|headers?|blocking|structural\s+sheathing|sheathing)\b/i.test(
+      activeStuccoNotes
+    ) &&
+    !notesRequireInteriorPaintMeasurements(activeStuccoNotes) &&
+    !/\b(?:install|replace|remove|demo|demolition|new)\b[^.;\n]{0,60}\b(?:windows?|doors?)\b|\b(?:windows?|doors?)\b[^.;\n]{0,60}\b(?:install|replace|remove|demo|demolition)\b/i.test(
+      activeStuccoNotes
+    ) &&
+    !/\b(?:baseboards?|casing|crown\s+(?:molding|moulding)|interior\s+trim)\b/i.test(
+      activeStuccoNotes
+    );
+  if (hasDedicatedStuccoIntent) {
+    return {
+      scopeMode: 'dedicated',
+      scopeSummary: null,
+      scopeTradeLabels: ['Stucco / exterior finish'],
+    };
+  }
   const scopeTradeLabels = hasMixedExteriorHardscape
     ? [
         'Concrete',

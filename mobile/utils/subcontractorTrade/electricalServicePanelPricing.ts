@@ -362,6 +362,12 @@ export function hasServiceUpgradeLanguage(text: string): boolean {
   );
 }
 
+export function serviceUpgradeExplicitlyExcluded(text: string): boolean {
+  return /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b[^.;\n]{0,70}\belectrical\s+service\s+upgrades?\b|\belectrical\s+service\s+upgrades?\b[^.;\n]{0,70}\b(?:exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b/i.test(
+    String(text || '')
+  );
+}
+
 export function hasPanelUpgradeLanguage(text: string): boolean {
   return /\bpanel\s+upgrade|\bupgrade\s+(?:the\s+|an\s+|existing\s+)?(?:\d+\s*amp(?:ere)?s?\s+)?panel\b|\breplace(?:ment)?\s+(?:the\s+)?(?:existing\s+)?(?:main\s+)?panel\b/i.test(
     text
@@ -417,7 +423,8 @@ export function applyElectricalServicePanelOwnership<
   if (range.to) next.serviceAmperage = range.to;
   if (range.from) next.existingServiceAmperage = range.from;
 
-  const serviceLang = hasServiceUpgradeLanguage(text);
+  const serviceLang =
+    hasServiceUpgradeLanguage(text) && !serviceUpgradeExplicitlyExcluded(text);
   const panelLang = hasPanelUpgradeLanguage(text);
   const newMainLang = hasIndependentMainPanelLanguage(text);
   const joiner = hasIndependentServicePanelJoiner(text);

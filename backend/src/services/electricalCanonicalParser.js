@@ -122,6 +122,12 @@ function hasServiceUpgradeLanguage(text) {
   );
 }
 
+function serviceUpgradeExplicitlyExcluded(text) {
+  return /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b[^.;\n]{0,70}\belectrical\s+service\s+upgrades?\b|\belectrical\s+service\s+upgrades?\b[^.;\n]{0,70}\b(?:exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b/i.test(
+    String(text || '')
+  );
+}
+
 function hasPanelUpgradeLanguage(text) {
   return /\bpanel\s+upgrade|\bupgrade\s+(?:the\s+|an\s+|existing\s+)?(?:\d+\s*amp(?:ere)?s?\s+)?panel\b|\breplace(?:ment)?\s+(?:the\s+)?(?:existing\s+)?(?:main\s+)?panel\b/i.test(
     text
@@ -169,7 +175,8 @@ function applyElectricalServicePanelOwnership(parsed, notes) {
   if (range.to) next.serviceAmperage = range.to;
   if (range.from) next.existingServiceAmperage = range.from;
 
-  const serviceLang = hasServiceUpgradeLanguage(text);
+  const serviceLang =
+    hasServiceUpgradeLanguage(text) && !serviceUpgradeExplicitlyExcluded(text);
   const panelLang = hasPanelUpgradeLanguage(text);
   const newMainLang = hasIndependentMainPanelLanguage(text);
   const joiner = hasIndependentServicePanelJoiner(text);
@@ -226,7 +233,10 @@ function parseElectricalMeasurementsFromNotes(notes) {
   }
   if (/\bpanel\s+upgrade|\bupgrade\s+(?:the\s+)?panel\b/i.test(text)) {
     assign('panelUpgradeCount', 1);
-  } else if (/\bservice\s+upgrade|\bupgrade\s+(?:the\s+)?service\b/i.test(text)) {
+  } else if (
+    /\bservice\s+upgrade|\bupgrade\s+(?:the\s+)?service\b/i.test(text) &&
+    !serviceUpgradeExplicitlyExcluded(text)
+  ) {
     assign('serviceUpgradeCount', 1);
   } else if (/\b(?:main\s+)?panels?\b/i.test(text) && !/\bsub[\s-]?panel\b/i.test(text)) {
     assign('mainPanelCount', matchCount(text, new RegExp(`${COUNT_TOKEN}\\s*(?:main\\s+)?panels?\\b|\\b(?:install|new)\\s+(?:a\\s+)?(?:\\d+\\s*amp(?:ere)?s?\\s+)?(?:main\\s+)?panel\\b`, 'i')) || 1);
@@ -245,6 +255,15 @@ function parseElectricalMeasurementsFromNotes(notes) {
   const searchClauses = clauses.length ? clauses : [text];
 
   for (const clause of searchClauses) {
+    // Exclusion lists often contain trade nouns and quantities that look like
+    // install instructions. They must not create owned electrical quantities.
+    if (
+      /^\s*(?:excludes?|excluded|not\s+included|not\s+to\s+include)\b/i.test(
+        clause,
+      )
+    ) {
+      continue;
+    }
     if (/\brange(?:\s+circuit|\s+hookup)|electric\s+range/i.test(clause)) {
       assign('rangeHookupCount', matchCount(clause, new RegExp(`${COUNT_TOKEN}?\\s*(?:\\d+\\s*amp(?:ere)?s?\\s+)?(?:electric\\s+)?range(?:\\s+circuit|\\s+hookup)?`, 'i')) || 1);
       continue;
@@ -282,8 +301,8 @@ function parseElectricalMeasurementsFromNotes(notes) {
       continue;
     }
 
-    if (/\bdedicated\s+(?:20\s*amp(?:ere)?s?\s+)?circuits?/i.test(clause) && !/\b(?:30|40|50|60|70|80|100)\s*amp/i.test(clause)) {
-      assign('dedicated20aCircuitCount', matchCount(clause, new RegExp(`${COUNT_TOKEN}\\s*dedicated\\s+(?:20\\s*amp(?:ere)?s?\\s+)?circuits?\\b|\\bdedicated\\s+(?:20\\s*amp(?:ere)?s?\\s+)?circuits?\\b`, 'i')) || 1);
+    if (/\bdedicated\s+(?:20\s*(?:amp(?:ere)?s?|a)\s+)?circuits?/i.test(clause) && !/\b(?:30|40|50|60|70|80|100)\s*(?:amp(?:ere)?s?|a)/i.test(clause)) {
+      assign('dedicated20aCircuitCount', matchCount(clause, new RegExp(`${COUNT_TOKEN}\\s*dedicated\\s+(?:20\\s*(?:amp(?:ere)?s?|a)\\s+)?circuits?\\b|\\bdedicated\\s+(?:20\\s*(?:amp(?:ere)?s?|a)\\s+)?circuits?\\b`, 'i')) || 1);
     } else if (/\b30\s*amp(?:ere)?s?\s+circuits?/i.test(clause) && !/\brange|dryer/i.test(clause)) {
       assign('circuit30aCount', matchCount(clause, new RegExp(`${COUNT_TOKEN}\\s*(?:dedicated\\s+)?30\\s*amp`, 'i')) || 1);
     } else if (/\b40\s*amp(?:ere)?s?\s+circuits?/i.test(clause)) {
@@ -441,12 +460,19 @@ function parseElectricalMeasurementsFromNotes(notes) {
   ) {
     out.electricalIncludeRough = true;
   }
+  const trimExcluded =
+    /\b(?:excludes?|excluded|not\s+included|not\s+to\s+include)\b[^.;\n]*\btrim(?:[\s-]?out)?\b/i.test(
+      text,
+    );
   if (
-    /\btrim(?:[\s-]?out)?\b/i.test(text) ||
-    /\bdevices?\s+and\s+plates\b/i.test(text) ||
-    /\bfinish(?:ing)?\s+electrical\b/i.test(text) ||
-    /\belectrical\s+trim\b/i.test(text) ||
-    /\binstall\s+devices?\b/i.test(text)
+    (
+      /\btrim(?:[\s-]?out)?\b/i.test(text) ||
+      /\bdevices?\s+and\s+plates\b/i.test(text) ||
+      /\bfinish(?:ing)?\s+electrical\b/i.test(text) ||
+      /\belectrical\s+trim\b/i.test(text) ||
+      /\binstall\s+devices?\b/i.test(text)
+    ) &&
+    !trimExcluded
   ) {
     out.electricalIncludeTrim = true;
   }

@@ -31,7 +31,7 @@ const ROOF_PITCH_RE =
   /\b(\d+)\s*(?::|\/)\s*(\d+)\s*pitch\b|\bpitch\s*(\d+)\s*(?::|\/)\s*(\d+)\b/i;
 const STORY_COUNT_RE =
   /\b(\d+|one|two|three|four|five)\s*[- ]?stor(?:y|ies)\b/i;
-const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:tons?)\b/gi;
+const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:-\s*)?tons?\b/gi;
 const DEPTH_INCHES_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:inches?|["″])/i;
 
 const EXTERIOR_FLATWORK_RE =
@@ -577,6 +577,101 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     }
     return null;
   };
+  const stuccoMeasurementNote =
+    templateKey === "stucco" ||
+    projectType === "stucco" ||
+    /\b(?:stucco|exterior\s+wall\s+finish|exterior\s+plaster|synthetic\s+stucco|eifs?)\b/i.test(
+      text,
+    );
+  if (stuccoMeasurementNote) {
+    const stuccoSqftFor = (pattern, allowZero = false) => {
+      const quantity =
+        "(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:sq\\.?\\s*ft|sqft|square\\s+(?:foot|feet))";
+      const before = text.match(
+        new RegExp(
+          `${quantity}\\s*(?:for|of)?\\s*(?:${pattern.source})`,
+          "i",
+        ),
+      );
+      const after = text.match(
+        new RegExp(
+          `(?:${pattern.source})[^.;\\n]{0,45}?${quantity}`,
+          "i",
+        ),
+      );
+      const raw = before?.[1] || after?.[1];
+      const value = raw ? Number(raw.replace(/,/g, "")) : null;
+      return Number.isFinite(value) && (value > 0 || (allowZero && value === 0))
+        ? value
+        : null;
+    };
+    const stuccoLfFor = (pattern) => {
+      const quantity =
+        "(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:lf|linear\\s+(?:foot|feet)|linear\\s+ft)";
+      const match = text.match(
+        new RegExp(
+          `${quantity}\\s*(?:for|of)?\\s*(?:${pattern.source})`,
+          "i",
+        ),
+      );
+      const value = match?.[1] ? Number(match[1].replace(/,/g, "")) : null;
+      return Number.isFinite(value) && value > 0 ? value : null;
+    };
+    const stuccoGrossWallSqft = stuccoSqftFor(
+      /\bgross\s+(?:exterior\s+)?wall\s+area\b/i,
+    );
+    const stuccoWindowDoorOpeningSqft = stuccoSqftFor(
+      /\bwindow\s+and\s+door\s+openings?\b/i,
+    );
+    const stuccoGarageOpeningSqft = stuccoSqftFor(
+      /\bgarage\s+door\s+openings?\b/i,
+      true,
+    );
+    const stuccoOtherFinishDeductionSqft = stuccoSqftFor(
+      /\b(?:other\s+(?:non[-\s]stucco\s+)?finish(?:es)?\s+deductions?|other\s+non[-\s]stucco\s+finishes?|non[-\s]stucco\s+finishes?|stone,\s*brick,\s*siding)\b/i,
+    );
+    const stuccoSoffitSqft = stuccoSqftFor(/\bsoffits?\b/i);
+    const stuccoParapetSqft = stuccoSqftFor(/\bparapets?\b/i);
+    const stuccoAccessAffectedSqft = stuccoSqftFor(
+      /\baccess[-\s]affected\s+area\b/i,
+    );
+    const stuccoRepairAffectedSqft = stuccoSqftFor(
+      /\blocalized\s+(?:stucco\s+)?repair\b/i,
+    );
+    const stuccoFoamTrimLf = stuccoLfFor(/\bfoam\s+trim\b/i);
+    const stuccoControlJointLf = stuccoLfFor(
+      /\bcontrol\s*\/?\s*expansion\s+joints?\b|\bcontrol\s+joints?\b/i,
+    );
+    const wallHeightMatch = text.match(
+      /\b(\d[\d,]*(?:\.\d+)?)\s*(?:ft|feet|foot)\s+per\s+story\b/i,
+    );
+
+    if (stuccoGrossWallSqft) out.stuccoGrossWallSqft = stuccoGrossWallSqft;
+    if (stuccoWindowDoorOpeningSqft) {
+      out.stuccoWindowDoorOpeningSqft = stuccoWindowDoorOpeningSqft;
+    }
+    if (stuccoGarageOpeningSqft != null) {
+      out.stuccoGarageOpeningSqft = stuccoGarageOpeningSqft;
+    }
+    if (stuccoOtherFinishDeductionSqft) {
+      out.stuccoOtherFinishDeductionSqft = stuccoOtherFinishDeductionSqft;
+    }
+    if (stuccoSoffitSqft) out.stuccoSoffitSqft = stuccoSoffitSqft;
+    if (stuccoParapetSqft) out.stuccoParapetSqft = stuccoParapetSqft;
+    if (stuccoAccessAffectedSqft) {
+      out.stuccoAccessAffectedSqft = stuccoAccessAffectedSqft;
+    }
+    if (stuccoRepairAffectedSqft) {
+      out.stuccoRepairAffectedSqft = stuccoRepairAffectedSqft;
+    }
+    if (stuccoFoamTrimLf) out.stuccoFoamTrimLf = stuccoFoamTrimLf;
+    if (stuccoControlJointLf) out.stuccoControlJointLf = stuccoControlJointLf;
+    const stuccoStories = parseStoryCount(text);
+    if (stuccoStories) out.stuccoStories = stuccoStories;
+    if (wallHeightMatch) {
+      out.stuccoWallHeightFt = Number(wallHeightMatch[1].replace(/,/g, ""));
+    }
+  }
   const pickInsulationArea = (locationPattern) => {
     const quantityPattern =
       /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+feet?)\s+(?:of\s+)?/i;
@@ -1051,18 +1146,20 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   }
 
   const exteriorPaintSqft =
-    firstQty(
-      text.match(
-        /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;,\n]{0,25}\b(?:siding|exterior\s+walls?|exterior\s+surface)\b/i,
-      )?.[0] || "",
-      SQFT_RE,
-    ) ||
-    firstQty(
-      text.match(
-        /\b(?:exterior\s+paint|paint\s+exterior|paintable\s+(?:exterior\s+)?wall\s+area|exterior\s+(?:wall\s+)?(?:surface|wall)\s+area)\b[^.;,\n]{0,25}(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i,
-      )?.[0] || "",
-      SQFT_RE,
-    );
+    templateKey === "stucco" || projectType === "stucco"
+      ? null
+      : firstQty(
+          text.match(
+            /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;,\n]{0,25}\b(?:siding|exterior\s+walls?|exterior\s+surface)\b/i,
+          )?.[0] || "",
+          SQFT_RE,
+        ) ||
+        firstQty(
+          text.match(
+            /\b(?:exterior\s+paint|paint\s+exterior|paintable\s+(?:exterior\s+)?wall\s+area|exterior\s+(?:wall\s+)?(?:surface|wall)\s+area)\b[^.;,\n]{0,25}(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i,
+          )?.[0] || "",
+          SQFT_RE,
+        );
   if (exteriorPaintSqft) out.exteriorPaintSqft = exteriorPaintSqft;
 
   // Drywall: keep the quantity in the same clause as drywall so a nearby
@@ -1504,15 +1601,17 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
 
   // Baseboard LF
   const baseboardLf =
-    (() => {
-      for (const clause of clauses) {
-        if (!/\bbaseboards?\b|\btrim\b/.test(clause.toLowerCase())) continue;
-        // Keep sqft-labelled trim owned by trim; the UI prices this field as LF.
-        const q = firstQty(clause, LF_RE) || firstQty(clause, SQFT_RE);
-        if (q) return q;
-      }
-      return null;
-    })() || null;
+    templateKey === "stucco" || projectType === "stucco"
+      ? null
+      : (() => {
+          for (const clause of clauses) {
+            if (!/\bbaseboards?\b|\btrim\b/.test(clause.toLowerCase())) continue;
+            // Keep sqft-labelled trim owned by trim; the UI prices this field as LF.
+            const q = firstQty(clause, LF_RE) || firstQty(clause, SQFT_RE);
+            if (q) return q;
+          }
+          return null;
+        })() || null;
   if (baseboardLf) out.baseboardLf = baseboardLf;
 
   // Roofing squares (or convert roof sqft → squares)
@@ -1772,6 +1871,10 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     : clauses.filter((clause) => hvacSignal.test(clause)).join(" ");
   if (hvacText) {
     const systemCount =
+      firstHvacCount(
+        hvacText,
+        "(?:(?:existing|new|replacement|current|old)\\s+)?(?:(?:\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:-\\s*)?tons?\\s+)?(?:heat[\\s-]?pumps?\\s+)?(?:hvac\\s+)?systems?",
+      ) ||
       firstHvacCount(hvacText, "(?:hvac\\s+)?systems?") ||
       firstHvacCount(
         hvacText,
@@ -1815,7 +1918,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       out.hvacEquipmentReplacementCount = Math.round(replacementCount);
     } else if (
       /\b(?:replace|replacement)\b/i.test(hvacText) &&
-      /\b(?:equipment|furnace|air\s*handler|condenser|heat\s*pump)\b/i.test(
+      /\b(?:equipment|furnace|air\s*handler|condenser|heat[\s-]?pump)\b/i.test(
         hvacText,
       )
     ) {
@@ -1877,7 +1980,10 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     applyBathroomPlanningMeasurements(out, text, { templateKey, projectType }),
   );
 
-  const electrical = parseElectricalMeasurementsFromNotes(text);
+  const electrical =
+    templateKey === "stucco" || projectType === "stucco"
+      ? {}
+      : parseElectricalMeasurementsFromNotes(text);
   const electricalItemQuantities = electrical.itemQuantities || {};
   for (const [key, value] of Object.entries(electrical)) {
     if (key === "itemQuantities" || value == null) continue;

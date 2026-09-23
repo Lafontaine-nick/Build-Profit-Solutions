@@ -181,6 +181,7 @@ function noteExplicitlyExcludes(notes, object) {
     roofing: "roof(?:ing)?|shingles?",
     concrete: "concrete|flatwork|driveway|patio",
     landscaping: "landscap(?:e|ing)|sod|irrigation|pavers?",
+    electrical_service_upgrade: "electrical\\s+service\\s+upgrades?",
   };
   const objectPattern = aliases[object] || String(object || "").replace(/_/g, "\\s+");
   return new RegExp(
@@ -197,6 +198,20 @@ function extractScopeFactsFromNotes(notes, ctx = {}) {
   const parsed =
     ctx.parsedMeasurements || parseScopeMeasurementsFromNotes(text, ctx);
   const facts = [];
+  const stuccoTemplate =
+    String(ctx.templateKey || '').toLowerCase() === 'stucco' ||
+    String(ctx.projectType || '').toLowerCase() === 'stucco';
+  const activeStuccoNotes = text.replace(
+    /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;\n]*(?:[.;\n]|$)/gi,
+    ' '
+  );
+  const stuccoSeparateTrimWork =
+    /\b(?:baseboards?|casing|crown\s+(?:molding|moulding)|interior\s+trim)\b/i.test(
+      activeStuccoNotes
+    ) ||
+    /\b(?:install|replace|remove|repair|paint)\b[^.;\n]{0,50}\b(?:exterior\s+)?trim\b/i.test(
+      activeStuccoNotes
+    );
   const paintScope = new Set(parsed.paintScope || []);
   const combinedArea = positive(parsed.combinedPaintableAreaSqft);
 
@@ -333,6 +348,15 @@ function extractScopeFactsFromNotes(notes, ctx = {}) {
     );
   for (const match of getCatalogShadowMatches(text)) {
     if (!match.scopeId || explicitQuantityKeys.has(match.scopeId)) continue;
+    if (
+      stuccoTemplate &&
+      !stuccoSeparateTrimWork &&
+      ['trim', 'interior_trim', 'baseboard_install', 'trim_paint'].includes(
+        match.scopeId
+      )
+    ) {
+      continue;
+    }
     if (
       exteriorTrimPaintOnly &&
       ["paint", "trim", "trim_paint", "baseboard_install"].includes(

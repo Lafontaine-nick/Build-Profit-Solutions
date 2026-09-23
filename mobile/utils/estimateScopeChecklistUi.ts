@@ -4196,7 +4196,7 @@ export function hydrateScopeChecklistFromNotes(
 export function scopeChecklistItemsForPersist(
   items: ScopeChecklistItem[]
 ): ScopeChecklistItem[] {
-  const base = items.filter(
+  const base = dedupeScopeChecklistItems(items).filter(
     i => !i.derivedFrom && !WET_AREA_DERIVED_ITEM_IDS.has(i.id)
   );
   if (base.some(i => i.id === 'paint_repair')) {
@@ -4222,9 +4222,11 @@ export function scopeChecklistItemsForEditing(
     progressItems?.length &&
     checklistItems?.length
   ) {
-    return restoreConfirmedChecklistItemStates(
-      checklistItems.map(item => ({ ...item })),
-      progressItems
+    return dedupeScopeChecklistItems(
+      restoreConfirmedChecklistItemStates(
+        checklistItems.map(item => ({ ...item })),
+        progressItems
+      )
     );
   }
   const confirmed = draft?.confirmedAssumptions;
@@ -4234,15 +4236,17 @@ export function scopeChecklistItemsForEditing(
     // user's saved Yes/No/choice states. Otherwise note-backed rows added by
     // the refreshed catalog (for example shower tile or floor tile) vanish
     // when Confirm Scope is reopened.
-    return confirmed?.length
-      ? restoreConfirmedChecklistItemStates(
-          checklistItems.map(item => ({ ...item })),
-          confirmed
-        )
-      : checklistItems.map(item => ({ ...item }));
+    return dedupeScopeChecklistItems(
+      confirmed?.length
+        ? restoreConfirmedChecklistItemStates(
+            checklistItems.map(item => ({ ...item })),
+            confirmed
+          )
+        : checklistItems.map(item => ({ ...item }))
+    );
   }
   if (confirmed?.length) {
-    return confirmed.map(item => ({ ...item }));
+    return dedupeScopeChecklistItems(confirmed.map(item => ({ ...item })));
   }
   return [];
 }

@@ -138,6 +138,60 @@ const CHECKLIST_LEGEND =
   "Yes = this work is part of your bid scope. No = not part of this bid. Not sure = we will not auto-price it.";
 
 const CHECKLIST_TEMPLATES = {
+  stucco: {
+    title: "Stucco / exterior finish — confirm project scope",
+    intro: "Confirm the stucco repair and finish work included in this bid.",
+    items: [
+      {
+        id: "stucco",
+        inputType: "yes_no",
+        label: "Stucco / exterior wall finish",
+        helperText:
+          "Repair or install stucco on the note-specified exterior wall areas. Confirm the wall area before pricing.",
+        category: "exterior",
+      },
+      {
+        id: "stucco_surface_prep",
+        inputType: "yes_no",
+        label: "Remove damaged stucco & prepare substrate",
+        helperText:
+          "Remove loose or damaged stucco, prepare the accessible substrate, and repair minor cracks.",
+        category: "prep",
+      },
+      {
+        id: "stucco_coats",
+        inputType: "yes_no",
+        label: "Scratch and brown coats",
+        helperText:
+          "Apply the stucco scratch and brown coats required by the note.",
+        category: "exterior",
+      },
+      {
+        id: "texture",
+        inputType: "yes_no",
+        label: "Matching finish texture & color",
+        helperText:
+          "Apply the matching stucco finish texture and color; specialty coatings are separate.",
+        category: "exterior",
+      },
+      {
+        id: "stucco_sealing",
+        inputType: "yes_no",
+        label: "Seal applicable joints & penetrations",
+        helperText:
+          "Seal the joints and penetrations included in the stucco scope.",
+        category: "exterior",
+      },
+      {
+        id: "cleanup",
+        inputType: "yes_no",
+        label: "Cleanup & disposal",
+        helperText:
+          "Remove stucco debris and leave the work area clean.",
+        category: "cleanup",
+      },
+    ],
+  },
   bathroom: {
     title: "Bathroom remodel — confirm project scope",
     intro: "Confirm what work is in this bid before pricing.",
@@ -2779,6 +2833,22 @@ const CHECKLIST_NO_HINTS = {
     /\b(no|without|not\s+including)\b[^.]{0,40}\b(?:roof(?:ing)?|roof\s+tie[\s-]?in|roof\s+work)\b|\b(?:roof(?:ing)?|roof\s+tie[\s-]?in|roof\s+work)\s+(?:not\s+included|excluded)\b/,
   roofing:
     /\b(no|without|not\s+including)\b[^.]{0,40}\b(?:roof(?:ing)?|roof\s+work)\b|\b(?:roof(?:ing)?|roof\s+work)\s+(?:not\s+included|excluded)\b/,
+  electrical_standard_fixture:
+    /\b(?:light|lighting)\s+fixtures?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,40}\b(?:light|lighting)\s+fixtures?\b/i,
+  electrical_recessed_light:
+    /\b(?:light|lighting)\s+fixtures?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,40}\b(?:light|lighting)\s+fixtures?\b/i,
+  electrical_pendant_light:
+    /\b(?:light|lighting)\s+fixtures?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,40}\b(?:light|lighting)\s+fixtures?\b/i,
+  electrical_decorative_light:
+    /\b(?:light|lighting)\s+fixtures?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,40}\b(?:light|lighting)\s+fixtures?\b/i,
+  electrical_exterior_light:
+    /\b(?:light|lighting)\s+fixtures?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,40}\b(?:light|lighting)\s+fixtures?\b/i,
+  electrical_undercabinet_light:
+    /\b(?:light|lighting)\s+fixtures?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,40}\b(?:light|lighting)\s+fixtures?\b/i,
+  electrical_trim:
+    /\b(?:final\s+)?(?:electrical\s+)?trim(?:[\s-]?out)?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,120}\b(?:final\s+)?(?:electrical\s+)?trim(?:[\s-]?out)?\b/i,
+  electrical_service_upgrade:
+    /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b[^.;\n]{0,70}\belectrical\s+service\s+upgrades?\b|\belectrical\s+service\s+upgrades?\b[^.;\n]{0,70}\b(?:exclude(?:d|es|ing)?|not\s+included|not\s+in\s+scope)\b/i,
 };
 
 function notesText(draft, originalNotes) {
@@ -2908,9 +2978,23 @@ function notesImplyStructuralMixedScope(notes) {
   return hasStructural && hasCompanionTrade;
 }
 
-function checklistTemplateKey(draft, estimateTier) {
+function notesImplyDedicatedElectricalScope(notes) {
+  const text = String(notes || "");
+  const electricalSignal =
+    /\b(?:electrical|wiring|outlets?|receptacles?|panel|circuits?|switch(?:es)?|gfci|recessed\s+(?:lights?|cans?)|conduit)\b/i;
+  if (!electricalSignal.test(text)) return false;
+
+  // New-construction language describes the setting, not the trade scope.
+  // Keep a new-build electrical-only note on the Electrical checklist unless
+  // another active construction trade is actually described.
+  const companionTradeSignal =
+    /\b(?:plumbing|plumb|sewer|drain|hvac|furnace|ductwork|framing|sheathing|roof(?:ing)?|shingles?|drywall|sheetrock|flooring|lvp|laminate|carpet|tile|cabinet(?:s|ry)?|countertops?|concrete|foundation|footings?|slab|insulat(?:e|ion|ed)|windows?|exterior\s+doors?|paint(?:ing)?|repaint|landscap(?:e|ing)|sod|pavers?|stucco)\b/i;
+  return !companionTradeSignal.test(text);
+}
+
+function checklistTemplateKey(draft, estimateTier, originalNotes) {
   const projectType = String(draft.projectType || "other").toLowerCase();
-  const notes = notesText(draft, null);
+  const notes = notesText(draft, originalNotes);
   const mixedStructuralScope =
     !["ground_up", "addition"].includes(
       String(estimateTier || "").toLowerCase(),
@@ -2926,6 +3010,11 @@ function checklistTemplateKey(draft, estimateTier) {
 
   const dedicatedPaintingIntent =
     /\b(?:paint(?:ing)?|repaint|primer|painted)\b/i.test(notes);
+  const dedicatedStuccoIntent =
+    projectType === "stucco" ||
+    /\b(?:stucco|exterior\s+wall\s+finish|exterior\s+plaster|synthetic\s+stucco|eifs?)\b/i.test(
+      notes,
+    );
   const explicitRepaintWithoutConstruction =
     /\b(?:repaint|repainting|whole[-\s]?house\s+(?:interior\s+and\s+exterior\s+)?repaint)\b/i.test(
       notes,
@@ -2935,6 +3024,11 @@ function checklistTemplateKey(draft, estimateTier) {
     );
   if (dedicatedPaintingIntent && explicitRepaintWithoutConstruction) {
     return "painting";
+  }
+  // Stucco notes often mention that painting beyond the stucco finish is
+  // excluded. Keep that exclusion from routing the job to the paint checklist.
+  if (dedicatedStuccoIntent) {
+    return "stucco";
   }
   // A patio/concrete job with exterior companion work is not a painting job.
   // Route it through the concrete checklist so pour, excavation, base,
@@ -2984,6 +3078,9 @@ function checklistTemplateKey(draft, estimateTier) {
   // a dedicated painting checklist.
   if (notesImplyMultiTradeInteriorRemodel(notes)) {
     return "room_remodel";
+  }
+  if (notesImplyDedicatedElectricalScope(notes)) {
+    return "electrical";
   }
   if (estimateTier === "ground_up") return "ground_up";
   if (estimateTier === "addition") return "addition";

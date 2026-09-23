@@ -1170,7 +1170,15 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
     undefined,
     'Only area requiring repair or additional surface preparation.'
   ),
-  stuccoStories: F('stuccoStories', 'Stories', '1', 'story', 'exterior'),
+  stuccoStories: F(
+    'stuccoStories',
+    'Stories',
+    '1',
+    'story',
+    'exterior',
+    undefined,
+    'Defaults to 1 story only as a planning placeholder; confirm the actual story count.'
+  ),
   stuccoWallHeightFt: F(
     'stuccoWallHeightFt',
     'Typical wall height / story',
@@ -1985,7 +1993,15 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
       )
     ),
     row(
-      F('stuccoStories', 'Stories', '1', 'story', 'exterior'),
+      F(
+        'stuccoStories',
+        'Stories',
+        '1',
+        'story',
+        'exterior',
+        undefined,
+        'Defaults to 1 story only as a planning placeholder; confirm the actual story count.'
+      ),
       F(
         'stuccoWallHeightFt',
         'Typical wall height / story',

@@ -213,6 +213,7 @@ import {
   ensureGroundUpFlatworkScopeCard,
   ensureGroundUpOpeningScopeCards,
   WET_AREA_DERIVED_ITEM_IDS,
+  dedupeScopeChecklistItems,
   scopeChecklistSummaryCounts,
   listScopeItemsNeedingConfirmation,
   finalizeDrywallScopeChecklistLayout,
@@ -14984,10 +14985,25 @@ function CollapsibleQuickMeasurements({
     }
     const activeScopeSet = new Set(includedScopeKeys);
     const notesTextForScopeFields = String(notes || '');
-    const structuralNotesMentioned =
+    const activeNotesForScopeFields = notesTextForScopeFields.replace(
+      /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;\n]*(?:[.;\n]|$)/gi,
+      ' '
+    );
+    const activeStructuralScopeMentioned =
       /\b(?:frame|framing|framed|headers?|blocking|structural\s+sheathing|sheathing)\b/i.test(
-        notesTextForScopeFields
+        activeNotesForScopeFields
       );
+    const activeInteriorPaintMentioned = notesRequireInteriorPaintMeasurements(
+      activeNotesForScopeFields
+    );
+    const dedicatedStuccoScope =
+      (String(effectiveTemplateKey || '').toLowerCase() === 'stucco' ||
+        /\b(?:stucco|exterior\s+wall\s+finish|exterior\s+plaster|synthetic\s+stucco|eifs?)\b/i.test(
+          notesTextForScopeFields
+        )) &&
+      !activeStructuralScopeMentioned &&
+      !activeInteriorPaintMentioned;
+    const structuralNotesMentioned = activeStructuralScopeMentioned;
     const scopeFieldsToEnsure: QuickMeasurementFieldDef[] = [];
     const ensureScopeField = (
       key: QuickMeasurementFieldKey,
@@ -15001,10 +15017,11 @@ function CollapsibleQuickMeasurements({
       scopeKeys.some(key => activeScopeSet.has(key)) ||
       pattern.test(notesTextForScopeFields);
     if (
-      structuralNotesMentioned ||
-      activeScopeSet.has('framing') ||
-      activeScopeSet.has('shear_sheathing') ||
-      activeScopeSet.has('openings')
+      !dedicatedStuccoScope &&
+      (structuralNotesMentioned ||
+        activeScopeSet.has('framing') ||
+        activeScopeSet.has('shear_sheathing') ||
+        activeScopeSet.has('openings'))
     ) {
       ensureScopeField('framedAreaSqft', {
         label: 'Wall framing area',
@@ -15050,9 +15067,10 @@ function CollapsibleQuickMeasurements({
       });
     }
     const interiorPaintScopeOrNote =
-      ['paint', 'interior_paint', 'paint_repair'].some(key =>
+      !dedicatedStuccoScope &&
+      (['paint', 'interior_paint', 'paint_repair'].some(key =>
         activeScopeSet.has(key)
-      ) || notesRequireInteriorPaintMeasurements(notesTextForScopeFields);
+      ) || notesRequireInteriorPaintMeasurements(notesTextForScopeFields));
     if (interiorPaintScopeOrNote) {
       ensureScopeField('wallPaintSqft', { label: 'Paint' });
     }
@@ -15378,11 +15396,19 @@ function CollapsibleQuickMeasurements({
               );
             const notesMentionFramingField =
               framingField &&
+              !dedicatedStuccoScope &&
               (/\b(?:frame|framing|framed)\b[^.;\n]{0,45}\bwalls?\b|\bwalls?\b[^.;\n]{0,45}\b(?:frame|framing|framed)\b/i.test(
-                noteText
+                activeNotesForScopeFields
               ) ||
-                /\b(?:structural\s+)?sheathing\b/i.test(noteText) ||
-                /\b(?:door|window)\s+openings?\b|\bheaders?\b/i.test(noteText));
+                /\b(?:structural\s+)?sheathing\b/i.test(
+                  activeNotesForScopeFields
+                ) ||
+                /\b(?:door|window)\s+openings?\b|\bheaders?\b/i.test(
+                  activeNotesForScopeFields
+                ));
+            if (dedicatedStuccoScope && (paintField || framingField)) {
+              return false;
+            }
             return (
               relevance.relevant ||
               noteHasField ||
@@ -21493,13 +21519,55 @@ export default function AIEstimateScopeAssumptionsModal({
       );
     }
     if (stuccoTradeFlow) {
-      const customOnly = withNoteScopeFilter.filter(
-        item => isCustomScopeChecklistItem(item) || item.noteBacked
+      const activeStuccoNotes = currentUserNote.replace(
+        /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;\n]*(?:[.;\n]|$)/gi,
+        ' '
       );
-      return withDrywallLayout([
-        ...buildStuccoTradeChecklistItems(groupedOpeningItems),
-        ...customOnly,
-      ]);
+      const hasExplicitWindowDoorWork =
+        /\b(?:install|replace|remove|demo|demolition|new)\b[^.;\n]{0,60}\b(?:windows?|doors?)\b|\b(?:windows?|doors?)\b[^.;\n]{0,60}\b(?:install|replace|remove|demo|demolition)\b/i.test(
+          activeStuccoNotes
+        );
+      const hasExplicitTrimWork =
+        /\b(?:baseboards?|casing|crown\s+(?:molding|moulding)|interior\s+trim)\b/i.test(
+          activeStuccoNotes
+        ) ||
+        /\b(?:install|replace|remove|repair|paint)\b[^.;\n]{0,50}\b(?:exterior\s+)?trim\b/i.test(
+          activeStuccoNotes
+        );
+      const hasExplicitExteriorPaint =
+        /\b(?:paint|painting|repaint|repainting)\b[^.;\n]{0,35}\b(?:exterior|outside|stucco|eifs)\b|\b(?:exterior|outside|stucco|eifs)\b[^.;\n]{0,35}\b(?:paint|painting|repaint|repainting)\b/i.test(
+          activeStuccoNotes
+        );
+      const hasExplicitInteriorPaint =
+        notesRequireInteriorPaintMeasurements(activeStuccoNotes) &&
+        /\b(?:interior|inside|walls?|ceilings?|rooms?)\b/i.test(
+          activeStuccoNotes
+        );
+      const isGenericStuccoOnlyItem = (item: ScopeChecklistItem) =>
+        ((item.id === 'windows' ||
+          item.id === 'window_install' ||
+          item.id === 'windows_doors' ||
+          item.id === 'exterior_doors') &&
+          !hasExplicitWindowDoorWork) ||
+        ((item.id === 'paint' || item.id === 'interior_paint') &&
+          !hasExplicitInteriorPaint) ||
+        ((item.id === 'exterior_paint' || item.id === 'exterior_trim_paint') &&
+          !hasExplicitExteriorPaint) ||
+        (['trim', 'trim_paint', 'baseboard_install', 'interior_trim'].includes(
+          item.id
+        ) &&
+          !hasExplicitTrimWork);
+      const customOnly = withNoteScopeFilter.filter(
+        item =>
+          (isCustomScopeChecklistItem(item) || item.noteBacked) &&
+          !isGenericStuccoOnlyItem(item)
+      );
+      return withDrywallLayout(
+        dedupeScopeChecklistItems([
+          ...buildStuccoTradeChecklistItems(groupedOpeningItems),
+          ...customOnly,
+        ])
+      );
     }
     if (String(checklist?.templateKey || '').toLowerCase() !== 'flooring')
       return withDrywallLayout(orderedPaintingItems);

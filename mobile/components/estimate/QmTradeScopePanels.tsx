@@ -6387,6 +6387,10 @@ function parseStuccoMeasurement(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function stuccoMeasurementInputValue(value: unknown): string {
+  return value == null ? '' : String(value);
+}
+
 function reconcileStuccoNetWall(
   measurements: ScopeMeasurementsInputExtended
 ): Pick<
@@ -6441,6 +6445,44 @@ export function QmStuccoScopePanels({
   const [addonsExpanded, setAddonsExpanded] = useState(true);
   const [accessExpanded, setAccessExpanded] = useState(true);
   const panelStyle = qmPanelShellStyle(darkMode);
+
+  useEffect(() => {
+    const derived = reconcileStuccoNetWall(measurements);
+    const currentNet = stuccoMeasurementInputValue(
+      measurements.stuccoNetWallSqft
+    );
+    const nextNet =
+      derived.stuccoNetWallSqft == null
+        ? currentNet
+        : stuccoMeasurementInputValue(derived.stuccoNetWallSqft);
+    const currentPaint = stuccoMeasurementInputValue(
+      measurements.exteriorPaintSqft
+    );
+    const nextPaint =
+      derived.exteriorPaintSqft == null
+        ? currentPaint
+        : stuccoMeasurementInputValue(derived.exteriorPaintSqft);
+    if (currentNet === nextNet && currentPaint === nextPaint) return;
+    setMeasurements(prev => {
+      const next = {
+        ...prev,
+        ...reconcileStuccoNetWall(prev),
+      };
+      return stuccoMeasurementInputValue(next.stuccoNetWallSqft) ===
+        stuccoMeasurementInputValue(prev.stuccoNetWallSqft) &&
+        stuccoMeasurementInputValue(next.exteriorPaintSqft) ===
+          stuccoMeasurementInputValue(prev.exteriorPaintSqft)
+        ? prev
+        : next;
+    });
+  }, [
+    measurements.stuccoGrossWallSqft,
+    measurements.stuccoWindowDoorOpeningSqft,
+    measurements.stuccoGarageOpeningSqft,
+    measurements.stuccoOtherFinishDeductionSqft,
+    measurements.stuccoNetWallSqft,
+    measurements.exteriorPaintSqft,
+  ]);
 
   const updateMeasurement = (
     key: keyof ScopeMeasurementsInputExtended,
@@ -6517,7 +6559,7 @@ export function QmStuccoScopePanels({
             <QmSqftMeasurementRow
               label='Exterior wall area — gross'
               helperText='Total exterior wall surface before opening deductions.'
-              value={String(measurements.stuccoGrossWallSqft || '')}
+              value={stuccoMeasurementInputValue(measurements.stuccoGrossWallSqft)}
               placeholder='Enter'
               unitLabel='sqft'
               onChangeText={value =>
@@ -6531,7 +6573,9 @@ export function QmStuccoScopePanels({
             <QmSqftMeasurementRow
               label='Window & door openings'
               helperText='Combined window and door opening area to deduct.'
-              value={String(measurements.stuccoWindowDoorOpeningSqft || '')}
+              value={stuccoMeasurementInputValue(
+                measurements.stuccoWindowDoorOpeningSqft
+              )}
               placeholder='Enter'
               unitLabel='sqft'
               onChangeText={value =>
@@ -6545,7 +6589,9 @@ export function QmStuccoScopePanels({
             <QmSqftMeasurementRow
               label='Garage door openings'
               helperText='Garage opening area to deduct from gross wall area.'
-              value={String(measurements.stuccoGarageOpeningSqft || '')}
+              value={stuccoMeasurementInputValue(
+                measurements.stuccoGarageOpeningSqft
+              )}
               placeholder='Enter'
               unitLabel='sqft'
               onChangeText={value =>
@@ -6559,7 +6605,9 @@ export function QmStuccoScopePanels({
             <QmSqftMeasurementRow
               label='Other finish deductions'
               helperText='Stone, brick, siding, panels, or other areas not receiving stucco.'
-              value={String(measurements.stuccoOtherFinishDeductionSqft || '')}
+              value={stuccoMeasurementInputValue(
+                measurements.stuccoOtherFinishDeductionSqft
+              )}
               placeholder='Enter'
               unitLabel='sqft'
               onChangeText={value =>
@@ -6577,7 +6625,7 @@ export function QmStuccoScopePanels({
                   ? 'Calculated from gross wall area minus openings.'
                   : 'Enter gross wall area and opening deductions to calculate net area.'
               }
-              value={String(measurements.stuccoNetWallSqft || '')}
+              value={stuccoMeasurementInputValue(measurements.stuccoNetWallSqft)}
               placeholder='Calculated'
               unitLabel='sqft'
               onChangeText={value =>
@@ -6629,7 +6677,7 @@ export function QmStuccoScopePanels({
                 <QmSqftMeasurementRow
                   label='Soffits / stucco ceilings'
                   helperText='Soffit or stucco ceiling area priced separately from wall area.'
-                  value={String(measurements.stuccoSoffitSqft || '')}
+                  value={stuccoMeasurementInputValue(measurements.stuccoSoffitSqft)}
                   placeholder='Enter'
                   unitLabel='sqft'
                   onChangeText={value =>
@@ -6643,7 +6691,7 @@ export function QmStuccoScopePanels({
                 <QmSqftMeasurementRow
                   label='Parapets / raised walls'
                   helperText='Parapet or raised wall stucco area.'
-                  value={String(measurements.stuccoParapetSqft || '')}
+                  value={stuccoMeasurementInputValue(measurements.stuccoParapetSqft)}
                   placeholder='Enter'
                   unitLabel='sqft'
                   onChangeText={value =>
@@ -6657,7 +6705,7 @@ export function QmStuccoScopePanels({
                 <QmSqftMeasurementRow
                   label='Foam trim / architectural bands'
                   helperText='Linear foam trim or banding.'
-                  value={String(measurements.stuccoFoamTrimLf || '')}
+                  value={stuccoMeasurementInputValue(measurements.stuccoFoamTrimLf)}
                   placeholder='Enter'
                   unitLabel='LF'
                   onChangeText={value =>
@@ -6671,7 +6719,9 @@ export function QmStuccoScopePanels({
                 <QmSqftMeasurementRow
                   label='Control / expansion joints'
                   helperText='Linear control or expansion joint length.'
-                  value={String(measurements.stuccoControlJointLf || '')}
+                  value={stuccoMeasurementInputValue(
+                    measurements.stuccoControlJointLf
+                  )}
                   placeholder='Enter'
                   unitLabel='LF'
                   onChangeText={value =>
@@ -6716,7 +6766,7 @@ export function QmStuccoScopePanels({
                 <QmSqftMeasurementRow
                   label='Stories'
                   helperText='Number of stories affecting access and staging.'
-                  value={String(measurements.stuccoStories || '')}
+                  value={stuccoMeasurementInputValue(measurements.stuccoStories)}
                   placeholder='1'
                   unitLabel='story'
                   onChangeText={value =>
@@ -6730,7 +6780,7 @@ export function QmStuccoScopePanels({
                 <QmSqftMeasurementRow
                   label='Typical wall height / story'
                   helperText='Average wall height per story for access planning.'
-                  value={String(measurements.stuccoWallHeightFt || '')}
+                  value={stuccoMeasurementInputValue(measurements.stuccoWallHeightFt)}
                   placeholder='Enter'
                   unitLabel='ft'
                   onChangeText={value =>
@@ -6744,7 +6794,9 @@ export function QmStuccoScopePanels({
                 <QmSqftMeasurementRow
                   label='Access-affected area'
                   helperText='Wall area requiring special access, staging, or protection.'
-                  value={String(measurements.stuccoAccessAffectedSqft || '')}
+                  value={stuccoMeasurementInputValue(
+                    measurements.stuccoAccessAffectedSqft
+                  )}
                   placeholder='Enter'
                   unitLabel='sqft'
                   onChangeText={value =>
@@ -6758,7 +6810,9 @@ export function QmStuccoScopePanels({
                 <QmSqftMeasurementRow
                   label='Localized repair area'
                   helperText='Patch or repair-only stucco area priced separately from full system work.'
-                  value={String(measurements.stuccoRepairAffectedSqft || '')}
+                  value={stuccoMeasurementInputValue(
+                    measurements.stuccoRepairAffectedSqft
+                  )}
                   placeholder='Enter'
                   unitLabel='sqft'
                   onChangeText={value =>

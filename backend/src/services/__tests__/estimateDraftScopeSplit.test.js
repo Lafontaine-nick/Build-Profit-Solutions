@@ -15,6 +15,25 @@ describe('estimateDraftScopeSplit', () => {
     expect(tasks.map((t) => t.id)).toEqual(['tile_demo', 'laminate_install']);
   });
 
+  test('keeps stucco measurement deductions from creating trim or paint rooms', () => {
+    const notes =
+      'Repair and install stucco. Gross exterior wall area is 2,400 sqft. Deduct 320 sqft for window and door openings and 180 sqft for other finish deductions. Include 60 LF of foam trim. Excludes structural framing, extensive sheathing, and painting beyond the stucco finish.';
+    const tasks = detectScopeTasksFromNotes(notes);
+    expect(tasks).toEqual([]);
+
+    const draft = normalizeDraft(
+      { projectType: 'other', rooms: [] },
+      { originalNotes: notes }
+    );
+    expect(draft.projectType).toBe('stucco');
+    expect(draft.detectedTrades).toEqual(['stucco']);
+    expect(draft.rooms).toEqual([]);
+    expect(draft.scopeChecklist?.templateKey).toBe('stucco');
+    expect(draft.scopeChecklist?.items.map((item) => item.id)).not.toContain(
+      'trim'
+    );
+  });
+
   test('detects tile install from run-on note with demo and install in one sentence', () => {
     const notes =
       'Create me a flooring bid, 1200 sqft tile demo and 1200 sqft tile installation, and 1000 linear ft of baseboard install';

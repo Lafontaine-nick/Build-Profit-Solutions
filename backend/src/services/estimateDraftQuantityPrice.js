@@ -497,6 +497,7 @@ const NOTE_TRADE_LABELS = {
   windows_doors: 'Windows & doors',
   insulation: 'Insulation',
   trim: 'Trim',
+  stucco: 'Stucco / exterior finish',
 };
 
 const NOTE_TRADE_PROJECT_TYPES = {
@@ -510,6 +511,7 @@ const NOTE_TRADE_PROJECT_TYPES = {
   roofing: 'roofing',
   windows_doors: 'windows_doors',
   insulation: 'insulation',
+  stucco: 'stucco',
 };
 
 const NOTE_TRADE_PATTERNS = {
@@ -527,6 +529,7 @@ const NOTE_TRADE_PATTERNS = {
     /\b(?:windows?|fenestration|exterior\s+doors?|sliding\s+doors?|patio\s+doors?|garage\s+doors?)\b/i,
   insulation: /\b(?:insulation|insulate|batts?|blown[\s-]?in)\b/i,
   trim: /\b(?:baseboards?|trim|molding|moulding|casing|quarter[\s-]?round)\b/i,
+  stucco: /\b(?:stucco|exterior\s+wall\s+finish|exterior\s+plaster|synthetic\s+stucco|eifs?)\b/i,
 };
 
 function noteSignalIsActive(text, pattern) {
@@ -535,11 +538,16 @@ function noteSignalIsActive(text, pattern) {
   const matcher = new RegExp(pattern.source, flags);
   let match;
   while ((match = matcher.exec(source)) !== null) {
-    const before = source.slice(Math.max(0, match.index - 70), match.index);
+    const before = source.slice(Math.max(0, match.index - 180), match.index);
+    const exclusionMatches = [
+      ...before.matchAll(
+        /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b/gi
+      ),
+    ];
+    const exclusion = exclusionMatches.at(-1);
     if (
-      !/\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;,\n]{0,45}$/i.test(
-        before
-      )
+      !exclusion ||
+      /[.;\n]/.test(before.slice(exclusion.index))
     ) {
       return true;
     }
@@ -554,10 +562,14 @@ function noteSignalIsExcluded(text, pattern) {
   return (
     matches.length > 0 &&
     matches.every((match) => {
-      const before = source.slice(Math.max(0, match.index - 70), match.index);
-      return /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;,\n]{0,45}$/i.test(
-        before
-      );
+      const before = source.slice(Math.max(0, match.index - 180), match.index);
+      const exclusionMatches = [
+        ...before.matchAll(
+          /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b/gi
+        ),
+      ];
+      const exclusion = exclusionMatches.at(-1);
+      return Boolean(exclusion) && !/[.;\n]/.test(before.slice(exclusion.index));
     })
   );
 }
@@ -565,6 +577,16 @@ function noteSignalIsExcluded(text, pattern) {
 function detectNoteTrades(notes) {
   const text = String(notes || '');
   return Object.keys(NOTE_TRADE_PATTERNS).filter((trade) => {
+    if (
+      trade === 'electrical' &&
+      noteSignalIsExcluded(text, /\belectrical\s+service\s+upgrades?\b/i) &&
+      !noteSignalIsActive(
+        text.replace(/\belectrical\s+service\s+upgrades?\b/gi, ''),
+        NOTE_TRADE_PATTERNS.electrical
+      )
+    ) {
+      return false;
+    }
     if (!noteSignalIsActive(text, NOTE_TRADE_PATTERNS[trade])) return false;
     if (trade !== 'painting') return true;
     const hasPaintSurfaceIntent =
@@ -581,7 +603,30 @@ function detectNoteTrades(notes) {
 
 function classifyScopeFromNotes(notes, projectType) {
   const text = String(notes || '').trim();
-  const detectedTrades = detectNoteTrades(text);
+  const rawDetectedTrades = detectNoteTrades(text);
+  const hasExplicitWindowDoorWork =
+    /\b(?:install|replace|remove|demo|demolition|new)\b[^.;\n]{0,60}\b(?:windows?|doors?)\b|\b(?:windows?|doors?)\b[^.;\n]{0,60}\b(?:install|replace|remove|demo|demolition)\b/i.test(
+      text
+    );
+  const hasExplicitTrimWork =
+    /\b(?:baseboards?|casing|crown\s+(?:molding|moulding)|interior\s+trim)\b/i.test(
+      text
+    ) ||
+    /\b(?:install|replace|remove|repair|paint)\b[^.;\n]{0,50}\b(?:exterior\s+)?trim\b/i.test(
+      text
+    );
+  const stuccoOnlyExteriorFinish =
+    NOTE_TRADE_PATTERNS.stucco.test(text) &&
+    !rawDetectedTrades.includes('framing') &&
+    !/\binterior\s+(?:paint|painting|repaint)\b/i.test(text) &&
+    !hasExplicitWindowDoorWork &&
+    !hasExplicitTrimWork;
+  const detectedTrades = stuccoOnlyExteriorFinish
+    ? rawDetectedTrades.filter(
+        (trade) =>
+          !['painting', 'windows_doors', 'trim'].includes(trade)
+      )
+    : rawDetectedTrades;
   const nonTrimTrades = detectedTrades.filter((trade) => trade !== 'trim');
   const hasFraming = detectedTrades.includes('framing');
   const hasMixedTradeIntent =
@@ -687,6 +732,15 @@ function inferProjectTypeFromNotes(notes, projectType) {
       n
     ) ||
     /\b(?:painting|paint)\s+(?:prep|masking)\b/.test(n);
+  if (
+    /\b(?:stucco|exterior\s+wall\s+finish|exterior\s+plaster|synthetic\s+stucco|eifs?)\b/.test(
+      n
+    ) &&
+    !detectNoteTrades(n).includes('framing') &&
+    !/\binterior\s+(?:paint|painting|repaint)\b/.test(n)
+  ) {
+    return 'stucco';
+  }
   if (dedicatedPainting) return 'painting';
   if (/\b(basement\s+finish(?:ing)?|finished\s+basement|insurance\s+(?:repair|restoration)|restoration|mixed\s+repair)\b/.test(n)) {
     return 'other';
@@ -712,6 +766,10 @@ function inferProjectTypeFromNotes(notes, projectType) {
   if (floorHeavy && !bathHeavy) return 'flooring';
   const { notesImplyConcreteFlatwork } = require('./scopeChecklistLibrary');
   if (notesImplyConcreteFlatwork(n)) return 'concrete';
+  const activeElectricalTradeSignal = noteSignalIsActive(
+    n,
+    /\belectrical\s+(?:work|job|service|estimate|rough)\b/i
+  );
   if (
     /\b(?:recessed|canless)\s+(?:lights?|cans?|fixtures?)\b/.test(n) ||
     /\b(?:standard\s+)?(?:outlets?|receptacles?)\b/.test(n) ||
@@ -719,7 +777,7 @@ function inferProjectTypeFromNotes(notes, projectType) {
     /\bdedicated\s+\d+\s*amp(?:ere)?s?\s+circuits?\b/.test(n) ||
     /\b\d+\s*amp(?:ere)?s?\s+(?:main\s+)?panel\b/.test(n) ||
     /\bceiling\s+fans?\b/.test(n) ||
-    /\belectrical\s+(?:work|job|service|estimate|rough)\b/.test(n) ||
+    activeElectricalTradeSignal ||
     projectType === 'electrical'
   ) {
     return 'electrical';

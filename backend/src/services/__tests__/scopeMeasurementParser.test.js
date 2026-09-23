@@ -8,6 +8,58 @@ const { buildScopeChecklist } = require('../estimateDraftComplexity');
 const { resolveQuantityForChecklistItem, normalizeScopeMeasurements } = require('../scopeItemQuantityCatalog');
 
 describe('scopeMeasurementParser', () => {
+  test('parses measured HVAC replacement quantities with qualifiers and hyphenated tonnage', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Replace and dispose of 1 existing HVAC system and 180 LF of existing ductwork. Install 1 new 3-ton heat-pump system, 1 thermostat, 8 supply registers, and 2 return grilles, including startup and testing.',
+      { templateKey: 'hvac', projectType: 'hvac' }
+    );
+
+    expect(parsed.hvacSystemCount).toBe(1);
+    expect(parsed.hvacSystemTons).toBe(3);
+    expect(parsed.hvacEquipmentReplacementCount).toBe(1);
+    expect(parsed.hvacDuctworkLf).toBe(180);
+    expect(parsed.hvacThermostatCount).toBe(1);
+    expect(parsed.hvacSupplyRegisterCount).toBe(8);
+    expect(parsed.hvacReturnGrilleCount).toBe(2);
+  });
+
+  test('does not treat stucco wall area or foam trim as paint or baseboard measurements', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Repair and install stucco. Gross exterior wall area is 2,400 sqft. Deduct 320 sqft for window and door openings, 0 sqft for garage door openings. Include 60 LF of foam trim. Excludes painting beyond the stucco finish.',
+      { templateKey: 'stucco', projectType: 'stucco' }
+    );
+
+    expect(parsed.stuccoGrossWallSqft).toBe(2400);
+    expect(parsed.stuccoWindowDoorOpeningSqft).toBe(320);
+    expect(parsed.stuccoGarageOpeningSqft).toBe(0);
+    expect(parsed.stuccoFoamTrimLf).toBe(60);
+    expect(parsed.exteriorPaintSqft).toBeUndefined();
+    expect(parsed.baseboardLf).toBeUndefined();
+    expect(parsed.lf).toBeUndefined();
+  });
+
+  test('normalizes the complete stucco takeoff and preserves explicit zero openings', () => {
+    const notes =
+      'Repair and install stucco on designated exterior wall areas. Gross exterior wall area is 2,400 sqft. Deduct 320 sqft for window and door openings, 0 sqft for garage door openings, and 180 sqft for other non-stucco finishes. Include 120 sqft of soffits, 80 sqft of parapets, 60 LF of foam trim, and 45 LF of control joints. The building is 2 stories with a typical wall height of 9 ft per story. Allow for 600 sqft of access-affected area and 250 sqft of localized stucco repair.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'stucco',
+      projectType: 'stucco',
+    });
+    const normalized = normalizeScopeMeasurements(parsed);
+
+    expect(normalized.stuccoGarageOpeningSqft).toBe(0);
+    expect(normalized.stuccoNetWallSqft).toBe(1900);
+    expect(normalized.stuccoSoffitSqft).toBe(120);
+    expect(normalized.stuccoParapetSqft).toBe(80);
+    expect(normalized.stuccoFoamTrimLf).toBe(60);
+    expect(normalized.stuccoControlJointLf).toBe(45);
+    expect(normalized.stuccoStories).toBe(2);
+    expect(normalized.stuccoWallHeightFt).toBe(9);
+    expect(normalized.stuccoAccessAffectedSqft).toBe(600);
+    expect(normalized.stuccoRepairAffectedSqft).toBe(250);
+    expect(parsed.electricalIncludeTrim).toBeUndefined();
+  });
+
   test('keeps mixed painting notes in the correct scope and measurement owners', () => {
     const notes =
       'Paint 2,000 sqft walls and ceilings with prep, demolition and removal of damaged drywall, six interior doors, 180 LF baseboard, 300 sqft drywall repair, 900 sqft flooring, three replacement windows, and R-30 attic insulation.';
@@ -1044,6 +1096,27 @@ describe('trade-specific scope checklists', () => {
       quantity: 18,
       unit: 'each',
     });
+  });
+
+  test('does not turn electrical exclusions into fixture or trim quantities', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Electrical rough-in for a 2,400 sqft new construction home: install 18 recessed lights, 12 standard receptacles, 4 GFCI receptacles, 10 switches, two dedicated 20A circuits, one 200A main panel, and 150 LF conduit. Excludes light fixtures, fans, low-voltage, EV charging, utility work, and final trim.',
+      { templateKey: 'electrical', projectType: 'new_build' },
+    );
+
+    expect(parsed).toMatchObject({
+      serviceAmperage: 200,
+      mainPanelCount: 1,
+      recessedLightCount: 18,
+      standardReceptacleCount: 12,
+      gfciReceptacleCount: 4,
+      singlePoleSwitchCount: 10,
+      dedicated20aCircuitCount: 2,
+      conduitLf: 150,
+    });
+    expect(parsed.standardFixtureCount).toBeUndefined();
+    expect(parsed.electricalIncludeTrim).toBeUndefined();
+    expect(parsed.itemQuantities?.electrical_standard_fixture).toBeUndefined();
   });
 
   test('parses electrical condition wording without inventing quantities', () => {

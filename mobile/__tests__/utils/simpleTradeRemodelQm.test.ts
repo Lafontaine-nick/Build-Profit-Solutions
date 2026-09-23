@@ -1004,6 +1004,21 @@ describe('simple trade QM panels', () => {
     });
   });
 
+  it('recognizes qualified HVAC note quantities as explicit', () => {
+    const notes =
+      'Replace and dispose of 1 existing HVAC system and 180 LF of existing ductwork. Install 1 new 3-ton heat-pump system, 1 thermostat, 8 supply registers, and 2 return grilles.';
+
+    expect(
+      hvacScopeOptionHasExplicitQuantityInNotes('hvac_systems', notes)
+    ).toBe(true);
+    expect(
+      hvacScopeOptionHasExplicitQuantityInNotes('hvac_capacity', notes)
+    ).toBe(true);
+    expect(
+      hvacScopeOptionHasExplicitQuantityInNotes('ductwork', notes)
+    ).toBe(true);
+  });
+
   it('flags a selected HVAC system when its quantity is blank', () => {
     expect(
       summarizeHvacScopePanel({

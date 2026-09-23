@@ -1441,6 +1441,17 @@ function parseMeasurementNumber(value) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function parseNonNegativeMeasurementNumber(value) {
+  const text = String(value ?? "")
+    .replace(/,/g, "")
+    .trim();
+  if (!text) return null;
+  const n = Number(
+    text,
+  );
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 function normalizeScopeMeasurements(measurements = {}) {
   const bathroomFloorSqft =
     parseMeasurementNumber(measurements.bathroomFloorSqft) ??
@@ -1504,6 +1515,56 @@ function normalizeScopeMeasurements(measurements = {}) {
   const deckSqft = parseMeasurementNumber(measurements.deckSqft);
   const garageSqft = parseMeasurementNumber(measurements.garageSqft);
   const railingLf = parseMeasurementNumber(measurements.railingLf);
+  const stuccoGrossWallSqft = parseMeasurementNumber(
+    measurements.stuccoGrossWallSqft,
+  );
+  const stuccoWindowDoorOpeningSqft = parseMeasurementNumber(
+    measurements.stuccoWindowDoorOpeningSqft,
+  );
+  const stuccoGarageOpeningSqft = parseNonNegativeMeasurementNumber(
+    measurements.stuccoGarageOpeningSqft,
+  );
+  const stuccoOtherFinishDeductionSqft = parseMeasurementNumber(
+    measurements.stuccoOtherFinishDeductionSqft,
+  );
+  const stuccoSoffitSqft = parseMeasurementNumber(
+    measurements.stuccoSoffitSqft,
+  );
+  const stuccoParapetSqft = parseMeasurementNumber(
+    measurements.stuccoParapetSqft,
+  );
+  const stuccoFoamTrimLf = parseMeasurementNumber(
+    measurements.stuccoFoamTrimLf,
+  );
+  const stuccoControlJointLf = parseMeasurementNumber(
+    measurements.stuccoControlJointLf,
+  );
+  const stuccoAccessAffectedSqft = parseMeasurementNumber(
+    measurements.stuccoAccessAffectedSqft,
+  );
+  const stuccoRepairAffectedSqft = parseMeasurementNumber(
+    measurements.stuccoRepairAffectedSqft,
+  );
+  const stuccoStories = parseMeasurementNumber(measurements.stuccoStories);
+  const stuccoWallHeightFt = parseMeasurementNumber(
+    measurements.stuccoWallHeightFt,
+  );
+  const hasStuccoOpeningInput = [
+    measurements.stuccoWindowDoorOpeningSqft,
+    measurements.stuccoGarageOpeningSqft,
+    measurements.stuccoOtherFinishDeductionSqft,
+  ].some((value) => String(value ?? "").trim() !== "");
+  const stuccoNetWallSqft =
+    parseMeasurementNumber(measurements.stuccoNetWallSqft) ??
+    (stuccoGrossWallSqft != null && hasStuccoOpeningInput
+      ? Math.max(
+          0,
+          stuccoGrossWallSqft -
+            (stuccoWindowDoorOpeningSqft || 0) -
+            (stuccoGarageOpeningSqft || 0) -
+            (stuccoOtherFinishDeductionSqft || 0),
+        )
+      : null);
 
   return {
     bathroomFloorSqft,
@@ -1547,6 +1608,19 @@ function normalizeScopeMeasurements(measurements = {}) {
     deckSqft,
     garageSqft,
     railingLf,
+    stuccoGrossWallSqft,
+    stuccoWindowDoorOpeningSqft,
+    stuccoGarageOpeningSqft,
+    stuccoOtherFinishDeductionSqft,
+    stuccoNetWallSqft,
+    stuccoSoffitSqft,
+    stuccoParapetSqft,
+    stuccoFoamTrimLf,
+    stuccoControlJointLf,
+    stuccoAccessAffectedSqft,
+    stuccoRepairAffectedSqft,
+    stuccoStories,
+    stuccoWallHeightFt,
     sqft: bathroomFloorSqft,
     lf: baseboardLf,
     itemQuantities: measurements.itemQuantities || {},

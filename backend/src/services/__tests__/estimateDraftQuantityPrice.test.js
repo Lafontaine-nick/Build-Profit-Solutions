@@ -54,6 +54,41 @@ describe('quantity vs price parsing', () => {
     expect(projectType).toBe('painting');
   });
 
+  test('classifies stucco repair notes as dedicated stucco and ignores excluded structural and paint work', () => {
+    const notes =
+      'Repair and install stucco on designated exterior wall areas. Protect adjacent surfaces, remove loose or damaged stucco, prepare the substrate, repair minor cracks, apply scratch and brown coats, and install a matching finish texture and color. Seal applicable joints and penetrations, remove debris, and leave the work area clean. Assumes accessible, serviceable substrate; excludes structural framing, extensive sheathing or moisture damage, major waterproofing, painting beyond the stucco finish, and hazardous-material remediation.';
+    const result = classifyScopeFromNotes(notes, 'other');
+
+    expect(result.projectType).toBe('stucco');
+    expect(result.scopeMode).toBe('dedicated');
+    expect(result.detectedTrades).toEqual(['stucco']);
+    expect(result.scopeTradeLabels).toEqual(['Stucco / exterior finish']);
+    expect(result.exclusions).toEqual(
+      expect.arrayContaining(['Framing', 'Painting'])
+    );
+
+    const draft = normalizeDraft(
+      { projectType: 'other', rooms: [] },
+      { originalNotes: notes }
+    );
+    expect(draft.projectType).toBe('stucco');
+    expect(draft.detectedTrades).toEqual(['stucco']);
+  });
+
+  test('does not detect excluded electrical service upgrades as an active trade', () => {
+    const result = classifyScopeFromNotes(
+      'Replace the existing HVAC system and ductwork, then install a new HVAC system with thermostat, supply registers, return grilles, startup, and testing. System count, tonnage, and ductwork length must be confirmed. Excludes plumbing, electrical service upgrades, and building repairs.',
+      'hvac'
+    );
+
+    expect(result.detectedTrades).toEqual(['hvac']);
+    expect(result.projectType).toBe('hvac');
+    expect(result.primaryTrade).toBe('hvac');
+    expect(result.exclusions).toEqual(
+      expect.arrayContaining(['Electrical'])
+    );
+  });
+
   test('extractPricingItemsFromText does not treat 1200 sqft as dollars', () => {
     const items = extractPricingItemsFromText(FLOOR_NOTES);
     const amounts = items.map((i) => i.amount).filter(Boolean);

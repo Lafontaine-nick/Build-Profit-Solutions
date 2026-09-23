@@ -207,6 +207,21 @@ export function notesOwnerHandlesScopeCategory(
   return false;
 }
 
+/** Explicitly excluded electrical service work must not become an HVAC add-on. */
+export function notesExcludeElectricalServiceUpgrade(
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  return (
+    /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b[^.;\n]{0,70}\belectrical\s+service\s+upgrades?\b/i.test(
+      text
+    ) ||
+    /\belectrical\s+service\s+upgrades?\b[^.;\n]{0,70}\b(?:exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b/i.test(
+      text
+    )
+  );
+}
+
 const CHECKLIST_NO_HINTS: Record<string, RegExp> = {
   flooring:
     /\b(?:flooring|floors?|finished\s+floor)\s+(?:protection|protect(?:ion|ed|ing))\b|\bprotect(?:ion|ed|ing)\b[^.]{0,40}\b(?:flooring|floors?|finished\s+floor)\b/,
@@ -227,6 +242,22 @@ const CHECKLIST_NO_HINTS: Record<string, RegExp> = {
     /\b(no|without|not\s+including)\b[^.]{0,40}\b(?:roof(?:ing)?|roof\s+tie[\s-]?in|roof\s+work)\b|\b(?:roof(?:ing)?|roof\s+tie[\s-]?in|roof\s+work)\s+(?:not\s+included|excluded)\b/,
   roofing:
     /\b(no|without|not\s+including)\b[^.]{0,40}\b(?:roof(?:ing)?|roof\s+work)\b|\b(?:roof(?:ing)?|roof\s+work)\s+(?:not\s+included|excluded)\b/,
+  electrical_standard_fixture:
+    /\b(?:light|lighting)\s+fixtures?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,120}\b(?:light|lighting)\s+fixtures?\b/i,
+  electrical_recessed_light:
+    /\b(?:light|lighting)\s+fixtures?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,120}\b(?:light|lighting)\s+fixtures?\b/i,
+  electrical_pendant_light:
+    /\b(?:light|lighting)\s+fixtures?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,120}\b(?:light|lighting)\s+fixtures?\b/i,
+  electrical_decorative_light:
+    /\b(?:light|lighting)\s+fixtures?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,120}\b(?:light|lighting)\s+fixtures?\b/i,
+  electrical_exterior_light:
+    /\b(?:light|lighting)\s+fixtures?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,120}\b(?:light|lighting)\s+fixtures?\b/i,
+  electrical_undercabinet_light:
+    /\b(?:light|lighting)\s+fixtures?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,120}\b(?:light|lighting)\s+fixtures?\b/i,
+  electrical_trim:
+    /\b(?:final\s+)?(?:electrical\s+)?trim(?:[\s-]?out)?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,120}\b(?:final\s+)?(?:electrical\s+)?trim(?:[\s-]?out)?\b/i,
+  electrical_service_upgrade:
+    /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b[^.;\n]{0,70}\belectrical\s+service\s+upgrades?\b|\belectrical\s+service\s+upgrades?\b[^.;\n]{0,70}\b(?:exclude(?:d|es|ing)?|not\s+included|not\s+in\s+scope)\b/i,
 };
 
 /**

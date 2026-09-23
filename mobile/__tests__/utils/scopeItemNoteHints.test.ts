@@ -6,6 +6,7 @@ import {
   inferRoofingTearOffFromNotes,
   inferRoofingTradeScopeSelectionsFromNotes,
   infersRoofingUnderlaymentUpgradeFromNotes,
+  notesExcludeElectricalServiceUpgrade,
   notesOwnerHandlesScopeCategory,
   parseRoofingDeckingAllowanceFromNotes,
 } from '@/utils/scopeItemNoteHints';
@@ -30,6 +31,16 @@ describe('scopeItemNoteHints trim inference', () => {
     expect(
       inferItemStateFromNotes('trim', 'Install baseboards throughout 220 LF.')
     ).toBe('included');
+  });
+
+  test('treats explicitly excluded electrical service upgrades as excluded', () => {
+    const notes =
+      'Replace the existing HVAC system and ductwork. Excludes plumbing, electrical service upgrades, and building repairs.';
+
+    expect(notesExcludeElectricalServiceUpgrade(notes)).toBe(true);
+    expect(inferItemStateFromNotes('electrical_service_upgrade', notes)).toBe(
+      'excluded'
+    );
   });
 
   test('room remodel scope keeps explicit work and drops unsupported finish inferences', () => {

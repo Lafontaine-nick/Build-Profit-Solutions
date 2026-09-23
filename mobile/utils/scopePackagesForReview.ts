@@ -52,6 +52,7 @@ import {
 import {
   finalizeWetAreaInstallScopeFromMeasurements,
 } from '@/utils/wetAreaInstallScopeGate';
+import { notesExcludeElectricalServiceUpgrade } from '@/utils/scopeItemNoteHints';
 
 export type ConfirmScopeVisibleRowsContext = {
   templateKey?: string | null;
@@ -101,6 +102,16 @@ export function buildConfirmScopeDisplayItems(
     return row;
   });
   const noteText = String(notes || '');
+  const serviceUpgradeUserSelected =
+    Number(String(measurements.serviceUpgradeCount ?? '').replace(/,/g, '')) > 0 ||
+    (measurements.itemQuantities &&
+      typeof measurements.itemQuantities === 'object' &&
+      !Array.isArray(measurements.itemQuantities) &&
+      (measurements.itemQuantities as Record<string, { quantitySource?: unknown }>)
+        .electrical_service_upgrade?.quantitySource === 'user_entered');
+  if (notesExcludeElectricalServiceUpgrade(noteText) && !serviceUpgradeUserSelected) {
+    expanded = expanded.filter((row) => row.id !== 'electrical_service_upgrade');
+  }
   expanded = ensureMixedExteriorScopeItems(expanded, templateKey, noteText);
   expanded = filterUnmentionedMixedExteriorConcreteItems(expanded, noteText);
   if (/\bshrubs?\b/i.test(noteText) && !/\bplants?\b/i.test(noteText)) {

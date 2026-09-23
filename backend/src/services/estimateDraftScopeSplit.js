@@ -189,6 +189,26 @@ function detectScopeTasksFromNotes(notes) {
       tasks.push(task);
     }
   }
+  if (/\b(?:stucco|exterior\s+wall\s+finish|exterior\s+plaster|synthetic\s+stucco|eifs?)\b/.test(n)) {
+    const activeNote = n.replace(
+      /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;\n]*(?:[.;\n]|$)/gi,
+      ' '
+    );
+    const separateTrimWork =
+      /\b(?:baseboards?|casing|crown\s+(?:molding|moulding)|interior\s+trim)\b/.test(
+        activeNote
+      ) ||
+      /\b(?:install|replace|remove|repair|paint)\b[^.;\n]{0,50}\b(?:exterior\s+)?trim\b/.test(
+        activeNote
+      );
+    const stuccoTasks = tasks.filter(
+      (task) =>
+        (separateTrimWork || task.id !== 'baseboard_install') &&
+        (/\b(?:paint|painting|repaint)\b/.test(activeNote) ||
+          task.id !== 'exterior_paint')
+    );
+    if (stuccoTasks.length !== tasks.length) return stuccoTasks;
+  }
   if (tasks.some((t) => t.id === 'baseboard_install')) {
     return tasks.filter((t) => t.id !== 'interior_paint');
   }
