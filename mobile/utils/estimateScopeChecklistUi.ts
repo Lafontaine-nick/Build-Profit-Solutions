@@ -553,7 +553,8 @@ function resolveDrywallLayoutContext(inferenceCtx?: KitchenScopeInferenceCtx): {
   planImportTradeKey?: string | null;
 } {
   const measurementRecord = inferenceCtx?.measurements as
-    Record<string, unknown> | undefined;
+    | Record<string, unknown>
+    | undefined;
   return {
     planImportMode:
       inferenceCtx?.planImportMode ??
@@ -1057,7 +1058,8 @@ export function filterExistingShellConversionConfirmScopeItems(
   return items.filter(item => {
     if (item.state === 'excluded') return false;
     if (existingShellOutOfScope.has(item.id)) return false;
-    if (!explicitlyAddsOpenings && granularOpeningIds.has(item.id)) return false;
+    if (!explicitlyAddsOpenings && granularOpeningIds.has(item.id))
+      return false;
     return true;
   });
 }
@@ -1788,11 +1790,9 @@ export function normalizeScopeChecklistItems(
   );
   // Do not force soft-cost Yes here — that would overwrite an intentional Not sure
   // on every reopen. Defaults are applied at checklist build / note inference time.
-  const normalized = dedupeScopeChecklistItems(applyKitchenScopeInferences(
-    withDrywallInstall,
-    templateKey,
-    inferenceCtx
-  ));
+  const normalized = dedupeScopeChecklistItems(
+    applyKitchenScopeInferences(withDrywallInstall, templateKey, inferenceCtx)
+  );
   // Baseboard installation owns the baseboard LF and pricing. Remove the
   // generic Trim card when both are present so one note-backed baseboard scope
   // cannot produce two charges.
@@ -2663,7 +2663,8 @@ const MIXED_EXTERIOR_SCOPE_ROWS: {
     label: 'Landscape grading',
     helperText: 'Rough, finish, or final grading for the landscape area.',
     category: 'sitework',
-    pattern: /\b(?:rough|finish|final\s+)?grading\b|\bgrade\s+(?:the\s+)?(?:yard|site|lot)\b/i,
+    pattern:
+      /\b(?:rough|finish|final\s+)?grading\b|\bgrade\s+(?:the\s+)?(?:yard|site|lot)\b/i,
   },
   {
     id: 'soil_prep',
@@ -2677,14 +2678,16 @@ const MIXED_EXTERIOR_SCOPE_ROWS: {
     label: 'Landscape drainage',
     helperText: 'Landscape drainage, French drain, or drain tile work.',
     category: 'sitework',
-    pattern: /\b(?:landscape\s+)?drainage\b|\bfrench\s+drains?\b|\bdrain\s+tile\b/i,
+    pattern:
+      /\b(?:landscape\s+)?drainage\b|\bfrench\s+drains?\b|\bdrain\s+tile\b/i,
   },
   {
     id: 'landscape_lighting',
     label: 'Landscape lighting',
     helperText: 'Landscape, path, or outdoor lighting installation.',
     category: 'landscape',
-    pattern: /\b(?:landscape|path|outdoor)\s+lights?\b|\blandscape\s+lighting\b/i,
+    pattern:
+      /\b(?:landscape|path|outdoor)\s+lights?\b|\blandscape\s+lighting\b/i,
   },
   {
     id: 'demo_removal',
@@ -2793,7 +2796,8 @@ const MIXED_EXTERIOR_SCOPE_ROWS: {
   {
     id: 'pour_foundation',
     label: 'Footing / foundation concrete pour',
-    helperText: 'Structural concrete only when explicitly identified in the notes.',
+    helperText:
+      'Structural concrete only when explicitly identified in the notes.',
     category: 'pour',
     pattern: /\b(?:footings?|foundation|structural\s+concrete|house\s+slab)\b/i,
   },
@@ -3028,7 +3032,8 @@ function injectNoteBackedPricedItems(
       inferItemStateFromNotes(itemId, notes) === 'included' ||
       (itemId === 'flooring' &&
         inferItemStateFromNotes('tile_flooring', notes) === 'included');
-    if (!identified || !getChecklistItemQuantityRule(itemId, templateKey)) continue;
+    if (!identified || !getChecklistItemQuantityRule(itemId, templateKey))
+      continue;
 
     const copy = NOTE_BACKED_SCOPE_COPY[itemId] || {
       label: itemId.replace(/_/g, ' ').replace(/\b\w/g, m => m.toUpperCase()),
@@ -3070,9 +3075,10 @@ function injectNoteBackedPricedItems(
 
   // Do not guess interior vs. exterior when notes only say "doors". Keep a
   // generic, blank-quantity row for manual classification and count entry.
-  const hasTypedDoorMention = /\b(?:interior|exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(
-    String(notes || '')
-  );
+  const hasTypedDoorMention =
+    /\b(?:interior|exterior|sliding|patio|garage|shower)\s+doors?\b/i.test(
+      String(notes || '')
+    );
   if (
     !existingIds.has('doors') &&
     !addedIds.has('doors') &&
@@ -3129,7 +3135,9 @@ export function suppressBathroomFalsePositiveFloorDemoScope(
     stepperCountActive(
       (
         measurements as
-          { demoBathFloorTileCount?: number | null } | null | undefined
+          | { demoBathFloorTileCount?: number | null }
+          | null
+          | undefined
       )?.demoBathFloorTileCount
     )
   ) {
@@ -3315,7 +3323,8 @@ function ensureBathroomNoteBackedScopeItems(
     {
       id: 'shower_pan',
       label: 'Tile shower pan installation',
-      helperText: 'Shower pan / mud pan build — enter pan area or confirm pricing.',
+      helperText:
+        'Shower pan / mud pan build — enter pan area or confirm pricing.',
       pattern: /\b(?:shower\s+pan|mud\s+pan|tile\s+pan)\b/,
     },
     {
@@ -3328,13 +3337,15 @@ function ensureBathroomNoteBackedScopeItems(
       id: 'floor_tile',
       label: 'Bathroom floor tile installation',
       helperText: 'Bathroom floor tile area — enter sqft for pricing.',
-      pattern: /\b(?:bathroom\s+floor\s+tile|tile\s+(?:the\s+)?bathroom\s+floor)\b/,
+      pattern:
+        /\b(?:bathroom\s+floor\s+tile|tile\s+(?:the\s+)?bathroom\s+floor)\b/,
     },
     {
       id: 'sink_faucet',
       label: 'Sink & faucet',
       helperText: 'Supply and install the vanity sink and faucet.',
-      pattern: /\b(?:sink\b[^.;\n]{0,35}\bfaucet|faucet\b[^.;\n]{0,35}\bsink)\b/,
+      pattern:
+        /\b(?:sink\b[^.;\n]{0,35}\bfaucet|faucet\b[^.;\n]{0,35}\bsink)\b/,
     },
     {
       id: 'lighting',
@@ -3345,21 +3356,21 @@ function ensureBathroomNoteBackedScopeItems(
     {
       id: 'interior_door_install',
       label: 'Interior door installation',
-      helperText: 'Install the note-specified interior doors and standard hardware.',
+      helperText:
+        'Install the note-specified interior doors and standard hardware.',
       pattern: /\binterior\s+doors?\b/,
     },
     {
       id: 'doors',
       label: 'Doors',
-      helperText: 'Door installation mentioned in notes; confirm interior or exterior type and quantity.',
+      helperText:
+        'Door installation mentioned in notes; confirm interior or exterior type and quantity.',
       pattern: /\bdoors?\b/,
     },
   ];
   const existing = new Set(items.map(item => item.id));
   const matchedIds = new Set(
-    patterns
-      .filter(entry => entry.pattern.test(text))
-      .map(entry => entry.id)
+    patterns.filter(entry => entry.pattern.test(text)).map(entry => entry.id)
   );
   const hasGenericDoorMention =
     /\bdoors?\b/i.test(text) &&
@@ -3407,7 +3418,9 @@ function ensureBathroomNoteBackedScopeItems(
         }
       : item
   );
-  const withoutLegacyGenericDoors = promoted.filter(item => item.id !== 'doors');
+  const withoutLegacyGenericDoors = promoted.filter(
+    item => item.id !== 'doors'
+  );
   const filteredAdditions = additions.filter(item => item.id !== 'doors');
   return filteredAdditions.length
     ? [...withoutLegacyGenericDoors, ...filteredAdditions]
@@ -3593,8 +3606,15 @@ export function filterRoomRemodelNoteScopeItems(
   const has = (pattern: RegExp) => pattern.test(text);
   const isMixedRemodel =
     has(/\b(?:kitchen|bathrooms?|baths?)\b/i) &&
-    has(/\b(?:renovat(?:e|ion)|remodel(?:ing)?|existing\s+(?:home|interior))\b/i) &&
+    has(
+      /\b(?:renovat(?:e|ion)|remodel(?:ing)?|existing\s+(?:home|interior))\b/i
+    ) &&
     has(/\b(?:one|two|three|\d+)\s+bathrooms?\b/i);
+  const isExplicitCrossTradeRemodel =
+    has(/\b(?:renovat(?:e|ion)|remodel(?:ing)?|update)\b/i) &&
+    has(
+      /\b(?:flooring|drywall|windows?|doors?|insulat(?:e|ion|ed)|plumbing|electrical|paint(?:ing)?|cabinets?|fixtures?|air[\s-]+sealing)\b/i
+    );
   const hasExplicitFlooringDemo =
     /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;,\n]{0,30}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|floor\s+tile|tile\s+floor)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|floor\s+tile|tile\s+floor)\b[^.;,\n]{0,30}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
       text
@@ -3603,6 +3623,30 @@ export function filterRoomRemodelNoteScopeItems(
     /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;,\n]{0,60}\b(?:drywall|sheetrock|gypsum)\b|\b(?:drywall|sheetrock|gypsum)\b[^.;,\n]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
       text
     );
+  const hasExplicitShowerDemo =
+    /\b(?:remove|removal|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,80}\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|walls?)|tub|bathtub)\b|\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|walls?)|tub|bathtub)\b[^.;\n]{0,80}\b(?:remove|removal|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/i.test(
+      text
+    );
+  const hasExplicitFixtureRemoval =
+    /\b(?:remove|removal|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.;\n]{0,60}\b(?:existing\s+)?(?:bath(?:room)?\s+)?(?:fixtures?|toilet|vanity|faucet|shower\s+valve)\b|\b(?:existing\s+)?(?:bath(?:room)?\s+)?(?:fixtures?|toilet|vanity|faucet|shower\s+valve)\b[^.;\n]{0,60}\b(?:remove|removal|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/i.test(
+      text
+    );
+  if (
+    hasExplicitFixtureRemoval &&
+    !hasExplicitShowerDemo &&
+    !hasExplicitFlooringDemo &&
+    !hasDrywallDemo
+  ) {
+    return items.filter(
+      item =>
+        ![
+          'demo',
+          'shower_floor_demo',
+          'shower_enclosure_demo',
+          'tub_demo',
+        ].includes(item.id)
+    );
+  }
   if (hasDrywallDemo && !hasExplicitFlooringDemo) {
     return items
       .filter(
@@ -3621,11 +3665,13 @@ export function filterRoomRemodelNoteScopeItems(
           : item
       );
   }
-  if (!isMixedRemodel) return items;
+  if (!isMixedRemodel && !isExplicitCrossTradeRemodel) return items;
   const supported = (id: string): boolean => {
     if (id === 'demo' || id === 'floor_demo')
-      return has(/\b(?:remove|demo|demolition|tear[\s-]?out)\b/i) &&
-        has(/\bfloor(?:ing)?|lvp|vinyl\b/i);
+      return (
+        has(/\b(?:remove|demo|demolition|tear[\s-]?out)\b/i) &&
+        has(/\bfloor(?:ing)?|lvp|vinyl\b/i)
+      );
     if (id === 'plumbing') return has(/\bplumbing|fixture/i);
     if (id === 'drywall') return has(/\bdrywall|sheetrock|patch|repair/i);
     if (id === 'flooring') return has(/\b(?:lvp|flooring|floor\s+install)\b/i);
@@ -3644,10 +3690,16 @@ export function filterRoomRemodelNoteScopeItems(
     if (id === 'countertops') return has(/\bcountertops?|counters?\b/i);
     if (id === 'vanity') return has(/\bvanit(?:y|ies)\b/i);
     if (id === 'framing')
-      return has(/\b(?:structural\s+framing|refram(?:e|ing))\b/i) &&
-        !has(/\b(?:do\s+not|no|without)\b[^.;\n]{0,45}\b(?:change|modify|alter)\b[^.;\n]{0,35}\b(?:building\s+footprint|structural\s+framing)\b/i);
-    if (id === 'electrical') return has(/\belectrical|outlets?|switch(?:es)?|wiring\b/i);
-    if (id === 'hvac') return has(/\bhvac|furnace|heat\s+pump|air\s*condition/i);
+      return (
+        has(/\b(?:structural\s+framing|refram(?:e|ing))\b/i) &&
+        !has(
+          /\b(?:do\s+not|no|without)\b[^.;\n]{0,45}\b(?:change|modify|alter)\b[^.;\n]{0,35}\b(?:building\s+footprint|structural\s+framing)\b/i
+        )
+      );
+    if (id === 'electrical')
+      return has(/\belectrical|outlets?|switch(?:es)?|wiring\b/i);
+    if (id === 'hvac')
+      return has(/\bhvac|furnace|heat\s+pump|air\s*condition/i);
     if (id === 'permits') return has(/\bpermit|inspection/i);
     if (id === 'cleanup') return has(/\bcleanup|haul[\s-]?off|disposal\b/i);
     return false;
@@ -3655,7 +3707,7 @@ export function filterRoomRemodelNoteScopeItems(
   const filtered = items
     .filter(item => supported(item.id))
     .map(item =>
-      (item.id === 'demo' || item.id === 'floor_demo')
+      item.id === 'demo' || item.id === 'floor_demo'
         ? {
             ...item,
             label: 'Existing flooring removal',
@@ -3671,15 +3723,17 @@ export function filterRoomRemodelNoteScopeItems(
               state: 'included' as const,
               noteBacked: true,
             }
-        : item.id === 'vanity' &&
-            has(/\b(?:replace|install)\s+(?:one|two|three|\d+)\s+(?:bathroom\s+)?vanit(?:y|ies)\b/i)
-          ? {
-              ...item,
-              state: 'included' as const,
-              choiceId: 'replacing',
-              noteBacked: true,
-            }
-        : item
+          : item.id === 'vanity' &&
+              has(
+                /\b(?:replace|install)\s+(?:one|two|three|\d+)\s+(?:bathroom\s+)?vanit(?:y|ies)\b/i
+              )
+            ? {
+                ...item,
+                state: 'included' as const,
+                choiceId: 'replacing',
+                noteBacked: true,
+              }
+            : item
     );
   if (
     has(/\b(?:paint|painting|repaint)\b/i) &&
@@ -3873,7 +3927,17 @@ export function hydrateScopeChecklistFromNotes(
     notes,
     templateKey
   );
-  if (String(templateKey || '').toLowerCase() === 'room_remodel') {
+  const wholeHomeMixedRemodelNote =
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
+      String(notes || '')
+    ) &&
+    /\b(?:kitchen|bathroom|flooring|drywall|windows?|doors?|insulat(?:e|ion|ed)|plumbing|electrical|paint(?:ing)?|cabinets?|fixtures?|air[\s-]+sealing)\b/i.test(
+      String(notes || '')
+    );
+  if (
+    String(templateKey || '').toLowerCase() === 'room_remodel' ||
+    wholeHomeMixedRemodelNote
+  ) {
     const noteText = String(notes || '');
     const has = (pattern: RegExp) => pattern.test(noteText);
     const hasWallDemolition =
@@ -3900,13 +3964,41 @@ export function hydrateScopeChecklistFromNotes(
     const hasAtticInsulation = has(
       /\battic\b[^.;,\n]{0,35}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;,\n]{0,35}\battic\b/i
     );
+    const hasWallInsulation = has(
+      /\b(?:wall|walls)\b[^.;,\n]{0,35}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;,\n]{0,35}\b(?:wall|walls)\b/i
+    );
     const hasWindowReplacement = has(
       /\b(?:replace|replacement|install|new)\b[^.;,\n]{0,45}\bwindows?\b|\bwindows?\b[^.;,\n]{0,45}\b(?:replace|replacement|install|new)\b/i
     );
-    const noteDriven = [
-      /\b(?:kitchen|bath(?:room)?s?|lvp|flooring|drywall|baseboards?|painting|repaint)\b/i,
-      /\b(?:renovate|remodel|install|replace|repair|remove)\b/i,
-    ].every(pattern => pattern.test(noteText));
+    const hasInteriorDoors = has(/\binterior\s+doors?\b/i);
+    const hasExteriorDoors = has(/\bexterior\s+doors?\b/i);
+    const hasExplicitDoorPaint = has(
+      /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\s+(?:the\s+)?(?:interior\s+)?doors?\b|\b(?:interior\s+)?doors?\s+(?:to\s+be\s+)?(?:painted|repainted|coated|primed)\b/i
+    );
+    const hasExplicitExteriorTrimPaint = has(
+      /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\s+(?:the\s+)?(?:exterior\s+)?(?:trim|window\s+trim|door\s+trim|windows?|doors?)\b|\b(?:exterior\s+)?(?:trim|window\s+trim|door\s+trim|windows?|doors?)\s+(?:to\s+be\s+)?(?:painted|repainted|coated|primed)\b/i
+    );
+    const hasExplicitBaseboardPaint = has(
+      /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\s+(?:the\s+)?(?:baseboards?|trim)\b|\b(?:baseboards?|trim)\s+(?:to\s+be\s+)?(?:painted|repainted|coated|primed)\b/i
+    );
+    const hasExplicitDoorCasingPaint = has(
+      /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\s+(?:the\s+)?door\s+casing\b|\bdoor\s+casing\s+(?:to\s+be\s+)?(?:painted|repainted|coated|primed)\b/i
+    );
+    const hasCabinetRemoval = has(
+      /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;,\n]{0,55}\bcabinets?\b|\bcabinets?\b[^.;,\n]{0,55}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i
+    );
+    const hasFixtureRemoval = has(
+      /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:existing\s+)?fixtures?\b|\b(?:existing\s+)?fixtures?\b[^.;\n]{0,60}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i
+    );
+    const hasExplicitTrim = has(/\b(?:baseboards?|trim|casing)\b/i);
+    const noteDrivenSignals = [
+      /\b(?:kitchen|bath(?:room)?s?|lvp|flooring|drywall|baseboards?|trim|paint(?:ing)?|cabinets?|fixtures?|windows?|doors?|insulat(?:e|ion|ed)|air\s+sealing|plumbing|electrical)\b/i,
+      /\b(?:demolition|demo|remove|removal|install|replace|repair|update|remodel|renovat)\b/i,
+    ];
+    const noteDriven =
+      noteDrivenSignals.every(pattern => pattern.test(noteText)) ||
+      (/\b(?:remodel|renovat|update)\b/i.test(noteText) &&
+        noteDrivenSignals[0].test(noteText));
     if (noteDriven) {
       const hasFlooringDemo =
         /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;,\n]{0,30}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|tile)\b[^.;,\n]{0,30}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
@@ -3921,7 +4013,7 @@ export function hydrateScopeChecklistFromNotes(
           noteText
         );
       const supported = (id: string): boolean => {
-        if (id === 'demo') {
+        if (id === 'demo' || id === 'floor_demo') {
           return (
             hasFlooringDemo ||
             hasDrywallDemo ||
@@ -3943,27 +4035,55 @@ export function hydrateScopeChecklistFromNotes(
           return has(
             /\bsiding\b[^.;,\n]{0,35}\b(?:repair|repairs|replace|replacement|patch)\b|\b(?:repair|repairs|replace|replacement|patch)\b[^.;,\n]{0,35}\bsiding\b/i
           );
-        if (id === 'insulation') return has(/\binsulat|R[-\s]?\d{2,3}\b/i);
+        if (
+          id === 'insulation' ||
+          id === 'wall_insulation' ||
+          id === 'attic_insulation'
+        )
+          return has(/\binsulat|R[-\s]?\d{2,3}\b/i);
         if (id === 'window_install' || id === 'windows')
           return has(/\bwindows?\b/i);
+        if (id === 'exterior_door_install' || id === 'exterior_doors')
+          return hasExteriorDoors;
+        if (id === 'interior_door_install' || id === 'interior_doors')
+          return hasInteriorDoors;
+        if (id === 'fixture_demo') return hasFixtureRemoval;
+        if (id === 'cabinet_demo') return hasCabinetRemoval;
+        if (id === 'drywall_demo') return hasDrywallDemo;
+        if (id === 'air_sealing')
+          return has(/\bair[\s-]+sealing\b|\bgap\s+sealing\b/i);
         if (id === 'plumbing') return has(/\bplumbing|fixture/i);
         if (id === 'drywall') return has(/\bdrywall|sheetrock|patch|repair/i);
         if (id === 'flooring')
           return has(/\b(?:lvp|flooring|floor\s+install|install.*floor)\b/i);
         if (['paint', 'interior_paint', 'ceiling_paint'].includes(id))
-          return has(/\b(?:paint|painting|repaint).*\b(?:wall|ceiling)s?\b/i);
-        if (id === 'baseboard_install')
-          return has(/\b(?:install|replace|new)\b[^.;\n]{0,50}\bbaseboards?\b/i);
-        if (id === 'trim_paint')
-          return has(/\bbaseboards?\b[^.;\n]{0,50}\b(?:paint|finish)\b/i);
-        if (id === 'cabinets') return has(/\bcabinets?|cabinetry\b/i);
+          return has(
+            /\b(?:paint|painting|repaint)\b.*\b(?:wall|ceiling)s?\b|\binterior\s+paint\b/i
+          );
+        if (id === 'baseboard_install' || id === 'trim')
+          return hasExplicitTrim && !hasExplicitBaseboardPaint;
+        if (id === 'interior_trim') return hasExplicitTrim;
+        if (id === 'door_paint') return hasExplicitDoorPaint;
+        if (id === 'door_casing_paint') return hasExplicitDoorCasingPaint;
+        if (id === 'exterior_trim_paint') return hasExplicitExteriorTrimPaint;
+        if (id === 'trim_paint') return hasExplicitBaseboardPaint;
+        if (id === 'cabinets')
+          return has(/\b(?:install|replace|new)\b[^.;,\n]{0,50}\bcabinets?\b/i);
         if (id === 'countertops') return has(/\bcountertops?|counters?\b/i);
         if (id === 'vanity') return has(/\bvanit(?:y|ies)\b/i);
         if (id === 'framing')
-          return has(/\b(?:structural\s+framing|layout\s+changes?|refram(?:e|ing))\b/i) &&
-            !has(/\b(?:do\s+not|no|without)\b[^.;\n]{0,45}\b(?:change|modify|alter)\b[^.;\n]{0,35}\b(?:building\s+footprint|structural\s+framing)\b/i);
-        if (id === 'electrical') return has(/\belectrical|outlets?|switch(?:es)?|wiring\b/i);
-        if (id === 'hvac') return has(/\bhvac|furnace|heat\s+pump|air\s*condition/i);
+          return (
+            has(
+              /\b(?:structural\s+framing|layout\s+changes?|refram(?:e|ing))\b/i
+            ) &&
+            !has(
+              /\b(?:do\s+not|no|without)\b[^.;\n]{0,45}\b(?:change|modify|alter)\b[^.;\n]{0,35}\b(?:building\s+footprint|structural\s+framing)\b/i
+            )
+          );
+        if (id === 'electrical')
+          return has(/\belectrical|outlets?|switch(?:es)?|wiring\b/i);
+        if (id === 'hvac')
+          return has(/\bhvac|furnace|heat\s+pump|air\s*condition/i);
         if (id === 'permits') return has(/\bpermit|inspection/i);
         if (id === 'cleanup') return has(/\bcleanup|haul[\s-]?off|disposal\b/i);
         return false;
@@ -3974,9 +4094,10 @@ export function hydrateScopeChecklistFromNotes(
           if (item.id === 'demo') {
             return {
               ...item,
-              label: hasDrywallDemo && !hasFlooringDemo
-                ? 'Drywall demo / removal'
-                : 'Existing flooring removal',
+              label:
+                hasDrywallDemo && !hasFlooringDemo
+                  ? 'Drywall demo / removal'
+                  : 'Existing flooring removal',
               helperText:
                 hasDrywallDemo && !hasFlooringDemo
                   ? 'Remove damaged drywall in the affected areas.'
@@ -3999,7 +4120,12 @@ export function hydrateScopeChecklistFromNotes(
             return { ...item, label: 'Ceiling painting' };
           }
           if (item.id === 'insulation' && hasAtticInsulation) {
-            return { ...item, label: 'Attic insulation' };
+            return {
+              ...item,
+              label: hasWallInsulation
+                ? 'Wall & attic insulation'
+                : 'Attic insulation',
+            };
           }
           if (item.id === 'window_install' && hasWindowReplacement) {
             return { ...item, label: 'Window replacement' };
@@ -4044,7 +4170,10 @@ export function hydrateScopeChecklistFromNotes(
     ) {
       return false;
     }
-    if (hasPaintRepair && (item.id === 'paint' || item.id === 'interior_paint')) {
+    if (
+      hasPaintRepair &&
+      (item.id === 'paint' || item.id === 'interior_paint')
+    ) {
       return false;
     }
     return true;
@@ -4108,7 +4237,7 @@ export function scopeChecklistItemsForEditing(
     return confirmed?.length
       ? restoreConfirmedChecklistItemStates(
           checklistItems.map(item => ({ ...item })),
-          confirmed,
+          confirmed
         )
       : checklistItems.map(item => ({ ...item }));
   }
@@ -4366,7 +4495,8 @@ export function syncWetAreaTileScopeItems(
         return {
           ...row,
           state: (params.keepingExisting ? 'excluded' : 'unsure') as
-            'excluded' | 'unsure',
+            | 'excluded'
+            | 'unsure',
           noteBacked: false,
         };
       }
@@ -4532,7 +4662,12 @@ export function syncInteriorPaintScopeItems(
     paintAreaSqft?: string | number | null;
     patchRepairSqft?: string | number | null;
     paintAreaBasis?:
-      'walls' | 'ceilings' | 'combined' | 'floor_area' | 'unknown' | null;
+      | 'walls'
+      | 'ceilings'
+      | 'combined'
+      | 'floor_area'
+      | 'unknown'
+      | null;
     paintAreaNeedsConfirmation?: boolean | null;
     paintPricingMethod?: 'combined' | 'separate' | null;
     combinedPaintableAreaSqft?: string | number | null;
@@ -4561,6 +4696,11 @@ export function syncInteriorPaintScopeItems(
         params.notes
       )
   );
+  const notesExplicitlyCallForInteriorDoorPaint =
+    !params.notes ||
+    /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\s+(?:the\s+)?(?:interior\s+)?doors?\b|\b(?:interior\s+)?doors?\s+(?:to\s+be\s+)?(?:painted|repainted|coated|primed)\b/i.test(
+      params.notes
+    );
   const hasExplicitCeilingMeasurement = positiveSqft(params.ceilingPaintSqft);
   const splitPaintPricing =
     params.paintPricingMethod !== 'combined' &&
@@ -4626,7 +4766,10 @@ export function syncInteriorPaintScopeItems(
       measuredScopeIds.add('interior_paint');
     }
     if (positiveSqft(params.baseboardLf)) measuredScopeIds.add('trim_paint');
-    if (positiveSqft(params.interiorDoorCount))
+    if (
+      positiveSqft(params.interiorDoorCount) &&
+      notesExplicitlyCallForInteriorDoorPaint
+    )
       measuredScopeIds.add('door_paint');
     if (positiveSqft(params.cabinetPaintSqft))
       measuredScopeIds.add('cabinet_paint');
@@ -4657,20 +4800,26 @@ export function syncInteriorPaintScopeItems(
   }
   const hasExteriorOpeningPaint =
     positiveSqft(params.windowCount) || positiveSqft(params.exteriorDoorCount);
-  if (
-    notesExplicitlyCallForExteriorPaint &&
-    hasExteriorOpeningPaint
-  ) {
+  if (notesExplicitlyCallForExteriorPaint && hasExteriorOpeningPaint) {
     measuredScopeIds.add('exterior_trim_paint');
   }
   // Window/door replacement needs opening prep and masking, but does not
   // imply painting the exterior or the window trim.
   if (hasExteriorOpeningPaint) measuredScopeIds.add('exterior_prep');
-  // Notes remain authoritative for interior trim and doors even when an AI
-  // returned paintScope only contains walls/ceilings.
+  // Baseboard measurements imply trim painting. Door counts alone do not
+  // imply door painting when notes identify the doors as installation scope.
   if (positiveSqft(params.baseboardLf)) measuredScopeIds.add('trim_paint');
-  if (positiveSqft(params.interiorDoorCount)) measuredScopeIds.add('door_paint');
-  if (!measuredScopeIds.size && !explicitScope) return items;
+  if (
+    positiveSqft(params.interiorDoorCount) &&
+    notesExplicitlyCallForInteriorDoorPaint
+  )
+    measuredScopeIds.add('door_paint');
+  if (
+    !measuredScopeIds.size &&
+    !explicitScope &&
+    notesExplicitlyCallForInteriorDoorPaint
+  )
+    return items;
   let workingItems = items;
   const shouldIncludeExteriorPaint =
     notesExplicitlyCallForExteriorPaint &&
@@ -4697,7 +4846,9 @@ export function syncInteriorPaintScopeItems(
         helperText:
           'Paintable exterior surface area for siding, stucco, soffits, and fascia. Heavy repairs, access work, and specialty coatings are separate.',
         category: 'paint',
-        state: shouldIncludeExteriorPaint ? ('included' as const) : ('unsure' as const),
+        state: shouldIncludeExteriorPaint
+          ? ('included' as const)
+          : ('unsure' as const),
         noteBacked: true,
       },
       {
@@ -4747,7 +4898,9 @@ export function syncInteriorPaintScopeItems(
   }
   if (bathroomPaintRepair) {
     const paintRepair = workingItems.find(row => row.id === 'paint_repair');
-    const existingInterior = workingItems.find(row => row.id === 'interior_paint');
+    const existingInterior = workingItems.find(
+      row => row.id === 'interior_paint'
+    );
     const existingPatch = workingItems.find(row => row.id === 'patch_repair');
     const splitItems = workingItems.filter(
       row =>
@@ -4822,6 +4975,15 @@ export function syncInteriorPaintScopeItems(
     : null;
   let changed = false;
   const next = workingItems.map(row => {
+    if (
+      !explicitScope &&
+      row.id === 'door_paint' &&
+      !notesExplicitlyCallForInteriorDoorPaint &&
+      row.state === 'included'
+    ) {
+      changed = true;
+      return { ...row, state: 'unsure' as const, noteBacked: false };
+    }
     if (
       !splitPaintPricing &&
       params.paintPricingMethod === 'combined' &&
@@ -4939,7 +5101,9 @@ export function syncWetAreaDemoScopeItems(
   const showerFloorDemo =
     stepperCountActive(params.demo.demoTilePanCount) ||
     stepperCountActive(params.demo.demoPrefabPanCount);
-  const enclosureDemo = stepperCountActive(params.demo.demoPrefabEnclosureCount);
+  const enclosureDemo = stepperCountActive(
+    params.demo.demoPrefabEnclosureCount
+  );
   const prefabFloorDemo = stepperCountActive(params.demo.demoPrefabPanCount);
   const showerFloorDemoWasSet = [
     params.demo.demoTilePanCount,
@@ -4987,10 +5151,7 @@ export function syncWetAreaDemoScopeItems(
         }
         return row;
       }
-      if (
-        params.demoOverrides?.demoTubCount ||
-        !row.noteBacked
-      ) {
+      if (params.demoOverrides?.demoTubCount || !row.noteBacked) {
         if (row.state === 'excluded') return row;
         changed = true;
         return { ...row, state: 'excluded' as const, noteBacked: false };
@@ -5012,7 +5173,10 @@ export function syncWetAreaDemoScopeItems(
       changed = true;
       return { ...row, state: 'excluded' as const, noteBacked: false };
     }
-    if (row.id === 'glass_door_demo' && stepperCountActive(demoShowerDoorCount)) {
+    if (
+      row.id === 'glass_door_demo' &&
+      stepperCountActive(demoShowerDoorCount)
+    ) {
       if (row.state !== 'included') {
         changed = true;
         return { ...row, state: 'included' as const, noteBacked: false };
@@ -5373,10 +5537,7 @@ export function checklistDisplayLabel(
   ) {
     return PLUMBING_PLAN_CHECKLIST_LABEL_OVERRIDES[item.id];
   }
-  if (
-    tk === 'bathroom' &&
-    BATHROOM_CHECKLIST_LABEL_OVERRIDES[item.id]
-  ) {
+  if (tk === 'bathroom' && BATHROOM_CHECKLIST_LABEL_OVERRIDES[item.id]) {
     return BATHROOM_CHECKLIST_LABEL_OVERRIDES[item.id];
   }
   if (
@@ -5760,7 +5921,10 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
       itemIds: ['framing', 'plumbing', 'electrical', 'hvac_demo', 'hvac'],
     },
     { title: 'Finishes', itemIds: ['drywall', 'flooring', 'paint', 'trim'] },
-    { title: 'Cabinets & counters', itemIds: ['cabinets', 'countertops', 'vanity'] },
+    {
+      title: 'Cabinets & counters',
+      itemIds: ['cabinets', 'countertops', 'vanity'],
+    },
     { title: 'Baseboard', itemIds: ['baseboard_install'] },
     { title: 'Closeout', itemIds: ['permits'] },
   ],
@@ -6059,8 +6223,7 @@ export function groupScopeChecklistItems(
     const groupItems = group.itemIds
       .map(id => byId.get(id))
       .filter(
-        (i): i is ScopeChecklistItem =>
-          Boolean(i) && !openingIds.has(i.id)
+        (i): i is ScopeChecklistItem => Boolean(i) && !openingIds.has(i.id)
       );
     groupItems.forEach(i => used.add(i.id));
     if (groupItems.length)
@@ -6072,9 +6235,7 @@ export function groupScopeChecklistItems(
     openingItems.forEach(item => used.add(item.id));
   }
 
-  const remainder = items.filter(
-    i => !used.has(i.id) && !openingIds.has(i.id)
-  );
+  const remainder = items.filter(i => !used.has(i.id) && !openingIds.has(i.id));
   if (remainder.length) result.push({ title: 'Other', items: remainder });
 
   return result;

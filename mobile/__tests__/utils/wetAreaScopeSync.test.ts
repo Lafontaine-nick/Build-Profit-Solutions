@@ -8,6 +8,7 @@ import {
   syncInteriorPaintScopeItems,
 } from '@/utils/estimateScopeChecklistUi';
 import { finalizeWetAreaInstallScopeFromMeasurements } from '@/utils/wetAreaInstallScopeGate';
+import { resolveDemoWetAreaFromIntent } from '@/utils/wetAreaExistingDemo';
 
 const baseItems: ScopeChecklistItem[] = [
   {
@@ -25,6 +26,34 @@ const baseItems: ScopeChecklistItem[] = [
 ];
 
 describe('wetAreaScopeSync', () => {
+  test('does not infer bathroom floor demo from fixture-only removal notes', () => {
+    const demo = resolveDemoWetAreaFromIntent({
+      notes:
+        'Remove existing bathroom fixtures, then reroute 25 LF bathroom plumbing and install a toilet, vanity, faucet, shower valve, 90 sqft flooring.',
+      existing: {
+        existingTubCount: null,
+        existingTileWallCount: null,
+        existingTilePanCount: null,
+        existingPrefabPanCount: null,
+        existingPrefabEnclosureCount: null,
+        existingShowerDoorCount: null,
+        existingBathFloorTileCount: 1,
+      },
+      install: {
+        bathCount: null,
+        tilePanBathCount: null,
+        prefabBathCount: null,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        bathFloorTileCount: null,
+        showerDoorCount: null,
+      },
+      bathroomFloorSqft: '90',
+    });
+
+    expect(demo.demoBathFloorTileCount).toBeNull();
+  });
+
   test('syncWetAreaTileScopeItems includes wall and floor from confirmed SF', () => {
     const next = syncWetAreaTileScopeItems(baseItems, {
       showerFloorTileSqft: '15',
@@ -501,7 +530,7 @@ describe('wetAreaScopeSync', () => {
         id: 'door_paint',
         label: 'Doors',
         inputType: 'yes_no',
-        state: 'unsure',
+        state: 'included',
       },
       {
         id: 'cabinet_paint',
@@ -518,11 +547,48 @@ describe('wetAreaScopeSync', () => {
     expect(next.every(row => row.state === 'included')).toBe(true);
   });
 
+  test('does not infer door painting from doors that are only being installed', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'door_paint',
+        label: 'Doors',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+      {
+        id: 'interior_paint',
+        label: 'Interior painting',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+    ];
+    const next = syncInteriorPaintScopeItems(items, {
+      interiorDoorCount: '2',
+      notes: 'Install two interior doors and paint the ceiling.',
+    });
+    expect(next.find(row => row.id === 'door_paint')?.state).toBe('unsure');
+  });
+
   test('opening counts include exterior prep without inferring exterior painting', () => {
     const items: ScopeChecklistItem[] = [
-      { id: 'exterior_prep', label: 'Exterior Prep & Masking', inputType: 'yes_no', state: 'unsure' },
-      { id: 'exterior_paint', label: 'Exterior Paint', inputType: 'yes_no', state: 'included' },
-      { id: 'exterior_trim_paint', label: 'Window trim & finish', inputType: 'yes_no', state: 'included' },
+      {
+        id: 'exterior_prep',
+        label: 'Exterior Prep & Masking',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'exterior_paint',
+        label: 'Exterior Paint',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+      {
+        id: 'exterior_trim_paint',
+        label: 'Window trim & finish',
+        inputType: 'yes_no',
+        state: 'included',
+      },
     ];
 
     const next = syncInteriorPaintScopeItems(items, {
@@ -531,16 +597,35 @@ describe('wetAreaScopeSync', () => {
       notes: 'Replace 8 windows and 2 exterior swing doors.',
     });
 
-    expect(next.find(row => row.id === 'exterior_prep')?.state).toBe('included');
+    expect(next.find(row => row.id === 'exterior_prep')?.state).toBe(
+      'included'
+    );
     expect(next.find(row => row.id === 'exterior_paint')?.state).toBe('unsure');
-    expect(next.find(row => row.id === 'exterior_trim_paint')?.state).toBe('unsure');
+    expect(next.find(row => row.id === 'exterior_trim_paint')?.state).toBe(
+      'unsure'
+    );
   });
 
   test('explicit exterior painting still includes prep and trim finish', () => {
     const items: ScopeChecklistItem[] = [
-      { id: 'exterior_prep', label: 'Exterior Prep & Masking', inputType: 'yes_no', state: 'unsure' },
-      { id: 'exterior_paint', label: 'Exterior Paint', inputType: 'yes_no', state: 'unsure' },
-      { id: 'exterior_trim_paint', label: 'Window trim & finish', inputType: 'yes_no', state: 'unsure' },
+      {
+        id: 'exterior_prep',
+        label: 'Exterior Prep & Masking',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'exterior_paint',
+        label: 'Exterior Paint',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
+      {
+        id: 'exterior_trim_paint',
+        label: 'Window trim & finish',
+        inputType: 'yes_no',
+        state: 'unsure',
+      },
     ];
 
     const next = syncInteriorPaintScopeItems(items, {

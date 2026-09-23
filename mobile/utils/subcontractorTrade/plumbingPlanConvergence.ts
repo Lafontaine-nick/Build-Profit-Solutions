@@ -710,20 +710,33 @@ export function notesExcludePlumbingScopePhrase(
   if (!text || !scopePhrase.test(text)) return false;
 
   const fragments = text.split(/\n+|(?<=[.!?])\s+/);
+  const exclusionMarker =
+    /\b(?:exclude(?:d|s)?|not\s+included|not\s+in(?:cluded)?|without|no)\b/gi;
+  const matchesScope = (fragment: string) => {
+    scopePhrase.lastIndex = 0;
+    return scopePhrase.exec(fragment);
+  };
   for (const fragment of fragments) {
-    if (!scopePhrase.test(fragment)) continue;
+    const scopeMatch = matchesScope(fragment);
+    if (!scopeMatch || scopeMatch.index == null) continue;
+    exclusionMarker.lastIndex = 0;
+    const markers = [...fragment.matchAll(exclusionMarker)];
+    if (
+      markers.some(marker => {
+        const markerIndex = marker.index ?? -1;
+        if (markerIndex < 0) return false;
+        const distance =
+          markerIndex < scopeMatch.index
+            ? scopeMatch.index - (markerIndex + marker[0].length)
+            : markerIndex - (scopeMatch.index + scopeMatch[0].length);
+        return distance <= 120;
+      })
+    ) {
+      return true;
+    }
     if (PLUMBING_NOTE_EXCLUSION_CLAUSE.test(fragment)) return true;
   }
 
-  const scopeMatch = scopePhrase.exec(text);
-  const exclusionMatch = /\bnot\s+included\b/i.exec(text);
-  if (
-    scopeMatch &&
-    exclusionMatch &&
-    Math.abs(scopeMatch.index - exclusionMatch.index) < 96
-  ) {
-    return true;
-  }
   return false;
 }
 
@@ -829,26 +842,26 @@ export function parsePlumbingMeasurementsFromNotes(
     'plumbingRoughPointCount',
     notesExcludePlumbingScopePhrase(text, roughInPhrase)
       ? null
-      : (count(
+      : count(
           new RegExp(
             `${COUNT_TOKEN}\\s+(?:plumbing\\s+)?rough(?:-in| in)\\s+points?`,
             'i'
           )
-        ) ?? (/\b(?:plumbing\s+)?rough(?:-in| in)\b/i.test(text) ? 1 : null))
+        )
   );
   assign(
     'plumbingTrimHookupCount',
-    count(
-      new RegExp(
-        `${COUNT_TOKEN}\\s+(?:plumbing\\s+trim|trim\\s+hookups?|fixture\\s+hookups?|plumbing\\s+connections?)`,
-        'i'
-      )
-    ) ??
-      (/\b(?:plumbing\s+trim|trim\s+hookups?|fixture\s+hookups?|plumbing\s+connections?)\b/i.test(
-        text
-      )
-        ? 1
-        : null)
+    notesExcludePlumbingScopePhrase(
+      text,
+      /\b(?:plumbing\s+trim|trim\s+hookups?|fixture\s+hookups?|plumbing\s+connections?)\b/i
+    )
+      ? null
+      : count(
+          new RegExp(
+            `${COUNT_TOKEN}\\s+(?:plumbing\\s+trim|trim\\s+hookups?|fixture\\s+hookups?|plumbing\\s+connections?)`,
+            'i'
+          )
+        )
   );
   assign(
     'partsMaterialsCount',

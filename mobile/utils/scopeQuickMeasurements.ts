@@ -192,7 +192,11 @@ export type QuickMeasurementFieldKey =
   | 'framingCleanupCount';
 
 export type QuickMeasurementGroupId =
-  'site' | 'structure' | 'interior' | 'exterior' | 'other';
+  | 'site'
+  | 'structure'
+  | 'interior'
+  | 'exterior'
+  | 'other';
 
 export type QuickMeasurementFieldDef = {
   key: QuickMeasurementFieldKey;
@@ -2836,8 +2840,7 @@ export function notesRequireInteriorPaintMeasurements(
       text
     );
   return (
-    /\b(?:paint|painting|repaint)\b/i.test(text) &&
-    !explicitlyNonInteriorPaint
+    /\b(?:paint|painting|repaint)\b/i.test(text) && !explicitlyNonInteriorPaint
   );
 }
 
@@ -3000,17 +3003,13 @@ export function quickMeasurementRowsForInput(
     );
   if (
     explicitBathroomPlumbingReroute &&
-    !baseRows.some(row =>
-      row.some(field => field.key === 'plumbingRerouteLf')
-    )
+    !baseRows.some(row => row.some(field => field.key === 'plumbingRerouteLf'))
   ) {
-    baseRows = [
-      [QUICK_MEASUREMENT_FIELD_DEFS.plumbingRerouteLf],
-      ...baseRows,
-    ];
+    baseRows = [[QUICK_MEASUREMENT_FIELD_DEFS.plumbingRerouteLf], ...baseRows];
   }
   const mixedBathroomNoteFlow =
-    resolvedKey === 'bathroom' &&
+    (resolvedKey === 'bathroom' || resolvedKey === 'room_remodel') &&
+    /\b(?:bath(?:room)?|toilet|vanity|shower|tub)\b/i.test(scopeNotes) &&
     /\b(?:reroute|re-route|relocat(?:e|ed|ing|ion))\b[^.;\n]{0,45}\bplumb(?:ing)?\b/i.test(
       scopeNotes
     ) &&
@@ -3088,7 +3087,9 @@ export function quickMeasurementRowsForInput(
     /\bsiding\s+(?:repair|repairs|replacement|replace)\b|\b(?:repair|repairs|replacement|replace)\b[^.;\n]{0,35}\bsiding\b/i.test(
       scopeNotes
     ) &&
-    !baseRows.some(row => row.some(field => field.key === 'sidingRepairSqft')) &&
+    !baseRows.some(row =>
+      row.some(field => field.key === 'sidingRepairSqft')
+    ) &&
     QUICK_MEASUREMENT_FIELD_DEFS.sidingRepairSqft
   ) {
     noteBackedFieldsToAppend.push({
@@ -3329,6 +3330,11 @@ export function quickMeasurementRowsForInput(
 
   if (mixedBathroomNoteFlow) {
     const bathroomNotes = String(options?.scopeNotes || '');
+    const embeddedBathroomMeasurementKeys = new Set<QuickMeasurementFieldKey>([
+      'flooringSqft',
+      'drywallSqft',
+      'cabinetLf',
+    ]);
     const wetAreaWork =
       /\b(?:shower(?:\s+(?:wall|floor))?\s+tile|tile\s+shower|shower\s+(?:pan|base|liner|surround|walls?|floor\s+tile)|tub|bathtub|wet\s+area)\b/i.test(
         bathroomNotes
@@ -3383,7 +3389,11 @@ export function quickMeasurementRowsForInput(
     const filteredBathroomRows = baseRows
       .map(row =>
         row
-          .filter(keepBathroomField)
+          .filter(
+            field =>
+              !embeddedBathroomMeasurementKeys.has(field.key) &&
+              keepBathroomField(field)
+          )
           .map(field =>
             field.key === 'bathroomFloorSqft' &&
             bathroomFloorWork &&
@@ -3395,20 +3405,30 @@ export function quickMeasurementRowsForInput(
           )
       )
       .filter(row => row.length > 0);
-    const embeddedBathroomMeasurementKeys = new Set<QuickMeasurementFieldKey>([
-      'flooringSqft',
-      'drywallSqft',
-      'cabinetLf',
-    ]);
+    const compactBathroomFields = [
+      resolvedKey === 'room_remodel' && bathroomFloorWork
+        ? QUICK_MEASUREMENT_FIELD_DEFS.bathroomFloorSqft
+        : null,
+      resolvedKey === 'room_remodel' && bathroomDrywallWork
+        ? QUICK_MEASUREMENT_FIELD_DEFS.patchRepairSqft
+        : null,
+      resolvedKey === 'room_remodel' && /\bcabinets?\b/i.test(bathroomNotes)
+        ? QUICK_MEASUREMENT_FIELD_DEFS.cabinetLf
+        : null,
+    ].filter((field): field is QuickMeasurementFieldDef => Boolean(field));
     return [
       ...filteredBathroomRows,
-      ...chunkRows(
-        extraFields.filter(
+      ...chunkRows([
+        ...compactBathroomFields,
+        ...extraFields.filter(
           field =>
             !embeddedBathroomMeasurementKeys.has(field.key) &&
+            !compactBathroomFields.some(
+              compactField => compactField.key === field.key
+            ) &&
             keepBathroomField(field)
-        )
-      ),
+        ),
+      ]),
     ];
   }
 
@@ -3416,8 +3436,15 @@ export function quickMeasurementRowsForInput(
   if (resolvedKey === 'room_remodel' || resolvedKey === 'kitchen') {
     const notes = String(options?.scopeNotes || '');
     const kitchenNotes =
-      /\bkitchen(?:\s+remodel)?\b/i.test(notes) ||
-      /\b(?:countertops?|backsplash|cabinetry|quartz)\b/i.test(notes);
+      /\b(?:countertops?|backsplash|cabinetry|quartz|island|appliances?)\b/i.test(
+        notes
+      ) ||
+      /\b(?:new|install(?:ed|ation)?|replace(?:d|ment)?)\b[^.;\n]{0,45}\bcabinets?\b/i.test(
+        notes
+      ) ||
+      /\bcabinets?\b[^.;\n]{0,45}\b(?:new|install(?:ed|ation)?|replace(?:d|ment)?)\b/i.test(
+        notes
+      );
     if (kitchenNotes) {
       const optionalKitchenKeys = new Set<QuickMeasurementFieldKey>([
         'floorAreaSqft',
@@ -3482,12 +3509,38 @@ export function quickMeasurementRowsForInput(
           row.some(field => field.key === 'backsplashSqft')
         )
       ) {
-        return [
-          ...kitchenRows,
-          [QUICK_MEASUREMENT_FIELD_DEFS.backsplashSqft],
-        ];
+        return [...kitchenRows, [QUICK_MEASUREMENT_FIELD_DEFS.backsplashSqft]];
       }
       return kitchenRows;
+    }
+    if (resolvedKey === 'room_remodel') {
+      const wholeHomeMixedRemodelNotes =
+        /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
+          notes
+        ) &&
+        /\b(?:kitchen|bathroom|flooring|drywall|windows?|doors?|insulat(?:e|ion|ed)|plumbing|electrical|paint(?:ing)?|cabinets?|fixtures?|air[\s-]+sealing)\b/i.test(
+          notes
+        );
+      if (wholeHomeMixedRemodelNotes) {
+        const kitchenInstallKeys = new Set<QuickMeasurementFieldKey>([
+          'cabinetLf',
+          'countertopSqft',
+          'kitchenIslandCounterSqft',
+          'backsplashSqft',
+          'kitchenFloorSqft',
+        ]);
+        const hasUserMeasurement = (key: QuickMeasurementFieldKey) =>
+          Number(String(measurements[key] ?? '').replace(/,/g, '')) > 0;
+        baseRows = baseRows
+          .map(row =>
+            row.filter(
+              field =>
+                !kitchenInstallKeys.has(field.key) ||
+                hasUserMeasurement(field.key)
+            )
+          )
+          .filter(row => row.length > 0);
+      }
     }
   }
 

@@ -1,5 +1,8 @@
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
-import type { QmPanelDefinition, QmPanelHydrateContext } from '@/utils/qmScopePanels/types';
+import type {
+  QmPanelDefinition,
+  QmPanelHydrateContext,
+} from '@/utils/qmScopePanels/types';
 import type { QuickMeasurementFieldKey } from '@/utils/scopeQuickMeasurements';
 import {
   collectRoofingInferenceNotes,
@@ -10,7 +13,10 @@ import { hvacCardForMeasurementKey } from '@/utils/subcontractorTrade/hvacPlanCo
 
 export type SimpleTradeScopeKey = 'deck_patio' | 'hvac' | 'roofing';
 
-export type HvacScopeChipReviewState = 'confirmed' | 'needs_confirmation' | 'idle';
+export type HvacScopeChipReviewState =
+  | 'confirmed'
+  | 'needs_confirmation'
+  | 'idle';
 
 /** HVAC quick-measurement keys owned by the scope chip panel. */
 export const HVAC_EMBEDDED_QUICK_MEASUREMENT_KEYS = [
@@ -54,14 +60,56 @@ type TradeSpec = {
 };
 
 const DECK_OPTIONS: TradeOption[] = [
-  { id: 'wood_fence', label: 'Wood fence', canonicalId: 'landscaping', measurementKey: 'railingLf', unit: 'LF' },
-  { id: 'vinyl_fence', label: 'Vinyl fence', canonicalId: 'landscaping', measurementKey: 'railingLf', unit: 'LF' },
-  { id: 'chain_link', label: 'Chain link', canonicalId: 'landscaping', measurementKey: 'railingLf', unit: 'LF' },
-  { id: 'composite_deck', label: 'Composite deck', canonicalId: 'decking', measurementKey: 'deckSqft', unit: 'sqft' },
-  { id: 'wood_deck', label: 'Wood deck', canonicalId: 'decking', measurementKey: 'deckSqft', unit: 'sqft' },
-  { id: 'railings', label: 'Railings', canonicalId: 'railing', measurementKey: 'railingLf', unit: 'LF' },
+  {
+    id: 'wood_fence',
+    label: 'Wood fence',
+    canonicalId: 'landscaping',
+    measurementKey: 'railingLf',
+    unit: 'LF',
+  },
+  {
+    id: 'vinyl_fence',
+    label: 'Vinyl fence',
+    canonicalId: 'landscaping',
+    measurementKey: 'railingLf',
+    unit: 'LF',
+  },
+  {
+    id: 'chain_link',
+    label: 'Chain link',
+    canonicalId: 'landscaping',
+    measurementKey: 'railingLf',
+    unit: 'LF',
+  },
+  {
+    id: 'composite_deck',
+    label: 'Composite deck',
+    canonicalId: 'decking',
+    measurementKey: 'deckSqft',
+    unit: 'sqft',
+  },
+  {
+    id: 'wood_deck',
+    label: 'Wood deck',
+    canonicalId: 'decking',
+    measurementKey: 'deckSqft',
+    unit: 'sqft',
+  },
+  {
+    id: 'railings',
+    label: 'Railings',
+    canonicalId: 'railing',
+    measurementKey: 'railingLf',
+    unit: 'LF',
+  },
   { id: 'gates', label: 'Gates', canonicalId: 'landscaping' },
-  { id: 'stairs', label: 'Stairs', canonicalId: 'stairs', measurementKey: 'deckSqft', unit: 'sqft' },
+  {
+    id: 'stairs',
+    label: 'Stairs',
+    canonicalId: 'stairs',
+    measurementKey: 'deckSqft',
+    unit: 'sqft',
+  },
 ];
 
 /** Equipment-type chips map to priced Confirm Scope cards (furnace, condenser, …). */
@@ -112,8 +160,10 @@ function readHvacEquipmentTypeCount(
 }
 
 function syncHvacEquipmentScopeMeasurements(
-  measurements: Record<string, unknown>
+  measurements: Record<string, unknown>,
+  options: { seedUnquantified?: boolean } = {}
 ): Record<string, unknown> {
+  const seedUnquantified = options.seedUnquantified !== false;
   const selections = selectedScope(measurements, 'hvac');
   const equipmentIds = selections.filter(id =>
     (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
@@ -134,10 +184,29 @@ function syncHvacEquipmentScopeMeasurements(
 
   for (const id of equipmentIds) {
     const key = hvacEquipmentItemQuantityKey(id);
-    if (!itemQuantities[key]) {
+    const sharedCount = positiveMeasurement(
+      measurements.hvacEquipmentReplacementCount
+    );
+    if (!itemQuantities[key] && seedUnquantified) {
       itemQuantities[key] = { quantity: 1, quantitySource: 'user_entered' };
+    } else if (
+      !itemQuantities[key] &&
+      !seedUnquantified &&
+      equipmentIds.length === 1 &&
+      sharedCount != null
+    ) {
+      itemQuantities[key] = {
+        quantity: sharedCount,
+        quantitySource:
+          (
+            (measurements.quickMeasurementSources as Record<string, string>) ||
+            {}
+          ).hvacEquipmentReplacementCount || 'notes',
+      };
     }
-    itemQuantities[id] = { ...itemQuantities[key] };
+    if (itemQuantities[key]) {
+      itemQuantities[id] = { ...itemQuantities[key] };
+    }
   }
 
   let next: Record<string, unknown> = {
@@ -164,10 +233,8 @@ function syncHvacEquipmentScopeMeasurements(
       unknown
     > & { hvacEquipmentReplacementCount?: unknown };
     const sources = {
-      ...(((rest.quickMeasurementSources as Record<string, string>) || {}) as Record<
-        string,
-        string
-      >),
+      ...(((rest.quickMeasurementSources as Record<string, string>) ||
+        {}) as Record<string, string>),
     };
     delete sources.hvacEquipmentReplacementCount;
     const overrides = {
@@ -311,24 +378,132 @@ const HVAC_OPTIONS: TradeOption[] = [
 ];
 
 const ROOFING_OPTIONS: TradeOption[] = [
-  { id: 'tear_off', label: 'Tear-off', canonicalId: 'tear_off', measurementKey: 'roofSquares', unit: 'squares' },
-  { id: 'underlayment', label: 'Premium / synthetic underlayment upgrade', canonicalId: 'underlayment', measurementKey: 'roofAreaSqft', unit: 'sqft' },
-  { id: 'ice_water_shield', label: 'Ice & water shield', canonicalId: 'ice_water_shield', measurementKey: 'roofIceWaterShieldSqft', unit: 'sqft' },
-  { id: 'drip_edge', label: 'Drip edge', canonicalId: 'drip_edge', measurementKey: 'roofDripEdgeLf', unit: 'LF' },
-  { id: 'ridge_cap', label: 'Ridge cap', canonicalId: 'ridge_cap', measurementKey: 'roofRidgeCapLf', unit: 'LF' },
-  { id: 'valley_flashing', label: 'Valley flashing', canonicalId: 'valley_flashing', measurementKey: 'roofValleyFlashingLf', unit: 'LF' },
-  { id: 'step_flashing', label: 'Step flashing', canonicalId: 'step_flashing', measurementKey: 'roofStepFlashingLf', unit: 'LF' },
-  { id: 'wall_flashing', label: 'Wall flashing', canonicalId: 'wall_flashing', measurementKey: 'roofWallFlashingLf', unit: 'LF' },
-  { id: 'shingles', label: 'Shingles', canonicalId: 'shingles_roofing', measurementKey: 'roofSquares', unit: 'squares' },
-  { id: 'decking_repair', label: 'Decking replacement', canonicalId: 'decking_repair', measurementKey: 'roofDeckingReplacementSqft', unit: 'sqft' },
-  { id: 'ridge_vent', label: 'Ridge vent', canonicalId: 'ridge_vent', measurementKey: 'roofRidgeVentLf', unit: 'EA' },
-  { id: 'roof_vents', label: 'Roof vents', canonicalId: 'roof_vents', measurementKey: 'roofVentCount', unit: 'EA' },
-  { id: 'turbine_vents', label: 'Turbine vents', canonicalId: 'turbine_vents', measurementKey: 'roofTurbineVentCount', unit: 'EA' },
-  { id: 'pipe_boots', label: 'Pipe boots', canonicalId: 'pipe_boots', measurementKey: 'roofPipeBootCount', unit: 'EA' },
-  { id: 'chimney_flashing', label: 'Chimney flashing', canonicalId: 'chimney_flashing', measurementKey: 'roofChimneyFlashingCount', unit: 'EA' },
-  { id: 'skylight_flashing', label: 'Skylight flashing', canonicalId: 'skylight_flashing', measurementKey: 'roofSkylightCount', unit: 'EA' },
-  { id: 'roof_penetrations', label: 'Other penetrations', canonicalId: 'roof_penetrations', measurementKey: 'roofPenetrationCount', unit: 'EA' },
-  { id: 'roof_repairs', label: 'Roof repairs', canonicalId: 'roof_repairs', measurementKey: 'roofRepairAffectedSqft', unit: 'sqft' },
+  {
+    id: 'tear_off',
+    label: 'Tear-off',
+    canonicalId: 'tear_off',
+    measurementKey: 'roofSquares',
+    unit: 'squares',
+  },
+  {
+    id: 'underlayment',
+    label: 'Premium / synthetic underlayment upgrade',
+    canonicalId: 'underlayment',
+    measurementKey: 'roofAreaSqft',
+    unit: 'sqft',
+  },
+  {
+    id: 'ice_water_shield',
+    label: 'Ice & water shield',
+    canonicalId: 'ice_water_shield',
+    measurementKey: 'roofIceWaterShieldSqft',
+    unit: 'sqft',
+  },
+  {
+    id: 'drip_edge',
+    label: 'Drip edge',
+    canonicalId: 'drip_edge',
+    measurementKey: 'roofDripEdgeLf',
+    unit: 'LF',
+  },
+  {
+    id: 'ridge_cap',
+    label: 'Ridge cap',
+    canonicalId: 'ridge_cap',
+    measurementKey: 'roofRidgeCapLf',
+    unit: 'LF',
+  },
+  {
+    id: 'valley_flashing',
+    label: 'Valley flashing',
+    canonicalId: 'valley_flashing',
+    measurementKey: 'roofValleyFlashingLf',
+    unit: 'LF',
+  },
+  {
+    id: 'step_flashing',
+    label: 'Step flashing',
+    canonicalId: 'step_flashing',
+    measurementKey: 'roofStepFlashingLf',
+    unit: 'LF',
+  },
+  {
+    id: 'wall_flashing',
+    label: 'Wall flashing',
+    canonicalId: 'wall_flashing',
+    measurementKey: 'roofWallFlashingLf',
+    unit: 'LF',
+  },
+  {
+    id: 'shingles',
+    label: 'Shingles',
+    canonicalId: 'shingles_roofing',
+    measurementKey: 'roofSquares',
+    unit: 'squares',
+  },
+  {
+    id: 'decking_repair',
+    label: 'Decking replacement',
+    canonicalId: 'decking_repair',
+    measurementKey: 'roofDeckingReplacementSqft',
+    unit: 'sqft',
+  },
+  {
+    id: 'ridge_vent',
+    label: 'Ridge vent',
+    canonicalId: 'ridge_vent',
+    measurementKey: 'roofRidgeVentLf',
+    unit: 'EA',
+  },
+  {
+    id: 'roof_vents',
+    label: 'Roof vents',
+    canonicalId: 'roof_vents',
+    measurementKey: 'roofVentCount',
+    unit: 'EA',
+  },
+  {
+    id: 'turbine_vents',
+    label: 'Turbine vents',
+    canonicalId: 'turbine_vents',
+    measurementKey: 'roofTurbineVentCount',
+    unit: 'EA',
+  },
+  {
+    id: 'pipe_boots',
+    label: 'Pipe boots',
+    canonicalId: 'pipe_boots',
+    measurementKey: 'roofPipeBootCount',
+    unit: 'EA',
+  },
+  {
+    id: 'chimney_flashing',
+    label: 'Chimney flashing',
+    canonicalId: 'chimney_flashing',
+    measurementKey: 'roofChimneyFlashingCount',
+    unit: 'EA',
+  },
+  {
+    id: 'skylight_flashing',
+    label: 'Skylight flashing',
+    canonicalId: 'skylight_flashing',
+    measurementKey: 'roofSkylightCount',
+    unit: 'EA',
+  },
+  {
+    id: 'roof_penetrations',
+    label: 'Other penetrations',
+    canonicalId: 'roof_penetrations',
+    measurementKey: 'roofPenetrationCount',
+    unit: 'EA',
+  },
+  {
+    id: 'roof_repairs',
+    label: 'Roof repairs',
+    canonicalId: 'roof_repairs',
+    measurementKey: 'roofRepairAffectedSqft',
+    unit: 'sqft',
+  },
   {
     id: 'gutters',
     label: 'Gutters',
@@ -412,7 +587,9 @@ export function roofingTradeChipSelectedForMeasurementKey(
 ): boolean {
   const selected = tradeScopeSelections?.roofing;
   if (!selected?.length) return false;
-  const options = ROOFING_OPTIONS.filter(row => row.measurementKey === measurementKey);
+  const options = ROOFING_OPTIONS.filter(
+    row => row.measurementKey === measurementKey
+  );
   if (!options.length) return false;
   return options.some(option => selected.includes(option.id));
 }
@@ -481,7 +658,11 @@ export const SIMPLE_TRADE_SPECS: Record<SimpleTradeScopeKey, TradeSpec> = {
 };
 
 function positiveMeasurement(value: unknown): number | null {
-  const number = Number(String(value ?? '').replace(/,/g, '').trim());
+  const number = Number(
+    String(value ?? '')
+      .replace(/,/g, '')
+      .trim()
+  );
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
@@ -495,7 +676,9 @@ export function roofingDownspoutQuantityWarning(
 }
 
 /** A mini-split is a specific equipment package, not a generic HVAC system. */
-export function notesImplyMiniSplitHvac(notes: string | null | undefined): boolean {
+export function notesImplyMiniSplitHvac(
+  notes: string | null | undefined
+): boolean {
   return /\bmini[\s-]?split\b/i.test(String(notes || ''));
 }
 
@@ -568,7 +751,8 @@ function coalesceHvacFieldValue(
   const card = hvacCardForMeasurementKey(field);
   if (!card?.itemId) return null;
   const itemQuantities =
-    measurements.itemQuantities && typeof measurements.itemQuantities === 'object'
+    measurements.itemQuantities &&
+    typeof measurements.itemQuantities === 'object'
       ? (measurements.itemQuantities as Record<
           string,
           { quantity?: unknown } | undefined
@@ -670,7 +854,9 @@ export function inferHvacScopeSelectionsFromMeasurements(
     if ((HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(option.id)) {
       continue;
     }
-    if ((HVAC_OPTIONAL_ADDON_OPTION_IDS as readonly string[]).includes(option.id)) {
+    if (
+      (HVAC_OPTIONAL_ADDON_OPTION_IDS as readonly string[]).includes(option.id)
+    ) {
       continue;
     }
     const field = hvacOptionPrimaryField(option);
@@ -717,6 +903,85 @@ export function inferHvacScopeSelectionsFromNotes(
   return inferred;
 }
 
+/** Compact mixed-scope HVAC panels show only components explicitly in the notes. */
+export function hvacScopeOptionMentionedInNotes(
+  optionId: string,
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  const patterns: Record<string, RegExp> = {
+    [HVAC_SYSTEMS_OPTION_ID]:
+      /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|mini[\s-]?split)\b/i,
+    // Capacity is a required companion measurement for an explicitly scoped system.
+    [HVAC_CAPACITY_OPTION_ID]:
+      /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|mini[\s-]?split)\b|\b\d[\d,]*(?:\.\d+)?\s*(?:ton|tons|tonnage)\b/i,
+    furnace: /\bfurnaces?\b/i,
+    condenser: /\bcondensers?\b|\bair\s*condition(?:er|ing)?\b/i,
+    heat_pump: /\bheat[\s-]*pumps?\b/i,
+    mini_split: /\bmini[\s-]?splits?\b/i,
+    air_handler: /\bair\s*handlers?\b/i,
+    ductwork: /\bduct(?:work|s)?\b/i,
+    thermostat: /\bthermostats?\b/i,
+    ventilation:
+      /\b(?:whole[-\s]?house\s+ventilation|ERV|HRV|fresh[\s-]?air\s+ventilator)\b/i,
+    registers: /\b(?:supply\s+)?(?:air\s+)?registers?\b|\bdiffusers?\b/i,
+    returns: /\breturn(?:\s+air)?\s+(?:grilles?|registers?)\b|\breturns?\b/i,
+  };
+  return Boolean(patterns[optionId]?.test(text));
+}
+
+/** True only when a note supplies a numeric/word quantity for this HVAC option. */
+export function hvacScopeOptionHasExplicitQuantityInNotes(
+  optionId: string,
+  notes: string | null | undefined
+): boolean {
+  const text = String(notes || '');
+  const quantity = String.raw`(?:\d[\d,]*(?:\.\d+)?|one|two|three|four|five)`;
+  const quantityBefore = (target: string) =>
+    new RegExp(
+      `\\b${quantity}\\s+(?:(?:ea|each|lf|linear\\s+feet|sq\\.?\\s*ft|sqft)\\s+)?${target}\\b`,
+      'i'
+    ).test(text);
+  const quantityAfter = (target: string) =>
+    new RegExp(`\\b${target}\\b[^.;,\\n]{0,20}\\b${quantity}\\b`, 'i').test(
+      text
+    );
+
+  if (optionId === HVAC_SYSTEMS_OPTION_ID) {
+    return (
+      quantityBefore(
+        '(?:(?:hvac|heating|cooling|heat[\\s-]*pump|mini[\\s-]?split)\\s+)?systems?|furnaces?|air\\s*handlers?|heat[\\s-]*pumps?'
+      ) || quantityAfter('(?:hvac\\s+)?systems?')
+    );
+  }
+  if (optionId === HVAC_CAPACITY_OPTION_ID) {
+    return new RegExp(
+      `\\b${quantity}\\s*(?:-\\s*)?(?:ton|tons|tonnage)\\b`,
+      'i'
+    ).test(text);
+  }
+  if ((HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(optionId)) {
+    const labels: Record<string, string> = {
+      furnace: 'furnaces?',
+      condenser: 'condensers?',
+      heat_pump: 'heat[\\s-]*pumps?(?:\\s+systems?)?',
+      mini_split: 'mini[\\s-]?splits?',
+      air_handler: 'air\\s*handlers?',
+    };
+    return quantityBefore(labels[optionId] || optionId);
+  }
+  const quantityTargets: Record<string, string> = {
+    ductwork: '(?:ductwork|ducts?|flex\\s*duct)',
+    thermostat: 'thermostats?',
+    ventilation:
+      '(?:whole[-\\s]?house\\s+ventilation|ERV|HRV|fresh[-\\s]?air\\s+ventilator)',
+    registers: '(?:supply\\s+)?(?:air\\s+)?registers?|diffusers?',
+    returns: 'return(?:\\s+air)?\\s+(?:grilles?|registers?)',
+  };
+  const target = quantityTargets[optionId];
+  return Boolean(target && (quantityBefore(target) || quantityAfter(target)));
+}
+
 function hvacOptionIsPendingTakeoffRead(
   measurements: Record<string, unknown>,
   option: TradeOption
@@ -735,9 +1000,9 @@ function pruneLegacyBulkEquipmentSelections(
   preserveEquipmentSelections: string[] = []
 ): string[] {
   return selections.filter(id => {
-    const isEquipment = (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(
-      id
-    );
+    const isEquipment = (
+      HVAC_EQUIPMENT_OPTION_IDS as readonly string[]
+    ).includes(id);
     if (isEquipment && preserveEquipmentSelections.includes(id)) return true;
     // Typed chip quantities are contractor intent. Do not drop them because the
     // shared replacement count looks like an unconfirmed plan read.
@@ -798,7 +1063,8 @@ export function resolveHvacTradeScopeSelections(
   return resolved;
 }
 
-export const HVAC_SCOPE_EQUIPMENT_EXPAND_HIGHLIGHT = '__equipment_expand__' as const;
+export const HVAC_SCOPE_EQUIPMENT_EXPAND_HIGHLIGHT =
+  '__equipment_expand__' as const;
 
 const HVAC_MEASUREMENT_FIELD_TO_OPTION_ID: Record<string, string> = {
   hvacSystemCount: HVAC_SYSTEMS_OPTION_ID,
@@ -812,7 +1078,9 @@ const HVAC_MEASUREMENT_FIELD_TO_OPTION_ID: Record<string, string> = {
 };
 
 /** Map a confirmed plan-read measurement key to its HVAC scope chip id. */
-export function hvacScopeOptionIdForMeasurementField(field: string): string | null {
+export function hvacScopeOptionIdForMeasurementField(
+  field: string
+): string | null {
   return HVAC_MEASUREMENT_FIELD_TO_OPTION_ID[field] ?? null;
 }
 
@@ -833,14 +1101,18 @@ export function applyHvacScopeSelectionForConfirmedField(
   const next = {
     ...measurements,
     tradeScopeSelections: {
-      ...((measurements.tradeScopeSelections as Record<string, string[]>) || {}),
+      ...((measurements.tradeScopeSelections as Record<string, string[]>) ||
+        {}),
       hvac: [...saved, optionId],
     },
   };
   return applyHvacScopeMeasurements(next);
 }
 
-export function summarizeHvacScopePanel(measurements: Record<string, unknown>): {
+export function summarizeHvacScopePanel(
+  measurements: Record<string, unknown>,
+  notes?: string | null
+): {
   inBidCount: number;
   needsConfirmationCount: number;
 } {
@@ -851,7 +1123,7 @@ export function summarizeHvacScopePanel(measurements: Record<string, unknown>): 
     const option = spec.options.find(candidate => candidate.id === id);
     if (!option) continue;
     const needsReview =
-      hvacScopeChipReviewState(measurements, option, selections) ===
+      hvacScopeChipReviewState(measurements, option, selections, notes) ===
       'needs_confirmation';
     const needsQuantity =
       Boolean(option.measurementKey) &&
@@ -878,8 +1150,10 @@ function finalizeHvacScopeSelections(
     ),
     inferred
   );
-  const capacityWasNotDocumented =
-    !hvacFieldHasTakeoffEvidence(measurements, 'hvacSystemTons');
+  const capacityWasNotDocumented = !hvacFieldHasTakeoffEvidence(
+    measurements,
+    'hvacSystemTons'
+  );
   if (
     resolved.includes(HVAC_SYSTEMS_OPTION_ID) &&
     !resolved.includes(HVAC_CAPACITY_OPTION_ID) &&
@@ -912,14 +1186,23 @@ export function formatHvacScopeChipQuantity(
 export function hvacScopeChipReviewState(
   measurements: Record<string, unknown>,
   option: TradeOption,
-  selections: string[] = selectedScope(measurements, 'hvac')
+  selections: string[] = selectedScope(measurements, 'hvac'),
+  notes?: string | null
 ): HvacScopeChipReviewState {
   const field = hvacOptionPrimaryField(option);
   if (!field) {
     return selections.includes(option.id) ? 'confirmed' : 'idle';
   }
+  if (
+    notes &&
+    hvacScopeOptionHasExplicitQuantityInNotes(option.id, notes) &&
+    formatHvacScopeChipQuantity(measurements, option, selections) != null
+  ) {
+    return 'confirmed';
+  }
   if (isHvacFieldConfirmed(measurements, field)) {
-    return selections.includes(option.id) || hvacFieldHasTakeoffEvidence(measurements, field)
+    return selections.includes(option.id) ||
+      hvacFieldHasTakeoffEvidence(measurements, field)
       ? 'confirmed'
       : 'idle';
   }
@@ -962,17 +1245,13 @@ export function hvacScopeChipActive(
 ): boolean {
   if (selections.includes(option.id)) return true;
   const canonicalSelected = selections.includes(option.canonicalId);
-  const hasAlias = selections.some((value) =>
-    spec.options.some((candidate) => candidate.id === value)
+  const hasAlias = selections.some(value =>
+    spec.options.some(candidate => candidate.id === value)
   );
   const firstCanonicalOption = spec.options.find(
-    (candidate) => candidate.canonicalId === option.canonicalId
+    candidate => candidate.canonicalId === option.canonicalId
   )?.id;
-  return (
-    canonicalSelected &&
-    !hasAlias &&
-    option.id === firstCanonicalOption
-  );
+  return canonicalSelected && !hasAlias && option.id === firstCanonicalOption;
 }
 
 /** Each selected HVAC chip owns its own quantity field below the chips. */
@@ -992,9 +1271,7 @@ export function hvacScopePanelMeasurementValue(
   if (option.id === HVAC_CAPACITY_OPTION_ID) {
     return hvacPanelFieldDisplayValue(measurements, 'hvacSystemTons');
   }
-  if (
-    (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(option.id)
-  ) {
+  if ((HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(option.id)) {
     if (!resolveHvacTradeScopeSelections(measurements).includes(option.id)) {
       return '';
     }
@@ -1030,9 +1307,7 @@ export function applyHvacScopePanelMeasurementEdit(
   if (option.id === HVAC_CAPACITY_OPTION_ID) {
     return markHvacFieldUserEdited(measurements, 'hvacSystemTons', value);
   }
-  if (
-    (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(option.id)
-  ) {
+  if ((HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(option.id)) {
     const key = hvacEquipmentItemQuantityKey(option.id);
     const itemQuantities = {
       ...(((measurements.itemQuantities as Record<string, unknown>) ||
@@ -1060,12 +1335,15 @@ export function applyHvacScopePanelMeasurementEdit(
 
 export function hvacScopePanelMeasurementHelper(
   measurements: Record<string, unknown>,
-  option: TradeOption
+  option: TradeOption,
+  selections: string[] = selectedScope(measurements, 'hvac'),
+  notes?: string | null
 ): string | null {
   const field = hvacOptionPrimaryField(option);
   if (
     field &&
-    hvacScopeChipReviewState(measurements, option) === 'needs_confirmation'
+    hvacScopeChipReviewState(measurements, option, selections, notes) ===
+      'needs_confirmation'
   ) {
     return 'Low-confidence plan read — confirm before pricing.';
   }
@@ -1074,8 +1352,10 @@ export function hvacScopePanelMeasurementHelper(
 
 /** Seed HVAC canonical counts from chip selections when the user has not typed values yet. */
 export function applyHvacScopeMeasurements(
-  measurements: Record<string, unknown>
+  measurements: Record<string, unknown>,
+  options: { seedUnquantified?: boolean } = {}
 ): Record<string, unknown> {
+  const seedUnquantified = options.seedUnquantified !== false;
   const selections = selectedScope(measurements, 'hvac');
   if (!selections.length) return measurements;
 
@@ -1085,6 +1365,7 @@ export function applyHvacScopeMeasurements(
   );
   if (
     equipmentIds.length &&
+    seedUnquantified &&
     positiveMeasurement(next.hvacSystemCount) == null
   ) {
     const equipmentCount = equipmentIds.reduce(
@@ -1095,32 +1376,42 @@ export function applyHvacScopeMeasurements(
   }
 
   if (
+    seedUnquantified &&
     selections.includes('thermostat') &&
     positiveMeasurement(next.hvacThermostatCount) == null
   ) {
     next.hvacThermostatCount = 1;
   }
   if (
+    seedUnquantified &&
     selections.includes('registers') &&
     positiveMeasurement(next.hvacSupplyRegisterCount) == null
   ) {
     next.hvacSupplyRegisterCount = 1;
   }
   if (
+    seedUnquantified &&
     selections.includes('returns') &&
     positiveMeasurement(next.hvacReturnGrilleCount) == null
   ) {
     next.hvacReturnGrilleCount = 1;
   }
 
-  return syncHvacEquipmentScopeMeasurements(next);
+  return syncHvacEquipmentScopeMeasurements(next, { seedUnquantified });
 }
 
-function selectedScope(measurements: Record<string, unknown>, scopeKey: SimpleTradeScopeKey): string[] {
+function selectedScope(
+  measurements: Record<string, unknown>,
+  scopeKey: SimpleTradeScopeKey
+): string[] {
   const selections = measurements.tradeScopeSelections;
-  return selections && typeof selections === 'object' && !Array.isArray(selections)
+  return selections &&
+    typeof selections === 'object' &&
+    !Array.isArray(selections)
     ? Array.isArray((selections as Record<string, unknown>)[scopeKey])
-      ? ((selections as Record<string, unknown>)[scopeKey] as unknown[]).map(String)
+      ? ((selections as Record<string, unknown>)[scopeKey] as unknown[]).map(
+          String
+        )
       : []
     : [];
 }
@@ -1138,16 +1429,23 @@ function includedIds(spec: TradeSpec, selections: string[]): Set<string> {
   return included;
 }
 
-function hydrateSimpleTrade(ctx: QmPanelHydrateContext, spec: TradeSpec): Record<string, unknown> {
+function hydrateSimpleTrade(
+  ctx: QmPanelHydrateContext,
+  spec: TradeSpec
+): Record<string, unknown> {
   const saved = selectedScope(ctx.measurements, spec.scopeKey);
   const inferredFromChecklist = spec.options
     .filter(
       (option, index, options) =>
         !(spec.scopeKey === 'roofing' && option.id === 'underlayment') &&
-        options.findIndex((candidate) => candidate.canonicalId === option.canonicalId) === index &&
-        ctx.checklistItems.some((item) => item.id === option.canonicalId && item.state === 'included')
+        options.findIndex(
+          candidate => candidate.canonicalId === option.canonicalId
+        ) === index &&
+        ctx.checklistItems.some(
+          item => item.id === option.canonicalId && item.state === 'included'
+        )
     )
-    .map((option) => option.id);
+    .map(option => option.id);
   const inferredFromMeasurements =
     spec.scopeKey === 'hvac'
       ? inferHvacScopeSelectionsFromMeasurements(ctx.measurements)
@@ -1187,30 +1485,52 @@ function hydrateSimpleTrade(ctx: QmPanelHydrateContext, spec: TradeSpec): Record
   const hydrated = {
     ...ctx.measurements,
     tradeScopeSelections: {
-      ...(((ctx.measurements as Record<string, unknown>).tradeScopeSelections as Record<string, string[]>) || {}),
+      ...(((ctx.measurements as Record<string, unknown>)
+        .tradeScopeSelections as Record<string, string[]>) || {}),
       [spec.scopeKey]: current.length ? current : null,
     },
   };
-  return spec.scopeKey === 'hvac' ? applyHvacScopeMeasurements(hydrated) : hydrated;
+  return spec.scopeKey === 'hvac'
+    ? applyHvacScopeMeasurements(hydrated, {
+        // Note-backed selections are scope evidence, not a contractor-entered
+        // quantity. Keep missing note quantities blank until confirmed.
+        seedUnquantified: inferredFromNotes.length === 0,
+      })
+    : hydrated;
 }
 
-function syncSimpleTrade(items: ScopeChecklistItem[], measurements: Record<string, unknown>, spec: TradeSpec): ScopeChecklistItem[] {
-  const included = includedIds(spec, selectedScope(measurements, spec.scopeKey));
+function syncSimpleTrade(
+  items: ScopeChecklistItem[],
+  measurements: Record<string, unknown>,
+  spec: TradeSpec
+): ScopeChecklistItem[] {
+  const included = includedIds(
+    spec,
+    selectedScope(measurements, spec.scopeKey)
+  );
   const miniSplitSelected =
-    spec.scopeKey === 'hvac' && selectedScope(measurements, 'hvac').includes('mini_split');
-  let next = items.map((item) => {
+    spec.scopeKey === 'hvac' &&
+    selectedScope(measurements, 'hvac').includes('mini_split');
+  let next = items.map(item => {
     if (spec.scopeKey === 'hvac' && item.id === 'hvac' && miniSplitSelected) {
       return item.state === 'excluded'
         ? item
         : { ...item, state: 'excluded' as const, noteBacked: false };
     }
     if (!spec.embeddedIds.includes(item.id)) return item;
-    if (included.has(item.id)) return item.state === 'included' ? item : { ...item, state: 'included' as const, noteBacked: true };
-    return item.state === 'included' ? { ...item, state: 'excluded' as const, noteBacked: false } : item;
+    if (included.has(item.id))
+      return item.state === 'included'
+        ? item
+        : { ...item, state: 'included' as const, noteBacked: true };
+    return item.state === 'included'
+      ? { ...item, state: 'excluded' as const, noteBacked: false }
+      : item;
   });
   for (const id of included) {
-    if (!next.some((item) => item.id === id)) {
-      const option = spec.options.find(candidate => candidate.canonicalId === id || candidate.id === id);
+    if (!next.some(item => item.id === id)) {
+      const option = spec.options.find(
+        candidate => candidate.canonicalId === id || candidate.id === id
+      );
       next = [
         ...next,
         {
@@ -1229,7 +1549,9 @@ function syncSimpleTrade(items: ScopeChecklistItem[], measurements: Record<strin
       ];
     }
   }
-  return spec.scopeKey === 'hvac' ? expandHvacEquipmentScopeDisplayItems(next, measurements) : next;
+  return spec.scopeKey === 'hvac'
+    ? expandHvacEquipmentScopeDisplayItems(next, measurements)
+    : next;
 }
 
 const HVAC_EQUIPMENT_SCOPE_LABELS: Record<string, string> = {
@@ -1246,8 +1568,8 @@ export function expandHvacEquipmentScopeDisplayItems(
   measurements: Record<string, unknown>
 ): ScopeChecklistItem[] {
   const selections = resolveHvacTradeScopeSelections(measurements);
-  const selectedIds = (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).filter(id =>
-    selections.includes(id)
+  const selectedIds = (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).filter(
+    id => selections.includes(id)
   );
   const withoutEquipmentTypes = items.filter(
     item => !(HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(item.id)
@@ -1278,15 +1600,18 @@ export function expandHvacEquipmentScopeDisplayItems(
   return [...cards, ...withoutEquipmentTypes];
 }
 
-export function simpleTradePanelFor(scopeKey: SimpleTradeScopeKey): QmPanelDefinition {
+export function simpleTradePanelFor(
+  scopeKey: SimpleTradeScopeKey
+): QmPanelDefinition {
   const spec = SIMPLE_TRADE_SPECS[scopeKey];
   return {
     id: `${scopeKey}_qm`,
     templateKeys: [scopeKey],
     embeddedScopeItemIds: spec.embeddedIds,
-    isActive: (ctx) => String(ctx.templateKey || '').toLowerCase() === scopeKey,
-    hydrateMeasurements: (ctx) => hydrateSimpleTrade(ctx, spec),
-    syncScopeItems: (items, measurements) => syncSimpleTrade(items, measurements, spec),
+    isActive: ctx => String(ctx.templateKey || '').toLowerCase() === scopeKey,
+    hydrateMeasurements: ctx => hydrateSimpleTrade(ctx, spec),
+    syncScopeItems: (items, measurements) =>
+      syncSimpleTrade(items, measurements, spec),
   };
 }
 
@@ -1326,11 +1651,9 @@ export const ROOFING_ACCESSORY_OPTION_IDS = [
 /** Gutters and downspouts — separate drainage card in QM and Confirm Scope. */
 export const ROOFING_DRAINAGE_OPTION_IDS = ['gutters', 'downspouts'] as const;
 
-export function roofingOptionsForIds(
-  ids: readonly string[]
-): TradeOption[] {
+export function roofingOptionsForIds(ids: readonly string[]): TradeOption[] {
   const wanted = new Set(ids);
-  return ROOFING_OPTIONS.filter((option) => wanted.has(option.id));
+  return ROOFING_OPTIONS.filter(option => wanted.has(option.id));
 }
 
 /** True when a roofing QM chip has a measurement or note-backed allowance to price. */
@@ -1349,7 +1672,9 @@ export function roofingQmOptionQuantitySatisfied(
     | Record<string, { quantity?: string | number | null }>
     | undefined;
   const allowance = itemQuantities?.[`${optionId}__allowance`];
-  const allowanceQty = Number(String(allowance?.quantity ?? '').replace(/,/g, ''));
+  const allowanceQty = Number(
+    String(allowance?.quantity ?? '').replace(/,/g, '')
+  );
   return Number.isFinite(allowanceQty) && allowanceQty > 0;
 }
 
@@ -1361,6 +1686,10 @@ export function roofingQmOptionAllowanceAmount(
     | Record<string, { quantity?: string | number | null }>
     | undefined;
   const allowance = itemQuantities?.[`${optionId}__allowance`];
-  const allowanceQty = Number(String(allowance?.quantity ?? '').replace(/,/g, ''));
-  return Number.isFinite(allowanceQty) && allowanceQty > 0 ? allowanceQty : null;
+  const allowanceQty = Number(
+    String(allowance?.quantity ?? '').replace(/,/g, '')
+  );
+  return Number.isFinite(allowanceQty) && allowanceQty > 0
+    ? allowanceQty
+    : null;
 }

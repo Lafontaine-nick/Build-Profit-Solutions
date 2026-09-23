@@ -21,11 +21,80 @@ describe('scopeItemNoteHints trim inference', () => {
 
   test('plumbing trim does not include trim & baseboard scope', () => {
     expect(inferItemStateFromNotes('trim', BATH_REMODEL)).toBe('unsure');
-    expect(inferItemStateFromNotes('plumbing_trim', BATH_REMODEL)).toBe('included');
+    expect(inferItemStateFromNotes('plumbing_trim', BATH_REMODEL)).toBe(
+      'included'
+    );
   });
 
   test('baseboard install still includes trim scope', () => {
-    expect(inferItemStateFromNotes('trim', 'Install baseboards throughout 220 LF.')).toBe('included');
+    expect(
+      inferItemStateFromNotes('trim', 'Install baseboards throughout 220 LF.')
+    ).toBe('included');
+  });
+
+  test('room remodel scope keeps explicit work and drops unsupported finish inferences', () => {
+    const notes =
+      'Remodel a 2,400 sqft home with demolition and removal of existing cabinets, fixtures, flooring, drywall, and finishes as needed; kitchen and bathroom updates, 1,800 sqft flooring, 500 sqft drywall repair, six windows, two exterior doors, four interior doors, wall and attic insulation, air sealing, trim, plumbing, electrical, and interior paint.';
+    const items = [
+      'plumbing',
+      'electrical',
+      'drywall',
+      'flooring',
+      'insulation',
+      'exterior_door_install',
+      'window_install',
+      'interior_door_install',
+      'cabinet_demo',
+      'floor_demo',
+      'fixture_demo',
+      'air_sealing',
+      'baseboard_install',
+      'door_paint',
+      'door_casing_paint',
+      'exterior_trim_paint',
+      'trim_paint',
+    ].map(id => ({
+      id,
+      label: id,
+      inputType: 'yes_no' as const,
+      state: 'included' as const,
+    }));
+
+    const hydrated = hydrateScopeChecklistFromNotes(
+      items,
+      'room_remodel',
+      notes,
+      { itemQuantities: {} } as any,
+      'other'
+    );
+    const includedIds = hydrated
+      .filter(item => item.state === 'included')
+      .map(item => item.id);
+    expect(includedIds).toEqual(
+      expect.arrayContaining([
+        'plumbing',
+        'electrical',
+        'drywall',
+        'flooring',
+        'insulation',
+        'exterior_door_install',
+        'window_install',
+        'interior_door_install',
+        'cabinet_demo',
+        'floor_demo',
+        'fixture_demo',
+        'air_sealing',
+        'baseboard_install',
+      ])
+    );
+    expect(includedIds).not.toEqual(
+      expect.arrayContaining([
+        'door_paint',
+        'door_casing_paint',
+        'exterior_trim_paint',
+        'trim_paint',
+      ])
+    );
   });
 
   test('surfaces generic door notes as interior door installation', () => {
@@ -82,7 +151,10 @@ describe('scopeItemNoteHints trim inference', () => {
       )
     ).toBe('unsure');
     expect(
-      inferItemStateFromNotes('floor_tile', 'Install bathroom floor tile outside the shower.')
+      inferItemStateFromNotes(
+        'floor_tile',
+        'Install bathroom floor tile outside the shower.'
+      )
     ).toBe('included');
   });
 
@@ -94,7 +166,10 @@ describe('scopeItemNoteHints trim inference', () => {
       )
     ).toBe('unsure');
     expect(
-      inferItemStateFromNotes('permits', 'Include permits in the bid for this remodel.')
+      inferItemStateFromNotes(
+        'permits',
+        'Include permits in the bid for this remodel.'
+      )
     ).toBe('included');
   });
 });
@@ -115,21 +190,27 @@ describe('scopeItemNoteHints roofing inference', () => {
   });
 
   test('infers standing seam metal and membrane systems', () => {
-    expect(inferRoofingSystemFromNotes('Install standing seam metal roof.')).toBe(
-      'standing_seam_metal'
+    expect(
+      inferRoofingSystemFromNotes('Install standing seam metal roof.')
+    ).toBe('standing_seam_metal');
+    expect(inferRoofingSystemFromNotes('TPO flat roof replacement.')).toBe(
+      'tpo'
     );
-    expect(inferRoofingSystemFromNotes('TPO flat roof replacement.')).toBe('tpo');
-    expect(inferRoofingSystemFromNotes('EPDM rubber membrane roof.')).toBe('epdm');
+    expect(inferRoofingSystemFromNotes('EPDM rubber membrane roof.')).toBe(
+      'epdm'
+    );
   });
 
   test('infers tear-off depth from notes', () => {
-    expect(inferRoofingTearOffFromNotes('Tear off existing shingles, one layer.')).toBe(
-      'one_layer'
+    expect(
+      inferRoofingTearOffFromNotes('Tear off existing shingles, one layer.')
+    ).toBe('one_layer');
+    expect(inferRoofingTearOffFromNotes('Two layer tear-off required.')).toBe(
+      'two_layers'
     );
-    expect(inferRoofingTearOffFromNotes('Two layer tear-off required.')).toBe('two_layers');
-    expect(inferRoofingTearOffFromNotes('Roof-over / recover, no tear-off.')).toBe(
-      'new_construction'
-    );
+    expect(
+      inferRoofingTearOffFromNotes('Roof-over / recover, no tear-off.')
+    ).toBe('new_construction');
     expect(
       inferChoiceFromNotes('tear_off', 'Full roof replacement with tear-off.')
     ).toBe('one_layer');
@@ -141,7 +222,12 @@ describe('scopeItemNoteHints roofing inference', () => {
         'Tear off and install new architectural shingles. Add ridge vent and drip edge.'
       )
     ).toEqual(
-      expect.arrayContaining(['tear_off', 'shingles', 'ridge_vent', 'drip_edge'])
+      expect.arrayContaining([
+        'tear_off',
+        'shingles',
+        'ridge_vent',
+        'drip_edge',
+      ])
     );
   });
 
@@ -154,9 +240,9 @@ describe('scopeItemNoteHints roofing inference', () => {
       '22 square roof replacement'
     );
     expect(combined).toContain('ice & water at eaves');
-    expect(
-      inferRoofingTradeScopeSelectionsFromNotes(combined)
-    ).toEqual(expect.arrayContaining(['ice_water_shield', 'drip_edge']));
+    expect(inferRoofingTradeScopeSelectionsFromNotes(combined)).toEqual(
+      expect.arrayContaining(['ice_water_shield', 'drip_edge'])
+    );
   });
 
   test('applyScopeInferencesFromNotes marks inferred roofing choices as note-backed', () => {
@@ -223,12 +309,12 @@ describe('ground-up owner-handled scope exclusions', () => {
   const GROUND_UP_HOME_NOTES = `New 2,800 sqft two story home with attached 2-car garage. Standard builder grade finishes. Owner is taking care of sitework, utilities, and landscaping separate from us.`;
 
   test('detects owner-handled sitework, utilities, and landscaping', () => {
-    expect(notesOwnerHandlesScopeCategory(GROUND_UP_HOME_NOTES, 'sitework')).toBe(
-      true
-    );
-    expect(notesOwnerHandlesScopeCategory(GROUND_UP_HOME_NOTES, 'utilities')).toBe(
-      true
-    );
+    expect(
+      notesOwnerHandlesScopeCategory(GROUND_UP_HOME_NOTES, 'sitework')
+    ).toBe(true);
+    expect(
+      notesOwnerHandlesScopeCategory(GROUND_UP_HOME_NOTES, 'utilities')
+    ).toBe(true);
     expect(
       notesOwnerHandlesScopeCategory(GROUND_UP_HOME_NOTES, 'landscaping')
     ).toBe(true);
@@ -252,8 +338,18 @@ describe('ground-up owner-handled scope exclusions', () => {
   test('promotes shell trades on new-build ground-up notes', () => {
     const items = applyGroundUpShellScopeDefaults(
       [
-        { id: 'framing', label: 'Framing', inputType: 'yes_no', state: 'unsure' },
-        { id: 'drywall', label: 'Drywall', inputType: 'yes_no', state: 'unsure' },
+        {
+          id: 'framing',
+          label: 'Framing',
+          inputType: 'yes_no',
+          state: 'unsure',
+        },
+        {
+          id: 'drywall',
+          label: 'Drywall',
+          inputType: 'yes_no',
+          state: 'unsure',
+        },
         {
           id: 'excavation',
           label: 'Excavation',
@@ -271,8 +367,18 @@ describe('ground-up owner-handled scope exclusions', () => {
   test('applyScopeInferencesFromNotes excludes owner sitework and includes shell', () => {
     const items = applyScopeInferencesFromNotes(
       [
-        { id: 'framing', label: 'Framing', inputType: 'yes_no', state: 'unsure' },
-        { id: 'roofing', label: 'Roofing', inputType: 'yes_no', state: 'unsure' },
+        {
+          id: 'framing',
+          label: 'Framing',
+          inputType: 'yes_no',
+          state: 'unsure',
+        },
+        {
+          id: 'roofing',
+          label: 'Roofing',
+          inputType: 'yes_no',
+          state: 'unsure',
+        },
         {
           id: 'landscaping',
           label: 'Landscaping',

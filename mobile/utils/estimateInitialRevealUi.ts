@@ -45,6 +45,7 @@ import {
   inferItemStateFromNotes,
   parseRoofingDeckingAllowanceFromNotes,
 } from '@/utils/scopeItemNoteHints';
+import { filterRoomRemodelNoteScopeItems } from '@/utils/estimateScopeChecklistUi';
 import {
   initialScopeMeasurementInputExtended,
   checklistItemInScope,
@@ -681,16 +682,35 @@ function plumbingMissingQuantityAttentionItems(
 function getInitialRevealScopeRows(
   draft: EstimateAiDraft
 ): InitialRevealScopeRow[] {
+  const notes = String(draft.originalNotes || '');
+  const wholeHomeMixedRemodelNote =
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
+      notes
+    ) &&
+    /\b(?:kitchen|bathroom|flooring|drywall|windows?|doors?|insulat(?:e|ion|ed)|plumbing|electrical|paint(?:ing)?|cabinets?|fixtures?|air[\s-]+sealing)\b/i.test(
+      notes
+    );
+  const wholeHomeRemodelContext =
+    wholeHomeMixedRemodelNote ||
+    /\b(?:whole|entire|full)\s+(?:existing\s+)?home\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
+      notes
+    );
   const kitchenContext = [
     draft.scopeChecklist?.templateKey,
     draft.projectType,
     draft.projectTitle,
-    draft.originalNotes,
   ]
     .map(value => String(value || '').toLowerCase())
-    .some(value => /\bkitchen\b/.test(value));
-  const notes = String(draft.originalNotes || '');
+    .some(value => /\bkitchen\b/.test(value)) ||
+    (!wholeHomeRemodelContext && /\bkitchen\b/i.test(notes));
   const additionReveal = isAdditionRevealDraft(draft);
+  const roomRemodelReveal =
+    String(draft.scopeChecklist?.templateKey || draft.projectType || '').toLowerCase() ===
+      'room_remodel' ||
+    wholeHomeMixedRemodelNote;
+  const parsedRoomRemodelMeasurements = roomRemodelReveal
+    ? initialScopeMeasurementInputExtended(draft, notes)
+    : null;
   const parsedAdditionMeasurements = additionReveal
     ? initialScopeMeasurementInputExtended(draft, notes)
     : null;
@@ -847,8 +867,63 @@ function getInitialRevealScopeRows(
       .filter(Boolean)
   );
   const hasResolvedFacts = facts.length > 0;
+  const roomRemodelQuantityOverride = (id: string): string | null | undefined => {
+    if (!roomRemodelReveal || !parsedRoomRemodelMeasurements) return undefined;
+    const measurements = parsedRoomRemodelMeasurements as Record<string, unknown>;
+    const sqft = (value: unknown) => {
+      const quantity = positiveRevealNumber(value);
+      return quantity ? `${quantity} sqft` : null;
+    };
+    const each = (value: unknown) => {
+      const quantity = positiveRevealNumber(value);
+      return quantity ? `${quantity} each` : null;
+    };
+    if (id === 'flooring') return sqft(measurements.flooringSqft);
+    if (id === 'drywall') {
+      return sqft(measurements.patchRepairSqft ?? measurements.drywallSqft);
+    }
+    if (id === 'interior_door_install' || id === 'interior_doors') {
+      return each(measurements.interiorDoorCount);
+    }
+    if (id === 'window_install' || id === 'windows') {
+      return each(measurements.windowCount);
+    }
+    if (id === 'exterior_door_install' || id === 'exterior_doors') {
+      return each(measurements.exteriorDoorCount);
+    }
+    if (
+      id === 'insulation' &&
+      /\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i.test(notes)
+    ) {
+      const hasLocationSpecificInsulationArea =
+        /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;,\n]{0,40}\b(?:wall|walls|attic|ceiling|floor)\b[^.;,\n]{0,20}\binsulat(?:e|ion|ed)\b|\binsulat(?:e|ion|ed)\b[^.;,\n]{0,40}\b(?:wall|walls|attic|ceiling|floor)\b[^.;,\n]{0,40}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
+          notes
+        );
+      if (!hasLocationSpecificInsulationArea) return null;
+      const quantity =
+        positiveRevealNumber(measurements.exteriorWallInsulationSqft) ||
+        positiveRevealNumber(measurements.atticInsulationSqft) ||
+        positiveRevealNumber(measurements.floorInsulationSqft);
+      return quantity ? `${quantity} sqft` : null;
+    }
+    if (id === 'air_sealing' && /\bair[\s-]+sealing\b/i.test(notes)) {
+      return null;
+    }
+    if (
+      ['floor_demo', 'cabinet_demo', 'fixture_demo', 'baseboard_install', 'trim'].includes(
+        id
+      )
+    ) {
+      return null;
+    }
+    return undefined;
+  };
+  const checklistItems =
+    roomRemodelReveal && draft.scopeChecklist?.items
+      ? filterRoomRemodelNoteScopeItems(draft.scopeChecklist.items, notes)
+      : draft.scopeChecklist?.items;
   let rows =
-    draft.scopeChecklist?.items
+    checklistItems
       ?.filter(item => revealChecklistItemVisible(draft, item))
       .filter(
         item =>
@@ -877,6 +952,14 @@ function getInitialRevealScopeRows(
         String(item.id || '').trim() === 'insulation' &&
         noteInsulationAssemblies.length
           ? { quantityOverride: null }
+          : {}),
+        ...(!additionReveal &&
+        roomRemodelQuantityOverride(String(item.id || '').trim()) !== undefined
+          ? {
+              quantityOverride: roomRemodelQuantityOverride(
+                String(item.id || '').trim()
+              ),
+            }
           : {}),
       }))
       .filter(row => row.id && row.name) || [];
@@ -998,6 +1081,118 @@ function getInitialRevealScopeRows(
         name: 'Interior door installation',
       });
     }
+  }
+  if (
+    roomRemodelReveal &&
+    /\binterior\s+doors?\b/i.test(notes) &&
+    !rows.some(row => row.id === 'interior_door_install')
+  ) {
+    rows.push({ id: 'interior_door_install', name: 'Interior door installation' });
+  }
+  if (roomRemodelReveal) {
+    const addRoomRemodelRow = (id: string, name: string) => {
+      if (rows.some(row => row.id === id)) return;
+      rows.push({ id, name });
+    };
+    const removalFor = (term: string) =>
+      new RegExp(
+        `\\b(?:demolition|demo|remove|removal|tear[\\s-]?out)\\b[^.;,\\n]{0,70}\\b${term}\\b|\\b${term}\\b[^.;,\\n]{0,70}\\b(?:demolition|demo|remove|removal|tear[\\s-]?out)\\b`,
+        'i'
+      ).test(notes);
+    if (removalFor('cabinets?')) {
+      addRoomRemodelRow('cabinet_demo', 'Cabinet removal / demolition');
+    }
+    if (removalFor('fixtures?')) {
+      addRoomRemodelRow('fixture_demo', 'Fixture removal / demolition');
+    }
+    if (removalFor('floor(?:ing)?|lvp|vinyl|carpet|tile')) {
+      addRoomRemodelRow('floor_demo', 'Flooring demo / removal');
+    }
+    if (
+      /\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i.test(notes) &&
+      !rows.some(row => /\binsulation\b/i.test(row.name))
+    ) {
+      addRoomRemodelRow('insulation', 'Wall & attic insulation');
+    }
+    if (
+      /\bair[\s-]+sealing\b/i.test(notes) &&
+      !rows.some(row => row.id === 'air_sealing')
+    ) {
+      addRoomRemodelRow('air_sealing', 'Air sealing');
+    }
+    if (
+      /\btrim\b|\bbaseboards?\b/i.test(notes) &&
+      !rows.some(row => row.id === 'trim' || row.id === 'baseboard_install')
+    ) {
+      addRoomRemodelRow('trim', 'Trim / baseboard installation');
+    }
+    if (
+      /\bplumbing\b/i.test(notes) &&
+      !rows.some(row => row.id === 'plumbing' || /plumbing/i.test(row.name))
+    ) {
+      addRoomRemodelRow('plumbing', 'Plumbing');
+    }
+    if (
+      /\belectrical\b/i.test(notes) &&
+      !rows.some(row => row.id === 'electrical' || /electrical/i.test(row.name))
+    ) {
+      addRoomRemodelRow('electrical', 'Electrical');
+    }
+    if (
+      /\binterior\s+paint\b|\bpaint(?:ing)?\b/i.test(notes) &&
+      !rows.some(row => /interior\s+paint|painting/i.test(row.name))
+    ) {
+      addRoomRemodelRow('interior_paint', 'Interior paint');
+    }
+  }
+  if (roomRemodelReveal) {
+    const explicitDoorPaint =
+      /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\s+(?:the\s+)?(?:interior\s+)?doors?\b|\b(?:interior\s+)?doors?\s+(?:to\s+be\s+)?(?:painted|repainted|coated|primed)\b/i.test(
+        notes
+      );
+    const explicitDoorCasingPaint =
+      /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\s+(?:the\s+)?door\s+casing\b|\bdoor\s+casing\s+(?:to\s+be\s+)?(?:painted|repainted|coated|primed)\b/i.test(
+        notes
+      );
+    const explicitExteriorTrimPaint =
+      /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\s+(?:the\s+)?(?:exterior\s+)?(?:trim|window\s+trim|door\s+trim|windows?|doors?)\b|\b(?:exterior\s+)?(?:trim|window\s+trim|door\s+trim|windows?|doors?)\s+(?:to\s+be\s+)?(?:painted|repainted|coated|primed)\b/i.test(
+        notes
+      );
+    const explicitBaseboardPaint =
+      /\b(?:paint|repaint|painting|coat|prime)(?:ed|ing)?\s+(?:the\s+)?(?:baseboards?|trim)\b|\b(?:baseboards?|trim)\s+(?:to\s+be\s+)?(?:painted|repainted|coated|primed)\b/i.test(
+        notes
+      );
+    rows = rows.filter(row => {
+      if (
+        (row.id === 'door_paint' ||
+          /^(?:interior\s+)?door painting$/i.test(row.name)) &&
+        !explicitDoorPaint
+      ) {
+        return false;
+      }
+      if (
+        (row.id === 'door_casing_paint' ||
+          /door casing|door casing \/ trim painting/i.test(row.name)) &&
+        !explicitDoorCasingPaint
+      ) {
+        return false;
+      }
+      if (
+        (row.id === 'exterior_trim_paint' ||
+          /exterior trim.*windows?.*doors?/i.test(row.name)) &&
+        !explicitExteriorTrimPaint
+      ) {
+        return false;
+      }
+      if (
+        (row.id === 'trim_paint' ||
+          /baseboard and trim painting/i.test(row.name)) &&
+        !explicitBaseboardPaint
+      ) {
+        return false;
+      }
+      return true;
+    });
   }
   const ids = new Set(rows.map(row => row.id));
   for (const fact of facts) {
@@ -1147,6 +1342,13 @@ function getInitialRevealScopeRows(
         name
       )
     ) {
+      if (
+        roomRemodelReveal &&
+        /\b(?:plumbing|electrical)\b/i.test(name) &&
+        new RegExp(`\\b${name}\\b`, 'i').test(notes)
+      ) {
+        return true;
+      }
       return false;
     }
     if (

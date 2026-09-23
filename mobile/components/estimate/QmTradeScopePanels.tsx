@@ -90,6 +90,7 @@ import {
   summarizeHvacScopePanel,
   hvacScopePanelMeasurementHelper,
   hvacScopePanelMeasurementValue,
+  hvacScopeOptionMentionedInNotes,
   roofingOptionsForIds,
   roofingDownspoutQuantityWarning,
   roofingQmOptionAllowanceAmount,
@@ -1070,6 +1071,8 @@ export function QmKitchenScopePanels({
   setMeasurements,
   notes,
   condensed = false,
+  showInstallPanel = true,
+  showKitchenFloorField = true,
   includedScopeKeys,
   hasSitePhotos,
   showExistingPanel,
@@ -1084,6 +1087,8 @@ export function QmKitchenScopePanels({
   >;
   notes?: string | null;
   condensed?: boolean;
+  showInstallPanel?: boolean;
+  showKitchenFloorField?: boolean;
   includedScopeKeys: string[];
   hasSitePhotos: boolean;
   showExistingPanel: boolean;
@@ -1447,13 +1452,12 @@ export function QmKitchenScopePanels({
       kitchenNoteText
     ),
     backsplash: /\bbacksplash\b/i.test(kitchenNoteText),
-    flooring: /\b(?:flooring|lvp|vinyl|laminate|tile)\b/i.test(
-      kitchenNoteText
-    ),
+    flooring: /\b(?:flooring|lvp|vinyl|laminate|tile)\b/i.test(kitchenNoteText),
     island: /\bisland\b/i.test(kitchenNoteText),
-    appliances: /\b(?:appliances?|dishwasher|refrigerator|range|oven|hood|microwave)\b/i.test(
-      kitchenNoteText
-    ),
+    appliances:
+      /\b(?:appliances?|dishwasher|refrigerator|range|oven|hood|microwave)\b/i.test(
+        kitchenNoteText
+      ),
   };
   const showKitchenIslandCounterField =
     (showIslandCounterField || condensedKitchenScope.island) &&
@@ -1530,179 +1534,183 @@ export function QmKitchenScopePanels({
           Colors={Colors}
         />
       ) : null}
-      <QmScopePanelSection
-        title='Kitchen install'
-        {...installPanelStyle}
-        caption='Set what is in this bid — cabinets, counters, and finishes use LF or sqft; scope cards sync below.'
-        rows={[]}
-        counts={install as Record<string, number | null>}
-        onAdjust={handleInstallStepperAdjust}
-        applying={applying}
-        midContent={
-          <View style={{ marginBottom: 4 }}>
-            <QmScopeSubheading
-              label='Measurements'
-              darkMode={darkMode}
-              Colors={Colors}
-            />
-            {condensedKitchenScope.cabinets ? (
-              <QmSqftMeasurementRow
-                label='Cabinets'
-                helperText='Cabinet run length for this kitchen — LF, not a fixture count.'
-                value={cabinetLfValue}
-                unitLabel='LF'
-                onChangeText={cabinetLfField.onChangeText}
-                onBlur={cabinetLfField.onBlur}
-                applying={applying}
-                darkMode={darkMode}
-                Colors={Colors}
-                sectionLead
-              />
-            ) : null}
-            {condensedKitchenScope.counters ? (
-              <QmSqftMeasurementRow
-                label='Counters'
-                helperText='Perimeter countertop area — island SF is added to this same countertop pricing card.'
-                value={countertopSqftValue}
-                onChangeText={countertopField.onChangeText}
-                onBlur={countertopField.onBlur}
-                applying={applying}
+      {showInstallPanel ? (
+        <QmScopePanelSection
+          title='Kitchen install'
+          {...installPanelStyle}
+          caption='Set what is in this bid — cabinets, counters, and finishes use LF or sqft; scope cards sync below.'
+          rows={[]}
+          counts={install as Record<string, number | null>}
+          onAdjust={handleInstallStepperAdjust}
+          applying={applying}
+          midContent={
+            <View style={{ marginBottom: 4 }}>
+              <QmScopeSubheading
+                label='Measurements'
                 darkMode={darkMode}
                 Colors={Colors}
               />
-            ) : null}
-            {showKitchenIslandCounterField ? (
-              <QmSqftMeasurementRow
-                label='Island counter'
-                helperText='Island top area only — rolls into Countertops pricing with perimeter SF.'
-                value={kitchenIslandCounterSqftValue}
-                onChangeText={islandCounterField.onChangeText}
-                onBlur={islandCounterField.onBlur}
-                applying={applying}
-                darkMode={darkMode}
-                Colors={Colors}
-              />
-            ) : null}
-            {condensedKitchenScope.backsplash ? (
-              <QmSqftMeasurementRow
-                label='Backsplash'
-                helperText='Backsplash tile area — same takeoff feeds install and demo.'
-                value={backsplashSqftValue}
-                onChangeText={backsplashField.onChangeText}
-                onBlur={backsplashField.onBlur}
-                applying={applying}
-                darkMode={darkMode}
-                Colors={Colors}
-              />
-            ) : null}
-            {hasExplicitKitchenFloorScope &&
-            (!condensed || condensedKitchenScope.flooring) ? (
-              <QmSqftMeasurementRow
-                label='Kitchen floor'
-                helperText='Floor finish area — separate from wall layout scope below.'
-                value={kitchenFloorSqftValue}
-                onChangeText={kitchenFloorField.onChangeText}
-                onBlur={kitchenFloorField.onBlur}
-                applying={applying}
-                darkMode={darkMode}
-                Colors={Colors}
-                sectionEnd
-              />
-            ) : null}
-          </View>
-        }
-        trailingRows={condensedKitchenInstallRows}
-        stepperMax={Infinity}
-        darkMode={darkMode}
-        Colors={Colors}
-      />
+              {condensedKitchenScope.cabinets ? (
+                <QmSqftMeasurementRow
+                  label='Cabinets'
+                  helperText='Cabinet run length for this kitchen — LF, not a fixture count.'
+                  value={cabinetLfValue}
+                  unitLabel='LF'
+                  onChangeText={cabinetLfField.onChangeText}
+                  onBlur={cabinetLfField.onBlur}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  sectionLead
+                />
+              ) : null}
+              {condensedKitchenScope.counters ? (
+                <QmSqftMeasurementRow
+                  label='Counters'
+                  helperText='Perimeter countertop area — island SF is added to this same countertop pricing card.'
+                  value={countertopSqftValue}
+                  onChangeText={countertopField.onChangeText}
+                  onBlur={countertopField.onBlur}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {showKitchenIslandCounterField ? (
+                <QmSqftMeasurementRow
+                  label='Island counter'
+                  helperText='Island top area only — rolls into Countertops pricing with perimeter SF.'
+                  value={kitchenIslandCounterSqftValue}
+                  onChangeText={islandCounterField.onChangeText}
+                  onBlur={islandCounterField.onBlur}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {condensedKitchenScope.backsplash ? (
+                <QmSqftMeasurementRow
+                  label='Backsplash'
+                  helperText='Backsplash tile area — same takeoff feeds install and demo.'
+                  value={backsplashSqftValue}
+                  onChangeText={backsplashField.onChangeText}
+                  onBlur={backsplashField.onBlur}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {showKitchenFloorField &&
+              hasExplicitKitchenFloorScope &&
+              (!condensed || condensedKitchenScope.flooring) ? (
+                <QmSqftMeasurementRow
+                  label='Kitchen floor'
+                  helperText='Floor finish area — separate from wall layout scope below.'
+                  value={kitchenFloorSqftValue}
+                  onChangeText={kitchenFloorField.onChangeText}
+                  onBlur={kitchenFloorField.onBlur}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  sectionEnd
+                />
+              ) : null}
+            </View>
+          }
+          trailingRows={condensedKitchenInstallRows}
+          stepperMax={Infinity}
+          darkMode={darkMode}
+          Colors={Colors}
+        />
+      ) : null}
       {condensed && !hasCondensedKitchenDemo ? null : (
-      <QmScopePanelSection
-        title='Demo / tear-out'
-        {...qmDemoScopePanelStyle(darkMode)}
-        caption={`${demoCaption} Cabinet and counter demo use LF/sqft takeoffs. Backsplash and floor demo use sqft.`}
-        rows={[]}
-        counts={demo as Record<string, number | null>}
-        onAdjust={handleDemoStepperAdjust}
-        applying={applying}
-        darkMode={darkMode}
-        Colors={Colors}
-        midContent={
-          <View style={{ marginBottom: 4 }}>
-            <QmScopeSubheading
-              label='Measurements'
-              darkMode={darkMode}
-              Colors={Colors}
-            />
-            {condensedKitchenScope.cabinets ? (
-              <QmSqftMeasurementRow
-                label='Cabinet demo'
-                helperText='Cabinet run length to remove — LF, not a fixture count. Same takeoff as install cabinets.'
-                value={cabinetLfValue}
-                unitLabel='LF'
-                onChangeText={cabinetLfField.onChangeText}
-                onBlur={cabinetLfField.onBlur}
-                applying={applying}
-                darkMode={darkMode}
-                Colors={Colors}
-                sectionLead
-              />
-            ) : null}
-            {condensedKitchenScope.counters ? (
-              <QmSqftMeasurementRow
-                label='Countertop demo'
-                helperText='Perimeter + island counter SF to remove — same takeoff as countertop install.'
-                value={countertopSqftValue}
-                onChangeText={countertopField.onChangeText}
-                onBlur={countertopField.onBlur}
-                applying={applying}
+        <QmScopePanelSection
+          title='Demo / tear-out'
+          {...qmDemoScopePanelStyle(darkMode)}
+          caption={`${demoCaption} Cabinet and counter demo use LF/sqft takeoffs. Backsplash and floor demo use sqft.`}
+          rows={[]}
+          counts={demo as Record<string, number | null>}
+          onAdjust={handleDemoStepperAdjust}
+          applying={applying}
+          darkMode={darkMode}
+          Colors={Colors}
+          midContent={
+            <View style={{ marginBottom: 4 }}>
+              <QmScopeSubheading
+                label='Measurements'
                 darkMode={darkMode}
                 Colors={Colors}
               />
-            ) : null}
-            {showKitchenIslandCounterField ? (
-              <QmSqftMeasurementRow
-                label='Island counter demo'
-                helperText='Island top tear-out area — combined with perimeter on Countertop demo.'
-                value={kitchenIslandCounterSqftValue}
-                onChangeText={islandCounterField.onChangeText}
-                onBlur={islandCounterField.onBlur}
-                applying={applying}
-                darkMode={darkMode}
-                Colors={Colors}
-              />
-            ) : null}
-            {condensedKitchenScope.backsplash ? (
-              <QmSqftMeasurementRow
-                label='Backsplash demo'
-                helperText='Tear-out area — same takeoff as install backsplash when both are in scope.'
-                value={backsplashSqftValue}
-                onChangeText={backsplashField.onChangeText}
-                onBlur={backsplashField.onBlur}
-                applying={applying}
-                darkMode={darkMode}
-                Colors={Colors}
-              />
-            ) : null}
-            {hasExplicitKitchenFloorScope &&
-            (!condensed || condensedKitchenScope.flooring) ? (
-              <QmSqftMeasurementRow
-                label='Floor demo'
-                helperText='Kitchen floor tear-out area.'
-                value={kitchenFloorSqftValue}
-                onChangeText={kitchenFloorField.onChangeText}
-                onBlur={kitchenFloorField.onBlur}
-                applying={applying}
-                darkMode={darkMode}
-                Colors={Colors}
-                sectionEnd
-              />
-            ) : null}
-          </View>
-        }
-        trailingRows={condensedKitchenDemoRows}
-        stepperMax={Infinity}
-      />
+              {condensedKitchenScope.cabinets ? (
+                <QmSqftMeasurementRow
+                  label='Cabinet demo'
+                  helperText='Cabinet run length to remove — LF, not a fixture count. Same takeoff as install cabinets.'
+                  value={cabinetLfValue}
+                  unitLabel='LF'
+                  onChangeText={cabinetLfField.onChangeText}
+                  onBlur={cabinetLfField.onBlur}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  sectionLead
+                />
+              ) : null}
+              {condensedKitchenScope.counters ? (
+                <QmSqftMeasurementRow
+                  label='Countertop demo'
+                  helperText='Perimeter + island counter SF to remove — same takeoff as countertop install.'
+                  value={countertopSqftValue}
+                  onChangeText={countertopField.onChangeText}
+                  onBlur={countertopField.onBlur}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {showKitchenIslandCounterField ? (
+                <QmSqftMeasurementRow
+                  label='Island counter demo'
+                  helperText='Island top tear-out area — combined with perimeter on Countertop demo.'
+                  value={kitchenIslandCounterSqftValue}
+                  onChangeText={islandCounterField.onChangeText}
+                  onBlur={islandCounterField.onBlur}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {condensedKitchenScope.backsplash ? (
+                <QmSqftMeasurementRow
+                  label='Backsplash demo'
+                  helperText='Tear-out area — same takeoff as install backsplash when both are in scope.'
+                  value={backsplashSqftValue}
+                  onChangeText={backsplashField.onChangeText}
+                  onBlur={backsplashField.onBlur}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {showKitchenFloorField &&
+              hasExplicitKitchenFloorScope &&
+              (!condensed || condensedKitchenScope.flooring) ? (
+                <QmSqftMeasurementRow
+                  label='Floor demo'
+                  helperText='Kitchen floor tear-out area.'
+                  value={kitchenFloorSqftValue}
+                  onChangeText={kitchenFloorField.onChangeText}
+                  onBlur={kitchenFloorField.onBlur}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  sectionEnd
+                />
+              ) : null}
+            </View>
+          }
+          trailingRows={condensedKitchenDemoRows}
+          stepperMax={Infinity}
+        />
       )}
     </>
   );
@@ -2455,7 +2463,9 @@ export function QmFlooringScopePanels({
                                     setMeasurements(prev => ({
                                       ...prev,
                                       flooringExistingLvpInstallMethod: id as
-                                        'floating' | 'glue_down' | 'unknown',
+                                        | 'floating'
+                                        | 'glue_down'
+                                        | 'unknown',
                                     }))
                                   }
                                   disabled={applying}
@@ -2526,7 +2536,9 @@ export function QmFlooringScopePanels({
                                     setMeasurements(prev => ({
                                       ...prev,
                                       flooringExistingSheetVinylType: id as
-                                        'sheet_vinyl' | 'vct' | 'unknown',
+                                        | 'sheet_vinyl'
+                                        | 'vct'
+                                        | 'unknown',
                                     }))
                                   }
                                   disabled={applying}
@@ -3311,15 +3323,29 @@ export const QmBathroomFixturesPanels = React.memo(
       const [existing, setExisting] = useState<BathroomExistingFixtureCounts>(
         () => readBathroomExistingFixtureCounts(measurements)
       );
-      const [install, setInstall] = useState<BathroomInstallFixtureCounts>(() =>
-        readBathroomInstallFixtureCounts(measurements)
+      const [install, setInstall] = useState<BathroomInstallFixtureCounts>(
+        () => {
+          const saved = readBathroomInstallFixtureCounts(measurements);
+          const inferred = inferBathroomFixtureInstallFromIntent({
+            notes,
+            checklistItems: [],
+          });
+          return {
+            bathroomInstallVanityCount:
+              saved.bathroomInstallVanityCount ??
+              inferred.bathroomInstallVanityCount,
+            bathroomInstallCounterCount:
+              saved.bathroomInstallCounterCount ??
+              inferred.bathroomInstallCounterCount,
+          };
+        }
       );
       const [demo, setDemo] = useState<BathroomDemoFixtureCounts>(() =>
         readBathroomDemoFixtureCounts(measurements)
       );
       const genRef = useRef(0);
       const appliedRef = useRef(0);
-      const fixtureInstallNotesSeededRef = useRef(false);
+      const fixtureInstallNotesSeededRef = useRef('');
       const demoOverridesRef = useRef<
         Partial<Record<BathroomFixtureDemoOverrideKey, boolean>>
       >({});
@@ -3405,8 +3431,9 @@ export const QmBathroomFixturesPanels = React.memo(
           notes,
           checklistItems: [],
         });
+        const notesSignature = String(notes || '').trim();
         const shouldSeedFromNotes =
-          !fixtureInstallNotesSeededRef.current &&
+          fixtureInstallNotesSeededRef.current !== notesSignature &&
           savedInstall.bathroomInstallVanityCount == null &&
           savedInstall.bathroomInstallCounterCount == null;
         const resolvedInstall = shouldSeedFromNotes
@@ -3420,7 +3447,7 @@ export const QmBathroomFixturesPanels = React.memo(
             }
           : savedInstall;
         if (shouldSeedFromNotes) {
-          fixtureInstallNotesSeededRef.current = true;
+          fixtureInstallNotesSeededRef.current = notesSignature;
           if (
             resolvedInstall.bathroomInstallVanityCount != null ||
             resolvedInstall.bathroomInstallCounterCount != null
@@ -3439,7 +3466,10 @@ export const QmBathroomFixturesPanels = React.memo(
         });
         setInstall(
           resolvedCounter != null
-            ? { ...resolvedInstall, bathroomInstallCounterCount: resolvedCounter }
+            ? {
+                ...resolvedInstall,
+                bathroomInstallCounterCount: resolvedCounter,
+              }
             : resolvedInstall
         );
         const nextDemo = readBathroomDemoFixtureCounts(measurements);
@@ -4886,431 +4916,444 @@ export function QmConcreteScopePanels({
     'retaining_wall',
   ]);
   const visibleSitePrepOptionIds = mixedExteriorScope
-    ? new Set(
-        Array.from(sitePrepOptionIds).filter(id => selected.includes(id))
-      )
+    ? new Set(Array.from(sitePrepOptionIds).filter(id => selected.includes(id)))
     : sitePrepOptionIds;
   const visibleOptionalOptionIds = mixedExteriorScope
-    ? new Set(
-        Array.from(optionalOptionIds).filter(id => selected.includes(id))
-      )
+    ? new Set(Array.from(optionalOptionIds).filter(id => selected.includes(id)))
     : optionalOptionIds;
   const visibleFlatworkOptions = mixedExteriorScope
     ? selectedFlatworkOptions
     : CONCRETE_FLATWORK_OPTIONS;
+  const showSitePrepPanel =
+    !mixedExteriorScope || visibleSitePrepOptionIds.size > 0;
+  const showOptionalPanel =
+    !mixedExteriorScope || visibleOptionalOptionIds.size > 0;
   const panelStyle = qmPanelShellStyle(darkMode);
 
   return (
     <View style={{ gap: 12 }}>
       {expanded ? (
         <>
-          <View style={[styles.qmPanel, panelStyle]}>
-            <TouchableOpacity
-              onPress={() => setSitePrepExpanded(value => !value)}
-              activeOpacity={0.75}
-              style={{ marginTop: 14, marginBottom: 4 }}
-            >
-              <Text
-                style={[
-                  styles.qmPanelTitle,
-                  { color: darkMode ? '#cbd5e1' : Colors.text },
-                ]}
+          {showSitePrepPanel ? (
+            <View style={[styles.qmPanel, panelStyle]}>
+              <TouchableOpacity
+                onPress={() => setSitePrepExpanded(value => !value)}
+                activeOpacity={0.75}
+                style={{ marginTop: 14, marginBottom: 4 }}
               >
-                Site prep & existing conditions {sitePrepExpanded ? '⌃' : '⌄'}
-              </Text>
-              <Text
-                style={[
-                  styles.qmPanelCaption,
-                  { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
-                ]}
-              >
-                Demo, grading, excavation, and other site conditions.
-              </Text>
-            </TouchableOpacity>
-            {sitePrepExpanded
-              ? CONCRETE_SCOPE_OPTIONS.filter(option =>
-                  visibleSitePrepOptionIds.has(option.id)
-                ).map(option => {
-                  const active =
-                    selected.includes(option.id) ||
-                    (option.id === 'pour_foundation' &&
-                      selected.includes('footings'));
-                  return (
-                    <React.Fragment key={option.id}>
-                      <QmConcreteScopeChoiceChip
-                        label={option.label}
-                        active={active}
-                        onPress={() => toggle(option.id)}
-                        applying={applying}
-                        darkMode={darkMode}
-                        Colors={Colors}
-                        style={{ marginTop: 10 }}
-                      />
-                      {active &&
-                      'measurementKey' in option &&
-                      option.measurementKey ? (
-                        <>
-                          {option.id !== 'demo_removal' &&
-                          option.id !== 'excavation' ? (
-                            <QmSqftMeasurementRow
-                              label={option.label}
-                              helperText={
-                                option.id === 'complex_forming' &&
-                                !hasMeasurement(option.measurementKey)
-                                  ? 'The notes identify a thickened edge but do not specify its length. Enter the confirmed edge length before pricing.'
-                                  : 'helperText' in option
-                                    ? option.helperText
-                                    : undefined
-                              }
-                              value={String(
-                                (measurements as Record<string, unknown>)[
-                                  option.measurementKey
-                                ] || ''
-                              )}
-                              placeholder='Enter'
-                              unitLabel={option.unit}
-                              onChangeText={value =>
-                                updateMeasurement(option.measurementKey!, value)
-                              }
-                              applying={applying}
-                              darkMode={darkMode}
-                              Colors={Colors}
-                              highlighted
-                            />
-                          ) : null}
-                          {option.id !== 'demo_removal' &&
-                          option.id !== 'excavation' &&
-                          !hasMeasurement(option.measurementKey) ? (
-                            <Text
-                              style={{
-                                color: '#fbbf24',
-                                fontSize: 11,
-                                marginTop: 5,
-                              }}
-                            >
-                              Quantity needed before this scope can be priced.
-                            </Text>
-                          ) : null}
-                          {option.id === 'demo_removal' ? (
-                            <>
+                <Text
+                  style={[
+                    styles.qmPanelTitle,
+                    { color: darkMode ? '#cbd5e1' : Colors.text },
+                  ]}
+                >
+                  Site prep & existing conditions {sitePrepExpanded ? '⌃' : '⌄'}
+                </Text>
+                <Text
+                  style={[
+                    styles.qmPanelCaption,
+                    { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+                  ]}
+                >
+                  Demo, grading, excavation, and other site conditions.
+                </Text>
+              </TouchableOpacity>
+              {sitePrepExpanded
+                ? CONCRETE_SCOPE_OPTIONS.filter(option =>
+                    visibleSitePrepOptionIds.has(option.id)
+                  ).map(option => {
+                    const active =
+                      selected.includes(option.id) ||
+                      (option.id === 'pour_foundation' &&
+                        selected.includes('footings'));
+                    return (
+                      <React.Fragment key={option.id}>
+                        <QmConcreteScopeChoiceChip
+                          label={option.label}
+                          active={active}
+                          onPress={() => toggle(option.id)}
+                          applying={applying}
+                          darkMode={darkMode}
+                          Colors={Colors}
+                          style={{ marginTop: 10 }}
+                        />
+                        {active &&
+                        'measurementKey' in option &&
+                        option.measurementKey ? (
+                          <>
+                            {option.id !== 'demo_removal' &&
+                            option.id !== 'excavation' ? (
+                              <QmSqftMeasurementRow
+                                label={option.label}
+                                helperText={
+                                  option.id === 'complex_forming' &&
+                                  !hasMeasurement(option.measurementKey)
+                                    ? 'The notes identify a thickened edge but do not specify its length. Enter the confirmed edge length before pricing.'
+                                    : 'helperText' in option
+                                      ? option.helperText
+                                      : undefined
+                                }
+                                value={String(
+                                  (measurements as Record<string, unknown>)[
+                                    option.measurementKey
+                                  ] || ''
+                                )}
+                                placeholder='Enter'
+                                unitLabel={option.unit}
+                                onChangeText={value =>
+                                  updateMeasurement(
+                                    option.measurementKey!,
+                                    value
+                                  )
+                                }
+                                applying={applying}
+                                darkMode={darkMode}
+                                Colors={Colors}
+                                highlighted
+                              />
+                            ) : null}
+                            {option.id !== 'demo_removal' &&
+                            option.id !== 'excavation' &&
+                            !hasMeasurement(option.measurementKey) ? (
                               <Text
                                 style={{
-                                  color: darkMode ? '#fbbf24' : '#a16207',
+                                  color: '#fbbf24',
                                   fontSize: 11,
-                                  lineHeight: 15,
-                                  marginTop: 8,
-                                  marginBottom: 4,
+                                  marginTop: 5,
                                 }}
                               >
-                                The notes identify patio removal but do not
-                                specify the existing concrete area or thickness.
-                                Leave these blank until confirmed.
+                                Quantity needed before this scope can be priced.
                               </Text>
-                              {selectedDemoBands.map(band => {
-                                const bandLabel =
-                                  CONCRETE_DEMO_THICKNESS_OPTIONS.find(
-                                    item => item.id === band
-                                  )?.label || band;
-                                return (
+                            ) : null}
+                            {option.id === 'demo_removal' ? (
+                              <>
+                                <Text
+                                  style={{
+                                    color: darkMode ? '#fbbf24' : '#a16207',
+                                    fontSize: 11,
+                                    lineHeight: 15,
+                                    marginTop: 8,
+                                    marginBottom: 4,
+                                  }}
+                                >
+                                  The notes identify patio removal but do not
+                                  specify the existing concrete area or
+                                  thickness. Leave these blank until confirmed.
+                                </Text>
+                                {selectedDemoBands.map(band => {
+                                  const bandLabel =
+                                    CONCRETE_DEMO_THICKNESS_OPTIONS.find(
+                                      item => item.id === band
+                                    )?.label || band;
+                                  return (
+                                    <QmSqftMeasurementRow
+                                      key={`${band}-demo-area`}
+                                      label={`${bandLabel} demo area`}
+                                      helperText='Enter the area for this concrete thickness.'
+                                      value={String(
+                                        demoAreaByThickness[band] ??
+                                          (selectedDemoBands.length === 1
+                                            ? measurements.concreteDemoSqft ||
+                                              ''
+                                            : '')
+                                      )}
+                                      placeholder='Enter'
+                                      unitLabel='sqft'
+                                      onChangeText={value =>
+                                        updateDemoBandArea(band, value)
+                                      }
+                                      applying={applying}
+                                      darkMode={darkMode}
+                                      Colors={Colors}
+                                      highlighted
+                                    />
+                                  );
+                                })}
+                                <Text
+                                  style={[
+                                    styles.qmPanelCaption,
+                                    {
+                                      color: darkMode ? '#cbd5e1' : Colors.text,
+                                      marginTop: 10,
+                                      marginBottom: 6,
+                                    },
+                                  ]}
+                                >
+                                  Existing concrete thickness · select all that
+                                  apply
+                                </Text>
+                                <View style={styles.qmOptionWrap}>
+                                  {CONCRETE_DEMO_THICKNESS_OPTIONS.map(
+                                    thickness => {
+                                      const activeThickness =
+                                        selectedDemoBands.includes(
+                                          thickness.id
+                                        );
+                                      return (
+                                        <QmConcreteScopeChoiceChip
+                                          key={thickness.id}
+                                          label={thickness.label}
+                                          active={activeThickness}
+                                          onPress={() =>
+                                            toggleDemoThickness(thickness.id)
+                                          }
+                                          applying={applying}
+                                          darkMode={darkMode}
+                                          Colors={Colors}
+                                        />
+                                      );
+                                    }
+                                  )}
+                                </View>
+                                <Text
+                                  style={[
+                                    styles.qmPanelCaption,
+                                    {
+                                      color: darkMode ? '#cbd5e1' : Colors.text,
+                                      marginTop: 10,
+                                      marginBottom: 4,
+                                    },
+                                  ]}
+                                >
+                                  Demolition conditions · select all that apply
+                                </Text>
+                                <QmConcreteScopeChoiceChip
+                                  label='Reinforced concrete · +$1.25/sqft'
+                                  active={Boolean(
+                                    measurements.concreteDemoReinforced
+                                  )}
+                                  onPress={() =>
+                                    setMeasurements(prev => ({
+                                      ...prev,
+                                      concreteDemoReinforced:
+                                        !prev.concreteDemoReinforced,
+                                    }))
+                                  }
+                                  applying={applying}
+                                  darkMode={darkMode}
+                                  Colors={Colors}
+                                  style={{ marginTop: 10 }}
+                                />
+                                <QmConcreteScopeChoiceChip
+                                  label='Limited access · +$1.50/sqft'
+                                  active={Boolean(
+                                    measurements.concreteDemoLimitedAccess
+                                  )}
+                                  onPress={() =>
+                                    setMeasurements(prev => ({
+                                      ...prev,
+                                      concreteDemoLimitedAccess:
+                                        !prev.concreteDemoLimitedAccess,
+                                    }))
+                                  }
+                                  applying={applying}
+                                  darkMode={darkMode}
+                                  Colors={Colors}
+                                  style={{ marginTop: 8 }}
+                                />
+                                {selectedDemoBands.includes(
+                                  'structural_7_plus'
+                                ) ? (
                                   <QmSqftMeasurementRow
-                                    key={`${band}-demo-area`}
-                                    label={`${bandLabel} demo area`}
-                                    helperText='Enter the area for this concrete thickness.'
+                                    label='Heavy / structural demo quantity'
+                                    helperText='Enter demolition CY for the $175/CY review allowance, or use custom pricing.'
                                     value={String(
-                                      demoAreaByThickness[band] ??
-                                        (selectedDemoBands.length === 1
-                                          ? measurements.concreteDemoSqft || ''
-                                          : '')
+                                      measurements.concreteDemoCy || ''
                                     )}
                                     placeholder='Enter'
-                                    unitLabel='sqft'
+                                    unitLabel='CY'
                                     onChangeText={value =>
-                                      updateDemoBandArea(band, value)
+                                      updateMeasurement('concreteDemoCy', value)
                                     }
                                     applying={applying}
                                     darkMode={darkMode}
                                     Colors={Colors}
                                     highlighted
                                   />
-                                );
-                              })}
-                              <Text
-                                style={[
-                                  styles.qmPanelCaption,
-                                  {
-                                    color: darkMode ? '#cbd5e1' : Colors.text,
-                                    marginTop: 10,
-                                    marginBottom: 6,
-                                  },
-                                ]}
-                              >
-                                Existing concrete thickness · select all that
-                                apply
-                              </Text>
-                              <View style={styles.qmOptionWrap}>
-                                {CONCRETE_DEMO_THICKNESS_OPTIONS.map(
-                                  thickness => {
-                                    const activeThickness =
-                                      selectedDemoBands.includes(thickness.id);
+                                ) : null}
+                              </>
+                            ) : null}
+                            {option.id === 'excavation' ? (
+                              <>
+                                <Text
+                                  style={[
+                                    styles.qmPanelCaption,
+                                    {
+                                      color: darkMode ? '#cbd5e1' : Colors.text,
+                                      marginTop: 10,
+                                      marginBottom: 6,
+                                    },
+                                  ]}
+                                >
+                                  How would you like to enter excavation
+                                  quantity?
+                                </Text>
+                                <View style={styles.qmOptionWrap}>
+                                  {(
+                                    [
+                                      {
+                                        id: 'direct_cy',
+                                        label: 'Enter cubic yards directly',
+                                      },
+                                      {
+                                        id: 'area_depth',
+                                        label: 'Calculate from area + depth',
+                                      },
+                                    ] as const
+                                  ).map(mode => {
+                                    const selectedMode =
+                                      measurements.excavationQuantityMode ||
+                                      (Number(measurements.excavationAreaSqft) >
+                                        0 &&
+                                      Number(
+                                        measurements.excavationDepthInches
+                                      ) > 0
+                                        ? 'area_depth'
+                                        : 'direct_cy');
+                                    const modeActive = selectedMode === mode.id;
                                     return (
                                       <QmConcreteScopeChoiceChip
-                                        key={thickness.id}
-                                        label={thickness.label}
-                                        active={activeThickness}
+                                        key={mode.id}
+                                        label={mode.label}
+                                        active={modeActive}
                                         onPress={() =>
-                                          toggleDemoThickness(thickness.id)
+                                          setMeasurements(prev =>
+                                            mode.id === 'direct_cy'
+                                              ? {
+                                                  ...prev,
+                                                  excavationQuantityMode:
+                                                    'direct_cy',
+                                                  excavationAreaSqft: '',
+                                                  excavationDepthInches: '',
+                                                }
+                                              : {
+                                                  ...prev,
+                                                  excavationQuantityMode:
+                                                    'area_depth',
+                                                  excavationCy: '',
+                                                }
+                                          )
                                         }
                                         applying={applying}
                                         darkMode={darkMode}
                                         Colors={Colors}
                                       />
                                     );
-                                  }
-                                )}
-                              </View>
-                              <Text
-                                style={[
-                                  styles.qmPanelCaption,
-                                  {
-                                    color: darkMode ? '#cbd5e1' : Colors.text,
-                                    marginTop: 10,
-                                    marginBottom: 4,
-                                  },
-                                ]}
-                              >
-                                Demolition conditions · select all that apply
-                              </Text>
-                              <QmConcreteScopeChoiceChip
-                                label='Reinforced concrete · +$1.25/sqft'
-                                active={Boolean(
-                                  measurements.concreteDemoReinforced
-                                )}
-                                onPress={() =>
-                                  setMeasurements(prev => ({
-                                    ...prev,
-                                    concreteDemoReinforced:
-                                      !prev.concreteDemoReinforced,
-                                  }))
-                                }
-                                applying={applying}
-                                darkMode={darkMode}
-                                Colors={Colors}
-                                style={{ marginTop: 10 }}
-                              />
-                              <QmConcreteScopeChoiceChip
-                                label='Limited access · +$1.50/sqft'
-                                active={Boolean(
-                                  measurements.concreteDemoLimitedAccess
-                                )}
-                                onPress={() =>
-                                  setMeasurements(prev => ({
-                                    ...prev,
-                                    concreteDemoLimitedAccess:
-                                      !prev.concreteDemoLimitedAccess,
-                                  }))
-                                }
-                                applying={applying}
-                                darkMode={darkMode}
-                                Colors={Colors}
-                                style={{ marginTop: 8 }}
-                              />
-                              {selectedDemoBands.includes(
-                                'structural_7_plus'
-                              ) ? (
-                                <QmSqftMeasurementRow
-                                  label='Heavy / structural demo quantity'
-                                  helperText='Enter demolition CY for the $175/CY review allowance, or use custom pricing.'
-                                  value={String(
-                                    measurements.concreteDemoCy || ''
-                                  )}
-                                  placeholder='Enter'
-                                  unitLabel='CY'
-                                  onChangeText={value =>
-                                    updateMeasurement('concreteDemoCy', value)
-                                  }
-                                  applying={applying}
-                                  darkMode={darkMode}
-                                  Colors={Colors}
-                                  highlighted
-                                />
-                              ) : null}
-                            </>
-                          ) : null}
-                          {option.id === 'excavation' ? (
-                            <>
-                              <Text
-                                style={[
-                                  styles.qmPanelCaption,
-                                  {
-                                    color: darkMode ? '#cbd5e1' : Colors.text,
-                                    marginTop: 10,
-                                    marginBottom: 6,
-                                  },
-                                ]}
-                              >
-                                How would you like to enter excavation quantity?
-                              </Text>
-                              <View style={styles.qmOptionWrap}>
-                                {(
-                                  [
-                                    {
-                                      id: 'direct_cy',
-                                      label: 'Enter cubic yards directly',
-                                    },
-                                    {
-                                      id: 'area_depth',
-                                      label: 'Calculate from area + depth',
-                                    },
-                                  ] as const
-                                ).map(mode => {
-                                  const selectedMode =
-                                    measurements.excavationQuantityMode ||
-                                    (Number(measurements.excavationAreaSqft) >
-                                      0 &&
-                                    Number(measurements.excavationDepthInches) >
-                                      0
-                                      ? 'area_depth'
-                                      : 'direct_cy');
-                                  const modeActive = selectedMode === mode.id;
-                                  return (
-                                    <QmConcreteScopeChoiceChip
-                                      key={mode.id}
-                                      label={mode.label}
-                                      active={modeActive}
-                                      onPress={() =>
-                                        setMeasurements(prev =>
-                                          mode.id === 'direct_cy'
-                                            ? {
-                                                ...prev,
-                                                excavationQuantityMode:
-                                                  'direct_cy',
-                                                excavationAreaSqft: '',
-                                                excavationDepthInches: '',
-                                              }
-                                            : {
-                                                ...prev,
-                                                excavationQuantityMode:
-                                                  'area_depth',
-                                                excavationCy: '',
-                                              }
+                                  })}
+                                </View>
+                                {(measurements.excavationQuantityMode ||
+                                  (Number(measurements.excavationAreaSqft) >
+                                    0 &&
+                                  Number(measurements.excavationDepthInches) > 0
+                                    ? 'area_depth'
+                                    : 'direct_cy')) === 'direct_cy' ? (
+                                  <QmSqftMeasurementRow
+                                    label='Direct excavation quantity'
+                                    helperText='This CY value controls pricing. Area and depth are not used in this mode.'
+                                    value={String(
+                                      measurements.excavationCy || ''
+                                    )}
+                                    placeholder='Enter'
+                                    unitLabel='CY'
+                                    onChangeText={value =>
+                                      updateMeasurement('excavationCy', value)
+                                    }
+                                    applying={applying}
+                                    darkMode={darkMode}
+                                    Colors={Colors}
+                                    highlighted
+                                  />
+                                ) : (
+                                  <>
+                                    <QmSqftMeasurementRow
+                                      label='Excavation area'
+                                      helperText='Enter the affected excavation area.'
+                                      value={String(
+                                        measurements.excavationAreaSqft || ''
+                                      )}
+                                      placeholder='Enter'
+                                      unitLabel='sqft'
+                                      onChangeText={value =>
+                                        updateMeasurement(
+                                          'excavationAreaSqft',
+                                          value
                                         )
                                       }
                                       applying={applying}
                                       darkMode={darkMode}
                                       Colors={Colors}
+                                      highlighted
                                     />
-                                  );
-                                })}
-                              </View>
-                              {(measurements.excavationQuantityMode ||
-                                (Number(measurements.excavationAreaSqft) > 0 &&
-                                Number(measurements.excavationDepthInches) > 0
-                                  ? 'area_depth'
-                                  : 'direct_cy')) === 'direct_cy' ? (
-                                <QmSqftMeasurementRow
-                                  label='Direct excavation quantity'
-                                  helperText='This CY value controls pricing. Area and depth are not used in this mode.'
-                                  value={String(
-                                    measurements.excavationCy || ''
-                                  )}
-                                  placeholder='Enter'
-                                  unitLabel='CY'
-                                  onChangeText={value =>
-                                    updateMeasurement('excavationCy', value)
-                                  }
-                                  applying={applying}
-                                  darkMode={darkMode}
-                                  Colors={Colors}
-                                  highlighted
-                                />
-                              ) : (
-                                <>
-                                  <QmSqftMeasurementRow
-                                    label='Excavation area'
-                                    helperText='Enter the affected excavation area.'
-                                    value={String(
-                                      measurements.excavationAreaSqft || ''
-                                    )}
-                                    placeholder='Enter'
-                                    unitLabel='sqft'
-                                    onChangeText={value =>
-                                      updateMeasurement(
-                                        'excavationAreaSqft',
-                                        value
-                                      )
-                                    }
-                                    applying={applying}
-                                    darkMode={darkMode}
-                                    Colors={Colors}
-                                    highlighted
-                                  />
-                                  <QmSqftMeasurementRow
-                                    label='Excavation depth'
-                                    helperText='Planning assumption: when the notes do not specify a dig depth, this may default to slab thickness plus the gravel-base depth. Confirm the actual dirt/soil removal depth; imported fill and off-site disposal remain separate.'
-                                    value={String(
-                                      measurements.excavationDepthInches || ''
-                                    )}
-                                    placeholder='Enter'
-                                    unitLabel='in'
-                                    onChangeText={value =>
-                                      updateMeasurement(
-                                        'excavationDepthInches',
-                                        value
-                                      )
-                                    }
-                                    applying={applying}
-                                    darkMode={darkMode}
-                                    Colors={Colors}
-                                    highlighted
-                                  />
-                                  {Number(measurements.excavationAreaSqft) >
-                                    0 &&
-                                  Number(measurements.excavationDepthInches) >
-                                    0 ? (
-                                    <Text
-                                      style={{
-                                        color: darkMode ? '#94a3b8' : '#64748b',
-                                        fontSize: 11,
-                                        marginTop: 5,
-                                      }}
-                                    >
-                                      Calculated excavation quantity from this
-                                      area and depth:{' '}
-                                      {(
-                                        (Number(
-                                          measurements.excavationAreaSqft
-                                        ) *
+                                    <QmSqftMeasurementRow
+                                      label='Excavation depth'
+                                      helperText='Planning assumption: when the notes do not specify a dig depth, this may default to slab thickness plus the gravel-base depth. Confirm the actual dirt/soil removal depth; imported fill and off-site disposal remain separate.'
+                                      value={String(
+                                        measurements.excavationDepthInches || ''
+                                      )}
+                                      placeholder='Enter'
+                                      unitLabel='in'
+                                      onChangeText={value =>
+                                        updateMeasurement(
+                                          'excavationDepthInches',
+                                          value
+                                        )
+                                      }
+                                      applying={applying}
+                                      darkMode={darkMode}
+                                      Colors={Colors}
+                                      highlighted
+                                    />
+                                    {Number(measurements.excavationAreaSqft) >
+                                      0 &&
+                                    Number(measurements.excavationDepthInches) >
+                                      0 ? (
+                                      <Text
+                                        style={{
+                                          color: darkMode
+                                            ? '#94a3b8'
+                                            : '#64748b',
+                                          fontSize: 11,
+                                          marginTop: 5,
+                                        }}
+                                      >
+                                        Calculated excavation quantity from this
+                                        area and depth:{' '}
+                                        {(
                                           (Number(
-                                            measurements.excavationDepthInches
-                                          ) /
-                                            12)) /
-                                        27
-                                      ).toFixed(1)}{' '}
-                                      CY
-                                    </Text>
-                                  ) : (
-                                    <Text
-                                      style={{
-                                        color: '#fbbf24',
-                                        fontSize: 11,
-                                        marginTop: 5,
-                                      }}
-                                    >
-                                      Enter both area and depth before this
-                                      scope can be priced.
-                                    </Text>
-                                  )}
-                                </>
-                              )}
-                            </>
-                          ) : null}
-                        </>
-                      ) : null}
-                    </React.Fragment>
-                  );
-                })
-              : null}
-          </View>
+                                            measurements.excavationAreaSqft
+                                          ) *
+                                            (Number(
+                                              measurements.excavationDepthInches
+                                            ) /
+                                              12)) /
+                                          27
+                                        ).toFixed(1)}{' '}
+                                        CY
+                                      </Text>
+                                    ) : (
+                                      <Text
+                                        style={{
+                                          color: '#fbbf24',
+                                          fontSize: 11,
+                                          marginTop: 5,
+                                        }}
+                                      >
+                                        Enter both area and depth before this
+                                        scope can be priced.
+                                      </Text>
+                                    )}
+                                  </>
+                                )}
+                              </>
+                            ) : null}
+                          </>
+                        ) : null}
+                      </React.Fragment>
+                    );
+                  })
+                : null}
+            </View>
+          ) : null}
         </>
       ) : null}
       <View style={[styles.qmPanel, panelStyle]}>
@@ -5627,7 +5670,7 @@ export function QmConcreteScopePanels({
           </>
         ) : null}
       </View>
-      {expanded ? (
+      {expanded && showOptionalPanel ? (
         <>
           <View style={[styles.qmPanel, panelStyle]}>
             <TouchableOpacity
@@ -6059,7 +6102,8 @@ export function QmRoofingScopePanels({
   const roofingNoteText = String(notes || '');
   const noteBackedRoofingOption = (id: string): boolean => {
     const patterns: Record<string, RegExp> = {
-      tear_off: /\b(?:tear[\s-]?off|remove|removal|existing)\b[^.;\n]{0,45}\broof/i,
+      tear_off:
+        /\b(?:tear[\s-]?off|remove|removal|existing)\b[^.;\n]{0,45}\broof/i,
       shingles:
         /\b(?:replace|replacement|install|reroof|re[\s-]?roof)\b[^.;\n]{0,45}\b(?:roof(?:ing)?|shingles?|squares?)\b|\b\d[\d,]*(?:\.\d+)?\s+roofing\s+squares?\b/i,
       decking_repair:
@@ -6235,45 +6279,45 @@ export function QmRoofingScopePanels({
           </View>
 
           {visibleAccessoryOptions.length > 0 ? (
-          <View style={[styles.qmPanel, panelStyle]}>
-            <TouchableOpacity
-              onPress={() => setAccessoryExpanded(value => !value)}
-              activeOpacity={0.75}
-            >
-              <Text
-                style={[
-                  styles.qmPanelCaption,
-                  {
-                    color: darkMode ? '#cbd5e1' : Colors.text,
-                    fontWeight: '700',
-                  },
-                ]}
+            <View style={[styles.qmPanel, panelStyle]}>
+              <TouchableOpacity
+                onPress={() => setAccessoryExpanded(value => !value)}
+                activeOpacity={0.75}
               >
-                Ventilation & accessories {accessoryExpanded ? '⌃' : '⌄'}
-              </Text>
-              <Text
-                style={[
-                  styles.qmPanelCaption,
-                  { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
-                ]}
-              >
-                Vents, penetrations, repairs, and closeout extras.
-              </Text>
-            </TouchableOpacity>
-            {accessoryExpanded ? (
-              <QmTradeScopeOptionList
-                options={visibleAccessoryOptions}
-                selections={selections}
-                scopeKey={scopeKey}
-                onToggle={toggle}
-                measurements={measurements}
-                setMeasurements={setMeasurements}
-                applying={applying}
-                darkMode={darkMode}
-                Colors={Colors}
-              />
-            ) : null}
-          </View>
+                <Text
+                  style={[
+                    styles.qmPanelCaption,
+                    {
+                      color: darkMode ? '#cbd5e1' : Colors.text,
+                      fontWeight: '700',
+                    },
+                  ]}
+                >
+                  Ventilation & accessories {accessoryExpanded ? '⌃' : '⌄'}
+                </Text>
+                <Text
+                  style={[
+                    styles.qmPanelCaption,
+                    { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 },
+                  ]}
+                >
+                  Vents, penetrations, repairs, and closeout extras.
+                </Text>
+              </TouchableOpacity>
+              {accessoryExpanded ? (
+                <QmTradeScopeOptionList
+                  options={visibleAccessoryOptions}
+                  selections={selections}
+                  scopeKey={scopeKey}
+                  onToggle={toggle}
+                  measurements={measurements}
+                  setMeasurements={setMeasurements}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+            </View>
           ) : null}
 
           <View style={[styles.qmPanel, panelStyle]}>
@@ -6772,6 +6816,7 @@ export function QmSimpleTradeScopePanels({
   measurements,
   setMeasurements,
   notes,
+  condensed = false,
   onScopeSelectionChange,
   applying,
   darkMode,
@@ -6783,6 +6828,7 @@ export function QmSimpleTradeScopePanels({
     React.SetStateAction<ScopeMeasurementsInputExtended>
   >;
   notes?: string | null;
+  condensed?: boolean;
   onScopeSelectionChange?: (measurements: Record<string, unknown>) => void;
   applying: boolean;
   darkMode: boolean;
@@ -6923,14 +6969,17 @@ export function QmSimpleTradeScopePanels({
     const reviewState = hvacScopeChipReviewState(
       measurements,
       option,
-      selections
+      selections,
+      notes
     );
     const quantityCaption =
       formatHvacScopeChipQuantity(measurements, option, selections) ??
       formatHvacOptionalAddOnChipCaption(measurements, option);
     const measurementHelper = hvacScopePanelMeasurementHelper(
       measurements,
-      option
+      option,
+      selections,
+      notes
     );
     const removalHelper =
       option.id === HVAC_SYSTEMS_OPTION_ID && existingHvacRemovalMentioned
@@ -6965,22 +7014,25 @@ export function QmSimpleTradeScopePanels({
         : quantityCaption
           ? 'In bid'
           : 'In bid';
-    const statusPillColors = needsReview || needsCapacityQuantity
-      ? {
-          backgroundColor: 'rgba(251, 191, 36, 0.12)',
-          color: '#fbbf24',
-        }
-      : needsQuantity
+    const statusPillColors =
+      needsReview || needsCapacityQuantity
         ? {
-            backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : '#e2e8f0',
-            color: darkMode ? '#cbd5e1' : '#475569',
+            backgroundColor: 'rgba(251, 191, 36, 0.12)',
+            color: '#fbbf24',
           }
-        : {
-            backgroundColor: darkMode
-              ? 'rgba(52, 211, 153, 0.12)'
-              : 'rgba(52, 211, 153, 0.14)',
-            color: '#34d399',
-          };
+        : needsQuantity
+          ? {
+              backgroundColor: darkMode
+                ? 'rgba(255, 255, 255, 0.1)'
+                : '#e2e8f0',
+              color: darkMode ? '#cbd5e1' : '#475569',
+            }
+          : {
+              backgroundColor: darkMode
+                ? 'rgba(52, 211, 153, 0.12)'
+                : 'rgba(52, 211, 153, 0.14)',
+              color: '#34d399',
+            };
     return (
       <View
         key={option.id}
@@ -7154,11 +7206,17 @@ export function QmSimpleTradeScopePanels({
     );
   };
 
+  const hvacOptionVisible = (option: (typeof spec.options)[number]) =>
+    !condensed ||
+    hvacScopeOptionMentionedInNotes(option.id, notes) ||
+    selections.includes(option.id);
+
   const hvacOptionsForIds = (optionIds: readonly string[]) =>
     optionIds
       .map(id => optionById.get(id))
-      .filter((option): option is (typeof spec.options)[number] =>
-        Boolean(option)
+      .filter(
+        (option): option is (typeof spec.options)[number] =>
+          Boolean(option) && hvacOptionVisible(option)
       );
 
   const hvacSelectedForIds = (optionIds: readonly string[]) =>
@@ -7174,15 +7232,15 @@ export function QmSimpleTradeScopePanels({
   const equipmentChipOptions = hvacOptionsForIds(HVAC_EQUIPMENT_OPTION_IDS);
   const equipmentIdleOptions = hvacIdleForIds(HVAC_EQUIPMENT_OPTION_IDS);
   const optionalSelected = optionalOptions.filter(
-    option => getHvacOptionState(option).active
+    option => hvacOptionVisible(option) && getHvacOptionState(option).active
   );
   const optionalIdle = optionalOptions.filter(
-    option => !getHvacOptionState(option).active
+    option => hvacOptionVisible(option) && !getHvacOptionState(option).active
   );
 
   const hvacScopeSummary =
     scopeKey === 'hvac'
-      ? summarizeHvacScopePanel(measurements as Record<string, unknown>)
+      ? summarizeHvacScopePanel(measurements as Record<string, unknown>, notes)
       : null;
 
   const hvacPanelShellStyle = {
@@ -7487,7 +7545,7 @@ export function QmSimpleTradeScopePanels({
         active={active}
         reviewState={
           scopeKey === 'hvac'
-            ? hvacScopeChipReviewState(measurements, option, selections)
+            ? hvacScopeChipReviewState(measurements, option, selections, notes)
             : 'idle'
         }
         quantityCaption={quantityCaption}

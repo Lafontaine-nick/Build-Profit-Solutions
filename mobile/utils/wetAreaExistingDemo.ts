@@ -68,9 +68,15 @@ export function readWetAreaExistingCounts(
     existingTileWallCount: positiveCount(measurements?.existingTileWallCount),
     existingTilePanCount: positiveCount(measurements?.existingTilePanCount),
     existingPrefabPanCount: positiveCount(measurements?.existingPrefabPanCount),
-    existingPrefabEnclosureCount: positiveCount(measurements?.existingPrefabEnclosureCount),
-    existingShowerDoorCount: positiveCount(measurements?.existingShowerDoorCount),
-    existingBathFloorTileCount: positiveCount(measurements?.existingBathFloorTileCount),
+    existingPrefabEnclosureCount: positiveCount(
+      measurements?.existingPrefabEnclosureCount
+    ),
+    existingShowerDoorCount: positiveCount(
+      measurements?.existingShowerDoorCount
+    ),
+    existingBathFloorTileCount: positiveCount(
+      measurements?.existingBathFloorTileCount
+    ),
   };
 }
 
@@ -95,7 +101,9 @@ export function readWetAreaDemoCounts(
     demoTileWallCount: positiveCount(measurements?.demoTileWallCount),
     demoTilePanCount: positiveCount(measurements?.demoTilePanCount),
     demoPrefabPanCount: positiveCount(measurements?.demoPrefabPanCount),
-    demoPrefabEnclosureCount: positiveCount(measurements?.demoPrefabEnclosureCount),
+    demoPrefabEnclosureCount: positiveCount(
+      measurements?.demoPrefabEnclosureCount
+    ),
     demoShowerDoorCount: positiveCount(measurements?.demoShowerDoorCount),
     demoBathFloorTileCount: positiveCount(measurements?.demoBathFloorTileCount),
   };
@@ -133,7 +141,9 @@ function notesMentionDemoTilePan(n: string): boolean {
     /\btile\s+(?:shower\s+)?pan\s+(?:to\s+)?(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/.test(
       n
     ) ||
-    /\b(remove|demo|demolition|tear[\s-]?out)\s+(?:the\s+)?(?:existing\s+)?mud\s+pan\b/.test(n)
+    /\b(remove|demo|demolition|tear[\s-]?out)\s+(?:the\s+)?(?:existing\s+)?mud\s+pan\b/.test(
+      n
+    )
   );
 }
 
@@ -158,7 +168,8 @@ function notesMentionInstallTileShowerPan(n: string): boolean {
 }
 
 function notesMentionExistingTileWalls(n: string): boolean {
-  if (/\b(existing|current|old)\s+tile\s+(?:shower\s+)?walls?\b/.test(n)) return true;
+  if (/\b(existing|current|old)\s+tile\s+(?:shower\s+)?walls?\b/.test(n))
+    return true;
   if (/\b(tile\s+surround|tile\s+shower\s+surround)\b/.test(n)) return true;
   if (!/\btiled?\s+shower\s+walls?\b/.test(n)) return false;
   // Bare "tile shower walls" is usually install language when demo/prefab tear-out is also stated.
@@ -170,10 +181,16 @@ function notesMentionExistingTileWalls(n: string): boolean {
 function notesMentionExistingTilePan(n: string): boolean {
   // Explicit prefab tear-out must not be overwritten by install "tile shower pan".
   if (notesMentionDemoPrefabPan(n) && !notesMentionDemoTilePan(n)) return false;
-  if (notesMentionInstallTileShowerPan(n) && !notesMentionDemoTilePan(n)) return false;
-  if (/\b(existing|current|old)\s+tile\s+(?:shower\s+)?pan\b/.test(n)) return true;
+  if (notesMentionInstallTileShowerPan(n) && !notesMentionDemoTilePan(n))
+    return false;
+  if (/\b(existing|current|old)\s+tile\s+(?:shower\s+)?pan\b/.test(n))
+    return true;
   if (notesMentionDemoTilePan(n)) return true;
-  if (/\bmud\s+pan\b/.test(n) && !/\b(install|new)\b[^.]{0,40}\bmud\s+pan\b/.test(n)) return true;
+  if (
+    /\bmud\s+pan\b/.test(n) &&
+    !/\b(install|new)\b[^.]{0,40}\bmud\s+pan\b/.test(n)
+  )
+    return true;
   if (
     /\btiled?\s+shower\s+floor\b/.test(n) &&
     !/\b(install|new|and)\b[^.]{0,40}\btiled?\s+shower\s+floor\b/.test(n)
@@ -193,7 +210,9 @@ function notesMentionExistingPrefabPan(n: string): boolean {
   ) {
     return false;
   }
-  return /\b(prefab\s+shower\s+pan|prefab\s+pan|acrylic\s+pan|fiberglass\s+pan|pan\s+insert)\b/.test(n);
+  return /\b(prefab\s+shower\s+pan|prefab\s+pan|acrylic\s+pan|fiberglass\s+pan|pan\s+insert)\b/.test(
+    n
+  );
 }
 
 function notesMentionExistingPrefabEnclosure(n: string): boolean {
@@ -208,7 +227,9 @@ function notesMentionExistingShowerDoor(n: string): boolean {
   }
   return (
     /\b(existing|current|old)\s+(?:glass\s+)?shower\s+door\b/.test(n) ||
-    /\b(existing|current|old)\b[^.]{0,50}\b(shower\s+door|glass\s+door)\b/.test(n) ||
+    /\b(existing|current|old)\b[^.]{0,50}\b(shower\s+door|glass\s+door)\b/.test(
+      n
+    ) ||
     /\bglass\s+shower\s+door\b/.test(n) ||
     notesMentionDemoShowerDoor(n)
   );
@@ -218,7 +239,9 @@ function notesMentionExistingBathFloorTile(n: string): boolean {
   if (/\bshower\s+floor\b/.test(n)) return false;
   return (
     /\b(existing|current|old)\s+(?:bath(?:room)?\s+)?floor\s+tile\b/.test(n) ||
-    /\b(existing|current|old)\s+bath(?:room)?\s+floor(?:ing| tile)?\b/.test(n) ||
+    /\b(existing|current|old)\s+bath(?:room)?\s+floor(?:ing| tile)?\b/.test(
+      n
+    ) ||
     /\b(existing|current)\s+floor\s+tile\b[^.]{0,30}\bbath/.test(n)
   );
 }
@@ -229,8 +252,12 @@ function notesMentionDemoBathFloorTile(n: string): boolean {
     /\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,50}\b(bath(?:room)?\s+floor(?:\s+tile)?|floor\s+tile)\b/.test(
       n
     ) ||
-    /\b(bath(?:room)?\s+floor(?:\s+tile)?|floor\s+tile)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out)\b/.test(n) ||
-    /\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,50}\b(?:bath(?:room)?\s+)?flooring\b/.test(n)
+    /\b(bath(?:room)?\s+floor(?:\s+tile)?|floor\s+tile)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out)\b/.test(
+      n
+    ) ||
+    /\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,50}\b(?:bath(?:room)?\s+)?flooring\b/.test(
+      n
+    )
   );
 }
 
@@ -248,7 +275,8 @@ export function inferExistingWetAreaFromNotes(
   if (notesMentionExistingTub(n)) out.existingTubCount = 1;
   if (notesMentionExistingTileWalls(n)) out.existingTileWallCount = 1;
   if (notesMentionExistingTilePan(n)) out.existingTilePanCount = 1;
-  if (notesMentionExistingPrefabEnclosure(n)) out.existingPrefabEnclosureCount = 1;
+  if (notesMentionExistingPrefabEnclosure(n))
+    out.existingPrefabEnclosureCount = 1;
   else if (notesMentionExistingPrefabPan(n)) out.existingPrefabPanCount = 1;
   if (notesMentionExistingShowerDoor(n)) out.existingShowerDoorCount = 1;
   if (notesMentionExistingBathFloorTile(n)) out.existingBathFloorTileCount = 1;
@@ -320,7 +348,8 @@ function preferNotesExplicitPrefabPanDemo(
   notes?: string | null
 ): WetAreaExistingCounts {
   const n = String(notes || '').toLowerCase();
-  if (!notesMentionDemoPrefabPan(n) || notesMentionDemoTilePan(n)) return existing;
+  if (!notesMentionDemoPrefabPan(n) || notesMentionDemoTilePan(n))
+    return existing;
   return reconcileExistingWetAreaCounts({
     ...existing,
     existingPrefabPanCount: existing.existingPrefabPanCount ?? 1,
@@ -360,8 +389,12 @@ export function resolveEffectiveExistingWetArea(
 
 function notesMentionDemoTub(n: string): boolean {
   return (
-    /\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,60}\b(tub|bathtub)\b/.test(n) ||
-    /\b(tub|bathtub)\b[^.]{0,60}\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/.test(n)
+    /\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,60}\b(tub|bathtub)\b/.test(
+      n
+    ) ||
+    /\b(tub|bathtub)\b[^.]{0,60}\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/.test(
+      n
+    )
   );
 }
 
@@ -370,7 +403,9 @@ function notesMentionDemoTileWalls(n: string): boolean {
     /\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,60}\b(tile\s+surround|shower\s+surround|shower\s+walls?|wall\s+tile)\b/.test(
       n
     ) ||
-    /\b(tile\s+surround|shower\s+surround|shower\s+walls?)\b[^.]{0,60}\b(remove|demo|demolition|tear[\s-]?out)\b/.test(n)
+    /\b(tile\s+surround|shower\s+surround|shower\s+walls?)\b[^.]{0,60}\b(remove|demo|demolition|tear[\s-]?out)\b/.test(
+      n
+    )
   );
 }
 
@@ -387,8 +422,12 @@ function notesMentionDemoShowerFloor(n: string): boolean {
 
 function notesMentionDemoShowerDoor(n: string): boolean {
   return (
-    /\b(remove|demo|tear[\s-]?out|replace)\b[^.]{0,50}\b(shower\s+door|glass\s+door)\b/.test(n) ||
-    /\b(shower\s+door|glass\s+door)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|replace)\b/.test(n)
+    /\b(remove|demo|tear[\s-]?out|replace)\b[^.]{0,50}\b(shower\s+door|glass\s+door)\b/.test(
+      n
+    ) ||
+    /\b(shower\s+door|glass\s+door)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|replace)\b/.test(
+      n
+    )
   );
 }
 
@@ -433,7 +472,9 @@ function setDemoIf(
  * - Bath floor → Remove bathroom floor tile
  * - Shower doors → never from install alone (notes / reuse toggle)
  */
-export function resolveDemoWetAreaFromIntent(input: DemoWetAreaInferenceInput): WetAreaDemoCounts {
+export function resolveDemoWetAreaFromIntent(
+  input: DemoWetAreaInferenceInput
+): WetAreaDemoCounts {
   const empty: WetAreaDemoCounts = {
     demoTubCount: null,
     demoTileWallCount: null,
@@ -456,7 +497,10 @@ export function resolveDemoWetAreaFromIntent(input: DemoWetAreaInferenceInput): 
   const installingPrefabEnclosure = positiveCount(ins.prefabEnclosureBathCount);
   const installingTub = positiveCount(ins.tubBathCount);
   const installingNewShowerFloor = Boolean(
-    installingTilePan || installingPrefabPan || installingPrefabEnclosure || installingTub
+    installingTilePan ||
+      installingPrefabPan ||
+      installingPrefabEnclosure ||
+      installingTub
   );
   const hasExistingTub = positiveCount(ex.existingTubCount);
   const hasExistingTilePan = positiveCount(ex.existingTilePanCount);
@@ -494,7 +538,8 @@ export function resolveDemoWetAreaFromIntent(input: DemoWetAreaInferenceInput): 
       (hasExistingTilePan || hasExistingPrefabPan || hasExistingEnclosure));
 
   // New shower floor displaces whatever pan/enclosure exists (conversion).
-  const displaceExistingShowerFloor = installingNewShowerFloor && !hasExistingTub;
+  const displaceExistingShowerFloor =
+    installingNewShowerFloor && !hasExistingTub;
 
   // Like-for-like when existing type is unknown — don't invent the wrong pan demo during conversion.
   const otherFloorExisting = hasExistingPrefabPan || hasExistingEnclosure;
@@ -507,7 +552,9 @@ export function resolveDemoWetAreaFromIntent(input: DemoWetAreaInferenceInput): 
     Boolean(
       !hasExistingTub &&
         ((hasExistingTilePan &&
-          (floorDemoFromNotes || displaceExistingShowerFloor || installingTilePan)) ||
+          (floorDemoFromNotes ||
+            displaceExistingShowerFloor ||
+            installingTilePan)) ||
           (installingTilePan && !otherFloorExisting))
     )
   );
@@ -519,7 +566,9 @@ export function resolveDemoWetAreaFromIntent(input: DemoWetAreaInferenceInput): 
       !hasExistingTub &&
         ((hasExistingPrefabPan &&
           !hasExistingEnclosure &&
-          (floorDemoFromNotes || displaceExistingShowerFloor || installingPrefabPan)) ||
+          (floorDemoFromNotes ||
+            displaceExistingShowerFloor ||
+            installingPrefabPan)) ||
           (installingPrefabPan && !otherThanTilePanExisting))
     )
   );
@@ -554,15 +603,20 @@ export function resolveDemoWetAreaFromIntent(input: DemoWetAreaInferenceInput): 
   // Bath floor: Wet area "Bath floor" stepper always implies tear-out of the old finish.
   const notesWantBathFloorDemo = notesMentionDemoBathFloorTile(n);
   const installingBathFloorStepper = positiveCount(ins.bathFloorTileCount);
+  const fixtureOnlyBathroomRemoval =
+    /\bremove\s+existing\s+bathroom\s+fixtures?\b/i.test(n) &&
+    !notesWantBathFloorDemo;
   const installingBathFloorOtherwise =
-    Boolean(input.floorTileIncluded) || positiveSqft(input.bathroomFloorSqft);
+    !fixtureOnlyBathroomRemoval &&
+    (Boolean(input.floorTileIncluded) || positiveSqft(input.bathroomFloorSqft));
   setDemoIf(
     demo,
     'demoBathFloorTileCount',
     Boolean(
       notesWantBathFloorDemo ||
         installingBathFloorStepper ||
-        (positiveCount(ex.existingBathFloorTileCount) && installingBathFloorOtherwise)
+        (positiveCount(ex.existingBathFloorTileCount) &&
+          installingBathFloorOtherwise)
     )
   );
 
@@ -600,7 +654,7 @@ export function mergeDemoCountsWithOverrides(params: {
 }
 
 export function anyDemoWetAreaActive(demo: WetAreaDemoCounts): boolean {
-  return Object.values(demo).some((v) => positiveCount(v) != null);
+  return Object.values(demo).some(v => positiveCount(v) != null);
 }
 
 /** Seed existing counts from photo vision existingFeatures. */
@@ -611,12 +665,16 @@ export function applyExistingFeaturesToMeasurements<
   const next = { ...measurements };
   for (const row of features) {
     if ((row.confidence ?? 0) < PHOTO_EXISTING_MIN_CONFIDENCE) continue;
-    const key = String(row.feature || '').toLowerCase() as PhotoExistingWetAreaFeature;
+    const key = String(
+      row.feature || ''
+    ).toLowerCase() as PhotoExistingWetAreaFeature;
     const patch = FEATURE_TO_EXISTING[key];
     if (!patch) continue;
     Object.assign(next, patch);
   }
-  const reconciled = reconcileExistingWetAreaCounts(readWetAreaExistingCounts(next));
+  const reconciled = reconcileExistingWetAreaCounts(
+    readWetAreaExistingCounts(next)
+  );
   return { ...next, ...reconciled };
 }
 

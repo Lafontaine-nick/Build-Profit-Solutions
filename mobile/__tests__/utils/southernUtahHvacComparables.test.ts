@@ -7,6 +7,7 @@ import {
 import {
   hvacH64InstalledForProject,
   resolveHvacPackageComparable,
+  resolveHvacInstalledPackageSuggestedTotal,
 } from '@/utils/southernUtahHvacComparables';
 import { buildSuggestedPricingCardDisplay } from '@/utils/suggestedPricingCardUi';
 
@@ -21,6 +22,14 @@ describe('southernUtahHvacComparables', () => {
 });
 
 describe('HVAC suggested pricing comparisons', () => {
+  it('does not invent tonnage when HVAC capacity is missing', () => {
+    expect(
+      resolveHvacInstalledPackageSuggestedTotal({
+        hvacSystemCount: 1,
+      })
+    ).toBeNull();
+  });
+
   it('anchors Plan 58 on the H64 package when system counts are unverified', () => {
     const input = {
       floorAreaSqft: '3660',
@@ -30,7 +39,11 @@ describe('HVAC suggested pricing comparisons', () => {
         buildingAreas: { totalLivingSqft: 3660 },
       },
       itemQuantities: {
-        hvac: { quantity: '2', unit: 'each', quantitySource: 'needs_confirmation' },
+        hvac: {
+          quantity: '2',
+          unit: 'each',
+          quantitySource: 'needs_confirmation',
+        },
       },
       quickMeasurementSources: {
         hvacSystemCount: 'needs_confirmation',
@@ -52,8 +65,12 @@ describe('HVAC suggested pricing comparisons', () => {
 
     expect(pricing.fill?.total).toBe(18500);
     expect(pricing.fill?.basis).toMatchObject({ quantity: 2, unit: 'each' });
-    expect(pricing.fill?.helper).toMatch(/Plan 58 H64 complete HVAC package ~\$18,500/i);
-    expect(pricing.fill?.helper).toMatch(/includes equipment, ductwork, registers, thermostat/i);
+    expect(pricing.fill?.helper).toMatch(
+      /Plan 58 H64 complete HVAC package ~\$18,500/i
+    );
+    expect(pricing.fill?.helper).toMatch(
+      /includes equipment, ductwork, registers, thermostat/i
+    );
     expect(pricing.comparison).toMatchObject({
       total: 21000,
       rateSourceLabel: 'National average comparison',
@@ -65,12 +82,17 @@ describe('HVAC suggested pricing comparisons', () => {
     const input = {
       floorAreaSqft: '3660',
       hvacSystemCount: '2',
+      hvacSystemTons: '5',
       hvacDuctworkLf: '120',
       quickMeasurementSources: {
         hvacSystemCount: 'needs_confirmation',
       },
       itemQuantities: {
-        ductwork: { quantity: '120', unit: 'lf', quantitySource: 'needs_confirmation' },
+        ductwork: {
+          quantity: '120',
+          unit: 'lf',
+          quantitySource: 'needs_confirmation',
+        },
       },
       planImportTradeKey: 'hvac',
     } as const;

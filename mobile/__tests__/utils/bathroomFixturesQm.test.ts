@@ -38,6 +38,15 @@ describe('bathroomFixturesQm', () => {
     expect(install.bathroomInstallCounterCount).toBe(1);
   });
 
+  test('infers one vanity from mixed bathroom installation notes', () => {
+    const install = inferBathroomFixtureInstallFromIntent({
+      notes:
+        'Reroute bathroom plumbing and install a toilet, vanity, faucet, shower valve, flooring, drywall repair, cabinets, windows, insulation, and paint.',
+      checklistItems: [],
+    });
+    expect(install.bathroomInstallVanityCount).toBe(1);
+  });
+
   test('demo counter not inferred from install alone', () => {
     const demo = resolveBathroomFixtureDemoFromIntent({
       notes: '',

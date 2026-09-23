@@ -596,6 +596,40 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).not.toContain('flooringSqft');
     expect(keys).not.toContain('drywallSqft');
     expect(keys).not.toContain('cabinetLf');
+
+    const mixedRows = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: notes }
+    );
+    const mixedKeys = mixedRows.flat().map(field => field.key);
+    expect(mixedKeys).toContain('plumbingRerouteLf');
+    expect(mixedKeys).toContain('bathroomFloorSqft');
+    expect(mixedKeys).toContain('cabinetLf');
+    expect(mixedKeys).not.toContain('flooringSqft');
+    expect(mixedKeys).not.toContain('drywallSqft');
+  });
+
+  it('keeps a whole-home remodel out of kitchen and bathroom finish fields', () => {
+    const notes =
+      'Remodel a 2,400 sqft home with demolition and removal of existing cabinets, fixtures, flooring, drywall, and finishes as needed; kitchen and bathroom updates, 1,800 sqft flooring, 500 sqft drywall repair, six windows, two exterior doors, four interior doors, wall and attic insulation, air sealing, trim, plumbing, electrical, and interior paint.';
+    const keys = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toContain('flooringSqft');
+    expect(keys).toContain('drywallSqft');
+    expect(keys).not.toContain('bathroomFloorSqft');
+    expect(keys).not.toContain('kitchenFloorSqft');
+    expect(keys).not.toContain('cabinetLf');
   });
 
   it('exposes note-backed framing measurements inside a mixed remodel', () => {
@@ -819,18 +853,12 @@ describe('scopeQuickMeasurements', () => {
   });
 
   it('restores the full physical plumbing card for ground-up Notes/Voice flow', () => {
-    const rows = quickMeasurementRowsForInput(
-      'plumbing',
-      'plumbing',
-      {},
-      [],
-      {
-        plumbingNotesFlow: true,
-        plumbingWorkflowMode: 'new_construction',
-        scopeNotes:
-          'Plumbing rough-in for ground-up construction: Install underground and above-slab DWV piping, domestic hot and cold water lines, vent piping, hose-bib lines, and connections for all fixtures shown on plans. Set fixture stub-outs at kitchen, bathrooms, laundry, and utility areas. Pressure-test water lines and inspect/test drain and vent systems before concealment. Excludes fixtures, trim, excavation beyond plumbing trenches, utility tap fees, and final connections.',
-      }
-    );
+    const rows = quickMeasurementRowsForInput('plumbing', 'plumbing', {}, [], {
+      plumbingNotesFlow: true,
+      plumbingWorkflowMode: 'new_construction',
+      scopeNotes:
+        'Plumbing rough-in for ground-up construction: Install underground and above-slab DWV piping, domestic hot and cold water lines, vent piping, hose-bib lines, and connections for all fixtures shown on plans. Set fixture stub-outs at kitchen, bathrooms, laundry, and utility areas. Pressure-test water lines and inspect/test drain and vent systems before concealment. Excludes fixtures, trim, excavation beyond plumbing trenches, utility tap fees, and final connections.',
+    });
 
     expect(rows.flat().map(field => field.key)).toEqual([
       'plumbingRoughPointCount',

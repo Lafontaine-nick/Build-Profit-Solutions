@@ -158,7 +158,10 @@ export type ParsedScopeMeasurements = {
   concreteSqft?: number;
   concreteDemoSqft?: number;
   concreteDemoThicknessBand?:
-    'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus';
+    | 'thin_2_3'
+    | 'standard_4'
+    | 'heavy_5_6'
+    | 'structural_7_plus';
   concreteDemoReinforced?: boolean;
   concreteDemoLimitedAccess?: boolean;
   concreteCy?: number;
@@ -294,10 +297,11 @@ function splitNoteClauses(text: string): string[] {
           .replace(/__FINAL_CLEAN_HAUL__/g, ' and ')
       );
   }
-  return clauses
+  const result = clauses
     .flatMap(clause => clause.split(/,\s+(?=[a-z])/i))
     .map(clause => clause.trim())
     .filter(Boolean);
+  return result;
 }
 
 function kitchenFlooringScopeExcluded(text: string): boolean {
@@ -410,7 +414,12 @@ export function parseInsulationAssembliesFromNotes(
     const match = clause.match(
       /([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))/i
     );
-    return match ? Number(match[1].replace(/,/g, '')) : 0;
+    if (!match) return 0;
+    const quantityEnd = (match.index || 0) + match[0].length;
+    if (/\s+(?:home|house)\b/i.test(clause.slice(quantityEnd, quantityEnd + 24))) {
+      return 0;
+    }
+    return Number(match[1].replace(/,/g, ''));
   };
   const material = (clause: string) => {
     if (/\bblown(?:[-\s]?in)?\b/i.test(clause)) return 'Blown-in';
@@ -434,6 +443,10 @@ export function parseInsulationAssembliesFromNotes(
     }
     return undefined;
   };
+  const hasExplicitWallAndAtticInsulation =
+    /\bwall(?:s)?\s+and\s+attic(?:\s+area)?\s+insulat(?:e|ion|ed)\b|\battic(?:\s+area)?\s+and\s+wall(?:s)?\s+insulat(?:e|ion|ed)\b/i.test(
+      String(text || '')
+    );
   const add = (
     location: ParsedInsulationAssembly['location'],
     pattern: RegExp,
@@ -463,7 +476,14 @@ export function parseInsulationAssembliesFromNotes(
       (hasStructuralContext &&
         /\b(?:insulat(?:e|ion|ed)|R[-\s]?\d{2,3})\b/i.test(clause));
     const parsedRValue = rValue(clause);
-    if (!(sqft > 0) && !(parsedRValue && hasInsulationInstallIntent)) {
+    const hasUnquantifiedExplicitLocation =
+      hasExplicitWallAndAtticInsulation &&
+      (location === 'exterior_wall' || location === 'attic_ceiling');
+    if (
+      !(sqft > 0) &&
+      !(parsedRValue && hasInsulationInstallIntent) &&
+      !hasUnquantifiedExplicitLocation
+    ) {
       return;
     }
     assemblies.push({
@@ -690,8 +710,7 @@ function pickOpeningCount(
     if (!patternMatch || patternMatch.index == null) return null;
     const openingNounRe = /\b(?:windows?|doors?|fenestration|openings?)\b/gi;
     const openingNouns = [...patternMatch[0].matchAll(openingNounRe)];
-    const targetIndex =
-      patternMatch.index + (openingNouns.at(-1)?.index ?? 0);
+    const targetIndex = patternMatch.index + (openingNouns.at(-1)?.index ?? 0);
     const countRe = new RegExp(COUNT_TOKEN_RE.source, 'gi');
     let match: RegExpExecArray | null;
     let nearest: { distance: number; count: number } | null = null;
@@ -700,10 +719,7 @@ function pickOpeningCount(
       if (count == null) continue;
       // Do not carry a count across another opening noun. For example,
       // "six windows, exterior doors" has no exterior-door count.
-      const between = source.slice(
-        match.index + match[0].length,
-        targetIndex
-      );
+      const between = source.slice(match.index + match[0].length, targetIndex);
       if (
         match.index >= targetIndex ||
         (!/openings\?/i.test(pattern.source) &&
@@ -1002,15 +1018,53 @@ export function parseScopeMeasurementsFromNotes(
     }
     return null;
   })();
+  const explicitBathFlooring = (() => {
+    // A whole-home note may mention both a bathroom and flooring without
+    // assigning the flooring area to the bathroom. Keep that quantity on the
+    // mixed flooring scope unless the note is bathroom-focused.
+    if (
+      !/\bbath(?:room)?\b/i.test(blob) ||
+      /\bkitchen\b/i.test(blob) ||
+      /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
+        blob
+      )
+    ) {
+      return null;
+    }
+    for (const clause of clauses) {
+      for (const segment of clause.split(/[,;]\s*/)) {
+        if (!/\b(?:flooring|floor\s+tile|tile\s+floor)\b/i.test(segment)) {
+          continue;
+        }
+        const quantity = pickSqftNearPattern(
+          segment,
+          /\b(?:flooring|floor\s+tile|tile\s+floor)\b/i
+        );
+        if (quantity) return quantity;
+      }
+    }
+    return null;
+  })();
+  const wholeHomeMixedNote =
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\s+home\b/i.test(
+      blob
+    ) && /\bkitchen\b/i.test(blob);
+  const explicitBathroomFloorReference =
+    /\bbath(?:room)?\s+floor(?:ing)?\b|\bfloor(?:ing)?\b[^.;,\n]{0,35}\bbath(?:room)?\b/i.test(
+      blob
+    );
   const bathFloor =
-    pickSqftFromClauses([
-      /\bbath(?:room)?\s+floor\b/,
-      /\bbath(?:room)?\b.*\bfloor(?:ing)?\b/,
-      /\bfloor\b.*\bbath(?:room)?\b/,
-      /\bmain\s+bath(?:room)?\b/,
-    ]) ||
-    explicitBathFloorTile ||
-    firstGenericBathroomSqft();
+    wholeHomeMixedNote && !explicitBathroomFloorReference
+      ? null
+      : explicitBathFlooring ||
+        pickSqftFromClauses([
+          /\bbath(?:room)?\s+floor\b/,
+          /\bbath(?:room)?\b.*\bfloor(?:ing)?\b/,
+          /\bfloor\b.*\bbath(?:room)?\b/,
+          /\bmain\s+bath(?:room)?\b/,
+        ]) ||
+        explicitBathFloorTile ||
+        firstGenericBathroomSqft();
   if (bathFloor) out.bathroomFloorSqft = bathFloor;
 
   const kitchenFloor = parseKitchenFloorSqftFromClauses(clauses, text);
@@ -1579,12 +1633,20 @@ export function parseScopeMeasurementsFromNotes(
         continue;
       const flooringPattern =
         /\b(?:flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b/i;
+      const explicitlyScopedFlooringQty = clause
+        .split(/(?<!\d),\s*(?!\d)|;\s*/)
+        .map(segment => {
+          if (!flooringPattern.test(segment)) return null;
+          return pickSqftNearPattern(segment, flooringPattern);
+        })
+        .find((value): value is number => value != null);
       const dedicatedFlooringTemplate =
         templateKey === 'flooring' || projectType === 'flooring';
       // Do not assign a quantity when the nearby sqft belongs to another
       // scope owner, such as "1,600 sqft drywall, flooring".
       if (
         !dedicatedFlooringTemplate &&
+        explicitlyScopedFlooringQty == null &&
         /\b(?:drywall|sheetrock|gypsum|framing|insulation|paint|walls?)\b[^.;,\n]{0,45}\b(?:flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b|\b(?:flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b[^.;,\n]{0,45}\b(?:drywall|sheetrock|gypsum|framing|insulation|paint|walls?)\b/i.test(
           c
         )
@@ -1592,6 +1654,7 @@ export function parseScopeMeasurementsFromNotes(
         continue;
       }
       const q =
+        explicitlyScopedFlooringQty ||
         pickSqftNearPattern(clause, flooringPattern) ||
         (dedicatedFlooringTemplate ? firstQty(clause, SQFT_RE) : null);
       if (q && q > max) max = q;
@@ -2504,7 +2567,11 @@ export function parseScopeMeasurementsFromNotes(
         hvacText
       )
     ) {
-      out.hvacEquipmentReplacementCount = 1;
+      // Preserve an explicitly parsed system count, but do not invent one
+      // for an unquantified replacement mention.
+      if (systemCount) {
+        out.hvacEquipmentReplacementCount = Math.round(systemCount);
+      }
     }
     const refrigerantCount = firstHvacCount(
       hvacText,

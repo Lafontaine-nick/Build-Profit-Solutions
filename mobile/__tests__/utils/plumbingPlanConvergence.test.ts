@@ -1346,6 +1346,26 @@ describe('plumbing notes routing', () => {
     expect(byId.get('plumbing_fixtures_hardware')).toBe('excluded');
   });
 
+  it('does not turn an unquantified ground-up rough-in description into one point', () => {
+    const notes =
+      'Plumbing rough-in for ground-up construction: Install underground and above-slab DWV piping, domestic hot and cold water lines, vent piping, hose-bib lines, and connections for all fixtures shown on plans. Set fixture stub-outs at kitchen, bathrooms, laundry, and utility areas. Pressure-test water lines and inspect/test drain and vent systems before concealment. Excludes fixtures, trim, excavation beyond plumbing trenches, utility tap fees, and final connections.';
+
+    expect(parsePlumbingMeasurementsFromNotes(notes)).toEqual({});
+    expect(notesExcludePlumbingScopePhrase(notes, /\btrim\b/i)).toBe(true);
+    expect([...plumbingNoteScopeItemIds(notes)].sort()).toEqual(
+      ['plumbing_rough', 'sewer_line', 'water_line'].sort()
+    );
+
+    const byId = new Map(
+      buildStandalonePlumbingChecklistItems('new_construction', notes).map(
+        item => [item.id, item.state]
+      )
+    );
+    expect(byId.get('plumbing_rough')).toBe('included');
+    expect(byId.get('plumbing_trim')).toBe('excluded');
+    expect(byId.get('plumbing_fixtures_hardware')).toBe('excluded');
+  });
+
   it('bootstraps master bath standalone drafts without water heater or fixtures', () => {
     const draft = createStandalonePlumbingDraft(MASTER_BATH_NOTES, {
       estimatingMode: 'selected_trade',

@@ -16,6 +16,51 @@ const SMITH_NOTES =
   'Floor job at Smith residence. Demo existing tile in main bath 850 sqft lump sum $2,550. Demo kitchen vinyl 180 sqft allowance $900. Install LVP in both areas 1030 total sqft not priced yet. Baseboards throughout 220 LF lump sum $1,540. Final clean and haul off $650 lump sum.';
 
 describe('mobile scope measurement parser', () => {
+  it('keeps mixed home-remodel quantities attached to their trades', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Remodel a 2,400 sqft home with demolition and removal of existing cabinets, fixtures, flooring, drywall, and finishes as needed; kitchen and bathroom updates, 1,800 sqft flooring, 500 sqft drywall repair, six windows, two exterior doors, four interior doors, wall and attic insulation, air sealing, trim, plumbing, electrical, and interior paint.',
+      { templateKey: 'room_remodel', projectType: 'other' }
+    );
+    expect(parsed.floorAreaSqft).toBeUndefined();
+    expect(parsed.bathroomFloorSqft).toBeUndefined();
+    expect(parsed.flooringSqft).toBe(1800);
+    expect(parsed.patchRepairSqft).toBe(500);
+    expect(parsed.drywallSqft).toBe(500);
+    expect(
+      parseScopeMeasurementsFromNotes(
+        'Remodel a 2,400 sqft home with demolition and removal of existing cabinets, fixtures, flooring, drywall, and finishes as needed; kitchen and bathroom updates, 1,800 sqft flooring, 500 sqft drywall repair, six windows, two exterior doors, four interior doors, wall and attic insulation, air sealing, trim, plumbing, electrical, and interior paint.',
+        { templateKey: 'kitchen', projectType: 'other' }
+      ).drywallSqft
+    ).toBe(500);
+    expect(parsed.windowCount).toBe(6);
+    expect(parsed.exteriorDoorCount).toBe(2);
+    expect(parsed.interiorDoorCount).toBe(4);
+    expect(parsed.atticInsulationSqft).toBeUndefined();
+    expect(parsed.exteriorWallInsulationSqft).toBeUndefined();
+  });
+
+  it('preserves explicit wall and attic insulation locations without inventing quantities', () => {
+    const assemblies = parseInsulationAssembliesFromNotes(
+      'Remodel a 2,400 sqft home with wall and attic insulation, air sealing, and interior paint.'
+    );
+
+    expect(assemblies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          location: 'exterior_wall',
+          sqft: 0,
+          rValue: '',
+        }),
+        expect.objectContaining({
+          location: 'attic_ceiling',
+          sqft: 0,
+          rValue: '',
+        }),
+      ])
+    );
+    expect(assemblies).toHaveLength(2);
+  });
+
   it('parses a bathroom plumbing reroute separately from water-service piping', () => {
     const parsed = parseScopeMeasurementsFromNotes(
       'Remove existing bathroom fixtures, then reroute 25 LF bathroom plumbing and install a toilet, vanity, faucet, shower valve.'
@@ -23,6 +68,17 @@ describe('mobile scope measurement parser', () => {
 
     expect(parsed.plumbingRerouteLf).toBe(25);
     expect(parsed.waterLineLf).toBeUndefined();
+  });
+
+  it('keeps explicit flooring sqft separate from nearby drywall repair sqft', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Remove existing bathroom fixtures, then reroute 25 LF bathroom plumbing and install a toilet, vanity, faucet, shower valve, 90 sqft flooring, 120 sqft drywall repair, 40 LF cabinets, two windows, insulation, and paint.'
+    );
+
+    expect(parsed.flooringSqft).toBe(90);
+    expect(parsed.bathroomFloorSqft).toBe(90);
+    expect(parsed.drywallSqft).toBe(120);
+    expect(parsed.plumbingRerouteLf).toBe(25);
   });
 
   it('keeps mixed painting notes in the correct scope and measurement owners', () => {
@@ -1467,6 +1523,15 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.hvacDuctworkLf).toBe(120);
     expect(parsed.hvacThermostatCount).toBe(1);
     expect(parsed.hvacSupplyRegisterCount).toBe(4);
+  });
+
+  it('does not invent an HVAC replacement count when replacement work is unquantified', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Replace the existing heat-pump HVAC system and ductwork.',
+      { templateKey: 'room_remodel', projectType: 'room_remodel' }
+    );
+    expect(parsed.hvacSystemCount).toBeUndefined();
+    expect(parsed.hvacEquipmentReplacementCount).toBeUndefined();
   });
 
   const GARAGE_CONVERSION_NOTES =

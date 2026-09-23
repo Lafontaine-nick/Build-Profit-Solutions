@@ -480,7 +480,7 @@ describe('estimateInitialRevealUi', () => {
       'Whole-house plumbing · 3 scope lines'
     );
     expect(getInitialRevealUnderstoodBullets(draft, 3)).toEqual([
-      '1 rough-in point',
+      'Plumbing rough-in',
       'Water line piping',
       'Sewer / DWV piping',
     ]);
@@ -557,6 +557,9 @@ describe('estimateInitialRevealUi', () => {
     expect(names).toContain('Drywall repair · 120 sqft');
     expect(names).toContain('Insulation');
     expect(names).toContain('Faucet & shower valve');
+    expect(names).not.toContain('Flooring demo / removal');
+    expect(names).not.toContain('Bathroom floor demo / removal');
+    expect(names).not.toContain('Kitchen remodel measurements');
     expect(names).not.toContain('Interior paint');
 
     const attention = getInitialRevealConfirmItems({
@@ -720,6 +723,129 @@ describe('estimateInitialRevealUi', () => {
       expect.arrayContaining(['Flooring installation', 'Insulation'])
     );
     expect(names).not.toContain('Existing flooring removal');
+  });
+
+  it('extracts mixed whole-home remodel scope without stale trade defaults', () => {
+    const draft = {
+      projectType: 'other',
+      scopeMode: 'mixed',
+      originalNotes:
+        'Remodel a 2,400 sqft home with demolition and removal of existing cabinets, fixtures, flooring, drywall, and finishes as needed; kitchen and bathroom updates, 1,800 sqft flooring, 500 sqft drywall repair, six windows, two exterior doors, four interior doors, wall and attic insulation, air sealing, trim, plumbing, electrical, and interior paint.',
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          {
+            id: 'demo',
+            label: 'Nonstructural wall demolition',
+            state: 'included',
+          },
+          { id: 'cabinet_demo', label: 'Cabinet removal', state: 'included' },
+          { id: 'fixture_demo', label: 'Fixture removal', state: 'included' },
+          {
+            id: 'floor_demo',
+            label: 'Existing flooring removal',
+            state: 'included',
+          },
+          { id: 'flooring', label: 'Flooring installation', state: 'included' },
+          { id: 'drywall', label: 'Drywall patch / repair', state: 'included' },
+          {
+            id: 'window_install',
+            label: 'Window installation',
+            state: 'included',
+          },
+          {
+            id: 'exterior_doors',
+            label: 'Exterior door installation',
+            state: 'included',
+          },
+          {
+            id: 'interior_door_install',
+            label: 'Interior door installation',
+            state: 'included',
+          },
+          { id: 'insulation', label: 'Insulation', state: 'included' },
+          { id: 'air_sealing', label: 'Air sealing', state: 'included' },
+          {
+            id: 'trim',
+            label: 'Trim & baseboard installation',
+            state: 'included',
+          },
+          { id: 'plumbing', label: 'Plumbing', state: 'included' },
+          { id: 'electrical', label: 'Electrical', state: 'included' },
+          { id: 'interior_paint', label: 'Interior paint', state: 'included' },
+          {
+            id: 'door_paint',
+            label: 'Interior door painting',
+            state: 'included',
+          },
+          {
+            id: 'door_casing_paint',
+            label: 'Door casing / trim painting',
+            state: 'included',
+          },
+          {
+            id: 'exterior_trim_paint',
+            label: 'Exterior trim, windows & doors',
+            state: 'included',
+          },
+          {
+            id: 'trim_paint',
+            label: 'Baseboard and trim painting',
+            state: 'included',
+          },
+        ],
+      },
+      scopePackages: [],
+    } as EstimateAiDraft;
+
+    const preview = getInitialRevealChecklistScopePreview(draft);
+    const names = preview.map(row => row.name);
+
+    expect(preview).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Flooring installation',
+          quantity: '1800 sqft',
+        }),
+        expect.objectContaining({
+          name: 'Drywall patch / repair',
+          quantity: '500 sqft',
+        }),
+        expect.objectContaining({ name: 'Window install', quantity: '6 each' }),
+        expect.objectContaining({
+          name: 'Exterior door installation',
+          quantity: '2 each',
+        }),
+        expect.objectContaining({
+          name: 'Interior door installation',
+          quantity: '4 each',
+        }),
+        expect.objectContaining({ name: 'Insulation' }),
+      ])
+    );
+    expect(preview.find(row => row.name === 'Insulation')).not.toHaveProperty(
+      'quantity'
+    );
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'Cabinet removal',
+        'Fixture removal',
+        'Flooring demo / removal',
+        'Air sealing',
+        'Plumbing',
+        'Electrical',
+        'Interior paint',
+      ])
+    );
+    expect(names).not.toContain('Kitchen flooring demo / removal');
+    expect(names).not.toEqual(
+      expect.arrayContaining([
+        'Interior door painting',
+        'Door casing / trim painting',
+        'Exterior trim, windows & doors',
+        'Baseboard and trim painting',
+      ])
+    );
   });
 
   it('normalizes mixed flooring scope rows from explicit flooring notes', () => {
@@ -996,7 +1122,11 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'concrete',
         items: [
-          { id: 'pour_flatwork', label: 'Concrete patio installation', state: 'included' },
+          {
+            id: 'pour_flatwork',
+            label: 'Concrete patio installation',
+            state: 'included',
+          },
           { id: 'concrete', label: 'Concrete flatwork', state: 'included' },
           { id: 'landscaping', label: 'Landscaping', state: 'included' },
           { id: 'sod_turf', label: 'Sod', state: 'included' },
@@ -1005,7 +1135,11 @@ describe('estimateInitialRevealUi', () => {
           { id: 'rock', label: 'Decorative rock', state: 'included' },
           { id: 'irrigation', label: 'Irrigation', state: 'included' },
           { id: 'concrete_edging', label: 'Edging', state: 'included' },
-          { id: 'exterior_doors', label: 'Exterior door installation', state: 'included' },
+          {
+            id: 'exterior_doors',
+            label: 'Exterior door installation',
+            state: 'included',
+          },
         ],
       },
       scopeMeasurements: {
@@ -1017,7 +1151,10 @@ describe('estimateInitialRevealUi', () => {
         exteriorDoorCount: 2,
       },
       scopePackages: [
-        { checklistItemId: 'pour_flatwork', name: 'Concrete patio installation' },
+        {
+          checklistItemId: 'pour_flatwork',
+          name: 'Concrete patio installation',
+        },
         { checklistItemId: 'concrete', name: 'Concrete flatwork' },
         { checklistItemId: 'landscaping', name: 'Landscaping' },
         { checklistItemId: 'sod_turf', name: 'Sod' },
@@ -1026,7 +1163,10 @@ describe('estimateInitialRevealUi', () => {
         { checklistItemId: 'rock', name: 'Decorative rock' },
         { checklistItemId: 'irrigation', name: 'Irrigation' },
         { checklistItemId: 'concrete_edging', name: 'Edging' },
-        { checklistItemId: 'exterior_doors', name: 'Exterior door installation' },
+        {
+          checklistItemId: 'exterior_doors',
+          name: 'Exterior door installation',
+        },
       ],
     } as EstimateAiDraft;
 
@@ -1046,7 +1186,10 @@ describe('estimateInitialRevealUi', () => {
         expect.objectContaining({ name: 'Sod', quantity: '1,000 sqft' }),
         expect.objectContaining({ name: 'Pavers', quantity: '400 sqft' }),
         expect.objectContaining({ name: 'Shrubs', quantity: '12 each' }),
-        expect.objectContaining({ name: 'Decorative rock', quantity: '30 ton' }),
+        expect.objectContaining({
+          name: 'Decorative rock',
+          quantity: '30 ton',
+        }),
         expect.objectContaining({ name: 'Irrigation' }),
         expect.objectContaining({ name: 'Edging' }),
         expect.objectContaining({
@@ -1056,7 +1199,9 @@ describe('estimateInitialRevealUi', () => {
       ])
     );
     expect(preview.some(row => row.name === 'Landscaping')).toBe(false);
-    expect(preview.filter(row => row.name === 'Concrete flatwork')).toHaveLength(0);
+    expect(
+      preview.filter(row => row.name === 'Concrete flatwork')
+    ).toHaveLength(0);
   });
 
   it('keeps built addition reveal scope canonical and note-local', () => {
@@ -1142,9 +1287,9 @@ describe('estimateInitialRevealUi', () => {
       ...draft,
       scopePackages: [],
     });
-    expect(noPackagePreview.find(row => /insulation/i.test(row.name))?.name).toBe(
-      'Wall insulation · R-21 · Attic insulation · R-38'
-    );
+    expect(
+      noPackagePreview.find(row => /insulation/i.test(row.name))?.name
+    ).toBe('Wall insulation · R-21 · Attic insulation · R-38');
     const preview = getInitialRevealChecklistScopePreview(draft);
     const names = preview.map(row => row.name);
 
@@ -1188,12 +1333,20 @@ describe('estimateInitialRevealUi', () => {
       scopeChecklist: {
         templateKey: 'concrete',
         items: [
-          { id: 'pour_flatwork', label: 'Concrete patio installation', state: 'included' },
+          {
+            id: 'pour_flatwork',
+            label: 'Concrete patio installation',
+            state: 'included',
+          },
           { id: 'landscaping', label: 'Landscaping', state: 'included' },
           { id: 'sod_turf', label: 'Sod', state: 'included' },
           { id: 'pavers', label: 'Pavers', state: 'included' },
           { id: 'rock', label: 'Decorative rock', state: 'included' },
-          { id: 'exterior_doors', label: 'Exterior door installation', state: 'included' },
+          {
+            id: 'exterior_doors',
+            label: 'Exterior door installation',
+            state: 'included',
+          },
         ],
       },
       scopeMeasurements: {

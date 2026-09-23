@@ -18,14 +18,16 @@ import {
 const MEP_ROUGH_MATERIAL_SHARE = 0.3;
 
 /** H64 — HVAC installed lump (complete system package). */
-export const HVAC_H64_INSTALLED_BY_PROJECT: Record<SouthernUtahProjectId, number> =
-  {
-    silverLeaf: 12000,
-    lot39: 21500,
-    lot41: 16500,
-    lot49: 19500,
-    lot58: 18500,
-  };
+export const HVAC_H64_INSTALLED_BY_PROJECT: Record<
+  SouthernUtahProjectId,
+  number
+> = {
+  silverLeaf: 12000,
+  lot39: 21500,
+  lot41: 16500,
+  lot49: 19500,
+  lot58: 18500,
+};
 
 export type HvacPackageComparable = {
   projectId: SouthernUtahProjectId;
@@ -119,8 +121,11 @@ function livingSfFromHvacInput(input: Record<string, unknown>): number | null {
   const fromField = Number(String(input.floorAreaSqft ?? '').replace(/,/g, ''));
   if (Number.isFinite(fromField) && fromField > 0) return fromField;
   const fromFacts = Number(
-    (input.planFacts as { buildingAreas?: { totalLivingSqft?: number } } | undefined)
-      ?.buildingAreas?.totalLivingSqft
+    (
+      input.planFacts as
+        | { buildingAreas?: { totalLivingSqft?: number } }
+        | undefined
+    )?.buildingAreas?.totalLivingSqft
   );
   return Number.isFinite(fromFacts) && fromFacts > 0 ? fromFacts : null;
 }
@@ -128,7 +133,9 @@ function livingSfFromHvacInput(input: Record<string, unknown>): number | null {
 export function isSouthernUtahPricingLocation(
   location?: HvacPricingLocation | null
 ): boolean {
-  const state = String(location?.state || '').trim().toUpperCase();
+  const state = String(location?.state || '')
+    .trim()
+    .toUpperCase();
   if (state === 'UT' || state === 'UTAH') return true;
   const zip = String(location?.zipCode || '').replace(/\D/g, '');
   return /^84[0-7]\d{2}$/.test(zip);
@@ -147,12 +154,15 @@ export function resolveHvacPricingEvidenceTier(
     string,
     string
   >;
-  const systemCount = Number(String(input.hvacSystemCount ?? '').replace(/,/g, ''));
+  const systemCount = Number(
+    String(input.hvacSystemCount ?? '').replace(/,/g, '')
+  );
   const hasSystemCount = Number.isFinite(systemCount) && systemCount > 0;
-  const tonsValue = Number(String(input.hvacSystemTons ?? '').replace(/,/g, ''));
+  const tonsValue = Number(
+    String(input.hvacSystemTons ?? '').replace(/,/g, '')
+  );
   const countNeedsReview =
-    hasSystemCount &&
-    sources.hvacSystemCount === 'needs_confirmation';
+    hasSystemCount && sources.hvacSystemCount === 'needs_confirmation';
   const countVerified =
     sources.hvacSystemCount === 'contractor_confirmed_from_plan_review' ||
     sources.hvacSystemCount === 'plan_verified' ||
@@ -190,12 +200,7 @@ export function hvacUsesInstalledPackagePricing(
   input: Record<string, unknown>,
   location?: HvacPricingLocation | null
 ): boolean {
-  const tier = resolveHvacPricingEvidenceTier(input, location);
-  if (tier !== 'unpriced') return true;
-  const systemCount = Number(
-    String(input.hvacSystemCount ?? '').replace(/,/g, '')
-  );
-  return Number.isFinite(systemCount) && systemCount > 0;
+  return resolveHvacInstalledPackageSuggestedTotal(input, location) !== null;
 }
 
 export const HVAC_COMPONENT_SCOPE_ITEM_IDS = [
@@ -238,10 +243,16 @@ export function resolveHvacInstalledPackageSuggestedTotal(
     : 1;
 
   const livingSf = livingSfFromHvacInput(input);
+  const totalTons = Number(
+    String(input.hvacSystemTons ?? '').replace(/,/g, '')
+  );
+  const hasTotalTons = Number.isFinite(totalTons) && totalTons > 0;
   if (tier === 'plan_barometer') {
     const comparable = resolveHvacPackageComparable(livingSf);
     if (!comparable) return null;
-    const split = hvacPlanBarometerComparisonSplit(comparable.h64InstalledTotal);
+    const split = hvacPlanBarometerComparisonSplit(
+      comparable.h64InstalledTotal
+    );
     return {
       total: comparable.h64InstalledTotal,
       material: split.material,
@@ -253,17 +264,12 @@ export function resolveHvacInstalledPackageSuggestedTotal(
   }
 
   // Use a national production package instead of a retail-style per-system
-  // fallback. If capacity is missing, use a conservative 3-ton planning basis.
-  // Multiple systems share mobilization and startup, so apply a modest five-
-  // percent package efficiency adjustment rather than multiplying full
-  // standalone allowances.
-  if (tier === 'unpriced' && !hasSystemCount) return null;
-  const totalTons = Number(
-    String(input.hvacSystemTons ?? '').replace(/,/g, '')
-  );
-  const hasTotalTons = Number.isFinite(totalTons) && totalTons > 0;
-  const perSystemTons =
-    hasTotalTons && systemCount > 0 ? totalTons / systemCount : 3;
+  // fallback. Capacity is required for this tier; never invent a default
+  // tonnage merely because a system count was entered. Multiple systems share
+  // mobilization and startup, so apply a modest five-percent package
+  // efficiency adjustment rather than multiplying full standalone allowances.
+  if (!hasSystemCount || !hasTotalTons) return null;
+  const perSystemTons = totalTons / systemCount;
   const perSystem = hvacSystemTierBudgetSplit(perSystemTons);
   const packageEfficiency = systemCount > 1 ? 0.95 : 1;
   const material = roundHvacPackageTotal(
