@@ -101,13 +101,20 @@ export function mixedScopeTradesFromDraft(
       : draft?.classification?.detectedTrades?.length
         ? draft.classification.detectedTrades
         : draft?.detectedTrades || [];
-  return Array.from(
+  const trades = Array.from(
     new Set(
       detectedTrades
         .map(normalizeMixedScopeTradeKey)
         .filter((trade): trade is MixedScopeTradeKey => Boolean(trade))
     )
   );
+  const notes = String(draft?.originalNotes || '');
+  const explicitHvac = /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
+    notes
+  );
+  return notes.trim() && !explicitHvac
+    ? trades.filter(trade => trade !== 'hvac')
+    : trades;
 }
 
 /**
@@ -122,7 +129,8 @@ export function mixedScopeTradesFromDraft(
 export function mixedScopeQmTradesFromDraft(
   draft?: EstimateAiDraft | null,
   templateKey?: string | null,
-  fallbackTrades?: string[]
+  fallbackTrades?: string[],
+  notes?: string | null
 ): MixedScopeTradeKey[] {
   const canonicalItems = draft?.scopeChecklist?.canonicalMixedScope?.items;
   const canonicalTrades = Array.from(
@@ -134,7 +142,15 @@ export function mixedScopeQmTradesFromDraft(
         .filter((trade): trade is MixedScopeTradeKey => Boolean(trade))
     )
   );
-  if (canonicalItems?.length) return canonicalTrades;
+  if (canonicalItems?.length) {
+    const notesText = String(notes || draft?.originalNotes || '');
+    const explicitHvac = /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
+      notesText
+    );
+    return notesText.trim() && !explicitHvac
+      ? canonicalTrades.filter(trade => trade !== 'hvac')
+      : canonicalTrades;
+  }
 
   const templateTrade = normalizeMixedScopeTradeKey(templateKey);
   if (templateTrade) return [templateTrade];

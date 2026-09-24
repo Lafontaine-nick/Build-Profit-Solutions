@@ -281,8 +281,13 @@ export function buildElectricalQuickMeasurementGroups(input: {
   conflictFields?: Iterable<string>;
   sources?: Record<string, string | undefined> | null;
   userOverrides?: Record<string, boolean | undefined> | null;
+  visibleMeasurementKeys?: Iterable<string>;
 }): ElectricalQmGroup[] {
   const measurements = input.measurements || {};
+  const visibleMeasurementKeys =
+    input.visibleMeasurementKeys == null
+      ? null
+      : new Set([...input.visibleMeasurementKeys].map(key => String(key)));
   const conflicted = new Set(
     [...(input.conflictFields || [])].map(key => String(key))
   );
@@ -290,6 +295,12 @@ export function buildElectricalQuickMeasurementGroups(input: {
 
   for (const card of ELECTRICAL_CARDS) {
     if (card.measurementKey === 'serviceAmperage') continue;
+    if (
+      visibleMeasurementKeys &&
+      !visibleMeasurementKeys.has(card.measurementKey)
+    ) {
+      continue;
+    }
     const userResolved = Boolean(input.userOverrides?.[card.measurementKey]);
     const source = input.sources?.[card.measurementKey] || null;
     const retainedForConfirmation =

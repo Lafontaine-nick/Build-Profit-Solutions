@@ -13,6 +13,30 @@ import {
 import { tradeQuickMeasurementFieldKeys } from '@/utils/planImportTradeConfig';
 
 describe('scopeQuickMeasurements', () => {
+  it('keeps stale generic paint and baseboard fields out of stucco takeoff cards', () => {
+    const fields = quickMeasurementRowsForInput(
+      'stucco',
+      'other',
+      {
+        exteriorPaintSqft: '1900',
+        baseboardLf: '60',
+        stuccoGrossWallSqft: '2400',
+        stuccoGarageOpeningSqft: '0',
+      },
+      ['exteriorPaintSqft', 'baseboardLf'],
+      {
+        scopeNotes:
+          'Repair and install stucco. Gross exterior wall area is 2,400 sqft. Deduct 320 sqft for window and door openings, 0 sqft for garage door openings, and 180 sqft for other non-stucco finishes.',
+      }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(fields).toContain('stuccoGarageOpeningSqft');
+    expect(fields).not.toContain('exteriorPaintSqft');
+    expect(fields).not.toContain('baseboardLf');
+  });
+
   it('keeps roof decking out of generic deck and wall-paint cards', () => {
     const notes =
       'Tear off and remove the existing roof, then replace 28 roofing squares, repair 180 sqft decking, install gutters and downspouts, replace four windows, repair siding, install R-38 attic insulation, repair drywall, and paint ceilings.';
@@ -62,6 +86,41 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).not.toContain('bathroomFloorSqft');
     expect(keys).toContain('wallPaintSqft');
     expect(keys).toContain('baseboardLf');
+  });
+
+  it('keeps measured ceiling paint from creating a blank wall-paint card', () => {
+    const notes =
+      'Replace 1 existing HVAC system and 120 LF of ductwork. Install 1 new 3-ton heat-pump system, 1 thermostat, 8 supply registers, and 2 return grilles, including startup and testing. Also repair 240 sqft of drywall, replace 3 interior doors, and paint 1,100 sqft of ceilings. Excludes electrical service upgrades, plumbing, and structural repairs.';
+    const keys = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toContain('ceilingPaintSqft');
+    expect(keys).not.toContain('wallPaintSqft');
+  });
+
+  it('keeps unmeasured ceiling paint on the ceiling card only', () => {
+    const notes =
+      'Remove the existing HVAC system and ductwork, then install a new heat-pump system with thermostat, supply registers, and return grilles, including startup and testing. System count, tonnage, ductwork length, thermostat count, register count, and return grille count must be confirmed. Also patch drywall and paint ceilings. Excludes electrical service upgrades and plumbing.';
+    const keys = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      [],
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toContain('ceilingPaintSqft');
+    expect(keys).not.toContain('wallPaintSqft');
+    expect(keys).not.toContain('paintAreaSqft');
   });
 
   it('keeps mixed-note measurements owned by their explicit scopes', () => {
@@ -656,6 +715,74 @@ describe('scopeQuickMeasurements', () => {
     );
   });
 
+  it('compacts mixed-scope measurements to note-backed trade fields', () => {
+    const notes =
+      'Remodel an existing 2,000 sqft home and build a 350 sqft addition. Electrical scope includes a 200A main panel, wiring and boxes for 30 standard receptacle locations, 6 GFCI receptacle locations, 20 switch locations, 26 recessed-light rough-in locations, four dedicated 20A circuits, and 240 LF of conduit. Repair 420 sqft of drywall, install six windows and two exterior doors, add R-21 wall insulation, install 1,100 sqft flooring, replace 160 LF baseboard, and paint the interior.';
+    const keys = [
+      'floorAreaSqft',
+      'mainPanelCount',
+      'serviceAmperage',
+      'dedicated20aCircuitCount',
+      'standardReceptacleCount',
+      'gfciReceptacleCount',
+      'singlePoleSwitchCount',
+      'recessedLightCount',
+      'conduitLf',
+      'windowCount',
+      'exteriorDoorCount',
+      'exteriorWallInsulationSqft',
+    ] as any;
+    const fields = quickMeasurementRowsForInput(
+      'room_remodel',
+      'other',
+      {},
+      keys,
+      { scopeNotes: notes, crossScopeMode: true }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        'floorAreaSqft',
+        'mainPanelCount',
+        'serviceAmperage',
+        'dedicated20aCircuitCount',
+        'standardReceptacleCount',
+        'gfciReceptacleCount',
+        'singlePoleSwitchCount',
+        'recessedLightCount',
+        'conduitLf',
+        'windowCount',
+        'exteriorDoorCount',
+        'flooringSqft',
+        'drywallSqft',
+        'baseboardLf',
+        'wallPaintSqft',
+      ])
+    );
+    expect(fields).not.toEqual(
+      expect.arrayContaining([
+        'kitchenFloorSqft',
+        'cabinetLf',
+        'countertopSqft',
+        'bathroomFloorSqft',
+        'garageSqft',
+      ])
+    );
+    expect(
+      quickMeasurementRowsForInput(
+        'room_remodel',
+        'other',
+        {},
+        keys,
+        { scopeNotes: notes, crossScopeMode: true }
+      )
+        .flat()
+        .find(field => field.key === 'floorAreaSqft')?.label
+    ).toBe('Addition');
+  });
+
   it('uses living-first ground_up layout for new builds', () => {
     expect(resolveQuickMeasurementTemplateKey(null, 'new_build')).toBe(
       'ground_up'
@@ -1120,5 +1247,43 @@ describe('scopeQuickMeasurements', () => {
     expect(
       labeled === 'Gross interior floor area' || labeled === 'Flooring'
     ).toBe(true);
+  });
+
+  it('shows all note-backed electrical rough-in quantities', () => {
+    const notes =
+      'Electrical rough-in for a 2,400 sqft new construction home: install 18 recessed lights, 12 standard receptacles, 4 GFCI receptacles, 10 switches, two dedicated 20A circuits, one 200A main panel, and 150 LF conduit. Excludes light fixtures, fans, low-voltage, EV charging, utility work, and final trim.';
+    const measurements = {
+      mainPanelCount: 1,
+      serviceAmperage: 200,
+      dedicated20aCircuitCount: 2,
+      standardReceptacleCount: 12,
+      gfciReceptacleCount: 4,
+      singlePoleSwitchCount: 10,
+      recessedLightCount: 18,
+      conduitLf: 150,
+    };
+    const keys = quickMeasurementRowsForInput(
+      'electrical',
+      'other',
+      measurements,
+      Object.keys(measurements) as Array<keyof typeof measurements>,
+      { scopeNotes: notes }
+    )
+      .flat()
+      .map(field => field.key);
+
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'mainPanelCount',
+        'serviceAmperage',
+        'dedicated20aCircuitCount',
+        'standardReceptacleCount',
+        'gfciReceptacleCount',
+        'singlePoleSwitchCount',
+        'recessedLightCount',
+        'conduitLf',
+      ])
+    );
+    expect(keys).not.toContain('floorAreaSqft');
   });
 });

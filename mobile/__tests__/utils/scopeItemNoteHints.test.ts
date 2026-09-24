@@ -12,6 +12,7 @@ import {
 } from '@/utils/scopeItemNoteHints';
 import {
   applyGroundUpShellScopeDefaults,
+  filterRoomRemodelNoteScopeItems,
   applyScopeInferencesFromNotes,
   hydrateScopeChecklistFromNotes,
 } from '@/utils/estimateScopeChecklistUi';
@@ -104,6 +105,128 @@ describe('scopeItemNoteHints trim inference', () => {
         'door_casing_paint',
         'exterior_trim_paint',
         'trim_paint',
+      ])
+    );
+  });
+
+  test('mixed HVAC notes honor exclusions and retain unquantified HVAC components', () => {
+    const notes =
+      'Remove the existing HVAC system and ductwork, then install a new heat-pump system with thermostat, supply registers, and return grilles, including startup and testing. System count, tonnage, ductwork length, thermostat count, register count, and return grille count must be confirmed. Also patch drywall and paint ceilings. Excludes electrical service upgrades and plumbing.';
+    const items = [
+      'demo',
+      'hvac',
+      'drywall',
+      'paint',
+      'plumbing',
+      'electrical',
+      'ductwork',
+      'thermostat',
+      'supply_registers',
+      'return_grilles',
+      'equipment_replace',
+    ].map(id => ({
+      id,
+      label: id,
+      inputType: 'yes_no' as const,
+      state: 'included' as const,
+    }));
+
+    const hydrated = hydrateScopeChecklistFromNotes(
+      items,
+      'room_remodel',
+      notes,
+      { itemQuantities: {} } as any,
+      'other'
+    );
+    const includedIds = hydrated
+      .filter(item => item.state === 'included')
+      .map(item => item.id);
+
+    expect(includedIds).toEqual(
+      expect.arrayContaining([
+        'hvac',
+        'drywall',
+        'paint',
+        'ductwork',
+        'thermostat',
+        'supply_registers',
+        'return_grilles',
+        'equipment_replace',
+      ])
+    );
+    expect(includedIds).not.toEqual(
+      expect.arrayContaining(['demo', 'plumbing', 'electrical'])
+    );
+  });
+
+  test('mixed addition notes keep only explicitly stated trade checklist items', () => {
+    const notes =
+      'Remodel an existing 2,000 sqft home and build a 350 sqft addition. Electrical scope includes a 200A main panel, wiring and boxes for 30 standard receptacle locations, 6 GFCI receptacle locations, 20 switch locations, 26 recessed-light rough-in locations, four dedicated 20A circuits, and 240 LF of conduit. Repair 420 sqft of drywall, install six windows and two exterior doors, add R-21 wall insulation, install 1,100 sqft flooring, replace 160 LF baseboard, and paint the interior.';
+    const items = [
+      'foundation',
+      'framing',
+      'roofing',
+      'hvac',
+      'electrical',
+      'electrical_main_panel',
+      'electrical_dedicated_20a',
+      'drywall',
+      'electrical_standard_receptacle',
+      'electrical_gfci_receptacle',
+      'electrical_single_pole_switch',
+      'electrical_recessed_light',
+      'electrical_conduit',
+      'windows',
+      'window_install',
+      'exterior_doors',
+      'insulation',
+      'flooring',
+      'baseboard_install',
+      'interior_paint',
+      'cabinets',
+      'countertops',
+      'deck_patio',
+      'garage_doors',
+    ].map(id => ({
+      id,
+      label: id,
+      inputType: 'yes_no' as const,
+      state: 'included' as const,
+    }));
+
+    const filtered = filterRoomRemodelNoteScopeItems(items, notes);
+    const ids = filtered.map(item => item.id);
+
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'foundation',
+        'framing',
+        'roofing',
+        'hvac',
+        'electrical',
+        'electrical_main_panel',
+        'electrical_dedicated_20a',
+        'electrical_standard_receptacle',
+        'electrical_gfci_receptacle',
+        'electrical_single_pole_switch',
+        'electrical_recessed_light',
+        'electrical_conduit',
+        'drywall',
+        'windows',
+        'window_install',
+        'exterior_doors',
+        'insulation',
+        'flooring',
+        'baseboard_install',
+        'interior_paint',
+      ])
+    );
+    expect(ids).not.toEqual(
+      expect.arrayContaining([
+        'cabinets',
+        'countertops',
+        'deck_patio',
+        'garage_doors',
       ])
     );
   });

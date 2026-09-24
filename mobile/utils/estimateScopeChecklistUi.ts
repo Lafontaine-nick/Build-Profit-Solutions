@@ -3602,7 +3602,10 @@ export function filterRoomRemodelNoteScopeItems(
   items: ScopeChecklistItem[],
   notes?: string | null
 ): ScopeChecklistItem[] {
-  const text = String(notes || '');
+  const text = String(notes || '').replace(
+    /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;\n]*(?:[.;\n]|$)/gi,
+    ' '
+  );
   const has = (pattern: RegExp) => pattern.test(text);
   const isMixedRemodel =
     has(/\b(?:kitchen|bathrooms?|baths?)\b/i) &&
@@ -3611,9 +3614,9 @@ export function filterRoomRemodelNoteScopeItems(
     ) &&
     has(/\b(?:one|two|three|\d+)\s+bathrooms?\b/i);
   const isExplicitCrossTradeRemodel =
-    has(/\b(?:renovat(?:e|ion)|remodel(?:ing)?|update)\b/i) &&
+    has(/\b(?:stucco|roof(?:ing)?|gutters?)\b/i) &&
     has(
-      /\b(?:flooring|drywall|windows?|doors?|insulat(?:e|ion|ed)|plumbing|electrical|paint(?:ing)?|cabinets?|fixtures?|air[\s-]+sealing)\b/i
+      /\b(?:flooring|drywall|windows?|doors?|insulat(?:e|ion|ed)|plumbing|electrical|paint(?:ing)?|cabinets?|fixtures?|air[\s-]+sealing|stucco|roof(?:ing)?|gutters?)\b/i
     );
   const hasExplicitFlooringDemo =
     /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;,\n]{0,30}\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|floor\s+tile|tile\s+floor)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet|floor\s+tile|tile\s+floor)\b[^.;,\n]{0,30}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(
@@ -3681,21 +3684,69 @@ export function filterRoomRemodelNoteScopeItems(
       id === 'interior_paint' ||
       id === 'ceiling_paint'
     )
-      return has(/\b(?:paint|painting|repaint).*\b(?:wall|ceiling)s?\b/i);
+      return has(
+        /\b(?:paint|painting|repaint)\b[\s\S]{0,60}\b(?:wall|ceiling|interior|inside)s?\b|\b(?:interior|inside)\s+paint(?:ing)?\b/i
+      );
     if (id === 'baseboard_install')
       return has(/\b(?:install|replace|new)\b[^.;\n]{0,50}\bbaseboards?\b/i);
     if (id === 'trim_paint')
-      return has(/\bbaseboards?\b[^.;\n]{0,50}\b(?:paint|finish)\b/i);
+      return has(
+        /\b(?:paint|painting|finish|finished|repaint)\b[^.;\n]{0,25}\b(?:baseboards?|trim)\b|\b(?:baseboards?|trim)\b\s+(?:painted|finished)\b/i
+      );
+    if (id === 'interior_trim')
+      return has(
+        /\binterior\s+trim\b|\b(?:door|window)\s+(?:casing|trim)\b|\b(?:crown|moulding|molding)\b/i
+      );
     if (id === 'cabinets') return has(/\bcabinets?|cabinetry\b/i);
     if (id === 'countertops') return has(/\bcountertops?|counters?\b/i);
     if (id === 'vanity') return has(/\bvanit(?:y|ies)\b/i);
     if (id === 'framing')
       return (
-        has(/\b(?:structural\s+framing|refram(?:e|ing))\b/i) &&
+        has(/\b(?:structural\s+framing|framing|refram(?:e|ing))\b/i) &&
         !has(
           /\b(?:do\s+not|no|without)\b[^.;\n]{0,45}\b(?:change|modify|alter)\b[^.;\n]{0,35}\b(?:building\s+footprint|structural\s+framing)\b/i
         )
       );
+    if (id === 'foundation' || id === 'footings' || id === 'slab')
+      return has(/\b(?:foundation|footings?|slab)\b/i);
+    if (id === 'roofing' || id === 'roof_tie_in')
+      return has(/\b(?:roof(?:ing)?|roof\s+tie[-\s]?in)\b/i);
+    if (id === 'stucco')
+      return has(/\bstucco\b|\b(?:foam|control)\s+(?:trim|joints?)\b/i);
+    if (id === 'gutters') return has(/\bgutters?\b/i);
+    if (id === 'windows' || id === 'window_install')
+      return has(/\bwindows?\b/i);
+    if (
+      id === 'exterior_doors' ||
+      id === 'exterior_door_install' ||
+      id === 'sliding_doors'
+    )
+      return has(/\b(?:exterior|sliding|patio|entry)\s+doors?\b/i);
+    if (id === 'interior_doors' || id === 'interior_door_install')
+      return has(/\binterior\s+doors?\b/i);
+    if (id === 'insulation' || id === 'wall_insulation' || id === 'attic_insulation')
+      return has(/\binsulat(?:e|ed|ion)\b/i);
+    if (id === 'air_sealing') return has(/\bair[\s-]?sealing\b/i);
+    if (id === 'drywall_repair' || id === 'drywall_patch')
+      return has(/\b(?:drywall|sheetrock|gypsum)\b/i);
+    if (id.startsWith('electrical_')) {
+      if (id === 'electrical_rough' || id === 'electrical_trim') return false;
+      if (id === 'electrical_main_panel')
+        return has(/\b(?:main\s+)?panel\b|\b\d+\s*amp(?:ere)?s?\s+panel\b/i);
+      if (id === 'electrical_dedicated_20a')
+        return has(/\bdedicated\s+20\s*(?:a|amp(?:ere)?s?)\s+circuits?\b/i);
+      if (id === 'electrical_standard_receptacle')
+        return has(/\bstandard\s+(?:outlets?|receptacles?)\b/i);
+      if (id === 'electrical_gfci_receptacle')
+        return has(/\bgfci(?:\s+outlets?|\s+receptacles?)?\b/i);
+      if (id === 'electrical_single_pole_switch')
+        return has(/\b(?:single[-\s]?pole\s+)?switch(?:es)?\b/i);
+      if (id === 'electrical_recessed_light')
+        return has(/\b(?:recessed|canless|wafer)[\s-]+(?:lights?|cans?|fixtures?)\b/i);
+      if (id === 'electrical_conduit')
+        return has(/\b(?:conduit|raceway)\b/i);
+      return inferItemStateFromNotes(id, text) === 'included';
+    }
     if (id === 'electrical')
       return has(/\belectrical|outlets?|switch(?:es)?|wiring\b/i);
     if (id === 'hvac')
@@ -3934,11 +3985,22 @@ export function hydrateScopeChecklistFromNotes(
     /\b(?:kitchen|bathroom|flooring|drywall|windows?|doors?|insulat(?:e|ion|ed)|plumbing|electrical|paint(?:ing)?|cabinets?|fixtures?|air[\s-]+sealing)\b/i.test(
       String(notes || '')
     );
+  const crossTradeRemodelNote =
+    /\b(?:stucco|roof(?:ing)?|gutters?|windows?|exterior\s+doors?)\b/i.test(
+      String(notes || '')
+    ) &&
+    /\b(?:replace|replacement|install|repair|deduct|gross|net)\b/i.test(
+      String(notes || '')
+    );
   if (
     String(templateKey || '').toLowerCase() === 'room_remodel' ||
-    wholeHomeMixedRemodelNote
+    wholeHomeMixedRemodelNote ||
+    crossTradeRemodelNote
   ) {
-    const noteText = String(notes || '');
+    const noteText = String(notes || '').replace(
+      /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;\n]*(?:[.;\n]|$)/gi,
+      ' '
+    );
     const has = (pattern: RegExp) => pattern.test(noteText);
     const hasWallDemolition =
       /\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b[^.;,\n]{0,70}\b(?:nonstructural\s+)?walls?\b|\b(?:nonstructural\s+)?walls?\b[^.;,\n]{0,70}\b(?:demolish|demolition|demo|remove|removal|tear[\s-]?out)\b/i.test(
@@ -3946,6 +4008,10 @@ export function hydrateScopeChecklistFromNotes(
       );
     const hasRoofTearOff =
       /\b(?:tear[\s-]?off|remove|removal|strip)\b[^.;,\n]{0,60}\b(?:existing\s+)?(?:roof|shingles?)\b|\b(?:existing\s+)?(?:roof|shingles?)\b[^.;,\n]{0,60}\b(?:tear[\s-]?off|remove|removal|strip)\b/i.test(
+        noteText
+      );
+    const hasHvacRemoval =
+      /\b(?:remove|removing|removal|demo|demolish|replace|replacing)\b[^.;\n]{0,80}\b(?:existing\s+)?(?:hvac|ductwork)\b/i.test(
         noteText
       );
     const hasRoofReplacement =
@@ -3990,9 +4056,13 @@ export function hydrateScopeChecklistFromNotes(
     const hasFixtureRemoval = has(
       /\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b[^.;\n]{0,60}\b(?:existing\s+)?fixtures?\b|\b(?:existing\s+)?fixtures?\b[^.;\n]{0,60}\b(?:remove|removal|demo|demolition|tear[\s-]?out)\b/i
     );
-    const hasExplicitTrim = has(/\b(?:baseboards?|trim|casing)\b/i);
+    const hasExplicitTrim =
+      has(
+        /\b(?:baseboards?|casing|interior\s+trim|finish\s+trim|door\s+trim|window\s+trim)\b/i
+      ) ||
+      (has(/\btrim\b/i) && !has(/\b(?:foam|stucco)\s+trim\b/i));
     const noteDrivenSignals = [
-      /\b(?:kitchen|bath(?:room)?s?|lvp|flooring|drywall|baseboards?|trim|paint(?:ing)?|cabinets?|fixtures?|windows?|doors?|insulat(?:e|ion|ed)|air\s+sealing|plumbing|electrical)\b/i,
+      /\b(?:kitchen|bath(?:room)?s?|lvp|flooring|drywall|baseboards?|trim|paint(?:ing)?|cabinets?|fixtures?|windows?|doors?|insulat(?:e|ion|ed)|air\s+sealing|plumbing|electrical|stucco|roof(?:ing)?|gutters?)\b/i,
       /\b(?:demolition|demo|remove|removal|install|replace|repair|update|remodel|renovat)\b/i,
     ];
     const noteDriven =
@@ -4019,6 +4089,7 @@ export function hydrateScopeChecklistFromNotes(
             hasDrywallDemo ||
             (has(/\b(?:remove|demo|demolition|tear[\s-]?out)\b/i) &&
               !hasInsulationRemoval &&
+              !hasHvacRemoval &&
               !(hasRoofTearOff && !hasWallDemolition))
           );
         }
@@ -4053,6 +4124,8 @@ export function hydrateScopeChecklistFromNotes(
         if (id === 'air_sealing')
           return has(/\bair[\s-]+sealing\b|\bgap\s+sealing\b/i);
         if (id === 'plumbing') return has(/\bplumbing|fixture/i);
+        if (id === 'stucco')
+          return has(/\bstucco\b|\b(?:foam|control)\s+(?:trim|joints?)\b/i);
         if (id === 'drywall') return has(/\bdrywall|sheetrock|patch|repair/i);
         if (id === 'flooring')
           return has(/\b(?:lvp|flooring|floor\s+install|install.*floor)\b/i);
@@ -4084,6 +4157,18 @@ export function hydrateScopeChecklistFromNotes(
           return has(/\belectrical|outlets?|switch(?:es)?|wiring\b/i);
         if (id === 'hvac')
           return has(/\bhvac|furnace|heat\s+pump|air\s*condition/i);
+        if (id === 'ductwork')
+          return has(/\bduct(?:work|s)?\b/i);
+        if (id === 'thermostat')
+          return has(/\bthermostats?\b/i);
+        if (id === 'supply_registers' || id === 'registers')
+          return has(/\b(?:supply\s+)?registers?\b|\bdiffusers?\b/i);
+        if (id === 'return_grilles' || id === 'returns')
+          return has(/\breturn\s+grilles?\b|\breturns?\b/i);
+        if (id === 'equipment_replace')
+          return has(
+            /\b(?:heat[\s-]*pumps?|furnaces?|air\s*condition(?:ers?)?|hvac\s+systems?)\b/i
+          );
         if (id === 'permits') return has(/\bpermit|inspection/i);
         if (id === 'cleanup') return has(/\bcleanup|haul[\s-]?off|disposal\b/i);
         return false;

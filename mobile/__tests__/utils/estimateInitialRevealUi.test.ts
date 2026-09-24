@@ -33,6 +33,97 @@ const classificationFixtures =
   }[];
 
 describe('estimateInitialRevealUi', () => {
+  it('separates mixed stucco, openings, roofing, and gutters from stale defaults', () => {
+    const notes =
+      'Repair and install stucco. Gross exterior wall area is 1,800 sqft. Deduct 240 sqft for window and door openings, 120 sqft for garage openings, and 90 sqft for brick and stone, for a net stucco area of 1,350 sqft. Include 80 sqft soffits, 40 sqft parapets, 35 LF foam trim, and 30 LF control joints. Building is 2 stories with 9 ft wall height per story. Allow 400 sqft access-affected area and 150 sqft localized repair. Replace 6 windows and 1 exterior door. Replace 28 roofing squares and 120 LF gutters. Excludes exterior painting and structural framing.';
+    const draft = {
+      estimateTier: 'room_remodel',
+      projectType: 'other',
+      scopeMode: 'mixed',
+      requiresScopeConfirmation: true,
+      originalNotes: notes,
+      classification: {
+        scopeMode: 'mixed',
+        detectedTrades: ['stucco', 'roofing', 'windows_doors', 'trim', 'hvac'],
+      },
+      scopeChecklist: {
+        templateKey: 'room_remodel',
+        items: [
+          { id: 'stucco', label: 'Stucco / exterior wall finish', state: 'included' },
+          { id: 'interior_door_install', label: 'Interior door installation', state: 'included' },
+          { id: 'trim', label: 'Trim', state: 'included' },
+          { id: 'windows', label: 'Windows', state: 'included' },
+          { id: 'exterior_doors', label: 'Exterior doors', state: 'included' },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    const preview = getInitialRevealChecklistScopePreview(draft);
+    expect(preview).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Stucco / exterior wall finish',
+          quantity: '1350 sqft',
+        }),
+        expect.objectContaining({
+          name: 'Roofing replacement',
+          quantity: '28 squares',
+        }),
+        expect.objectContaining({ name: 'Gutters', quantity: '120 LF' }),
+      ])
+    );
+    expect(preview.map(row => row.name)).not.toEqual(
+      expect.arrayContaining(['Interior door installation', 'Trim'])
+    );
+    expect(getInitialRevealTagline(draft)).not.toContain('Trim');
+    expect(getInitialRevealTagline(draft)).not.toContain('HVAC');
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual(
+      expect.arrayContaining([
+        'Price needed for Stucco / exterior wall finish',
+        'Price needed for Windows',
+        'Price needed for Exterior doors',
+        'Price needed for Roofing replacement',
+        'Price needed for Gutters',
+      ])
+    );
+  });
+
+  it('uses net stucco area for mixed drafts outside the room-remodel template', () => {
+    const notes =
+      'Repair and install stucco. Gross exterior wall area is 1,800 sqft. Deduct 240 sqft for window and door openings, 120 sqft for garage openings, and 90 sqft for brick and stone, for a net stucco area of 1,350 sqft. Include 80 sqft soffits, 40 sqft parapets, 35 LF foam trim, and 30 LF control joints. Replace 6 windows and 1 exterior door. Replace 28 roofing squares and 120 LF gutters.';
+    const draft = {
+      projectType: 'other',
+      scopeMode: 'mixed',
+      originalNotes: notes,
+      classification: {
+        scopeMode: 'mixed',
+        detectedTrades: ['stucco', 'roofing', 'windows_doors', 'trim'],
+      },
+      scopeChecklist: {
+        templateKey: 'other',
+        items: [
+          { id: 'stucco', label: 'Stucco / exterior wall finish', state: 'included' },
+          { id: 'windows', label: 'Window install', state: 'included' },
+          {
+            id: 'exterior_doors',
+            label: 'Exterior door installation',
+            state: 'included',
+          },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealChecklistScopePreview(draft)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Stucco / exterior wall finish',
+          quantity: '1350 sqft',
+        }),
+      ])
+    );
+    expect(getInitialRevealTagline(draft)).not.toContain('Trim');
+  });
+
   it('keeps measured stucco notes on a dedicated reveal instead of mixed remodel', () => {
     const draft = {
       projectType: 'stucco',
@@ -115,6 +206,67 @@ describe('estimateInitialRevealUi', () => {
         'Conduit / raceway only',
       ])
     );
+  });
+
+  it('limits a mixed addition reveal to note-backed scope rows', () => {
+    const notes =
+      'Remodel an existing 2,000 sqft home and build a 350 sqft addition. Electrical scope includes a 200A main panel, wiring and boxes for 30 standard receptacle locations, 6 GFCI receptacle locations, 20 switch locations, 26 recessed-light rough-in locations, four dedicated 20A circuits, and 240 LF of conduit. Repair 420 sqft of drywall, install six windows and two exterior doors, add R-21 wall insulation, install 1,100 sqft flooring, replace 160 LF baseboard, and paint the interior. Owner supplies light fixtures and final devices/plates. Excludes fans, low-voltage, EV charging, utility work, and final electrical trim-out.';
+    const draft = {
+      projectType: 'addition',
+      scopeMode: 'mixed',
+      originalNotes: notes,
+      classification: {
+        scopeMode: 'mixed',
+        detectedTrades: ['addition', 'electrical', 'drywall', 'flooring'],
+      },
+      scopeChecklist: {
+        templateKey: 'addition',
+        items: [
+          { id: 'foundation', label: 'Foundation', state: 'included' },
+          { id: 'roofing', label: 'Roofing', state: 'included' },
+          { id: 'electrical', label: 'Electrical', state: 'included' },
+          { id: 'electrical_main_panel', label: 'Main panel', state: 'included' },
+          { id: 'electrical_dedicated_20a', label: 'Dedicated 20A circuits', state: 'included' },
+          { id: 'drywall', label: 'Drywall', state: 'included' },
+          { id: 'flooring', label: 'Flooring', state: 'included' },
+          { id: 'windows', label: 'Windows', state: 'included' },
+          { id: 'exterior_doors', label: 'Exterior doors', state: 'included' },
+          { id: 'insulation', label: 'Insulation', state: 'included' },
+          { id: 'baseboard_install', label: 'Baseboard installation', state: 'included' },
+          { id: 'interior_paint', label: 'Interior paint', state: 'included' },
+          { id: 'garage_doors', label: 'Garage doors', state: 'included' },
+          { id: 'cabinets', label: 'Cabinets', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {},
+    } as EstimateAiDraft;
+
+    const names = getInitialRevealChecklistScopePreview(draft).map(row => row.name);
+
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'Drywall repair · 420 sqft',
+        'Flooring installation',
+        'Window install',
+        'Exterior doors',
+        'Interior paint',
+        'Electrical',
+        'Main panel',
+        'Dedicated 20A circuits',
+      ])
+    );
+    expect(names).not.toEqual(
+      expect.arrayContaining([
+        'Foundation',
+        'Roofing',
+        'Garage doors',
+        'Cabinets',
+        'Interior doors / trim',
+      ])
+    );
+    expect(
+      names.some(name => /interior\s+(?:doors?|door\s+trim).*trim/i.test(name))
+    ).toBe(false);
   });
 
   it('maps technical review copy to plain language', () => {

@@ -2849,6 +2849,10 @@ const CHECKLIST_NO_HINTS = {
     /\b(?:final\s+)?(?:electrical\s+)?trim(?:[\s-]?out)?\b[^.;\n]{0,40}\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b|\b(?:exclud(?:e|ed|es|ing)|not\s+included)\b[^.;\n]{0,120}\b(?:final\s+)?(?:electrical\s+)?trim(?:[\s-]?out)?\b/i,
   electrical_service_upgrade:
     /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b[^.;\n]{0,70}\belectrical\s+service\s+upgrades?\b|\belectrical\s+service\s+upgrades?\b[^.;\n]{0,70}\b(?:exclude(?:d|es|ing)?|not\s+included|not\s+in\s+scope)\b/i,
+  plumbing:
+    /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b[^.;\n]{0,70}\bplumbing\b|\bplumbing\b[^.;\n]{0,70}\b(?:exclude(?:d|es|ing)?|not\s+included|not\s+in\s+scope)\b/i,
+  electrical:
+    /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope)\b[^.;\n]{0,70}\belectrical\b|\belectrical\b[^.;\n]{0,70}\b(?:exclude(?:d|es|ing)?|not\s+included|not\s+in\s+scope)\b/i,
 };
 
 function notesText(draft, originalNotes) {
@@ -3282,6 +3286,17 @@ function inferItemStateFromNotes(itemId, notes) {
   if (CHECKLIST_NO_HINTS[itemId]?.test(n)) return "excluded";
   if (itemId === "floor_demo")
     return floorDemoNotesHint(n) ? "included" : "unsure";
+  if (
+    itemId === "demo" &&
+    /\b(?:remove|removal|demo|demolish|replace)\b[^.;\n]{0,80}\b(?:existing\s+)?(?:hvac|ductwork)\b/.test(
+      n,
+    ) &&
+    !/\b(?:remove|removal|demo|demolish|tear[\s-]?out)\b[^.;\n]{0,80}\b(?:walls?|floor(?:ing)?|cabinets?|fixtures?|drywall|sheetrock|gypsum|roof|shingles?)\b/.test(
+      n,
+    )
+  ) {
+    return "excluded";
+  }
   if (itemId === "demo" && /\b(?:bathroom|bath)\b/.test(n)) {
     return bathroomShowerDemoNotesHint(n) ? "included" : "unsure";
   }
@@ -3292,6 +3307,21 @@ function inferItemStateFromNotes(itemId, notes) {
       /\bdoors?\b/.test(n) &&
       !/\b(?:exterior|sliding|patio|garage|shower)\s+doors?\b/.test(n);
     return hasInteriorDoorMention || hasGenericDoorMention
+      ? "included"
+      : "unsure";
+  }
+  if (itemId === "door_paint") {
+    const directDoorPaint =
+      /\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\bdoors?\b/.test(n) ||
+      (/\bdoors?\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/.test(n) &&
+        !/\bdoors?\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\b(?:walls?|ceilings?)\b/.test(
+          n,
+        ));
+    const wholeRoomPaintWithDoors =
+      /\bpaint(?:ing)?\b[^.;\n]{0,45}\bwalls?\b[^.;\n]{0,45}\bceilings?\b/.test(
+        n,
+      ) && /\bdoors?\b/.test(n);
+    return directDoorPaint || wholeRoomPaintWithDoors
       ? "included"
       : "unsure";
   }

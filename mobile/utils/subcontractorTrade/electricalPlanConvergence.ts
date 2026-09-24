@@ -1413,7 +1413,7 @@ const DEVICE_RULES: ParseRule[] = [
   {
     key: 'recessedLightCount',
     pattern: new RegExp(
-      String.raw`${COUNT_TOKEN}\s*(?:recessed|canless|wafer|can)\s+(?:lights?|lighting|cans?|fixtures?)\b|\b(?:recessed|canless|wafer)\s+(?:lights?|lighting|cans?|fixtures?)\b`,
+      String.raw`${COUNT_TOKEN}\s*(?:recessed|canless|wafer|can)[\s-]+(?:lights?|lighting|cans?|fixtures?|locations?|rough[\s-]?in)\b|\b(?:recessed|canless|wafer)[\s-]+(?:lights?|lighting|cans?|fixtures?|locations?|rough[\s-]?in)\b`,
       'i'
     ),
   },
@@ -1553,7 +1553,7 @@ const DEVICE_RULES: ParseRule[] = [
   {
     key: 'singlePoleSwitchCount',
     pattern: new RegExp(
-      String.raw`${COUNT_TOKEN}\s*(?:standard\s+)?(?:single[\s-]?pole\s+)?switch(?:es)?\b|\b(?:standard\s+)?(?:single[\s-]?pole\s+)?switch(?:es)?\b`,
+      String.raw`${COUNT_TOKEN}\s*(?:standard\s+)?(?:single[\s-]?pole\s+)?switch(?:es)?(?:\s+locations?)?\b|\b(?:standard\s+)?(?:single[\s-]?pole\s+)?switch(?:es)?(?:\s+locations?)?\b`,
       'i'
     ),
   },
@@ -1640,7 +1640,7 @@ const CIRCUIT_RULES: ParseRule[] = [
   {
     key: 'dedicated20aCircuitCount',
     pattern: new RegExp(
-      String.raw`${COUNT_TOKEN}\s*dedicated\s+(?:20\s*amp(?:ere)?s?\s+)?circuits?\b|\bdedicated\s+(?:20\s*amp(?:ere)?s?\s+)?circuits?\b`,
+      String.raw`${COUNT_TOKEN}\s*dedicated\s+(?:20\s*(?:a|amp(?:ere)?s?)\s+)?circuits?\b|\bdedicated\s+(?:20\s*(?:a|amp(?:ere)?s?)\s+)?circuits?\b`,
       'i'
     ),
   },
@@ -1988,7 +1988,7 @@ export function parseElectricalMeasurementsFromNotes(
       matchRuleCount(text, {
         key: 'mainPanelCount',
         pattern: new RegExp(
-          String.raw`${COUNT_TOKEN}\s*(?:main\s+)?panels?\b|\b(?:install|new)\s+(?:a\s+)?(?:\d+\s*amp(?:ere)?s?\s+)?(?:main\s+)?panel\b`,
+          String.raw`${COUNT_TOKEN}\s*(?:main\s+)?panels?\b|\b(?:a|an|one)\s+\d+\s*(?:amp(?:ere)?s?|a)\s+(?:main\s+)?panel\b|\b(?:install|new)\s+(?:a\s+)?(?:\d+\s*amp(?:ere)?s?\s+)?(?:main\s+)?panel\b`,
           'i'
         ),
       }) || 1
@@ -2043,6 +2043,10 @@ export function parseElectricalMeasurementsFromNotes(
   }
 
   for (const clause of searchClauses) {
+    const ownerSuppliedFixtures =
+      /\b(?:owner|client|customer)\s+(?:supplies|provides?)\b[^.;\n]{0,80}\b(?:light\s+)?fixtures?\b/i.test(
+        clause
+      );
     for (const rule of DEVICE_RULES) {
       if (
         rule.key === 'standardReceptacleCount' &&
@@ -2087,7 +2091,7 @@ export function parseElectricalMeasurementsFromNotes(
       }
       if (
         rule.key === 'standardFixtureCount' &&
-        isSpecializedLightClause(clause)
+        (isSpecializedLightClause(clause) || ownerSuppliedFixtures)
       ) {
         continue;
       }
@@ -2125,11 +2129,14 @@ export function parseElectricalMeasurementsFromNotes(
     out.electricalIncludeRough = true;
   }
   if (
-    /\btrim(?:[\s-]?out)?\b/i.test(text) ||
-    /\bdevices?\s+and\s+plates\b/i.test(text) ||
-    /\bfinish(?:ing)?\s+electrical\b/i.test(text) ||
-    /\belectrical\s+trim\b/i.test(text) ||
-    /\binstall\s+devices?\b/i.test(text)
+    (
+      /\btrim(?:[\s-]?out)?\b/i.test(text) ||
+      /\bdevices?\s+and\s+plates\b/i.test(text) ||
+      /\bfinish(?:ing)?\s+electrical\b/i.test(text) ||
+      /\belectrical\s+trim\b/i.test(text) ||
+      /\binstall\s+devices?\b/i.test(text)
+    ) &&
+    !noteExcludesElectricalItem('electrical_trim', text)
   ) {
     out.electricalIncludeTrim = true;
   }

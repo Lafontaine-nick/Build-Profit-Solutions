@@ -1,6 +1,7 @@
 import {
   parseInsulationAssembliesFromNotes,
   parseScopeMeasurementsFromNotes,
+  parseStuccoMeasurementsFromNotes,
 } from '@/utils/scopeMeasurementParser';
 import {
   initialScopeMeasurementInputExtended,
@@ -37,6 +38,18 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.interiorDoorCount).toBe(4);
     expect(parsed.atticInsulationSqft).toBeUndefined();
     expect(parsed.exteriorWallInsulationSqft).toBeUndefined();
+  });
+
+  it('keeps explicit flooring area in a mixed addition note', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Remodel an existing 2,000 sqft home and build a 350 sqft addition. Repair 420 sqft of drywall, install 1,100 sqft flooring, replace 160 LF baseboard, and paint the interior.',
+      { templateKey: 'room_remodel', projectType: 'room_remodel' }
+    );
+
+    expect(parsed.floorAreaSqft).toBe(350);
+    expect(parsed.flooringSqft).toBe(1100);
+    expect(parsed.drywallSqft).toBe(420);
+    expect(parsed.baseboardLf).toBe(160);
   });
 
   it('preserves explicit wall and attic insulation locations without inventing quantities', () => {
@@ -79,6 +92,44 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.bathroomFloorSqft).toBe(90);
     expect(parsed.drywallSqft).toBe(120);
     expect(parsed.plumbingRerouteLf).toBe(25);
+  });
+
+  it('parses the dedicated stucco takeoff and preserves a zero garage deduction', () => {
+    const parsed = parseStuccoMeasurementsFromNotes(
+      'Repair and install stucco on designated exterior wall areas. Gross exterior wall area is 2,400 sqft. Deduct 320 sqft for window and door openings, 0 sqft for garage door openings, and 180 sqft for stone, brick, siding, and other non-stucco finishes, for a calculated net stucco area of 1,900 sqft. Include 120 sqft of soffits, 80 sqft of parapets, 60 LF of foam trim, and 45 LF of control joints. The building is 2 stories with a typical wall height of 9 ft per story. Allow for 600 sqft of access-affected area and 250 sqft of localized stucco repair.'
+    );
+
+    expect(parsed).toMatchObject({
+      stuccoGrossWallSqft: 2400,
+      stuccoWindowDoorOpeningSqft: 320,
+      stuccoGarageOpeningSqft: 0,
+      stuccoOtherFinishDeductionSqft: 180,
+      stuccoNetWallSqft: 1900,
+      stuccoSoffitSqft: 120,
+      stuccoParapetSqft: 80,
+      stuccoFoamTrimLf: 60,
+      stuccoControlJointLf: 45,
+      stuccoAccessAffectedSqft: 600,
+      stuccoRepairAffectedSqft: 250,
+      stuccoStories: 2,
+      stuccoWallHeightFt: 9,
+    });
+  });
+
+  it('parses cross-trade stucco wording with short deductions and leading wall height', () => {
+    const parsed = parseStuccoMeasurementsFromNotes(
+      'Repair and install stucco. Gross exterior wall area is 1,800 sqft. Deduct 240 sqft for window and door openings, 120 sqft for garage openings, and 90 sqft for brick and stone, for a net stucco area of 1,350 sqft. Include 80 sqft soffits, 40 sqft parapets, 35 LF foam trim, and 30 LF control joints. Building is 2 stories with 9 ft wall height per story. Allow 400 sqft access-affected area and 150 sqft localized repair.'
+    );
+
+    expect(parsed).toMatchObject({
+      stuccoGrossWallSqft: 1800,
+      stuccoWindowDoorOpeningSqft: 240,
+      stuccoGarageOpeningSqft: 120,
+      stuccoOtherFinishDeductionSqft: 90,
+      stuccoNetWallSqft: 1350,
+      stuccoStories: 2,
+      stuccoWallHeightFt: 9,
+    });
   });
 
   it('keeps mixed painting notes in the correct scope and measurement owners', () => {
@@ -1462,6 +1513,25 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.itemQuantities?.electrical_recessed_light?.quantity).toBe(18);
   });
 
+  it('parses electrical rough-in locations without pricing owner-supplied fixtures', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Electrical rough-in for a 2,400 sqft new-construction home: provide wiring, boxes, and rough-in connections for 18 recessed-light locations, 12 standard receptacle locations, 4 GFCI receptacle locations, 10 switch locations, two dedicated 20A circuits, one 200A main panel, and 150 LF of conduit. Owner supplies light fixtures and final devices/plates. Excludes fixture hardware, fans, low-voltage, EV charging, utility work, and final trim-out.',
+      { templateKey: 'electrical', projectType: 'new_build' }
+    );
+
+    expect(parsed).toMatchObject({
+      mainPanelCount: 1,
+      serviceAmperage: 200,
+      dedicated20aCircuitCount: 2,
+      standardReceptacleCount: 12,
+      gfciReceptacleCount: 4,
+      singlePoleSwitchCount: 10,
+      recessedLightCount: 18,
+      conduitLf: 150,
+    });
+    expect(parsed.itemQuantities?.electrical_standard_fixture).toBeUndefined();
+  });
+
   it('parses Windows & doors counts and aggregates typed garage doors', () => {
     const parsed = parseScopeMeasurementsFromNotes(
       'Replace 12 windows, 2 exterior swing doors, 1 sliding patio door, 1 single garage door, 1 double garage door, and 1 RV garage door.',
@@ -1525,6 +1595,35 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.hvacThermostatCount).toBe(1);
     expect(parsed.hvacSupplyRegisterCount).toBe(8);
     expect(parsed.hvacReturnGrilleCount).toBe(2);
+  });
+
+  it('keeps HVAC quantities when the note includes mixed repair, door, and paint work', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Replace 1 existing HVAC system and 120 LF of ductwork. Install 1 new 3-ton heat-pump system, 1 thermostat, 8 supply registers, and 2 return grilles, including startup and testing. Also repair 240 sqft of drywall, replace 3 interior doors, and paint 1,100 sqft of ceilings. Excludes electrical service upgrades, plumbing, and structural repairs.',
+      { templateKey: 'room_remodel', projectType: 'other' }
+    );
+
+    expect(parsed.hvacSystemCount).toBe(1);
+    expect(parsed.hvacSystemTons).toBe(3);
+    expect(parsed.hvacDuctworkLf).toBe(120);
+    expect(parsed.hvacThermostatCount).toBe(1);
+    expect(parsed.hvacSupplyRegisterCount).toBe(8);
+    expect(parsed.hvacReturnGrilleCount).toBe(2);
+    expect(parsed.drywallSqft).toBe(240);
+    expect(parsed.interiorDoorCount).toBe(3);
+    expect(parsed.ceilingPaintSqft).toBe(1100);
+    expect(parsed.atticInsulationSqft).toBeUndefined();
+  });
+
+  it('does not borrow drywall area for unmeasured ceiling paint', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Remove the existing HVAC system and ductwork, then install a new heat-pump system with thermostat, supply registers, and return grilles, including startup and testing. System count, tonnage, ductwork length, thermostat count, register count, and return grille count must be confirmed. Also patch drywall and paint ceilings. Excludes electrical service upgrades and plumbing.',
+      { templateKey: 'room_remodel', projectType: 'other' }
+    );
+
+    expect(parsed.ceilingPaintSqft).toBeUndefined();
+    expect(parsed.wallPaintSqft).toBeUndefined();
+    expect(parsed.paintAreaSqft).toBeUndefined();
   });
 
   it('does not invent an HVAC replacement count when replacement work is unquantified', () => {

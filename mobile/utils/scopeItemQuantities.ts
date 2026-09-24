@@ -288,6 +288,7 @@ import {
   inferGarageSqftFromCarCount,
   parseInsulationAssembliesFromNotes,
   parseScopeMeasurementsFromNotes,
+  parseStuccoMeasurementsFromNotes,
 } from '@/utils/scopeMeasurementParser';
 import {
   applyRoofingPlanningMeasurements,
@@ -26838,6 +26839,9 @@ export function initialScopeMeasurementInputExtended(
         projectType: draft?.projectType ?? undefined,
       })
     : {};
+  const parsedStuccoFromNotes = scopeNotes
+    ? parseStuccoMeasurementsFromNotes(scopeNotes)
+    : {};
   const parsedInsulationAssemblies = scopeNotes
     ? parseInsulationAssembliesFromNotes(scopeNotes).map((row, index) => ({
         ...row,
@@ -26849,6 +26853,7 @@ export function initialScopeMeasurementInputExtended(
   const parsed = {
     ...suggested,
     ...parsedFromNotes,
+    ...parsedStuccoFromNotes,
     ...(parsedInsulationAssemblies.length
       ? { insulationAssemblies: parsedInsulationAssemblies }
       : {}),
@@ -27143,6 +27148,9 @@ export function initialScopeMeasurementInputExtended(
         : '';
     }
     const parsedNoteValueRaw =
+      (parsedStuccoFromNotes as Partial<ScopeMeasurements>)[
+        key as keyof ScopeMeasurements
+      ] ??
       parsedFromNotes[key as keyof typeof parsedFromNotes];
     const parsedNoteValue =
       typeof parsedNoteValueRaw === 'number' ||

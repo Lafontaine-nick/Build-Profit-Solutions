@@ -411,6 +411,27 @@ describe('simple trade QM panels', () => {
     expect(hydrated.tradeScopeSelections?.roofing).not.toContain('shingles');
   });
 
+  it('treats replacement roofing squares as install scope without inventing tear-off', () => {
+    const panel = simpleTradePanelFor('roofing');
+    const hydrated = panel.hydrateMeasurements({
+      templateKey: 'room_remodel',
+      wholeHomeLayout: false,
+      notes: 'Replace 28 roofing squares and 120 LF gutters.',
+      measurements: {},
+      checklistItems: [
+        {
+          id: 'tear_off',
+          label: 'Existing roof / tear-off',
+          state: 'included',
+          inputType: 'yes_no',
+        },
+      ],
+    });
+
+    expect(hydrated.tradeScopeSelections?.roofing).toContain('shingles');
+    expect(hydrated.tradeScopeSelections?.roofing).not.toContain('tear_off');
+  });
+
   it('preselects drainage options from cross-trade roofing notes', () => {
     const panel = simpleTradePanelFor('roofing');
     const hydrated = panel.hydrateMeasurements({
@@ -626,6 +647,35 @@ describe('simple trade QM panels', () => {
     );
     expect(hydrated.hvacSystemCount).toBeUndefined();
     expect(hydrated.hvacDuctworkLf).toBeUndefined();
+    expect(hydrated.itemQuantities).not.toHaveProperty(
+      'equipment_replace__heat_pump'
+    );
+  });
+
+  it('clears non-authoritative heat-pump defaults when notes require confirmation', () => {
+    const panel = simpleTradePanelFor('hvac');
+    const hydrated = panel.hydrateMeasurements({
+      templateKey: 'hvac',
+      wholeHomeLayout: false,
+      notes:
+        'Install a new heat-pump system with thermostat, supply registers, and return grilles. System count and tonnage must be confirmed.',
+      hasSitePhotos: false,
+      measurements: {
+        hvacEquipmentReplacementCount: 1,
+        quickMeasurementSources: {
+          hvacEquipmentReplacementCount: 'ai_verified',
+        },
+        itemQuantities: {
+          equipment_replace__heat_pump: {
+            quantity: 1,
+            quantitySource: 'selection_default',
+          },
+        },
+      },
+      checklistItems: [],
+    });
+
+    expect(hydrated.hvacEquipmentReplacementCount).toBeUndefined();
     expect(hydrated.itemQuantities).not.toHaveProperty(
       'equipment_replace__heat_pump'
     );

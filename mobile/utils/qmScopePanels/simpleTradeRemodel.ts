@@ -215,6 +215,14 @@ function syncHvacEquipmentScopeMeasurements(
   };
 
   if (equipmentIds.length > 0) {
+    const hasEquipmentQuantity = equipmentIds.some(
+      id => readHvacEquipmentTypeCount(next, id) != null
+    );
+    if (!seedUnquantified && !hasEquipmentQuantity) {
+      // Note-backed equipment is a selection, not a quantity. Do not let the
+      // synchronizer turn an unquantified selection into an implicit "1 each".
+      return next;
+    }
     const total = equipmentIds.reduce(
       (sum, id) => sum + (readHvacEquipmentTypeCount(next, id) ?? 1),
       0
@@ -250,6 +258,84 @@ function syncHvacEquipmentScopeMeasurements(
   }
 
   return next;
+}
+
+function isAuthoritativeHvacQuantitySource(source: unknown): boolean {
+  return [
+    'user_entered',
+    'user_confirmed_suggestion',
+    'contractor_confirmed_from_plan_review',
+    'plan_detected',
+    'detected_from_plan',
+    'plan_verified',
+    'measured_from_geometry',
+  ].includes(String(source || '').toLowerCase());
+}
+
+function clearUnquantifiedNoteEquipmentDefaults(
+  measurements: Record<string, unknown>,
+  selections: string[],
+  notes: string
+): Record<string, unknown> {
+  const equipmentIds = selections.filter(id =>
+    (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
+  );
+  const unquantifiedEquipmentIds = equipmentIds.filter(
+    id => !hvacScopeOptionHasExplicitQuantityInNotes(id, notes)
+  );
+  if (!unquantifiedEquipmentIds.length) return measurements;
+
+  const itemQuantities = {
+    ...(((measurements.itemQuantities as Record<string, unknown>) ||
+      {}) as Record<string, { quantity?: unknown; quantitySource?: unknown }>),
+  };
+  let changed = false;
+  for (const id of unquantifiedEquipmentIds) {
+    const key = hvacEquipmentItemQuantityKey(id);
+    const entry = itemQuantities[key];
+    if (
+      entry &&
+      !isAuthoritativeHvacQuantitySource(entry.quantitySource)
+    ) {
+      delete itemQuantities[key];
+      delete itemQuantities[id];
+      changed = true;
+    }
+  }
+
+  const sources = {
+    ...((measurements.quickMeasurementSources as Record<string, unknown>) ||
+      {}),
+  };
+  const overrides = {
+    ...((measurements.quickMeasurementUserOverrides as Record<
+      string,
+      boolean
+    >) || {}),
+  };
+  const replacementSource = sources.hvacEquipmentReplacementCount;
+  if (
+    !overrides.hvacEquipmentReplacementCount &&
+    !isAuthoritativeHvacQuantitySource(replacementSource)
+  ) {
+    if (measurements.hvacEquipmentReplacementCount != null) {
+      delete (measurements as Record<string, unknown>)
+        .hvacEquipmentReplacementCount;
+      changed = true;
+    }
+    if (sources.hvacEquipmentReplacementCount != null) {
+      delete sources.hvacEquipmentReplacementCount;
+      changed = true;
+    }
+  }
+
+  if (!changed) return measurements;
+  return {
+    ...measurements,
+    itemQuantities,
+    quickMeasurementSources: sources,
+    quickMeasurementUserOverrides: overrides,
+  };
 }
 
 /** Optional HVAC scope — excluded from base package unless explicitly included. */
@@ -559,6 +645,17 @@ export function finalizeRoofingScopeSelections(
     inferredFromNotes.length > 0
       ? inferredFromNotes
       : inferRoofingTradeScopeSelectionsFromNotes(ctx.notes);
+  const explicitTearOffInNotes =
+    /\b(?:tear[\s-]?off|remove|removal|roof\s+demo|strip\s+roof)\b[^.;\n]{0,60}\b(?:existing\s+)?(?:roof|shingles?|tile|metal|membrane)?\b/i.test(
+      String(ctx.notes || '')
+    ) ||
+    /\b(?:existing\s+)?(?:roof|shingles?|tile|metal|membrane)\b[^.;\n]{0,60}\b(?:tear[\s-]?off|remove|removal|roof\s+demo|strip\s+roof)\b/i.test(
+      String(ctx.notes || '')
+    );
+  const checklistWithoutImplicitTearOff =
+    explicitTearOffInNotes || saved.includes('tear_off')
+      ? inferredFromChecklist
+      : inferredFromChecklist.filter(id => id !== 'tear_off');
   const roofingInstallMentioned = fromNotes.includes('shingles');
   const fromMeasurements = inferRoofingScopeSelectionsFromMeasurements(
     ctx.measurements
@@ -566,7 +663,7 @@ export function finalizeRoofingScopeSelections(
   if (!saved.length) {
     return filterRoofingScopeSelectionsForTearOffInstall(
       mergeRoofingScopeSelectionIds(
-        inferredFromChecklist,
+        checklistWithoutImplicitTearOff,
         fromNotes,
         fromMeasurements
       ),
@@ -1490,13 +1587,36 @@ function hydrateSimpleTrade(
       [spec.scopeKey]: current.length ? current : null,
     },
   };
-  return spec.scopeKey === 'hvac'
-    ? applyHvacScopeMeasurements(hydrated, {
+  if (spec.scopeKey === 'hvac') {
+    const noteSafeHydrated = clearUnquantifiedNoteEquipmentDefaults(
+      hydrated,
+      current,
+      ctx.notes || ''
+    );
+    const appliedHvacMeasurements = applyHvacScopeMeasurements(
+      noteSafeHydrated,
+      {
         // Note-backed selections are scope evidence, not a contractor-entered
         // quantity. Keep missing note quantities blank until confirmed.
-        seedUnquantified: inferredFromNotes.length === 0,
-      })
-    : hydrated;
+        seedUnquantified:
+          inferredFromNotes.length === 0 &&
+          !(
+            current.some(id =>
+              (HVAC_EQUIPMENT_OPTION_IDS as readonly string[]).includes(id)
+            ) &&
+            /\b(?:hvac|heat[\s-]*pump|furnace|condenser|air\s*handler|mini[\s-]*split)\b/i.test(
+              ctx.notes || ''
+            )
+          ),
+      }
+    );
+    return clearUnquantifiedNoteEquipmentDefaults(
+      appliedHvacMeasurements,
+      current,
+      ctx.notes || ''
+    );
+  }
+  return hydrated;
 }
 
 function syncSimpleTrade(

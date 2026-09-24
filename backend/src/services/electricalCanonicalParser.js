@@ -323,10 +323,11 @@ function parseElectricalMeasurementsFromNotes(notes) {
     const relocating = /\brelocat|\bmove(?:s|d)?\s+(?:an?\s+|the\s+|\d+\s+)?(?:existing\s+)?(?:switch|outlet|receptacle|fixture|device)/i.test(clause);
     const removingDevices = new RegExp(`\\b(?:remove|removal of)\\s+(?:${COUNT_TOKEN}\\s+)?(?:existing\\s+)?(?:outlets?|receptacles?|switches?|devices?)\\b`, 'i').test(clause);
     const removingFixtures = new RegExp(`\\b(?:remove|removal of)\\s+(?:${COUNT_TOKEN}\\s+)?(?:existing\\s+)?(?:(?:light\\s+)?fixtures?|(?:ceiling\\s+)?fans?)\\b`, 'i').test(clause);
+    const ownerSuppliedFixtures = /\b(?:owner|client|customer)\s+(?:supplies|provides?)\b[^.;\n]{0,80}\b(?:light\s+)?fixtures?\b/i.test(clause);
 
     if (!relocating && !removingFixtures) {
-      if (/\b(?:recessed|canless|wafer)\s+(?:lights?|lighting|cans?|fixtures?)/i.test(clause)) {
-        assign('recessedLightCount', matchCount(clause, new RegExp(`${COUNT_TOKEN}\\s*(?:recessed|canless|wafer|can)\\s+(?:lights?|lighting|cans?|fixtures?)`, 'i')) || 1);
+      if (/\b(?:recessed|canless|wafer)[\s-]+(?:lights?|lighting|cans?|fixtures?|locations?|rough[\s-]?in)\b/i.test(clause)) {
+        assign('recessedLightCount', matchCount(clause, new RegExp(`${COUNT_TOKEN}\\s*(?:recessed|canless|wafer|can)[\\s-]+(?:lights?|lighting|cans?|fixtures?|locations?|rough[\\s-]?in)`, 'i')) || 1);
       } else if (/\bpendants?(?:\s+lights?|\s+fixtures?)?/i.test(clause)) {
         assign('pendantLightCount', matchCount(clause, new RegExp(`${COUNT_TOKEN}\\s*pendants?`, 'i')) || 1);
       } else if (/\b(?:decorative|chandeliers?|heavy)\s+(?:lights?|fixtures?)|\bchandeliers?\b/i.test(clause)) {
@@ -335,7 +336,7 @@ function parseElectricalMeasurementsFromNotes(notes) {
         assign('exteriorLightCount', matchCount(clause, new RegExp(`${COUNT_TOKEN}\\s*(?:exterior|outdoor|porch)\\s+(?:lights?|lighting|fixtures?)`, 'i')) || 1);
       } else if (/\b(?:under[\s-]?cabinet|undercabinet)\s+(?:lights?|lighting)/i.test(clause)) {
         assign('undercabinetLightCount', matchCount(clause, new RegExp(`${COUNT_TOKEN}\\s*(?:under[\\s-]?cabinet|undercabinet)`, 'i')) || 1);
-      } else if (/\b(?:standard\s+)?light\s+fixtures?|\bvanity\s+lights?/i.test(clause)) {
+      } else if (!ownerSuppliedFixtures && /\b(?:standard\s+)?light\s+fixtures?|\bvanity\s+lights?/i.test(clause)) {
         assign('standardFixtureCount', matchCount(clause, new RegExp(`${COUNT_TOKEN}\\s*(?:standard\\s+|vanity\\s+)?(?:light\\s+)?fixtures?|${COUNT_TOKEN}\\s*vanity\\s+lights?`, 'i')) || 1);
       }
 

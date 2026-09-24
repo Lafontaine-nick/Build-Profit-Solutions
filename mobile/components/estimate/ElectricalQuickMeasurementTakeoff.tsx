@@ -735,6 +735,8 @@ const ElectricalRacewayCard = React.memo(
   function ElectricalRacewayCard({
     includeConduit,
     includeTrenching,
+    showConduitOption = true,
+    showTrenchingOption = true,
     collapsed,
     darkMode,
     onToggle,
@@ -742,6 +744,8 @@ const ElectricalRacewayCard = React.memo(
   }: {
     includeConduit: boolean;
     includeTrenching: boolean;
+    showConduitOption?: boolean;
+    showTrenchingOption?: boolean;
     collapsed: boolean;
     darkMode: boolean;
     onToggle: () => void;
@@ -764,17 +768,29 @@ const ElectricalRacewayCard = React.memo(
       >
         <ElectricalAttributeToggleChips
           options={[
-            {
-              key: 'electricalConduit',
-              label: 'Conduit',
-              selected: includeConduit,
-            },
-            {
-              key: 'electricalTrenching',
-              label: 'Trenching',
-              selected: includeTrenching,
-            },
-          ]}
+            showConduitOption
+              ? {
+                  key: 'electricalConduit' as const,
+                  label: 'Conduit',
+                  selected: includeConduit,
+                }
+              : null,
+            showTrenchingOption
+              ? {
+                  key: 'electricalTrenching' as const,
+                  label: 'Trenching',
+                  selected: includeTrenching,
+                }
+              : null,
+          ].filter(
+            (
+              option
+            ): option is {
+              key: 'electricalConduit' | 'electricalTrenching';
+              label: string;
+              selected: boolean;
+            } => Boolean(option)
+          )}
           darkMode={darkMode}
           onToggle={key =>
             onToggleOption(key as 'electricalConduit' | 'electricalTrenching')
@@ -786,6 +802,8 @@ const ElectricalRacewayCard = React.memo(
   (previous, next) =>
     previous.includeConduit === next.includeConduit &&
     previous.includeTrenching === next.includeTrenching &&
+    previous.showConduitOption === next.showConduitOption &&
+    previous.showTrenchingOption === next.showTrenchingOption &&
     previous.collapsed === next.collapsed &&
     previous.darkMode === next.darkMode &&
     previous.onToggle === next.onToggle &&
@@ -866,6 +884,9 @@ const ElectricalAttributeBottomCards = React.memo(
     showPackages,
     includeConduit,
     includeTrenching,
+    showRaceway = true,
+    showConduitOption = true,
+    showTrenchingOption = true,
     packagesCollapsed,
     racewayCollapsed,
     darkMode,
@@ -880,6 +901,9 @@ const ElectricalAttributeBottomCards = React.memo(
     showPackages: boolean;
     includeConduit: boolean;
     includeTrenching: boolean;
+    showRaceway?: boolean;
+    showConduitOption?: boolean;
+    showTrenchingOption?: boolean;
     packagesCollapsed: boolean;
     racewayCollapsed: boolean;
     darkMode: boolean;
@@ -905,14 +929,18 @@ const ElectricalAttributeBottomCards = React.memo(
             onToggleOption={onTogglePackageOption}
           />
         ) : null}
-        <ElectricalRacewayCard
-          includeConduit={includeConduit}
-          includeTrenching={includeTrenching}
-          collapsed={racewayCollapsed}
-          darkMode={darkMode}
-          onToggle={onToggleRaceway}
-          onToggleOption={onToggleRacewayOption}
-        />
+        {showRaceway ? (
+          <ElectricalRacewayCard
+            includeConduit={includeConduit}
+            includeTrenching={includeTrenching}
+            showConduitOption={showConduitOption}
+            showTrenchingOption={showTrenchingOption}
+            collapsed={racewayCollapsed}
+            darkMode={darkMode}
+            onToggle={onToggleRaceway}
+            onToggleOption={onToggleRacewayOption}
+          />
+        ) : null}
       </View>
     );
   },
@@ -924,6 +952,9 @@ const ElectricalAttributeBottomCards = React.memo(
     previous.showPackages === next.showPackages &&
     previous.includeConduit === next.includeConduit &&
     previous.includeTrenching === next.includeTrenching &&
+    previous.showRaceway === next.showRaceway &&
+    previous.showConduitOption === next.showConduitOption &&
+    previous.showTrenchingOption === next.showTrenchingOption &&
     previous.packagesCollapsed === next.packagesCollapsed &&
     previous.racewayCollapsed === next.racewayCollapsed &&
     previous.onTogglePackages === next.onTogglePackages &&
@@ -1185,6 +1216,10 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     darkMode,
     showExistingService,
     hasDetailedQuantities,
+    showPanelLocation = true,
+    showRaceway = true,
+    showConduitOption = true,
+    showTrenchingOption = true,
   }: {
     values: ElectricalConfirmScopeAttributes;
     onCommit: (attributes: ElectricalConfirmScopeAttributes) => void;
@@ -1193,6 +1228,10 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     darkMode: boolean;
     showExistingService: boolean;
     hasDetailedQuantities: boolean;
+    showPanelLocation?: boolean;
+    showRaceway?: boolean;
+    showConduitOption?: boolean;
+    showTrenchingOption?: boolean;
   }) {
     const [local, setLocal] = useState(values);
     const localRef = useRef(values);
@@ -1297,15 +1336,17 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
           onSelectService={handlers.selectServiceAmperage}
           onSelectExisting={handlers.selectExistingServiceAmperage}
         />
-        <ElectricalPanelLocationCard
-          panelLocation={local.electricalPanelLocation}
-          meterMainCombo={Boolean(local.electricalMeterMainCombo)}
-          collapsed={Boolean(collapsed.panel_location)}
-          darkMode={darkMode}
-          onToggle={handlers.togglePanelLocation}
-          onSelectLocation={handlers.selectPanelLocation}
-          onToggleMeterMain={handlers.toggleMeterMainCombo}
-        />
+        {showPanelLocation ? (
+          <ElectricalPanelLocationCard
+            panelLocation={local.electricalPanelLocation}
+            meterMainCombo={Boolean(local.electricalMeterMainCombo)}
+            collapsed={Boolean(collapsed.panel_location)}
+            darkMode={darkMode}
+            onToggle={handlers.togglePanelLocation}
+            onSelectLocation={handlers.selectPanelLocation}
+            onToggleMeterMain={handlers.toggleMeterMainCombo}
+          />
+        ) : null}
         <ElectricalAttributeBottomCards
           includeRough={Boolean(local.electricalIncludeRough)}
           includeTrim={Boolean(local.electricalIncludeTrim)}
@@ -1315,6 +1356,9 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
           showPackages={!hasDetailedQuantities}
           includeConduit={Boolean(local.electricalConduit)}
           includeTrenching={Boolean(local.electricalTrenching)}
+          showRaceway={showRaceway}
+          showConduitOption={showConduitOption}
+          showTrenchingOption={showTrenchingOption}
           packagesCollapsed={Boolean(collapsed.packages)}
           racewayCollapsed={Boolean(collapsed.raceway)}
           darkMode={darkMode}
@@ -1330,6 +1374,10 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     previous.darkMode === next.darkMode &&
     previous.showExistingService === next.showExistingService &&
     previous.hasDetailedQuantities === next.hasDetailedQuantities &&
+    previous.showPanelLocation === next.showPanelLocation &&
+    previous.showRaceway === next.showRaceway &&
+    previous.showConduitOption === next.showConduitOption &&
+    previous.showTrenchingOption === next.showTrenchingOption &&
     previous.onCommit === next.onCommit &&
     previous.onPreview === next.onPreview &&
     previous.commitRef === next.commitRef &&
@@ -1345,6 +1393,7 @@ function ElectricalQuickMeasurementTakeoffView({
   conflictFields,
   sources,
   userOverrides,
+  visibleMeasurementKeys,
   preferExpandedKeys: _preferExpandedKeys,
   onChangeQuantity,
   quantityEditingRef,
@@ -1356,6 +1405,7 @@ function ElectricalQuickMeasurementTakeoffView({
   conflictFields: string[];
   sources?: Record<string, string | undefined> | null;
   userOverrides?: Record<string, boolean | undefined> | null;
+  visibleMeasurementKeys?: Iterable<string>;
   preferExpandedKeys?: string[];
   onChangeQuantity: (field: string, value: string) => void;
   quantityEditingRef?: React.RefObject<boolean>;
@@ -1416,12 +1466,14 @@ function ElectricalQuickMeasurementTakeoffView({
         conflictFields,
         sources: effectiveSources,
         userOverrides: effectiveUserOverrides,
+        visibleMeasurementKeys,
       }),
     [
       effectiveMeasurements,
       conflictFields,
       effectiveSources,
       effectiveUserOverrides,
+      visibleMeasurementKeys,
     ]
   );
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -1484,6 +1536,7 @@ export const ElectricalQuickMeasurementTakeoff = React.memo(
     previous.conflictFields === next.conflictFields &&
     previous.sources === next.sources &&
     previous.userOverrides === next.userOverrides &&
+    previous.visibleMeasurementKeys === next.visibleMeasurementKeys &&
     previous.darkMode === next.darkMode &&
     previous.Colors === next.Colors &&
     previous.applying === next.applying &&

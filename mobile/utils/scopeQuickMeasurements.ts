@@ -26,7 +26,14 @@ export type QuickMeasurementFieldKey =
   | 'interiorDoorCount'
   | 'windowCount'
   | 'exteriorDoorCount'
+  | 'mainPanelCount'
+  | 'serviceAmperage'
+  | 'dedicated20aCircuitCount'
   | 'standardReceptacleCount'
+  | 'gfciReceptacleCount'
+  | 'singlePoleSwitchCount'
+  | 'recessedLightCount'
+  | 'conduitLf'
   | 'slidingDoorCount'
   | 'garageDoorSingleCount'
   | 'garageDoorDoubleCount'
@@ -192,11 +199,7 @@ export type QuickMeasurementFieldKey =
   | 'framingCleanupCount';
 
 export type QuickMeasurementGroupId =
-  | 'site'
-  | 'structure'
-  | 'interior'
-  | 'exterior'
-  | 'other';
+  'site' | 'structure' | 'interior' | 'exterior' | 'other';
 
 export type QuickMeasurementFieldDef = {
   key: QuickMeasurementFieldKey;
@@ -366,20 +369,65 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Partial<
   ),
   exteriorDoorCount: F(
     'exteriorDoorCount',
-    'Exterior swing doors',
+    'Exterior doors',
     'e.g. 3',
     'each',
     'exterior',
     undefined,
-    'Count hinged/French exterior openings as units, not leaves. Exclude explicit sliders and garage doors.'
+    'Count exterior door units. Exclude garage doors unless explicitly included.'
   ),
   standardReceptacleCount: F(
     'standardReceptacleCount',
-    'Receptacles',
+    'Standard receptacles',
     'Enter',
     'each',
     'interior'
   ),
+  mainPanelCount: F(
+    'mainPanelCount',
+    'Main panels',
+    'e.g. 1',
+    'each',
+    'structure'
+  ),
+  serviceAmperage: F(
+    'serviceAmperage',
+    'Service amperage',
+    'e.g. 200',
+    'A',
+    'structure'
+  ),
+  dedicated20aCircuitCount: F(
+    'dedicated20aCircuitCount',
+    'Dedicated 20A circuits',
+    'e.g. 2',
+    'each',
+    'structure'
+  ),
+  gfciReceptacleCount: F(
+    'gfciReceptacleCount',
+    'GFCI receptacles',
+    'e.g. 4',
+    'each',
+    'interior'
+  ),
+  singlePoleSwitchCount: F(
+    'singlePoleSwitchCount',
+    'Single-pole switches',
+    'e.g. 10',
+    'each',
+    'interior'
+  ),
+  recessedLightCount: F(
+    'recessedLightCount',
+    'Recessed-light rough-in locations',
+    'e.g. 18',
+    'each',
+    'interior',
+    undefined,
+    'Rough-in locations only; excludes light fixtures unless explicitly included.'
+  ),
+  conduitLf: F('conduitLf', 'Conduit / raceway', 'e.g. 150', 'LF', 'structure'),
   slidingDoorCount: F(
     'slidingDoorCount',
     'Sliding / patio doors',
@@ -1469,6 +1517,50 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
       )
     ),
   ],
+  electrical: [
+    row(
+      F('mainPanelCount', 'Main panels', 'e.g. 1', 'each', 'structure'),
+      F('serviceAmperage', 'Service amperage', 'e.g. 200', 'A', 'structure')
+    ),
+    row(
+      F(
+        'dedicated20aCircuitCount',
+        'Dedicated 20A circuits',
+        'e.g. 2',
+        'each',
+        'structure'
+      ),
+      F('conduitLf', 'Conduit / raceway', 'e.g. 150', 'LF', 'structure')
+    ),
+    row(
+      F(
+        'standardReceptacleCount',
+        'Standard receptacles',
+        'e.g. 12',
+        'each',
+        'interior'
+      ),
+      F('gfciReceptacleCount', 'GFCI receptacles', 'e.g. 4', 'each', 'interior')
+    ),
+    row(
+      F(
+        'singlePoleSwitchCount',
+        'Single-pole switches',
+        'e.g. 10',
+        'each',
+        'interior'
+      ),
+      F(
+        'recessedLightCount',
+        'Recessed-light rough-in locations',
+        'e.g. 18',
+        'each',
+        'interior',
+        undefined,
+        'Rough-in locations only; excludes light fixtures unless explicitly included.'
+      )
+    ),
+  ],
   framing: FRAMING_PLAN_QUICK_MEASUREMENT_ROWS,
   hvac: HVAC_PLAN_QUICK_MEASUREMENT_ROWS,
   bathroom: [
@@ -2222,7 +2314,7 @@ export const WINDOWS_DOORS_PLAN_QUICK_MEASUREMENT_ROWS: QuickMeasurementRow[] =
       ),
       F(
         'exteriorDoorCount',
-        'Exterior swing doors',
+        'Exterior doors',
         'e.g. 3',
         'each',
         'exterior',
@@ -2371,6 +2463,8 @@ export function resolveQuickMeasurementTemplateKey(
   const tk = String(templateKey || '').toLowerCase();
   const pt = String(projectType || '').toLowerCase();
   if (tk === 'plumbing_service') return 'plumbing';
+  if (tk === 'electrical_rough') return 'electrical';
+  if (tk === 'electrical') return 'electrical';
   if (tk === 'windows_doors') return 'windows_doors';
   if (tk === 'garage_doors') return 'garage_doors';
   if (tk === 'room_addition' || tk === 'home_addition') return 'addition';
@@ -2678,7 +2772,25 @@ export function quickMeasurementRowsForTemplate(
     'wallPaintSqft',
     'ceilingPaintSqft',
   ]);
-  return remodelRows
+  const explicitAdditionAreaMentioned =
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:addition|add[-\s]?on)\b/i.test(
+      remodelNoteText
+    );
+  const mixedRemodelRows = explicitAdditionAreaMentioned
+    ? remodelRows.map(row =>
+        row.map(field =>
+          field.key === 'floorAreaSqft'
+            ? {
+                ...field,
+                label: 'Addition',
+                helperText:
+                  'Addition floor area explicitly stated in the notes.',
+              }
+            : field
+        )
+      )
+    : remodelRows;
+  return mixedRemodelRows
     .map(row =>
       row.filter(field => {
         if (!optionalKeys.has(field.key)) return true;
@@ -2813,13 +2925,18 @@ function filterMixedInteriorRefreshRows(
   ) {
     return rows;
   }
+  const explicitAdditionAreaMentioned =
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:addition|add[-\s]?on)\b/i.test(
+      String(notes || '')
+    );
   return rows
     .map(row =>
       row.filter(
         field =>
           field.key !== 'bathroomFloorSqft' &&
           (field.key !== 'floorAreaSqft' ||
-            !isMixedInteriorRefreshNotes(notes)) &&
+            !isMixedInteriorRefreshNotes(notes) ||
+            explicitAdditionAreaMentioned) &&
           (field.key !== 'paintAreaSqft' || !isCombinedInteriorPaintNote(notes))
       )
     )
@@ -2967,6 +3084,7 @@ export function quickMeasurementRowsForInput(
     windowsDoorsNotesFlow?: boolean;
     plumbingNotesFlow?: boolean;
     plumbingWorkflowMode?: PlumbingWorkflowMode | null;
+    crossScopeMode?: boolean;
     scopeNotes?: string | null;
   }
 ): QuickMeasurementRow[] {
@@ -3012,6 +3130,10 @@ export function quickMeasurementRowsForInput(
                 options?.scopeNotes
               );
   baseRows = applyDrywallNoteSemantics(baseRows, options?.scopeNotes);
+  // Stucco has a dedicated takeoff panel. Do not append generic note-backed
+  // fields from an older mixed-scope draft (for example exterior paint or
+  // baseboard) into the dedicated card.
+  if (resolvedKey === 'stucco') return baseRows;
   const scopeNotes = String(options?.scopeNotes || '');
   const explicitBathroomPlumbingReroute =
     /\b(?:reroute|re-route|relocat(?:e|d|ing|ion))\b[^.;\n]{0,45}\bplumb(?:ing)?\b|\bplumb(?:ing)?\b[^.;\n]{0,45}\b(?:reroute|re-route|relocat(?:e|d|ing|ion))\b/i.test(
@@ -3098,6 +3220,33 @@ export function quickMeasurementRowsForInput(
     noteBackedFieldsToAppend.push(
       QUICK_MEASUREMENT_FIELD_DEFS.standardReceptacleCount
     );
+  }
+  if (
+    resolvedKey === 'room_remodel' &&
+    /\b(?:electrical|wiring|receptacles?|switch(?:es)?|panel|circuit|gfci|conduit|recessed\s*[-\s]?\s*(?:lights?|cans?))\b/i.test(
+      scopeNotes
+    )
+  ) {
+    const electricalMixedKeys: QuickMeasurementFieldKey[] = [
+      'mainPanelCount',
+      'serviceAmperage',
+      'dedicated20aCircuitCount',
+      'standardReceptacleCount',
+      'gfciReceptacleCount',
+      'singlePoleSwitchCount',
+      'recessedLightCount',
+      'conduitLf',
+    ];
+    for (const key of electricalMixedKeys) {
+      if (
+        !noteKeySet?.has(key) ||
+        baseRows.some(row => row.some(field => field.key === key)) ||
+        !QUICK_MEASUREMENT_FIELD_DEFS[key]
+      ) {
+        continue;
+      }
+      noteBackedFieldsToAppend.push(QUICK_MEASUREMENT_FIELD_DEFS[key]);
+    }
   }
   if (
     /\bsiding\s+(?:repair|repairs|replacement|replace)\b|\b(?:repair|repairs|replacement|replace)\b[^.;\n]{0,35}\bsiding\b/i.test(
@@ -3283,6 +3432,9 @@ export function quickMeasurementRowsForInput(
   // Note-backed companion rows can add drywall after the initial template
   // pass; apply the same install/repair semantics to those rows as well.
   baseRows = applyDrywallNoteSemantics(baseRows, scopeNotes);
+  // Electrical has its own owned quantity surface. Do not append generic
+  // note-backed fields such as floor area from the nearby project context.
+  if (resolvedKey === 'electrical') return baseRows;
   const baseKeys = new Set(baseRows.flatMap(r => r.map(f => f.key)));
   const plumbingRowsAreExplicit =
     plumbingTemplate &&
@@ -3605,15 +3757,15 @@ export function quickMeasurementRowsForInput(
   const filteredExtras = extraFields.filter(noteBackedCrossTradeFields);
   const paintMentionedWithoutSurface =
     /\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(scopeNotes) &&
-    !/\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,20}\b(?:walls?|ceilings?)\b|\b(?:walls?|ceilings?)\b[^.;\n]{0,20}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+    !/\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,50}\b(?:walls?|ceilings?)\b|\b(?:walls?|ceilings?)\b[^.;\n]{0,50}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
       scopeNotes
     );
   const paintWallsMentioned =
-    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,20}\bwalls?\b|\bwalls?\b[^.;\n]{0,20}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,50}\bwalls?\b|\bwalls?\b[^.;\n]{0,50}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
       scopeNotes
     );
   const paintCeilingsMentioned =
-    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,20}\bceilings?\b|\bceilings?\b[^.;\n]{0,20}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
+    /\b(?:paint(?:ing)?|repaint(?:ing)?)\b[^.;\n]{0,50}\bceilings?\b|\bceilings?\b[^.;\n]{0,50}\b(?:paint(?:ing)?|repaint(?:ing)?)\b/i.test(
       scopeNotes
     );
   const separatePaintSurfaceAreas =
@@ -3640,6 +3792,11 @@ export function quickMeasurementRowsForInput(
                 paintCeilingsMentioned &&
                 !paintWallsMentioned &&
                 field.key === 'wallPaintSqft'
+              ) &&
+              !(
+                paintCeilingsMentioned &&
+                !paintWallsMentioned &&
+                field.key === 'paintAreaSqft'
               ) &&
               !(
                 combinedWallsAndCeilingsPaint &&
@@ -3688,6 +3845,41 @@ export function quickMeasurementRowsForInput(
     );
   const normalizedRows =
     normalizeGenericPaintRows(filteredRows).map(applyContextLabels);
+  if (options?.crossScopeMode) {
+    const noteKeys = noteKeySet || new Set<QuickMeasurementFieldKey>();
+    const noteText = String(options.scopeNotes || '');
+    const noteMentions = (field: QuickMeasurementFieldDef) => {
+      if (noteKeys.has(field.key)) return true;
+      if (field.key === 'wallPaintSqft') {
+        return notesRequireInteriorPaintMeasurements(noteText);
+      }
+      if (field.key === 'flooringSqft') {
+        return /\b(?:flooring|floor\s+tile|lvp|laminate|vinyl|carpet)\b/i.test(
+          noteText
+        );
+      }
+      if (field.key === 'drywallSqft') {
+        return /\b(?:drywall|sheetrock|gypsum)\b/i.test(noteText);
+      }
+      if (field.key === 'baseboardLf') {
+        return /\bbaseboards?\b|\bbase\s*board\b/i.test(noteText);
+      }
+      if (field.key === 'floorAreaSqft') {
+        return /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:addition|add[-\s]?on)\b/i.test(
+          noteText
+        );
+      }
+      if (field.key === 'framedAreaSqft') {
+        return /\b(?:framed|framing|frame)\b[^.;\n]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b|\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:framed|framing|frame)\b/i.test(
+          noteText
+        );
+      }
+      return false;
+    };
+    return normalizedRows
+      .map(row => row.filter(noteMentions))
+      .filter(row => row.length > 0);
+  }
   if (!filteredExtras.length) return normalizedRows;
   return [...normalizedRows, ...chunkRows(filteredExtras)].map(row =>
     applyContextLabels(normalizeGenericPaintRows([row])[0] || row)
@@ -3868,6 +4060,16 @@ export function emptyQuickMeasurementInput(): Record<
     exteriorPaintSqft: '',
     baseboardLf: '',
     interiorDoorCount: '',
+    windowCount: '',
+    exteriorDoorCount: '',
+    mainPanelCount: '',
+    serviceAmperage: '',
+    dedicated20aCircuitCount: '',
+    standardReceptacleCount: '',
+    gfciReceptacleCount: '',
+    singlePoleSwitchCount: '',
+    recessedLightCount: '',
+    conduitLf: '',
     cabinetPaintSqft: '',
     cabinetUpperLf: '',
     cabinetLowerLf: '',

@@ -132,7 +132,7 @@ const WINDOWS_DOORS_SCOPE_CARDS: Array<{
   {
     itemId: 'exterior_doors',
     measurementKey: 'exteriorDoorCount',
-    label: 'Exterior swing doors',
+    label: 'Exterior doors',
   },
   {
     itemId: 'sliding_doors',
@@ -978,10 +978,7 @@ export function classifyGarageDoorTypeFromRow(
   ) {
     return 'rv';
   }
-  if (
-    /\bdouble\b|two[-\s]?car|2[-\s]?car/.test(blob) ||
-    widthFt >= 14
-  ) {
+  if (/\bdouble\b|two[-\s]?car|2[-\s]?car/.test(blob) || widthFt >= 14) {
     return 'double';
   }
   if (

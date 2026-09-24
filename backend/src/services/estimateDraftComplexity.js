@@ -1201,12 +1201,22 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
   // painting usually means the new door slabs/trim receive finish paint too.
   // Keep this as a visible assumption rather than silently folding it into
   // baseboard trim pricing.
+  const explicitDoorPaint =
+    /\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\bdoors?\b/i.test(notes) ||
+    (/\bdoors?\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/i.test(notes) &&
+      !/\bdoors?\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\b(?:walls?|ceilings?)\b/i.test(
+        notes,
+      ));
+  const wholeRoomPaintWithDoors =
+    /\bpaint(?:ing)?\b[^.;\n]{0,45}\bwalls?\b[^.;\n]{0,45}\bceilings?\b/i.test(
+      notes,
+    ) && /\bdoors?\b/i.test(notes);
   if (
     templateKey === "room_remodel" &&
-    /\bpaint(?:ing)?\b/i.test(notes) &&
     /\b(?:update|replace|install|new)\b[^.;]{0,40}\b(?:interior\s+)?doors?\b/i.test(
       notes,
     ) &&
+    (explicitDoorPaint || wholeRoomPaintWithDoors) &&
     !items.some((item) => item.id === "door_paint")
   ) {
     items.push({

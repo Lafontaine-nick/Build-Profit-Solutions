@@ -23,6 +23,20 @@ describe('scopeMeasurementParser', () => {
     expect(parsed.hvacReturnGrilleCount).toBe(2);
   });
 
+  test('does not reuse ceiling paint area as attic insulation', () => {
+    const notes =
+      'Replace 1 existing HVAC system and 120 LF of ductwork. Install 1 new 3-ton heat-pump system, 1 thermostat, 8 supply registers, and 2 return grilles, including startup and testing. Also repair 240 sqft of drywall, replace 3 interior doors, and paint 1,100 sqft of ceilings. Excludes electrical service upgrades, plumbing, and structural repairs.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'room_remodel',
+      projectType: 'other',
+    });
+
+    expect(parsed.ceilingPaintSqft).toBe(1100);
+    expect(parsed.atticInsulationSqft).toBeUndefined();
+    expect(parsed.hvacDuctworkLf).toBe(120);
+    expect(parsed.hvacSupplyRegisterCount).toBe(8);
+  });
+
   test('does not treat stucco wall area or foam trim as paint or baseboard measurements', () => {
     const parsed = parseScopeMeasurementsFromNotes(
       'Repair and install stucco. Gross exterior wall area is 2,400 sqft. Deduct 320 sqft for window and door openings, 0 sqft for garage door openings. Include 60 LF of foam trim. Excludes painting beyond the stucco finish.',
@@ -594,6 +608,18 @@ Demo old cabinets and haul off $850 lump sum`;
     ]);
   });
 
+  test('mixed addition notes preserve an explicit flooring quantity', () => {
+    const notes =
+      'Remodel an existing 2,000 sqft home and build a 350 sqft addition. Electrical scope includes a 200A main panel, wiring and boxes for 30 standard receptacle locations, 6 GFCI receptacle locations, 20 switch locations, 26 recessed-light rough-in locations, four dedicated 20A circuits, and 240 LF of conduit. Repair 420 sqft of drywall, install six windows and two exterior doors, add R-21 wall insulation, install 1,100 sqft flooring, replace 160 LF baseboard, and paint the interior.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'room_remodel',
+      projectType: 'room_remodel',
+    });
+
+    expect(parsed.floorAreaSqft).toBe(350);
+    expect(parsed.flooringSqft).toBe(1100);
+  });
+
   test('rate parser does not treat a dollar rate as the item quantity', () => {
     const { parseScopeItemRatePricingFromNotes } = require('../scopeRatePricingParser');
     const parsed = parseScopeItemRatePricingFromNotes('Paint walls and ceiling $1.50 square feet labor', {}, {});
@@ -1116,6 +1142,26 @@ describe('trade-specific scope checklists', () => {
     });
     expect(parsed.standardFixtureCount).toBeUndefined();
     expect(parsed.electricalIncludeTrim).toBeUndefined();
+    expect(parsed.itemQuantities?.electrical_standard_fixture).toBeUndefined();
+  });
+
+  test('parses rough-in locations and owner-supplied fixtures correctly', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Electrical rough-in for a 2,400 sqft new-construction home: provide wiring, boxes, and rough-in connections for 18 recessed-light locations, 12 standard receptacle locations, 4 GFCI receptacle locations, 10 switch locations, two dedicated 20A circuits, one 200A main panel, and 150 LF of conduit. Owner supplies light fixtures and final devices/plates. Excludes fixture hardware, fans, low-voltage, EV charging, utility work, and final trim-out.',
+      { templateKey: 'electrical', projectType: 'new_build' },
+    );
+
+    expect(parsed).toMatchObject({
+      mainPanelCount: 1,
+      serviceAmperage: 200,
+      dedicated20aCircuitCount: 2,
+      standardReceptacleCount: 12,
+      gfciReceptacleCount: 4,
+      singlePoleSwitchCount: 10,
+      recessedLightCount: 18,
+      conduitLf: 150,
+    });
+    expect(parsed.standardFixtureCount).toBeUndefined();
     expect(parsed.itemQuantities?.electrical_standard_fixture).toBeUndefined();
   });
 

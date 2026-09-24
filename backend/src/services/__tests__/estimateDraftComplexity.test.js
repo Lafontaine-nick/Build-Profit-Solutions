@@ -144,6 +144,62 @@ describe("estimateDraftComplexity", () => {
     );
   });
 
+  test("keeps mixed HVAC notes limited to active work and explicit measurements", () => {
+    const notes =
+      "Replace 1 existing HVAC system and 120 LF of ductwork. Install 1 new 3-ton heat-pump system, 1 thermostat, 8 supply registers, and 2 return grilles, including startup and testing. Also repair 240 sqft of drywall, replace 3 interior doors, and paint 1,100 sqft of ceilings. Excludes electrical service upgrades, plumbing, and structural repairs.";
+    const checklist = buildScopeChecklist(
+      { projectType: "other", scopeMode: "mixed", originalNotes: notes },
+      "standard",
+      notes,
+    );
+    const included = new Map(
+      checklist.items
+        .filter(item => item.state === "included")
+        .map(item => [item.id, item]),
+    );
+
+    expect([...included.keys()]).toEqual(
+      expect.arrayContaining([
+        "hvac",
+        "drywall",
+        "paint",
+        "interior_door_install",
+        "ductwork",
+        "thermostat",
+        "equipment_replace",
+        "supply_registers",
+        "return_grilles",
+      ]),
+    );
+    expect(included.has("plumbing")).toBe(false);
+    expect(included.has("electrical")).toBe(false);
+    expect(included.has("door_paint")).toBe(false);
+    expect(included.has("door_casing_install")).toBe(false);
+    expect(checklist.items.find(item => item.id === "paint")?.label).toBe(
+      "Ceiling painting",
+    );
+  });
+
+  test("keeps unquantified HVAC components visible without generic demo or exclusions", () => {
+    const notes =
+      "Remove the existing HVAC system and ductwork, then install a new heat-pump system with thermostat, supply registers, and return grilles, including startup and testing. System count, tonnage, ductwork length, thermostat count, register count, and return grille count must be confirmed. Also patch drywall and paint ceilings. Excludes electrical service upgrades and plumbing.";
+    const checklist = buildScopeChecklist(
+      { projectType: "other", scopeMode: "mixed", originalNotes: notes },
+      "standard",
+      notes,
+    );
+    const byId = new Map(checklist.items.map(item => [item.id, item]));
+
+    expect(byId.get("demo")?.state).not.toBe("included");
+    expect(byId.get("plumbing")?.state).not.toBe("included");
+    expect(byId.get("electrical")?.state).not.toBe("included");
+    expect(byId.get("ductwork")?.state).toBe("unsure");
+    expect(byId.get("thermostat")?.state).toBe("unsure");
+    expect(byId.get("supply_registers")?.state).toBe("unsure");
+    expect(byId.get("return_grilles")?.state).toBe("unsure");
+    expect(byId.get("equipment_replace")?.state).toBe("unsure");
+  });
+
   test("routes mixed patio work through exterior concrete scope cards", () => {
     const notes =
       "Demolish and remove the existing patio, then excavate and pour a 750 sqft patio with gravel base, rebar, thickened edge, retaining wall, 400 sqft pavers, landscaping, two exterior doors, siding repairs, and exterior trim paint.";

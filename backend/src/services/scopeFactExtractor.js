@@ -528,6 +528,35 @@ function extractScopeFactsFromNotes(notes, ctx = {}) {
     "each",
     /\b(?:install|replace|set)\b[^.;\n]{0,50}\bwindows?\b/i,
   );
+  const hvacEquipmentInstallPattern =
+    /\b(?:install|replace|new)\b[^.;\n]{0,60}\b(?:heat[\s-]*pumps?|furnaces?|air\s*condition(?:ers?)?|hvac\s+systems?)\b|\b(?:heat[\s-]*pumps?|furnaces?|air\s*condition(?:ers?)?|hvac\s+systems?)\b[^.;\n]{0,60}\b(?:install|replace|new)\b/i;
+  addIntentFact(
+    hvacEquipmentInstallPattern.test(text),
+    "install",
+    "equipment_replace",
+    "equipment_replace",
+    "each",
+    hvacEquipmentInstallPattern,
+    parsed.hvacEquipmentReplacementCount,
+  );
+  addIntentFact(
+    /\b(?:supply\s+)?registers?\b/i.test(text),
+    "install",
+    "supply_registers",
+    "supply_registers",
+    "each",
+    /\b(?:supply\s+)?registers?\b/i,
+    parsed.hvacSupplyRegisterCount,
+  );
+  addIntentFact(
+    /\breturn\s+grilles?\b|\breturns?\b/i.test(text),
+    "install",
+    "return_grilles",
+    "return_grilles",
+    "each",
+    /\breturn\s+grilles?\b|\breturns?\b/i,
+    parsed.hvacReturnGrilleCount,
+  );
 
   const explicitQuantityScopeIds = new Set(
     facts

@@ -286,11 +286,33 @@ export function getInitialRevealConfirmItems(
           pkg =>
             `Pricing for ${String(pkg.name || pkg.scope || 'Scope item').trim()}`
         );
+      const fallbackScopeAttentionItems =
+        packageAttentionItems.length === 0 &&
+        draftNeedsScopeConfirmation(draft) &&
+        getRevealClassification(draft).scopeMode === 'mixed'
+          ? getInitialRevealScopeRows(draft).map(
+              row => `Pricing for ${row.name}`
+            )
+          : [];
       return splitInitialRevealConfirmItems(
         filterMixedScopeAttentionItems(draft, [
           ...packageAttentionItems,
+          ...fallbackScopeAttentionItems,
           ...plumbingMissingQuantityAttentionItems(draft),
         ])
+      );
+    }
+  }
+  if (
+    draftNeedsScopeConfirmation(draft) &&
+    getRevealClassification(draft).scopeMode === 'mixed'
+  ) {
+    const fallbackScopeAttentionItems = getInitialRevealScopeRows(draft).map(
+      row => `Pricing for ${row.name}`
+    );
+    if (fallbackScopeAttentionItems.length > 0) {
+      return splitInitialRevealConfirmItems(
+        filterMixedScopeAttentionItems(draft, fallbackScopeAttentionItems)
       );
     }
   }
@@ -479,13 +501,18 @@ function filterMixedScopeAttentionItems(
   items: string[]
 ): string[] {
   const notes = String(draft.originalNotes || '');
+  const crossTradeExteriorScope =
+    /\b(?:stucco|roof(?:ing)?|gutters?|windows?|exterior\s+doors?)\b/i.test(
+      notes
+    ) &&
+    /\b(?:replace|replacement|install|repair|deduct|gross|net)\b/i.test(notes);
   const serviceUpgradeUserSelected =
     Number(draft.scopeMeasurements?.serviceUpgradeCount || 0) > 0;
   const withoutExcludedElectricalService = (rows: string[]) =>
     notesExcludeElectricalServiceUpgrade(notes) && !serviceUpgradeUserSelected
       ? rows.filter(row => !/\bservice\s+upgrade\b/i.test(String(row || '')))
       : rows;
-  if (!mixedInteriorScopeNotes(draft)) {
+  if (!mixedInteriorScopeNotes(draft) && !crossTradeExteriorScope) {
     return withoutExcludedElectricalService(items);
   }
 
@@ -514,6 +541,33 @@ function filterMixedScopeAttentionItems(
     );
     if (!match) return item;
     const requested = match[1].trim();
+    const requestedLower = requested.toLowerCase();
+    if (
+      crossTradeExteriorScope &&
+      /\binterior\s+doors?\b|\binterior\s+door\s+install/.test(requestedLower) &&
+      !/\binterior\s+doors?\b/i.test(notes)
+    ) {
+      return null;
+    }
+    if (
+      crossTradeExteriorScope &&
+      /\b(?:door\s*\/\s*window|window\s*\/\s*door|door\s+and\s+window|window\s+and\s+door)\s+openings?\b/.test(
+        requestedLower
+      ) &&
+      /\bwindows?\b/i.test(notes) &&
+      /\bexterior\s+doors?\b/i.test(notes)
+    ) {
+      return null;
+    }
+    if (
+      crossTradeExteriorScope &&
+      /\btrim\b/i.test(requestedLower) &&
+      !/\b(?:baseboards?|casing|interior\s+trim|finish\s+trim|door\s+trim|window\s+trim)\b/i.test(
+        notes
+      )
+    ) {
+      return null;
+    }
     if (
       !hasFlooringDemo &&
       /\b(?:tile|floor(?:ing)?|lvp|laminate|vinyl|carpet)\s+demo\b|\bexisting\s+floor(?:ing)?\s+removal\b/i.test(
@@ -538,7 +592,6 @@ function filterMixedScopeAttentionItems(
       return null;
     }
 
-    const requestedLower = requested.toLowerCase();
     const preferredIds = /painting\/patch|paint\s+repair/.test(requestedLower)
       ? ['paint_repair']
       : /\binterior\s+paint(?:ing)?\b/.test(requestedLower)
@@ -561,8 +614,30 @@ function filterMixedScopeAttentionItems(
                       ? ['drywall', 'demo']
                       : /\binsulat/.test(requestedLower)
                         ? ['insulation']
+                        : /\bstucco\b|\bexterior\s+(?:wall\s+)?finish\b/.test(
+                              requestedLower
+                            )
+                          ? [
+                              'stucco',
+                              'stucco_wrb',
+                              'stucco_lath',
+                              'stucco_base_coat',
+                              'stucco_finish_coat',
+                            ]
+                          : /\b(?:exterior|sliding|patio|entry)\s+doors?\b/.test(
+                                requestedLower
+                              )
+                            ? [
+                                'exterior_doors',
+                                'exterior_door_install',
+                                'sliding_doors',
+                              ]
                         : /\bwindows?\b/.test(requestedLower)
                           ? ['window_install', 'windows']
+                          : /\b(?:roof(?:ing)?|shingles?)\b/.test(requestedLower)
+                            ? ['roofing', 'shingles_roofing']
+                            : /\bgutters?\b/.test(requestedLower)
+                              ? ['gutters']
                           : /\bbaseboards?\b|\btrim\b/.test(requestedLower)
                             ? ['trim', 'baseboard_install']
                             : /\bfloor(?:ing)?\b|\blvp\b|\blaminate\b|\bvinyl\b|\bcarpet\b/.test(
@@ -778,7 +853,12 @@ function getInitialRevealScopeRows(
     String(draft.scopeChecklist?.templateKey || draft.projectType || '').toLowerCase() ===
       'room_remodel' ||
     wholeHomeMixedRemodelNote;
-  const parsedRoomRemodelMeasurements = roomRemodelReveal
+  const classification = getRevealClassification(draft);
+  const mixedScopeHint =
+    classification.scopeMode === 'mixed' ||
+    String(draft.scopeMode || draft.classification?.scopeMode || '').toLowerCase() ===
+      'mixed';
+  const parsedRoomRemodelMeasurements = roomRemodelReveal || mixedScopeHint
     ? initialScopeMeasurementInputExtended(draft, notes)
     : null;
   const parsedAdditionMeasurements = additionReveal
@@ -794,7 +874,16 @@ function getInitialRevealScopeRows(
     ? parseInsulationAssembliesFromNotes(notes)
     : [];
   const parsedPlumbing = parsePlumbingMeasurementsFromNotes(notes);
-  const classification = getRevealClassification(draft);
+  const mixedScopeReveal =
+    classification.scopeMode === 'mixed' ||
+    String(draft.scopeMode || draft.classification?.scopeMode || '').toLowerCase() ===
+      'mixed';
+  const crossTradeRemodelNote =
+    mixedScopeReveal &&
+    /\b(?:stucco|roof(?:ing)?|gutters?|windows?|exterior\s+doors?)\b/i.test(
+      notes
+    ) &&
+    /\b(?:replace|replacement|install|repair|deduct|gross|net)\b/i.test(notes);
   const bathroomNotesContext =
     /\b(?:bath(?:room)?|shower|toilet|vanity)\b/i.test(notes);
   const hasNotePaintRepair =
@@ -830,7 +919,14 @@ function getInitialRevealScopeRows(
     /\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft\.?|sqft|sf|square\s+(?:feet|foot))\b[^.;,\n]{0,12}\b(?:drywall|sheetrock)\s+(?:patch|repair)\b|\b(?:drywall|sheetrock)\s+(?:patch|repair)\b[^.;,\n]{0,12}\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft\.?|sqft|sf|square\s+(?:feet|foot))\b/i.exec(
       notes
     );
-  const drywallRepairSqft = drywallRepairMatch?.[1] || drywallRepairMatch?.[2];
+  const drywallRepairVerbFirstMatch =
+    /\b(?:repair|patch(?:ing)?)\b[^.;,\n]{0,20}\b(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft\.?|sqft|sf|square\s+(?:feet|foot))\b[^.;,\n]{0,20}\b(?:of\s+)?(?:drywall|sheetrock)\b/i.exec(
+      notes
+    );
+  const drywallRepairSqft =
+    drywallRepairMatch?.[1] ||
+    drywallRepairMatch?.[2] ||
+    drywallRepairVerbFirstMatch?.[1];
   const explicitInsulationMention =
     bathroomNotesContext && /\binsulat(?:e|ion|ed)\b/i.test(notes);
   const explicitFixtureFinishMention =
@@ -938,7 +1034,12 @@ function getInitialRevealScopeRows(
   );
   const hasResolvedFacts = facts.length > 0;
   const roomRemodelQuantityOverride = (id: string): string | null | undefined => {
-    if (!roomRemodelReveal || !parsedRoomRemodelMeasurements) return undefined;
+    if (
+      (!roomRemodelReveal && !mixedScopeReveal) ||
+      !parsedRoomRemodelMeasurements
+    ) {
+      return undefined;
+    }
     const measurements = parsedRoomRemodelMeasurements as Record<string, unknown>;
     const sqft = (value: unknown) => {
       const quantity = positiveRevealNumber(value);
@@ -949,6 +1050,15 @@ function getInitialRevealScopeRows(
       return quantity ? `${quantity} each` : null;
     };
     if (id === 'flooring') return sqft(measurements.flooringSqft);
+    if (id === 'baseboard_install' || id === 'trim') {
+      const quantity = positiveRevealNumber(measurements.baseboardLf);
+      return quantity ? `${quantity} LF` : null;
+    }
+    if (id === 'stucco') return sqft(measurements.stuccoNetWallSqft);
+    if (id === 'roofing' || id === 'shingles_roofing') {
+      const squares = positiveRevealNumber(measurements.roofSquares);
+      return squares ? `${squares} squares` : null;
+    }
     if (id === 'drywall') {
       return sqft(measurements.patchRepairSqft ?? measurements.drywallSqft);
     }
@@ -960,6 +1070,30 @@ function getInitialRevealScopeRows(
     }
     if (id === 'exterior_door_install' || id === 'exterior_doors') {
       return each(measurements.exteriorDoorCount);
+    }
+    if (id === 'electrical_main_panel') {
+      const count = each(measurements.mainPanelCount);
+      const amperage = positiveRevealNumber(measurements.serviceAmperage);
+      return count && amperage ? `${count} · ${amperage}A` : count;
+    }
+    if (id === 'electrical_dedicated_20a') {
+      return each(measurements.dedicated20aCircuitCount);
+    }
+    if (id === 'electrical_standard_receptacle') {
+      return each(measurements.standardReceptacleCount);
+    }
+    if (id === 'electrical_gfci_receptacle') {
+      return each(measurements.gfciReceptacleCount);
+    }
+    if (id === 'electrical_single_pole_switch') {
+      return each(measurements.singlePoleSwitchCount);
+    }
+    if (id === 'electrical_recessed_light') {
+      return each(measurements.recessedLightCount);
+    }
+    if (id === 'electrical_conduit') {
+      const quantity = positiveRevealNumber(measurements.conduitLf);
+      return quantity ? `${quantity} LF` : null;
     }
     if (
       id === 'insulation' &&
@@ -989,7 +1123,8 @@ function getInitialRevealScopeRows(
     return undefined;
   };
   const checklistItems =
-    roomRemodelReveal && draft.scopeChecklist?.items
+    (roomRemodelReveal || mixedScopeReveal) &&
+    draft.scopeChecklist?.items
       ? filterRoomRemodelNoteScopeItems(draft.scopeChecklist.items, notes)
       : draft.scopeChecklist?.items;
   const dedicatedElectricalReveal = isDedicatedElectricalRevealDraft(draft);
@@ -1056,7 +1191,7 @@ function getInitialRevealScopeRows(
         noteInsulationAssemblies.length
           ? { quantityOverride: null }
           : {}),
-        ...(!additionReveal &&
+        ...((!additionReveal || mixedScopeReveal) &&
         roomRemodelQuantityOverride(String(item.id || '').trim()) !== undefined
           ? {
               quantityOverride: roomRemodelQuantityOverride(
@@ -1068,6 +1203,10 @@ function getInitialRevealScopeRows(
       .filter(row => row.id && row.name) || [];
   if (additionReveal) {
     const presentIds = new Set(rows.map(row => row.id));
+    const explicitInteriorTrim =
+      /\binterior\s+trim\b|\b(?:door|window)\s+(?:casing|trim)\b|\b(?:crown|moulding|molding)\b/i.test(
+        notes
+      );
     const explicitlyPaintedTrim =
       /\b(?:baseboards?|door\s+casing|casing|trim)\b[^.;\n]{0,30}\b(?:paint|painting|painted)\b|\b(?:paint|painting|painted)\b[^.;\n]{0,30}\b(?:baseboards?|door\s+casing|casing|trim)\b/i.test(
         notes
@@ -1086,6 +1225,9 @@ function getInitialRevealScopeRows(
         if (row.id === 'exterior_trim_paint' && explicitExteriorFinish) {
           return true;
         }
+        return false;
+      }
+      if (row.id === 'interior_trim' && !explicitInteriorTrim) {
         return false;
       }
       if (row.id === 'exterior_finishes' && !explicitExteriorFinish) {
@@ -1298,6 +1440,50 @@ function getInitialRevealScopeRows(
     });
   }
   const ids = new Set(rows.map(row => row.id));
+  if (mixedScopeReveal || crossTradeRemodelNote) {
+    const addCrossTradeRow = (
+      id: string,
+      name: string,
+      quantityOverride?: string | null
+    ) => {
+      if (ids.has(id)) return;
+      rows.push({
+        id,
+        name,
+        ...(quantityOverride ? { quantityOverride } : {}),
+      });
+      ids.add(id);
+    };
+    if (/\bstucco\b/i.test(notes)) {
+      addCrossTradeRow(
+        'stucco',
+        'Stucco / exterior wall finish',
+        roomRemodelQuantityOverride('stucco')
+      );
+    }
+    if (
+      /\b(?:roof(?:ing)?|shingles?)\b/i.test(notes) &&
+      /\b(?:replace|replacement|install|new|re[\s-]?roof|reroof)\b/i.test(
+        notes
+      )
+    ) {
+      addCrossTradeRow(
+        'roofing',
+        'Roofing replacement',
+        roomRemodelQuantityOverride('roofing')
+      );
+    }
+    if (/\bgutters?\b/i.test(notes)) {
+      const gutterQuantity = positiveRevealNumber(
+        parsedRoomRemodelMeasurements?.roofGutterLf
+      );
+      addCrossTradeRow(
+        'gutters',
+        'Gutters',
+        gutterQuantity ? `${gutterQuantity} LF` : null
+      );
+    }
+  }
   for (const fact of facts) {
     const id = String(fact.scopeId || '').trim();
     if (hasConcreteFlatworkRow && id === 'concrete') continue;
@@ -1465,7 +1651,14 @@ function getInitialRevealScopeRows(
       hasDetailedScopeRow &&
       /^(?:drywall repair|drywall patch \/ repair|insulation)$/i.test(name)
     ) {
-      return false;
+      const hasNoteBackedDetailedDrywall = rows.some(
+        candidate =>
+          candidate.id !== row.id &&
+          /\bdrywall\s+(?:repair|patch)\b.*\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|sf|square\s+(?:feet|foot))\b/i.test(
+            candidate.name
+          )
+      );
+      return !hasNoteBackedDetailedDrywall;
     }
     if (
       /^plumbing fixture and appliance scope$/i.test(name) &&
@@ -1477,6 +1670,23 @@ function getInitialRevealScopeRows(
     }
     return true;
   });
+  if (crossTradeRemodelNote) {
+    rows = rows.filter(
+      row =>
+        ![
+          'interior_door_install',
+          'interior_doors',
+          'trim',
+          'interior_trim',
+          'interior_paint',
+          'paint',
+          'trim_paint',
+          'door_paint',
+          'door_casing_paint',
+          'exterior_trim_paint',
+        ].includes(row.id)
+    );
+  }
   if (standalonePlumbingRevealDraft(draft)) {
     if (
       parsedPlumbing.fixtureReplacementCount &&
@@ -1503,14 +1713,23 @@ function getInitialRevealScopeRows(
       rows.push({ id: 'cleanup', name: 'Cleanup / disposal' });
     }
   }
-  if (
-    drywallRepairSqft &&
-    !rows.some(row => /\bdrywall\s+(?:patch|repair)\b/i.test(row.name))
-  ) {
-    rows.push({
-      id: 'note:drywall_repair',
-      name: `Drywall repair · ${drywallRepairSqft} sqft`,
-    });
+  if (drywallRepairSqft) {
+    const drywallRowIndex = rows.findIndex(
+      row =>
+        row.id === 'drywall' ||
+        /\bdrywall\s+(?:patch|repair)\b/i.test(row.name)
+    );
+    if (drywallRowIndex >= 0) {
+      rows[drywallRowIndex] = {
+        ...rows[drywallRowIndex],
+        name: 'Drywall repair',
+      };
+    } else {
+      rows.push({
+        id: 'note:drywall_repair',
+        name: `Drywall repair · ${drywallRepairSqft} sqft`,
+      });
+    }
   }
   if (
     explicitInsulationMention &&
@@ -2062,6 +2281,23 @@ function getRevealClassification(draft: EstimateAiDraft) {
     /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;\n]*(?:[.;\n]|$)/gi,
     ' '
   );
+  const stuccoInternalTrimOnly =
+    /\bstucco\b|\b(?:exterior\s+wall\s+finish|exterior\s+plaster|synthetic\s+stucco|eifs?)\b/i.test(
+      activeStuccoNotes
+    ) &&
+    !/\b(?:baseboards?|casing|crown\s+(?:molding|moulding)|interior\s+trim|window\s+trim|door\s+trim|exterior\s+trim)\b/i.test(
+      activeStuccoNotes
+    );
+  const displayTradeLabels = normalizedExistingTradeLabels.filter(
+    label =>
+      !(stuccoInternalTrimOnly && label.toLowerCase() === 'trim') &&
+      !(
+        label.toLowerCase() === 'hvac' &&
+        !/\b(?:hvac|furnace|heat\s*pump|air\s*condition(?:er|ing)?)\b/i.test(
+          activeStuccoNotes
+        )
+      )
+  );
   const hasDedicatedStuccoIntent =
     (draft.projectType === 'stucco' ||
       classification?.primaryTrade === 'stucco' ||
@@ -2095,7 +2331,7 @@ function getRevealClassification(draft: EstimateAiDraft) {
           label => !['Concrete', 'Landscaping', 'Exterior doors'].includes(label)
         ),
       ].filter(label => combinedTradeLabels.includes(label))
-    : normalizedExistingTradeLabels;
+    : displayTradeLabels;
   return {
     scopeMode:
       (notesImplyMixedScope || hasMixedExteriorHardscape) &&

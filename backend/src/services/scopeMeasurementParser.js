@@ -131,7 +131,13 @@ function parseMixedPaintingIntents(text) {
       has(/\b(?:baseboards?|trim|molding|moulding)\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/i));
   const doorPaint =
     has(/\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\bdoors?\b/i) ||
-    has(/\bdoors?\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/i);
+    (has(/\bdoors?\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b/i) &&
+      !has(
+        /\bdoors?\b[^.;\n]{0,45}\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\b(?:walls?|ceilings?)\b/i
+      ));
+  const doorCasingInstall = has(
+    /\b(?:install|replace|new)\b[^.;\n]{0,45}\b(?:door\s+)?casing\b|\bdoors?\b[^.;\n]{0,20}\bcasing\b/i
+  );
   const casingPaint =
     !/\b(?:casing|trim)\b\s*,?\s*and\s+paint\b/i.test(source) &&
     (has(/\b(?:prep|prime|paint|finish)\b[^.;\n]{0,45}\b(?:casing|trim)\b/i) ||
@@ -157,8 +163,14 @@ function parseMixedPaintingIntents(text) {
     out.itemQuantities = {
       ...(out.itemQuantities || {}),
       interior_door_install: { quantity: doorCount, unit: "each", quantitySource: "notes" },
-      door_casing_install: { quantity: doorCount, unit: "each", quantitySource: "notes" },
     };
+    if (doorCasingInstall) {
+      out.itemQuantities.door_casing_install = {
+        quantity: doorCount,
+        unit: "each",
+        quantitySource: "notes",
+      };
+    }
   }
   if (windowInstall && windowCount) {
     out.itemQuantities = {
@@ -682,6 +694,13 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     for (const clause of clauses) {
       const match = clause.match(matcher);
       if (!match || match.index == null) continue;
+      if (
+        /(?:attic|ceiling)/i.test(locationPattern) &&
+        !/\binsulat(?:e|ion|ed)\b/i.test(clause) &&
+        /\bpaint(?:ing)?\b/i.test(clause)
+      ) {
+        continue;
+      }
       if (/floor/.test(locationPattern)) {
         const afterLocation = clause.slice(match.index + match[0].length);
         if (
@@ -1526,7 +1545,12 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
         /\bwindows?\b/i,
         /\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i,
       ].filter(pattern => pattern.test(text)).length >= 2;
-    if (mixedInteriorFlooringNote) return null;
+    const explicitFlooringQuantity = clauses.some((clause) => {
+      return /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\s+(?:of\s+)?(?:floor(?:ing)?|lvp|laminate|vinyl|carpet)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet)\b[^.;,\n]{0,25}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\b/i.test(
+        clause,
+      );
+    });
+    if (mixedInteriorFlooringNote && !explicitFlooringQuantity) return null;
     if (additionFloorArea) return additionFloorArea;
     if (explicitHomeInterior) return explicitHomeInterior;
     if (livingAreaSqft) return livingAreaSqft;

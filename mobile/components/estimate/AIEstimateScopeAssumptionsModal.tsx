@@ -427,6 +427,7 @@ import {
 import {
   parseInsulationAssembliesFromNotes,
   parseScopeMeasurementsFromNotes,
+  parseStuccoMeasurementsFromNotes,
 } from '@/utils/scopeMeasurementParser';
 import {
   groupQuickMeasurementFields,
@@ -942,9 +943,9 @@ function hasPrimaryTakeoffFromResolved(
 ): boolean {
   return Boolean(
     resolved.quantity != null &&
-      resolved.quantity > 0 &&
-      resolved.quantitySource !== 'missing' &&
-      resolved.quantitySource !== 'default_assumption'
+    resolved.quantity > 0 &&
+    resolved.quantitySource !== 'missing' &&
+    resolved.quantitySource !== 'default_assumption'
   );
 }
 
@@ -2655,8 +2656,8 @@ function ComparisonToggle({
     Boolean(block.includedInStageLabel);
   const comparisonOnly = Boolean(
     block.isComparison ||
-      block.benchmarkEvidence?.benchmarkIsComparisonOnly ||
-      includedInStage
+    block.benchmarkEvidence?.benchmarkIsComparisonOnly ||
+    includedInStage
   );
   // Hooks must run before any comparison-specific early return.
   const [open, setOpen] = useState(
@@ -6306,15 +6307,15 @@ function QuantitySection({
         Number(measurementsInput.drywallSqft) > 0;
       const suppressFormulaPlanning = Boolean(
         intelligence.formula &&
-          (shouldSuppressInsulationEnvelopePlanningFormula({
-            scopeKey: itemId,
-            formulaKey: intelligence.formula.formulaKey,
-            measurements: scopeMeasurementsRecord,
-          }) ||
-            (['paint', 'interior_paint'].includes(itemId) &&
-              measurementsInput.paintPricingMethod === 'separate') ||
-            noteBackedFlooring ||
-            noteBackedDrywall)
+        (shouldSuppressInsulationEnvelopePlanningFormula({
+          scopeKey: itemId,
+          formulaKey: intelligence.formula.formulaKey,
+          measurements: scopeMeasurementsRecord,
+        }) ||
+          (['paint', 'interior_paint'].includes(itemId) &&
+            measurementsInput.paintPricingMethod === 'separate') ||
+          noteBackedFlooring ||
+          noteBackedDrywall)
       );
       return (
         <View
@@ -7724,15 +7725,15 @@ function QuantitySection({
             Number(measurementsInput.drywallSqft) > 0;
           const suppressFormulaPlanning = Boolean(
             intelligence.formula &&
-              (shouldSuppressInsulationEnvelopePlanningFormula({
-                scopeKey: itemId,
-                formulaKey: intelligence.formula.formulaKey,
-                measurements: scopeMeasurementsRecord,
-              }) ||
-                (['paint', 'interior_paint'].includes(itemId) &&
-                  measurementsInput.paintPricingMethod === 'separate') ||
-                noteBackedFlooring ||
-                noteBackedDrywall)
+            (shouldSuppressInsulationEnvelopePlanningFormula({
+              scopeKey: itemId,
+              formulaKey: intelligence.formula.formulaKey,
+              measurements: scopeMeasurementsRecord,
+            }) ||
+              (['paint', 'interior_paint'].includes(itemId) &&
+                measurementsInput.paintPricingMethod === 'separate') ||
+              noteBackedFlooring ||
+              noteBackedDrywall)
           );
           const showInlineSqftTakeoff =
             !hideInlineTakeoff &&
@@ -9592,7 +9593,7 @@ function YesNoRow({
   const showInteriorPaintScopePrompt = false;
   const interiorPaintScopeApplied = Boolean(
     measurementsInput.pricingAcceptance?.interior_paint ||
-      measurementsInput.pricingAcceptance?.paint
+    measurementsInput.pricingAcceptance?.paint
   );
   const [interiorPaintPromptExpanded, setInteriorPaintPromptExpanded] =
     useState(false);
@@ -11866,8 +11867,8 @@ function ChoiceRow({
   );
   const inScope = Boolean(
     displayedChoiceId &&
-      displayedChoiceId !== 'not_in_scope' &&
-      displayedChoiceId !== 'unsure'
+    displayedChoiceId !== 'not_in_scope' &&
+    displayedChoiceId !== 'unsure'
   );
   const helper = checklistDisplayHelper(item, templateKey);
   const tier = scopeItemVisualTier(item, visualCtx);
@@ -12692,13 +12693,18 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
 
 function insulationAssemblyRowTitle(
   row: InsulationAssembly,
-  materialType: string
+  materialType: string,
+  notes?: string | null
 ): string {
   const facing = insulationBattFacingLabel(row.battFacing);
+  const genericWallLocation =
+    row.location === 'exterior_wall' &&
+    row.source === 'parsed_from_notes' &&
+    !/\b(?:exterior|outside)\s+walls?\b/i.test(String(notes || ''));
   return [
     materialType || 'Insulation',
     facing,
-    insulationLocationLabel(row.location),
+    genericWallLocation ? 'Wall' : insulationLocationLabel(row.location),
     row.rValue.trim() || 'R-value not specified',
   ]
     .filter(Boolean)
@@ -12773,17 +12779,17 @@ function buildInsulationAssemblyRows(
     parsedByLocation.get('exterior_wall')?.sqft === wallSqft &&
     Boolean(
       parsedByLocation.get('exterior_wall')?.materialType &&
-        parsedByLocation.get('exterior_wall')?.rValue
+      parsedByLocation.get('exterior_wall')?.rValue
     ) &&
     parsedByLocation.get('attic_ceiling')?.sqft === atticSqft &&
     Boolean(
       parsedByLocation.get('attic_ceiling')?.materialType &&
-        parsedByLocation.get('attic_ceiling')?.rValue
+      parsedByLocation.get('attic_ceiling')?.rValue
     ) &&
     parsedByLocation.get('floor')?.sqft === floorSqft &&
     Boolean(
       parsedByLocation.get('floor')?.materialType &&
-        parsedByLocation.get('floor')?.rValue
+      parsedByLocation.get('floor')?.rValue
     );
   if (hasValidParsedAssemblies) {
     return parsedNoteAssemblies.map((assembly, index) => ({
@@ -13781,7 +13787,7 @@ function InsulationAssemblyCard({
                           fontWeight: '700',
                         }}
                       >
-                        {insulationAssemblyRowTitle(row, materialType)}
+                        {insulationAssemblyRowTitle(row, materialType, notes)}
                       </Text>
                       <Text
                         style={{
@@ -14517,6 +14523,14 @@ function CollapsibleQuickMeasurements({
     () => String(templateKey || '').toLowerCase() === 'stucco',
     [templateKey]
   );
+  const stuccoNoteFlow = useMemo(
+    () =>
+      stuccoTradeFlow ||
+      /\bstucco\b|\b(?:gross|net)\s+(?:exterior\s+)?wall\s+area\b|\b(?:foam\s+trim|control\s+joints?)\b/i.test(
+        String(notes || '')
+      ),
+    [notes, stuccoTradeFlow]
+  );
   const effectiveTemplateKey = useMemo(() => {
     const living =
       Number(String(measurements.floorAreaSqft || '').replace(/,/g, '')) ||
@@ -14550,9 +14564,9 @@ function CollapsibleQuickMeasurements({
   const wholeHomeLayout =
     !singleTradeImport &&
     !stuccoTradeFlow &&
+    !mixedScopeMode &&
     isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey);
-  const compactMixedScope =
-    mixedScopeMode && !singleTradeImport && !wholeHomeLayout;
+  const compactMixedScope = mixedScopeMode && !singleTradeImport;
   const compactBathroomPlumbingFlow =
     (['bathroom', 'room_remodel'].includes(
       String(effectiveTemplateKey || '').toLowerCase()
@@ -14572,7 +14586,9 @@ function CollapsibleQuickMeasurements({
         : 'plumbing'
       : singleTradeImport && tradeKey
         ? String(tradeKey)
-        : effectiveTemplateKey;
+        : mixedScopeMode && !singleTradeImport
+          ? 'room_remodel'
+          : effectiveTemplateKey;
 
   const mepLaborComplexityMultiplier = useMemo(() => {
     const isPlumbingQm =
@@ -14636,10 +14652,10 @@ function CollapsibleQuickMeasurements({
         String(notes || '')
       );
     if (
-      (singleTradeImport &&
-        !compactBathroomPlumbingFlow &&
-        !wholeHomeMixedNote) ||
-      stuccoTradeFlow
+      !stuccoTradeFlow &&
+      singleTradeImport &&
+      !compactBathroomPlumbingFlow &&
+      !wholeHomeMixedNote
     ) {
       return { values: {}, keys: [] as QuickMeasurementFieldKey[] };
     }
@@ -14648,6 +14664,9 @@ function CollapsibleQuickMeasurements({
       projectType: projectType ?? undefined,
     });
     const parsedPlumbing = parsePlumbingMeasurementsFromNotes(notes || '');
+    const parsedStucco = stuccoNoteFlow
+      ? parseStuccoMeasurementsFromNotes(notes || '')
+      : {};
     const out: Partial<Record<QuickMeasurementFieldKey, string>> = {};
     const noteKeys: QuickMeasurementFieldKey[] = [];
     const put = (key: QuickMeasurementFieldKey, value: unknown) => {
@@ -14669,6 +14688,12 @@ function CollapsibleQuickMeasurements({
       out[key] = String(n);
       noteKeys.push(key);
     };
+    const putNonnegative = (key: QuickMeasurementFieldKey, value: unknown) => {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n < 0) return;
+      out[key] = String(n);
+      noteKeys.push(key);
+    };
 
     put('bathroomFloorSqft', parsed.bathroomFloorSqft);
     put('kitchenFloorSqft', parsed.kitchenFloorSqft);
@@ -14686,6 +14711,13 @@ function CollapsibleQuickMeasurements({
       'standardReceptacleCount',
       standardReceptacleMatch?.[1]?.replace(/,/g, '')
     );
+    put('mainPanelCount', parsed.mainPanelCount);
+    put('serviceAmperage', parsed.serviceAmperage);
+    put('dedicated20aCircuitCount', parsed.dedicated20aCircuitCount);
+    put('gfciReceptacleCount', parsed.gfciReceptacleCount);
+    put('singlePoleSwitchCount', parsed.singlePoleSwitchCount);
+    put('recessedLightCount', parsed.recessedLightCount);
+    put('conduitLf', parsed.conduitLf);
     put('serviceCallCount', parsedPlumbing.serviceCallCount);
     put('fixtureRepairCount', parsedPlumbing.fixtureRepairCount);
     put('fixtureReplacementCount', parsedPlumbing.fixtureReplacementCount);
@@ -14754,6 +14786,7 @@ function CollapsibleQuickMeasurements({
     put('rockMulchSqft', parsed.rockMulchSqft);
     put('landscapeTons', parsed.landscapeTons);
     put('roofSquares', parsed.roofSquares);
+    put('roofGutterLf', parsed.roofGutterLf);
     put('roofDeckingReplacementSqft', parsed.roofDeckingReplacementSqft);
     const notesSpecifyDrywallRepair =
       /\b(?:drywall|sheetrock|gypsum)\s+(?:repair|repairs|repairing|patch|patching)\b|\b(?:repair|repairs|repairing|patch|patching)\b[^.;\n]{0,35}\b(?:drywall|sheetrock|gypsum)\b/i.test(
@@ -14814,17 +14847,50 @@ function CollapsibleQuickMeasurements({
     put('concreteCy', parsed.concreteCy);
     put('excavationCy', parsed.excavationCy);
     put('deckSqft', parsed.deckSqft);
-    put('garageSqft', parsed.garageSqft);
+    // A stucco note's garage-opening deduction is not garage floor area.
+    if (parsedStucco.stuccoGarageOpeningSqft == null) {
+      put('garageSqft', parsed.garageSqft);
+    }
     put('hvacSystemCount', parsed.hvacSystemCount);
     put('hvacSystemTons', parsed.hvacSystemTons);
     put('hvacServiceCallCount', parsed.hvacServiceCallCount);
     put('hvacEquipmentReplacementCount', parsed.hvacEquipmentReplacementCount);
     put('hvacRefrigerantCount', parsed.hvacRefrigerantCount);
     put('hvacThermostatCount', parsed.hvacThermostatCount);
+    put('hvacSupplyRegisterCount', parsed.hvacSupplyRegisterCount);
+    put('hvacReturnGrilleCount', parsed.hvacReturnGrilleCount);
     put('hvacDuctworkLf', parsed.hvacDuctworkLf);
     put('hvacVentilationCount', parsed.hvacVentilationCount);
     put('hvacPermitCount', parsed.hvacPermitCount);
     put('hvacCleanupCount', parsed.hvacCleanupCount);
+    putNonnegative('stuccoGrossWallSqft', parsedStucco.stuccoGrossWallSqft);
+    putNonnegative(
+      'stuccoWindowDoorOpeningSqft',
+      parsedStucco.stuccoWindowDoorOpeningSqft
+    );
+    putNonnegative(
+      'stuccoGarageOpeningSqft',
+      parsedStucco.stuccoGarageOpeningSqft
+    );
+    putNonnegative(
+      'stuccoOtherFinishDeductionSqft',
+      parsedStucco.stuccoOtherFinishDeductionSqft
+    );
+    putNonnegative('stuccoNetWallSqft', parsedStucco.stuccoNetWallSqft);
+    putNonnegative('stuccoSoffitSqft', parsedStucco.stuccoSoffitSqft);
+    putNonnegative('stuccoParapetSqft', parsedStucco.stuccoParapetSqft);
+    putNonnegative('stuccoFoamTrimLf', parsedStucco.stuccoFoamTrimLf);
+    putNonnegative('stuccoControlJointLf', parsedStucco.stuccoControlJointLf);
+    putNonnegative(
+      'stuccoAccessAffectedSqft',
+      parsedStucco.stuccoAccessAffectedSqft
+    );
+    putNonnegative(
+      'stuccoRepairAffectedSqft',
+      parsedStucco.stuccoRepairAffectedSqft
+    );
+    putNonnegative('stuccoStories', parsedStucco.stuccoStories);
+    putNonnegative('stuccoWallHeightFt', parsedStucco.stuccoWallHeightFt);
 
     const framingNotes = parseFramingMeasurementsFromNotes(notes || '');
     put('framedAreaSqft', framingNotes.framedAreaSqft);
@@ -14876,7 +14942,9 @@ function CollapsibleQuickMeasurements({
     quickMeasurementTemplateKey,
     projectType,
     stuccoTradeFlow,
+    stuccoNoteFlow,
     compactBathroomPlumbingFlow,
+    singleTradeImport,
   ]);
   useEffect(() => {
     if (!notesTradeFlow) return;
@@ -14921,6 +14989,44 @@ function CollapsibleQuickMeasurements({
       })
     );
   }, [notesTradeFlow, noteQuickMeasurements.values, setMeasurements]);
+  useEffect(() => {
+    if (!stuccoTradeFlow) return;
+    const stuccoNoteKeys = [
+      'stuccoGrossWallSqft',
+      'stuccoWindowDoorOpeningSqft',
+      'stuccoGarageOpeningSqft',
+      'stuccoOtherFinishDeductionSqft',
+      'stuccoNetWallSqft',
+      'stuccoSoffitSqft',
+      'stuccoParapetSqft',
+      'stuccoFoamTrimLf',
+      'stuccoControlJointLf',
+      'stuccoAccessAffectedSqft',
+      'stuccoRepairAffectedSqft',
+      'stuccoStories',
+      'stuccoWallHeightFt',
+    ] as const;
+    const noteValues = noteQuickMeasurements.values;
+    const updates = stuccoNoteKeys.reduce((next, key) => {
+      const value = noteValues[key];
+      const current = measurementsRef.current[key];
+      if (value != null && (current == null || String(current).trim() === '')) {
+        next[key] = value;
+      }
+      return next;
+    }, {} as Partial<ScopeMeasurementsInputExtended>);
+    if (!Object.keys(updates).length) return;
+    const nextMeasurements = {
+      ...measurementsRef.current,
+      ...updates,
+      quickMeasurementSources: {
+        ...(measurementsRef.current.quickMeasurementSources || {}),
+        ...Object.fromEntries(Object.keys(updates).map(key => [key, 'notes'])),
+      },
+    };
+    measurementsRef.current = nextMeasurements;
+    setMeasurements(nextMeasurements);
+  }, [stuccoTradeFlow, noteQuickMeasurements.values, setMeasurements]);
   const rows = useMemo(() => {
     let baseRows = quickMeasurementRowsForInput(
       quickMeasurementTemplateKey,
@@ -14941,6 +15047,7 @@ function CollapsibleQuickMeasurements({
               String(effectiveTemplateKey || '').toLowerCase()
             )),
         plumbingWorkflowMode: measurements.plumbingWorkflowMode,
+        crossScopeMode: compactMixedScope,
         scopeNotes: notes,
       }
     );
@@ -14964,7 +15071,12 @@ function CollapsibleQuickMeasurements({
       )
     ) {
       baseRows = baseRows
-        .map(row => row.filter(field => field.key !== 'wallPaintSqft'))
+        .map(row =>
+          row.filter(
+            field =>
+              field.key !== 'wallPaintSqft' && field.key !== 'paintAreaSqft'
+          )
+        )
         .filter(row => row.length > 0);
     }
     const genericPaintNeedsConfirmation =
@@ -15070,7 +15182,8 @@ function CollapsibleQuickMeasurements({
       !dedicatedStuccoScope &&
       (['paint', 'interior_paint', 'paint_repair'].some(key =>
         activeScopeSet.has(key)
-      ) || notesRequireInteriorPaintMeasurements(notesTextForScopeFields));
+      ) ||
+        notesRequireInteriorPaintMeasurements(notesTextForScopeFields));
     if (interiorPaintScopeOrNote) {
       ensureScopeField('wallPaintSqft', { label: 'Paint' });
     }
@@ -15468,7 +15581,12 @@ function CollapsibleQuickMeasurements({
       )
     ) {
       baseRows = baseRows
-        .map(row => row.filter(field => field.key !== 'wallPaintSqft'))
+        .map(row =>
+          row.filter(
+            field =>
+              field.key !== 'wallPaintSqft' && field.key !== 'paintAreaSqft'
+          )
+        )
         .filter(row => row.length > 0);
     }
     if (
@@ -15586,46 +15704,55 @@ function CollapsibleQuickMeasurements({
       wetAreaInstallChoiceId,
       tradeScopeSelections: measurements.tradeScopeSelections,
     });
-    return resolved.map(result => {
-      const hasPlanEvidence =
-        Boolean(result.estimate?.planEvidence?.length) ||
-        [
-          'plan',
-          'plan_detected',
-          'plan_verified',
-          'measured_from_geometry',
-        ].includes(
-          String(measurements.quickMeasurementSources?.[result.key] || '')
-        );
-      if (
-        result.key === 'drywallSqft' &&
-        result.state === 'estimate_available' &&
-        mixedAdditionDrywallNeedsMeasurement &&
-        !hasPlanEvidence
-      ) {
-        return {
-          ...result,
-          state: 'needs_confirmation' as const,
-          estimate: null,
-        };
-      }
-      const manuallyEntered =
-        Boolean(measurements.quickMeasurementUserOverrides?.[result.key]) ||
-        [
-          'user_entered',
-          'manual_override',
-          'user_confirmed_suggestion',
-        ].includes(
-          String(measurements.quickMeasurementSources?.[result.key] || '')
-        );
-      if (result.filled && manuallyEntered) {
-        return { ...result, state: 'confirmed' as const };
-      }
-      return result.key === 'floorPrepSqft' &&
-        editingFieldKey === 'floorPrepSqft'
-        ? { ...result, state: 'needs_confirmation' as const }
-        : result;
-    });
+    return resolved
+      .filter(
+        result =>
+          !(
+            result.key === 'garageSqft' &&
+            stuccoNoteFlow &&
+            /\bgarage\s+(?:door\s+)?openings?\b/i.test(String(notes || ''))
+          )
+      )
+      .map(result => {
+        const hasPlanEvidence =
+          Boolean(result.estimate?.planEvidence?.length) ||
+          [
+            'plan',
+            'plan_detected',
+            'plan_verified',
+            'measured_from_geometry',
+          ].includes(
+            String(measurements.quickMeasurementSources?.[result.key] || '')
+          );
+        if (
+          result.key === 'drywallSqft' &&
+          result.state === 'estimate_available' &&
+          mixedAdditionDrywallNeedsMeasurement &&
+          !hasPlanEvidence
+        ) {
+          return {
+            ...result,
+            state: 'needs_confirmation' as const,
+            estimate: null,
+          };
+        }
+        const manuallyEntered =
+          Boolean(measurements.quickMeasurementUserOverrides?.[result.key]) ||
+          [
+            'user_entered',
+            'manual_override',
+            'user_confirmed_suggestion',
+          ].includes(
+            String(measurements.quickMeasurementSources?.[result.key] || '')
+          );
+        if (result.filled && manuallyEntered) {
+          return { ...result, state: 'confirmed' as const };
+        }
+        return result.key === 'floorPrepSqft' &&
+          editingFieldKey === 'floorPrepSqft'
+          ? { ...result, state: 'needs_confirmation' as const }
+          : result;
+      });
   }, [
     rows,
     measurements,
@@ -15640,11 +15767,16 @@ function CollapsibleQuickMeasurements({
     measurements.tradeScopeSelections,
     editingFieldKey,
     mixedAdditionDrywallNeedsMeasurement,
+    stuccoNoteFlow,
   ]);
   const mixedTradeSet = new Set(
     qmScopeTrades.map(trade => String(trade || '').toLowerCase())
   );
   const mixedExteriorQmJob = isMixedExteriorScopeNotes(notes);
+  const explicitHvacScopeInNotes =
+    /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
+      String(notes || '')
+    );
   const explicitDeckScopeMentioned =
     /\b(?:deck(?:ing)?|fenc(?:e|ing)|railing|gates?|stairs?)\b/i.test(
       String(notes || '')
@@ -15655,25 +15787,16 @@ function CollapsibleQuickMeasurements({
       (!mixedExteriorQmJob || explicitDeckScopeMentioned)) ||
       (mixedTradeSet.has('deck_patio') && explicitDeckScopeMentioned));
   const mixedHvacScope =
-    includedScopeKeys.some(key =>
-      [
-        'hvac',
-        'ductwork',
-        'supply_registers',
-        'return_grilles',
-        'thermostat',
-        'equipment_replace',
-        'ventilation',
-      ].includes(String(key).toLowerCase())
-    ) ||
-    /\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|(?:supply\s+)?registers?|return\s+grilles?|thermostats?)\b/i.test(
-      String(notes || '')
-    );
+    explicitHvacScopeInNotes ||
+    (mixedTradeSet.has('hvac') &&
+      (measurements.tradeScopeSelections?.hvac?.length > 0 ||
+        Number(measurements.hvacSystemCount) > 0 ||
+        Number(measurements.hvacSystemTons) > 0 ||
+        Number(measurements.hvacDuctworkLf) > 0));
   const hvacQmJob =
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'hvac' ||
-      mixedHvacScope ||
-      mixedTradeSet.has('hvac'));
+      mixedHvacScope);
   const hvacPanelMeasurements = useMemo(() => {
     const dedicatedHvac =
       String(effectiveTemplateKey || '').toLowerCase() === 'hvac';
@@ -15780,7 +15903,11 @@ function CollapsibleQuickMeasurements({
     !wholeHomeLayout &&
     (String(effectiveTemplateKey || '').toLowerCase() === 'roofing' ||
       roofingNotesFlow ||
-      mixedTradeSet.has('roofing'));
+      (mixedTradeSet.has('roofing') &&
+        (!compactMixedScope ||
+          /\b(?:roof(?:ing)?|shingles?|tear[\s-]?off|gutters?|downspouts?)\b/i.test(
+            String(notes || '')
+          ))));
   const roofingEmbeddedMeasurementKeys = useMemo(
     () => new Set(ROOFING_EMBEDDED_QUICK_MEASUREMENT_KEYS),
     []
@@ -15919,6 +16046,54 @@ function CollapsibleQuickMeasurements({
     (String(effectiveTemplateKey || '').toLowerCase() === 'stucco' ||
       stuccoTradeFlow ||
       mixedTradeSet.has('stucco'));
+  const stuccoPanelMeasurements = useMemo(() => {
+    if (!stuccoQmJob) return measurements;
+    const stuccoKeys: QuickMeasurementFieldKey[] = [
+      'stuccoGrossWallSqft',
+      'stuccoWindowDoorOpeningSqft',
+      'stuccoGarageOpeningSqft',
+      'stuccoOtherFinishDeductionSqft',
+      'stuccoNetWallSqft',
+      'stuccoSoffitSqft',
+      'stuccoParapetSqft',
+      'stuccoFoamTrimLf',
+      'stuccoControlJointLf',
+      'stuccoAccessAffectedSqft',
+      'stuccoRepairAffectedSqft',
+      'stuccoStories',
+      'stuccoWallHeightFt',
+    ];
+    const next = { ...measurements };
+    for (const key of stuccoKeys) {
+      if (
+        (next[key] == null || String(next[key]).trim() === '') &&
+        noteQuickMeasurements.values[key] != null
+      ) {
+        next[key] = noteQuickMeasurements.values[key];
+      }
+    }
+    return next;
+  }, [measurements, noteQuickMeasurements.values, stuccoQmJob]);
+  const roofingPanelMeasurements = useMemo(() => {
+    if (!roofingQmJob) return measurements;
+    const roofingKeys: QuickMeasurementFieldKey[] = [
+      'roofSquares',
+      'roofGutterLf',
+      'roofAreaSqft',
+      'roofDeckingReplacementSqft',
+      'storyCount',
+    ];
+    const next = { ...measurements };
+    for (const key of roofingKeys) {
+      if (
+        (next[key] == null || String(next[key]).trim() === '') &&
+        noteQuickMeasurements.values[key] != null
+      ) {
+        next[key] = noteQuickMeasurements.values[key];
+      }
+    }
+    return next;
+  }, [measurements, noteQuickMeasurements.values, roofingQmJob]);
   const paintingQmJob =
     !wholeHomeLayout &&
     String(effectiveTemplateKey || '').toLowerCase() === 'painting';
@@ -18602,6 +18777,9 @@ function CollapsibleQuickMeasurements({
   const mixedScopeLivingAreaMentioned =
     /\b(?:living|conditioned|building)\s+(?:area|space|sf|sqft|square\s+(?:feet|foot))\b/i.test(
       String(notes || '')
+    ) ||
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;\n]{0,35}\b(?:addition|add[-\s]?on)\b/i.test(
+      String(notes || '')
     );
   const notesSpecifyWallFraming =
     /\b(?:frame|framing|framed)\b[^.;\n]{0,45}\bwalls?\b|\bwalls?\b[^.;\n]{0,45}\b(?:frame|framing|framed)\b/i.test(
@@ -18627,6 +18805,8 @@ function CollapsibleQuickMeasurements({
         landscapingEmbeddedMeasurementKeys.has(result.key)) ||
       (concreteQmJob && concreteEmbeddedMeasurementKeys.has(result.key)) ||
       (stuccoQmJob && stuccoEmbeddedMeasurementKeys.has(result.key)) ||
+      (stuccoQmJob &&
+        ['exteriorPaintSqft', 'baseboardLf'].includes(result.key)) ||
       (paintingQmJob && paintingEmbeddedMeasurementKeys.has(result.key)) ||
       ((deckQmJob || hvacQmJob || roofingQmJob) &&
         simpleTradeEmbeddedMeasurementKeys.has(result.key)) ||
@@ -18678,19 +18858,17 @@ function CollapsibleQuickMeasurements({
     (singleTradeImport && tradeKey === 'electrical') ||
     String(quickMeasurementTemplateKey || '').toLowerCase() === 'electrical';
   const projectComplexityMeasurementFlow =
-    (plumbingMeasurementFlow &&
-      measurements.plumbingWorkflowMode !== 'service') ||
-    electricalMeasurementFlow;
+    plumbingMeasurementFlow && measurements.plumbingWorkflowMode !== 'service';
   const plumbingOrderedResults = rows
     .flat()
     .map(field => resultByKey.get(field.key))
     .filter((result): result is QuickMeasurementFieldResult =>
       Boolean(
         result &&
-          (result.relevant ||
-            result.key === 'gasLineLf' ||
-            standaloneNewConstructionPlumbingNotesFlow) &&
-          shouldRenderGeneralResult(result)
+        (result.relevant ||
+          result.key === 'gasLineLf' ||
+          standaloneNewConstructionPlumbingNotesFlow) &&
+        shouldRenderGeneralResult(result)
       )
     );
   const compactBathroomPlumbingFallback: QuickMeasurementFieldResult | null =
@@ -18723,7 +18901,107 @@ function CollapsibleQuickMeasurements({
   }
   const showPlumbingProjectComplexity =
     plumbingMeasurementFlow && measurements.plumbingWorkflowMode !== 'service';
-  const showElectricalProjectComplexity = electricalMeasurementFlow;
+  const showElectricalProjectComplexity = false;
+  const electricalNoteMeasurementKeys = useMemo(() => {
+    const noteKeys = new Set(noteQuickMeasurements.keys);
+    return new Set(
+      ELECTRICAL_CARDS.map(card => card.measurementKey).filter(key =>
+        noteKeys.has(key as QuickMeasurementFieldKey)
+      )
+    );
+  }, [noteQuickMeasurements.keys]);
+  const electricalVisibleMeasurementKeys = useMemo(() => {
+    const noteKeys = electricalNoteMeasurementKeys;
+    const hasElectricalNoteMeasurements = noteKeys.size > 0;
+    const electricalScope = new Set(
+      Array.isArray(measurements.electricalScope)
+        ? measurements.electricalScope.map(id => String(id))
+        : []
+    );
+    const userOverrides = measurements.quickMeasurementUserOverrides || {};
+    const sources = measurements.quickMeasurementSources || {};
+    const hasPositiveQuantity = (value: unknown) =>
+      Number(String(value ?? '').replace(/,/g, '')) > 0;
+    const userOwned = (key: string) =>
+      Boolean(userOverrides[key]) ||
+      ['user_entered', 'manual_override', 'user_confirmed_suggestion'].includes(
+        String(sources[key] || '')
+      );
+
+    return new Set(
+      ELECTRICAL_CARDS.filter(card => {
+        if (noteKeys.has(card.measurementKey)) return true;
+        if (userOwned(card.measurementKey)) return true;
+        if (hasElectricalNoteMeasurements) return false;
+        return (
+          hasPositiveQuantity(measurements[card.measurementKey]) ||
+          hasPositiveQuantity(
+            measurements.itemQuantities?.[card.itemId]?.quantity
+          ) ||
+          electricalScope.has(card.itemId)
+        );
+      }).map(card => card.measurementKey)
+    );
+  }, [
+    electricalNoteMeasurementKeys,
+    measurements,
+    measurements.electricalScope,
+    measurements.itemQuantities,
+    measurements.quickMeasurementSources,
+    measurements.quickMeasurementUserOverrides,
+  ]);
+  useEffect(() => {
+    if (!electricalMeasurementFlow || singleTradeImport) return;
+    const noteValues = noteQuickMeasurements.values;
+    const updates: Record<string, string> = {};
+    for (const card of ELECTRICAL_CARDS) {
+      const noteValue = noteValues[card.measurementKey];
+      if (noteValue == null) continue;
+      const key = card.measurementKey;
+      if (
+        measurements.quickMeasurementUserOverrides?.[key] ||
+        [
+          'user_entered',
+          'manual_override',
+          'user_confirmed_suggestion',
+        ].includes(String(measurements.quickMeasurementSources?.[key] || ''))
+      ) {
+        continue;
+      }
+      if (String(measurements[key] ?? '') !== String(noteValue)) {
+        updates[key] = String(noteValue);
+      }
+    }
+    if (!Object.keys(updates).length) return;
+    setMeasurements(previous => ({
+      ...previous,
+      ...updates,
+      quickMeasurementSources: {
+        ...(previous.quickMeasurementSources || {}),
+        ...Object.fromEntries(Object.keys(updates).map(key => [key, 'notes'])),
+      },
+    }));
+  }, [
+    electricalMeasurementFlow,
+    measurements,
+    noteQuickMeasurements.values,
+    setMeasurements,
+    singleTradeImport,
+  ]);
+  const electricalPanelLocationMentioned =
+    Boolean(
+      measurements.electricalPanelLocation ||
+      measurements.electricalMeterMainCombo
+    ) ||
+    /\b(?:indoor|outdoor|interior|exterior)\s+(?:electrical\s+)?panel\b|\bmeter\s*\/?\s*main\s+combo\b/i.test(
+      notes
+    );
+  const electricalConduitMentioned =
+    Boolean(measurements.electricalConduit) ||
+    electricalNoteMeasurementKeys.has('conduitLf');
+  const electricalTrenchingMentioned =
+    Boolean(measurements.electricalTrenching) ||
+    /\b(?:trench(?:ing)?|underground\s+conduit)\b/i.test(notes);
   const mepPlanImportStoryOnly = useMemo(() => {
     const importTrade = String(
       measurements.planImportTradeKey || tradeKey || ''
@@ -19381,6 +19659,7 @@ function CollapsibleQuickMeasurements({
         conflictFields={electricalConflictFields}
         sources={measurements.quickMeasurementSources}
         userOverrides={measurements.quickMeasurementUserOverrides}
+        visibleMeasurementKeys={electricalVisibleMeasurementKeys}
         preferExpandedKeys={resolvedConflictFields}
         onChangeQuantity={patchElectricalQuantity}
         quantityEditingRef={electricalQuantityEditingRef}
@@ -19394,6 +19673,7 @@ function CollapsibleQuickMeasurements({
       electricalConflictFields,
       measurements.quickMeasurementSources,
       measurements.quickMeasurementUserOverrides,
+      electricalVisibleMeasurementKeys,
       resolvedConflictFields,
       patchElectricalQuantity,
       electricalQuantityEditingRef,
@@ -19676,6 +19956,12 @@ function CollapsibleQuickMeasurements({
                 hasDetailedQuantities={hasDetailedElectricalQuantities(
                   measurements as Record<string, unknown>
                 )}
+                showPanelLocation={electricalPanelLocationMentioned}
+                showRaceway={
+                  electricalConduitMentioned || electricalTrenchingMentioned
+                }
+                showConduitOption={electricalConduitMentioned}
+                showTrenchingOption={electricalTrenchingMentioned}
               />
               {electricalQuantityTakeoffMounted
                 ? electricalQuantityTakeoff
@@ -20315,7 +20601,7 @@ function CollapsibleQuickMeasurements({
               ) : null}
               {roofingQmJob ? (
                 <QmRoofingScopePanels
-                  measurements={measurements}
+                  measurements={roofingPanelMeasurements}
                   setMeasurements={setMeasurements}
                   onScopeSelectionChange={onHvacScopeSelectionChange}
                   notes={notes}
@@ -20325,9 +20611,21 @@ function CollapsibleQuickMeasurements({
                   Colors={Colors}
                 />
               ) : null}
-              {!compactMixedScope && stuccoQmJob ? (
+              {compactMixedScope && stuccoQmJob ? (
+                <Text
+                  style={{
+                    color: darkMode ? '#cbd5e1' : Colors.text,
+                    fontSize: 13,
+                    fontWeight: '800',
+                    marginTop: 4,
+                  }}
+                >
+                  Stucco measurements
+                </Text>
+              ) : null}
+              {stuccoQmJob ? (
                 <QmStuccoScopePanels
-                  measurements={measurements}
+                  measurements={stuccoPanelMeasurements}
                   setMeasurements={setMeasurements}
                   applying={applying}
                   darkMode={darkMode}
@@ -20764,6 +21062,29 @@ export default function AIEstimateScopeAssumptionsModal({
     ).toLowerCase();
     return scopeMode === 'mixed' || mixedScopeTradesFromDraft(draft).length > 1;
   }, [draft]);
+  const dedicatedElectricalChecklist = useMemo(() => {
+    const checklistKey = String(checklist?.templateKey || '').toLowerCase();
+    if (['electrical', 'electrical_rough'].includes(checklistKey)) return true;
+    const noteText = String(scopeNotes || '');
+    const electricalSignal =
+      /\b(?:electrical|wiring|outlets?|receptacles?|panel|circuits?|switch(?:es)?|gfci|recessed\s+(?:lights?|cans?)|conduit)\b/i.test(
+        noteText
+      );
+    const nonElectricalWork =
+      /\b(?:plumbing|hvac|framing|roof(?:ing)?|drywall|flooring|lvp|tile|cabinets?|concrete|foundation|insulat(?:e|ion|ed)|windows?|doors?|paint(?:ing)?|landscap(?:e|ing)|sod|pavers?|baseboards?|trim)\b/i.test(
+        noteText
+      );
+    return (
+      electricalSignal &&
+      !nonElectricalWork &&
+      hasDetailedElectricalQuantities(
+        initialScopeMeasurementInputExtended(draft, noteText) as Record<
+          string,
+          unknown
+        >
+      )
+    );
+  }, [checklist?.templateKey, draft, scopeNotes]);
   const roofingNotesFlow =
     /\b(?:roof(?:ing)?|shingles?|tear[\s-]?off|gutters?|downspouts?)\b/i.test(
       scopeNotes
@@ -21330,9 +21651,14 @@ export default function AIEstimateScopeAssumptionsModal({
         factIds: ['baseboard_install', 'trim', 'trim_paint'],
       },
     ] as const;
+    const explicitInteriorTrimMention =
+      /\binterior\s+doors?\b|\b(?:door|window)\s+(?:casing|trim)\b|\b(?:interior\s+trim|crown|moulding|molding)\b/i.test(
+        currentUserNote
+      );
     for (const card of noteMeasurementCards) {
       const hasCatalogFact = (checklist?.scopeFacts || []).some(
         fact =>
+          card.id !== 'interior_trim' &&
           card.factIds.includes(String(fact.scopeId || '')) &&
           fact.status !== 'excluded'
       );
@@ -21355,8 +21681,7 @@ export default function AIEstimateScopeAssumptionsModal({
           /\b(?:exterior|entry)\s+doors?\b/i.test(currentUserNote)) ||
         (card.id === 'insulation' &&
           /\binsulat(?:e|ion|ed)\b/i.test(currentUserNote)) ||
-        (card.id === 'interior_trim' &&
-          /\binterior\s+doors?\b/i.test(currentUserNote)) ||
+        (card.id === 'interior_trim' && explicitInteriorTrimMention) ||
         (card.id === 'baseboard_install' &&
           /\bbaseboards?\b|\bbase\s*board\b/i.test(currentUserNote));
       if (!noteMentionsCard) continue;
@@ -21387,6 +21712,9 @@ export default function AIEstimateScopeAssumptionsModal({
           },
         ];
       }
+    }
+    if (!explicitInteriorTrimMention) {
+      expanded = expanded.filter(item => item.id !== 'interior_trim');
     }
     if (!/\bbaseboards?\b|\bbase\s*board\b/i.test(currentUserNote)) {
       expanded = expanded.filter(item => item.id !== 'baseboard_install');
@@ -21487,6 +21815,36 @@ export default function AIEstimateScopeAssumptionsModal({
             )
             .map(entry => entry.item)
         : withNoteScopeFilter;
+    const activeNoteAfterTradeExclusions = currentUserNote.replace(
+      /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;\n]*(?:[.;\n]|$)/gi,
+      ' '
+    );
+    const explicitlyExcludedTradeIds = new Set<string>();
+    const exclusionClauseFor = (trade: 'electrical' | 'plumbing') =>
+      new RegExp(
+        `\\b(?:no|without|exclude(?:d|s|ing)?|not\\s+included|not\\s+in\\s+scope|owner[-\\s]+provided)\\b[^.;\\n]*\\b${trade}\\b`,
+        'i'
+      );
+    for (const trade of ['electrical', 'plumbing'] as const) {
+      if (
+        exclusionClauseFor(trade).test(currentUserNote) &&
+        !new RegExp(
+          `\\b(?:${trade}|wiring|wire|outlets?|fixtures?|panels?|circuits?)\\b`,
+          'i'
+        ).test(activeNoteAfterTradeExclusions)
+      ) {
+        explicitlyExcludedTradeIds.add(trade);
+      }
+    }
+    const withExplicitTradeExclusionBoundary = orderedPaintingItems.filter(
+      item => {
+        const itemId = String(item.id || '').toLowerCase();
+        const itemLabel = String(item.label || '').toLowerCase();
+        return ![...explicitlyExcludedTradeIds].some(
+          trade => itemId.includes(trade) || itemLabel.includes(trade)
+        );
+      }
+    );
     const drywallLayoutCtx = {
       measurements: measurements as Record<string, unknown>,
       planImportMode: measurements.planImportMode ?? null,
@@ -21543,20 +21901,42 @@ export default function AIEstimateScopeAssumptionsModal({
         /\b(?:interior|inside|walls?|ceilings?|rooms?)\b/i.test(
           activeStuccoNotes
         );
-      const isGenericStuccoOnlyItem = (item: ScopeChecklistItem) =>
-        ((item.id === 'windows' ||
-          item.id === 'window_install' ||
-          item.id === 'windows_doors' ||
-          item.id === 'exterior_doors') &&
-          !hasExplicitWindowDoorWork) ||
-        ((item.id === 'paint' || item.id === 'interior_paint') &&
-          !hasExplicitInteriorPaint) ||
-        ((item.id === 'exterior_paint' || item.id === 'exterior_trim_paint') &&
-          !hasExplicitExteriorPaint) ||
-        (['trim', 'trim_paint', 'baseboard_install', 'interior_trim'].includes(
-          item.id
-        ) &&
-          !hasExplicitTrimWork);
+      const isGenericStuccoOnlyItem = (item: ScopeChecklistItem) => {
+        const itemId = String(item.id || '').toLowerCase();
+        const itemLabel = String(item.label || '').toLowerCase();
+        const isExteriorPaintItem =
+          itemId === 'exterior_paint' ||
+          itemId === 'exterior_trim_paint' ||
+          itemId.includes('exterior_paint') ||
+          /\bexterior\s+paint\b/.test(itemLabel);
+        const isInteriorPaintItem =
+          itemId === 'paint' ||
+          itemId === 'interior_paint' ||
+          itemId.includes('interior_paint') ||
+          itemLabel === 'paint' ||
+          /\binterior\s+paint\b/.test(itemLabel);
+        const isTrimItem =
+          [
+            'trim',
+            'trim_paint',
+            'baseboard',
+            'baseboard_install',
+            'interior_trim',
+          ].includes(itemId) ||
+          itemId.includes('baseboard') ||
+          itemId.includes('trim') ||
+          /\b(?:baseboard|interior\s+trim)\b/.test(itemLabel);
+        return (
+          ((item.id === 'windows' ||
+            item.id === 'window_install' ||
+            item.id === 'windows_doors' ||
+            item.id === 'exterior_doors') &&
+            !hasExplicitWindowDoorWork) ||
+          (isInteriorPaintItem && !hasExplicitInteriorPaint) ||
+          (isExteriorPaintItem && !hasExplicitExteriorPaint) ||
+          (isTrimItem && !hasExplicitTrimWork)
+        );
+      };
       const customOnly = withNoteScopeFilter.filter(
         item =>
           (isCustomScopeChecklistItem(item) || item.noteBacked) &&
@@ -21569,8 +21949,43 @@ export default function AIEstimateScopeAssumptionsModal({
         ])
       );
     }
+    if (dedicatedElectricalChecklist) {
+      const electricalMeasurements = initialScopeMeasurementInputExtended(
+        draft,
+        currentUserNote
+      );
+      const detailedElectrical = hasDetailedElectricalQuantities(
+        electricalMeasurements as Record<string, unknown>
+      );
+      const ownerSuppliedFixtures =
+        /\b(?:owner|client|customer)\s+(?:supplies|provides?)\b[^.;\n]{0,80}\b(?:light\s+)?fixtures?\b|\b(?:excludes?|excluded|not\s+included)\b[^.;\n]{0,80}\b(?:light\s+)?fixtures?\b/i.test(
+          currentUserNote
+        );
+      const electricalItems = filterChecklistItemsForTrade(
+        orderedPaintingItems,
+        'selected_trade',
+        'electrical'
+      ).filter(item => {
+        const id = String(item.id || '').toLowerCase();
+        if (
+          detailedElectrical &&
+          (id === 'electrical_rough' || id === 'electrical')
+        ) {
+          return false;
+        }
+        if (
+          ownerSuppliedFixtures &&
+          id === 'electrical_standard_fixture' &&
+          Number(electricalMeasurements.standardFixtureCount || 0) <= 0
+        ) {
+          return false;
+        }
+        return true;
+      });
+      return withDrywallLayout(electricalItems);
+    }
     if (String(checklist?.templateKey || '').toLowerCase() !== 'flooring')
-      return withDrywallLayout(orderedPaintingItems);
+      return withDrywallLayout(withExplicitTradeExclusionBoundary);
     const description = flooringDemoDescription(
       measurements,
       scopeNotes,
@@ -21618,6 +22033,7 @@ export default function AIEstimateScopeAssumptionsModal({
     checklist?.templateKey,
     draft?.projectType,
     scopeNotes,
+    dedicatedElectricalChecklist,
     isWholeHomeMixedRemodelNote,
     singleTradePlanImport,
     singleTradeKey,
@@ -22788,8 +23204,7 @@ export default function AIEstimateScopeAssumptionsModal({
         ? planImport.selectedTrade
         : draft?.scopeMeasurements?.planImportMode === 'selected_trade'
           ? (draft.scopeMeasurements.planImportTradeKey as
-              | import('@/utils/planImportTradeConfig').PlanTradeKey
-              | null)
+              import('@/utils/planImportTradeConfig').PlanTradeKey | null)
           : null;
     if (hydratedPlanTrade) {
       const allowed = new Set(
@@ -23185,7 +23600,8 @@ export default function AIEstimateScopeAssumptionsModal({
           mixedScopeTrades: mixedScopeQmTradesFromDraft(
             draft,
             effectiveTemplateKey,
-            mixedScopeTradesFromDraft(draft)
+            mixedScopeTradesFromDraft(draft),
+            scopeNotes
           ),
           notes: scopeNotes,
           hasSitePhotos,
@@ -23293,7 +23709,8 @@ export default function AIEstimateScopeAssumptionsModal({
         mixedScopeTrades: mixedScopeQmTradesFromDraft(
           draft,
           singleTradeKey || effectiveTemplateKey,
-          mixedScopeTradesFromDraft(draft)
+          mixedScopeTradesFromDraft(draft),
+          scopeNotes
         ),
       },
       nextMeasurements
@@ -23613,6 +24030,13 @@ export default function AIEstimateScopeAssumptionsModal({
         helperText:
           'Insulation surface area from notes; enter the missing sqft.',
         category: 'structure',
+      },
+      {
+        id: 'drywall',
+        label: 'Drywall repair',
+        helperText:
+          'Drywall repair area from notes; enter the affected square footage.',
+        category: 'interior',
       },
     ] as const;
     for (const card of crossTradeMeasurementCards) {
@@ -24674,7 +25098,8 @@ export default function AIEstimateScopeAssumptionsModal({
                 mixedScopeTrades: mixedScopeQmTradesFromDraft(
                   draft,
                   singleTradeKey || checklist?.templateKey,
-                  mixedScopeTradesFromDraft(draft)
+                  mixedScopeTradesFromDraft(draft),
+                  scopeNotes
                 ),
               },
               nextMeasurements
@@ -27157,7 +27582,7 @@ export default function AIEstimateScopeAssumptionsModal({
       const evidence = block.benchmarkEvidence;
       const unitMismatch = Boolean(
         evidence?.primaryTakeoff?.unit &&
-          evidence.benchmarkBasis.unit !== evidence.primaryTakeoff.unit
+        evidence.benchmarkBasis.unit !== evidence.primaryTakeoff.unit
       );
       const validation =
         measurementValidationRequiredForBenchmark() && evidence
@@ -29003,25 +29428,29 @@ export default function AIEstimateScopeAssumptionsModal({
                   }
             }
             templateKey={
-              mixedScopeReviewMode &&
-              !isWholeHomeQuickMeasurementTemplate(checklist?.templateKey)
-                ? 'room_remodel'
-                : notesContainStructuralMixedScope
+              dedicatedElectricalChecklist
+                ? 'electrical'
+                : mixedScopeReviewMode
                   ? 'room_remodel'
-                  : checklist?.templateKey
+                  : notesContainStructuralMixedScope
+                    ? 'room_remodel'
+                    : checklist?.templateKey
             }
             projectType={draft?.projectType}
-            notes={[quickMeasurementNotes, scopeNotes]
-              .filter(Boolean)
-              .join('\n')}
+            notes={Array.from(
+              new Set([quickMeasurementNotes, scopeNotes].filter(Boolean))
+            ).join('\n')}
             hvacNotes={scopeNotes}
             includedScopeKeys={scopeAssemblyContext.activeScopeKeys}
             qmScopeTrades={mixedScopeQmTradesFromDraft(
               draft,
               checklist?.templateKey,
-              mixedScopeTradesFromDraft(draft)
+              mixedScopeTradesFromDraft(draft),
+              scopeNotes
             )}
-            mixedScopeMode={mixedScopeReviewMode}
+            mixedScopeMode={
+              dedicatedElectricalChecklist ? false : mixedScopeReviewMode
+            }
             insulationAssemblyCardActive={
               insulationTemplateKey === 'insulation'
             }

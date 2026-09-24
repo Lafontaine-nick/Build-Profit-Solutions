@@ -568,10 +568,26 @@ export function inferRoofingTradeScopeSelectionsFromNotes(
 
   const ids = new Set<string>();
   const tearOff = inferRoofingTearOffFromNotes(notes);
-  if (tearOff && tearOff !== 'new_construction') ids.add('tear_off');
+  // A replacement quantity does not, by itself, authorize a tear-off card.
+  // Keep tear-off note-backed only when removal is explicit; otherwise the
+  // existing-roof card is an empty default in mixed-scope jobs.
+  const explicitTearOff =
+    /\b(?:tear[\s-]?off|remove|removal|roof\s+demo|strip\s+roof)\b[^.;\n]{0,60}\b(?:existing\s+)?(?:roof|shingles?|tile|metal|membrane)?\b/.test(
+      n
+    ) ||
+    /\b(?:existing\s+)?(?:roof|shingles?|tile|metal|membrane)\b[^.;\n]{0,60}\b(?:tear[\s-]?off|remove|removal|roof\s+demo|strip\s+roof)\b/.test(
+      n
+    );
+  if (tearOff && tearOff !== 'new_construction' && explicitTearOff) {
+    ids.add('tear_off');
+  }
 
   const system = inferRoofingSystemFromNotes(notes);
-  if (system === 'architectural_shingles' || system === 'three_tab_shingles') {
+  if (
+    system === 'architectural_shingles' ||
+    system === 'three_tab_shingles' ||
+    /\b\d[\d,]*(?:\.\d+)?\s+(?:roofing\s+)?squares?\b/.test(n)
+  ) {
     ids.add('shingles');
   }
 

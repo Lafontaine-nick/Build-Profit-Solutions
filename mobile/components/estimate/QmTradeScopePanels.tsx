@@ -6236,7 +6236,11 @@ export function QmRoofingScopePanels({
         ) : null}
       </View>
 
-      {installExpanded ? (
+      {installExpanded &&
+      (visibleDemoOptions.length > 0 ||
+        selections.some(id =>
+          (ROOFING_DEMO_OPTION_IDS as readonly string[]).includes(id)
+        )) ? (
         <>
           <View style={[styles.qmPanel, panelStyle]}>
             <TouchableOpacity
@@ -6393,10 +6397,10 @@ function stuccoMeasurementInputValue(value: unknown): string {
 
 function reconcileStuccoNetWall(
   measurements: ScopeMeasurementsInputExtended
-): Pick<
+): Partial<Pick<
   ScopeMeasurementsInputExtended,
-  'stuccoNetWallSqft' | 'exteriorPaintSqft' | 'quickMeasurementSources'
-> {
+  'stuccoNetWallSqft' | 'quickMeasurementSources'
+>> {
   const gross = parseStuccoMeasurement(measurements.stuccoGrossWallSqft);
   const hasWindowDoorInput =
     String(measurements.stuccoWindowDoorOpeningSqft ?? '').trim() !== '';
@@ -6417,11 +6421,9 @@ function reconcileStuccoNetWall(
   const net = String(Math.max(0, gross - openings));
   return {
     stuccoNetWallSqft: net,
-    exteriorPaintSqft: net,
     quickMeasurementSources: {
       ...(measurements.quickMeasurementSources || {}),
       stuccoNetWallSqft: 'calculated_from_deductions',
-      exteriorPaintSqft: 'calculated_from_deductions',
     },
   };
 }
@@ -6455,23 +6457,14 @@ export function QmStuccoScopePanels({
       derived.stuccoNetWallSqft == null
         ? currentNet
         : stuccoMeasurementInputValue(derived.stuccoNetWallSqft);
-    const currentPaint = stuccoMeasurementInputValue(
-      measurements.exteriorPaintSqft
-    );
-    const nextPaint =
-      derived.exteriorPaintSqft == null
-        ? currentPaint
-        : stuccoMeasurementInputValue(derived.exteriorPaintSqft);
-    if (currentNet === nextNet && currentPaint === nextPaint) return;
+    if (currentNet === nextNet) return;
     setMeasurements(prev => {
       const next = {
         ...prev,
         ...reconcileStuccoNetWall(prev),
       };
       return stuccoMeasurementInputValue(next.stuccoNetWallSqft) ===
-        stuccoMeasurementInputValue(prev.stuccoNetWallSqft) &&
-        stuccoMeasurementInputValue(next.exteriorPaintSqft) ===
-          stuccoMeasurementInputValue(prev.exteriorPaintSqft)
+        stuccoMeasurementInputValue(prev.stuccoNetWallSqft)
         ? prev
         : next;
     });
@@ -6481,7 +6474,6 @@ export function QmStuccoScopePanels({
     measurements.stuccoGarageOpeningSqft,
     measurements.stuccoOtherFinishDeductionSqft,
     measurements.stuccoNetWallSqft,
-    measurements.exteriorPaintSqft,
   ]);
 
   const updateMeasurement = (
@@ -6979,7 +6971,16 @@ export function QmSimpleTradeScopePanels({
     const updated =
       scopeKey === 'hvac'
         ? (applyHvacScopeMeasurements(
-            withSelections
+            withSelections,
+            {
+              // Notes identify the component, but an unnumbered component
+              // still needs a contractor-confirmed quantity. Only seed a
+              // default count when this is a manual, note-free selection.
+              seedUnquantified:
+                !/\b(?:hvac|heating|cooling|furnace|heat[\s-]*pumps?|air\s*condition(?:er|ing)?|ductwork|registers?|return\s+grilles?|thermostats?)\b/i.test(
+                  hvacNotes
+                ),
+            }
           ) as ScopeMeasurementsInputExtended)
         : withSelections;
     setMeasurements(updated);

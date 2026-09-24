@@ -155,6 +155,14 @@ export type ParsedScopeMeasurements = {
   hvacVentilationCount?: number;
   hvacPermitCount?: number;
   hvacCleanupCount?: number;
+  mainPanelCount?: number;
+  serviceAmperage?: number;
+  dedicated20aCircuitCount?: number;
+  standardReceptacleCount?: number;
+  gfciReceptacleCount?: number;
+  singlePoleSwitchCount?: number;
+  recessedLightCount?: number;
+  conduitLf?: number;
   concreteSqft?: number;
   concreteDemoSqft?: number;
   concreteDemoThicknessBand?:
@@ -233,6 +241,161 @@ function parseStoryCount(text: string): number | null {
   };
   const count = words[match[1].toLowerCase()] || Number(match[1]);
   return Number.isFinite(count) && count > 0 ? count : null;
+}
+
+const STUCCO_SQFT_UNIT_RE =
+  '(?:sq\\.?\\s*ft|sqft|sf|square\\s+(?:foot|feet))';
+const STUCCO_LF_UNIT_RE =
+  '(?:lf|linear\\s+(?:foot|feet)|ln\\s*ft|linear\\s+ft)';
+
+function parseNonnegativeNumber(value: string | undefined): number | undefined {
+  if (value == null) return undefined;
+  const number = Number(value.replace(/,/g, ''));
+  return Number.isFinite(number) && number >= 0 ? number : undefined;
+}
+
+function matchStuccoQuantity(
+  text: string,
+  labelPattern: string,
+  unitPattern: string
+): number | undefined {
+  const numberPattern = '(\\d[\\d,]*(?:\\.\\d+)?)';
+  const match = text.match(
+    new RegExp(
+      `(?:${numberPattern}\\s*${unitPattern}[^0-9.;,\\n]{0,64}\\b(?:${labelPattern})\\b|\\b(?:${labelPattern})\\b[^0-9.;,\\n]{0,100}?(?<![\\d,])${numberPattern}\\s*${unitPattern})`,
+      'i'
+    )
+  );
+  return parseNonnegativeNumber(match?.[1] ?? match?.[2]);
+}
+
+/**
+ * Parse the dedicated stucco takeoff vocabulary from the original note.
+ * Unlike the generic quantity parser, this intentionally preserves explicit
+ * zero deductions such as "0 sqft for garage door openings".
+ */
+export type StuccoParsedMeasurements = {
+  stuccoGrossWallSqft?: number;
+  stuccoWindowDoorOpeningSqft?: number;
+  stuccoGarageOpeningSqft?: number;
+  stuccoOtherFinishDeductionSqft?: number;
+  stuccoNetWallSqft?: number;
+  stuccoSoffitSqft?: number;
+  stuccoParapetSqft?: number;
+  stuccoFoamTrimLf?: number;
+  stuccoControlJointLf?: number;
+  stuccoAccessAffectedSqft?: number;
+  stuccoRepairAffectedSqft?: number;
+  stuccoStories?: number;
+  stuccoWallHeightFt?: number;
+};
+
+export function parseStuccoMeasurementsFromNotes(
+  notes: string
+): StuccoParsedMeasurements {
+  const text = String(notes || '').trim();
+  if (!text) return {};
+
+  const gross = matchStuccoQuantity(
+    text,
+    'gross(?:\\s+exterior)?\\s+wall\\s+area',
+    STUCCO_SQFT_UNIT_RE
+  );
+  const windowDoorOpenings = matchStuccoQuantity(
+    text,
+    'window\\s*(?:and|&)\\s*door\\s+openings?',
+    STUCCO_SQFT_UNIT_RE
+  );
+  const garageOpenings = matchStuccoQuantity(
+    text,
+    'garage(?:\\s+door)?\\s+openings?',
+    STUCCO_SQFT_UNIT_RE
+  );
+  const otherFinishDeduction = matchStuccoQuantity(
+    text,
+    '(?:other\\s+non[-\\s]?stucco\\s+finishes?|stone,?\\s*brick,?\\s*siding,?\\s*and\\s+other\\s+non[-\\s]?stucco\\s+finishes?|brick\\s+and\\s+stone|stone\\s+and\\s+brick)',
+    STUCCO_SQFT_UNIT_RE
+  );
+  const explicitNet = matchStuccoQuantity(
+    text,
+    'calculated\\s+net\\s+stucco\\s+(?:wall\\s+)?area|net\\s+stucco\\s+area',
+    STUCCO_SQFT_UNIT_RE
+  );
+  const soffits = matchStuccoQuantity(text, 'soffits?', STUCCO_SQFT_UNIT_RE);
+  const parapets = matchStuccoQuantity(
+    text,
+    'parapets?',
+    STUCCO_SQFT_UNIT_RE
+  );
+  const foamTrim = matchStuccoQuantity(
+    text,
+    'foam\\s+trim',
+    STUCCO_LF_UNIT_RE
+  );
+  const controlJoints = matchStuccoQuantity(
+    text,
+    'control(?:\\s*[/&]|\\s+or\\s+expansion)?\\s*joints?',
+    STUCCO_LF_UNIT_RE
+  );
+  const accessAffected = matchStuccoQuantity(
+    text,
+    'access[-\\s]?affected\\s+area',
+    STUCCO_SQFT_UNIT_RE
+  );
+  const repairAffected = matchStuccoQuantity(
+    text,
+    '(?:localized\\s+(?:stucco\\s+)?repair|stucco\\s+repair(?:\\s+affected)?\\s+area)',
+    STUCCO_SQFT_UNIT_RE
+  );
+  const stories = parseStoryCount(text);
+  const wallHeightMatch =
+    text.match(
+      /\b(?:typical\s+)?wall\s+height(?:\s*\/\s*story|\s+per\s+story)?\s*(?:is|of|=|:)?\s*(\d[\d,]*(?:\.\d+)?)\s*(?:ft|feet|foot)\b/i
+    ) ||
+    text.match(
+      /\b(\d[\d,]*(?:\.\d+)?)\s*(?:ft|feet|foot)\s+(?:typical\s+)?wall\s+height(?:\s*\/\s*story|\s+per\s+story)?\b/i
+    );
+  const wallHeight = parseNonnegativeNumber(wallHeightMatch?.[1]);
+  const net =
+    explicitNet ??
+    (gross != null &&
+    windowDoorOpenings != null &&
+    garageOpenings != null &&
+    otherFinishDeduction != null
+      ? Math.max(
+          0,
+          gross -
+            windowDoorOpenings -
+            garageOpenings -
+            otherFinishDeduction
+        )
+      : undefined);
+
+  return {
+    ...(gross == null ? {} : { stuccoGrossWallSqft: gross }),
+    ...(windowDoorOpenings == null
+      ? {}
+      : { stuccoWindowDoorOpeningSqft: windowDoorOpenings }),
+    ...(garageOpenings == null
+      ? {}
+      : { stuccoGarageOpeningSqft: garageOpenings }),
+    ...(otherFinishDeduction == null
+      ? {}
+      : { stuccoOtherFinishDeductionSqft: otherFinishDeduction }),
+    ...(net == null ? {} : { stuccoNetWallSqft: net }),
+    ...(soffits == null ? {} : { stuccoSoffitSqft: soffits }),
+    ...(parapets == null ? {} : { stuccoParapetSqft: parapets }),
+    ...(foamTrim == null ? {} : { stuccoFoamTrimLf: foamTrim }),
+    ...(controlJoints == null ? {} : { stuccoControlJointLf: controlJoints }),
+    ...(accessAffected == null
+      ? {}
+      : { stuccoAccessAffectedSqft: accessAffected }),
+    ...(repairAffected == null
+      ? {}
+      : { stuccoRepairAffectedSqft: repairAffected }),
+    ...(stories == null ? {} : { stuccoStories: stories }),
+    ...(wallHeight == null ? {} : { stuccoWallHeightFt: wallHeight }),
+  };
 }
 
 function firstQty(text: string, re: RegExp): number | null {
@@ -919,6 +1082,13 @@ export function parseScopeMeasurementsFromNotes(
     for (const clause of clauses) {
       const match = clause.match(matcher);
       if (!match || match.index == null) continue;
+      if (
+        /(?:attic|ceiling)/i.test(locationPattern) &&
+        !clauseMentionsInsulation(clause) &&
+        /\bpaint(?:ing)?\b/i.test(clause)
+      ) {
+        continue;
+      }
       if (/floor/.test(locationPattern)) {
         if (
           isFloorCoveringAfterInsulationLocationMatch(
@@ -2009,7 +2179,12 @@ export function parseScopeMeasurementsFromNotes(
         /\bwindows?\b/i,
         /\binsulat(?:e|ion|ed)\b|\bR[-\s]?\d{2,3}\b/i,
       ].filter(pattern => pattern.test(text)).length >= 2;
-    if (mixedInteriorFlooringNote) return null;
+    const explicitFlooringQuantity = clauses.some(clause =>
+      /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\s+(?:of\s+)?(?:floor(?:ing)?|lvp|laminate|vinyl|carpet)\b|\b(?:floor(?:ing)?|lvp|laminate|vinyl|carpet)\b[^.;,\n]{0,25}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet)|ft²)\b/i.test(
+        clause
+      )
+    );
+    if (mixedInteriorFlooringNote && !explicitFlooringQuantity) return null;
     if (additionFloorArea) return additionFloorArea;
     if (explicitHomeInterior) return explicitHomeInterior;
     if (

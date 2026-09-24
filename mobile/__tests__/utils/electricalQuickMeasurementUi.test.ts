@@ -119,6 +119,37 @@ describe('electricalQuickMeasurementUi', () => {
     ]);
   });
 
+  it('can limit Quick Measurements to note-backed electrical quantities', () => {
+    const groups = buildElectricalQuickMeasurementGroups({
+      measurements: {
+        mainPanelCount: 1,
+        standardReceptacleCount: 12,
+        gfciReceptacleCount: 4,
+        applianceHookupCount: 1,
+      },
+      visibleMeasurementKeys: [
+        'mainPanelCount',
+        'standardReceptacleCount',
+        'gfciReceptacleCount',
+      ],
+    });
+    const fields = groups.flatMap(group => group.fields);
+
+    expect(fields.map(field => field.key)).toEqual(
+      expect.arrayContaining([
+        'mainPanelCount',
+        'standardReceptacleCount',
+        'gfciReceptacleCount',
+      ])
+    );
+    expect(fields.some(field => field.key === 'applianceHookupCount')).toBe(
+      false
+    );
+    expect(fields.some(field => field.key === 'smokeDetectorCount')).toBe(
+      false
+    );
+  });
+
   it('does not select a conflicted quantity until the contractor confirms', () => {
     const groups = buildElectricalQuickMeasurementGroups({
       measurements: lot58,

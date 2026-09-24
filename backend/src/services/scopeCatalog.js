@@ -109,6 +109,24 @@ const SCOPE_CATALOG = [
     confirmScopeEnabled: true,
     aliases: ["paint window casing", "paint window trim", "paint exterior doors"],
   },
+  {
+    scopeId: "supply_registers",
+    displayName: "Supply Registers",
+    trade: "hvac",
+    category: "installation",
+    quantityRuleKey: "supply_registers",
+    pricingRuleKey: "supply_registers",
+    aliases: ["supply registers", "supply register", "diffusers"],
+  },
+  {
+    scopeId: "return_grilles",
+    displayName: "Return Grilles",
+    trade: "hvac",
+    category: "installation",
+    quantityRuleKey: "return_grilles",
+    pricingRuleKey: "return_grilles",
+    aliases: ["return grilles", "return grille", "return air grilles"],
+  },
 ];
 
 // These relationships let the catalog remain authoritative while legacy

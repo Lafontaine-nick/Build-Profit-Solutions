@@ -86,6 +86,22 @@ describe('electrical canonical architecture', () => {
     );
   });
 
+  it('parses mixed-scope electrical wording and respects excluded trim-out', () => {
+    const parsed = parseElectricalMeasurementsFromNotes(
+      'Electrical scope includes a 200A main panel, wiring and boxes for 30 standard receptacle locations, 6 GFCI receptacle locations, 20 switch locations, 26 recessed-light rough-in locations, four dedicated 20A circuits, and 240 LF of conduit. Owner supplies light fixtures and final devices/plates. Excludes final electrical trim-out.'
+    );
+
+    expect(parsed.mainPanelCount).toBe(1);
+    expect(parsed.serviceAmperage).toBe(200);
+    expect(parsed.standardReceptacleCount).toBe(30);
+    expect(parsed.gfciReceptacleCount).toBe(6);
+    expect(parsed.singlePoleSwitchCount).toBe(20);
+    expect(parsed.recessedLightCount).toBe(26);
+    expect(parsed.dedicated20aCircuitCount).toBe(4);
+    expect(parsed.conduitLf).toBe(240);
+    expect(parsed.electricalIncludeTrim).toBeUndefined();
+  });
+
   it('parses amperage, voltage, and condition wording as attributes', () => {
     const parsed = parseElectricalMeasurementsFromNotes(
       'Remodel open-wall. Install two 240V receptacles and one 30 amp circuit. Include trim-out and trenching.'
