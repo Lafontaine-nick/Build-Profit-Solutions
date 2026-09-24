@@ -13,6 +13,7 @@ import {
   getInitialRevealTagline,
   getInitialRevealTotals,
   getInitialRevealUnderstoodBullets,
+  planRevealOmitsWhatWeFound,
   initialRevealPricingVisible,
   plainLanguageReviewItem,
   shouldDefaultExpandInitialRevealScope,
@@ -294,6 +295,60 @@ describe('estimateInitialRevealUi', () => {
     expect(getInitialRevealStatusLabel(draft, 2).label).toBe(
       'Mostly ready · 2 to check'
     );
+  });
+
+  it('shows confirmed plan quantities on Scope found instead of inferred soft costs', () => {
+    const draft = {
+      scopeAssumptionsConfirmed: false,
+      scopeChecklist: {
+        templateKey: 'ground_up',
+        items: [
+          { id: 'permits', label: 'Permits / fees (incl. impact)', state: 'included' },
+        ],
+      },
+      stillNeededReview: [
+        'Pricing for Plans / engineering',
+        'Pricing for Permits / fees (incl. impact)',
+        'Pricing for Complete drywall assembly',
+      ],
+      scopeMeasurements: {
+        planImportFingerprint: 'lot-49',
+        planImportMode: 'whole_project',
+        floorAreaSqft: 2571,
+        garageSqft: 1427,
+        deckSqft: 322,
+        flooringSqft: 2571,
+        planRooms: [
+          { name: 'Primary Suite', areaSqft: 209 },
+          { name: 'Bed 2', areaSqft: 138 },
+        ],
+      },
+    } as EstimateAiDraft;
+
+    expect(getInitialRevealStatusLabel(draft, 4).label).toBe(
+      'Mostly ready · 4 to check'
+    );
+    expect(getInitialRevealUnderstoodBullets(draft, 2)).toEqual([
+      'Living area · 2,571 SF',
+      'Garage · 1,427 SF',
+      'Deck / patio · 322 SF',
+      '2 spaces detected on the plan',
+    ]);
+    expect(getInitialRevealConfirmItems(draft).pricingScope).toEqual([
+      'Price needed for Living area · 2,571 SF',
+      'Price needed for Garage · 1,427 SF',
+      'Price needed for Deck / patio · 322 SF',
+    ]);
+    expect(getInitialRevealChecklistScopePreview(draft).map(row => row.name)).toEqual(
+      [
+        'Living area · 2,571 SF',
+        'Garage · 1,427 SF',
+        'Deck / patio · 322 SF',
+        '2 spaces detected on the plan',
+      ]
+    );
+    expect(getInitialRevealTotals(draft).scopeItemCount).toBe(4);
+    expect(planRevealOmitsWhatWeFound(draft)).toBe(true);
   });
 
   it('builds primary CTA from attention count', () => {

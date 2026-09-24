@@ -49,15 +49,62 @@ import { GARAGE_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS,
 
 export type PlanReviewSpaceKind = 'living' | 'garage' | 'other';
 
+export function planSpaceDisplayName(name: string): string {
+  const n = String(name || '').trim();
+  if (/^w\.?\s*i\.?\s*c\.?$/i.test(n)) return 'Walk-in closet';
+  if (/^w\.?\s*i\.?\s*s\.?$/i.test(n)) return 'Walk-in shower';
+  return n;
+}
+
 export function classifyPlanSpaceName(name: string): PlanReviewSpaceKind {
   const n = String(name || '');
   if (/\bgarage\b|\brv\s*garage\b|\bcarport\b/i.test(n)) return 'garage';
   if (/\bpatio\b|\bporch\b|\bdeck\b|\bbreezeway\b/i.test(n)) return 'other';
+  if (/^(main\s+)?living\s+area$/i.test(n.trim()) && !/\bliving\s+room\b/i.test(n)) {
+    return 'other';
+  }
   return 'living';
 }
 
 export function spacesDetectedTitle(spaceCount: number): string {
   return `${spaceCount} spaces detected`;
+}
+
+/** Whole-project room list: sizes for reference, not a second copy of the cover totals. */
+export const WHOLE_PROJECT_ROOM_LIST_HINT =
+  'Room sizes from the plan. These are not added to the cover-sheet totals.';
+
+/** 11.583 → 11'-7" so the review matches the dimension string on the sheet. */
+export function formatPlanFeetInches(value: number): string | null {
+  const feetDecimal = Number(value);
+  if (!Number.isFinite(feetDecimal) || feetDecimal <= 0) return null;
+  const totalInches = Math.round(feetDecimal * 12);
+  const feet = Math.floor(totalInches / 12);
+  const inches = totalInches % 12;
+  return `${feet}'-${inches}"`;
+}
+
+export function planRoomSizeLabel(
+  lengthFt: number,
+  widthFt: number
+): string | null {
+  const length = formatPlanFeetInches(lengthFt);
+  const width = formatPlanFeetInches(widthFt);
+  if (!length || !width) return null;
+  return `${length} × ${width}`;
+}
+
+/** A single garage rectangle is not the cover-sheet garage total. */
+export function wholeProjectGarageRoomNote(input: {
+  name: string;
+  areaSqft: number | null;
+  coverGarageSqft: number | null;
+}): string | null {
+  if (!/^garages?$/i.test(String(input.name || '').trim())) return null;
+  const area = Number(input.areaSqft);
+  const cover = Number(input.coverGarageSqft);
+  if (!(area > 0) || !(cover > area + 1)) return null;
+  return `One garage on the floor plan, not the ${Math.round(cover).toLocaleString('en-US')} sq ft cover total.`;
 }
 
 export function readyStateSummary(input: {
@@ -1871,14 +1918,27 @@ export function scopeTakeoffStatusLines(input: {
 export function resolvePlanAreaReconciliation(input: {
   areaReconciliation?: AreaReconciliation | null;
   measurements?: Record<string, number | string | null> | null;
-  rooms?: Array<{ name?: string | null; areaSqft?: number | null }> | null;
+  rooms?: Array<{
+    name?: string | null;
+    areaSqft?: number | null;
+    lengthFt?: number | null;
+    widthFt?: number | null;
+  }> | null;
 }): AreaReconciliation {
+  if (input.rooms?.length) {
+    return buildAreaReconciliation({
+      declaredLivingSf: Number(input.measurements?.floorAreaSqft) || null,
+      declaredGarageSf: Number(input.measurements?.garageSqft) || null,
+      patioDeckSf: Number(input.measurements?.deckSqft) || null,
+      rooms: input.rooms,
+    });
+  }
   if (input.areaReconciliation) return input.areaReconciliation;
   return buildAreaReconciliation({
     declaredLivingSf: Number(input.measurements?.floorAreaSqft) || null,
     declaredGarageSf: Number(input.measurements?.garageSqft) || null,
     patioDeckSf: Number(input.measurements?.deckSqft) || null,
-    rooms: input.rooms || [],
+    rooms: [],
   });
 }
 
@@ -1890,6 +1950,9 @@ export function livingReconciliationStatusLabel(
   recon: AreaReconciliation
 ): string {
   const unassigned = recon.unassignedLivingSf;
+  if (unassigned != null && unassigned < -0.05) {
+    return `Room areas exceed the cover sheet by ${formatSf(Math.abs(unassigned))} SF — review duplicate rooms`;
+  }
   if (unassigned != null && unassigned > 0.05) {
     return `Room detection incomplete — ${formatSf(unassigned)} SF not assigned`;
   }
@@ -2129,6 +2192,197 @@ export function stripPlanTakeoffFromNotes(notes: string): string {
   return stripped;
 }
 
+const PLAN_TAKEOFF_LABELS: Record<string, string> = {
+  floorAreaSqft: 'Living area',
+  garageSqft: 'Garage',
+  deckSqft: 'Deck / patio',
+  bathroomFloorSqft: 'Bathroom floor',
+  kitchenFloorSqft: 'Kitchen floor',
+  windowCount: 'Windows',
+  exteriorDoorCount: 'Exterior doors',
+  interiorDoorCount: 'Interior doors',
+  drywallSqft: 'Drywall',
+  baseboardLf: 'Baseboard',
+  serviceAmperage: 'Service amperage',
+};
+
+function planTakeoffLabel(
+  key: string,
+  value: number,
+  living: number | null
+): string {
+  if (PLAN_TAKEOFF_LABELS[key]) return PLAN_TAKEOFF_LABELS[key];
+  const labeled = measurementDisplayLabel(key, value, living).label;
+  if (labeled && labeled !== key) return labeled;
+  return key
+    .replace(/(Sqft|Lf|Count|Cy|Tons|Inches)$/i, '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/^./, char => char.toUpperCase());
+}
+
+const PLAN_TAKEOFF_LINE_PRIORITY = [
+  'floorAreaSqft',
+  'garageSqft',
+  'deckSqft',
+  'bathroomFloorSqft',
+  'kitchenFloorSqft',
+  'windowCount',
+  'exteriorDoorCount',
+  'interiorDoorCount',
+  'drywallSqft',
+  'baseboardLf',
+];
+
+function planTakeoffQuantityText(key: string, value: number): string {
+  if (/Sqft$/i.test(key)) return `${formatSfWithCommas(value)} SF`;
+  if (/Lf$/i.test(key)) return `${formatSf(value)} LF`;
+  if (/Cy$/i.test(key)) return `${formatSf(value)} CY`;
+  if (/Count$/i.test(key) || /count$/i.test(key)) return formatSf(value);
+  return formatSf(value);
+}
+
+function isDerivedPlanTakeoffKey(
+  key: string,
+  value: number,
+  measurements: Record<string, unknown>
+): boolean {
+  const living = Number(measurements.floorAreaSqft);
+  const garage = Number(measurements.garageSqft);
+  if (key === 'flooringSqft' && living > 0 && Math.abs(value - living) < 1) {
+    return true;
+  }
+  if (
+    key === 'framedAreaSqft' &&
+    living > 0 &&
+    Math.abs(value - (living + (garage > 0 ? garage : 0))) < 1
+  ) {
+    return true;
+  }
+  const stuccoNet = Number(measurements.stuccoNetWallSqft);
+  if (
+    key === 'exteriorPaintSqft' &&
+    stuccoNet > 0 &&
+    Math.abs(value - stuccoNet) < 1
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Whole-project review already shows the cover sheet. Hide the living-area copy
+ * and any bath or kitchen total that is also listed as a room.
+ */
+export function wholeProjectReviewOmitsMeasurement(
+  key: string,
+  value: number,
+  measurements: Record<string, unknown>,
+  rooms?: Array<{ name?: string | null }> | null
+): boolean {
+  if (isDerivedPlanTakeoffKey(key, value, measurements)) return true;
+  const names = (rooms || []).map(room => String(room?.name || ''));
+  if (
+    key === 'bathroomFloorSqft' &&
+    names.some(name => /\b(bath|bathroom|w\.?i\.?s)\b/i.test(name))
+  ) {
+    return true;
+  }
+  if (
+    key === 'kitchenFloorSqft' &&
+    names.some(name => /\bkitchen\b/i.test(name))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Whole-project spaces are sized rooms only. A blank label, or a patio that
+ * repeats the cover-sheet deck area, stays off this list.
+ */
+export function wholeProjectReviewOmitsRoom(input: {
+  name: string;
+  areaSqft: number | null;
+  measurements?: Record<string, unknown> | null;
+}): boolean {
+  const area = Number(input.areaSqft);
+  if (!(area > 0)) return true;
+  const deck = Number(input.measurements?.deckSqft);
+  if (
+    deck > 0 &&
+    /\b(patio|porch|deck|breezeway)\b/i.test(String(input.name || '')) &&
+    Math.abs(area - deck) < 1
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Confirmed plan quantities for Scope found. Skips copies of living area and elevation noise. */
+export function confirmedPlanTakeoffLines(input: {
+  measurements?: Record<string, unknown> | null;
+  rooms?: Array<{ name?: string | null; areaSqft?: number | null }> | null;
+  wholeProject?: boolean;
+  sources?: Record<string, string | null | undefined> | null;
+}): string[] {
+  const sources = input.sources || null;
+  const planSources = new Set([
+    'contractor_confirmed_from_plan_review',
+    'detected_from_plan',
+    'plan_detected',
+  ]);
+  const limitToPlanSources = Boolean(
+    sources &&
+      Object.values(sources).some(source => planSources.has(String(source)))
+  );
+  const measurements = input.measurements || {};
+  const wholeProject = input.wholeProject !== false;
+  const numeric = new Map<string, number>();
+  for (const [key, raw] of Object.entries(measurements)) {
+    if (!/^[A-Za-z]/.test(key)) continue;
+    if (
+      limitToPlanSources &&
+      !planSources.has(String(sources?.[key] || ''))
+    ) {
+      continue;
+    }
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) continue;
+    if (!/(Sqft|Lf|Count|Cy|Tons|Inches)$/i.test(key) && key !== 'serviceAmperage') {
+      continue;
+    }
+    if (isDerivedPlanTakeoffKey(key, value, measurements)) continue;
+    if (wholeProject) {
+      if (/^(stucco|elevationFaces|soffit|parapet)/i.test(key)) continue;
+      if (/elevation/i.test(key) && /width/i.test(key)) continue;
+    }
+    numeric.set(key, value);
+  }
+
+  const ordered = [
+    ...PLAN_TAKEOFF_LINE_PRIORITY.filter(key => numeric.has(key)),
+    ...[...numeric.keys()]
+      .filter(key => !PLAN_TAKEOFF_LINE_PRIORITY.includes(key))
+      .sort(),
+  ];
+  const living = numeric.get('floorAreaSqft') ?? null;
+  const lines = ordered.flatMap(key => {
+    const value = numeric.get(key) as number;
+    const label = planTakeoffLabel(key, value, living).trim();
+    if (!label) return [];
+    return [`${label} · ${planTakeoffQuantityText(key, value)}`];
+  });
+  const roomCount = (input.rooms || []).filter(room =>
+    String(room?.name || '').trim()
+  ).length;
+  if (roomCount > 0) {
+    lines.push(
+      `${roomCount} space${roomCount === 1 ? '' : 's'} detected on the plan`
+    );
+  }
+  return lines;
+}
+
 export function buildImportedPlanSummaryText(input: {
   notesBlock?: string | null;
   measurements?: Record<string, string | number | null> | null;
@@ -2137,21 +2391,12 @@ export function buildImportedPlanSummaryText(input: {
 }): string {
   if (input.notesBlock?.trim()) return input.notesBlock.trim();
   const lines: string[] = ['--- Plan takeoff ---'];
-  const living = Number(input.measurements?.floorAreaSqft);
-  const garage = Number(input.measurements?.garageSqft);
-  const deck = Number(input.measurements?.deckSqft);
-  if (Number.isFinite(living) && living > 0) {
-    lines.push(
-      `Total living area is ${living} sqft` +
-        (Number.isFinite(garage) && garage > 0
-          ? ` with a garage area of ${garage} sqft`
-          : '') +
-        (Number.isFinite(deck) && deck > 0
-          ? ` and a covered patio of ${deck} sqft`
-          : '') +
-        '.'
-    );
-  }
+  lines.push(
+    ...confirmedPlanTakeoffLines({
+      measurements: input.measurements,
+      rooms: input.rooms,
+    }).filter(line => !/spaces detected on the plan/i.test(line))
+  );
   if (input.rooms?.length) {
     lines.push('Room measurements:');
     for (const room of input.rooms) {

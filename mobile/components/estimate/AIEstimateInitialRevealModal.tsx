@@ -39,6 +39,7 @@ import {
   initialRevealPricingVisible,
   getScopeTotalCoverageLine,
   shouldDefaultExpandInitialRevealScope,
+  planRevealOmitsWhatWeFound,
   shouldShowInitialRevealWhatWeFound,
 } from '@/utils/estimateInitialRevealUi';
 import { estimateFlowCardStyle, estimateFlowDividerColor, aiFlowCardBackground } from '@/utils/estimateFlowCardStyle';
@@ -165,7 +166,9 @@ function AIEstimateInitialRevealModal({
       totals,
       understood,
       confirmBuckets,
-      showWhatWeFound: shouldShowInitialRevealWhatWeFound(understood, tagline),
+      showWhatWeFound:
+        !planRevealOmitsWhatWeFound(draft) &&
+        shouldShowInitialRevealWhatWeFound(understood, tagline),
       displayTitle: getInitialRevealDisplayTitle(draft),
       tagline,
       needsScopeConfirmation,
@@ -434,7 +437,7 @@ function AIEstimateInitialRevealModal({
                 {viewModel.showWhatWeFound ? (
                   <View style={styles.block}>
                     <Text style={[styles.blockTitle, { color: Colors.text }]}>What we found</Text>
-                    {viewModel.understood.map((line) => (
+                    {viewModel.understood.map(line => (
                       <Text key={line} style={[styles.bodyLine, { color: Colors.sub }]}>
                         {line}
                       </Text>

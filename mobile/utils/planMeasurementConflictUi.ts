@@ -751,6 +751,14 @@ export function filterUnreadableForReview(
   );
 }
 
+/** Stucco and elevation calculation keys are not general-contractor bid quantities. */
+export function isWholeProjectPlanReviewNoise(field: string): boolean {
+  const key = String(field || '').trim();
+  if (!key || key.includes('.')) return true;
+  if (/^(stucco|elevationFaces|soffit|parapet)/i.test(key)) return true;
+  return /elevation/i.test(key) && /width/i.test(key);
+}
+
 export function shortPlanTakeoffHelper(
   text?: string | null
 ): string | undefined {

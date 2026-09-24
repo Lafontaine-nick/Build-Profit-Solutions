@@ -9,7 +9,17 @@
  */
 
 const ROOM_NAME_PATTERNS = [
+  { re: /\btoy\s*garage\b/i, name: 'Toy Garage' },
   { re: /\brv\s*garage\b/i, name: 'RV Garage' },
+  { re: /\bcovered\s*patio\b/i, name: 'Covered Patio' },
+  { re: /\bwalk[\s-]*in\s*closet\b/i, name: 'Walk-in closet' },
+  { re: /\bwalk[\s-]*in\s*shower\b/i, name: 'Walk-in shower' },
+  { re: /\bw\.?\s*i\.?\s*c\.?\b/i, name: 'Walk-in closet' },
+  { re: /\bw\.?\s*i\.?\s*s\.?\b/i, name: 'Walk-in shower' },
+  { re: /\bden\s*\/\s*bedroom\s*(\d+)\b/i, name: m => `Den/Bedroom ${m[1]}` },
+  { re: /\bden\s*\/\s*bed\s*(\d+)\b/i, name: m => `Den/Bed ${m[1]}` },
+  { re: /\bpowder\s*bath\b/i, name: 'Powder Bath' },
+  { re: /\bsauna\b/i, name: 'Sauna' },
   { re: /\bprimary\s*suite\b/i, name: 'Primary Suite' },
   { re: /\bmaster\s*(bed(room)?|suite)\b/i, name: 'Primary Suite' },
   { re: /\bgreat\s*room\b/i, name: 'Great Room' },
@@ -80,6 +90,13 @@ function parseDimensionString(text) {
 
 function normalizeRoomLabel(raw) {
   const compact = String(raw || '')
+    .replace(/TOY\s*GARAGE/gi, 'Toy Garage')
+    .replace(/COVERED\s*PATIO/gi, 'Covered Patio')
+    .replace(/POWDER\s*BATH/gi, 'Powder Bath')
+    .replace(/PRIMARY\s*SUITE/gi, 'Primary Suite')
+    .replace(/PRIMARY\s*BATH/gi, 'Primary Bath')
+    .replace(/\bW\.I\.C\.?\b/gi, 'Walk-in closet')
+    .replace(/\bW\.I\.S\.?\b/gi, 'Walk-in shower')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
     .replace(/([A-Za-z])(\d)/g, '$1 $2')

@@ -10,6 +10,7 @@ import {
   conflictedSuggestedItemIds,
   filterLowConfidenceForReview,
   filterUnreadableForReview,
+  isWholeProjectPlanReviewNoise,
   planTakeoffConflictFieldSet,
   shortPlanTakeoffHelper,
   conflictResolutionProvenanceEntry,
@@ -114,6 +115,21 @@ describe('planMeasurementConflictUi', () => {
         excluded
       ).map(row => row.field)
     ).toEqual(['hvacDuctworkLf']);
+  });
+
+  it('hides stucco and elevation keys from the general-contractor review', () => {
+    expect(isWholeProjectPlanReviewNoise('stuccoGrossExteriorWallSqft')).toBe(
+      true
+    );
+    expect(isWholeProjectPlanReviewNoise('elevationFaces.front.widthFt')).toBe(
+      true
+    );
+    expect(isWholeProjectPlanReviewNoise('front elevation widthFt')).toBe(true);
+    expect(isWholeProjectPlanReviewNoise('stuccoWindowDoorOpeningSqft')).toBe(
+      true
+    );
+    expect(isWholeProjectPlanReviewNoise('bathroomFloorSqft')).toBe(false);
+    expect(isWholeProjectPlanReviewNoise('Living Area dimensions')).toBe(false);
   });
 
   it('shortens long helper copy for takeoff cards', () => {

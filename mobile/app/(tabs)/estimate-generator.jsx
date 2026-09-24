@@ -187,6 +187,7 @@ import { formatEstimateAiError } from '../../utils/resolveAiBackendUrl';
 import {
   ensureGroundUpPlanNotes,
   planImportLooksLikeGroundUp,
+  buildImportedPlanSummaryText,
 } from '../../utils/planTakeoffReviewUi';
 import {
   capturePricingMemory,
@@ -5811,10 +5812,24 @@ export default function EstimateGeneratorScreen() {
       const isSingleTradePlanImport =
         effectivePlanImport?.estimatingMode === 'selected_trade' ||
         isStandalonePlumbingBid;
+      const takeoffNotes =
+        hasStructuredPlanTakeoff && effectivePlanImport
+          ? buildImportedPlanSummaryText({
+              measurements: effectivePlanImport.measurements || null,
+              rooms: effectivePlanImport.rooms || null,
+              scopeLabels: (effectivePlanImport.scopeDetections || [])
+                .map(detection => detection.label || detection.itemId)
+                .filter(Boolean),
+            })
+          : '';
+      const notesWithTakeoff = [notes, takeoffNotes]
+        .map(value => String(value || '').trim())
+        .filter(Boolean)
+        .join('\n\n');
       const notesForDraft = isSingleTradePlanImport
-        ? notes
+        ? notesWithTakeoff
         : ensureGroundUpPlanNotes(
-            notes,
+            notesWithTakeoff,
             planImportLooksLikeGroundUp(effectivePlanImport)
           );
       if (__DEV__) {

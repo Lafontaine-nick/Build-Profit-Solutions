@@ -264,6 +264,7 @@ export default function AIEstimateBuilderModal({
     hasAnalyzed: false,
   });
   const [planImport, setPlanImport] = useState<PlanImportPayload | null>(null);
+  const pendingAutoGenerateRef = useRef(false);
   const [planSummaryExpanded, setPlanSummaryExpanded] = useState(false);
   const [localGenerating, setLocalGenerating] = useState(false);
   const [planImportBusy, setPlanImportBusy] = useState(false);
@@ -453,26 +454,14 @@ export default function AIEstimateBuilderModal({
     };
     setPlanImport(nextPlanImport);
     onPlanImportChange?.(nextPlanImport);
+    if (!hasExistingDraft) {
+      pendingAutoGenerateRef.current = true;
+      return;
+    }
     setTimeout(() => {
-      const meas = Object.keys(result.measurements || {}).length;
-      const scope = result.scopeDetections?.length || 0;
       Alert.alert(
         'Plan ready',
-        semanticsOn
-          ? hasExistingDraft
-            ? 'Your plan is loaded. Continue below to keep your draft, or start fresh to rebuild from this plan.'
-            : 'Your plan is loaded. Tap Generate Estimate Draft at the bottom to build your scope draft.'
-          : [
-              meas ? `${meas} measurement${meas === 1 ? '' : 's'} ready` : null,
-              scope
-                ? `${scope} scope item${scope === 1 ? '' : 's'} ready`
-                : null,
-              hasExistingDraft
-                ? 'Continue below to keep your draft, or start fresh to rebuild from this plan.'
-                : 'Review Job notes, then Generate.',
-            ]
-              .filter(Boolean)
-              .join('. ')
+        'Your plan is loaded. Continue below to keep your draft, or start fresh to rebuild from this plan.'
       );
     }, 0);
   };
@@ -679,6 +668,13 @@ export default function AIEstimateBuilderModal({
     }
     void runGenerate();
   };
+
+  useEffect(() => {
+    if (!pendingAutoGenerateRef.current) return;
+    if (!hasPlanImport || busy) return;
+    pendingAutoGenerateRef.current = false;
+    proceedGenerate();
+  }, [hasPlanImport, planImport, busy]);
 
   const handleGenerate = () => {
     if (busy) return;

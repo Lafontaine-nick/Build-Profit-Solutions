@@ -6,6 +6,7 @@ import { Alert, Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import {
   fetchPlanToMeasurements,
   type PhotoScopeImage,
@@ -127,8 +128,19 @@ export async function pickPlanFromLibrary(): Promise<ImagePicker.ImagePickerAsse
   return result.assets;
 }
 
+export function planPdfPickerAvailable(): boolean {
+  return Boolean(requireOptionalNativeModule('ExpoDocumentPicker'));
+}
+
 export async function pickPlanPdf(): Promise<PlanImportPage[] | null> {
   let DocumentPicker: typeof import('expo-document-picker');
+  if (!planPdfPickerAvailable()) {
+    Alert.alert(
+      'PDF import needs a rebuild',
+      'This app build doesn’t include the PDF picker yet. Use Take photo / Choose from library for now, or rebuild the iOS/Android development client.'
+    );
+    return null;
+  }
   try {
     DocumentPicker = require('expo-document-picker');
   } catch {

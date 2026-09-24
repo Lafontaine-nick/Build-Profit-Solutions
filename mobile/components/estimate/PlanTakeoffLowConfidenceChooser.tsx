@@ -52,7 +52,7 @@ export function PlanTakeoffLowConfidenceChooser({
         return Boolean(field) && value > 0;
       });
   const total = visibleLowConfidence.length + unreadable.length;
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   if (!total) return null;
@@ -71,10 +71,11 @@ export function PlanTakeoffLowConfidenceChooser({
         Unverified plan reads
       </Text>
       <Text style={[styles.sectionHint, { color: captionColor }]}>
-        {total === 1
-          ? 'One quantity needs confirmation before it can fill the bid.'
-          : `${total} quantities need confirmation before they can fill the bid.`}{' '}
-        Accept a suggested count or enter it later in Confirm Scope.
+        {visibleLowConfidence.length === 0
+          ? 'Labeled on the plan, but no quantity was read. These stay out of the bid.'
+          : total === 1
+            ? 'One reading needs confirmation before it can fill the bid.'
+            : `${total} readings need confirmation before they can fill the bid.`}
       </Text>
       {total > COLLAPSE_THRESHOLD ? (
         <TouchableOpacity
@@ -252,9 +253,6 @@ export function PlanTakeoffLowConfidenceChooser({
                 <Text style={[styles.itemHint, { color: '#fbbf24' }]}>
                   {field.reason || 'Not readable from the plan'}
                 </Text>
-                <Text style={[styles.manualNote, { color: captionColor }]}>
-                  Enter manually in Confirm Scope.
-                </Text>
               </View>
             );
           })}
@@ -311,11 +309,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     marginBottom: 12,
-    fontWeight: '600',
-  },
-  manualNote: {
-    fontSize: 11,
-    lineHeight: 16,
     fontWeight: '600',
   },
   editButton: {

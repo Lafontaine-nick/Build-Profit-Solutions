@@ -55,6 +55,7 @@ import {
 import { hasDetailedElectricalQuantities } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { parseInsulationAssembliesFromNotes } from '@/utils/scopeMeasurementParser';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
+import { confirmedPlanTakeoffLines } from '@/utils/planTakeoffReviewUi';
 
 export type InitialRevealStatusTone = 'ready' | 'mostly' | 'review';
 
@@ -267,6 +268,14 @@ export function splitInitialRevealConfirmItems(
 export function getInitialRevealConfirmItems(
   draft: EstimateAiDraft
 ): InitialRevealConfirmBuckets {
+  const planPriceLines = confirmedPlanLinesForDraft(draft).filter(
+    line => !/spaces detected on the plan/i.test(line)
+  );
+  if (planPriceLines.length > 0) {
+    return splitInitialRevealConfirmItems(
+      planPriceLines.map(line => `Pricing for ${line}`)
+    );
+  }
   // Before Confirm Scope, one package can generate several generic "still
   // needed" messages. Keep the attention card aligned to actual scope rows so
   // a ten-item job does not present twenty-plus pricing alerts.
@@ -346,6 +355,36 @@ export function countInitialRevealAttentionItems(
   draft: EstimateAiDraft
 ): number {
   return getInitialRevealConfirmItems(draft).pricingScope.length;
+}
+
+function confirmedPlanLinesForDraft(draft: EstimateAiDraft): string[] {
+  const measurements = draft.scopeMeasurements as
+    | (Record<string, unknown> & {
+        planImportFingerprint?: string | null;
+        planImportMode?: string | null;
+        planRooms?: Array<{ name?: string | null; areaSqft?: number | null }>;
+        quickMeasurementSources?: Record<string, string> | null;
+      })
+    | null
+    | undefined;
+  if (!measurements?.planImportFingerprint) return [];
+  const rooms = measurements.planRooms?.length
+    ? measurements.planRooms
+    : draft.rooms;
+  return confirmedPlanTakeoffLines({
+    measurements,
+    rooms,
+    sources: measurements.quickMeasurementSources as
+      | Record<string, string>
+      | null
+      | undefined,
+    wholeProject: measurements.planImportMode !== 'selected_trade',
+  });
+}
+
+/** Plan export already lists these quantities under Pricing needed and Scope. */
+export function planRevealOmitsWhatWeFound(draft: EstimateAiDraft): boolean {
+  return confirmedPlanLinesForDraft(draft).length > 0;
 }
 
 export function getInitialRevealScopeMetaLabel(count: number): string {
@@ -706,6 +745,8 @@ function revealChecklistItemVisible(
 }
 
 function countInitialRevealScopeItems(draft: EstimateAiDraft): number {
+  const planLines = confirmedPlanLinesForDraft(draft);
+  if (planLines.length > 0) return planLines.length;
   const checklistCount = getInitialRevealScopeRows(draft).length;
   if (checklistCount > 0) return checklistCount;
   const packageCount = getScopePackages(draft).length;
@@ -1967,6 +2008,10 @@ function getInitialRevealScopeRows(
 export function getInitialRevealChecklistScopePreview(
   draft: EstimateAiDraft
 ): Array<{ name: string; amount: number; quantity?: string | null }> {
+  const planLines = confirmedPlanLinesForDraft(draft);
+  if (planLines.length > 0) {
+    return planLines.map(name => ({ name, amount: 0 }));
+  }
   const showAmounts = initialRevealPricingVisible(draft);
   const scopeRows = getInitialRevealScopeRows(draft);
   const visibleChecklistItems =
@@ -2475,6 +2520,8 @@ export function getInitialRevealUnderstoodBullets(
   draft: EstimateAiDraft,
   max = 3
 ): string[] {
+  const planLines = confirmedPlanLinesForDraft(draft);
+  if (planLines.length > 0) return planLines.slice(0, Math.max(max, 8));
   const classification = getRevealClassification(draft);
   if (
     classification.scopeMode === 'mixed' &&

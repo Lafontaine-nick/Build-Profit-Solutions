@@ -16,6 +16,8 @@ import {
   garageReconciliationStatusLabel,
   importedPlanSummaryCollapsedSubtitle,
   planImportLooksLikeGroundUp,
+  planSpaceDisplayName,
+  confirmedPlanTakeoffLines,
   livingReconciliationStatusLabel,
   measurementDisplayLabel,
   measurementSourceLabel,
@@ -32,6 +34,12 @@ import {
   scopeTakeoffStatusLines,
   spacesDetectedTitle,
   stripPlanTakeoffFromNotes,
+  WHOLE_PROJECT_ROOM_LIST_HINT,
+  wholeProjectReviewOmitsMeasurement,
+  wholeProjectReviewOmitsRoom,
+  formatPlanFeetInches,
+  planRoomSizeLabel,
+  wholeProjectGarageRoomNote,
 } from '@/utils/planTakeoffReviewUi';
 
 /** Lot 41-style spaces used across reconciliation + label tests. */
@@ -55,6 +63,74 @@ describe('plan takeoff review UI polish', () => {
 
   afterEach(() => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = originalSemantics;
+  });
+
+  it('does not add the floor-plan living total or a duplicate bedroom onto the cover sheet', () => {
+    const recon = buildAreaReconciliation({
+      declaredLivingSf: 2571,
+      declaredGarageSf: 1427,
+      rooms: [
+        { name: 'Living Area', areaSqft: 2527 },
+        { name: 'Bed 5', lengthFt: 14.25, widthFt: 11.833, areaSqft: 168.6 },
+        {
+          name: 'Den/Bedroom 5',
+          lengthFt: 14.25,
+          widthFt: 11.833,
+          areaSqft: 168.6,
+        },
+        { name: 'Primary Suite', areaSqft: 209 },
+        { name: 'Garage', lengthFt: 21.5, widthFt: 23.5, areaSqft: 505.3 },
+        { name: 'Toy Garage', lengthFt: 24.75, widthFt: 20.75, areaSqft: 513.6 },
+      ],
+    });
+    expect(recon.detectedLivingRoomSf).toBeCloseTo(377.6, 1);
+    expect(recon.unassignedLivingSf).toBeGreaterThan(0);
+    expect(recon.detectedGarageRoomSf).toBeCloseTo(1018.9, 1);
+    expect(planSpaceDisplayName('W.I.C.')).toBe('Walk-in closet');
+    expect(planSpaceDisplayName('W.I.S.')).toBe('Walk-in shower');
+    expect(
+      confirmedPlanTakeoffLines({
+        measurements: {
+          floorAreaSqft: 2571,
+          garageSqft: 1427,
+          deckSqft: 322,
+          flooringSqft: 2571,
+          framedAreaSqft: 3998,
+        },
+        rooms: [{ name: 'Primary Suite', areaSqft: 209 }],
+      })
+    ).toEqual([
+      'Living area · 2,571 SF',
+      'Garage · 1,427 SF',
+      'Deck / patio · 322 SF',
+      '1 space detected on the plan',
+    ]);
+    expect(
+      confirmedPlanTakeoffLines({
+        measurements: {
+          floorAreaSqft: 2571,
+          garageSqft: 1427,
+          deckSqft: 322,
+          drywallSqft: 11801,
+          concretePatioSqft: 2571,
+          concreteSqft: 2571,
+          drywallCeilingSqft: 2527,
+        },
+        sources: {
+          floorAreaSqft: 'contractor_confirmed_from_plan_review',
+          garageSqft: 'detected_from_plan',
+          deckSqft: 'detected_from_plan',
+          drywallSqft: 'estimated_from_formula',
+          concretePatioSqft: 'parsed_from_notes',
+          concreteSqft: 'parsed_from_notes',
+          drywallCeilingSqft: 'estimated_from_formula',
+        },
+      })
+    ).toEqual([
+      'Living area · 2,571 SF',
+      'Garage · 1,427 SF',
+      'Deck / patio · 322 SF',
+    ]);
   });
 
   it('replaces Rooms (x of x) with spaces detected when semantics enabled', () => {
@@ -95,6 +171,104 @@ describe('plan takeoff review UI polish', () => {
     const garageStatus = garageReconciliationStatusLabel(recon);
     expect(garageStatus).toBe('Minor unreconciled area');
     expect(garageStatus).not.toMatch(/material variance/i);
+  });
+
+  it('hides living-area copies and room totals from the whole-project measurement list', () => {
+    const measurements = {
+      floorAreaSqft: 2571,
+      flooringSqft: 2571,
+      framedAreaSqft: 3998,
+      garageSqft: 1427,
+      deckSqft: 322,
+      bathroomFloorSqft: 65.5,
+      kitchenFloorSqft: 180,
+    };
+    const rooms = [{ name: 'Primary Bath' }, { name: 'Kitchen' }, { name: 'Garage' }];
+    expect(
+      wholeProjectReviewOmitsMeasurement('flooringSqft', 2571, measurements, rooms)
+    ).toBe(true);
+    expect(
+      wholeProjectReviewOmitsMeasurement('framedAreaSqft', 3998, measurements, rooms)
+    ).toBe(true);
+    expect(
+      wholeProjectReviewOmitsMeasurement(
+        'bathroomFloorSqft',
+        65.5,
+        measurements,
+        rooms
+      )
+    ).toBe(true);
+    expect(
+      wholeProjectReviewOmitsMeasurement('kitchenFloorSqft', 180, measurements, rooms)
+    ).toBe(true);
+    expect(
+      wholeProjectReviewOmitsMeasurement('garageSqft', 1427, measurements, rooms)
+    ).toBe(false);
+    expect(
+      wholeProjectReviewOmitsMeasurement('deckSqft', 322, measurements, rooms)
+    ).toBe(false);
+    expect(
+      wholeProjectReviewOmitsMeasurement('floorAreaSqft', 2571, measurements, rooms)
+    ).toBe(false);
+    expect(
+      wholeProjectReviewOmitsMeasurement('bathroomFloorSqft', 65.5, measurements, [])
+    ).toBe(false);
+    expect(WHOLE_PROJECT_ROOM_LIST_HINT).toMatch(/not added to the cover-sheet totals/i);
+  });
+
+  it('keeps sized rooms and drops blank labels and a repeated cover patio', () => {
+    const measurements = { deckSqft: 322, garageSqft: 1427, floorAreaSqft: 2571 };
+    expect(
+      wholeProjectReviewOmitsRoom({
+        name: 'Powder Bath',
+        areaSqft: null,
+        measurements,
+      })
+    ).toBe(true);
+    expect(
+      wholeProjectReviewOmitsRoom({
+        name: 'Covered Patio',
+        areaSqft: 322,
+        measurements,
+      })
+    ).toBe(true);
+    expect(
+      wholeProjectReviewOmitsRoom({
+        name: 'Walk-in closet',
+        areaSqft: 43.5,
+        measurements,
+      })
+    ).toBe(false);
+    expect(
+      wholeProjectReviewOmitsRoom({
+        name: 'Garage',
+        areaSqft: 505.3,
+        measurements,
+      })
+    ).toBe(false);
+    expect(
+      wholeProjectReviewOmitsRoom({
+        name: 'Toy Garage',
+        areaSqft: 513.2,
+        measurements,
+      })
+    ).toBe(false);
+    expect(formatPlanFeetInches(11.583)).toBe('11\'-7"');
+    expect(planRoomSizeLabel(11.583, 11.917)).toBe('11\'-7" × 11\'-11"');
+    expect(
+      wholeProjectGarageRoomNote({
+        name: 'Garage',
+        areaSqft: 505.3,
+        coverGarageSqft: 1427,
+      })
+    ).toMatch(/not the 1,427 sq ft cover total/);
+    expect(
+      wholeProjectGarageRoomNote({
+        name: 'Toy Garage',
+        areaSqft: 513.6,
+        coverGarageSqft: 1427,
+      })
+    ).toBeNull();
   });
 
   it('shows one concise Gross interior floor area explanation', () => {

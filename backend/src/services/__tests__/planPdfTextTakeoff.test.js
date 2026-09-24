@@ -204,6 +204,37 @@ describe('planPdfTextTakeoff', () => {
     expect(rooms[0]).toMatchObject({ sourcePage: 3, sourceSheet: 'A1.1' });
   });
 
+  test('extractRoomsFromPhrases pairs Lot 49 labels that are printed without spaces', () => {
+    const phrases = [
+      { str: 'TOYGARAGE', x: 1709, y: 1402 },
+      { str: '24\'-9"X20\'-9"', x: 1717, y: 1393 },
+      { str: 'SAUNA', x: 1238, y: 1252 },
+      { str: '4\'-9"X9\'-2"', x: 1235, y: 1244 },
+      { str: 'COVEREDPATIO', x: 1105, y: 1137 },
+      { str: '9\'-0"X12\'-10"', x: 1120, y: 1128 },
+      { str: 'GARAGE', x: 1388, y: 1109 },
+      { str: '21\'-6"X23\'-6"', x: 1384, y: 1100 },
+      { str: 'W.I.C.', x: 962, y: 688 },
+      { str: '6\'-5"X7\'-8"', x: 957, y: 682 },
+      { str: 'W.I.S.', x: 890, y: 646 },
+      { str: '5\'-1"X8\'-0"', x: 885, y: 641 },
+      { str: 'POWDERBATH', x: 1137, y: 595 },
+      { str: '4\'-1"X5\'-9"', x: 1148, y: 589 },
+      { str: 'DEN/BEDROOM5', x: 1372, y: 415 },
+      { str: '14\'-3"X11\'-10"', x: 1386, y: 406 },
+    ];
+    const rooms = extractRoomsFromPhrases(phrases, { sourcePage: 3, sourceSheet: 'A-1' });
+    const byName = Object.fromEntries(rooms.map(r => [r.name, r.areaSqft]));
+    expect(byName['Toy Garage']).toBe(513.6);
+    expect(byName.Sauna).toBe(43.5);
+    expect(byName['Covered Patio']).toBe(115.5);
+    expect(byName.Garage).toBe(505.3);
+    expect(byName['Walk-in closet']).toBe(49.2);
+    expect(byName['Walk-in shower']).toBe(40.7);
+    expect(byName['Powder Bath']).toBe(23.5);
+    expect(byName['Den/Bedroom 5']).toBe(168.6);
+  });
+
   test('dedupeRoomsByName keeps higher confidence', () => {
     const rooms = dedupeRoomsByName([
       { name: 'Kitchen', areaSqft: 100, confidence: 0.5 },

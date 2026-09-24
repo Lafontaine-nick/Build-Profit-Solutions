@@ -36,6 +36,7 @@ import {
   conflictResolutionProvenanceEntry,
   filterLowConfidenceForReview,
   filterUnreadableForReview,
+  isWholeProjectPlanReviewNoise,
   formatPlanTakeoffQuantity,
   lowConfidenceConfirmationProvenance,
   lowConfidenceNeedsReviewProvenance,
@@ -52,6 +53,10 @@ import type {
 } from '@/utils/estimateAiDraft';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import {
+  duplicatePlanRoomIndexes,
+  isAggregateLivingAreaName,
+} from '@/utils/measurementSemantics/areaReconciliation';
+import {
   applyPlanTakeoffButtonLabel,
   buildConcretePlanReviewSummary,
   buildElectricalPlanReviewSummary,
@@ -63,9 +68,7 @@ import {
   electricalPlanReviewStatusLines,
   mergeElectricalConflictReadings,
   classifyPlanSpaceName,
-  formatSf,
-  garageReconciliationStatusLabel,
-  livingReconciliationStatusLabel,
+  planSpaceDisplayName,
   filterPlanReviewMeasurementEntries,
   measurementDisplayLabel,
   measurementSourceLabel,
@@ -86,7 +89,12 @@ import {
   resolvePlanAreaReconciliation,
   roomSourceLabel,
   scopeTakeoffStatusLines,
+  planRoomSizeLabel,
   spacesDetectedTitle,
+  WHOLE_PROJECT_ROOM_LIST_HINT,
+  wholeProjectGarageRoomNote,
+  wholeProjectReviewOmitsMeasurement,
+  wholeProjectReviewOmitsRoom,
 } from '@/utils/planTakeoffReviewUi';
 import {
   planProvenanceColor,
@@ -974,16 +982,30 @@ export default function PlanTakeoffReviewModal({
             effectiveTradeKey === 'painting' &&
             row.key === 'combinedPaintableAreaSqft' &&
             positiveMeasurement(visibleMeasurements.paintAreaSqft) != null
+          ) &&
+          !(
+            !tradeReview &&
+            wholeProjectReviewOmitsMeasurement(
+              row.key,
+              Number(row.value),
+              visibleMeasurements,
+              takeoff.rooms
+            )
           )
       );
     setRows(nextRows);
 
+    const duplicateRoomIndexes = duplicatePlanRoomIndexes(takeoff.rooms || []);
     const nextRooms: PlanReviewRoomRow[] = (
       tradeReview ? [] : takeoff.rooms || []
     )
       .map((room, idx) => {
-        const name = String(room?.name || '').trim();
-        if (!name) return null;
+        const rawName = String(room?.name || '').trim();
+        if (!rawName) return null;
+        const name = planSpaceDisplayName(rawName);
+        const aggregate = isAggregateLivingAreaName(rawName);
+        const duplicate = duplicateRoomIndexes.has(idx);
+        if (!tradeReview && (aggregate || duplicate)) return null;
         const lengthFt =
           room.lengthFt != null &&
           Number.isFinite(Number(room.lengthFt)) &&
@@ -1005,12 +1027,20 @@ export default function PlanTakeoffReviewModal({
         if (area == null && lengthFt != null && widthFt != null) {
           area = Math.round(lengthFt * widthFt * 10) / 10;
         }
+        if (
+          !tradeReview &&
+          wholeProjectReviewOmitsRoom({
+            name,
+            areaSqft: area,
+            measurements: visibleMeasurements,
+          })
+        ) {
+          return null;
+        }
         const provenance = resolvePlanMeasurementProvenance({
           key: `room:${name}`,
           hasReliableDimensions: lengthFt != null && widthFt != null,
           roomDependent: true,
-          reconciliationVariancePercent:
-            areaReconciliation?.livingVariancePercent,
         });
         return {
           id: `${name}-${idx}`,
@@ -1018,16 +1048,25 @@ export default function PlanTakeoffReviewModal({
           lengthFt,
           widthFt,
           areaSqft: area != null ? String(area) : '',
-          include: area != null,
-          spaceKind: classifyPlanSpaceName(name),
-          sourceLabel: semanticsOn
-            ? roomSourceLabel({
-                name,
-                lengthFt,
-                widthFt,
-                assumptions: takeoff.assumptions,
-              })
-            : null,
+          include: false,
+          spaceKind: classifyPlanSpaceName(rawName),
+          sourceLabel: aggregate
+            ? 'Floor plan total, not a separate room'
+            : duplicate
+              ? 'Same dimensions as another room on this plan'
+              : wholeProjectGarageRoomNote({
+                    name,
+                    areaSqft: area,
+                    coverGarageSqft: Number(visibleMeasurements?.garageSqft),
+                  }) ||
+                  (semanticsOn
+                    ? roomSourceLabel({
+                        name,
+                        lengthFt,
+                        widthFt,
+                        assumptions: takeoff.assumptions,
+                      })
+                    : null),
           provenance,
         };
       })
@@ -1236,15 +1275,18 @@ export default function PlanTakeoffReviewModal({
   );
   const unreadable = uniqueUnreadablePlanFields(
     takeoff.unreadableFields
-  ).filter(field =>
-    tradeReview
-      ? tradeReviewKeys.has(String(field.field || '')) ||
-        field.field === 'unclassifiedFixtureCount'
-      : true
-  );
-  const lowConfidence = (takeoff.lowConfidence || []).filter(field =>
-    tradeReview ? tradeReviewKeys.has(String(field.field || '')) : true
-  );
+  ).filter(field => {
+    const key = String(field.field || '');
+    if (!tradeReview && isWholeProjectPlanReviewNoise(key)) return false;
+    return tradeReview
+      ? tradeReviewKeys.has(key) || key === 'unclassifiedFixtureCount'
+      : true;
+  });
+  const lowConfidence = (takeoff.lowConfidence || []).filter(field => {
+    const key = String(field.field || '');
+    if (!tradeReview && isWholeProjectPlanReviewNoise(key)) return false;
+    return tradeReview ? tradeReviewKeys.has(key) : true;
+  });
   const measurementConflicts = reviewablePlanMeasurementConflicts({
     conflicts: takeoff.measurementConflicts,
     provenance: takeoff.measurementProvenance,
@@ -1321,12 +1363,6 @@ export default function PlanTakeoffReviewModal({
       getPlanTradeConfiguration(effectiveTradeKey)?.label ||
       'Trade'
     : null;
-  const livingSpaceCount = roomRows.filter(
-    r => r.spaceKind === 'living'
-  ).length;
-  const garageSpaceCount = roomRows.filter(
-    r => r.spaceKind === 'garage'
-  ).length;
   const hasRoofQuantity =
     Number(takeoff.measurements?.roofSquares) > 0 ||
     Number(
@@ -1701,7 +1737,6 @@ export default function PlanTakeoffReviewModal({
             widthFt: room.widthFt ?? null,
           }))
         : roomRows
-            .filter(r => r.include)
             .map(r => {
               const area = Number(r.areaSqft);
               return {
@@ -1892,24 +1927,6 @@ export default function PlanTakeoffReviewModal({
                     ...prev,
                     [field]: true,
                   }));
-                }}
-                darkMode={darkMode}
-                captionColor={Colors.sub}
-              />
-            ) : null}
-
-            {hasReadingIssues && effectiveTradeKey !== 'hvac' ? (
-              <PlanTakeoffLowConfidenceChooser
-                lowConfidence={reviewLowConfidence}
-                unreadable={reviewUnreadable}
-                accepted={lowConfidenceAccepted}
-                onToggleAccept={(field, _value) => {
-                  setLowConfidenceAccepted(prev => {
-                    const next = { ...prev };
-                    if (next[field]) delete next[field];
-                    else next[field] = true;
-                    return next;
-                  });
                 }}
                 darkMode={darkMode}
                 captionColor={Colors.sub}
@@ -2747,6 +2764,24 @@ export default function PlanTakeoffReviewModal({
               </View>
             )}
 
+            {hasReadingIssues && effectiveTradeKey !== 'hvac' ? (
+              <PlanTakeoffLowConfidenceChooser
+                lowConfidence={reviewLowConfidence}
+                unreadable={reviewUnreadable}
+                accepted={lowConfidenceAccepted}
+                onToggleAccept={(field, _value) => {
+                  setLowConfidenceAccepted(prev => {
+                    const next = { ...prev };
+                    if (next[field]) delete next[field];
+                    else next[field] = true;
+                    return next;
+                  });
+                }}
+                darkMode={darkMode}
+                captionColor={Colors.sub}
+              />
+            ) : null}
+
             {electricalDetectedLines.length || electricalStatusLines.length ? (
               <View style={styles.section}>
                 <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
@@ -2791,80 +2826,6 @@ export default function PlanTakeoffReviewModal({
               </View>
             ) : null}
 
-            {semanticsOn && areaReconciliation ? (
-              <View style={styles.section}>
-                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
-                  Areas
-                </Text>
-                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
-                  Area reconciliation
-                </Text>
-                <ReviewPanel darkMode={darkMode}>
-                  <Text
-                    style={[styles.reconcileBlockTitle, { color: Colors.text }]}
-                  >
-                    Living area
-                  </Text>
-                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                    Declared: {formatSf(areaReconciliation.declaredLivingSf)} SF
-                  </Text>
-                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                    Assigned to detected rooms: approximately{' '}
-                    {formatSf(areaReconciliation.detectedLivingRoomSf)} SF
-                  </Text>
-                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                    Unassigned: approximately{' '}
-                    {formatSf(areaReconciliation.unassignedLivingSf)} SF
-                  </Text>
-                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                    Variance: approximately{' '}
-                    {formatSf(areaReconciliation.livingVariancePercent)}%
-                  </Text>
-                  <Text
-                    style={[styles.reconcileStatus, { color: Colors.text }]}
-                  >
-                    Status:{' '}
-                    {livingReconciliationStatusLabel(areaReconciliation)}
-                  </Text>
-
-                  <Text
-                    style={[
-                      styles.reconcileBlockTitle,
-                      { color: Colors.text, marginTop: 12 },
-                    ]}
-                  >
-                    Garage area
-                  </Text>
-                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                    Declared: {formatSf(areaReconciliation.declaredGarageSf)} SF
-                  </Text>
-                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                    Assigned to detected garage spaces: approximately{' '}
-                    {formatSf(areaReconciliation.detectedGarageRoomSf)} SF
-                  </Text>
-                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                    Unassigned: approximately{' '}
-                    {formatSf(areaReconciliation.unassignedGarageSf)} SF
-                  </Text>
-                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                    Variance: approximately{' '}
-                    {formatSf(areaReconciliation.garageVariancePercent)}%
-                  </Text>
-                  <Text
-                    style={[styles.reconcileStatus, { color: Colors.text }]}
-                  >
-                    Status:{' '}
-                    {garageReconciliationStatusLabel(areaReconciliation)}
-                  </Text>
-
-                  <Text style={[styles.reconcileHint, { color: Colors.sub }]}>
-                    Room dimensions are net detected spaces and may not include
-                    bathrooms, halls, closets, wall area or circulation.
-                  </Text>
-                </ReviewPanel>
-              </View>
-            ) : null}
-
             {hasRooms ? (
               <View style={styles.section}>
                 <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
@@ -2873,39 +2834,16 @@ export default function PlanTakeoffReviewModal({
                 <Text style={[styles.sectionHeading, { color: Colors.text }]}>
                   {semanticsOn
                     ? spacesDetectedTitle(roomRows.length)
-                    : `Rooms (${includedRoomCount} of ${roomRows.length})`}
+                    : `Rooms (${roomRows.length})`}
                 </Text>
                 <Text style={[styles.roomHint, { color: Colors.sub }]}>
                   {semanticsOn
-                    ? [
-                        livingSpaceCount
-                          ? `${livingSpaceCount} living space${livingSpaceCount === 1 ? '' : 's'}`
-                          : null,
-                        garageSpaceCount
-                          ? `${garageSpaceCount} garage space${garageSpaceCount === 1 ? '' : 's'}`
-                          : null,
-                        'Per-space SF for finishes that differ by area (tile, carpet, etc.)',
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')
+                    ? WHOLE_PROJECT_ROOM_LIST_HINT
                     : 'Per-room SF for finishes that differ by space (tile, carpet, etc.)'}
                 </Text>
                 {roomRows.map(room => (
                   <ReviewPanel key={room.id} darkMode={darkMode}>
                     <View style={styles.quantityHeader}>
-                      <TouchableOpacity
-                        onPress={() =>
-                          setRoomRow(room.id, { include: !room.include })
-                        }
-                        style={styles.checkbox}
-                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                      >
-                        <Ionicons
-                          name={room.include ? 'checkbox' : 'square-outline'}
-                          size={22}
-                          color={room.include ? '#22c55e' : Colors.sub}
-                        />
-                      </TouchableOpacity>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text
                           style={[styles.itemTitle, { color: Colors.text }]}
@@ -2913,24 +2851,11 @@ export default function PlanTakeoffReviewModal({
                         >
                           {room.name}
                         </Text>
-                        <Text
-                          style={{
-                            color: planProvenanceColor(
-                              room.provenance.status,
-                              Colors
-                            ),
-                            fontSize: 12,
-                            fontWeight: '700',
-                            marginTop: 4,
-                          }}
-                        >
-                          {room.provenance.label}
-                        </Text>
                         {room.lengthFt != null && room.widthFt != null ? (
                           <Text
                             style={[styles.evidenceText, { color: Colors.sub }]}
                           >
-                            {room.lengthFt}×{room.widthFt} ft
+                            {planRoomSizeLabel(room.lengthFt, room.widthFt)}
                           </Text>
                         ) : null}
                         {room.sourceLabel ? (
@@ -2961,10 +2886,9 @@ export default function PlanTakeoffReviewModal({
                         onChangeText={t =>
                           setRoomRow(room.id, {
                             areaSqft: t,
-                            include: true,
                             provenance: resolvePlanMeasurementProvenance({
                               key: `room:${room.name}`,
-                              userConfirmed: true,
+                              hasReliableDimensions: true,
                             }),
                           })
                         }

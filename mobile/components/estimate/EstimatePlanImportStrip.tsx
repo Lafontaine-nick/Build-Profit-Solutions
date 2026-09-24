@@ -21,8 +21,12 @@ import type {
   PlanToMeasurementsResult,
 } from '@/utils/estimateAiDraft';
 import {
+  imagesFromPickerAssets,
+  pickPlanFromLibrary,
   pickPlanPdf,
+  planPdfPickerAvailable,
   runPlanTakeoff,
+  takePlanPhoto,
 } from '@/utils/planImportRunner';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import EstimateFlowActionButton from '@/components/estimate/EstimateFlowActionButton';
@@ -864,8 +868,45 @@ export default function EstimatePlanImportStrip({
     ]
   );
 
+  const importPlanImages = useCallback(
+    async (source: 'camera' | 'library') => {
+      if (importing || disabled || plumbingPlanDisabled) return;
+      try {
+        const assets =
+          source === 'camera'
+            ? await takePlanPhoto()
+            : await pickPlanFromLibrary();
+        if (!assets?.length) return;
+        const pages = await imagesFromPickerAssets(assets);
+        if (!pages.length) return;
+        await executeTakeoff(pages);
+      } catch (e) {
+        Alert.alert(
+          'Plan import failed',
+          e instanceof Error ? e.message : 'Could not read the plan pages.'
+        );
+      }
+    },
+    [importing, disabled, plumbingPlanDisabled, executeTakeoff]
+  );
+
   const onPdf = useCallback(async () => {
     if (importing || disabled || plumbingPlanDisabled) return;
+    if (!planPdfPickerAvailable()) {
+      Alert.alert(
+        'PDF import needs a rebuild',
+        'This app build cannot open PDF files yet. Take a photo of the plan or choose pages from your library.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Take photo', onPress: () => void importPlanImages('camera') },
+          {
+            text: 'Choose from library',
+            onPress: () => void importPlanImages('library'),
+          },
+        ]
+      );
+      return;
+    }
     try {
       const pages = await pickPlanPdf();
       if (!pages?.length) return;
@@ -876,7 +917,7 @@ export default function EstimatePlanImportStrip({
         e instanceof Error ? e.message : 'Could not read the PDF.'
       );
     }
-  }, [importing, disabled, plumbingPlanDisabled, executeTakeoff]);
+  }, [importing, disabled, plumbingPlanDisabled, executeTakeoff, importPlanImages]);
 
   const openPicker = useCallback(() => {
     if (importing || disabled) return;
