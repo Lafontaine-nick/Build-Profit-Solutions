@@ -498,6 +498,24 @@ describe('ground-up owner-handled scope exclusions', () => {
     expect(items.find(i => i.id === 'excavation')?.state).toBe('unsure');
   });
 
+  test('includes site trades on a general-contractor plan export', () => {
+    const notes =
+      'Ground-up new construction from imported architectural plans. --- Plan takeoff --- Living area: 2,571 sqft.';
+    const items = applyGroundUpShellScopeDefaults(
+      ['excavation', 'landscaping', 'utility_taps', 'sitework'].map(id => ({
+        id,
+        label: id,
+        inputType: 'yes_no' as const,
+        state: 'unsure' as const,
+      })),
+      { templateKey: 'ground_up', notes }
+    );
+    expect(items.find(i => i.id === 'excavation')?.state).toBe('included');
+    expect(items.find(i => i.id === 'landscaping')?.state).toBe('included');
+    expect(items.find(i => i.id === 'utility_taps')?.state).toBe('included');
+    expect(items.find(i => i.id === 'sitework')?.state).toBe('unsure');
+  });
+
   test('applyScopeInferencesFromNotes excludes owner sitework and includes shell', () => {
     const items = applyScopeInferencesFromNotes(
       [

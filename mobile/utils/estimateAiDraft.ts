@@ -3054,6 +3054,9 @@ export function applyPlanRoomsToScopeMeasurements(
     ...scopeMeasurements,
     planRooms: rooms,
   };
+  if (String(scopeMeasurements.planImportMode || '') === 'whole_project') {
+    return next;
+  }
   const detectedKeys: string[] = [];
   const sumMatching = (test: RegExp) => {
     let sum = 0;
@@ -3107,7 +3110,8 @@ export function applyPlanRoomsToScopeMeasurements(
 
 /** Convert plan review string/number map into ScopeMeasurements numbers. */
 export function planMeasurementsToScopeMeasurements(
-  measurements: Record<string, number | string> | null | undefined
+  measurements: Record<string, number | string> | null | undefined,
+  options?: { wholeProjectCoverOnly?: boolean }
 ): ScopeMeasurements {
   const out: ScopeMeasurements = {};
   if (!measurements) return out;
@@ -3119,8 +3123,13 @@ export function planMeasurementsToScopeMeasurements(
     detectedKeys.push(key);
   }
   // Living SF from plans also drives flooring when the takeoff didn't send a separate field.
+  // A general-contractor cover sheet does not state flooring or framed area.
   const living = Number(out.floorAreaSqft);
-  if (Number.isFinite(living) && living > 0) {
+  if (
+    !options?.wholeProjectCoverOnly &&
+    Number.isFinite(living) &&
+    living > 0
+  ) {
     if (!(Number(out.flooringSqft) > 0)) {
       out.flooringSqft = living;
       detectedKeys.push('flooringSqft');
@@ -3168,7 +3177,11 @@ export function planMeasurementsToScopeMeasurements(
   }
   const livingForFraming = Number(out.floorAreaSqft);
   const garageForFraming = Number(out.garageSqft) || 0;
-  if (!(Number(out.framedAreaSqft) > 0) && livingForFraming > 0) {
+  if (
+    !options?.wholeProjectCoverOnly &&
+    !(Number(out.framedAreaSqft) > 0) &&
+    livingForFraming > 0
+  ) {
     out.framedAreaSqft = livingForFraming + Math.max(0, garageForFraming);
     out.quickMeasurementSources = tagPlanDetectedQuickMeasurementKeys(
       out.quickMeasurementSources,
@@ -3488,6 +3501,99 @@ export function aiFlowStepTotal(
   draft: EstimateAiDraft | null | undefined
 ): 2 | 3 {
   return isComplexEstimateTier(draft) ? 3 : 2;
+}
+
+const WHOLE_PROJECT_FORMULA_QUANTITY_KEYS = [
+  'drywallSqft',
+  'drywallWallSqft',
+  'drywallCeilingSqft',
+  'fireRatedDrywallSqft',
+  'garageWallDrywallSqft',
+  'garageCeilingDrywallSqft',
+  'moistureResistantDrywallSqft',
+  'wallPaintSqft',
+  'exteriorPaintSqft',
+  'flooringSqft',
+  'framedAreaSqft',
+  'concreteSqft',
+  'concretePatioSqft',
+  'concreteCy',
+  'foundationFootprintSqft',
+  'foundationPerimeterLf',
+  'concreteThicknessInches',
+  'patchRepairSqft',
+  'bathroomFloorSqft',
+  'kitchenFloorSqft',
+] as const;
+
+const WHOLE_PROJECT_FORMULA_ITEM_IDS = [
+  'drywall',
+  'hang',
+  'finish_tape',
+  'foundation',
+  'paint',
+  'interior_paint',
+  'exterior_paint',
+  'flooring',
+  'tile_flooring',
+  'concrete',
+  'pour_flatwork',
+  'flatwork',
+  'excavation',
+] as const;
+
+/**
+ * Drop quantities the notes draft invented from living area. Keep a field only
+ * when this plan import actually confirmed it.
+ */
+export function stripUnconfirmedWholeProjectFormulaQuantities(
+  measurements: ScopeMeasurements,
+  confirmed: Record<string, number | string | null | undefined> | null | undefined
+): ScopeMeasurements {
+  if (String(measurements.planImportMode || '') !== 'whole_project') {
+    return measurements;
+  }
+  if (measurements.planImportTradeKey) return measurements;
+  const next = { ...measurements } as Record<string, unknown>;
+  const sources = {
+    ...(measurements.quickMeasurementSources || {}),
+  };
+  const confirmedMap = confirmed || {};
+  for (const key of WHOLE_PROJECT_FORMULA_QUANTITY_KEYS) {
+    const incoming = Number(confirmedMap[key]);
+    if (Number.isFinite(incoming) && incoming > 0) continue;
+    const source = sources[key];
+    if (
+      source === 'contractor_confirmed_from_plan_review' ||
+      source === 'user_entered' ||
+      source === 'manual_override'
+    ) {
+      continue;
+    }
+    delete next[key];
+    delete sources[key];
+  }
+  next.quickMeasurementSources = sources;
+  delete next.concreteAreaByType;
+  delete next.concreteThicknessByType;
+  delete next.concreteScope;
+  const itemQuantities = {
+    ...((next.itemQuantities as Record<string, { quantitySource?: string }>) ||
+      {}),
+  };
+  for (const id of WHOLE_PROJECT_FORMULA_ITEM_IDS) {
+    const entry = itemQuantities[id];
+    if (!entry) continue;
+    if (
+      entry.quantitySource === 'user_entered' ||
+      entry.quantitySource === 'manual_override'
+    ) {
+      continue;
+    }
+    delete itemQuantities[id];
+  }
+  next.itemQuantities = itemQuantities;
+  return next as ScopeMeasurements;
 }
 
 function overlayScopeMeasurements(
@@ -4494,7 +4600,8 @@ export function applyPlanImportToDraft(
   const canonicalPlanMeasurements =
     tradeNormalization?.measurements || filteredPlanMeasurements;
   let scopeMeasurements = planMeasurementsToScopeMeasurements(
-    canonicalPlanMeasurements as Record<string, number>
+    canonicalPlanMeasurements as Record<string, number>,
+    { wholeProjectCoverOnly: !applyAsSelectedTrade }
   );
   if (standalonePlumbingWorkflow) {
     const workflowMode =
@@ -4829,6 +4936,36 @@ export function applyPlanImportToDraft(
     }
   }
   if (importedPlanFacts) scopeMeasurements.planFacts = importedPlanFacts;
+  if (
+    !applyAsSelectedTrade &&
+    importedPlanFacts?.buildingAreas &&
+    String(scopeMeasurements.planImportMode || planImportMode) ===
+      'whole_project'
+  ) {
+    const areas = importedPlanFacts.buildingAreas;
+    const pinCover = (
+      key: 'floorAreaSqft' | 'garageSqft' | 'deckSqft',
+      value: number | null | undefined
+    ) => {
+      const n = Number(value);
+      if (!(n > 0)) return;
+      const sources = scopeMeasurements.quickMeasurementSources || {};
+      if (
+        sources[key] === 'user_entered' ||
+        sources[key] === 'manual_override'
+      ) {
+        return;
+      }
+      (scopeMeasurements as Record<string, unknown>)[key] = n;
+      scopeMeasurements.quickMeasurementSources = {
+        ...sources,
+        [key]: 'detected_from_plan',
+      };
+    };
+    pinCover('floorAreaSqft', areas.totalLivingSqft);
+    pinCover('garageSqft', areas.garageSqft);
+    pinCover('deckSqft', areas.coveredPatioSqft);
+  }
   if (planImportTradeKey === 'insulation' && scopeMeasurements.planFacts) {
     scopeMeasurements = syncMeasurementsWithSouthernUtahPlanFacts(
       scopeMeasurements,
@@ -5180,6 +5317,15 @@ export function applyPlanImportToDraft(
       };
     }
     next = overlayScopeMeasurements(next, scopeMeasurements);
+    if (!applyAsSelectedTrade && next.scopeMeasurements) {
+      next = {
+        ...next,
+        scopeMeasurements: stripUnconfirmedWholeProjectFormulaQuantities(
+          next.scopeMeasurements,
+          canonicalPlanMeasurements as Record<string, number | string>
+        ),
+      };
+    }
   } else if (applyAsSelectedTrade) {
     next = {
       ...next,

@@ -247,6 +247,7 @@ import {
   resolveRemodelDrywallAssemblyBaseline,
   resolveDrywallConditionedSurfaceQuantity,
   resolveDrywallFinishChoiceId,
+  wholeProjectPlanOmitsFormulaTakeoff,
   drywallFinishLaborMultiplier,
   drywallFinishLaborBucketLabel,
   resolveDrywallPackageMaterialMultiplier,
@@ -19245,7 +19246,10 @@ export function resolveScopeItemSuggestedPricing(
   if (
     (!count || count <= 0) &&
     (itemId === 'tile_flooring' || itemId === 'flooring') &&
-    ['ground_up', 'addition'].includes(String(templateKey || '').toLowerCase())
+    ['ground_up', 'addition'].includes(String(templateKey || '').toLowerCase()) &&
+    !wholeProjectPlanOmitsFormulaTakeoff(
+      measurementsInput as unknown as Record<string, unknown>
+    )
   ) {
     const floorSf =
       parseScopeMeasurementInput(measurementsInput.flooringSqft) ||
@@ -19271,6 +19275,9 @@ export function resolveScopeItemSuggestedPricing(
     (itemId === 'drywall' || itemId === 'hang' || itemId === 'finish_tape') &&
     ['ground_up', 'drywall', 'addition'].includes(
       String(templateKey || '').toLowerCase()
+    ) &&
+    !wholeProjectPlanOmitsFormulaTakeoff(
+      measurementsInput as unknown as Record<string, unknown>
     )
   ) {
     const livingSf = parseScopeMeasurementInput(
@@ -21069,6 +21076,13 @@ function applyAutoDrywallSurfaceQuantity(
   } = {}
 ): ResolvedItemQuantity {
   if (!AUTO_DRYWALL_SURFACE_ITEM_IDS.has(itemId)) return resolved;
+  if (
+    wholeProjectPlanOmitsFormulaTakeoff(
+      measurements as unknown as Record<string, unknown>
+    )
+  ) {
+    return resolved;
+  }
   const template = String(ctx.templateKey || '').toLowerCase();
   if (template !== 'ground_up' && template !== 'addition') return resolved;
 

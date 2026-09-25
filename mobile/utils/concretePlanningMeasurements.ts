@@ -593,10 +593,19 @@ export function inferConcreteScopeIds(
   return [...ids];
 }
 
+function notesAreImportedPlanSummary(
+  notes: string | null | undefined
+): boolean {
+  return /ground-up new construction from imported architectural plans|--- plan takeoff ---/i.test(
+    String(notes || '')
+  );
+}
+
 export function applyConcretePlanningMeasurements<T extends Record<string, unknown>>(
   out: T,
   notes: string | null | undefined
 ): T {
+  if (notesAreImportedPlanSummary(notes)) return out;
   const mixed = notesImplyMixedConcreteJob(notes);
   const structuralFoundation =
     notesImplyStructuralFoundation(notes) && !notesImplyExteriorFlatwork(notes);

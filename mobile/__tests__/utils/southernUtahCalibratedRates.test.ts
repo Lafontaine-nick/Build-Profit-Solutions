@@ -145,6 +145,7 @@ describe('Confirm Scope nationwide barometer + state multiplier', () => {
   it('uses ground-up soft-cost allowances for plans (~$3k) and permits (~$32k)', () => {
     expect(getBuilderBudgetSoftCostAllowance('plans_engineering', 'ground_up')?.amount).toBe(3000);
     expect(getBuilderBudgetSoftCostAllowance('permits', 'ground_up')?.amount).toBe(32000);
+    expect(getBuilderBudgetSoftCostAllowance('utility_taps', 'ground_up')?.amount).toBe(7750);
     expect(getBuilderBudgetSoftCostAllowance('permits', 'ground_up')?.note).toMatch(/impact fee/i);
     expect(getBuilderBudgetSoftCostAllowance('permits', 'kitchen')).toBeNull();
 
@@ -163,6 +164,13 @@ describe('Confirm Scope nationwide barometer + state multiplier', () => {
     );
     expect(plans.fill?.total).toBe(3000);
     expect(permits.fill?.total).toBe(32000);
+    const utilityTaps = resolveScopeItemSuggestedPricing(
+      'utility_taps',
+      input,
+      'ground_up',
+      resolveChecklistItemQuantity('utility_taps', input, { templateKey: 'ground_up' })
+    );
+    expect(utilityTaps.fill?.total).toBe(7750);
     expect(permits.fill?.rateSourceLabel).toMatch(/builder-budget calibrated/i);
 
     // Remodel-scale national stays for non-ground-up templates.

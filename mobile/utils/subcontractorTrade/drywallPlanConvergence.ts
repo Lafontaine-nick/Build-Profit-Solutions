@@ -871,6 +871,23 @@ export function isUndercountedDrywallSurface(
   return drywallSqft / living < 2.5;
 }
 
+/**
+ * A general-contractor plan import only confirmed cover-sheet quantities.
+ * Do not turn living area into drywall, paint, or flatwork.
+ * Dedicated drywall imports still use the planning split.
+ */
+export function wholeProjectPlanOmitsFormulaTakeoff(
+  input: Record<string, unknown> | null | undefined
+): boolean {
+  if (!input) return false;
+  if (String(input.planImportTradeKey || '') === 'drywall') return false;
+  if (String(input.planImportMode || '') === 'selected_trade') return false;
+  return (
+    String(input.planImportMode || '') === 'whole_project' ||
+    Boolean(input.planImportFingerprint)
+  );
+}
+
 export function drywallSurfacePlanningQuantity(
   livingSqft: number | null | undefined
 ): number | null {

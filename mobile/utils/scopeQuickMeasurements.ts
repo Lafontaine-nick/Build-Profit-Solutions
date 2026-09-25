@@ -2507,6 +2507,7 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
   livingSf?: number | null;
   garageSf?: number | null;
   notes?: string | null;
+  planImportMode?: string | null;
 }): string {
   const resolved = resolveQuickMeasurementTemplateKey(
     params.templateKey,
@@ -2583,6 +2584,13 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
       living >= 800 &&
       Number.isFinite(garage) &&
       garage > 0);
+
+  if (
+    String(params.planImportMode || '') === 'whole_project' &&
+    looksWholeHome
+  ) {
+    return 'ground_up';
+  }
 
   if (looksWholeHome && !params.templateKey) {
     return 'ground_up';
@@ -2987,6 +2995,13 @@ export function resolveQuickMeasurementDisplayValue(
   const raw = measurements[key];
   if (userOverrides[key]) {
     return String(raw ?? '');
+  }
+  if (key === 'floorAreaSqft' || key === 'garageSqft' || key === 'deckSqft') {
+    const cover = wholeProjectCoverQuantity(
+      key,
+      measurements as Record<string, unknown>
+    );
+    if (cover != null) return String(cover);
   }
   // Explicit note quantities are authoritative over stale inferred/formula
   // values that may already be persisted on the draft.
@@ -3957,6 +3972,90 @@ export function quickMeasurementFieldDef(
   key: QuickMeasurementFieldKey
 ): QuickMeasurementFieldDef | undefined {
   return QUICK_MEASUREMENT_FIELD_DEFS[key];
+}
+
+const PLAN_CONFIRMED_MEASUREMENT_SOURCES = new Set([
+  'detected_from_plan',
+  'plan_detected',
+  'plan_verified',
+  'measured_from_geometry',
+  'contractor_confirmed_from_plan_review',
+]);
+
+const WHOLE_PROJECT_COVER_MEASUREMENT_KEYS = [
+  'floorAreaSqft',
+  'garageSqft',
+  'deckSqft',
+] as const;
+
+function positiveQuickMeasurement(value: unknown): number | null {
+  const n = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Cover-sheet living, garage, and patio. Room rectangles must not replace these. */
+export function wholeProjectCoverQuantity(
+  key: 'floorAreaSqft' | 'garageSqft' | 'deckSqft',
+  measurements: Record<string, unknown> | null | undefined
+): number | null {
+  const record = measurements || {};
+  if (String(record.planImportMode || '') !== 'whole_project') return null;
+  if (record.planImportTradeKey) return null;
+  const areas = (
+    record.planFacts as { buildingAreas?: Record<string, unknown> } | undefined
+  )?.buildingAreas;
+  if (!areas) return null;
+  if (key === 'floorAreaSqft') return positiveQuickMeasurement(areas.totalLivingSqft);
+  if (key === 'garageSqft') return positiveQuickMeasurement(areas.garageSqft);
+  return positiveQuickMeasurement(areas.coveredPatioSqft ?? areas.deckSqft);
+}
+
+/**
+ * General-contractor plan export: Quick measurements lists only quantities the
+ * plan stated. The ground-up pricing cards stay on the checklist below.
+ */
+export function wholeProjectPlanQuickMeasurementRows(
+  measurements: Record<string, unknown> | null | undefined
+): QuickMeasurementRow[] {
+  const record = measurements || {};
+  const sources = (record.quickMeasurementSources || {}) as Record<
+    string,
+    string
+  >;
+  const living = positiveQuickMeasurement(record.floorAreaSqft);
+  const confirmed = new Set<string>();
+  for (const key of WHOLE_PROJECT_COVER_MEASUREMENT_KEYS) {
+    if (positiveQuickMeasurement(record[key]) != null) confirmed.add(key);
+  }
+  for (const [key, source] of Object.entries(sources)) {
+    if (!PLAN_CONFIRMED_MEASUREMENT_SOURCES.has(String(source || ''))) continue;
+    const value = positiveQuickMeasurement(record[key]);
+    if (value == null) continue;
+    if (
+      living != null &&
+      !WHOLE_PROJECT_COVER_MEASUREMENT_KEYS.includes(
+        key as (typeof WHOLE_PROJECT_COVER_MEASUREMENT_KEYS)[number]
+      ) &&
+      Math.abs(value - living) < 0.51
+    ) {
+      continue;
+    }
+    confirmed.add(key);
+  }
+  const order = SCOPE_QUICK_MEASUREMENT_ROWS.ground_up.flat().map(field => field.key);
+  const keys = [...confirmed].sort((left, right) => {
+    const leftIndex = order.indexOf(left as QuickMeasurementFieldKey);
+    const rightIndex = order.indexOf(right as QuickMeasurementFieldKey);
+    return (leftIndex < 0 ? 999 : leftIndex) - (rightIndex < 0 ? 999 : rightIndex);
+  });
+  return keys.flatMap(key => {
+    const field =
+      quickMeasurementFieldDef(key as QuickMeasurementFieldKey) ||
+      SCOPE_QUICK_MEASUREMENT_ROWS.ground_up
+        .flat()
+        .find(candidate => candidate.key === key);
+    return field ? [[field]] : [];
+  });
 }
 
 /** Contractor-friendly label + unit for a quick-measurement key (plan takeoff review, alerts). */

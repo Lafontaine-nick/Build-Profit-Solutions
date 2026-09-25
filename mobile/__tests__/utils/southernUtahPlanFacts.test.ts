@@ -206,4 +206,44 @@ describe('southernUtahPlanFacts roof footprint', () => {
       'calculated_from_components'
     );
   });
+
+  it('does not turn a general-contractor cover sheet into drywall', () => {
+    const synced = syncMeasurementsWithSouthernUtahPlanFacts(
+      {
+        floorAreaSqft: '2571',
+        garageSqft: '1427',
+        deckSqft: '322',
+        planImportMode: 'whole_project',
+        planImportFingerprint: 'lot-49',
+        planFacts: {
+          buildingAreas: {
+            totalLivingSqft: 2571,
+            mainFloorLivingSqft: 2527,
+            garageSqft: 1427,
+            coveredPatioSqft: 322,
+          },
+        },
+      } as any,
+      { templateKey: 'ground_up' }
+    );
+    expect(synced.drywallSqft).toBeUndefined();
+    expect(synced.drywallWallSqft).toBeUndefined();
+    expect(synced.drywallCeilingSqft).toBeUndefined();
+    expect(
+      getQuickMeasurementEstimate('drywallSqft', synced as any, synced.planFacts)
+    ).toBeNull();
+
+    const resolved = resolveChecklistItemQuantity(
+      'drywall',
+      {
+        ...emptyQuickMeasurementInput(),
+        floorAreaSqft: '2571',
+        garageSqft: '1427',
+        planImportMode: 'whole_project',
+        planImportFingerprint: 'lot-49',
+      } as any,
+      { templateKey: 'ground_up' }
+    );
+    expect(Number(resolved.quantity) || 0).toBe(0);
+  });
 });

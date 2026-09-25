@@ -14,6 +14,7 @@ import type {
 import {
   hasQuickMeasurementValue,
   resolveQuickMeasurementDisplayValue,
+  wholeProjectCoverQuantity,
 } from '@/utils/scopeQuickMeasurements';
 import { getMeasurementRelevance } from '@/utils/getMeasurementRelevance';
 import {
@@ -328,7 +329,23 @@ export function resolveQuickMeasurementFields(params: {
           /\bdrywall\s+repair\b[^.;\n]{0,25}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(
             noteText
           )));
+    const coverQuantity =
+      field.key === 'floorAreaSqft' ||
+      field.key === 'garageSqft' ||
+      field.key === 'deckSqft'
+        ? wholeProjectCoverQuantity(
+            field.key,
+            params.measurements as unknown as Record<string, unknown>
+          )
+        : null;
+    const usingCoverSheet =
+      coverQuantity != null &&
+      !isUserOverride &&
+      Math.abs(
+        Number(String(displayValue ?? '').replace(/,/g, '')) - coverQuantity
+      ) < 0.51;
     const fromNotes =
+      !usingCoverSheet &&
       (noteKeySet.has(field.key) || explicitlyMeasuredByNotes) &&
       Boolean(noteValues[field.key]) &&
       String(displayValue ?? '').replace(/,/g, '') ===
@@ -340,6 +357,7 @@ export function resolveQuickMeasurementFields(params: {
       filled &&
       !isUserOverride;
     const confirmedFromMatchingNoteValue =
+      !usingCoverSheet &&
       noteKeySet.has(field.key) &&
       Boolean(noteValues[field.key]) &&
       filled &&
@@ -419,7 +437,11 @@ export function resolveQuickMeasurementFields(params: {
     const state = resolveFieldState({
       filled,
       fromNotes: fromNotes || confirmedFromExplicitNote,
-      sourceTag: isUserOverride ? 'user_confirmed_suggestion' : sourceTag,
+      sourceTag: isUserOverride
+        ? 'user_confirmed_suggestion'
+        : usingCoverSheet
+          ? 'detected_from_plan'
+          : sourceTag,
       relevant:
         optionalGasLine
           ? false

@@ -854,6 +854,33 @@ function isRetryableOpenAiError(err) {
 
 const { createOpenAiChatCompletion } = require('../utils/openaiChatCompletionParams');
 
+function draftCompletionText(completion) {
+  const content = completion?.choices?.[0]?.message?.content;
+  if (typeof content === 'string') return content.trim();
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => (typeof part === 'string' ? part : part?.text || ''))
+      .join('')
+      .trim();
+  }
+  return '';
+}
+
+function parseDraftModelJson(raw) {
+  let text = String(raw || '').trim();
+  text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  try {
+    return JSON.parse(text);
+  } catch {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      return JSON.parse(text.slice(start, end + 1));
+    }
+    throw new Error('AI returned invalid JSON');
+  }
+}
+
 async function createChatCompletionWithRetry(openai, params, maxAttempts = 3) {
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -877,9 +904,12 @@ async function createEstimateDraftFromNotes(notes, openai, aiModels, aiRuntime, 
   }
   const { inferBuilderMode } = require('./estimateDraftEnrichment');
 
-  const completion = await createChatCompletionWithRetry(openai, {
+  const completionParams = {
     model: aiModels.assistant.estimate,
     response_format: aiRuntime.assistant.estimate.responseFormat,
+    // Terra spends max_completion_tokens on hidden reasoning and can return
+    // an empty message when that budget is used up. This call only needs JSON.
+    reasoning_effort: 'none',
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       {
@@ -888,18 +918,46 @@ async function createEstimateDraftFromNotes(notes, openai, aiModels, aiRuntime, 
       },
     ],
     temperature: 0.2,
-    max_tokens: aiRuntime.assistant.estimate.maxTokens,
-  });
+    max_tokens: Math.max(Number(aiRuntime.assistant.estimate.maxTokens) || 0, 8000),
+  };
 
-  const content = completion.choices?.[0]?.message?.content;
+  let completion = await createChatCompletionWithRetry(openai, completionParams);
+  let content = draftCompletionText(completion);
+  let parsed = null;
+  const tryParse = () => {
+    if (!content) return null;
+    try {
+      return parseDraftModelJson(content);
+    } catch {
+      return null;
+    }
+  };
+  parsed = tryParse();
+  if (!parsed) {
+    const finishReason = completion?.choices?.[0]?.finish_reason || null;
+    console.warn('[estimate-draft-from-notes] unusable model content, retrying', {
+      finishReason,
+      contentLength: content.length,
+      preview: content.slice(0, 240),
+    });
+    completion = await createChatCompletionWithRetry(openai, {
+      ...completionParams,
+      max_tokens: 12000,
+    });
+    content = draftCompletionText(completion);
+    parsed = tryParse();
+  }
   if (!content) {
     throw new Error('AI returned an empty response');
   }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(content);
-  } catch (e) {
+  if (!parsed) {
+    const finishReason = completion?.choices?.[0]?.finish_reason || null;
+    console.warn('[estimate-draft-from-notes] invalid JSON', {
+      finishReason,
+      contentLength: content.length,
+      preview: content.slice(0, 400),
+      tail: content.slice(-200),
+    });
     throw new Error('AI returned invalid JSON');
   }
 
@@ -914,6 +972,8 @@ async function createEstimateDraftFromNotes(notes, openai, aiModels, aiRuntime, 
 
 module.exports = {
   createEstimateDraftFromNotes,
+  draftCompletionText,
+  parseDraftModelJson,
   normalizeDraft,
   applyRoomPriceSplit,
   applySqftAllowancePricing,

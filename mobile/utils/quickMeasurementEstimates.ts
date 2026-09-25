@@ -70,6 +70,7 @@ import {
   reconcileIncompleteDrywallGeometryTakeoff,
   resolveDrywallConditionedSurfaceQuantity,
   resolveDrywallPackageSurfaceQuantity,
+  wholeProjectPlanOmitsFormulaTakeoff,
 } from '@/utils/subcontractorTrade/drywallPlanConvergence';
 
 export type QuickMeasurementEstimate = MeasurementSuggestion & {
@@ -514,6 +515,9 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<
 
   const isGroundUp =
     String(options?.templateKey || '').toLowerCase() === 'ground_up';
+  const skipFormulaDrywall = wholeProjectPlanOmitsFormulaTakeoff(
+    measurements as unknown as Record<string, unknown>
+  );
   const currentDrywall = n(measurements.drywallSqft);
   const reconciledDrywall = reconcileIncompleteDrywallGeometryTakeoff(
     next as unknown as Record<string, unknown>,
@@ -537,6 +541,7 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<
   // to schedule ceiling + planning wall split before persisting totals.
   if (
     isGroundUp &&
+    !skipFormulaDrywall &&
     componentSurface != null &&
     shouldExpandDrywall &&
     currentDrywall !== componentSurface
@@ -617,6 +622,7 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<
     ) ?? drywallSurfacePlanningQuantity(living);
   if (
     isGroundUp &&
+    !skipFormulaDrywall &&
     formulaSurface != null &&
     currentDrywall != null &&
     componentSurface == null &&
@@ -696,6 +702,13 @@ export function getQuickMeasurementEstimate(
 
   switch (key) {
     case 'drywallSqft': {
+      if (
+        wholeProjectPlanOmitsFormulaTakeoff(
+          measurements as unknown as Record<string, unknown>
+        )
+      ) {
+        return null;
+      }
       const primaryLiving = totalLiving ?? living;
       if (
         primaryLiving != null &&

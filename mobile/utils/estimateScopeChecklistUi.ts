@@ -673,6 +673,9 @@ const GROUND_UP_NOTES_PATTERN =
 const GROUND_UP_SHELL_DEFAULT_INCLUDED = new Set([
   'foundation',
   'concrete',
+  'excavation',
+  'utility_taps',
+  'landscaping',
   'framing',
   'roofing',
   'windows',

@@ -408,6 +408,7 @@ import {
   quickMeasurementFieldMeta,
   quickMeasurementRowsForInput,
   quickMeasurementRowsForTemplate,
+  wholeProjectPlanQuickMeasurementRows,
   quickMeasurementSectionsForRows,
   notesRequireInteriorPaintMeasurements,
   resolveEffectiveQuickMeasurementTemplateKey,
@@ -14550,6 +14551,7 @@ function CollapsibleQuickMeasurements({
       livingSf: living,
       garageSf: garage,
       notes,
+      planImportMode: measurements.planImportMode,
     });
   }, [
     templateKey,
@@ -14557,15 +14559,21 @@ function CollapsibleQuickMeasurements({
     notes,
     measurements.floorAreaSqft,
     measurements.garageSqft,
+    measurements.planImportMode,
     measurements.planRooms,
     measurements.planFacts,
     stuccoTradeFlow,
   ]);
-  const wholeHomeLayout =
+  const wholeProjectPlanMeasurements =
     !singleTradeImport &&
-    !stuccoTradeFlow &&
-    !mixedScopeMode &&
-    isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey);
+    String(measurements.planImportMode || '') === 'whole_project' &&
+    !String(measurements.planImportTradeKey || '');
+  const wholeHomeLayout =
+    wholeProjectPlanMeasurements ||
+    (!singleTradeImport &&
+      !stuccoTradeFlow &&
+      !mixedScopeMode &&
+      isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey));
   const compactMixedScope = mixedScopeMode && !singleTradeImport;
   const compactBathroomPlumbingFlow =
     (['bathroom', 'room_remodel'].includes(
@@ -15028,6 +15036,11 @@ function CollapsibleQuickMeasurements({
     setMeasurements(nextMeasurements);
   }, [stuccoTradeFlow, noteQuickMeasurements.values, setMeasurements]);
   const rows = useMemo(() => {
+    if (wholeProjectPlanMeasurements) {
+      return wholeProjectPlanQuickMeasurementRows(
+        measurements as unknown as Record<string, unknown>
+      );
+    }
     let baseRows = quickMeasurementRowsForInput(
       quickMeasurementTemplateKey,
       projectType,
@@ -15653,6 +15666,7 @@ function CollapsibleQuickMeasurements({
     noteQuickMeasurements.keys,
     quickMeasurementTemplateKey,
     measurements.plumbingWorkflowMode,
+    wholeProjectPlanMeasurements,
   ]);
   const fillCounts = useMemo(
     () =>
@@ -21215,6 +21229,7 @@ export default function AIEstimateScopeAssumptionsModal({
           Number(measurements.planFacts?.buildingAreas?.garageSqft) ||
           null,
         notes: scopeNotes,
+        planImportMode: measurements.planImportMode,
       }),
     [
       checklist?.templateKey,
@@ -21223,6 +21238,7 @@ export default function AIEstimateScopeAssumptionsModal({
       measurements.floorAreaSqft,
       measurements.garageSqft,
       measurements.planFacts,
+      measurements.planImportMode,
       scopeNotes,
     ]
   );

@@ -335,6 +335,12 @@ export const BUILDER_BUDGET_SOFT_COST_ALLOWANCES: Record<
       'Inclusive of city impact fee (not permit-only). Varies widely by state/jurisdiction — confirm locally. Water/sewer/fire impact often extra.',
     sourceLabel: 'Suggested · National Average (builder-budget calibrated)',
   },
+  utility_taps: {
+    // Midpoint of the existing $3,500–$12,000 utility-tap planning range.
+    amount: 7750,
+    note: 'Planning allowance for water, sewer, and power taps. Confirm the jurisdiction fee schedule before bid.',
+    sourceLabel: 'Suggested · National Average (builder-budget calibrated)',
+  },
 };
 
 export function getBuilderBudgetSoftCostAllowance(

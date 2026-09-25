@@ -216,4 +216,16 @@ describe('concretePlanningMeasurements', () => {
     expect(parsed.concreteSqft).toBe(900);
     expect(parsed.concreteFlatworkSubgradePrepSqft).toBe(900);
   });
+
+  it('does not treat a plan-takeoff summary as a patio pour', () => {
+    const note = `Ground-up new construction from imported architectural plans.
+--- Plan takeoff ---
+Living area: 2,571 sqft
+Garage: 1,427 sqft
+Deck / patio: 322 sqft`;
+    const parsed = applyConcretePlanningMeasurements({}, note);
+    expect(parsed.concreteSqft).toBeUndefined();
+    expect(parsed.concretePatioSqft).toBeUndefined();
+    expect(parsed.concreteCy).toBeUndefined();
+  });
 });

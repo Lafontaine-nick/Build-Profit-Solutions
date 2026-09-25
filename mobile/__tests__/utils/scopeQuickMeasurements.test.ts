@@ -9,6 +9,7 @@ import {
   resolveEffectiveQuickMeasurementTemplateKey,
   resolveQuickMeasurementDisplayValue,
   resolveQuickMeasurementTemplateKey,
+  wholeProjectPlanQuickMeasurementRows,
 } from '@/utils/scopeQuickMeasurements';
 import { tradeQuickMeasurementFieldKeys } from '@/utils/planImportTradeConfig';
 
@@ -459,6 +460,77 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).toContain('windowCount');
     expect(keys).toContain('exteriorDoorCount');
     expect(keys).toContain('interiorDoorCount');
+  });
+
+  it('keeps cover-sheet garage and patio ahead of room sizes', () => {
+    const measurements = {
+      planImportMode: 'whole_project',
+      floorAreaSqft: '2571',
+      garageSqft: '505.3',
+      deckSqft: '40.7',
+      planFacts: {
+        buildingAreas: {
+          totalLivingSqft: 2571,
+          garageSqft: 1427,
+          coveredPatioSqft: 322,
+        },
+      },
+    };
+    expect(
+      resolveQuickMeasurementDisplayValue(
+        'garageSqft',
+        measurements as never,
+        { garageSqft: '505.3' }
+      )
+    ).toBe('1427');
+    expect(
+      resolveQuickMeasurementDisplayValue(
+        'deckSqft',
+        measurements as never,
+        { deckSqft: '40.7' }
+      )
+    ).toBe('322');
+    expect(
+      resolveQuickMeasurementDisplayValue('garageSqft', measurements as never, {
+        garageSqft: '505.3',
+      }, { garageSqft: true })
+    ).toBe('505.3');
+  });
+
+  it('lists only plan quantities for a general-contractor plan export', () => {
+    const rows = wholeProjectPlanQuickMeasurementRows({
+      planImportMode: 'whole_project',
+      floorAreaSqft: '2571',
+      garageSqft: '1427',
+      deckSqft: '322',
+      concreteSqft: '2571',
+      excavationCy: '31.7',
+      quickMeasurementSources: {
+        floorAreaSqft: 'contractor_confirmed_from_plan_review',
+        garageSqft: 'contractor_confirmed_from_plan_review',
+        deckSqft: 'contractor_confirmed_from_plan_review',
+        concreteSqft: 'detected_from_plan',
+      },
+    });
+    expect(rows.flat().map(field => field.key)).toEqual([
+      'floorAreaSqft',
+      'garageSqft',
+      'deckSqft',
+    ]);
+  });
+
+  it('uses the whole-home layout for a general-contractor plan export', () => {
+    expect(
+      resolveEffectiveQuickMeasurementTemplateKey({
+        templateKey: 'room_remodel',
+        planImportMode: 'whole_project',
+        planRoomCount: 14,
+        livingSf: 2571,
+        garageSf: 1427,
+        notes:
+          'Ground-up new construction from imported architectural plans.\nPrimary Bath 65 sqft. Walk-in shower 41 sqft.',
+      })
+    ).toBe('ground_up');
   });
 
   it('keeps an interior room remodel on the remodel measurement layout', () => {
