@@ -1,8 +1,15 @@
+import { repairDraftRatePricingFromNotes } from '@/utils/estimateAiDraft';
+import { mergeConfirmScopeSavedMeasurements } from '@/utils/benchmarkReasonablenessContext';
+import {
+  initialScopeMeasurementInputExtended,
+  prepareScopeMeasurementsInputForUi,
+} from '@/utils/scopeItemQuantities';
 import {
   resolveQuickMeasurementFields,
   summarizeQuickMeasurementFieldStates,
   quickMeasurementSummaryLine,
   tagPlanDetectedQuickMeasurementKeys,
+  preservePlanBackedMeasurementFields,
   groupQuickMeasurementFields,
   pinQuickMeasurementFieldInGroup,
   splitWetAreaQuickMeasurementFields,
@@ -645,5 +652,65 @@ describe('roofing quick measurement summary', () => {
       results.filter(result => !embedded.has(result.key))
     );
     expect(summary.needsConfirmation).toBe(0);
+  });
+});
+
+describe('plan quantities survive the notes reparse', () => {
+  const notes = 'Ground-up new construction.\nRecessed lights · 31\nWindows';
+  const scopeMeasurements = {
+    recessedLightCount: 31,
+    windowCount: 31,
+    threeWaySwitchCount: 4,
+    quickMeasurementSources: {
+      recessedLightCount: 'detected_from_plan' as const,
+      windowCount: 'needs_confirmation' as const,
+      threeWaySwitchCount: 'needs_confirmation' as const,
+    },
+  };
+
+  test('an uncounted recessed mention does not replace the plan count', () => {
+    const kept = preservePlanBackedMeasurementFields(scopeMeasurements, {
+      recessedLightCount: 1,
+      windowCount: 1,
+      threeWaySwitchCount: 1,
+    });
+    expect(kept.recessedLightCount).toBe(31);
+    expect(kept.windowCount).toBe(31);
+    expect(kept.threeWaySwitchCount).toBe(4);
+  });
+
+  test('Confirm Scope keeps the plan recessed count instead of 1', () => {
+    const repaired = repairDraftRatePricingFromNotes(
+      {
+        originalNotes: notes,
+        projectType: 'new_build',
+        scopeChecklist: { templateKey: 'ground_up', items: [] },
+        scopeMeasurements,
+      } as Parameters<typeof repairDraftRatePricingFromNotes>[0],
+      notes
+    );
+    expect(repaired.scopeMeasurements?.recessedLightCount).toBe(31);
+    expect(repaired.scopeMeasurements?.windowCount).toBe(31);
+    expect(repaired.scopeMeasurements?.threeWaySwitchCount).toBe(4);
+
+    const input = prepareScopeMeasurementsInputForUi(
+      mergeConfirmScopeSavedMeasurements(
+        initialScopeMeasurementInputExtended(
+          {
+            originalNotes: notes,
+            projectType: 'new_build',
+            scopeChecklist: { templateKey: 'ground_up', items: [] },
+            scopeMeasurements: repaired.scopeMeasurements,
+          },
+          notes
+        ),
+        repaired.scopeMeasurements,
+        notes
+      ),
+      { notes, templateKey: 'ground_up' }
+    );
+    expect(Number(input.recessedLightCount)).toBe(31);
+    expect(Number(input.windowCount)).toBe(31);
+    expect(Number(input.threeWaySwitchCount)).toBe(4);
   });
 });

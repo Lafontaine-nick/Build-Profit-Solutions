@@ -182,6 +182,7 @@ import {
   inferDefaultGarageDoorCounts,
   normalizeGarageDoorCounts,
   resolveExteriorDoorsLumpSuggestedFill,
+  resolveWindowsLumpSuggestedFill,
   resolveGarageDoorSuggestedPricing,
   resolveOpeningSizeTierSuggestedPricing,
   resolveSlidingDoorsLumpSuggestedFill,
@@ -216,11 +217,18 @@ import {
 } from '@/utils/bathroomDrywallPaintScope';
 import { resolveStep2ComponentSuggestedPricing } from '@/utils/confirmScopeStep2Pricing';
 import { resolveExteriorFlatworkLumpSuggestedFill } from '@/utils/exteriorFlatworkPricing';
-import { notesImplyMixedConcreteJob } from '@/utils/foundationPlanningMeasurements';
-import { resolveMixedConcreteChecklistQuantity } from '@/utils/concretePlanningMeasurements';
+import {
+  computeFoundationCyFromFootprint,
+  notesImplyMixedConcreteJob,
+} from '@/utils/foundationPlanningMeasurements';
+import {
+  notesAreImportedPlanSummary,
+  resolveMixedConcreteChecklistQuantity,
+} from '@/utils/concretePlanningMeasurements';
 import {
   capTakeoffTotalAtBarometerLump,
   flooringUsesBarometerLumpPackage,
+  resolveDrywallLumpSuggestedFill,
   resolveElectricalRoughLumpSuggestedFill,
   resolveExteriorPaintLumpSuggestedFill,
   resolveFlooringLumpSuggestedFill,
@@ -1044,8 +1052,8 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   },
   bath_floor_tile: {
     unit: 'sqft',
-    material: 7,
-    labor: 10,
+    material: 4,
+    labor: 6,
     sourceLabel:
       'Suggested budget split · National Average · bathroom floor tile',
     rateSource: 'bps_national_benchmark',
@@ -3041,7 +3049,7 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   bath_floor_tile: {
     category: 'tile',
     rootCause:
-      'Build Profit national-average bathroom floor tile ($21/SF planning) is modeled as tile material plus bathroom floor installation. Waterproofing, demo, and leveling are separate.',
+      'Build Profit national-average bathroom floor tile ($10/SF planning) is modeled as standard ceramic/porcelain plus bathroom floor installation. Waterproofing, demo, and leveling are separate.',
     assumptions: [
       assumption(
         'tile_material',
@@ -5774,6 +5782,8 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     measurementKey: 'showerWallTileSqft',
     requiresUserQuantity: true,
     dualAllowanceField: true,
+    // Living SF is the whole house — never a shower wall takeoff.
+    canUseRoomSqft: false,
     quantityHelper: 'Enter shower wall tile sqft — not bathroom floor sqft.',
     missingMessage: 'Enter shower wall tile sqft.',
   },
@@ -5782,6 +5792,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     allowedUnits: ['sqft'],
     measurementKey: 'showerWallTileSqft',
     requiresUserQuantity: true,
+    canUseRoomSqft: false,
     quantityHelper:
       'Shower wall sqft — includes backer, RedGard-class membrane, vapor barrier, tape, screws, and wall-cavity insulation.',
     missingMessage: 'Enter shower waterproofing sqft.',
@@ -5799,6 +5810,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     allowedUnits: ['sqft'],
     measurementKey: 'showerFloorTileSqft',
     requiresUserQuantity: true,
+    canUseRoomSqft: false,
     quantityHelper:
       'Uses shower floor sqft — liner, mud bed, curb, and drain scale with pan size. Floor tile is separate.',
     missingMessage: 'Enter shower floor sqft for mud pan build.',
@@ -5834,6 +5846,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     allowedUnits: ['sqft'],
     measurementKey: 'showerFloorTileSqft',
     requiresUserQuantity: true,
+    canUseRoomSqft: false,
     quantityHelper:
       'Floor tile on the mud pan (tile/thinset/grout). Pan build is the separate mud pan line.',
     missingMessage: 'Enter shower floor tile sqft.',
@@ -10492,9 +10505,8 @@ export function resolveAllowanceEditorPricingBasis(
     return null;
   }
   const canUseFloorFallback =
-    preferred?.useFloorAreaFallback ||
-    rule.canUseRoomSqft ||
-    rule.defaultUnit === 'sqft';
+    preferred?.useFloorAreaFallback === true ||
+    (rule.canUseRoomSqft !== false && rule.defaultUnit === 'sqft');
   if (!canUseFloorFallback) return null;
   if (livingSf && livingSf > 0) return { quantity: livingSf, unit: 'sqft' };
   return null;
@@ -15822,6 +15834,7 @@ export function resolveScopeItemSuggestedPricing(
         }));
   if (
     itemId === 'insulation' &&
+    String(templateKey || '').toLowerCase() !== 'ground_up' &&
     !(
       hasConfirmedInsulationBoundary ||
       (['user_entered', 'manual_override'].includes(
@@ -15837,6 +15850,7 @@ export function resolveScopeItemSuggestedPricing(
   // priceable with the catalog's basic national material/labor split.
   if (
     itemId === 'insulation' &&
+    String(templateKey || '').toLowerCase() !== 'ground_up' &&
     resolved.unit === 'sqft' &&
     Number(resolved.quantity) > 0 &&
     !(
@@ -16462,6 +16476,9 @@ export function resolveScopeItemSuggestedPricing(
 
   if (
     itemId === 'exterior_prep' &&
+    String(templateKey || '').toLowerCase() !== 'ground_up' &&
+    String(measurementsInput.planImportMode || '') !== 'whole_project' &&
+    !(Number(measurementsInput.planFacts?.buildingAreas?.totalLivingSqft) > 0) &&
     Number(measurementsInput.exteriorPaintSqft || 0) <= 0
   ) {
     const itemQuantities = measurementsInput.itemQuantities || {};
@@ -18866,10 +18883,18 @@ export function resolveScopeItemSuggestedPricing(
           .filter(Boolean)
           .join(' '),
       };
+      const explicitInsulationSurface =
+        Number(measurementsInput.exteriorWallInsulationSqft) > 0 ||
+        Number(measurementsInput.atticInsulationSqft) > 0 ||
+        Number(measurementsInput.insulatedRoofDeckSqft) > 0 ||
+        Number(measurementsInput.floorInsulationSqft) > 0 ||
+        assemblyRows.length > 0;
       return buildGroundUpBarometerLumpPricing('insulation', adjustedLump, {
         livingSf,
         basis:
-          envelope && Number(envelope.totalInsulationEnvelopeSqft) > 0
+          explicitInsulationSurface &&
+          envelope &&
+          Number(envelope.totalInsulationEnvelopeSqft) > 0
             ? {
                 quantity: envelope.totalInsulationEnvelopeSqft,
                 unit: 'sqft',
@@ -18877,6 +18902,43 @@ export function resolveScopeItemSuggestedPricing(
             : null,
         allowanceLabel: 'Installed insulation budget',
       });
+    }
+
+    if (itemId === 'windows') {
+      const windowCount = parseScopeMeasurementInput(
+        measurementsInput.windowCount
+      );
+      if (!(windowCount && windowCount > 0)) {
+        const lump = resolveWindowsLumpSuggestedFill({
+          livingSf,
+          state: pricingContext?.state,
+        });
+        return buildGroundUpBarometerLumpPricing('windows', lump, {
+          livingSf,
+          allowanceLabel: 'Installed windows budget',
+        });
+      }
+    }
+
+    if (
+      itemId === 'drywall' &&
+      wholeProjectPlanOmitsFormulaTakeoff(
+        measurementsInput as unknown as Record<string, unknown>
+      )
+    ) {
+      const measuredDrywall = parseScopeMeasurementInput(
+        measurementsInput.drywallSqft
+      );
+      if (!(measuredDrywall && measuredDrywall > 0)) {
+        const lump = resolveDrywallLumpSuggestedFill({
+          livingSf,
+          state: pricingContext?.state,
+        });
+        return buildGroundUpBarometerLumpPricing('drywall', lump, {
+          livingSf,
+          allowanceLabel: 'Installed drywall budget',
+        });
+      }
     }
 
     if (itemId === 'exterior_paint') {
@@ -19143,6 +19205,37 @@ export function resolveScopeItemSuggestedPricing(
       }
     }
   }
+  // Foundation: slab + footing planning CY from living and garage when no structural takeoff exists.
+  if (
+    (!count || count <= 0) &&
+    itemId === 'foundation' &&
+    String(templateKey || '').toLowerCase() === 'ground_up'
+  ) {
+    const livingSf = parseScopeMeasurementInput(
+      measurementsInput.floorAreaSqft
+    );
+    const garageSf = parseScopeMeasurementInput(measurementsInput.garageSqft);
+    if (livingSf && livingSf > 0) {
+      const foundation = computeFoundationCyFromFootprint({
+        livingFootprintSqft: livingSf,
+        garageSqft: garageSf || 0,
+      });
+      const reframed = regionalAdjustedNationalAverage(
+        itemId,
+        'cy',
+        pricingContext
+      );
+      if (
+        foundation.totalCy > 0 &&
+        reframed.average?.material != null &&
+        reframed.average?.labor != null
+      ) {
+        count = Math.max(1, Math.round(foundation.totalCy));
+        unit = 'cy';
+        average = reframed.average;
+      }
+    }
+  }
   // HVAC: default to 1 system when included and no count/tons entered.
   if (
     (!count || count <= 0) &&
@@ -19343,8 +19436,7 @@ export function resolveScopeItemSuggestedPricing(
       const envelope = resolveInsulationEnvelopePlanningQuantity(
         insulationEnvelopeInputsFromPlanFacts(
           (measurementsInput as ScopeMeasurementsInputExtended).planFacts,
-          livingSf,
-          measurementsInput
+          livingSf
         )
       );
       const envelopeSf = envelope?.totalInsulationEnvelopeSqft;
@@ -19757,6 +19849,22 @@ export function resolveScopeItemSuggestedPricing(
     const savedRate =
       Number(template.materialRate || 0) + Number(template.laborRate || 0);
     if (savedRate > 0 && savedRate < 100) {
+      template = null;
+    }
+  }
+  // Same failure on counters: a small vanity lump or mis-tagged line becomes
+  // ~$5/SF and prices the 80 SF kitchen allowance at $450. Keep a saved rate
+  // only when it is in a real countertop range.
+  if (
+    itemId === 'countertops' &&
+    unit === 'sqft' &&
+    template &&
+    average?.material != null &&
+    average?.labor != null
+  ) {
+    const savedRate =
+      Number(template.materialRate || 0) + Number(template.laborRate || 0);
+    if (savedRate > 0 && savedRate < 25) {
       template = null;
     }
   }
@@ -20779,6 +20887,28 @@ export function overlayDualRatePricingDisplay(
     }
   }
 
+  if (
+    countEntry &&
+    countEntry.quantity > 0 &&
+    String(countEntry.unit || '').toLowerCase() === 'sqft' &&
+    materialEntry == null &&
+    laborEntry == null
+  ) {
+    const split = getNationalAverageBudgetSplit(itemId, 'sqft');
+    if (split && (Number(split.material) > 0 || Number(split.labor) > 0)) {
+      materialEntry = {
+        quantity: round2(countEntry.quantity * Number(split.material)),
+        unit: 'allowance',
+        quantitySource: 'inferred',
+      };
+      laborEntry = {
+        quantity: round2(countEntry.quantity * Number(split.labor)),
+        unit: 'allowance',
+        quantitySource: 'inferred',
+      };
+    }
+  }
+
   const effectiveAllowance = finalizeRateAllowanceTotal(
     allowanceEntry,
     materialEntry,
@@ -20820,6 +20950,15 @@ function resolveDualAllowanceQuantity(
     storedItemEntry && !['allowance', 'lump_sum'].includes(storedItemEntry.unit)
       ? storedItemEntry
       : null;
+  // Sqft dual cards were briefly stored as "each", so a typed area never
+  // reached the $/SF rate. Treat that count as the rule's area unit.
+  if (
+    countEntry &&
+    String(rule.defaultUnit || '').toLowerCase() === 'sqft' &&
+    String(countEntry.unit || '').toLowerCase() === 'each'
+  ) {
+    countEntry = { ...countEntry, unit: 'sqft' };
+  }
   if (!countEntry && rule.measurementKey && measurements[rule.measurementKey]) {
     countEntry = {
       quantity: measurements[rule.measurementKey]!,
@@ -22699,6 +22838,38 @@ export function resolveChecklistItemQuantity(
     notes?: string | null;
   } = {}
 ): ResolvedItemQuantity {
+  if (itemId === 'pour_flatwork') {
+    const living = Number(
+      String(measurements.floorAreaSqft ?? '').replace(/,/g, '')
+    );
+    const planLiving = Number(
+      measurements.planFacts?.buildingAreas?.totalLivingSqft
+    );
+    const concrete = Number(
+      String(measurements.concreteSqft ?? '').replace(/,/g, '')
+    );
+    const stored = Number(measurements.itemQuantities?.pour_flatwork?.quantity);
+    const planExport =
+      String(
+        (measurements as { planImportMode?: string | null }).planImportMode ||
+          ''
+      ) === 'whole_project' ||
+      notesAreImportedPlanSummary(ctx.notes) ||
+      (planLiving > 0 && planLiving === living);
+    if (
+      planExport &&
+      living > 0 &&
+      (concrete === living || stored === living)
+    ) {
+      const itemQuantities = { ...(measurements.itemQuantities || {}) };
+      delete itemQuantities.pour_flatwork;
+      measurements = {
+        ...measurements,
+        concreteSqft: concrete === living ? '' : measurements.concreteSqft,
+        itemQuantities,
+      };
+    }
+  }
   if (itemId === 'air_sealing') {
     const explicit = Number(measurements.airSealingSqft);
     const livingArea = Number(measurements.floorAreaSqft);
@@ -25399,6 +25570,9 @@ export function scopeMeasurementsToPayload(
     planImportMode: input.planImportMode ?? null,
     planImportTradeKey: input.planImportTradeKey ?? null,
     planImportFingerprint: input.planImportFingerprint ?? null,
+    finishSchedule: Array.isArray(input.finishSchedule)
+      ? input.finishSchedule
+      : undefined,
     planImportMissingInfo: Array.isArray(input.planImportMissingInfo)
       ? input.planImportMissingInfo
       : undefined,
@@ -26149,6 +26323,9 @@ export function scopeMeasurementsInputFromPayload(
     planImportMode: payload.planImportMode ?? null,
     planImportTradeKey: payload.planImportTradeKey ?? null,
     planImportFingerprint: payload.planImportFingerprint ?? null,
+    finishSchedule: Array.isArray(payload.finishSchedule)
+      ? payload.finishSchedule
+      : null,
     planImportMissingInfo: payload.planImportMissingInfo ?? [],
     plumbingWorkflowMode: payload.plumbingWorkflowMode ?? null,
     plumbingPerformerMode: payload.plumbingPerformerMode ?? null,
@@ -26275,9 +26452,25 @@ export function prepareScopeMeasurementsInputForUi(
       ''
     )
   );
+  const planBackedMeasurement = (key: QuickMeasurementFieldKey) => {
+    const source = String(payload.quickMeasurementSources?.[key] || '');
+    return (
+      payload.quickMeasurementUserOverrides?.[key] === true ||
+      [
+        'user_entered',
+        'manual_override',
+        'detected_from_plan',
+        'plan_detected',
+        'plan',
+        'needs_confirmation',
+        'measured_from_geometry',
+        'contractor_confirmed_from_plan_review',
+      ].includes(source)
+    );
+  };
   if (
     windowCountFromNotes > 0 &&
-    payload.quickMeasurementUserOverrides?.windowCount !== true
+    !planBackedMeasurement('windowCount')
   ) {
     mergedFields.windowCount = String(windowCountFromNotes);
   }
@@ -26287,7 +26480,10 @@ export function prepareScopeMeasurementsInputForUi(
       ''
     )
   );
-  if (interiorDoorCountFromNotes > 0) {
+  if (
+    interiorDoorCountFromNotes > 0 &&
+    !planBackedMeasurement('interiorDoorCount')
+  ) {
     mergedFields.interiorDoorCount = String(interiorDoorCountFromNotes);
   }
   const insulationAreaKeys = [
@@ -27093,6 +27289,8 @@ export function initialScopeMeasurementInputExtended(
         'user_confirmed_suggestion',
         'plan',
         'plan_detected',
+        'detected_from_plan',
+        'needs_confirmation',
         'measured_from_geometry',
         'contractor_confirmed_from_plan_review',
       ].includes(source)
@@ -27178,7 +27376,11 @@ export function initialScopeMeasurementInputExtended(
 
     // Explicit note values beat stale draft fields when regenerating from edited notes.
     // When notes omit a field (common for plan takeoff), fall through to saved plan import.
-    if (parsedNoteValue != null && Number(parsedNoteValue) > 0) {
+    if (
+      parsedNoteValue != null &&
+      Number(parsedNoteValue) > 0 &&
+      !measurementHasProtectedSource(key)
+    ) {
       return String(parsedNoteValue);
     }
 
@@ -28101,6 +28303,9 @@ export function initialScopeMeasurementInputExtended(
     planImportMode: saved?.planImportMode ?? null,
     planImportTradeKey: saved?.planImportTradeKey ?? null,
     planImportFingerprint: saved?.planImportFingerprint ?? null,
+    finishSchedule: Array.isArray(saved?.finishSchedule)
+      ? saved.finishSchedule
+      : null,
     planImportMissingInfo: saved?.planImportMissingInfo ?? [],
   };
 

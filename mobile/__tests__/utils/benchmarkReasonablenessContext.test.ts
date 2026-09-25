@@ -18,6 +18,44 @@ import { buildAcceptanceFromSuggestedBlock } from '@/utils/acceptedPricingSummar
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
 
 describe('benchmarkReasonablenessContext', () => {
+  it('adds wet-area tile and shower door dollars to Selected pricing', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'tile_flooring', label: 'Flooring', inputType: 'yes_no', state: 'included' },
+      { id: 'floor_tile', label: 'Bath floor tile', inputType: 'yes_no', state: 'included' },
+      { id: 'shower_tile', label: 'Shower wall tile', inputType: 'yes_no', state: 'included' },
+      { id: 'glass_door', label: 'Shower doors', inputType: 'yes_no', state: 'included' },
+    ];
+    const measurements = {
+      floorAreaSqft: '2571',
+      itemQuantities: {
+        tile_flooring__allowance: {
+          quantity: '20536',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        floor_tile: { quantity: '250', unit: 'sqft', quantitySource: 'user_entered' },
+        floor_tile__material: { quantity: '1000', unit: 'allowance', quantitySource: 'user_entered' },
+        floor_tile__labor: { quantity: '1500', unit: 'allowance', quantitySource: 'user_entered' },
+        shower_tile: { quantity: '180', unit: 'sqft', quantitySource: 'user_entered' },
+        shower_tile__material: { quantity: '1440', unit: 'allowance', quantitySource: 'inferred' },
+        shower_tile__labor: { quantity: '3240', unit: 'allowance', quantitySource: 'inferred' },
+        glass_door__material: { quantity: '835', unit: 'allowance', quantitySource: 'user_entered' },
+        glass_door__labor: { quantity: '615', unit: 'allowance', quantitySource: 'user_entered' },
+      },
+      pricingAcceptance: {
+        tile_flooring: { selectionStatus: 'accepted', totalAmount: 20536 },
+        floor_tile: { selectionStatus: 'accepted', totalAmount: 2500 },
+      },
+    } as never;
+
+    const breakdown = sumConfirmScopeAppliedPricingBreakdown({
+      items,
+      measurements,
+      templateKey: 'ground_up',
+    });
+    expect(breakdown.total).toBe(20536 + 2500 + 4680 + 1450);
+  });
+
   it('mergeScopeMeasurementsPreservingFields keeps living SF when patch clears it', () => {
     const merged = mergeScopeMeasurementsPreservingFields(
       { floorAreaSqft: 3098, roofSquares: 46, itemQuantities: { drywall: { quantity: 10843, unit: 'sqft' } } },

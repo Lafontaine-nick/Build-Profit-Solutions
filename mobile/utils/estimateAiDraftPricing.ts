@@ -190,8 +190,8 @@ const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
   },
   floor_tile: {
     unit: 'sqft',
-    material: 7,
-    labor: 10,
+    material: 4,
+    labor: 6,
     materialLabel: 'Bathroom floor tile materials allowance',
     laborLabel: 'Bathroom floor tile install labor',
   },

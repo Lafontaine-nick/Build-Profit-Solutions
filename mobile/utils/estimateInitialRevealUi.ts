@@ -27,6 +27,7 @@ import {
 } from '@/utils/subcontractorTrade/plumbingPlanConvergence';
 import { sumStep3ReviewBudgetTotals } from '@/utils/benchmarkReasonablenessContext';
 import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
+import { planScopeRecordSummaryLines } from '@/utils/planScopeRecords';
 import { notesRequireInteriorPaintMeasurements } from '@/utils/scopeQuickMeasurements';
 import {
   getCompactProjectSummary,
@@ -368,6 +369,16 @@ function confirmedPlanLinesForDraft(draft: EstimateAiDraft): string[] {
     | null
     | undefined;
   if (!measurements?.planImportFingerprint) return [];
+  const records = (
+    measurements as { planScopeRecords?: Parameters<typeof planScopeRecordSummaryLines>[0] }
+  ).planScopeRecords;
+  if (
+    measurements.planImportMode !== 'selected_trade' &&
+    Array.isArray(records) &&
+    records.length
+  ) {
+    return planScopeRecordSummaryLines(records);
+  }
   const rooms = measurements.planRooms?.length
     ? measurements.planRooms
     : draft.rooms;
@@ -2423,6 +2434,16 @@ export function getInitialRevealPriorityItems(
 
 /** One-line positive summary for the hero area. */
 export function getInitialRevealTagline(draft: EstimateAiDraft): string | null {
+  const planMeasurements = draft.scopeMeasurements as
+    | { planImportFingerprint?: string | null; planImportMode?: string | null }
+    | null
+    | undefined;
+  if (
+    planMeasurements?.planImportFingerprint &&
+    planMeasurements.planImportMode !== 'selected_trade'
+  ) {
+    return 'Read from the sheets. Unprinted trades stay planning allowances.';
+  }
   const classification = getRevealClassification(draft);
   if (classification.scopeMode === 'mixed') {
     const summary =

@@ -1301,6 +1301,8 @@ export default function EstimatePlanImportStrip({
         scopeDetections: tradeScopeDetections,
         mergedNotes: takeoff.mergedNotes || existingNotes,
         notesBlock: takeoff.notesBlock || '',
+        finishSchedule:
+          selection.mode === 'selected_trade' ? null : takeoff.finishSchedule,
         rooms: tradeRooms,
         areaReconciliation:
           selection.mode === 'selected_trade'

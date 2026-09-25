@@ -593,7 +593,7 @@ export function inferConcreteScopeIds(
   return [...ids];
 }
 
-function notesAreImportedPlanSummary(
+export function notesAreImportedPlanSummary(
   notes: string | null | undefined
 ): boolean {
   return /ground-up new construction from imported architectural plans|--- plan takeoff ---/i.test(

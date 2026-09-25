@@ -125,7 +125,10 @@ import {
   describeTrimFinishLfDerivation,
   resolveTrimFinishFieldPaintIncluded,
 } from '@/utils/windowsDoorsTrimFinishPricing';
-import { syncGarageDoorsScopeItems } from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
+import {
+  garageDoorCountsFromLabeledBays,
+  syncGarageDoorsScopeItems,
+} from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
 import {
   reconcilePlumbingEquipmentScopeMeasurements,
   reconcileFramingScopeMeasurements,
@@ -194,6 +197,8 @@ import {
   syncWindowInstallScopeFromNotes,
   hydrateScopeChecklistFromNotes,
   filterRoomRemodelNoteScopeItems,
+  ensureWholeProjectGroundUpScopeItems,
+  isWholeProjectPlanExport,
   applyMeasuredStuccoScopeInferences,
   suppressBathroomFalsePositiveFloorDemoScope,
   stripBathroomFalsePositiveFloorDemoQuantities,
@@ -392,6 +397,7 @@ import {
   inferRoofingTradeScopeSelectionsFromNotes,
   inferItemStateFromNotes,
 } from '@/utils/scopeItemNoteHints';
+import { applyFinishScheduleToChecklistItems } from '@/utils/finishScheduleScope';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import {
   evaluateFlooringDemoPrepOverlap,
@@ -5108,11 +5114,7 @@ function MaterialLaborSplitEditor({
           label={basisFieldLabel}
           value={basisFocused ? basisDraft : pricingBasisValue}
           suffix={formatCountFieldSuffix(basisUnit) ?? undefined}
-          placeholder={
-            pricingBasis
-              ? String(pricingBasis.quantity)
-              : `Enter ${basisUnitLabel}`
-          }
+          placeholder={pricingBasis ? String(pricingBasis.quantity) : '0'}
           helper={
             !pricingBasisValue && pricingBasis
               ? `Using ${pricingBasis.quantity.toLocaleString()} ${basisUnitLabel} from job measurements`
@@ -6926,11 +6928,11 @@ function QuantitySection({
               placeholder='0'
               embedded
               commitOnBlur
-              onFocus={() => focusQuantityField(quantityEntryItemId, 'count')}
+              onFocus={() => focusQuantityField(itemId, 'count')}
               onChangeText={text =>
-                onItemQuantityChange(quantityEntryItemId, text, 'count')
+                onItemQuantityChange(itemId, text, 'count')
               }
-              onBlur={() => blurQuantityField(quantityEntryItemId, 'count')}
+              onBlur={() => blurQuantityField(itemId, 'count')}
               Colors={Colors}
               darkMode={darkMode}
               applying={applying}
@@ -7413,7 +7415,8 @@ function QuantitySection({
   if (
     itemId === 'insulation' &&
     explicitInsulationNoteSqft <= 0 &&
-    !assemblyInsulationPricing
+    !assemblyInsulationPricing &&
+    String(templateKey || '').toLowerCase() !== 'ground_up'
   ) {
     suggestedBudgetSplit = null;
     suggestedComparisonSplit = null;
@@ -7447,12 +7450,29 @@ function QuantitySection({
   ) {
     suggestedComparisonSplit = null;
   }
-  const pricingBasis =
+  const livingAreaSqft = Number(
+    String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')
+  );
+  const rawPricingBasis =
     resolveAllowanceEditorPricingBasis(
       itemId,
       measurementsInput,
       templateKey
     ) ?? parseBudgetSplitBasis(suggestedBudgetSplit);
+  const basisIsWholeHouse =
+    rule.canUseRoomSqft === false &&
+    rawPricingBasis != null &&
+    (String(rawPricingBasis.unit || '').toLowerCase() === 'living_sqft' ||
+      (livingAreaSqft > 0 &&
+        Math.abs(rawPricingBasis.quantity - livingAreaSqft) < 0.51 &&
+        String(rawPricingBasis.unit || '').toLowerCase() === 'sqft'));
+  const pricingBasis = basisIsWholeHouse ? null : rawPricingBasis;
+  if (basisIsWholeHouse && suggestedBudgetSplit?.basis) {
+    suggestedBudgetSplit = {
+      ...suggestedBudgetSplit,
+      basis: undefined,
+    };
+  }
   const fallbackBasisUnit = resolveAllowanceEditorDefaultBasisUnit(
     itemId,
     templateKey,
@@ -8090,8 +8110,12 @@ function QuantitySection({
         suggestedTotal: suggestedBudgetSplit?.total ?? null,
       });
     // Soft-cost suggestion cards already own the "Needs allowance" copy (same pattern as Excavation).
+    // Ground-up insulation uses the installed package when the plan has no surface SF.
     const cardOwnsMissingCopy =
-      Boolean(suggestedBudgetSplit) && softCostAllowance;
+      Boolean(suggestedBudgetSplit) &&
+      (softCostAllowance ||
+        (itemId === 'insulation' &&
+          String(templateKey || '').toLowerCase() === 'ground_up'));
 
     return (
       <View
@@ -9055,30 +9079,15 @@ function scopeRowMeasurementSignature(
     key,
     measurementsInput.itemQuantities[key],
   ]);
-  const primitiveMeasurements = Object.keys(measurementsInput)
-    .filter(
-      key =>
-        key !== 'itemQuantities' &&
-        key !== 'pricingAcceptance' &&
-        key !== 'scopeGapResolutions' &&
-        key !== 'appliedBenchmarkKeys' &&
-        key !== 'pricingOverrideLog' &&
-        key !== 'measurementConflicts'
-    )
-    .sort()
-    .map(key => {
-      const value = inputRecord[key];
-      return Array.isArray(value) || value == null || typeof value !== 'object'
-        ? [key, value]
-        : null;
-    })
-    .filter((entry): entry is [string, unknown] => Boolean(entry));
+  const watchedKeys = [
+    rule.measurementKey,
+    ...(rule.measurementKeys || []),
+    'floorAreaSqft',
+  ].filter((key): key is string => Boolean(key));
+  const sources = measurementsInput.quickMeasurementSources || {};
 
   return JSON.stringify({
-    primitiveMeasurements,
-    measurementKeys: [rule.measurementKey, ...(rule.measurementKeys || [])].map(
-      key => [key, key ? inputRecord[key] : undefined]
-    ),
+    measurementKeys: watchedKeys.map(key => [key, inputRecord[key], sources[key]]),
     quantityEntries,
     pricingAcceptance: measurementsInput.pricingAcceptance?.[itemId],
     scopeGapResolutions: measurementsInput.scopeGapResolutions?.[itemId],
@@ -17158,6 +17167,92 @@ function CollapsibleQuickMeasurements({
     measurements.garageDoorRvCount,
   ]);
 
+  useEffect(() => {
+    const sources = measurements.quickMeasurementSources || {};
+    const locked = [
+      'garageDoorSingleCount',
+      'garageDoorDoubleCount',
+      'garageDoorRvCount',
+    ].some(key => {
+      const source = String(sources[key] || '');
+      return source === 'user_entered' || source === 'manual_override';
+    });
+    if (locked) return;
+    const fromBays = garageDoorCountsFromLabeledBays(measurements.planRooms);
+    if (!fromBays) return;
+    if (fromBays.single + fromBays.double + fromBays.rv <= 0) return;
+    const reviewConfirmed = (key: string) =>
+      String(sources[key] || '') === 'contractor_confirmed_from_plan_review';
+    const nextSingle = reviewConfirmed('garageDoorSingleCount')
+      ? Number(measurements.garageDoorSingleCount || 0)
+      : fromBays.single;
+    const nextDouble = reviewConfirmed('garageDoorDoubleCount')
+      ? Number(measurements.garageDoorDoubleCount || 0)
+      : fromBays.double;
+    const nextRv = reviewConfirmed('garageDoorRvCount')
+      ? Number(measurements.garageDoorRvCount || 0)
+      : fromBays.rv;
+    if (
+      nextSingle === Number(measurements.garageDoorSingleCount || 0) &&
+      nextDouble === Number(measurements.garageDoorDoubleCount || 0) &&
+      nextRv === Number(measurements.garageDoorRvCount || 0)
+    ) {
+      return;
+    }
+    setMeasurements(current => {
+      const currentSources = current.quickMeasurementSources || {};
+      const currentConfirmed = (key: string) =>
+        String(currentSources[key] || '') ===
+        'contractor_confirmed_from_plan_review';
+      const single = currentConfirmed('garageDoorSingleCount')
+        ? current.garageDoorSingleCount
+        : fromBays.single > 0
+          ? fromBays.single
+          : null;
+      const double = currentConfirmed('garageDoorDoubleCount')
+        ? current.garageDoorDoubleCount
+        : fromBays.double > 0
+          ? fromBays.double
+          : null;
+      const rv = currentConfirmed('garageDoorRvCount')
+        ? current.garageDoorRvCount
+        : fromBays.rv > 0
+          ? fromBays.rv
+          : null;
+      if (
+        Number(single || 0) === Number(current.garageDoorSingleCount || 0) &&
+        Number(double || 0) === Number(current.garageDoorDoubleCount || 0) &&
+        Number(rv || 0) === Number(current.garageDoorRvCount || 0)
+      ) {
+        return current;
+      }
+      const detected = [
+        fromBays.single > 0 ? 'garageDoorSingleCount' : '',
+        fromBays.double > 0 ? 'garageDoorDoubleCount' : '',
+        fromBays.rv > 0 ? 'garageDoorRvCount' : '',
+      ].filter(key => key && !currentConfirmed(key));
+      return {
+        ...current,
+        garageDoorSingleCount: single,
+        garageDoorDoubleCount: double,
+        garageDoorRvCount: rv,
+        quickMeasurementSources: {
+          ...currentSources,
+          ...Object.fromEntries(
+            detected.map(key => [key, 'detected_from_plan'])
+          ),
+        },
+      };
+    });
+  }, [
+    measurements.garageDoorDoubleCount,
+    measurements.garageDoorRvCount,
+    measurements.garageDoorSingleCount,
+    measurements.planRooms,
+    measurements.quickMeasurementSources,
+    setMeasurements,
+  ]);
+
   const scheduleGarageDoorCommit = useCallback(
     (next: { single: number; double: number; rv: number }, gen: number) => {
       latestGarageDoorRef.current = next;
@@ -21557,11 +21652,37 @@ export default function AIEstimateScopeAssumptionsModal({
     effectiveNotesTradeMode === 'plumbing_service'
       ? 'plumbing_service'
       : 'plumbing';
+  const wholeProjectPlanChecklist = isWholeProjectPlanExport({
+    planImportMode:
+      measurements.planImportMode ||
+      draft?.scopeMeasurements?.planImportMode ||
+      planImport?.estimatingMode,
+    planImportTradeKey:
+      measurements.planImportTradeKey ||
+      draft?.scopeMeasurements?.planImportTradeKey ||
+      planImport?.selectedTrade,
+    planImportFingerprint:
+      measurements.planImportFingerprint ||
+      draft?.scopeMeasurements?.planImportFingerprint ||
+      planImport?.planImportFingerprint,
+    planScopeRecords:
+      measurements.planScopeRecords ||
+      draft?.scopeMeasurements?.planScopeRecords,
+    notes: scopeNotes,
+    originalNotes: draft?.originalNotes || notesFallback,
+    hasPlanBuildingAreas: Boolean(
+      measurements.planFacts?.buildingAreas?.totalLivingSqft ||
+        draft?.scopeMeasurements?.planFacts?.buildingAreas?.totalLivingSqft ||
+        planImport?.buildingAreas?.totalLivingSqft ||
+        planImport?.planFacts?.buildingAreas?.totalLivingSqft
+    ),
+  });
   const scopeCardTemplateKey = useCallback(
     (itemId: string) => {
       if (notesPlumbingFlow && plumbingItemIds.has(itemId)) {
         return notesPlumbingPricingTemplateKey;
       }
+      if (wholeProjectPlanChecklist) return 'ground_up';
       return checklist?.templateKey ?? null;
     },
     [
@@ -21569,11 +21690,14 @@ export default function AIEstimateScopeAssumptionsModal({
       plumbingItemIds,
       notesPlumbingPricingTemplateKey,
       checklist?.templateKey,
+      wholeProjectPlanChecklist,
     ]
   );
   const scopePricingTemplateKey = notesPlumbingFlow
     ? notesPlumbingPricingTemplateKey
-    : (checklist?.templateKey ?? null);
+    : wholeProjectPlanChecklist
+      ? 'ground_up'
+      : (checklist?.templateKey ?? null);
   const wholeProjectFlow =
     planImport?.estimatingMode === 'whole_project' ||
     ['ground_up', 'whole_project'].includes(
@@ -21688,6 +21812,7 @@ export default function AIEstimateScopeAssumptionsModal({
             currentUserNote
           )) ||
         (card.id === 'exterior_trim_paint' &&
+          !wholeProjectPlanChecklist &&
           (Number(String(measurements.windowCount ?? '').replace(/,/g, '')) >
             0 ||
             /\b(?:exterior|outside)\s+trim\b[^.;\n]{0,35}\b(?:paint|painting|finish)\b|\b(?:paint|painting|finish)\b[^.;\n]{0,35}\b(?:exterior|outside)\s+trim\b/i.test(
@@ -21872,6 +21997,25 @@ export default function AIEstimateScopeAssumptionsModal({
         checklist?.templateKey,
         drywallLayoutCtx
       );
+    if (wholeProjectPlanChecklist) {
+      return withDrywallLayout(
+        syncElectricalScopeItems(
+          applyFinishScheduleToChecklistItems(
+            ensureWholeProjectGroundUpScopeItems(
+              withExplicitTradeExclusionBoundary,
+              currentUserNote
+            ),
+            measurements.finishSchedule
+          ),
+          {
+            templateKey: 'ground_up',
+            notes: currentUserNote,
+            quantities: measurements as Record<string, unknown>,
+            electricalScope: measurements.electricalScope,
+          }
+        )
+      );
+    }
     if (singleTradePlanImport && singleTradeKey) {
       return withDrywallLayout(
         filterChecklistItemsForTrade(
@@ -22070,6 +22214,14 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.flooringSheetVinylSqft,
     measurements.planImportMode,
     measurements.planImportTradeKey,
+    wholeProjectPlanChecklist,
+    measurements.recessedLightCount,
+    measurements.singlePoleSwitchCount,
+    measurements.threeWaySwitchCount,
+    measurements.ceilingFanCount,
+    measurements.bathExhaustFanCount,
+    measurements.electricalScope,
+    measurements.windowCount,
     measurements.floorDemoSqft,
     measurements.quickMeasurementSources?.floorDemoSqft,
     measurements.quickMeasurementUserOverrides?.floorDemoSqft,
@@ -22116,18 +22268,18 @@ export default function AIEstimateScopeAssumptionsModal({
     () =>
       clearSupersededStageHostPricing(
         appliedPricingMeasurementInput,
-        checklist?.templateKey
+        scopePricingTemplateKey
       ),
-    [appliedPricingMeasurementInput, checklist?.templateKey]
+    [appliedPricingMeasurementInput, scopePricingTemplateKey]
   );
   const step2AppliedPricingBreakdown = useMemo(
     () =>
       sumConfirmScopeAppliedPricingBreakdown({
         items: displayItems,
         measurements: measurementsForAppliedPricing,
-        templateKey: checklist?.templateKey,
+        templateKey: scopePricingTemplateKey,
       }),
-    [displayItems, measurementsForAppliedPricing, checklist?.templateKey]
+    [displayItems, measurementsForAppliedPricing, scopePricingTemplateKey]
   );
   const step2AppliedEstimateTotal = step2AppliedPricingBreakdown.total;
   const step2AppliedBuildCostPerLivingSf = useMemo(
@@ -22145,9 +22297,9 @@ export default function AIEstimateScopeAssumptionsModal({
       listConfirmScopeAppliedPricingLines({
         items: displayItems,
         measurements: measurementsForAppliedPricing,
-        templateKey: checklist?.templateKey,
+        templateKey: scopePricingTemplateKey,
       }),
-    [displayItems, measurementsForAppliedPricing, checklist?.templateKey]
+    [displayItems, measurementsForAppliedPricing, scopePricingTemplateKey]
   );
 
   const benchmarkFetchKey = useMemo(
@@ -24956,14 +25108,15 @@ export default function AIEstimateScopeAssumptionsModal({
     () => ({
       projectType: draft?.projectType,
       notes: scopeNotes,
+      wholeProjectPlan: wholeProjectPlanChecklist,
     }),
-    [draft?.projectType, scopeNotes]
+    [draft?.projectType, scopeNotes, wholeProjectPlanChecklist]
   );
 
   const groupedItems = useMemo(() => {
     const grouped = groupScopeChecklistItems(
       templateDisplayItems,
-      checklist?.templateKey,
+      wholeProjectPlanChecklist ? 'ground_up' : checklist?.templateKey,
       scopeGroupingContext
     );
     return filterGroupedItemsWithoutPinnedTexture(
@@ -24973,6 +25126,7 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [
     templateDisplayItems,
     checklist?.templateKey,
+    wholeProjectPlanChecklist,
     scopeGroupingContext,
     pinnedDrywallFinishItem,
   ]);
@@ -26571,7 +26725,7 @@ export default function AIEstimateScopeAssumptionsModal({
           field === 'count' &&
           !['allowance', 'lump_sum'].includes(String(unit || '').toLowerCase())
             ? 'each'
-            : unit || (rule?.dualAllowanceField ? 'each' : rule.defaultUnit);
+            : unit || rule?.defaultUnit || 'each';
         const itemQuantities = {
           ...prev.itemQuantities,
           [itemId]: {
@@ -26646,21 +26800,21 @@ export default function AIEstimateScopeAssumptionsModal({
               pricingNotes
             ).fill;
 
-            if (suggested) {
+            if (suggested && source === 'user_entered') {
               itemQuantities[allowanceKey] = {
                 quantity: String(suggested.total),
                 unit: 'allowance',
-                quantitySource: 'inferred',
+                quantitySource: 'user_entered',
               };
               itemQuantities[materialKey] = {
                 quantity: String(suggested.material),
                 unit: 'allowance',
-                quantitySource: 'inferred',
+                quantitySource: 'user_entered',
               };
               itemQuantities[laborKey] = {
                 quantity: String(suggested.labor),
                 unit: 'allowance',
-                quantitySource: 'inferred',
+                quantitySource: 'user_entered',
               };
             }
           }
@@ -26775,8 +26929,7 @@ export default function AIEstimateScopeAssumptionsModal({
           itemQuantities[update.itemId] = {
             quantity: update.quantity,
             unit:
-              update.unit ||
-              (rule?.dualAllowanceField ? 'each' : rule.defaultUnit),
+              update.unit || rule?.defaultUnit || 'each',
             quantitySource,
           };
           // Prefill from Suggest must not create acceptance / hide the Apply card.
@@ -27044,9 +27197,10 @@ export default function AIEstimateScopeAssumptionsModal({
     itemId: string,
     field: 'count' | 'allowance' = 'count'
   ) => {
+    if (!itemId) return;
     focusedQuantityRef.current = `${itemId}:${field}`;
     setMeasurementsSynced(prev => {
-      const baseItemId = itemId.replace(
+      const baseItemId = String(itemId).replace(
         /__(allowance|sqft_basis|material|labor)$/,
         ''
       );
@@ -28163,6 +28317,13 @@ export default function AIEstimateScopeAssumptionsModal({
     item: ScopeChecklistItem,
     options?: { forcePinnedTexture?: boolean }
   ) => {
+    if (
+      wholeProjectPlanChecklist &&
+      (item.id === 'electrical' ||
+        /\belectrical outlets\b/i.test(String(item.label || '')))
+    ) {
+      return null;
+    }
     const bathroomPricingFlow =
       String(checklist?.templateKey || '').toLowerCase() === 'bathroom' ||
       String(draft?.projectType || '').toLowerCase() === 'bathroom' ||
@@ -28175,6 +28336,7 @@ export default function AIEstimateScopeAssumptionsModal({
       return null;
     }
     if (
+      !wholeProjectPlanChecklist &&
       item.id === 'exterior_paint' &&
       !/\b(?:exterior|outside)\s+(?:wall\s+)?paint(?:ing)?\b|\bpaint(?:ing)?\b[^.;\n]{0,35}\b(?:exterior|outside)\b|\b(?:siding|stucco|soffit|fascia)\b[^.;\n]{0,35}\bpaint(?:ing)?\b/i.test(
         scopeNotes
@@ -28229,6 +28391,7 @@ export default function AIEstimateScopeAssumptionsModal({
     }
     const customScopeCard = isCustomScopeItem(item);
     if (
+      !wholeProjectPlanChecklist &&
       !customScopeCard &&
       String(checklist?.templateKey || '').toLowerCase() === 'landscaping'
     ) {
@@ -28243,6 +28406,7 @@ export default function AIEstimateScopeAssumptionsModal({
       }
     }
     if (
+      !wholeProjectPlanChecklist &&
       !customScopeCard &&
       String(checklist?.templateKey || '').toLowerCase() === 'concrete'
     ) {
@@ -28395,22 +28559,20 @@ export default function AIEstimateScopeAssumptionsModal({
       );
     }
     const useWetAreaLineCard =
+      !wholeProjectPlanChecklist &&
       !bathroomPricingFlow &&
       item.id !== 'shower_pan' &&
       (item.derivedFrom === 'wet_area_install' ||
         WET_AREA_DERIVED_ITEM_IDS.has(item.id));
-    const useFlooringLineCard = shouldUseFlooringConfirmScopeLineCard(
-      checklist?.templateKey,
-      item
-    );
-    const useLandscapingLineCard = shouldUseLandscapingConfirmScopeLineCard(
-      checklist?.templateKey,
-      item
-    );
-    const useConcreteLineCard = shouldUseConcreteConfirmScopeLineCard(
-      checklist?.templateKey,
-      item
-    );
+    const useFlooringLineCard =
+      !wholeProjectPlanChecklist &&
+      shouldUseFlooringConfirmScopeLineCard(checklist?.templateKey, item);
+    const useLandscapingLineCard =
+      !wholeProjectPlanChecklist &&
+      shouldUseLandscapingConfirmScopeLineCard(checklist?.templateKey, item);
+    const useConcreteLineCard =
+      !wholeProjectPlanChecklist &&
+      shouldUseConcreteConfirmScopeLineCard(checklist?.templateKey, item);
     const row =
       useWetAreaLineCard ||
       useFlooringLineCard ||
@@ -29389,12 +29551,15 @@ export default function AIEstimateScopeAssumptionsModal({
           <PlanTakeoffPendingConfirmationStrip
             measurements={measurements as Record<string, unknown>}
             setMeasurements={updater => {
-              setMeasurementsSynced(prev => {
-                const next =
-                  typeof updater === 'function'
-                    ? updater(prev as Record<string, unknown>)
-                    : updater;
-                return next as typeof prev;
+              React.startTransition(() => {
+                measurementsSyncOptionsRef.current = { skipPricingResync: true };
+                setMeasurementsSynced(prev => {
+                  const next =
+                    typeof updater === 'function'
+                      ? updater(prev as Record<string, unknown>)
+                      : updater;
+                  return next as typeof prev;
+                });
               });
             }}
             allowedFields={pendingPlanConfirmationAllowedFields}
@@ -29832,7 +29997,11 @@ export default function AIEstimateScopeAssumptionsModal({
                     key={group.title || 'all'}
                     title={group.title}
                     items={regularItems}
-                    collapsed={Boolean(collapsedGroups[group.title])}
+                    collapsed={
+                      wholeProjectPlanChecklist
+                        ? false
+                        : Boolean(collapsedGroups[group.title])
+                    }
                     onToggle={() => {
                       const isCollapsed = Boolean(collapsedGroups[group.title]);
                       if (isCollapsed) {

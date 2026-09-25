@@ -842,7 +842,8 @@ function pickCountNearPattern(text: string, pattern: RegExp): number | null {
 const COUNT_TOKEN_RE =
   /\b(\d[\d,]*(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\b/i;
 
-function parseCountToken(value: string): number | null {
+function parseCountToken(value: string | undefined): number | null {
+  if (value == null || String(value).trim() === '') return null;
   const words: Record<string, number> = {
     one: 1,
     two: 2,
@@ -894,6 +895,16 @@ function pickOpeningCount(
       if (distance > 40) continue;
       if (!nearest || distance < nearest.distance) {
         nearest = { distance, count };
+      }
+    }
+    const afterStart = patternMatch.index + patternMatch[0].length;
+    const after = source.slice(afterStart, afterStart + 16);
+    const afterMatch = after.match(/^(?:\s|[·:–—-]){0,6}(\d[\d,]*)\b/);
+    const afterCount = afterMatch ? parseCountToken(afterMatch[1]) : null;
+    if (afterCount != null) {
+      const afterDistance = (afterMatch?.index ?? 0) + 1;
+      if (!nearest || afterDistance < nearest.distance) {
+        nearest = { distance: afterDistance, count: afterCount };
       }
     }
     return nearest?.count ?? null;

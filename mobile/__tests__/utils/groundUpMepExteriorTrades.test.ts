@@ -186,6 +186,34 @@ describe('ground-up MEP / exterior count gates', () => {
     expect(windows.fill).toBeFalsy();
   });
 
+  it('uses a windows planning allowance when the plan has no window count', () => {
+    const measurements = inputWith({
+      floorAreaSqft: '2571',
+      planImportMode: 'whole_project',
+    });
+    const priced = resolveScopeItemSuggestedPricing(
+      'windows',
+      measurements,
+      'ground_up',
+      resolveChecklistItemQuantity('windows', measurements, { templateKey: 'ground_up' })
+    );
+    expect(priced.fill?.total).toBeGreaterThan(9000);
+    expect(priced.fill?.installedBudgetBenchmark).toBe(true);
+    expect(priced.fill?.basis?.quantity).toBeUndefined();
+  });
+
+  it('prices a plan window count by the each rate', () => {
+    const measurements = inputWith({ windowCount: 6, floorAreaSqft: '2571' });
+    const priced = resolveScopeItemSuggestedPricing(
+      'windows',
+      measurements,
+      'ground_up',
+      resolveChecklistItemQuantity('windows', measurements, { templateKey: 'ground_up' })
+    );
+    expect(priced.fill?.basis?.unit).toBe('each');
+    expect(priced.fill?.basis?.quantity).toBe(6);
+  });
+
   it('prices excavation from planning CY when excavationCy is missing', () => {
     const measurements = inputWith({});
     const excavation = resolveScopeItemSuggestedPricing(

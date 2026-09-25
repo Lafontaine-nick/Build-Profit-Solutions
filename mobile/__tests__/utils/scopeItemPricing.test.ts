@@ -2490,6 +2490,9 @@ describe('resolveScopeItemSuggestedPricing', () => {
       unit: 'sqft',
     });
     expect(
+      resolveAllowanceEditorPricingBasis('shower_floor_tile', input, 'ground_up')
+    ).toBeNull();
+    expect(
       resolveAllowanceEditorPricingBasis('exterior_paint', input, 'ground_up')
     ).toEqual({
       quantity: 4200,

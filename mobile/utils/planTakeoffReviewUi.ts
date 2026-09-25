@@ -1,3 +1,4 @@
+import { WHOLE_PROJECT_DRAWING_COUNT_KEYS } from '@/utils/planScopeRecords';
 import {
   resolvePlanMeasurementProvenance,
   type PlanMeasurementProvenance,
@@ -2316,6 +2317,36 @@ export function wholeProjectReviewOmitsRoom(input: {
     return true;
   }
   return false;
+}
+
+/**
+ * Whole-project drawing counts stay on the draft even when the review box is
+ * unchecked. A confirmed box prices them. An open box stays a confirm count.
+ */
+export function wholeProjectDrawingCountApply(
+  rows: Array<{
+    key: string;
+    value: string | number;
+    include: boolean;
+    pricingEligible: boolean;
+  }>
+): {
+  values: Record<string, string>;
+  sources: Record<string, QuickMeasurementSourceTag>;
+} {
+  const values: Record<string, string> = {};
+  const sources: Record<string, QuickMeasurementSourceTag> = {};
+  for (const row of rows) {
+    if (!WHOLE_PROJECT_DRAWING_COUNT_KEYS.has(row.key)) continue;
+    const quantity = Number(row.value);
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    values[row.key] = String(quantity);
+    sources[row.key] =
+      row.include && row.pricingEligible
+        ? 'contractor_confirmed_from_plan_review'
+        : 'needs_confirmation';
+  }
+  return { values, sources };
 }
 
 /** Confirmed plan quantities for Scope found. Skips copies of living area and elevation noise. */

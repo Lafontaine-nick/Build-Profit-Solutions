@@ -51,6 +51,7 @@ import {
   augmentGarageDoorsScopeDetections,
   garageDoorsMeasurementKeysForScopeItem,
   garageDoorsTakeoffQuickMeasurementSources,
+  garageDoorCountsFromLabeledBays,
   reconcileGarageDoorTypeCounts,
   seedGarageDoorsReviewMeasurements,
   syncGarageDoorsScopeItems,
@@ -1181,6 +1182,26 @@ describe('subcontractor trade architecture (Phase 0)', () => {
           rooms: [
             { name: 'Garage', areaSqft: 443.7 },
             { name: 'RV Garage', areaSqft: 512.5 },
+          ],
+        }
+      )
+    ).toEqual({
+      garageDoorDoubleCount: 1,
+      garageDoorRvCount: 1,
+    });
+    expect(
+      garageDoorCountsFromLabeledBays([
+        { name: 'Garage', lengthFt: 21.5, widthFt: 23.5, areaSqft: 505.3 },
+        { name: 'Toy Garage', lengthFt: 24.75, widthFt: 20.75, areaSqft: 513.6 },
+      ])
+    ).toEqual({ single: 0, double: 1, rv: 1 });
+    expect(
+      reconcileGarageDoorTypeCounts(
+        {},
+        {
+          rooms: [
+            { name: 'Garage', lengthFt: 21.5, widthFt: 23.5, areaSqft: 505.3 },
+            { name: 'Toy Garage', lengthFt: 24.75, widthFt: 20.75, areaSqft: 513.6 },
           ],
         }
       )

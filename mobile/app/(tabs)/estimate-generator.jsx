@@ -5883,7 +5883,7 @@ export default function EstimateGeneratorScreen() {
                     'Draft generation timed out. Confirm your phone is on the same Wi‑Fi as your Mac, then try again.'
                   )
                 ),
-              45000
+              90000
             );
           }),
         ]);

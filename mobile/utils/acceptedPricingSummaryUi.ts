@@ -439,6 +439,27 @@ export function hasAcceptedScopePricing(
     return true;
   }
 
+  // Contractor typed the takeoff (shower wall sqft, bath floor, door count).
+  // Catalog material/labor filled from that count still belongs in Selected pricing.
+  const takeoffEntries = [
+    direct,
+    itemQuantities[allowanceSplitSubKey(itemId, 'sqft_basis')],
+  ];
+  if (
+    takeoffEntries.some((entry) => {
+      if (
+        entry?.quantitySource !== 'user_entered' &&
+        entry?.quantitySource !== 'manual_override'
+      ) {
+        return false;
+      }
+      const count = Number(String(entry.quantity ?? '').replace(/,/g, ''));
+      return Number.isFinite(count) && count > 0;
+    })
+  ) {
+    return true;
+  }
+
   // Applied suggestion: live dollars present and acceptance recorded.
   return Boolean(pricingAcceptance?.[itemId]);
 }
@@ -1313,7 +1334,18 @@ export function markManualPricingAdjustment(
   }
 
   const current = acceptance || pricingAcceptance?.[itemId];
-  if (!current) return pricingAcceptance;
+  if (!current) {
+    if (!(nextAmount != null && nextAmount > 0)) return pricingAcceptance;
+    return {
+      ...(pricingAcceptance || {}),
+      [itemId]: buildAcceptanceFromCustomScopePricing({
+        material: 0,
+        labor: 0,
+        total: nextAmount,
+        lumpSumOnly: true,
+      }),
+    };
+  }
   if (nextAmount != null && Math.abs(nextAmount - current.totalAmount) < 0.01) {
     return pricingAcceptance;
   }

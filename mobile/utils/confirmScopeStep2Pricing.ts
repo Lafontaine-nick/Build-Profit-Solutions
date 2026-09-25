@@ -342,6 +342,11 @@ export function step2TierNeedsInlineTakeoffEntry(
   pricingApplied?: boolean
 ): boolean {
   const template = String(templateKey || '').toLowerCase();
+  if (template === 'ground_up') {
+    // Plan quantities and planning allowances already show on the card.
+    // Do not add a second measurement box inside the pricing card.
+    return false;
+  }
   if (
     itemId === 'exterior_prep' &&
     String(resolved?.unit || '').toLowerCase() === 'sqft' &&

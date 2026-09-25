@@ -3003,6 +3003,27 @@ export function resolveQuickMeasurementDisplayValue(
     );
     if (cover != null) return String(cover);
   }
+  const planSource = String(
+    (
+      measurements as { quickMeasurementSources?: Record<string, string> }
+    ).quickMeasurementSources?.[key] || ''
+  );
+  const planQuantity = Number(String(raw ?? '').replace(/,/g, ''));
+  if (
+    [
+      'detected_from_plan',
+      'plan_detected',
+      'plan',
+      'plan_verified',
+      'measured_from_geometry',
+      'contractor_confirmed_from_plan_review',
+      'needs_confirmation',
+    ].includes(planSource) &&
+    Number.isFinite(planQuantity) &&
+    planQuantity > 0
+  ) {
+    return String(raw);
+  }
   // Explicit note quantities are authoritative over stale inferred/formula
   // values that may already be persisted on the draft.
   if (noteValues[key]) {

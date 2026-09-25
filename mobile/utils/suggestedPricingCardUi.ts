@@ -796,6 +796,10 @@ function installedBudgetPlanningConfirmation(itemId: string): string {
       return 'Confirm wall and attic/roof-deck SF before bid';
     case 'exterior_paint':
       return 'Confirm exterior paint surface SF before bid';
+    case 'windows':
+      return 'Confirm window count before bid';
+    case 'drywall':
+      return 'Confirm wall and ceiling surface SF before bid';
     case 'exterior_doors':
     case 'sliding_doors':
       return 'Confirm opening count before bid';
@@ -810,6 +814,8 @@ const INSTALLED_BUDGET_TAKEOFF_SCOPE_IDS = new Set([
   'stucco',
   'insulation',
   'exterior_paint',
+  'windows',
+  'drywall',
   'exterior_doors',
   'sliding_doors',
   'pour_flatwork',
@@ -1346,8 +1352,6 @@ export function buildSuggestedPricingCardDisplay(input: {
       block.benchmarkAction === 'comparison_only' ||
       block.benchmarkAction === 'included_in_stage'
         ? null
-        : installedBudgetNeedsTakeoff
-          ? 'Use planning allowance'
         : suggestedActionLabel(actionType),
     allowanceExtraNote,
     whyThisPriceLines: [...new Set(whyThisPriceLines.filter(Boolean))],

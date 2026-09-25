@@ -510,6 +510,7 @@ function applyElectricalVisionTakeoff({
   geometryDerived = [],
   electricalSelected = false,
   instanceTagKeys = [],
+  symbolCountKeys = [],
   inferredKeys = [],
   methodsAgreeKeys = [],
   independentVisionAgreementKeys = [],
@@ -527,6 +528,12 @@ function applyElectricalVisionTakeoff({
       .map((key) => String(key || "").trim())
       .filter(Boolean),
   );
+  const symbolCounts = new Set(
+    [...(symbolCountKeys || [])]
+      .map((key) => String(key || "").trim())
+      .filter((key) => key && !instance.has(key)),
+  );
+  for (const key of symbolCounts) labeled.delete(key);
   const inferred = remapElectricalLabeledKeys(inferredKeys);
   const inferredSet = new Set(inferred);
   const agreed = new Set(
@@ -558,6 +565,7 @@ function applyElectricalVisionTakeoff({
 
   if (!electricalSelected) {
     for (const key of ELECTRICAL_MEASUREMENT_KEYS) {
+      if (instance.has(key) || symbolCounts.has(key)) continue;
       if (!labeled.has(key)) delete next[key];
     }
   }

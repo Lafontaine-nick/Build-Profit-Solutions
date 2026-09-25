@@ -299,6 +299,52 @@ export type ExteriorDoorOpeningLumpFill = {
   scopeKey: 'exterior_doors' | 'sliding_doors';
 };
 
+/** H34 windows bid ÷ living SF. Planning allowance only — not a window count. */
+export const WINDOWS_PLANNING_PER_LIVING_SF = 4.09;
+
+/** Planning allowance when the elevations have not produced a window count. */
+export function resolveWindowsLumpSuggestedFill(params: {
+  livingSf?: number | null;
+  state?: string | null;
+}): {
+  material: number;
+  labor: number;
+  total: number;
+  rateSourceLabel: string;
+  helper: string;
+  comparisonRange: { low: number; high: number };
+  projectId: SouthernUtahProjectId | null;
+} {
+  const living = Number(params.livingSf);
+  const project = matchSouthernUtahProjectByLivingSf(params.livingSf);
+  const eachTotal = openingStandardEachTotal('windows');
+  const raw =
+    Number.isFinite(living) && living > 0
+      ? living * WINDOWS_PLANNING_PER_LIVING_SF
+      : eachTotal * 16;
+  const materialShare =
+    EXTERIOR_OPENING_NATIONAL_RATES.windows.material / eachTotal;
+  const scaled = scaleSplitLumpForState(
+    round2(raw * materialShare),
+    round2(raw * (1 - materialShare)),
+    { state: params.state }
+  );
+  return {
+    material: scaled.material,
+    labor: scaled.labor,
+    total: scaled.total,
+    rateSourceLabel:
+      'Suggested · National Average (planning allowance until the window count is read)',
+    helper:
+      'Planning allowance from house size. Use the elevation window count for per-window pricing.',
+    comparisonRange: {
+      low: Math.round(scaled.total * 0.85),
+      high: Math.round(scaled.total * 1.15),
+    },
+    projectId: project?.id ?? null,
+  };
+}
+
 /** SHV H36 planning lump when exterior swing door count is missing — blended + state. */
 export function resolveExteriorDoorsLumpSuggestedFill(params: {
   livingSf?: number | null;

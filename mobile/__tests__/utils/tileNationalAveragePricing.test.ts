@@ -41,8 +41,8 @@ describe('tile national-average subtype pricing', () => {
       labor: 11,
     });
     expect(getNationalAverageBudgetSplit('floor_tile', 'sqft')).toMatchObject({
-      material: 8,
-      labor: 13,
+      material: 4,
+      labor: 6,
     });
     expect(getNationalAverageBudgetSplit('wall_tile_dry_area', 'sqft')).toMatchObject({
       material: 8,

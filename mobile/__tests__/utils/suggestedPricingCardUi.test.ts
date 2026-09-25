@@ -370,7 +370,7 @@ describe('suggestedPricingCardUi', () => {
     expect(display.quantityLine).toMatch(/Planning basis.*2,800 living SF/);
     expect(display.splitLine).toMatch(/Planning allowance/);
     expect(display.splitLine).toMatch(/exterior wall surface/i);
-    expect(display.actionLabel).toBe('Use planning allowance');
+    expect(display.actionLabel).toBe('Apply');
   });
 
   it('uses blended SF pricing chrome for flooring install cards', () => {

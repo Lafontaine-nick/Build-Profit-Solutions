@@ -1030,6 +1030,60 @@ const OPENING_COUNT_RESTORE_KEYS = [
   ...GARAGE_DOORS_COUNT_KEYS,
 ];
 
+const WHOLE_PROJECT_SYMBOL_KEYS = [
+  "windowCount",
+  "exteriorDoorCount",
+  "slidingDoorCount",
+  "interiorDoorCount",
+  "singlePoleSwitchCount",
+  "threeWaySwitchCount",
+  "ceilingFanCount",
+  "bathExhaustFanCount",
+];
+
+const WHOLE_PROJECT_ELECTRICAL_SYMBOL_KEYS = new Set([
+  "singlePoleSwitchCount",
+  "threeWaySwitchCount",
+  "ceilingFanCount",
+  "bathExhaustFanCount",
+]);
+
+function filterWholeProjectSymbolMeasurements(payload) {
+  const root = payload && typeof payload === "object" ? payload : {};
+  const nested =
+    root.measurements && typeof root.measurements === "object"
+      ? root.measurements
+      : null;
+  const src = { ...root, ...(nested || {}) };
+  const out = {};
+  for (const key of WHOLE_PROJECT_SYMBOL_KEYS) {
+    const count = Math.round(Number(src[key]));
+    if (Number.isFinite(count) && count >= 1 && count <= 200) out[key] = count;
+  }
+  const evidence = Array.isArray(root.planFacts?.openingEvidence)
+    ? root.planFacts.openingEvidence
+    : Array.isArray(root.openingEvidence)
+      ? root.openingEvidence
+      : [];
+  const byCategory = {
+    window: "windowCount",
+    exterior_swing: "exteriorDoorCount",
+    sliding: "slidingDoorCount",
+    interior: "interiorDoorCount",
+  };
+  const totals = {};
+  for (const row of evidence) {
+    const key = byCategory[String(row?.category || "")];
+    if (!key) continue;
+    const quantity = Math.round(Number(row?.quantity));
+    totals[key] = (totals[key] || 0) + (quantity >= 1 ? quantity : 1);
+  }
+  for (const [key, total] of Object.entries(totals)) {
+    if (out[key] == null && total >= 1 && total <= 200) out[key] = total;
+  }
+  return out;
+}
+
 const WINDOWS_DOORS_VISION_INSTRUCTIONS = `
 Windows & doors takeoff rules:
 - This trade is fenestration and doors only — never return garage door counts here. Garage doors are a separate trade.
@@ -1459,6 +1513,8 @@ Rules:
 5. measurements.flooringSqft = same as floorAreaSqft when living SF is known.
 6. measurements.deckSqft = covered patio + roof deck (+ covered outdoor when no patio) from the schedule. NEVER put covered patio / roof deck into concreteSqft.
 7. measurements.garageSqft = Garage Area from the schedule when labeled (not living SF). Still list Garage / RV Garage as separate rooms[] entries with their L×W when labeled.
+7b. Read every opening you can actually see on the floor plan or elevations. Return windowCount, exteriorDoorCount, slidingDoorCount (only true sliders), and interiorDoorCount. Return garageDoorSingleCount, garageDoorDoubleCount, and garageDoorRvCount from the elevation or labeled bays — a bay labeled Toy Garage or RV Garage is one RV door, and a two-car Garage bay is one double. Omit a count only when that opening type is not on the sheets. Never invent a count from living area or garage square footage. Do not count garage-door openers unless they are labeled.
+7c. Do not fill drywall, paint, insulation, foundation cubic yards, or excavation cubic yards from living area. Leave those unmeasured so the app can show a planning allowance.
 8. measurements.concreteSqft ONLY for labeled concrete slab / driveway / sidewalk / flatwork when a single total is shown — omit for covered patio or wood deck. Put concreteSqft in explicitlyLabeled when used.
 8b. When the plan labels separate flatwork areas, prefer measurements.concreteDrivewaySqft, concretePatioSqft, concreteWalkwaySqft, concreteSidewalkSqft, and concreteRvPadSqft instead of rolling them into concreteSqft. Only use concreteSqft when the sheet gives one combined flatwork total.
 8c. measurements.concreteCy ONLY for labeled footing / foundation / structural concrete CY when explicitly dimensioned or scheduled — never estimate CY from flatwork SF.
@@ -2573,10 +2629,48 @@ function tallyGarageDoorTypesFromSchedule(schedules) {
   return tallies;
 }
 
+function isRvOrToyGarageBayName(name) {
+  return /\b(?:rv|toy)\s*garage\b/i.test(String(name || ""));
+}
+
 function countRvGarageRooms(rooms) {
   return (Array.isArray(rooms) ? rooms : []).filter((room) =>
-    /\brv\s*garage\b/i.test(String(room?.name || "")),
+    isRvOrToyGarageBayName(room?.name),
   ).length;
+}
+
+function garageDoorCountsFromLabeledBays(rooms) {
+  const list = Array.isArray(rooms) ? rooms : [];
+  const bays = list.filter((room) => {
+    const name = String(room?.name || "");
+    return isRvOrToyGarageBayName(name) || (/\bgarage\b/i.test(name) && !isRvOrToyGarageBayName(name));
+  });
+  if (!bays.length) return null;
+  const counts = { single: 0, double: 0, rv: 0 };
+  for (const room of bays) {
+    const area = Number(room?.areaSqft);
+    const smallerBayExists = bays.some((other) => {
+      const otherArea = Number(other?.areaSqft);
+      return otherArea > 0 && otherArea < area - 1;
+    });
+    if (area > 800 && smallerBayExists) continue;
+    if (isRvOrToyGarageBayName(room?.name)) {
+      counts.rv += 1;
+      continue;
+    }
+    const lengthFt = Number(room?.lengthFt);
+    const widthFt = Number(room?.widthFt);
+    const shorter =
+      lengthFt > 0 && widthFt > 0
+        ? Math.min(lengthFt, widthFt)
+        : area > 0
+          ? Math.sqrt(area)
+          : null;
+    if (shorter != null && shorter < 16) counts.single += 1;
+    else counts.double += 1;
+  }
+  if (counts.single + counts.double + counts.rv <= 0) return null;
+  return counts;
 }
 
 function reconcileGarageDoorTypeCounts(measurements, { rooms, openingSchedules } = {}) {
@@ -2607,6 +2701,15 @@ function reconcileGarageDoorTypeCounts(measurements, { rooms, openingSchedules }
     const transfer = Math.min(single, rvGarageRooms);
     single -= transfer;
     rv += transfer;
+  }
+
+  if (single + double + rv === 0) {
+    const fromBays = garageDoorCountsFromLabeledBays(rooms);
+    if (fromBays) {
+      single = fromBays.single;
+      double = fromBays.double;
+      rv = fromBays.rv;
+    }
   }
 
   const out = { ...(measurements || {}) };
@@ -4249,6 +4352,31 @@ async function analyzePlanForMeasurements({
     electricalSelected || insulationSelected
       ? 0
       : Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15);
+  const wholeProjectSymbolRasterPromise =
+    planSelection.mode === "whole_project" &&
+    !planSelection.trade &&
+    pdfBuffers.length
+      ? (async () => {
+          try {
+            const {
+              renderWindowsDoorsPlanPages,
+              selectWholeProjectSymbolPages,
+            } = require("./planPdfTextTakeoff");
+            const pages = selectWholeProjectSymbolPages(pdfTakeoff);
+            if (!pages.length) return [];
+            return await renderWindowsDoorsPlanPages(pdfBuffers, pages, {
+              maxPages: 6,
+              maxDimension: 2200,
+            });
+          } catch (err) {
+            console.warn(
+              "Whole-project symbol raster skipped:",
+              err?.message || err,
+            );
+            return [];
+          }
+        })()
+      : Promise.resolve([]);
   const measurementsPromise = createOpenAiChatCompletion(openai, {
     model: aiModels.assistant.vision,
     response_format: aiRuntime.assistant.vision.responseFormat,
@@ -4344,6 +4472,8 @@ async function analyzePlanForMeasurements({
                                 ? paintingVisionInstructions
                                 : "Do not invent paint, drywall, or trim quantities. If a Stucco quantity is unavailable, list the exact missing sheet/measurement in unreadableFields or missingInfo.",
                               "Covered patio / roof deck → deckSqft. Garage schedule → garageSqft. Never map patio to concrete flatwork.",
+                              "Read every opening you can see. Return windowCount, exteriorDoorCount, slidingDoorCount for true sliders only, and interiorDoorCount. Return garageDoorSingleCount, garageDoorDoubleCount, and garageDoorRvCount. A two-car bay labeled Garage is one double. A bay labeled Toy Garage or RV Garage is one RV door. Never invent a count from living area or garage square footage, and do not count openers unless they are labeled.",
+                              "Leave drywall, paint, insulation, foundation cubic yards, and excavation cubic yards empty unless the sheet prints that quantity. Those trades stay planning allowances.",
                               hintBits.length
                                 ? hintBits.join("\n\n")
                                 : "No extra context.",
@@ -4499,9 +4629,72 @@ async function analyzePlanForMeasurements({
         },
       ],
     });
+  const createWholeProjectSymbolCompletion = (symbolImages) =>
+    createOpenAiChatCompletion(openai, {
+      model: aiModels.assistant.vision,
+      response_format: aiRuntime.assistant.vision.responseFormat,
+      temperature: 0,
+      reasoning_effort: "none",
+      max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 4000),
+      messages: [
+        {
+          role: "system",
+          content:
+            "Count visible opening and electrical symbols. Return JSON only, with every count inside measurements. A visible window, swing door, or interior door with no count is a failed takeoff. Omit a count only when that symbol is not on the attached sheets. Never invent a count from living area, room count, or garage square footage.",
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: [
+                `The attached images are the floor plan, exterior elevations, and electrical sheet (pages ${symbolImages
+                  .map((page) => page.page)
+                  .filter(Boolean)
+                  .join(", ")}).`,
+                "Count each physical opening once. Windows, exterior doors, and sliders come from the elevation sheets only. Do not add the same window again from the floor plan. Interior doors come from the floor plan only. Return windowCount, exteriorDoorCount, slidingDoorCount, and interiorDoorCount. Count opening units, not door leaves. A hinged or French door is an exterior door. Return slidingDoorCount only for a visible track, multi-slide, bypass, or slider symbol, and omit it when none is visible.",
+                "Do not return garage door counts.",
+                "Switches, ceiling fans, and exhaust fans come from the electrical sheet only. Return singlePoleSwitchCount, threeWaySwitchCount, ceilingFanCount, and bathExhaustFanCount only for symbols you can see. Do not count a recessed light as a switch or a fan. Omit a device type that is not drawn.",
+                "Do not return recessedLightCount, drywall, paint, insulation, foundation, or excavation. Put every returned count in measurements and list those keys in geometryDerived.",
+                'Example shape: {"measurements":{"windowCount":12,"exteriorDoorCount":2,"interiorDoorCount":8,"singlePoleSwitchCount":10},"geometryDerived":["windowCount","exteriorDoorCount","interiorDoorCount","singlePoleSwitchCount"]}',
+              ].join("\n\n"),
+            },
+            ...symbolImages.map((page) => {
+              const part = toVisionContentPart(page);
+              if (part?.image_url) part.image_url.detail = "high";
+              return part;
+            }),
+          ],
+        },
+      ],
+    });
+  let wholeProjectSymbolPass = false;
+  let wholeProjectElectricalSymbolKeys = [];
   const tradeVisualPromise =
     planSelection.mode === "whole_project" || planSelection.trade
       ? (async () => {
+          const symbolImages = await wholeProjectSymbolRasterPromise;
+          console.log(
+            "[plan symbol pages]",
+            symbolImages.length
+              ? symbolImages.map((page) => ({
+                  page: page.page,
+                  bytes: page.byteLength || null,
+                }))
+              : "none",
+          );
+          if (symbolImages.length) {
+            try {
+              wholeProjectSymbolPass = true;
+              return await createWholeProjectSymbolCompletion(symbolImages);
+            } catch (err) {
+              wholeProjectSymbolPass = false;
+              console.warn(
+                "Whole-project symbol count pass failed:",
+                err?.message || err,
+              );
+            }
+          }
           if (!insulationSelected) return createTradeVisualCompletion();
 
           // Two focused reads in parallel: a single empty elevation pass
@@ -4575,9 +4768,10 @@ async function analyzePlanForMeasurements({
   let plumbingWaterHeaterDetail = null;
   let plumbingGasApplianceScope = null;
   let plumbingReviewStatus = null;
-  const electricalTagMeasurements = electricalSelected
-    ? instanceTagMeasurementsFromTakeoff(pdfTakeoff)
-    : {};
+  const electricalTagMeasurements =
+    electricalSelected || planSelection.mode === "whole_project"
+      ? instanceTagMeasurementsFromTakeoff(pdfTakeoff)
+      : {};
   const hvacTagMeasurements = hvacSelected
     ? hvacPdfTextMeasurementsFromTakeoff(pdfTakeoff)
     : {};
@@ -4586,6 +4780,37 @@ async function analyzePlanForMeasurements({
       const focused = JSON.parse(
         tradeVisualCompletion.choices?.[0]?.message?.content || "{}",
       );
+      if (wholeProjectSymbolPass) {
+        console.log("[plan symbol count]", {
+          topLevelKeys: Object.keys(focused || {}),
+          measurementKeys: Object.keys(focused.measurements || {}),
+          openingEvidence: Array.isArray(focused.planFacts?.openingEvidence)
+            ? focused.planFacts.openingEvidence.length
+            : 0,
+        });
+        focused.measurements = filterWholeProjectSymbolMeasurements(focused);
+        const symbolKeys = Object.keys(focused.measurements);
+        wholeProjectElectricalSymbolKeys = symbolKeys.filter((key) =>
+          WHOLE_PROJECT_ELECTRICAL_SYMBOL_KEYS.has(key),
+        );
+        focused.geometryDerived = [
+          ...new Set([
+            ...normalizedStringList(focused.geometryDerived).filter(
+              (key) => !WHOLE_PROJECT_ELECTRICAL_SYMBOL_KEYS.has(key),
+            ),
+            ...symbolKeys.filter(
+              (key) => !WHOLE_PROJECT_ELECTRICAL_SYMBOL_KEYS.has(key),
+            ),
+          ]),
+        ];
+        focused.fieldConfidence = { ...(focused.fieldConfidence || {}) };
+        for (const key of symbolKeys) {
+          focused.fieldConfidence[key] = Math.max(
+            Number(focused.fieldConfidence[key]) || 0,
+            0.8,
+          );
+        }
+      }
       if (electricalSelected) {
         focusedElectricalVisionSource = focused.measurements;
         focusedElectricalVision = electricalDebugSnapshot(focused.measurements);
@@ -4824,6 +5049,20 @@ async function analyzePlanForMeasurements({
     };
     measurementConflicts = mergedMeasurements.conflicts;
     parsed.measurements = mergedMeasurements.measurements;
+  }
+
+  if (
+    !electricalSelected &&
+    planSelection.mode === "whole_project" &&
+    Object.keys(electricalTagMeasurements).length
+  ) {
+    parsed.measurements = { ...(parsed.measurements || {}) };
+    for (const [key, value] of Object.entries(electricalTagMeasurements)) {
+      if (parsed.measurements[key] == null) parsed.measurements[key] = value;
+      if (parsed.fieldConfidence && typeof parsed.fieldConfidence === "object") {
+        parsed.fieldConfidence[key] = 1;
+      }
+    }
   }
 
   if (electricalSelected) {
@@ -5197,6 +5436,7 @@ async function analyzePlanForMeasurements({
     geometryDerived: parsed.geometryDerived,
     inferredKeys: parsed.inferredKeys,
     instanceTagKeys: Object.keys(electricalTagMeasurements || {}),
+    symbolCountKeys: wholeProjectElectricalSymbolKeys,
     methodsAgreeKeys: Object.entries(measurementProvenance || {})
       .filter(([, entry]) => entry?.methodsAgree)
       .map(([key]) => key),
@@ -5847,6 +6087,9 @@ async function analyzePlanForMeasurements({
     itemQuantities: buildItemQuantities(tradeMeasurements),
     assumptions,
     notesBlock,
+    finishSchedule: Array.isArray(pdfTakeoff?.finishSchedule)
+      ? pdfTakeoff.finishSchedule
+      : [],
     scope: tradeScope,
     estimatingMode: planSelection.mode,
     selectedTrade: planSelection.trade?.key || null,
@@ -5909,6 +6152,8 @@ module.exports = {
   collectUnclassifiedElectricalFixtures,
   applyConfidenceFloor,
   applyWindowsDoorsPlanTakeoff,
+  filterWholeProjectSymbolMeasurements,
+  WHOLE_PROJECT_SYMBOL_KEYS,
   buildItemQuantities,
   formatNotesBlock,
   mergeRoomsPreferPdf,

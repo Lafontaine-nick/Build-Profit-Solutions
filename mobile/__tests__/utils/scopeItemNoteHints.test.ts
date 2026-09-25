@@ -12,10 +12,15 @@ import {
 } from '@/utils/scopeItemNoteHints';
 import {
   applyGroundUpShellScopeDefaults,
+  ensureWholeProjectGroundUpScopeItems,
   filterRoomRemodelNoteScopeItems,
+  groupScopeChecklistItems,
+  isMixedExteriorScopeNotes,
+  isWholeProjectPlanExport,
   applyScopeInferencesFromNotes,
   hydrateScopeChecklistFromNotes,
 } from '@/utils/estimateScopeChecklistUi';
+import { resolveChecklistItemQuantity } from '@/utils/scopeItemQuantities';
 
 describe('scopeItemNoteHints trim inference', () => {
   const BATH_REMODEL =
@@ -514,6 +519,102 @@ describe('ground-up owner-handled scope exclusions', () => {
     expect(items.find(i => i.id === 'landscaping')?.state).toBe('included');
     expect(items.find(i => i.id === 'utility_taps')?.state).toBe('included');
     expect(items.find(i => i.id === 'sitework')?.state).toBe('unsure');
+  });
+
+  test('plan export keeps the ground-up checklist and does not price living area as flatwork', () => {
+    const notes =
+      'Ground-up new construction from imported architectural plans.\n--- Plan takeoff ---\nLiving area: 2,571 sqft. Deck / patio: 322 sqft. Windows: 31. Exterior doors: 4. Roofing.';
+    const shortList = [
+      {
+        id: 'pour_flatwork',
+        label: 'Pour flatwork',
+        inputType: 'yes_no' as const,
+        state: 'included' as const,
+      },
+      {
+        id: 'windows',
+        label: 'Windows',
+        inputType: 'yes_no' as const,
+        state: 'included' as const,
+      },
+      {
+        id: 'exterior_trim_paint',
+        label: 'Exterior trim paint',
+        inputType: 'yes_no' as const,
+        state: 'included' as const,
+      },
+      {
+        id: 'exterior_prep',
+        label: 'Exterior Prep & Masking',
+        inputType: 'yes_no' as const,
+        state: 'included' as const,
+      },
+    ];
+    expect(isMixedExteriorScopeNotes(notes)).toBe(false);
+    expect(filterRoomRemodelNoteScopeItems(shortList, notes)).toHaveLength(
+      shortList.length
+    );
+    const items = ensureWholeProjectGroundUpScopeItems(shortList, notes);
+    for (const id of [
+      'excavation',
+      'utility_taps',
+      'landscaping',
+      'foundation',
+      'framing',
+      'roofing',
+      'insulation',
+      'drywall',
+      'interior_paint',
+      'exterior_paint',
+      'electrical_rough',
+      'electrical_trim',
+      'plumbing_rough',
+      'plumbing_trim',
+      'hvac',
+      'flooring',
+      'cabinets',
+      'permits',
+    ]) {
+      expect(items.find(item => item.id === id)?.state).toBe('included');
+    }
+    expect(items.some(item => item.id === 'exterior_trim_paint')).toBe(false);
+    expect(items.some(item => item.id === 'exterior_prep')).toBe(false);
+    const groups = groupScopeChecklistItems(items, 'ground_up', { notes });
+    expect(groups.some(group => group.title === 'Structure')).toBe(true);
+    expect(groups.some(group => group.title === 'Mixed exterior scope')).toBe(
+      false
+    );
+    const mixedNotes =
+      'Covered patio 322 sqft and exterior doors. Pour flatwork.';
+    expect(
+      groupScopeChecklistItems(items, 'painting', {
+        notes: mixedNotes,
+        wholeProjectPlan: true,
+      }).some(group => group.title === 'Mixed exterior scope')
+    ).toBe(false);
+    expect(
+      isWholeProjectPlanExport({
+        hasPlanBuildingAreas: true,
+        notes: mixedNotes,
+      })
+    ).toBe(true);
+    expect(items.some(item => item.id === 'electrical')).toBe(false);
+    const flatwork = resolveChecklistItemQuantity(
+      'pour_flatwork',
+      {
+        floorAreaSqft: '2571',
+        concreteSqft: '2571',
+        itemQuantities: {
+          pour_flatwork: {
+            quantity: 2571,
+            unit: 'sqft',
+            quantitySource: 'user_entered',
+          },
+        },
+      } as any,
+      { templateKey: 'ground_up', notes }
+    );
+    expect(flatwork.quantity).not.toBe(2571);
   });
 
   test('applyScopeInferencesFromNotes excludes owner sitework and includes shell', () => {

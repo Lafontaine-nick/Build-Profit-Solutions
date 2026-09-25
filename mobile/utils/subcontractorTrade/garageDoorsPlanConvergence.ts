@@ -9,21 +9,75 @@ export type GarageDoorsReconcileContext = {
   openingSchedules?: OpeningSchedules | null;
 };
 
+export function isRvOrToyGarageBayName(name: string | null | undefined): boolean {
+  return /\b(?:rv|toy)\s*garage\b/i.test(String(name || ''));
+}
+
+export function isStandardGarageBayName(name: string | null | undefined): boolean {
+  const text = String(name || '');
+  return /\bgarage\b/i.test(text) && !isRvOrToyGarageBayName(text);
+}
+
 export function countRvGarageRooms(
   rooms?: Array<{ name?: string | null }> | null
 ): number {
-  return (rooms || []).filter(room =>
-    /\brv\s*garage\b/i.test(String(room?.name || ''))
-  ).length;
+  return (rooms || []).filter(room => isRvOrToyGarageBayName(room?.name)).length;
 }
 
 export function countStandardGarageRooms(
   rooms?: Array<{ name?: string | null }> | null
 ): number {
-  return (rooms || []).filter(room => {
-    const name = String(room?.name || '');
-    return /\bgarage\b/i.test(name) && !/\brv\s*garage\b/i.test(name);
-  }).length;
+  return (rooms || []).filter(room => isStandardGarageBayName(room?.name)).length;
+}
+
+type LabeledGarageBay = {
+  name?: string | null;
+  lengthFt?: number | null;
+  widthFt?: number | null;
+  areaSqft?: number | null;
+};
+
+function bayShorterSideFt(room: LabeledGarageBay): number | null {
+  const lengthFt = Number(room.lengthFt);
+  const widthFt = Number(room.widthFt);
+  if (lengthFt > 0 && widthFt > 0) return Math.min(lengthFt, widthFt);
+  const area = Number(room.areaSqft);
+  if (area > 0) return Math.sqrt(area);
+  return null;
+}
+
+/**
+ * One door per labeled garage bay. Toy Garage and RV Garage are RV doors.
+ * A standard Garage bay is a double when it is two-car sized, otherwise a single.
+ * Garage square footage alone does not create a door.
+ */
+export function garageDoorCountsFromLabeledBays(
+  rooms?: LabeledGarageBay[] | null
+): { single: number; double: number; rv: number } | null {
+  const list = Array.isArray(rooms) ? rooms : [];
+  const bays = list.filter(
+    room => isRvOrToyGarageBayName(room?.name) || isStandardGarageBayName(room?.name)
+  );
+  if (!bays.length) return null;
+  const smallerBayExists = (area: number) =>
+    bays.some(other => {
+      const otherArea = Number(other.areaSqft);
+      return otherArea > 0 && otherArea < area - 1;
+    });
+  const counts = { single: 0, double: 0, rv: 0 };
+  for (const room of bays) {
+    const area = Number(room.areaSqft);
+    if (area > 800 && smallerBayExists(area)) continue;
+    if (isRvOrToyGarageBayName(room.name)) {
+      counts.rv += 1;
+      continue;
+    }
+    const shorter = bayShorterSideFt(room);
+    if (shorter != null && shorter < 16) counts.single += 1;
+    else counts.double += 1;
+  }
+  if (counts.single + counts.double + counts.rv <= 0) return null;
+  return counts;
 }
 
 /**
@@ -63,6 +117,15 @@ export function reconcileGarageDoorTypeCounts(
     const transfer = Math.min(single, rvGarageRooms);
     single -= transfer;
     rv += transfer;
+  }
+
+  if (single + double + rv === 0) {
+    const fromBays = garageDoorCountsFromLabeledBays(context?.rooms);
+    if (fromBays) {
+      single = fromBays.single;
+      double = fromBays.double;
+      rv = fromBays.rv;
+    }
   }
 
   const out: Record<string, number> = {};

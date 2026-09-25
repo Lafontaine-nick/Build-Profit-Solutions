@@ -1180,6 +1180,15 @@ export function syncElectricalScopeItems<
     ) {
       return false;
     }
+    if (
+      hasDetailedElectricalTrimDeviceQuantities(
+        quantities as Record<string, unknown>
+      ) &&
+      item.id === 'electrical_trim' &&
+      !userEnteredItemQuantities.has(item.id)
+    ) {
+      return false;
+    }
     // The generic Electrical card is a cross-trade fallback, not a second
     // card on the dedicated Electrical checklist.
     if (dedicatedElectricalScope && item.id === 'electrical') {
@@ -1687,6 +1696,13 @@ function matchRuleCount(text: string, rule: ParseRule): number | null {
   const raw = match.slice(1).find(part => part != null && String(part).trim());
   const counted = parseCountToken(raw);
   if (counted != null) return counted;
+  const after = text.slice(
+    (match.index ?? 0) + match[0].length,
+    (match.index ?? 0) + match[0].length + 16
+  );
+  const trailing = after.match(/^(?:\s|[·:–—-]){0,6}(\d[\d,]*)\b/);
+  const trailingCount = parseCountToken(trailing?.[1]);
+  if (trailingCount != null) return trailingCount;
   return rule.defaultCount ?? 1;
 }
 

@@ -264,7 +264,7 @@ function splitCombinedLibraryPerUnit(itemId: string, perUnit: number): { materia
   const ratioByItem: Record<string, { material: number; labor: number }> = {
     waterproofing: { material: 5, labor: 7 },
     shower_tile: { material: 8, labor: 18 },
-    floor_tile: { material: 4, labor: 8 },
+    floor_tile: { material: 4, labor: 6 },
     flooring: { material: 3, labor: 5 },
   };
   const ratio = ratioByItem[itemId] || { material: 0.4, labor: 0.6 };

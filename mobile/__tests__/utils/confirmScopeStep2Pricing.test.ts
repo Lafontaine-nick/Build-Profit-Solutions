@@ -59,6 +59,32 @@ describe('confirmScopeStep2Pricing tiers', () => {
     ).toBe(false);
   });
 
+  it('hides measurement boxes on ground-up pricing cards', () => {
+    for (const [itemId, unit] of [
+      ['excavation', 'cy'],
+      ['foundation', 'cy'],
+      ['pour_flatwork', 'sqft'],
+      ['insulation', 'sqft'],
+      ['windows', 'each'],
+      ['exterior_doors', 'each'],
+      ['interior_doors', 'each'],
+      ['landscaping', 'sqft'],
+      ['plumbing_rough', 'each'],
+      ['roofing', 'squares'],
+      ['drywall', 'sqft'],
+      ['interior_paint', 'sqft'],
+      ['flooring', 'sqft'],
+    ] as const) {
+      expect(
+        step2TierNeedsInlineTakeoffEntry(itemId, 'ground_up', {
+          pricingReady: false,
+          unit,
+          quantity: 0,
+        })
+      ).toBe(false);
+    }
+  });
+
   it('classifies ground-up framing as auto_planning without on-card SF box', () => {
     expect(resolveStep2PricingTier('framing', 'ground_up').tier).toBe('auto_planning');
     expect(
@@ -115,13 +141,13 @@ describe('confirmScopeStep2Pricing tiers', () => {
 
   it('still shows physical takeoff fields when the unit is not allowance', () => {
     expect(
-      step2TierNeedsInlineTakeoffEntry('insulation', 'ground_up', {
+      step2TierNeedsInlineTakeoffEntry('insulation', 'addition', {
         pricingReady: false,
         unit: 'sqft',
       })
     ).toBe(true);
     expect(
-      step2TierNeedsInlineTakeoffEntry('windows', 'ground_up', {
+      step2TierNeedsInlineTakeoffEntry('windows', 'addition', {
         pricingReady: false,
         unit: 'each',
       })
@@ -149,35 +175,36 @@ describe('confirmScopeStep2Pricing tiers', () => {
       })
     ).toBe(false);
     expect(
-      step2TierNeedsInlineTakeoffEntry('landscaping', 'ground_up', {
+      step2TierNeedsInlineTakeoffEntry('landscaping', 'addition', {
         pricingReady: false,
         unit: 'sqft',
       })
     ).toBe(true);
     expect(
-      step2TierNeedsInlineTakeoffEntry('plumbing_rough', 'ground_up', {
+      step2TierNeedsInlineTakeoffEntry('plumbing_rough', 'addition', {
         pricingReady: false,
         unit: 'each',
       })
     ).toBe(true);
   });
 
-  it('ground-up template rules with allowance default never get an on-card allowance box', () => {
-    const groundUpAllowanceScopes = [
+  it('ground-up pricing cards never show an on-card measurement box', () => {
+    const groundUpScopes = [
       'landscaping',
       'plumbing_trim',
       'electrical_trim',
       'interior_trim',
       'cleanup',
+      'foundation',
+      'insulation',
+      'windows',
     ];
-    for (const itemId of groundUpAllowanceScopes) {
+    for (const itemId of groundUpScopes) {
       const rule = getChecklistItemQuantityRuleOrDefault(itemId, 'ground_up');
-      const unit = String(rule.defaultUnit || '').toLowerCase();
-      expect(['allowance', 'lump_sum']).toContain(unit);
       expect(
         step2TierNeedsInlineTakeoffEntry(itemId, 'ground_up', {
           pricingReady: false,
-          unit,
+          unit: rule.defaultUnit,
         })
       ).toBe(false);
     }

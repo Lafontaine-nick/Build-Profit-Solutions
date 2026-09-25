@@ -58,6 +58,7 @@ import {
 } from '@/utils/measurementSemantics/areaReconciliation';
 import {
   applyPlanTakeoffButtonLabel,
+  wholeProjectDrawingCountApply,
   buildConcretePlanReviewSummary,
   buildElectricalPlanReviewSummary,
   buildFlooringPlanReviewSummary,
@@ -96,6 +97,10 @@ import {
   wholeProjectReviewOmitsMeasurement,
   wholeProjectReviewOmitsRoom,
 } from '@/utils/planTakeoffReviewUi';
+import {
+  buildPlanScopeRecords,
+  formatPlanScopeFinding,
+} from '@/utils/planScopeRecords';
 import {
   planProvenanceColor,
   resolvePlanMeasurementProvenance,
@@ -455,6 +460,22 @@ export default function PlanTakeoffReviewModal({
   );
   const effectiveMode = importSelection.mode;
   const effectiveTradeKey = importSelection.trade?.key || null;
+  const planScopeRecords = useMemo(
+    () =>
+      effectiveMode === 'whole_project'
+        ? buildPlanScopeRecords({
+            rooms: takeoff?.rooms,
+            measurements: takeoff?.measurements,
+            buildingAreas: takeoff?.buildingAreas as
+              | Record<string, unknown>
+              | undefined,
+            fixtureInventory: takeoff?.fixtureInventory,
+            fieldEvidence: takeoff?.fieldEvidence,
+            openingEvidence: takeoff?.planFacts?.openingEvidence,
+          })
+        : [],
+    [effectiveMode, takeoff]
+  );
   const tradeReview = effectiveMode === 'selected_trade';
 
   const [rows, setRows] = useState<PlanReviewRow[]>([]);
@@ -1434,11 +1455,17 @@ export default function PlanTakeoffReviewModal({
       unresolved.map(conflict => String(conflict.field))
     );
     const values: Record<string, string> = {};
+    const drawingCountApply =
+      effectiveTradeKey == null ? wholeProjectDrawingCountApply(rows) : null;
     for (const row of rows) {
       if (unresolvedFields.has(row.key)) continue;
       const n = Number(row.value);
       if (!(Number.isFinite(n) && n > 0)) continue;
-      if (effectiveTradeKey === 'hvac' || row.include) {
+      if (
+        effectiveTradeKey === 'hvac' ||
+        row.include ||
+        drawingCountApply?.values[row.key]
+      ) {
         values[row.key] = String(n);
       }
     }
@@ -1833,11 +1860,13 @@ export default function PlanTakeoffReviewModal({
         waterHeaterDetail: takeoff.waterHeaterDetail,
         gasApplianceScope: takeoff.gasApplianceScope,
         ...(hvacQuickMeasurementSourcesFromReview ||
-        openingCountQuickMeasurementSourcesFromReview
+        openingCountQuickMeasurementSourcesFromReview ||
+        drawingCountApply
           ? {
               quickMeasurementSources: {
                 ...(hvacQuickMeasurementSourcesFromReview || {}),
                 ...(openingCountQuickMeasurementSourcesFromReview || {}),
+                ...(drawingCountApply?.sources || {}),
               },
             }
           : {}),
@@ -2823,6 +2852,39 @@ export default function PlanTakeoffReviewModal({
                     />
                   </>
                 ) : null}
+              </View>
+            ) : null}
+
+            {planScopeRecords.length ? (
+              <View style={styles.section}>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Plan read
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
+                  What the sheets showed
+                </Text>
+                <Text style={[styles.roomHint, { color: Colors.sub }]}>
+                  Cover totals and symbol counts were read from the sheets.
+                  Drawn openings and devices without a count stay uncounted.
+                  Trades with no printed quantity stay planning allowances.
+                </Text>
+                {planScopeRecords
+                  .filter(record => !record.id.startsWith('room-'))
+                  .map(record => (
+                  <ReviewPanel key={record.id} darkMode={darkMode}>
+                    <Text style={[styles.itemTitle, { color: Colors.text }]}>
+                      {record.title}
+                    </Text>
+                    {record.findings.map(item => (
+                      <Text
+                        key={item.id}
+                        style={[styles.evidenceText, { color: Colors.sub, marginTop: 4 }]}
+                      >
+                        {formatPlanScopeFinding(item)}
+                      </Text>
+                    ))}
+                  </ReviewPanel>
+                ))}
               </View>
             ) : null}
 

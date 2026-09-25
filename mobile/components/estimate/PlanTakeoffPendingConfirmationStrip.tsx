@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -56,10 +56,42 @@ export function PlanTakeoffPendingConfirmationStrip({
   >({});
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const queuedMeasurementUpdates = useRef<
+    Array<(prev: Record<string, unknown>) => Record<string, unknown>>
+  >([]);
+  const measurementFlushRef = useRef<number | null>(null);
+
+  const enqueueMeasurementUpdate = (
+    update: (prev: Record<string, unknown>) => Record<string, unknown>
+  ) => {
+    queuedMeasurementUpdates.current.push(update);
+    if (measurementFlushRef.current != null) return;
+    // Paint the chip highlight first. The measurement write re-renders every
+    // pricing card, so it waits until the next frame.
+    measurementFlushRef.current = requestAnimationFrame(() => {
+      measurementFlushRef.current = requestAnimationFrame(() => {
+        measurementFlushRef.current = null;
+        const updates = queuedMeasurementUpdates.current.splice(0);
+        if (!updates.length) return;
+        setMeasurements(prev =>
+          updates.reduce((next, apply) => apply(next), prev)
+        );
+      });
+    });
+  };
+
+  useEffect(
+    () => () => {
+      if (measurementFlushRef.current != null) {
+        cancelAnimationFrame(measurementFlushRef.current);
+      }
+    },
+    []
+  );
 
   const commitPlanReadConfirmation = (field: string, value: number) => {
     setLocalSelections(prev => ({ ...prev, [field]: value }));
-    setMeasurements(prev => {
+    enqueueMeasurementUpdate(prev => {
       const base = confirmPendingPlanConfirmationRead(prev, field, value);
       const resolved = includeUnresolvedConflicts
         ? {
@@ -78,7 +110,7 @@ export function PlanTakeoffPendingConfirmationStrip({
 
   const clearPlanReadConfirmation = (field: string, value: number) => {
     setLocalSelections(prev => ({ ...prev, [field]: null }));
-    setMeasurements(prev =>
+    enqueueMeasurementUpdate(prev =>
       unconfirmPendingPlanConfirmationRead(prev, field, value)
     );
   };
@@ -155,7 +187,7 @@ export function PlanTakeoffPendingConfirmationStrip({
       </Text>
       <Text style={[styles.hint, { color: captionColor }]}>
         {reviewDescription}{' '}
-        Accept each count below or edit it in Quick measurements.
+        Tap a count to confirm it, or edit it.
       </Text>
       <View style={styles.cardList}>
         {displayReads.map(reading => {
@@ -217,13 +249,15 @@ export function PlanTakeoffPendingConfirmationStrip({
                       selected={selectedValue === value}
                       label={formatPlanTakeoffQuantity(reading.field, value)}
                       subtitle={
-                        hasPlanContext
-                          ? index === 0
+                        confirmed
+                          ? hasPlanContext
                             ? 'Plan quantity'
-                            : 'Alternate plan quantity'
+                            : 'Derived from notes'
                           : index === 0
-                            ? 'Derived from notes'
-                            : 'Alternative estimate'
+                            ? 'Tap to confirm'
+                            : hasPlanContext
+                              ? 'Alternate plan quantity'
+                              : 'Alternative estimate'
                       }
                       darkMode={darkMode}
                       onPress={() => {
@@ -359,7 +393,7 @@ const styles = StyleSheet.create({
   },
   editButton: {
     alignSelf: 'center',
-    marginTop: 10,
+    marginTop: 8,
     paddingHorizontal: 12,
     paddingVertical: 5,
   },

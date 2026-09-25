@@ -5,6 +5,7 @@ const {
   parseScheduleFromText,
   parsePageFactsFromText,
   extractRoomsFromPhrases,
+  parseFinishScheduleFromPhrases,
   dedupeRoomsByName,
   formatPdfEvidenceForVision,
   scorePaintingRelevantPage,
@@ -30,6 +31,61 @@ const {
 const shvPlanFacts = require('../testFixtures/shvPlanFacts');
 
 describe('planPdfTextTakeoff', () => {
+  test('reads a finish schedule without measuring wall or floor area', () => {
+    const parsed = parseFinishScheduleFromPhrases(
+      [
+        { str: 'ROOM FINISH SCHEDULE', x: 10, y: 720 },
+        { str: 'ROOM', x: 10, y: 680 },
+        { str: 'FLOOR', x: 160, y: 680 },
+        { str: 'WALLS', x: 300, y: 680 },
+        { str: 'BASE', x: 440, y: 680 },
+        { str: 'CEILING', x: 560, y: 680 },
+        { str: 'PRIMARY BATH', x: 10, y: 640 },
+        { str: 'TILE', x: 160, y: 640 },
+        { str: 'PAINT', x: 300, y: 640 },
+        { str: 'TILE', x: 440, y: 640 },
+        { str: 'PAINT', x: 560, y: 640 },
+        { str: 'SHOWER', x: 10, y: 600 },
+        { str: 'TILE', x: 160, y: 600 },
+        { str: 'TILE', x: 300, y: 600 },
+        { str: 'FRAMELESS GLASS', x: 440, y: 600 },
+        { str: 'PAINT', x: 560, y: 600 },
+      ],
+      { page: 9, sheet: 'A-8' }
+    );
+    expect(parsed.rows).toEqual([
+      expect.objectContaining({
+        room: 'PRIMARY BATH',
+        floor: 'tile',
+        wall: 'paint',
+        base: 'tile',
+        ceiling: 'paint',
+        glassDoor: false,
+        sheet: 'A-8',
+        page: 9,
+      }),
+      expect.objectContaining({
+        room: 'SHOWER',
+        floor: 'tile',
+        wall: 'tile',
+        glassDoor: true,
+      }),
+    ]);
+    expect(parsed.rows[0].sourceText).not.toMatch(/sqft|square/i);
+    const evidence = formatPdfEvidenceForVision({ finishSchedule: parsed.rows, rooms: [] });
+    expect(evidence).toMatch(/named finishes only/);
+    expect(evidence).toMatch(/Do not calculate wall area/);
+  });
+
+  test('does not treat a floor-plan bath label as a finish schedule', () => {
+    expect(
+      parseFinishScheduleFromPhrases([
+        { str: 'PRIMARY BATH', x: 40, y: 400 },
+        { str: "8'-0\" x 10'-0\"", x: 40, y: 380 },
+      ])
+    ).toBeNull();
+  });
+
   test('collapseDoubledGlyphs undoes CAD double-draw text', () => {
     expect(collapseDoubledGlyphs('DDIINNIINNGG')).toBe('DINING');
     expect(collapseDoubledGlyphs('KK')).toBe('K');
@@ -450,6 +506,35 @@ describe('planPdfTextTakeoff', () => {
       y: y0 - Math.floor(i / 11) * dy,
     }));
   }
+
+  test('whole-project symbol pages keep the floor plan, elevations, and electrical sheet', () => {
+    const { selectWholeProjectSymbolPages } = require('../planPdfTextTakeoff');
+    const pages = selectWholeProjectSymbolPages({
+      windowsDoorsRelevantPages: [
+        { page: 1, score: 4, reasons: ['opening labels'] },
+        { page: 3, score: 12, reasons: ['floor plan'] },
+        { page: 6, score: 12, reasons: ['elevation'] },
+      ],
+      electricalRelevantPages: [
+        { page: 10, score: 9, reasons: ['fixture instance tags'] },
+        { page: 11, score: 6, reasons: ['following electrical sheet'] },
+      ],
+    });
+    expect(pages.map(page => page.page)).toEqual([3, 6, 10]);
+  });
+
+  test('repeated R6 instance tags on an electrical plan count as recessed lights', () => {
+    const page = countElectricalInstanceTagsOnPage(
+      [
+        { str: 'ELECTRICAL PLAN A-8', x: 400, y: 1200 },
+        ...scatterTags('R6', 31),
+        { str: 'GFCI', x: 40, y: 200 },
+      ],
+      { page: 10, sheet: 'A-8' }
+    );
+    expect(page.measurements.recessedLightCount).toBe(31);
+    expect(page.details.recessedLightCount.tag).toBe('R6');
+  });
 
   test('repeated R4 instance tags become the recessedLightCount candidate', () => {
     const main = countElectricalInstanceTagsOnPage(

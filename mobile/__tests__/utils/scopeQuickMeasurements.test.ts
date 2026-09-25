@@ -462,6 +462,31 @@ describe('scopeQuickMeasurements', () => {
     expect(keys).toContain('interiorDoorCount');
   });
 
+  it('shows the plan count instead of an uncounted note guess', () => {
+    const measurements = {
+      recessedLightCount: '31',
+      garageDoorDoubleCount: '1',
+      quickMeasurementSources: {
+        recessedLightCount: 'detected_from_plan',
+        garageDoorDoubleCount: 'detected_from_plan',
+      },
+    };
+    expect(
+      resolveQuickMeasurementDisplayValue(
+        'recessedLightCount',
+        measurements as never,
+        { recessedLightCount: '1' }
+      )
+    ).toBe('31');
+    expect(
+      resolveQuickMeasurementDisplayValue(
+        'garageDoorDoubleCount',
+        measurements as never,
+        { garageDoorDoubleCount: '5' }
+      )
+    ).toBe('1');
+  });
+
   it('keeps cover-sheet garage and patio ahead of room sizes', () => {
     const measurements = {
       planImportMode: 'whole_project',

@@ -881,6 +881,38 @@ describe('resolveFormulaQuantityApplyTarget', () => {
     expect(fill?.basis?.quantity).not.toBe(250);
   });
 
+  it('does not price the 80 SF counter allowance from an implausibly low saved rate', () => {
+    const input = {
+      ...emptyQuickMeasurementInput(),
+      floorAreaSqft: '2571',
+      itemQuantities: {},
+    } as any;
+    const resolved = resolveChecklistItemQuantity('countertops', input, {
+      templateKey: 'ground_up',
+    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'countertops',
+      input,
+      'ground_up',
+      resolved,
+      {
+        libraryRates: [
+          {
+            scopeItemName: 'Counters',
+            checklistItemId: 'countertops',
+            category: 'lump_sum',
+            unitType: 'lump_sum',
+            unitRate: 450,
+            totalAmount: 450,
+          },
+        ],
+      }
+    );
+    expect(fill?.basis).toEqual({ quantity: 80, unit: 'sqft' });
+    expect(fill?.total).toBeGreaterThan(80 * 25);
+    expect(fill?.rateSourceLabel).not.toMatch(/saved pricing/i);
+  });
+
   it('does not calculate bath floor tile from whole-home living SF', () => {
     const livingOnly = {
       ...emptyQuickMeasurementInput(),

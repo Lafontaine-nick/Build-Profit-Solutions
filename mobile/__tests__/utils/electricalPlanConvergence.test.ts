@@ -364,6 +364,13 @@ describe('electrical canonical architecture', () => {
     expect(parsed.standardReceptacleCount).toBe(3);
   });
 
+  it('reads a count written after the recessed-light label', () => {
+    const parsed = parseElectricalMeasurementsFromNotes(
+      'Recessed lights · 31'
+    );
+    expect(parsed.recessedLightCount).toBe(31);
+  });
+
   it('does not use living SF as the Electrical quantity owner', () => {
     const detailed = inputWith({
       floorAreaSqft: '1879',

@@ -17514,6 +17514,7 @@ router.post('/plan-to-measurements', async (req, res) => {
       itemQuantities: result.itemQuantities,
       assumptions: result.assumptions,
       notesBlock: result.notesBlock,
+      finishSchedule: Array.isArray(result.finishSchedule) ? result.finishSchedule : [],
       mergedNotes,
       scope: result.scope || null,
       estimatingMode: result.estimatingMode || planSelection.mode,

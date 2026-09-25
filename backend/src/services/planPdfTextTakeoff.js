@@ -831,6 +831,12 @@ const ELECTRICAL_INSTANCE_TAG_SPECS = [
     concatRe: /R4(?![0-9])/g,
   },
   {
+    key: 'recessedLightCount',
+    id: 'R6',
+    tokenRe: /^R-?6(?:[A-Z]|-?\d)?$/i,
+    concatRe: /R6(?![0-9])/g,
+  },
+  {
     key: 'ceilingFanCount',
     id: 'CF',
     tokenRe: /^C\.?F\.?(?:-?\d)?$/i,
@@ -1054,6 +1060,7 @@ function countElectricalInstanceTagsOnPage(phrases, { pageText, page = null, she
   const sourceSheet = sheet || extractSheet(blob);
   const measurements = {};
   const details = {};
+  const tagCounts = {};
   for (const spec of ELECTRICAL_INSTANCE_TAG_SPECS) {
     const hits = [];
     for (const phrase of Array.isArray(phrases) ? phrases : []) {
@@ -1078,10 +1085,12 @@ function countElectricalInstanceTagsOnPage(phrases, { pageText, page = null, she
     }
     const instanceCount = instanceCountFromTagHits(hits);
     if (instanceCount < 2) continue;
-    measurements[spec.key] = instanceCount;
+    tagCounts[spec.id] = instanceCount;
+    measurements[spec.key] = (measurements[spec.key] || 0) + instanceCount;
+    const previous = details[spec.key];
     details[spec.key] = {
-      value: instanceCount,
-      tag: spec.id,
+      value: measurements[spec.key],
+      tag: previous?.tag ? `${previous.tag}+${spec.id}` : spec.id,
       page,
       sheet: sourceSheet,
       kind,
@@ -1095,6 +1104,7 @@ function countElectricalInstanceTagsOnPage(phrases, { pageText, page = null, she
   return {
     measurements,
     details,
+    tagCounts,
     kind,
     level,
     page,
@@ -1366,7 +1376,7 @@ function aggregateElectricalInstanceTagCounts(pageResults) {
     const pages = (Array.isArray(pageResults) ? pageResults : [])
       .map(result => ({
         ...result,
-        count: Number(result?.measurements?.[spec.key]) || 0,
+        count: Number(result?.tagCounts?.[spec.id]) || 0,
         kind: result?.kind || result?.details?.[spec.key]?.kind,
         level: result?.level || result?.details?.[spec.key]?.level,
         sheet: result?.sheet || result?.details?.[spec.key]?.sheet,
@@ -1376,9 +1386,10 @@ function aggregateElectricalInstanceTagCounts(pageResults) {
     if (!pages.length) continue;
     const total = sumCollapsingDuplicateFixtureViews(pages);
     if (total < 2) continue;
+    const existing = byKey[spec.key];
     byKey[spec.key] = {
-      value: total,
-      tag: spec.id,
+      value: (existing?.value || 0) + total,
+      tag: existing?.tag ? `${existing.tag}+${spec.id}` : spec.id,
       sourceType: 'pdf_text_instance_tags',
       sheets: pages.map(page => ({
         sheet: page.sheet || null,
@@ -1827,6 +1838,24 @@ function scoreInsulationRelevantPage(text) {
   return { score, reasons: [...new Set(reasons)] };
 }
 
+function selectWholeProjectSymbolPages(pdfTakeoff) {
+  const openings = (Array.isArray(pdfTakeoff?.windowsDoorsRelevantPages)
+    ? pdfTakeoff.windowsDoorsRelevantPages
+    : []
+  ).filter(page => Number(page?.score) >= 12);
+  const electrical = (Array.isArray(pdfTakeoff?.electricalRelevantPages)
+    ? pdfTakeoff.electricalRelevantPages
+    : []
+  ).filter(page => !(page?.reasons || []).includes('following electrical sheet'));
+  const byPage = new Map();
+  for (const page of [...openings, ...electrical]) {
+    const pageNumber = Number(page?.page);
+    if (!Number.isInteger(pageNumber) || pageNumber < 1) continue;
+    if (!byPage.has(pageNumber)) byPage.set(pageNumber, page);
+  }
+  return [...byPage.values()].sort((a, b) => a.page - b.page);
+}
+
 function scoreWindowsDoorsRelevantPage(text) {
   const blob = String(text || '');
   if (!blob.trim()) return { score: 0, reasons: [] };
@@ -2092,6 +2121,153 @@ function toUint8Array(buffer) {
   return copy;
 }
 
+const FINISH_SCHEDULE_PAGE_RE =
+  /\b(?:room\s+)?finish\s+schedule\b|\binterior\s+finish\s+schedule\b/i;
+
+function finishScheduleColumnKind(label) {
+  const text = String(label || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (/^(?:room|rooms|space|area|location)$/.test(text)) return 'room';
+  if (/\bfloor\b|\bflr\b/.test(text) && !/\bwall\b/.test(text)) return 'floor';
+  if (/\bwalls?\b|\bwall\s+finish\b/.test(text)) return 'wall';
+  if (/\bbases?\b|\bbaseboards?\b/.test(text)) return 'base';
+  if (/\bceilings?\b|\bclg\b/.test(text)) return 'ceiling';
+  if (/\bremarks?\b|\bnotes?\b/.test(text)) return 'remarks';
+  return null;
+}
+
+function normalizeScheduleFinish(value) {
+  const text = String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text || /^[-—–./]+$/.test(text) || /^n\/a$/i.test(text)) return null;
+  const token = text.toLowerCase();
+  if (/\b(?:ceramic|porcelain)\b|\btile\b/.test(token)) return 'tile';
+  if (/\b(?:lvp|lvt|luxury\s+vinyl|vinyl\s+plank)\b/.test(token)) return 'lvp';
+  if (/\bsheet\s+vinyl\b|\bvct\b/.test(token)) return 'vinyl';
+  if (/\bcarpet\b/.test(token)) return 'carpet';
+  if (/\bengineered\b/.test(token)) return 'engineered_hardwood';
+  if (/\bhardwood\b/.test(token)) return 'hardwood';
+  if (/\blaminate\b/.test(token)) return 'laminate';
+  if (/\bquartz\b/.test(token)) return 'quartz';
+  if (/\bgranite\b/.test(token)) return 'granite';
+  if (/\bpaint/.test(token)) return 'paint';
+  return null;
+}
+
+function scheduleMentionsGlassDoor(text) {
+  return /\b(?:frameless(?:\s+glass)?|glass\s+(?:shower\s+)?(?:door|enclosure|panel)|shower\s+(?:door|enclosure))\b/i.test(
+    String(text || '')
+  );
+}
+
+function groupFinishScheduleLines(phrases) {
+  const sorted = [...(phrases || [])]
+    .filter(phrase => String(phrase?.str || '').trim())
+    .sort((left, right) => right.y - left.y || left.x - right.x);
+  const lines = [];
+  for (const phrase of sorted) {
+    const line = lines.find(candidate => Math.abs(candidate.y - phrase.y) <= 4);
+    if (!line) lines.push({ y: phrase.y, parts: [phrase] });
+    else line.parts.push(phrase);
+  }
+  for (const line of lines) line.parts.sort((left, right) => left.x - right.x);
+  return lines;
+}
+
+function parseFinishScheduleFromPhrases(phrases, { page = null, sheet = null } = {}) {
+  const lines = groupFinishScheduleLines(phrases);
+  const blob = lines
+    .map(line => line.parts.map(part => part.str).join(' '))
+    .join(' ');
+  if (!FINISH_SCHEDULE_PAGE_RE.test(blob)) return null;
+
+  const header = lines.find(line => {
+    const kinds = line.parts.map(part => finishScheduleColumnKind(part.str)).filter(Boolean);
+    return kinds.includes('room') && (kinds.includes('floor') || kinds.includes('wall'));
+  });
+  if (!header) return null;
+
+  const columns = [];
+  const seen = new Set();
+  for (const part of header.parts) {
+    const kind = finishScheduleColumnKind(part.str);
+    if (!kind || seen.has(kind)) continue;
+    seen.add(kind);
+    columns.push({ kind, x: part.x });
+  }
+  const sortedX = columns.map(column => column.x).sort((left, right) => left - right);
+  let minGap = 80;
+  for (let index = 1; index < sortedX.length; index += 1) {
+    minGap = Math.min(minGap, sortedX[index] - sortedX[index - 1]);
+  }
+  const maxDistance = Math.max(36, minGap / 2);
+
+  const rows = [];
+  for (const line of lines) {
+    if (line === header) continue;
+    const cells = {};
+    for (const part of line.parts) {
+      let nearest = null;
+      let nearestDistance = maxDistance;
+      for (const column of columns) {
+        const distance = Math.abs(part.x - column.x);
+        if (distance <= nearestDistance) {
+          nearest = column;
+          nearestDistance = distance;
+        }
+      }
+      if (!nearest) continue;
+      cells[nearest.kind] = `${cells[nearest.kind] || ''} ${part.str}`.trim();
+    }
+    const room = String(cells.room || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!room || room.length < 3 || finishScheduleColumnKind(room)) continue;
+    if (/schedule|legend|abbreviation/i.test(room)) continue;
+    const sourceParts = [cells.floor, cells.wall, cells.base, cells.ceiling, cells.remarks].filter(Boolean);
+    const glassDoor = scheduleMentionsGlassDoor(`${room} ${sourceParts.join(' ')}`);
+    const floor = normalizeScheduleFinish(cells.floor);
+    const wall = normalizeScheduleFinish(cells.wall);
+    const base = normalizeScheduleFinish(cells.base);
+    const ceiling = normalizeScheduleFinish(cells.ceiling);
+    if (!floor && !wall && !base && !ceiling && !glassDoor) continue;
+    rows.push({
+      room,
+      floor,
+      wall,
+      base,
+      ceiling,
+      glassDoor,
+      sheet: sheet || null,
+      page: page || null,
+      sourceText: [room, ...sourceParts].join(' · ').slice(0, 180),
+    });
+  }
+  return { rows: dedupeFinishScheduleRows(rows) };
+}
+
+function dedupeFinishScheduleRows(rows) {
+  const seen = new Set();
+  const next = [];
+  for (const row of rows || []) {
+    const key = [
+      String(row.room || '').toLowerCase(),
+      row.floor || '',
+      row.wall || '',
+      row.base || '',
+      row.ceiling || '',
+      row.glassDoor ? 'glass' : '',
+    ].join('|');
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    next.push(row);
+  }
+  return next.slice(0, 40);
+}
+
 async function extractItemsFromPdfBuffer(buffer) {
   const pdfjs = await loadPdfJs();
   const data = toUint8Array(buffer);
@@ -2142,6 +2318,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
   const electricalInstanceTagPages = [];
   const hvacInstanceTagPages = [];
   const hvacEquipmentHintPages = [];
+  const finishScheduleRows = [];
   let pageCount = 0;
 
   for (const buf of list) {
@@ -2346,6 +2523,17 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
         }
       }
 
+      const finishSchedulePage = parseFinishScheduleFromPhrases(phrases, {
+        page: pageNumber,
+        sheet: parsedFacts.sourceSheet,
+      });
+      if (finishSchedulePage?.rows?.length) {
+        finishScheduleRows.push(...finishSchedulePage.rows);
+        assumptions.push(
+          `Finish schedule on page ${pageNumber}: named finishes only, no wall or floor area.`
+        );
+      }
+
       const kind = classifyPage(phrases, page.pageIndex);
       if (kind === 'skip' || kind === 'foundation' || kind === 'cover') continue;
       if (kind !== 'floor' && kind !== 'other') continue;
@@ -2427,6 +2615,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
     electricalInstanceTags: aggregateElectricalInstanceTagCounts(electricalInstanceTagPages),
     hvacInstanceTags: aggregateHvacInstanceTagCounts(hvacInstanceTagPages),
     hvacEquipmentHints: aggregateHvacEquipmentHints(hvacEquipmentHintPages),
+    finishSchedule: dedupeFinishScheduleRows(finishScheduleRows),
     pageCount,
   };
 }
@@ -2461,6 +2650,27 @@ function formatPdfEvidenceForVision(pdfTakeoff, options = {}) {
     );
   }
   const rooms = pdfTakeoff.rooms || [];
+  const finishRows = Array.isArray(pdfTakeoff.finishSchedule) ? pdfTakeoff.finishSchedule : [];
+  if (finishRows.length) {
+    lines.push(
+      'PDF text layer — finish schedule (named finishes only). Do not calculate wall area, floor area, or tile square feet from these rows.'
+    );
+    for (const row of finishRows.slice(0, 24)) {
+      const finishes = [
+        row.floor ? `floor ${row.floor}` : null,
+        row.wall ? `walls ${row.wall}` : null,
+        row.base ? `base ${row.base}` : null,
+        row.ceiling ? `ceiling ${row.ceiling}` : null,
+        row.glassDoor ? 'glass shower door' : null,
+      ]
+        .filter(Boolean)
+        .join(', ');
+      const where = [row.sheet ? `sheet ${row.sheet}` : null, row.page ? `page ${row.page}` : null]
+        .filter(Boolean)
+        .join(' ');
+      lines.push(`- ${row.room}: ${finishes}${where ? ` (${where})` : ''}`);
+    }
+  }
   if (rooms.length) {
     lines.push('PDF text layer — room L×W already paired spatially (prefer these; do not swap labels):');
     for (const r of rooms.slice(0, 40)) {
@@ -2632,6 +2842,8 @@ module.exports = {
   extractPlumbingSheetId,
   clusterPhrases,
   extractRoomsFromPhrases,
+  parseFinishScheduleFromPhrases,
+  dedupeFinishScheduleRows,
   dedupeRoomsByName,
   extractPlanTakeoffFromPdfBuffers,
   formatPdfEvidenceForVision,
@@ -2662,6 +2874,7 @@ module.exports = {
   shouldCollapseDuplicateFixtureViews,
   renderElectricalPlanPages,
   renderWindowsDoorsPlanPages: renderElectricalPlanPages,
+  selectWholeProjectSymbolPages,
   renderPlumbingPlanPages,
   renderInsulationPlanPages,
   renderHvacPlanPages,

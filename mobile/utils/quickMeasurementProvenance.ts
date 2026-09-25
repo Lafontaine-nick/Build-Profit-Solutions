@@ -699,6 +699,51 @@ export function pinQuickMeasurementFieldInGroup(
   return next;
 }
 
+/** Quantities already taken from a plan. A later notes parse must not replace them. */
+export const PLAN_BACKED_QUICK_MEASUREMENT_SOURCES = new Set<string>([
+  'detected_from_plan',
+  'plan_detected',
+  'plan',
+  'plan_verified',
+  'measured_from_geometry',
+  'contractor_confirmed_from_plan_review',
+  'needs_confirmation',
+]);
+
+export function preservePlanBackedMeasurementFields<
+  T extends Record<string, unknown>,
+>(
+  existing: T | null | undefined,
+  parsed: Record<string, unknown>
+): Record<string, unknown> {
+  const sources =
+    existing?.quickMeasurementSources &&
+    typeof existing.quickMeasurementSources === 'object'
+      ? (existing.quickMeasurementSources as Record<string, string>)
+      : {};
+  const next = { ...parsed };
+  const nextSources: Record<string, string> = {
+    ...(next.quickMeasurementSources &&
+    typeof next.quickMeasurementSources === 'object'
+      ? (next.quickMeasurementSources as Record<string, string>)
+      : {}),
+  };
+  let restored = false;
+  for (const [key, source] of Object.entries(sources)) {
+    if (!PLAN_BACKED_QUICK_MEASUREMENT_SOURCES.has(String(source || ''))) {
+      continue;
+    }
+    const current = existing?.[key];
+    const quantity = Number(current);
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    next[key] = current;
+    nextSources[key] = String(source);
+    restored = true;
+  }
+  if (restored) next.quickMeasurementSources = nextSources;
+  return next;
+}
+
 const PLAN_DETECT_PRESERVED_SOURCES = new Set<QuickMeasurementSourceTag>([
   'needs_confirmation',
   'user_confirmed_suggestion',

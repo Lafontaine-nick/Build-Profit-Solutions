@@ -27,7 +27,12 @@ import {
   preferredPrimaryUnit,
   type MeasurementUnit,
 } from '@/utils/measurementSemantics';
-import { tagPlanDetectedQuickMeasurementKeys } from '@/utils/quickMeasurementProvenance';
+import {
+  preservePlanBackedMeasurementFields,
+  tagPlanDetectedQuickMeasurementKeys,
+} from '@/utils/quickMeasurementProvenance';
+import { garageDoorCountsFromLabeledBays } from '@/utils/subcontractorTrade/garageDoorsPlanConvergence';
+import { buildPlanScopeRecords } from '@/utils/planScopeRecords';
 import {
   hydratePaintingPlanMeasurements,
   resolvePaintingPlanTakeoffApiSelection,
@@ -635,6 +640,10 @@ export type ScopeMeasurements = {
   garageSqft?: number | null;
   /** Named rooms read from the plan (for Quick measurements display). */
   planRooms?: PlanRoomMeasurement[];
+  /** Structured plan findings: read from a sheet, or still a planning allowance. */
+  planScopeRecords?: import('@/utils/planScopeRecords').PlanScopeRecord[] | null;
+  /** Named finishes from a printed finish schedule. No areas are measured from these. */
+  finishSchedule?: import('@/utils/finishScheduleScope').FinishScheduleRow[] | null;
   /**
    * Wet-area finish for Quick Measurements. Gates shower wall/floor tile fields
    * and optional planning estimates. Independent of checklist choiceId but can sync.
@@ -1342,9 +1351,13 @@ export function repairDraftRatePricingFromNotes(
     parsed.itemQuantities
   );
 
+  const parsedKeepingPlanReads = preservePlanBackedMeasurementFields(
+    (draft.scopeMeasurements || {}) as Record<string, unknown>,
+    parsed as Record<string, unknown>
+  );
   let mergedScopeMeasurements: ScopeMeasurements = {
     ...(draft.scopeMeasurements || {}),
-    ...parsed,
+    ...parsedKeepingPlanReads,
     itemQuantities: mergedItemQuantities,
   };
   if (
@@ -1486,6 +1499,14 @@ export function repairDraftRatePricingFromNotes(
     );
   }
 
+  mergedScopeMeasurements = {
+    ...mergedScopeMeasurements,
+    ...preservePlanBackedMeasurementFields(
+      (draft.scopeMeasurements || {}) as Record<string, unknown>,
+      mergedScopeMeasurements as Record<string, unknown>
+    ),
+  } as ScopeMeasurements;
+
   if (__DEV__) {
     const serverIq =
       draft.scopeChecklist?.suggestedMeasurements?.itemQuantities || {};
@@ -1607,7 +1628,7 @@ export async function fetchEstimateDraftFromNotes(
     draft?: EstimateAiDraft;
     error?: string;
     message?: string;
-  }>('/estimate-draft-from-notes', { notes, savedTemplates }, 45000, authToken);
+  }>('/estimate-draft-from-notes', { notes, savedTemplates }, 90000, authToken);
 
   if (!payload?.draft) {
     throw new Error(
@@ -1947,6 +1968,7 @@ export type PlanToMeasurementsResult = {
   >;
   assumptions: string[];
   notesBlock: string;
+  finishSchedule?: import('@/utils/finishScheduleScope').FinishScheduleRow[];
   mergedNotes: string;
   /** Draft scope detections read from the plan sheets (confirm before applying). */
   scope: PlanScopeResult | null;
@@ -2062,6 +2084,9 @@ export async function fetchPlanToMeasurements(params: {
       ? payload.assumptions.map(String)
       : [],
     notesBlock: payload.notesBlock || '',
+    finishSchedule: Array.isArray(payload.finishSchedule)
+      ? payload.finishSchedule
+      : [],
     mergedNotes: payload.mergedNotes || params.existingNotes || '',
     scope:
       payload.scope &&
@@ -2272,6 +2297,7 @@ export type PlanImportPayload = {
   rooms?: PlanRoomMeasurement[];
   /** Read-only plan takeoff summary text (kept separate from editable Job notes). */
   notesBlock?: string | null;
+  finishSchedule?: import('@/utils/finishScheduleScope').FinishScheduleRow[] | null;
   areaReconciliation?:
     import('@/utils/measurementSemantics').AreaReconciliation | null;
   buildingAreas?: PlanBuildingAreas;
@@ -3044,6 +3070,55 @@ export function normalizePlanRooms(
   return out.slice(0, 48);
 }
 
+const GARAGE_DOOR_COUNT_KEYS = [
+  'garageDoorSingleCount',
+  'garageDoorDoubleCount',
+  'garageDoorRvCount',
+] as const;
+
+function garageDoorCountsLockedByUser(
+  measurements: ScopeMeasurements
+): boolean {
+  const sources = measurements.quickMeasurementSources || {};
+  return GARAGE_DOOR_COUNT_KEYS.some(key => {
+    const source = String(sources[key] || '');
+    return source === 'user_entered' || source === 'manual_override';
+  });
+}
+
+/** Fill empty garage-door steppers from labeled Garage / Toy Garage / RV Garage bays. */
+function applyLabeledGarageDoorCounts(
+  measurements: ScopeMeasurements,
+  rooms: PlanRoomMeasurement[]
+): ScopeMeasurements {
+  if (garageDoorCountsLockedByUser(measurements)) return measurements;
+  const counts = garageDoorCountsFromLabeledBays(rooms);
+  if (!counts) return measurements;
+  const sources = measurements.quickMeasurementSources || {};
+  const reviewConfirmed = (key: (typeof GARAGE_DOOR_COUNT_KEYS)[number]) =>
+    sources[key] === 'contractor_confirmed_from_plan_review';
+  const next: ScopeMeasurements = { ...measurements };
+  const detected: string[] = [];
+  if (counts.single > 0 && !reviewConfirmed('garageDoorSingleCount')) {
+    next.garageDoorSingleCount = counts.single;
+    detected.push('garageDoorSingleCount');
+  }
+  if (counts.double > 0 && !reviewConfirmed('garageDoorDoubleCount')) {
+    next.garageDoorDoubleCount = counts.double;
+    detected.push('garageDoorDoubleCount');
+  }
+  if (counts.rv > 0 && !reviewConfirmed('garageDoorRvCount')) {
+    next.garageDoorRvCount = counts.rv;
+    detected.push('garageDoorRvCount');
+  }
+  if (!detected.length) return measurements;
+  next.quickMeasurementSources = tagPlanDetectedQuickMeasurementKeys(
+    measurements.quickMeasurementSources,
+    detected
+  );
+  return next;
+}
+
 /** Fold named plan rooms into kitchen/bath/garage/deck quick fields when empty. */
 export function applyPlanRoomsToScopeMeasurements(
   scopeMeasurements: ScopeMeasurements,
@@ -3055,7 +3130,7 @@ export function applyPlanRoomsToScopeMeasurements(
     planRooms: rooms,
   };
   if (String(scopeMeasurements.planImportMode || '') === 'whole_project') {
-    return next;
+    return applyLabeledGarageDoorCounts(next, rooms);
   }
   const detectedKeys: string[] = [];
   const sumMatching = (test: RegExp) => {
@@ -5190,6 +5265,22 @@ export function applyPlanImportToDraft(
       scopeMeasurements,
       rooms
     );
+  }
+  if (!applyAsSelectedTrade) {
+    scopeMeasurements.finishSchedule = Array.isArray(payload.finishSchedule)
+      ? payload.finishSchedule
+      : scopeMeasurements.finishSchedule || null;
+    scopeMeasurements.planScopeRecords = buildPlanScopeRecords({
+      rooms,
+      measurements: scopeMeasurements as Record<string, unknown>,
+      buildingAreas: scopeMeasurements.planFacts?.buildingAreas as
+        | Record<string, unknown>
+        | undefined,
+      fixtureInventory: payload.fixtureInventory,
+      fieldEvidence: payload.fieldEvidence,
+      openingEvidence: scopeMeasurements.planFacts?.openingEvidence,
+      finishSchedule: scopeMeasurements.finishSchedule,
+    });
   }
 
   const detections = filterPlanScopesForTrade(

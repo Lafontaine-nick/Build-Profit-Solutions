@@ -1,4 +1,5 @@
 const {
+  filterWholeProjectSymbolMeasurements,
   sanitizeRooms,
   sanitizeMeasurements,
   sanitizeBuildingAreas,
@@ -36,6 +37,38 @@ const {
 const shvPlanFacts = require("../testFixtures/shvPlanFacts");
 
 describe("estimatePlanToMeasurements", () => {
+  test("keeps only counted opening and device symbols from the whole-project pass", () => {
+    expect(
+      filterWholeProjectSymbolMeasurements({
+        windowCount: 18,
+        slidingDoorCount: 0,
+        ceilingFanCount: 4,
+        recessedLightCount: 31,
+        floorAreaSqft: 2571,
+        drywallSqft: 9000,
+      })
+    ).toEqual({
+      windowCount: 18,
+      ceilingFanCount: 4,
+    });
+    expect(
+      filterWholeProjectSymbolMeasurements({
+        windowCount: 14,
+        planFacts: {
+          openingEvidence: [
+            { category: "exterior_swing" },
+            { category: "exterior_swing" },
+            { category: "interior" },
+          ],
+        },
+      })
+    ).toEqual({
+      windowCount: 14,
+      exteriorDoorCount: 2,
+      interiorDoorCount: 1,
+    });
+  });
+
   test("supports the Windows & doors Plan Export contract without framing", () => {
     expect(TRADE_CONFIGS.windows_doors).toMatchObject({
       status: "reference",

@@ -59,6 +59,7 @@ import {
   scopeItemNoteBadge,
   BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS,
 } from '@/utils/scopeItemVisualTier';
+import { notesAreImportedPlanSummary } from '@/utils/concretePlanningMeasurements';
 import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
 import { paintRepairScopeSelectionComplete } from '@/utils/bathroomPaintRepairFlow';
 import { resolveBathroomVanityCountertopMaterialType } from '@/utils/bathroomVanityCountertopPricing';
@@ -1576,6 +1577,206 @@ export function applyGroundUpShellScopeDefaults(
   });
 }
 
+const WHOLE_PROJECT_PLAN_SCOPE_CARDS: Array<{
+  id: string;
+  label: string;
+  helperText: string;
+  category: string;
+  afterId?: string;
+}> = [
+  {
+    id: 'plans_engineering',
+    label: 'Plans / engineering',
+    helperText: 'Plans and engineering allowance until a fee is confirmed.',
+    category: 'precon',
+  },
+  {
+    id: 'permits',
+    label: 'Permits / fees (incl. impact)',
+    helperText:
+      'Inclusive of city impact fee — not permit-only. Confirm local fees.',
+    category: 'precon',
+    afterId: 'plans_engineering',
+  },
+  {
+    id: 'sitework',
+    label: 'Sitework',
+    helperText: 'Site preparation for the new build.',
+    category: 'sitework',
+    afterId: 'permits',
+  },
+  {
+    id: 'excavation',
+    label: 'Excavation',
+    helperText: 'Excavation allowance until a CY takeoff is confirmed.',
+    category: 'sitework',
+    afterId: 'sitework',
+  },
+  {
+    id: 'utility_taps',
+    label: 'Utility taps / connections',
+    helperText: 'Water, sewer, and utility connection allowance.',
+    category: 'sitework',
+    afterId: 'excavation',
+  },
+  {
+    id: 'landscaping',
+    label: 'Landscaping / site walls & gates',
+    helperText:
+      'Landscaping, exterior site walls, fences & gates package. Not driveway flatwork or iron entry doors.',
+    category: 'sitework',
+    afterId: 'utility_taps',
+  },
+  {
+    id: 'foundation',
+    label: 'Foundation',
+    helperText:
+      'Needs structural takeoff (slab/footings/walls/CY). Living SF is not foundation quantity.',
+    category: 'structural',
+    afterId: 'landscaping',
+  },
+  {
+    id: 'framing',
+    label: 'Framing',
+    helperText:
+      'Planning material and labor from covered framed area until a package takeoff is entered.',
+    category: 'structural',
+    afterId: 'pour_flatwork',
+  },
+  {
+    id: 'roofing',
+    label: 'Roofing',
+    helperText: 'Roofing allowance until squares are taken off.',
+    category: 'exterior',
+    afterId: 'framing',
+  },
+  {
+    id: 'insulation',
+    label: 'Insulation',
+    helperText:
+      'Planning allowance until wall, attic, and floor insulation areas are confirmed.',
+    category: 'mep',
+    afterId: 'electrical_trim',
+  },
+  {
+    id: 'drywall',
+    label: 'Drywall',
+    helperText:
+      'Planning allowance until wall and ceiling surface area is confirmed.',
+    category: 'finishes',
+    afterId: 'insulation',
+  },
+  {
+    id: 'flooring',
+    label: 'Flooring',
+    helperText: 'Installed flooring budget until finish areas are allocated.',
+    category: 'finishes',
+    afterId: 'drywall',
+  },
+  {
+    id: 'plumbing_rough',
+    label: 'Plumbing rough-in',
+    helperText: 'Rough-in allowance until fixture points are counted.',
+    category: 'mep',
+    afterId: 'hvac',
+  },
+  {
+    id: 'plumbing_trim',
+    label: 'Plumbing fixtures (trim-out)',
+    helperText:
+      'Set faucets, toilet, and hookups — fixture trim-out. Not rough-in.',
+    category: 'mep',
+    afterId: 'plumbing_rough',
+  },
+];
+
+/**
+ * Whole-project plan export keeps the ground-up checklist. Sheets that do not
+ * print a quantity stay planning allowances. Note-mentioned cards must not
+ * replace the rest of the build.
+ */
+export function ensureWholeProjectGroundUpScopeItems(
+  items: ScopeChecklistItem[],
+  notes?: string | null
+): ScopeChecklistItem[] {
+  let next = migrateGroundUpTakeoffScopeItems(items, 'ground_up');
+  for (const card of WHOLE_PROJECT_PLAN_SCOPE_CARDS) {
+    if (next.some(item => item.id === card.id)) continue;
+    const row: ScopeChecklistItem = {
+      id: card.id,
+      label: card.label,
+      helperText: card.helperText,
+      inputType: 'yes_no',
+      state: 'unsure',
+      category: card.category,
+    };
+    const afterIdx = card.afterId
+      ? next.findIndex(item => item.id === card.afterId)
+      : -1;
+    if (afterIdx >= 0) next.splice(afterIdx + 1, 0, row);
+    else next.push(row);
+  }
+  const notesCallForExteriorTrimPaint =
+    /\b(?:exterior|window)\s+trim\b[^.\n]{0,40}\b(?:paint|painting)|\bpaint(?:ing)?\b[^.\n]{0,40}\b(?:exterior|window)\s+trim\b/i.test(
+      String(notes || '')
+    );
+  next = next.filter(item => {
+    if (
+      !notesCallForExteriorTrimPaint &&
+      (item.id === 'exterior_prep' || item.id === 'exterior_trim_paint')
+    ) {
+      return false;
+    }
+    if (
+      item.id === 'electrical' ||
+      /\belectrical outlets\b/i.test(String(item.label || ''))
+    ) {
+      return false;
+    }
+    if (
+      item.id === 'interior_finishes' ||
+      item.id === 'door_paint' ||
+      /^interior door painting$/i.test(String(item.label || ''))
+    ) {
+      return false;
+    }
+    return true;
+  });
+  const notesForDefaults = GROUND_UP_NOTES_PATTERN.test(String(notes || ''))
+    ? notes
+    : `Ground-up new construction from imported architectural plans.\n${notes || ''}`;
+  next = applyGroundUpSoftCostDefaults(next, 'ground_up', notesForDefaults);
+  return applyGroundUpShellScopeDefaults(next, {
+    templateKey: 'ground_up',
+    notes: notesForDefaults,
+  });
+}
+
+export function isWholeProjectPlanExport(input: {
+  planImportMode?: string | null;
+  planImportTradeKey?: string | null;
+  planImportFingerprint?: string | null;
+  planScopeRecords?: unknown[] | null;
+  notes?: string | null;
+  originalNotes?: string | null;
+  hasPlanBuildingAreas?: boolean | null;
+}): boolean {
+  if (String(input.planImportTradeKey || '').trim()) return false;
+  if (String(input.planImportMode || '') === 'whole_project') return true;
+  if (String(input.planImportFingerprint || '').trim()) return true;
+  if (
+    Array.isArray(input.planScopeRecords) &&
+    input.planScopeRecords.length > 0
+  ) {
+    return true;
+  }
+  if (input.hasPlanBuildingAreas) return true;
+  return (
+    notesAreImportedPlanSummary(input.notes) ||
+    notesAreImportedPlanSummary(input.originalNotes)
+  );
+}
+
 /** Set Yes/choice from note hints for items still on Not sure. */
 export function applyScopeInferencesFromNotes(
   items: ScopeChecklistItem[],
@@ -2828,6 +3029,7 @@ const MIXED_EXTERIOR_CONCRETE_OPTION_PATTERNS: Record<string, RegExp> = {
 };
 
 export function isMixedExteriorScopeNotes(notes?: string | null): boolean {
+  if (notesAreImportedPlanSummary(notes)) return false;
   const text = String(notes || '');
   return (
     /\b(?:concrete|flatwork|patio|pavers?|retaining\s+walls?)\b/i.test(text) &&
@@ -3605,6 +3807,7 @@ export function filterRoomRemodelNoteScopeItems(
   items: ScopeChecklistItem[],
   notes?: string | null
 ): ScopeChecklistItem[] {
+  if (notesAreImportedPlanSummary(notes)) return items;
   const text = String(notes || '').replace(
     /\b(?:no|without|exclude(?:d|s|ing)?|not\s+included|not\s+in\s+scope|owner[-\s]+provided)\b[^.;\n]*(?:[.;\n]|$)/gi,
     ' '
@@ -4579,18 +4782,13 @@ export function syncWetAreaTileScopeItems(
         }
         return row;
       }
-      if (
-        row.state === 'included' ||
-        (params.keepingExisting && row.state !== 'excluded')
-      ) {
+      if (params.keepingExisting && row.state !== 'excluded') {
         changed = true;
-        return {
-          ...row,
-          state: (params.keepingExisting ? 'excluded' : 'unsure') as
-            | 'excluded'
-            | 'unsure',
-          noteBacked: false,
-        };
+        return { ...row, state: 'excluded' as const, noteBacked: false };
+      }
+      if (row.state === 'included' && !row.noteBacked) {
+        changed = true;
+        return { ...row, state: 'unsure' as const, noteBacked: false };
       }
       return row;
     }
@@ -4777,6 +4975,7 @@ export function syncInteriorPaintScopeItems(
 ): ScopeChecklistItem[] {
   const measuredScopeIds = new Set<string>();
   const explicitScope = params.paintScope;
+  const planSummary = notesAreImportedPlanSummary(params.notes);
   const exteriorMentionedInNotes =
     !params.notes ||
     /\b(?:exterior|outside|siding|exterior\s+walls?|window\s+trim|exterior\s+doors?)\b[^.\n]{0,80}\b(?:paint|repaint|painting|coat|trim|wash|scrap|prime|caulk)/i.test(
@@ -4813,8 +5012,9 @@ export function syncInteriorPaintScopeItems(
       measuredScopeIds.add('exterior_paint');
       measuredScopeIds.add('exterior_prep');
       if (
-        positiveSqft(params.windowCount) ||
-        positiveSqft(params.exteriorDoorCount)
+        !planSummary &&
+        (positiveSqft(params.windowCount) ||
+          positiveSqft(params.exteriorDoorCount))
       ) {
         measuredScopeIds.add('exterior_trim_paint');
       }
@@ -4873,6 +5073,7 @@ export function syncInteriorPaintScopeItems(
       measuredScopeIds.add('exterior_prep');
     }
     if (
+      !planSummary &&
       notesExplicitlyCallForExteriorPaint &&
       (positiveSqft(params.windowCount) ||
         positiveSqft(params.exteriorDoorCount))
@@ -4892,12 +5093,18 @@ export function syncInteriorPaintScopeItems(
   }
   const hasExteriorOpeningPaint =
     positiveSqft(params.windowCount) || positiveSqft(params.exteriorDoorCount);
-  if (notesExplicitlyCallForExteriorPaint && hasExteriorOpeningPaint) {
+  if (
+    notesExplicitlyCallForExteriorPaint &&
+    hasExteriorOpeningPaint &&
+    !planSummary
+  ) {
     measuredScopeIds.add('exterior_trim_paint');
   }
   // Window/door replacement needs opening prep and masking, but does not
-  // imply painting the exterior or the window trim.
-  if (hasExteriorOpeningPaint) measuredScopeIds.add('exterior_prep');
+  // imply painting the exterior or the window trim. A whole-project plan
+  // count is not an exterior-paint takeoff.
+  if (hasExteriorOpeningPaint && !planSummary)
+    measuredScopeIds.add('exterior_prep');
   // Baseboard measurements imply trim painting. Door counts alone do not
   // imply door painting when notes identify the doors as installation scope.
   if (positiveSqft(params.baseboardLf)) measuredScopeIds.add('trim_paint');
@@ -4919,7 +5126,10 @@ export function syncInteriorPaintScopeItems(
       positiveSqft(params.exteriorPaintSqft));
   const shouldIncludeExteriorTrimPaint =
     shouldIncludeExteriorPaint && hasExteriorOpeningPaint;
-  if (hasExteriorOpeningPaint || shouldIncludeExteriorPaint) {
+  if (
+    !planSummary &&
+    (hasExteriorOpeningPaint || shouldIncludeExteriorPaint)
+  ) {
     const exteriorRows = [
       {
         id: 'exterior_prep',
@@ -5695,6 +5905,8 @@ export type ScopeChecklistGroup = {
 export type ScopeChecklistGroupingContext = {
   projectType?: string | null;
   notes?: string | null;
+  /** General-contractor plan export keeps the ground-up groups. */
+  wholeProjectPlan?: boolean | null;
 };
 
 /** Finish-out workflow for garage / basement / in-place room conversions. */
@@ -6229,6 +6441,9 @@ export function resolveScopeChecklistGroups(
     isExistingShellConversionJob(key, context.projectType, context.notes)
   ) {
     return EXISTING_SHELL_CONVERSION_SCOPE_GROUPS;
+  }
+  if (context.wholeProjectPlan) {
+    return SCOPE_CHECKLIST_GROUPS.ground_up;
   }
   if (isMixedExteriorScopeNotes(context.notes)) {
     return MIXED_EXTERIOR_SCOPE_GROUPS;

@@ -147,6 +147,45 @@ describe("electricalPlanAdapter", () => {
     expect(result.measurements.smokeDetectorCount).toBeUndefined();
   });
 
+  test("drawing symbol counts stay unpriced until the contractor confirms them", () => {
+    const result = applyElectricalVisionTakeoff({
+      electricalSelected: false,
+      symbolCountKeys: ["singlePoleSwitchCount", "ceilingFanCount"],
+      geometryDerived: ["singlePoleSwitchCount", "ceilingFanCount"],
+      measurements: {
+        singlePoleSwitchCount: 48,
+        ceilingFanCount: 5,
+        recessedLightCount: 31,
+      },
+      instanceTagKeys: ["recessedLightCount"],
+    });
+    expect(result.measurements.singlePoleSwitchCount).toBe(48);
+    expect(result.measurements.ceilingFanCount).toBe(5);
+    expect(result.measurements.recessedLightCount).toBe(31);
+    expect(result.provenance.singlePoleSwitchCount).toMatchObject({
+      status: "needs_review",
+      pricingEligible: false,
+      evidenceKind: "symbols",
+    });
+    expect(result.provenance.recessedLightCount).toMatchObject({
+      status: "plan_verified",
+      evidenceKind: "instance_tags",
+    });
+  });
+
+  test("keeps PDF instance-tag counts on a whole-project takeoff", () => {
+    const result = applyElectricalVisionTakeoff({
+      electricalSelected: false,
+      instanceTagKeys: ["recessedLightCount"],
+      measurements: {
+        recessedLightCount: 31,
+        floorAreaSqft: 2571,
+      },
+    });
+    expect(result.measurements.recessedLightCount).toBe(31);
+    expect(result.measurements.floorAreaSqft).toBe(2571);
+  });
+
   test("does not keep unlabeled electrical counts on non-electrical takeoff", () => {
     const result = applyElectricalVisionTakeoff({
       electricalSelected: false,
