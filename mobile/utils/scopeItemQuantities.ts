@@ -9240,7 +9240,7 @@ function resolveSuggestedPricingPhysicalCount(
     resolved.quantity != null &&
     resolved.quantity > 0
   ) {
-    return resolved.quantity;
+    return Number(resolved.quantity);
   }
   if (itemQuantities && unit === 'sqft') {
     const storedBasis = readStoredSqftPricingBasis(itemQuantities, itemId);
@@ -9257,7 +9257,7 @@ function resolveSuggestedPricingPhysicalCount(
   }
 
   if (resolved.dualCount?.unit === unit && resolved.dualCount.quantity > 0) {
-    return resolved.dualCount.quantity;
+    return Number(resolved.dualCount.quantity);
   }
 
   if (
@@ -9335,7 +9335,7 @@ function resolveSuggestedPricingPhysicalCount(
         return defaultCount;
       }
     }
-    return resolved.quantity;
+    return Number(resolved.quantity);
   }
 
   if (
@@ -12106,7 +12106,7 @@ export function resolveSuggestedBudgetSplitDisplay(
 
   const count =
     resolved.dualCount?.unit === average.unit && resolved.dualCount.quantity > 0
-      ? resolved.dualCount.quantity
+      ? Number(resolved.dualCount.quantity)
       : itemId === 'floor_demo' && average.unit === 'sqft'
         ? floorDemoPricingSqftCount(resolved, rule, measurementsInput)
         : (measurementMatch?.quantity ?? null);

@@ -63,6 +63,7 @@ import {
   applyScopeDetectionsToChecklistItems,
   buildStuccoTradeChecklistItems,
   formatDraftMoney,
+  formatPlanningMoney,
   mergeLivePlanImportIntoScopeMeasurements,
   resolveDraftScopeNotes,
   repairDraftRatePricingFromNotes,
@@ -184,6 +185,7 @@ import {
   choiceIdsToScopeState,
   createCustomScopeItem,
   resolveCustomScopeItemPlaceholder,
+  bucketWholeProjectScopeGroups,
   groupScopeChecklistItems,
   isMixedExteriorScopeNotes,
   initialScopeGroupCollapse,
@@ -619,6 +621,7 @@ import {
   sumConfirmScopeAppliedPricingBreakdown,
   sumConfirmScopeAppliedPricingTotal,
   listConfirmScopeAppliedPricingLines,
+  wholeProjectGroupDisplayTotal,
 } from '@/utils/benchmarkReasonablenessContext';
 import { buildConfirmScopeDisplayItems } from '@/utils/scopePackagesForReview';
 import { mergeSuggestedPricingBlocksIntoMeasurements } from '@/utils/mergeSuggestedPricingBlocks';
@@ -21047,6 +21050,7 @@ function ScopeGroupSection({
   onToggle,
   renderItem,
   noteSummary,
+  priceLabel,
   Colors,
   darkMode,
 }: {
@@ -21056,6 +21060,7 @@ function ScopeGroupSection({
   onToggle: () => void;
   renderItem: (item: ScopeChecklistItem) => React.ReactNode;
   noteSummary?: { fromNotes: number; toConfirm: number };
+  priceLabel?: string | null;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
 }) {
@@ -21085,14 +21090,35 @@ function ScopeGroupSection({
             <Text
               style={{
                 color: darkMode ? '#F5F7FA' : Colors.text,
-                fontSize: 13,
+                fontSize: priceLabel ? 16 : 13,
                 fontWeight: '800',
               }}
             >
               {title}
             </Text>
-            {noteSummary &&
-            (noteSummary.fromNotes > 0 || noteSummary.toConfirm > 0) ? (
+            {priceLabel ? (
+              <Text
+                style={{
+                  color: darkMode ? '#F5F7FA' : Colors.text,
+                  fontSize: 15,
+                  fontWeight: '800',
+                  marginTop: 3,
+                }}
+              >
+                {priceLabel}
+                <Text
+                  style={{
+                    color: captionColor(darkMode, Colors),
+                    fontSize: 13,
+                    fontWeight: '600',
+                  }}
+                >
+                  {' · '}
+                  {items.length} {items.length === 1 ? 'item' : 'items'}
+                </Text>
+              </Text>
+            ) : noteSummary &&
+              (noteSummary.fromNotes > 0 || noteSummary.toConfirm > 0) ? (
               <Text
                 style={{
                   color: captionColor(darkMode, Colors),
@@ -21112,6 +21138,7 @@ function ScopeGroupSection({
               </Text>
             ) : null}
           </View>
+          {priceLabel ? null : (
           <Text
             style={{
               color: captionColor(darkMode, Colors),
@@ -21121,6 +21148,7 @@ function ScopeGroupSection({
           >
             {items.length}
           </Text>
+          )}
           <Ionicons
             name={collapsed ? 'chevron-down' : 'chevron-up'}
             size={16}
@@ -21373,6 +21401,8 @@ export default function AIEstimateScopeAssumptionsModal({
   const [collapsedGroups, setCollapsedGroups] = useState<
     Record<string, boolean>
   >({});
+  const [expandedWholeProjectGroups, setExpandedWholeProjectGroups] =
+    useState<Record<string, boolean>>({});
   const [expandedCollapsedScopeItemIds, setExpandedCollapsedScopeItemIds] =
     useState<Set<string>>(() => new Set());
   const [customItemLabel, setCustomItemLabel] = useState('');
@@ -21677,6 +21707,9 @@ export default function AIEstimateScopeAssumptionsModal({
         planImport?.planFacts?.buildingAreas?.totalLivingSqft
     ),
   });
+  const collapsedScopeGroupSummary =
+    wholeProjectPlanChecklist ||
+    (mixedScopeReviewMode && !dedicatedElectricalChecklist);
   const scopeCardTemplateKey = useCallback(
     (itemId: string) => {
       if (notesPlumbingFlow && plumbingItemIds.has(itemId)) {
@@ -25119,14 +25152,17 @@ export default function AIEstimateScopeAssumptionsModal({
       wholeProjectPlanChecklist ? 'ground_up' : checklist?.templateKey,
       scopeGroupingContext
     );
+    const pricedGroups = collapsedScopeGroupSummary
+      ? bucketWholeProjectScopeGroups(grouped)
+      : grouped;
     return filterGroupedItemsWithoutPinnedTexture(
-      grouped,
+      pricedGroups,
       pinnedDrywallFinishItem
     );
   }, [
     templateDisplayItems,
     checklist?.templateKey,
-    wholeProjectPlanChecklist,
+    collapsedScopeGroupSummary,
     scopeGroupingContext,
     pinnedDrywallFinishItem,
   ]);
@@ -25520,6 +25556,26 @@ export default function AIEstimateScopeAssumptionsModal({
     hideDuplicateRoofingBaseCard,
     measurements.itemQuantities,
     measurements.pricingAcceptance,
+  ]);
+  const wholeProjectGroupTotals = useMemo(() => {
+    if (!collapsedScopeGroupSummary) return {} as Record<string, number>;
+    const totals: Record<string, number> = {};
+    for (const group of scopeGroupedItems) {
+      if (!group.title) continue;
+      totals[group.title] = wholeProjectGroupDisplayTotal({
+        items: group.items,
+        measurements: measurementsForAppliedPricing,
+        templateKey: scopePricingTemplateKey,
+        notes: scopeNotes,
+      });
+    }
+    return totals;
+  }, [
+    measurementsForAppliedPricing,
+    scopeGroupedItems,
+    scopeNotes,
+    scopePricingTemplateKey,
+    collapsedScopeGroupSummary,
   ]);
 
   const electricalPreviewScopeGroups = useMemo(() => {
@@ -29328,13 +29384,15 @@ export default function AIEstimateScopeAssumptionsModal({
       scopeGroupOrderRef.current.set(groupKey, index);
     }
   });
-  const collapsedTradeItemsAtBottom = scopeGroupsToRender.flatMap(group =>
-    group.items.filter(
-      item =>
-        autoCollapsedScopeItemIds.has(item.id) &&
-        !expandedCollapsedScopeItemIds.has(item.id)
-    )
-  );
+  const collapsedTradeItemsAtBottom = collapsedScopeGroupSummary
+    ? []
+    : scopeGroupsToRender.flatMap(group =>
+        group.items.filter(
+          item =>
+            autoCollapsedScopeItemIds.has(item.id) &&
+            !expandedCollapsedScopeItemIds.has(item.id)
+        )
+      );
   const electricalPreviewPricingCount = electricalPreviewScopeGroups.reduce(
     (total, group) => total + group.items.length,
     0
@@ -29998,11 +30056,25 @@ export default function AIEstimateScopeAssumptionsModal({
                     title={group.title}
                     items={regularItems}
                     collapsed={
-                      wholeProjectPlanChecklist
-                        ? false
+                      collapsedScopeGroupSummary
+                        ? !expandedWholeProjectGroups[group.title]
                         : Boolean(collapsedGroups[group.title])
                     }
+                    priceLabel={
+                      collapsedScopeGroupSummary &&
+                      group.title &&
+                      (wholeProjectGroupTotals[group.title] || 0) > 0
+                        ? formatPlanningMoney(wholeProjectGroupTotals[group.title])
+                        : null
+                    }
                     onToggle={() => {
+                      if (collapsedScopeGroupSummary) {
+                        setExpandedWholeProjectGroups(prev => ({
+                          ...prev,
+                          [group.title]: !prev[group.title],
+                        }));
+                        return;
+                      }
                       const isCollapsed = Boolean(collapsedGroups[group.title]);
                       if (isCollapsed) {
                         flushStagedElectricalMeasurements();

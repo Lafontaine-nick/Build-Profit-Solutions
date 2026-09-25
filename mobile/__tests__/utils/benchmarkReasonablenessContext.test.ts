@@ -4,6 +4,7 @@ import {
   foldAskAiMeasurementsIntoScopeSnapshot,
   formatBuildCostPerLivingSf,
   listConfirmScopeAppliedPricingLines,
+  wholeProjectGroupDisplayTotal,
   mergeScopeMeasurementsPreservingFields,
   sumStep3ReviewBudgetTotals,
   resolveAppliedScopeMoneyTotal,
@@ -392,6 +393,49 @@ describe('benchmarkReasonablenessContext', () => {
     expect(breakdown.total).toBe(36000);
     expect(resolveAppliedScopeMoneyTotal('cleanup', measurements.itemQuantities, measurements.pricingAcceptance.cleanup)).toBe(
       1000
+    );
+  });
+
+  it('totals a whole-project group from applied dollars and suggested card prices', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'cleanup', label: 'Cleanup', inputType: 'yes_no', state: 'included' },
+      { id: 'flooring', label: 'Flooring', inputType: 'yes_no', state: 'included' },
+      { id: 'permits', label: 'Permits', inputType: 'yes_no', state: 'excluded' },
+    ];
+    const measurements = {
+      flooringSqft: '100',
+      itemQuantities: {
+        cleanup__allowance: {
+          quantity: '1000',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+      },
+      pricingAcceptance: {
+        cleanup: {
+          selectionStatus: 'accepted',
+          totalAmount: 1000,
+          materialAmount: 0,
+          laborAmount: 0,
+          pricingSourceKind: 'national_average',
+        },
+      },
+    } as never;
+
+    const total = wholeProjectGroupDisplayTotal({
+      items,
+      measurements,
+      templateKey: 'ground_up',
+    });
+
+    expect(total).toBeGreaterThan(1000);
+    expect(total).toBe(
+      1000 +
+        wholeProjectGroupDisplayTotal({
+          items: [items[1]],
+          measurements,
+          templateKey: 'ground_up',
+        })
     );
   });
 

@@ -28,6 +28,8 @@ import {
   checklistItemInScope,
   initialScopeMeasurementInputExtended,
   lookupRuleKeyForPackage,
+  resolveChecklistItemQuantity,
+  resolveScopeItemSuggestedPricing,
   roughAllowanceSubKey,
   type NormalizedScopeMeasurements,
   type ScopeMeasurementsInputExtended,
@@ -643,6 +645,49 @@ export function listConfirmScopeAppliedPricingLines(params: {
     });
   }
   return lines;
+}
+
+/**
+ * Whole-home contractor group total. Applied dollars win; otherwise the same
+ * suggested card total is included so a collapsed group still shows a price.
+ */
+export function wholeProjectGroupDisplayTotal(params: {
+  items: ScopeChecklistItem[];
+  measurements: ScopeMeasurementsInputExtended;
+  templateKey?: string | null;
+  notes?: string | null;
+}): number {
+  const applied = new Map(
+    listConfirmScopeAppliedPricingLines(params).map(line => [line.itemId, line.total])
+  );
+  let total = 0;
+  for (const item of params.items) {
+    if (!checklistItemInScope(item)) continue;
+    const appliedTotal = applied.get(item.id);
+    if (appliedTotal != null && appliedTotal > 0) {
+      total += appliedTotal;
+      continue;
+    }
+    const resolved = resolveChecklistItemQuantity(item.id, params.measurements, {
+      choiceId: item.choiceId,
+      templateKey: params.templateKey,
+      notes: params.notes,
+    });
+    const suggested = resolveScopeItemSuggestedPricing(
+      item.id,
+      params.measurements,
+      params.templateKey,
+      resolved,
+      null,
+      params.notes
+    );
+    const suggestedTotal = Number(suggested.fill?.total);
+    if (suggested.fill?.isComparison) continue;
+    if (Number.isFinite(suggestedTotal) && suggestedTotal > 0) {
+      total += suggestedTotal;
+    }
+  }
+  return Math.round(total * 100) / 100;
 }
 
 /** Sum of Applied Confirm Scope dollars — excludes stage double-counts. */

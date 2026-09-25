@@ -1,5 +1,6 @@
 import {
   applyAdditionConversionScopeDefaults,
+  bucketWholeProjectScopeGroups,
   applyScopeInferencesFromNotes,
   filterExistingShellConversionConfirmScopeItems,
   filterGarageConversionConfirmScopeItems,
@@ -434,5 +435,76 @@ describe('addition / conversion scope defaults', () => {
     expect(included).toEqual(
       expect.arrayContaining(['wall_framing', 'insulation', 'drywall', 'paint'])
     );
+  });
+});
+
+describe('bucketWholeProjectScopeGroups', () => {
+  it('separates interior and exterior finishes for a whole-home bid', () => {
+    const item = (id: string) =>
+      ({ id, label: id, inputType: 'yes_no' as const, state: 'included' as const });
+    const grouped = bucketWholeProjectScopeGroups([
+      {
+        title: 'Finishes',
+        items: [
+          item('interior_paint'),
+          item('exterior_paint'),
+          item('flooring'),
+          item('stucco'),
+          item('plumbing_rough'),
+          item('framing'),
+        ],
+      },
+    ]);
+    const titles = Object.fromEntries(
+      grouped.map(group => [group.title, group.items.map(row => row.id)])
+    );
+    expect(titles['Interior finishes']).toEqual(['interior_paint', 'flooring']);
+    expect(titles['Exterior finishes']).toEqual(['exterior_paint', 'stucco']);
+    expect(titles.MEP).toEqual(['plumbing_rough']);
+    expect(titles['Site & structure']).toEqual(['framing']);
+  });
+
+  it('names a single leftover instead of an Other row', () => {
+    const grouped = bucketWholeProjectScopeGroups([
+      {
+        title: 'Scope',
+        items: [
+          {
+            id: 'mirror_accessories',
+            label: 'Mirror accessories',
+            inputType: 'yes_no',
+            state: 'included',
+          },
+        ],
+      },
+    ]);
+    expect(grouped.map(group => group.title)).toEqual(['Mirror accessories']);
+  });
+
+  it('keeps exhaust fans inside MEP', () => {
+    const grouped = bucketWholeProjectScopeGroups([
+      {
+        title: 'Scope',
+        items: [
+          {
+            id: 'exhaust_fan',
+            label: 'Exhaust fan / ventilation',
+            inputType: 'yes_no',
+            state: 'included',
+          },
+          {
+            id: 'hvac',
+            label: 'HVAC',
+            inputType: 'yes_no',
+            state: 'included',
+          },
+        ],
+      },
+    ]);
+    expect(grouped.map(group => group.title)).toEqual(['MEP']);
+    expect(grouped[0].items.map(item => item.id)).toEqual([
+      'exhaust_fan',
+      'hvac',
+    ]);
   });
 });

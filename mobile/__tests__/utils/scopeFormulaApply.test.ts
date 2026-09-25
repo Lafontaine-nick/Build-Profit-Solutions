@@ -947,4 +947,75 @@ describe('resolveFormulaQuantityApplyTarget', () => {
     expect(formula?.formulaExplanation).toMatch(/bathroom floor/i);
     expect(formula?.roundedValue).not.toBe(2029);
   });
+
+  it('labels flooring waste as an order quantity and prices the applied quantity', () => {
+    const input = {
+      ...emptyQuickMeasurementInput(),
+      floorAreaSqft: '2571',
+      flooringSqft: '2571',
+      itemQuantities: {
+        flooring: {
+          quantity: '2777',
+          unit: 'sqft',
+          quantitySource: 'calculated_confirmed',
+        },
+      },
+    } as any;
+
+    const formula = calculateFormulaForScope({
+      scopeKey: 'flooring',
+      measurements: input,
+      projectContext: 'ground_up',
+    });
+    expect(formula).toMatchObject({
+      formulaKey: 'flooring_purchase_with_waste',
+      roundedValue: 2777,
+      unit: 'sqft',
+    });
+    expect(formula?.formulaExplanation).toMatch(
+      /planning\/order quantity.*flooring purchase allowance.*not a room-by-room plan takeoff/i
+    );
+
+    const applyTarget = resolveFormulaQuantityApplyTarget({
+      scopeKey: 'flooring',
+      formula: formula!,
+    });
+    expect(applyTarget.buttonLabel).toMatch(/flooring order quantity/i);
+    expect(applyTarget.accessibilityLabel).toMatch(/including the waste allowance/i);
+
+    const resolved = resolveChecklistItemQuantity('flooring', input, {
+      templateKey: 'ground_up',
+    });
+    expect(Number(resolved.quantity)).toBe(2777);
+    expect(resolved.quantitySource).toBe('calculated_confirmed');
+
+    const pricing = resolveScopeItemSuggestedPricing(
+      'flooring',
+      input,
+      'ground_up',
+      resolved
+    );
+    const baseInput = {
+      ...input,
+      itemQuantities: {},
+    };
+    const baseResolved = resolveChecklistItemQuantity('flooring', baseInput, {
+      templateKey: 'ground_up',
+    });
+    const basePricing = resolveScopeItemSuggestedPricing(
+      'flooring',
+      baseInput,
+      'ground_up',
+      baseResolved
+    );
+    expect(pricing.fill?.basis).toEqual({ quantity: 2777, unit: 'sqft' });
+    expect(pricing.fill?.material).toBeGreaterThan(
+      basePricing.fill?.material ?? 0
+    );
+    expect(pricing.fill?.labor).toBeGreaterThan(basePricing.fill?.labor ?? 0);
+    expect(pricing.fill?.total).toBe(
+      (pricing.fill?.material ?? 0) + (pricing.fill?.labor ?? 0)
+    );
+    expect(pricing.fill?.total).toBeGreaterThan(basePricing.fill?.total ?? 0);
+  });
 });

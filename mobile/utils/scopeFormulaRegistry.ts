@@ -302,7 +302,7 @@ const FORMULAS: FormulaDefinition[] = [
     },
     rounding: 'sqft',
     explanation: ({ roundedValue, inputs, assumptions }) =>
-      `Calculated ${roundedValue.toLocaleString()} sqft from ${inputs[0]?.value.toLocaleString()} sqft net floor area${assumptions[0] ? ` plus ${Math.round(assumptions[0].value * 100)}% waste` : ''}.`,
+      `Planning/order quantity: ${roundedValue.toLocaleString()} sqft from ${inputs[0]?.value.toLocaleString()} sqft net floor area${assumptions[0] ? ` plus ${Math.round(assumptions[0].value * 100)}% waste` : ''}. This is a flooring purchase allowance, not a room-by-room plan takeoff.`,
   },
   {
     key: 'bath_floor_tile_with_waste',
@@ -917,6 +917,15 @@ export function resolveFormulaQuantityApplyTarget(params: {
   }
 
   const unitLabel = formatUnitLabel(formula.unit);
+  if (formula.formulaKey === 'flooring_purchase_with_waste') {
+    return {
+      quantity: formula.roundedValue,
+      unit: formula.unit,
+      buttonLabel: `Use ${qtyLabel(formula.roundedValue)} sqft flooring order quantity`,
+      accessibilityLabel:
+        `Use ${qtyLabel(formula.roundedValue)} square feet as the flooring order quantity, including the waste allowance.`,
+    };
+  }
   return {
     quantity: formula.roundedValue,
     unit: formula.unit,

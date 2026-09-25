@@ -6475,6 +6475,84 @@ const OPENING_SCOPE_ITEM_ORDER = [
   'openings',
 ] as const;
 
+const WHOLE_PROJECT_PRICE_GROUPS: Array<{
+  title: string;
+  test: (itemId: string) => boolean;
+}> = [
+  {
+    title: 'Preconstruction',
+    test: id =>
+      /^(plans_engineering|permits|engineering|survey|temporary_utilities|utility_coordination|meter_fees)$/.test(
+        id
+      ),
+  },
+  {
+    title: 'Site & structure',
+    test: id =>
+      /^(sitework|excavation|utility_taps|landscaping|foundation|pour_flatwork|concrete|framing|grading|backfill|demo|demolition|floor_demo|cabinet_demo)$/.test(
+        id
+      ) || /^(wall_framing|roof_tie_in)$/.test(id),
+  },
+  {
+    title: 'Exterior finishes',
+    test: id =>
+      /exterior|window|garage_door|sliding_door|stucco|roof|gutter|siding|soffit/.test(
+        id
+      ) || id === 'trim_finish',
+  },
+  {
+    title: 'MEP',
+    test: id =>
+      /^(mep_rough|plumbing_rough|plumbing_trim|electrical_rough|electrical_trim|hvac|insulation|exhaust_fan|ventilation|air_sealing|plumbing|electrical|lighting)$/.test(
+        id
+      ) || /^(plumbing|electrical|hvac)_/.test(id),
+  },
+  {
+    title: 'Interior finishes',
+    test: id =>
+      /drywall|floor|tile|cabinet|counter|paint|trim|door|appliance|vanity|backsplash|glass_door|texture|hang|finish_tape|interior_finishes/.test(
+        id
+      ),
+  },
+  {
+    title: 'Closeout',
+    test: id => /^(cleanup|contingency|haul_off)$/.test(id),
+  },
+];
+
+/** Collapse a whole-home contractor checklist into priced summary groups. */
+export function bucketWholeProjectScopeGroups(
+  groups: Array<{ title: string; items: ScopeChecklistItem[] }>
+): Array<{ title: string; items: ScopeChecklistItem[] }> {
+  const buckets = WHOLE_PROJECT_PRICE_GROUPS.map(group => ({
+    title: group.title,
+    items: [] as ScopeChecklistItem[],
+  }));
+  const other: ScopeChecklistItem[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (const item of group.items) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      const bucket = WHOLE_PROJECT_PRICE_GROUPS.find(entry =>
+        entry.test(item.id)
+      );
+      const target = buckets.find(entry => entry.title === bucket?.title);
+      if (target) target.items.push(item);
+      else other.push(item);
+    }
+  }
+  if (other.length === 1) {
+    buckets.push({
+      title: String(other[0].label || '').trim() || 'Other',
+      items: other,
+    });
+  } else if (other.length) {
+    buckets.push({ title: 'Other', items: other });
+  }
+  return buckets.filter(group => group.items.length > 0);
+}
+
 export function groupScopeChecklistItems(
   items: ScopeChecklistItem[],
   templateKey?: string,
