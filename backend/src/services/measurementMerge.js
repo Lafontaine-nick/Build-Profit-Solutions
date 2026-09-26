@@ -109,6 +109,13 @@ function mergeMeasurementCandidates({
   return { measurements, provenance, conflicts };
 }
 
+const SYMBOL_CONFIRMATION_FIELDS = new Set([
+  'ceilingFanCount',
+  'standardReceptacleCount',
+  'singlePoleSwitchCount',
+  'gfciReceptacleCount',
+]);
+
 function roundCandidateValue(field, value) {
   if (/count|stories?$/i.test(String(field)) || /Amperage$/i.test(String(field))) {
     return Math.round(value);
@@ -118,8 +125,10 @@ function roundCandidateValue(field, value) {
 
 /**
  * Merge 2+ independent takeoff sources. Distinct values stay as candidates.
- * Direct-evidence instance tags outrank vision for selectedValue, but a
- * material disagreement still requires contractor confirmation.
+ * Direct-evidence instance tags outrank vision and do not open a chooser.
+ * Disagreeing symbol confirmation counts stay one input: the lower count.
+ * That covers ceiling fans, standard receptacles, GFCI receptacles, and
+ * single-pole switches.
  */
 function mergeMeasurementCandidateSets(sets = []) {
   const fieldCandidates = new Map();
@@ -150,7 +159,15 @@ function mergeMeasurementCandidateSets(sets = []) {
     const candidates = [...rawCandidates].sort(
       (a, b) => candidateScore(b) - candidateScore(a)
     );
-    const selected = candidates[0];
+    const hasDirectEvidence = candidates.some(candidate => candidate.directEvidence);
+    const selected =
+      SYMBOL_CONFIRMATION_FIELDS.has(field) && !hasDirectEvidence
+        ? candidates.reduce(
+            (lowest, candidate) =>
+              candidate.value < lowest.value ? candidate : lowest,
+            candidates[0]
+          )
+        : candidates[0];
     measurements[field] = selected.value;
     const uniqueValues = [
       ...new Set(candidates.map((candidate) => roundCandidateValue(field, candidate.value))),
@@ -173,7 +190,10 @@ function mergeMeasurementCandidateSets(sets = []) {
       new Set(candidates.map((candidate) => candidate.source)).size >= 2;
     provenance[field] = {
       ...selected,
-      alternatives: candidates.slice(1).map((candidate) => ({ ...candidate })),
+      alternatives:
+        hasDirectEvidence || SYMBOL_CONFIRMATION_FIELDS.has(field)
+          ? []
+          : candidates.slice(1).map((candidate) => ({ ...candidate })),
       methodsAgree,
       independentVisionAgreement,
       candidateSources: [...new Set(candidates.map((candidate) => candidate.source))],
@@ -189,7 +209,11 @@ function mergeMeasurementCandidateSets(sets = []) {
       }
       if (hasConflict) break;
     }
-    if (hasConflict) {
+    if (
+      hasConflict &&
+      !hasDirectEvidence &&
+      !SYMBOL_CONFIRMATION_FIELDS.has(field)
+    ) {
       conflicts.push({
         field,
         selectedValue: selected.value,

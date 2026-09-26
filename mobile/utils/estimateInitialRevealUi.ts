@@ -270,7 +270,9 @@ export function getInitialRevealConfirmItems(
   draft: EstimateAiDraft
 ): InitialRevealConfirmBuckets {
   const planPriceLines = confirmedPlanLinesForDraft(draft).filter(
-    line => !/spaces detected on the plan/i.test(line)
+    line =>
+      !/spaces detected on the plan/i.test(line) &&
+      !/unclassified lighting fixtures/i.test(line)
   );
   if (planPriceLines.length > 0) {
     return splitInitialRevealConfirmItems(

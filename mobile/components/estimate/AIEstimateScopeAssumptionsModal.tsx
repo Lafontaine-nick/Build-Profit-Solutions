@@ -134,6 +134,8 @@ import {
   reconcilePlumbingEquipmentScopeMeasurements,
   reconcileFramingScopeMeasurements,
   reconcilePlumbingLineScopeMeasurements,
+  electricalPlanDeviceStaysVisible,
+  ELECTRICAL_UNPRINTED_PLAN_KEYS,
 } from '@/utils/planTakeoffReviewUi';
 import {
   INSULATION_BATT_FACING_DEFAULT,
@@ -15956,6 +15958,30 @@ function CollapsibleQuickMeasurements({
         ) {
           return false;
         }
+        if (
+          (tradeKey === 'electrical' ||
+            String(effectiveTemplateKey || '').toLowerCase() ===
+              'electrical') &&
+          ELECTRICAL_UNPRINTED_PLAN_KEYS.has(result.key) &&
+          !(
+            Number(String(measurements[result.key] ?? '').replace(/,/g, '')) >
+            0
+          ) &&
+          !measurements.quickMeasurementUserOverrides?.[result.key]
+        ) {
+          return false;
+        }
+        if (
+          (tradeKey === 'electrical' ||
+            String(effectiveTemplateKey || '').toLowerCase() ===
+              'electrical') &&
+          !electricalPlanDeviceStaysVisible(
+            result.key,
+            measurements.measurementProvenance?.[result.key]
+          )
+        ) {
+          return false;
+        }
         return true;
       }),
     [
@@ -15964,6 +15990,10 @@ function CollapsibleQuickMeasurements({
       hvacQmJob,
       deckQmJob,
       roofingEmbeddedMeasurementKeys,
+      tradeKey,
+      effectiveTemplateKey,
+      measurements.measurementProvenance,
+      measurements.quickMeasurementUserOverrides,
     ]
   );
   const physicalSections = useMemo(() => {
@@ -18946,7 +18976,15 @@ function CollapsibleQuickMeasurements({
         result.key === 'exteriorPaintSqft' &&
         !/\b(?:exterior|outside)\s+(?:wall\s+)?paint(?:ing)?\b|\bpaint(?:ing)?\s+(?:the\s+)?(?:exterior|outside)\b/i.test(
           String(notes || '')
-        ))
+        )) ||
+      (((singleTradeImport && tradeKey === 'electrical') ||
+        String(quickMeasurementTemplateKey || '').toLowerCase() ===
+          'electrical') &&
+        ELECTRICAL_UNPRINTED_PLAN_KEYS.has(result.key) &&
+        !(
+          Number(String(measurements[result.key] ?? '').replace(/,/g, '')) > 0
+        ) &&
+        !measurements.quickMeasurementUserOverrides?.[result.key])
     );
   const renderDisplayedResultField = (
     result: QuickMeasurementFieldResult,
@@ -19044,6 +19082,22 @@ function CollapsibleQuickMeasurements({
       ELECTRICAL_CARDS.filter(card => {
         if (noteKeys.has(card.measurementKey)) return true;
         if (userOwned(card.measurementKey)) return true;
+        if (
+          !electricalPlanDeviceStaysVisible(
+            card.measurementKey,
+            measurements.measurementProvenance?.[card.measurementKey]
+          )
+        ) {
+          return false;
+        }
+        // A plan count stays visible even when job notes mention another
+        // device. Notes must not hide the fan, receptacle, or switch reading.
+        if (hasPositiveQuantity(measurements[card.measurementKey])) return true;
+        if (
+          String(sources[card.measurementKey] || '') === 'needs_confirmation'
+        ) {
+          return true;
+        }
         if (hasElectricalNoteMeasurements) return false;
         return (
           hasPositiveQuantity(measurements[card.measurementKey]) ||
@@ -21646,6 +21700,10 @@ export default function AIEstimateScopeAssumptionsModal({
       null;
     if (tradeKeyForPending === 'hvac') {
       return new Set<string>(HVAC_PLAN_REVIEW_CANONICAL_KEYS);
+    }
+    if (tradeKeyForPending === 'electrical') {
+      // Confirmation counts are on the quick-measurement cards.
+      return new Set<string>(['__electrical_cards__']);
     }
     const trade = tradeKeyForPending
       ? getPlanTradeConfiguration(tradeKeyForPending)

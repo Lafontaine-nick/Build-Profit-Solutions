@@ -1498,17 +1498,25 @@ function ElectricalQuickMeasurementTakeoffView({
     },
     [commitQuantity]
   );
-  const toggleGroup = useCallback((groupId: string) => {
-    setCollapsed(previous => ({
-      ...previous,
-      [groupId]: !(previous[groupId] ?? electricalQmGroupDefaultCollapsed()),
-    }));
-  }, []);
+  const toggleGroup = useCallback(
+    (groupId: string) => {
+      const fields = groups.find(group => group.id === groupId)?.fields;
+      setCollapsed(previous => ({
+        ...previous,
+        [groupId]: !(
+          previous[groupId] ??
+          electricalQmGroupDefaultCollapsed(groupId, fields)
+        ),
+      }));
+    },
+    [groups]
+  );
   return (
     <View>
       {groups.map(group => {
         const isCollapsed =
-          collapsed[group.id] ?? electricalQmGroupDefaultCollapsed();
+          collapsed[group.id] ??
+          electricalQmGroupDefaultCollapsed(group.id, group.fields);
         return (
           <ElectricalQmGroupCard
             key={group.id}
@@ -1625,6 +1633,7 @@ const ElectricalQmGroupCard = React.memo(
         field.value === nextField.value &&
         field.selected === nextField.selected &&
         field.conflicted === nextField.conflicted &&
+        field.confirmInput === nextField.confirmInput &&
         field.provenanceLabel === nextField.provenanceLabel &&
         Boolean(previous.expandedKeys[field.key]) ===
           Boolean(next.expandedKeys[nextField.key])
@@ -1660,9 +1669,11 @@ const ElectricalQmScopeOption = React.memo(
     // previous expanded state keep the quantity editor mounted for one more
     // parent render.
     const visibleExpanded =
-      field.unit === 'EA' && !field.conflicted && !field.selected
-        ? false
-        : expanded;
+      field.confirmInput
+        ? true
+        : field.unit === 'EA' && !field.conflicted && !field.selected
+          ? false
+          : expanded;
     const chipSelected = electricalQmChipSelected(field, visibleExpanded);
     const showQuantity = electricalQmShowsQuantity(field, visibleExpanded);
     const committedValue = electricalQmQuantityInputValue(field);
@@ -1809,7 +1820,7 @@ const ElectricalQmScopeOption = React.memo(
                 </View>
               </View>
             ) : null}
-            {showStatusBelowInput && !active ? (
+            {showStatusBelowInput && !active && !hasPositiveQuantity ? (
               <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 5 }}>
                 {field.conflicted
                   ? 'Unresolved plan conflict — this stays unpriced until you choose or enter a count.'

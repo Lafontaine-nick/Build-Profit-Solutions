@@ -70,7 +70,7 @@ describe('measurement merge conflict handling', () => {
     expect(materiallyConflicts('stuccoFoamTrimLf', 150, 171)).toBe(true);
   });
 
-  test('instance-tag counts conflict with vision instead of silently keeping vision', () => {
+  test('instance-tag counts win without a vision chooser', () => {
     const result = mergeMeasurementCandidateSets([
       {
         measurements: { recessedLightCount: 20, ceilingFanCount: 8 },
@@ -92,11 +92,7 @@ describe('measurement merge conflict handling', () => {
     ]);
     expect(result.measurements.recessedLightCount).toBe(48);
     expect(result.provenance.recessedLightCount.source).toBe('pdf_text_instance_tags');
-    const recessed = result.conflicts.find((row) => row.field === 'recessedLightCount');
-    expect(recessed.requiresConfirmation).toBe(true);
-    expect(recessed.candidates.map((row) => row.value).sort((a, b) => b - a)).toEqual([
-      48, 40, 20,
-    ]);
+    expect(result.conflicts.find((row) => row.field === 'recessedLightCount')).toBeUndefined();
     expect(result.conflicts.find((row) => row.field === 'ceilingFanCount')).toBeUndefined();
     expect(result.measurements.ceilingFanCount).toBe(8);
     expect(result.provenance.ceilingFanCount.methodsAgree).toBe(true);
@@ -104,5 +100,57 @@ describe('measurement merge conflict handling', () => {
     expect(result.provenance.ceilingFanCount.candidateSources).toEqual(
       expect.arrayContaining(['general_plan_takeoff', 'focused_trade_takeoff'])
     );
+  });
+
+  test('disagreeing receptacle symbol counts keep the lower count without a chooser', () => {
+    const result = mergeMeasurementCandidateSets([
+      {
+        measurements: {
+          standardReceptacleCount: 105,
+          singlePoleSwitchCount: 46,
+          gfciReceptacleCount: 8,
+        },
+        confidence: {
+          standardReceptacleCount: 0.9,
+          singlePoleSwitchCount: 0.9,
+          gfciReceptacleCount: 0.8,
+        },
+        source: 'focused_trade_takeoff',
+      },
+      {
+        measurements: {
+          standardReceptacleCount: 91,
+          singlePoleSwitchCount: 36,
+          gfciReceptacleCount: 1,
+        },
+        confidence: {
+          standardReceptacleCount: 0.7,
+          singlePoleSwitchCount: 0.7,
+          gfciReceptacleCount: 0.6,
+        },
+        source: 'general_plan_takeoff',
+      },
+    ]);
+    expect(result.measurements.standardReceptacleCount).toBe(91);
+    expect(result.measurements.singlePoleSwitchCount).toBe(36);
+    expect(result.measurements.gfciReceptacleCount).toBe(1);
+    expect(result.conflicts).toEqual([]);
+  });
+
+  test('disagreeing ceiling-fan symbol counts keep the lower count without a chooser', () => {
+    const result = mergeMeasurementCandidateSets([
+      {
+        measurements: { ceilingFanCount: 7 },
+        confidence: { ceilingFanCount: 0.9 },
+        source: 'focused_trade_takeoff',
+      },
+      {
+        measurements: { ceilingFanCount: 5 },
+        confidence: { ceilingFanCount: 0.7 },
+        source: 'general_plan_takeoff',
+      },
+    ]);
+    expect(result.measurements.ceilingFanCount).toBe(5);
+    expect(result.conflicts.find((row) => row.field === 'ceilingFanCount')).toBeUndefined();
   });
 });

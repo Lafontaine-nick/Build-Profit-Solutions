@@ -25,6 +25,7 @@ import {
   uniqueConflictCandidateValues,
   retainPlanTakeoffConflicts,
   reviewablePlanMeasurementConflicts,
+  electricalConflictCarriesDefault,
   uniqueUnreadablePlanFields,
   planConflictChooserRowsKey,
   conflictChooserConfirmedLine,
@@ -475,10 +476,49 @@ describe('planMeasurementConflictUi', () => {
         },
       },
     });
-    expect(recovered.map(row => row.field)).toEqual([
-      'gfciReceptacleCount',
-      'threeWaySwitchCount',
-    ]);
+    expect(recovered.map(row => row.field)).toEqual(['threeWaySwitchCount']);
+    expect(
+      electricalConflictCarriesDefault(conflict('gfciReceptacleCount', [8, 5]))
+    ).toBe(5);
+    expect(
+      electricalConflictCarriesDefault({
+        field: 'recessedLightCount',
+        selectedValue: 51,
+        selectedSource: 'focused_trade_takeoff',
+        threshold: 1,
+        requiresConfirmation: true,
+        candidates: [
+          {
+            value: 31,
+            source: 'pdf_text_instance_tags',
+            confidence: 1,
+            directEvidence: true,
+          },
+          {
+            value: 51,
+            source: 'focused_trade_takeoff',
+            confidence: 0.8,
+            directEvidence: false,
+          },
+        ],
+      })
+    ).toBe(31);
+    const skipped = reviewablePlanMeasurementConflicts({
+      conflicts: [],
+      provenance: {
+        standardReceptacleCount: {
+          value: 86,
+          source: 'general_plan_takeoff',
+          alternatives: [{ value: 88, source: 'focused_trade_takeoff' }],
+        },
+        recessedLightCount: {
+          value: 31,
+          source: 'pdf_text_instance_tags',
+          alternatives: [{ value: 51, source: 'focused_trade_takeoff' }],
+        },
+      },
+    });
+    expect(skipped).toEqual([]);
     expect(
       uniqueUnreadablePlanFields([
         { field: 'serviceAmperage', reason: 'No printed amperage callout' },
@@ -532,7 +572,7 @@ describe('planMeasurementConflictUi', () => {
       shouldConfirmScopeShowPlanConflict('singlePoleSwitchCount', {
         tradeKey: 'electrical',
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('lists skipped low-confidence HVAC reads for the pending confirmation strip', () => {

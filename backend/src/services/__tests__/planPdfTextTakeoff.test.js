@@ -363,6 +363,15 @@ describe('planPdfTextTakeoff', () => {
     expect(expanded.find(page => page.page === 13).reasons).toContain('following electrical sheet');
   });
 
+  test('expandElectricalRelevantPages skips a following sheet that is a named roof plan', () => {
+    const expanded = expandElectricalRelevantPages(
+      [{ page: 10, score: 12, reasons: ['electrical plan'] }],
+      11,
+      new Map([[11, 'A-9 SHV Lot 49 ROOF PLAN']])
+    );
+    expect(expanded.map(page => page.page)).toEqual([10]);
+  });
+
   test('parsePlumbingFixtureScheduleFromPageText reads fixture schedule rows', () => {
     const {
       countPlumbingFixtureScheduleOnPage,
@@ -534,6 +543,25 @@ describe('planPdfTextTakeoff', () => {
     );
     expect(page.measurements.recessedLightCount).toBe(31);
     expect(page.details.recessedLightCount.tag).toBe('R6');
+    expect(page.gfciLabelCount).toBe(1);
+    expect(aggregateElectricalInstanceTagCounts([page]).gfciLabelCount).toBe(1);
+  });
+
+  test('split GFCI glyphs on an electrical plan count as one printed label', () => {
+    const page = countElectricalInstanceTagsOnPage(
+      [{ str: 'ELECTRICAL PLAN A-8', x: 400, y: 1200 }],
+      {
+        page: 10,
+        sheet: 'A-8',
+        items: [
+          { str: 'G', x: 80, y: 400 },
+          { str: 'F', x: 96, y: 400 },
+          { str: 'C', x: 112, y: 400 },
+          { str: 'I', x: 128, y: 400 },
+        ],
+      }
+    );
+    expect(page.gfciLabelCount).toBe(1);
   });
 
   test('repeated R4 instance tags become the recessedLightCount candidate', () => {

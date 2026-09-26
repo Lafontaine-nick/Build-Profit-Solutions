@@ -2037,14 +2037,20 @@ function collectUnclassifiedElectricalFixtures({
   const nextUnreadable = Array.isArray(unreadableFields)
     ? [...unreadableFields]
     : [];
-  const already = nextUnreadable.some(
+  const reason = `${count} lighting fixtures without a symbol legend`;
+  const existingIndex = nextUnreadable.findIndex(
     (entry) =>
       String(entry?.field || entry?.key || "") === "unclassifiedFixtureCount",
   );
-  if (count >= 2 && !already) {
+  if (count >= 2 && existingIndex >= 0) {
+    nextUnreadable[existingIndex] = {
+      field: "unclassifiedFixtureCount",
+      reason,
+    };
+  } else if (count >= 2) {
     nextUnreadable.push({
       field: "unclassifiedFixtureCount",
-      reason: `${count} lighting fixtures without a symbol legend`,
+      reason,
     });
   }
   return { measurements: nextMeasurements, unreadableFields: nextUnreadable };
@@ -4404,7 +4410,7 @@ async function analyzePlanForMeasurements({
               ? [
                   ELECTRICAL_VISION_INSTRUCTIONS,
                   electricalSheetCountHint,
-                  "Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.",
+                  "Return Electrical canonical counts only. standardReceptacleCount, gfciReceptacleCount, singlePoleSwitchCount, and ceilingFanCount must be integers whenever those symbols are drawn. A missing legend is not a reason to return null — put the symbol count in measurements and list the field in unreadableFields. Omit only serviceAmperage, panels, conduit, rough/trim, job condition, and unlabeled homeruns.",
                   hintBits.length ? hintBits.join("\n\n") : "No extra context.",
                 ].join("\n\n")
               : hvacSelected
@@ -4613,7 +4619,7 @@ async function analyzePlanForMeasurements({
                         : plumbingSelected
                           ? `${plumbingSheetCountHint} Return Plumbing canonical quantities only. Add only explicit or directly measured fields to explicitlyLabeled/geometryDerived. Leave packages and unsupported values omitted.`
                           : electricalSelected
-                            ? `${electricalSheetCountHint} Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.`
+                            ? `${electricalSheetCountHint} Return Electrical canonical counts only. standardReceptacleCount, gfciReceptacleCount, singlePoleSwitchCount, and ceilingFanCount must be integers whenever those symbols are drawn. A missing legend is not a reason to return null. Omit only serviceAmperage, panels, conduit, rough/trim, job condition, and unlabeled homeruns.`
                             : "Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.",
               ].join("\n\n"),
             },
@@ -5080,6 +5086,81 @@ async function analyzePlanForMeasurements({
       instanceTags: electricalTagMeasurements,
       unreadableFields: (parsed.unreadableFields || []).slice(0, 20),
     });
+    const requiredSymbolKeys = [
+      "standardReceptacleCount",
+      "gfciReceptacleCount",
+      "singlePoleSwitchCount",
+    ];
+    const missingSymbolKeys = requiredSymbolKeys.filter(
+      (key) => !(Number(parsed.measurements?.[key]) > 0),
+    );
+    if (missingSymbolKeys.length && visionParts.length) {
+      try {
+        const recovery = await createOpenAiChatCompletion(openai, {
+          model: aiModels.assistant.vision,
+          response_format: aiRuntime.assistant.vision.responseFormat,
+          temperature: planVisionTemperature,
+          max_tokens: 800,
+          messages: [
+            {
+              role: "system",
+              content:
+                "Count electrical device symbols on the attached sheet. Return JSON only. A missing legend is not a reason to omit a count.",
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: [
+                    `The first pass omitted ${missingSymbolKeys.join(", ")}.`,
+                    "Count the drawn symbols and return a positive integer in measurements for every omitted key.",
+                    "A duplex receptacle symbol is standardReceptacleCount. A printed GFCI or GFCI symbol is gfciReceptacleCount. A single switch symbol is singlePoleSwitchCount.",
+                    "Do not return null. Do not invent service amperage, panel count, or conduit.",
+                    '{"measurements":{"standardReceptacleCount":0,"gfciReceptacleCount":0,"singlePoleSwitchCount":0}}',
+                  ].join(" "),
+                },
+                ...visionParts,
+              ],
+            },
+          ],
+        });
+        const recovered = parseVisionJsonPayload(recovery);
+        for (const key of missingSymbolKeys) {
+          const value = Number(recovered?.measurements?.[key]);
+          if (!(value > 0)) continue;
+          parsed.measurements[key] = Math.round(value);
+          if (
+            parsed.fieldConfidence &&
+            typeof parsed.fieldConfidence === "object"
+          ) {
+            parsed.fieldConfidence[key] = 0.55;
+          }
+          const listed = (parsed.unreadableFields || []).some(
+            (entry) => entry?.field === key,
+          );
+          if (!listed) {
+            parsed.unreadableFields = [
+              ...(parsed.unreadableFields || []),
+              {
+                field: key,
+                reason:
+                  "Symbol count recovered without a device legend. Confirm before pricing.",
+              },
+            ];
+          }
+        }
+        logElectricalTakeoffStage("ELECTRICAL SYMBOL RECOVERY", {
+          requested: missingSymbolKeys,
+          recovered: electricalDebugSnapshot(parsed.measurements),
+        });
+      } catch (err) {
+        console.warn(
+          "[ELECTRICAL TAKEOFF] symbol recovery pass failed:",
+          err?.message || err,
+        );
+      }
+    }
     const omitted = omitUnresolvedElectricalConflicts(
       parsed.measurements,
       measurementConflicts,
@@ -5095,7 +5176,7 @@ async function analyzePlanForMeasurements({
   }
 
   const imageQuality = sanitizeImageQuality(parsed?.imageQuality);
-  const unreadableFields = sanitizeUnreadableFields(parsed?.unreadableFields);
+  let unreadableFields = sanitizeUnreadableFields(parsed?.unreadableFields);
   const scope =
     scopeResult && scopeResult.success
       ? { scopeText: scopeResult.scopeText, detections: scopeResult.detections }
@@ -5453,6 +5534,90 @@ async function analyzePlanForMeasurements({
   });
   rawMeasurements = electricalTakeoff.measurements;
   electricalValidation = electricalTakeoff.electricalValidation || null;
+  const printedGfciCount = Number(
+    pdfTakeoff?.electricalInstanceTags?.gfciLabelCount,
+  );
+  const gfciAlreadyPriced =
+    electricalValidation?.fields?.gfciReceptacleCount?.pricingEligible === true;
+  let printedGfciProvenance = null;
+  if (
+    electricalSelected &&
+    Number.isFinite(printedGfciCount) &&
+    printedGfciCount >= 1 &&
+    !gfciAlreadyPriced
+  ) {
+    const gfciCount = Math.round(printedGfciCount);
+    rawMeasurements.gfciReceptacleCount = gfciCount;
+    printedGfciProvenance = {
+      value: gfciCount,
+      source: "printed_label",
+      normalizedSource: "NEEDS_REVIEW",
+      status: "needs_review",
+      pricingEligible: false,
+      reason:
+        "GFCI is printed on the electrical plan. Confirm the count before pricing.",
+    };
+    measurementProvenance.gfciReceptacleCount = printedGfciProvenance;
+    const gfciReason =
+      "GFCI is printed on the electrical plan. Confirm the count before pricing.";
+    const gfciUnreadable = Array.isArray(parsed.unreadableFields)
+      ? parsed.unreadableFields
+      : [];
+    if (
+      !gfciUnreadable.some(
+        (entry) =>
+          String(entry?.field || entry?.key || "") === "gfciReceptacleCount",
+      )
+    ) {
+      parsed.unreadableFields = [
+        ...gfciUnreadable,
+        { field: "gfciReceptacleCount", reason: gfciReason },
+      ];
+    }
+    if (electricalValidation) {
+      const fields = { ...(electricalValidation.fields || {}) };
+      fields.gfciReceptacleCount = {
+        ...(fields.gfciReceptacleCount || {}),
+        status: "needs_review",
+        pricingEligible: false,
+        reason: gfciReason,
+      };
+      const priceableFields = (electricalValidation.priceableFields || []).filter(
+        (key) => key !== "gfciReceptacleCount",
+      );
+      const blockedFields = [
+        ...new Set([
+          ...(electricalValidation.blockedFields || []),
+          "gfciReceptacleCount",
+        ]),
+      ];
+      electricalValidation = {
+        ...electricalValidation,
+        fields,
+        priceableFields,
+        blockedFields,
+      };
+    }
+    measurementConflicts = (measurementConflicts || []).filter(
+      (conflict) => conflict?.field !== "gfciReceptacleCount",
+    );
+  }
+  const planVerifiedElectricalKeys = new Set(
+    Object.entries(electricalTakeoff.provenance || {})
+      .filter(([, entry]) => entry?.status === "plan_verified")
+      .map(([key]) => key),
+  );
+  if (planVerifiedElectricalKeys.size) {
+    parsed.unreadableFields = (parsed.unreadableFields || []).filter(
+      (entry) =>
+        !planVerifiedElectricalKeys.has(
+          String(entry?.field || entry?.key || "").trim(),
+        ),
+    );
+    unreadableFields = sanitizeUnreadableFields(parsed.unreadableFields);
+  } else if (electricalSelected) {
+    unreadableFields = sanitizeUnreadableFields(parsed.unreadableFields);
+  }
   measurementProvenance = {
     ...measurementProvenance,
     ...Object.fromEntries(
@@ -5466,6 +5631,9 @@ async function analyzePlanForMeasurements({
       ]),
     ),
   };
+  if (printedGfciProvenance) {
+    measurementProvenance.gfciReceptacleCount = printedGfciProvenance;
+  }
   if (plumbingSelected) {
     const inferredKeys = new Set(
       Array.isArray(parsed.inferredKeys) ? parsed.inferredKeys : [],

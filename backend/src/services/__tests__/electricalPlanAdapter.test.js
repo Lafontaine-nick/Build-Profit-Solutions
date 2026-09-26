@@ -93,7 +93,7 @@ describe("electricalPlanAdapter", () => {
       measurements: { mainPanelCount: 1, serviceAmperage: 200 },
     });
     expect(unlabeled.measurements.serviceAmperage).toBeUndefined();
-    expect(unlabeled.measurements.mainPanelCount).toBe(1);
+    expect(unlabeled.measurements.mainPanelCount).toBeUndefined();
   });
 
   test("treats an explicit panel callout as Plan verified without requiring a second evidence record", () => {
@@ -143,8 +143,34 @@ describe("electricalPlanAdapter", () => {
     );
     expect(result.measurements.standardReceptacleCount).toBe(50);
     expect(result.measurements.recessedLightCount).toBeUndefined();
-    expect(result.measurements.singlePoleSwitchCount).toBeUndefined();
+    expect(result.measurements.singlePoleSwitchCount).toBe(15);
     expect(result.measurements.smokeDetectorCount).toBeUndefined();
+  });
+
+  test("an agreeing ceiling-fan symbol count stays unpriced", () => {
+    const result = applyElectricalVisionTakeoff({
+      electricalSelected: true,
+      methodsAgreeKeys: ["ceilingFanCount"],
+      independentVisionAgreementKeys: ["ceilingFanCount"],
+      electricalRelevantPages: [{ page: 10 }],
+      electricalRenderedPages: [{ page: 10 }],
+      electricalSheetEvidence: {
+        sheetSubtotals: [
+          {
+            page: 10,
+            sheet: "A-8",
+            coverage: "complete",
+            counts: { ceilingFanCount: 6 },
+          },
+        ],
+      },
+      measurements: { ceilingFanCount: 6 },
+    });
+    expect(result.measurements.ceilingFanCount).toBe(6);
+    expect(result.provenance.ceilingFanCount).toMatchObject({
+      status: "needs_review",
+      pricingEligible: false,
+    });
   });
 
   test("drawing symbol counts stay unpriced until the contractor confirms them", () => {
@@ -446,6 +472,28 @@ describe("electricalPlanAdapter", () => {
     expect(alternate.provenance.standardReceptacleCount).toMatchObject({
       status: "ai_verified",
       pricingEligible: true,
+    });
+  });
+
+  test("instance-tag counts stay plan verified when vision also marks them unreadable", () => {
+    const result = applyElectricalVisionTakeoff({
+      electricalSelected: true,
+      measurements: { recessedLightCount: 31 },
+      instanceTagKeys: ["recessedLightCount"],
+      unreadableFields: [
+        {
+          field: "recessedLightCount",
+          reason: "Lighting legend and fixture instance tags are not readable.",
+        },
+      ],
+    });
+    expect(result.electricalValidation.fields.recessedLightCount).toMatchObject({
+      status: "plan_verified",
+      pricingEligible: true,
+    });
+    expect(result.provenance.recessedLightCount).toMatchObject({
+      status: "plan_verified",
+      evidenceKind: "instance_tags",
     });
   });
 

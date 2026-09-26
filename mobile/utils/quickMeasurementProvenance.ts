@@ -116,6 +116,7 @@ export type QuickMeasurementFieldResult = {
   blockingPrice: boolean;
   estimate: QuickMeasurementEstimate | null;
   sourceLabel: string | null;
+  sourceTag?: QuickMeasurementSourceTag | null;
 };
 
 export function quickMeasurementSourceLabel(
@@ -492,6 +493,7 @@ export function resolveQuickMeasurementFields(params: {
             : quickMeasurementSourceLabel(
                 isUserOverride ? 'user_confirmed_suggestion' : sourceTag
               ),
+      sourceTag: isUserOverride ? 'user_confirmed_suggestion' : sourceTag,
     });
   }
 
@@ -504,6 +506,8 @@ export type QuickMeasurementSummary = {
   estimateAvailable: number;
   needsConfirmation: number;
   confirmed: number;
+  /** Confirmed from plan review. Counted in the "from plan" header. */
+  planConfirmed?: number;
   relevantTotal: number;
 };
 
@@ -516,6 +520,7 @@ export function summarizeQuickMeasurementFieldStates(
     estimateAvailable: 0,
     needsConfirmation: 0,
     confirmed: 0,
+    planConfirmed: 0,
     relevantTotal: 0,
   };
   for (const result of results) {
@@ -528,7 +533,12 @@ export function summarizeQuickMeasurementFieldStates(
       summary.estimateAvailable += 1;
     else if (result.state === 'needs_confirmation')
       summary.needsConfirmation += 1;
-    else if (result.state === 'confirmed') summary.confirmed += 1;
+    else if (result.state === 'confirmed') {
+      summary.confirmed += 1;
+      if (result.sourceTag === 'contractor_confirmed_from_plan_review') {
+        summary.planConfirmed = (summary.planConfirmed || 0) + 1;
+      }
+    }
   }
   return summary;
 }
@@ -537,7 +547,8 @@ export function quickMeasurementSummaryLine(
   summary: QuickMeasurementSummary
 ): string {
   const aiVerified = summary.aiVerified || 0;
-  return `${summary.detected} from plan · ${aiVerified} AI verified · ${summary.estimateAvailable} suggestion${summary.estimateAvailable === 1 ? '' : 's'} · ${summary.needsConfirmation} need confirmation`;
+  const fromPlan = summary.detected + (summary.planConfirmed || 0);
+  return `${fromPlan} from plan · ${aiVerified} AI verified · ${summary.estimateAvailable} suggestion${summary.estimateAvailable === 1 ? '' : 's'} · ${summary.needsConfirmation} need confirmation`;
 }
 
 export type QuickMeasurementUiGroups = {

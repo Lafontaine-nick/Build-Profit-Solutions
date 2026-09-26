@@ -677,6 +677,55 @@ const ELECTRICAL_PLAN_REVIEW_KEYS = new Set([
   'serviceAmperage',
 ]);
 
+/** Not printed on an architectural electrical sheet. Blank is not a missed read. */
+export const ELECTRICAL_UNPRINTED_PLAN_KEYS = new Set([
+  'mainPanelCount',
+  'serviceAmperage',
+  'dedicated20aCircuitCount',
+  'conduitLf',
+]);
+
+/** Symbol guesses with no legend. Hidden unless a real sheet verifies them. */
+export const ELECTRICAL_LEGENDLESS_SYMBOL_KEYS = new Set([
+  'smokeDetectorCount',
+  'coDetectorCount',
+  'threeWaySwitchCount',
+  'bathExhaustFanCount',
+  'exteriorLightCount',
+  'exteriorReceptacleCount',
+]);
+
+const ELECTRICAL_CONFIRMATION_SCOPE_KEYS = new Set([
+  'ceilingFanCount',
+  'standardReceptacleCount',
+  'singlePoleSwitchCount',
+  'gfciReceptacleCount',
+  'unclassifiedFixtureCount',
+  ...ELECTRICAL_LEGENDLESS_SYMBOL_KEYS,
+]);
+
+export function electricalPlanDeviceStaysVisible(
+  key: string,
+  provenanceEntry?: unknown
+): boolean {
+  if (!ELECTRICAL_LEGENDLESS_SYMBOL_KEYS.has(key)) return true;
+  if (!provenanceEntry || typeof provenanceEntry !== 'object') return false;
+  const entry = provenanceEntry as {
+    pricingEligible?: unknown;
+    status?: unknown;
+    evidenceKind?: unknown;
+  };
+  if (
+    entry.evidenceKind === 'explicit_label' ||
+    entry.evidenceKind === 'instance_tags'
+  ) {
+    return true;
+  }
+  if (entry.pricingEligible === true) return true;
+  const status = String(entry.status || '').toLowerCase();
+  return status === 'plan_verified' || status === 'ai_verified';
+}
+
 const PLUMBING_PLAN_REVIEW_KEYS = new Set([
   'plumbingRoughPointCount',
   'plumbingTrimHookupCount',
@@ -2213,6 +2262,11 @@ function planTakeoffLabel(
   living: number | null
 ): string {
   if (PLAN_TAKEOFF_LABELS[key]) return PLAN_TAKEOFF_LABELS[key];
+  const electricalCard = ELECTRICAL_CARDS.find(
+    card => card.measurementKey === key
+  );
+  if (electricalCard?.label) return electricalCard.label;
+  if (key === 'unclassifiedFixtureCount') return 'Unclassified lighting fixtures';
   const labeled = measurementDisplayLabel(key, value, living).label;
   if (labeled && labeled !== key) return labeled;
   return key
@@ -2368,6 +2422,8 @@ export function confirmedPlanTakeoffLines(input: {
   );
   const measurements = input.measurements || {};
   const wholeProject = input.wholeProject !== false;
+  const electricalPlan =
+    String(measurements.planImportTradeKey || '') === 'electrical';
   const numeric = new Map<string, number>();
   for (const [key, raw] of Object.entries(measurements)) {
     if (!/^[A-Za-z]/.test(key)) continue;
@@ -2376,6 +2432,15 @@ export function confirmedPlanTakeoffLines(input: {
       !planSources.has(String(sources?.[key] || ''))
     ) {
       continue;
+    }
+    if (electricalPlan && ELECTRICAL_CONFIRMATION_SCOPE_KEYS.has(key)) {
+      const source = String(sources?.[key] || '');
+      const accepted =
+        planSources.has(source) ||
+        source === 'user_entered' ||
+        source === 'manual_override' ||
+        source === 'user_confirmed_suggestion';
+      if (!accepted) continue;
     }
     const value = Number(raw);
     if (!Number.isFinite(value) || value <= 0) continue;
@@ -2406,7 +2471,7 @@ export function confirmedPlanTakeoffLines(input: {
   const roomCount = (input.rooms || []).filter(room =>
     String(room?.name || '').trim()
   ).length;
-  if (roomCount > 0) {
+  if (roomCount > 0 && wholeProject) {
     lines.push(
       `${roomCount} space${roomCount === 1 ? '' : 's'} detected on the plan`
     );

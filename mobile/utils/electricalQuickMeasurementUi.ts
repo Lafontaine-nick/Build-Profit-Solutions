@@ -17,6 +17,8 @@ export type ElectricalQmField = {
   value: number | null;
   selected: boolean;
   conflicted: boolean;
+  /** Visible quantity that is not in the bid until the contractor confirms it. */
+  confirmInput?: boolean;
   provenanceLabel: string | null;
 };
 
@@ -215,16 +217,22 @@ export function electricalQmQuantityInputValue(
 }
 
 export function electricalQmShowsQuantity(
-  field: Pick<ElectricalQmField, 'selected' | 'conflicted'>,
+  field: Pick<ElectricalQmField, 'selected' | 'conflicted' | 'confirmInput'>,
   expanded: boolean
 ): boolean {
-  return electricalQmOptionActive(field) || expanded;
+  return (
+    electricalQmOptionActive(field) || expanded || Boolean(field.confirmInput)
+  );
 }
 
-export function electricalQmGroupDefaultCollapsed(): boolean {
-  // Rendering every quantity row at once blocks the JS thread while the
-  // attribute cards above are receiving taps. Keep headers mounted and let the
-  // contractor expand only the quantity groups they need.
+export function electricalQmGroupDefaultCollapsed(
+  groupId?: string,
+  fields?: Array<{ confirmInput?: boolean }>
+): boolean {
+  // Lighting stays open because the recessed count is the priced scope.
+  // Any other group that already has a count to confirm stays open too.
+  if (groupId === 'lighting') return false;
+  if (fields?.some(field => field.confirmInput)) return false;
   return true;
 }
 
@@ -303,21 +311,63 @@ export function buildElectricalQuickMeasurementGroups(input: {
     }
     const userResolved = Boolean(input.userOverrides?.[card.measurementKey]);
     const source = input.sources?.[card.measurementKey] || null;
+    const provenanceEntry =
+      measurements.measurementProvenance &&
+      typeof measurements.measurementProvenance === 'object'
+        ? (
+            measurements.measurementProvenance as Record<
+              string,
+              {
+                status?: string;
+                normalizedSource?: string;
+                evidenceKind?: string;
+              }
+            >
+          )[card.measurementKey]
+        : null;
+    const provenanceNeedsReview =
+      String(provenanceEntry?.status || '').toLowerCase() === 'needs_review' ||
+      String(provenanceEntry?.normalizedSource || '').toUpperCase() ===
+        'NEEDS_REVIEW';
+    const normalizedProvenance = String(
+      provenanceEntry?.normalizedSource || ''
+    ).toUpperCase();
+    const symbolFanNeedsConfirmation =
+      card.measurementKey === 'ceilingFanCount' &&
+      provenanceEntry?.evidenceKind !== 'instance_tags' &&
+      normalizedProvenance !== 'USER_CONFIRMED' &&
+      source !== 'user_entered' &&
+      source !== 'manual_override';
+    const instanceTagPriced =
+      provenanceEntry?.evidenceKind === 'instance_tags' &&
+      String(provenanceEntry?.status || '').toLowerCase() === 'plan_verified';
     const retainedForConfirmation =
-      source === 'needs_confirmation' &&
+      !userResolved &&
+      !instanceTagPriced &&
+      (source === 'needs_confirmation' ||
+        provenanceNeedsReview ||
+        symbolFanNeedsConfirmation) &&
       positiveQuantity(measurements[card.measurementKey]) != null;
+    const storedQuantity = positiveQuantity(measurements[card.measurementKey]);
     const conflictedField =
       conflicted.has(card.measurementKey) &&
       !userResolved &&
-      !retainedForConfirmation;
+      !retainedForConfirmation &&
+      !instanceTagPriced &&
+      storedQuantity == null;
     const value = conflictedField
       ? null
-      : (positiveQuantity(measurements[card.measurementKey]) ??
+      : (storedQuantity ??
         (input.userOverrides?.[card.measurementKey] &&
         explicitZeroQuantity(measurements[card.measurementKey])
           ? 0
           : null));
-    const selected = value != null;
+    const confirmDespiteConflict =
+      !userResolved &&
+      !instanceTagPriced &&
+      conflicted.has(card.measurementKey) &&
+      value != null;
+    const selected = value != null && !retainedForConfirmation && !confirmDespiteConflict;
     const field: ElectricalQmField = {
       key: card.measurementKey,
       itemId: card.itemId,
@@ -326,11 +376,15 @@ export function buildElectricalQuickMeasurementGroups(input: {
       value,
       selected,
       conflicted: conflictedField,
-      provenanceLabel: selected
-        ? quantityProvenanceLabel(source || 'plan')
-        : conflictedField
+      confirmInput: retainedForConfirmation || confirmDespiteConflict,
+      provenanceLabel:
+        retainedForConfirmation || confirmDespiteConflict
           ? 'Needs confirmation'
-          : null,
+          : selected
+          ? quantityProvenanceLabel(source || 'plan')
+          : conflictedField
+            ? 'Needs confirmation'
+            : null,
     };
     const list = byGroup.get(card.groupId) || [];
     list.push(field);
@@ -355,6 +409,40 @@ export function buildElectricalQuickMeasurementGroups(input: {
       fields,
       selectedCount: fields.filter(field => field.selected).length,
     });
+  }
+
+  const unclassifiedCount = positiveQuantity(
+    measurements.unclassifiedFixtureCount
+  );
+  const unclassifiedResolved = Boolean(
+    input.userOverrides?.unclassifiedFixtureCount
+  );
+  if (unclassifiedCount != null) {
+    const unclassifiedField: ElectricalQmField = {
+      key: 'unclassifiedFixtureCount',
+      itemId: 'electrical_unclassified_fixture',
+      label: 'Unclassified lighting fixtures',
+      unit: 'EA',
+      value: unclassifiedCount,
+      selected: unclassifiedResolved,
+      conflicted: false,
+      confirmInput: !unclassifiedResolved,
+      provenanceLabel: unclassifiedResolved
+        ? 'User entered'
+        : 'Needs confirmation',
+    };
+    const lighting = [...merged.values()].find(group => group.id === 'lighting');
+    if (lighting) {
+      lighting.fields.push(unclassifiedField);
+      if (unclassifiedField.selected) lighting.selectedCount += 1;
+    } else {
+      merged.set('Lighting / fans', {
+        id: 'lighting',
+        title: 'Lighting / fans',
+        fields: [unclassifiedField],
+        selectedCount: unclassifiedField.selected ? 1 : 0,
+      });
+    }
   }
 
   return [...merged.values()];

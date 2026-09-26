@@ -769,8 +769,24 @@ const INSULATION_PAGE_SIGNALS = [
   { re: /\bfloor\s*plan\b|\bmain\s*floor\b|\bupper\s*floor\b|\bsecond\s*floor\b/i, label: 'floor plan', score: 5 },
 ];
 
+function pageTextForNumber(pageTexts, pageNumber) {
+  if (!pageTexts) return '';
+  if (typeof pageTexts.get === 'function') return String(pageTexts.get(pageNumber) || '');
+  return String(pageTexts[pageNumber] || '');
+}
+
+/** A titled roof, floor, elevation, or other trade sheet is not a blank E-sheet continuation. */
+function isNamedNonElectricalSheet(text) {
+  const blob = String(text || '');
+  if (!blob.trim()) return false;
+  if (scoreElectricalRelevantPage(blob).score >= 8) return false;
+  return /\b(?:roof|floor|foundation|framing|structural|elevation|section|plumbing|mechanical|hvac|landscape|site)\s+plan\b/i.test(
+    blob
+  );
+}
+
 /** Upper-level E sheets often have almost no text layer. Include the next page after a strong hit. */
-function expandElectricalRelevantPages(pages, pageCount) {
+function expandElectricalRelevantPages(pages, pageCount, pageTexts = null) {
   const byPage = new Map();
   for (const page of Array.isArray(pages) ? pages : []) {
     const pageNumber = Number(page?.page);
@@ -781,6 +797,7 @@ function expandElectricalRelevantPages(pages, pageCount) {
     if ((page.score || 0) < 8) continue;
     const next = page.page + 1;
     if (next > pageCount || byPage.has(next)) continue;
+    if (isNamedNonElectricalSheet(pageTextForNumber(pageTexts, next))) continue;
     byPage.set(next, {
       page: next,
       score: Math.max(1, (page.score || 1) - 3),
@@ -1041,6 +1058,50 @@ function clusterTagHits(hits, radius = 8) {
   return clusters;
 }
 
+function countPrintedGfciLabels(phrases, blob, legendBoxes, items) {
+  if (!LIGHTING_OR_ELECTRICAL_PLAN_RE.test(String(blob || ''))) return 0;
+  let phraseCount = 0;
+  for (const phrase of Array.isArray(phrases) ? phrases : []) {
+    const str = String(phrase?.str || '').trim();
+    if (!/^GFCI$/i.test(str)) continue;
+    if (isInsideLegendRegion(phrase, legendBoxes)) continue;
+    phraseCount += 1;
+  }
+  if (phraseCount > 0) return phraseCount;
+  const textCount = (String(blob || '').match(/\bGFCI\b/gi) || []).length;
+  if (textCount > 0) return textCount;
+  const glyphs = { G: [], F: [], C: [], I: [] };
+  for (const item of Array.isArray(items) ? items : []) {
+    const str = String(item?.str || '').trim().toUpperCase();
+    if (!glyphs[str]) continue;
+    if (isInsideLegendRegion(item, legendBoxes)) continue;
+    glyphs[str].push(item);
+  }
+  const used = new Set();
+  let glyphCount = 0;
+  for (const g of glyphs.G) {
+    const y = Number(g.y) || 0;
+    let x = Number(g.x) || 0;
+    let matched = true;
+    for (const letter of ['F', 'C', 'I']) {
+      const next = glyphs[letter].find(candidate => {
+        if (used.has(candidate)) return false;
+        const dy = Math.abs((Number(candidate.y) || 0) - y);
+        const dx = (Number(candidate.x) || 0) - x;
+        return dy <= 6 && dx > 0 && dx <= 28;
+      });
+      if (!next) {
+        matched = false;
+        break;
+      }
+      used.add(next);
+      x = Number(next.x) || x;
+    }
+    if (matched) glyphCount += 1;
+  }
+  return glyphCount;
+}
+
 function countElectricalInstanceTagsOnPage(phrases, { pageText, page = null, sheet = null, items = null } = {}) {
   const blob = pageText || (Array.isArray(phrases) ? phrases.map(p => p.str).join(' ') : '');
   if (isFixtureTagSkipPage(blob)) {
@@ -1101,6 +1162,7 @@ function countElectricalInstanceTagsOnPage(phrases, { pageText, page = null, she
     legendBoxes,
     blob,
   });
+  const gfciLabelCount = countPrintedGfciLabels(phrases, blob, legendBoxes, items);
   return {
     measurements,
     details,
@@ -1110,6 +1172,7 @@ function countElectricalInstanceTagsOnPage(phrases, { pageText, page = null, she
     page,
     sheet: sourceSheet,
     unclassifiedFixtureCount,
+    gfciLabelCount,
   };
 }
 
@@ -1407,10 +1470,20 @@ function aggregateElectricalInstanceTagCounts(pageResults) {
     }))
     .filter(result => result.count >= 2);
   const unclassifiedFixtureCount = unclassifiedPages.length ? sumCollapsingDuplicateFixtureViews(unclassifiedPages) : 0;
+  const gfciPages = (Array.isArray(pageResults) ? pageResults : [])
+    .map(result => ({
+      ...result,
+      count: Number(result?.gfciLabelCount) || 0,
+    }))
+    .filter(result => result.count >= 1);
+  const gfciLabelCount = gfciPages.length
+    ? sumCollapsingDuplicateFixtureViews(gfciPages)
+    : 0;
   return {
     measurements: Object.fromEntries(Object.entries(byKey).map(([key, entry]) => [key, entry.value])),
     byKey,
     unclassifiedFixtureCount: unclassifiedFixtureCount >= 2 ? unclassifiedFixtureCount : 0,
+    gfciLabelCount,
   };
 }
 
@@ -2319,6 +2392,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
   const hvacInstanceTagPages = [];
   const hvacEquipmentHintPages = [];
   const finishScheduleRows = [];
+  const pageTextByNumber = new Map();
   let pageCount = 0;
 
   for (const buf of list) {
@@ -2334,6 +2408,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
       const phrases = clusterPhrases(page.items);
       const pageText = phrases.map(p => p.str).join(' ');
       const pageNumber = page.pageIndex + 1;
+      pageTextByNumber.set(pageNumber, pageText);
       const paintingPage = scorePaintingRelevantPage(pageText);
       if (paintingPage.score > 0) {
         paintingRelevantPages.push({
@@ -2435,7 +2510,10 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
         page: pageNumber,
         items: page.items,
       });
-      if (Object.keys(instanceTagPage.measurements || {}).length) {
+      if (
+        Object.keys(instanceTagPage.measurements || {}).length ||
+        Number(instanceTagPage.gfciLabelCount) > 0
+      ) {
         electricalInstanceTagPages.push(instanceTagPage);
         const existingElectrical = electricalRelevantPages.find(entry => entry.page === pageNumber);
         const tagReason = 'fixture instance tags';
@@ -2582,7 +2660,11 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
     rooms: dedupeRoomsByName(allRooms).slice(0, 60),
     assumptions: [...new Set(assumptions)].slice(0, 8),
     paintingRelevantPages: paintingRelevantPages.sort((a, b) => b.score - a.score).slice(0, 12),
-    electricalRelevantPages: expandElectricalRelevantPages(electricalRelevantPages, pageCount)
+    electricalRelevantPages: expandElectricalRelevantPages(
+      electricalRelevantPages,
+      pageCount,
+      pageTextByNumber
+    )
       .sort((a, b) => b.score - a.score)
       .slice(0, 12),
     plumbingRelevantPages: expandPlumbingRelevantPages(plumbingRelevantPages, pageCount)

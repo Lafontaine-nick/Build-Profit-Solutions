@@ -1141,13 +1141,67 @@ export function syncElectricalScopeItems<
   const included = new Set(params.electricalScope || []);
   const fromQuantity = new Set<string>();
   const clearedQuantity = new Set<string>();
+  const heldForConfirmation = new Set<string>();
+  const quantityRecord = quantities as Record<string, unknown>;
+  const quantitySources =
+    quantityRecord.quickMeasurementSources &&
+    typeof quantityRecord.quickMeasurementSources === 'object'
+      ? (quantityRecord.quickMeasurementSources as Record<string, string>)
+      : {};
+  const quantityProvenance =
+    quantityRecord.measurementProvenance &&
+    typeof quantityRecord.measurementProvenance === 'object'
+      ? (quantityRecord.measurementProvenance as Record<
+          string,
+          {
+            status?: string;
+            normalizedSource?: string;
+            pricingEligible?: boolean;
+            evidenceKind?: string;
+          }
+        >)
+      : {};
+  const quantityOverrides =
+    quantityRecord.quickMeasurementUserOverrides &&
+    typeof quantityRecord.quickMeasurementUserOverrides === 'object'
+      ? (quantityRecord.quickMeasurementUserOverrides as Record<string, boolean>)
+      : {};
+  const needsPlanConfirmation = (key: string) => {
+    if (quantityOverrides[key]) return false;
+    const entry = quantityProvenance[key];
+    if (
+      entry?.evidenceKind === 'instance_tags' &&
+      String(entry.status || '').toLowerCase() === 'plan_verified'
+    ) {
+      return false;
+    }
+    if (quantitySources[key] === 'needs_confirmation') return true;
+    if (!entry) return false;
+    const status = String(entry.status || '').toLowerCase();
+    const normalized = String(entry.normalizedSource || '').toUpperCase();
+    return (
+      status === 'needs_review' ||
+      normalized === 'NEEDS_REVIEW' ||
+      entry.pricingEligible === false
+    );
+  };
   for (const card of ELECTRICAL_CARDS) {
     if (card.measurementKey === 'serviceAmperage') continue;
     if (packageOnly && card.itemId !== 'electrical_rough') continue;
     const raw = quantities[card.measurementKey];
-    if (positiveNumber(raw) != null && !noteExcludedIds.has(card.itemId)) {
+    if (
+      positiveNumber(raw) != null &&
+      !noteExcludedIds.has(card.itemId) &&
+      !needsPlanConfirmation(card.measurementKey)
+    ) {
       included.add(card.itemId);
       fromQuantity.add(card.itemId);
+    } else if (
+      needsPlanConfirmation(card.measurementKey) &&
+      !quantityOverrides[card.measurementKey]
+    ) {
+      included.delete(card.itemId);
+      heldForConfirmation.add(card.itemId);
     } else if (
       QUANTITY_OWNED_ITEM_IDS.has(card.itemId) &&
       isExplicitlyClearedQuantity(raw)
@@ -1232,6 +1286,9 @@ export function syncElectricalScopeItems<
     if (item.state === 'excluded') return item;
     if (clearedQuantity.has(item.id)) {
       return item.state === 'included' ? { ...item, state: 'unsure' } : item;
+    }
+    if (heldForConfirmation.has(item.id) && item.state === 'included') {
+      return { ...item, state: 'unsure' as const };
     }
     if (!included.has(item.id)) return item;
     return item.state === 'included' ? item : { ...item, state: 'included' };

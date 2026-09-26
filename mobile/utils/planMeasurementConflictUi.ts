@@ -18,6 +18,52 @@ import { WINDOWS_DOORS_PLAN_REVIEW_MEASUREMENT_KEYS } from '@/utils/subcontracto
 export type PlanTakeoffUnit = 'EA' | 'LF' | 'A' | 'sqft' | 'ton';
 export type PlanConflictChoice = number | 'manual';
 
+/** Symbol counts that stay as one confirmation input when AI readings disagree. */
+export const ELECTRICAL_SYMBOL_CONFIRMATION_FIELDS = new Set([
+  'ceilingFanCount',
+  'standardReceptacleCount',
+  'singlePoleSwitchCount',
+  'gfciReceptacleCount',
+]);
+
+function candidateIsPlanTag(candidate: {
+  directEvidence?: boolean;
+  source?: string | null;
+}): boolean {
+  return /instance_tag|pdf_text_instance_tags/i.test(
+    String(candidate.source || '')
+  );
+}
+
+/** Fixture tags and symbol confirmation counts do not require a review button. */
+export function electricalConflictNeedsChooser(
+  conflict: PlanMeasurementConflict
+): boolean {
+  const field = String(conflict.field || '').trim();
+  const candidates = conflict.candidates || [];
+  if (candidates.some(candidateIsPlanTag)) return false;
+  if (ELECTRICAL_SYMBOL_CONFIRMATION_FIELDS.has(field)) return false;
+  return true;
+}
+
+/** Count to keep when the contractor leaves the review buttons unselected. */
+export function electricalConflictCarriesDefault(
+  conflict: PlanMeasurementConflict
+): number | null {
+  const candidates = conflict.candidates || [];
+  const tagged = candidates.find(candidateIsPlanTag);
+  if (tagged && Number(tagged.value) > 0) return Number(tagged.value);
+  const field = String(conflict.field || '').trim();
+  if (ELECTRICAL_SYMBOL_CONFIRMATION_FIELDS.has(field)) {
+    const counts = candidates
+      .map(candidate => Number(candidate.value))
+      .filter(value => Number.isFinite(value) && value > 0);
+    if (counts.length) return Math.min(...counts);
+  }
+  const selected = Number(conflict.selectedValue);
+  return Number.isFinite(selected) && selected > 0 ? selected : null;
+}
+
 /** Canonical evidence tokens — never shown to the contractor. */
 export type PlanEvidenceSource =
   | 'PLAN_TAGS'
@@ -407,6 +453,7 @@ export function reviewablePlanMeasurementConflicts(input: {
   for (const conflict of input.conflicts || []) {
     const field = String(conflict?.field || '').trim();
     if (!field || conflict.requiresConfirmation === false) continue;
+    if (!electricalConflictNeedsChooser(conflict)) continue;
     if (uniqueConflictCandidateValues(conflict).length < 2) continue;
     byField.set(field, conflict);
   }
@@ -455,6 +502,7 @@ export function reviewablePlanMeasurementConflicts(input: {
       candidates,
     };
     if (uniqueConflictCandidateValues(synthetic).length >= 2) {
+      if (!electricalConflictNeedsChooser(synthetic)) continue;
       byField.set(field, synthetic);
     }
   }
@@ -485,7 +533,13 @@ export function shouldConfirmScopeShowPlanConflict(
     ['plumbing', 'plumbing_service'].includes(
       String(params?.templateKey || '').toLowerCase()
     );
-  return !(plumbingFlow && isPlumbingPlanTakeoffConflictField(field));
+  if (plumbingFlow && isPlumbingPlanTakeoffConflictField(field)) return false;
+  const electricalFlow =
+    params?.tradeKey === 'electrical' ||
+    String(params?.templateKey || '').toLowerCase() === 'electrical';
+  // Electrical confirmation counts live on the quick-measurement cards.
+  if (electricalFlow) return false;
+  return true;
 }
 
 /** Surface 25 vs 30 LF disagreements on Review Plumbing Takeoff, not Confirm Scope. */

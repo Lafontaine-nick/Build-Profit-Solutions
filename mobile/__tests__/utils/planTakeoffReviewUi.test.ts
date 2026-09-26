@@ -108,6 +108,41 @@ describe('plan takeoff review UI polish', () => {
     expect(
       confirmedPlanTakeoffLines({
         measurements: {
+          recessedLightCount: 31,
+          ceilingFanCount: 5,
+          unclassifiedFixtureCount: 19,
+        },
+        rooms: [{ name: 'Primary Suite', areaSqft: 209 }],
+        wholeProject: false,
+      })
+    ).toEqual([
+      'Ceiling fan · 5',
+      'Recessed / canless / wafer light · 31',
+      'Unclassified lighting fixtures · 19',
+    ]);
+    expect(
+      confirmedPlanTakeoffLines({
+        measurements: {
+          planImportTradeKey: 'electrical',
+          recessedLightCount: 31,
+          ceilingFanCount: 5,
+          standardReceptacleCount: 105,
+          bathExhaustFanCount: 5,
+          smokeDetectorCount: 8,
+        },
+        sources: {
+          recessedLightCount: 'detected_from_plan',
+          ceilingFanCount: 'needs_confirmation',
+          standardReceptacleCount: 'needs_confirmation',
+          bathExhaustFanCount: 'needs_confirmation',
+          smokeDetectorCount: 'needs_confirmation',
+        },
+        wholeProject: false,
+      })
+    ).toEqual(['Recessed / canless / wafer light · 31']);
+    expect(
+      confirmedPlanTakeoffLines({
+        measurements: {
           floorAreaSqft: 2571,
           garageSqft: 1427,
           deckSqft: 322,

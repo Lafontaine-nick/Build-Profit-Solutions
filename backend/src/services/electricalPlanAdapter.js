@@ -482,6 +482,16 @@ function omitUnresolvedElectricalConflicts(measurements, conflicts) {
   for (const conflict of Array.isArray(conflicts) ? conflicts : []) {
     const field = String(conflict?.field || "").trim();
     if (!field || !conflict?.requiresConfirmation) continue;
+    // A confirmation count stays visible. Dropping it makes Confirm Scope
+    // look like the plan had no receptacles, switches, or fans.
+    if (
+      field === "ceilingFanCount" ||
+      field === "standardReceptacleCount" ||
+      field === "singlePoleSwitchCount" ||
+      field === "gfciReceptacleCount"
+    ) {
+      continue;
+    }
     if (
       !ELECTRICAL_MEASUREMENT_KEYS.includes(field) &&
       !ELECTRICAL_PLAN_ALIASES[field]
@@ -606,9 +616,24 @@ function applyElectricalVisionTakeoff({
     // list is supplemental audit detail; requiring it here could demote a
     // panel callout to AI verified even though the plan-review summary says
     // the quantity came from a printed callout.
+    if (
+      (key === "mainPanelCount" || key === "subpanelCount") &&
+      evidenceKind !== "explicit_label"
+    ) {
+      delete next[key];
+      continue;
+    }
     const planVerified =
       evidenceKind === "instance_tags" || evidenceKind === "explicit_label";
+    // Fan and detector symbols have no legend on an architectural electrical
+    // plan, so an agreeing vision pass must not price them.
+    const symbolNeedsConfirmation =
+      !planVerified &&
+      (key === "ceilingFanCount" ||
+        key === "smokeDetectorCount" ||
+        key === "coDetectorCount");
     const aiVerified =
+      !symbolNeedsConfirmation &&
       deterministicRepeatedImportStable !== false &&
       !planVerified &&
       evidenceKind !== "inference" &&
@@ -724,6 +749,9 @@ function applyElectricalVisionTakeoff({
     : []) {
     const field = String(unreadable?.field || "").trim();
     if (!field) continue;
+    // A counted fixture tag is direct plan evidence. A vision note that the
+    // legend is hard to read must not erase that count.
+    if (fieldValidation[field]?.status === "plan_verified") continue;
     if (fieldValidation[field]?.status === "conflict") {
       blockedFields.push(field);
       continue;
@@ -790,7 +818,8 @@ const ELECTRICAL_VISION_INSTRUCTIONS = [
   "For Electrical, the attached images are Electrical sheets (or E sheets inside the plan file). Device, fixture, panel, and legend symbols MUST be counted. Counting those glyphs is required takeoff, not estimating, not inventing, and not a readability violation.",
   "Count the semantic item, not every visual mark. A GFCI symbol is one GFCI receptacle, not a GFCI plus a standard receptacle. A labeled range circuit is rangeHookupCount only — do not also add circuit50aCount. Count actual 3-way switch devices, not an extra branch circuit for the pair.",
   "Tier 1 — report when symbols or labels are visible: mainPanelCount, standardReceptacleCount, gfciReceptacleCount, recessedLightCount, standardFixtureCount, ceilingFanCount, smokeDetectorCount, coDetectorCount, and labeled range/dryer/dishwasher hookups.",
-  "Count every ceiling-fan symbol on every lighting sheet, including covered patio, primary suite, all bedrooms, and upstairs living. Sum main-level and upper-level sheets. Do not stop after the first living-area cluster.",
+  "Count every ceiling-fan symbol on every lighting sheet, including covered patio, primary suite, all bedrooms, and upstairs living. A ceiling fan is the large bladed symbol centered in a room. Count one per room that has that symbol. Sum main-level and upper-level sheets. Do not stop after the first living-area cluster.",
+  "When a symbol count is uncertain, still put the number in measurements and list that field in unreadableFields. This applies to ceilingFanCount, standardReceptacleCount, gfciReceptacleCount, singlePoleSwitchCount, threeWaySwitchCount, and unclassifiedFixtureCount. Do not omit the number. Do not invent serviceAmperage, dedicated20aCircuitCount, or conduitLf.",
   "Lighting fixtures that are not recessed/canless (R4) and not ceiling fans still count. If the set has no symbol legend, report unclassifiedFixtureCount and list it in unreadableFields. Do not guess pendant, vanity, garage, or standard fixture.",
   "Tier 2 — report when recognizable, and the contractor will confirm: singlePoleSwitchCount, threeWaySwitchCount, fourWaySwitchCount, exteriorReceptacleCount, pendantLightCount, exteriorLightCount, bathExhaustFanCount, doorbellCount, cat6DropCount, tvCoaxCount.",
   "Tier 3 — explicit only. Do NOT invent serviceAmperage, standardCircuitCount, dedicated20aCircuitCount, other homerun/breaker counts, conduitLf, trenchingLf, EV, or specialty equipment unless a printed amperage/panel callout or panel schedule exists. Put those keys in explicitlyLabeled when used. Never infer 200A from house size or a panel box.",

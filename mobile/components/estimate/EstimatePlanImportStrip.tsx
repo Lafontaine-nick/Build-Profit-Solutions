@@ -74,8 +74,13 @@ import { electricalQuickMeasurementSourceFromProvenance } from '@/utils/electric
 import {
   reconcileFramingScopeMeasurements,
   tagFramingQuickMeasurementSourcesFromProvenance,
+  electricalPlanDeviceStaysVisible,
 } from '@/utils/planTakeoffReviewUi';
-import { applyRepeatedPlumbingImportConflicts, lowConfidenceNeedsReviewProvenance } from '@/utils/planMeasurementConflictUi';
+import {
+  applyRepeatedPlumbingImportConflicts,
+  lowConfidenceNeedsReviewProvenance,
+  uniqueUnreadablePlanFields,
+} from '@/utils/planMeasurementConflictUi';
 import { tagPlanDetectedQuickMeasurementKeys } from '@/utils/quickMeasurementProvenance';
 import { tagPlanReviewLockedQuickMeasurementSources } from '@/utils/planReviewMeasurementLock';
 import {
@@ -1027,6 +1032,34 @@ export default function EstimatePlanImportStrip({
               ])
             )
           : values;
+      if (selection.trade?.key === 'electrical') {
+        for (const key of Object.keys(tradeMeasurements)) {
+          if (
+            !electricalPlanDeviceStaysVisible(
+              key,
+              takeoff.measurementProvenance?.[key]
+            )
+          ) {
+            delete tradeMeasurements[key];
+          }
+        }
+        const withheld = new Set(
+          uniqueUnreadablePlanFields(takeoff.unreadableFields)
+            .map(field => String(field.field || '').trim())
+            .filter(
+              field =>
+                field &&
+                field !== 'unclassifiedFixtureCount' &&
+                field !== 'ceilingFanCount' &&
+                field !== 'standardReceptacleCount' &&
+                field !== 'singlePoleSwitchCount' &&
+                field !== 'gfciReceptacleCount' &&
+                field !== 'recessedLightCount' &&
+                values[field] == null
+            )
+        );
+        for (const key of withheld) delete tradeMeasurements[key];
+      }
       const normalizedTrade =
         selection.trade?.key === 'roofing' ||
         selection.trade?.key === 'concrete' ||
@@ -1210,6 +1243,21 @@ export default function EstimatePlanImportStrip({
         ),
         Object.keys(tradeMeasurements)
       );
+      if (selection.trade?.key === 'electrical') {
+        const validationFields =
+          metadata?.electricalValidation?.fields ||
+          takeoff.electricalValidation?.fields ||
+          {};
+        for (const [key, field] of Object.entries(validationFields)) {
+          if (field?.pricingEligible === false && tradeMeasurements[key] != null) {
+            mergedQuickMeasurementSources[key] = 'needs_confirmation';
+          }
+        }
+        if (tradeMeasurements.unclassifiedFixtureCount != null) {
+          mergedQuickMeasurementSources.unclassifiedFixtureCount =
+            'needs_confirmation';
+        }
+      }
       const quickMeasurementSourcesWithDeselectedOpenings =
         selection.trade?.key === 'windows_doors' ||
         selection.trade?.key === 'garage_doors'

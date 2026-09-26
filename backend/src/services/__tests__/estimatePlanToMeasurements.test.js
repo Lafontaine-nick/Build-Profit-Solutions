@@ -1761,6 +1761,25 @@ describe("estimatePlanToMeasurements", () => {
     );
   });
 
+  test("unclassified lighting fixtures replace a vague unreadable reason with the count", () => {
+    const collected = collectUnclassifiedElectricalFixtures({
+      measurements: { unclassifiedFixtureCount: 19 },
+      unreadableFields: [
+        {
+          field: "unclassifiedFixtureCount",
+          reason: "No readable lighting-symbol legend",
+        },
+      ],
+    });
+    expect(collected.measurements.unclassifiedFixtureCount).toBeUndefined();
+    expect(collected.unreadableFields).toEqual([
+      {
+        field: "unclassifiedFixtureCount",
+        reason: "19 lighting fixtures without a symbol legend",
+      },
+    ]);
+  });
+
   test("derivePaintingGeometryMeasurements takes exterior paint from painted elevation faces only", () => {
     const derived = derivePaintingGeometryMeasurements(
       { floorAreaSqft: 2400 },
@@ -1789,7 +1808,7 @@ describe("estimatePlanToMeasurements", () => {
     expect(derived.measurements.exteriorPaintSqft).not.toBe(2400);
   });
 
-  test("explicit R4 instance tags conflict with vision and stay out of priced measurements", () => {
+  test("explicit R4 instance tags win and stay in the measurements", () => {
     const {
       omitUnresolvedElectricalConflicts,
     } = require("../electricalPlanAdapter");
@@ -1819,12 +1838,12 @@ describe("estimatePlanToMeasurements", () => {
     expect(merged.measurements.recessedLightCount).toBe(48);
     expect(
       merged.conflicts.some((row) => row.field === "recessedLightCount"),
-    ).toBe(true);
+    ).toBe(false);
     const omitted = omitUnresolvedElectricalConflicts(
       merged.measurements,
       merged.conflicts,
     );
-    expect(omitted.measurements.recessedLightCount).toBeUndefined();
+    expect(omitted.measurements.recessedLightCount).toBe(48);
     expect(omitted.measurements.mainPanelCount).toBe(1);
     expect(omitted.measurements.ceilingFanCount).toBe(8);
   });

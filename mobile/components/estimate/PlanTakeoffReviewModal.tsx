@@ -33,6 +33,8 @@ import {
 } from '@/utils/scopeQuickMeasurements';
 import {
   applyPlanConflictChoices,
+  electricalConflictCarriesDefault,
+  electricalConflictNeedsChooser,
   conflictResolutionProvenanceEntry,
   filterLowConfidenceForReview,
   filterUnreadableForReview,
@@ -71,6 +73,7 @@ import {
   classifyPlanSpaceName,
   planSpaceDisplayName,
   filterPlanReviewMeasurementEntries,
+  electricalPlanDeviceStaysVisible,
   measurementDisplayLabel,
   measurementSourceLabel,
   formatPlumbingGasApplianceScope,
@@ -719,7 +722,14 @@ export default function PlanTakeoffReviewModal({
         takeoff?.rooms
       );
     }
-    return filterPlanReviewMeasurementEntries(filtered);
+    const entries = filterPlanReviewMeasurementEntries(filtered);
+    if (effectiveTradeKey !== 'electrical') return entries;
+    const provenance = takeoff?.measurementProvenance || {};
+    return Object.fromEntries(
+      Object.entries(entries).filter(([key]) =>
+        electricalPlanDeviceStaysVisible(key, provenance[key])
+      )
+    );
   }, [takeoff, effectiveMode, effectiveTradeKey]);
 
   const windowsDoorsOpeningSchedules = useMemo(
@@ -782,8 +792,25 @@ export default function PlanTakeoffReviewModal({
         provenance: takeoff.measurementProvenance,
       }).map(conflict => String(conflict.field))
     );
+    const unreadableQuantityFields = new Set(
+      effectiveTradeKey === 'electrical'
+        ? uniqueUnreadablePlanFields(takeoff.unreadableFields)
+            .map(field => String(field.field || ''))
+            .filter(field => {
+              if (!field || field === 'unclassifiedFixtureCount') return false;
+              const count = Number(takeoff.measurements?.[field]);
+              // A counted symbol still belongs in the review as a confirmation
+              // quantity. Only a field with no count stays hidden.
+              return !(Number.isFinite(count) && count > 0);
+            })
+        : []
+    );
     const nextRows: PlanReviewRow[] = Object.entries(visibleMeasurements)
-      .filter(([key]) => !unresolvedConflictFields.has(key))
+      .filter(
+        ([key]) =>
+          !unresolvedConflictFields.has(key) &&
+          !unreadableQuantityFields.has(key)
+      )
       .map(([key, value]) => {
         const meta = quickMeasurementFieldMeta(key);
         const fieldDef = quickMeasurementFieldDef(
@@ -1216,8 +1243,16 @@ export default function PlanTakeoffReviewModal({
   ]);
 
   const electricalUnreadable = useMemo(
-    () => uniqueUnreadablePlanFields(takeoff?.unreadableFields),
-    [takeoff?.unreadableFields]
+    () =>
+      uniqueUnreadablePlanFields(takeoff?.unreadableFields).filter(field => {
+        const key = String(field.field || '');
+        if (!key || key === 'unclassifiedFixtureCount') return true;
+        return electricalPlanDeviceStaysVisible(
+          key,
+          takeoff?.measurementProvenance?.[key]
+        );
+      }),
+    [takeoff?.unreadableFields, takeoff?.measurementProvenance]
   );
 
   const electricalPlanSummary = useMemo(() => {
@@ -1298,6 +1333,15 @@ export default function PlanTakeoffReviewModal({
     takeoff.unreadableFields
   ).filter(field => {
     const key = String(field.field || '');
+    if (
+      effectiveTradeKey === 'electrical' &&
+      !electricalPlanDeviceStaysVisible(
+        key,
+        takeoff.measurementProvenance?.[key]
+      )
+    ) {
+      return false;
+    }
     if (!tradeReview && isWholeProjectPlanReviewNoise(key)) return false;
     return tradeReview
       ? tradeReviewKeys.has(key) || key === 'unclassifiedFixtureCount'
@@ -1305,15 +1349,34 @@ export default function PlanTakeoffReviewModal({
   });
   const lowConfidence = (takeoff.lowConfidence || []).filter(field => {
     const key = String(field.field || '');
+    if (
+      effectiveTradeKey === 'electrical' &&
+      !electricalPlanDeviceStaysVisible(
+        key,
+        takeoff.measurementProvenance?.[key]
+      )
+    ) {
+      return false;
+    }
     if (!tradeReview && isWholeProjectPlanReviewNoise(key)) return false;
     return tradeReview ? tradeReviewKeys.has(key) : true;
   });
   const measurementConflicts = reviewablePlanMeasurementConflicts({
     conflicts: takeoff.measurementConflicts,
     provenance: takeoff.measurementProvenance,
-  }).filter(conflict =>
-    tradeReview ? tradeReviewKeys.has(String(conflict.field || '')) : true
-  );
+  }).filter(conflict => {
+    const key = String(conflict.field || '');
+    if (
+      effectiveTradeKey === 'electrical' &&
+      !electricalPlanDeviceStaysVisible(
+        key,
+        takeoff.measurementProvenance?.[key]
+      )
+    ) {
+      return false;
+    }
+    return tradeReview ? tradeReviewKeys.has(key) : true;
+  });
   const conflictFieldSet = planTakeoffConflictFieldSet(measurementConflicts);
   const reviewLowConfidence = filterLowConfidenceForReview(
     lowConfidence,
@@ -1471,6 +1534,27 @@ export default function PlanTakeoffReviewModal({
     }
     for (const [key, value] of Object.entries(resolved)) {
       values[key] = String(value);
+    }
+    if (effectiveTradeKey === 'electrical') {
+      for (const conflict of takeoff.measurementConflicts || []) {
+        if (electricalConflictNeedsChooser(conflict)) continue;
+        const field = String(conflict.field || '').trim();
+        if (!field || values[field] != null) continue;
+        const carried = electricalConflictCarriesDefault(conflict);
+        if (carried == null) continue;
+        values[field] = String(carried);
+      }
+    }
+    if (effectiveTradeKey === 'electrical') {
+      const unclassified = uniqueUnreadablePlanFields(
+        takeoff.unreadableFields
+      ).find(field => field.field === 'unclassifiedFixtureCount');
+      const unclassifiedCount = unclassified?.reason?.match(
+        /(\d+)\s+lighting fixtures/i
+      )?.[1];
+      if (unclassifiedCount && Number(unclassifiedCount) > 0) {
+        values.unclassifiedFixtureCount = unclassifiedCount;
+      }
     }
     if (effectiveTradeKey === 'plumbing') {
       const hydrated = hydratePlumbingPlanMeasurementsFromInventory(
@@ -1678,6 +1762,8 @@ export default function PlanTakeoffReviewModal({
               return (
                 row.include &&
                 row.pricingEligible &&
+                takeoff.electricalValidation?.fields?.[row.key]
+                  ?.pricingEligible !== false &&
                 !unconfirmedLowConfidence.some(
                   reading => String(reading.field || '') === row.key
                 )
@@ -1700,15 +1786,6 @@ export default function PlanTakeoffReviewModal({
               ...confirmedLowConfidence.map(reading =>
                 String(reading.field || '').trim()
               ),
-              ...rows
-                .filter(
-                  row =>
-                    row.include &&
-                    row.pricingEligible &&
-                    takeoff.electricalValidation?.fields?.[row.key]
-                      ?.pricingEligible !== true
-                )
-                .map(row => row.key),
             ])
           : new Set<string>();
       if (
@@ -2289,7 +2366,9 @@ export default function PlanTakeoffReviewModal({
                   captionColor={Colors.sub}
                 />
               </>
-            ) : hasMeasurements && effectiveTradeKey !== 'hvac' ? (
+            ) : hasMeasurements &&
+              effectiveTradeKey !== 'hvac' &&
+              effectiveTradeKey !== 'electrical' ? (
               <View style={styles.section}>
                 <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
                   Takeoff
@@ -2768,7 +2847,9 @@ export default function PlanTakeoffReviewModal({
                   );
                 })}
               </View>
-            ) : (
+            ) : effectiveTradeKey === 'electrical' &&
+              (electricalDetectedLines.length > 0 ||
+                electricalStatusLines.length > 0) ? null : (
               <View style={styles.section}>
                 <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
                   Takeoff

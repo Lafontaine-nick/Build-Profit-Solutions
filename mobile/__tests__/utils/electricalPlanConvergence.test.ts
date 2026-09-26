@@ -1051,6 +1051,29 @@ describe('electrical canonical architecture', () => {
     }
   });
 
+  it('keeps an unconfirmed plan symbol count out of the bid', () => {
+    const next = syncElectricalScopeItems(
+      [{ id: 'electrical_ceiling_fan', state: 'included' }],
+      {
+        templateKey: 'electrical',
+        quantities: {
+          ceilingFanCount: 5,
+          recessedLightCount: 31,
+          quickMeasurementSources: {
+            ceilingFanCount: 'needs_confirmation',
+            recessedLightCount: 'plan_verified',
+          },
+        },
+      }
+    );
+    expect(next.find(item => item.id === 'electrical_ceiling_fan')?.state).not.toBe(
+      'included'
+    );
+    expect(
+      next.find(item => item.id === 'electrical_recessed_light')?.state
+    ).toBe('included');
+  });
+
   it('promotes a previously excluded card when a positive quantity is entered', () => {
     const next = syncElectricalScopeItems(
       [{ id: 'electrical_main_panel', state: 'excluded' }],
