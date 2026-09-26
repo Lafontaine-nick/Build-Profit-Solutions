@@ -131,8 +131,8 @@ const QM_GROUP_CAPTIONS: Record<ElectricalCardGroupId, string> = {
   switches:
     'Switch devices own the location. Do not also count a dimmer, occupancy, or smart switch as a single-pole.',
   lighting:
-    'Fixtures and fans. Recessed lights use R4 instance tags when those tags represent one fixture.',
-  fans: 'Fixtures and fans. Recessed lights use R4 instance tags when those tags represent one fixture.',
+    'Fixtures and fans. Recessed lights use the printed fixture tags when each tag is one fixture.',
+  fans: 'Fixtures and fans. Recessed lights use the printed fixture tags when each tag is one fixture.',
   appliances:
     'Each card is the dedicated circuit plus the connection — not a plug-in only. Counts feed the corresponding pricing cards.',
   life_safety: 'Smoke, CO, and low-voltage devices included in this bid.',
@@ -187,21 +187,29 @@ export function electricalQmOptionActive(
 }
 
 export function electricalQmChipSelected(
-  field: Pick<ElectricalQmField, 'selected' | 'conflicted'>,
+  field: Pick<ElectricalQmField, 'selected' | 'conflicted'> & {
+    value?: number | null;
+    confirmInput?: boolean;
+  },
   _expanded: boolean
 ): boolean {
   if (field.conflicted) return false;
-  // Opening a quantity editor is not the same as including the scope item.
-  // Keep the chip gray until an EA/LF quantity is actually selected.
-  return electricalQmOptionActive(field);
+  if (electricalQmOptionActive(field)) return true;
+  // A filled confirmation count is already captured. Paint the chip so the
+  // number does not look unused. Pricing still waits for a tap.
+  return Boolean(field.confirmInput) && Number(field.value) > 0;
 }
 
 /** Quantity to write on a scope-chip tap. `null` means expand/collapse only (LF or conflicted). */
 export function electricalQmTapQuantity(
-  field: Pick<ElectricalQmField, 'unit' | 'selected' | 'conflicted'>
+  field: Pick<
+    ElectricalQmField,
+    'unit' | 'selected' | 'conflicted' | 'value' | 'confirmInput'
+  >
 ): string | null {
   if (field.conflicted) return null;
   if (field.selected) return '';
+  if (field.confirmInput && Number(field.value) > 0) return String(field.value);
   if (field.unit === 'EA') return '0';
   return null;
 }
@@ -225,14 +233,61 @@ export function electricalQmShowsQuantity(
   );
 }
 
+const CONFIRMED_ELECTRICAL_COUNT_SOURCES = new Set([
+  'user_entered',
+  'manual_override',
+  'contractor_confirmed_from_plan_review',
+  'user_confirmed_suggestion',
+]);
+
+/**
+ * A new-build electrical plan includes one main panel even when the sheet
+ * does not print a panel callout. The count is a confirmation, not a plan read.
+ */
+export function electricalNewBuildMainPanelOffer(input: {
+  planImportTradeKey?: unknown;
+  electricalProjectCondition?: unknown;
+  mainPanelCount?: unknown;
+  evidenceKind?: unknown;
+  source?: unknown;
+  userOverride?: boolean;
+}): boolean {
+  const condition = String(input.electricalProjectCondition || '');
+  const planElectrical = String(input.planImportTradeKey || '') === 'electrical';
+  const newBuild =
+    condition === 'new_construction' ||
+    (planElectrical &&
+      condition !== 'remodel_open_wall' &&
+      condition !== 'finished_wall_service');
+  if (!newBuild || (!planElectrical && condition !== 'new_construction')) {
+    return false;
+  }
+  if (String(input.evidenceKind || '') === 'explicit_label') return false;
+  if (input.userOverride) return false;
+  const source = String(input.source || '');
+  if (CONFIRMED_ELECTRICAL_COUNT_SOURCES.has(source)) return false;
+  const count = Number(input.mainPanelCount);
+  if (Number.isFinite(count) && count > 1) return false;
+  if (
+    Number.isFinite(count) &&
+    count > 0 &&
+    source &&
+    source !== 'needs_confirmation'
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function electricalQmGroupDefaultCollapsed(
   groupId?: string,
-  fields?: Array<{ confirmInput?: boolean }>
+  fields?: Array<{ confirmInput?: boolean; selected?: boolean }>
 ): boolean {
   // Lighting stays open because the recessed count is the priced scope.
-  // Any other group that already has a count to confirm stays open too.
+  // A group stays open while a count is waiting, and after the contractor
+  // checks that count, so the last tap does not collapse the card.
   if (groupId === 'lighting') return false;
-  if (fields?.some(field => field.confirmInput)) return false;
+  if (fields?.some(field => field.confirmInput || field.selected)) return false;
   return true;
 }
 
@@ -578,6 +633,81 @@ export function applyElectricalQuickMeasurementPatch<
       ? 'contractor_confirmed_from_plan_review'
       : 'user_entered',
   };
+  return next;
+}
+
+/** Unchecking a filled count leaves the plan number in place and takes it out of the bid. */
+export function releaseElectricalQuickMeasurementSelection<
+  T extends {
+    itemQuantities?: Record<
+      string,
+      { quantity?: string | number; unit?: string; quantitySource?: string }
+    >;
+    quickMeasurementUserOverrides?: Record<string, boolean>;
+    quickMeasurementSources?: Record<string, string>;
+    electricalScope?: string[] | null;
+    pricingAcceptance?: Record<string, unknown>;
+    electricalValidation?: {
+      fields?: Record<
+        string,
+        {
+          status?: string;
+          pricingEligible?: boolean;
+          reason?: string;
+          deterministicRepeatedImportStable?: boolean;
+        }
+      >;
+      priceableFields?: string[];
+      blockedFields?: string[];
+    } | null;
+  },
+>(prev: T, field: string): T {
+  const current = positiveQuantity((prev as Record<string, unknown>)[field]);
+  if (current == null) return applyElectricalQuickMeasurementPatch(prev, field, '');
+  const card = electricalCardForMeasurementKey(field);
+  const itemQuantities = { ...(prev.itemQuantities || {}) };
+  if (card) delete itemQuantities[card.itemId];
+  const overrides = { ...(prev.quickMeasurementUserOverrides || {}) };
+  delete overrides[field];
+  const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+  if (card) delete pricingAcceptance[card.itemId];
+  const next: T = {
+    ...prev,
+    [field]: String(current),
+    quickMeasurementSources: {
+      ...(prev.quickMeasurementSources || {}),
+      [field]: 'needs_confirmation',
+    },
+    quickMeasurementUserOverrides: overrides,
+    itemQuantities,
+    electricalScope: Array.isArray(prev.electricalScope)
+      ? prev.electricalScope.filter(id => id !== card?.itemId)
+      : prev.electricalScope,
+    pricingAcceptance,
+  };
+  if (prev.electricalValidation) {
+    const fields = { ...(prev.electricalValidation.fields || {}) };
+    const priceableFields = new Set(
+      prev.electricalValidation.priceableFields || []
+    );
+    const blockedFields = new Set(
+      prev.electricalValidation.blockedFields || []
+    );
+    fields[field] = {
+      ...(fields[field] || {}),
+      status: 'needs_review',
+      pricingEligible: false,
+      reason: 'Plan count is waiting for confirmation.',
+    };
+    priceableFields.delete(field);
+    blockedFields.add(field);
+    next.electricalValidation = {
+      ...prev.electricalValidation,
+      fields,
+      priceableFields: [...priceableFields],
+      blockedFields: [...blockedFields],
+    };
+  }
   return next;
 }
 

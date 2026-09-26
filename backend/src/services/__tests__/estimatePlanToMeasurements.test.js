@@ -27,6 +27,7 @@ const {
   mergeElectricalEvidenceSources,
   mergePlumbingFieldEvidence,
   collectUnclassifiedElectricalFixtures,
+  sumElectricalSymbolCropCounts,
   validateInsulationMeasurementsAgainstPlanFacts,
 } = require("../estimatePlanToMeasurements");
 const {
@@ -37,6 +38,61 @@ const {
 const shvPlanFacts = require("../testFixtures/shvPlanFacts");
 
 describe("estimatePlanToMeasurements", () => {
+  test("sums electrical symbol counts across zoomed sheet regions", () => {
+    expect(
+      sumElectricalSymbolCropCounts(
+        {
+          regions: [
+            {
+              index: 1,
+              standardReceptacleCount: 18,
+              singlePoleSwitchCount: 9,
+              gfciReceptacleCount: 0,
+            },
+            {
+              index: 2,
+              standardReceptacleCount: 22,
+              singlePoleSwitchCount: 11,
+              gfciReceptacleCount: 1,
+            },
+            {
+              index: 3,
+              measurements: {
+                standardReceptacleCount: 14,
+                singlePoleSwitchCount: 8,
+              },
+            },
+          ],
+        },
+        [
+          "standardReceptacleCount",
+          "gfciReceptacleCount",
+          "singlePoleSwitchCount",
+        ],
+      ),
+    ).toEqual({
+      standardReceptacleCount: 54,
+      gfciReceptacleCount: 1,
+      singlePoleSwitchCount: 28,
+    });
+    expect(
+      sumElectricalSymbolCropCounts(
+        {
+          regions: [
+            { standardReceptacleCount: 0, singlePoleSwitchCount: 0 },
+          ],
+        },
+        ["standardReceptacleCount", "singlePoleSwitchCount"],
+      ),
+    ).toEqual({});
+    expect(
+      sumElectricalSymbolCropCounts(
+        { measurements: { standardReceptacleCount: 78, ceilingFanCount: 7 } },
+        ["standardReceptacleCount", "singlePoleSwitchCount"],
+      ),
+    ).toEqual({ standardReceptacleCount: 78 });
+  });
+
   test("keeps only counted opening and device symbols from the whole-project pass", () => {
     expect(
       filterWholeProjectSymbolMeasurements({

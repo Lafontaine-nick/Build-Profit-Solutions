@@ -4,6 +4,9 @@ import { Ionicons } from '@expo/vector-icons';
 import type { getColors } from '@/theme/getColors';
 import type { ScopeItemIntelligence } from '@/utils/scopeIntelligence';
 import { formatUnitLabel } from '@/utils/scopeItemQuantities';
+import { electricalLightingFanMaterialUnit } from '@/utils/subcontractorTrade/electricalLightingFanPricing';
+import { electricalReceptacleMaterialUnit } from '@/utils/subcontractorTrade/electricalReceptaclePricing';
+import { electricalSwitchMaterialUnit } from '@/utils/subcontractorTrade/electricalSwitchPricing';
 import { isFormulaQuantityApplyTargetActive, shouldShowFormulaQuantityButton } from '@/utils/scopeFormulaRegistry';
 import type { AssemblyComponentStatus } from '@/utils/scopeAssemblyRegistry';
 import {
@@ -21,6 +24,21 @@ import {
 } from '@/utils/scopeReviewUi';
 import type { BenchmarkScopeAssumption, BenchmarkScopeAssumptionProfile } from '@/utils/benchmarkScopeAssumptions';
 import ScopeReviewSheet from '@/components/estimate/ScopeReviewSheet';
+
+function electricalQuantityFromMaterial(
+  itemId: string,
+  material: number | null | undefined
+): number | null {
+  const unit =
+    electricalLightingFanMaterialUnit(itemId) ??
+    electricalReceptacleMaterialUnit(itemId) ??
+    electricalSwitchMaterialUnit(itemId);
+  if (unit == null || !(Number(material) > 0)) return null;
+  const count = Number(material) / unit;
+  const rounded = Math.round(count);
+  if (rounded < 1 || Math.abs(count - rounded) > 0.02) return null;
+  return rounded;
+}
 
 function captionColor(darkMode: boolean, Colors: ReturnType<typeof getColors>) {
   return darkMode ? 'rgba(255,255,255,0.62)' : Colors.sub;
@@ -347,11 +365,21 @@ export function AcceptedPricingSummary({
     display.pricingModel === 'unit_pricing' && display.subtitleLine
       ? display.subtitleLine
       : display.pricingTypeLabel;
-  const quantity = resolved.dualCount?.quantity ?? (
+  const storedQuantity = resolved.dualCount?.quantity ?? (
     resolved.unit === 'allowance' || resolved.unit === 'lump_sum'
       ? null
       : resolved.quantity
   );
+  const pricedQuantity = electricalQuantityFromMaterial(
+    scopeKey,
+    display.acceptance?.materialAmount
+  );
+  const quantity =
+    pricedQuantity != null &&
+    (storedQuantity == null ||
+      Math.abs(Number(storedQuantity) - pricedQuantity) > 0.01)
+      ? pricedQuantity
+      : storedQuantity;
   const quantityUnit = resolved.dualCount?.unit ?? resolved.unit;
   const quantityLine =
     quantity != null && Number.isFinite(Number(quantity)) && Number(quantity) > 0

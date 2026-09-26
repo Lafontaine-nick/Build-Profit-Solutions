@@ -27,10 +27,26 @@ const {
   shouldCollapseDuplicateFixtureViews,
   toUint8Array,
   fillElectricalSheetBackground,
+  electricalSymbolCropRects,
 } = require('../planPdfTextTakeoff');
 const shvPlanFacts = require('../testFixtures/shvPlanFacts');
 
 describe('planPdfTextTakeoff', () => {
+  test('electrical symbol crops cover the sheet without overlap', () => {
+    const rects = electricalSymbolCropRects(3000, 2000);
+    expect(rects).toHaveLength(6);
+    const covered = rects.reduce((sum, rect) => sum + rect.width * rect.height, 0);
+    expect(covered).toBe(3000 * 2000);
+    const occupied = new Set();
+    for (const rect of rects) {
+      occupied.add(`${rect.x},${rect.y}`);
+    }
+    expect(occupied.size).toBe(6);
+    expect(rects[0]).toMatchObject({ index: 1, row: 0, column: 0, x: 0, y: 0 });
+    expect(rects[5]).toMatchObject({ index: 6, row: 1, column: 2 });
+    expect(electricalSymbolCropRects(0, 2000)).toEqual([]);
+  });
+
   test('reads a finish schedule without measuring wall or floor area', () => {
     const parsed = parseFinishScheduleFromPhrases(
       [
@@ -558,6 +574,23 @@ describe('planPdfTextTakeoff', () => {
           { str: 'F', x: 96, y: 400 },
           { str: 'C', x: 112, y: 400 },
           { str: 'I', x: 128, y: 400 },
+        ],
+      }
+    );
+    expect(page.gfciLabelCount).toBe(1);
+  });
+
+  test('a doubled-letter electrical title still counts one printed GFCI', () => {
+    const page = countElectricalInstanceTagsOnPage(
+      [{ str: 'ELECTRICAL PLLAN', x: 400, y: 1200 }],
+      {
+        page: 10,
+        sheet: 'A-8',
+        items: [
+          { str: 'G', x: 933.7, y: 533.2 },
+          { str: 'F', x: 935.9, y: 533.2 },
+          { str: 'C', x: 937.6, y: 533.2 },
+          { str: 'I', x: 939.5, y: 533.2 },
         ],
       }
     );

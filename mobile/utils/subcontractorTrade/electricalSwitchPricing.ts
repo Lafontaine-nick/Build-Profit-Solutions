@@ -48,6 +48,11 @@ export function isElectricalSwitchItemId(
   );
 }
 
+export function electricalSwitchMaterialUnit(itemId: string): number | null {
+  if (!isElectricalSwitchItemId(itemId)) return null;
+  return SWITCH_RATES[itemId].material;
+}
+
 function roundMoney(n: number): number {
   return Math.round(n * 100) / 100;
 }

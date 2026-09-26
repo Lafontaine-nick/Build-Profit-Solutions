@@ -126,7 +126,9 @@ describe('plan takeoff review UI polish', () => {
           planImportTradeKey: 'electrical',
           recessedLightCount: 31,
           ceilingFanCount: 5,
-          standardReceptacleCount: 105,
+          standardReceptacleCount: 84,
+          gfciReceptacleCount: 1,
+          singlePoleSwitchCount: 31,
           bathExhaustFanCount: 5,
           smokeDetectorCount: 8,
         },
@@ -134,12 +136,20 @@ describe('plan takeoff review UI polish', () => {
           recessedLightCount: 'detected_from_plan',
           ceilingFanCount: 'needs_confirmation',
           standardReceptacleCount: 'needs_confirmation',
+          gfciReceptacleCount: 'needs_confirmation',
+          singlePoleSwitchCount: 'needs_confirmation',
           bathExhaustFanCount: 'needs_confirmation',
           smokeDetectorCount: 'needs_confirmation',
         },
         wholeProject: false,
       })
-    ).toEqual(['Recessed / canless / wafer light · 31']);
+    ).toEqual([
+      'Ceiling fan · 5',
+      'GFCI receptacles · 1',
+      'Recessed / canless / wafer light · 31',
+      'Single-pole switch · 31',
+      'Standard receptacles · 84',
+    ]);
     expect(
       confirmedPlanTakeoffLines({
         measurements: {
@@ -166,6 +176,38 @@ describe('plan takeoff review UI polish', () => {
       'Garage · 1,427 SF',
       'Deck / patio · 322 SF',
     ]);
+    expect(
+      confirmedPlanTakeoffLines({
+        measurements: {
+          floorAreaSqft: 2571,
+          windowCount: 31,
+          interiorDoorCount: 18,
+        },
+        sources: {
+          floorAreaSqft: 'contractor_confirmed_from_plan_review',
+          windowCount: 'needs_confirmation',
+          interiorDoorCount: 'needs_confirmation',
+        },
+      })
+    ).toEqual([
+      'Living area · 2,571 SF',
+      'Windows · 31',
+      'Interior doors · 18',
+    ]);
+    expect(
+      confirmedPlanTakeoffLines({
+        measurements: {
+          planImportTradeKey: 'windows_doors',
+          windowCount: 18,
+          exteriorDoorCount: 3,
+        },
+        sources: {
+          windowCount: 'contractor_confirmed_from_plan_review',
+          exteriorDoorCount: 'needs_confirmation',
+        },
+        wholeProject: false,
+      })
+    ).toEqual(['Windows · 18', 'Exterior doors · 3']);
   });
 
   it('replaces Rooms (x of x) with spaces detected when semantics enabled', () => {
@@ -1256,7 +1298,7 @@ describe('plan takeoff review UI polish', () => {
       status: 'from_plan_symbols',
       label: 'From plan — confirm',
     });
-    expect(row.includeDefault).toBe(true);
+    expect(row.includeDefault).toBe(false);
   });
 
   it('keeps a calculated insulation wall suggested while ceiling remains confirmable', () => {
@@ -1297,7 +1339,7 @@ describe('plan takeoff review UI polish', () => {
     });
 
     expect(row.pricingEligible).toBe(false);
-    expect(row.includeDefault).toBe(true);
+    expect(row.includeDefault).toBe(false);
   });
 
   it('uses symbol confirmation copy instead of AI count messaging', () => {

@@ -96,8 +96,8 @@ function useElectricalAttributeLocal(
   const onPatchRef = useRef(onPatch);
   onPatchRef.current = onPatch;
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
-    job_condition: false,
-    service_amperage: false,
+    job_condition: true,
+    service_amperage: true,
     panel_location: false,
     packages: false,
     raceway: false,
@@ -439,8 +439,8 @@ export function ElectricalQmCollapsibleCard({
                 styles.qmPanelCaption,
                 {
                   color: darkMode ? '#94a3b8' : '#64748b',
-                  marginTop: 10,
-                  marginBottom: 6,
+                  marginTop: 12,
+                  marginBottom: 12,
                 },
               ]}
             >
@@ -504,7 +504,7 @@ const ElectricalJobConditionCard = React.memo(
             ? `${conditionLabel} · tap to expand card`
             : 'Tap to expand card'
         }
-        expandedCaption='Job condition adjusts labor only. Materials stay unchanged. Do not auto-select a condition from device counts.'
+        expandedCaption='Sets labor only. Materials stay the same.'
         darkMode={darkMode}
       >
         <ElectricalAttributeChoiceChips
@@ -554,7 +554,7 @@ const ElectricalServiceAmperageCard = React.memo(
             ? `${serviceAmperage}A · tap to expand card`
             : 'Leave blank unless printed or you select it'
         }
-        expandedCaption='Select the service size used by the applicable panel or service item. This does not add a separate charge. Leave service size blank unless it is printed on the plan or you select it. Never infer 200A from house size or a panel box.'
+        expandedCaption='Only if it is printed on the plan, or you know the service size. This does not add a separate charge.'
         darkMode={darkMode}
       >
         <ElectricalAttributeChoiceChips
@@ -1220,6 +1220,7 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     showRaceway = true,
     showConduitOption = true,
     showTrenchingOption = true,
+    hideServiceAmperageCard = false,
   }: {
     values: ElectricalConfirmScopeAttributes;
     onCommit: (attributes: ElectricalConfirmScopeAttributes) => void;
@@ -1232,6 +1233,7 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     showRaceway?: boolean;
     showConduitOption?: boolean;
     showTrenchingOption?: boolean;
+    hideServiceAmperageCard?: boolean;
   }) {
     const [local, setLocal] = useState(values);
     const localRef = useRef(values);
@@ -1241,16 +1243,28 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     const onPreviewRef = useRef(onPreview);
     onPreviewRef.current = onPreview;
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
-      job_condition: false,
-      service_amperage: false,
+      job_condition: true,
+      service_amperage: true,
       panel_location: false,
       packages: false,
       raceway: false,
     });
 
     useEffect(() => {
-      if (dirtyRef.current) return;
       if (electricalConfirmScopeAttributesEqual(values, localRef.current)) {
+        return;
+      }
+      if (dirtyRef.current) {
+        const next = {
+          ...localRef.current,
+          serviceAmperage: values.serviceAmperage,
+          existingServiceAmperage: values.existingServiceAmperage,
+        };
+        if (electricalConfirmScopeAttributesEqual(next, localRef.current)) {
+          return;
+        }
+        localRef.current = next;
+        setLocal(next);
         return;
       }
       localRef.current = values;
@@ -1326,16 +1340,18 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
           onToggle={handlers.toggleJobCondition}
           onSelect={handlers.selectJobCondition}
         />
-        <ElectricalServiceAmperageCard
-          serviceAmperage={local.serviceAmperage}
-          existingServiceAmperage={local.existingServiceAmperage}
-          showExistingService={showExistingService}
-          collapsed={Boolean(collapsed.service_amperage)}
-          darkMode={darkMode}
-          onToggle={handlers.toggleServiceAmperage}
-          onSelectService={handlers.selectServiceAmperage}
-          onSelectExisting={handlers.selectExistingServiceAmperage}
-        />
+        {hideServiceAmperageCard ? null : (
+          <ElectricalServiceAmperageCard
+            serviceAmperage={local.serviceAmperage}
+            existingServiceAmperage={local.existingServiceAmperage}
+            showExistingService={showExistingService}
+            collapsed={Boolean(collapsed.service_amperage)}
+            darkMode={darkMode}
+            onToggle={handlers.toggleServiceAmperage}
+            onSelectService={handlers.selectServiceAmperage}
+            onSelectExisting={handlers.selectExistingServiceAmperage}
+          />
+        )}
         {showPanelLocation ? (
           <ElectricalPanelLocationCard
             panelLocation={local.electricalPanelLocation}
@@ -1378,6 +1394,7 @@ export const ElectricalConfirmScopeAttributesPanel = React.memo(
     previous.showRaceway === next.showRaceway &&
     previous.showConduitOption === next.showConduitOption &&
     previous.showTrenchingOption === next.showTrenchingOption &&
+    previous.hideServiceAmperageCard === next.hideServiceAmperageCard &&
     previous.onCommit === next.onCommit &&
     previous.onPreview === next.onPreview &&
     previous.commitRef === next.commitRef &&
@@ -1396,6 +1413,11 @@ function ElectricalQuickMeasurementTakeoffView({
   visibleMeasurementKeys,
   preferExpandedKeys: _preferExpandedKeys,
   onChangeQuantity,
+  serviceAmperage = null,
+  onSelectServiceAmperage,
+  existingServiceAmperage = null,
+  onSelectExistingServiceAmperage,
+  showExistingService = false,
   quantityEditingRef,
   darkMode,
   Colors,
@@ -1408,6 +1430,11 @@ function ElectricalQuickMeasurementTakeoffView({
   visibleMeasurementKeys?: Iterable<string>;
   preferExpandedKeys?: string[];
   onChangeQuantity: (field: string, value: string) => void;
+  serviceAmperage?: number | null;
+  onSelectServiceAmperage?: (value: number | null) => void;
+  existingServiceAmperage?: number | null;
+  onSelectExistingServiceAmperage?: (value: number | null) => void;
+  showExistingService?: boolean;
   quantityEditingRef?: React.RefObject<boolean>;
   darkMode: boolean;
   Colors: Colors;
@@ -1455,6 +1482,16 @@ function ElectricalQuickMeasurementTakeoffView({
   );
 
   const commitQuantity = useCallback((field: string, value: string) => {
+    if (value.startsWith('release:')) {
+      setOptimisticQuantities(previous => {
+        if (!(field in previous)) return previous;
+        const next = { ...previous };
+        delete next[field];
+        return next;
+      });
+      onChangeQuantityRef.current(field, value);
+      return;
+    }
     setOptimisticQuantities(previous => ({ ...previous, [field]: value }));
     onChangeQuantityRef.current(field, value);
   }, []);
@@ -1526,6 +1563,11 @@ function ElectricalQuickMeasurementTakeoffView({
             onToggleGroup={toggleGroup}
             onToggleExpand={toggleExpanded}
             onCommitQuantity={commitFieldQuantity}
+            serviceAmperage={serviceAmperage}
+            onSelectServiceAmperage={onSelectServiceAmperage}
+            existingServiceAmperage={existingServiceAmperage}
+            onSelectExistingServiceAmperage={onSelectExistingServiceAmperage}
+            showExistingService={showExistingService}
             quantityEditingRef={quantityEditingRef}
             applying={Boolean(applying)}
             darkMode={darkMode}
@@ -1549,7 +1591,13 @@ export const ElectricalQuickMeasurementTakeoff = React.memo(
     previous.Colors === next.Colors &&
     previous.applying === next.applying &&
     previous.quantityEditingRef === next.quantityEditingRef &&
-    previous.onChangeQuantity === next.onChangeQuantity
+    previous.onChangeQuantity === next.onChangeQuantity &&
+    previous.serviceAmperage === next.serviceAmperage &&
+    previous.existingServiceAmperage === next.existingServiceAmperage &&
+    previous.showExistingService === next.showExistingService &&
+    previous.onSelectServiceAmperage === next.onSelectServiceAmperage &&
+    previous.onSelectExistingServiceAmperage ===
+      next.onSelectExistingServiceAmperage
 );
 
 function ElectricalQmGroupCardView({
@@ -1559,6 +1607,11 @@ function ElectricalQmGroupCardView({
   onToggleGroup,
   onToggleExpand,
   onCommitQuantity,
+  serviceAmperage,
+  onSelectServiceAmperage,
+  existingServiceAmperage,
+  onSelectExistingServiceAmperage,
+  showExistingService,
   quantityEditingRef,
   applying,
   darkMode,
@@ -1570,6 +1623,11 @@ function ElectricalQmGroupCardView({
   onToggleGroup: (groupId: string) => void;
   onToggleExpand: (fieldKey: string) => void;
   onCommitQuantity: (fieldKey: string, value: string) => void;
+  serviceAmperage: number | null;
+  onSelectServiceAmperage?: (value: number | null) => void;
+  existingServiceAmperage: number | null;
+  onSelectExistingServiceAmperage?: (value: number | null) => void;
+  showExistingService: boolean;
   quantityEditingRef?: React.RefObject<boolean>;
   applying: boolean;
   darkMode: boolean;
@@ -1599,6 +1657,11 @@ function ElectricalQmGroupCardView({
             quantityEditingRef={quantityEditingRef}
             onToggleExpand={onToggleExpand}
             onCommitQuantity={onCommitQuantity}
+            serviceAmperage={serviceAmperage}
+            onSelectServiceAmperage={onSelectServiceAmperage}
+            existingServiceAmperage={existingServiceAmperage}
+            onSelectExistingServiceAmperage={onSelectExistingServiceAmperage}
+            showExistingService={showExistingService}
             applying={applying}
             darkMode={darkMode}
             Colors={Colors}
@@ -1622,6 +1685,12 @@ const ElectricalQmGroupCard = React.memo(
       previous.onToggleGroup !== next.onToggleGroup ||
       previous.onToggleExpand !== next.onToggleExpand ||
       previous.onCommitQuantity !== next.onCommitQuantity ||
+      previous.serviceAmperage !== next.serviceAmperage ||
+      previous.existingServiceAmperage !== next.existingServiceAmperage ||
+      previous.showExistingService !== next.showExistingService ||
+      previous.onSelectServiceAmperage !== next.onSelectServiceAmperage ||
+      previous.onSelectExistingServiceAmperage !==
+        next.onSelectExistingServiceAmperage ||
       previous.group.fields.length !== next.group.fields.length
     ) {
       return false;
@@ -1650,6 +1719,11 @@ const ElectricalQmScopeOption = React.memo(
     quantityEditingRef,
     onToggleExpand,
     onCommitQuantity,
+    serviceAmperage = null,
+    onSelectServiceAmperage,
+    existingServiceAmperage = null,
+    onSelectExistingServiceAmperage,
+    showExistingService = false,
     applying,
     darkMode,
     Colors,
@@ -1660,6 +1734,11 @@ const ElectricalQmScopeOption = React.memo(
     quantityEditingRef?: React.RefObject<boolean>;
     onToggleExpand: (fieldKey: string) => void;
     onCommitQuantity: (fieldKey: string, value: string) => void;
+    serviceAmperage?: number | null;
+    onSelectServiceAmperage?: (value: number | null) => void;
+    existingServiceAmperage?: number | null;
+    onSelectExistingServiceAmperage?: (value: number | null) => void;
+    showExistingService?: boolean;
     applying: boolean;
     darkMode: boolean;
     Colors: Colors;
@@ -1724,6 +1803,11 @@ const ElectricalQmScopeOption = React.memo(
 
     const handleToggle = () => {
       if (applying) return;
+      if (active && Number(field.value) > 0) {
+        setQuantityEditing(false);
+        onCommitQuantityRef.current(fieldKey, `release:${field.value}`);
+        return;
+      }
       const tapQuantity = electricalQmTapQuantity(field);
       if (tapQuantity != null) {
         setQuantityEditing(false);
@@ -1740,52 +1824,155 @@ const ElectricalQmScopeOption = React.memo(
     const numericInputValue = Number(String(inputValue).replace(/,/g, ''));
     const hasPositiveQuantity =
       Number.isFinite(numericInputValue) && numericInputValue > 0;
+    const planCount = Number(field.value);
+    const awaitingPlanConfirm =
+      Boolean(field.confirmInput) &&
+      !active &&
+      !field.conflicted &&
+      Number.isFinite(planCount) &&
+      planCount > 0;
+    const confirmedPlanCount =
+      active && !field.conflicted && Number.isFinite(planCount) && planCount > 0;
+    const countLabel = `${planCount.toLocaleString()} ${field.unit}`;
     const provenanceTone = field.provenanceLabel
       ? electricalQmProvenanceTone(field.provenanceLabel, darkMode)
       : null;
+    const quantityRow = (
+      <QmSqftMeasurementRow
+        label={`${field.label} quantity`}
+        helperText={
+          awaitingPlanConfirm
+            ? undefined
+            : field.conflicted
+              ? 'Confirm the orange conflict above, or enter only the quantity for this component.'
+              : 'Enter only the quantity for this selected component.'
+        }
+        value={inputValue}
+        placeholder='Enter'
+        unitLabel={field.unit}
+        keyboardType={field.unit === 'LF' ? 'decimal-pad' : 'number-pad'}
+        onChangeText={handleQuantityChange}
+        onFocus={beginQuantityEdit}
+        onBlur={finishQuantityEdit}
+        applying={applying}
+        darkMode={darkMode}
+        Colors={Colors}
+        highlighted={field.conflicted || !hasPositiveQuantity}
+      />
+    );
+    const editQuantityControl = (
+      <TouchableOpacity
+        onPress={() => {
+          if (isEditingQuantityRef.current) finishQuantityEdit();
+          else beginQuantityEdit();
+        }}
+        disabled={applying}
+        activeOpacity={0.75}
+        style={styles.editQuantityButton}
+      >
+        <Text style={styles.editQuantityText}>
+          {isEditingQuantity ? 'Done editing' : 'Edit quantity'}
+        </Text>
+      </TouchableOpacity>
+    );
 
     return (
       <View>
+        {awaitingPlanConfirm ? (
+          <View style={styles.confirmBlock}>
+            <Text style={[styles.confirmItemTitle, { color: Colors.text }]}>
+              {field.label}
+            </Text>
+            <Text style={styles.confirmItemHint}>Needs manual confirmation</Text>
+            <ConfirmScopeChip
+              selected={false}
+              countButton
+              label={countLabel}
+              subtitle='Tap to confirm'
+              darkMode={darkMode}
+              disabled={applying}
+              accessibilityLabel={`Confirm ${field.label}, ${countLabel}`}
+              onPress={handleToggle}
+            />
+            {editQuantityControl}
+            {isEditingQuantity ? quantityRow : null}
+          </View>
+        ) : confirmedPlanCount ? (
+          <View style={styles.confirmBlock}>
+            <Text style={[styles.confirmItemTitle, { color: Colors.text }]}>
+              {field.label}
+            </Text>
+            <ConfirmScopeChip
+              selected
+              countButton
+              label={countLabel}
+              darkMode={darkMode}
+              disabled={applying}
+              accessibilityLabel={`Remove ${field.label} from scope`}
+              onPress={handleToggle}
+            />
+            {editQuantityControl}
+            {isEditingQuantity ? quantityRow : null}
+            {field.key === 'mainPanelCount' && onSelectServiceAmperage ? (
+              <View style={styles.panelAmperageBlock}>
+                <Text style={[styles.confirmItemTitle, { color: Colors.text }]}>
+                  Service amperage
+                </Text>
+                <Text style={styles.panelAmperageCaption}>
+                  Prices the main panel. This does not add a separate charge.
+                </Text>
+                <ElectricalAttributeChoiceChips
+                  value={serviceAmperage}
+                  options={SERVICE_AMPERAGE_OPTIONS}
+                  darkMode={darkMode}
+                  onChange={onSelectServiceAmperage}
+                />
+                {(showExistingService || Number(existingServiceAmperage) > 0) &&
+                onSelectExistingServiceAmperage ? (
+                  <View style={styles.panelAmperageBlock}>
+                    <Text
+                      style={[styles.confirmItemTitle, { color: Colors.text }]}
+                    >
+                      Existing service size
+                    </Text>
+                    <ElectricalAttributeChoiceChips
+                      value={existingServiceAmperage}
+                      options={EXISTING_SERVICE_AMPERAGE_OPTIONS}
+                      darkMode={darkMode}
+                      onChange={onSelectExistingServiceAmperage}
+                    />
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        ) : (
         <ConfirmScopeChip
-          selected={chipSelected}
+          selected={active}
+          captured={!active && chipSelected}
           label={field.label}
           darkMode={darkMode}
           disabled={applying}
           accessibilityLabel={
             active
               ? `Remove ${field.label} from scope`
-              : chipSelected
-                ? `Collapse ${field.label} quantity`
-                : `Include ${field.label} in scope`
+              : `Include ${field.label} in scope`
           }
           onPress={handleToggle}
         />
-        {showQuantity ? (
+        )}
+        {showQuantity && !awaitingPlanConfirm && !confirmedPlanCount ? (
           <>
-            <QmSqftMeasurementRow
-              label={`${field.label} quantity`}
-              helperText={
-                field.conflicted
-                  ? 'Confirm the orange conflict above, or enter only the quantity for this component.'
-                  : 'Enter only the quantity for this selected component.'
-              }
-              value={inputValue}
-              placeholder='Enter'
-              unitLabel={field.unit}
-              keyboardType={field.unit === 'LF' ? 'decimal-pad' : 'number-pad'}
-              onChangeText={handleQuantityChange}
-              onFocus={beginQuantityEdit}
-              onBlur={finishQuantityEdit}
-              applying={applying}
-              darkMode={darkMode}
-              Colors={Colors}
-              highlighted={field.conflicted || !hasPositiveQuantity}
-            />
-            {showStatusBelowInput && active && field.provenanceLabel ? (
+            {quantityRow}
+            {showStatusBelowInput &&
+            field.provenanceLabel &&
+            (active || field.confirmInput) &&
+            hasPositiveQuantity ? (
               <View
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
+                  justifyContent: 'center',
                   flexWrap: 'wrap',
                   gap: 6,
                   marginTop: 4,
@@ -1837,6 +2024,7 @@ const ElectricalQmScopeOption = React.memo(
     previous.field.value === next.field.value &&
     previous.field.selected === next.field.selected &&
     previous.field.conflicted === next.field.conflicted &&
+    previous.field.confirmInput === next.field.confirmInput &&
     previous.field.provenanceLabel === next.field.provenanceLabel &&
     previous.expanded === next.expanded &&
     previous.applying === next.applying &&
@@ -1844,7 +2032,13 @@ const ElectricalQmScopeOption = React.memo(
     previous.Colors === next.Colors &&
     previous.quantityEditingRef === next.quantityEditingRef &&
     previous.onToggleExpand === next.onToggleExpand &&
-    previous.onCommitQuantity === next.onCommitQuantity
+    previous.onCommitQuantity === next.onCommitQuantity &&
+    previous.serviceAmperage === next.serviceAmperage &&
+    previous.existingServiceAmperage === next.existingServiceAmperage &&
+    previous.showExistingService === next.showExistingService &&
+    previous.onSelectServiceAmperage === next.onSelectServiceAmperage &&
+    previous.onSelectExistingServiceAmperage ===
+      next.onSelectExistingServiceAmperage
 );
 
 const styles = StyleSheet.create({
@@ -1864,8 +2058,33 @@ const styles = StyleSheet.create({
   },
   qmOptionWrap: {
     flexDirection: 'column',
-    gap: 8,
+    gap: 16,
     alignItems: 'stretch',
   },
   chipStack: { gap: 10 },
+  confirmBlock: { gap: 12, alignSelf: 'stretch', width: '100%' },
+  panelAmperageBlock: { gap: 10, alignSelf: 'stretch', width: '100%' },
+  panelAmperageCaption: {
+    color: '#94a3b8',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  confirmItemTitle: { fontSize: 15, fontWeight: '700', lineHeight: 21 },
+  confirmItemHint: {
+    color: '#fbbf24',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  editQuantityButton: {
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  editQuantityText: {
+    color: '#34d399',
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
 });

@@ -54,6 +54,11 @@ export function isElectricalLightingFanItemId(
   );
 }
 
+export function electricalLightingFanMaterialUnit(itemId: string): number | null {
+  if (!isElectricalLightingFanItemId(itemId)) return null;
+  return LIGHTING_FAN_RATES[itemId].material;
+}
+
 function roundMoney(n: number): number {
   return Math.round(n * 100) / 100;
 }

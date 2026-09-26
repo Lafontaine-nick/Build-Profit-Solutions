@@ -867,7 +867,7 @@ const FIXTURE_TAG_SKIP_PAGE_RE =
   /elevation|section|roof\s*plan|framing|terrain|site\s*plan|cover\s*sheet|structural|foundation/i;
 
 const LIGHTING_OR_ELECTRICAL_PLAN_RE =
-  /lighting\s+plan|electrical\s+plan|power\s+plan|electrical\s+layout|lighting\s+layout/i;
+  /lighting\s+pl+an|electrical\s+pl+an|power\s+pl+an|electrical\s+layout|lighting\s+layout/i;
 
 const NON_INSTANCE_TAG_PHRASE_RE =
   /\b(legend|schedule|typical|typ\.|similar|sim\.|see\s+(?:sheet|plan|note)|refer(?:\s+to)?|insulation|insul\.?|batt|r-value|lumen|watt|downlight|description|duct\s*board)\b/i;
@@ -2187,6 +2187,157 @@ async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = 
   return images;
 }
 
+function electricalSymbolCropRects(pageWidth, pageHeight, options = {}) {
+  const columns = Math.max(1, Math.round(Number(options.columns) || 3));
+  const rows = Math.max(1, Math.round(Number(options.rows) || 2));
+  const width = Math.round(Number(pageWidth) || 0);
+  const height = Math.round(Number(pageHeight) || 0);
+  if (!(width > 0) || !(height > 0)) return [];
+  const rects = [];
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const x = Math.round((width * column) / columns);
+      const y = Math.round((height * row) / rows);
+      const right = Math.round((width * (column + 1)) / columns);
+      const bottom = Math.round((height * (row + 1)) / rows);
+      rects.push({
+        index: rects.length + 1,
+        row,
+        column,
+        x,
+        y,
+        width: Math.max(1, right - x),
+        height: Math.max(1, bottom - y),
+      });
+    }
+  }
+  return rects;
+}
+
+function sliceElectricalCanvas(createCanvas, sourceCanvas, rect) {
+  const tile = createCanvas(rect.width, rect.height);
+  const context = tile.getContext('2d');
+  fillElectricalSheetBackground(context, rect.width, rect.height);
+  context.drawImage(
+    sourceCanvas,
+    rect.x,
+    rect.y,
+    rect.width,
+    rect.height,
+    0,
+    0,
+    rect.width,
+    rect.height,
+  );
+  return tile;
+}
+
+/**
+ * Zoomed, non-overlapping pieces of an electrical sheet. A full-sheet image
+ * is downscaled before symbol counting, so duplex and switch marks disappear.
+ * Each crop stays large enough for those marks to be counted on their own.
+ */
+async function renderElectricalSymbolCrops(pdfBuffers, electricalPages, options = {}) {
+  const canvasLib = loadNodeCanvas();
+  if (!canvasLib?.createCanvas) return [];
+  const columns = options.columns || 3;
+  const rows = options.rows || 2;
+  const maxPages = options.maxPages || 2;
+  const pageNumbers = [
+    ...new Set(
+      (Array.isArray(electricalPages) ? electricalPages : [])
+        .map(page => Number(page?.page))
+        .filter(page => Number.isInteger(page) && page > 0)
+    ),
+  ]
+    .sort((a, b) => a - b)
+    .slice(0, maxPages);
+  const buffers = (Array.isArray(pdfBuffers) ? pdfBuffers : [pdfBuffers]).filter(Boolean);
+  if (!pageNumbers.length || !buffers.length) return [];
+
+  const pdfjs = await loadPdfJs();
+  const canvasFactory = new NodeCanvasFactory(canvasLib.createCanvas);
+  const images = [];
+  const targetTile = options.targetTile || 1600;
+  const maxScale = options.maxScale || 4;
+  const quality = options.quality || 86;
+
+  for (const buffer of buffers) {
+    if (images.length) break;
+    let doc;
+    try {
+      doc = await pdfjs.getDocument({
+        data: toUint8Array(buffer),
+        useSystemFonts: true,
+        isEvalSupported: false,
+        disableFontFace: false,
+        canvasFactory,
+      }).promise;
+    } catch (err) {
+      console.warn('Electrical symbol crop open failed:', err?.message || err);
+      continue;
+    }
+    for (const pageNumber of pageNumbers) {
+      if (pageNumber > doc.numPages) continue;
+      let canvasAndContext = null;
+      try {
+        const page = await doc.getPage(pageNumber);
+        const base = page.getViewport({ scale: 1 });
+        const tilePoints = Math.max(base.width / columns, base.height / rows, 1);
+        const scale = Math.min(maxScale, targetTile / tilePoints);
+        const viewport = page.getViewport({ scale });
+        canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
+        fillElectricalSheetBackground(
+          canvasAndContext.context,
+          viewport.width,
+          viewport.height,
+        );
+        await page.render({
+          canvas: canvasAndContext.canvas,
+          canvasContext: canvasAndContext.context,
+          viewport,
+          background: '#FFFFFF',
+        }).promise;
+        const rects = electricalSymbolCropRects(viewport.width, viewport.height, {
+          columns,
+          rows,
+        });
+        for (const rect of rects) {
+          const tile = sliceElectricalCanvas(
+            canvasLib.createCanvas,
+            canvasAndContext.canvas,
+            rect,
+          );
+          const jpeg = await encodeJpeg(tile, quality);
+          const bytes = Buffer.isBuffer(jpeg) ? jpeg : Buffer.from(jpeg);
+          images.push({
+            page: pageNumber,
+            index: rect.index,
+            row: rect.row,
+            column: rect.column,
+            mimeType: 'image/jpeg',
+            base64: bytes.toString('base64'),
+            filename: `electrical-page-${pageNumber}-crop-${rect.index}.jpg`,
+            byteLength: bytes.length,
+            width: rect.width,
+            height: rect.height,
+            detail: 'high',
+          });
+        }
+      } catch (err) {
+        console.warn(
+          `Electrical symbol crop failed for page ${pageNumber}:`,
+          err?.message || err,
+        );
+      } finally {
+        if (canvasAndContext) canvasFactory.destroy(canvasAndContext);
+      }
+    }
+    if (images.length) break;
+  }
+  return images;
+}
+
 function toUint8Array(buffer) {
   const src = Buffer.isBuffer(buffer) ? buffer : buffer instanceof Uint8Array ? buffer : Buffer.from(buffer || []);
   const copy = new Uint8Array(src.length);
@@ -2955,6 +3106,8 @@ module.exports = {
   detectElectricalPlanLevel,
   shouldCollapseDuplicateFixtureViews,
   renderElectricalPlanPages,
+  renderElectricalSymbolCrops,
+  electricalSymbolCropRects,
   renderWindowsDoorsPlanPages: renderElectricalPlanPages,
   selectWholeProjectSymbolPages,
   renderPlumbingPlanPages,

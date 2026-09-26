@@ -799,13 +799,40 @@ export default function PlanTakeoffReviewModal({
             .filter(field => {
               if (!field || field === 'unclassifiedFixtureCount') return false;
               const count = Number(takeoff.measurements?.[field]);
+              const lowConfidenceCount = Number(
+                (takeoff.lowConfidence || []).find(
+                  reading => String(reading.field || '') === field
+                )?.value
+              );
               // A counted symbol still belongs in the review as a confirmation
               // quantity. Only a field with no count stays hidden.
-              return !(Number.isFinite(count) && count > 0);
+              return !(
+                (Number.isFinite(count) && count > 0) ||
+                (Number.isFinite(lowConfidenceCount) && lowConfidenceCount > 0)
+              );
             })
         : []
     );
-    const nextRows: PlanReviewRow[] = Object.entries(visibleMeasurements)
+    const measurementEntries = Object.entries(visibleMeasurements);
+    if (effectiveTradeKey === 'electrical') {
+      const seen = new Set(measurementEntries.map(([key]) => key));
+      for (const reading of takeoff.lowConfidence || []) {
+        const key = String(reading.field || '').trim();
+        const value = Number(reading.value);
+        if (!key || seen.has(key) || !(value > 0)) continue;
+        if (
+          !electricalPlanDeviceStaysVisible(
+            key,
+            takeoff.measurementProvenance?.[key]
+          )
+        ) {
+          continue;
+        }
+        measurementEntries.push([key, value]);
+        seen.add(key);
+      }
+    }
+    const nextRows: PlanReviewRow[] = measurementEntries
       .filter(
         ([key]) =>
           !unresolvedConflictFields.has(key) &&
@@ -1524,13 +1551,7 @@ export default function PlanTakeoffReviewModal({
       if (unresolvedFields.has(row.key)) continue;
       const n = Number(row.value);
       if (!(Number.isFinite(n) && n > 0)) continue;
-      if (
-        effectiveTradeKey === 'hvac' ||
-        row.include ||
-        drawingCountApply?.values[row.key]
-      ) {
-        values[row.key] = String(n);
-      }
+      values[row.key] = String(n);
     }
     for (const [key, value] of Object.entries(resolved)) {
       values[key] = String(value);
@@ -1660,7 +1681,7 @@ export default function PlanTakeoffReviewModal({
     }
     // An HVAC edit is the contractor's replacement for the AI read. Reapply
     // the row values after the low-confidence pass so the edited value wins.
-    if (effectiveTradeKey === 'hvac') {
+    if (effectiveTradeKey === 'hvac' || effectiveTradeKey === 'electrical') {
       for (const row of rows) {
         const value = Number(row.value);
         if (row.key && Number.isFinite(value) && value > 0) {
@@ -1668,6 +1689,30 @@ export default function PlanTakeoffReviewModal({
         }
       }
     }
+    const electricalReviewProvenance =
+      effectiveTradeKey === 'electrical'
+        ? Object.fromEntries(
+            rows.flatMap(row => {
+              const value = Number(row.value);
+              if (!(value > 0) || unresolvedFields.has(row.key)) return [];
+              if (row.include && row.pricingEligible) return [];
+              const existing = takeoff.measurementProvenance?.[row.key];
+              return [
+                [
+                  row.key,
+                  {
+                    ...(existing && typeof existing === 'object'
+                      ? existing
+                      : {}),
+                    ...(row.include
+                      ? lowConfidenceConfirmationProvenance(row.key, value)
+                      : lowConfidenceNeedsReviewProvenance(row.key, value)),
+                  },
+                ],
+              ];
+            })
+          )
+        : {};
     const electricalUnconfirmedLowConfidence =
       effectiveTradeKey === 'electrical' ? unconfirmedLowConfidence : [];
     const retainedLowConfidenceProvenance = Object.fromEntries([
@@ -1895,6 +1940,15 @@ export default function PlanTakeoffReviewModal({
         )
         .map(row => row.key),
     ]);
+    const unconfirmedReviewSources = Object.fromEntries(
+      rows.flatMap(row => {
+        if (unresolvedFields.has(row.key)) return [];
+        const quantity = Number(row.value);
+        if (!(quantity > 0)) return [];
+        if (row.include && row.pricingEligible) return [];
+        return [[row.key, 'needs_confirmation'] as const];
+      })
+    );
     const openingCountQuickMeasurementSourcesFromReview =
       effectiveTradeKey === 'windows_doors'
         ? windowsDoorsTakeoffQuickMeasurementSources({
@@ -1920,6 +1974,7 @@ export default function PlanTakeoffReviewModal({
           ...retainedConflictProvenance,
           ...retainedLowConfidenceProvenance,
           ...hvacReviewProvenance,
+          ...electricalReviewProvenance,
           ...retainedPlanReviewLockProvenance,
           ...Object.fromEntries(
             Object.entries(resolutions).map(([field, resolution]) => [
@@ -1938,12 +1993,14 @@ export default function PlanTakeoffReviewModal({
         gasApplianceScope: takeoff.gasApplianceScope,
         ...(hvacQuickMeasurementSourcesFromReview ||
         openingCountQuickMeasurementSourcesFromReview ||
-        drawingCountApply
+        drawingCountApply ||
+        Object.keys(unconfirmedReviewSources).length
           ? {
               quickMeasurementSources: {
                 ...(hvacQuickMeasurementSourcesFromReview || {}),
                 ...(openingCountQuickMeasurementSourcesFromReview || {}),
                 ...(drawingCountApply?.sources || {}),
+                ...unconfirmedReviewSources,
               },
             }
           : {}),
@@ -2366,9 +2423,7 @@ export default function PlanTakeoffReviewModal({
                   captionColor={Colors.sub}
                 />
               </>
-            ) : hasMeasurements &&
-              effectiveTradeKey !== 'hvac' &&
-              effectiveTradeKey !== 'electrical' ? (
+            ) : hasMeasurements && effectiveTradeKey !== 'hvac' ? (
               <View style={styles.section}>
                 <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
                   Takeoff
@@ -2874,7 +2929,9 @@ export default function PlanTakeoffReviewModal({
               </View>
             )}
 
-            {hasReadingIssues && effectiveTradeKey !== 'hvac' ? (
+            {hasReadingIssues &&
+            effectiveTradeKey !== 'hvac' &&
+            effectiveTradeKey !== 'electrical' ? (
               <PlanTakeoffLowConfidenceChooser
                 lowConfidence={reviewLowConfidence}
                 unreadable={reviewUnreadable}
@@ -2892,7 +2949,8 @@ export default function PlanTakeoffReviewModal({
               />
             ) : null}
 
-            {electricalDetectedLines.length || electricalStatusLines.length ? (
+            {effectiveTradeKey !== 'electrical' &&
+            (electricalDetectedLines.length || electricalStatusLines.length) ? (
               <View style={styles.section}>
                 <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
                   Project

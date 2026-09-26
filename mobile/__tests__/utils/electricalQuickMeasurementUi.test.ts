@@ -1,5 +1,6 @@
 import {
   applyElectricalQuickMeasurementPatch,
+  releaseElectricalQuickMeasurementSelection,
   buildElectricalQuickMeasurementGroups,
   electricalQuickMeasurementSourceFromProvenance,
   electricalConfirmScopeAttributesEqual,
@@ -8,6 +9,7 @@ import {
   electricalQuantityFieldsChanged,
   electricalMeasurementsShouldFlushImmediately,
   electricalConfirmScopeCardTitles,
+  electricalNewBuildMainPanelOffer,
   electricalQmGroupDefaultCollapsed,
   electricalQmChipSelected,
   electricalQmOptionActive,
@@ -429,6 +431,51 @@ describe('electricalQuickMeasurementUi', () => {
     );
   });
 
+  it('keeps a plan count visible when the contractor unchecks it', () => {
+    const next = releaseElectricalQuickMeasurementSelection(
+      {
+        standardReceptacleCount: '78',
+        electricalScope: ['electrical_standard_receptacle'],
+        itemQuantities: {
+          electrical_standard_receptacle: {
+            quantity: '78',
+            unit: 'EA',
+            quantitySource: 'user_entered',
+          },
+        },
+        quickMeasurementSources: {
+          standardReceptacleCount: 'user_entered',
+        },
+        quickMeasurementUserOverrides: { standardReceptacleCount: true },
+        pricingAcceptance: {
+          electrical_standard_receptacle: { selectionStatus: 'accepted' },
+        },
+      },
+      'standardReceptacleCount'
+    );
+    expect(next.standardReceptacleCount).toBe('78');
+    expect(next.quickMeasurementSources?.standardReceptacleCount).toBe(
+      'needs_confirmation'
+    );
+    expect(next.quickMeasurementUserOverrides?.standardReceptacleCount).toBe(
+      undefined
+    );
+    expect(next.itemQuantities?.electrical_standard_receptacle).toBeUndefined();
+    expect(next.electricalScope).toEqual([]);
+    const field = buildElectricalQuickMeasurementGroups({
+      measurements: next,
+      sources: next.quickMeasurementSources,
+      userOverrides: next.quickMeasurementUserOverrides,
+    })
+      .flatMap(group => group.fields)
+      .find(item => item.key === 'standardReceptacleCount');
+    expect(field).toMatchObject({
+      selected: false,
+      confirmInput: true,
+      value: 78,
+    });
+  });
+
   it('deselecting a populated row clears the quantity, item, and electricalScope', () => {
     const next = applyElectricalQuickMeasurementPatch(
       {
@@ -509,6 +556,37 @@ describe('electricalQuickMeasurementUi', () => {
     expect(restored.measurementConflicts).toEqual([conflict]);
   });
 
+  it('offers one main panel to confirm on a new-build electrical plan', () => {
+    expect(
+      electricalNewBuildMainPanelOffer({
+        planImportTradeKey: 'electrical',
+        electricalProjectCondition: 'new_construction',
+      })
+    ).toBe(true);
+    expect(
+      electricalNewBuildMainPanelOffer({
+        planImportTradeKey: 'electrical',
+        electricalProjectCondition: 'remodel_open_wall',
+      })
+    ).toBe(false);
+    expect(
+      electricalNewBuildMainPanelOffer({
+        planImportTradeKey: 'electrical',
+        electricalProjectCondition: 'new_construction',
+        evidenceKind: 'explicit_label',
+        mainPanelCount: 1,
+      })
+    ).toBe(false);
+    expect(
+      electricalNewBuildMainPanelOffer({
+        planImportTradeKey: 'electrical',
+        electricalProjectCondition: 'new_construction',
+        source: 'user_entered',
+        mainPanelCount: 1,
+      })
+    ).toBe(false);
+  });
+
   it('starts Electrical quantity groups collapsed so attribute taps stay responsive', () => {
     expect(electricalQmGroupDefaultCollapsed()).toBe(true);
     expect(electricalQmGroupDefaultCollapsed('lighting')).toBe(false);
@@ -516,6 +594,12 @@ describe('electricalQuickMeasurementUi', () => {
     expect(
       electricalQmGroupDefaultCollapsed('receptacles', [
         { confirmInput: true },
+      ])
+    ).toBe(false);
+    expect(
+      electricalQmGroupDefaultCollapsed('receptacles', [
+        { selected: true },
+        { selected: true },
       ])
     ).toBe(false);
   });
@@ -597,6 +681,15 @@ describe('electricalQuickMeasurementUi', () => {
     const subpanel = { unit: 'EA', selected: false, conflicted: false };
     expect(electricalQmTapQuantity(subpanel)).toBe('0');
     expect(electricalQmChipSelected(subpanel, false)).toBe(false);
+    const captured = {
+      unit: 'EA' as const,
+      selected: false,
+      conflicted: false,
+      confirmInput: true,
+      value: 68,
+    };
+    expect(electricalQmChipSelected(captured, false)).toBe(true);
+    expect(electricalQmTapQuantity(captured)).toBe('68');
     const included = applyElectricalQuickMeasurementPatch(
       {
         itemQuantities: {},

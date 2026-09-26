@@ -9002,6 +9002,25 @@ function resolveAllowanceSplitPhysicalTakeoff(
   if (!usesPhysicalTakeoffUnit(rule)) return null;
   const physicalUnit = normalizeBasisUnit(rule.defaultUnit || 'each');
   const itemQuantities = measurements.itemQuantities;
+  const electricalCard = ELECTRICAL_CARDS.find(card => card.itemId === itemId);
+  const electricalMeasurement =
+    electricalCard && electricalCard.measurementKey !== 'serviceAmperage'
+      ? Number(measurements[electricalCard.measurementKey])
+      : null;
+  if (
+    electricalMeasurement != null &&
+    Number.isFinite(electricalMeasurement) &&
+    electricalMeasurement > 1 &&
+    (Number(override?.quantity) === 1 ||
+      Number(
+        parseStoredItemQuantity(
+          measurements,
+          allowanceSplitSubKey(itemId, 'sqft_basis')
+        )?.quantity
+      ) === 1)
+  ) {
+    return { quantity: electricalMeasurement, unit: physicalUnit };
+  }
 
   const storedBasis = parseStoredItemQuantity(
     measurements,
@@ -11092,6 +11111,18 @@ export function syncItemQuantitiesToMeasurementFields(
       continue;
     const quantity = Number(String(entry.quantity).replace(/,/g, ''));
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    const existingMeasurement = Number(
+      String(
+        (next as Record<string, unknown>)[card.measurementKey] ?? ''
+      ).replace(/,/g, '')
+    );
+    if (
+      quantity === 1 &&
+      Number.isFinite(existingMeasurement) &&
+      existingMeasurement > 1
+    ) {
+      continue;
+    }
     (next as Record<string, unknown>)[card.measurementKey] = String(quantity);
   }
   for (const card of PLUMBING_CARDS) {
@@ -20959,6 +20990,30 @@ function resolveDualAllowanceQuantity(
   ) {
     countEntry = { ...countEntry, unit: 'sqft' };
   }
+  const electricalCard = ELECTRICAL_CARDS.find(card => card.itemId === itemId);
+  const electricalMeasurement =
+    electricalCard && electricalCard.measurementKey !== 'serviceAmperage'
+      ? Number(measurements[electricalCard.measurementKey])
+      : null;
+  if (
+    electricalMeasurement != null &&
+    Number.isFinite(electricalMeasurement) &&
+    electricalMeasurement > 0 &&
+    (!countEntry ||
+      (Math.abs(countEntry.quantity - electricalMeasurement) > 0.01 &&
+        (countEntry.quantity === 1 ||
+          countEntry.quantitySource === 'notes' ||
+          countEntry.quantitySource === 'parsed_from_notes')))
+  ) {
+    countEntry = {
+      quantity: electricalMeasurement,
+      unit: electricalCard?.unit || rule.defaultUnit,
+      quantitySource:
+        countEntry?.quantitySource === 'user_entered'
+          ? 'user_entered'
+          : 'inferred',
+    };
+  }
   if (!countEntry && rule.measurementKey && measurements[rule.measurementKey]) {
     countEntry = {
       quantity: measurements[rule.measurementKey]!,
@@ -24638,11 +24693,30 @@ function syncElectricalQuantitiesIntoItemQuantities(
     const raw = (extended as Record<string, unknown>)[card.measurementKey];
     const quantity = Number(String(raw ?? '').replace(/,/g, ''));
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
-    if (Number(nextQuantities[card.itemId]?.quantity) > 0) continue;
+    const existing = nextQuantities[card.itemId];
+    const existingQty = Number(String(existing?.quantity ?? '').replace(/,/g, ''));
+    const notesItem =
+      existing?.quantitySource === 'notes' ||
+      existing?.quantitySource === 'parsed_from_notes';
+    const staleOne =
+      existingQty === 1 && Math.abs(quantity - 1) > 0.01;
+    if (Number.isFinite(existingQty) && existingQty > 0 && !notesItem && !staleOne)
+      continue;
+    if (notesItem && existingQty === quantity) continue;
+    const sourceTag = String(
+      extended.quickMeasurementSources?.[card.measurementKey] || ''
+    );
+    const quantitySource =
+      sourceTag === 'plan_verified' ||
+      sourceTag === 'plan_detected' ||
+      sourceTag === 'contractor_confirmed_from_plan_review' ||
+      sourceTag === 'ai_verified'
+        ? 'plan_detected'
+        : 'user_entered';
     nextQuantities[card.itemId] = {
       quantity: String(quantity),
       unit: card.unit,
-      quantitySource: 'user_entered',
+      quantitySource,
     };
     changed = true;
   }

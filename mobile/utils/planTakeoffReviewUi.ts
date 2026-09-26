@@ -1078,12 +1078,13 @@ export function buildPlanReviewMeasurementRowState(input: {
       !input.hasConflict &&
       input.tradeKey !== 'windows_doors' &&
       input.tradeKey !== 'garage_doors' &&
-      (pricingEligible ||
-        input.validationField?.deterministicRepeatedImportStable === false ||
-        input.tradeKey === 'electrical' ||
-        input.tradeKey === 'plumbing' ||
-        input.tradeKey === 'framing' ||
-        input.tradeKey === 'drywall'),
+      (input.tradeKey === 'electrical'
+        ? pricingEligible
+        : pricingEligible ||
+          input.validationField?.deterministicRepeatedImportStable === false ||
+          input.tradeKey === 'plumbing' ||
+          input.tradeKey === 'framing' ||
+          input.tradeKey === 'drywall'),
   };
 }
 
@@ -2427,13 +2428,22 @@ export function confirmedPlanTakeoffLines(input: {
   const numeric = new Map<string, number>();
   for (const [key, raw] of Object.entries(measurements)) {
     if (!/^[A-Za-z]/.test(key)) continue;
-    if (
-      limitToPlanSources &&
-      !planSources.has(String(sources?.[key] || ''))
-    ) {
+    const source = String(sources?.[key] || '');
+    const legendlessElectricalGuess =
+      electricalPlan &&
+      (ELECTRICAL_LEGENDLESS_SYMBOL_KEYS.has(key) ||
+        key === 'unclassifiedFixtureCount');
+    const pendingPlanCount =
+      (source === 'needs_confirmation' || source === 'needs_review') &&
+      !legendlessElectricalGuess;
+    if (limitToPlanSources && !planSources.has(source) && !pendingPlanCount) {
       continue;
     }
-    if (electricalPlan && ELECTRICAL_CONFIRMATION_SCOPE_KEYS.has(key)) {
+    if (
+      electricalPlan &&
+      (ELECTRICAL_LEGENDLESS_SYMBOL_KEYS.has(key) ||
+        key === 'unclassifiedFixtureCount')
+    ) {
       const source = String(sources?.[key] || '');
       const accepted =
         planSources.has(source) ||

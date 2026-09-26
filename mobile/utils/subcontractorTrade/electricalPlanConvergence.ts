@@ -1189,6 +1189,18 @@ export function syncElectricalScopeItems<
     if (card.measurementKey === 'serviceAmperage') continue;
     if (packageOnly && card.itemId !== 'electrical_rough') continue;
     const raw = quantities[card.measurementKey];
+    const unlabeledNotePanel =
+      card.measurementKey === 'mainPanelCount' &&
+      noteQuantities.mainPanelCount == null &&
+      !quantityOverrides[card.measurementKey] &&
+      quantityProvenance[card.measurementKey]?.evidenceKind !==
+        'explicit_label' &&
+      String(quantitySources[card.measurementKey] || '') === 'notes';
+    if (unlabeledNotePanel) {
+      included.delete(card.itemId);
+      heldForConfirmation.add(card.itemId);
+      continue;
+    }
     if (
       positiveNumber(raw) != null &&
       !noteExcludedIds.has(card.itemId) &&
@@ -1407,6 +1419,7 @@ type ParseRule = {
   key: ElectricalQuantityKey;
   pattern: RegExp;
   defaultCount?: number;
+  requireExplicitCount?: boolean;
 };
 
 const APPLIANCE_RULES: ParseRule[] = [
@@ -1760,6 +1773,7 @@ function matchRuleCount(text: string, rule: ParseRule): number | null {
   const trailing = after.match(/^(?:\s|[·:–—-]){0,6}(\d[\d,]*)\b/);
   const trailingCount = parseCountToken(trailing?.[1]);
   if (trailingCount != null) return trailingCount;
+  if (rule.requireExplicitCount) return null;
   return rule.defaultCount ?? 1;
 }
 
@@ -2052,20 +2066,23 @@ export function parseElectricalMeasurementsFromNotes(
         ),
       }) || 1
     );
-  } else if (
-    /\b(?:main\s+)?panels?\b/i.test(text) &&
-    !/\bsub[\s-]?panel\b/i.test(text)
-  ) {
-    assign(
-      'mainPanelCount',
-      matchRuleCount(text, {
-        key: 'mainPanelCount',
-        pattern: new RegExp(
-          String.raw`${COUNT_TOKEN}\s*(?:main\s+)?panels?\b|\b(?:a|an|one)\s+\d+\s*(?:amp(?:ere)?s?|a)\s+(?:main\s+)?panel\b|\b(?:install|new)\s+(?:a\s+)?(?:\d+\s*amp(?:ere)?s?\s+)?(?:main\s+)?panel\b`,
-          'i'
-        ),
-      }) || 1
-    );
+  } else if (!/\bsub[\s-]?panel\b/i.test(text)) {
+    const panelAbsence =
+      /\bno\b[^.\n]{0,60}\b(?:readable\s+)?(?:main\s+)?panels?\b|\b(?:main\s+)?panels?\b[^.\n]{0,48}\b(?:not\s+readable|unreadable|not\s+printed|missing)\b/i.test(
+        text
+      );
+    if (!panelAbsence) {
+      assign(
+        'mainPanelCount',
+        matchRuleCount(text, {
+          key: 'mainPanelCount',
+          pattern: new RegExp(
+            String.raw`${COUNT_TOKEN}\s*(?:main\s+)?panels?\b|\b(?:a|an|one)\s+\d+\s*(?:amp(?:ere)?s?|a)\s+(?:main\s+)?panel\b|\b(?:install|new)\s+(?:a\s+)?(?:\d+\s*amp(?:ere)?s?\s+)?(?:main\s+)?panel\b`,
+            'i'
+          ),
+        })
+      );
+    }
   }
 
   const owned = applyElectricalServicePanelOwnership(out, text);
@@ -2189,7 +2206,18 @@ export function parseElectricalMeasurementsFromNotes(
       ) {
         continue;
       }
-      assign(rule.key, matchRuleCount(clause, rule));
+      assign(
+        rule.key,
+        matchRuleCount(clause, {
+          ...rule,
+          requireExplicitCount:
+            rule.key === 'recessedLightCount' ||
+            rule.key === 'standardReceptacleCount' ||
+            rule.key === 'gfciReceptacleCount' ||
+            rule.key === 'singlePoleSwitchCount' ||
+            rule.key === 'ceilingFanCount',
+        })
+      );
     }
   }
 

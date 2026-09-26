@@ -153,6 +153,24 @@ describe('electrical Phase 2E lighting/fan pricing', () => {
     ).toBe('auto_planning');
   });
 
+  it('shows the plan recessed count when a stored quantity is 1', () => {
+    const measurements = normalizeScopeMeasurements({
+      recessedLightCount: 31,
+      itemQuantities: {
+        electrical_recessed_light: {
+          quantity: '1',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+      },
+    });
+    expect(
+      resolveChecklistItemQuantity('electrical_recessed_light', measurements, {
+        templateKey: 'electrical',
+      }).quantity
+    ).toBe(31);
+  });
+
   it('prices kitchen recessed lights, switches, and circuits without a lighting package', () => {
     const measurements = normalizeScopeMeasurements({
       recessedLightCount: 12,

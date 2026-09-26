@@ -55,6 +55,11 @@ export function isElectricalReceptacleItemId(
   );
 }
 
+export function electricalReceptacleMaterialUnit(itemId: string): number | null {
+  if (!isElectricalReceptacleItemId(itemId)) return null;
+  return RECEPTACLE_RATES[itemId].material;
+}
+
 function roundMoney(n: number): number {
   return Math.round(n * 100) / 100;
 }

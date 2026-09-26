@@ -6,8 +6,12 @@ const SELECTED_BG = 'rgba(52, 211, 153, 0.12)';
 
 type ConfirmScopeChipProps = {
   selected: boolean;
+  /** Green highlight without a check. The count is captured and still needs a tap to enter the bid. */
+  captured?: boolean;
   label: string;
   subtitle?: string | null;
+  /** Keep the two-line count size after the subtitle is removed. */
+  countButton?: boolean;
   onPress: () => void;
   darkMode: boolean;
   disabled?: boolean;
@@ -21,8 +25,10 @@ type ConfirmScopeChipProps = {
  */
 export function ConfirmScopeChip({
   selected,
+  captured = false,
   label,
   subtitle,
+  countButton = false,
   onPress,
   darkMode,
   disabled = false,
@@ -30,6 +36,7 @@ export function ConfirmScopeChip({
 }: ConfirmScopeChipProps) {
   const onPressRef = useRef(onPress);
   onPressRef.current = onPress;
+  const highlighted = selected || captured;
 
   return (
     <Pressable
@@ -44,7 +51,8 @@ export function ConfirmScopeChip({
       }}
       style={[
         styles.chip,
-        selected
+        countButton ? styles.countButton : null,
+        highlighted
           ? styles.chipSelected
           : darkMode
             ? styles.chipIdleDark
@@ -55,7 +63,7 @@ export function ConfirmScopeChip({
         style={[
           styles.label,
           {
-            color: selected ? SELECTED_GREEN : darkMode ? '#e4e4e7' : '#0f172a',
+            color: highlighted ? SELECTED_GREEN : darkMode ? '#e4e4e7' : '#0f172a',
           },
         ]}
       >
@@ -67,7 +75,7 @@ export function ConfirmScopeChip({
           style={[
             styles.subtitle,
             {
-              color: selected
+              color: highlighted
                 ? SELECTED_GREEN
                 : darkMode
                   ? '#94a3b8'
@@ -90,6 +98,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     width: '100%',
+    alignSelf: 'stretch',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -104,6 +113,11 @@ const styles = StyleSheet.create({
   chipIdleLight: {
     borderColor: '#cbd5e1',
     backgroundColor: '#ffffff',
+  },
+  countButton: {
+    minHeight: 58,
+    width: '100%',
+    alignSelf: 'stretch',
   },
   label: { fontSize: 13, fontWeight: '700', textAlign: 'center' },
   subtitle: { fontSize: 11, fontWeight: '600', marginTop: 2, textAlign: 'center' },

@@ -364,6 +364,14 @@ describe('electrical canonical architecture', () => {
     expect(parsed.standardReceptacleCount).toBe(3);
   });
 
+  it('does not invent one recessed light from a bare mention', () => {
+    const parsed = parseElectricalMeasurementsFromNotes(
+      'Recessed lights on the electrical plan.'
+    );
+    expect(parsed.recessedLightCount).toBeUndefined();
+    expect(parsed.itemQuantities?.electrical_recessed_light).toBeUndefined();
+  });
+
   it('reads a count written after the recessed-light label', () => {
     const parsed = parseElectricalMeasurementsFromNotes(
       'Recessed lights · 31'
@@ -833,6 +841,13 @@ describe('electrical canonical architecture', () => {
     expect(service.serviceUpgradeCount).toBe(1);
     expect(service.mainPanelCount).toBeUndefined();
     expect(service.serviceAmperage).toBe(200);
+  });
+
+  it('does not invent a main panel from a missing-panel note', () => {
+    const parsed = parseElectricalMeasurementsFromNotes(
+      'Panel / service: no readable panel count or amperage callout'
+    );
+    expect(parsed.mainPanelCount).toBeUndefined();
   });
 
   it('routes a 100A to 200A service change to service upgrade only', () => {

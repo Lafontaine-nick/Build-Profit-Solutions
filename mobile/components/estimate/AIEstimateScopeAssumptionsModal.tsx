@@ -166,6 +166,8 @@ import { PlanTakeoffPendingConfirmationStrip } from '@/components/estimate/PlanT
 import { OpeningTrimFinishChoiceSection } from '@/components/estimate/OpeningTrimFinishChoiceSection';
 import {
   applyElectricalQuickMeasurementPatch,
+  releaseElectricalQuickMeasurementSelection,
+  electricalNewBuildMainPanelOffer,
   electricalConfirmScopeAttributesFromMeasurements,
   electricalScopeSyncSignature,
   restorePlanMeasurementConflict,
@@ -14338,8 +14340,8 @@ function CollapsibleQuickMeasurements({
   electricalAttributesCommitRef?: React.MutableRefObject<(() => void) | null>;
   /** Preview local Electrical attributes in pricing cards before commit. */
   onElectricalAttributesPreview?: (
-    attributes: ReturnType<
-      typeof electricalConfirmScopeAttributesFromMeasurements
+    attributes: Partial<
+      ReturnType<typeof electricalConfirmScopeAttributesFromMeasurements>
     >
   ) => void;
   /** Flush debounced bathroom QM counts before Continue / navigation. */
@@ -14394,32 +14396,6 @@ function CollapsibleQuickMeasurements({
   );
   const paintInputRef = useRef({ wall: '', ceiling: '', primed: false });
   const lastPaintSplitRef = useRef({ wall: '', ceiling: '' });
-  const isElectricalQmTemplate =
-    String(templateKey || '').toLowerCase() === 'electrical';
-  const [
-    electricalQuantityTakeoffMounted,
-    setElectricalQuantityTakeoffMounted,
-  ] = useState(!isElectricalQmTemplate);
-  useEffect(() => {
-    if (!isElectricalQmTemplate) {
-      setElectricalQuantityTakeoffMounted(true);
-      return;
-    }
-    if (!expanded) return;
-    if (electricalQuantityTakeoffMounted) return;
-    let cancelled = false;
-    const handle = InteractionManager.runAfterInteractions(() => {
-      if (!cancelled) setElectricalQuantityTakeoffMounted(true);
-    });
-    return () => {
-      cancelled = true;
-      handle.cancel();
-    };
-  }, [isElectricalQmTemplate, expanded, electricalQuantityTakeoffMounted]);
-  useEffect(() => {
-    if (!isElectricalQmTemplate) return;
-    setElectricalQuantityTakeoffMounted(false);
-  }, [isElectricalQmTemplate, templateKey]);
   useEffect(() => {
     const wall = String(measurements.wallPaintSqft || '');
     const ceiling = String(measurements.ceilingPaintSqft || '');
@@ -15963,11 +15939,14 @@ function CollapsibleQuickMeasurements({
             String(effectiveTemplateKey || '').toLowerCase() ===
               'electrical') &&
           ELECTRICAL_UNPRINTED_PLAN_KEYS.has(result.key) &&
-          !(
-            Number(String(measurements[result.key] ?? '').replace(/,/g, '')) >
-            0
-          ) &&
-          !measurements.quickMeasurementUserOverrides?.[result.key]
+          !measurements.quickMeasurementUserOverrides?.[result.key] &&
+          String(
+            (
+              measurements.measurementProvenance?.[result.key] as
+                | { evidenceKind?: string }
+                | undefined
+            )?.evidenceKind || ''
+          ) !== 'explicit_label'
         ) {
           return false;
         }
@@ -18515,10 +18494,23 @@ function CollapsibleQuickMeasurements({
   };
 
   const showDone = expanded && headerSummary.relevantTotal > 0;
+  const electricalPlanCountsFilled =
+    (tradeKey === 'electrical' ||
+      String(effectiveTemplateKey || '').toLowerCase() === 'electrical') &&
+    [
+      'standardReceptacleCount',
+      'gfciReceptacleCount',
+      'singlePoleSwitchCount',
+      'ceilingFanCount',
+    ].some(
+      key => Number(String(measurements[key] ?? '').replace(/,/g, '')) > 0
+    );
   const subtitle =
     headerSummary.relevantTotal > 0
       ? headerSummary.needsConfirmation > 0
-        ? 'Add missing measurements to improve pricing.'
+        ? electricalPlanCountsFilled
+          ? 'Confirm the plan counts before they are priced.'
+          : 'Add missing measurements to improve pricing.'
         : headerSummary.estimateAvailable > 0
           ? 'Review suggestions to apply planning estimates.'
           : 'All set — measurements look complete.'
@@ -18980,11 +18972,16 @@ function CollapsibleQuickMeasurements({
       (((singleTradeImport && tradeKey === 'electrical') ||
         String(quickMeasurementTemplateKey || '').toLowerCase() ===
           'electrical') &&
-        ELECTRICAL_UNPRINTED_PLAN_KEYS.has(result.key) &&
-        !(
-          Number(String(measurements[result.key] ?? '').replace(/,/g, '')) > 0
-        ) &&
-        !measurements.quickMeasurementUserOverrides?.[result.key])
+        (ELECTRICAL_CARDS.some(card => card.measurementKey === result.key) ||
+          (ELECTRICAL_UNPRINTED_PLAN_KEYS.has(result.key) &&
+            !measurements.quickMeasurementUserOverrides?.[result.key] &&
+            String(
+              (
+                measurements.measurementProvenance?.[result.key] as
+                  | { evidenceKind?: string }
+                  | undefined
+              )?.evidenceKind || ''
+            ) !== 'explicit_label')))
     );
   const renderDisplayedResultField = (
     result: QuickMeasurementFieldResult,
@@ -19080,8 +19077,37 @@ function CollapsibleQuickMeasurements({
 
     return new Set(
       ELECTRICAL_CARDS.filter(card => {
-        if (noteKeys.has(card.measurementKey)) return true;
         if (userOwned(card.measurementKey)) return true;
+        if (ELECTRICAL_UNPRINTED_PLAN_KEYS.has(card.measurementKey)) {
+          if (
+            card.measurementKey === 'mainPanelCount' &&
+            electricalNewBuildMainPanelOffer({
+              planImportTradeKey: measurements.planImportTradeKey,
+              electricalProjectCondition: measurements.electricalProjectCondition,
+              mainPanelCount: measurements.mainPanelCount,
+              evidenceKind: (
+                measurements.measurementProvenance?.mainPanelCount as
+                  | { evidenceKind?: string }
+                  | undefined
+              )?.evidenceKind,
+              source: sources.mainPanelCount,
+              userOverride: Boolean(userOverrides.mainPanelCount),
+            })
+          ) {
+            return true;
+          }
+          const evidenceKind = String(
+            (
+              measurements.measurementProvenance?.[card.measurementKey] as
+                | { evidenceKind?: string }
+                | undefined
+            )?.evidenceKind || ''
+          );
+          if (evidenceKind !== 'explicit_label' && !noteKeys.has(card.measurementKey)) {
+            return false;
+          }
+        }
+        if (noteKeys.has(card.measurementKey)) return true;
         if (
           !electricalPlanDeviceStaysVisible(
             card.measurementKey,
@@ -19802,14 +19828,66 @@ function CollapsibleQuickMeasurements({
         ReturnType<typeof electricalConfirmScopeAttributesFromMeasurements>
       >
     ) => {
+      if (onElectricalAttributesPreview) {
+        onElectricalAttributesPreview(patch);
+        return;
+      }
       setMeasurements(prev => ({ ...prev, ...patch }));
     },
-    [setMeasurements]
+    [onElectricalAttributesPreview, setMeasurements]
   );
+  const selectElectricalServiceAmperage = useCallback(
+    (serviceAmperage: number | null) => {
+      patchElectricalAttributes({ serviceAmperage });
+    },
+    [patchElectricalAttributes]
+  );
+  const selectElectricalExistingServiceAmperage = useCallback(
+    (existingServiceAmperage: number | null) => {
+      patchElectricalAttributes({ existingServiceAmperage });
+    },
+    [patchElectricalAttributes]
+  );
+  const electricalQmMeasurements = useMemo(() => {
+    const base = measurements as Record<string, unknown>;
+    const provenance = base.measurementProvenance as
+      | Record<string, { evidenceKind?: string }>
+      | undefined;
+    const sources =
+      (base.quickMeasurementSources as Record<string, string> | undefined) ||
+      {};
+    const overrides =
+      (base.quickMeasurementUserOverrides as Record<string, boolean> | undefined) ||
+      {};
+    if (
+      !electricalNewBuildMainPanelOffer({
+        planImportTradeKey: base.planImportTradeKey,
+        electricalProjectCondition: base.electricalProjectCondition,
+        mainPanelCount: base.mainPanelCount,
+        evidenceKind: provenance?.mainPanelCount?.evidenceKind,
+        source: sources.mainPanelCount,
+        userOverride: Boolean(overrides.mainPanelCount),
+      })
+    ) {
+      return base;
+    }
+    const count = Number(base.mainPanelCount);
+    if (Number.isFinite(count) && count > 0) return base;
+    return {
+      ...base,
+      mainPanelCount: 1,
+      quickMeasurementSources: {
+        ...sources,
+        mainPanelCount: 'needs_confirmation',
+      },
+    };
+  }, [measurements]);
   const patchElectricalQuantity = useCallback(
     (field: string, value: string) => {
       setMeasurements(prev =>
-        applyElectricalQuickMeasurementPatch(prev, field, value)
+        value.startsWith('release:')
+          ? releaseElectricalQuickMeasurementSelection(prev, field)
+          : applyElectricalQuickMeasurementPatch(prev, field, value)
       );
     },
     [setMeasurements]
@@ -19821,13 +19899,27 @@ function CollapsibleQuickMeasurements({
   const electricalQuantityTakeoff = useMemo(
     () => (
       <ElectricalQuickMeasurementTakeoff
-        measurements={measurements as Record<string, unknown>}
+        measurements={electricalQmMeasurements}
         conflictFields={electricalConflictFields}
-        sources={measurements.quickMeasurementSources}
+        sources={
+          electricalQmMeasurements.quickMeasurementSources as
+            | Record<string, string>
+            | undefined
+        }
         userOverrides={measurements.quickMeasurementUserOverrides}
         visibleMeasurementKeys={electricalVisibleMeasurementKeys}
         preferExpandedKeys={resolvedConflictFields}
         onChangeQuantity={patchElectricalQuantity}
+        serviceAmperage={electricalAttributeValues.serviceAmperage}
+        onSelectServiceAmperage={selectElectricalServiceAmperage}
+        existingServiceAmperage={
+          electricalAttributeValues.existingServiceAmperage
+        }
+        onSelectExistingServiceAmperage={selectElectricalExistingServiceAmperage}
+        showExistingService={
+          Number(measurements.serviceUpgradeCount) > 0 ||
+          Number(measurements.existingServiceAmperage) > 0
+        }
         quantityEditingRef={electricalQuantityEditingRef}
         darkMode={darkMode}
         Colors={Colors}
@@ -19836,12 +19928,19 @@ function CollapsibleQuickMeasurements({
     ),
     [
       measurements,
+      electricalQmMeasurements,
       electricalConflictFields,
       measurements.quickMeasurementSources,
       measurements.quickMeasurementUserOverrides,
       electricalVisibleMeasurementKeys,
       resolvedConflictFields,
       patchElectricalQuantity,
+      electricalAttributeValues.serviceAmperage,
+      electricalAttributeValues.existingServiceAmperage,
+      selectElectricalServiceAmperage,
+      selectElectricalExistingServiceAmperage,
+      measurements.serviceUpgradeCount,
+      measurements.existingServiceAmperage,
       electricalQuantityEditingRef,
       darkMode,
       Colors,
@@ -20109,29 +20208,30 @@ function CollapsibleQuickMeasurements({
               {showElectricalProjectComplexity
                 ? renderProjectComplexityPanel('electrical')
                 : null}
+              {electricalQuantityTakeoff}
               <ElectricalConfirmScopeAttributesPanel
-                values={electricalAttributeValues}
-                onCommit={patchElectricalAttributes}
-                onPreview={onElectricalAttributesPreview}
-                commitRef={electricalAttributesCommitRef}
-                darkMode={darkMode}
-                showExistingService={
-                  Number(measurements.serviceUpgradeCount) > 0 ||
-                  Number(measurements.existingServiceAmperage) > 0
-                }
-                hasDetailedQuantities={hasDetailedElectricalQuantities(
-                  measurements as Record<string, unknown>
-                )}
-                showPanelLocation={electricalPanelLocationMentioned}
-                showRaceway={
-                  electricalConduitMentioned || electricalTrenchingMentioned
-                }
-                showConduitOption={electricalConduitMentioned}
-                showTrenchingOption={electricalTrenchingMentioned}
-              />
-              {electricalQuantityTakeoffMounted
-                ? electricalQuantityTakeoff
-                : null}
+                    values={electricalAttributeValues}
+                    onCommit={patchElectricalAttributes}
+                    onPreview={onElectricalAttributesPreview}
+                    commitRef={electricalAttributesCommitRef}
+                    darkMode={darkMode}
+                    showExistingService={
+                      Number(measurements.serviceUpgradeCount) > 0 ||
+                      Number(measurements.existingServiceAmperage) > 0
+                    }
+                    hasDetailedQuantities={hasDetailedElectricalQuantities(
+                      measurements as Record<string, unknown>
+                    )}
+                    showPanelLocation={electricalPanelLocationMentioned}
+                    showRaceway={
+                      electricalConduitMentioned || electricalTrenchingMentioned
+                    }
+                    showConduitOption={electricalConduitMentioned}
+                    showTrenchingOption={electricalTrenchingMentioned}
+                    hideServiceAmperageCard={electricalVisibleMeasurementKeys.has(
+                      'mainPanelCount'
+                    )}
+                  />
             </>
           ) : null}
           {String(templateKey || '').toLowerCase() === 'painting' ? (
@@ -22353,7 +22453,7 @@ export default function AIEstimateScopeAssumptionsModal({
   /** Applied Confirm Scope dollars — same list as scope cards (flatwork / openings / wet-area). */
   const appliedPricingMeasurementInput =
     String(checklist?.templateKey || '').toLowerCase() === 'electrical'
-      ? deferredMeasurements
+      ? electricalPreviewMeasurements || measurements
       : measurements;
   const measurementsForAppliedPricing = useMemo(
     () =>
@@ -22363,14 +22463,48 @@ export default function AIEstimateScopeAssumptionsModal({
       ),
     [appliedPricingMeasurementInput, scopePricingTemplateKey]
   );
+  const appliedPricingItems = useMemo(() => {
+    if (String(checklist?.templateKey || '').toLowerCase() !== 'electrical') {
+      return displayItems;
+    }
+    const previewMeasurements = electricalPreviewMeasurements || measurements;
+    return syncElectricalScopeItems(displayItems, {
+      templateKey: checklist?.templateKey,
+      notes: scopeNotes,
+      electricalScope: previewMeasurements.electricalScope,
+      quantities: {
+        ...(previewMeasurements as Partial<Record<string, unknown>>),
+        ...Object.fromEntries(
+          ELECTRICAL_CARDS.map(card => {
+            const scalar = Number(previewMeasurements[card.measurementKey]);
+            const itemQuantity = Number(
+              previewMeasurements.itemQuantities?.[card.itemId]?.quantity
+            );
+            return [
+              card.measurementKey,
+              scalar > 0
+                ? previewMeasurements[card.measurementKey]
+                : itemQuantity,
+            ];
+          })
+        ),
+      },
+    });
+  }, [
+    checklist?.templateKey,
+    displayItems,
+    electricalPreviewMeasurements,
+    measurements,
+    scopeNotes,
+  ]);
   const step2AppliedPricingBreakdown = useMemo(
     () =>
       sumConfirmScopeAppliedPricingBreakdown({
-        items: displayItems,
+        items: appliedPricingItems,
         measurements: measurementsForAppliedPricing,
         templateKey: scopePricingTemplateKey,
       }),
-    [displayItems, measurementsForAppliedPricing, scopePricingTemplateKey]
+    [appliedPricingItems, measurementsForAppliedPricing, scopePricingTemplateKey]
   );
   const step2AppliedEstimateTotal = step2AppliedPricingBreakdown.total;
   const step2AppliedBuildCostPerLivingSf = useMemo(
@@ -22386,11 +22520,11 @@ export default function AIEstimateScopeAssumptionsModal({
   const step2AppliedPricingLines = useMemo(
     () =>
       listConfirmScopeAppliedPricingLines({
-        items: displayItems,
+        items: appliedPricingItems,
         measurements: measurementsForAppliedPricing,
         templateKey: scopePricingTemplateKey,
       }),
-    [displayItems, measurementsForAppliedPricing, scopePricingTemplateKey]
+    [appliedPricingItems, measurementsForAppliedPricing, scopePricingTemplateKey]
   );
 
   const benchmarkFetchKey = useMemo(
@@ -22784,8 +22918,8 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const previewElectricalAttributes = useCallback(
     (
-      attributes: ReturnType<
-        typeof electricalConfirmScopeAttributesFromMeasurements
+      attributes: Partial<
+        ReturnType<typeof electricalConfirmScopeAttributesFromMeasurements>
       >
     ) => {
       // Attribute chips are pricing inputs, not staged takeoff quantities.
@@ -25690,9 +25824,6 @@ export default function AIEstimateScopeAssumptionsModal({
         previewMeasurements.measurementConflicts || []
       )
     );
-    const blocked = new Set(
-      previewMeasurements.electricalValidation?.blockedFields || []
-    );
     const needsConfirmation = new Set(
       Object.entries(previewMeasurements.quickMeasurementSources || {})
         .filter(([, source]) => source === 'needs_confirmation')
@@ -25713,14 +25844,14 @@ export default function AIEstimateScopeAssumptionsModal({
         const itemQuantity = Number(
           previewMeasurements.itemQuantities?.[card.itemId]?.quantity
         );
+        const accepted =
+          contractorConfirmed.has(card.measurementKey) ||
+          previewReadyItemIds.has(card.itemId);
+        if (!accepted || needsConfirmation.has(card.measurementKey)) {
+          return false;
+        }
         return (
           !unresolved.has(card.measurementKey) &&
-          (!blocked.has(card.measurementKey) ||
-            contractorConfirmed.has(card.measurementKey) ||
-            needsConfirmation.has(card.measurementKey)) &&
-          (!needsConfirmation.has(card.measurementKey) ||
-            scalar > 0 ||
-            itemQuantity > 0) &&
           (scalar > 0 ||
             itemQuantity > 0 ||
             previewReadyItemIds.has(card.itemId))
@@ -26609,7 +26740,7 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const pricingFooterMeasurements =
     String(checklist?.templateKey || '').toLowerCase() === 'electrical'
-      ? deferredMeasurements
+      ? electricalPreviewMeasurements || measurements
       : measurements;
   const suggestedPricingFooterBreakdown = useMemo(() => {
     let readyCount = 0;
@@ -29416,23 +29547,29 @@ export default function AIEstimateScopeAssumptionsModal({
       aliases.forEach(alias => pricingReadyItemIds.add(alias));
     }
   }
-  const scopeGroupsToRender = scopeGroupsBeforePricingOrder
-    .map((group, index) => ({
-      group,
-      index,
-      hasPricing: group.items.some(item => pricingReadyItemIds.has(item.id)),
-      groupKey: group.items
-        .map(item => item.id)
-        .sort()
-        .join('|'),
-    }))
-    .sort((a, b) => {
-      const aRank = scopeGroupOrderRef.current.get(a.groupKey);
-      const bRank = scopeGroupOrderRef.current.get(b.groupKey);
-      if (aRank != null && bRank != null) return aRank - bRank;
-      return Number(b.hasPricing) - Number(a.hasPricing) || a.index - b.index;
-    })
-    .map(entry => entry.group);
+  const scopeGroupsToRender = isElectricalConfirmScope
+    ? scopeGroupsBeforePricingOrder
+    : scopeGroupsBeforePricingOrder
+        .map((group, index) => ({
+          group,
+          index,
+          hasPricing: group.items.some(item =>
+            pricingReadyItemIds.has(item.id)
+          ),
+          groupKey: group.items
+            .map(item => item.id)
+            .sort()
+            .join('|'),
+        }))
+        .sort((a, b) => {
+          const aRank = scopeGroupOrderRef.current.get(a.groupKey);
+          const bRank = scopeGroupOrderRef.current.get(b.groupKey);
+          if (aRank != null && bRank != null) return aRank - bRank;
+          return (
+            Number(b.hasPricing) - Number(a.hasPricing) || a.index - b.index
+          );
+        })
+        .map(entry => entry.group);
   scopeGroupsToRender.forEach((group, index) => {
     const groupKey = group.items
       .map(item => item.id)
@@ -30170,6 +30307,9 @@ export default function AIEstimateScopeAssumptionsModal({
                 style={[
                   estimateFlowScopeCardAlignStyle(),
                   styles.addScopeItemBtn,
+                  scopeGroupsToRender.length > 0
+                    ? styles.addScopeItemBtnAfterCards
+                    : null,
                   estimateFlowCardStyle(Colors, darkMode),
                   {
                     backgroundColor: darkMode ? '#202022' : Colors.surface,
@@ -30608,9 +30748,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    marginTop: 4,
+    marginTop: 12,
     marginBottom: 12,
     paddingVertical: 14,
+  },
+  addScopeItemBtnAfterCards: {
+    marginTop: -6,
   },
   customItemCard: {
     gap: 10,

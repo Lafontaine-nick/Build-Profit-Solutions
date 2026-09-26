@@ -4039,10 +4039,89 @@ function toVisionContentPart(page) {
       },
     };
   }
+  const imageUrl = {
+    url: `data:${page.mimeType};base64,${page.base64}`,
+  };
+  if (page.detail === "high" || page.detail === "low") {
+    imageUrl.detail = page.detail;
+  }
   return {
     type: "image_url",
-    image_url: { url: `data:${page.mimeType};base64,${page.base64}` },
+    image_url: imageUrl,
   };
+}
+
+function sumElectricalSymbolCropCounts(payload, keys) {
+  const requested = (Array.isArray(keys) ? keys : []).filter(Boolean);
+  const regions = Array.isArray(payload?.regions)
+    ? payload.regions
+    : Array.isArray(payload?.measurements?.regions)
+      ? payload.measurements.regions
+      : Array.isArray(payload)
+        ? payload
+        : null;
+  if (!regions) {
+    const measurements =
+      payload?.measurements && typeof payload.measurements === "object"
+        ? payload.measurements
+        : null;
+    return positiveElectricalSymbolTotals(measurements, requested);
+  }
+  const totals = {};
+  for (const key of requested) {
+    let sum = 0;
+    let seen = false;
+    for (const region of regions) {
+      const source =
+        region?.measurements && typeof region.measurements === "object"
+          ? region.measurements
+          : region;
+      const value = Number(source?.[key]);
+      if (!Number.isFinite(value) || value < 0) continue;
+      sum += Math.round(value);
+      seen = true;
+    }
+    if (seen && sum > 0) totals[key] = sum;
+  }
+  return totals;
+}
+
+function positiveElectricalSymbolTotals(measurements, keys) {
+  const totals = {};
+  if (!measurements) return totals;
+  for (const key of keys) {
+    const value = Number(measurements[key]);
+    if (Number.isFinite(value) && value > 0) totals[key] = Math.round(value);
+  }
+  return totals;
+}
+
+function applyRecoveredElectricalSymbolCounts(parsed, totals, reason) {
+  const applied = [];
+  parsed.measurements = { ...(parsed.measurements || {}) };
+  for (const [key, value] of Object.entries(totals || {})) {
+    if (!(Number(value) > 0)) continue;
+    if (Number(parsed.measurements[key]) > 0) continue;
+    parsed.measurements[key] = Math.round(Number(value));
+    if (!parsed.fieldConfidence || typeof parsed.fieldConfidence !== "object") {
+      parsed.fieldConfidence = {};
+    }
+    parsed.fieldConfidence[key] = Math.max(
+      Number(parsed.fieldConfidence[key]) || 0,
+      0.7,
+    );
+    const listed = (parsed.unreadableFields || []).some(
+      (entry) => entry?.field === key,
+    );
+    if (!listed) {
+      parsed.unreadableFields = [
+        ...(parsed.unreadableFields || []),
+        { field: key, reason },
+      ];
+    }
+    applied.push(key);
+  }
+  return applied;
 }
 
 /**
@@ -5091,9 +5170,91 @@ async function analyzePlanForMeasurements({
       "gfciReceptacleCount",
       "singlePoleSwitchCount",
     ];
-    const missingSymbolKeys = requiredSymbolKeys.filter(
+    let missingSymbolKeys = requiredSymbolKeys.filter(
       (key) => !(Number(parsed.measurements?.[key]) > 0),
     );
+    if (
+      missingSymbolKeys.length &&
+      pdfBuffers.length &&
+      pdfTakeoff?.electricalRelevantPages?.length
+    ) {
+      try {
+        const { renderElectricalSymbolCrops } = require("./planPdfTextTakeoff");
+        const crops = await renderElectricalSymbolCrops(
+          pdfBuffers,
+          pdfTakeoff.electricalRelevantPages,
+        );
+        if (crops.length) {
+          const cropRecovery = await createOpenAiChatCompletion(openai, {
+            model: aiModels.assistant.vision,
+            response_format: aiRuntime.assistant.vision.responseFormat,
+            temperature: planVisionTemperature,
+            max_tokens: 1500,
+            messages: [
+              {
+                role: "system",
+                content:
+                  "Count electrical device symbols in each attached sheet region. Return JSON only. A missing legend is not a reason to omit a count.",
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: [
+                      `The full-sheet pass omitted ${missingSymbolKeys.join(", ")}.`,
+                      `These ${crops.length} images are non-overlapping regions of the electrical sheet, left to right, then top to bottom.`,
+                      "Count symbols drawn in the floor plan of each region. Skip the legend, title block, and notes.",
+                      "A duplex receptacle symbol is standardReceptacleCount. A printed GFCI or GFCI symbol is gfciReceptacleCount. A single switch symbol is singlePoleSwitchCount.",
+                      "A symbol cut by the region edge counts only when most of the symbol is inside that image.",
+                      "Return one integer per region. Use 0 when that region has none. Do not return a sheet total.",
+                      "Do not invent service amperage, panel count, or conduit.",
+                      '{"regions":[{"index":1,"standardReceptacleCount":0,"gfciReceptacleCount":0,"singlePoleSwitchCount":0}]}',
+                    ].join(" "),
+                  },
+                  ...crops.flatMap((crop) => [
+                    {
+                      type: "text",
+                      text: `Region ${crop.index} of page ${crop.page}.`,
+                    },
+                    toVisionContentPart(crop),
+                  ]),
+                ],
+              },
+            ],
+          });
+          const cropPayload = parseVisionJsonPayload(cropRecovery);
+          const cropTotals = sumElectricalSymbolCropCounts(
+            cropPayload,
+            missingSymbolKeys,
+          );
+          applyRecoveredElectricalSymbolCounts(
+            parsed,
+            cropTotals,
+            "Symbol count recovered from zoomed electrical-sheet regions. Confirm before pricing.",
+          );
+          logElectricalTakeoffStage("ELECTRICAL SYMBOL CROPS", {
+            requested: missingSymbolKeys,
+            crops: crops.map((crop) => ({
+              page: crop.page,
+              index: crop.index,
+              width: crop.width,
+              height: crop.height,
+              bytes: crop.byteLength,
+            })),
+            totals: cropTotals,
+          });
+        }
+      } catch (err) {
+        console.warn(
+          "[ELECTRICAL TAKEOFF] symbol crop pass failed:",
+          err?.message || err,
+        );
+      }
+      missingSymbolKeys = requiredSymbolKeys.filter(
+        (key) => !(Number(parsed.measurements?.[key]) > 0),
+      );
+    }
     if (missingSymbolKeys.length && visionParts.length) {
       try {
         const recovery = await createOpenAiChatCompletion(openai, {
@@ -5126,30 +5287,14 @@ async function analyzePlanForMeasurements({
           ],
         });
         const recovered = parseVisionJsonPayload(recovery);
-        for (const key of missingSymbolKeys) {
-          const value = Number(recovered?.measurements?.[key]);
-          if (!(value > 0)) continue;
-          parsed.measurements[key] = Math.round(value);
-          if (
-            parsed.fieldConfidence &&
-            typeof parsed.fieldConfidence === "object"
-          ) {
-            parsed.fieldConfidence[key] = 0.55;
-          }
-          const listed = (parsed.unreadableFields || []).some(
-            (entry) => entry?.field === key,
-          );
-          if (!listed) {
-            parsed.unreadableFields = [
-              ...(parsed.unreadableFields || []),
-              {
-                field: key,
-                reason:
-                  "Symbol count recovered without a device legend. Confirm before pricing.",
-              },
-            ];
-          }
-        }
+        applyRecoveredElectricalSymbolCounts(
+          parsed,
+          positiveElectricalSymbolTotals(
+            recovered?.measurements,
+            missingSymbolKeys,
+          ),
+          "Symbol count recovered without a device legend. Confirm before pricing.",
+        );
         logElectricalTakeoffStage("ELECTRICAL SYMBOL RECOVERY", {
           requested: missingSymbolKeys,
           recovered: electricalDebugSnapshot(parsed.measurements),
@@ -5534,74 +5679,6 @@ async function analyzePlanForMeasurements({
   });
   rawMeasurements = electricalTakeoff.measurements;
   electricalValidation = electricalTakeoff.electricalValidation || null;
-  const printedGfciCount = Number(
-    pdfTakeoff?.electricalInstanceTags?.gfciLabelCount,
-  );
-  const gfciAlreadyPriced =
-    electricalValidation?.fields?.gfciReceptacleCount?.pricingEligible === true;
-  let printedGfciProvenance = null;
-  if (
-    electricalSelected &&
-    Number.isFinite(printedGfciCount) &&
-    printedGfciCount >= 1 &&
-    !gfciAlreadyPriced
-  ) {
-    const gfciCount = Math.round(printedGfciCount);
-    rawMeasurements.gfciReceptacleCount = gfciCount;
-    printedGfciProvenance = {
-      value: gfciCount,
-      source: "printed_label",
-      normalizedSource: "NEEDS_REVIEW",
-      status: "needs_review",
-      pricingEligible: false,
-      reason:
-        "GFCI is printed on the electrical plan. Confirm the count before pricing.",
-    };
-    measurementProvenance.gfciReceptacleCount = printedGfciProvenance;
-    const gfciReason =
-      "GFCI is printed on the electrical plan. Confirm the count before pricing.";
-    const gfciUnreadable = Array.isArray(parsed.unreadableFields)
-      ? parsed.unreadableFields
-      : [];
-    if (
-      !gfciUnreadable.some(
-        (entry) =>
-          String(entry?.field || entry?.key || "") === "gfciReceptacleCount",
-      )
-    ) {
-      parsed.unreadableFields = [
-        ...gfciUnreadable,
-        { field: "gfciReceptacleCount", reason: gfciReason },
-      ];
-    }
-    if (electricalValidation) {
-      const fields = { ...(electricalValidation.fields || {}) };
-      fields.gfciReceptacleCount = {
-        ...(fields.gfciReceptacleCount || {}),
-        status: "needs_review",
-        pricingEligible: false,
-        reason: gfciReason,
-      };
-      const priceableFields = (electricalValidation.priceableFields || []).filter(
-        (key) => key !== "gfciReceptacleCount",
-      );
-      const blockedFields = [
-        ...new Set([
-          ...(electricalValidation.blockedFields || []),
-          "gfciReceptacleCount",
-        ]),
-      ];
-      electricalValidation = {
-        ...electricalValidation,
-        fields,
-        priceableFields,
-        blockedFields,
-      };
-    }
-    measurementConflicts = (measurementConflicts || []).filter(
-      (conflict) => conflict?.field !== "gfciReceptacleCount",
-    );
-  }
   const planVerifiedElectricalKeys = new Set(
     Object.entries(electricalTakeoff.provenance || {})
       .filter(([, entry]) => entry?.status === "plan_verified")
@@ -5631,9 +5708,6 @@ async function analyzePlanForMeasurements({
       ]),
     ),
   };
-  if (printedGfciProvenance) {
-    measurementProvenance.gfciReceptacleCount = printedGfciProvenance;
-  }
   if (plumbingSelected) {
     const inferredKeys = new Set(
       Array.isArray(parsed.inferredKeys) ? parsed.inferredKeys : [],
@@ -6318,6 +6392,7 @@ module.exports = {
   sanitizeFieldConfidence,
   sanitizeUnreadableFields,
   collectUnclassifiedElectricalFixtures,
+  sumElectricalSymbolCropCounts,
   applyConfidenceFloor,
   applyWindowsDoorsPlanTakeoff,
   filterWholeProjectSymbolMeasurements,
